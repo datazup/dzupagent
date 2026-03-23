@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { RunnableConfig } from '@langchain/core/runnables'
+import type { Callbacks } from '@langchain/core/callbacks/manager'
 
 /**
  * Manages LangGraph thread IDs and runnable configs.
@@ -25,11 +26,12 @@ export class SessionManager {
    * `.invoke()` / `.stream()` calls.
    */
   getConfig(threadId: string, callbacks?: unknown[]): RunnableConfig {
-    return {
-      configurable: { thread_id: threadId },
-      ...(callbacks && callbacks.length > 0
-        ? { callbacks: callbacks as RunnableConfig['callbacks'] }
-        : {}),
+    if (callbacks && callbacks.length > 0) {
+      return {
+        configurable: { thread_id: threadId },
+        callbacks: callbacks as Callbacks,
+      }
     }
+    return { configurable: { thread_id: threadId } }
   }
 }

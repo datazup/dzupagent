@@ -6,8 +6,8 @@
 export interface FileDiff {
   path: string
   type: 'added' | 'modified' | 'deleted'
-  oldContent?: string
-  newContent?: string
+  oldContent?: string | undefined
+  newContent?: string | undefined
 }
 
 export class VirtualFS {
