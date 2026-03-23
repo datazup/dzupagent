@@ -16,6 +16,19 @@ export type { RetryConfig } from './llm/retry.js'
 export { applyAnthropicCacheControl, applyCacheBreakpoints } from './llm/prompt-cache.js'
 
 // --- Prompt ---
+export {
+  FRAGMENT_CORE_PRINCIPLES,
+  FRAGMENT_SECURITY_CHECKLIST,
+  FRAGMENT_SIMPLICITY,
+  FRAGMENT_READ_DISCIPLINE,
+  FRAGMENT_SCOPE_BOUNDARY,
+  FRAGMENT_VERIFICATION_MINDSET,
+  FRAGMENT_BLOCKED_HANDLING,
+  FRAGMENT_OUTPUT_EFFICIENCY,
+  FRAGMENT_WORKER_REPORT,
+  PROMPT_FRAGMENTS,
+  composeFragments,
+} from './prompt/prompt-fragments.js'
 export { resolveTemplate, extractVariables, validateTemplate, flattenContext } from './prompt/template-engine.js'
 export { PromptResolver } from './prompt/template-resolver.js'
 export type { PromptStore, ResolutionLevel } from './prompt/template-resolver.js'
