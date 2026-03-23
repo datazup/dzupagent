@@ -13,6 +13,7 @@ export { invokeWithTimeout, extractTokenUsage } from './llm/invoke.js'
 export type { TokenUsage, InvokeOptions } from './llm/invoke.js'
 export { isTransientError, DEFAULT_RETRY_CONFIG } from './llm/retry.js'
 export type { RetryConfig } from './llm/retry.js'
+export { applyAnthropicCacheControl, applyCacheBreakpoints } from './llm/prompt-cache.js'
 
 // --- Prompt ---
 export { resolveTemplate, extractVariables, validateTemplate, flattenContext } from './prompt/template-engine.js'
@@ -33,10 +34,22 @@ export { createStore } from './memory/store-factory.js'
 export type { StoreConfig } from './memory/store-factory.js'
 export { MemoryService } from './memory/memory-service.js'
 export type { NamespaceConfig, FormatOptions } from './memory/memory-types.js'
+export { sanitizeMemoryContent, stripInvisibleUnicode } from './memory/memory-sanitizer.js'
+export type { SanitizeResult } from './memory/memory-sanitizer.js'
+export { consolidateNamespace, consolidateAll } from './memory/memory-consolidation.js'
+export type { ConsolidationConfig, ConsolidationResult } from './memory/memory-consolidation.js'
 
 // --- Context ---
-export { shouldSummarize, summarizeAndTrim, formatSummaryContext } from './context/message-manager.js'
+export {
+  shouldSummarize,
+  summarizeAndTrim,
+  formatSummaryContext,
+  pruneToolResults,
+  repairOrphanedToolPairs,
+} from './context/message-manager.js'
 export type { MessageManagerConfig } from './context/message-manager.js'
+export { scoreCompleteness } from './context/completeness-scorer.js'
+export type { CompletenessResult, DescriptionInput } from './context/completeness-scorer.js'
 export { evictIfNeeded } from './context/context-eviction.js'
 export type { EvictionConfig, EvictionResult } from './context/context-eviction.js'
 
@@ -57,6 +70,8 @@ export { IntentRouter } from './router/intent-router.js'
 export type { IntentRouterConfig, ClassificationResult } from './router/intent-router.js'
 export { KeywordMatcher } from './router/keyword-matcher.js'
 export { LLMClassifier } from './router/llm-classifier.js'
+export { CostAwareRouter, isSimpleTurn } from './router/cost-aware-router.js'
+export type { CostAwareResult, CostAwareRouterConfig } from './router/cost-aware-router.js'
 
 // --- Streaming ---
 export { SSETransformer } from './streaming/sse-transformer.js'
@@ -71,6 +86,8 @@ export { mergeFileChanges, fileDataReducer } from './subagent/file-merge.js'
 export { SkillLoader } from './skills/skill-loader.js'
 export { injectSkills } from './skills/skill-injector.js'
 export type { SkillDefinition } from './skills/skill-types.js'
+export { SkillManager } from './skills/skill-manager.js'
+export type { SkillManagerConfig, CreateSkillInput, PatchSkillInput, SkillWriteResult } from './skills/skill-manager.js'
 
 // --- Version ---
 export const FORGEAGENT_CORE_VERSION = '0.1.0'
