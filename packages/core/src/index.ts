@@ -41,7 +41,6 @@ export { invokeWithTimeout, extractTokenUsage } from './llm/invoke.js'
 export type { TokenUsage, InvokeOptions } from './llm/invoke.js'
 export { isTransientError, DEFAULT_RETRY_CONFIG } from './llm/retry.js'
 export type { RetryConfig } from './llm/retry.js'
-export { applyAnthropicCacheControl, applyCacheBreakpoints } from './llm/prompt-cache.js'
 
 // --- Prompt ---
 export {
@@ -72,54 +71,60 @@ export type {
   BulkPromptQuery,
 } from './prompt/template-types.js'
 
-// --- Memory ---
-export { createStore } from './memory/store-factory.js'
-export type { StoreConfig } from './memory/store-factory.js'
-export { MemoryService } from './memory/memory-service.js'
-export type { NamespaceConfig, FormatOptions, DecayConfig } from './memory/memory-types.js'
-export { calculateStrength, reinforceMemory, createDecayMetadata, scoreWithDecay, findWeakMemories } from './memory/decay-engine.js'
-export type { DecayMetadata } from './memory/decay-engine.js'
-export { sanitizeMemoryContent, stripInvisibleUnicode } from './memory/memory-sanitizer.js'
-export type { SanitizeResult } from './memory/memory-sanitizer.js'
-export { consolidateNamespace, consolidateAll } from './memory/memory-consolidation.js'
-export type { ConsolidationConfig, ConsolidationResult } from './memory/memory-consolidation.js'
-export { findDuplicates, findContradictions, findStaleRecords, healMemory } from './memory/memory-healer.js'
-export type { HealingIssue, HealingReport, MemoryHealerConfig } from './memory/memory-healer.js'
-export { WorkingMemory } from './memory/working-memory.js'
-export type { WorkingMemoryConfig } from './memory/working-memory.js'
-export { ObservationExtractor } from './memory/observation-extractor.js'
-export type { ObservationExtractorConfig, Observation, ObservationCategory } from './memory/observation-extractor.js'
-export { FrozenMemorySnapshot } from './memory/frozen-snapshot.js'
-export { StagedWriter } from './memory/staged-writer.js'
-export type { StagedRecord, MemoryStage, StagedWriterConfig } from './memory/staged-writer.js'
-export { defaultWritePolicy, composePolicies } from './memory/write-policy.js'
-export type { WritePolicy, WriteAction } from './memory/write-policy.js'
+// --- Memory (re-exported from @forgeagent/memory) ---
+export {
+  createStore,
+  MemoryService,
+  calculateStrength, reinforceMemory, createDecayMetadata, scoreWithDecay, findWeakMemories,
+  sanitizeMemoryContent, stripInvisibleUnicode,
+  consolidateNamespace, consolidateAll,
+  findDuplicates, findContradictions, findStaleRecords, healMemory,
+  WorkingMemory,
+  ObservationExtractor,
+  FrozenMemorySnapshot,
+  StagedWriter,
+  defaultWritePolicy, composePolicies,
+  StoreVectorSearch,
+  KeywordFTSSearch,
+  EntityGraphSearch,
+  fusionSearch,
+} from '@forgeagent/memory'
+export type {
+  StoreConfig,
+  NamespaceConfig, FormatOptions, DecayConfig,
+  DecayMetadata,
+  SanitizeResult,
+  ConsolidationConfig, ConsolidationResult,
+  HealingIssue, HealingReport, MemoryHealerConfig,
+  WorkingMemoryConfig,
+  ObservationExtractorConfig, Observation, ObservationCategory,
+  StagedRecord, MemoryStage, StagedWriterConfig,
+  WritePolicy, WriteAction,
+  VectorSearchResult, VectorSearchProvider,
+  FTSSearchResult,
+  GraphSearchResult,
+  FusedResult,
+} from '@forgeagent/memory'
 
-// --- Retrieval ---
-export { StoreVectorSearch } from './memory/retrieval/vector-search.js'
-export { KeywordFTSSearch } from './memory/retrieval/fts-search.js'
-export { EntityGraphSearch } from './memory/retrieval/graph-search.js'
-export { fusionSearch } from './memory/retrieval/rrf-fusion.js'
-export type { VectorSearchResult, VectorSearchProvider } from './memory/retrieval/vector-search.js'
-export type { FTSSearchResult } from './memory/retrieval/fts-search.js'
-export type { GraphSearchResult } from './memory/retrieval/graph-search.js'
-export type { FusedResult } from './memory/retrieval/rrf-fusion.js'
-
-// --- Context ---
+// --- Context (re-exported from @forgeagent/context) ---
 export {
   shouldSummarize,
   summarizeAndTrim,
   formatSummaryContext,
   pruneToolResults,
   repairOrphanedToolPairs,
-} from './context/message-manager.js'
-export type { MessageManagerConfig } from './context/message-manager.js'
-export { scoreCompleteness } from './context/completeness-scorer.js'
-export type { CompletenessResult, DescriptionInput } from './context/completeness-scorer.js'
-export { evictIfNeeded } from './context/context-eviction.js'
-export type { EvictionConfig, EvictionResult } from './context/context-eviction.js'
-export { SystemReminderInjector } from './context/system-reminder.js'
-export type { SystemReminderConfig, ReminderContent } from './context/system-reminder.js'
+  scoreCompleteness,
+  evictIfNeeded,
+  SystemReminderInjector,
+  applyAnthropicCacheControl,
+  applyCacheBreakpoints,
+} from '@forgeagent/context'
+export type {
+  MessageManagerConfig,
+  CompletenessResult, DescriptionInput,
+  EvictionConfig, EvictionResult,
+  SystemReminderConfig, ReminderContent,
+} from '@forgeagent/context'
 
 // --- Middleware ---
 export type { AgentMiddleware } from './middleware/types.js'

@@ -32,7 +32,6 @@ import {
   summarizeAndTrim,
   formatSummaryContext,
 } from '@forgeagent/core'
-import type { ModelRegistry } from '@forgeagent/core'
 import type { TokenUsage } from '@forgeagent/core'
 import type {
   ForgeAgentConfig,

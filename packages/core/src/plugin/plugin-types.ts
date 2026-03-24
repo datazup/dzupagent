@@ -3,7 +3,7 @@ import type { ForgeEvent } from '../events/event-types.js'
 import type { AgentHooks } from '../hooks/hook-types.js'
 import type { AgentMiddleware } from '../middleware/types.js'
 import type { ModelRegistry } from '../llm/model-registry.js'
-import type { MemoryService } from '../memory/memory-service.js'
+import type { MemoryService } from '@forgeagent/memory'
 
 /**
  * Context available to plugins during registration.

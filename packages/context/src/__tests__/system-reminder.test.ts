@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { SystemReminderInjector } from '../context/system-reminder.js'
+import { SystemReminderInjector } from '../system-reminder.js'
 
 describe('SystemReminderInjector', () => {
   let injector: SystemReminderInjector

@@ -35,11 +35,16 @@ export class StuckDetector {
   private recentCalls: Array<{ name: string; hash: string; timestamp: number }> = []
   private recentErrors: Array<{ message: string; timestamp: number }> = []
   private idleCount = 0
-  private lastToolCallCount = 0
+  private _lastToolCallCount = 0
   private readonly config: StuckDetectorConfig
 
   constructor(config?: Partial<StuckDetectorConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config }
+  }
+
+  /** Number of tool calls in the most recent iteration */
+  get lastToolCalls(): number {
+    return this._lastToolCallCount
   }
 
   /** Record a tool call. Returns stuck status. */
@@ -88,7 +93,7 @@ export class StuckDetector {
     } else {
       this.idleCount = 0
     }
-    this.lastToolCallCount = toolCallsThisIteration
+    this._lastToolCallCount = toolCallsThisIteration
 
     if (this.idleCount >= this.config.maxIdleIterations) {
       return {
@@ -105,7 +110,7 @@ export class StuckDetector {
     this.recentCalls = []
     this.recentErrors = []
     this.idleCount = 0
-    this.lastToolCallCount = 0
+    this._lastToolCallCount = 0
   }
 
   private hashInput(input: unknown): string {

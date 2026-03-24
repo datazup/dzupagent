@@ -9,7 +9,7 @@ import { writeFile, rename, mkdir, readFile, unlink } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { SkillDefinition } from './skill-types.js'
-import { sanitizeMemoryContent } from '../memory/memory-sanitizer.js'
+import { sanitizeMemoryContent } from '@forgeagent/memory'
 
 // ---------------------------------------------------------------------------
 // Types

@@ -59,7 +59,8 @@ export class AgentOrchestrator {
     task: string,
   ): Promise<string> {
     // Wrap each specialist as a tool for the manager
-    const specialistTools = await Promise.all(
+    // TODO: wire specialist tools into manager agent
+    void await Promise.all(
       specialists.map(s => s.asTool()),
     )
 

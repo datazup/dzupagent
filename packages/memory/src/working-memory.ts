@@ -80,7 +80,7 @@ export class WorkingMemory<T extends z.ZodType> {
     scope: Record<string, string>,
     partial: Partial<z.infer<T>>,
   ): Promise<z.infer<T>> {
-    const merged = { ...this.state, ...partial }
+    const merged = Object.assign({}, this.state, partial)
     this.state = this.config.schema.parse(merged) as z.infer<T>
     this.dirty = true
 
