@@ -16,6 +16,14 @@ export interface NamespaceConfig {
   ttlMs?: number
 }
 
+/** Configuration for Ebbinghaus forgetting curve decay on a namespace */
+export interface DecayConfig {
+  /** Enable Ebbinghaus decay for this namespace (default: false) */
+  enabled: boolean
+  /** Minimum strength before memory is prunable (default: 0.1) */
+  pruneThreshold?: number
+}
+
 export interface FormatOptions {
   /** Maximum number of records to include */
   maxItems?: number

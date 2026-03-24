@@ -20,14 +20,51 @@ export { CodeGenService } from './generation/code-gen-service.js'
 export type { GenerateFileParams, GenerateFileResult } from './generation/code-gen-service.js'
 export { parseCodeBlocks, extractLargestCodeBlock, detectLanguage } from './generation/code-block-parser.js'
 export type { CodeBlock } from './generation/code-block-parser.js'
+export {
+  splitIntoSections,
+  detectAffectedSections,
+  applyIncrementalChanges,
+  buildIncrementalPrompt,
+} from './generation/incremental-gen.js'
+export type { CodeSection, IncrementalChange, IncrementalResult } from './generation/incremental-gen.js'
+export {
+  determineTestStrategy,
+  extractExports,
+  generateTestSpecs,
+  buildTestPath,
+} from './generation/test-generator.js'
+export type {
+  TestStrategy,
+  TestFramework,
+  TestGenConfig,
+  TestTarget,
+  ExportInfo,
+  TestSpec,
+  TestCase,
+} from './generation/test-generator.js'
 
 // --- Sandbox ---
 export type { SandboxProtocol, ExecOptions, ExecResult } from './sandbox/sandbox-protocol.js'
 export { DockerSandbox } from './sandbox/docker-sandbox.js'
 export type { DockerSandboxConfig } from './sandbox/docker-sandbox.js'
 export { MockSandbox } from './sandbox/mock-sandbox.js'
+export { E2BSandbox } from './sandbox/e2b-sandbox.js'
+export type { E2BSandboxConfig } from './sandbox/e2b-sandbox.js'
+export { FlySandbox } from './sandbox/fly-sandbox.js'
+export type { FlySandboxConfig } from './sandbox/fly-sandbox.js'
+export { createSandbox } from './sandbox/sandbox-factory.js'
+export type { SandboxProvider, SandboxFactoryConfig } from './sandbox/sandbox-factory.js'
 export { TIER_DEFAULTS, tierToDockerFlags } from './sandbox/permission-tiers.js'
 export type { PermissionTier, TierConfig } from './sandbox/permission-tiers.js'
+export { SECURITY_PROFILES, getSecurityProfile, customizeProfile, toDockerFlags } from './sandbox/security-profile.js'
+export type {
+  SecurityLevel,
+  SecurityProfile,
+  NetworkPolicy,
+  ResourceLimits,
+  FilesystemPolicy,
+  ProcessLimits,
+} from './sandbox/security-profile.js'
 
 // --- Validation ---
 export { validateImports } from './validation/import-validator.js'
@@ -44,10 +81,30 @@ export {
   hasJsDoc,
   builtinDimensions,
 } from './quality/quality-dimensions.js'
+export { analyzeCoverage, findUncoveredFiles } from './quality/coverage-analyzer.js'
+export type { CoverageReport, CoverageConfig } from './quality/coverage-analyzer.js'
+export { validateImports as validateImportCoherence } from './quality/import-validator.js'
+export type {
+  ImportIssue,
+  ImportValidationResult as ImportCoherenceResult,
+} from './quality/import-validator.js'
+export {
+  extractEndpoints,
+  extractAPICalls,
+  validateContracts,
+} from './quality/contract-validator.js'
+export type {
+  APIEndpoint,
+  APICall,
+  ContractIssue,
+  ContractValidationResult,
+} from './quality/contract-validator.js'
 
 // --- Adaptation ---
 export { PathMapper } from './adaptation/path-mapper.js'
 export { FrameworkAdapter } from './adaptation/framework-adapter.js'
+export type { SupportedLanguage, LanguageConfig } from './adaptation/languages/index.js'
+export { LANGUAGE_CONFIGS, detectLanguageFromFiles, getLanguagePrompt } from './adaptation/languages/index.js'
 
 // --- Contract ---
 export type { ApiEndpoint, ApiContract } from './contract/contract-types.js'
@@ -70,12 +127,27 @@ export { DEFAULT_ESCALATION, getEscalationStrategy } from './pipeline/fix-escala
 export type { EscalationConfig, EscalationStrategy } from './pipeline/fix-escalation.js'
 export type {
   BaseGenState,
-  PhaseConfig,
+  PhaseConfig as GenPhaseConfig,
   SubAgentPhaseConfig,
   ValidationPhaseConfig,
   FixPhaseConfig,
   ReviewPhaseConfig,
 } from './pipeline/phase-types.js'
+export { PipelineExecutor } from './pipeline/pipeline-executor.js'
+export type {
+  ExecutorConfig,
+  PhaseConfig as ExecutorPhaseConfig,
+  PhaseResult,
+  PipelineExecutionResult,
+} from './pipeline/pipeline-executor.js'
+export {
+  hasKey,
+  previousSucceeded,
+  stateEquals,
+  hasFilesMatching,
+  allOf,
+  anyOf,
+} from './pipeline/phase-conditions.js'
 
 // --- Tools ---
 export { createWriteFileTool } from './tools/write-file.tool.js'
@@ -112,6 +184,44 @@ export type {
   GitExecutorConfig,
   CommitMessageConfig,
 } from './git/git-types.js'
+
+// --- Repo Map ---
+export { extractSymbols } from './repomap/symbol-extractor.js'
+export type { ExtractedSymbol } from './repomap/symbol-extractor.js'
+export { buildImportGraph } from './repomap/import-graph.js'
+export type { ImportEdge, ImportGraph } from './repomap/import-graph.js'
+export { buildRepoMap } from './repomap/repo-map-builder.js'
+export type { RepoMapConfig, RepoMap } from './repomap/repo-map-builder.js'
+
+// --- PR Lifecycle ---
+export { getNextAction, buildPRDescription, transitionState } from './pr/pr-manager.js'
+export type { PRState, PRContext, PRManagerConfig, PRAction, PREvent, ReviewComment } from './pr/pr-manager.js'
+export { consolidateReviews, buildReviewFixPrompt, classifyCommentSeverity } from './pr/review-handler.js'
+export type { ReviewFeedback, ReviewIssue } from './pr/review-handler.js'
+
+// --- CI ---
+export { categorizeFailure, parseGitHubActionsStatus, parseCIWebhook } from './ci/ci-monitor.js'
+export type { CIProvider, CIStatus, CIFailure, CIMonitorConfig } from './ci/ci-monitor.js'
+export { routeFailure, DEFAULT_FIX_STRATEGIES } from './ci/failure-router.js'
+export type { FixStrategy } from './ci/failure-router.js'
+export { generateFixAttempts, buildFixPrompt } from './ci/fix-loop.js'
+export type { FixLoopConfig, FixAttempt, FixLoopResult } from './ci/fix-loop.js'
+
+// --- Code Review ---
+export type { ReviewSeverity, ReviewCategory, ReviewRule } from './review/review-rules.js'
+export { BUILTIN_RULES } from './review/review-rules.js'
+export type { ReviewComment as CodeReviewComment, ReviewSummary, ReviewResult, CodeReviewConfig } from './review/code-reviewer.js'
+export { reviewFiles, reviewDiff, formatReviewAsMarkdown } from './review/code-reviewer.js'
+
+// --- Conventions ---
+export { detectConventions } from './conventions/convention-detector.js'
+export type { DetectedConvention, ConventionReport } from './conventions/convention-detector.js'
+export { enforceConventions, conventionsToPrompt } from './conventions/convention-enforcer.js'
+export type { ConventionViolation, EnforcementResult } from './conventions/convention-enforcer.js'
+
+// --- Migration ---
+export { getMigrationPlan, analyzeMigrationScope, buildMigrationPrompt } from './migration/migration-planner.js'
+export type { MigrationTarget, MigrationStep, MigrationPlan } from './migration/migration-planner.js'
 
 // Placeholder export to make the package valid
 export const FORGEAGENT_CODEGEN_VERSION = '0.1.0'

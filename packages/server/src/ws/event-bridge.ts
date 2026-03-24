@@ -57,9 +57,17 @@ export class EventBridge {
 
   /** Stop listening to events and disconnect all clients */
   destroy(): void {
+    this.disconnectAll()
+  }
+
+  /** Close all WebSocket connections and stop event forwarding */
+  disconnectAll(): void {
     if (this.unsubscribe) {
       this.unsubscribe()
       this.unsubscribe = null
+    }
+    for (const [ws] of this.clients) {
+      try { ws.close() } catch { /* best-effort */ }
     }
     this.clients.clear()
   }

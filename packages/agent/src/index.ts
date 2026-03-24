@@ -40,6 +40,16 @@ export type {
 // --- Orchestration ---
 export { AgentOrchestrator } from './orchestration/orchestrator.js'
 export type { MergeFn } from './orchestration/orchestrator.js'
+export { mapReduce, mapReduceMulti } from './orchestration/map-reduce.js'
+export type { MapReduceConfig, MapReduceResult, AgentOutput } from './orchestration/map-reduce.js'
+export {
+  concatMerge,
+  voteMerge,
+  numberedMerge,
+  jsonArrayMerge,
+  getMergeStrategy,
+} from './orchestration/merge-strategies.js'
+export type { MergeStrategyFn } from './orchestration/merge-strategies.js'
 
 // --- Context ---
 export { autoCompress, FrozenSnapshot } from './context/auto-compress.js'
@@ -49,9 +59,29 @@ export type { AutoCompressConfig, CompressResult } from './context/auto-compress
 export { ApprovalGate } from './approval/approval-gate.js'
 export type { ApprovalConfig, ApprovalMode, ApprovalResult } from './approval/approval-types.js'
 
+// --- Tool Registry ---
+export { DynamicToolRegistry } from './agent/tool-registry.js'
+export type { ToolRegistryEvent } from './agent/tool-registry.js'
+
 // --- Tools ---
 export { createForgeTool } from './tools/create-tool.js'
 export type { ForgeToolConfig } from './tools/create-tool.js'
+
+// --- State ---
+export { serializeMessages, deserializeMessages } from './agent/agent-state.js'
+export type { AgentStateSnapshot, SerializedMessage } from './agent/agent-state.js'
+
+// --- Streaming ---
+export { StreamActionParser } from './streaming/stream-action-parser.js'
+export type {
+  StreamedToolCall,
+  StreamActionEvent,
+  StreamActionParserConfig,
+} from './streaming/stream-action-parser.js'
+
+// --- Templates ---
+export { AGENT_TEMPLATES, getAgentTemplate, listAgentTemplates } from './templates/agent-templates.js'
+export type { AgentTemplate } from './templates/agent-templates.js'
 
 // --- Version ---
 export const FORGEAGENT_AGENT_VERSION = '0.1.0'
