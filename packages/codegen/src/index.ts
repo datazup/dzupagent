@@ -12,6 +12,8 @@ export { VirtualFS } from './vfs/virtual-fs.js'
 export type { FileDiff } from './vfs/virtual-fs.js'
 export { saveSnapshot, loadSnapshot } from './vfs/vfs-snapshot.js'
 export type { SnapshotStore } from './vfs/vfs-snapshot.js'
+export { CheckpointManager } from './vfs/checkpoint-manager.js'
+export type { CheckpointManagerConfig, CheckpointEntry, CheckpointDiff } from './vfs/checkpoint-manager.js'
 
 // --- Generation ---
 export { CodeGenService } from './generation/code-gen-service.js'
@@ -24,6 +26,12 @@ export type { SandboxProtocol, ExecOptions, ExecResult } from './sandbox/sandbox
 export { DockerSandbox } from './sandbox/docker-sandbox.js'
 export type { DockerSandboxConfig } from './sandbox/docker-sandbox.js'
 export { MockSandbox } from './sandbox/mock-sandbox.js'
+export { TIER_DEFAULTS, tierToDockerFlags } from './sandbox/permission-tiers.js'
+export type { PermissionTier, TierConfig } from './sandbox/permission-tiers.js'
+
+// --- Validation ---
+export { validateImports } from './validation/import-validator.js'
+export type { ImportValidationResult, ImportError } from './validation/import-validator.js'
 
 // --- Quality ---
 export type { QualityDimension, DimensionResult, QualityResult, QualityContext } from './quality/quality-types.js'
@@ -72,9 +80,38 @@ export type {
 // --- Tools ---
 export { createWriteFileTool } from './tools/write-file.tool.js'
 export { createEditFileTool } from './tools/edit-file.tool.js'
+export { createMultiEditTool } from './tools/multi-edit.tool.js'
 export { createGenerateFileTool } from './tools/generate-file.tool.js'
 export { createRunTestsTool } from './tools/run-tests.tool.js'
 export { createValidateTool } from './tools/validate.tool.js'
+export { quickSyntaxCheck, sandboxLintCheck } from './tools/lint-validator.js'
+export type { LintError, LintResult } from './tools/lint-validator.js'
+
+// --- Git ---
+export { GitExecutor } from './git/git-executor.js'
+export {
+  createGitTools,
+  createGitStatusTool,
+  createGitDiffTool,
+  createGitCommitTool,
+  createGitLogTool,
+  createGitBranchTool,
+} from './git/git-tools.js'
+export { generateCommitMessage } from './git/commit-message.js'
+export { gatherGitContext, formatGitContext } from './git/git-middleware.js'
+export type { GitContextConfig, GitContext } from './git/git-middleware.js'
+export { GitWorktreeManager } from './git/git-worktree.js'
+export type { WorktreeInfo, WorktreeManagerConfig } from './git/git-worktree.js'
+export type {
+  GitFileStatus,
+  GitFileEntry,
+  GitStatusResult,
+  GitDiffResult,
+  GitLogEntry,
+  GitCommitResult,
+  GitExecutorConfig,
+  CommitMessageConfig,
+} from './git/git-types.js'
 
 // Placeholder export to make the package valid
 export const FORGEAGENT_CODEGEN_VERSION = '0.1.0'

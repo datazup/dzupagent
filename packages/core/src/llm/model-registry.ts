@@ -8,6 +8,10 @@ import type {
   ModelSpec,
   ModelFactory,
 } from './model-config.js'
+import { CircuitBreaker } from './circuit-breaker.js'
+import type { CircuitBreakerConfig } from './circuit-breaker.js'
+import { ForgeError } from '../errors/forge-error.js'
+import { isTransientError } from './retry.js'
 
 /**
  * Default model factory — creates ChatAnthropic or ChatOpenAI instances
@@ -82,6 +86,8 @@ function defaultModelFactory(
 export class ModelRegistry {
   private providers: LLMProviderConfig[] = []
   private factory: ModelFactory = defaultModelFactory
+  private breakers = new Map<string, CircuitBreaker>()
+  private breakerConfig?: Partial<CircuitBreakerConfig>
 
   /** Register a provider with model tier mappings */
   addProvider(config: LLMProviderConfig): this {
@@ -94,6 +100,22 @@ export class ModelRegistry {
   setFactory(factory: ModelFactory): this {
     this.factory = factory
     return this
+  }
+
+  /** Configure circuit breaker defaults for all providers */
+  setCircuitBreakerConfig(config: Partial<CircuitBreakerConfig>): this {
+    this.breakerConfig = config
+    return this
+  }
+
+  /** Get or create circuit breaker for a provider */
+  private getBreaker(providerKey: string): CircuitBreaker {
+    let breaker = this.breakers.get(providerKey)
+    if (!breaker) {
+      breaker = new CircuitBreaker(this.breakerConfig)
+      this.breakers.set(providerKey, breaker)
+    }
+    return breaker
   }
 
   /**
@@ -156,5 +178,82 @@ export class ModelRegistry {
       if (spec) return { ...spec, provider: provider.provider }
     }
     return null
+  }
+
+  /**
+   * Get a model with automatic fallback across providers.
+   *
+   * Iterates providers in priority order, skipping those whose circuit
+   * breaker is open. Returns the first successfully created model.
+   *
+   * Use `recordProviderSuccess()` / `recordProviderFailure()` after
+   * invocation to update circuit breaker state.
+   *
+   * @throws ForgeError with code ALL_PROVIDERS_EXHAUSTED if no provider is available
+   */
+  getModelWithFallback(
+    tier: ModelTier,
+    overrides?: ModelOverrides,
+  ): { model: BaseChatModel; provider: string } {
+    const errors: string[] = []
+
+    for (const provider of this.providers) {
+      const spec = provider.models[tier]
+      if (!spec) continue
+
+      const breaker = this.getBreaker(provider.provider)
+      if (!breaker.canExecute()) {
+        errors.push(`${provider.provider}: circuit open`)
+        continue
+      }
+
+      try {
+        const model = this.factory(provider, spec, overrides)
+        return { model, provider: provider.provider }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        errors.push(`${provider.provider}: ${msg}`)
+        breaker.recordFailure()
+      }
+    }
+
+    throw new ForgeError({
+      code: 'ALL_PROVIDERS_EXHAUSTED',
+      message: `No provider available for tier "${tier}". Tried: ${errors.join('; ')}`,
+      recoverable: false,
+      suggestion: 'Check provider API keys, service status, and circuit breaker configuration',
+      context: { tier, errors },
+    })
+  }
+
+  /**
+   * Record a successful LLM invocation for the provider's circuit breaker.
+   * Call this after a successful model.invoke() / model.stream().
+   */
+  recordProviderSuccess(provider: string): void {
+    this.getBreaker(provider).recordSuccess()
+  }
+
+  /**
+   * Record a failed LLM invocation. If the error is transient, the circuit
+   * breaker tracks it; non-transient errors are ignored by the breaker.
+   */
+  recordProviderFailure(provider: string, error: Error): void {
+    if (isTransientError(error)) {
+      this.getBreaker(provider).recordFailure()
+    }
+  }
+
+  /** Get circuit breaker state for diagnostics */
+  getProviderHealth(): Record<string, { state: string; provider: string }> {
+    const health: Record<string, { state: string; provider: string }> = {}
+    for (const provider of this.providers) {
+      const breaker = this.breakers.get(provider.provider)
+      health[provider.provider] = {
+        state: breaker?.getState() ?? 'closed',
+        provider: provider.provider,
+      }
+    }
+    return health
   }
 }

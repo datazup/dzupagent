@@ -15,15 +15,19 @@
  */
 import type { BaseStore } from '@langchain/langgraph'
 import type { NamespaceConfig, FormatOptions } from './memory-types.js'
+import { sanitizeMemoryContent } from './memory-sanitizer.js'
 
 export class MemoryService {
   private readonly nsMap: Map<string, NamespaceConfig>
+  private readonly rejectUnsafe: boolean
 
   constructor(
     private readonly store: BaseStore,
     namespaces: NamespaceConfig[],
+    options?: { rejectUnsafe?: boolean },
   ) {
     this.nsMap = new Map(namespaces.map(ns => [ns.name, ns]))
+    this.rejectUnsafe = options?.rejectUnsafe ?? true
   }
 
   // ---------- Internals -------------------------------------------------------
@@ -51,6 +55,9 @@ export class MemoryService {
 
   /**
    * Store a value under [namespace + scope] → key.
+   *
+   * When `rejectUnsafe` is true (default), values containing prompt-injection,
+   * exfiltration commands, or invisible Unicode are silently rejected.
    * Non-fatal: errors are silently caught.
    */
   async put(
@@ -59,10 +66,28 @@ export class MemoryService {
     key: string,
     value: Record<string, unknown>,
   ): Promise<void> {
+    if (this.rejectUnsafe) {
+      const textContent = typeof value['text'] === 'string'
+        ? value['text']
+        : JSON.stringify(value)
+      const result = sanitizeMemoryContent(textContent)
+      if (!result.safe) {
+        // Silently reject — security violations should not surface to the LLM
+        return
+      }
+    }
+
     const ns = this.getNamespace(namespace)
     const tuple = this.buildNamespaceTuple(ns, scope)
     try {
-      await this.store.put(tuple, key, value)
+      // For searchable namespaces, ensure a "text" field exists in the value.
+      // PostgresStore uses this field for embedding/indexing. Without it,
+      // semantic search silently returns no results.
+      let enriched = value
+      if (ns.searchable && typeof value['text'] !== 'string') {
+        enriched = { ...value, text: JSON.stringify(value) }
+      }
+      await this.store.put(tuple, key, enriched)
     } catch {
       // Non-fatal — memory write failures should not break pipelines
     }

@@ -1,0 +1,36 @@
+{
+  "name": "@forgeagent/evals",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@forgeagent/core": "0.1.0"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@langchain/core": "^1.1.32",
+    "typescript": "^5.4.0",
+    "tsup": "^8.0.0",
+    "vitest": "^1.4.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT"
+}
