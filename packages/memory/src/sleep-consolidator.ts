@@ -33,7 +33,14 @@ import { parseMemoryEntry } from './consolidation-types.js'
 // Types
 // ---------------------------------------------------------------------------
 
-export type SleepPhase = 'dedup' | 'decay-prune' | 'contradiction-resolve' | 'heal'
+export type SleepPhase =
+  | 'dedup'
+  | 'decay-prune'
+  | 'contradiction-resolve'
+  | 'heal'
+  | 'lesson-dedup'
+  | 'convention-extract'
+  | 'staleness-prune'
 
 export interface SleepConsolidationConfig {
   /** LLM model for semantic consolidation (cheap tier) */
