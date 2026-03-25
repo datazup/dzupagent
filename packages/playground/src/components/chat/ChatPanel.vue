@@ -21,9 +21,9 @@ function handleSend(content: string): void {
 
 <template>
   <div class="flex h-full flex-col">
-    <div class="border-b border-[var(--pg-border-subtle)] bg-[color-mix(in_oklch,var(--pg-surface)_90%,transparent)] px-4 py-3">
-      <p class="text-xs text-[var(--pg-text-muted)]">
-        <span class="font-medium text-[var(--pg-text-secondary)]">Active agent:</span>
+    <div class="border-b border-pg-border-subtle bg-pg-surface/90 px-4 py-3">
+      <p class="text-xs text-pg-text-muted">
+        <span class="font-medium text-pg-text-secondary">Active agent:</span>
         {{ chatStore.currentAgent?.name ?? 'Not selected' }}
       </p>
     </div>
@@ -31,7 +31,7 @@ function handleSend(content: string): void {
     <!-- Error banner -->
     <div
       v-if="chatStore.error"
-      class="flex items-center gap-2 border-b border-[var(--pg-error)] bg-[color-mix(in_oklch,var(--pg-error)_14%,transparent)] px-4 py-2 text-sm text-[var(--pg-error)]"
+      class="flex items-center gap-2 border-b border-pg-error bg-pg-error/14 px-4 py-2 text-sm text-pg-error"
       role="alert"
     >
       <span>{{ chatStore.error }}</span>

@@ -179,10 +179,10 @@ watch(
 
 const connectionClass = computed(() => {
   switch (wsStore.state) {
-    case 'connected': return 'bg-[var(--pg-success)]'
-    case 'connecting': return 'bg-[var(--pg-warning)]'
-    case 'error': return 'bg-[var(--pg-error)]'
-    default: return 'bg-[var(--pg-text-muted)]'
+    case 'connected': return 'bg-pg-success'
+    case 'connecting': return 'bg-pg-warning'
+    case 'error': return 'bg-pg-error'
+    default: return 'bg-pg-text-muted'
   }
 })
 
@@ -200,20 +200,20 @@ const connectionLabel = computed(() => {
   <div class="flex h-screen w-screen overflow-hidden bg-transparent">
     <!-- Sidebar -->
     <aside
-      class="hidden w-[var(--pg-sidebar-width)] flex-col border-r border-[var(--pg-border)] bg-[color-mix(in_oklch,var(--pg-surface)_95%,transparent)] backdrop-blur md:flex"
+      class="hidden w-pg-sidebar flex-col border-r border-pg-border bg-pg-surface/95 backdrop-blur md:flex"
     >
       <!-- Logo -->
-      <div class="flex items-center gap-3 border-b border-[var(--pg-border)] px-5 py-4">
+      <div class="flex items-center gap-3 border-b border-pg-border px-5 py-4">
         <div
-          class="flex h-9 w-9 items-center justify-center rounded-[10px] bg-[var(--pg-accent)] text-sm font-bold text-[var(--pg-accent-text)] shadow-sm"
+          class="flex h-9 w-9 items-center justify-center rounded-[10px] bg-pg-accent text-sm font-bold text-pg-accent-text shadow-sm"
         >
           FA
         </div>
         <div>
-          <div class="text-sm font-semibold tracking-wide text-[var(--pg-text)]">
+          <div class="text-sm font-semibold tracking-wide text-pg-text">
             ForgeAgent
           </div>
-          <div class="text-xs text-[var(--pg-text-muted)]">
+          <div class="text-xs text-pg-text-muted">
             Control Playground
           </div>
         </div>
@@ -223,22 +223,22 @@ const connectionLabel = computed(() => {
       <nav class="flex-1 px-3 py-4">
         <router-link
           to="/"
-          class="flex items-center gap-2 rounded-[10px] border border-transparent px-3 py-2.5 text-sm font-medium text-[var(--pg-text-secondary)] transition-colors hover:bg-[var(--pg-surface-raised)] hover:text-[var(--pg-text)]"
-          active-class="!border-[var(--pg-border)] !bg-[var(--pg-surface-raised)] !text-[var(--pg-text)]"
+          class="flex items-center gap-2 rounded-[10px] border border-transparent px-3 py-2.5 text-sm font-medium text-pg-text-secondary transition-colors hover:bg-pg-surface-raised hover:text-pg-text"
+          active-class="!border-pg-border !bg-pg-surface-raised !text-pg-text"
         >
           Agent Chat
         </router-link>
-        <p class="px-3 pt-3 text-xs leading-relaxed text-[var(--pg-text-muted)]">
+        <p class="px-3 pt-3 text-xs leading-relaxed text-pg-text-muted">
           Chat, trace events, inspect memory, and tune configuration from one workspace.
         </p>
       </nav>
 
       <!-- Connection status -->
-      <div class="border-t border-[var(--pg-border)] px-5 py-4">
-        <div class="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--pg-text-muted)]">
+      <div class="border-t border-pg-border px-5 py-4">
+        <div class="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-pg-text-muted">
           Realtime
         </div>
-        <div class="flex items-center gap-2 text-xs text-[var(--pg-text-secondary)]">
+        <div class="flex items-center gap-2 text-xs text-pg-text-secondary">
           <span
             :class="connectionClass"
             class="inline-block h-2.5 w-2.5 rounded-full"
@@ -250,26 +250,26 @@ const connectionLabel = computed(() => {
 
     <!-- Main content -->
     <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header class="flex items-center justify-between border-b border-[var(--pg-border)] bg-[color-mix(in_oklch,var(--pg-surface)_92%,transparent)] px-4 py-3 backdrop-blur md:hidden">
+      <header class="flex items-center justify-between border-b border-pg-border pg-surface-glass px-4 py-3 md:hidden">
         <div class="flex items-center gap-3">
-          <div class="flex h-8 w-8 items-center justify-center rounded-[10px] bg-[var(--pg-accent)] text-xs font-bold text-[var(--pg-accent-text)]">
+          <div class="flex h-8 w-8 items-center justify-center rounded-[10px] bg-pg-accent text-xs font-bold text-pg-accent-text">
             FA
           </div>
           <div>
-            <p class="text-sm font-semibold leading-tight text-[var(--pg-text)]">
+            <p class="text-sm font-semibold leading-tight text-pg-text">
               ForgeAgent Playground
             </p>
-            <p class="text-xs text-[var(--pg-text-muted)]">
+            <p class="text-xs text-pg-text-muted">
               Mobile workspace
             </p>
           </div>
         </div>
-        <div class="inline-flex items-center gap-2 rounded-full border border-[var(--pg-border)] bg-[var(--pg-surface)] px-2.5 py-1">
+        <div class="inline-flex items-center gap-2 rounded-full border border-pg-border bg-pg-surface px-2.5 py-1">
           <span
             :class="connectionClass"
             class="inline-block h-2 w-2 rounded-full"
           />
-          <span class="text-[11px] font-medium text-[var(--pg-text-secondary)]">{{ connectionLabel }}</span>
+          <span class="text-[11px] font-medium text-pg-text-secondary">{{ connectionLabel }}</span>
         </div>
       </header>
 

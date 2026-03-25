@@ -48,11 +48,11 @@ function formatDuration(ms: number | undefined): string {
 
 function statusColor(status: string): string {
   switch (status) {
-    case 'completed': return 'var(--pg-success)'
-    case 'failed': return 'var(--pg-error)'
-    case 'running': return 'var(--pg-accent)'
-    case 'pending': return 'var(--pg-warning)'
-    default: return 'var(--pg-text-muted)'
+    case 'completed': return 'var(--color-pg-success)'
+    case 'failed': return 'var(--color-pg-error)'
+    case 'running': return 'var(--color-pg-accent)'
+    case 'pending': return 'var(--color-pg-warning)'
+    default: return 'var(--color-pg-text-muted)'
   }
 }
 
@@ -64,10 +64,10 @@ onMounted(() => {
 <template>
   <div class="pg-scrollbar flex flex-col overflow-y-auto">
     <!-- Header -->
-    <div class="flex items-center justify-between border-b border-[var(--pg-border)] px-4 py-2">
-      <span class="text-xs font-medium text-[var(--pg-text-muted)]">Recent Runs</span>
+    <div class="flex items-center justify-between border-b border-pg-border px-4 py-2">
+      <span class="text-xs font-medium text-pg-text-muted">Recent Runs</span>
       <button
-        class="text-xs text-[var(--pg-accent)] hover:underline"
+        class="text-xs text-pg-accent hover:underline"
         :disabled="isLoading"
         @click="fetchRuns"
       >
@@ -80,13 +80,13 @@ onMounted(() => {
       v-if="isLoading"
       class="flex items-center justify-center py-8"
     >
-      <span class="text-xs text-[var(--pg-text-muted)]">Loading...</span>
+      <span class="text-xs text-pg-text-muted">Loading...</span>
     </div>
 
     <!-- Error -->
     <div
       v-if="error"
-      class="px-4 py-2 text-xs text-[var(--pg-error)]"
+      class="px-4 py-2 text-xs text-pg-error"
       role="alert"
     >
       {{ error }}
@@ -97,7 +97,7 @@ onMounted(() => {
       v-if="!isLoading && runs.length === 0 && !error"
       class="flex h-32 items-center justify-center"
     >
-      <p class="text-sm text-[var(--pg-text-muted)]">
+      <p class="text-sm text-pg-text-muted">
         No runs found.
       </p>
     </div>
@@ -106,7 +106,7 @@ onMounted(() => {
     <div
       v-for="run in runs"
       :key="run.id"
-      class="flex items-center gap-3 border-b border-[var(--pg-border-subtle)] px-4 py-3 transition-colors hover:bg-[var(--pg-surface-raised)]"
+      class="flex items-center gap-3 border-b border-pg-border-subtle px-4 py-3 transition-colors hover:bg-pg-surface-raised"
     >
       <!-- Status dot -->
       <span
@@ -116,16 +116,16 @@ onMounted(() => {
 
       <!-- Run info -->
       <div class="min-w-0 flex-1">
-        <div class="truncate font-mono text-xs text-[var(--pg-text)]">
+        <div class="truncate font-mono text-xs text-pg-text">
           {{ run.id }}
         </div>
-        <div class="text-[10px] text-[var(--pg-text-muted)]">
+        <div class="text-[10px] text-pg-text-muted">
           {{ formatTimestamp(run.startedAt) }}
         </div>
       </div>
 
       <!-- Duration -->
-      <span class="shrink-0 font-mono text-xs text-[var(--pg-text-muted)]">
+      <span class="shrink-0 font-mono text-xs text-pg-text-muted">
         {{ formatDuration(run.durationMs) }}
       </span>
     </div>

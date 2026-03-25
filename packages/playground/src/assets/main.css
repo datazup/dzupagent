@@ -1,95 +1,144 @@
 @import "tailwindcss";
 
+/* ─── Theme tokens ─────────────────────────────────────────────────────────
+   Tailwind 4 @theme registers custom properties as first-class utilities.
+   e.g. bg-pg-surface, text-pg-text, border-pg-border, rounded-pg, etc.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* ── Surface ───────────────────────────────── */
+  --color-pg-bg:              oklch(0.978 0.004 220);
+  --color-pg-surface:         oklch(0.995 0.002 220);
+  --color-pg-surface-raised:  oklch(0.965 0.006 220);
+  --color-pg-surface-overlay: oklch(0.945 0.008 220);
+
+  /* ── Border ────────────────────────────────── */
+  --color-pg-border:          oklch(0.860 0.012 230);
+  --color-pg-border-subtle:   oklch(0.905 0.008 230);
+
+  /* ── Text ──────────────────────────────────── */
+  --color-pg-text:            oklch(0.280 0.012 240);
+  --color-pg-text-secondary:  oklch(0.430 0.014 240);
+  --color-pg-text-muted:      oklch(0.560 0.010 240);
+
+  /* ── Accent ────────────────────────────────── */
+  --color-pg-accent:          oklch(0.630 0.165 215);
+  --color-pg-accent-hover:    oklch(0.580 0.165 215);
+  --color-pg-accent-text:     oklch(0.988 0.004 220);
+
+  /* ── Status ────────────────────────────────── */
+  --color-pg-success:         oklch(0.620 0.180 150);
+  --color-pg-warning:         oklch(0.780 0.150 85);
+  --color-pg-error:           oklch(0.620 0.210 25);
+  --color-pg-info:            oklch(0.650 0.145 225);
+
+  /* ── Chat roles ────────────────────────────── */
+  --color-pg-user-bg:         oklch(0.900 0.035 215);
+  --color-pg-assistant-bg:    oklch(0.955 0.010 225);
+  --color-pg-system-bg:       oklch(0.955 0.035 90);
+
+  /* ── Sizing ────────────────────────────────── */
+  --spacing-pg-sidebar:       288px;
+  --radius-pg:                8px;
+  --radius-pg-sm:             4px;
+  --radius-pg-lg:             12px;
+}
+
+/* ── Dark mode overrides ─────────────────────────────────────────────────── */
 @layer base {
-  :root {
-    /* ── Surface ───────────────────────────────── */
-    --pg-bg: oklch(0.978 0.004 220);
-    --pg-surface: oklch(0.995 0.002 220);
-    --pg-surface-raised: oklch(0.965 0.006 220);
-    --pg-surface-overlay: oklch(0.945 0.008 220);
-
-    /* ── Border ────────────────────────────────── */
-    --pg-border: oklch(0.860 0.012 230);
-    --pg-border-subtle: oklch(0.905 0.008 230);
-
-    /* ── Text ──────────────────────────────────── */
-    --pg-text: oklch(0.280 0.012 240);
-    --pg-text-secondary: oklch(0.430 0.014 240);
-    --pg-text-muted: oklch(0.560 0.010 240);
-
-    /* ── Accent ────────────────────────────────── */
-    --pg-accent: oklch(0.630 0.165 215);
-    --pg-accent-hover: oklch(0.580 0.165 215);
-    --pg-accent-text: oklch(0.988 0.004 220);
-
-    /* ── Status ────────────────────────────────── */
-    --pg-success: oklch(0.620 0.180 150);
-    --pg-warning: oklch(0.780 0.150 85);
-    --pg-error: oklch(0.620 0.210 25);
-    --pg-info: oklch(0.650 0.145 225);
-
-    /* ── Chat roles ────────────────────────────── */
-    --pg-user-bg: oklch(0.900 0.035 215);
-    --pg-assistant-bg: oklch(0.955 0.010 225);
-    --pg-system-bg: oklch(0.955 0.035 90);
-
-    /* ── Sizing ────────────────────────────────── */
-    --pg-sidebar-width: 288px;
-    --pg-radius: 8px;
-    --pg-radius-sm: 4px;
-    --pg-radius-lg: 12px;
-  }
-
   @media (prefers-color-scheme: dark) {
     :root {
-      --pg-bg: oklch(0.170 0.010 235);
-      --pg-surface: oklch(0.220 0.012 235);
-      --pg-surface-raised: oklch(0.270 0.014 235);
-      --pg-surface-overlay: oklch(0.320 0.016 235);
-      --pg-border: oklch(0.420 0.016 235);
-      --pg-border-subtle: oklch(0.360 0.012 235);
-      --pg-text: oklch(0.945 0.010 235);
-      --pg-text-secondary: oklch(0.760 0.010 235);
-      --pg-text-muted: oklch(0.620 0.010 235);
-      --pg-user-bg: oklch(0.390 0.080 215);
-      --pg-assistant-bg: oklch(0.275 0.014 235);
-      --pg-system-bg: oklch(0.305 0.030 90);
+      --color-pg-bg:              oklch(0.170 0.010 235);
+      --color-pg-surface:         oklch(0.220 0.012 235);
+      --color-pg-surface-raised:  oklch(0.270 0.014 235);
+      --color-pg-surface-overlay: oklch(0.320 0.016 235);
+      --color-pg-border:          oklch(0.420 0.016 235);
+      --color-pg-border-subtle:   oklch(0.360 0.012 235);
+      --color-pg-text:            oklch(0.945 0.010 235);
+      --color-pg-text-secondary:  oklch(0.760 0.010 235);
+      --color-pg-text-muted:      oklch(0.620 0.010 235);
+      --color-pg-user-bg:         oklch(0.390 0.080 215);
+      --color-pg-assistant-bg:    oklch(0.275 0.014 235);
+      --color-pg-system-bg:       oklch(0.305 0.030 90);
     }
   }
 }
 
+/* ── Base styles ─────────────────────────────────────────────────────────── */
 @layer base {
   body {
-    background-color: var(--pg-bg);
-    color: var(--pg-text);
+    background-color: var(--color-pg-bg);
+    color: var(--color-pg-text);
     font-family: "IBM Plex Sans", "Manrope", "Segoe UI", sans-serif;
     margin: 0;
     min-height: 100vh;
     background-image:
-      radial-gradient(circle at 15% 8%, color-mix(in oklch, var(--pg-accent) 12%, transparent), transparent 38%),
-      radial-gradient(circle at 85% 0%, color-mix(in oklch, var(--pg-info) 11%, transparent), transparent 32%);
+      radial-gradient(circle at 15% 8%, color-mix(in oklch, var(--color-pg-accent) 12%, transparent), transparent 38%),
+      radial-gradient(circle at 85% 0%, color-mix(in oklch, var(--color-pg-info) 11%, transparent), transparent 32%);
     background-attachment: fixed;
   }
 
   * {
-    border-color: var(--pg-border);
+    border-color: var(--color-pg-border);
   }
 
   :focus-visible {
-    outline: 2px solid var(--pg-accent);
+    outline: 2px solid var(--color-pg-accent);
     outline-offset: 2px;
   }
 }
 
-@layer components {
-  .pg-scrollbar::-webkit-scrollbar {
+/* ── Component utilities ─────────────────────────────────────────────────── */
+@utility pg-scrollbar {
+  &::-webkit-scrollbar {
     width: 6px;
   }
-  .pg-scrollbar::-webkit-scrollbar-track {
+  &::-webkit-scrollbar-track {
     background: transparent;
   }
-  .pg-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--pg-border);
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-pg-border);
     border-radius: 3px;
   }
+}
+
+@utility pg-surface-glass {
+  background-color: color-mix(in oklch, var(--color-pg-surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+@utility pg-input {
+  border-radius: var(--radius-pg-sm);
+  border: 1px solid var(--color-pg-border);
+  background-color: var(--color-pg-surface-raised);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-pg-text);
+  &::placeholder {
+    color: var(--color-pg-text-muted);
+  }
+  &:focus {
+    border-color: var(--color-pg-accent);
+    outline: none;
+  }
+}
+
+@utility pg-btn-accent {
+  border-radius: var(--radius-pg-sm);
+  background-color: var(--color-pg-accent);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-pg-accent-text);
+  &:hover {
+    background-color: var(--color-pg-accent-hover);
+  }
+}
+
+@utility pg-badge {
+  border-radius: 2px;
+  background-color: var(--color-pg-surface-raised);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--color-pg-text-muted);
 }

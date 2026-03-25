@@ -35,7 +35,7 @@ function selectTab(tabId: TabId): void {
   <div class="flex h-full flex-col">
     <!-- Tab bar -->
     <div
-      class="flex gap-1 overflow-x-auto border-b border-[var(--pg-border)] bg-[color-mix(in_oklch,var(--pg-surface)_92%,transparent)] px-2 py-2"
+      class="flex gap-1 overflow-x-auto border-b border-pg-border pg-surface-glass px-2 py-2"
       role="tablist"
       aria-label="Inspector tabs"
     >
@@ -47,8 +47,8 @@ function selectTab(tabId: TabId): void {
         :aria-controls="`panel-${tab.id}`"
         class="rounded-[10px] border px-3 py-1.5 text-xs font-medium transition-colors"
         :class="activeTab === tab.id
-          ? 'border-[var(--pg-accent)] bg-[color-mix(in_oklch,var(--pg-accent)_10%,transparent)] text-[var(--pg-text)]'
-          : 'border-transparent text-[var(--pg-text-muted)] hover:border-[var(--pg-border)] hover:bg-[var(--pg-surface-raised)] hover:text-[var(--pg-text-secondary)]'"
+          ? 'border-pg-accent bg-pg-accent/10 text-pg-text'
+          : 'border-transparent text-pg-text-muted hover:border-pg-border hover:bg-pg-surface-raised hover:text-pg-text-secondary'"
         @click="selectTab(tab.id)"
       >
         {{ tab.label }}

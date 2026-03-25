@@ -14,12 +14,12 @@ const traceStore = useTraceStore()
 /** Map event types to CSS color variables */
 function eventColor(type: TraceEvent['type']): string {
   switch (type) {
-    case 'llm': return 'var(--pg-accent)'
-    case 'tool': return 'var(--pg-success)'
-    case 'memory': return 'var(--pg-info)'
-    case 'guardrail': return 'var(--pg-warning)'
-    case 'system': return 'var(--pg-text-muted)'
-    default: return 'var(--pg-text-muted)'
+    case 'llm': return 'var(--color-pg-accent)'
+    case 'tool': return 'var(--color-pg-success)'
+    case 'memory': return 'var(--color-pg-info)'
+    case 'guardrail': return 'var(--color-pg-warning)'
+    case 'system': return 'var(--color-pg-text-muted)'
+    default: return 'var(--color-pg-text-muted)'
   }
 }
 
@@ -46,7 +46,7 @@ function formatDuration(ms: number): string {
       v-if="traceStore.events.length === 0"
       class="flex h-32 items-center justify-center"
     >
-      <p class="text-sm text-[var(--pg-text-muted)]">
+      <p class="text-sm text-pg-text-muted">
         No trace events yet.
       </p>
     </div>
@@ -54,12 +54,12 @@ function formatDuration(ms: number): string {
     <!-- Summary -->
     <div
       v-if="traceStore.events.length > 0"
-      class="mb-3 flex items-center justify-between text-xs text-[var(--pg-text-muted)]"
+      class="mb-3 flex items-center justify-between text-xs text-pg-text-muted"
     >
       <span>{{ traceStore.eventCount }} events</span>
       <span>Total: {{ formatDuration(traceStore.totalDurationMs) }}</span>
       <button
-        class="text-xs text-[var(--pg-accent)] hover:underline"
+        class="text-xs text-pg-accent hover:underline"
         @click="traceStore.clearEvents()"
       >
         Clear
@@ -70,18 +70,18 @@ function formatDuration(ms: number): string {
     <div
       v-for="event in traceStore.events"
       :key="event.id"
-      class="flex items-center gap-3 rounded-[var(--pg-radius-sm)] px-2 py-1.5 text-xs hover:bg-[var(--pg-surface-raised)]"
+      class="flex items-center gap-3 rounded-pg-sm px-2 py-1.5 text-xs hover:bg-pg-surface-raised"
     >
       <!-- Type badge -->
       <span
-        class="inline-block w-16 shrink-0 rounded-sm px-1.5 py-0.5 text-center font-mono text-[10px] font-medium text-[var(--pg-bg)]"
+        class="inline-block w-16 shrink-0 rounded-sm px-1.5 py-0.5 text-center font-mono text-[10px] font-medium text-pg-bg"
         :style="{ backgroundColor: eventColor(event.type) }"
       >
         {{ event.type }}
       </span>
 
       <!-- Name -->
-      <span class="min-w-0 flex-1 truncate text-[var(--pg-text)]">
+      <span class="min-w-0 flex-1 truncate text-pg-text">
         {{ event.name }}
       </span>
 
@@ -98,7 +98,7 @@ function formatDuration(ms: number): string {
       </div>
 
       <!-- Duration text -->
-      <span class="w-16 shrink-0 text-right font-mono text-[var(--pg-text-muted)]">
+      <span class="w-16 shrink-0 text-right font-mono text-pg-text-muted">
         {{ formatDuration(event.durationMs) }}
       </span>
     </div>
