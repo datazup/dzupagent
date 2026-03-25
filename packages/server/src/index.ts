@@ -22,6 +22,8 @@ export { createMemoryBrowseRoutes } from './routes/memory-browse.js'
 export type { MemoryBrowseRouteConfig } from './routes/memory-browse.js'
 export { createPlaygroundRoutes } from './routes/playground.js'
 export type { PlaygroundRouteConfig } from './routes/playground.js'
+export { createEventRoutes } from './routes/events.js'
+export type { EventRouteConfig } from './routes/events.js'
 
 // --- Persistence ---
 export { PostgresRunStore, PostgresAgentStore } from './persistence/postgres-stores.js'
@@ -54,7 +56,39 @@ export type { ShutdownConfig, ShutdownState } from './lifecycle/graceful-shutdow
 
 // --- WebSocket ---
 export { EventBridge } from './ws/event-bridge.js'
-export type { WSClient, ClientFilter } from './ws/event-bridge.js'
+export type { WSClient, ClientFilter, EventBridgeConfig } from './ws/event-bridge.js'
+export { createWsControlHandler } from './ws/control-protocol.js'
+export { createScopedAuthorizeFilter } from './ws/authorization.js'
+export { WSClientScopeRegistry } from './ws/scope-registry.js'
+export { createScopedWsControlHandler } from './ws/scoped-control-handler.js'
+export { WSSessionManager } from './ws/session-manager.js'
+export { attachNodeWsSession } from './ws/node-adapter.js'
+export { createNodeWsUpgradeHandler, createPathUpgradeGuard } from './ws/node-upgrade-handler.js'
+export type {
+  WSControlClientMessage,
+  WSControlServerMessage,
+  WSControlHandlerOptions,
+  WSControlAuthorizeFilter,
+  WSControlAuthorizeContext,
+} from './ws/control-protocol.js'
+export type {
+  WSClientScope,
+  ScopedAuthorizeFilterOptions,
+} from './ws/authorization.js'
+export type { ScopedWsControlHandlerOptions } from './ws/scoped-control-handler.js'
+export type { WSSessionManagerOptions } from './ws/session-manager.js'
+export type { NodeWSLike, AttachNodeWsSessionOptions } from './ws/node-adapter.js'
+export type { NodeWebSocketServerLike, NodeWsUpgradeHandlerOptions } from './ws/node-upgrade-handler.js'
+export { InMemoryEventGateway } from './events/event-gateway.js'
+export type {
+  EventGateway,
+  EventEnvelope,
+  EventSubscription,
+  EventSubscriptionFilter,
+  OverflowStrategy,
+  EventSink,
+  InMemoryEventGatewayConfig,
+} from './events/event-gateway.js'
 
 // --- Notifications ---
 export { Notifier, classifyEvent } from './notifications/notifier.js'

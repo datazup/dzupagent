@@ -15,7 +15,14 @@
  * // Events for run-123 + wildcard events are pushed to ws
  * ```
  */
-import type { ForgeEventBus, ForgeEvent } from '@forgeagent/core'
+import type { ForgeEventBus } from '@forgeagent/core'
+import {
+  InMemoryEventGateway,
+  type EventEnvelope,
+  type EventGateway,
+  type EventSubscription,
+  type EventSubscriptionFilter,
+} from '../events/event-gateway.js'
 
 export interface WSClient {
   send(data: string): void
@@ -23,30 +30,61 @@ export interface WSClient {
   readyState: number
 }
 
-export interface ClientFilter {
+export interface ClientFilter extends EventSubscriptionFilter {
   /** Only receive events for this run */
   runId?: string
 }
 
+export interface EventBridgeConfig {
+  maxQueueSize?: number
+}
+
 const WS_OPEN = 1
 
-export class EventBridge {
-  private clients = new Map<WSClient, ClientFilter>()
-  private unsubscribe: (() => void) | null = null
+function isEventGateway(input: ForgeEventBus | EventGateway): input is EventGateway {
+  return 'subscribe' in input && typeof input.subscribe === 'function'
+}
 
-  constructor(private eventBus: ForgeEventBus) {
-    this.unsubscribe = this.eventBus.onAny((event) => {
-      this.broadcast(event)
-    })
+export class EventBridge {
+  private clients = new Map<WSClient, { filter: ClientFilter; subscription: EventSubscription }>()
+  private readonly gateway: EventGateway
+  private readonly ownsGateway: boolean
+  private readonly maxQueueSize: number
+
+  constructor(input: ForgeEventBus | EventGateway, config?: EventBridgeConfig) {
+    this.maxQueueSize = config?.maxQueueSize ?? 512
+    if (isEventGateway(input)) {
+      this.gateway = input
+      this.ownsGateway = false
+      return
+    }
+    this.gateway = new InMemoryEventGateway(input)
+    this.ownsGateway = true
   }
 
   /** Register a WebSocket client to receive events */
   addClient(ws: WSClient, filter?: ClientFilter): void {
-    this.clients.set(ws, filter ?? {})
+    this.removeClient(ws)
+    const resolvedFilter = filter ?? {}
+    const subscription = this.gateway.subscribe(
+      resolvedFilter,
+      (envelope) => this.sendToClient(ws, envelope),
+      { maxQueueSize: this.maxQueueSize, overflowStrategy: 'disconnect' },
+    )
+    this.clients.set(ws, { filter: resolvedFilter, subscription })
+  }
+
+  /** Update filter for an existing client without reconnecting the socket. */
+  setClientFilter(ws: WSClient, filter: ClientFilter): void {
+    if (!this.clients.has(ws)) return
+    this.addClient(ws, filter)
   }
 
   /** Remove a WebSocket client */
   removeClient(ws: WSClient): void {
+    const existing = this.clients.get(ws)
+    if (!existing) return
+    existing.subscription.unsubscribe()
     this.clients.delete(ws)
   }
 
@@ -62,40 +100,27 @@ export class EventBridge {
 
   /** Close all WebSocket connections and stop event forwarding */
   disconnectAll(): void {
-    if (this.unsubscribe) {
-      this.unsubscribe()
-      this.unsubscribe = null
-    }
-    for (const [ws] of this.clients) {
+    for (const [ws, { subscription }] of this.clients) {
+      subscription.unsubscribe()
       try { ws.close() } catch { /* best-effort */ }
     }
     this.clients.clear()
+    if (this.ownsGateway) {
+      this.gateway.destroy()
+    }
   }
 
-  private broadcast(event: ForgeEvent): void {
-    const eventRunId = 'runId' in event ? (event as { runId: string }).runId : undefined
-    const data = JSON.stringify(event)
-
-    for (const [ws, filter] of this.clients) {
-      // Clean up closed connections
-      if (ws.readyState !== WS_OPEN) {
-        this.clients.delete(ws)
-        continue
-      }
-
-      // Apply filter: run-scoped clients only receive events that carry that runId.
-      if (filter.runId) {
-        if (!eventRunId || filter.runId !== eventRunId) {
-          continue
-        }
-      }
-
-      try {
-        ws.send(data)
-      } catch {
-        // Client disconnected — remove
-        this.clients.delete(ws)
-      }
+  private sendToClient(ws: WSClient, envelope: EventEnvelope): boolean {
+    if (ws.readyState !== WS_OPEN) {
+      this.removeClient(ws)
+      return false
+    }
+    try {
+      ws.send(JSON.stringify(envelope))
+      return true
+    } catch {
+      this.removeClient(ws)
+      return false
     }
   }
 }

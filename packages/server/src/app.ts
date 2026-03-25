@@ -29,11 +29,14 @@ import { createAgentRoutes } from './routes/agents.js'
 import { createApprovalRoutes } from './routes/approval.js'
 import { createMemoryRoutes } from './routes/memory.js'
 import { createMemoryBrowseRoutes } from './routes/memory-browse.js'
+import { createEventRoutes } from './routes/events.js'
 import type { MemoryServiceLike } from '@forgeagent/memory-ipc'
 import { authMiddleware, type AuthConfig } from './middleware/auth.js'
 import { rateLimiterMiddleware, type RateLimiterConfig } from './middleware/rate-limiter.js'
 import type { RunQueue } from './queue/run-queue.js'
 import type { GracefulShutdown } from './lifecycle/graceful-shutdown.js'
+import type { EventGateway } from './events/event-gateway.js'
+import { InMemoryEventGateway } from './events/event-gateway.js'
 
 export interface ForgeServerConfig {
   runStore: RunStore
@@ -52,10 +55,13 @@ export interface ForgeServerConfig {
   metrics?: MetricsCollector
   /** Memory service for Arrow IPC export/import routes */
   memoryService?: MemoryServiceLike
+  /** Optional event gateway for SSE/WS fan-out; defaults to in-memory bridge backed by eventBus */
+  eventGateway?: EventGateway
 }
 
 export function createForgeApp(config: ForgeServerConfig): Hono {
   const app = new Hono()
+  const eventGateway = config.eventGateway ?? new InMemoryEventGateway(config.eventBus)
 
   // --- Middleware ---
   app.use('*', cors({
@@ -125,6 +131,8 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
     app.route('/api/memory', createMemoryRoutes({ memoryService: config.memoryService }))
     app.route('/api/memory-browse', createMemoryBrowseRoutes({ memoryService: config.memoryService }))
   }
+
+  app.route('/api/events', createEventRoutes({ eventGateway }))
 
   return app
 }

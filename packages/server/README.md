@@ -80,8 +80,130 @@ export default app // Hono app, works with any runtime
 ### WebSocket
 
 - `EventBridge` -- bridge ForgeAgent events to WebSocket clients
+- `createWsControlHandler` -- handle `subscribe` / `unsubscribe` control messages
+- `createScopedAuthorizeFilter` -- build tenant/scope-aware WS filter authorization
+- `WSClientScopeRegistry` -- store per-connection scope/claims context
+- `createScopedWsControlHandler` -- compose control handler + scoped authorization
+- `WSSessionManager` -- lifecycle helper for WS open/message/close integration
+- `attachNodeWsSession` -- bind Node `ws` socket events to `WSSessionManager`
+- `createNodeWsUpgradeHandler` -- build a safe Node HTTP upgrade handler
+- `createPathUpgradeGuard` -- best-practice path filter for upgrade requests
 
-**Types:** `WSClient`, `ClientFilter`
+**Types:** `WSClient`, `ClientFilter`, `WSControlHandlerOptions`, `WSClientScope`, `ScopedWsControlHandlerOptions`, `WSSessionManagerOptions`, `NodeWSLike`, `NodeWsUpgradeHandlerOptions`
+
+Example integration (host WS runtime pseudo-code):
+
+```ts
+import {
+  EventBridge,
+  WSClientScopeRegistry,
+  createScopedWsControlHandler,
+} from '@forgeagent/server'
+
+const bridge = new EventBridge(eventBus)
+const scopeRegistry = new WSClientScopeRegistry()
+
+// on websocket connection:
+bridge.addClient(ws, {})
+scopeRegistry.set(ws, {
+  tenantId: 't1',
+  runIds: ['run-1', 'run-2'],
+  agentIds: ['agent-a'],
+  eventTypes: ['agent:started', 'agent:completed', 'agent:failed'],
+})
+
+const onControl = createScopedWsControlHandler(bridge, ws, scopeRegistry, {
+  requireScopedSubscription: true,
+  unsubscribeFilter: {}, // or a tenant-safe baseline filter
+})
+
+ws.on('message', (raw) => void onControl(String(raw)))
+ws.on('close', () => {
+  scopeRegistry.delete(ws)
+  bridge.removeClient(ws)
+})
+```
+
+Alternative with session manager:
+
+```ts
+import { EventBridge, WSClientScopeRegistry, WSSessionManager } from '@forgeagent/server'
+
+const bridge = new EventBridge(eventBus)
+const scopeRegistry = new WSClientScopeRegistry()
+const wsManager = new WSSessionManager(bridge, scopeRegistry, {
+  requireScopedSubscription: true,
+  resolveScope: (ws) => sessionMap.get(ws) ?? null,
+})
+
+// on websocket connection:
+await wsManager.attach(ws)
+ws.on('message', (raw) => void wsManager.handleMessage(ws, String(raw)))
+ws.on('close', () => wsManager.detach(ws))
+```
+
+Node `ws` adapter shortcut:
+
+```ts
+import { createServer } from 'node:http'
+import { WebSocketServer } from 'ws'
+import {
+  EventBridge,
+  WSClientScopeRegistry,
+  WSSessionManager,
+  attachNodeWsSession,
+} from '@forgeagent/server'
+
+const server = createServer()
+const wss = new WebSocketServer({ noServer: true })
+
+const bridge = new EventBridge(eventBus)
+const scopeRegistry = new WSClientScopeRegistry()
+const wsManager = new WSSessionManager(bridge, scopeRegistry, {
+  requireScopedSubscription: true,
+})
+
+server.on('upgrade', (req, socket, head) => {
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    const scope = resolveScopeFromRequest(req) // your tenant/run/agent claims
+    void attachNodeWsSession({ manager: wsManager, socket: ws, scope })
+  })
+})
+```
+
+Best-practice Node upgrade handler:
+
+```ts
+import { createServer } from 'node:http'
+import { WebSocketServer } from 'ws'
+import {
+  EventBridge,
+  WSClientScopeRegistry,
+  WSSessionManager,
+  createNodeWsUpgradeHandler,
+  createPathUpgradeGuard,
+} from '@forgeagent/server'
+
+const server = createServer()
+const wss = new WebSocketServer({ noServer: true })
+
+const bridge = new EventBridge(eventBus)
+const scopeRegistry = new WSClientScopeRegistry()
+const wsManager = new WSSessionManager(bridge, scopeRegistry, {
+  requireScopedSubscription: true,
+})
+
+const upgradeHandler = createNodeWsUpgradeHandler({
+  wss,
+  manager: wsManager,
+  shouldHandleRequest: createPathUpgradeGuard('/ws'),
+  resolveScopeFromRequest: (req) => resolveScopeFromRequest(req),
+  onRejected: ({ reason }) => console.warn('WS rejected:', reason),
+  onAttachError: ({ error }) => console.error('WS attach failed', error),
+})
+
+server.on('upgrade', upgradeHandler)
+```
 
 ### Notifications
 
