@@ -13,6 +13,7 @@ export type OrchestrationPattern =
   | 'topology-hierarchical'
   | 'topology-pipeline'
   | 'topology-star'
+  | 'playground'
 
 export class OrchestrationError extends Error {
   override readonly name = 'OrchestrationError'

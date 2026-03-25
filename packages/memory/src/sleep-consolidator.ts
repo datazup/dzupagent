@@ -75,6 +75,12 @@ export interface SleepConsolidationReport {
     pruned: number
     contradictionsFound: number
     healed: number
+    /** Lesson duplicates removed (M4 lesson-dedup phase) */
+    lessonsDeduplicated: number
+    /** Conventions extracted from patterns (M4 convention-extract phase) */
+    conventionsExtracted: number
+    /** Entries pruned by staleness score (M4 staleness-prune phase) */
+    stalenessPruned: number
   }>
   /** Total LLM calls used */
   totalLLMCalls: number
@@ -88,7 +94,10 @@ export interface SleepConsolidationReport {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const ALL_PHASES: SleepPhase[] = ['dedup', 'decay-prune', 'contradiction-resolve', 'heal']
+const ALL_PHASES: SleepPhase[] = [
+  'dedup', 'decay-prune', 'contradiction-resolve', 'heal',
+  'lesson-dedup', 'convention-extract', 'staleness-prune',
+]
 
 function extractText(value: Record<string, unknown>): string {
   return typeof value['text'] === 'string'
