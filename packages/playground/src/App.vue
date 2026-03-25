@@ -22,10 +22,22 @@ function traceTypeFromWsEvent(type: string): TraceEvent['type'] {
 }
 
 function traceNameFromWsEvent(event: WsEvent): string {
+  const payload = (event['payload'] && typeof event['payload'] === 'object')
+    ? (event['payload'] as Record<string, unknown>)
+    : null
+
   if (typeof event['message'] === 'string') return event['message']
+  if (payload && typeof payload['message'] === 'string') return payload['message']
+
   if (typeof event['toolName'] === 'string') return `${event.type} (${event['toolName']})`
+  if (payload && typeof payload['toolName'] === 'string') return `${event.type} (${payload['toolName']})`
+
   if (typeof event['phase'] === 'string') return `${event.type} (${event['phase']})`
+  if (payload && typeof payload['phase'] === 'string') return `${event.type} (${payload['phase']})`
+
   if (typeof event['namespace'] === 'string') return `${event.type} (${event['namespace']})`
+  if (payload && typeof payload['namespace'] === 'string') return `${event.type} (${payload['namespace']})`
+
   return event.type
 }
 
@@ -55,6 +67,7 @@ watch(
   () => wsStore.lastEvent,
   (event) => {
     if (!event) return
+    if (event.type === 'subscribed' || event.type === 'unsubscribed' || event.type === 'error') return
     traceStore.addEvent({
       id: `ws-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       type: traceTypeFromWsEvent(event.type),

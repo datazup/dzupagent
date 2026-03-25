@@ -8,7 +8,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { WsConnectionState, WsEvent } from '../types.js'
+import type { WsConnectionState, WsEvent, WsSubscriptionFilter } from '../types.js'
 
 export const useWsStore = defineStore('ws', () => {
   // ── State ─────────────────────────────────────────
@@ -16,6 +16,7 @@ export const useWsStore = defineStore('ws', () => {
   const lastEvent = ref<WsEvent | null>(null)
   const retryCount = ref(0)
   const eventLog = ref<WsEvent[]>([])
+  const subscription = ref<WsSubscriptionFilter | null>(null)
 
   /** Internal refs for WebSocket management */
   let ws: WebSocket | null = null
@@ -54,6 +55,22 @@ export const useWsStore = defineStore('ws', () => {
     }, delay)
   }
 
+  function sendJson(data: Record<string, unknown>): boolean {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return false
+    }
+    try {
+      ws.send(JSON.stringify(data))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  function sendSubscription(filter: WsSubscriptionFilter): void {
+    sendJson({ type: 'subscribe', filter })
+  }
+
   /** Connect to a WebSocket URL */
   function connect(url: string): void {
     clearReconnectTimer()
@@ -79,6 +96,9 @@ export const useWsStore = defineStore('ws', () => {
     ws.onopen = () => {
       state.value = 'connected'
       retryCount.value = 0
+      if (subscription.value) {
+        sendSubscription(subscription.value)
+      }
     }
 
     ws.onmessage = (event: MessageEvent) => {
@@ -131,12 +151,22 @@ export const useWsStore = defineStore('ws', () => {
     lastEvent.value = null
   }
 
+  function setSubscription(filter: WsSubscriptionFilter | null): void {
+    subscription.value = filter
+    if (filter) {
+      sendSubscription(filter)
+    } else {
+      sendJson({ type: 'unsubscribe' })
+    }
+  }
+
   return {
     // State
     state,
     lastEvent,
     retryCount,
     eventLog,
+    subscription,
 
     // Getters
     isConnected,
@@ -145,5 +175,6 @@ export const useWsStore = defineStore('ws', () => {
     connect,
     disconnect,
     clearEventLog,
+    setSubscription,
   }
 })

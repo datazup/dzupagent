@@ -18,10 +18,20 @@ export type WsConnectionState = 'disconnected' | 'connecting' | 'connected' | 'e
 
 /** WebSocket incoming event envelope */
 export interface WsEvent {
+  id?: string
+  version?: string
   type: string
   runId?: string
+  agentId?: string
   timestamp?: string
+  payload?: Record<string, unknown>
   [key: string]: unknown
+}
+
+export interface WsSubscriptionFilter {
+  runId?: string
+  agentId?: string
+  eventTypes?: string[]
 }
 
 /** Trace event for the inspector timeline */

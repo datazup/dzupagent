@@ -9,6 +9,7 @@ import { useWsStore } from '../stores/ws-store.js'
 class MockWebSocket {
   static readonly OPEN = 1
   static readonly CLOSED = 3
+  static instances: MockWebSocket[] = []
 
   readyState = MockWebSocket.OPEN
   onopen: (() => void) | null = null
@@ -16,7 +17,10 @@ class MockWebSocket {
   onmessage: ((event: { data: string }) => void) | null = null
   onerror: (() => void) | null = null
 
+  sentMessages: string[] = []
+
   constructor(_url: string) {
+    MockWebSocket.instances.push(this)
     // Simulate async open
     setTimeout(() => {
       this.onopen?.()
@@ -28,8 +32,8 @@ class MockWebSocket {
     this.onclose?.()
   }
 
-  send(_data: string): void {
-    // no-op
+  send(data: string): void {
+    this.sentMessages.push(data)
   }
 }
 
@@ -40,6 +44,7 @@ describe('ws-store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.useFakeTimers()
+    MockWebSocket.instances = []
   })
 
   afterEach(() => {
@@ -102,5 +107,34 @@ describe('ws-store', () => {
 
     expect(store.eventLog).toEqual([])
     expect(store.lastEvent).toBeNull()
+  })
+
+  it('sends subscription message after connect when subscription exists', async () => {
+    const store = useWsStore()
+    store.setSubscription({ runId: 'run-1' })
+
+    store.connect('ws://localhost:4000/ws')
+    await vi.advanceTimersByTimeAsync(1)
+
+    const ws = MockWebSocket.instances[0]
+    expect(ws).toBeDefined()
+    expect(ws?.sentMessages.length).toBe(1)
+
+    const payload = JSON.parse(ws?.sentMessages[0] ?? '{}') as { type?: string; filter?: { runId?: string } }
+    expect(payload.type).toBe('subscribe')
+    expect(payload.filter?.runId).toBe('run-1')
+  })
+
+  it('can update subscription while connected', async () => {
+    const store = useWsStore()
+    store.connect('ws://localhost:4000/ws')
+    await vi.advanceTimersByTimeAsync(1)
+
+    store.setSubscription({ agentId: 'agent-1', eventTypes: ['agent:started'] })
+
+    const ws = MockWebSocket.instances[0]
+    const payload = JSON.parse(ws?.sentMessages[0] ?? '{}') as { type?: string; filter?: { agentId?: string } }
+    expect(payload.type).toBe('subscribe')
+    expect(payload.filter?.agentId).toBe('agent-1')
   })
 })

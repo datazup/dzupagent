@@ -11,6 +11,7 @@ import { ref, computed } from 'vue'
 import type { ChatMessage, AgentSummary, ApiResponse, TraceEvent, RunHistoryEntry } from '../types.js'
 import { useApi } from '../composables/useApi.js'
 import { useTraceStore } from './trace-store.js'
+import { useWsStore } from './ws-store.js'
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'rejected'])
 
@@ -32,6 +33,7 @@ export const useChatStore = defineStore('chat', () => {
   // ── Actions ───────────────────────────────────────
   const { get, post } = useApi()
   const traceStore = useTraceStore()
+  const wsStore = useWsStore()
 
   function pushSystemMessage(content: string): void {
     messages.value = [
@@ -147,6 +149,7 @@ export const useChatStore = defineStore('chat', () => {
         { agentId: currentAgentId.value, input: { message: content } },
       )
       const runId = runCreate.data.id
+      wsStore.setSubscription({ runId, eventTypes: ['agent:started', 'agent:completed', 'agent:failed', 'tool:called', 'tool:result', 'tool:error', 'memory:written', 'memory:searched', 'memory:error', 'pipeline:phase_changed'] })
       pushSystemMessage(`Run started: ${runId}`)
 
       const finalRun = await waitForRunCompletion(runId)
