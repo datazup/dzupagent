@@ -3,6 +3,7 @@ import { CODE_GEN_SUITE } from '../benchmarks/suites/code-gen.js';
 import { QA_SUITE } from '../benchmarks/suites/qa.js';
 import { TOOL_USE_SUITE } from '../benchmarks/suites/tool-use.js';
 import { MULTI_TURN_SUITE } from '../benchmarks/suites/multi-turn.js';
+import { VECTOR_SEARCH_SUITE } from '../benchmarks/suites/vector-search.js';
 import { runBenchmark, compareBenchmarks } from '../benchmarks/benchmark-runner.js';
 import type { BenchmarkSuite, BenchmarkResult } from '../benchmarks/benchmark-types.js';
 
@@ -16,6 +17,7 @@ describe('Benchmark Suites — structure validation', () => {
     { name: 'QA_SUITE', suite: QA_SUITE },
     { name: 'TOOL_USE_SUITE', suite: TOOL_USE_SUITE },
     { name: 'MULTI_TURN_SUITE', suite: MULTI_TURN_SUITE },
+    { name: 'VECTOR_SEARCH_SUITE', suite: VECTOR_SEARCH_SUITE },
   ];
 
   for (const { name, suite } of suites) {

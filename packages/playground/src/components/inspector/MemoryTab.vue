@@ -9,16 +9,21 @@ import { useMemoryStore } from '../../stores/memory-store.js'
 
 const memoryStore = useMemoryStore()
 const searchInput = ref('')
+const namespaceInput = ref('lessons')
 
 onMounted(() => {
-  void memoryStore.fetchNamespaces()
+  if (!memoryStore.scopeJson) {
+    memoryStore.scopeJson = '{"tenant":"default","project":"default"}'
+  }
 })
 
 function handleSearch(): void {
   void memoryStore.searchRecords(searchInput.value)
 }
 
-function handleNamespaceClick(namespace: string): void {
+function handleNamespaceLoad(namespace: string): void {
+  namespaceInput.value = namespace
+  searchInput.value = ''
   void memoryStore.fetchNamespace(namespace)
 }
 
@@ -30,13 +35,38 @@ function formatValue(value: unknown): string {
 
 <template>
   <div class="flex h-full flex-col">
-    <!-- Search bar -->
+    <!-- Controls -->
     <div class="border-b border-[var(--pg-border)] p-3">
+      <div class="mb-2 flex gap-2">
+        <input
+          v-model="namespaceInput"
+          type="text"
+          placeholder="Namespace (e.g. lessons)"
+          class="w-1/2 rounded-[var(--pg-radius-sm)] border border-[var(--pg-border)] bg-[var(--pg-surface-raised)] px-3 py-1.5 text-sm text-[var(--pg-text)] placeholder:text-[var(--pg-text-muted)] focus:border-[var(--pg-accent)] focus:outline-none"
+          aria-label="Memory namespace"
+          @keydown.enter="handleNamespaceLoad(namespaceInput)"
+        >
+        <button
+          class="rounded-[var(--pg-radius-sm)] bg-[var(--pg-accent)] px-3 py-1.5 text-xs font-medium text-[var(--pg-accent-text)] hover:bg-[var(--pg-accent-hover)]"
+          @click="handleNamespaceLoad(namespaceInput)"
+        >
+          Load
+        </button>
+      </div>
+      <div class="mb-2">
+        <input
+          v-model="memoryStore.scopeJson"
+          type="text"
+          placeholder='Scope JSON (e.g. {"tenant":"default","project":"default"})'
+          class="w-full rounded-[var(--pg-radius-sm)] border border-[var(--pg-border)] bg-[var(--pg-surface-raised)] px-3 py-1.5 font-mono text-xs text-[var(--pg-text)] placeholder:text-[var(--pg-text-muted)] focus:border-[var(--pg-accent)] focus:outline-none"
+          aria-label="Memory scope JSON"
+        >
+      </div>
       <div class="flex gap-2">
         <input
           v-model="searchInput"
           type="text"
-          placeholder="Search records..."
+          placeholder="Search in selected namespace..."
           class="flex-1 rounded-[var(--pg-radius-sm)] border border-[var(--pg-border)] bg-[var(--pg-surface-raised)] px-3 py-1.5 text-sm text-[var(--pg-text)] placeholder:text-[var(--pg-text-muted)] focus:border-[var(--pg-accent)] focus:outline-none"
           aria-label="Search memory records"
           @keydown.enter="handleSearch"
@@ -52,51 +82,28 @@ function formatValue(value: unknown): string {
 
     <!-- Content -->
     <div class="pg-scrollbar flex flex-1 overflow-y-auto">
-      <!-- Namespace list (shown when no namespace is selected and no search) -->
-      <div
-        v-if="!memoryStore.selectedNamespace && !memoryStore.searchQuery"
-        class="flex w-full flex-col"
-      >
+      <div class="flex w-full flex-col">
         <div
-          v-if="memoryStore.namespaces.length === 0 && !memoryStore.isLoading"
-          class="flex h-32 items-center justify-center"
+          v-if="memoryStore.namespaces.length > 0"
+          class="flex flex-wrap gap-2 border-b border-[var(--pg-border)] px-4 py-2"
         >
-          <p class="text-sm text-[var(--pg-text-muted)]">
-            No memory namespaces found.
-          </p>
+          <span class="text-[10px] text-[var(--pg-text-muted)]">Recent:</span>
+          <button
+            v-for="ns in memoryStore.namespaces"
+            :key="ns.name"
+            class="rounded-sm bg-[var(--pg-surface-raised)] px-2 py-0.5 text-[10px] text-[var(--pg-text-secondary)] hover:text-[var(--pg-text)]"
+            @click="handleNamespaceLoad(ns.name)"
+          >
+            {{ ns.name }} ({{ ns.recordCount }})
+          </button>
         </div>
-
-        <button
-          v-for="ns in memoryStore.namespaces"
-          :key="ns.name"
-          class="flex items-center justify-between border-b border-[var(--pg-border-subtle)] px-4 py-3 text-left transition-colors hover:bg-[var(--pg-surface-raised)]"
-          @click="handleNamespaceClick(ns.name)"
-        >
-          <span class="text-sm text-[var(--pg-text)]">{{ ns.name }}</span>
-          <span class="text-xs text-[var(--pg-text-muted)]">{{ ns.recordCount }} records</span>
-        </button>
-      </div>
-
-      <!-- Records display -->
-      <div
-        v-else
-        class="flex w-full flex-col"
-      >
-        <!-- Back button -->
-        <button
-          v-if="memoryStore.selectedNamespace"
-          class="flex items-center gap-1 border-b border-[var(--pg-border)] px-4 py-2 text-xs text-[var(--pg-accent)] hover:underline"
-          @click="memoryStore.clearSelection()"
-        >
-          &larr; Back to namespaces
-        </button>
 
         <div
           v-if="memoryStore.filteredRecords.length === 0 && !memoryStore.isLoading"
           class="flex h-32 items-center justify-center"
         >
           <p class="text-sm text-[var(--pg-text-muted)]">
-            No records found.
+            Load a namespace to browse records.
           </p>
         </div>
 

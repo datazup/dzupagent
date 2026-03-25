@@ -19,7 +19,12 @@ async function fetchRuns(): Promise<void> {
   error.value = null
   try {
     const result = await get<ApiResponse<RunHistoryEntry[]>>('/api/runs?limit=50')
-    runs.value = result.data
+    runs.value = result.data.map((run) => ({
+      ...run,
+      durationMs: run.completedAt
+        ? Math.max(0, new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime())
+        : undefined,
+    }))
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch runs'
   } finally {
@@ -115,7 +120,7 @@ onMounted(() => {
           {{ run.id }}
         </div>
         <div class="text-[10px] text-[var(--pg-text-muted)]">
-          {{ formatTimestamp(run.createdAt) }}
+          {{ formatTimestamp(run.startedAt) }}
         </div>
       </div>
 

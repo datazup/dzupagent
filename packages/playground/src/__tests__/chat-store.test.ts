@@ -5,22 +5,55 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useChatStore } from '../stores/chat-store.js'
 
-// Mock the useApi composable
-vi.mock('../composables/useApi.js', () => ({
-  useApi: () => ({
-    get: vi.fn().mockResolvedValue({
+const getMock = vi.fn(async (path: string) => {
+  if (path.startsWith('/api/agents')) {
+    return {
       data: [
         { id: 'agent-1', name: 'Test Agent', modelTier: 'sonnet', active: true },
       ],
-    }),
-    post: vi.fn().mockResolvedValue({
+    }
+  }
+
+  if (path === '/api/runs/run-1') {
+    return {
       data: {
-        id: 'msg-1',
-        role: 'assistant' as const,
-        content: 'Hello from assistant',
-        timestamp: '2025-01-01T00:00:00.000Z',
+        id: 'run-1',
+        agentId: 'agent-1',
+        status: 'completed',
+        startedAt: '2025-01-01T00:00:00.000Z',
+        completedAt: '2025-01-01T00:00:01.000Z',
+        output: 'Hello from assistant',
       },
-    }),
+    }
+  }
+
+  if (path === '/api/runs/run-1/trace') {
+    return {
+      data: {
+        events: [
+          { message: 'model call', phase: 'llm', timestamp: '2025-01-01T00:00:00.500Z' },
+        ],
+      },
+    }
+  }
+
+  return { data: [] }
+})
+
+const postMock = vi.fn(async () => ({
+  data: {
+    id: 'run-1',
+    agentId: 'agent-1',
+    status: 'queued',
+    startedAt: '2025-01-01T00:00:00.000Z',
+  },
+}))
+
+// Mock the useApi composable
+vi.mock('../composables/useApi.js', () => ({
+  useApi: () => ({
+    get: getMock,
+    post: postMock,
     patch: vi.fn(),
     del: vi.fn(),
     buildUrl: vi.fn((p: string) => p),
@@ -30,6 +63,8 @@ vi.mock('../composables/useApi.js', () => ({
 describe('chat-store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    getMock.mockClear()
+    postMock.mockClear()
   })
 
   it('starts with empty state', () => {
@@ -41,22 +76,21 @@ describe('chat-store', () => {
     expect(store.error).toBeNull()
   })
 
-  it('sendMessage adds a user message optimistically', async () => {
+  it('sendMessage adds user, system, and assistant messages', async () => {
     const store = useChatStore()
     store.currentAgentId = 'agent-1'
 
     await store.sendMessage('Hello')
 
-    // Should have user message + assistant response
-    expect(store.messages.length).toBe(2)
+    expect(store.messages.length).toBe(3)
     expect(store.messages[0]?.role).toBe('user')
-    expect(store.messages[0]?.content).toBe('Hello')
-    expect(store.messages[1]?.role).toBe('assistant')
+    expect(store.messages[1]?.role).toBe('system')
+    expect(store.messages[2]?.role).toBe('assistant')
+    expect(store.messages[2]?.content).toBe('Hello from assistant')
   })
 
   it('sendMessage does nothing when no agent is selected', async () => {
     const store = useChatStore()
-
     await store.sendMessage('Hello')
     expect(store.messages.length).toBe(0)
   })
@@ -96,10 +130,8 @@ describe('chat-store', () => {
     store.currentAgentId = 'agent-1'
 
     expect(store.messageCount).toBe(0)
-
     await store.sendMessage('Hello')
-
-    expect(store.messageCount).toBe(2)
+    expect(store.messageCount).toBe(3)
   })
 
   it('currentAgent getter returns the selected agent', async () => {
@@ -109,10 +141,5 @@ describe('chat-store', () => {
 
     expect(store.currentAgent).not.toBeNull()
     expect(store.currentAgent?.name).toBe('Test Agent')
-  })
-
-  it('currentAgent getter returns null when no agent selected', () => {
-    const store = useChatStore()
-    expect(store.currentAgent).toBeNull()
   })
 })

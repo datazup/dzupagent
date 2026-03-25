@@ -40,8 +40,6 @@ import { SharedWorkspace } from './shared-workspace.js'
 import { TeamCoordinator } from './team-coordinator.js'
 import type {
   AgentSpawnConfig,
-  AgentStatus,
-  CoordinationPattern,
   PlaygroundEvent,
   SpawnedAgent,
   TeamConfig,

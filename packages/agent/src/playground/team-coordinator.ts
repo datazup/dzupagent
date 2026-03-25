@@ -13,7 +13,6 @@
  *   back. After all rounds, the workspace state is collected as the output.
  */
 import { HumanMessage } from '@langchain/core/messages'
-import type { ForgeAgent } from '../agent/forge-agent.js'
 import { AgentOrchestrator } from '../orchestration/orchestrator.js'
 import { getMergeStrategy, type MergeStrategyFn } from '../orchestration/merge-strategies.js'
 import { SharedWorkspace } from './shared-workspace.js'
@@ -188,8 +187,6 @@ export class TeamCoordinator {
     config: TeamConfig,
   ): Promise<TeamRunResult> {
     const startTime = Date.now()
-    const agents = spawned.map(s => s.agent)
-
     // Resolve merge strategy
     const mergeFn = this.resolveMerge(config.mergeStrategy)
 

@@ -45,6 +45,7 @@ export const useWsStore = defineStore('ws', () => {
       return
     }
 
+    clearReconnectTimer()
     const delay = BASE_DELAY_MS * Math.pow(2, retryCount.value)
     retryCount.value++
 
@@ -55,6 +56,8 @@ export const useWsStore = defineStore('ws', () => {
 
   /** Connect to a WebSocket URL */
   function connect(url: string): void {
+    clearReconnectTimer()
+
     if (ws) {
       intentionalClose = true
       ws.close()

@@ -75,8 +75,11 @@ export interface RunHistoryEntry {
   id: string
   agentId: string
   status: string
-  createdAt: string
+  startedAt: string
+  completedAt?: string
   durationMs?: number
+  output?: unknown
+  error?: string
 }
 
 /** Standard API response wrapper */

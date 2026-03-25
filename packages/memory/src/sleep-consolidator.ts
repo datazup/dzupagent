@@ -154,6 +154,9 @@ export class SleepConsolidator {
       let pruned = 0
       let contradictionsFound = 0
       let healed = 0
+      let lessonsDeduplicated = 0
+      let conventionsExtracted = 0
+      let stalenessPruned = 0
 
       // Phase 1: Semantic dedup
       if (this.phases.includes('dedup') && totalLLMCalls < this.maxLLMCalls) {
@@ -210,7 +213,97 @@ export class SleepConsolidator {
         }
       }
 
-      results.push({ namespace, deduplicated, pruned, contradictionsFound, healed })
+      // Phase 5 (M4): Lesson deduplication
+      if (this.phases.includes('lesson-dedup')) {
+        try {
+          const items = await store.search(namespace, { limit: this.maxRecordsPerNamespace })
+          const entries = items.map(item =>
+            parseMemoryEntry(item.key, item.value as Record<string, unknown>),
+          )
+          const result = dedupLessons(entries, this.config.lessonDedupThreshold)
+          // Delete the merged-away keys from the store
+          for (const group of result.deduplicated) {
+            for (const mergedKey of group.mergedKeys) {
+              if (mergedKey !== group.entry.key) {
+                try {
+                  await store.delete(namespace, mergedKey)
+                  lessonsDeduplicated++
+                } catch {
+                  // Non-fatal — single delete failed
+                }
+              }
+            }
+          }
+        } catch {
+          // Non-fatal — lesson dedup failed, continue
+        }
+      }
+
+      // Phase 6 (M4): Convention extraction
+      if (this.phases.includes('convention-extract')) {
+        try {
+          const items = await store.search(namespace, { limit: this.maxRecordsPerNamespace })
+          const entries = items.map(item =>
+            parseMemoryEntry(item.key, item.value as Record<string, unknown>),
+          )
+          const result = extractConventions(entries, this.config.conventionExtractThreshold)
+          // Store extracted conventions back into a sub-namespace
+          for (const conv of result.conventions) {
+            try {
+              await store.put(
+                [...namespace, '__extracted_conventions'],
+                conv.id,
+                {
+                  text: `${conv.name}: ${conv.description}`,
+                  name: conv.name,
+                  category: conv.category,
+                  description: conv.description,
+                  examples: conv.examples,
+                  occurrences: conv.occurrences,
+                  confidence: conv.confidence,
+                  sourceKeys: conv.sourceKeys,
+                  extractedAt: new Date().toISOString(),
+                },
+              )
+              conventionsExtracted++
+            } catch {
+              // Non-fatal — convention store failed
+            }
+          }
+        } catch {
+          // Non-fatal — convention extraction failed, continue
+        }
+      }
+
+      // Phase 7 (M4): Staleness pruning
+      if (this.phases.includes('staleness-prune')) {
+        try {
+          const items = await store.search(namespace, { limit: this.maxRecordsPerNamespace })
+          const entries = items.map(item =>
+            parseMemoryEntry(item.key, item.value as Record<string, unknown>),
+          )
+          const result = pruneStaleMemories(entries, {
+            maxStaleness: this.config.stalenessThreshold,
+            maxAgeDays: this.config.stalenessMaxAgeDays,
+            importanceThreshold: this.config.stalenessImportanceThreshold,
+          })
+          for (const entry of result.pruned) {
+            try {
+              await store.delete(namespace, entry.key)
+              stalenessPruned++
+            } catch {
+              // Non-fatal — single delete failed
+            }
+          }
+        } catch {
+          // Non-fatal — staleness pruning failed, continue
+        }
+      }
+
+      results.push({
+        namespace, deduplicated, pruned, contradictionsFound, healed,
+        lessonsDeduplicated, conventionsExtracted, stalenessPruned,
+      })
     }
 
     return {

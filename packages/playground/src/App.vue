@@ -5,10 +5,66 @@
  * Provides the sidebar + main content area shell.
  * The sidebar contains branding and navigation links.
  */
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useWsStore } from './stores/ws-store.js'
+import { useTraceStore } from './stores/trace-store.js'
+import type { TraceEvent, WsEvent } from './types.js'
 
 const wsStore = useWsStore()
+const traceStore = useTraceStore()
+
+function traceTypeFromWsEvent(type: string): TraceEvent['type'] {
+  if (type.startsWith('tool:')) return 'tool'
+  if (type.startsWith('memory:')) return 'memory'
+  if (type.startsWith('approval:') || type.startsWith('policy:') || type.startsWith('safety:')) return 'guardrail'
+  if (type.startsWith('agent:') || type.startsWith('pipeline:') || type.startsWith('provider:')) return 'llm'
+  return 'system'
+}
+
+function traceNameFromWsEvent(event: WsEvent): string {
+  if (typeof event['message'] === 'string') return event['message']
+  if (typeof event['toolName'] === 'string') return `${event.type} (${event['toolName']})`
+  if (typeof event['phase'] === 'string') return `${event.type} (${event['phase']})`
+  if (typeof event['namespace'] === 'string') return `${event.type} (${event['namespace']})`
+  return event.type
+}
+
+function toWsUrl(): string {
+  const explicit = import.meta.env.VITE_WS_URL
+  if (typeof explicit === 'string' && explicit.trim()) {
+    return explicit
+  }
+
+  const url = new URL(window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  url.pathname = import.meta.env.VITE_WS_PATH || '/ws'
+  url.search = ''
+  url.hash = ''
+  return url.toString()
+}
+
+onMounted(() => {
+  wsStore.connect(toWsUrl())
+})
+
+onUnmounted(() => {
+  wsStore.disconnect()
+})
+
+watch(
+  () => wsStore.lastEvent,
+  (event) => {
+    if (!event) return
+    traceStore.addEvent({
+      id: `ws-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      type: traceTypeFromWsEvent(event.type),
+      name: traceNameFromWsEvent(event),
+      startedAt: event.timestamp ?? new Date().toISOString(),
+      durationMs: typeof event['durationMs'] === 'number' ? event['durationMs'] : 1,
+      metadata: event,
+    })
+  },
+)
 
 const connectionClass = computed(() => {
   switch (wsStore.state) {

@@ -83,9 +83,11 @@ export class EventBridge {
         continue
       }
 
-      // Apply filter: if client subscribed to a specific runId, only send matching events
-      if (filter.runId && eventRunId && filter.runId !== eventRunId) {
-        continue
+      // Apply filter: run-scoped clients only receive events that carry that runId.
+      if (filter.runId) {
+        if (!eventRunId || filter.runId !== eventRunId) {
+          continue
+        }
       }
 
       try {

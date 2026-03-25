@@ -105,6 +105,8 @@ export { TracePrinter } from './cli/trace-printer.js'
 export { configValidate, configShow } from './cli/config-command.js'
 export { memoryBrowse, memorySearch } from './cli/memory-command.js'
 export type { MemoryBrowseOptions, MemoryBrowseEntry, MemorySearchResult } from './cli/memory-command.js'
+export { vectordbStatus, formatVectorDBStatus } from './cli/vectordb-command.js'
+export type { VectorDBStatusResult } from './cli/vectordb-command.js'
 export {
   searchMarketplace,
   filterByCategory,

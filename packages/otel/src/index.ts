@@ -39,6 +39,10 @@ export type { ForgeTracerConfig, ForgeTraceSnapshot } from './tracer.js'
 export { EVENT_METRIC_MAP, getAllMetricNames } from './event-metric-map.js'
 export type { MetricMapping } from './event-metric-map.js'
 
+// --- Vector Metrics (VEC-017) ---
+export { VectorMetricsCollector } from './vector-metrics.js'
+export type { VectorMetrics, VectorMetricsReport } from './vector-metrics.js'
+
 // --- OTel Bridge ---
 export { OTelBridge, InMemoryMetricSink } from './otel-bridge.js'
 export type { OTelBridgeConfig, MetricSink } from './otel-bridge.js'

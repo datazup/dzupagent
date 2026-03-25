@@ -15,7 +15,7 @@
  */
 import { Hono } from 'hono'
 import { readFile, stat } from 'node:fs/promises'
-import { resolve, extname } from 'node:path'
+import { resolve, extname, sep } from 'node:path'
 
 export interface PlaygroundRouteConfig {
   /** Absolute path to the built playground dist/ directory */
@@ -48,6 +48,15 @@ function isStaticAsset(path: string): boolean {
   return ext.length > 0 && ext !== '.html'
 }
 
+function resolveWithinRoot(rootDir: string, ...segments: string[]): string | null {
+  const root = resolve(rootDir)
+  const resolved = resolve(root, ...segments)
+  if (resolved === root || resolved.startsWith(`${root}${sep}`)) {
+    return resolved
+  }
+  return null
+}
+
 export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono {
   const app = new Hono()
 
@@ -76,7 +85,8 @@ export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono {
   // Serve static assets (JS, CSS, images, fonts)
   app.get('/assets/:path{.+}', async (c) => {
     const assetRelative = c.req.param('path')
-    const filePath = resolve(config.distDir, 'assets', assetRelative)
+    const filePath = resolveWithinRoot(config.distDir, 'assets', assetRelative)
+    if (!filePath) return c.notFound()
     const response = await serveFile(filePath, 'public, max-age=31536000, immutable')
     return response ?? c.notFound()
   })
@@ -87,7 +97,8 @@ export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono {
 
     // Try to serve the exact file if it looks like a static asset
     if (isStaticAsset(requestPath)) {
-      const filePath = resolve(config.distDir, requestPath)
+      const filePath = resolveWithinRoot(config.distDir, requestPath)
+      if (!filePath) return c.notFound()
       const response = await serveFile(filePath, 'public, max-age=3600')
       if (response) return response
       return c.notFound()
@@ -97,8 +108,7 @@ export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono {
     const indexPath = resolve(config.distDir, 'index.html')
     const response = await serveFile(indexPath, 'no-cache')
     if (response) {
-      // Override content-type to text/html for the SPA fallback
-      return c.html(await readFile(indexPath, 'utf-8'))
+      return response
     }
     return c.text('Playground not built. Run: yarn workspace @forgeagent/playground build', 404)
   })

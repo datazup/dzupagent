@@ -64,6 +64,12 @@ describe('playground routes', () => {
     expect(res.status).toBe(404)
   })
 
+  it('blocks path traversal for assets', async () => {
+    const app = createTestApp()
+    const res = await app.request('/playground/assets/../../index.html')
+    expect(res.status).toBe(404)
+  })
+
   it('SPA fallback: serves index.html for arbitrary non-asset routes', async () => {
     const app = createTestApp()
     const res = await app.request('/playground/some/deep/route')
@@ -77,5 +83,11 @@ describe('playground routes', () => {
     const res = await app.request('/playground/favicon.ico')
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toContain('image/x-icon')
+  })
+
+  it('blocks path traversal for static files', async () => {
+    const app = createTestApp()
+    const res = await app.request('/playground/../../index.html')
+    expect(res.status).toBe(404)
   })
 })

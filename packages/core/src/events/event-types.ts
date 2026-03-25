@@ -90,6 +90,11 @@ export type ForgeEvent =
   | { type: 'safety:kill_requested'; agentId: string; reason: string }
   | { type: 'memory:threat_detected'; threatType: string; namespace: string; key?: string }
   | { type: 'memory:quarantined'; namespace: string; key: string; reason: string }
+  // --- Vector Store ---
+  | { type: 'vector:search_completed'; provider: string; collection: string; latencyMs: number; resultCount: number }
+  | { type: 'vector:upsert_completed'; provider: string; collection: string; count: number; latencyMs: number }
+  | { type: 'vector:embedding_completed'; provider: string; latencyMs: number; tokenCount?: number; costCents?: number }
+  | { type: 'vector:error'; provider: string; collection: string; operation: string; message: string }
   // --- Hooks / plugins ---
   | { type: 'hook:error'; hookName: string; message: string }
   | { type: 'plugin:registered'; pluginName: string }
