@@ -897,6 +897,10 @@ export const EVENT_METRIC_MAP: Record<ForgeEvent['type'], MetricMapping[]> = {
   // --- Hooks / plugins (no metrics, just span events) ---
   'hook:error': [],
   'plugin:registered': [],
+
+  // --- Agent streaming ---
+  'agent:stream_delta': [],
+  'agent:stream_done': [],
 }
 
 /**
