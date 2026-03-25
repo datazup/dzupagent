@@ -258,7 +258,7 @@ export function shouldSummarize(
     return sum + getMessageContent(m).length
   }, 0)
 
-  return estimateTokens(totalChars.toString(), cfg.charsPerToken) > cfg.maxMessageTokens
+  return Math.ceil(totalChars / cfg.charsPerToken) > cfg.maxMessageTokens
 }
 
 /**

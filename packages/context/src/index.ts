@@ -20,6 +20,10 @@ export type { MessageManagerConfig } from './message-manager.js'
 export { autoCompress, FrozenSnapshot } from './auto-compress.js'
 export type { AutoCompressConfig, CompressResult } from './auto-compress.js'
 
+// --- Extraction Bridge ---
+export { createExtractionHook } from './extraction-bridge.js'
+export type { MessageExtractionFn } from './extraction-bridge.js'
+
 // --- Completeness Scoring ---
 export { scoreCompleteness } from './completeness-scorer.js'
 export type { CompletenessResult, DescriptionInput } from './completeness-scorer.js'
@@ -32,5 +36,29 @@ export type { EvictionConfig, EvictionResult } from './context-eviction.js'
 export { SystemReminderInjector } from './system-reminder.js'
 export type { SystemReminderConfig, ReminderContent } from './system-reminder.js'
 
+// --- Phase-Aware Windowing ---
+export { PhaseAwareWindowManager, DEFAULT_PHASES } from './phase-window.js'
+export type {
+  ConversationPhase,
+  PhaseConfig,
+  MessageRetention,
+  PhaseDetection,
+  PhaseWindowConfig,
+} from './phase-window.js'
+
+// --- Progressive Compression ---
+export { compressToLevel, compressToBudget, selectCompressionLevel } from './progressive-compress.js'
+export type { CompressionLevel, ProgressiveCompressConfig, ProgressiveCompressResult } from './progressive-compress.js'
+
 // --- Prompt Cache ---
 export { applyAnthropicCacheControl, applyCacheBreakpoints } from './prompt-cache.js'
+
+// --- Context Transfer ---
+export { ContextTransferService } from './context-transfer.js'
+export type {
+  IntentContext,
+  IntentType,
+  ContextTransferConfig,
+  IntentRelevanceRule,
+  TransferScope,
+} from './context-transfer.js'

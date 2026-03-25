@@ -22,6 +22,14 @@ import {
 export interface AutoCompressConfig extends MessageManagerConfig {
   /** If true, memory context is frozen at init and not reloaded mid-session */
   frozenSnapshot?: boolean
+
+  /**
+   * Hook called with the old messages that are about to be summarized away.
+   * Use this to extract observations or other data before compression.
+   * The hook receives the messages that will be lost after summarization.
+   * Non-blocking: errors in the hook don't prevent compression.
+   */
+  onBeforeSummarize?: (messages: BaseMessage[]) => Promise<void> | void
 }
 
 export interface CompressResult {
@@ -44,6 +52,18 @@ export async function autoCompress(
 ): Promise<CompressResult> {
   if (!shouldSummarize(messages, config)) {
     return { messages, summary: existingSummary, compressed: false }
+  }
+
+  // Call the pre-summarize hook with messages that are about to be compressed away.
+  // Uses keepRecentMessages (default 10) to estimate which messages will be lost.
+  const keep = config?.keepRecentMessages ?? 10
+  if (messages.length > keep && config?.onBeforeSummarize) {
+    const oldMessages = messages.slice(0, messages.length - keep)
+    try {
+      await config.onBeforeSummarize(oldMessages)
+    } catch {
+      // Non-fatal: extraction failure must not prevent compression
+    }
   }
 
   // summarizeAndTrim internally runs:
