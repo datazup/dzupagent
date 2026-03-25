@@ -10,6 +10,9 @@
  *   2. decay-prune     — Remove memories below a decay-strength threshold
  *   3. contradiction-resolve — Report contradictions found during dedup
  *   4. heal            — Heuristic duplicate/staleness/contradiction scan
+ *   5. lesson-dedup    — Jaccard-based lesson deduplication (M4)
+ *   6. convention-extract — Extract conventions from memory patterns (M4)
+ *   7. staleness-prune — Score-based staleness pruning for pinned/important-aware cleanup (M4)
  *
  * All phases are non-fatal: errors are caught and the run continues.
  */
@@ -21,6 +24,10 @@ import { SemanticConsolidator } from './semantic-consolidation.js'
 import type { DecayMetadata } from './decay-engine.js'
 import { findWeakMemories } from './decay-engine.js'
 import { healMemory } from './memory-healer.js'
+import { dedupLessons } from './lesson-dedup.js'
+import { extractConventions } from './convention/convention-extractor-m4.js'
+import { pruneStaleMemories } from './staleness-pruner.js'
+import { parseMemoryEntry } from './consolidation-types.js'
 
 // ---------------------------------------------------------------------------
 // Types
