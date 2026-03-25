@@ -9,6 +9,7 @@
  * Conventions are stored via MemoryService in a dedicated namespace.
  */
 import type { MemoryService } from '../memory-service.js'
+import type { SemanticStoreAdapter } from '../memory-types.js'
 import type {
   ConventionExtractorConfig,
   ConventionFilter,
@@ -126,11 +127,13 @@ export class ConventionExtractor {
   private readonly memoryService: MemoryService
   private readonly llm: ((prompt: string) => Promise<string>) | undefined
   private readonly namespace: string
+  private readonly semanticStore: SemanticStoreAdapter | undefined
 
   constructor(config: ConventionExtractorConfig) {
     this.memoryService = config.memoryService
     this.llm = config.llm
     this.namespace = config.namespace ?? DEFAULT_NAMESPACE
+    this.semanticStore = config.semanticStore
   }
 
   // ---------------------------------------------------------------------------
@@ -169,6 +172,24 @@ export class ConventionExtractor {
       }
     }
 
+    // Auto-embed conventions into SemanticStore (non-fatal)
+    if (this.semanticStore && results.length > 0) {
+      await this.semanticStore.upsert(
+        'conventions',
+        results.map(c => ({
+          id: c.id,
+          text: `${c.name}: ${c.description}. Category: ${c.category}. Pattern: ${c.pattern ?? ''}`,
+          metadata: {
+            category: c.category,
+            confidence: c.confidence,
+            techStack: c.techStack ?? '',
+          },
+        })),
+      ).catch(() => {
+        // Non-fatal: vector indexing failures should not break convention analysis
+      })
+    }
+
     return results
   }
 
@@ -196,6 +217,31 @@ export class ConventionExtractor {
     if (filter?.minConfidence !== undefined) {
       const min = filter.minConfidence
       conventions = conventions.filter(c => c.confidence >= min)
+    }
+
+    // Semantic re-ranking when query and semanticStore are available
+    if (filter?.query && this.semanticStore && conventions.length > 0) {
+      try {
+        const semanticResults = await this.semanticStore.search(
+          'conventions',
+          filter.query,
+          20,
+        )
+        // Build a score map from semantic results
+        const scoreMap = new Map<string, number>()
+        for (const sr of semanticResults) {
+          scoreMap.set(sr.id, sr.score)
+        }
+        // Sort conventions: those matching semantic results get boosted to top,
+        // ordered by semantic score; non-matching ones keep their original order at bottom
+        conventions.sort((a, b) => {
+          const scoreA = scoreMap.get(a.id) ?? -1
+          const scoreB = scoreMap.get(b.id) ?? -1
+          return scoreB - scoreA
+        })
+      } catch {
+        // Non-fatal: semantic search failure should not break getConventions
+      }
     }
 
     return conventions

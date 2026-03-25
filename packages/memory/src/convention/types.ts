@@ -5,6 +5,7 @@
  * from code samples and check conformance of new code against them.
  */
 import type { MemoryService } from '../memory-service.js'
+import type { SemanticStoreAdapter } from '../memory-types.js'
 
 export type ConventionCategory =
   | 'naming'
@@ -74,12 +75,16 @@ export interface ConventionExtractorConfig {
   llm?: (prompt: string) => Promise<string>
   /** Namespace for storing conventions (default: '__conventions') */
   namespace?: string
+  /** Optional semantic store for auto-embedding and semantic retrieval of conventions */
+  semanticStore?: SemanticStoreAdapter
 }
 
 export interface ConventionFilter {
   category?: ConventionCategory
   techStack?: string
   minConfidence?: number
+  /** Semantic query for ranking conventions by relevance (requires semanticStore) */
+  query?: string
 }
 
 export interface ConsolidateOptions {

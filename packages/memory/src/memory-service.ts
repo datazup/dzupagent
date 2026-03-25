@@ -14,7 +14,7 @@
  *   const records = await svc.get('decisions', { projectId: 'p1' })
  */
 import type { BaseStore } from '@langchain/langgraph'
-import type { NamespaceConfig, FormatOptions } from './memory-types.js'
+import type { NamespaceConfig, FormatOptions, SemanticStoreAdapter } from './memory-types.js'
 import { sanitizeMemoryContent } from './memory-sanitizer.js'
 import { scoreWithDecay } from './decay-engine.js'
 import type { DecayMetadata } from './decay-engine.js'
@@ -22,14 +22,16 @@ import type { DecayMetadata } from './decay-engine.js'
 export class MemoryService {
   private readonly nsMap: Map<string, NamespaceConfig>
   private readonly rejectUnsafe: boolean
+  private readonly semanticStore: SemanticStoreAdapter | undefined
 
   constructor(
     private readonly store: BaseStore,
     namespaces: NamespaceConfig[],
-    options?: { rejectUnsafe?: boolean },
+    options?: { rejectUnsafe?: boolean; semanticStore?: SemanticStoreAdapter },
   ) {
     this.nsMap = new Map(namespaces.map(ns => [ns.name, ns]))
     this.rejectUnsafe = options?.rejectUnsafe ?? true
+    this.semanticStore = options?.semanticStore
   }
 
   // ---------- Internals -------------------------------------------------------
@@ -114,6 +116,21 @@ export class MemoryService {
         key,
         enriched,
       )
+
+      // Auto-index into SemanticStore for vector search (non-fatal)
+      if (this.semanticStore && ns.searchable) {
+        const text = typeof enriched['text'] === 'string'
+          ? enriched['text']
+          : JSON.stringify(enriched)
+        const collectionName = `memory_${namespace}`
+        await this.semanticStore.upsert(collectionName, [{
+          id: key,
+          text,
+          metadata: { namespace, ...scope },
+        }]).catch(() => {
+          // Non-fatal — vector indexing failures should not break pipelines
+        })
+      }
     } catch {
       // Non-fatal — memory write failures should not break pipelines
     }
@@ -176,8 +193,13 @@ export class MemoryService {
         const finalScore = decayMeta
           ? scoreWithDecay(relevance, decayMeta, now)
           : relevance
-        return { value, finalScore }
+        return { value, finalScore, key: r.key }
       })
+
+      // If SemanticStore available, fuse keyword + vector results via RRF
+      if (this.semanticStore) {
+        return this.fuseWithVector(namespace, query, scored, limit)
+      }
 
       // Re-sort by decay-weighted score (descending) and trim to requested limit
       scored.sort((a, b) => b.finalScore - a.finalScore)
@@ -185,6 +207,63 @@ export class MemoryService {
     } catch {
       return []
     }
+  }
+
+  /**
+   * Fuse keyword search results with vector search results using
+   * Reciprocal Rank Fusion (RRF): score = sum(1 / (k + rank)) per result.
+   */
+  private async fuseWithVector(
+    namespace: string,
+    query: string,
+    keywordScored: Array<{ value: Record<string, unknown>; finalScore: number; key: string }>,
+    limit: number,
+  ): Promise<Record<string, unknown>[]> {
+    const RRF_K = 60
+
+    // Sort keyword results by finalScore descending for rank assignment
+    const sortedKeyword = [...keywordScored].sort((a, b) => b.finalScore - a.finalScore)
+
+    // Build RRF accumulator keyed by record key
+    const fused = new Map<string, { value: Record<string, unknown>; rrfScore: number }>()
+
+    // Add keyword results with RRF score
+    for (let rank = 0; rank < sortedKeyword.length; rank++) {
+      const item = sortedKeyword[rank]!
+      const rrfScore = 1 / (RRF_K + rank)
+      fused.set(item.key, { value: item.value, rrfScore })
+    }
+
+    // Run vector search (non-fatal — fall back to keyword-only on error)
+    try {
+      const collectionName = `memory_${namespace}`
+      const vectorResults = await this.semanticStore!.search(collectionName, query, limit)
+
+      for (let rank = 0; rank < vectorResults.length; rank++) {
+        const vr = vectorResults[rank]!
+        const rrfScore = 1 / (RRF_K + rank)
+        const existing = fused.get(vr.id)
+        if (existing) {
+          existing.rrfScore += rrfScore
+        } else {
+          // Vector-only result: reconstruct value from metadata
+          fused.set(vr.id, {
+            value: { text: vr.text, ...vr.metadata },
+            rrfScore,
+          })
+        }
+      }
+    } catch {
+      // Vector search failed — fall back to keyword-only results
+    }
+
+    // Sort by combined RRF score descending
+    const fusedArray = [...fused.values()]
+      .sort((a, b) => b.rrfScore - a.rrfScore)
+      .slice(0, limit)
+      .map(f => f.value)
+
+    return fusedArray
   }
 
   // ---------- Formatting ------------------------------------------------------

@@ -42,3 +42,6 @@ export { InMemoryRegistry } from './in-memory-registry.js'
 // --- Semantic search (ECO-050) ---
 export { KeywordFallbackSearch, createKeywordFallbackSearch } from './semantic-search.js'
 export type { SemanticSearchProvider } from './semantic-search.js'
+
+// --- Vector-backed semantic search (VEC-011) ---
+export { VectorStoreSemanticSearch } from './vector-semantic-search.js'

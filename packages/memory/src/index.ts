@@ -14,7 +14,7 @@ export type { StoreConfig, StoreIndexConfig } from './store-factory.js'
 export { MemoryService } from './memory-service.js'
 
 // --- Types ---
-export type { NamespaceConfig, FormatOptions, DecayConfig } from './memory-types.js'
+export type { NamespaceConfig, FormatOptions, DecayConfig, SemanticStoreAdapter } from './memory-types.js'
 
 // --- Decay Engine ---
 export { calculateStrength, reinforceMemory, createDecayMetadata, scoreWithDecay, findWeakMemories } from './decay-engine.js'
@@ -69,6 +69,7 @@ export type { WritePolicy, WriteAction } from './write-policy.js'
 
 // --- Retrieval ---
 export { StoreVectorSearch } from './retrieval/vector-search.js'
+export { VectorStoreSearch } from './retrieval/vector-store-search.js'
 export type { VectorSearchResult, VectorSearchProvider } from './retrieval/vector-search.js'
 
 export { KeywordFTSSearch } from './retrieval/fts-search.js'
@@ -228,3 +229,24 @@ export type {
   AttachmentStorageProvider,
   MultiModalMemoryServiceConfig,
 } from './multi-modal/index.js'
+
+// --- M4 Consolidation Types ---
+export { parseMemoryEntry } from './consolidation-types.js'
+export type {
+  MemoryEntry,
+  LessonDedupResult,
+  DedupLesson,
+  StalenessPruneResult,
+  ExtractedConvention,
+  ConventionExtractionResult,
+} from './consolidation-types.js'
+
+// --- M4 Lesson Deduplication ---
+export { dedupLessons } from './lesson-dedup.js'
+
+// --- M4 Convention Extraction from Memories ---
+export { extractConventions } from './convention/convention-extractor-m4.js'
+
+// --- M4 Staleness Pruner ---
+export { pruneStaleMemories, computeStaleness } from './staleness-pruner.js'
+export type { StalenessPrunerOptions } from './staleness-pruner.js'

@@ -71,5 +71,10 @@ export type ForgeErrorCode =
   // --- Policy errors ---
   | 'POLICY_DENIED'
   | 'POLICY_INVALID'
+  // --- VectorStore errors ---
+  | 'VECTOR_COLLECTION_NOT_FOUND'
+  | 'VECTOR_COLLECTION_EXISTS'
+  | 'VECTOR_DIMENSION_MISMATCH'
+  | 'VECTOR_STORE_UNAVAILABLE'
   // --- General ---
   | 'INTERNAL_ERROR'

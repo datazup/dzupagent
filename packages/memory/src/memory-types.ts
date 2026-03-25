@@ -32,3 +32,38 @@ export interface FormatOptions {
   /** Header line prepended to the formatted output */
   header?: string
 }
+
+/**
+ * Minimal interface for a semantic store that MemoryService can use
+ * for vector-backed search and auto-indexing.
+ *
+ * This is deliberately decoupled from @forgeagent/core's SemanticStore class
+ * to avoid circular dependencies. Any object implementing this interface
+ * (including SemanticStore) can be passed to MemoryService.
+ */
+export interface SemanticStoreAdapter {
+  /** Search a collection by text query, returning scored documents */
+  search(
+    collection: string,
+    query: string,
+    limit: number,
+  ): Promise<Array<{ id: string; text: string; score: number; metadata: Record<string, unknown> }>>
+
+  /** Upsert documents with automatic embedding */
+  upsert(
+    collection: string,
+    docs: Array<{ id: string; text: string; metadata?: Record<string, unknown> }>,
+  ): Promise<void>
+
+  /** Delete documents by IDs or metadata filter */
+  delete(
+    collection: string,
+    filter: { ids: string[] } | { filter: unknown },
+  ): Promise<void>
+
+  /** Ensure a collection exists */
+  ensureCollection(
+    collection: string,
+    config?: { dimensions?: number; metric?: string; metadata?: Record<string, string> },
+  ): Promise<void>
+}

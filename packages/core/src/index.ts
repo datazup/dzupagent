@@ -101,6 +101,7 @@ export {
   defaultWritePolicy, composePolicies,
   // Retrieval — base
   StoreVectorSearch,
+  VectorStoreSearch,
   KeywordFTSSearch,
   EntityGraphSearch,
   fusionSearch,
@@ -154,7 +155,7 @@ export {
 export type {
   // Core types
   StoreConfig, StoreIndexConfig,
-  NamespaceConfig, FormatOptions, DecayConfig,
+  NamespaceConfig, FormatOptions, DecayConfig, SemanticStoreAdapter,
   DecayMetadata,
   SanitizeResult,
   ConsolidationConfig, ConsolidationResult,
@@ -640,6 +641,8 @@ export type { CapabilityTree, CapabilityTreeNode } from './registry/index.js'
 // Registry — semantic search (ECO-050)
 export { KeywordFallbackSearch, createKeywordFallbackSearch } from './registry/index.js'
 export type { SemanticSearchProvider } from './registry/index.js'
+// Registry — vector-backed semantic search (VEC-011)
+export { VectorStoreSemanticSearch } from './registry/index.js'
 
 // --- Pipeline ---
 export type {
@@ -716,6 +719,58 @@ export type {
 
 // --- Memory IPC (optional, requires @forgeagent/memory-ipc peer) ---
 export * from './memory-ipc.js'
+
+// --- VectorDB ---
+export type {
+  DistanceMetric,
+  CollectionConfig,
+  VectorEntry,
+  VectorQuery,
+  VectorSearchResult as VectorDBSearchResult,
+  VectorDeleteFilter,
+  MetadataFilter,
+  VectorStoreHealth,
+  VectorStore,
+} from './vectordb/index.js'
+export type {
+  EmbeddingProvider,
+  EmbeddingProviderConfig,
+} from './vectordb/index.js'
+export {
+  createOpenAIEmbedding,
+  createVoyageEmbedding,
+  createCohereEmbedding,
+  createOllamaEmbedding,
+  createCustomEmbedding,
+  createAutoEmbeddingProvider,
+  detectVectorProvider,
+  createAutoSemanticStore,
+  cosineSimilarity,
+  evaluateFilter,
+  InMemoryVectorStore,
+  SemanticStore,
+  PgVectorAdapter,
+  ChromaDBAdapter,
+  QdrantAdapter,
+  translateQdrantFilter,
+  PineconeAdapter,
+  translatePineconeFilter,
+} from './vectordb/index.js'
+export type {
+  OpenAIEmbeddingConfig,
+  VoyageEmbeddingConfig,
+  CohereEmbeddingConfig,
+  OllamaEmbeddingConfig,
+  CustomEmbeddingConfig,
+  AutoDetectResult,
+  SemanticStoreConfig,
+  Document as SemanticDocument,
+  ScoredDocument,
+  PgVectorAdapterConfig,
+  ChromaDBAdapterConfig,
+  QdrantAdapterConfig,
+  PineconeAdapterConfig,
+} from './vectordb/index.js'
 
 // --- Version ---
 export const FORGEAGENT_CORE_VERSION = '0.1.0'
