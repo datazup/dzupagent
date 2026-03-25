@@ -55,6 +55,16 @@ export interface SleepConsolidationConfig {
   maxRecordsPerNamespace?: number
   /** Enable Arrow-accelerated batch operations (requires @forgeagent/memory-ipc) */
   useArrow?: boolean
+  /** Jaccard similarity threshold for lesson deduplication (default: 0.6) */
+  lessonDedupThreshold?: number
+  /** Minimum occurrences for convention extraction (default: 3) */
+  conventionExtractThreshold?: number
+  /** Staleness score above which entries are pruned (default: 30) */
+  stalenessThreshold?: number
+  /** Max age in days for staleness pruning (default: 90) */
+  stalenessMaxAgeDays?: number
+  /** Importance threshold that protects entries from staleness pruning (default: 0.8) */
+  stalenessImportanceThreshold?: number
 }
 
 export interface SleepConsolidationReport {
