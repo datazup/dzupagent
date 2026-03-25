@@ -14,6 +14,20 @@ import { ForgeError } from '../errors/forge-error.js'
 import { isTransientError } from './retry.js'
 
 /**
+ * Returns true for OpenAI reasoning models that only support the default
+ * temperature (1) and reject any explicit temperature override.
+ * Covers: o1, o1-mini, o1-preview, o3, o3-mini, o4-mini, future o-series,
+ * and gpt-5 family models (e.g. gpt-5-mini) which are reasoning-based.
+ */
+function isTemperatureUnsupported(modelName: string): boolean {
+  // o-series reasoning models (o1, o3, o4-mini, openai/o3-mini, etc.)
+  if (/^o\d/i.test(modelName) || /[-/]o\d/i.test(modelName)) return true
+  // gpt-5 family — reasoning-based, rejects temperature != 1
+  if (/gpt-5/i.test(modelName)) return true
+  return false
+}
+
+/**
  * Default model factory — creates ChatAnthropic or ChatOpenAI instances
  * based on the provider type.
  */
@@ -36,25 +50,29 @@ function defaultModelFactory(
         ...(temperature !== undefined ? { temperature } : {}),
       })
 
-    case 'openai':
+    case 'openai': {
+      const supportsTemperature = !isTemperatureUnsupported(spec.name)
       return new ChatOpenAI({
         model: spec.name,
         apiKey: provider.apiKey,
         ...(provider.baseUrl ? { configuration: { baseURL: provider.baseUrl } } : {}),
         maxTokens,
         streaming,
-        ...(temperature !== undefined ? { temperature } : {}),
+        ...(supportsTemperature && temperature !== undefined ? { temperature } : {}),
       })
+    }
 
-    case 'openrouter':
+    case 'openrouter': {
+      const supportsTemperature = !isTemperatureUnsupported(spec.name)
       return new ChatOpenAI({
         model: spec.name,
         apiKey: provider.apiKey,
         configuration: { baseURL: provider.baseUrl ?? 'https://openrouter.ai/api/v1' },
         maxTokens,
         streaming,
-        ...(temperature !== undefined ? { temperature } : {}),
+        ...(supportsTemperature && temperature !== undefined ? { temperature } : {}),
       })
+    }
 
     case 'azure':
     case 'bedrock':

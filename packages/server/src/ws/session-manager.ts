@@ -28,7 +28,8 @@ export class WSSessionManager {
   ) {}
 
   async attach(client: WSClient, scope?: WSClientScope): Promise<void> {
-    this.bridge.addClient(client, {})
+    // Attach with an explicit deny-all baseline until the client sends an authorized subscribe filter.
+    this.bridge.addClient(client, { eventTypes: [] })
 
     const resolvedScope = scope ?? await this.options?.resolveScope?.(client) ?? null
     if (resolvedScope) {

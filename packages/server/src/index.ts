@@ -151,6 +151,9 @@ export type { MarketplacePlugin, MarketplaceRegistry } from './cli/marketplace-c
 
 // --- Runtime ---
 export { InMemoryQuotaManager } from './runtime/memory-quota-manager.js'
+export { startRunWorker } from './runtime/run-worker.js'
+export { createDefaultRunExecutor } from './runtime/default-run-executor.js'
+export { createForgeAgentRunExecutor } from './runtime/forge-agent-run-executor.js'
 export { QuotaExceededError } from './runtime/resource-quota.js'
 export type {
   ResourceDimensions,
@@ -159,6 +162,9 @@ export type {
   ResourceQuotaManager,
   QuotaCheckResult,
 } from './runtime/resource-quota.js'
+export type { RunExecutionContext, RunExecutor, StartRunWorkerOptions } from './runtime/run-worker.js'
+export type { RunExecutorResult } from './runtime/run-worker.js'
+export type { ForgeAgentRunExecutorOptions } from './runtime/forge-agent-run-executor.js'
 
 // --- Deploy ---
 export { generateDockerfile, generateDockerCompose, generateDockerignore } from './deploy/docker-generator.js'

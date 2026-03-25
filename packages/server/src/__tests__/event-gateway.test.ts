@@ -53,4 +53,18 @@ describe('InMemoryEventGateway', () => {
     // newest events are preserved under pressure.
     expect(received.length).toBeGreaterThanOrEqual(1)
   })
+
+  it('treats empty eventTypes filter as deny-all', async () => {
+    const gateway = new InMemoryEventGateway()
+    const received: string[] = []
+
+    gateway.subscribe({ eventTypes: [] }, (event) => {
+      received.push(event.type)
+    })
+
+    gateway.publish({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(received).toHaveLength(0)
+  })
 })

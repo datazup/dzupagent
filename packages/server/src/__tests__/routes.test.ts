@@ -6,6 +6,7 @@ import {
   ModelRegistry,
   createEventBus,
 } from '@forgeagent/core'
+import type { RunQueue, RunJob, JobProcessor, QueueStats } from '../queue/run-queue.js'
 
 function createTestConfig(): ForgeServerConfig {
   return {
@@ -128,6 +129,99 @@ describe('Run routes', () => {
     expect(res.status).toBe(201)
     const data = await res.json() as { data: { id: string; status: string } }
     expect(data.data.status).toBe('queued')
+  })
+
+  it('POST /api/runs returns 404 when agent does not exist', async () => {
+    const res = await req(app, 'POST', '/api/runs', {
+      agentId: 'missing-agent',
+      input: { task: 'test' },
+    })
+    expect(res.status).toBe(404)
+  })
+
+  it('POST /api/runs enqueues work and returns 202 when runQueue is configured', async () => {
+    class MockRunQueue implements RunQueue {
+      enqueued: Array<Omit<RunJob, 'id' | 'createdAt'>> = []
+      async enqueue(job: Omit<RunJob, 'id' | 'createdAt'>): Promise<RunJob> {
+        this.enqueued.push(job)
+        return {
+          ...job,
+          id: 'job-1',
+          createdAt: new Date('2025-01-01T00:00:00.000Z'),
+        }
+      }
+      start(_processor: JobProcessor): void {}
+      async stop(_waitForActive?: boolean): Promise<void> {}
+      stats(): QueueStats {
+        return { pending: this.enqueued.length, active: 0, completed: 0, failed: 0 }
+      }
+    }
+
+    const runQueue = new MockRunQueue()
+    const queueConfig = createTestConfig()
+    queueConfig.runQueue = runQueue
+    queueConfig.runExecutor = async () => ({ message: 'ok' })
+    await queueConfig.agentStore.save({
+      id: 'agent-queue',
+      name: 'Queue Agent',
+      instructions: 'test',
+      modelTier: 'chat',
+    })
+    const queueApp = createForgeApp(queueConfig)
+
+    const res = await req(queueApp, 'POST', '/api/runs', {
+      agentId: 'agent-queue',
+      input: { task: 'queued' },
+      metadata: { priority: 2 },
+    })
+    expect(res.status).toBe(202)
+    const data = await res.json() as {
+      data: { id: string; status: string; agentId: string }
+      queue: { accepted: boolean; jobId: string; priority: number }
+    }
+    expect(data.data.status).toBe('queued')
+    expect(data.data.agentId).toBe('agent-queue')
+    expect(data.queue.accepted).toBe(true)
+    expect(data.queue.jobId).toBe('job-1')
+    expect(data.queue.priority).toBe(2)
+    expect(runQueue.enqueued).toHaveLength(1)
+    expect(runQueue.enqueued[0]?.runId).toBe(data.data.id)
+  })
+
+  it('POST /api/runs enqueues successfully with default executor when runQueue is configured without runExecutor', async () => {
+    class MockRunQueue implements RunQueue {
+      async enqueue(job: Omit<RunJob, 'id' | 'createdAt'>): Promise<RunJob> {
+        return {
+          ...job,
+          id: 'job-unexpected',
+          createdAt: new Date('2025-01-01T00:00:00.000Z'),
+        }
+      }
+      start(_processor: JobProcessor): void {}
+      async stop(_waitForActive?: boolean): Promise<void> {}
+      stats(): QueueStats {
+        return { pending: 0, active: 0, completed: 0, failed: 0 }
+      }
+    }
+
+    const queueConfig = createTestConfig()
+    queueConfig.runQueue = new MockRunQueue()
+    await queueConfig.agentStore.save({
+      id: 'agent-queue-misconfigured',
+      name: 'Queue Agent',
+      instructions: 'test',
+      modelTier: 'chat',
+    })
+    const queueApp = createForgeApp(queueConfig)
+
+    const res = await req(queueApp, 'POST', '/api/runs', {
+      agentId: 'agent-queue-misconfigured',
+      input: { task: 'queued' },
+    })
+    expect(res.status).toBe(202)
+    const data = await res.json() as { queue: { accepted: boolean; jobId: string } }
+    expect(data.queue.accepted).toBe(true)
+    expect(data.queue.jobId).toBe('job-unexpected')
   })
 
   it('GET /api/runs lists runs', async () => {

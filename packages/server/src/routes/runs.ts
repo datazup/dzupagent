@@ -25,11 +25,48 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
       return c.json({ error: { code: 'VALIDATION_ERROR', message: 'agentId is required' } }, 400)
     }
 
+    const agent = await config.agentStore.get(body.agentId)
+    if (!agent) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
+    }
+
     const run = await runStore.create({
       agentId: body.agentId,
       input: body.input,
       metadata: body.metadata,
     })
+
+    if (config.runQueue) {
+      if (!config.runExecutor) {
+        return c.json({
+          error: {
+            code: 'RUN_EXECUTOR_NOT_CONFIGURED',
+            message: 'runQueue is configured but no runExecutor is available',
+          },
+        }, 503)
+      }
+
+      const metadata = body.metadata ?? {}
+      const priorityRaw = typeof metadata['priority'] === 'number' ? metadata['priority'] : 5
+      const priority = Number.isFinite(priorityRaw) ? Math.max(0, Math.floor(priorityRaw)) : 5
+
+      const job = await config.runQueue.enqueue({
+        runId: run.id,
+        agentId: run.agentId,
+        input: run.input,
+        metadata: run.metadata,
+        priority,
+      })
+
+      await runStore.addLog(run.id, {
+        level: 'info',
+        phase: 'queue',
+        message: 'Run enqueued',
+        data: { jobId: job.id, priority },
+      })
+
+      return c.json({ data: run, queue: { accepted: true, jobId: job.id, priority } }, 202)
+    }
 
     eventBus.emit({ type: 'agent:started', agentId: run.agentId, runId: run.id })
 
@@ -152,7 +189,7 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
         if (closed) return
         // Only forward events that have a runId matching this run
         const eventRunId = 'runId' in event ? (event as { runId: string }).runId : undefined
-        if (eventRunId === runId || !eventRunId) {
+        if (eventRunId === runId) {
           stream.writeSSE({ data: JSON.stringify(event), event: event.type }).catch(() => {
             closed = true
           })

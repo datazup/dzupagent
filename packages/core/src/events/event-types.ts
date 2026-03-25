@@ -24,6 +24,8 @@ export type ForgeEvent =
   | { type: 'agent:started'; agentId: string; runId: string }
   | { type: 'agent:completed'; agentId: string; runId: string; durationMs: number }
   | { type: 'agent:failed'; agentId: string; runId: string; errorCode: ForgeErrorCode; message: string }
+  | { type: 'agent:stream_delta'; agentId: string; runId: string; content: string }
+  | { type: 'agent:stream_done'; agentId: string; runId: string; finalContent: string }
   // --- Tool lifecycle ---
   | { type: 'tool:called'; toolName: string; input: unknown }
   | { type: 'tool:result'; toolName: string; durationMs: number }

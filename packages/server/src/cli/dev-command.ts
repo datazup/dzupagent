@@ -12,6 +12,9 @@ import {
 import type { ForgeEventBus } from '@forgeagent/core'
 import { createForgeApp } from '../app.js'
 import { TracePrinter } from './trace-printer.js'
+import { InMemoryRunQueue } from '../queue/run-queue.js'
+import { createDefaultRunExecutor } from '../runtime/default-run-executor.js'
+import { createForgeAgentRunExecutor } from '../runtime/forge-agent-run-executor.js'
 
 export interface DevCommandConfig {
   /** Port to listen on (default: 4000) */
@@ -33,17 +36,23 @@ export function createDevCommand(config?: DevCommandConfig): DevCommandHandle {
   const port = config?.port ?? 4000
   const verbose = config?.verbose ?? false
   const eventBus = config?.eventBus ?? createEventBus()
+  const runQueue = new InMemoryRunQueue()
 
   let server: { close(): void; app: Hono } | null = null
   const tracePrinter = new TracePrinter(verbose)
 
   return {
     async start(): Promise<void> {
+      const modelRegistry = new ModelRegistry()
       const honoApp = createForgeApp({
         runStore: new InMemoryRunStore(),
         agentStore: new InMemoryAgentStore(),
-        modelRegistry: new ModelRegistry(),
+        modelRegistry,
         eventBus,
+        runQueue,
+        runExecutor: createForgeAgentRunExecutor({
+          fallback: createDefaultRunExecutor(modelRegistry),
+        }),
       })
 
       tracePrinter.attach(eventBus)
@@ -66,6 +75,7 @@ export function createDevCommand(config?: DevCommandConfig): DevCommandHandle {
         server.close()
         server = null
       }
+      await runQueue.stop(false)
       // eslint-disable-next-line no-console
       console.log('[forge-dev] Server stopped')
     },

@@ -29,6 +29,7 @@ import { createAgentRoutes } from './routes/agents.js'
 import { createApprovalRoutes } from './routes/approval.js'
 import { createMemoryRoutes } from './routes/memory.js'
 import { createMemoryBrowseRoutes } from './routes/memory-browse.js'
+import { createPlaygroundRoutes, type PlaygroundRouteConfig } from './routes/playground.js'
 import { createEventRoutes } from './routes/events.js'
 import type { MemoryServiceLike } from '@forgeagent/memory-ipc'
 import { authMiddleware, type AuthConfig } from './middleware/auth.js'
@@ -37,6 +38,9 @@ import type { RunQueue } from './queue/run-queue.js'
 import type { GracefulShutdown } from './lifecycle/graceful-shutdown.js'
 import type { EventGateway } from './events/event-gateway.js'
 import { InMemoryEventGateway } from './events/event-gateway.js'
+import { startRunWorker, type RunExecutor } from './runtime/run-worker.js'
+import { createDefaultRunExecutor } from './runtime/default-run-executor.js'
+import { createForgeAgentRunExecutor } from './runtime/forge-agent-run-executor.js'
 
 export interface ForgeServerConfig {
   runStore: RunStore
@@ -49,6 +53,8 @@ export interface ForgeServerConfig {
   rateLimit?: Partial<RateLimiterConfig>
   /** Background run queue (in-memory queue used if not provided) */
   runQueue?: RunQueue
+  /** Async run executor used by queue workers to process jobs */
+  runExecutor?: RunExecutor
   /** Graceful shutdown handler */
   shutdown?: GracefulShutdown
   /** Metrics collector for observability */
@@ -57,11 +63,35 @@ export interface ForgeServerConfig {
   memoryService?: MemoryServiceLike
   /** Optional event gateway for SSE/WS fan-out; defaults to in-memory bridge backed by eventBus */
   eventGateway?: EventGateway
+  /** Optional static playground mount at `/playground` */
+  playground?: PlaygroundRouteConfig
 }
+
+const startedRunQueues = new WeakSet<RunQueue>()
 
 export function createForgeApp(config: ForgeServerConfig): Hono {
   const app = new Hono()
   const eventGateway = config.eventGateway ?? new InMemoryEventGateway(config.eventBus)
+  const fallbackRunExecutor = createDefaultRunExecutor(config.modelRegistry)
+  const effectiveRunExecutor = config.runExecutor
+    ?? createForgeAgentRunExecutor({ fallback: fallbackRunExecutor })
+  const runtimeConfig: ForgeServerConfig = {
+    ...config,
+    runExecutor: effectiveRunExecutor,
+  }
+
+  if (runtimeConfig.runQueue && !startedRunQueues.has(runtimeConfig.runQueue)) {
+    startRunWorker({
+      runQueue: runtimeConfig.runQueue,
+      runStore: runtimeConfig.runStore,
+      agentStore: runtimeConfig.agentStore,
+      eventBus: runtimeConfig.eventBus,
+      modelRegistry: runtimeConfig.modelRegistry,
+      runExecutor: effectiveRunExecutor,
+      shutdown: runtimeConfig.shutdown,
+    })
+    startedRunQueues.add(runtimeConfig.runQueue)
+  }
 
   // --- Middleware ---
   app.use('*', cors({
@@ -122,17 +152,21 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   })
 
   // --- Routes ---
-  app.route('/api/health', createHealthRoutes(config))
-  app.route('/api/runs', createRunRoutes(config))
-  app.route('/api/agents', createAgentRoutes(config))
-  app.route('/api/runs', createApprovalRoutes(config))
+  app.route('/api/health', createHealthRoutes(runtimeConfig))
+  app.route('/api/runs', createRunRoutes(runtimeConfig))
+  app.route('/api/agents', createAgentRoutes(runtimeConfig))
+  app.route('/api/runs', createApprovalRoutes(runtimeConfig))
 
-  if (config.memoryService) {
-    app.route('/api/memory', createMemoryRoutes({ memoryService: config.memoryService }))
-    app.route('/api/memory-browse', createMemoryBrowseRoutes({ memoryService: config.memoryService }))
+  if (runtimeConfig.memoryService) {
+    app.route('/api/memory', createMemoryRoutes({ memoryService: runtimeConfig.memoryService }))
+    app.route('/api/memory-browse', createMemoryBrowseRoutes({ memoryService: runtimeConfig.memoryService }))
   }
 
   app.route('/api/events', createEventRoutes({ eventGateway }))
+
+  if (runtimeConfig.playground) {
+    app.route('/playground', createPlaygroundRoutes(runtimeConfig.playground))
+  }
 
   return app
 }

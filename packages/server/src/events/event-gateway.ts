@@ -70,7 +70,11 @@ function toEnvelope(event: ForgeEvent): EventEnvelope {
 function matchesFilter(envelope: EventEnvelope, filter: EventSubscriptionFilter): boolean {
   if (filter.runId && envelope.runId !== filter.runId) return false
   if (filter.agentId && envelope.agentId !== filter.agentId) return false
-  if (filter.eventTypes && filter.eventTypes.length > 0 && !filter.eventTypes.includes(envelope.type)) return false
+  if (filter.eventTypes) {
+    // Explicit empty list means deny-all (useful as a safe baseline before scoped subscribe).
+    if (filter.eventTypes.length === 0) return false
+    if (!filter.eventTypes.includes(envelope.type)) return false
+  }
   return true
 }
 

@@ -20,8 +20,10 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@forgeagent/agent": "0.1.0",
     "@forgeagent/core": "0.1.0",
     "@forgeagent/memory-ipc": "0.1.0",
+    "@langchain/core": "^1.1.32",
     "drizzle-orm": "^0.40.1",
     "hono": "^4.12.9"
   },
