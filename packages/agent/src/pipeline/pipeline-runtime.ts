@@ -429,11 +429,11 @@ export class PipelineRuntime {
 
   private async handleFork(
     forkNode: ForkNode,
-    runId: string,
+    _runId: string,
     runState: Record<string, unknown>,
     nodeResults: Map<string, NodeResult>,
     completedNodeIds: string[],
-    versionTracker: { version: number },
+    _versionTracker: { version: number },
   ): Promise<PipelineRunResult | undefined> {
     this.emit({ type: 'pipeline:node_started', nodeId: forkNode.id, nodeType: 'fork' })
     completedNodeIds.push(forkNode.id)
@@ -452,19 +452,23 @@ export class PipelineRuntime {
     }
 
     const joinNode = this.findJoinNode(forkNode.forkId)
+    const branchBaseState = structuredClone(runState)
+    const branchBaseResults = new Map(nodeResults)
 
     // Execute branches in parallel
     const branchPromises = branchStartIds.map(async (startId) => {
-      return this.executeBranch(startId, joinNode?.id, runId, runState, nodeResults, completedNodeIds, versionTracker)
+      return this.executeBranch(startId, joinNode?.id, branchBaseState, branchBaseResults)
     })
 
     const branchResults = await Promise.all(branchPromises)
 
-    // Check if any branch caused a suspension
+    // Merge branch outputs deterministically in outgoing edge order.
     for (const br of branchResults) {
-      if (br?.state === 'suspended') {
-        return br
+      for (const [nodeId, result] of br.nodeResults) {
+        nodeResults.set(nodeId, result)
       }
+      completedNodeIds.push(...br.completedNodeIds)
+      Object.assign(runState, br.stateDelta)
     }
 
     this.emit({ type: 'pipeline:node_completed', nodeId: forkNode.id, durationMs: 0 })
@@ -475,13 +479,20 @@ export class PipelineRuntime {
   private async executeBranch(
     startNodeId: string,
     joinNodeId: string | undefined,
-    _runId: string,
-    runState: Record<string, unknown>,
-    nodeResults: Map<string, NodeResult>,
-    completedNodeIds: string[],
-    _versionTracker: { version: number },
-  ): Promise<PipelineRunResult | undefined> {
+    baseRunState: Record<string, unknown>,
+    baseNodeResults: Map<string, NodeResult>,
+  ): Promise<{
+      state: 'completed'
+      stateDelta: Record<string, unknown>
+      nodeResults: Map<string, NodeResult>
+      completedNodeIds: string[]
+    }> {
     let currentId: string | undefined = startNodeId
+    const runState = structuredClone(baseRunState)
+    const baselineState = structuredClone(baseRunState)
+    const nodeResults = new Map(baseNodeResults)
+    const branchNodeResults = new Map<string, NodeResult>()
+    const completedNodeIds: string[] = []
 
     while (currentId && currentId !== joinNodeId) {
       const node = this.nodeMap.get(currentId)
@@ -497,6 +508,7 @@ export class PipelineRuntime {
 
       const result = await this.config.nodeExecutor(node.id, node, context)
       nodeResults.set(node.id, result)
+      branchNodeResults.set(node.id, result)
       completedNodeIds.push(node.id)
 
       if (result.error) {
@@ -510,7 +522,19 @@ export class PipelineRuntime {
       currentId = nextIds[0]
     }
 
-    return undefined
+    const stateDelta: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(runState)) {
+      if (!valuesEqual(value, baselineState[key])) {
+        stateDelta[key] = value
+      }
+    }
+
+    return {
+      state: 'completed',
+      stateDelta,
+      nodeResults: branchNodeResults,
+      completedNodeIds,
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -669,4 +693,16 @@ let runCounter = 0
 function generateRunId(): string {
   runCounter++
   return `run_${Date.now()}_${runCounter}`
+}
+
+function valuesEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) {
+    return false
+  }
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return false
+  }
 }

@@ -329,6 +329,52 @@ describe('PipelineRuntime — fork/join', () => {
     expect(result.nodeResults.get('branch-a')?.output).toBe('result-branch-a')
     expect(result.nodeResults.get('branch-b')?.output).toBe('result-branch-b')
   })
+
+  it('merges conflicting branch state deterministically by branch order', async () => {
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+    const executor: NodeExecutor = async (nodeId, _node, ctx) => {
+      if (nodeId === 'branch-a') {
+        await sleep(25)
+        ctx.state['shared'] = 'A'
+        return { nodeId, output: 'A', durationMs: 25 }
+      }
+      if (nodeId === 'branch-b') {
+        ctx.state['shared'] = 'B'
+        return { nodeId, output: 'B', durationMs: 1 }
+      }
+      if (nodeId === 'after') {
+        return { nodeId, output: ctx.state['shared'] ?? null, durationMs: 1 }
+      }
+      return { nodeId, output: nodeId, durationMs: 1 }
+    }
+
+    const definition = makePipeline({
+      entryNodeId: 'fork1',
+      nodes: [
+        { id: 'fork1', type: 'fork', forkId: 'f1', timeoutMs: 5000 },
+        { id: 'branch-a', type: 'agent', agentId: 'a1', timeoutMs: 5000 },
+        { id: 'branch-b', type: 'agent', agentId: 'a2', timeoutMs: 5000 },
+        { id: 'join1', type: 'join', forkId: 'f1', mergeStrategy: 'all', timeoutMs: 5000 },
+        { id: 'after', type: 'agent', agentId: 'a3', timeoutMs: 5000 },
+      ],
+      edges: [
+        { type: 'sequential', sourceNodeId: 'fork1', targetNodeId: 'branch-a' },
+        { type: 'sequential', sourceNodeId: 'fork1', targetNodeId: 'branch-b' },
+        { type: 'sequential', sourceNodeId: 'branch-a', targetNodeId: 'join1' },
+        { type: 'sequential', sourceNodeId: 'branch-b', targetNodeId: 'join1' },
+        { type: 'sequential', sourceNodeId: 'join1', targetNodeId: 'after' },
+      ],
+    })
+
+    const runtime = new PipelineRuntime({
+      definition,
+      nodeExecutor: executor,
+    })
+
+    const result = await runtime.execute()
+    expect(result.state).toBe('completed')
+    expect(result.nodeResults.get('after')?.output).toBe('B')
+  })
 })
 
 // ---------------------------------------------------------------------------

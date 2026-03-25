@@ -1,43 +1,41 @@
 <script setup lang="ts">
 /**
- * HistoryTab -- Run list with timestamps and status.
- *
- * Displays recent agent runs fetched from the server API.
+ * HistoryTab -- Enhanced run list with status filters, richer cards,
+ * and click-through to RunDetailView.
  */
-import { ref, onMounted } from 'vue'
-import type { RunHistoryEntry, ApiResponse } from '../../types.js'
-import { useApi } from '../../composables/useApi.js'
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useRunStore } from '../../stores/run-store.js'
+import type { RunStatus } from '../../types.js'
 
-const { get } = useApi()
+const router = useRouter()
+const runStore = useRunStore()
 
-const runs = ref<RunHistoryEntry[]>([])
-const isLoading = ref(false)
-const error = ref<string | null>(null)
+const statusOptions: Array<{ value: RunStatus | 'all'; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'running', label: 'Running' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'awaiting_approval', label: 'Approval' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'cancelled', label: 'Cancelled' },
+]
 
-async function fetchRuns(): Promise<void> {
-  isLoading.value = true
-  error.value = null
-  try {
-    const result = await get<ApiResponse<RunHistoryEntry[]>>('/api/runs?limit=50')
-    runs.value = result.data.map((run) => ({
-      ...run,
-      durationMs: run.completedAt
-        ? Math.max(0, new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime())
-        : undefined,
-    }))
-  } catch (err: unknown) {
-    error.value = err instanceof Error ? err.message : 'Failed to fetch runs'
-  } finally {
-    isLoading.value = false
+function statusBadgeClass(status: string): string {
+  switch (status) {
+    case 'completed': return 'bg-pg-success/15 text-pg-success'
+    case 'failed': return 'bg-pg-error/15 text-pg-error'
+    case 'running': return 'bg-pg-accent/15 text-pg-accent'
+    case 'pending': return 'bg-pg-warning/15 text-pg-warning'
+    case 'awaiting_approval': return 'bg-pg-info/15 text-pg-info'
+    case 'cancelled': return 'bg-pg-text-muted/15 text-pg-text-muted'
+    case 'rejected': return 'bg-pg-error/10 text-pg-error'
+    default: return 'bg-pg-surface-raised text-pg-text-muted'
   }
 }
 
 function formatTimestamp(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString()
-  } catch {
-    return iso
-  }
+  try { return new Date(iso).toLocaleString() } catch { return iso }
 }
 
 function formatDuration(ms: number | undefined): string {
@@ -46,38 +44,54 @@ function formatDuration(ms: number | undefined): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-function statusColor(status: string): string {
-  switch (status) {
-    case 'completed': return 'var(--color-pg-success)'
-    case 'failed': return 'var(--color-pg-error)'
-    case 'running': return 'var(--color-pg-accent)'
-    case 'pending': return 'var(--color-pg-warning)'
-    default: return 'var(--color-pg-text-muted)'
-  }
+function handleFilterChange(status: RunStatus | 'all'): void {
+  runStore.setStatusFilter(status)
+}
+
+function openRun(id: string): void {
+  void router.push(`/runs/${id}`)
 }
 
 onMounted(() => {
-  void fetchRuns()
+  void runStore.fetchRuns()
 })
 </script>
 
 <template>
   <div class="pg-scrollbar flex flex-col overflow-y-auto">
-    <!-- Header -->
-    <div class="flex items-center justify-between border-b border-pg-border px-4 py-2">
-      <span class="text-xs font-medium text-pg-text-muted">Recent Runs</span>
-      <button
-        class="text-xs text-pg-accent hover:underline"
-        :disabled="isLoading"
-        @click="fetchRuns"
-      >
-        Refresh
-      </button>
+    <!-- Header with filters -->
+    <div class="flex flex-col gap-2 border-b border-pg-border px-4 py-3">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-pg-text-muted">
+          Runs ({{ runStore.totalCount }})
+        </span>
+        <button
+          class="text-xs text-pg-accent hover:underline"
+          :disabled="runStore.isLoading"
+          @click="runStore.fetchRuns()"
+        >
+          Refresh
+        </button>
+      </div>
+      <!-- Status filter pills -->
+      <div class="flex flex-wrap gap-1">
+        <button
+          v-for="opt in statusOptions"
+          :key="opt.value"
+          class="rounded-full px-2.5 py-0.5 text-[10px] font-medium transition-colors"
+          :class="runStore.statusFilter === opt.value
+            ? 'bg-pg-accent/15 text-pg-accent'
+            : 'text-pg-text-muted hover:text-pg-text-secondary'"
+          @click="handleFilterChange(opt.value)"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
     </div>
 
     <!-- Loading -->
     <div
-      v-if="isLoading"
+      v-if="runStore.isLoading"
       class="flex items-center justify-center py-8"
     >
       <span class="text-xs text-pg-text-muted">Loading...</span>
@@ -85,16 +99,16 @@ onMounted(() => {
 
     <!-- Error -->
     <div
-      v-if="error"
+      v-if="runStore.error"
       class="px-4 py-2 text-xs text-pg-error"
       role="alert"
     >
-      {{ error }}
+      {{ runStore.error }}
     </div>
 
     <!-- Empty state -->
     <div
-      v-if="!isLoading && runs.length === 0 && !error"
+      v-if="!runStore.isLoading && runStore.filteredRuns.length === 0 && !runStore.error"
       class="flex h-32 items-center justify-center"
     >
       <p class="text-sm text-pg-text-muted">
@@ -103,24 +117,28 @@ onMounted(() => {
     </div>
 
     <!-- Run list -->
-    <div
-      v-for="run in runs"
+    <button
+      v-for="run in runStore.filteredRuns"
       :key="run.id"
-      class="flex items-center gap-3 border-b border-pg-border-subtle px-4 py-3 transition-colors hover:bg-pg-surface-raised"
+      class="flex items-center gap-3 border-b border-pg-border-subtle px-4 py-3 text-left transition-colors hover:bg-pg-surface-raised"
+      @click="openRun(run.id)"
     >
-      <!-- Status dot -->
+      <!-- Status badge -->
       <span
-        class="inline-block h-2 w-2 shrink-0 rounded-full"
-        :style="{ backgroundColor: statusColor(run.status) }"
-      />
+        class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+        :class="statusBadgeClass(run.status)"
+      >
+        {{ run.status }}
+      </span>
 
       <!-- Run info -->
       <div class="min-w-0 flex-1">
         <div class="truncate font-mono text-xs text-pg-text">
           {{ run.id }}
         </div>
-        <div class="text-[10px] text-pg-text-muted">
-          {{ formatTimestamp(run.startedAt) }}
+        <div class="flex gap-3 text-[10px] text-pg-text-muted">
+          <span>{{ formatTimestamp(run.startedAt) }}</span>
+          <span class="font-mono">{{ run.agentId }}</span>
         </div>
       </div>
 
@@ -128,6 +146,9 @@ onMounted(() => {
       <span class="shrink-0 font-mono text-xs text-pg-text-muted">
         {{ formatDuration(run.durationMs) }}
       </span>
-    </div>
+
+      <!-- Arrow -->
+      <span class="shrink-0 text-pg-text-muted">&rsaquo;</span>
+    </button>
   </div>
 </template>

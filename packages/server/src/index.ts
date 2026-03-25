@@ -165,6 +165,15 @@ export type {
 export type { RunExecutionContext, RunExecutor, StartRunWorkerOptions } from './runtime/run-worker.js'
 export type { RunExecutorResult } from './runtime/run-worker.js'
 export type { ForgeAgentRunExecutorOptions } from './runtime/forge-agent-run-executor.js'
+export { resolveAgentTools, ToolResolutionError } from './runtime/tool-resolver.js'
+export type {
+  ToolResolverContext,
+  ToolResolverResult,
+  ToolResolverOptions,
+  ToolSource,
+  CustomToolResolver,
+} from './runtime/tool-resolver.js'
+export { isStructuredResult } from './runtime/utils.js'
 
 // --- Deploy ---
 export { generateDockerfile, generateDockerCompose, generateDockerignore } from './deploy/docker-generator.js'

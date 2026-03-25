@@ -3,17 +3,19 @@
  * Root layout component.
  *
  * Provides the sidebar + main content area shell.
- * The sidebar contains branding and navigation links.
+ * The sidebar contains branding, navigation links, and status indicators.
  */
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useWsStore } from './stores/ws-store.js'
 import { useTraceStore } from './stores/trace-store.js'
 import { useChatStore } from './stores/chat-store.js'
+import { useHealthStore } from './stores/health-store.js'
 import type { TraceEvent, WsEvent } from './types.js'
 
 const wsStore = useWsStore()
 const traceStore = useTraceStore()
 const chatStore = useChatStore()
+const healthStore = useHealthStore()
 let sse: EventSource | null = null
 
 function traceTypeFromWsEvent(type: string): TraceEvent['type'] {
@@ -60,13 +62,11 @@ function normalizeIncomingEvent(value: unknown): WsEvent | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
 
-  // WS messages already match the expected shape (non-envelope).
   const isEnvelope = record['version'] === 'v1' && record['payload'] && typeof record['payload'] === 'object'
   if (typeof record['type'] === 'string' && !isEnvelope) {
     return record as WsEvent
   }
 
-  // SSE gateway events are EventEnvelope; map envelope + payload into WsEvent.
   const payload = record['payload']
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const payloadRecord = payload as Record<string, unknown>
@@ -139,11 +139,13 @@ function startSse(agentId: string | null): void {
 
 onMounted(() => {
   wsStore.connect(toWsUrl())
+  healthStore.startPolling()
 })
 
 onUnmounted(() => {
   stopSse()
   wsStore.disconnect()
+  healthStore.stopPolling()
 })
 
 watch(
@@ -194,6 +196,25 @@ const connectionLabel = computed(() => {
     default: return 'Offline'
   }
 })
+
+const healthClass = computed(() => {
+  if (!healthStore.health) return 'bg-pg-text-muted'
+  switch (healthStore.health.status) {
+    case 'ok': return 'bg-pg-success'
+    case 'degraded': return 'bg-pg-warning'
+    default: return 'bg-pg-error'
+  }
+})
+
+const healthLabel = computed(() => {
+  if (!healthStore.health) return 'Unknown'
+  return healthStore.health.status === 'ok' ? 'Healthy' : healthStore.health.status
+})
+
+const navLinks = [
+  { to: '/', label: 'Agent Chat', icon: '>' },
+  { to: '/agents', label: 'Agents', icon: '#' },
+]
 </script>
 
 <template>
@@ -220,30 +241,72 @@ const connectionLabel = computed(() => {
       </div>
 
       <!-- Navigation -->
-      <nav class="flex-1 px-3 py-4">
+      <nav class="flex-1 space-y-1 px-3 py-4">
         <router-link
-          to="/"
+          v-for="link in navLinks"
+          :key="link.to"
+          :to="link.to"
           class="flex items-center gap-2 rounded-[10px] border border-transparent px-3 py-2.5 text-sm font-medium text-pg-text-secondary transition-colors hover:bg-pg-surface-raised hover:text-pg-text"
           active-class="!border-pg-border !bg-pg-surface-raised !text-pg-text"
         >
-          Agent Chat
+          {{ link.label }}
         </router-link>
         <p class="px-3 pt-3 text-xs leading-relaxed text-pg-text-muted">
-          Chat, trace events, inspect memory, and tune configuration from one workspace.
+          Chat, trace events, inspect memory, manage agents, and review runs from one workspace.
         </p>
       </nav>
 
-      <!-- Connection status -->
+      <!-- Status panel -->
       <div class="border-t border-pg-border px-5 py-4">
-        <div class="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-pg-text-muted">
-          Realtime
+        <!-- Server health -->
+        <div class="mb-3">
+          <div class="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-pg-text-muted">
+            Server
+          </div>
+          <div class="flex items-center gap-2 text-xs text-pg-text-secondary">
+            <span
+              :class="healthClass"
+              class="inline-block h-2.5 w-2.5 rounded-full"
+            />
+            <span>{{ healthLabel }}</span>
+            <span
+              v-if="healthStore.uptimeFormatted !== '--'"
+              class="ml-auto text-[10px] text-pg-text-muted"
+            >
+              up {{ healthStore.uptimeFormatted }}
+            </span>
+          </div>
+          <!-- Readiness checks -->
+          <div
+            v-if="healthStore.readinessChecks.length > 0"
+            class="mt-1.5 flex flex-col gap-0.5"
+          >
+            <div
+              v-for="check in healthStore.readinessChecks"
+              :key="check.name"
+              class="flex items-center gap-1.5 text-[10px]"
+            >
+              <span
+                class="inline-block h-1.5 w-1.5 rounded-full"
+                :class="check.status === 'ok' ? 'bg-pg-success' : 'bg-pg-error'"
+              />
+              <span class="text-pg-text-muted">{{ check.name }}</span>
+            </div>
+          </div>
         </div>
-        <div class="flex items-center gap-2 text-xs text-pg-text-secondary">
-          <span
-            :class="connectionClass"
-            class="inline-block h-2.5 w-2.5 rounded-full"
-          />
-          {{ wsStore.state }}
+
+        <!-- Realtime connection -->
+        <div>
+          <div class="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-pg-text-muted">
+            Realtime
+          </div>
+          <div class="flex items-center gap-2 text-xs text-pg-text-secondary">
+            <span
+              :class="connectionClass"
+              class="inline-block h-2.5 w-2.5 rounded-full"
+            />
+            {{ wsStore.state }}
+          </div>
         </div>
       </div>
     </aside>
@@ -264,14 +327,34 @@ const connectionLabel = computed(() => {
             </p>
           </div>
         </div>
-        <div class="inline-flex items-center gap-2 rounded-full border border-pg-border bg-pg-surface px-2.5 py-1">
+        <div class="flex items-center gap-2">
+          <!-- Health dot (mobile) -->
           <span
-            :class="connectionClass"
+            :class="healthClass"
             class="inline-block h-2 w-2 rounded-full"
           />
-          <span class="text-[11px] font-medium text-pg-text-secondary">{{ connectionLabel }}</span>
+          <div class="inline-flex items-center gap-2 rounded-full border border-pg-border bg-pg-surface px-2.5 py-1">
+            <span
+              :class="connectionClass"
+              class="inline-block h-2 w-2 rounded-full"
+            />
+            <span class="text-[11px] font-medium text-pg-text-secondary">{{ connectionLabel }}</span>
+          </div>
         </div>
       </header>
+
+      <!-- Mobile navigation -->
+      <nav class="flex gap-1 overflow-x-auto border-b border-pg-border bg-pg-surface px-3 py-2 md:hidden">
+        <router-link
+          v-for="link in navLinks"
+          :key="link.to"
+          :to="link.to"
+          class="shrink-0 rounded-full px-3 py-1 text-xs font-medium text-pg-text-muted"
+          active-class="!bg-pg-accent/10 !text-pg-text"
+        >
+          {{ link.label }}
+        </router-link>
+      </nav>
 
       <router-view />
     </main>

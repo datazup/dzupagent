@@ -28,6 +28,12 @@ export interface ToolLoopConfig {
   onToolCall?: (name: string, args: Record<string, unknown>) => void
   onToolResult?: (name: string, result: string) => void
   onBudgetWarning?: (message: string) => void
+  invokeModel?: (model: BaseChatModel, messages: BaseMessage[]) => Promise<BaseMessage>
+  transformToolResult?: (
+    toolName: string,
+    input: Record<string, unknown>,
+    result: string,
+  ) => Promise<string>
   signal?: AbortSignal
 }
 
@@ -88,7 +94,9 @@ export async function runToolLoop(
     }
 
     // Invoke LLM
-    const response = await model.invoke(allMessages)
+    const response = config.invokeModel
+      ? await config.invokeModel(model, allMessages)
+      : await model.invoke(allMessages)
     llmCalls++
 
     // Track usage
@@ -148,7 +156,10 @@ export async function runToolLoop(
 
       try {
         const result = await tool.invoke(tc.args)
-        const resultStr = typeof result === 'string' ? result : JSON.stringify(result)
+        const rawResultStr = typeof result === 'string' ? result : JSON.stringify(result)
+        const resultStr = config.transformToolResult
+          ? await config.transformToolResult(toolName, tc.args, rawResultStr)
+          : rawResultStr
         allMessages.push(new ToolMessage({
           content: resultStr,
           tool_call_id: toolCallId,

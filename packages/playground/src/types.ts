@@ -2,6 +2,8 @@
  * Shared types for the ForgeAgent Playground SPA.
  */
 
+// ── Chat ─────────────────────────────────────────────────
+
 /** Chat message roles */
 export type MessageRole = 'user' | 'assistant' | 'system'
 
@@ -12,6 +14,8 @@ export interface ChatMessage {
   content: string
   timestamp: string
 }
+
+// ── WebSocket ────────────────────────────────────────────
 
 /** WebSocket connection states */
 export type WsConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error'
@@ -34,6 +38,8 @@ export interface WsSubscriptionFilter {
   eventTypes?: string[]
 }
 
+// ── Trace ────────────────────────────────────────────────
+
 /** Trace event for the inspector timeline */
 export interface TraceEvent {
   id: string
@@ -43,6 +49,8 @@ export interface TraceEvent {
   durationMs: number
   metadata?: Record<string, unknown>
 }
+
+// ── Memory ───────────────────────────────────────────────
 
 /** Memory namespace summary */
 export interface MemoryNamespace {
@@ -59,6 +67,30 @@ export interface MemoryRecord {
   updatedAt?: string
 }
 
+/** Memory frame schema column definition */
+export interface MemorySchemaColumn {
+  name: string
+  type: string
+  nullable: boolean
+  description?: string
+}
+
+/** Memory export request */
+export interface MemoryExportRequest {
+  format: 'json' | 'arrow'
+  namespace?: string
+  scope?: Record<string, string>
+}
+
+/** Memory import request */
+export interface MemoryImportRequest {
+  format: 'json' | 'arrow'
+  mergeStrategy: 'overwrite' | 'skip' | 'merge'
+  data: unknown
+}
+
+// ── Agent ────────────────────────────────────────────────
+
 /** Agent definition for the selector */
 export interface AgentSummary {
   id: string
@@ -68,17 +100,46 @@ export interface AgentSummary {
   active: boolean
 }
 
-/** Agent config displayed in the config tab */
-export interface AgentConfig {
-  id: string
+/** Full agent definition from GET /api/agents/:id */
+export interface AgentDetail extends AgentSummary {
+  instructions: string
+  tools?: string[]
+  guardrails?: Record<string, unknown>
+  approval?: 'auto' | 'required' | 'conditional'
+  metadata?: Record<string, unknown>
+  createdAt?: string
+  updatedAt?: string
+}
+
+/** Agent config displayed in the config tab (alias for backward compat) */
+export type AgentConfig = AgentDetail
+
+/** Input for creating a new agent */
+export interface AgentCreateInput {
   name: string
   instructions: string
   modelTier: string
+  description?: string
   tools?: string[]
   guardrails?: Record<string, unknown>
   approval?: 'auto' | 'required' | 'conditional'
   metadata?: Record<string, unknown>
 }
+
+/** Input for updating an agent */
+export type AgentUpdateInput = Partial<AgentCreateInput> & { active?: boolean }
+
+// ── Runs ─────────────────────────────────────────────────
+
+/** Run status */
+export type RunStatus =
+  | 'pending'
+  | 'running'
+  | 'awaiting_approval'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'rejected'
 
 /** Run history entry */
 export interface RunHistoryEntry {
@@ -91,6 +152,60 @@ export interface RunHistoryEntry {
   output?: unknown
   error?: string
 }
+
+/** Run log entry */
+export interface RunLogEntry {
+  timestamp: string
+  level: string
+  message: string
+  metadata?: Record<string, unknown>
+}
+
+/** Token usage summary from trace */
+export interface TokenUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  estimatedCost?: number
+}
+
+/** Full run trace response */
+export interface RunTrace {
+  events: Array<{
+    message: string
+    phase?: string
+    timestamp?: string
+    durationMs?: number
+    metadata?: Record<string, unknown>
+  }>
+  toolCalls?: Array<{
+    name: string
+    input?: unknown
+    output?: unknown
+    durationMs?: number
+  }>
+  usage?: TokenUsage
+}
+
+// ── Health ───────────────────────────────────────────────
+
+/** Health check response */
+export interface HealthStatus {
+  status: 'ok' | 'degraded' | 'error'
+  version?: string
+  uptime?: number
+}
+
+/** Readiness probe response */
+export interface HealthReady {
+  ready: boolean
+  checks: Record<string, { status: 'ok' | 'error'; message?: string }>
+}
+
+/** Metrics response (opaque shape) */
+export type HealthMetrics = Record<string, unknown>
+
+// ── API ──────────────────────────────────────────────────
 
 /** Standard API response wrapper */
 export interface ApiResponse<T> {

@@ -1,6 +1,8 @@
 import { ForgeAgent } from '@forgeagent/agent'
 import { HumanMessage } from '@langchain/core/messages'
 import type { RunExecutor, RunExecutorResult } from './run-worker.js'
+import { resolveAgentTools, type CustomToolResolver, type ToolResolverOptions } from './tool-resolver.js'
+import { isStructuredResult } from './utils.js'
 
 function toPrompt(input: unknown): string {
   if (typeof input === 'string' && input.trim()) return input
@@ -18,15 +20,9 @@ function toPrompt(input: unknown): string {
 
 export interface ForgeAgentRunExecutorOptions {
   fallback?: RunExecutor
-}
-
-function isStructuredResult(value: unknown): value is RunExecutorResult {
-  return Boolean(
-    value
-    && typeof value === 'object'
-    && !Array.isArray(value)
-    && 'output' in (value as Record<string, unknown>),
-  )
+  toolResolver?: CustomToolResolver
+  /** 'strict' throws if any tools remain unresolved; 'lenient' warns (default). */
+  resolvePolicy?: ToolResolverOptions['resolvePolicy']
 }
 
 /**
@@ -38,7 +34,20 @@ export function createForgeAgentRunExecutor(
   return async (ctx): Promise<RunExecutorResult> => {
     const prompt = toPrompt(ctx.input) || 'Proceed with the requested task.'
 
+    let toolCleanup: (() => Promise<void>) | undefined
+
     try {
+      const resolvedTools = await resolveAgentTools(
+        {
+          toolNames: ctx.agent.tools,
+          metadata: ctx.metadata,
+          env: process.env,
+        },
+        options?.toolResolver,
+        { resolvePolicy: options?.resolvePolicy },
+      )
+      toolCleanup = resolvedTools.cleanup
+
       const agent = new ForgeAgent({
         id: ctx.agent.id,
         name: ctx.agent.name,
@@ -46,12 +55,39 @@ export function createForgeAgentRunExecutor(
         instructions: ctx.agent.instructions,
         model: ctx.agent.modelTier as 'chat' | 'reasoning' | 'codegen' | 'embedding',
         registry: ctx.modelRegistry,
+        tools: resolvedTools.tools,
       })
 
       const chunks: string[] = []
       const logs: RunExecutorResult['logs'] = []
       let hitIterationLimit = false
       let lastFlushAt = 0
+
+      if (resolvedTools.activated.length > 0) {
+        logs.push({
+          level: 'info',
+          phase: 'tools',
+          message: 'Activated tools for run',
+          data: { tools: resolvedTools.activated },
+        })
+      }
+
+      if (resolvedTools.unresolved.length > 0) {
+        logs.push({
+          level: 'warn',
+          phase: 'tools',
+          message: 'Some requested tools could not be resolved',
+          data: { unresolved: resolvedTools.unresolved },
+        })
+      }
+
+      for (const warning of resolvedTools.warnings) {
+        logs.push({
+          level: 'warn',
+          phase: 'tools',
+          message: warning,
+        })
+      }
 
       for await (const event of agent.stream([new HumanMessage(prompt)])) {
         if (event.type === 'text') {
@@ -155,6 +191,8 @@ export function createForgeAgentRunExecutor(
           streamMode: true,
           chunkCount: chunks.length,
           hitIterationLimit,
+          activatedTools: resolvedTools.activated,
+          unresolvedTools: resolvedTools.unresolved,
         },
         logs,
       }
@@ -180,6 +218,8 @@ export function createForgeAgentRunExecutor(
         }
       }
       throw error
+    } finally {
+      await toolCleanup?.()
     }
   }
 }

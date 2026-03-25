@@ -68,6 +68,16 @@ describe('AgentAuth', () => {
     expect(result.reason).toBe('Message expired')
   })
 
+  it('verifyMessage rejects messages too far in the future', () => {
+    const strictAuth = new AgentAuth({ maxMessageAgeMs: 60_000, allowedClockSkewMs: 100 })
+    const cred = strictAuth.generateCredential('agent-x')
+    const msg = strictAuth.signMessage({ data: 'hello' }, cred)
+    const future = { ...msg, timestamp: Date.now() + 5_000 }
+    const result = strictAuth.verifyMessage(future, cred.publicKey)
+    expect(result.valid).toBe(false)
+    expect(result.reason).toBe('Message timestamp is too far in the future')
+  })
+
   // -----------------------------------------------------------------------
   // Nonce uniqueness
   // -----------------------------------------------------------------------
@@ -99,6 +109,16 @@ describe('AgentAuth', () => {
     const result = auth.checkReplay(expired)
     expect(result.allowed).toBe(false)
     expect(result.reason).toContain('too old')
+  })
+
+  it('checkReplay rejects messages too far in the future', () => {
+    const strictAuth = new AgentAuth({ maxMessageAgeMs: 60_000, allowedClockSkewMs: 100 })
+    const cred = strictAuth.generateCredential('agent-x')
+    const msg = strictAuth.signMessage({ data: 'future' }, cred)
+    const future = { ...msg, timestamp: Date.now() + 5_000 }
+    const result = strictAuth.checkReplay(future)
+    expect(result.allowed).toBe(false)
+    expect(result.reason).toBe('Message timestamp is too far in the future')
   })
 
   // -----------------------------------------------------------------------

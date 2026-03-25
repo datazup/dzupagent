@@ -2,6 +2,7 @@ import type { AgentDefinition, ModelRegistry, RunStore } from '@forgeagent/core'
 import type { ForgeEventBus } from '@forgeagent/core'
 import type { RunQueue } from '../queue/run-queue.js'
 import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
+import { isStructuredResult } from './utils.js'
 
 export interface RunExecutionContext {
   runId: string
@@ -39,13 +40,34 @@ export interface StartRunWorkerOptions {
   shutdown?: GracefulShutdown
 }
 
-function isStructuredResult(value: unknown): value is RunExecutorResult {
-  return Boolean(
-    value
-    && typeof value === 'object'
-    && !Array.isArray(value)
-    && 'output' in (value as Record<string, unknown>),
-  )
+async function waitForApprovalDecision(
+  eventBus: ForgeEventBus,
+  runId: string,
+  timeoutMs: number,
+): Promise<{ approved: boolean; reason?: string }> {
+  return new Promise((resolve) => {
+    const unsubGrant = eventBus.on('approval:granted', (event) => {
+      if (event.runId !== runId) return
+      unsubGrant()
+      unsubReject()
+      clearTimeout(timer)
+      resolve({ approved: true })
+    })
+
+    const unsubReject = eventBus.on('approval:rejected', (event) => {
+      if (event.runId !== runId) return
+      unsubGrant()
+      unsubReject()
+      clearTimeout(timer)
+      resolve({ approved: false, reason: event.reason })
+    })
+
+    const timer = setTimeout(() => {
+      unsubGrant()
+      unsubReject()
+      resolve({ approved: false, reason: `Approval timed out after ${timeoutMs}ms` })
+    }, timeoutMs)
+  })
 }
 
 /**
@@ -82,6 +104,53 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         data: { jobId: job.id },
       })
       options.eventBus.emit({ type: 'agent:started', agentId: job.agentId, runId: job.runId })
+
+      if (agent.approval === 'required') {
+        const timeoutMs = typeof job.metadata?.['approvalTimeoutMs'] === 'number'
+          ? Number(job.metadata['approvalTimeoutMs'])
+          : 60_000
+
+        await options.runStore.update(job.runId, {
+          status: 'awaiting_approval',
+          plan: { input: job.input, metadata: job.metadata },
+        })
+        await options.runStore.addLog(job.runId, {
+          level: 'info',
+          phase: 'approval',
+          message: 'Awaiting approval before execution',
+          data: { timeoutMs },
+        })
+        options.eventBus.emit({ type: 'approval:requested', runId: job.runId, plan: { input: job.input } })
+
+        const decision = await waitForApprovalDecision(options.eventBus, job.runId, timeoutMs)
+        if (!decision.approved) {
+          await options.runStore.update(job.runId, {
+            status: 'rejected',
+            error: decision.reason ?? 'Rejected by policy',
+            completedAt: new Date(),
+          })
+          await options.runStore.addLog(job.runId, {
+            level: 'warn',
+            phase: 'approval',
+            message: `Run rejected before execution: ${decision.reason ?? 'no reason provided'}`,
+          })
+          options.eventBus.emit({
+            type: 'agent:failed',
+            agentId: job.agentId,
+            runId: job.runId,
+            errorCode: 'APPROVAL_REJECTED',
+            message: decision.reason ?? 'Run rejected by approval policy',
+          })
+          return
+        }
+
+        await options.runStore.update(job.runId, { status: 'running' })
+        await options.runStore.addLog(job.runId, {
+          level: 'info',
+          phase: 'approval',
+          message: 'Approval granted, proceeding with execution',
+        })
+      }
 
       const execution = await options.runExecutor({
         runId: job.runId,

@@ -103,6 +103,9 @@ export class ForgeAgent {
       maxIterations,
       budget,
       signal: options?.signal,
+      invokeModel: (m, msgs) => this.invokeModelWithMiddleware(m, msgs),
+      transformToolResult: (name, input, output) =>
+        this.transformToolResultWithMiddleware(name, input, output),
       onUsage: (usage) => {
         options?.onUsage?.(usage)
       },
@@ -582,5 +585,43 @@ export class ForgeAgent {
         }
       }
     }
+  }
+
+  /**
+   * Invoke model with middleware overrides.
+   *
+   * Contract: first middleware with wrapModelCall takes control of invocation.
+   * If none exists, falls back to model.invoke(messages).
+   */
+  private async invokeModelWithMiddleware(
+    model: BaseChatModel,
+    messages: BaseMessage[],
+  ): Promise<BaseMessage> {
+    const middlewares = this.config.middleware ?? []
+    const wrapper = middlewares.find((mw) => typeof mw.wrapModelCall === 'function')
+    if (wrapper?.wrapModelCall) {
+      return wrapper.wrapModelCall(model, messages, { agentId: this.id })
+    }
+    return model.invoke(messages)
+  }
+
+  /**
+   * Run tool result through middleware wrappers in registration order.
+   */
+  private async transformToolResultWithMiddleware(
+    toolName: string,
+    input: Record<string, unknown>,
+    result: string,
+  ): Promise<string> {
+    let current = result
+    for (const mw of this.config.middleware ?? []) {
+      if (!mw.wrapToolCall) continue
+      try {
+        current = await mw.wrapToolCall(toolName, input, current)
+      } catch {
+        // Non-fatal middleware failures
+      }
+    }
+    return current
   }
 }

@@ -45,6 +45,8 @@ export interface SignedAgentMessage {
 export interface AgentAuthConfig {
   /** Maximum age of a message before it is rejected (default: 60000ms = 1 min) */
   maxMessageAgeMs?: number
+  /** Allowed sender clock skew into the future (default: 5000ms) */
+  allowedClockSkewMs?: number
   /** Required capabilities for the sender (checked via PolicyEvaluator if provided) */
   requiredCapabilities?: string[]
 }
@@ -129,12 +131,14 @@ function publicKeyFromRaw(raw: Uint8Array): ReturnType<typeof createPublicKey> {
  */
 export class AgentAuth {
   private readonly maxMessageAgeMs: number
+  private readonly allowedClockSkewMs: number
   private readonly seenNonces = new Map<string, number>() // nonce -> expiry timestamp
   private readonly registeredKeys = new Map<string, Uint8Array>() // agentId -> publicKey
   private lastEviction = Date.now()
 
   constructor(config?: AgentAuthConfig) {
     this.maxMessageAgeMs = config?.maxMessageAgeMs ?? 60_000
+    this.allowedClockSkewMs = config?.allowedClockSkewMs ?? 5_000
   }
 
   // -------------------------------------------------------------------------
@@ -194,6 +198,9 @@ export class AgentAuth {
     try {
       // Check timestamp freshness
       const age = Date.now() - message.timestamp
+      if (age < -this.allowedClockSkewMs) {
+        return { valid: false, reason: 'Message timestamp is too far in the future' }
+      }
       if (age > this.maxMessageAgeMs) {
         return { valid: false, reason: 'Message expired' }
       }
@@ -230,6 +237,9 @@ export class AgentAuth {
 
     // Timestamp check
     const age = Date.now() - message.timestamp
+    if (age < -this.allowedClockSkewMs) {
+      return { allowed: false, reason: 'Message timestamp is too far in the future' }
+    }
     if (age > this.maxMessageAgeMs) {
       return { allowed: false, reason: 'Message too old' }
     }

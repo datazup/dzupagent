@@ -9,6 +9,16 @@ const routes: RouteRecordRaw[] = [
     name: 'playground',
     component: () => import('../views/PlaygroundView.vue'),
   },
+  {
+    path: '/agents',
+    name: 'agents',
+    component: () => import('../views/AgentsView.vue'),
+  },
+  {
+    path: '/runs/:id',
+    name: 'run-detail',
+    component: () => import('../views/RunDetailView.vue'),
+  },
 ]
 
 export const router = createRouter({

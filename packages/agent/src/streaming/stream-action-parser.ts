@@ -42,7 +42,7 @@ export class StreamActionParser {
   private fired = new Set<string>()
   private parallel: boolean
   private maxConcurrent: number
-  private active: Array<Promise<StreamActionEvent>> = []
+  private active: Set<Promise<StreamActionEvent>> = new Set()
 
   constructor(tools: StructuredToolInterface[], config?: StreamActionParserConfig) {
     this.tools = new Map(tools.map(t => [t.name, t]))
@@ -111,12 +111,12 @@ export class StreamActionParser {
       }
     }
     // Drain parallel in-flight executions
-    if (this.active.length > 0) {
-      const settled = await Promise.allSettled(this.active)
+    if (this.active.size > 0) {
+      const settled = await Promise.allSettled([...this.active])
       for (const r of settled) {
         if (r.status === 'fulfilled') events.push(r.value)
       }
-      this.active = []
+      this.active.clear()
     }
     return events
   }
@@ -145,16 +145,23 @@ export class StreamActionParser {
     }
 
     if (this.parallel) {
-      if (this.active.length >= this.maxConcurrent) {
-        const first = await Promise.race(this.active)
-        this.active = this.active.filter(p => p !== Promise.resolve(first))
-        this.active.push(run())
+      if (this.active.size >= this.maxConcurrent) {
+        const first = await Promise.race([...this.active])
+        this.active.add(this.runTracked(run))
         return [{ type: 'tool_call_complete', data: { toolCall: tc } }, first]
       }
-      this.active.push(run())
+      this.active.add(this.runTracked(run))
       return [{ type: 'tool_call_complete', data: { toolCall: tc } }]
     }
     return [{ type: 'tool_call_complete', data: { toolCall: tc } }, await run()]
+  }
+
+  private runTracked(run: () => Promise<StreamActionEvent>): Promise<StreamActionEvent> {
+    const promise = run()
+    promise.finally(() => {
+      this.active.delete(promise)
+    })
+    return promise
   }
 }
 
