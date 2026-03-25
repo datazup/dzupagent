@@ -24,7 +24,13 @@
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",
     "@langchain/langgraph": ">=1.0.0",
+    "@forgeagent/memory-ipc": "workspace:*",
     "zod": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@forgeagent/memory-ipc": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@langchain/anthropic": "^1.3.0",

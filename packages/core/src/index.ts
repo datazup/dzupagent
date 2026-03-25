@@ -73,57 +73,207 @@ export type {
 
 // --- Memory (re-exported from @forgeagent/memory) ---
 export {
+  // Core
   createStore,
   MemoryService,
+  // Decay
   calculateStrength, reinforceMemory, createDecayMetadata, scoreWithDecay, findWeakMemories,
+  // Sanitization
   sanitizeMemoryContent, stripInvisibleUnicode,
+  // Consolidation (heuristic)
   consolidateNamespace, consolidateAll,
+  // Consolidation (LLM-powered) — Sprint 1
+  SemanticConsolidator, consolidateWithLLM,
+  // Healer
   findDuplicates, findContradictions, findStaleRecords, healMemory,
+  // Working Memory
   WorkingMemory,
+  VersionedWorkingMemory,
+  // Observation Extractors
   ObservationExtractor,
+  MemoryAwareExtractor,
+  // Frozen Snapshot
   FrozenMemorySnapshot,
+  // Staged Writers
   StagedWriter,
+  PolicyAwareStagedWriter,
+  // Write Policy
   defaultWritePolicy, composePolicies,
+  // Retrieval — base
   StoreVectorSearch,
   KeywordFTSSearch,
   EntityGraphSearch,
   fusionSearch,
+  // Retrieval — persistent graph (Sprint 2)
+  PersistentEntityGraph,
+  // Retrieval — adaptive (Sprint 2)
+  AdaptiveRetriever, DEFAULT_STRATEGIES, classifyIntent,
+  // Retrieval — void filter (Sprint 4)
+  voidFilter,
+  // Retrieval — hub dampening (Sprint 4)
+  applyHubDampening, getAccessCount,
+  // Retrieval — PageRank (Sprint 4)
+  computePPR, queryPPR,
+  // Retrieval — cross-encoder reranking (Sprint 4)
+  rerank, createLLMReranker,
+  // Retrieval — relationship store (Sprint 5)
+  RelationshipStore,
+  // Retrieval — community detection (Sprint 5)
+  CommunityDetector,
+  // Temporal memory (Sprint 2)
+  TemporalMemoryService, createTemporalMeta, isActive, wasActiveAsOf, wasValidAt, filterByTemporal,
+  // Scoped memory / multi-agent (Sprint 3)
+  ScopedMemoryService, createAgentMemories, PolicyTemplates,
+  // Dual-stream writer (Sprint 4)
+  DualStreamWriter,
+  // Sleep-time consolidation (Sprint 5)
+  SleepConsolidator, runSleepConsolidation,
+  // Observational memory (Sprint 5)
+  ObservationalMemory,
+  // Provenance tracking
+  ProvenanceWriter, createProvenance, extractProvenance, createContentHash,
+  // MCP memory server (Sprint 6)
+  MCPMemoryHandler, MCP_MEMORY_TOOLS,
+  // Multi-network memory (Sprint 6)
+  MultiNetworkMemory, DEFAULT_NETWORK_CONFIGS,
+  // Encryption (ECO-041/042)
+  EnvKeyProvider, EncryptedMemoryService,
+  // Convention detection (ECO-039/040)
+  ConventionExtractor, ALL_CONVENTION_CATEGORIES,
+  // Causal graph (ECO-037/038)
+  CausalGraph,
+  // Agent File export/import (ECO-046/047)
+  AgentFileExporter, AgentFileImporter, AGENT_FILE_SCHEMA, AGENT_FILE_VERSION,
+  // Shared memory spaces (ECO-043/044/045)
+  MemorySpaceManager,
+  // CRDT conflict resolution (ECO-057/058/059)
+  HLC, CRDTResolver,
+  // Multi-modal memory (ECO-060)
+  MultiModalMemoryService, InMemoryAttachmentStorage, inferAttachmentType,
 } from '@forgeagent/memory'
 export type {
-  StoreConfig,
+  // Core types
+  StoreConfig, StoreIndexConfig,
   NamespaceConfig, FormatOptions, DecayConfig,
   DecayMetadata,
   SanitizeResult,
   ConsolidationConfig, ConsolidationResult,
+  // Semantic consolidation types
+  SemanticConsolidationConfig, SemanticConsolidationResult, ConsolidationAction, ConsolidationDecision,
+  // Healer types
   HealingIssue, HealingReport, MemoryHealerConfig,
+  // Working memory types
   WorkingMemoryConfig,
+  VersionedWorkingMemoryConfig, WorkingMemoryDiff,
+  // Observation types
   ObservationExtractorConfig, Observation, ObservationCategory,
+  MemoryAwareExtractorConfig, ExtractionResult,
+  // Staged writer types
   StagedRecord, MemoryStage, StagedWriterConfig,
+  PolicyAwareStagedWriterConfig,
+  // Write policy types
   WritePolicy, WriteAction,
+  // Retrieval types — base
   VectorSearchResult, VectorSearchProvider,
   FTSSearchResult,
   GraphSearchResult,
   FusedResult,
+  // Retrieval types — persistent graph
+  EntityNode, GraphTraversalResult,
+  // Retrieval types — adaptive
+  QueryIntent, RetrievalWeights, RetrievalStrategy, RetrievalProviders, AdaptiveRetrieverConfig, AdaptiveSearchResult,
+  // Retrieval types — void filter
+  MemoryState, VoidFilterConfig, VoidFilterResult,
+  // Retrieval types — hub dampening
+  HubDampenedResult, HubDampeningConfig,
+  // Retrieval types — PageRank
+  PPRConfig, PPRResult,
+  // Retrieval types — cross-encoder
+  CrossEncoderProvider, RerankerConfig, RerankedResult,
+  // Retrieval types — relationships
+  RelationshipType, RelationshipEdge, EdgeMetadata, TraversalResult,
+  // Retrieval types — community
+  MemoryCommunity, CommunityDetectorConfig, CommunityDetectionResult,
+  // Temporal types
+  TemporalMetadata, TemporalQuery, TemporalChange,
+  // Scoped memory types
+  MemoryAccessPolicy, NamespaceAccess, AccessViolation,
+  // Dual-stream types
+  DualStreamConfig, PendingRecord, IngestResult,
+  // Sleep consolidation types
+  SleepConsolidationConfig, SleepConsolidationReport, SleepPhase,
+  // Observational memory types
+  ObservationalMemoryConfig, ObservationalMemoryStats, ObserverResult, ReflectorResult,
+  // Provenance types
+  MemoryProvenance, ProvenanceSource, ProvenanceWriteOptions, ProvenanceQuery,
+  // MCP types
+  MCPToolDefinition, MCPToolResult as MCPMemoryToolResult, MCPMemoryServices,
+  // Multi-network types
+  MemoryNetwork, NetworkConfig, NetworkMemoryRecord, MultiNetworkSearchResult, NetworkStats, MultiNetworkMemoryConfig,
+  // Encryption types
+  EncryptedEnvelope, EncryptionKeyDescriptor, EncryptionKeyProvider, EncryptedMemoryServiceConfig,
+  // Convention types (ECO-039/040)
+  ConventionCategory, DetectedConvention, ConventionCheckResult, ConventionFollowed,
+  ConventionViolated, ConventionExtractorConfig, ConventionFilter, ConsolidateOptions,
+  // Causal graph types (ECO-037/038)
+  CausalRelation, CausalNode, CausalTraversalOptions, CausalGraphResult,
+  // Agent File types (ECO-046/047)
+  AgentFile, AgentFileAgentSection, AgentFileMemorySection, AgentFileMemoryRecord,
+  AgentFilePromptsSection, AgentFileStateSection, ImportOptions, ImportResult,
+  AgentFileExporterConfig, ExportOptions,
+  // Shared memory space types (ECO-043/044/045)
+  MemorySpaceManagerConfig,
+  SpacePermission, ConflictStrategy, ShareMode,
+  MemoryParticipant, RetentionPolicy, SharedMemorySpace,
+  MemoryShareRequest, PendingShareRequest, SharedMemoryEvent,
+  // CRDT types (ECO-057/058/059)
+  HLCTimestamp, LWWRegister, ORSetEntry, ORSet, LWWMap, MergeResult,
+  // Multi-modal memory types (ECO-060)
+  AttachmentType, MemoryAttachment, AttachmentStorageProvider, MultiModalMemoryServiceConfig,
 } from '@forgeagent/memory'
 
 // --- Context (re-exported from @forgeagent/context) ---
 export {
+  // Message management
   shouldSummarize,
   summarizeAndTrim,
   formatSummaryContext,
   pruneToolResults,
   repairOrphanedToolPairs,
+  // Completeness
   scoreCompleteness,
+  // Eviction
   evictIfNeeded,
+  // System reminders
   SystemReminderInjector,
+  // Prompt cache
   applyAnthropicCacheControl,
   applyCacheBreakpoints,
+  // Auto-compress + extraction bridge (Sprint 2)
+  autoCompress,
+  FrozenSnapshot,
+  createExtractionHook,
+  // Phase-aware windowing (Sprint 3)
+  PhaseAwareWindowManager, DEFAULT_PHASES,
+  // Progressive compression (Sprint 3)
+  compressToLevel, compressToBudget, selectCompressionLevel,
+  // Context transfer (Sprint 3)
+  ContextTransferService,
 } from '@forgeagent/context'
 export type {
   MessageManagerConfig,
   CompletenessResult, DescriptionInput,
   EvictionConfig, EvictionResult,
   SystemReminderConfig, ReminderContent,
+  // Auto-compress types
+  AutoCompressConfig, CompressResult,
+  MessageExtractionFn,
+  // Phase-aware types
+  ConversationPhase, PhaseConfig, MessageRetention, PhaseDetection, PhaseWindowConfig,
+  // Progressive compression types
+  CompressionLevel, ProgressiveCompressConfig, ProgressiveCompressResult,
+  // Context transfer types
+  IntentContext, IntentType, ContextTransferConfig, IntentRelevanceRule, TransferScope,
 } from '@forgeagent/context'
 
 // --- Middleware ---
@@ -132,6 +282,8 @@ export { calculateCostCents, getModelCosts } from './middleware/cost-tracking.js
 export type { CostTracker } from './middleware/cost-tracking.js'
 export { createLangfuseHandler } from './middleware/langfuse.js'
 export type { LangfuseConfig, LangfuseHandlerOptions } from './middleware/langfuse.js'
+export { CostAttributionCollector } from './middleware/cost-attribution.js'
+export type { CostAttribution, CostReport, CostBucket, CostAttributionConfig } from './middleware/cost-attribution.js'
 
 // --- Persistence ---
 export { createCheckpointer } from './persistence/checkpointer.js'
@@ -194,6 +346,34 @@ export type {
   MCPServerStatus,
 } from './mcp/mcp-types.js'
 export type { DeferredLoaderConfig } from './mcp/deferred-loader.js'
+// MCP Resources
+export { MCPResourceClient } from './mcp/mcp-resources.js'
+export type { MCPResourceClientConfig } from './mcp/mcp-resources.js'
+export type {
+  MCPResource,
+  MCPResourceTemplate,
+  MCPResourceContent,
+  ResourceSubscription,
+  ResourceChangeHandler,
+} from './mcp/mcp-resource-types.js'
+// MCP Sampling
+export { createSamplingHandler, registerSamplingHandler } from './mcp/mcp-sampling.js'
+export type {
+  MCPSamplingConfig,
+  LLMInvokeMessage,
+  LLMInvokeOptions,
+  LLMInvokeResult,
+  LLMInvokeFn,
+  SamplingRegistration,
+} from './mcp/mcp-sampling.js'
+export type {
+  MCPSamplingRequest,
+  MCPSamplingResponse,
+  MCPSamplingContent,
+  MCPSamplingMessage,
+  MCPModelPreferences,
+  SamplingHandler,
+} from './mcp/mcp-sampling-types.js'
 
 // --- Security ---
 export { createRiskClassifier } from './security/risk-classifier.js'
@@ -209,6 +389,52 @@ export { detectPII, redactPII } from './security/pii-detector.js'
 export type { PIIType, PIIMatch, PIIDetectionResult } from './security/pii-detector.js'
 export { OutputPipeline, createDefaultPipeline } from './security/output-pipeline.js'
 export type { SanitizationStage, OutputPipelineConfig, PipelineResult } from './security/output-pipeline.js'
+// Compliance Audit Trail (ECO-145)
+export { InMemoryAuditStore, ComplianceAuditLogger } from './security/audit/index.js'
+export type {
+  AuditActorType, AuditActor, AuditResult,
+  ComplianceAuditEntry, AuditFilter, AuditRetentionPolicy,
+  IntegrityCheckResult, ComplianceAuditStore, AuditLoggerConfig,
+} from './security/audit/index.js'
+// Policy engine (ECO-140/141/143)
+export { InMemoryPolicyStore, PolicyEvaluator, PolicyTranslator } from './security/policy/index.js'
+export type {
+  PolicyEffect,
+  PrincipalType,
+  ConditionOperator,
+  PolicyCondition,
+  PolicyPrincipal,
+  PolicyRule,
+  PolicySet,
+  PolicyContext,
+  PolicyDecision,
+  PolicyStore,
+  PolicyTranslatorConfig,
+  PolicyTranslationResult,
+} from './security/policy/index.js'
+// Safety Monitor (ECO-144)
+export { createSafetyMonitor, getBuiltInRules } from './security/monitor/index.js'
+export type {
+  SafetyMonitor, SafetyMonitorConfig,
+  SafetyCategory, SafetySeverity, SafetyAction, SafetyViolation, SafetyRule,
+} from './security/monitor/index.js'
+// Memory Poisoning Defense (ECO-147)
+export { createMemoryDefense } from './security/memory/index.js'
+export type {
+  MemoryDefense, MemoryDefenseConfig, MemoryDefenseResult,
+  MemoryThreat, MemoryThreatAction, EncodedContentMatch,
+} from './security/memory/index.js'
+// Enhanced Output Filters (ECO-149)
+export { createHarmfulContentFilter, createClassificationAwareRedactor } from './security/output/index.js'
+export type { HarmfulContentCategory } from './security/output/index.js'
+// Data Classification (ECO-182)
+export { DataClassifier, DEFAULT_CLASSIFICATION_PATTERNS } from './security/classification/index.js'
+export type {
+  ClassificationLevel,
+  DataClassificationTag,
+  ClassificationPattern,
+  ClassificationConfig,
+} from './security/classification/index.js'
 
 // --- Observability ---
 export { MetricsCollector, globalMetrics } from './observability/metrics-collector.js'
@@ -245,6 +471,251 @@ export type {
   RateLimitConfig,
   ConfigLayer,
 } from './config/index.js'
+
+// --- Identity ---
+export { toIdentityRef } from './identity/index.js'
+export type {
+  ForgeIdentity,
+  ForgeCredential,
+  ForgeCapability,
+  ForgeIdentityRef,
+  CredentialType,
+} from './identity/index.js'
+export {
+  ForgeIdentitySchema,
+  ForgeCapabilitySchema,
+  ForgeCredentialSchema,
+  ForgeIdentityRefSchema,
+} from './identity/index.js'
+export {
+  parseForgeUri,
+  buildForgeUri,
+  isForgeUri,
+  toAgentUri,
+  fromAgentUri,
+  createUriResolver,
+  ForgeUriSchema,
+} from './identity/index.js'
+export type {
+  ParsedForgeUri,
+  UriResolver,
+  UriResolverStrategy,
+  UriResolverConfig,
+} from './identity/index.js'
+
+// --- Identity: Signing ---
+export { createKeyManager, InMemoryKeyStore } from './identity/index.js'
+export type {
+  SigningKeyPair,
+  SigningKeyStatus,
+  SignedDocument,
+  SignedAgentCard,
+  KeyStore,
+  KeyManagerConfig,
+  KeyManager,
+} from './identity/index.js'
+
+// --- Identity: Resolution ---
+export { CompositeIdentityResolver } from './identity/index.js'
+export type {
+  IdentityResolutionContext,
+  IdentityResolver,
+} from './identity/index.js'
+export { createAPIKeyResolver, hashAPIKey } from './identity/index.js'
+export type {
+  APIKeyRecord,
+  APIKeyResolverConfig,
+  APIKeyIdentityResolver,
+} from './identity/index.js'
+
+// --- Identity: Delegation ---
+export { InMemoryDelegationTokenStore, DelegationManager } from './identity/index.js'
+export type {
+  DelegationToken,
+  DelegationConstraint,
+  DelegationChain,
+  DelegationTokenStore,
+  DelegationManagerConfig,
+  IssueDelegationParams,
+} from './identity/index.js'
+
+// --- Identity: Capability Checker ---
+export { createCapabilityChecker } from './identity/index.js'
+export type {
+  CapabilityCheckResult,
+  CapabilityCheckerConfig,
+  CapabilityCheckParams,
+  CapabilityChecker,
+} from './identity/index.js'
+
+// --- Identity: Trust Scoring ---
+export { createTrustScorer, InMemoryTrustScoreStore } from './identity/index.js'
+export type {
+  TrustSignals,
+  TrustScoreBreakdown,
+  TrustScorerConfig,
+  TrustScoreStore,
+  TrustScorer,
+} from './identity/index.js'
+
+// --- Protocol ---
+export {
+  ForgeMessageUriSchema,
+  ForgeMessageMetadataSchema,
+  ForgePayloadSchema,
+  ForgeMessageSchema,
+  createMessageId,
+  createForgeMessage,
+  createResponse,
+  createErrorResponse,
+  isMessageAlive,
+  validateForgeMessage,
+  InternalAdapter,
+  extractAgentId,
+  ProtocolRouter,
+  A2AClientAdapter,
+  streamA2ATask,
+  parseSSEEvents,
+  JSONSerializer,
+  defaultSerializer,
+  ProtocolBridge,
+} from './protocol/index.js'
+export type {
+  ForgeMessageId,
+  ForgeMessageType,
+  ForgeProtocol,
+  MessagePriority,
+  MessageBudget,
+  ForgeMessageMetadata,
+  ForgePayload,
+  ForgeMessage,
+  CreateMessageParams,
+  ValidationResult,
+  AdapterState,
+  AdapterHealthStatus,
+  SendOptions,
+  MessageHandler,
+  Subscription,
+  ProtocolAdapter,
+  InternalAdapterConfig,
+  ProtocolRouterConfig,
+  A2AClientConfig,
+  A2ASSEConfig,
+  SSEEvent,
+  MessageSerializer,
+  ProtocolBridgeConfig,
+  BridgeDirection,
+} from './protocol/index.js'
+
+// --- Registry ---
+export { InMemoryRegistry } from './registry/index.js'
+export { CapabilityMatcher, compareSemver } from './registry/index.js'
+export {
+  STANDARD_CAPABILITIES,
+  isStandardCapability,
+  getCapabilityDescription,
+  listStandardCapabilities,
+} from './registry/index.js'
+export type {
+  CapabilityDescriptor,
+  AgentHealthStatus,
+  DeregistrationReason,
+  AgentHealth,
+  AgentSLA,
+  AgentAuthentication,
+  RegisteredAgent,
+  RegisterAgentInput,
+  DiscoveryQuery,
+  ScoreBreakdown,
+  DiscoveryResult,
+  DiscoveryResultPage,
+  RegistryStats,
+  RegistryEventType,
+  RegistrySubscriptionFilter,
+  RegistryEvent,
+  AgentRegistryConfig,
+  AgentRegistry,
+} from './registry/index.js'
+export type { CapabilityTree, CapabilityTreeNode } from './registry/index.js'
+// Registry — semantic search (ECO-050)
+export { KeywordFallbackSearch, createKeywordFallbackSearch } from './registry/index.js'
+export type { SemanticSearchProvider } from './registry/index.js'
+
+// --- Pipeline ---
+export type {
+  PipelineNodeBase,
+  AgentNode,
+  ToolNode,
+  TransformNode,
+  GateNode,
+  ForkNode,
+  JoinNode,
+  LoopNode,
+  SuspendNode,
+  PipelineNode,
+  SequentialEdge,
+  ConditionalEdge,
+  ErrorEdge,
+  PipelineEdge,
+  CheckpointStrategy,
+  PipelineDefinition,
+  PipelineValidationError,
+  PipelineValidationWarning,
+  PipelineValidationResult,
+  PipelineCheckpoint,
+  PipelineCheckpointSummary,
+  PipelineCheckpointStore,
+} from './pipeline/index.js'
+export {
+  AgentNodeSchema,
+  ToolNodeSchema,
+  TransformNodeSchema,
+  GateNodeSchema,
+  ForkNodeSchema,
+  JoinNodeSchema,
+  LoopNodeSchema,
+  SuspendNodeSchema,
+  PipelineNodeSchema,
+  SequentialEdgeSchema,
+  ConditionalEdgeSchema,
+  ErrorEdgeSchema,
+  PipelineEdgeSchema,
+  PipelineCheckpointSchema,
+  PipelineDefinitionSchema,
+  serializePipeline,
+  deserializePipeline,
+  // Layout (ECO-184)
+  autoLayout,
+} from './pipeline/index.js'
+export type { NodePosition, ViewportState, PipelineLayout } from './pipeline/index.js'
+
+// --- Formats ---
+export {
+  // Agent Card V2
+  AgentCardV2Schema, validateAgentCard,
+  // Tool Format Adapters
+  zodToJsonSchema, jsonSchemaToZod,
+  toOpenAIFunction, toOpenAITool, fromOpenAIFunction,
+  toMCPToolDescriptor, fromMCPToolDescriptor,
+  // AGENTS.md V2 Parser
+  parseAgentsMdV2, generateAgentsMd, toLegacyConfig,
+} from './formats/index.js'
+export type {
+  // Agent Card V2 types
+  ContentMode, AgentCardV2, AgentCardCapability, AgentCardSkill,
+  AgentAuthScheme, AgentCardAuthentication, AgentCardSLA, AgentCardProvider,
+  AgentCardValidationResult,
+  // OpenAI types
+  OpenAIFunctionDefinition, OpenAIToolDefinition,
+  // Tool adapter types
+  ToolSchemaDescriptor, MCPToolDescriptorCompat,
+  // AGENTS.md V2 types
+  AgentsMdDocument, AgentsMdMetadata, AgentsMdCapability as AgentsMdCapabilityV2,
+  AgentsMdMemoryConfig, AgentsMdSecurityConfig,
+} from './formats/index.js'
+
+// --- Memory IPC (optional, requires @forgeagent/memory-ipc peer) ---
+export * from './memory-ipc.js'
 
 // --- Version ---
 export const FORGEAGENT_CORE_VERSION = '0.1.0'

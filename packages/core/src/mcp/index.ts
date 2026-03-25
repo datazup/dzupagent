@@ -13,3 +13,33 @@ export type {
   MCPServerStatus,
 } from './mcp-types.js'
 export type { DeferredLoaderConfig } from './deferred-loader.js'
+
+// --- Resources ---
+export { MCPResourceClient } from './mcp-resources.js'
+export type { MCPResourceClientConfig } from './mcp-resources.js'
+export type {
+  MCPResource,
+  MCPResourceTemplate,
+  MCPResourceContent,
+  ResourceSubscription,
+  ResourceChangeHandler,
+} from './mcp-resource-types.js'
+
+// --- Sampling ---
+export { createSamplingHandler, registerSamplingHandler } from './mcp-sampling.js'
+export type {
+  MCPSamplingConfig,
+  LLMInvokeMessage,
+  LLMInvokeOptions,
+  LLMInvokeResult,
+  LLMInvokeFn,
+  SamplingRegistration,
+} from './mcp-sampling.js'
+export type {
+  MCPSamplingRequest,
+  MCPSamplingResponse,
+  MCPSamplingContent,
+  MCPSamplingMessage,
+  MCPModelPreferences,
+  SamplingHandler,
+} from './mcp-sampling-types.js'

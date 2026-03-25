@@ -40,5 +40,36 @@ export type ForgeErrorCode =
   // --- Agent errors ---
   | 'AGENT_STUCK'
   | 'AGENT_ABORTED'
+  // --- Identity errors ---
+  | 'IDENTITY_NOT_FOUND'
+  | 'IDENTITY_INVALID'
+  | 'IDENTITY_RESOLUTION_FAILED'
+  // --- Delegation errors ---
+  | 'DELEGATION_EXPIRED'
+  | 'DELEGATION_REVOKED'
+  | 'DELEGATION_DEPTH_EXCEEDED'
+  | 'DELEGATION_SCOPE_VIOLATION'
+  | 'DELEGATION_INVALID_SIGNATURE'
+  // --- Capability errors ---
+  | 'CAPABILITY_DENIED'
+  | 'CAPABILITY_NOT_FOUND'
+  // --- Protocol errors ---
+  | 'PROTOCOL_UNSUPPORTED'
+  | 'PROTOCOL_CONNECTION_FAILED'
+  | 'PROTOCOL_SEND_FAILED'
+  | 'PROTOCOL_TIMEOUT'
+  | 'MESSAGE_VALIDATION_FAILED'
+  | 'MESSAGE_EXPIRED'
+  | 'MESSAGE_ROUTING_FAILED'
+  | 'SERIALIZATION_FAILED'
+  // --- Registry errors ---
+  | 'REGISTRY_AGENT_NOT_FOUND'
+  | 'REGISTRY_AGENT_EXISTS'
+  | 'REGISTRY_INVALID_INPUT'
+  | 'REGISTRY_CARD_FETCH_FAILED'
+  | 'REGISTRY_CARD_INVALID'
+  // --- Policy errors ---
+  | 'POLICY_DENIED'
+  | 'POLICY_INVALID'
   // --- General ---
   | 'INTERNAL_ERROR'
