@@ -8,7 +8,7 @@
 
 // --- Store ---
 export { createStore } from './store-factory.js'
-export type { StoreConfig } from './store-factory.js'
+export type { StoreConfig, StoreIndexConfig } from './store-factory.js'
 
 // --- Core Service ---
 export { MemoryService } from './memory-service.js'
@@ -28,6 +28,10 @@ export type { SanitizeResult } from './memory-sanitizer.js'
 export { consolidateNamespace, consolidateAll } from './memory-consolidation.js'
 export type { ConsolidationConfig, ConsolidationResult } from './memory-consolidation.js'
 
+// --- Semantic Consolidation (LLM-powered) ---
+export { SemanticConsolidator, consolidateWithLLM } from './semantic-consolidation.js'
+export type { SemanticConsolidationConfig, SemanticConsolidationResult, ConsolidationAction, ConsolidationDecision } from './semantic-consolidation.js'
+
 // --- Healer ---
 export { findDuplicates, findContradictions, findStaleRecords, healMemory } from './memory-healer.js'
 export type { HealingIssue, HealingReport, MemoryHealerConfig } from './memory-healer.js'
@@ -36,9 +40,17 @@ export type { HealingIssue, HealingReport, MemoryHealerConfig } from './memory-h
 export { WorkingMemory } from './working-memory.js'
 export type { WorkingMemoryConfig } from './working-memory.js'
 
+// --- Versioned Working Memory ---
+export { VersionedWorkingMemory } from './versioned-working-memory.js'
+export type { VersionedWorkingMemoryConfig, WorkingMemoryDiff } from './versioned-working-memory.js'
+
 // --- Observation Extractor ---
 export { ObservationExtractor } from './observation-extractor.js'
 export type { ObservationExtractorConfig, Observation, ObservationCategory } from './observation-extractor.js'
+
+// --- Memory-Aware Extractor ---
+export { MemoryAwareExtractor } from './memory-aware-extractor.js'
+export type { MemoryAwareExtractorConfig, ExtractionResult } from './memory-aware-extractor.js'
 
 // --- Frozen Snapshot ---
 export { FrozenMemorySnapshot } from './frozen-snapshot.js'
@@ -46,6 +58,10 @@ export { FrozenMemorySnapshot } from './frozen-snapshot.js'
 // --- Staged Writer ---
 export { StagedWriter } from './staged-writer.js'
 export type { StagedRecord, MemoryStage, StagedWriterConfig } from './staged-writer.js'
+
+// --- Policy-Aware Staged Writer ---
+export { PolicyAwareStagedWriter } from './policy-aware-staged-writer.js'
+export type { PolicyAwareStagedWriterConfig } from './policy-aware-staged-writer.js'
 
 // --- Write Policy ---
 export { defaultWritePolicy, composePolicies } from './write-policy.js'
@@ -61,5 +77,154 @@ export type { FTSSearchResult } from './retrieval/fts-search.js'
 export { EntityGraphSearch } from './retrieval/graph-search.js'
 export type { GraphSearchResult } from './retrieval/graph-search.js'
 
+// --- Persistent Entity Graph ---
+export { PersistentEntityGraph } from './retrieval/persistent-graph.js'
+export type { EntityNode, GraphTraversalResult } from './retrieval/persistent-graph.js'
+
 export { fusionSearch } from './retrieval/rrf-fusion.js'
 export type { FusedResult } from './retrieval/rrf-fusion.js'
+
+// --- Adaptive Retrieval ---
+export { AdaptiveRetriever, DEFAULT_STRATEGIES, classifyIntent } from './retrieval/adaptive-retriever.js'
+export type {
+  QueryIntent,
+  RetrievalWeights,
+  RetrievalStrategy,
+  RetrievalProviders,
+  AdaptiveRetrieverConfig,
+  AdaptiveSearchResult,
+} from './retrieval/adaptive-retriever.js'
+
+// --- Temporal Memory ---
+export { TemporalMemoryService, createTemporalMeta, isActive, wasActiveAsOf, wasValidAt, filterByTemporal } from './temporal.js'
+export type { TemporalMetadata, TemporalQuery, TemporalChange } from './temporal.js'
+
+// --- Scoped Memory (Multi-Agent) ---
+export { ScopedMemoryService, createAgentMemories, PolicyTemplates } from './scoped-memory.js'
+export type { MemoryAccessPolicy, NamespaceAccess, AccessViolation } from './scoped-memory.js'
+
+// --- Void Filter (ternary state filtering) ---
+export { voidFilter } from './retrieval/void-filter.js'
+export type { MemoryState, VoidFilterConfig, VoidFilterResult } from './retrieval/void-filter.js'
+
+// --- Hub Dampening ---
+export { applyHubDampening, getAccessCount } from './retrieval/hub-dampening.js'
+export type { HubDampenedResult, HubDampeningConfig } from './retrieval/hub-dampening.js'
+
+// --- Personalized PageRank ---
+export { computePPR, queryPPR } from './retrieval/pagerank.js'
+export type { PPRConfig, PPRResult } from './retrieval/pagerank.js'
+
+// --- Cross-Encoder Reranking ---
+export { rerank, createLLMReranker } from './retrieval/cross-encoder-rerank.js'
+export type { CrossEncoderProvider, RerankerConfig, RerankedResult } from './retrieval/cross-encoder-rerank.js'
+
+// --- Dual-Stream Writer (MAGMA fast/slow path) ---
+export { DualStreamWriter } from './dual-stream-writer.js'
+export type { DualStreamConfig, PendingRecord, IngestResult } from './dual-stream-writer.js'
+
+// --- Sleep-Time Consolidation ---
+export { SleepConsolidator, runSleepConsolidation } from './sleep-consolidator.js'
+export type { SleepConsolidationConfig, SleepConsolidationReport, SleepPhase } from './sleep-consolidator.js'
+
+// --- Community Detection ---
+export { CommunityDetector } from './retrieval/community-detector.js'
+export type { MemoryCommunity, CommunityDetectorConfig, CommunityDetectionResult } from './retrieval/community-detector.js'
+
+// --- Observational Memory (Observer/Reflector) ---
+export { ObservationalMemory } from './observational-memory.js'
+export type { ObservationalMemoryConfig, ObservationalMemoryStats, ObserverResult, ReflectorResult } from './observational-memory.js'
+
+// --- Relationship Store (Knowledge Graph Edges) ---
+export { RelationshipStore } from './retrieval/relationship-store.js'
+export type { RelationshipType, RelationshipEdge, EdgeMetadata, TraversalResult } from './retrieval/relationship-store.js'
+
+// --- Multi-Network Memory ---
+export { MultiNetworkMemory, DEFAULT_NETWORK_CONFIGS } from './multi-network-memory.js'
+export type { MemoryNetwork, NetworkConfig, NetworkMemoryRecord, MultiNetworkSearchResult, NetworkStats, MultiNetworkMemoryConfig } from './multi-network-memory.js'
+
+// --- Provenance ---
+export { ProvenanceWriter, createProvenance, extractProvenance, createContentHash } from './provenance/index.js'
+export type { MemoryProvenance, ProvenanceSource, ProvenanceWriteOptions, ProvenanceQuery } from './provenance/index.js'
+
+// --- Convention Detection & Conformance ---
+export { ConventionExtractor, ALL_CONVENTION_CATEGORIES } from './convention/index.js'
+export type {
+  ConventionCategory,
+  DetectedConvention,
+  ConventionCheckResult,
+  ConventionFollowed,
+  ConventionViolated,
+  ConventionExtractorConfig,
+  ConventionFilter,
+  ConsolidateOptions,
+} from './convention/index.js'
+
+// --- Causal Graph ---
+export { CausalGraph } from './causal/index.js'
+export type { CausalRelation, CausalNode, CausalTraversalOptions, CausalGraphResult } from './causal/index.js'
+
+// --- MCP Memory Server ---
+export { MCPMemoryHandler, MCP_MEMORY_TOOLS } from './mcp-memory-server.js'
+export type { MCPToolDefinition, MCPToolResult, MCPMemoryServices } from './mcp-memory-server.js'
+
+// --- Encryption ---
+export { EnvKeyProvider, EncryptedMemoryService } from './encryption/index.js'
+export type {
+  EncryptedEnvelope,
+  EncryptionKeyDescriptor,
+  EncryptionKeyProvider,
+  EncryptedMemoryServiceConfig,
+} from './encryption/index.js'
+
+// --- Agent File (Export/Import) ---
+export { AgentFileExporter } from './agent-file/index.js'
+export type { AgentFileExporterConfig, ExportOptions } from './agent-file/index.js'
+export { AgentFileImporter } from './agent-file/index.js'
+export { AGENT_FILE_SCHEMA, AGENT_FILE_VERSION } from './agent-file/index.js'
+export type {
+  AgentFile,
+  AgentFileAgentSection,
+  AgentFileMemorySection,
+  AgentFileMemoryRecord,
+  AgentFilePromptsSection,
+  AgentFileStateSection,
+  ImportOptions,
+  ImportResult,
+} from './agent-file/index.js'
+
+// --- CRDT (Conflict-Free Replicated Data Types) ---
+export { HLC } from './crdt/index.js'
+export { CRDTResolver } from './crdt/index.js'
+export type {
+  HLCTimestamp,
+  LWWRegister,
+  ORSetEntry,
+  ORSet,
+  LWWMap,
+  MergeResult,
+} from './crdt/index.js'
+
+// --- Shared Memory Spaces ---
+export { MemorySpaceManager } from './sharing/index.js'
+export type {
+  MemorySpaceManagerConfig,
+  SpacePermission,
+  ConflictStrategy,
+  ShareMode,
+  MemoryParticipant,
+  RetentionPolicy,
+  SharedMemorySpace,
+  MemoryShareRequest,
+  PendingShareRequest,
+  SharedMemoryEvent,
+} from './sharing/index.js'
+
+// --- Multi-Modal Memory (ECO-060) ---
+export { MultiModalMemoryService, InMemoryAttachmentStorage, inferAttachmentType } from './multi-modal/index.js'
+export type {
+  AttachmentType,
+  MemoryAttachment,
+  AttachmentStorageProvider,
+  MultiModalMemoryServiceConfig,
+} from './multi-modal/index.js'

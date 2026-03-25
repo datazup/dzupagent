@@ -36,19 +36,20 @@ export interface WorkingMemoryConfig<T extends z.ZodType> {
 }
 
 export class WorkingMemory<T extends z.ZodType> {
-  private state: z.infer<T>
+  private state: z.infer<T> | null
   private dirty = false
   private loaded = false
   private readonly config: WorkingMemoryConfig<T>
 
   constructor(config: WorkingMemoryConfig<T>) {
     this.config = config
-    // Initialize with schema defaults (parse empty object)
-    try {
-      this.state = config.schema.parse({}) as z.infer<T>
-    } catch {
-      // Schema might not accept empty object — use undefined-like state
-      this.state = {} as z.infer<T>
+    // Initialize with schema defaults via safeParse — null if schema rejects both {} and undefined
+    const fromEmpty = config.schema.safeParse({})
+    if (fromEmpty.success) {
+      this.state = fromEmpty.data as z.infer<T>
+    } else {
+      const fromUndefined = config.schema.safeParse(undefined)
+      this.state = fromUndefined.success ? (fromUndefined.data as z.infer<T>) : null
     }
   }
 
@@ -70,8 +71,18 @@ export class WorkingMemory<T extends z.ZodType> {
     return this.get()
   }
 
-  /** Get current state (returns a defensive copy) */
+  /**
+   * Get current state (returns a defensive copy).
+   * Throws if state has not been initialized — call `load()` first when the
+   * schema has required fields that cannot be derived from an empty object.
+   */
   get(): z.infer<T> {
+    if (this.state === null) {
+      throw new Error(
+        'WorkingMemory state is not initialized. Call load() before get() ' +
+        'when the schema has required fields without defaults.',
+      )
+    }
     return structuredClone(this.state)
   }
 
@@ -105,6 +116,7 @@ export class WorkingMemory<T extends z.ZodType> {
 
   /** Format the current state as a markdown block for injection into prompts */
   toPromptContext(header = '## Working Memory'): string {
+    if (this.state === null) return ''
     const json = JSON.stringify(this.state, null, 2)
     return `${header}\n\`\`\`json\n${json}\n\`\`\``
   }

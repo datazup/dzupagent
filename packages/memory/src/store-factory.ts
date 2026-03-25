@@ -7,10 +7,28 @@
  */
 import { PostgresStore } from '@langchain/langgraph-checkpoint-postgres/store'
 import type { BaseStore } from '@langchain/langgraph'
+import type { EmbeddingsInterface } from '@langchain/core/embeddings'
+
+/**
+ * Embedding index configuration for semantic search.
+ *
+ * When provided, the store will compute embeddings for specified fields
+ * and enable vector similarity search via `store.search({ query })`.
+ */
+export interface StoreIndexConfig {
+  /** Embedding model instance (e.g., OpenAIEmbeddings, VoyageEmbeddings) */
+  embeddings: EmbeddingsInterface
+  /** Embedding vector dimensions (must match the model output) */
+  dims: number
+  /** Fields in the stored value to embed (default: ["text"]) */
+  fields?: string[]
+}
 
 export interface StoreConfig {
   type: 'postgres' | 'memory'
   connectionString?: string
+  /** Optional embedding index config for semantic search */
+  index?: StoreIndexConfig
 }
 
 /**
@@ -69,7 +87,17 @@ export async function createStore(config: StoreConfig): Promise<BaseStore> {
     if (!config.connectionString) {
       throw new Error('connectionString required for postgres store')
     }
-    const store = PostgresStore.fromConnString(config.connectionString)
+    const indexConfig = config.index
+      ? {
+          dims: config.index.dims,
+          embed: config.index.embeddings,
+          fields: config.index.fields ?? ['text'],
+        }
+      : undefined
+    const store = PostgresStore.fromConnString(
+      config.connectionString,
+      indexConfig ? { index: indexConfig } : undefined,
+    )
     await store.setup()
     return store
   }

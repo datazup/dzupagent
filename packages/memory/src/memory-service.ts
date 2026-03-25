@@ -16,6 +16,8 @@
 import type { BaseStore } from '@langchain/langgraph'
 import type { NamespaceConfig, FormatOptions } from './memory-types.js'
 import { sanitizeMemoryContent } from './memory-sanitizer.js'
+import { scoreWithDecay } from './decay-engine.js'
+import type { DecayMetadata } from './decay-engine.js'
 
 export class MemoryService {
   private readonly nsMap: Map<string, NamespaceConfig>
@@ -31,6 +33,26 @@ export class MemoryService {
   }
 
   // ---------- Internals -------------------------------------------------------
+
+  /**
+   * Extract DecayMetadata from a record value if all required fields are present.
+   * Returns null if the record does not carry decay metadata.
+   */
+  private extractDecayMeta(value: Record<string, unknown>): DecayMetadata | null {
+    const decay = value['_decay']
+    if (
+      decay != null &&
+      typeof decay === 'object' &&
+      typeof (decay as Record<string, unknown>)['strength'] === 'number' &&
+      typeof (decay as Record<string, unknown>)['lastAccessedAt'] === 'number' &&
+      typeof (decay as Record<string, unknown>)['halfLifeMs'] === 'number' &&
+      typeof (decay as Record<string, unknown>)['accessCount'] === 'number' &&
+      typeof (decay as Record<string, unknown>)['createdAt'] === 'number'
+    ) {
+      return decay as DecayMetadata
+    }
+    return null
+  }
 
   private getNamespace(name: string): NamespaceConfig {
     const ns = this.nsMap.get(name)
@@ -87,7 +109,11 @@ export class MemoryService {
       if (ns.searchable && typeof value['text'] !== 'string') {
         enriched = { ...value, text: JSON.stringify(value) }
       }
-      await this.store.put(tuple, key, enriched)
+      await this.store.put(
+        tuple,
+        key,
+        enriched,
+      )
     } catch {
       // Non-fatal — memory write failures should not break pipelines
     }
@@ -136,8 +162,26 @@ export class MemoryService {
     }
     const tuple = this.buildNamespaceTuple(ns, scope)
     try {
-      const results = await this.store.search(tuple, { query, limit })
-      return results.map(r => r.value as Record<string, unknown>)
+      // Fetch extra results so decay re-ranking can still fill the limit
+      const fetchLimit = Math.min(limit * 2, limit + 20)
+      const results = await this.store.search(tuple, { query, limit: fetchLimit })
+
+      // Apply decay scoring when records carry _decay metadata
+      const now = Date.now()
+      const scored = results.map((r, idx) => {
+        const value = r.value as Record<string, unknown>
+        const decayMeta = this.extractDecayMeta(value)
+        // Use inverse rank as a proxy relevance score (1.0 for first result, decreasing)
+        const relevance = 1 / (idx + 1)
+        const finalScore = decayMeta
+          ? scoreWithDecay(relevance, decayMeta, now)
+          : relevance
+        return { value, finalScore }
+      })
+
+      // Re-sort by decay-weighted score (descending) and trim to requested limit
+      scored.sort((a, b) => b.finalScore - a.finalScore)
+      return scored.slice(0, limit).map(s => s.value)
     } catch {
       return []
     }
