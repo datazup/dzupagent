@@ -210,5 +210,21 @@ export type {
   AnalyticsRunInput,
 } from './pipeline/pipeline-analytics.js'
 
+// --- Playground ---
+export { AgentPlayground } from './playground/playground.js'
+export type { PlaygroundConfig } from './playground/playground.js'
+export { SharedWorkspace } from './playground/shared-workspace.js'
+export { TeamCoordinator } from './playground/team-coordinator.js'
+export type {
+  AgentRole,
+  AgentSpawnConfig,
+  CoordinationPattern,
+  TeamConfig,
+  AgentStatus,
+  SpawnedAgent,
+  PlaygroundEvent,
+  TeamRunResult,
+} from './playground/types.js'
+
 // --- Version ---
 export const FORGEAGENT_AGENT_VERSION = '0.1.0'
