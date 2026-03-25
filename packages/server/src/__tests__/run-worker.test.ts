@@ -12,11 +12,11 @@ async function waitForTerminalStatus(
   store: InMemoryRunStore,
   runId: string,
   timeoutMs = 3000,
-): Promise<'completed' | 'failed' | 'rejected'> {
+): Promise<'completed' | 'failed' | 'rejected' | 'cancelled'> {
   const started = Date.now()
   while (Date.now() - started < timeoutMs) {
     const run = await store.get(runId)
-    if (run?.status === 'completed' || run?.status === 'failed' || run?.status === 'rejected') {
+    if (run?.status === 'completed' || run?.status === 'failed' || run?.status === 'rejected' || run?.status === 'cancelled') {
       return run.status
     }
     await new Promise((resolve) => setTimeout(resolve, 25))
@@ -172,6 +172,129 @@ describe('run-worker', () => {
 
     const completed = await runStore.get(run.id)
     expect(completed?.output).toEqual({ content: 'approved:hello' })
+
+    await runQueue.stop(false)
+  })
+
+  it('cancels a queued run before execution starts', async () => {
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const eventBus = createEventBus()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+    const modelRegistry = new ModelRegistry()
+
+    await agentStore.save({
+      id: 'a-cancel-q',
+      name: 'Cancel Queue Agent',
+      instructions: 'test',
+      modelTier: 'chat',
+      active: true,
+    })
+
+    let executorCalled = false
+
+    // Block concurrency with a long-running job first
+    const blocker = new Promise<void>((resolve) => {
+      startRunWorker({
+        runQueue,
+        runStore,
+        agentStore,
+        eventBus,
+        modelRegistry,
+        runExecutor: async ({ runId }) => {
+          if (runId === 'block-run') {
+            // Hold slot until we cancel the second job
+            await new Promise((r) => setTimeout(r, 500))
+            return { content: 'blocker done' }
+          }
+          executorCalled = true
+          return { content: 'should not happen' }
+        },
+      })
+    })
+
+    // Create blocker run to fill concurrency
+    const blockRun = await runStore.create({ agentId: 'a-cancel-q', input: {} })
+    await runQueue.enqueue({
+      runId: blockRun.id,
+      agentId: 'a-cancel-q',
+      input: {},
+      priority: 1,
+    })
+
+    // Enqueue the run we'll cancel
+    const cancelRun = await runStore.create({ agentId: 'a-cancel-q', input: {} })
+    await runQueue.enqueue({
+      runId: cancelRun.id,
+      agentId: 'a-cancel-q',
+      input: {},
+      priority: 5,
+    })
+
+    // Cancel while still pending in queue
+    const cancelled = runQueue.cancel(cancelRun.id)
+    expect(cancelled).toBe(true)
+
+    // The cancelled job should never reach the executor
+    await new Promise((r) => setTimeout(r, 700))
+    expect(executorCalled).toBe(false)
+
+    await runQueue.stop(false)
+  })
+
+  it('cancels a running job and sets cancelled status', async () => {
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const eventBus = createEventBus()
+    const runQueue = new InMemoryRunQueue({ concurrency: 2 })
+    const modelRegistry = new ModelRegistry()
+
+    await agentStore.save({
+      id: 'a-cancel-run',
+      name: 'Cancel Running Agent',
+      instructions: 'test',
+      modelTier: 'chat',
+      active: true,
+    })
+
+    startRunWorker({
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus,
+      modelRegistry,
+      runExecutor: async ({ signal }) => {
+        // Simulate long-running work that respects cancellation
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => resolve({ content: 'done' }), 5000)
+          signal.addEventListener('abort', () => {
+            clearTimeout(timer)
+            reject(new DOMException('Run cancelled', 'AbortError'))
+          })
+        })
+      },
+    })
+
+    const run = await runStore.create({ agentId: 'a-cancel-run', input: { message: 'cancel-me' } })
+    await runQueue.enqueue({
+      runId: run.id,
+      agentId: 'a-cancel-run',
+      input: { message: 'cancel-me' },
+      priority: 1,
+    })
+
+    // Wait for it to start running
+    await new Promise((r) => setTimeout(r, 100))
+
+    // Cancel while running
+    const cancelled = runQueue.cancel(run.id)
+    expect(cancelled).toBe(true)
+
+    // Wait for worker to process the cancellation
+    const status = await waitForTerminalStatus(runStore, run.id)
+    expect(status).toBe('cancelled')
+    const updated = await runStore.get(run.id)
+    expect(updated?.error).toContain('Cancelled')
 
     await runQueue.stop(false)
   })

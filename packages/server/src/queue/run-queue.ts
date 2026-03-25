@@ -23,7 +23,7 @@ export interface RunQueueConfig {
   jobTimeoutMs: number
 }
 
-export type JobProcessor = (job: RunJob) => Promise<void>
+export type JobProcessor = (job: RunJob, signal: AbortSignal) => Promise<void>
 
 export interface RunQueue {
   /** Enqueue a new run for async processing */
@@ -32,6 +32,8 @@ export interface RunQueue {
   start(processor: JobProcessor): void
   /** Stop processing (optionally wait for active jobs) */
   stop(waitForActive?: boolean): Promise<void>
+  /** Cancel a specific run by runId. Returns true if found and cancelled. */
+  cancel(runId: string): boolean
   /** Get queue stats */
   stats(): QueueStats
 }
@@ -117,6 +119,25 @@ export class InMemoryRunQueue implements RunQueue {
     this.activeJobs.clear()
   }
 
+  cancel(runId: string): boolean {
+    // Check pending queue first — remove without executing
+    const pendingIdx = this.pending.findIndex((j) => j.runId === runId)
+    if (pendingIdx !== -1) {
+      this.pending.splice(pendingIdx, 1)
+      return true
+    }
+
+    // Check active jobs — abort the signal
+    for (const [jobId, entry] of this.activeJobs) {
+      if (entry.job.runId === runId) {
+        entry.abort.abort()
+        return true
+      }
+    }
+
+    return false
+  }
+
   stats(): QueueStats {
     return {
       pending: this.pending.length,
@@ -138,7 +159,7 @@ export class InMemoryRunQueue implements RunQueue {
     // Timeout safety
     const timeout = setTimeout(() => abort.abort(), this.config.jobTimeoutMs)
 
-    void this.processor(job)
+    void this.processor(job, abort.signal)
       .then(() => { this.completedCount++ })
       .catch(() => { this.failedCount++ })
       .finally(() => {

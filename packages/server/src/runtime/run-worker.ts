@@ -13,6 +13,7 @@ export interface RunExecutionContext {
   runStore: RunStore
   eventBus: ForgeEventBus
   modelRegistry: ModelRegistry
+  signal: AbortSignal
 }
 
 export interface RunExecutorResult {
@@ -70,15 +71,24 @@ async function waitForApprovalDecision(
   })
 }
 
+/** Check if the signal is aborted and throw if so. */
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new DOMException('Run cancelled', 'AbortError')
+  }
+}
+
 /**
  * Start the queue worker that transitions queued runs to terminal states.
  */
 export function startRunWorker(options: StartRunWorkerOptions): void {
-  options.runQueue.start(async (job) => {
+  options.runQueue.start(async (job, signal) => {
     const startedAt = Date.now()
     options.shutdown?.trackRun(job.runId)
 
     try {
+      throwIfAborted(signal)
+
       const agent = await options.agentStore.get(job.agentId)
       if (!agent) {
         await options.runStore.update(job.runId, {
@@ -152,6 +162,9 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         })
       }
 
+      // Check cancellation before starting expensive executor work
+      throwIfAborted(signal)
+
       const execution = await options.runExecutor({
         runId: job.runId,
         agentId: job.agentId,
@@ -161,7 +174,11 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         runStore: options.runStore,
         eventBus: options.eventBus,
         modelRegistry: options.modelRegistry,
+        signal,
       })
+
+      // Guard: don't overwrite terminal state if cancelled during execution
+      throwIfAborted(signal)
 
       const output = isStructuredResult(execution) ? execution.output : execution
       const tokenUsage = isStructuredResult(execution) ? execution.tokenUsage : undefined
@@ -199,6 +216,32 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         durationMs,
       })
     } catch (error) {
+      // If cancelled via AbortSignal, set cancelled status instead of failed
+      if (signal.aborted) {
+        const run = await options.runStore.get(job.runId)
+        // Only update if not already in a terminal state
+        if (run && !['completed', 'failed', 'cancelled', 'rejected'].includes(run.status)) {
+          await options.runStore.update(job.runId, {
+            status: 'cancelled',
+            error: 'Cancelled by user',
+            completedAt: new Date(),
+          })
+          await options.runStore.addLog(job.runId, {
+            level: 'warn',
+            phase: 'run',
+            message: 'Run cancelled',
+          })
+          options.eventBus.emit({
+            type: 'agent:failed',
+            agentId: job.agentId,
+            runId: job.runId,
+            errorCode: 'AGENT_ABORTED',
+            message: 'Cancelled by user',
+          })
+        }
+        return
+      }
+
       const message = error instanceof Error ? error.message : String(error)
       await options.runStore.update(job.runId, {
         status: 'failed',

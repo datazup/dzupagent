@@ -109,6 +109,9 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
       return c.json({ error: { code: 'INVALID_STATE', message: `Cannot cancel run in ${run.status} state` } }, 400)
     }
 
+    // Signal the queue to abort the job (removes from pending or aborts active signal)
+    config.runQueue?.cancel(run.id)
+
     await runStore.update(run.id, { status: 'cancelled', completedAt: new Date() })
     eventBus.emit({ type: 'agent:failed', agentId: run.agentId, runId: run.id, errorCode: 'AGENT_ABORTED', message: 'Cancelled by user' })
 
