@@ -38,7 +38,7 @@ export function createApprovalRoutes(config: ForgeServerConfig): Hono {
   // POST /api/runs/:id/reject — Reject a pending run
   app.post('/:id/reject', async (c) => {
     const id = c.req.param('id')
-    const body = await c.req.json<{ reason?: string }>().catch(() => ({}))
+    const body = await c.req.json<{ reason?: string }>().catch(() => ({ reason: undefined }))
     const reason = body.reason ?? 'Rejected by user'
 
     const run = await runStore.get(id)

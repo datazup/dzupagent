@@ -66,6 +66,74 @@ export type {
   ProcessLimits,
 } from './sandbox/security-profile.js'
 
+// --- Sandbox Pool ---
+export { SandboxPool, PoolExhaustedError } from './sandbox/pool/index.js'
+export type { PooledSandbox, SandboxPoolConfig, SandboxPoolMetrics } from './sandbox/pool/index.js'
+export { DockerResetStrategy, CloudResetStrategy } from './sandbox/pool/index.js'
+export type { SandboxResetStrategy, DockerResetConfig } from './sandbox/pool/index.js'
+
+// --- Sandbox Volumes ---
+export { InMemoryVolumeManager } from './sandbox/volumes/index.js'
+export type {
+  VolumeType,
+  VolumeDescriptor,
+  VolumeInfo,
+  CleanupPolicy,
+  VolumeManager,
+} from './sandbox/volumes/index.js'
+
+// --- Sandbox Audit ---
+export { InMemoryAuditStore, AuditedSandbox, redactSecrets } from './sandbox/audit/index.js'
+export type {
+  AuditAction,
+  SandboxAuditEntry,
+  SandboxAuditStore,
+  AuditedSandboxConfig,
+} from './sandbox/audit/index.js'
+
+// --- Sandbox Hardening ---
+export { toDockerSecurityFlags, detectEscapeAttempt } from './sandbox/sandbox-hardening.js'
+export type {
+  SeccompProfile,
+  FilesystemACL,
+  EgressRule,
+  HardenedSandboxConfig,
+  HardenedExecResult,
+} from './sandbox/sandbox-hardening.js'
+
+// --- WASM Sandbox ---
+export { WasiFilesystem } from './sandbox/wasm/index.js'
+export type { WasiFileEntry, WasiStatResult } from './sandbox/wasm/index.js'
+export { CapabilityGuard, CapabilityDeniedError } from './sandbox/wasm/index.js'
+export type { WasiCapability } from './sandbox/wasm/index.js'
+export { WasmSandbox } from './sandbox/wasm/index.js'
+export type { WasmSandboxConfig, WasmExecResult } from './sandbox/wasm/index.js'
+export { WasmTypeScriptTranspiler } from './sandbox/wasm/index.js'
+export type { TranspileResult } from './sandbox/wasm/index.js'
+
+// --- Sandbox K8s ---
+export {
+  K8sClient,
+  K8sPodSandbox,
+  createAgentSandboxResource,
+} from './sandbox/k8s/index.js'
+export type {
+  AgentSandboxPhase,
+  K8sSecurityLevel,
+  AgentSandboxResourceRequests,
+  AgentSandboxResourceLimits,
+  AgentSandboxResources,
+  AgentSandboxVolume,
+  AgentSandboxNetwork,
+  AgentSandboxEnvVar,
+  AgentSandboxSpec,
+  AgentSandboxStatus,
+  AgentSandboxMetadata,
+  AgentSandboxResource,
+  K8sClientConfig,
+  K8sSandboxConfig,
+} from './sandbox/k8s/index.js'
+
 // --- Validation ---
 export { validateImports } from './validation/import-validator.js'
 export type { ImportValidationResult, ImportError } from './validation/import-validator.js'

@@ -1,28 +1,72 @@
-/**
- * @forgeagent/evals — Evaluation framework for ForgeAgent.
- *
- * Provides: LLM-as-judge, deterministic scorers, composite scorers,
- * batch evaluation runner, and regression detection.
- */
+// Types
+export type {
+  EvalResult,
+  EvalScorer,
+  EvalCase,
+  EvalSuite,
+  EvalRunResult,
+  // Enhanced types (ECO-111)
+  EvalInput,
+  ScorerConfig,
+  ScorerResult,
+  Scorer,
+} from './types.js';
 
-// --- Types ---
-export type { EvalInput, EvalResult, Scorer, EvalRecord, EvalResultStore } from './types.js'
+// Scorers (legacy)
+export { DeterministicScorer } from './deterministic-scorer.js';
+export type { DeterministicScorerConfig } from './deterministic-scorer.js';
 
-// --- Scorers ---
+export { LLMJudgeScorer } from './llm-judge-scorer.js';
+export type { LLMJudgeConfig } from './llm-judge-scorer.js';
+
+export { CompositeScorer } from './composite-scorer.js';
+export type { CompositeScorerConfig } from './composite-scorer.js';
+
+// Enhanced scorers (ECO-112, ECO-113)
+export { createLLMJudge } from './scorers/llm-judge-enhanced.js';
+export type { LLMJudgeEnhancedConfig } from './scorers/llm-judge-enhanced.js';
+
 export {
-  createLLMJudge,
-  createDeterministicScorer,
-  containsScorer,
-  jsonValidScorer,
-  lengthScorer,
-  regexScorer,
-  exactMatchScorer,
-  createCompositeScorer,
-} from './scorers/index.js'
-export type { LLMJudgeConfig, DeterministicScorerConfig, CompositeScorerConfig } from './scorers/index.js'
+  createJSONSchemaScorer,
+  createKeywordScorer,
+  createLatencyScorer,
+  createCostScorer,
+} from './scorers/deterministic-enhanced.js';
+export type {
+  JSONSchemaScorerConfig,
+  KeywordScorerConfig,
+  LatencyScorerConfig,
+  CostScorerConfig,
+} from './scorers/deterministic-enhanced.js';
 
-// --- Runner ---
-export { EvalRunner } from './runner/index.js'
+export { STANDARD_CRITERIA, CODE_CRITERIA, FIVE_POINT_RUBRIC, TEN_POINT_RUBRIC } from './scorers/criteria.js';
+export type { JudgeCriterion } from './scorers/criteria.js';
 
-// --- Version ---
-export const FORGEAGENT_EVALS_VERSION = '0.1.0'
+// Runner (legacy)
+export { runEvalSuite } from './eval-runner.js';
+
+// Enhanced Runner (ECO-115)
+export { EvalRunner, reportToMarkdown, reportToJSON, reportToCIAnnotations } from './runner/enhanced-runner.js';
+export type {
+  EvalRunnerConfig,
+  EvalReportEntry,
+  EvalReport,
+  RegressionResult,
+} from './runner/enhanced-runner.js';
+
+// Dataset (ECO-114)
+export { EvalDataset } from './dataset/eval-dataset.js';
+export type { EvalEntry, DatasetMetadata } from './dataset/eval-dataset.js';
+
+// Benchmarks (ECO-179)
+export type {
+  BenchmarkCategory,
+  BenchmarkSuite,
+  BenchmarkResult,
+  BenchmarkComparison,
+} from './benchmarks/benchmark-types.js';
+export { runBenchmark, compareBenchmarks } from './benchmarks/benchmark-runner.js';
+export { CODE_GEN_SUITE } from './benchmarks/suites/code-gen.js';
+export { QA_SUITE } from './benchmarks/suites/qa.js';
+export { TOOL_USE_SUITE } from './benchmarks/suites/tool-use.js';
+export { MULTI_TURN_SUITE } from './benchmarks/suites/multi-turn.js';

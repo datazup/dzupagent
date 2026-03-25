@@ -61,6 +61,14 @@ export class ForgeAgent {
   }
 
   /**
+   * Expose the agent configuration (read-only copy) so orchestrators
+   * can derive new agents with modified settings (e.g., additional tools).
+   */
+  get agentConfig(): Readonly<ForgeAgentConfig> {
+    return this.config
+  }
+
+  /**
    * Generate a response from the agent.
    *
    * Runs the full ReAct tool-calling loop with guardrails, context
@@ -406,15 +414,11 @@ export class ForgeAgent {
   private async prepareMessages(messages: BaseMessage[]): Promise<BaseMessage[]> {
     const parts: string[] = [this.config.instructions]
 
-    // Load memory context
+    // Load memory context (Arrow-budgeted or standard)
     if (this.config.memory && this.config.memoryScope && this.config.memoryNamespace) {
       try {
-        const records = await this.config.memory.get(
-          this.config.memoryNamespace,
-          this.config.memoryScope,
-        )
-        const formatted = this.config.memory.formatForPrompt(records)
-        if (formatted) parts.push(formatted)
+        const memoryContext = await this.loadMemoryContext(messages)
+        if (memoryContext) parts.push(memoryContext)
       } catch {
         // Memory failures are non-fatal
       }
@@ -429,6 +433,120 @@ export class ForgeAgent {
     // Context compression is handled by maybeUpdateSummary after generation.
     // summarizeAndTrim internally runs prune + repair + split + summarize.
     return [systemMsg, ...messages]
+  }
+
+  /**
+   * Load memory context, using Arrow token-budgeted selection when
+   * `arrowMemory` config is set, falling back to standard load-all otherwise.
+   */
+  private async loadMemoryContext(messages: BaseMessage[]): Promise<string | null> {
+    const memory = this.config.memory!
+    const scope = this.config.memoryScope!
+    const namespace = this.config.memoryNamespace!
+
+    // If arrowMemory config is set, attempt token-budgeted selection
+    if (this.config.arrowMemory) {
+      try {
+        return await this.loadArrowMemoryContext(memory, namespace, scope, messages)
+      } catch {
+        // Fall through to standard path if Arrow fails
+      }
+    }
+
+    // Standard (non-Arrow) path: load all records
+    const records = await memory.get(namespace, scope)
+    return memory.formatForPrompt(records) || null
+  }
+
+  /**
+   * Arrow-based token-budgeted memory selection.
+   *
+   * Dynamically imports `@forgeagent/memory-ipc` so `apache-arrow` is never
+   * required at install time. If the import fails, the caller catches and
+   * falls back to the standard path.
+   */
+  private async loadArrowMemoryContext(
+    memory: NonNullable<ForgeAgentConfig['memory']>,
+    namespace: string,
+    scope: Record<string, string>,
+    messages: BaseMessage[],
+  ): Promise<string | null> {
+    // Dynamic import keeps @forgeagent/memory-ipc optional at runtime
+    const {
+      extendMemoryServiceWithArrow,
+      selectMemoriesByBudget,
+      phaseWeightedSelection,
+      FrameReader,
+    } = await import('@forgeagent/memory-ipc')
+
+    // Export memory records into an Arrow Table via the extension wrapper
+    const arrowExt = extendMemoryServiceWithArrow(
+      memory as import('@forgeagent/memory-ipc').MemoryServiceLike,
+    )
+    const frame = await arrowExt.exportFrame(namespace, scope)
+
+    if (frame.numRows === 0) return null
+
+    const arrowCfg = this.config.arrowMemory!
+    const totalBudget = arrowCfg.totalBudget ?? 128_000
+    const maxMemoryFraction = arrowCfg.maxMemoryFraction ?? 0.3
+    const minResponseReserve = arrowCfg.minResponseReserve ?? 4_000
+
+    // Estimate tokens already consumed by fixed parts of the prompt
+    const systemPromptTokens = this.estimateTokenCount(this.config.instructions)
+    const conversationTokens = this.estimateConversationTokens(messages)
+
+    // Remaining budget available for memory, capped at max fraction
+    const remaining = totalBudget - systemPromptTokens - conversationTokens - minResponseReserve
+    const memoryBudget = Math.max(0, Math.min(
+      Math.floor(remaining),
+      Math.floor(totalBudget * maxMemoryFraction),
+    ))
+
+    if (memoryBudget <= 0) return null
+
+    // Select records: phase-weighted when a non-general phase is set,
+    // otherwise plain composite-score based selection
+    const phase = arrowCfg.currentPhase
+    const selected = phase && phase !== 'general'
+      ? phaseWeightedSelection(frame, phase, memoryBudget)
+      : selectMemoriesByBudget(frame, memoryBudget)
+
+    if (selected.length === 0) return null
+
+    // Reconstruct full records from the frame so we can format text
+    const reader = new FrameReader(frame)
+    const allRecords = reader.toRecords()
+
+    // Format selected records into a readable context block
+    const lines: string[] = ['## Memory Context']
+    for (const s of selected) {
+      const rec = allRecords[s.rowIndex]
+      if (!rec) continue
+
+      const ns = rec.meta.namespace || namespace
+      const text = rec.value.text ?? JSON.stringify(rec.value)
+      lines.push(`- [${ns}] ${text}`)
+    }
+
+    return lines.join('\n')
+  }
+
+  /** Rough token count for a string (~4 chars per token). */
+  private estimateTokenCount(text: string): number {
+    return Math.ceil(text.length / 4)
+  }
+
+  /** Estimate total tokens consumed by conversation messages. */
+  private estimateConversationTokens(messages: BaseMessage[]): number {
+    let chars = 0
+    for (const m of messages) {
+      const content = typeof m.content === 'string'
+        ? m.content
+        : JSON.stringify(m.content)
+      chars += content.length
+    }
+    return Math.ceil(chars / 4)
   }
 
   private async maybeUpdateSummary(messages: BaseMessage[]): Promise<void> {

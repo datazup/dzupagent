@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@forgeagent/core": "0.1.0",
-    "@forgeagent/context": "0.1.0"
+    "@forgeagent/context": "0.1.0",
+    "@forgeagent/memory-ipc": "0.1.0"
   },
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",

@@ -38,7 +38,7 @@ export function createHTTPConnector(config: HTTPConnectorConfig): DynamicStructu
 
         const url = new URL(path, config.baseUrl)
         if (query) {
-          for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
+          for (const [k, v] of Object.entries(query)) url.searchParams.set(k, String(v))
         }
 
         const controller = new AbortController()

@@ -2,14 +2,38 @@
  * Multi-agent orchestration patterns.
  *
  * Provides composable patterns for coordinating multiple ForgeAgent instances:
- * - Sequential: A → B → C (pipeline)
+ * - Sequential: A -> B -> C (pipeline)
  * - Parallel: A, B, C concurrently, results merged
  * - Supervisor: Manager delegates to specialists via tool calling
  * - Debate: Multiple proposers, judge selects best
  */
-import type { BaseMessage } from '@langchain/core/messages'
 import { HumanMessage } from '@langchain/core/messages'
-import type { ForgeAgent } from '../agent/forge-agent.js'
+import { ForgeAgent } from '../agent/forge-agent.js'
+import { OrchestrationError } from './orchestration-error.js'
+import { ContractNetManager } from './contract-net/contract-net-manager.js'
+import type { ContractNetConfig, ContractResult } from './contract-net/contract-net-types.js'
+
+export interface SupervisorConfig {
+  /** The manager agent that coordinates specialists */
+  manager: ForgeAgent
+  /** Specialist agents to be exposed as tools to the manager */
+  specialists: ForgeAgent[]
+  /** The task to delegate */
+  task: string
+  /** If true, run a lightweight health check on each specialist before exposing it */
+  healthCheck?: boolean
+  /** Abort signal for cancellation */
+  signal?: AbortSignal
+}
+
+export interface SupervisorResult {
+  /** The final text output from the manager */
+  content: string
+  /** Which specialist tools were available to the manager */
+  availableSpecialists: string[]
+  /** Which specialists were filtered out by health check */
+  filteredSpecialists: string[]
+}
 
 export type MergeFn = (results: string[]) => string | Promise<string>
 
@@ -18,7 +42,7 @@ const defaultMerge: MergeFn = (results) =>
 
 export class AgentOrchestrator {
   /**
-   * Run agents sequentially — each receives the previous agent's output.
+   * Run agents sequentially -- each receives the previous agent's output.
    */
   static async sequential(
     agents: ForgeAgent[],
@@ -33,7 +57,7 @@ export class AgentOrchestrator {
   }
 
   /**
-   * Run agents in parallel — all receive the same input, results merged.
+   * Run agents in parallel -- all receive the same input, results merged.
    */
   static async parallel(
     agents: ForgeAgent[],
@@ -48,44 +72,123 @@ export class AgentOrchestrator {
   }
 
   /**
-   * Supervisor pattern — manager agent delegates to specialist agents via tools.
+   * Supervisor pattern -- manager agent delegates to specialist agents via tools.
    *
-   * Each specialist is exposed as a tool. The manager decides which specialist
-   * to invoke and with what input via LLM function calling.
+   * Each specialist is converted to a LangChain tool via `asTool()` and injected
+   * into a new manager agent instance. The manager LLM then invokes specialists
+   * through standard function calling. Results flow back as ToolMessages.
    */
+  static async supervisor(config: SupervisorConfig): Promise<SupervisorResult>
+  /** @deprecated Use the config object overload instead */
+  static async supervisor(manager: ForgeAgent, specialists: ForgeAgent[], task: string): Promise<string>
   static async supervisor(
-    manager: ForgeAgent,
-    specialists: ForgeAgent[],
-    task: string,
-  ): Promise<string> {
-    // Wrap each specialist as a tool for the manager
-    // TODO: wire specialist tools into manager agent
-    void await Promise.all(
+    configOrManager: SupervisorConfig | ForgeAgent,
+    maybeSpecialists?: ForgeAgent[],
+    maybeTask?: string,
+  ): Promise<SupervisorResult | string> {
+    // Normalize arguments: support both old positional and new config-object signatures
+    let config: SupervisorConfig
+    let returnLegacy = false
+
+    if (configOrManager instanceof ForgeAgent) {
+      if (!maybeSpecialists || !maybeTask) {
+        throw new OrchestrationError(
+          'supervisor() requires specialists and task when called with positional arguments',
+          'supervisor',
+        )
+      }
+      config = { manager: configOrManager, specialists: maybeSpecialists, task: maybeTask }
+      returnLegacy = true
+    } else {
+      config = configOrManager
+    }
+
+    const { manager, task, signal } = config
+    let { specialists } = config
+
+    // Validate inputs
+    if (specialists.length === 0) {
+      throw new OrchestrationError(
+        'supervisor() requires at least one specialist agent',
+        'supervisor',
+        { managerId: manager.id },
+      )
+    }
+
+    // Check abort before starting
+    if (signal?.aborted) {
+      throw new OrchestrationError(
+        'supervisor() aborted before execution',
+        'supervisor',
+        { managerId: manager.id },
+      )
+    }
+
+    // Optional health check: filter out unresponsive specialists
+    const filteredSpecialists: string[] = []
+    if (config.healthCheck) {
+      const healthySpecialists: ForgeAgent[] = []
+      for (const specialist of specialists) {
+        try {
+          // Lightweight check: just verify asTool() resolves without error
+          await specialist.asTool()
+          healthySpecialists.push(specialist)
+        } catch {
+          filteredSpecialists.push(specialist.id)
+        }
+      }
+
+      if (healthySpecialists.length === 0) {
+        throw new OrchestrationError(
+          'All specialists failed health check',
+          'supervisor',
+          { managerId: manager.id, filteredSpecialists },
+        )
+      }
+
+      specialists = healthySpecialists
+    }
+
+    // Convert each specialist into a LangChain tool
+    const specialistTools = await Promise.all(
       specialists.map(s => s.asTool()),
     )
 
-    // Create a manager instance with specialist tools added
-    // Since ForgeAgent is immutable after construction, we create new messages
-    // that describe the available specialists
-    const specialistDesc = specialists
-      .map(s => `- agent-${s.id}: ${s.description}`)
-      .join('\n')
+    const availableSpecialists = specialists.map(s => s.id)
 
-    const messages: BaseMessage[] = [
-      new HumanMessage(
-        `${task}\n\nYou have access to these specialist agents:\n${specialistDesc}\n\n` +
-        `Use the appropriate agent tool(s) to complete this task.`,
-      ),
-    ]
+    // Create a new manager agent instance with specialist tools injected
+    // alongside any tools the manager already has.
+    const managerConfig = manager.agentConfig
+    const managerWithTools = new ForgeAgent({
+      ...managerConfig,
+      id: `${managerConfig.id}__supervisor`,
+      tools: [...(managerConfig.tools ?? []), ...specialistTools],
+      instructions: managerConfig.instructions +
+        '\n\nYou are a supervisor agent. You have access to specialist agent tools. ' +
+        'Delegate sub-tasks to the appropriate specialist by calling their tool. ' +
+        'Synthesize specialist responses into a coherent final answer.',
+    })
 
-    // Note: In production, the manager would be constructed with these tools.
-    // This is a simplified version that just generates with the specialist info.
-    const result = await manager.generate(messages)
-    return result.content
+    // Run the manager with the task -- the LLM will invoke specialist tools
+    // via function calling, and the tool loop handles ToolMessage flow.
+    const result = await managerWithTools.generate(
+      [new HumanMessage(task)],
+      { signal },
+    )
+
+    if (returnLegacy) {
+      return result.content
+    }
+
+    return {
+      content: result.content,
+      availableSpecialists,
+      filteredSpecialists,
+    }
   }
 
   /**
-   * Debate pattern — multiple agents propose solutions, a judge selects the best.
+   * Debate pattern -- multiple agents propose solutions, a judge selects the best.
    */
   static async debate(
     proposers: ForgeAgent[],
@@ -122,5 +225,13 @@ export class AgentOrchestrator {
     ])
 
     return judgeResult.content
+  }
+
+  /**
+   * Contract-net pattern -- manager announces task, specialists bid,
+   * best bidder executes.
+   */
+  static async contractNet(config: ContractNetConfig): Promise<ContractResult> {
+    return ContractNetManager.execute(config)
   }
 }

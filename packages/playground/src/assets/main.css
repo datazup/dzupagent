@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    /* ── Surface ───────────────────────────────── */
+    --pg-bg: oklch(0.130 0.010 260);
+    --pg-surface: oklch(0.170 0.012 260);
+    --pg-surface-raised: oklch(0.210 0.014 260);
+    --pg-surface-overlay: oklch(0.240 0.016 260);
+
+    /* ── Border ────────────────────────────────── */
+    --pg-border: oklch(0.300 0.016 260);
+    --pg-border-subtle: oklch(0.250 0.012 260);
+
+    /* ── Text ──────────────────────────────────── */
+    --pg-text: oklch(0.930 0.010 260);
+    --pg-text-secondary: oklch(0.650 0.010 260);
+    --pg-text-muted: oklch(0.480 0.010 260);
+
+    /* ── Accent ────────────────────────────────── */
+    --pg-accent: oklch(0.650 0.200 264);
+    --pg-accent-hover: oklch(0.700 0.210 264);
+    --pg-accent-text: oklch(0.980 0.010 264);
+
+    /* ── Status ────────────────────────────────── */
+    --pg-success: oklch(0.600 0.180 145);
+    --pg-warning: oklch(0.700 0.160 85);
+    --pg-error: oklch(0.600 0.200 25);
+    --pg-info: oklch(0.600 0.150 240);
+
+    /* ── Chat roles ────────────────────────────── */
+    --pg-user-bg: oklch(0.350 0.100 264);
+    --pg-assistant-bg: oklch(0.220 0.014 260);
+    --pg-system-bg: oklch(0.200 0.030 85);
+
+    /* ── Sizing ────────────────────────────────── */
+    --pg-sidebar-width: 260px;
+    --pg-radius: 8px;
+    --pg-radius-sm: 4px;
+    --pg-radius-lg: 12px;
+  }
+}
+
+@layer base {
+  body {
+    background-color: var(--pg-bg);
+    color: var(--pg-text);
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  * {
+    border-color: var(--pg-border);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--pg-accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .pg-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  .pg-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .pg-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--pg-border);
+    border-radius: 3px;
+  }
+}

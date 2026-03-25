@@ -10,6 +10,7 @@
 export { ForgeAgent } from './agent/forge-agent.js'
 export type {
   ForgeAgentConfig,
+  ArrowMemoryConfig,
   GenerateOptions,
   GenerateResult,
   AgentStreamEvent,
@@ -21,6 +22,8 @@ export type { ToolLoopConfig, ToolLoopResult } from './agent/tool-loop.js'
 export { IterationBudget } from './guardrails/iteration-budget.js'
 export { StuckDetector } from './guardrails/stuck-detector.js'
 export type { StuckDetectorConfig, StuckStatus } from './guardrails/stuck-detector.js'
+export { CascadingTimeout } from './guardrails/cascading-timeout.js'
+export type { CascadingTimeoutConfig } from './guardrails/cascading-timeout.js'
 export type {
   GuardrailConfig,
   BudgetState,
@@ -39,7 +42,9 @@ export type {
 
 // --- Orchestration ---
 export { AgentOrchestrator } from './orchestration/orchestrator.js'
-export type { MergeFn } from './orchestration/orchestrator.js'
+export type { MergeFn, SupervisorConfig, SupervisorResult } from './orchestration/orchestrator.js'
+export { OrchestrationError } from './orchestration/orchestration-error.js'
+export type { OrchestrationPattern } from './orchestration/orchestration-error.js'
 export { mapReduce, mapReduceMulti } from './orchestration/map-reduce.js'
 export type { MapReduceConfig, MapReduceResult, AgentOutput } from './orchestration/map-reduce.js'
 export {
@@ -50,6 +55,33 @@ export {
   getMergeStrategy,
 } from './orchestration/merge-strategies.js'
 export type { MergeStrategyFn } from './orchestration/merge-strategies.js'
+export { ContractNetManager } from './orchestration/contract-net/contract-net-manager.js'
+export {
+  lowestCostStrategy,
+  fastestStrategy,
+  highestQualityStrategy,
+  createWeightedStrategy,
+} from './orchestration/contract-net/bid-strategies.js'
+export type {
+  ContractNetPhase,
+  CallForProposals,
+  ContractBid,
+  ContractAward,
+  ContractResult,
+  ContractNetState,
+  BidEvaluationStrategy,
+  ContractNetConfig,
+} from './orchestration/contract-net/contract-net-types.js'
+export { TopologyAnalyzer } from './orchestration/topology/topology-analyzer.js'
+export { TopologyExecutor } from './orchestration/topology/topology-executor.js'
+export type { MeshResult, RingResult, ExecuteResult } from './orchestration/topology/topology-executor.js'
+export type {
+  TopologyType,
+  TaskCharacteristics,
+  TopologyRecommendation,
+  TopologyMetrics,
+  TopologyExecutorConfig,
+} from './orchestration/topology/topology-types.js'
 
 // --- Context ---
 export { autoCompress, FrozenSnapshot } from './context/auto-compress.js'
@@ -67,9 +99,54 @@ export type { ToolRegistryEvent } from './agent/tool-registry.js'
 export { createForgeTool } from './tools/create-tool.js'
 export type { ForgeToolConfig } from './tools/create-tool.js'
 
-// --- State ---
+// --- State (legacy) ---
 export { serializeMessages, deserializeMessages } from './agent/agent-state.js'
-export type { AgentStateSnapshot, SerializedMessage } from './agent/agent-state.js'
+export type {
+  AgentStateSnapshot as LegacyAgentStateSnapshot,
+  SerializedMessage as LegacySerializedMessage,
+} from './agent/agent-state.js'
+
+// --- Enhanced Snapshot ---
+export {
+  createSnapshot,
+  verifySnapshot,
+  compressSnapshot,
+  decompressSnapshot,
+} from './snapshot/agent-snapshot.js'
+export type {
+  AgentStateSnapshot,
+  CreateSnapshotParams,
+} from './snapshot/agent-snapshot.js'
+
+// --- Enhanced Message Format ---
+export {
+  serializeMessage,
+  migrateMessages,
+} from './snapshot/serialized-message.js'
+export type {
+  SerializedMessage,
+  MultimodalContent,
+} from './snapshot/serialized-message.js'
+
+// --- Structured Output ---
+export {
+  generateStructured as generateStructuredOutput,
+  detectStrategy,
+} from './structured/index.js'
+export type {
+  StructuredOutputStrategy,
+  StructuredOutputConfig,
+  StructuredOutputResult,
+  StructuredLLM,
+  StructuredLLMWithMeta,
+} from './structured/index.js'
+
+// --- Tool Schema Registry ---
+export { ToolSchemaRegistry } from './tools/tool-schema-registry.js'
+export type {
+  ToolSchemaEntry,
+  CompatCheckResult,
+} from './tools/tool-schema-registry.js'
 
 // --- Streaming ---
 export { StreamActionParser } from './streaming/stream-action-parser.js'
@@ -80,8 +157,58 @@ export type {
 } from './streaming/stream-action-parser.js'
 
 // --- Templates ---
-export { AGENT_TEMPLATES, getAgentTemplate, listAgentTemplates } from './templates/agent-templates.js'
-export type { AgentTemplate } from './templates/agent-templates.js'
+export { AGENT_TEMPLATES, ALL_AGENT_TEMPLATES, getAgentTemplate, listAgentTemplates } from './templates/agent-templates.js'
+export type { AgentTemplate, AgentTemplateCategory } from './templates/agent-templates.js'
+export { composeTemplates } from './templates/template-composer.js'
+export { TemplateRegistry } from './templates/template-registry.js'
+
+// --- Pipeline ---
+export { validatePipeline } from './pipeline/pipeline-validator.js'
+export { InMemoryPipelineCheckpointStore } from './pipeline/in-memory-checkpoint-store.js'
+export { PipelineRuntime } from './pipeline/pipeline-runtime.js'
+export { executeLoop, stateFieldTruthy, qualityBelow, hasErrors } from './pipeline/loop-executor.js'
+export type {
+  PipelineState,
+  NodeResult,
+  PipelineRunResult,
+  NodeExecutor,
+  NodeExecutionContext,
+  PipelineRuntimeConfig,
+  PipelineRuntimeEvent,
+  LoopMetrics,
+} from './pipeline/pipeline-runtime-types.js'
+
+// --- Pipeline Templates ---
+export {
+  createCodeReviewPipeline,
+  createFeatureGenerationPipeline,
+  createTestGenerationPipeline,
+  createRefactoringPipeline,
+} from './pipeline/pipeline-templates.js'
+export type {
+  CodeReviewPipelineOptions,
+  FeatureGenerationPipelineOptions,
+  TestGenerationPipelineOptions,
+  RefactoringPipelineOptions,
+} from './pipeline/pipeline-templates.js'
+
+// --- Security ---
+export { AgentAuth } from './security/agent-auth.js'
+export type {
+  AgentCredential,
+  SignedAgentMessage,
+  AgentAuthConfig,
+} from './security/agent-auth.js'
+
+// --- Pipeline Analytics ---
+export { PipelineAnalytics } from './pipeline/pipeline-analytics.js'
+export type {
+  NodeMetrics,
+  BottleneckEntry,
+  PipelineAnalyticsReport,
+  AnalyticsNodeResult,
+  AnalyticsRunInput,
+} from './pipeline/pipeline-analytics.js'
 
 // --- Version ---
 export const FORGEAGENT_AGENT_VERSION = '0.1.0'

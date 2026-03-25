@@ -65,7 +65,7 @@ export function createSlackConnector(config: SlackConnectorConfig): DynamicStruc
         const data = await slack('search.messages', { query, count: count ?? 10 }) as Record<string, unknown>
         if (!data['ok']) return `Error: ${data['error'] ?? 'unknown'}`
         const messages = (data['messages'] as Record<string, unknown>)?.['matches'] as Array<Record<string, unknown>> ?? []
-        return messages.map(m => `[${m['channel']?.['name'] ?? '?'}] ${m['text']}`).join('\n\n')
+        return messages.map(m => `[${(m['channel'] as Record<string, unknown> | undefined)?.['name'] ?? '?'}] ${m['text']}`).join('\n\n')
       },
     }),
   ]

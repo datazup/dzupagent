@@ -27,6 +27,9 @@ import { createHealthRoutes } from './routes/health.js'
 import { createRunRoutes } from './routes/runs.js'
 import { createAgentRoutes } from './routes/agents.js'
 import { createApprovalRoutes } from './routes/approval.js'
+import { createMemoryRoutes } from './routes/memory.js'
+import { createMemoryBrowseRoutes } from './routes/memory-browse.js'
+import type { MemoryServiceLike } from '@forgeagent/memory-ipc'
 import { authMiddleware, type AuthConfig } from './middleware/auth.js'
 import { rateLimiterMiddleware, type RateLimiterConfig } from './middleware/rate-limiter.js'
 import type { RunQueue } from './queue/run-queue.js'
@@ -47,6 +50,8 @@ export interface ForgeServerConfig {
   shutdown?: GracefulShutdown
   /** Metrics collector for observability */
   metrics?: MetricsCollector
+  /** Memory service for Arrow IPC export/import routes */
+  memoryService?: MemoryServiceLike
 }
 
 export function createForgeApp(config: ForgeServerConfig): Hono {
@@ -115,6 +120,11 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   app.route('/api/runs', createRunRoutes(config))
   app.route('/api/agents', createAgentRoutes(config))
   app.route('/api/runs', createApprovalRoutes(config))
+
+  if (config.memoryService) {
+    app.route('/api/memory', createMemoryRoutes({ memoryService: config.memoryService }))
+    app.route('/api/memory-browse', createMemoryBrowseRoutes({ memoryService: config.memoryService }))
+  }
 
   return app
 }

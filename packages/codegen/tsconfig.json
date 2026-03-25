@@ -21,8 +21,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "paths": {
-      "@forgeagent/core": ["../forgeagent-core/src"],
-      "@forgeagent/core/*": ["../forgeagent-core/src/*"]
+      "@forgeagent/core": ["../forgeagent-core/dist"],
+      "@forgeagent/core/*": ["../forgeagent-core/dist/*"]
     }
   },
   "include": ["src/**/*.ts"],

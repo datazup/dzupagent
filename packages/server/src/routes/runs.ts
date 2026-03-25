@@ -89,6 +89,53 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
     return c.json({ data: logs })
   })
 
+  // GET /api/runs/:id/trace — Execution trace with events + usage summary
+  app.get('/:id/trace', async (c) => {
+    const run = await runStore.get(c.req.param('id'))
+    if (!run) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Run not found' } }, 404)
+    }
+
+    const logs = await runStore.getLogs(run.id)
+
+    // Build usage summary
+    const usage = {
+      tokenUsage: run.tokenUsage ?? { input: 0, output: 0 },
+      costCents: run.costCents ?? 0,
+      durationMs: run.completedAt && run.startedAt
+        ? run.completedAt.getTime() - run.startedAt.getTime()
+        : undefined,
+    }
+
+    // Extract tool calls and phases from logs
+    const toolCalls = logs
+      .filter((l) => l.phase === 'tool_call' || l.data && typeof l.data === 'object' && 'toolName' in (l.data as Record<string, unknown>))
+      .map((l) => ({
+        message: l.message,
+        data: l.data,
+        timestamp: l.timestamp,
+      }))
+
+    const phases = logs
+      .filter((l) => l.phase != null)
+      .map((l) => l.phase!)
+      .filter((v, i, a) => a.indexOf(v) === i)
+
+    return c.json({
+      data: {
+        runId: run.id,
+        agentId: run.agentId,
+        status: run.status,
+        phases,
+        events: logs,
+        toolCalls,
+        usage,
+        startedAt: run.startedAt,
+        completedAt: run.completedAt,
+      },
+    })
+  })
+
   // GET /api/runs/:id/stream — SSE event stream
   app.get('/:id/stream', async (c) => {
     const runId = c.req.param('id')

@@ -1,105 +1,108 @@
 import { describe, it, expect } from 'vitest'
-import { EvalRunner } from '../runner/eval-runner.js'
-import { containsScorer, jsonValidScorer, createDeterministicScorer } from '../scorers/deterministic.js'
-import type { EvalInput } from '../types.js'
+import { runEvalSuite } from '../eval-runner.js'
+import { DeterministicScorer } from '../deterministic-scorer.js'
+import type { EvalSuite } from '../types.js'
 
-const input = (output: string): EvalInput => ({ input: 'task', output })
+describe('runEvalSuite', () => {
+  it('evaluates all cases with all scorers', async () => {
+    const suite: EvalSuite = {
+      name: 'test-suite',
+      cases: [
+        { id: 'case-1', input: 'hello', expectedOutput: 'hello world' },
+        { id: 'case-2', input: 'bye', expectedOutput: 'goodbye' },
+      ],
+      scorers: [
+        new DeterministicScorer({ name: 'contains-check', mode: 'contains' }),
+      ],
+    }
 
-describe('EvalRunner', () => {
-  it('evaluates a single input across all scorers', async () => {
-    const runner = new EvalRunner([
-      containsScorer('has-fn', ['function']),
-      jsonValidScorer,
-    ])
+    const result = await runEvalSuite(suite, async (input) => {
+      if (input === 'hello') return 'hello world'
+      return 'see ya'
+    })
 
-    const results = await runner.evaluate(input('function add() {}'))
-    expect(results).toHaveLength(2)
-    expect(results[0]!.scorerId).toBe('has-fn')
-    expect(results[0]!.pass).toBe(true)
-    expect(results[1]!.scorerId).toBe('json-valid')
-    expect(results[1]!.pass).toBe(false) // not JSON
+    expect(result.suiteId).toBe('test-suite')
+    expect(result.results).toHaveLength(2)
+    // case-1: output 'hello world' contains reference 'hello world' → pass
+    expect(result.results[0]!.caseId).toBe('case-1')
+    expect(result.results[0]!.scorerResults[0]!.result.pass).toBe(true)
+    // case-2: output 'see ya' does not contain reference 'goodbye' → fail
+    expect(result.results[1]!.caseId).toBe('case-2')
+    expect(result.results[1]!.scorerResults[0]!.result.pass).toBe(false)
   })
 
-  it('evaluates a batch of inputs', async () => {
-    const runner = new EvalRunner([
-      containsScorer('has-hello', ['hello']),
-    ])
+  it('computes aggregate score and pass rate', async () => {
+    const suite: EvalSuite = {
+      name: 'agg-suite',
+      passThreshold: 0.5,
+      cases: [
+        { id: 'c1', input: 'a', expectedOutput: 'a' },
+        { id: 'c2', input: 'b', expectedOutput: 'x' },
+      ],
+      scorers: [
+        new DeterministicScorer({ name: 'exact', mode: 'exactMatch' }),
+      ],
+    }
 
-    const batch = await runner.evaluateBatch([
-      input('hello world'),
-      input('goodbye world'),
-      input('hello again'),
-    ])
+    const result = await runEvalSuite(suite, async (input) => input)
 
-    expect(batch.size).toBe(3)
-    expect(batch.get(0)![0]!.pass).toBe(true)
-    expect(batch.get(1)![0]!.pass).toBe(false)
-    expect(batch.get(2)![0]!.pass).toBe(true)
+    // c1: 'a' === 'a' → score 1.0, pass (>=0.5)
+    // c2: 'b' !== 'x' → score 0.0, fail (<0.5)
+    expect(result.passRate).toBe(0.5) // 1 of 2 passed
+    expect(result.aggregateScore).toBe(0.5) // (1.0 + 0.0) / 2
   })
 
-  describe('regressionCheck', () => {
-    it('passes when scores meet baseline', async () => {
-      const runner = new EvalRunner([
-        createDeterministicScorer({ id: 'quality', check: () => 0.9 }),
-      ])
+  it('handles empty cases', async () => {
+    const suite: EvalSuite = {
+      name: 'empty',
+      cases: [],
+      scorers: [
+        new DeterministicScorer({ name: 'exact', mode: 'exactMatch' }),
+      ],
+    }
 
-      const { passed, regressions } = await runner.regressionCheck(
-        [input('a'), input('b')],
-        new Map([['quality', 0.8]]),
-      )
+    const result = await runEvalSuite(suite, async () => '')
 
-      expect(passed).toBe(true)
-      expect(regressions).toHaveLength(0)
-    })
-
-    it('fails when scores drop below baseline', async () => {
-      const runner = new EvalRunner([
-        createDeterministicScorer({ id: 'quality', check: () => 0.3 }),
-      ])
-
-      const { passed, regressions } = await runner.regressionCheck(
-        [input('a')],
-        new Map([['quality', 0.8]]),
-      )
-
-      expect(passed).toBe(false)
-      expect(regressions).toHaveLength(1)
-      expect(regressions[0]).toContain('quality')
-      expect(regressions[0]).toContain('0.300')
-    })
-
-    it('returns average scores per scorer', async () => {
-      const runner = new EvalRunner([
-        createDeterministicScorer({ id: 's1', check: () => 0.5 }),
-      ])
-
-      const { averages } = await runner.regressionCheck(
-        [input('a'), input('b'), input('c')],
-        new Map(),
-      )
-
-      expect(averages.get('s1')).toBe(0.5)
-    })
+    expect(result.results).toHaveLength(0)
+    expect(result.aggregateScore).toBe(0)
+    expect(result.passRate).toBe(0)
   })
 
-  describe('summarize', () => {
-    it('computes pass/fail counts', async () => {
-      const runner = new EvalRunner([
-        containsScorer('has-x', ['x']),
-      ])
+  it('uses multiple scorers per case', async () => {
+    const suite: EvalSuite = {
+      name: 'multi-scorer',
+      cases: [
+        { id: 'c1', input: 'test', expectedOutput: 'test output' },
+      ],
+      scorers: [
+        new DeterministicScorer({ name: 'contains', mode: 'contains' }),
+        new DeterministicScorer({ name: 'exact', mode: 'exactMatch' }),
+      ],
+    }
 
-      const batch = await runner.evaluateBatch([
-        input('x is here'),
-        input('no match'),
-        input('x again'),
-      ])
+    const result = await runEvalSuite(suite, async () => 'test output')
 
-      const summary = EvalRunner.summarize(batch)
-      expect(summary.totalInputs).toBe(3)
-      expect(summary.totalPass).toBe(2)
-      expect(summary.totalFail).toBe(1)
-      expect(summary.byScorerPass.get('has-x')).toBe(2)
-      expect(summary.byScorerFail.get('has-x')).toBe(1)
-    })
+    const case1 = result.results[0]!
+    expect(case1.scorerResults).toHaveLength(2)
+    // 'test output' contains 'test output' → pass
+    expect(case1.scorerResults[0]!.result.pass).toBe(true)
+    // 'test output' === 'test output' → pass
+    expect(case1.scorerResults[1]!.result.pass).toBe(true)
+    expect(case1.aggregateScore).toBe(1.0)
+  })
+
+  it('includes timestamp in result', async () => {
+    const suite: EvalSuite = {
+      name: 'ts-check',
+      cases: [{ id: 'c1', input: 'x' }],
+      scorers: [
+        new DeterministicScorer({ name: 'regex', mode: 'regex', pattern: /.+/ }),
+      ],
+    }
+
+    const result = await runEvalSuite(suite, async () => 'output')
+
+    expect(result.timestamp).toBeTruthy()
+    expect(new Date(result.timestamp).getTime()).not.toBeNaN()
   })
 })

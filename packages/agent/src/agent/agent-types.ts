@@ -43,6 +43,31 @@ export interface ForgeAgentConfig {
   maxIterations?: number
   /** Description of what this agent does (used when agent is exposed as a tool) */
   description?: string
+
+  /**
+   * Arrow-based memory configuration (optional, enables token budgeting).
+   *
+   * When set, `prepareMessages()` uses `@forgeagent/memory-ipc`'s
+   * `TokenBudgetAllocator` and `phaseWeightedSelection` to select only the
+   * most relevant memory records that fit within a token budget, instead of
+   * loading every record.
+   *
+   * The import is dynamic so `apache-arrow` is never required at install time.
+   * If the import fails the agent falls back to the standard load-all path.
+   */
+  arrowMemory?: ArrowMemoryConfig
+}
+
+/** Configuration for Arrow-based token-budgeted memory selection. */
+export interface ArrowMemoryConfig {
+  /** Total context window budget in tokens (default: 128000) */
+  totalBudget?: number
+  /** Max fraction of budget for memory context (default: 0.3) */
+  maxMemoryFraction?: number
+  /** Min tokens reserved for response (default: 4000) */
+  minResponseReserve?: number
+  /** Current conversation phase for phase-weighted selection */
+  currentPhase?: 'planning' | 'coding' | 'debugging' | 'reviewing' | 'general'
 }
 
 /** Options for a single generate/stream call */
