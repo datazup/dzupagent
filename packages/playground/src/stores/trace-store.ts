@@ -43,7 +43,7 @@ export const useTraceStore = defineStore('trace', () => {
     if (events.value.length >= MAX_EVENTS) {
       events.value = events.value.slice(-Math.floor(MAX_EVENTS / 2))
     }
-    events.value = [...events.value, event]
+    events.value.push(event)
   }
 
   /** Clear all trace events */

@@ -106,6 +106,19 @@ describe('chat-store', () => {
     expect(store.error).toBeNull()
   })
 
+  it('clearError resets error without clearing messages', async () => {
+    const store = useChatStore()
+    store.currentAgentId = 'agent-1'
+    await store.sendMessage('Hello')
+    const before = store.messages.length
+    store.error = 'Synthetic error'
+
+    store.clearError()
+
+    expect(store.error).toBeNull()
+    expect(store.messages.length).toBe(before)
+  })
+
   it('selectAgent sets current agent and clears messages', async () => {
     const store = useChatStore()
     store.currentAgentId = 'agent-1'
@@ -132,6 +145,48 @@ describe('chat-store', () => {
     expect(store.messageCount).toBe(0)
     await store.sendMessage('Hello')
     expect(store.messageCount).toBe(3)
+  })
+
+  it('handleRealtimeEvent appends stream deltas and finalizes on done', () => {
+    const store = useChatStore()
+
+    store.handleRealtimeEvent({ type: 'agent:stream_delta', runId: 'run-42', content: 'Hello' })
+    store.handleRealtimeEvent({ type: 'agent:stream_delta', runId: 'run-42', content: ' world' })
+
+    const assistantAfterDeltas = store.messages.filter((m) => m.role === 'assistant')
+    expect(assistantAfterDeltas).toHaveLength(1)
+    expect(assistantAfterDeltas[0]?.content).toBe('Hello world')
+
+    store.handleRealtimeEvent({ type: 'agent:stream_done', runId: 'run-42', finalContent: 'Hello world!' })
+
+    const assistantAfterDone = store.messages.filter((m) => m.role === 'assistant')
+    expect(assistantAfterDone).toHaveLength(1)
+    expect(assistantAfterDone[0]?.content).toBe('Hello world!')
+  })
+
+  it('handleRealtimeEvent supports envelope-shaped payloads', () => {
+    const store = useChatStore()
+
+    store.handleRealtimeEvent({
+      version: 'v1',
+      payload: { type: 'agent:stream_delta', runId: 'run-99', content: 'Chunk' },
+    })
+
+    const assistantMessages = store.messages.filter((m) => m.role === 'assistant')
+    expect(assistantMessages).toHaveLength(1)
+    expect(assistantMessages[0]?.content).toBe('Chunk')
+  })
+
+  it('sendMessage does not duplicate assistant message when stream already started', async () => {
+    const store = useChatStore()
+    store.currentAgentId = 'agent-1'
+    store.handleRealtimeEvent({ type: 'agent:stream_delta', runId: 'run-1', content: 'partial' })
+
+    await store.sendMessage('Hello')
+
+    const assistantMessages = store.messages.filter((m) => m.role === 'assistant')
+    expect(assistantMessages).toHaveLength(1)
+    expect(assistantMessages[0]?.content).toBe('Hello from assistant')
   })
 
   it('currentAgent getter returns the selected agent', async () => {

@@ -20,16 +20,16 @@ interface Props {
 const props = defineProps<Props>()
 
 const bubbleClasses = computed(() => {
-  const base = 'rounded-[var(--pg-radius)] px-4 py-3 max-w-[85%]'
+  const base = 'max-w-[92%] rounded-[12px] border px-4 py-3 shadow-sm md:max-w-[85%]'
   switch (props.role) {
     case 'user':
-      return `${base} bg-[var(--pg-user-bg)] text-[var(--pg-text)] ml-auto`
+      return `${base} ml-auto border-[color-mix(in_oklch,var(--pg-accent)_45%,var(--pg-border))] bg-[var(--pg-user-bg)] text-[var(--pg-text)]`
     case 'assistant':
-      return `${base} bg-[var(--pg-assistant-bg)] text-[var(--pg-text)] mr-auto`
+      return `${base} mr-auto border-[var(--pg-border)] bg-[var(--pg-assistant-bg)] text-[var(--pg-text)]`
     case 'system':
-      return `${base} bg-[var(--pg-system-bg)] text-[var(--pg-text-secondary)] mr-auto italic`
+      return `${base} mr-auto border-[color-mix(in_oklch,var(--pg-warning)_35%,var(--pg-border))] bg-[var(--pg-system-bg)] text-[var(--pg-text-secondary)] italic`
     default:
-      return `${base} bg-[var(--pg-surface-raised)] text-[var(--pg-text)]`
+      return `${base} border-[var(--pg-border)] bg-[var(--pg-surface-raised)] text-[var(--pg-text)]`
   }
 })
 
@@ -61,10 +61,10 @@ const formattedTime = computed(() => {
     :class="role === 'user' ? 'items-end' : 'items-start'"
   >
     <div class="flex items-center gap-2 px-1">
-      <span class="text-xs font-medium text-[var(--pg-text-muted)]">
+      <span class="rounded-full border border-[var(--pg-border-subtle)] bg-[var(--pg-surface)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-[var(--pg-text-muted)]">
         {{ roleLabel }}
       </span>
-      <span class="text-xs text-[var(--pg-text-muted)]">
+      <span class="text-[11px] text-[var(--pg-text-muted)]">
         {{ formattedTime }}
       </span>
     </div>

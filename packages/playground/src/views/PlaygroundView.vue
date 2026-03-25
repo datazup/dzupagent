@@ -26,52 +26,63 @@ function onAgentSelect(event: Event): void {
   <div class="flex h-full flex-col">
     <!-- Agent selector bar -->
     <header
-      class="flex items-center gap-3 border-b border-[var(--pg-border)] bg-[var(--pg-surface)] px-4 py-2"
+      class="flex flex-col gap-3 border-b border-[var(--pg-border)] bg-[color-mix(in_oklch,var(--pg-surface)_94%,transparent)] px-4 py-3 backdrop-blur md:flex-row md:items-center md:justify-between"
     >
-      <label
-        for="agent-select"
-        class="text-xs font-medium text-[var(--pg-text-muted)]"
-      >
-        Agent
-      </label>
-      <select
-        id="agent-select"
-        :value="chatStore.currentAgentId ?? ''"
-        class="rounded-[var(--pg-radius-sm)] border border-[var(--pg-border)] bg-[var(--pg-surface-raised)] px-3 py-1.5 text-sm text-[var(--pg-text)] focus:border-[var(--pg-accent)] focus:outline-none"
-        @change="onAgentSelect"
-      >
-        <option
-          value=""
-          disabled
-        >
-          Select an agent...
-        </option>
-        <option
-          v-for="agent in chatStore.agents"
-          :key="agent.id"
-          :value="agent.id"
-        >
-          {{ agent.name }}
-        </option>
-      </select>
+      <div>
+        <h1 class="text-sm font-semibold tracking-wide text-[var(--pg-text)] md:text-base">
+          Interactive Agent Console
+        </h1>
+        <p class="text-xs text-[var(--pg-text-muted)]">
+          Pick an agent, send prompts, and inspect runtime signals.
+        </p>
+      </div>
 
-      <span
-        v-if="chatStore.currentAgent"
-        class="text-xs text-[var(--pg-text-muted)]"
-      >
-        {{ chatStore.currentAgent.modelTier }}
-      </span>
+      <div class="flex items-center gap-3">
+        <label
+          for="agent-select"
+          class="sr-only"
+        >
+          Agent
+        </label>
+        <select
+          id="agent-select"
+          :value="chatStore.currentAgentId ?? ''"
+          class="w-full min-w-56 rounded-[10px] border border-[var(--pg-border)] bg-[var(--pg-surface-raised)] px-3 py-2 text-sm text-[var(--pg-text)] shadow-sm focus:border-[var(--pg-accent)] focus:outline-none md:w-auto"
+          @change="onAgentSelect"
+        >
+          <option
+            value=""
+            disabled
+          >
+            Select an agent...
+          </option>
+          <option
+            v-for="agent in chatStore.agents"
+            :key="agent.id"
+            :value="agent.id"
+          >
+            {{ agent.name }}
+          </option>
+        </select>
+
+        <span
+          v-if="chatStore.currentAgent"
+          class="hidden rounded-full border border-[var(--pg-border)] bg-[var(--pg-surface)] px-2.5 py-1 text-xs font-medium text-[var(--pg-text-secondary)] md:inline-flex"
+        >
+          {{ chatStore.currentAgent.modelTier }}
+        </span>
+      </div>
     </header>
 
     <!-- Two-panel content -->
-    <div class="flex flex-1 overflow-hidden">
+    <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[1.15fr_1fr]">
       <!-- Chat panel (left) -->
-      <div class="flex w-1/2 flex-col border-r border-[var(--pg-border)]">
+      <div class="flex min-h-0 flex-col border-b border-[var(--pg-border)] xl:border-r xl:border-b-0">
         <ChatPanel />
       </div>
 
       <!-- Inspector panel (right) -->
-      <div class="flex w-1/2 flex-col">
+      <div class="flex min-h-0 flex-col">
         <InspectorPanel />
       </div>
     </div>

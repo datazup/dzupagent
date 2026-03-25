@@ -43,9 +43,14 @@ watch(
       v-if="messages.length === 0"
       class="flex h-full items-center justify-center"
     >
-      <p class="text-sm text-[var(--pg-text-muted)]">
-        Select an agent and start chatting.
-      </p>
+      <div class="max-w-sm rounded-[14px] border border-dashed border-[var(--pg-border)] bg-[color-mix(in_oklch,var(--pg-surface)_90%,transparent)] p-6 text-center">
+        <p class="mb-1 text-sm font-semibold text-[var(--pg-text-secondary)]">
+          No conversation yet
+        </p>
+        <p class="text-xs leading-relaxed text-[var(--pg-text-muted)]">
+          Choose an agent, send a prompt, and your trace and memory insights will appear in the inspector.
+        </p>
+      </div>
     </div>
 
     <!-- Messages -->

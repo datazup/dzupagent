@@ -21,16 +21,23 @@ function handleSend(content: string): void {
 
 <template>
   <div class="flex h-full flex-col">
+    <div class="border-b border-[var(--pg-border-subtle)] bg-[color-mix(in_oklch,var(--pg-surface)_90%,transparent)] px-4 py-3">
+      <p class="text-xs text-[var(--pg-text-muted)]">
+        <span class="font-medium text-[var(--pg-text-secondary)]">Active agent:</span>
+        {{ chatStore.currentAgent?.name ?? 'Not selected' }}
+      </p>
+    </div>
+
     <!-- Error banner -->
     <div
       v-if="chatStore.error"
-      class="flex items-center gap-2 border-b border-[var(--pg-error)] bg-[color-mix(in_oklch,var(--pg-error)_15%,transparent)] px-4 py-2 text-sm text-[var(--pg-error)]"
+      class="flex items-center gap-2 border-b border-[var(--pg-error)] bg-[color-mix(in_oklch,var(--pg-error)_14%,transparent)] px-4 py-2 text-sm text-[var(--pg-error)]"
       role="alert"
     >
       <span>{{ chatStore.error }}</span>
       <button
         class="ml-auto text-xs underline"
-        @click="chatStore.clearMessages()"
+        @click="chatStore.clearError()"
       >
         Dismiss
       </button>

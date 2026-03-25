@@ -58,7 +58,7 @@ function handleInput(): void {
 </script>
 
 <template>
-  <div class="border-t border-[var(--pg-border)] bg-[var(--pg-surface)] p-4">
+  <div class="border-t border-[var(--pg-border)] bg-[color-mix(in_oklch,var(--pg-surface)_92%,transparent)] p-4">
     <div class="flex items-end gap-2">
       <textarea
         ref="textareaRef"
@@ -66,19 +66,22 @@ function handleInput(): void {
         :placeholder="placeholder"
         :disabled="disabled || loading"
         rows="1"
-        class="flex-1 resize-none rounded-[var(--pg-radius)] border border-[var(--pg-border)] bg-[var(--pg-surface-raised)] px-3 py-2 text-sm text-[var(--pg-text)] placeholder:text-[var(--pg-text-muted)] focus:border-[var(--pg-accent)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        class="flex-1 resize-none rounded-[12px] border border-[var(--pg-border)] bg-[var(--pg-surface-raised)] px-3 py-2.5 text-sm text-[var(--pg-text)] placeholder:text-[var(--pg-text-muted)] shadow-sm focus:border-[var(--pg-accent)] focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         aria-label="Chat message input"
         @keydown="handleKeydown"
         @input="handleInput"
       />
       <button
         :disabled="disabled || loading || !inputText.trim()"
-        class="rounded-[var(--pg-radius)] bg-[var(--pg-accent)] px-4 py-2 text-sm font-medium text-[var(--pg-accent-text)] transition-colors hover:bg-[var(--pg-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+        class="rounded-[12px] bg-[var(--pg-accent)] px-4 py-2.5 text-sm font-medium text-[var(--pg-accent-text)] shadow-sm transition-colors hover:bg-[var(--pg-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         aria-label="Send message"
         @click="handleSend"
       >
         {{ loading ? 'Sending...' : 'Send' }}
       </button>
     </div>
+    <p class="mt-2 text-[11px] text-[var(--pg-text-muted)]">
+      Press <kbd class="rounded border border-[var(--pg-border)] px-1.5 py-0.5 text-[10px]">Enter</kbd> to send, <kbd class="rounded border border-[var(--pg-border)] px-1.5 py-0.5 text-[10px]">Shift + Enter</kbd> for newline.
+    </p>
   </div>
 </template>

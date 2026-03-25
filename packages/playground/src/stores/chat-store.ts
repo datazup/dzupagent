@@ -22,6 +22,8 @@ export const useChatStore = defineStore('chat', () => {
   const agents = ref<AgentSummary[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
+  const activeRunId = ref<string | null>(null)
+  const streamingMessageIds = new Map<string, string>()
 
   // ── Getters ───────────────────────────────────────
   const currentAgent = computed(() =>
@@ -36,15 +38,12 @@ export const useChatStore = defineStore('chat', () => {
   const wsStore = useWsStore()
 
   function pushSystemMessage(content: string): void {
-    messages.value = [
-      ...messages.value,
-      {
-        id: `system-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-        role: 'system',
-        content,
-        timestamp: new Date().toISOString(),
-      },
-    ]
+    messages.value.push({
+      id: `system-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      role: 'system',
+      content,
+      timestamp: new Date().toISOString(),
+    })
   }
 
   function runOutputToAssistantMessage(output: unknown): string | null {
@@ -62,6 +61,83 @@ export const useChatStore = defineStore('chat', () => {
     return null
   }
 
+  function extractTextField(
+    event: Record<string, unknown>,
+    payload: Record<string, unknown> | null,
+    key: string,
+  ): string {
+    if (typeof event[key] === 'string') return event[key] as string
+    if (payload && typeof payload[key] === 'string') return payload[key] as string
+    return ''
+  }
+
+  function upsertStreamingAssistant(runId: string, delta: string): void {
+    if (!delta) return
+    const existingId = streamingMessageIds.get(runId)
+    if (!existingId) {
+      const id = `assistant-stream-${runId}`
+      streamingMessageIds.set(runId, id)
+      messages.value.push({
+        id,
+        role: 'assistant',
+        content: delta,
+        timestamp: new Date().toISOString(),
+      })
+      return
+    }
+    const idx = messages.value.findIndex((m) => m.id === existingId)
+    if (idx >= 0) {
+      const existing = messages.value[idx]!
+      messages.value[idx] = {
+        ...existing,
+        content: `${existing.content}${delta}`,
+      }
+    } else {
+      // Message got removed (e.g., agent switch); recreate safely.
+      streamingMessageIds.delete(runId)
+      upsertStreamingAssistant(runId, delta)
+    }
+  }
+
+  function finalizeStreamingAssistant(runId: string, finalContent: string): boolean {
+    const id = streamingMessageIds.get(runId)
+    if (!id) return false
+    const idx = messages.value.findIndex((m) => m.id === id)
+    if (idx >= 0 && finalContent.trim()) {
+      const existing = messages.value[idx]!
+      messages.value[idx] = {
+        ...existing,
+        content: finalContent,
+      }
+    }
+    streamingMessageIds.delete(runId)
+    return idx >= 0
+  }
+
+  function handleRealtimeEvent(eventLike: Record<string, unknown>): void {
+    const payload = (eventLike['payload'] && typeof eventLike['payload'] === 'object' && !Array.isArray(eventLike['payload']))
+      ? eventLike['payload'] as Record<string, unknown>
+      : null
+
+    const type = extractTextField(eventLike, payload, 'type')
+    if (!type) return
+
+    const runId = extractTextField(eventLike, payload, 'runId')
+    if (!runId) return
+
+    if (type === 'agent:stream_delta') {
+      const delta = extractTextField(eventLike, payload, 'content')
+      upsertStreamingAssistant(runId, delta)
+      return
+    }
+
+    if (type === 'agent:stream_done') {
+      const finalContent = extractTextField(eventLike, payload, 'finalContent')
+      finalizeStreamingAssistant(runId, finalContent)
+      return
+    }
+  }
+
   function traceTypeFromPhase(phase?: string): TraceEvent['type'] {
     if (!phase) return 'system'
     const normalized = phase.toLowerCase()
@@ -73,8 +149,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function waitForRunCompletion(runId: string): Promise<RunHistoryEntry> {
-    const MAX_ATTEMPTS = 60
-    const INTERVAL_MS = 1000
+    const MAX_ATTEMPTS = 120
+    const BASE_INTERVAL_MS = 500
+    const MAX_INTERVAL_MS = 4000
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const run = await get<ApiResponse<RunHistoryEntry>>(`/api/runs/${runId}`)
@@ -82,10 +159,11 @@ export const useChatStore = defineStore('chat', () => {
       if (TERMINAL_STATUSES.has(status)) {
         return run.data
       }
-      await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS))
+      const delay = Math.min(MAX_INTERVAL_MS, BASE_INTERVAL_MS * Math.pow(1.25, attempt))
+      await new Promise((resolve) => setTimeout(resolve, delay))
     }
 
-    throw new Error('Run timed out before reaching a terminal state')
+    throw new Error(`Run ${runId} timed out before reaching a terminal state`)
   }
 
   async function refreshTrace(runId: string): Promise<void> {
@@ -140,7 +218,7 @@ export const useChatStore = defineStore('chat', () => {
       content,
       timestamp: new Date().toISOString(),
     }
-    messages.value = [...messages.value, userMessage]
+    messages.value.push(userMessage)
     isLoading.value = true
 
     try {
@@ -149,7 +227,8 @@ export const useChatStore = defineStore('chat', () => {
         { agentId: currentAgentId.value, input: { message: content } },
       )
       const runId = runCreate.data.id
-      wsStore.setSubscription({ runId, eventTypes: ['agent:started', 'agent:completed', 'agent:failed', 'tool:called', 'tool:result', 'tool:error', 'memory:written', 'memory:searched', 'memory:error', 'pipeline:phase_changed'] })
+      activeRunId.value = runId
+      wsStore.setSubscription({ runId, eventTypes: ['agent:started', 'agent:completed', 'agent:failed', 'agent:stream_delta', 'agent:stream_done', 'tool:called', 'tool:result', 'tool:error', 'memory:written', 'memory:searched', 'memory:error', 'pipeline:phase_changed'] })
       pushSystemMessage(`Run started: ${runId}`)
 
       const finalRun = await waitForRunCompletion(runId)
@@ -157,13 +236,16 @@ export const useChatStore = defineStore('chat', () => {
 
       const assistantContent = runOutputToAssistantMessage(finalRun.output)
       if (assistantContent) {
-        const assistantMessage: ChatMessage = {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content: assistantContent,
-          timestamp: new Date().toISOString(),
+        const updatedStream = finalizeStreamingAssistant(runId, assistantContent)
+        if (!updatedStream) {
+          const assistantMessage: ChatMessage = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: assistantContent,
+            timestamp: new Date().toISOString(),
+          }
+          messages.value.push(assistantMessage)
         }
-        messages.value = [...messages.value, assistantMessage]
       } else if (finalRun.status === 'completed') {
         pushSystemMessage('Run completed with no assistant output payload.')
       } else {
@@ -172,6 +254,7 @@ export const useChatStore = defineStore('chat', () => {
     } catch (err: unknown) {
       error.value = err instanceof Error ? err.message : 'Failed to send message'
     } finally {
+      activeRunId.value = null
       isLoading.value = false
     }
   }
@@ -179,6 +262,13 @@ export const useChatStore = defineStore('chat', () => {
   /** Clear all messages */
   function clearMessages(): void {
     messages.value = []
+    streamingMessageIds.clear()
+    activeRunId.value = null
+    error.value = null
+  }
+
+  /** Clear current error without altering chat history */
+  function clearError(): void {
     error.value = null
   }
 
@@ -189,6 +279,7 @@ export const useChatStore = defineStore('chat', () => {
     agents,
     isLoading,
     error,
+    activeRunId,
 
     // Getters
     currentAgent,
@@ -198,6 +289,8 @@ export const useChatStore = defineStore('chat', () => {
     fetchAgents,
     selectAgent,
     sendMessage,
+    handleRealtimeEvent,
     clearMessages,
+    clearError,
   }
 })

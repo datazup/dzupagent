@@ -9,7 +9,8 @@
     "typecheck": "vue-tsc --noEmit",
     "lint": "eslint src/ --ext .vue,.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test -c playwright.config.ts"
   },
   "dependencies": {
     "vue": "^3.4.0",

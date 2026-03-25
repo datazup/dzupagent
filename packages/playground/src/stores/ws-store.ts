@@ -110,7 +110,7 @@ export const useWsStore = defineStore('ws', () => {
         if (eventLog.value.length >= MAX_EVENT_LOG) {
           eventLog.value = eventLog.value.slice(-Math.floor(MAX_EVENT_LOG / 2))
         }
-        eventLog.value = [...eventLog.value, data]
+        eventLog.value.push(data)
       } catch {
         // Non-JSON messages ignored
       }
