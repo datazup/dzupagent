@@ -299,6 +299,17 @@ export type {
   SyncStats,
 } from './sync/index.js'
 
+// --- Dynamic Rule Engine ---
+export { DynamicRuleEngine } from './rule-engine.js'
+export type {
+  Rule,
+  RuleSource,
+  RuleEngineConfig,
+  LearnFromErrorParams,
+  AddRuleParams,
+  GetRulesParams,
+} from './rule-engine.js'
+
 // --- Lesson Pipeline ---
 export { LessonPipeline } from './lesson-pipeline.js'
 export type {

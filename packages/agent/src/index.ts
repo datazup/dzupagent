@@ -360,5 +360,31 @@ export type { IterationDecision, IterationControllerConfig } from './self-correc
 export { createSelfCorrectingExecutor } from './self-correction/self-correcting-node.js'
 export type { SelfCorrectingConfig, SelfCorrectingResult } from './self-correction/self-correcting-node.js'
 
+// --- Self-Correction (ErrorDetectionOrchestrator) ---
+export { ErrorDetectionOrchestrator } from './self-correction/error-detector.js'
+export type {
+  ErrorSource,
+  ErrorSeverity,
+  DetectedError,
+  ErrorDetectorConfig,
+} from './self-correction/error-detector.js'
+
+// --- Self-Correction (RootCauseAnalyzer) ---
+export { RootCauseAnalyzer } from './self-correction/root-cause-analyzer.js'
+export type {
+  RootCauseReport,
+  RootCauseAnalyzerConfig,
+  AnalyzeParams,
+  HeuristicClassification,
+} from './self-correction/root-cause-analyzer.js'
+
+// --- Self-Correction (VerificationProtocol) ---
+export { VerificationProtocol, jaccardSimilarity } from './self-correction/verification-protocol.js'
+export type {
+  VerificationStrategy,
+  VerificationResult,
+  VerificationConfig,
+} from './self-correction/verification-protocol.js'
+
 // --- Version ---
 export const FORGEAGENT_AGENT_VERSION = '0.1.0'

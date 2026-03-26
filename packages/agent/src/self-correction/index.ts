@@ -37,3 +37,35 @@ export type {
   SuboptimalResult,
   TrajectoryCalibratorConfig,
 } from './trajectory-calibrator.js'
+
+export { ErrorDetectionOrchestrator } from './error-detector.js'
+export type {
+  ErrorSource,
+  ErrorSeverity,
+  DetectedError,
+  ErrorDetectorConfig,
+} from './error-detector.js'
+
+export { RootCauseAnalyzer } from './root-cause-analyzer.js'
+export type {
+  RootCauseReport,
+  RootCauseAnalyzerConfig,
+  AnalyzeParams,
+  HeuristicClassification,
+} from './root-cause-analyzer.js'
+
+export { VerificationProtocol, jaccardSimilarity } from './verification-protocol.js'
+export type {
+  VerificationStrategy,
+  VerificationResult,
+  VerificationConfig,
+} from './verification-protocol.js'
+
+export { ObservabilityCorrectionBridge } from './observability-bridge.js'
+export type {
+  CorrectionSignal,
+  CorrectionSignalType,
+  SignalSeverity,
+  ObservabilityThresholds,
+  ObservabilityBridgeConfig,
+} from './observability-bridge.js'
