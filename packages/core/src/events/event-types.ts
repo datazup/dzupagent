@@ -14,6 +14,17 @@ export interface BudgetUsage {
 }
 
 /**
+ * Per-tool execution statistics emitted with `agent:stop_reason`.
+ */
+export interface ToolStatSummary {
+  name: string
+  calls: number
+  errors: number
+  totalMs: number
+  avgMs: number
+}
+
+/**
  * Discriminated union of all events emitted through ForgeEventBus.
  *
  * Each event has a `type` discriminator and type-specific payload fields.
@@ -34,6 +45,8 @@ export type ForgeEvent =
   | { type: 'memory:written'; namespace: string; key: string }
   | { type: 'memory:searched'; namespace: string; query: string; resultCount: number }
   | { type: 'memory:error'; namespace: string; message: string }
+  | { type: 'memory:retrieval_source_failed'; source: string; error: string; durationMs: number; query: string }
+  | { type: 'memory:retrieval_source_succeeded'; source: string; resultCount: number; durationMs: number }
   // --- Budget ---
   | { type: 'budget:warning'; level: 'warn' | 'critical'; usage: BudgetUsage }
   | { type: 'budget:exceeded'; reason: string; usage: BudgetUsage }
@@ -82,6 +95,7 @@ export type ForgeEvent =
   | { type: 'pipeline:checkpoint_saved'; pipelineId: string; runId: string; version: number }
   | { type: 'pipeline:run_completed'; pipelineId: string; runId: string; durationMs: number }
   | { type: 'pipeline:run_failed'; pipelineId: string; runId: string; error: string }
+  | { type: 'pipeline:node_retry'; pipelineId: string; runId: string; nodeId: string; attempt: number; maxAttempts: number; error: string; backoffMs: number }
   | { type: 'pipeline:run_cancelled'; pipelineId: string; runId: string; reason?: string }
   // --- Security ---
   | { type: 'policy:evaluated'; policySetId: string; action: string; effect: string; durationUs: number }
@@ -97,6 +111,20 @@ export type ForgeEvent =
   | { type: 'vector:upsert_completed'; provider: string; collection: string; count: number; latencyMs: number }
   | { type: 'vector:embedding_completed'; provider: string; latencyMs: number; tokenCount?: number; costCents?: number }
   | { type: 'vector:error'; provider: string; collection: string; operation: string; message: string }
+  // --- Telemetry ---
+  | { type: 'tool:latency'; toolName: string; durationMs: number; error?: string }
+  | { type: 'agent:stop_reason'; agentId: string; reason: string; iterations: number; toolStats: ToolStatSummary[] }
+  | { type: 'agent:stuck_detected'; agentId: string; reason: string; recovery: string; timestamp: number }
+  // --- Delegation ---
+  | { type: 'delegation:started'; parentRunId: string; targetAgentId: string; delegationId: string }
+  | { type: 'delegation:completed'; parentRunId: string; targetAgentId: string; delegationId: string; durationMs: number; success: boolean }
+  | { type: 'delegation:failed'; parentRunId: string; targetAgentId: string; delegationId: string; error: string }
+  | { type: 'delegation:timeout'; parentRunId: string; targetAgentId: string; delegationId: string; timeoutMs: number }
+  | { type: 'delegation:cancelled'; parentRunId: string; targetAgentId: string; delegationId: string }
+  // --- Supervisor ---
+  | { type: 'supervisor:delegating'; specialistId: string; task: string }
+  | { type: 'supervisor:delegation_complete'; specialistId: string; task: string; success: boolean }
+  | { type: 'supervisor:plan_created'; goal: string; assignments: Array<{ task: string; specialistId: string }> }
   // --- Hooks / plugins ---
   | { type: 'hook:error'; hookName: string; message: string }
   | { type: 'plugin:registered'; pluginName: string }

@@ -16,11 +16,12 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "apache-arrow": "^19.0.0",
-    "zod": "^3.23.0"
+    "zod": "^4.3.6"
   },
   "peerDependencies": {
     "@forgeagent/memory": "workspace:*"
@@ -31,7 +32,7 @@
     }
   },
   "devDependencies": {
-    "vitest": "^3.0.0",
+    "vitest": "^1.6.0",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0"
   },

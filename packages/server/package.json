@@ -17,7 +17,8 @@
     "test:watch": "vitest",
     "lint": "eslint src/",
     "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@forgeagent/agent": "0.1.0",
@@ -28,13 +29,19 @@
     "hono": "^4.12.9"
   },
   "peerDependencies": {
-    "postgres": "^3.4.0"
+    "postgres": "^3.4.0",
+    "bullmq": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "bullmq": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "drizzle-kit": "^0.30.0",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.4.0"
+    "vitest": "^1.6.0"
   },
   "files": [
     "dist"

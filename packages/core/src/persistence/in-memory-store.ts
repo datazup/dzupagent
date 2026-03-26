@@ -65,6 +65,15 @@ export class InMemoryRunStore implements RunStore {
     list.push({ ...entry, timestamp: entry.timestamp ?? new Date() })
   }
 
+  async addLogs(runId: string, entries: LogEntry[]): Promise<void> {
+    const list = this.logs.get(runId)
+    if (!list) return
+    const now = new Date()
+    for (const entry of entries) {
+      list.push({ ...entry, timestamp: entry.timestamp ?? now })
+    }
+  }
+
   async getLogs(runId: string): Promise<LogEntry[]> {
     return this.logs.get(runId) ?? []
   }

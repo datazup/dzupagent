@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@forgeagent/core": "0.1.0"
@@ -26,9 +27,15 @@
     "@opentelemetry/sdk-metrics": "^1.21.0"
   },
   "peerDependenciesMeta": {
-    "@opentelemetry/api": { "optional": true },
-    "@opentelemetry/sdk-trace-base": { "optional": true },
-    "@opentelemetry/sdk-metrics": { "optional": true }
+    "@opentelemetry/api": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-trace-base": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-metrics": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@opentelemetry/api": "^1.7.0",

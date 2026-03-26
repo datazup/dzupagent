@@ -62,6 +62,7 @@ export interface RunStore {
   get(id: string): Promise<Run | null>
   list(filter?: RunFilter): Promise<Run[]>
   addLog(runId: string, entry: LogEntry): Promise<void>
+  addLogs(runId: string, entries: LogEntry[]): Promise<void>
   getLogs(runId: string): Promise<LogEntry[]>
 }
 
