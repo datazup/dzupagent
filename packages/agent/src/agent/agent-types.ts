@@ -10,7 +10,9 @@ import type {
   AgentMiddleware,
   MemoryService,
   MessageManagerConfig,
+  ForgeEventBus,
 } from '@forgeagent/core'
+import type { ToolStat, StopReason } from './tool-loop.js'
 import type { GuardrailConfig } from '../guardrails/guardrail-types.js'
 
 /** Configuration for creating a ForgeAgent */
@@ -43,6 +45,8 @@ export interface ForgeAgentConfig {
   maxIterations?: number
   /** Description of what this agent does (used when agent is exposed as a tool) */
   description?: string
+  /** Event bus for emitting telemetry and lifecycle events */
+  eventBus?: ForgeEventBus
 
   /**
    * Arrow-based memory configuration (optional, enables token budgeting).
@@ -96,10 +100,14 @@ export interface GenerateResult {
   }
   /** Whether the agent hit the max iteration limit */
   hitIterationLimit: boolean
+  /** Why the agent stopped (more granular than hitIterationLimit). */
+  stopReason: StopReason
+  /** Per-tool execution statistics. */
+  toolStats: ToolStat[]
 }
 
 /** A single streamed event from the agent */
 export interface AgentStreamEvent {
-  type: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'budget_warning'
+  type: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'budget_warning' | 'stuck'
   data: Record<string, unknown>
 }

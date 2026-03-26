@@ -32,7 +32,7 @@ import {
   summarizeAndTrim,
   formatSummaryContext,
 } from '@forgeagent/core'
-import type { TokenUsage } from '@forgeagent/core'
+import { extractTokenUsage, type TokenUsage } from '@forgeagent/core'
 import type {
   ForgeAgentConfig,
   GenerateOptions,
@@ -40,6 +40,7 @@ import type {
   AgentStreamEvent,
 } from './agent-types.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
+import { StuckDetector } from '../guardrails/stuck-detector.js'
 import { runToolLoop } from './tool-loop.js'
 
 const MODEL_TIERS: Set<string> = new Set(['chat', 'reasoning', 'codegen', 'embedding'])
@@ -98,17 +99,47 @@ export class ForgeAgent {
     // Run middleware beforeAgent hooks
     await this.runBeforeAgentHooks()
 
+    // Create stuck detector for this run
+    const stuckDetector = new StuckDetector()
+
     // Run the tool loop
     const result = await runToolLoop(model, prepared, tools, {
       maxIterations,
       budget,
       signal: options?.signal,
+      stuckDetector,
+      onStuckDetected: (reason, recovery) => {
+        this.config.eventBus?.emit({
+          type: 'agent:stuck_detected',
+          agentId: this.id,
+          reason,
+          recovery,
+          timestamp: Date.now(),
+        })
+      },
       invokeModel: (m, msgs) => this.invokeModelWithMiddleware(m, msgs),
       transformToolResult: (name, input, output) =>
         this.transformToolResultWithMiddleware(name, input, output),
       onUsage: (usage) => {
         options?.onUsage?.(usage)
       },
+      onToolLatency: (name, durationMs, error) => {
+        this.config.eventBus?.emit({
+          type: 'tool:latency',
+          toolName: name,
+          durationMs,
+          ...(error !== undefined ? { error } : {}),
+        })
+      },
+    })
+
+    // Emit stop-reason telemetry
+    this.config.eventBus?.emit({
+      type: 'agent:stop_reason',
+      agentId: this.id,
+      reason: result.stopReason,
+      iterations: result.llmCalls,
+      toolStats: result.toolStats,
     })
 
     // Extract final content
@@ -140,6 +171,8 @@ export class ForgeAgent {
         llmCalls: result.llmCalls,
       },
       hitIterationLimit: result.hitIterationLimit,
+      stopReason: result.stopReason,
+      toolStats: result.toolStats,
     }
   }
 
@@ -204,6 +237,7 @@ export class ForgeAgent {
     const tools = this.getTools()
     const toolMap = new Map(tools.map(t => [t.name, t]))
     const model = this.bindTools(this.resolvedModel, tools)
+    const stuckDetector = new StuckDetector()
 
     const allMessages = [...prepared]
 
@@ -242,13 +276,18 @@ export class ForgeAgent {
         if (fullResponse) {
           allMessages.push(fullResponse)
 
-          // Track usage
+          // Track usage — extract real token counts from the final stream chunk,
+          // falling back to a rough estimate only when the provider doesn't report usage.
           if (budget) {
             const modelName = (model as BaseChatModel & { model?: string }).model
+            const realUsage = extractTokenUsage(fullResponse, modelName ?? undefined)
+
             const usage: TokenUsage = {
-              model: modelName ?? 'unknown',
-              inputTokens: 0,
-              outputTokens: chunks.join('').length / 4, // rough estimate for streaming
+              model: realUsage.model,
+              inputTokens: realUsage.inputTokens,
+              outputTokens: realUsage.outputTokens > 0
+                ? realUsage.outputTokens
+                : Math.ceil(chunks.join('').length / 4), // fallback estimate
             }
             const warnings = budget.recordUsage(usage)
             for (const w of warnings) {
@@ -294,6 +333,7 @@ export class ForgeAgent {
               continue
             }
 
+            let toolError: string | undefined
             try {
               const result = await tool.invoke(tc.args)
               const resultStr = typeof result === 'string' ? result : JSON.stringify(result)
@@ -305,15 +345,70 @@ export class ForgeAgent {
               allMessages.push(msg)
               yield { type: 'tool_result', data: { name: tc.name, result: resultStr } }
             } catch (err: unknown) {
-              const errMsg = err instanceof Error ? err.message : String(err)
+              toolError = err instanceof Error ? err.message : String(err)
               const msg = new ToolMessage({
-                content: `Error: ${errMsg}`,
+                content: `Error: ${toolError}`,
                 tool_call_id: toolCallId,
                 name: tc.name,
               })
               allMessages.push(msg)
-              yield { type: 'tool_result', data: { name: tc.name, result: `[error: ${errMsg}]` } }
+              yield { type: 'tool_result', data: { name: tc.name, result: `[error: ${toolError}]` } }
             }
+
+            // Stuck detection in streaming
+            const stuckCheck = toolError
+              ? stuckDetector.recordError(new Error(toolError))
+              : stuckDetector.recordToolCall(tc.name, tc.args)
+
+            if (stuckCheck.stuck) {
+              const reason = stuckCheck.reason ?? 'Unknown stuck condition'
+              if (toolError) {
+                const recovery = 'Stopping due to repeated errors.'
+                yield { type: 'stuck', data: { reason, recovery } }
+                this.config.eventBus?.emit({
+                  type: 'agent:stuck_detected',
+                  agentId: this.id,
+                  reason,
+                  recovery,
+                  timestamp: Date.now(),
+                })
+                yield { type: 'done', data: { stopReason: 'stuck' } }
+                return
+              } else {
+                const recovery = `Tool "${tc.name}" has been blocked. Try a different approach.`
+                budget?.blockTool(tc.name)
+                yield { type: 'stuck', data: { reason, recovery } }
+                this.config.eventBus?.emit({
+                  type: 'agent:stuck_detected',
+                  agentId: this.id,
+                  reason,
+                  recovery,
+                  timestamp: Date.now(),
+                })
+                allMessages.push(new ToolMessage({
+                  content: `[Agent appears stuck: ${reason}. ${recovery}]`,
+                  tool_call_id: toolCallId,
+                  name: tc.name,
+                }))
+              }
+            }
+          }
+
+          // Idle iteration detection in streaming
+          const idleCheck = stuckDetector.recordIteration(toolCalls.length)
+          if (idleCheck.stuck) {
+            const reason = idleCheck.reason ?? 'No progress detected'
+            const recovery = 'Stopping due to idle iterations.'
+            yield { type: 'stuck', data: { reason, recovery } }
+            this.config.eventBus?.emit({
+              type: 'agent:stuck_detected',
+              agentId: this.id,
+              reason,
+              recovery,
+              timestamp: Date.now(),
+            })
+            yield { type: 'done', data: { stopReason: 'stuck' } }
+            return
           }
         }
       } else {

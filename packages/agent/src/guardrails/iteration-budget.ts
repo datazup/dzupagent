@@ -57,6 +57,16 @@ export class IterationBudget {
     return this.config.blockedTools?.includes(toolName) ?? false
   }
 
+  /** Dynamically block a tool at runtime (e.g., by stuck detector) */
+  blockTool(toolName: string): void {
+    if (!this.config.blockedTools) {
+      ;(this.config as { blockedTools: string[] }).blockedTools = []
+    }
+    if (!this.config.blockedTools!.includes(toolName)) {
+      this.config.blockedTools!.push(toolName)
+    }
+  }
+
   /** Get current budget state snapshot */
   getState(): Readonly<BudgetState> {
     return { ...this.state }

@@ -304,7 +304,7 @@ export class PipelineRuntime {
         continue
       }
 
-      // Standard node execution
+      // Standard node execution (with retry support)
       this.emit({ type: 'pipeline:node_started', nodeId: node.id, nodeType: node.type })
 
       const context: NodeExecutionContext = {
@@ -314,11 +314,62 @@ export class PipelineRuntime {
       }
 
       try {
-        const result = await this.config.nodeExecutor(node.id, node, context)
+        const maxAttempts = (node.retries ?? 0) + 1 // retries=0 means 1 attempt (no retry)
+        let result: NodeResult | undefined
+        const nodeStartTime = Date.now()
 
-        if (result.error) {
-          this.emit({ type: 'pipeline:node_failed', nodeId: node.id, error: result.error })
-          nodeResults.set(node.id, result)
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          result = await this.config.nodeExecutor(node.id, node, context)
+
+          if (!result.error) break // success
+
+          // Last attempt — don't retry
+          if (attempt === maxAttempts) break
+
+          // Check if error is retryable
+          if (!this.isRetryable(result.error)) break
+
+          // Calculate backoff
+          const policy = this.config.retryPolicy ?? {}
+          const initialMs = policy.initialBackoffMs ?? 1000
+          const maxMs = policy.maxBackoffMs ?? 30000
+          const multiplier = policy.multiplier ?? 2
+          const backoffMs = Math.min(initialMs * Math.pow(multiplier, attempt - 1), maxMs)
+
+          // Emit retry event
+          this.emit({
+            type: 'pipeline:node_retry',
+            nodeId: node.id,
+            attempt,
+            maxAttempts,
+            error: result.error,
+            backoffMs,
+          })
+
+          // Wait with abort support
+          await this.delay(backoffMs)
+
+          // Check abort after delay
+          if (this.config.signal?.aborted) {
+            result = {
+              nodeId: node.id,
+              output: undefined,
+              durationMs: Date.now() - nodeStartTime,
+              error: 'Pipeline cancelled during retry backoff',
+            }
+            break
+          }
+        }
+
+        // Accumulate total duration across retries
+        const finalResult: NodeResult = {
+          ...result!,
+          durationMs: Date.now() - nodeStartTime,
+        }
+
+        if (finalResult.error) {
+          this.emit({ type: 'pipeline:node_failed', nodeId: node.id, error: finalResult.error })
+          nodeResults.set(node.id, finalResult)
 
           // Check for error edges
           const errorNext = this.getErrorTarget(node.id)
@@ -329,7 +380,7 @@ export class PipelineRuntime {
 
           // No error handler — fail pipeline
           this.state = 'failed'
-          this.emit({ type: 'pipeline:failed', runId, error: result.error })
+          this.emit({ type: 'pipeline:failed', runId, error: finalResult.error })
           return {
             pipelineId: this.config.definition.id,
             runId,
@@ -339,8 +390,8 @@ export class PipelineRuntime {
           }
         }
 
-        this.emit({ type: 'pipeline:node_completed', nodeId: node.id, durationMs: result.durationMs })
-        nodeResults.set(node.id, result)
+        this.emit({ type: 'pipeline:node_completed', nodeId: node.id, durationMs: finalResult.durationMs })
+        nodeResults.set(node.id, finalResult)
         completedNodeIds.push(node.id)
 
         await this.saveCheckpoint(runId, runState, completedNodeIds, versionTracker)
@@ -460,15 +511,30 @@ export class PipelineRuntime {
       return this.executeBranch(startId, joinNode?.id, branchBaseState, branchBaseResults)
     })
 
-    const branchResults = await Promise.all(branchPromises)
+    const settled = await Promise.allSettled(branchPromises)
 
     // Merge branch outputs deterministically in outgoing edge order.
-    for (const br of branchResults) {
-      for (const [nodeId, result] of br.nodeResults) {
-        nodeResults.set(nodeId, result)
+    // Failed branches emit an error event but do not abort surviving branches.
+    for (let i = 0; i < settled.length; i++) {
+      const outcome = settled[i]!
+      if (outcome.status === 'fulfilled') {
+        const br = outcome.value
+        for (const [nodeId, result] of br.nodeResults) {
+          nodeResults.set(nodeId, result)
+        }
+        completedNodeIds.push(...br.completedNodeIds)
+        Object.assign(runState, br.stateDelta)
+      } else {
+        const branchStartId = branchStartIds[i]!
+        const errorMessage = outcome.reason instanceof Error
+          ? outcome.reason.message
+          : String(outcome.reason)
+        this.emit({
+          type: 'pipeline:node_failed',
+          nodeId: branchStartId,
+          error: errorMessage,
+        })
       }
-      completedNodeIds.push(...br.completedNodeIds)
-      Object.assign(runState, br.stateDelta)
     }
 
     this.emit({ type: 'pipeline:node_completed', nodeId: forkNode.id, durationMs: 0 })
@@ -681,6 +747,29 @@ export class PipelineRuntime {
 
   private emit(event: PipelineRuntimeEvent): void {
     this.config.onEvent?.(event)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Retry helpers
+  // ---------------------------------------------------------------------------
+
+  private isRetryable(error: string): boolean {
+    const patterns = this.config.retryPolicy?.retryableErrors
+    if (!patterns || patterns.length === 0) return true // all errors retryable by default
+    return patterns.some(p => p.test(error))
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms)
+      if (this.config.signal) {
+        const onAbort = () => {
+          clearTimeout(timer)
+          resolve() // resolve, don't reject — let the loop check signal
+        }
+        this.config.signal.addEventListener('abort', onAbort, { once: true })
+      }
+    })
   }
 }
 

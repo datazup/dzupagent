@@ -80,6 +80,7 @@ export type PipelineRuntimeEvent =
   | { type: 'pipeline:failed'; runId: string; error: string }
   | { type: 'pipeline:checkpoint_saved'; runId: string; version: number }
   | { type: 'pipeline:loop_iteration'; nodeId: string; iteration: number; maxIterations: number }
+  | { type: 'pipeline:node_retry'; nodeId: string; attempt: number; maxAttempts: number; error: string; backoffMs: number }
 
 // ---------------------------------------------------------------------------
 // Loop metrics
@@ -90,6 +91,22 @@ export interface LoopMetrics {
   iterationDurations: number[]
   converged: boolean
   terminationReason: 'condition_met' | 'max_iterations' | 'budget_exceeded' | 'cancelled'
+}
+
+// ---------------------------------------------------------------------------
+// Retry policy
+// ---------------------------------------------------------------------------
+
+/** Retry configuration for transient node failures. */
+export interface RetryPolicy {
+  /** Initial backoff delay in ms (default: 1000) */
+  initialBackoffMs?: number
+  /** Maximum backoff delay in ms (default: 30000) */
+  maxBackoffMs?: number
+  /** Backoff multiplier (default: 2) */
+  multiplier?: number
+  /** Error patterns that are retryable. If empty, all errors are retryable. */
+  retryableErrors?: RegExp[]
 }
 
 // ---------------------------------------------------------------------------
@@ -109,4 +126,6 @@ export interface PipelineRuntimeConfig {
   signal?: AbortSignal
   /** Event callback */
   onEvent?: (event: PipelineRuntimeEvent) => void
+  /** Default retry policy applied when a node has `retries > 0`. */
+  retryPolicy?: RetryPolicy
 }

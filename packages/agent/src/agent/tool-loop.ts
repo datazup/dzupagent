@@ -14,12 +14,30 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { extractTokenUsage, type TokenUsage } from '@forgeagent/core'
 import type { IterationBudget } from '../guardrails/iteration-budget.js'
+import type { StuckDetector, StuckStatus } from '../guardrails/stuck-detector.js'
+import {
+  validateAndRepairToolArgs,
+  formatSchemaHint,
+  type ToolArgValidatorConfig,
+} from './tool-arg-validator.js'
 
 interface ToolCall {
   id?: string
   name: string
   args: Record<string, unknown>
 }
+
+/** Per-tool execution statistics. */
+export interface ToolStat {
+  name: string
+  calls: number
+  errors: number
+  totalMs: number
+  avgMs: number
+}
+
+/** Why the tool loop stopped. */
+export type StopReason = 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'error' | 'stuck'
 
 export interface ToolLoopConfig {
   maxIterations: number
@@ -28,6 +46,8 @@ export interface ToolLoopConfig {
   onToolCall?: (name: string, args: Record<string, unknown>) => void
   onToolResult?: (name: string, result: string) => void
   onBudgetWarning?: (message: string) => void
+  /** Called after each tool invocation with its latency. */
+  onToolLatency?: (name: string, durationMs: number, error?: string) => void
   invokeModel?: (model: BaseChatModel, messages: BaseMessage[]) => Promise<BaseMessage>
   transformToolResult?: (
     toolName: string,
@@ -35,6 +55,29 @@ export interface ToolLoopConfig {
     result: string,
   ) => Promise<string>
   signal?: AbortSignal
+  /** Optional stuck detector for escalating recovery. */
+  stuckDetector?: StuckDetector
+  /** Called when stuck is detected. */
+  onStuckDetected?: (reason: string, recovery: string) => void
+
+  /**
+   * Execute independent tool calls in parallel via Promise.allSettled.
+   * When disabled (default), tool calls run sequentially.
+   */
+  parallelTools?: boolean
+  /**
+   * Maximum number of tool calls to execute concurrently when parallelTools
+   * is enabled. Prevents runaway parallelism. Default: 10.
+   */
+  maxParallelTools?: number
+
+  /**
+   * Validate tool arguments against the tool's schema before execution.
+   * - `true` enables validation with autoRepair=true
+   * - `{ autoRepair: false }` validates without repair
+   * - `false` or `undefined` disables validation (default)
+   */
+  validateToolArgs?: boolean | ToolArgValidatorConfig
 }
 
 export interface ToolLoopResult {
@@ -42,7 +85,12 @@ export interface ToolLoopResult {
   totalInputTokens: number
   totalOutputTokens: number
   llmCalls: number
+  /** @deprecated Use `stopReason` instead. Kept for backward compatibility. */
   hitIterationLimit: boolean
+  /** Why the tool loop terminated. */
+  stopReason: StopReason
+  /** Per-tool execution statistics (latency, error counts). */
+  toolStats: ToolStat[]
 }
 
 /**
@@ -64,11 +112,24 @@ export async function runToolLoop(
   let totalInputTokens = 0
   let totalOutputTokens = 0
   let llmCalls = 0
-  let hitIterationLimit = false
+  let stopReason: StopReason = 'complete'
+
+  // Mutable per-tool stat accumulators
+  const statMap = new Map<string, { calls: number; errors: number; totalMs: number }>()
+
+  function getOrCreateStat(name: string) {
+    let stat = statMap.get(name)
+    if (!stat) {
+      stat = { calls: 0, errors: 0, totalMs: 0 }
+      statMap.set(name, stat)
+    }
+    return stat
+  }
 
   for (let iteration = 0; iteration < config.maxIterations; iteration++) {
     // Check abort signal
     if (config.signal?.aborted) {
+      stopReason = 'aborted'
       break
     }
 
@@ -76,7 +137,7 @@ export async function runToolLoop(
     if (config.budget) {
       const check = config.budget.isExceeded()
       if (check.exceeded) {
-        hitIterationLimit = true
+        stopReason = 'budget_exceeded'
         // Add a message explaining why we stopped
         allMessages.push(new AIMessage(
           `[Agent stopped: ${check.reason}]`,
@@ -93,7 +154,7 @@ export async function runToolLoop(
       }
     }
 
-    // Invoke LLM
+    // Invoke LLM (errors propagate — callers decide how to handle)
     const response = config.invokeModel
       ? await config.invokeModel(model, allMessages)
       : await model.invoke(allMessages)
@@ -125,62 +186,66 @@ export async function runToolLoop(
       break
     }
 
-    // Execute tool calls
-    for (const tc of toolCalls) {
-      const toolName = tc.name
-      const toolCallId = tc.id ?? `call_${Date.now()}`
-
-      // Check if tool is blocked
-      if (config.budget?.isToolBlocked(toolName)) {
-        allMessages.push(new ToolMessage({
-          content: `[Tool "${toolName}" is blocked by guardrails]`,
-          tool_call_id: toolCallId,
-          name: toolName,
-        }))
-        config.onToolResult?.(toolName, '[blocked]')
-        continue
+    // Execute tool calls (parallel or sequential based on config)
+    if (config.parallelTools && toolCalls.length > 1) {
+      const results = await executeToolCallsParallel(
+        toolCalls, toolMap, config, getOrCreateStat,
+      )
+      for (const r of results) {
+        allMessages.push(r.message)
+        if (r.stuckBreak) {
+          stopReason = 'stuck'
+        }
       }
-
-      const tool = toolMap.get(toolName)
-      if (!tool) {
-        allMessages.push(new ToolMessage({
-          content: `Error: Tool "${toolName}" not found. Available tools: ${[...toolMap.keys()].join(', ')}`,
-          tool_call_id: toolCallId,
-          name: toolName,
-        }))
-        config.onToolResult?.(toolName, '[not found]')
-        continue
+    } else {
+      for (const tc of toolCalls) {
+        const r = await executeSingleToolCall(
+          tc, toolMap, config, getOrCreateStat,
+        )
+        allMessages.push(r.message)
+        if (r.stuckNudge) {
+          allMessages.push(r.stuckNudge)
+        }
+        if (r.stuckBreak) {
+          stopReason = 'stuck'
+          break
+        }
       }
+    }
 
-      config.onToolCall?.(toolName, tc.args)
+    // Break out of outer loop if stuck was detected from errors
+    if (stopReason === 'stuck') {
+      break
+    }
 
-      try {
-        const result = await tool.invoke(tc.args)
-        const rawResultStr = typeof result === 'string' ? result : JSON.stringify(result)
-        const resultStr = config.transformToolResult
-          ? await config.transformToolResult(toolName, tc.args, rawResultStr)
-          : rawResultStr
-        allMessages.push(new ToolMessage({
-          content: resultStr,
-          tool_call_id: toolCallId,
-          name: toolName,
-        }))
-        config.onToolResult?.(toolName, resultStr)
-      } catch (err: unknown) {
-        const errMsg = err instanceof Error ? err.message : String(err)
-        allMessages.push(new ToolMessage({
-          content: `Error executing tool "${toolName}": ${errMsg}`,
-          tool_call_id: toolCallId,
-          name: toolName,
-        }))
-        config.onToolResult?.(toolName, `[error: ${errMsg}]`)
+    // --- Stuck detection: after all tool calls in iteration ---
+    if (config.stuckDetector) {
+      const idleCheck = config.stuckDetector.recordIteration(toolCalls.length)
+      if (idleCheck.stuck) {
+        const reason = idleCheck.reason ?? 'No progress detected'
+        const recovery = 'Stopping due to idle iterations.'
+        config.onStuckDetected?.(reason, recovery)
+        stopReason = 'stuck'
+        break
       }
     }
 
     // Check if this was the last allowed iteration
     if (iteration === config.maxIterations - 1) {
-      hitIterationLimit = true
+      stopReason = 'iteration_limit'
     }
+  }
+
+  // Build toolStats array from accumulators
+  const toolStats: ToolStat[] = []
+  for (const [name, stat] of statMap) {
+    toolStats.push({
+      name,
+      calls: stat.calls,
+      errors: stat.errors,
+      totalMs: stat.totalMs,
+      avgMs: stat.calls > 0 ? Math.round(stat.totalMs / stat.calls) : 0,
+    })
   }
 
   return {
@@ -188,6 +253,349 @@ export async function runToolLoop(
     totalInputTokens,
     totalOutputTokens,
     llmCalls,
-    hitIterationLimit,
+    hitIterationLimit: stopReason === 'iteration_limit' || stopReason === 'budget_exceeded',
+    stopReason,
+    toolStats,
+  }
+}
+
+// ---------- Internal tool execution helpers ----------
+
+/** Result of executing a single tool call. */
+interface ToolCallResult {
+  /** The primary ToolMessage to append to conversation. */
+  message: ToolMessage
+  /** Optional extra stuck-nudge message to append. */
+  stuckNudge?: ToolMessage
+  /** If true, the outer loop should break (stuck from errors). */
+  stuckBreak?: boolean
+}
+
+type StatGetter = (name: string) => { calls: number; errors: number; totalMs: number }
+
+/**
+ * Resolve the validator config from the ToolLoopConfig convenience union.
+ */
+function resolveValidatorConfig(
+  cfg: boolean | ToolArgValidatorConfig | undefined,
+): ToolArgValidatorConfig | null {
+  if (!cfg) return null
+  if (cfg === true) return { autoRepair: true }
+  return cfg
+}
+
+/**
+ * Try to extract a JSON-schema-like object from a StructuredToolInterface.
+ * LangChain tools expose `.schema` which is typically a Zod schema; the
+ * underlying JSON schema is available via `.jsonSchema` or `._def` depending
+ * on the Zod version.
+ */
+function extractJsonSchema(tool: StructuredToolInterface): Record<string, unknown> | null {
+  const schema = (tool as StructuredToolInterface & { schema?: unknown }).schema
+  if (!schema) return null
+
+  // Zod v4 uses .jsonSchema; Zod v3 uses ._def / .shape() — we try the
+  // most common approaches. If none work, validation is skipped for this tool.
+  if (typeof schema === 'object' && schema !== null) {
+    // Already a JSON schema object (e.g., from createForgeTool or raw schemas)
+    const s = schema as Record<string, unknown>
+    if (s.properties || s.type) return s
+
+    // Zod schema — try to convert
+    const zodSchema = schema as { jsonSchema?: () => Record<string, unknown> }
+    if (typeof zodSchema.jsonSchema === 'function') {
+      try {
+        return zodSchema.jsonSchema() as Record<string, unknown>
+      } catch {
+        // Ignore
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Validate and possibly repair args for a single tool call.
+ * Returns the (possibly modified) args and any validation error message.
+ */
+function maybeValidateArgs(
+  tc: ToolCall,
+  tool: StructuredToolInterface,
+  validatorCfg: ToolArgValidatorConfig | null,
+): { args: Record<string, unknown>; validationError?: string } {
+  if (!validatorCfg) return { args: tc.args }
+
+  const jsonSchema = extractJsonSchema(tool)
+  if (!jsonSchema) return { args: tc.args }
+
+  const result = validateAndRepairToolArgs(tc.args, jsonSchema, validatorCfg)
+
+  if (result.valid && result.repairedArgs) {
+    return { args: result.repairedArgs as Record<string, unknown> }
+  }
+
+  if (!result.valid) {
+    const hint = formatSchemaHint(jsonSchema)
+    const errMsg = `Validation failed for tool "${tc.name}": ${result.errors.join('; ')}.\n${hint}`
+    return { args: tc.args, validationError: errMsg }
+  }
+
+  return { args: tc.args }
+}
+
+/**
+ * Execute a single tool call with validation, stuck detection, and stat tracking.
+ */
+async function executeSingleToolCall(
+  tc: ToolCall,
+  toolMap: Map<string, StructuredToolInterface>,
+  config: ToolLoopConfig,
+  getOrCreateStat: StatGetter,
+): Promise<ToolCallResult> {
+  const toolName = tc.name
+  const toolCallId = tc.id ?? `call_${Date.now()}`
+
+  // Check if tool is blocked
+  if (config.budget?.isToolBlocked(toolName)) {
+    config.onToolResult?.(toolName, '[blocked]')
+    return {
+      message: new ToolMessage({
+        content: `[Tool "${toolName}" is blocked by guardrails]`,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+    }
+  }
+
+  const tool = toolMap.get(toolName)
+  if (!tool) {
+    config.onToolResult?.(toolName, '[not found]')
+    return {
+      message: new ToolMessage({
+        content: `Error: Tool "${toolName}" not found. Available tools: ${[...toolMap.keys()].join(', ')}`,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+    }
+  }
+
+  // Validate args before execution
+  const validatorCfg = resolveValidatorConfig(config.validateToolArgs)
+  const { args: validatedArgs, validationError } = maybeValidateArgs(tc, tool, validatorCfg)
+
+  if (validationError) {
+    config.onToolResult?.(toolName, `[validation error]`)
+    return {
+      message: new ToolMessage({
+        content: validationError,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+    }
+  }
+
+  config.onToolCall?.(toolName, validatedArgs)
+
+  const stat = getOrCreateStat(toolName)
+  const startMs = Date.now()
+  let errorMsg: string | undefined
+  let message: ToolMessage
+
+  try {
+    const result = await tool.invoke(validatedArgs)
+    const rawResultStr = typeof result === 'string' ? result : JSON.stringify(result)
+    const resultStr = config.transformToolResult
+      ? await config.transformToolResult(toolName, validatedArgs, rawResultStr)
+      : rawResultStr
+    message = new ToolMessage({
+      content: resultStr,
+      tool_call_id: toolCallId,
+      name: toolName,
+    })
+    config.onToolResult?.(toolName, resultStr)
+  } catch (err: unknown) {
+    errorMsg = err instanceof Error ? err.message : String(err)
+    message = new ToolMessage({
+      content: `Error executing tool "${toolName}": ${errorMsg}`,
+      tool_call_id: toolCallId,
+      name: toolName,
+    })
+    config.onToolResult?.(toolName, `[error: ${errorMsg}]`)
+    stat.errors++
+  }
+
+  const durationMs = Date.now() - startMs
+  stat.calls++
+  stat.totalMs += durationMs
+  config.onToolLatency?.(toolName, durationMs, errorMsg)
+
+  // --- Stuck detection ---
+  let stuckBreak = false
+  let stuckNudge: ToolMessage | undefined
+  if (config.stuckDetector) {
+    const stuckCheck: StuckStatus = errorMsg
+      ? config.stuckDetector.recordError(new Error(errorMsg))
+      : config.stuckDetector.recordToolCall(toolName, tc.args)
+
+    if (stuckCheck.stuck) {
+      const reason = stuckCheck.reason ?? 'Unknown stuck condition'
+      if (errorMsg) {
+        const recovery = 'Stopping due to repeated errors.'
+        config.onStuckDetected?.(reason, recovery)
+        stuckBreak = true
+      } else {
+        const recovery = `Tool "${toolName}" has been blocked. Try a different approach.`
+        config.budget?.blockTool(toolName)
+        config.onStuckDetected?.(reason, recovery)
+        stuckNudge = new ToolMessage({
+          content: `[Agent appears stuck: ${reason}. ${recovery}]`,
+          tool_call_id: toolCallId,
+          name: toolName,
+        })
+      }
+    }
+  }
+
+  return { message, stuckNudge, stuckBreak }
+}
+
+/**
+ * Execute tool calls in parallel with concurrency cap.
+ *
+ * Uses Promise.allSettled so a single tool failure does not block others.
+ * Stuck detection runs sequentially on results after all complete.
+ */
+async function executeToolCallsParallel(
+  toolCalls: ToolCall[],
+  toolMap: Map<string, StructuredToolInterface>,
+  config: ToolLoopConfig,
+  getOrCreateStat: StatGetter,
+): Promise<ToolCallResult[]> {
+  const maxParallel = config.maxParallelTools ?? 10
+  const results: ToolCallResult[] = []
+
+  // Process in batches of maxParallel
+  for (let i = 0; i < toolCalls.length; i += maxParallel) {
+    // Check abort between batches
+    if (config.signal?.aborted) break
+
+    const batch = toolCalls.slice(i, i + maxParallel)
+    const settled = await Promise.allSettled(
+      batch.map(tc => executeSingleToolCallParallel(tc, toolMap, config, getOrCreateStat)),
+    )
+
+    for (let j = 0; j < settled.length; j++) {
+      const outcome = settled[j]!
+      if (outcome.status === 'fulfilled') {
+        results.push(outcome.value)
+      } else {
+        // Should not normally happen since executeSingleToolCallParallel catches
+        // all errors, but handle gracefully
+        const tc = batch[j]!
+        const toolCallId = tc.id ?? `call_${Date.now()}`
+        results.push({
+          message: new ToolMessage({
+            content: `Error executing tool "${tc.name}": ${outcome.reason}`,
+            tool_call_id: toolCallId,
+            name: tc.name,
+          }),
+        })
+      }
+    }
+  }
+
+  return results
+}
+
+/**
+ * Execute a single tool call in parallel context (no stuck detection —
+ * stuck detection is done post-hoc in the sequential result processing).
+ */
+async function executeSingleToolCallParallel(
+  tc: ToolCall,
+  toolMap: Map<string, StructuredToolInterface>,
+  config: ToolLoopConfig,
+  getOrCreateStat: StatGetter,
+): Promise<ToolCallResult> {
+  const toolName = tc.name
+  const toolCallId = tc.id ?? `call_${Date.now()}`
+
+  if (config.budget?.isToolBlocked(toolName)) {
+    config.onToolResult?.(toolName, '[blocked]')
+    return {
+      message: new ToolMessage({
+        content: `[Tool "${toolName}" is blocked by guardrails]`,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+    }
+  }
+
+  const tool = toolMap.get(toolName)
+  if (!tool) {
+    config.onToolResult?.(toolName, '[not found]')
+    return {
+      message: new ToolMessage({
+        content: `Error: Tool "${toolName}" not found. Available tools: ${[...toolMap.keys()].join(', ')}`,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+    }
+  }
+
+  // Validate args
+  const validatorCfg = resolveValidatorConfig(config.validateToolArgs)
+  const { args: validatedArgs, validationError } = maybeValidateArgs(tc, tool, validatorCfg)
+
+  if (validationError) {
+    config.onToolResult?.(toolName, `[validation error]`)
+    return {
+      message: new ToolMessage({
+        content: validationError,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+    }
+  }
+
+  config.onToolCall?.(toolName, validatedArgs)
+
+  const stat = getOrCreateStat(toolName)
+  const startMs = Date.now()
+  let errorMsg: string | undefined
+
+  try {
+    const result = await tool.invoke(validatedArgs)
+    const rawResultStr = typeof result === 'string' ? result : JSON.stringify(result)
+    const resultStr = config.transformToolResult
+      ? await config.transformToolResult(toolName, validatedArgs, rawResultStr)
+      : rawResultStr
+    const durationMs = Date.now() - startMs
+    stat.calls++
+    stat.totalMs += durationMs
+    config.onToolLatency?.(toolName, durationMs, undefined)
+    config.onToolResult?.(toolName, resultStr)
+    return {
+      message: new ToolMessage({
+        content: resultStr,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+    }
+  } catch (err: unknown) {
+    errorMsg = err instanceof Error ? err.message : String(err)
+    const durationMs = Date.now() - startMs
+    stat.calls++
+    stat.errors++
+    stat.totalMs += durationMs
+    config.onToolLatency?.(toolName, durationMs, errorMsg)
+    config.onToolResult?.(toolName, `[error: ${errorMsg}]`)
+    return {
+      message: new ToolMessage({
+        content: `Error executing tool "${toolName}": ${errorMsg}`,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+    }
   }
 }

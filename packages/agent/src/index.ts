@@ -16,7 +16,11 @@ export type {
   AgentStreamEvent,
 } from './agent/agent-types.js'
 export { runToolLoop } from './agent/tool-loop.js'
-export type { ToolLoopConfig, ToolLoopResult } from './agent/tool-loop.js'
+export type { ToolLoopConfig, ToolLoopResult, ToolStat, StopReason } from './agent/tool-loop.js'
+
+// --- Tool Arg Validation ---
+export { validateAndRepairToolArgs, formatSchemaHint } from './agent/tool-arg-validator.js'
+export type { ValidationResult, ToolArgValidatorConfig } from './agent/tool-arg-validator.js'
 
 // --- Guardrails ---
 export { IterationBudget } from './guardrails/iteration-budget.js'
@@ -72,6 +76,31 @@ export type {
   BidEvaluationStrategy,
   ContractNetConfig,
 } from './orchestration/contract-net/contract-net-types.js'
+export { DelegatingSupervisor } from './orchestration/delegating-supervisor.js'
+export type {
+  DelegatingSupervisorConfig,
+  TaskAssignment,
+  AggregatedDelegationResult,
+} from './orchestration/delegating-supervisor.js'
+export { PlanningAgent, buildExecutionLevels, validatePlanStructure } from './orchestration/planning-agent.js'
+export type {
+  PlanNode,
+  ExecutionPlan,
+  PlanExecutionResult,
+  PlanningAgentConfig,
+} from './orchestration/planning-agent.js'
+export { SimpleDelegationTracker } from './orchestration/delegation.js'
+export type {
+  DelegationRequest,
+  DelegationResult,
+  DelegationContext,
+  DelegationMetadata,
+  DelegationStatus,
+  DelegationTracker,
+  DelegationExecutor,
+  ActiveDelegation,
+  SimpleDelegationTrackerConfig,
+} from './orchestration/delegation.js'
 export { TopologyAnalyzer } from './orchestration/topology/topology-analyzer.js'
 export { TopologyExecutor } from './orchestration/topology/topology-executor.js'
 export type { MeshResult, RingResult, ExecuteResult } from './orchestration/topology/topology-executor.js'
@@ -176,6 +205,7 @@ export type {
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
   LoopMetrics,
+  RetryPolicy,
 } from './pipeline/pipeline-runtime-types.js'
 
 // --- Pipeline Templates ---
@@ -225,6 +255,14 @@ export type {
   PlaygroundEvent,
   TeamRunResult,
 } from './playground/types.js'
+
+// --- Reflection ---
+export { RunReflector } from './reflection/run-reflector.js'
+export type {
+  ReflectionScore,
+  ReflectionDimensions,
+  ReflectionInput,
+} from './reflection/run-reflector.js'
 
 // --- Version ---
 export const FORGEAGENT_AGENT_VERSION = '0.1.0'
