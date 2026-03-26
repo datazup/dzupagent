@@ -8,6 +8,7 @@ export type OrchestrationPattern =
   | 'debate'
   | 'contract-net'
   | 'map-reduce'
+  | 'delegation'
   | 'topology-mesh'
   | 'topology-ring'
   | 'topology-hierarchical'

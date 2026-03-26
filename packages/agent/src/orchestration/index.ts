@@ -34,6 +34,13 @@ export type {
   ContractNetConfig,
 } from './contract-net/contract-net-types.js'
 
+export { DelegatingSupervisor } from './delegating-supervisor.js'
+export type {
+  DelegatingSupervisorConfig,
+  TaskAssignment,
+  AggregatedDelegationResult,
+} from './delegating-supervisor.js'
+
 export { TopologyAnalyzer } from './topology/topology-analyzer.js'
 export { TopologyExecutor } from './topology/topology-executor.js'
 export type { MeshResult, RingResult, ExecuteResult } from './topology/topology-executor.js'
