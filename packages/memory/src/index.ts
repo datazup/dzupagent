@@ -322,6 +322,19 @@ export type {
   RetrieveParams,
 } from './lesson-pipeline.js'
 
+// --- Skill Acquisition ---
+export { SkillAcquisitionEngine } from './skill-acquisition.js'
+export type {
+  AcquiredSkill,
+  SkillApplicationType,
+  SkillEvidence,
+  SkillAcquisitionConfig,
+  ScanLesson,
+  ScanRule,
+  ScanParams,
+  GetApplicableParams,
+} from './skill-acquisition.js'
+
 // --- Memory Integrator ---
 export { MemoryIntegrator } from './memory-integrator.js'
 export type { MemoryContext, MemoryIntegratorConfig } from './memory-integrator.js'

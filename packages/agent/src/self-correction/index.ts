@@ -69,3 +69,33 @@ export type {
   ObservabilityThresholds,
   ObservabilityBridgeConfig,
 } from './observability-bridge.js'
+
+export { SelfLearningPipelineHook } from './self-learning-hook.js'
+export type {
+  SelfLearningHookConfig,
+  HookMetrics,
+} from './self-learning-hook.js'
+
+export { PostRunAnalyzer } from './post-run-analyzer.js'
+export type {
+  RunAnalysis,
+  AnalysisResult,
+  PostRunAnalyzerConfig,
+  AnalysisHistoryEntry,
+} from './post-run-analyzer.js'
+
+export { AdaptivePromptEnricher } from './adaptive-prompt-enricher.js'
+export type {
+  PromptEnrichment,
+  EnricherConfig,
+  EnrichParams,
+  EnrichWithBudgetParams,
+} from './adaptive-prompt-enricher.js'
+
+export { StrategySelector } from './strategy-selector.js'
+export type {
+  FixStrategy,
+  StrategyRate,
+  StrategyRecommendation,
+  StrategySelectorConfig,
+} from './strategy-selector.js'
