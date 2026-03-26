@@ -37,7 +37,7 @@ describe('Benchmark Suites — structure validation', () => {
       });
 
       it('should have a valid category', () => {
-        expect(['code-gen', 'qa', 'tool-use', 'multi-turn']).toContain(suite.category);
+        expect(['code-gen', 'qa', 'tool-use', 'multi-turn', 'self-correction']).toContain(suite.category);
       });
 
       it('should have at least one scorer', () => {

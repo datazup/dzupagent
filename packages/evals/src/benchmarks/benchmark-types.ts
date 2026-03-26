@@ -8,7 +8,7 @@ import type { ScorerConfig } from '../types.js';
 /**
  * Category of benchmark suite.
  */
-export type BenchmarkCategory = 'code-gen' | 'qa' | 'tool-use' | 'multi-turn';
+export type BenchmarkCategory = 'code-gen' | 'qa' | 'tool-use' | 'multi-turn' | 'self-correction';
 
 /**
  * A benchmark suite defines a set of eval cases, scorers, and baseline thresholds.

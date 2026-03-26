@@ -86,6 +86,28 @@ export { QA_SUITE } from './benchmarks/suites/qa.js';
 export { TOOL_USE_SUITE } from './benchmarks/suites/tool-use.js';
 export { MULTI_TURN_SUITE } from './benchmarks/suites/multi-turn.js';
 export { VECTOR_SEARCH_SUITE } from './benchmarks/suites/vector-search.js';
+export {
+  SELF_CORRECTION_SUITE,
+  CORRECTION_SCENARIOS,
+  ALL_CORRECTION_CATEGORIES,
+  createSelfCorrectionSuite,
+} from './benchmarks/suites/self-correction.js';
+export type { CorrectionScenario, CorrectionCategory } from './benchmarks/suites/self-correction.js';
+
+// Learning Curve Benchmark
+export {
+  runLearningCurveBenchmark,
+  generateSimulatedRun,
+  createLearningCurveSuite,
+  QUALITY_PATTERNS,
+} from './benchmarks/suites/learning-curve.js';
+export type {
+  LearningCurveConfig,
+  LearningCurveResult,
+  LearningCurveStore,
+  SimulatedRunAnalysis,
+  StoreItem as LearningCurveStoreItem,
+} from './benchmarks/suites/learning-curve.js';
 
 // Contracts (adapter conformance testing)
 export type {

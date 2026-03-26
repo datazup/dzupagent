@@ -386,5 +386,83 @@ export type {
   VerificationConfig,
 } from './self-correction/verification-protocol.js'
 
+// --- Self-Correction (SelfLearningRuntime) ---
+export { SelfLearningRuntime } from './self-correction/self-learning-runtime.js'
+export type {
+  SelfLearningConfig,
+  SelfLearningRunResult,
+} from './self-correction/self-learning-runtime.js'
+
+// --- Self-Correction (SelfLearningPipelineHook) ---
+export { SelfLearningPipelineHook } from './self-correction/self-learning-hook.js'
+export type { SelfLearningHookConfig, HookMetrics } from './self-correction/self-learning-hook.js'
+
+// --- Self-Correction (PostRunAnalyzer) ---
+export { PostRunAnalyzer } from './self-correction/post-run-analyzer.js'
+export type {
+  RunAnalysis,
+  AnalysisResult,
+  PostRunAnalyzerConfig,
+  AnalysisHistoryEntry,
+} from './self-correction/post-run-analyzer.js'
+
+// --- Self-Correction (AdaptivePromptEnricher) ---
+export { AdaptivePromptEnricher } from './self-correction/adaptive-prompt-enricher.js'
+export type {
+  PromptEnrichment,
+  EnricherConfig,
+  EnrichParams,
+  EnrichWithBudgetParams,
+} from './self-correction/adaptive-prompt-enricher.js'
+
+// --- Self-Correction (PipelineStuckDetector) ---
+export { PipelineStuckDetector } from './self-correction/pipeline-stuck-detector.js'
+export type {
+  PipelineStuckConfig,
+  PipelineStuckStatus,
+  PipelineStuckSummary,
+  PipelineSuggestedAction,
+} from './self-correction/pipeline-stuck-detector.js'
+
+// --- Self-Correction (TrajectoryCalibrator) ---
+export { TrajectoryCalibrator } from './self-correction/trajectory-calibrator.js'
+export type {
+  StepReward,
+  TrajectoryRecord,
+  SuboptimalResult,
+  TrajectoryCalibratorConfig,
+} from './self-correction/trajectory-calibrator.js'
+
+// --- Self-Correction (ObservabilityCorrectionBridge) ---
+export { ObservabilityCorrectionBridge } from './self-correction/observability-bridge.js'
+export type {
+  CorrectionSignal,
+  CorrectionSignalType,
+  SignalSeverity,
+  ObservabilityThresholds,
+  ObservabilityBridgeConfig,
+} from './self-correction/observability-bridge.js'
+
+// --- Self-Correction (StrategySelector) ---
+export { StrategySelector } from './self-correction/strategy-selector.js'
+export type {
+  FixStrategy,
+  StrategyRate,
+  StrategyRecommendation,
+  StrategySelectorConfig,
+} from './self-correction/strategy-selector.js'
+
+// --- Self-Correction (RecoveryFeedback) ---
+export { RecoveryFeedback } from './self-correction/recovery-feedback.js'
+export type { RecoveryLesson, RecoveryFeedbackConfig } from './self-correction/recovery-feedback.js'
+
+// --- Self-Correction (AgentPerformanceOptimizer) ---
+export { AgentPerformanceOptimizer } from './self-correction/performance-optimizer.js'
+export type {
+  OptimizationDecision,
+  PerformanceHistory,
+  PerformanceOptimizerConfig,
+} from './self-correction/performance-optimizer.js'
+
 // --- Version ---
 export const FORGEAGENT_AGENT_VERSION = '0.1.0'

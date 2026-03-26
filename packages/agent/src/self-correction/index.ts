@@ -99,3 +99,26 @@ export type {
   StrategyRecommendation,
   StrategySelectorConfig,
 } from './strategy-selector.js'
+
+export { SelfLearningRuntime } from './self-learning-runtime.js'
+export type {
+  SelfLearningConfig,
+  SelfLearningRunResult,
+} from './self-learning-runtime.js'
+
+export { SpecialistRegistry } from './specialist-registry.js'
+export type {
+  ModelTier,
+  SpecialistVerificationStrategy,
+  RiskClass,
+  SpecialistConfig,
+  NodeConfig,
+  SpecialistRegistryConfig,
+} from './specialist-registry.js'
+
+export { AgentPerformanceOptimizer } from './performance-optimizer.js'
+export type {
+  OptimizationDecision,
+  PerformanceHistory,
+  PerformanceOptimizerConfig,
+} from './performance-optimizer.js'
