@@ -27,6 +27,7 @@ import type {
   RecoveryCopilotConfig,
   RecoveryResult,
 } from './recovery-types.js'
+import type { RecoveryFeedback, RecoveryLesson } from '../self-correction/recovery-feedback.js'
 
 // ---------------------------------------------------------------------------
 // Default configuration
@@ -65,6 +66,7 @@ export class RecoveryCopilot {
   private readonly eventBus: ForgeEventBus
   private readonly plans = new Map<string, RecoveryPlan>()
   private readonly strategyGenerator: StrategyGenerator
+  private readonly feedback: RecoveryFeedback | undefined
   private planCounter = 0
 
   constructor(opts: {
@@ -73,12 +75,15 @@ export class RecoveryCopilot {
     approvalGate?: ApprovalGate
     actionHandler: ActionHandler
     strategyGenerator?: StrategyGenerator
+    /** Optional feedback module for persisting recovery outcomes as lessons. */
+    feedback?: RecoveryFeedback
   }) {
     this.config = { ...DEFAULT_CONFIG, ...opts.config }
     this.eventBus = opts.eventBus
     this.analyzer = new FailureAnalyzer()
     this.ranker = new StrategyRanker()
     this.strategyGenerator = opts.strategyGenerator ?? defaultStrategyGenerator
+    this.feedback = opts.feedback
     this.executor = new RecoveryExecutor({
       eventBus: opts.eventBus,
       approvalGate: opts.approvalGate,
@@ -94,8 +99,14 @@ export class RecoveryCopilot {
   /**
    * Create a recovery plan for a failure. Analyzes the failure,
    * generates strategies, ranks them, and selects the best one.
+   *
+   * When `pastLessons` are provided (from RecoveryFeedback), strategies
+   * are boosted or penalized based on historical outcomes.
    */
-  createPlan(failureContext: FailureContext): RecoveryPlan {
+  createPlan(
+    failureContext: FailureContext,
+    pastLessons: RecoveryLesson[] = [],
+  ): RecoveryPlan {
     // Don't create more plans if we've exceeded max attempts
     if (failureContext.previousAttempts >= this.config.maxAttempts) {
       return this.createEscalationPlan(failureContext)
@@ -105,6 +116,11 @@ export class RecoveryCopilot {
 
     // Generate candidate strategies
     let strategies = this.strategyGenerator(analysis, failureContext)
+
+    // Apply confidence adjustments from past lessons
+    if (pastLessons.length > 0) {
+      strategies = applyLessonBoosts(strategies, pastLessons)
+    }
 
     // Limit to maxStrategies
     if (strategies.length > this.config.maxStrategies) {
@@ -168,12 +184,30 @@ export class RecoveryCopilot {
 
   /**
    * One-shot: create a plan and immediately execute it.
+   *
+   * When a `RecoveryFeedback` instance is configured, this method will:
+   * 1. Retrieve past lessons for similar errors to inform strategy selection
+   * 2. Boost/penalize strategy confidence based on past outcomes
+   * 3. Record the recovery outcome as a new lesson after execution
    */
   async recover(failureContext: FailureContext): Promise<RecoveryResult> {
-    const plan = this.createPlan(failureContext)
+    // Retrieve past lessons if feedback is configured
+    const analysis = this.analyzer.analyze(failureContext)
+    let pastLessons: RecoveryLesson[] = []
+
+    if (this.feedback) {
+      pastLessons = await this.feedback.retrieveSimilar(
+        analysis.type,
+        failureContext.nodeId ?? '',
+      )
+    }
+
+    const plan = this.createPlan(failureContext, pastLessons)
 
     if (plan.status === 'failed') {
-      // Escalation plan — no strategy available
+      // Record escalation as a failed lesson
+      await this.recordFeedback(analysis, failureContext, plan, false)
+
       return {
         plan,
         success: false,
@@ -182,7 +216,12 @@ export class RecoveryCopilot {
       }
     }
 
-    return this.executePlan(plan)
+    const result = await this.executePlan(plan)
+
+    // Record the outcome as a lesson
+    await this.recordFeedback(analysis, failureContext, plan, result.success, result.summary)
+
+    return result
   }
 
   /**
@@ -290,6 +329,91 @@ export class RecoveryCopilot {
     this.planCounter++
     return `recovery_${Date.now()}_${this.planCounter}`
   }
+
+  /**
+   * Record a recovery outcome as a lesson in the feedback store.
+   * No-op if feedback is not configured.
+   */
+  private async recordFeedback(
+    analysis: { type: string; fingerprint: string },
+    failureContext: FailureContext,
+    plan: RecoveryPlan,
+    success: boolean,
+    summary?: string,
+  ): Promise<void> {
+    if (!this.feedback) return
+
+    const lesson: RecoveryLesson = {
+      id: this.feedback.generateLessonId(),
+      errorType: analysis.type as RecoveryLesson['errorType'],
+      errorFingerprint: analysis.fingerprint,
+      nodeId: failureContext.nodeId ?? '',
+      strategy: plan.selectedStrategy?.name ?? 'none',
+      outcome: success ? 'success' : 'failure',
+      summary: summary ?? (success ? 'Recovery succeeded' : 'Recovery failed'),
+      timestamp: new Date(),
+    }
+
+    try {
+      await this.feedback.recordOutcome(lesson)
+    } catch {
+      // Feedback recording is best-effort — don't fail recovery over it
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lesson-based confidence adjustments
+// ---------------------------------------------------------------------------
+
+/**
+ * Boost or penalize strategy confidence based on past recovery lessons.
+ *
+ * - Strategies that previously succeeded for the same error type get a boost.
+ * - Strategies that previously failed get a penalty.
+ * - The magnitude of the adjustment scales with how many past data points exist.
+ */
+function applyLessonBoosts(
+  strategies: RecoveryStrategy[],
+  lessons: RecoveryLesson[],
+): RecoveryStrategy[] {
+  // Build a success/failure tally per strategy name
+  const tally = new Map<string, { successes: number; failures: number }>()
+
+  for (const lesson of lessons) {
+    const existing = tally.get(lesson.strategy)
+    if (existing) {
+      if (lesson.outcome === 'success') existing.successes++
+      else existing.failures++
+    } else {
+      tally.set(lesson.strategy, {
+        successes: lesson.outcome === 'success' ? 1 : 0,
+        failures: lesson.outcome === 'failure' ? 1 : 0,
+      })
+    }
+  }
+
+  for (const strategy of strategies) {
+    const stats = tally.get(strategy.name)
+    if (!stats) continue
+
+    const total = stats.successes + stats.failures
+    if (total === 0) continue
+
+    const successRate = stats.successes / total
+
+    if (successRate > 0.5) {
+      // Boost: previously successful strategy
+      const boost = 0.15 * successRate
+      strategy.confidence = Math.min(strategy.confidence + boost, 1.0)
+    } else if (successRate < 0.5 && stats.failures > 0) {
+      // Penalize: previously failed strategy
+      const penalty = 0.15 * (1 - successRate)
+      strategy.confidence = Math.max(strategy.confidence - penalty, 0.05)
+    }
+  }
+
+  return strategies
 }
 
 // ---------------------------------------------------------------------------

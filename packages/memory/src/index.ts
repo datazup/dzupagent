@@ -299,6 +299,22 @@ export type {
   SyncStats,
 } from './sync/index.js'
 
+// --- Lesson Pipeline ---
+export { LessonPipeline } from './lesson-pipeline.js'
+export type {
+  Lesson,
+  LessonType,
+  LessonEvidence,
+  LessonPipelineConfig,
+  RecoveryParams,
+  SuccessParams,
+  RetrieveParams,
+} from './lesson-pipeline.js'
+
+// --- Memory Integrator ---
+export { MemoryIntegrator } from './memory-integrator.js'
+export type { MemoryContext, MemoryIntegratorConfig } from './memory-integrator.js'
+
 // --- Team Memory Graph ---
 export { TeamMemoryGraph } from './graph/index.js'
 export { TrustScorer } from './graph/index.js'

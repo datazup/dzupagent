@@ -348,5 +348,17 @@ export type { MergedInstructions } from './instructions/instruction-merger.js'
 export { loadAgentsFiles } from './instructions/instruction-loader.js'
 export type { LoadedAgentsFile, LoadAgentsOptions } from './instructions/instruction-loader.js'
 
+// --- Self-Correction (ReflectionLoop) ---
+export { ReflectionLoop, parseCriticResponse } from './self-correction/reflection-loop.js'
+export type { ReflectionConfig, ReflectionIteration, ReflectionResult, ScoreResult } from './self-correction/reflection-loop.js'
+
+// --- Self-Correction (AdaptiveIterationController) ---
+export { AdaptiveIterationController } from './self-correction/iteration-controller.js'
+export type { IterationDecision, IterationControllerConfig } from './self-correction/iteration-controller.js'
+
+// --- Self-Correction (SelfCorrectingNode) ---
+export { createSelfCorrectingExecutor } from './self-correction/self-correcting-node.js'
+export type { SelfCorrectingConfig, SelfCorrectingResult } from './self-correction/self-correcting-node.js'
+
 // --- Version ---
 export const FORGEAGENT_AGENT_VERSION = '0.1.0'
