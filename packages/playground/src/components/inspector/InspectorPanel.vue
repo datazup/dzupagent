@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * InspectorPanel -- Tabbed container for Trace, Memory, Config, and History tabs.
+ * InspectorPanel -- Tabbed container for Trace, Memory, Config, History, and Tools tabs.
  *
  * Uses a reactive tab state to switch between inspector views.
  */
@@ -9,8 +9,9 @@ import TraceTab from './TraceTab.vue'
 import MemoryTab from './MemoryTab.vue'
 import ConfigTab from './ConfigTab.vue'
 import HistoryTab from './HistoryTab.vue'
+import ToolStatsTab from './ToolStatsTab.vue'
 
-type TabId = 'trace' | 'memory' | 'config' | 'history'
+type TabId = 'trace' | 'memory' | 'config' | 'history' | 'tools'
 
 interface Tab {
   id: TabId
@@ -22,6 +23,7 @@ const tabs: Tab[] = [
   { id: 'memory', label: 'Memory' },
   { id: 'config', label: 'Config' },
   { id: 'history', label: 'History' },
+  { id: 'tools', label: 'Tools' },
 ]
 
 const activeTab = ref<TabId>('trace')
@@ -92,6 +94,15 @@ function selectTab(tabId: TabId): void {
         class="h-full"
       >
         <HistoryTab />
+      </div>
+      <div
+        v-show="activeTab === 'tools'"
+        :id="`panel-tools`"
+        role="tabpanel"
+        aria-label="Tool stats panel"
+        class="h-full"
+      >
+        <ToolStatsTab />
       </div>
     </div>
   </div>

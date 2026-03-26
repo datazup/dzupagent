@@ -11,17 +11,42 @@
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useTraceStore } from '../stores/trace-store.js'
+import { useChatStore } from '../stores/chat-store.js'
 import { formatDuration } from '../utils/format.js'
 import { useReplayControls } from '../composables/useReplayControls.js'
+import { useTraceReplay } from '../composables/useTraceReplay.js'
 import TraceTimelineCard from './TraceTimelineCard.vue'
 
 const traceStore = useTraceStore()
+const chatStore = useChatStore()
+const traceReplay = useTraceReplay()
 
 /** Set of expanded event IDs */
 const expandedIds = ref<Set<string>>(new Set())
 
 /** Ref to the scrollable container for auto-scroll */
 const scrollContainer = ref<HTMLElement | null>(null)
+
+/** Track the last run ID whose trace was loaded from the server */
+const lastLoadedRunId = ref<string | null>(null)
+
+/** Whether we can offer a "Load Full Trace" button */
+const canLoadServerTrace = computed(() => {
+  const runId = chatStore.activeRunId
+  return (
+    runId !== null &&
+    runId !== lastLoadedRunId.value &&
+    !traceReplay.isLoading.value
+  )
+})
+
+/** Fetch the full trace from the server for the active run */
+async function loadServerTrace(): Promise<void> {
+  const runId = chatStore.activeRunId
+  if (!runId) return
+  await traceReplay.loadTrace(runId)
+  lastLoadedRunId.value = runId
+}
 
 /** Events sorted by startedAt (ascending) */
 const sortedEvents = computed(() =>
@@ -130,6 +155,35 @@ watch(
       >
         Clear
       </button>
+    </div>
+
+    <!-- Server trace fetch bar -->
+    <div
+      v-if="canLoadServerTrace || traceReplay.isLoading.value || traceReplay.error.value"
+      class="flex shrink-0 items-center gap-2 border-b border-pg-border px-4 py-1.5"
+    >
+      <button
+        v-if="canLoadServerTrace"
+        class="rounded bg-pg-accent px-3 py-1 text-xs font-medium text-pg-surface transition-colors hover:bg-pg-accent/80"
+        aria-label="Load full trace from server"
+        @click="loadServerTrace()"
+      >
+        Load Full Trace
+      </button>
+      <span
+        v-if="traceReplay.isLoading.value"
+        class="text-xs text-pg-text-muted"
+        role="status"
+      >
+        Loading trace...
+      </span>
+      <span
+        v-if="traceReplay.error.value"
+        class="text-xs text-pg-error"
+        role="alert"
+      >
+        {{ traceReplay.error.value }}
+      </span>
     </div>
 
     <!-- Replay controls bar -->

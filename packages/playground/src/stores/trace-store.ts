@@ -46,6 +46,11 @@ export const useTraceStore = defineStore('trace', () => {
     events.value.push(event)
   }
 
+  /** Replace all trace events with a new array (e.g. from server fetch) */
+  function setEvents(newEvents: TraceEvent[]): void {
+    events.value = newEvents
+  }
+
   /** Clear all trace events */
   function clearEvents(): void {
     events.value = []
@@ -62,6 +67,7 @@ export const useTraceStore = defineStore('trace', () => {
 
     // Actions
     addEvent,
+    setEvents,
     clearEvents,
   }
 })

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { ScaffoldEngine } from '../scaffold-engine.js'
 import { renderTemplate } from '../template-renderer.js'
 import {
@@ -15,6 +17,8 @@ import {
   listTemplates,
 } from '../templates/index.js'
 import type { TemplateType } from '../types.js'
+
+const execFileAsync = promisify(execFile)
 
 describe('renderTemplate', () => {
   it('replaces {{variable}} placeholders with values', () => {
@@ -203,5 +207,210 @@ describe('ScaffoldEngine', () => {
       'utf-8',
     )
     expect(plannerContent).toContain('nested-test')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 2: E2E scaffold — create temp dir, run scaffold, verify files on disk
+// ---------------------------------------------------------------------------
+describe('E2E scaffold', () => {
+  let tempDir: string
+  let engine: ScaffoldEngine
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'forge-e2e-'))
+    engine = new ScaffoldEngine()
+  })
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true })
+  })
+
+  it('generates a minimal project with valid package.json, tsconfig, and source', async () => {
+    const result = await engine.generate({
+      projectName: 'e2e-agent',
+      template: 'minimal',
+      outputDir: tempDir,
+    })
+
+    const projectDir = result.projectDir
+
+    // Key files exist on disk
+    expect(result.filesCreated).toContain('package.json')
+    expect(result.filesCreated).toContain('tsconfig.json')
+    expect(result.filesCreated).toContain('src/index.ts')
+
+    // package.json is valid JSON with the correct name
+    const pkgRaw = await readFile(join(projectDir, 'package.json'), 'utf-8')
+    const pkg = JSON.parse(pkgRaw) as Record<string, unknown>
+    expect(pkg['name']).toBe('e2e-agent')
+    expect(pkg['type']).toBe('module')
+
+    // tsconfig.json is valid JSON with strict mode
+    const tsRaw = await readFile(join(projectDir, 'tsconfig.json'), 'utf-8')
+    const tsconfig = JSON.parse(tsRaw) as Record<string, unknown>
+    const compilerOptions = tsconfig['compilerOptions'] as Record<string, unknown> | undefined
+    expect(compilerOptions).toBeDefined()
+    expect(compilerOptions?.['strict']).toBe(true)
+
+    // src/index.ts exists and contains interpolated project name
+    const indexContent = await readFile(join(projectDir, 'src', 'index.ts'), 'utf-8')
+    expect(indexContent).toContain('e2e-agent')
+    expect(indexContent).not.toContain('{{projectName}}')
+
+    // No leftover {{template}} variable in config
+    const configRaw = await readFile(join(projectDir, 'forgeagent.config.json'), 'utf-8')
+    expect(configRaw).not.toContain('{{template}}')
+    expect(configRaw).toContain('"minimal"')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 3: Parameterized — every template produces required files
+// ---------------------------------------------------------------------------
+describe('All templates produce required files', () => {
+  const allTemplates: TemplateType[] = ['minimal', 'full-stack', 'codegen', 'multi-agent', 'server']
+  let tempDir: string
+  let engine: ScaffoldEngine
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'forge-param-'))
+    engine = new ScaffoldEngine()
+  })
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true })
+  })
+
+  it.each(allTemplates)('template "%s" produces valid package.json, tsconfig.json, and src/*.ts', async (templateId) => {
+    const result = await engine.generate({
+      projectName: `test-${templateId}`,
+      template: templateId,
+      outputDir: tempDir,
+    })
+
+    const projectDir = result.projectDir
+
+    // package.json is present and valid JSON
+    const pkgRaw = await readFile(join(projectDir, 'package.json'), 'utf-8')
+    const pkg = JSON.parse(pkgRaw) as Record<string, unknown>
+    expect(pkg['name']).toBe(`test-${templateId}`)
+
+    // tsconfig.json is present and valid JSON
+    const tsRaw = await readFile(join(projectDir, 'tsconfig.json'), 'utf-8')
+    expect(() => JSON.parse(tsRaw)).not.toThrow()
+
+    // At least one .ts file in src/
+    const srcDir = join(projectDir, 'src')
+    const srcStat = await stat(srcDir)
+    expect(srcStat.isDirectory()).toBe(true)
+
+    const srcEntries = await collectTsFiles(srcDir)
+    expect(srcEntries.length).toBeGreaterThan(0)
+
+    // No un-interpolated {{projectName}} in any generated file
+    for (const filePath of result.filesCreated) {
+      const content = await readFile(join(projectDir, filePath), 'utf-8')
+      expect(content).not.toContain('{{projectName}}')
+      expect(content).not.toContain('{{template}}')
+    }
+  })
+})
+
+/**
+ * Recursively collect all .ts files under a directory.
+ */
+async function collectTsFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true })
+  const result: string[] = []
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      const nested = await collectTsFiles(fullPath)
+      result.push(...nested)
+    } else if (entry.name.endsWith('.ts')) {
+      result.push(fullPath)
+    }
+  }
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// Task 4: CLI argument parsing — help, list, missing project name
+// ---------------------------------------------------------------------------
+describe('CLI argument parsing', () => {
+  // Resolve the CLI entry point — use tsx to run the TypeScript source directly
+  const cliPath = join(import.meta.dirname ?? '', '..', 'cli.ts')
+
+  /**
+   * Run the CLI with given args using tsx (since the source is TypeScript).
+   * Falls back to dist/cli.js with node if tsx is unavailable.
+   */
+  async function runCli(
+    args: string[],
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    try {
+      const { stdout, stderr } = await execFileAsync(
+        'npx',
+        ['tsx', cliPath, ...args],
+        { timeout: 15_000 },
+      )
+      return { stdout, stderr, exitCode: 0 }
+    } catch (err: unknown) {
+      const execErr = err as { stdout?: string; stderr?: string; code?: number }
+      return {
+        stdout: execErr.stdout ?? '',
+        stderr: execErr.stderr ?? '',
+        exitCode: execErr.code ?? 1,
+      }
+    }
+  }
+
+  it('--help prints usage information', async () => {
+    const { stdout, exitCode } = await runCli(['--help'])
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('Usage: create-forgeagent')
+    expect(stdout).toContain('--template')
+    expect(stdout).toContain('--list')
+  })
+
+  it('-h also prints usage information', async () => {
+    const { stdout, exitCode } = await runCli(['-h'])
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('Usage: create-forgeagent')
+  })
+
+  it('no arguments prints help (treated as help)', async () => {
+    const { stdout, exitCode } = await runCli([])
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('Usage: create-forgeagent')
+  })
+
+  it('--list prints available template names', async () => {
+    const { stdout, exitCode } = await runCli(['--list'])
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain('minimal')
+    expect(stdout).toContain('full-stack')
+    expect(stdout).toContain('codegen')
+    expect(stdout).toContain('multi-agent')
+    expect(stdout).toContain('server')
+  })
+
+  it('unknown option shows error', async () => {
+    const { stderr, exitCode } = await runCli(['--bogus'])
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain('Unknown option')
+  })
+
+  it('--template without value shows error', async () => {
+    const { stderr, exitCode } = await runCli(['my-project', '--template'])
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain('--template requires a value')
+  })
+
+  it('--template with invalid value shows error', async () => {
+    const { stderr, exitCode } = await runCli(['my-project', '--template', 'nonexistent'])
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain('Unknown template')
   })
 })

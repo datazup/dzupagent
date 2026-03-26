@@ -71,6 +71,36 @@ describe('trace-store', () => {
     expect(store.totalDurationMs).toBe(600)
   })
 
+  it('setEvents replaces all events', () => {
+    const store = useTraceStore()
+
+    store.addEvent(makeEvent({ id: 'old-1' }))
+    store.addEvent(makeEvent({ id: 'old-2' }))
+
+    const newEvents = [
+      makeEvent({ id: 'new-1' }),
+      makeEvent({ id: 'new-2' }),
+      makeEvent({ id: 'new-3' }),
+    ]
+    store.setEvents(newEvents)
+
+    expect(store.events.length).toBe(3)
+    expect(store.events[0]?.id).toBe('new-1')
+    expect(store.events[1]?.id).toBe('new-2')
+    expect(store.events[2]?.id).toBe('new-3')
+    expect(store.eventCount).toBe(3)
+  })
+
+  it('setEvents with empty array clears events', () => {
+    const store = useTraceStore()
+
+    store.addEvent(makeEvent())
+    store.setEvents([])
+
+    expect(store.events.length).toBe(0)
+    expect(store.eventCount).toBe(0)
+  })
+
   it('eventsByType groups events correctly', () => {
     const store = useTraceStore()
 
