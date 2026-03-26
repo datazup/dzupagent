@@ -108,12 +108,22 @@ export class ForgeAgent {
       budget,
       signal: options?.signal,
       stuckDetector,
+      toolStatsTracker: this.config.toolStatsTracker,
       onStuckDetected: (reason, recovery) => {
         this.config.eventBus?.emit({
           type: 'agent:stuck_detected',
           agentId: this.id,
           reason,
           recovery,
+          timestamp: Date.now(),
+        })
+      },
+      onStuck: (toolName, stage) => {
+        this.config.eventBus?.emit({
+          type: 'agent:stuck_detected',
+          agentId: this.id,
+          reason: `Stuck on tool "${toolName}" (escalation stage ${stage})`,
+          recovery: stage >= 3 ? 'Aborting loop' : stage === 2 ? 'Nudge injected' : 'Tool blocked',
           timestamp: Date.now(),
         })
       },

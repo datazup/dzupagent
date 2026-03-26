@@ -7,6 +7,7 @@
  */
 import {
   AIMessage,
+  SystemMessage,
   ToolMessage,
   type BaseMessage,
 } from '@langchain/core/messages'
@@ -78,6 +79,19 @@ export interface ToolLoopConfig {
    * - `false` or `undefined` disables validation (default)
    */
   validateToolArgs?: boolean | ToolArgValidatorConfig
+
+  /**
+   * Optional tool stats tracker for injecting preferred-tool hints
+   * into the system prompt before the first LLM invocation.
+   * Uses structural typing to avoid importing ToolStatsTracker from core.
+   */
+  toolStatsTracker?: { formatAsPromptHint: (limit?: number, intent?: string) => string }
+
+  /**
+   * Called when stuck is detected with the tool name and escalation stage.
+   * Stage 1 = tool blocked, Stage 2 = nudge message injected, Stage 3 = loop aborted.
+   */
+  onStuck?: (toolName: string, stage: number) => void
 }
 
 export interface ToolLoopResult {
@@ -125,6 +139,17 @@ export async function runToolLoop(
     }
     return stat
   }
+
+  // Inject tool stats hint before the first LLM invocation (once only)
+  if (config.toolStatsTracker) {
+    const hint = config.toolStatsTracker.formatAsPromptHint(5)
+    if (hint) {
+      allMessages.push(new SystemMessage(hint))
+    }
+  }
+
+  // Escalating stuck recovery stage: 0 = not stuck, 1 = tool blocked, 2 = nudge sent, 3 = abort
+  let stuckStage = 0
 
   for (let iteration = 0; iteration < config.maxIterations; iteration++) {
     // Check abort signal
@@ -196,6 +221,14 @@ export async function runToolLoop(
         if (r.stuckBreak) {
           stopReason = 'stuck'
         }
+        if (r.stuckToolName) {
+          // Escalating recovery for parallel path
+          stuckStage++
+          config.onStuck?.(r.stuckToolName, stuckStage)
+          if (stuckStage >= 3) {
+            stopReason = 'stuck'
+          }
+        }
       }
     } else {
       for (const tc of toolCalls) {
@@ -203,7 +236,30 @@ export async function runToolLoop(
           tc, toolMap, config, getOrCreateStat,
         )
         allMessages.push(r.message)
-        if (r.stuckNudge) {
+
+        if (r.stuckToolName) {
+          // Escalating stuck recovery
+          stuckStage++
+          config.onStuck?.(r.stuckToolName, stuckStage)
+
+          if (stuckStage === 1) {
+            // Stage 1: tool already blocked by executeSingleToolCall
+            // stuckNudge is already set
+          }
+          if (stuckStage === 2) {
+            // Stage 2: inject a nudge system message
+            allMessages.push(new SystemMessage(
+              'You appear to be stuck repeating the same tool call. Try a different approach or provide your final answer.',
+            ))
+          }
+          if (stuckStage >= 3) {
+            // Stage 3: abort the loop
+            stopReason = 'stuck'
+            break
+          }
+        }
+
+        if (r.stuckNudge && stuckStage <= 1) {
           allMessages.push(r.stuckNudge)
         }
         if (r.stuckBreak) {
@@ -228,6 +284,14 @@ export async function runToolLoop(
         stopReason = 'stuck'
         break
       }
+    }
+
+    // --- Escalating stuck recovery ---
+    // If an inner tool-call stuck handler set stuckStage > 0 this iteration,
+    // check if we need to advance to the next stage.
+    if (stuckStage >= 3) {
+      stopReason = 'stuck'
+      break
     }
 
     // Check if this was the last allowed iteration
@@ -269,6 +333,8 @@ interface ToolCallResult {
   stuckNudge?: ToolMessage
   /** If true, the outer loop should break (stuck from errors). */
   stuckBreak?: boolean
+  /** Name of the tool that triggered stuck detection (for escalation). */
+  stuckToolName?: string
 }
 
 type StatGetter = (name: string) => { calls: number; errors: number; totalMs: number }
@@ -432,6 +498,7 @@ async function executeSingleToolCall(
   // --- Stuck detection ---
   let stuckBreak = false
   let stuckNudge: ToolMessage | undefined
+  let stuckToolName: string | undefined
   if (config.stuckDetector) {
     const stuckCheck: StuckStatus = errorMsg
       ? config.stuckDetector.recordError(new Error(errorMsg))
@@ -439,6 +506,7 @@ async function executeSingleToolCall(
 
     if (stuckCheck.stuck) {
       const reason = stuckCheck.reason ?? 'Unknown stuck condition'
+      stuckToolName = toolName
       if (errorMsg) {
         const recovery = 'Stopping due to repeated errors.'
         config.onStuckDetected?.(reason, recovery)
@@ -456,7 +524,7 @@ async function executeSingleToolCall(
     }
   }
 
-  return { message, stuckNudge, stuckBreak }
+  return { message, stuckNudge, stuckBreak, stuckToolName }
 }
 
 /**

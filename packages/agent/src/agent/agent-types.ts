@@ -49,6 +49,13 @@ export interface ForgeAgentConfig {
   eventBus?: ForgeEventBus
 
   /**
+   * Optional tool stats tracker for injecting preferred-tool hints
+   * into the system prompt before the first LLM invocation.
+   * Uses structural typing so callers can pass a ToolStatsTracker from core.
+   */
+  toolStatsTracker?: { formatAsPromptHint: (limit?: number, intent?: string) => string }
+
+  /**
    * Arrow-based memory configuration (optional, enables token budgeting).
    *
    * When set, `prepareMessages()` uses `@forgeagent/memory-ipc`'s

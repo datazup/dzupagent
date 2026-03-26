@@ -110,6 +110,29 @@ export interface RetryPolicy {
 }
 
 // ---------------------------------------------------------------------------
+// OTel structural types (no @forgeagent/otel import — loose coupling)
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal span interface compatible with OTelSpan from @forgeagent/otel.
+ * Uses structural typing so consumers can pass any compatible span.
+ */
+export interface OTelSpanLike {
+  setAttribute(key: string, value: string | number | boolean): unknown
+  end(): void
+}
+
+/**
+ * Structural tracer interface for pipeline node instrumentation.
+ * Compatible with ForgeTracer from @forgeagent/otel but does not import it.
+ */
+export interface PipelineTracer {
+  startPhaseSpan(phase: string, options?: { attributes?: Record<string, string | number> }): OTelSpanLike
+  endSpanOk(span: OTelSpanLike): void
+  endSpanWithError(span: OTelSpanLike, error: unknown): void
+}
+
+// ---------------------------------------------------------------------------
 // Runtime configuration
 // ---------------------------------------------------------------------------
 
@@ -128,4 +151,6 @@ export interface PipelineRuntimeConfig {
   onEvent?: (event: PipelineRuntimeEvent) => void
   /** Default retry policy applied when a node has `retries > 0`. */
   retryPolicy?: RetryPolicy
+  /** Optional OTel tracer for creating spans per pipeline node */
+  tracer?: PipelineTracer
 }

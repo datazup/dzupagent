@@ -16,6 +16,15 @@ import type {
   DelegationResult,
   DelegationContext,
 } from './delegation.js'
+import type { StructuredLLM } from '../structured/structured-output-engine.js'
+
+/** Options for LLM-powered planAndDelegate. */
+export interface PlanAndDelegateOptions {
+  /** LLM instance for goal decomposition. When provided, uses LLM-powered planning. */
+  llm?: StructuredLLM
+  /** Abort signal for cancellation */
+  signal?: AbortSignal
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -194,16 +203,69 @@ export class DelegatingSupervisor {
   }
 
   /**
-   * Break a high-level goal into sub-tasks using keyword-based
-   * decomposition (no LLM), map them to specialists by metadata tags,
+   * Break a high-level goal into sub-tasks, map them to specialists,
    * and delegate in parallel.
    *
-   * The decomposition is intentionally simple: it splits the goal on
-   * common delimiters (commas, "and", semicolons, newlines) and matches
-   * each fragment against specialist metadata tags and the built-in
-   * keyword map.
+   * When `options.llm` is provided, uses LLM-powered decomposition via
+   * PlanningAgent.decompose() for intelligent task splitting. Falls back
+   * to keyword-based decomposition if the LLM call fails.
+   *
+   * Without an LLM, splits the goal on common delimiters (commas, "and",
+   * semicolons, newlines) and matches each fragment against specialist
+   * metadata tags and the built-in keyword map.
    */
-  async planAndDelegate(goal: string): Promise<AggregatedDelegationResult> {
+  async planAndDelegate(
+    goal: string,
+    options?: PlanAndDelegateOptions,
+  ): Promise<AggregatedDelegationResult> {
+    if (options?.llm) {
+      try {
+        const { PlanningAgent } = await import('./planning-agent.js')
+        const planner = new PlanningAgent({ supervisor: this })
+        const plan = await planner.decompose(goal, options.llm, {
+          signal: options.signal,
+        })
+
+        this.eventBus?.emit({
+          type: 'supervisor:plan_created',
+          goal,
+          assignments: plan.nodes.map((n) => ({
+            task: n.task,
+            specialistId: n.specialistId,
+          })),
+          source: 'llm',
+        })
+
+        const result = await planner.executePlan(plan)
+
+        // Convert PlanExecutionResult to AggregatedDelegationResult
+        const succeeded: string[] = []
+        const failed: string[] = []
+        for (const [nodeId, delegationResult] of result.results) {
+          if (delegationResult.success) {
+            succeeded.push(nodeId)
+          } else {
+            failed.push(nodeId)
+          }
+        }
+
+        return {
+          results: result.results,
+          succeeded,
+          failed,
+          totalDurationMs: result.totalDurationMs,
+        }
+      } catch (err: unknown) {
+        // Fall back to keyword splitting on LLM failure
+        this.eventBus?.emit({
+          type: 'supervisor:llm_decompose_fallback',
+          goal,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+
+    // Keyword-based fallback
     const subtasks = this.decomposeGoal(goal)
     const assignments = this.matchSubtasksToSpecialists(subtasks)
 
@@ -222,6 +284,7 @@ export class DelegatingSupervisor {
         task: a.task,
         specialistId: a.specialistId,
       })),
+      source: 'keyword',
     })
 
     return this.delegateAndCollect(assignments)

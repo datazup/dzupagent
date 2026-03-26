@@ -309,6 +309,8 @@ export { KeywordMatcher } from './router/keyword-matcher.js'
 export { LLMClassifier } from './router/llm-classifier.js'
 export { CostAwareRouter, isSimpleTurn, scoreComplexity } from './router/cost-aware-router.js'
 export type { CostAwareResult, CostAwareRouterConfig, ComplexityLevel } from './router/cost-aware-router.js'
+export { ModelTierEscalationPolicy } from './router/escalation-policy.js'
+export type { EscalationPolicyConfig, EscalationResult } from './router/escalation-policy.js'
 
 // --- Streaming ---
 export { SSETransformer } from './streaming/sse-transformer.js'

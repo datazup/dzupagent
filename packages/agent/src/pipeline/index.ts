@@ -18,6 +18,8 @@ export type {
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
   LoopMetrics,
+  OTelSpanLike,
+  PipelineTracer,
 } from './pipeline-runtime-types.js'
 
 // --- Pipeline Templates ---

@@ -3,11 +3,14 @@
  *
  * Provides a last-writer-wins key-value store with:
  * - Monotonically increasing version tracking per key
+ * - Optional vector-clock-based causal ordering (CRDT merge)
  * - Optional access control (allowedWriters whitelist)
  * - Optional audit trail
  * - Max-entries eviction (oldest by updatedAt)
  * - Simple substring search across keys and values
  */
+
+import { VectorClock } from './vector-clock.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,6 +27,29 @@ export interface SharedEntry {
   updatedAt: number
   /** Creation timestamp */
   createdAt: number
+  /** Serialized VectorClock for causal ordering (optional for backward compat) */
+  vectorClock?: Record<string, number>
+}
+
+/** Result of merging remote entries into this namespace. */
+export interface MergeReport {
+  /** Number of remote entries accepted (overwrote local) */
+  accepted: number
+  /** Number of remote entries rejected (local was newer) */
+  rejected: number
+  /** Number of concurrent conflicts resolved via LWW tiebreak */
+  conflicts: number
+}
+
+/** A conflict entry detected during merge (concurrent vector clocks). */
+export interface ConflictEntry {
+  key: string
+  /** The entry that was kept (winner of LWW tiebreak) */
+  kept: SharedEntry
+  /** The entry that was discarded (loser of LWW tiebreak) */
+  discarded: SharedEntry
+  /** Timestamp when the conflict was detected */
+  detectedAt: number
 }
 
 export interface SharedNamespaceConfig {
@@ -59,6 +85,8 @@ export interface SharedNamespaceStats {
 export class SharedMemoryNamespace {
   private readonly entries = new Map<string, SharedEntry>()
   private readonly audit: AuditEntry[] = []
+  private readonly detectedConflicts: ConflictEntry[] = []
+  private readonly vectorClocks = new Map<string, VectorClock>()
   private readonly config: Required<Pick<SharedNamespaceConfig, 'maxEntries' | 'enableAudit'>> &
     SharedNamespaceConfig
 
@@ -74,7 +102,7 @@ export class SharedMemoryNamespace {
   // Public API
   // -----------------------------------------------------------------------
 
-  /** Write an entry (last-writer-wins with version bump). */
+  /** Write an entry (last-writer-wins with version bump + vector clock). */
   put(agentId: string, key: string, value: Record<string, unknown>): SharedEntry {
     if (!this.canWrite(agentId)) {
       throw new Error(`Agent "${agentId}" is not allowed to write to this namespace`)
@@ -84,6 +112,11 @@ export class SharedMemoryNamespace {
     const existing = this.entries.get(key)
     const previousVersion = existing?.version
 
+    // Increment vector clock for this agent on this key
+    const existingClock = this.vectorClocks.get(key) ?? new VectorClock()
+    const newClock = existingClock.increment(agentId)
+    this.vectorClocks.set(key, newClock)
+
     const entry: SharedEntry = {
       key,
       value,
@@ -91,6 +124,7 @@ export class SharedMemoryNamespace {
       version: existing ? existing.version + 1 : 1,
       updatedAt: now,
       createdAt: existing ? existing.createdAt : now,
+      vectorClock: newClock.toJSON(),
     }
 
     this.entries.set(key, entry)
@@ -194,10 +228,126 @@ export class SharedMemoryNamespace {
     return writers.includes(agentId)
   }
 
+  /**
+   * Merge remote entries into this namespace using vector clock comparison.
+   *
+   * For each remote entry:
+   * - Remote `after` local  -> accept remote (overwrite local)
+   * - Remote `before` local -> reject remote (keep local)
+   * - `concurrent`          -> LWW tiebreak using updatedAt (most recent wins)
+   * - `equal`               -> no-op
+   *
+   * Entries without vectorClock are compared using version numbers (LWW fallback).
+   */
+  merge(remoteEntries: SharedEntry[]): MergeReport {
+    let accepted = 0
+    let rejected = 0
+    let conflicts = 0
+
+    for (const remote of remoteEntries) {
+      const local = this.entries.get(remote.key)
+
+      if (!local) {
+        // No local entry — accept remote unconditionally
+        this.entries.set(remote.key, remote)
+        if (remote.vectorClock) {
+          this.vectorClocks.set(remote.key, VectorClock.fromJSON(remote.vectorClock))
+        }
+        accepted++
+        continue
+      }
+
+      // Both have vector clocks — use causal comparison
+      if (local.vectorClock && remote.vectorClock) {
+        const localClock = VectorClock.fromJSON(local.vectorClock)
+        const remoteClock = VectorClock.fromJSON(remote.vectorClock)
+        const comparison = remoteClock.compare(localClock)
+
+        switch (comparison) {
+          case 'after': {
+            this.entries.set(remote.key, remote)
+            this.vectorClocks.set(remote.key, remoteClock)
+            accepted++
+            break
+          }
+          case 'before': {
+            rejected++
+            break
+          }
+          case 'equal': {
+            // No-op — identical state
+            break
+          }
+          case 'concurrent': {
+            conflicts++
+            // LWW tiebreak: keep the entry with the most recent updatedAt
+            if (remote.updatedAt >= local.updatedAt) {
+              const mergedClock = localClock.merge(remoteClock)
+              const winner = { ...remote, vectorClock: mergedClock.toJSON() }
+              this.entries.set(remote.key, winner)
+              this.vectorClocks.set(remote.key, mergedClock)
+              this.detectedConflicts.push({
+                key: remote.key,
+                kept: winner,
+                discarded: local,
+                detectedAt: Date.now(),
+              })
+              accepted++
+            } else {
+              const mergedClock = localClock.merge(remoteClock)
+              const winner = { ...local, vectorClock: mergedClock.toJSON() }
+              this.entries.set(local.key, winner)
+              this.vectorClocks.set(local.key, mergedClock)
+              this.detectedConflicts.push({
+                key: remote.key,
+                kept: winner,
+                discarded: remote,
+                detectedAt: Date.now(),
+              })
+              rejected++
+            }
+            break
+          }
+        }
+      } else {
+        // Fallback: at least one entry lacks a vector clock — use version comparison (LWW)
+        if (remote.version > local.version) {
+          this.entries.set(remote.key, remote)
+          if (remote.vectorClock) {
+            this.vectorClocks.set(remote.key, VectorClock.fromJSON(remote.vectorClock))
+          }
+          accepted++
+        } else if (remote.version < local.version) {
+          rejected++
+        } else {
+          // Same version — tiebreak on updatedAt
+          if (remote.updatedAt > local.updatedAt) {
+            this.entries.set(remote.key, remote)
+            if (remote.vectorClock) {
+              this.vectorClocks.set(remote.key, VectorClock.fromJSON(remote.vectorClock))
+            }
+            accepted++
+          } else {
+            rejected++
+          }
+        }
+      }
+    }
+
+    return { accepted, rejected, conflicts }
+  }
+
+  /** Return all conflict entries detected during merge (concurrent vector clocks). */
+  getConflicts(): ConflictEntry[] {
+    return [...this.detectedConflicts]
+  }
+
   /** Clear all entries and audit trail (admin operation). */
   clear(): void {
     this.entries.clear()
     this.audit.length = 0
+    this.detectedConflicts.length = 0
+    this.vectorClocks.clear()
   }
 
   // -----------------------------------------------------------------------

@@ -2,15 +2,17 @@
  * PlanningAgent — decomposes complex goals into a dependency DAG
  * and executes tasks in topological order via DelegatingSupervisor.
  *
- * This is a pure execution engine: it does NOT generate plans via LLM.
- * Plans are built programmatically via `PlanningAgent.buildPlan()` or
- * constructed externally and passed to `executePlan()`.
+ * Supports both programmatic plan construction via `PlanningAgent.buildPlan()`
+ * and LLM-powered decomposition via `decompose()`.
  *
  * Depends ONLY on sibling orchestration types + @forgeagent/core.
  */
 
+import { z } from 'zod'
 import type { DelegationResult } from './delegation.js'
 import type { DelegatingSupervisor, TaskAssignment } from './delegating-supervisor.js'
+import type { StructuredLLM } from '../structured/structured-output-engine.js'
+import { generateStructured } from '../structured/structured-output-engine.js'
 import { OrchestrationError } from './orchestration-error.js'
 
 // ---------------------------------------------------------------------------
@@ -221,6 +223,34 @@ export interface PlanningAgentConfig {
   maxParallelism?: number
 }
 
+// ---------------------------------------------------------------------------
+// Zod schemas for LLM-powered plan decomposition
+// ---------------------------------------------------------------------------
+
+/** Zod schema for a single node in an LLM-generated plan. */
+export const PlanNodeSchema = z.object({
+  id: z.string().describe('Unique node identifier like "node-1"'),
+  task: z.string().describe('Clear description of what this node does'),
+  specialistId: z.string().describe('ID of the specialist agent to execute this'),
+  dependsOn: z.array(z.string()).default([]).describe('IDs of nodes that must complete first'),
+})
+
+/** Zod schema for a complete LLM-generated decomposition. */
+export const DecompositionSchema = z.object({
+  nodes: z.array(PlanNodeSchema).min(1).describe('Task nodes forming a DAG'),
+})
+
+/** Inferred type for a decomposition result from the LLM. */
+export type DecompositionResult = z.infer<typeof DecompositionSchema>
+
+/** Options for the LLM-powered decompose method. */
+export interface DecomposeOptions {
+  /** Maximum number of nodes the LLM may produce (default: 20) */
+  maxNodes?: number
+  /** Abort signal for cancellation */
+  signal?: AbortSignal
+}
+
 /**
  * Executes pre-built execution plans in topological order.
  *
@@ -350,6 +380,114 @@ export class PlanningAgent {
       failedNodes,
       skippedNodes,
     }
+  }
+
+  /**
+   * LLM-powered goal decomposition into an ExecutionPlan.
+   *
+   * Sends the goal and available specialist descriptions to the LLM,
+   * asks it to decompose into a DAG of tasks, validates the output,
+   * and returns an ExecutionPlan ready for `executePlan()`.
+   *
+   * @param goal - High-level goal description.
+   * @param llm - LLM instance matching the StructuredLLM interface.
+   * @param options - Optional configuration (maxNodes, signal).
+   * @returns A validated ExecutionPlan.
+   */
+  async decompose(
+    goal: string,
+    llm: StructuredLLM,
+    options?: DecomposeOptions,
+  ): Promise<ExecutionPlan> {
+    const maxNodes = options?.maxNodes ?? 20
+    const specialistIds = this.supervisor.specialistIds
+    const specialistDescriptions = this.buildSpecialistDescriptions()
+
+    const systemPrompt = [
+      'You are a task planner. Decompose the following goal into discrete tasks that can be assigned to specialist agents.',
+      '',
+      'Available specialists:',
+      specialistDescriptions,
+      '',
+      'Rules:',
+      '- Each task must map to exactly one specialist by specialistId',
+      '- Use dependsOn to express ordering constraints (list of node IDs)',
+      '- Minimize dependencies to maximize parallelism',
+      '- Keep tasks focused and atomic',
+      `- Produce at most ${maxNodes} nodes`,
+      '- Use IDs like "node-0", "node-1", etc.',
+    ].join('\n')
+
+    const messages = [
+      { role: 'system' as const, content: systemPrompt },
+      { role: 'user' as const, content: `Goal: ${goal}` },
+    ]
+
+    const result = await generateStructured(llm, messages, {
+      schema: DecompositionSchema,
+      maxRetries: 2,
+      schemaName: 'DecompositionPlan',
+      schemaDescription: 'A directed acyclic graph of tasks assigned to specialist agents',
+    })
+
+    // Validate and sanitize specialist IDs — filter out nodes with unknown specialists
+    const validSpecialistSet = new Set(specialistIds)
+    const validNodes: PlanNode[] = []
+    const removedNodeIds = new Set<string>()
+
+    for (const node of result.data.nodes.slice(0, maxNodes)) {
+      if (validSpecialistSet.has(node.specialistId)) {
+        validNodes.push({
+          id: node.id,
+          task: node.task,
+          specialistId: node.specialistId,
+          input: { task: node.task },
+          dependsOn: node.dependsOn,
+        })
+      } else {
+        removedNodeIds.add(node.id)
+      }
+    }
+
+    if (validNodes.length === 0) {
+      throw new OrchestrationError(
+        `LLM decomposition produced no valid nodes. All specialist IDs were unrecognized. Available: ${specialistIds.join(', ')}`,
+        'delegation',
+        { goal, availableSpecialists: specialistIds },
+      )
+    }
+
+    // Remove dangling dependency references to removed nodes
+    for (const node of validNodes) {
+      node.dependsOn = node.dependsOn.filter(
+        (dep) => !removedNodeIds.has(dep) && validNodes.some((n) => n.id === dep),
+      )
+    }
+
+    // Validate DAG (throws on cycles)
+    const executionLevels = buildExecutionLevels(validNodes)
+
+    return { goal, nodes: validNodes, executionLevels }
+  }
+
+  /**
+   * Build a human-readable description of available specialists
+   * for inclusion in the LLM system prompt.
+   */
+  private buildSpecialistDescriptions(): string {
+    const lines: string[] = []
+    for (const id of this.supervisor.specialistIds) {
+      const specialist = this.supervisor.getSpecialist(id)
+      if (specialist) {
+        const tags = (specialist.metadata?.tags ?? []) as string[]
+        const tagStr = tags.length > 0 ? ` [tags: ${tags.join(', ')}]` : ''
+        const desc = specialist.description ?? specialist.name
+        lines.push(`- ${id}: ${desc}${tagStr}`)
+      } else {
+        lines.push(`- ${id}`)
+      }
+    }
+    return lines.join('\n')
   }
 
   /**

@@ -124,7 +124,8 @@ export type ForgeEvent =
   // --- Supervisor ---
   | { type: 'supervisor:delegating'; specialistId: string; task: string }
   | { type: 'supervisor:delegation_complete'; specialistId: string; task: string; success: boolean }
-  | { type: 'supervisor:plan_created'; goal: string; assignments: Array<{ task: string; specialistId: string }> }
+  | { type: 'supervisor:plan_created'; goal: string; assignments: Array<{ task: string; specialistId: string }>; source?: 'llm' | 'keyword' }
+  | { type: 'supervisor:llm_decompose_fallback'; goal: string; error: string }
   // --- Hooks / plugins ---
   | { type: 'hook:error'; hookName: string; message: string }
   | { type: 'plugin:registered'; pluginName: string }

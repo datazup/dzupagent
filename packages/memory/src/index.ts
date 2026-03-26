@@ -263,4 +263,10 @@ export type {
   SharedNamespaceConfig,
   AuditEntry,
   SharedNamespaceStats,
+  MergeReport,
+  ConflictEntry,
 } from './shared-namespace.js'
+
+// --- Vector Clock (Causal Ordering) ---
+export { VectorClock } from './vector-clock.js'
+export type { VectorClockComparison } from './vector-clock.js'

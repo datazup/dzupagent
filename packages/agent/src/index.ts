@@ -81,13 +81,16 @@ export type {
   DelegatingSupervisorConfig,
   TaskAssignment,
   AggregatedDelegationResult,
+  PlanAndDelegateOptions,
 } from './orchestration/delegating-supervisor.js'
-export { PlanningAgent, buildExecutionLevels, validatePlanStructure } from './orchestration/planning-agent.js'
+export { PlanningAgent, buildExecutionLevels, validatePlanStructure, PlanNodeSchema, DecompositionSchema } from './orchestration/planning-agent.js'
 export type {
   PlanNode,
   ExecutionPlan,
   PlanExecutionResult,
   PlanningAgentConfig,
+  DecompositionResult,
+  DecomposeOptions,
 } from './orchestration/planning-agent.js'
 export { SimpleDelegationTracker } from './orchestration/delegation.js'
 export type {
@@ -206,6 +209,8 @@ export type {
   PipelineRuntimeEvent,
   LoopMetrics,
   RetryPolicy,
+  OTelSpanLike,
+  PipelineTracer,
 } from './pipeline/pipeline-runtime-types.js'
 
 // --- Pipeline Templates ---

@@ -307,6 +307,14 @@ export class PipelineRuntime {
       // Standard node execution (with retry support)
       this.emit({ type: 'pipeline:node_started', nodeId: node.id, nodeType: node.type })
 
+      // Start OTel span for this node (no-op when tracer not configured)
+      const span = this.config.tracer?.startPhaseSpan(node.id, {
+        attributes: {
+          'forge.pipeline.node_type': node.type,
+          'forge.pipeline.phase': node.id,
+        },
+      })
+
       const context: NodeExecutionContext = {
         state: runState,
         previousResults: nodeResults,
@@ -368,6 +376,9 @@ export class PipelineRuntime {
         }
 
         if (finalResult.error) {
+          // End span with error before continuing
+          if (span) this.config.tracer?.endSpanWithError(span, finalResult.error)
+
           this.emit({ type: 'pipeline:node_failed', nodeId: node.id, error: finalResult.error })
           nodeResults.set(node.id, finalResult)
 
@@ -390,6 +401,9 @@ export class PipelineRuntime {
           }
         }
 
+        // End span with OK status
+        if (span) this.config.tracer?.endSpanOk(span)
+
         this.emit({ type: 'pipeline:node_completed', nodeId: node.id, durationMs: finalResult.durationMs })
         nodeResults.set(node.id, finalResult)
         completedNodeIds.push(node.id)
@@ -400,6 +414,9 @@ export class PipelineRuntime {
         const nextIds = this.getNextNodeIds(node.id, runState)
         currentNodeId = nextIds[0]
       } catch (err) {
+        // End span with error on unexpected exception
+        if (span) this.config.tracer?.endSpanWithError(span, err)
+
         const errorMessage = err instanceof Error ? err.message : String(err)
         this.emit({ type: 'pipeline:node_failed', nodeId: node.id, error: errorMessage })
         nodeResults.set(node.id, {
@@ -506,9 +523,30 @@ export class PipelineRuntime {
     const branchBaseState = structuredClone(runState)
     const branchBaseResults = new Map(nodeResults)
 
-    // Execute branches in parallel
+    // Start a parent span for the fork group
+    const forkSpan = this.config.tracer?.startPhaseSpan(`fork:${forkNode.forkId}`, {
+      attributes: {
+        'forge.pipeline.node_type': 'fork',
+        'forge.pipeline.phase': forkNode.id,
+      },
+    })
+
+    // Execute branches in parallel — each branch gets its own span
     const branchPromises = branchStartIds.map(async (startId) => {
-      return this.executeBranch(startId, joinNode?.id, branchBaseState, branchBaseResults)
+      const branchSpan = this.config.tracer?.startPhaseSpan(`branch:${startId}`, {
+        attributes: {
+          'forge.pipeline.node_type': 'branch',
+          'forge.pipeline.phase': startId,
+        },
+      })
+      try {
+        const result = await this.executeBranch(startId, joinNode?.id, branchBaseState, branchBaseResults)
+        if (branchSpan) this.config.tracer?.endSpanOk(branchSpan)
+        return result
+      } catch (err) {
+        if (branchSpan) this.config.tracer?.endSpanWithError(branchSpan, err)
+        throw err
+      }
     })
 
     const settled = await Promise.allSettled(branchPromises)
@@ -536,6 +574,9 @@ export class PipelineRuntime {
         })
       }
     }
+
+    // End fork parent span
+    if (forkSpan) this.config.tracer?.endSpanOk(forkSpan)
 
     this.emit({ type: 'pipeline:node_completed', nodeId: forkNode.id, durationMs: 0 })
 
@@ -617,16 +658,26 @@ export class PipelineRuntime {
   ): Promise<NodeResult> {
     this.emit({ type: 'pipeline:node_started', nodeId: loopNode.id, nodeType: 'loop' })
 
+    // Start OTel span for the loop node
+    const loopSpan = this.config.tracer?.startPhaseSpan(loopNode.id, {
+      attributes: {
+        'forge.pipeline.node_type': 'loop',
+        'forge.pipeline.phase': loopNode.id,
+      },
+    })
+
     const bodyNodes: PipelineNode[] = []
     for (const bodyId of loopNode.bodyNodeIds) {
       const bodyNode = this.nodeMap.get(bodyId)
       if (!bodyNode) {
-        return {
+        const errorResult: NodeResult = {
           nodeId: loopNode.id,
           output: null,
           durationMs: 0,
           error: `Loop body node "${bodyId}" not found`,
         }
+        if (loopSpan) this.config.tracer?.endSpanWithError(loopSpan, errorResult.error)
+        return errorResult
       }
       bodyNodes.push(bodyNode)
     }
@@ -649,8 +700,10 @@ export class PipelineRuntime {
     )
 
     if (result.error) {
+      if (loopSpan) this.config.tracer?.endSpanWithError(loopSpan, result.error)
       this.emit({ type: 'pipeline:node_failed', nodeId: loopNode.id, error: result.error })
     } else {
+      if (loopSpan) this.config.tracer?.endSpanOk(loopSpan)
       this.emit({ type: 'pipeline:node_completed', nodeId: loopNode.id, durationMs: result.durationMs })
     }
 
