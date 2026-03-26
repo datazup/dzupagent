@@ -86,7 +86,7 @@ export { fusionSearch } from './retrieval/rrf-fusion.js'
 export type { FusedResult } from './retrieval/rrf-fusion.js'
 
 // --- Adaptive Retrieval ---
-export { AdaptiveRetriever, DEFAULT_STRATEGIES, classifyIntent } from './retrieval/adaptive-retriever.js'
+export { AdaptiveRetriever, WeightLearner, DEFAULT_STRATEGIES, classifyIntent } from './retrieval/adaptive-retriever.js'
 export type {
   QueryIntent,
   RetrievalWeights,
@@ -94,6 +94,11 @@ export type {
   RetrievalProviders,
   AdaptiveRetrieverConfig,
   AdaptiveSearchResult,
+  RetrievalEventEmitter,
+  RetrievalWarning,
+  ProviderHealthMetrics,
+  WeightLearnerConfig,
+  FeedbackQuality,
 } from './retrieval/adaptive-retriever.js'
 
 // --- Temporal Memory ---
@@ -250,3 +255,12 @@ export { extractConventions } from './convention/convention-extractor-m4.js'
 // --- M4 Staleness Pruner ---
 export { pruneStaleMemories, computeStaleness } from './staleness-pruner.js'
 export type { StalenessPrunerOptions } from './staleness-pruner.js'
+
+// --- Shared Memory Namespace (Multi-Agent Collaboration) ---
+export { SharedMemoryNamespace } from './shared-namespace.js'
+export type {
+  SharedEntry,
+  SharedNamespaceConfig,
+  AuditEntry,
+  SharedNamespaceStats,
+} from './shared-namespace.js'
