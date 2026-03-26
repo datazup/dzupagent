@@ -36,7 +36,14 @@ export function createHTTPConnector(config: HTTPConnectorConfig): DynamicStructu
           return `Error: Method ${method} not allowed. Allowed: ${methods.join(', ')}`
         }
 
+        const base = new URL(config.baseUrl)
         const url = new URL(path, config.baseUrl)
+
+        // Prevent SSRF: reject paths that escape the configured base origin
+        if (url.origin !== base.origin) {
+          return `Error: URL origin "${url.origin}" does not match base origin "${base.origin}". Absolute URLs are not allowed.`
+        }
+
         if (query) {
           for (const [k, v] of Object.entries(query)) url.searchParams.set(k, String(v))
         }

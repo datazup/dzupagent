@@ -130,6 +130,37 @@ describe('HTTP connector', () => {
     expect(bodyPart.length).toBe(5000)
   })
 
+  it('rejects absolute URL that overrides base origin (SSRF protection)', async () => {
+    const mock = mockFetch()
+    const tools = createHTTPConnector({ baseUrl: 'https://api.internal.com' })
+    const result = await tools[0]!.invoke({ method: 'GET', path: 'https://evil.example.com/steal' })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('does not match base origin')
+    expect(mock).not.toHaveBeenCalled()
+  })
+
+  it('rejects protocol-relative URLs that change origin', async () => {
+    const mock = mockFetch()
+    const tools = createHTTPConnector({ baseUrl: 'https://api.internal.com' })
+    const result = await tools[0]!.invoke({ method: 'GET', path: '//evil.example.com/path' })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('does not match base origin')
+    expect(mock).not.toHaveBeenCalled()
+  })
+
+  it('allows relative paths within the same origin', async () => {
+    const mock = mockFetch()
+    const tools = createHTTPConnector({ baseUrl: 'https://api.internal.com' })
+    await tools[0]!.invoke({ method: 'GET', path: '/v1/safe-endpoint' })
+
+    expect(mock).toHaveBeenCalledWith(
+      'https://api.internal.com/v1/safe-endpoint',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
   it('handles abort timeout by returning error', async () => {
     // Simulate a request that takes too long by never resolving
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() =>

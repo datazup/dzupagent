@@ -3,6 +3,34 @@
  */
 
 import type { BenchmarkSuite, BenchmarkResult, BenchmarkComparison } from './benchmark-types.js';
+import type { EvalInput } from '../types.js';
+import type { JudgeCriterion } from '../scorers/criteria.js';
+import { createLLMJudge } from '../scorers/llm-judge-enhanced.js';
+import { STANDARD_CRITERIA } from '../scorers/criteria.js';
+
+/**
+ * Configuration for benchmark execution.
+ */
+export interface BenchmarkConfig {
+  /** LLM function for judge scoring. Required when using 'llm-judge' scorers. */
+  llm?: (prompt: string) => Promise<string>;
+  /** Criteria for LLM judge evaluation. Defaults to STANDARD_CRITERIA. */
+  judgeCriteria?: JudgeCriterion[];
+}
+
+/**
+ * Create a benchmark config with LLM judge from a model.
+ *
+ * Usage: createBenchmarkWithJudge({ llm: myLlmFn })
+ */
+export function createBenchmarkWithJudge(
+  base: { llm: (prompt: string) => Promise<string>; criteria?: JudgeCriterion[] },
+): BenchmarkConfig {
+  return {
+    llm: base.llm,
+    judgeCriteria: base.criteria ?? STANDARD_CRITERIA,
+  };
+}
 
 /**
  * Run a benchmark suite against a target function.
@@ -11,12 +39,14 @@ import type { BenchmarkSuite, BenchmarkResult, BenchmarkComparison } from './ben
  * Each dataset entry is passed to the target, and the output is scored
  * against each scorer's configuration.
  *
- * Scoring is deterministic: keyword matching checks if the output contains
- * expected keywords from the reference output.
+ * When a BenchmarkConfig with an `llm` function is provided, 'llm-judge'
+ * scorers will use the enhanced LLM judge for real scoring. Otherwise,
+ * llm-judge falls back to a simple non-empty heuristic.
  */
 export async function runBenchmark(
   suite: BenchmarkSuite,
   target: (input: string) => Promise<string>,
+  config?: BenchmarkConfig,
 ): Promise<BenchmarkResult> {
   const scorerAccumulators = new Map<string, { total: number; count: number }>();
 
@@ -31,7 +61,13 @@ export async function runBenchmark(
 
     // Score the output against each scorer config
     for (const scorer of suite.scorers) {
-      const score = computeScore(scorer.type, output, entry.expectedOutput);
+      const score = await computeScore(
+        scorer.type,
+        output,
+        entry.input,
+        entry.expectedOutput,
+        config,
+      );
       const acc = scorerAccumulators.get(scorer.id);
       if (acc) {
         acc.total += score;
@@ -102,17 +138,21 @@ export function compareBenchmarks(
 }
 
 /**
- * Simple scoring based on scorer type.
+ * Score an output based on scorer type.
+ *
  * - 'deterministic': keyword overlap between output and reference
- * - 'llm-judge': returns 1.0 if output is non-empty, 0.0 otherwise (placeholder)
+ * - 'llm-judge': uses enhanced LLM judge when config.llm is provided,
+ *                falls back to non-empty heuristic otherwise
  * - 'composite': average of deterministic + existence check
  * - 'custom': returns 1.0 if output is non-empty
  */
-function computeScore(
+async function computeScore(
   type: string,
   output: string,
+  input: string,
   reference: string | undefined,
-): number {
+  config?: BenchmarkConfig,
+): Promise<number> {
   switch (type) {
     case 'deterministic': {
       if (!reference) return output.length > 0 ? 1.0 : 0.0;
@@ -128,10 +168,38 @@ function computeScore(
       }
       return matches / refWords.size;
     }
-    case 'llm-judge':
-      return output.trim().length > 0 ? 1.0 : 0.0;
+    case 'llm-judge': {
+      if (!config?.llm) {
+        console.warn(
+          'benchmark-runner: llm-judge scorer used without providing an llm function in BenchmarkConfig. ' +
+          'Falling back to non-empty heuristic. Pass { llm: yourLlmFn } to runBenchmark() for real scoring.',
+        );
+        return output.trim().length > 0 ? 1.0 : 0.0;
+      }
+
+      const criteria = config.judgeCriteria ?? STANDARD_CRITERIA;
+      const judge = createLLMJudge({
+        id: 'benchmark-llm-judge',
+        criteria,
+        llm: config.llm,
+        maxRetries: 1,
+      });
+
+      const evalInput: EvalInput = {
+        input,
+        output,
+        reference,
+      };
+
+      try {
+        const result = await judge.score(evalInput);
+        return result.aggregateScore;
+      } catch {
+        return 0.0;
+      }
+    }
     case 'composite': {
-      const deterministicScore = computeScore('deterministic', output, reference);
+      const deterministicScore = await computeScore('deterministic', output, input, reference, config);
       const existenceScore = output.trim().length > 0 ? 1.0 : 0.0;
       return (deterministicScore + existenceScore) / 2;
     }

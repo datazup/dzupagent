@@ -65,7 +65,8 @@ export type {
   BenchmarkResult,
   BenchmarkComparison,
 } from './benchmarks/benchmark-types.js';
-export { runBenchmark, compareBenchmarks } from './benchmarks/benchmark-runner.js';
+export { runBenchmark, compareBenchmarks, createBenchmarkWithJudge } from './benchmarks/benchmark-runner.js';
+export type { BenchmarkConfig } from './benchmarks/benchmark-runner.js';
 export { CODE_GEN_SUITE } from './benchmarks/suites/code-gen.js';
 export { QA_SUITE } from './benchmarks/suites/qa.js';
 export { TOOL_USE_SUITE } from './benchmarks/suites/tool-use.js';
