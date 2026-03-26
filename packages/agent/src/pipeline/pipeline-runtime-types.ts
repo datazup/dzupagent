@@ -11,6 +11,7 @@ import type {
   PipelineCheckpointStore,
 } from '@forgeagent/core'
 import type { RecoveryCopilot } from '../recovery/recovery-copilot.js'
+import type { PipelineStuckDetector } from '../self-correction/pipeline-stuck-detector.js'
 
 // ---------------------------------------------------------------------------
 // Pipeline state
@@ -55,6 +56,8 @@ export interface NodeExecutionContext {
   signal?: AbortSignal
   /** Remaining budget */
   budget?: { tokensRemaining: number; costRemainingCents: number }
+  /** Hint from stuck detector suggesting the node should try a different strategy */
+  stuckHint?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +88,8 @@ export type PipelineRuntimeEvent =
   | { type: 'pipeline:recovery_attempted'; nodeId: string; attempt: number; maxAttempts: number; error: string }
   | { type: 'pipeline:recovery_succeeded'; nodeId: string; attempt: number; summary: string }
   | { type: 'pipeline:recovery_failed'; nodeId: string; attempt: number; error: string }
+  | { type: 'pipeline:stuck_detected'; nodeId: string; reason: string; suggestedAction: string }
+  | { type: 'pipeline:node_output_recorded'; nodeId: string; outputHash: string }
 
 // ---------------------------------------------------------------------------
 // Loop metrics
@@ -168,6 +173,8 @@ export interface PipelineRuntimeConfig {
   retryPolicy?: RetryPolicy
   /** Optional OTel tracer for creating spans per pipeline node */
   tracer?: PipelineTracer
+  /** Optional stuck detector for cross-node stuck detection */
+  stuckDetector?: PipelineStuckDetector
   /** Optional recovery copilot for automatic failure recovery */
   recoveryCopilot?: {
     /** The RecoveryCopilot instance to use for recovery attempts */

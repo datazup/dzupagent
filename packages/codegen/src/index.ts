@@ -149,6 +149,14 @@ export type { ImportValidationResult, ImportError } from './validation/import-va
 // --- Quality ---
 export type { QualityDimension, DimensionResult, QualityResult, QualityContext } from './quality/quality-types.js'
 export { QualityScorer } from './quality/quality-scorer.js'
+export { ConventionGate } from './quality/convention-gate.js'
+export type {
+  ConventionViolation as ConventionGateViolation,
+  ConventionCategory,
+  LearnedConvention,
+  ConventionGateConfig,
+  ConventionGateResult,
+} from './quality/convention-gate.js'
 export {
   typeStrictness,
   eslintClean,

@@ -392,6 +392,38 @@ export class PipelineRuntime {
           this.emit({ type: 'pipeline:node_failed', nodeId: node.id, error: finalResult.error })
           nodeResults.set(node.id, finalResult)
 
+          // Record failure in stuck detector (if configured)
+          if (this.config.stuckDetector) {
+            const stuckStatus = this.config.stuckDetector.recordNodeFailure(node.id, finalResult.error)
+            if (stuckStatus.stuck) {
+              this.emit({
+                type: 'pipeline:stuck_detected',
+                nodeId: stuckStatus.nodeId ?? node.id,
+                reason: stuckStatus.reason ?? 'Unknown',
+                suggestedAction: stuckStatus.suggestedAction ?? 'abort',
+              })
+
+              if (stuckStatus.suggestedAction === 'abort') {
+                // Stuck detector says abort — skip recovery and fail immediately
+                this.state = 'failed'
+                const abortError = `Pipeline stuck: ${stuckStatus.reason}`
+                this.emit({ type: 'pipeline:failed', runId, error: abortError })
+                return {
+                  pipelineId: this.config.definition.id,
+                  runId,
+                  state: 'failed',
+                  nodeResults,
+                  totalDurationMs: Date.now() - startTime,
+                }
+              }
+
+              if (stuckStatus.suggestedAction === 'switch_strategy') {
+                // Add hint to context so next execution attempt can adapt
+                context.stuckHint = stuckStatus.reason
+              }
+            }
+          }
+
           // Check for error edges
           const errorNext = this.getErrorTarget(node.id)
           if (errorNext) {
@@ -426,6 +458,44 @@ export class PipelineRuntime {
 
         this.emit({ type: 'pipeline:node_completed', nodeId: node.id, durationMs: finalResult.durationMs })
         nodeResults.set(node.id, finalResult)
+
+        // Record successful output in stuck detector (if configured)
+        if (this.config.stuckDetector) {
+          const outputStr = JSON.stringify(finalResult.output) ?? ''
+          const stuckStatus = this.config.stuckDetector.recordNodeOutput(node.id, outputStr)
+          this.emit({
+            type: 'pipeline:node_output_recorded',
+            nodeId: node.id,
+            outputHash: outputStr.slice(0, 32),
+          })
+
+          if (stuckStatus.stuck) {
+            this.emit({
+              type: 'pipeline:stuck_detected',
+              nodeId: stuckStatus.nodeId ?? node.id,
+              reason: stuckStatus.reason ?? 'Unknown',
+              suggestedAction: stuckStatus.suggestedAction ?? 'switch_strategy',
+            })
+
+            if (stuckStatus.suggestedAction === 'abort') {
+              this.state = 'failed'
+              const abortError = `Pipeline stuck: ${stuckStatus.reason}`
+              this.emit({ type: 'pipeline:failed', runId, error: abortError })
+              return {
+                pipelineId: this.config.definition.id,
+                runId,
+                state: 'failed',
+                nodeResults,
+                totalDurationMs: Date.now() - startTime,
+              }
+            }
+
+            if (stuckStatus.suggestedAction === 'switch_strategy') {
+              context.stuckHint = stuckStatus.reason
+            }
+          }
+        }
+
         completedNodeIds.push(node.id)
 
         await this.saveCheckpoint(runId, runState, completedNodeIds, versionTracker)
