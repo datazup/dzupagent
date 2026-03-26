@@ -1,5 +1,28 @@
 # @forgeagent/memory-ipc
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+> Arrow-based IPC for inter-agent memory sharing in ForgeAgent
+
+**Maturity:** Experimental | **Coverage:** N/A | **Exports:** 24
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 28 |
+| Lines of Code | 8,956 |
+| Test Files | 13 |
+| Internal Dependencies | `@forgeagent/memory` |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/memory-ipc
+```
+<!-- AUTO-GENERATED-END -->
+
 Arrow-based IPC for inter-agent memory sharing in ForgeAgent. Provides a canonical 22-column Apache Arrow schema, builder/reader for memory frames, IPC serialization, columnar operations, token budget allocation, cross-framework adapters, and MCP transport.
 
 ## Installation

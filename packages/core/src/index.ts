@@ -675,6 +675,7 @@ export { VectorStoreSemanticSearch } from './registry/index.js'
 
 // --- Pipeline ---
 export type {
+  NodeRetryPolicy,
   PipelineNodeBase,
   AgentNode,
   ToolNode,
@@ -784,6 +785,8 @@ export {
   translateQdrantFilter,
   PineconeAdapter,
   translatePineconeFilter,
+  TurbopufferAdapter,
+  translateTurbopufferFilter,
 } from './vectordb/index.js'
 export type {
   OpenAIEmbeddingConfig,
@@ -799,6 +802,7 @@ export type {
   ChromaDBAdapterConfig,
   QdrantAdapterConfig,
   PineconeAdapterConfig,
+  TurbopufferAdapterConfig,
 } from './vectordb/index.js'
 
 // --- Tool Stats ---

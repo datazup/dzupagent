@@ -894,6 +894,233 @@ export const EVENT_METRIC_MAP: Record<ForgeEvent['type'], MetricMapping[]> = {
     },
   ],
 
+  // --- Memory Retrieval Sources ---
+  'memory:retrieval_source_failed': [
+    {
+      metricName: 'forge_memory_retrieval_source_failures_total',
+      type: 'counter',
+      description: 'Total memory retrieval source failures',
+      labelKeys: ['source'],
+      extract: (e) => {
+        const ev = as<'memory:retrieval_source_failed'>(e)
+        return { value: 1, labels: { source: ev.source } }
+      },
+    },
+    {
+      metricName: 'forge_memory_retrieval_source_duration_ms',
+      type: 'histogram',
+      description: 'Memory retrieval source duration in milliseconds',
+      labelKeys: ['source'],
+      extract: (e) => {
+        const ev = as<'memory:retrieval_source_failed'>(e)
+        return { value: ev.durationMs, labels: { source: ev.source } }
+      },
+    },
+  ],
+
+  'memory:retrieval_source_succeeded': [
+    {
+      metricName: 'forge_memory_retrieval_source_successes_total',
+      type: 'counter',
+      description: 'Total memory retrieval source successes',
+      labelKeys: ['source'],
+      extract: (e) => {
+        const ev = as<'memory:retrieval_source_succeeded'>(e)
+        return { value: 1, labels: { source: ev.source } }
+      },
+    },
+    {
+      metricName: 'forge_memory_retrieval_source_duration_ms',
+      type: 'histogram',
+      description: 'Memory retrieval source duration in milliseconds',
+      labelKeys: ['source'],
+      extract: (e) => {
+        const ev = as<'memory:retrieval_source_succeeded'>(e)
+        return { value: ev.durationMs, labels: { source: ev.source } }
+      },
+    },
+  ],
+
+  // --- Pipeline Retry ---
+  'pipeline:node_retry': [
+    {
+      metricName: 'forge_pipeline_node_retries_total',
+      type: 'counter',
+      description: 'Total pipeline node retry attempts',
+      labelKeys: ['pipeline_id', 'node_id', 'attempt'],
+      extract: (e) => {
+        const ev = as<'pipeline:node_retry'>(e)
+        return { value: 1, labels: { pipeline_id: ev.pipelineId, node_id: ev.nodeId, attempt: String(ev.attempt) } }
+      },
+    },
+  ],
+
+  // --- Telemetry ---
+  'tool:latency': [
+    {
+      metricName: 'forge_tool_latency_ms',
+      type: 'histogram',
+      description: 'Tool execution latency in milliseconds',
+      labelKeys: ['tool_name'],
+      extract: (e) => {
+        const ev = as<'tool:latency'>(e)
+        return { value: ev.durationMs, labels: { tool_name: ev.toolName } }
+      },
+    },
+  ],
+
+  'agent:stop_reason': [
+    {
+      metricName: 'forge_agent_stop_total',
+      type: 'counter',
+      description: 'Total agent stop events by reason',
+      labelKeys: ['agent_id', 'reason'],
+      extract: (e) => {
+        const ev = as<'agent:stop_reason'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId, reason: ev.reason } }
+      },
+    },
+  ],
+
+  'agent:stuck_detected': [
+    {
+      metricName: 'forge_agent_stuck_detected_total',
+      type: 'counter',
+      description: 'Total agent stuck detection events',
+      labelKeys: ['agent_id', 'reason'],
+      extract: (e) => {
+        const ev = as<'agent:stuck_detected'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId, reason: ev.reason } }
+      },
+    },
+  ],
+
+  // --- Delegation ---
+  'delegation:started': [
+    {
+      metricName: 'forge_delegation_started_total',
+      type: 'counter',
+      description: 'Total delegation start events',
+      labelKeys: ['target_agent_id'],
+      extract: (e) => {
+        const ev = as<'delegation:started'>(e)
+        return { value: 1, labels: { target_agent_id: ev.targetAgentId } }
+      },
+    },
+  ],
+
+  'delegation:completed': [
+    {
+      metricName: 'forge_delegation_completed_total',
+      type: 'counter',
+      description: 'Total delegation completion events',
+      labelKeys: ['target_agent_id', 'success'],
+      extract: (e) => {
+        const ev = as<'delegation:completed'>(e)
+        return { value: 1, labels: { target_agent_id: ev.targetAgentId, success: String(ev.success) } }
+      },
+    },
+    {
+      metricName: 'forge_delegation_duration_ms',
+      type: 'histogram',
+      description: 'Delegation duration in milliseconds',
+      labelKeys: ['target_agent_id'],
+      extract: (e) => {
+        const ev = as<'delegation:completed'>(e)
+        return { value: ev.durationMs, labels: { target_agent_id: ev.targetAgentId } }
+      },
+    },
+  ],
+
+  'delegation:failed': [
+    {
+      metricName: 'forge_delegation_failed_total',
+      type: 'counter',
+      description: 'Total delegation failure events',
+      labelKeys: ['target_agent_id'],
+      extract: (e) => {
+        const ev = as<'delegation:failed'>(e)
+        return { value: 1, labels: { target_agent_id: ev.targetAgentId } }
+      },
+    },
+  ],
+
+  'delegation:timeout': [
+    {
+      metricName: 'forge_delegation_timeout_total',
+      type: 'counter',
+      description: 'Total delegation timeout events',
+      labelKeys: ['target_agent_id'],
+      extract: (e) => {
+        const ev = as<'delegation:timeout'>(e)
+        return { value: 1, labels: { target_agent_id: ev.targetAgentId } }
+      },
+    },
+  ],
+
+  'delegation:cancelled': [
+    {
+      metricName: 'forge_delegation_cancelled_total',
+      type: 'counter',
+      description: 'Total delegation cancellation events',
+      labelKeys: ['target_agent_id'],
+      extract: (e) => {
+        const ev = as<'delegation:cancelled'>(e)
+        return { value: 1, labels: { target_agent_id: ev.targetAgentId } }
+      },
+    },
+  ],
+
+  // --- Supervisor ---
+  'supervisor:delegating': [
+    {
+      metricName: 'forge_supervisor_delegations_total',
+      type: 'counter',
+      description: 'Total supervisor delegation events',
+      labelKeys: ['specialist_id'],
+      extract: (e) => {
+        const ev = as<'supervisor:delegating'>(e)
+        return { value: 1, labels: { specialist_id: ev.specialistId } }
+      },
+    },
+  ],
+
+  'supervisor:delegation_complete': [
+    {
+      metricName: 'forge_supervisor_delegation_completions_total',
+      type: 'counter',
+      description: 'Total supervisor delegation completions',
+      labelKeys: ['specialist_id', 'success'],
+      extract: (e) => {
+        const ev = as<'supervisor:delegation_complete'>(e)
+        return { value: 1, labels: { specialist_id: ev.specialistId, success: String(ev.success) } }
+      },
+    },
+  ],
+
+  'supervisor:plan_created': [
+    {
+      metricName: 'forge_supervisor_plans_created_total',
+      type: 'counter',
+      description: 'Total supervisor plan creation events',
+      labelKeys: ['source'],
+      extract: (e) => {
+        const ev = as<'supervisor:plan_created'>(e)
+        return { value: 1, labels: { source: ev.source ?? 'unknown' } }
+      },
+    },
+  ],
+
+  'supervisor:llm_decompose_fallback': [
+    {
+      metricName: 'forge_supervisor_llm_fallbacks_total',
+      type: 'counter',
+      description: 'Total supervisor LLM decomposition fallback events',
+      labelKeys: [],
+      extract: () => ({ value: 1, labels: {} }),
+    },
+  ],
+
   // --- Hooks / plugins (no metrics, just span events) ---
   'hook:error': [],
   'plugin:registered': [],

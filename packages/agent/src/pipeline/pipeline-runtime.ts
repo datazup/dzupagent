@@ -24,7 +24,13 @@ import type {
   NodeExecutionContext,
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
+  RetryPolicy,
 } from './pipeline-runtime-types.js'
+import {
+  calculateBackoff,
+  isRetryable as isRetryableError,
+  resolveRetryPolicy,
+} from './retry-policy.js'
 
 // ---------------------------------------------------------------------------
 // Pipeline Runtime
@@ -327,6 +333,10 @@ export class PipelineRuntime {
 
       try {
         const maxAttempts = (node.retries ?? 0) + 1 // retries=0 means 1 attempt (no retry)
+        const effectivePolicy = resolveRetryPolicy(
+          node.retryPolicy as RetryPolicy | undefined,
+          this.config.retryPolicy,
+        )
         let result: NodeResult | undefined
         const nodeStartTime = Date.now()
 
@@ -339,14 +349,10 @@ export class PipelineRuntime {
           if (attempt === maxAttempts) break
 
           // Check if error is retryable
-          if (!this.isRetryable(result.error)) break
+          if (!isRetryableError(result.error, effectivePolicy)) break
 
-          // Calculate backoff
-          const policy = this.config.retryPolicy ?? {}
-          const initialMs = policy.initialBackoffMs ?? 1000
-          const maxMs = policy.maxBackoffMs ?? 30000
-          const multiplier = policy.multiplier ?? policy.backoffMultiplier ?? 2
-          const backoffMs = Math.min(initialMs * Math.pow(multiplier, attempt - 1), maxMs)
+          // Calculate backoff (with optional jitter)
+          const backoffMs = calculateBackoff(attempt, effectivePolicy)
 
           // Emit retry event
           this.emit({
@@ -824,18 +830,6 @@ export class PipelineRuntime {
 
   private emit(event: PipelineRuntimeEvent): void {
     this.config.onEvent?.(event)
-  }
-
-  // ---------------------------------------------------------------------------
-  // Retry helpers
-  // ---------------------------------------------------------------------------
-
-  private isRetryable(error: string): boolean {
-    const patterns = this.config.retryPolicy?.retryableErrors
-    if (!patterns || patterns.length === 0) return true // all errors retryable by default
-    return patterns.some(p =>
-      typeof p === 'string' ? error.includes(p) : p.test(error),
-    )
   }
 
   // ---------------------------------------------------------------------------

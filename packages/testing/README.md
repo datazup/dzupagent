@@ -1,5 +1,26 @@
 # @forgeagent/testing
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Experimental | **Coverage:** N/A | **Exports:** 6
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 8 |
+| Lines of Code | 715 |
+| Test Files | 1 |
+| Internal Dependencies | None |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/testing
+```
+<!-- AUTO-GENERATED-END -->
+
 Security testing framework for ForgeAgent agents. Provides pre-built test suites that verify agent resilience against prompt injection, privilege escalation, memory poisoning, and sandbox escape attacks. Each test case defines a malicious input, expected system behavior, and severity level.
 
 ## Installation

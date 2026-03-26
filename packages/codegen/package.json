@@ -24,7 +24,17 @@
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",
     "@langchain/langgraph": ">=1.0.0",
+    "web-tree-sitter": ">=0.22.0",
+    "tree-sitter-wasms": ">=0.1.0",
     "zod": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "web-tree-sitter": {
+      "optional": true
+    },
+    "tree-sitter-wasms": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@langchain/core": "^1.1.32",

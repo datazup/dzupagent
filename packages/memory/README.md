@@ -1,5 +1,26 @@
 # @forgeagent/memory
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Beta | **Coverage:** 88% | **Exports:** 195
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 76 |
+| Lines of Code | 29,532 |
+| Test Files | 37 |
+| Internal Dependencies | `@forgeagent/memory-ipc` |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/memory
+```
+<!-- AUTO-GENERATED-END -->
+
 Reusable memory management for LLM agents built on LangGraph Store.
 
 ## Features

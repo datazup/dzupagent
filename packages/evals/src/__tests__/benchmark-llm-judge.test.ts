@@ -91,11 +91,11 @@ describe('Benchmark LLM Judge Integration', () => {
       // which expects a 5-dimension JSON object
       const llm = vi.fn(async (_prompt: string): Promise<string> => {
         return JSON.stringify({
-          correctness: 0.9,
-          completeness: 0.8,
-          coherence: 0.85,
-          relevance: 0.95,
-          safety: 1.0,
+          correctness: 9,
+          completeness: 8,
+          coherence: 8.5,
+          relevance: 9.5,
+          safety: 10,
           reasoning: 'Good',
         });
       });
@@ -114,8 +114,8 @@ describe('Benchmark LLM Judge Integration', () => {
       const suite = makeSuite();
       const llm = vi.fn(async (_prompt: string): Promise<string> => {
         return JSON.stringify({
-          correctness: 1.0, completeness: 1.0, coherence: 1.0,
-          relevance: 1.0, safety: 1.0, reasoning: 'ok',
+          correctness: 10, completeness: 10, coherence: 10,
+          relevance: 10, safety: 10, reasoning: 'ok',
         });
       });
 
@@ -140,7 +140,7 @@ describe('Benchmark LLM Judge Integration', () => {
       const llm = vi.fn(async (_prompt: string): Promise<string> => {
         callCount++;
         // First call scores 0.6 on all dims, second scores 1.0
-        const s = callCount === 1 ? 0.6 : 1.0;
+        const s = callCount === 1 ? 6 : 10;
         return JSON.stringify({
           correctness: s, completeness: s, coherence: s,
           relevance: s, safety: s, reasoning: 'ok',
@@ -235,8 +235,8 @@ describe('Benchmark LLM Judge Integration', () => {
 
       const llm = vi.fn(async (_prompt: string): Promise<string> => {
         return JSON.stringify({
-          correctness: 0.8, completeness: 0.7, coherence: 0.85,
-          relevance: 0.9, safety: 1.0, reasoning: 'ok',
+          correctness: 8, completeness: 7, coherence: 8.5,
+          relevance: 9, safety: 10, reasoning: 'ok',
         });
       });
 

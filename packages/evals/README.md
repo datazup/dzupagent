@@ -1,5 +1,26 @@
 # @forgeagent/evals
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Experimental | **Coverage:** N/A | **Exports:** 41
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 37 |
+| Lines of Code | 8,130 |
+| Test Files | 9 |
+| Internal Dependencies | `@forgeagent/core` |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/evals
+```
+<!-- AUTO-GENERATED-END -->
+
 Evaluation framework for LLM agent outputs. Provides deterministic scorers, LLM-as-judge scorers, composite scoring, dataset management with JSON/JSONL/CSV loaders, a concurrent evaluation runner with regression detection, four built-in benchmark suites, and CI-compatible report formatters.
 
 ## Installation

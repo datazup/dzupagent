@@ -24,10 +24,14 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@forgeagent/memory": "workspace:*"
+    "@forgeagent/memory": "workspace:*",
+    "@duckdb/duckdb-wasm": ">=1.29.0"
   },
   "peerDependenciesMeta": {
     "@forgeagent/memory": {
+      "optional": true
+    },
+    "@duckdb/duckdb-wasm": {
       "optional": true
     }
   },

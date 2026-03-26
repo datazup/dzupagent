@@ -35,8 +35,18 @@ export type { MetricsRouteConfig } from './routes/metrics.js'
 export { PrometheusMetricsCollector } from './metrics/prometheus-collector.js'
 
 // --- Persistence ---
-export { PostgresRunStore, PostgresAgentStore } from './persistence/postgres-stores.js'
-export { forgeAgents, forgeRuns, forgeRunLogs } from './persistence/drizzle-schema.js'
+export { PostgresRunStore, PostgresAgentStore, DrizzleVectorStore } from './persistence/postgres-stores.js'
+export type {
+  VectorDistanceMetric,
+  VectorEntry as DrizzleVectorEntry,
+  VectorSearchResult as DrizzleVectorSearchResult,
+  VectorSearchOptions as DrizzleVectorSearchOptions,
+} from './persistence/postgres-stores.js'
+export { forgeAgents, forgeRuns, forgeRunLogs, forgeVectors, deploymentHistory } from './persistence/drizzle-schema.js'
+
+// --- Vector (pgvector) ---
+export { vectorColumn } from './persistence/vector-column.js'
+export { cosineDistance, l2Distance, innerProduct, toVector } from './persistence/vector-ops.js'
 export { InMemoryRunTraceStore, computeStepDistribution } from './persistence/run-trace-store.js'
 export type {
   TraceStep,
@@ -242,13 +252,15 @@ export type {
 export type { ForgeAgentRunExecutorOptions } from './runtime/forge-agent-run-executor.js'
 export { reportRetrievalFeedback, mapScoreToQuality } from './runtime/retrieval-feedback-hook.js'
 export type { RetrievalFeedbackSink, RetrievalFeedbackHookConfig } from './runtime/retrieval-feedback-hook.js'
-export { resolveAgentTools, ToolResolutionError } from './runtime/tool-resolver.js'
+export { resolveAgentTools, ToolResolutionError, getToolProfileConfig } from './runtime/tool-resolver.js'
 export type {
   ToolResolverContext,
   ToolResolverResult,
   ToolResolverOptions,
   ToolSource,
   CustomToolResolver,
+  ToolProfile,
+  ToolProfileConfig,
 } from './runtime/tool-resolver.js'
 export { isStructuredResult } from './runtime/utils.js'
 
@@ -270,6 +282,37 @@ export type {
   DeployConfidenceConfig,
   DeploymentRecord,
 } from './deploy/confidence-types.js'
+
+// --- Deploy History Store ---
+export {
+  PostgresDeploymentHistoryStore,
+  InMemoryDeploymentHistoryStore,
+} from './deploy/deployment-history-store.js'
+export type {
+  DeploymentHistoryStoreInterface,
+  DeploymentHistoryRecord,
+  DeploymentHistoryInput,
+  DeploymentOutcome,
+  SuccessRateResult,
+} from './deploy/deployment-history-store.js'
+
+// --- Deploy Signal Checkers ---
+export {
+  checkRecoveryCopilotConfigured,
+  checkRollbackAvailable,
+  computeAllSignals,
+} from './deploy/signal-checkers.js'
+export type {
+  AgentConfigLike,
+  RollbackCheckResult,
+  RollbackChecker,
+  SignalComputationResult,
+  SignalComputationConfig,
+} from './deploy/signal-checkers.js'
+
+// --- Deploy Routes ---
+export { createDeployRoutes } from './routes/deploy.js'
+export type { DeployRouteConfig } from './routes/deploy.js'
 
 // --- Security / Incident Response ---
 export { IncidentResponseEngine, clearIncidentFlags, isAgentKilled, isToolDisabled, isNamespaceQuarantined } from './security/incident-response.js'

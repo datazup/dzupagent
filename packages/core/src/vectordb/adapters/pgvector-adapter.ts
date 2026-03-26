@@ -251,11 +251,12 @@ export class PgVectorAdapter implements VectorStore {
     const result = await this.query(sql, params)
 
     return result.rows.map((row) => {
+      const rowText = row['text'] as string | undefined
       const entry: VectorSearchResult = {
         id: row['id'] as string,
         score: row['score'] as number,
         metadata: (row['metadata'] as Record<string, unknown>) ?? {},
-        text: row['text'] as string | undefined,
+        ...(rowText != null ? { text: rowText } : {}),
       }
       if (query.includeVectors && row['vector']) {
         entry.vector = row['vector'] as number[]

@@ -46,10 +46,18 @@
     "@langchain/core": ">=1.0.0",
     "@langchain/langgraph": ">=1.0.0",
     "@forgeagent/memory-ipc": "workspace:*",
-    "zod": ">=4.0.0"
+    "zod": ">=4.0.0",
+    "@lancedb/lancedb": ">=0.10.0",
+    "apache-arrow": ">=15.0.0"
   },
   "peerDependenciesMeta": {
     "@forgeagent/memory-ipc": {
+      "optional": true
+    },
+    "@lancedb/lancedb": {
+      "optional": true
+    },
+    "apache-arrow": {
       "optional": true
     }
   },

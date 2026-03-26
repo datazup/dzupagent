@@ -26,26 +26,30 @@ export function createAutoEmbeddingProvider(
 
   const voyageKey = e['VOYAGE_API_KEY']
   if (voyageKey) {
+    const voyageModel = e['VOYAGE_MODEL']
     return createVoyageEmbedding({
       apiKey: voyageKey,
-      model: e['VOYAGE_MODEL'],
+      ...(voyageModel != null ? { model: voyageModel } : {}),
     })
   }
 
   const openaiKey = e['OPENAI_API_KEY']
   if (openaiKey) {
+    const openaiModel = e['OPENAI_EMBEDDING_MODEL']
+    const openaiBaseUrl = e['OPENAI_BASE_URL']
     return createOpenAIEmbedding({
       apiKey: openaiKey,
-      model: e['OPENAI_EMBEDDING_MODEL'],
-      baseUrl: e['OPENAI_BASE_URL'],
+      ...(openaiModel != null ? { model: openaiModel } : {}),
+      ...(openaiBaseUrl != null ? { baseUrl: openaiBaseUrl } : {}),
     })
   }
 
   const cohereKey = e['COHERE_API_KEY']
   if (cohereKey) {
+    const cohereModel = e['COHERE_EMBEDDING_MODEL']
     return createCohereEmbedding({
       apiKey: cohereKey,
-      model: e['COHERE_EMBEDDING_MODEL'],
+      ...(cohereModel != null ? { model: cohereModel } : {}),
     })
   }
 
@@ -71,8 +75,10 @@ export interface AutoDetectResult {
  * Priority chain:
  * 1. VECTOR_PROVIDER env var (explicit override)
  * 2. QDRANT_URL present -> qdrant
- * 3. PINECONE_API_KEY present -> pinecone
- * 4. Falls back to 'memory' (in-memory store)
+ * 3. TURBOPUFFER_API_KEY present -> turbopuffer
+ * 4. PINECONE_API_KEY present -> pinecone
+ * 5. LANCEDB_URI present -> lancedb
+ * 6. Falls back to 'memory' (in-memory store)
  *
  * @param env - Optional env object (defaults to process.env)
  */
@@ -102,6 +108,19 @@ export function detectVectorProvider(
     }
   }
 
+  // Turbopuffer
+  const turbopufferKey = e['TURBOPUFFER_API_KEY']
+  if (turbopufferKey) {
+    return {
+      provider: 'turbopuffer',
+      config: {
+        apiKey: turbopufferKey,
+        baseUrl: e['TURBOPUFFER_BASE_URL'],
+        namespacePrefix: e['TURBOPUFFER_NAMESPACE_PREFIX'],
+      },
+    }
+  }
+
   // Pinecone
   const pineconeKey = e['PINECONE_API_KEY']
   if (pineconeKey) {
@@ -110,6 +129,17 @@ export function detectVectorProvider(
       config: {
         apiKey: pineconeKey,
         environment: e['PINECONE_ENVIRONMENT'],
+      },
+    }
+  }
+
+  // LanceDB (embedded, persistent)
+  const lancedbUri = e['LANCEDB_URI']
+  if (lancedbUri) {
+    return {
+      provider: 'lancedb',
+      config: {
+        uri: lancedbUri,
       },
     }
   }

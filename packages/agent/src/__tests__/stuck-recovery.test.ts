@@ -4,6 +4,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { runToolLoop } from '../agent/tool-loop.js'
 import { StuckDetector } from '../guardrails/stuck-detector.js'
+import { StuckError } from '../agent/stuck-error.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
 
 // ---------- Helpers ----------
@@ -267,5 +268,152 @@ describe('Escalating Stuck Recovery', () => {
     // Should still detect stuck and fire callback
     expect(stuckEvents.length).toBeGreaterThanOrEqual(1)
     expect(stuckEvents[0]!.toolName).toBe('ping')
+  })
+
+  it('stage 3 abort produces a StuckError in the result', async () => {
+    const detector = new StuckDetector({ maxRepeatCalls: 1 })
+    const budget = new IterationBudget({ maxTokens: 1_000_000 })
+    const tool1 = mockTool('a')
+    const tool2 = mockTool('b')
+    const tool3 = mockTool('c')
+
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'a', args: { v: 1 } }]),
+      aiWithToolCalls([{ name: 'b', args: { v: 1 } }]),
+      aiWithToolCalls([{ name: 'c', args: { v: 1 } }]),
+      new AIMessage('should not reach'),
+    ])
+
+    const result = await runToolLoop(
+      model,
+      [new HumanMessage('go')],
+      [tool1, tool2, tool3],
+      {
+        maxIterations: 10,
+        stuckDetector: detector,
+        budget,
+      },
+    )
+
+    expect(result.stopReason).toBe('stuck')
+    expect(result.stuckError).toBeDefined()
+    expect(result.stuckError).toBeInstanceOf(StuckError)
+    expect(result.stuckError!.escalationLevel).toBe(3)
+    expect(result.stuckError!.recoveryAction).toBe('loop_aborted')
+    expect(result.stuckError!.name).toBe('StuckError')
+    expect(result.stuckError!.reason).toBeTruthy()
+  })
+
+  it('stuckError contains the repeatedTool name', async () => {
+    const detector = new StuckDetector({ maxRepeatCalls: 1 })
+    const budget = new IterationBudget({ maxTokens: 1_000_000 })
+    const tool1 = mockTool('x1')
+    const tool2 = mockTool('x2')
+    const tool3 = mockTool('x3')
+
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'x1', args: { k: 'a' } }]),
+      aiWithToolCalls([{ name: 'x2', args: { k: 'a' } }]),
+      aiWithToolCalls([{ name: 'x3', args: { k: 'a' } }]),
+    ])
+
+    const result = await runToolLoop(
+      model,
+      [new HumanMessage('go')],
+      [tool1, tool2, tool3],
+      {
+        maxIterations: 10,
+        stuckDetector: detector,
+        budget,
+      },
+    )
+
+    expect(result.stopReason).toBe('stuck')
+    expect(result.stuckError).toBeDefined()
+    // The repeated tool should be one of x1, x2, or x3
+    expect(typeof result.stuckError!.repeatedTool).toBe('string')
+  })
+
+  it('no stuckError when loop completes normally', async () => {
+    const detector = new StuckDetector({ maxRepeatCalls: 5 })
+    const tool = mockTool('safe')
+
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'safe', args: { a: 1 } }]),
+      new AIMessage('all good'),
+    ])
+
+    const result = await runToolLoop(
+      model,
+      [new HumanMessage('do it')],
+      [tool],
+      {
+        maxIterations: 10,
+        stuckDetector: detector,
+      },
+    )
+
+    expect(result.stopReason).toBe('complete')
+    expect(result.stuckError).toBeUndefined()
+  })
+
+  it('no stuckError when stuckDetector is not provided', async () => {
+    const tool = mockTool('basic')
+
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'basic', args: { x: 1 } }]),
+      new AIMessage('done'),
+    ])
+
+    const result = await runToolLoop(
+      model,
+      [new HumanMessage('hello')],
+      [tool],
+      {
+        maxIterations: 10,
+        // No stuckDetector
+      },
+    )
+
+    expect(result.stopReason).toBe('complete')
+    expect(result.stuckError).toBeUndefined()
+  })
+})
+
+describe('StuckError', () => {
+  it('has correct properties', () => {
+    const err = new StuckError({
+      reason: 'Tool "read" called 3 times with identical input',
+      repeatedTool: 'read',
+      escalationLevel: 3,
+    })
+
+    expect(err).toBeInstanceOf(Error)
+    expect(err).toBeInstanceOf(StuckError)
+    expect(err.name).toBe('StuckError')
+    expect(err.reason).toBe('Tool "read" called 3 times with identical input')
+    expect(err.repeatedTool).toBe('read')
+    expect(err.escalationLevel).toBe(3)
+    expect(err.recoveryAction).toBe('loop_aborted')
+    expect(err.message).toContain('read')
+    expect(err.message).toContain('stuck')
+  })
+
+  it('defaults escalationLevel to 3', () => {
+    const err = new StuckError({ reason: 'no progress' })
+    expect(err.escalationLevel).toBe(3)
+    expect(err.recoveryAction).toBe('loop_aborted')
+    expect(err.repeatedTool).toBeUndefined()
+  })
+
+  it('maps escalation levels to recovery actions', () => {
+    const l1 = new StuckError({ reason: 'r', escalationLevel: 1 })
+    expect(l1.recoveryAction).toBe('tool_blocked')
+
+    const l2 = new StuckError({ reason: 'r', escalationLevel: 2 })
+    expect(l2.recoveryAction).toBe('nudge_injected')
+
+    const l3 = new StuckError({ reason: 'r', escalationLevel: 3 })
+    expect(l3.recoveryAction).toBe('loop_aborted')
   })
 })

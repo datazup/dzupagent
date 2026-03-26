@@ -57,10 +57,14 @@ export {
   PineconeAdapter, translatePineconeFilter,
   PgVectorAdapter,
   ChromaDBAdapter,
+  TurbopufferAdapter, translateTurbopufferFilter,
+  LanceDBAdapter, translateLanceDBFilter,
 } from './adapters/index.js'
 export type {
   QdrantAdapterConfig,
   PineconeAdapterConfig,
   PgVectorAdapterConfig,
   ChromaDBAdapterConfig,
+  TurbopufferAdapterConfig,
+  LanceDBAdapterConfig,
 } from './adapters/index.js'

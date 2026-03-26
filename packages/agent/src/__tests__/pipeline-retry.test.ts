@@ -9,7 +9,14 @@ import type {
   NodeResult,
   PipelineRuntimeEvent,
   NodeExecutionContext,
+  RetryPolicy,
 } from '../pipeline/pipeline-runtime-types.js'
+import {
+  DEFAULT_RETRY_POLICY,
+  calculateBackoff,
+  isRetryable,
+  resolveRetryPolicy,
+} from '../pipeline/retry-policy.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -581,5 +588,288 @@ describe('PipelineRuntime — node retry with exponential backoff', () => {
     await resultPromise
 
     expect(delays).toEqual([1000, 2000]) // default: 1000ms initial, 2x multiplier
+  })
+
+  it('jitter adds randomness to backoff delays', async () => {
+    // Seed Math.random to produce predictable jitter
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5) // 0.5 * 0.5 = 25% jitter
+
+    const delays: number[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      return { nodeId, output: null, durationMs: 1, error: 'fail' }
+    }
+
+    const runtime = new PipelineRuntime({
+      definition: makePipeline({
+        nodes: [{ id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000, retries: 2 }],
+      }),
+      nodeExecutor: executor,
+      retryPolicy: { initialBackoffMs: 100, multiplier: 2, jitter: true },
+      onEvent: (event) => {
+        if (event.type === 'pipeline:node_retry') {
+          delays.push(event.backoffMs)
+        }
+      },
+    })
+
+    const resultPromise = runtime.execute()
+    await vi.runAllTimersAsync()
+    await resultPromise
+
+    // With Math.random() = 0.5 => jitter factor = 0.25
+    // Attempt 1: base=100, jittered = 100 + 100*0.25 = 125
+    // Attempt 2: base=200, jittered = 200 + 200*0.25 = 250
+    expect(delays).toEqual([125, 250])
+
+    randomSpy.mockRestore()
+  })
+
+  it('per-node retryPolicy overrides global retryPolicy', async () => {
+    const delays: number[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      return { nodeId, output: null, durationMs: 1, error: 'fail' }
+    }
+
+    const runtime = new PipelineRuntime({
+      definition: makePipeline({
+        nodes: [{
+          id: 'A',
+          type: 'agent',
+          agentId: 'a1',
+          timeoutMs: 5000,
+          retries: 2,
+          retryPolicy: { initialBackoffMs: 50, multiplier: 3 },
+        }],
+      }),
+      nodeExecutor: executor,
+      retryPolicy: { initialBackoffMs: 1000, multiplier: 2 }, // global — should be overridden
+      onEvent: (event) => {
+        if (event.type === 'pipeline:node_retry') {
+          delays.push(event.backoffMs)
+        }
+      },
+    })
+
+    const resultPromise = runtime.execute()
+    await vi.runAllTimersAsync()
+    await resultPromise
+
+    // Node policy: initialBackoffMs=50, multiplier=3
+    // Attempt 1: 50, Attempt 2: 150
+    expect(delays).toEqual([50, 150])
+  })
+
+  it('per-node retryPolicy merges with global — node overrides only set fields', async () => {
+    const delays: number[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      return { nodeId, output: null, durationMs: 1, error: 'fail' }
+    }
+
+    const runtime = new PipelineRuntime({
+      definition: makePipeline({
+        nodes: [{
+          id: 'A',
+          type: 'agent',
+          agentId: 'a1',
+          timeoutMs: 5000,
+          retries: 2,
+          // Only override initialBackoffMs, inherit multiplier from global
+          retryPolicy: { initialBackoffMs: 50 },
+        }],
+      }),
+      nodeExecutor: executor,
+      retryPolicy: { initialBackoffMs: 1000, multiplier: 3 },
+      onEvent: (event) => {
+        if (event.type === 'pipeline:node_retry') {
+          delays.push(event.backoffMs)
+        }
+      },
+    })
+
+    const resultPromise = runtime.execute()
+    await vi.runAllTimersAsync()
+    await resultPromise
+
+    // Node: initialBackoffMs=50 (override), multiplier=3 (from global)
+    // Attempt 1: 50, Attempt 2: 150
+    expect(delays).toEqual([50, 150])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Standalone utility function tests
+// ---------------------------------------------------------------------------
+
+describe('calculateBackoff', () => {
+  it('returns initialBackoffMs for attempt 1', () => {
+    expect(calculateBackoff(1, { initialBackoffMs: 500 })).toBe(500)
+  })
+
+  it('applies exponential multiplier', () => {
+    const policy: RetryPolicy = { initialBackoffMs: 100, multiplier: 2 }
+    expect(calculateBackoff(1, policy)).toBe(100)
+    expect(calculateBackoff(2, policy)).toBe(200)
+    expect(calculateBackoff(3, policy)).toBe(400)
+    expect(calculateBackoff(4, policy)).toBe(800)
+  })
+
+  it('caps at maxBackoffMs', () => {
+    const policy: RetryPolicy = { initialBackoffMs: 100, multiplier: 10, maxBackoffMs: 500 }
+    expect(calculateBackoff(1, policy)).toBe(100)
+    expect(calculateBackoff(2, policy)).toBe(500) // 1000 capped to 500
+    expect(calculateBackoff(3, policy)).toBe(500) // 10000 capped to 500
+  })
+
+  it('uses defaults when no policy provided', () => {
+    // Default: initialBackoffMs=1000, multiplier=2, maxBackoffMs=30000
+    expect(calculateBackoff(1)).toBe(1000)
+    expect(calculateBackoff(2)).toBe(2000)
+    expect(calculateBackoff(3)).toBe(4000)
+  })
+
+  it('adds jitter when enabled', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.4) // 0.4 * 0.5 = 20% jitter
+    const policy: RetryPolicy = { initialBackoffMs: 100, multiplier: 2, jitter: true }
+
+    const result = calculateBackoff(1, policy)
+    // base=100, jitter = 100 * 0.2 = 20, total = 120
+    expect(result).toBe(120)
+
+    randomSpy.mockRestore()
+  })
+
+  it('jitter disabled by default', () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.99)
+    const policy: RetryPolicy = { initialBackoffMs: 100, multiplier: 2 }
+
+    // No jitter: should be exactly 100 regardless of Math.random
+    expect(calculateBackoff(1, policy)).toBe(100)
+    randomSpy.mockRestore()
+  })
+
+  it('jitter produces values in expected range [base, base*1.5]', () => {
+    const policy: RetryPolicy = { initialBackoffMs: 1000, multiplier: 1, jitter: true }
+
+    // Min jitter (Math.random=0): base * 1.0 = 1000
+    const spy1 = vi.spyOn(Math, 'random').mockReturnValue(0)
+    expect(calculateBackoff(1, policy)).toBe(1000)
+    spy1.mockRestore()
+
+    // Max jitter (Math.random=1): base * 1.5 = 1500
+    const spy2 = vi.spyOn(Math, 'random').mockReturnValue(1)
+    expect(calculateBackoff(1, policy)).toBe(1500)
+    spy2.mockRestore()
+  })
+
+  it('respects backoffMultiplier alias when multiplier is not set', () => {
+    const policy: RetryPolicy = { initialBackoffMs: 100, backoffMultiplier: 5 }
+    expect(calculateBackoff(1, policy)).toBe(100)
+    expect(calculateBackoff(2, policy)).toBe(500)
+  })
+})
+
+describe('isRetryable', () => {
+  it('returns true when no retryableErrors defined (all errors retryable)', () => {
+    expect(isRetryable('anything', {})).toBe(true)
+    expect(isRetryable('anything')).toBe(true)
+    expect(isRetryable('anything', { retryableErrors: [] })).toBe(true)
+  })
+
+  it('matches string patterns via includes()', () => {
+    const policy: RetryPolicy = { retryableErrors: ['timeout', 'ECONNRESET'] }
+    expect(isRetryable('Request timeout after 30s', policy)).toBe(true)
+    expect(isRetryable('ECONNRESET: connection reset', policy)).toBe(true)
+    expect(isRetryable('validation failed', policy)).toBe(false)
+  })
+
+  it('matches RegExp patterns via test()', () => {
+    const policy: RetryPolicy = { retryableErrors: [/rate.?limit/i, /429/] }
+    expect(isRetryable('Rate Limit Exceeded', policy)).toBe(true)
+    expect(isRetryable('HTTP 429 Too Many Requests', policy)).toBe(true)
+    expect(isRetryable('validation error', policy)).toBe(false)
+  })
+
+  it('supports mixed string and RegExp patterns', () => {
+    const policy: RetryPolicy = { retryableErrors: ['ECONNREFUSED', /timeout/i] }
+    expect(isRetryable('connect ECONNREFUSED 127.0.0.1:3000', policy)).toBe(true)
+    expect(isRetryable('Request Timeout', policy)).toBe(true)
+    expect(isRetryable('syntax error', policy)).toBe(false)
+  })
+})
+
+describe('resolveRetryPolicy', () => {
+  it('returns undefined when both inputs are undefined', () => {
+    expect(resolveRetryPolicy(undefined, undefined)).toBeUndefined()
+  })
+
+  it('returns global policy when node policy is undefined', () => {
+    const global: RetryPolicy = { initialBackoffMs: 500 }
+    expect(resolveRetryPolicy(undefined, global)).toBe(global)
+  })
+
+  it('returns node policy when global policy is undefined', () => {
+    const node: RetryPolicy = { initialBackoffMs: 200 }
+    expect(resolveRetryPolicy(node, undefined)).toBe(node)
+  })
+
+  it('merges node over global — node values take precedence', () => {
+    const global: RetryPolicy = { initialBackoffMs: 1000, multiplier: 2, maxBackoffMs: 30000 }
+    const node: RetryPolicy = { initialBackoffMs: 50 }
+
+    const merged = resolveRetryPolicy(node, global)
+    expect(merged).toEqual({
+      initialBackoffMs: 50,       // from node
+      multiplier: 2,              // from global
+      maxBackoffMs: 30000,        // from global
+      backoffMultiplier: undefined,
+      jitter: undefined,
+      retryableErrors: undefined,
+    })
+  })
+
+  it('node jitter overrides global jitter', () => {
+    const global: RetryPolicy = { jitter: false }
+    const node: RetryPolicy = { jitter: true }
+
+    const merged = resolveRetryPolicy(node, global)
+    expect(merged?.jitter).toBe(true)
+  })
+
+  it('node retryableErrors override global retryableErrors', () => {
+    const global: RetryPolicy = { retryableErrors: [/timeout/i] }
+    const node: RetryPolicy = { retryableErrors: ['ECONNRESET'] }
+
+    const merged = resolveRetryPolicy(node, global)
+    expect(merged?.retryableErrors).toEqual(['ECONNRESET'])
+  })
+})
+
+describe('DEFAULT_RETRY_POLICY', () => {
+  it('has expected default values', () => {
+    expect(DEFAULT_RETRY_POLICY.initialBackoffMs).toBe(1000)
+    expect(DEFAULT_RETRY_POLICY.maxBackoffMs).toBe(30000)
+    expect(DEFAULT_RETRY_POLICY.multiplier).toBe(2)
+    expect(DEFAULT_RETRY_POLICY.jitter).toBe(true)
+  })
+
+  it('has retryable error patterns for common transient failures', () => {
+    const patterns = DEFAULT_RETRY_POLICY.retryableErrors!
+    expect(patterns.length).toBeGreaterThan(0)
+
+    // Test that default patterns match common transient errors
+    const matchesAny = (error: string) =>
+      patterns.some(p => typeof p === 'string' ? error.includes(p) : p.test(error))
+
+    expect(matchesAny('HTTP 429 Too Many Requests')).toBe(true)
+    expect(matchesAny('Rate limit exceeded')).toBe(true)
+    expect(matchesAny('Request timeout after 30s')).toBe(true)
+    expect(matchesAny('connect ECONNRESET')).toBe(true)
+    expect(matchesAny('connect ECONNREFUSED 127.0.0.1:3000')).toBe(true)
+    expect(matchesAny('ETIMEDOUT')).toBe(true)
+    expect(matchesAny('socket hang up')).toBe(true)
+
+    // Non-transient errors should not match
+    expect(matchesAny('SyntaxError: unexpected token')).toBe(false)
+    expect(matchesAny('validation failed')).toBe(false)
   })
 })

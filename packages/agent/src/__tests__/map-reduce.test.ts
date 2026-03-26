@@ -245,6 +245,158 @@ describe('mapReduce', () => {
     // Also check per-agent duration
     expect(result.agentResults[0]!.durationMs).toBeGreaterThanOrEqual(0)
   })
+
+  it('processes large batch (12 chunks) within reasonable time', async () => {
+    const chunks = Array.from({ length: 12 }, (_, i) => `chunk-${i}`)
+    const responses = chunks.map((_, i) => ({ content: `done-${i}` }))
+
+    const model = createMockModel(responses)
+    const agent = new ForgeAgent({
+      id: 'batch-worker',
+      name: 'batch-worker',
+      model,
+      instructions: 'Process batch',
+    })
+
+    const result = await mapReduce(agent, chunks)
+
+    expect(result.stats.total).toBe(12)
+    expect(result.stats.succeeded).toBe(12)
+    expect(result.stats.failed).toBe(0)
+    expect(result.agentResults).toHaveLength(12)
+    // Verify all 12 results are present in the merged output
+    for (let i = 0; i < 12; i++) {
+      expect(result.result).toContain(`done-${i}`)
+    }
+  })
+
+  it('limits concurrency with large batch (concurrency=2, 6 chunks)', async () => {
+    const concurrentCount = { current: 0, max: 0 }
+
+    const model = {
+      invoke: vi.fn(async () => {
+        concurrentCount.current++
+        if (concurrentCount.current > concurrentCount.max) {
+          concurrentCount.max = concurrentCount.current
+        }
+        await new Promise(r => setTimeout(r, 30))
+        concurrentCount.current--
+        return new AIMessage({ content: 'ok', response_metadata: {} })
+      }),
+      bindTools: vi.fn(function (this: BaseChatModel) { return this }),
+      _modelType: () => 'base_chat_model',
+      _llmType: () => 'mock',
+    } as unknown as BaseChatModel
+
+    const agent = new ForgeAgent({
+      id: 'limited-worker',
+      name: 'limited-worker',
+      model,
+      instructions: 'Process',
+    })
+
+    const chunks = Array.from({ length: 6 }, (_, i) => `c-${i}`)
+    const result = await mapReduce(agent, chunks, { concurrency: 2 })
+
+    expect(result.stats.succeeded).toBe(6)
+    // Max concurrency should not exceed 2
+    expect(concurrentCount.max).toBeLessThanOrEqual(2)
+  })
+
+  it('uses a function reference as mergeStrategy directly', async () => {
+    const agent = createAgent('fn-merge-worker', [
+      { content: 'a' },
+      { content: 'b' },
+      { content: 'c' },
+    ])
+
+    const customFn = (results: string[]) => results.join(' | ')
+
+    const result = await mapReduce(agent, ['x', 'y', 'z'], {
+      mergeStrategy: customFn,
+    })
+
+    expect(result.result).toBe('a | b | c')
+  })
+
+  it('throws when mergeStrategy is "custom" but no customMerge is provided', async () => {
+    const agent = createAgent('no-custom', [{ content: 'ok' }])
+
+    await expect(
+      mapReduce(agent, ['x'], { mergeStrategy: 'custom' }),
+    ).rejects.toThrow('customMerge')
+  })
+
+  it('mid-execution abort cancels remaining chunks', async () => {
+    const controller = new AbortController()
+    let callCount = 0
+
+    const model = {
+      invoke: vi.fn(async () => {
+        callCount++
+        if (callCount === 2) {
+          // Abort after second chunk starts
+          controller.abort()
+        }
+        await new Promise(r => setTimeout(r, 20))
+        if (controller.signal.aborted) {
+          throw new Error('Aborted')
+        }
+        return new AIMessage({ content: `result-${callCount}`, response_metadata: {} })
+      }),
+      bindTools: vi.fn(function (this: BaseChatModel) { return this }),
+      _modelType: () => 'base_chat_model',
+      _llmType: () => 'mock',
+    } as unknown as BaseChatModel
+
+    const agent = new ForgeAgent({
+      id: 'mid-abort',
+      name: 'mid-abort',
+      model,
+      instructions: 'Process',
+    })
+
+    // Run 4 chunks with concurrency=1 so abort timing is predictable
+    const result = await mapReduce(
+      agent,
+      ['a', 'b', 'c', 'd'],
+      { concurrency: 1, signal: controller.signal },
+    )
+
+    // Some chunks should have failed due to abort
+    expect(result.stats.failed).toBeGreaterThanOrEqual(1)
+  })
+
+  it('successful results are ordered by chunkIndex in merged output', async () => {
+    // Use delays to ensure chunks complete out of order
+    let callCount = 0
+    const delays = [30, 10, 20] // chunk 0 slowest, chunk 1 fastest
+    const model = {
+      invoke: vi.fn(async () => {
+        const idx = callCount++
+        await new Promise(r => setTimeout(r, delays[idx] ?? 10))
+        return new AIMessage({ content: `ordered-${idx}`, response_metadata: {} })
+      }),
+      bindTools: vi.fn(function (this: BaseChatModel) { return this }),
+      _modelType: () => 'base_chat_model',
+      _llmType: () => 'mock',
+    } as unknown as BaseChatModel
+
+    const agent = new ForgeAgent({
+      id: 'order-worker',
+      name: 'order-worker',
+      model,
+      instructions: 'Process',
+    })
+
+    const result = await mapReduce(agent, ['a', 'b', 'c'], { concurrency: 5 })
+
+    // Even though chunk 1 finishes first, merged result should be in order 0, 1, 2
+    const parts = result.result.split('\n\n---\n\n')
+    expect(parts[0]).toBe('ordered-0')
+    expect(parts[1]).toBe('ordered-1')
+    expect(parts[2]).toBe('ordered-2')
+  })
 })
 
 // ---------------------------------------------------------------------------

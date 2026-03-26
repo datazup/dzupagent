@@ -610,4 +610,123 @@ describe('AgentOrchestrator.debate', () => {
       ),
     ).rejects.toThrow('proposer-crashed')
   })
+
+  it('judge failure after proposals rejects the debate', async () => {
+    const proposer = createAgent('prop', [{ content: 'A proposal' }])
+    const failJudge = new ForgeAgent({
+      id: 'fail-judge',
+      name: 'fail-judge',
+      model: createFailModel('judge-crashed'),
+      instructions: 'You fail',
+    })
+
+    await expect(
+      AgentOrchestrator.debate([proposer], failJudge, 'Test task'),
+    ).rejects.toThrow('judge-crashed')
+  })
+
+  it('3-round debate calls each proposer exactly 3 times', async () => {
+    const model1 = createMockModel([
+      { content: 'R1 idea A' },
+      { content: 'R2 idea A' },
+      { content: 'R3 idea A' },
+    ])
+    const model2 = createMockModel([
+      { content: 'R1 idea B' },
+      { content: 'R2 idea B' },
+      { content: 'R3 idea B' },
+    ])
+    const judgeModel = createMockModel([{ content: 'Final verdict after 3 rounds' }])
+
+    const p1 = createAgentWithModel('p1', 'Proposer 1', model1)
+    const p2 = createAgentWithModel('p2', 'Proposer 2', model2)
+    const judge = createAgentWithModel('judge', 'Judge', judgeModel)
+
+    const result = await AgentOrchestrator.debate(
+      [p1, p2],
+      judge,
+      'Design something',
+      { rounds: 3 },
+    )
+
+    expect(result).toBe('Final verdict after 3 rounds')
+    expect(model1.invoke).toHaveBeenCalledTimes(3)
+    expect(model2.invoke).toHaveBeenCalledTimes(3)
+    expect(judgeModel.invoke).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Agent state isolation
+// ---------------------------------------------------------------------------
+
+describe('Agent state isolation', () => {
+  it('sequential agents do not share model state', async () => {
+    // Each agent has its own model; verify one agent's model state
+    // does not leak into another agent's execution
+    const receivedMessages: string[][] = []
+
+    const modelA = {
+      invoke: vi.fn(async (msgs: BaseMessage[]) => {
+        receivedMessages.push(msgs.map(m => String(m.content)))
+        return new AIMessage({ content: 'output-a', response_metadata: {} })
+      }),
+      bindTools: vi.fn(function (this: BaseChatModel) { return this }),
+      _modelType: () => 'base_chat_model',
+      _llmType: () => 'mock',
+    } as unknown as BaseChatModel
+
+    const modelB = {
+      invoke: vi.fn(async (msgs: BaseMessage[]) => {
+        receivedMessages.push(msgs.map(m => String(m.content)))
+        return new AIMessage({ content: 'output-b', response_metadata: {} })
+      }),
+      bindTools: vi.fn(function (this: BaseChatModel) { return this }),
+      _modelType: () => 'base_chat_model',
+      _llmType: () => 'mock',
+    } as unknown as BaseChatModel
+
+    const agentA = createAgentWithModel('iso-a', 'Agent A', modelA)
+    const agentB = createAgentWithModel('iso-b', 'Agent B', modelB)
+
+    await AgentOrchestrator.sequential([agentA, agentB], 'initial')
+
+    // Agent A received initial input only
+    expect(receivedMessages[0]).toBeDefined()
+    expect(receivedMessages[0]!.some(m => m === 'initial')).toBe(true)
+
+    // Agent B received agent A's output only, not the initial input
+    expect(receivedMessages[1]).toBeDefined()
+    expect(receivedMessages[1]!.some(m => m === 'output-a')).toBe(true)
+    expect(receivedMessages[1]!.some(m => m === 'initial')).toBe(false)
+  })
+
+  it('parallel agents receive independent copies of input', async () => {
+    const receivedInputs: string[] = []
+
+    function createTrackingModel(label: string): BaseChatModel {
+      return {
+        invoke: vi.fn(async (msgs: BaseMessage[]) => {
+          const human = msgs.find(m => m._getType() === 'human')
+          receivedInputs.push(`${label}:${String(human?.content)}`)
+          return new AIMessage({ content: `${label}-result`, response_metadata: {} })
+        }),
+        bindTools: vi.fn(function (this: BaseChatModel) { return this }),
+        _modelType: () => 'base_chat_model',
+        _llmType: () => 'mock',
+      } as unknown as BaseChatModel
+    }
+
+    const a1 = createAgentWithModel('t1', 'T1', createTrackingModel('m1'))
+    const a2 = createAgentWithModel('t2', 'T2', createTrackingModel('m2'))
+    const a3 = createAgentWithModel('t3', 'T3', createTrackingModel('m3'))
+
+    await AgentOrchestrator.parallel([a1, a2, a3], 'shared-task')
+
+    // All three received the same input independently
+    expect(receivedInputs).toContain('m1:shared-task')
+    expect(receivedInputs).toContain('m2:shared-task')
+    expect(receivedInputs).toContain('m3:shared-task')
+    expect(receivedInputs).toHaveLength(3)
+  })
 })

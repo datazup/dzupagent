@@ -112,6 +112,11 @@ export interface RetryPolicy {
   /** Alias for `multiplier` (default: 2). If both are set, `multiplier` takes precedence. */
   backoffMultiplier?: number
   /**
+   * When true, adds random jitter (0-50%) to the calculated backoff delay
+   * to prevent thundering-herd problems. Default: false.
+   */
+  jitter?: boolean
+  /**
    * Error patterns that are retryable. If empty/unset, all errors are retryable.
    * - `string` values match via `error.includes(pattern)`
    * - `RegExp` values match via `pattern.test(error)`

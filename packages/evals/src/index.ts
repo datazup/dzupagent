@@ -39,17 +39,22 @@ export type {
   CostScorerConfig,
 } from './scorers/deterministic-enhanced.js';
 
-export { LlmJudgeScorer } from './scorers/llm-judge-scorer.js';
+export { LlmJudgeScorer, judgeResponseSchema } from './scorers/llm-judge-scorer.js';
 export type {
   JudgeDimension,
   JudgeScore,
   JudgeAnchor,
   JudgeScorerConfig,
   JudgeScorerResult,
+  JudgeResponse,
+  JudgeTokenUsage,
 } from './scorers/llm-judge-scorer.js';
 
 export { STANDARD_CRITERIA, CODE_CRITERIA, FIVE_POINT_RUBRIC, TEN_POINT_RUBRIC } from './scorers/criteria.js';
 export type { JudgeCriterion } from './scorers/criteria.js';
+
+export { ScorerRegistry, defaultScorerRegistry } from './scorers/scorer-registry.js';
+export type { ScorerFactory, ScorerFactoryDeps } from './scorers/scorer-registry.js';
 
 // Runner (legacy)
 export { runEvalSuite } from './eval-runner.js';

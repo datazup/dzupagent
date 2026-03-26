@@ -23,14 +23,22 @@ export type {
   CostScorerConfig,
 } from './deterministic-enhanced.js'
 
-export { LlmJudgeScorer } from './llm-judge-scorer.js'
+// 5-dimension LLM Judge with Zod validation
+export { LlmJudgeScorer, judgeResponseSchema } from './llm-judge-scorer.js'
 export type {
   JudgeDimension,
   JudgeScore,
   JudgeAnchor,
   JudgeScorerConfig,
   JudgeScorerResult,
+  JudgeResponse,
+  JudgeTokenUsage,
 } from './llm-judge-scorer.js'
 
+// Criteria and rubrics
 export { STANDARD_CRITERIA, CODE_CRITERIA, FIVE_POINT_RUBRIC, TEN_POINT_RUBRIC } from './criteria.js'
 export type { JudgeCriterion } from './criteria.js'
+
+// Scorer Registry
+export { ScorerRegistry, defaultScorerRegistry } from './scorer-registry.js'
+export type { ScorerFactory, ScorerFactoryDeps } from './scorer-registry.js'

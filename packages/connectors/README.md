@@ -1,5 +1,26 @@
 # @forgeagent/connectors
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Experimental | **Coverage:** N/A | **Exports:** 12
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 10 |
+| Lines of Code | 1,174 |
+| Test Files | 4 |
+| Internal Dependencies | `@forgeagent/core` |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/connectors
+```
+<!-- AUTO-GENERATED-END -->
+
 Pre-built integrations for ForgeAgent. Each connector produces LangChain `DynamicStructuredTool` instances that can be passed directly to `ForgeAgent`'s `tools` config.
 
 ## Installation

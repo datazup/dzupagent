@@ -25,14 +25,26 @@ describe('filterTools', () => {
 })
 
 describe('GitHub connector', () => {
-  it('creates 5 tools by default', () => {
+  it('creates 17 tools by default', () => {
     const tools = createGitHubConnector({ token: 'fake-token' })
-    expect(tools.length).toBe(5)
+    expect(tools.length).toBe(17)
     const names = tools.map(t => t.name)
     expect(names).toContain('github_get_file')
     expect(names).toContain('github_list_issues')
+    expect(names).toContain('github_get_issue')
     expect(names).toContain('github_create_issue')
+    expect(names).toContain('github_update_issue')
+    expect(names).toContain('github_add_comment')
+    expect(names).toContain('github_list_prs')
+    expect(names).toContain('github_get_pr')
     expect(names).toContain('github_create_pr')
+    expect(names).toContain('github_merge_pr')
+    expect(names).toContain('github_list_pr_reviews')
+    expect(names).toContain('github_create_pr_review')
+    expect(names).toContain('github_get_repo')
+    expect(names).toContain('github_list_branches')
+    expect(names).toContain('github_get_commit')
+    expect(names).toContain('github_compare_commits')
     expect(names).toContain('github_search_code')
   })
 
@@ -103,13 +115,14 @@ describe('Slack connector', () => {
 })
 
 describe('Database connector', () => {
-  it('creates 2 tools (query + schema)', () => {
+  it('creates 3 tools (query + list-tables + describe-table)', () => {
     const tools = createDatabaseConnector({
       query: async () => ({ rows: [], rowCount: 0 }),
     })
-    expect(tools).toHaveLength(2)
-    expect(tools[0]!.name).toBe('db_query')
-    expect(tools[1]!.name).toBe('db_schema')
+    expect(tools).toHaveLength(3)
+    expect(tools[0]!.name).toBe('db-query')
+    expect(tools[1]!.name).toBe('db-list-tables')
+    expect(tools[2]!.name).toBe('db-describe-table')
   })
 
   it('blocks write queries in read-only mode', async () => {

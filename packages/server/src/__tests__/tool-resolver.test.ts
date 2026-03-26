@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
-import { resolveAgentTools, ToolResolutionError } from '../runtime/tool-resolver.js'
+import { resolveAgentTools, ToolResolutionError, getToolProfileConfig } from '../runtime/tool-resolver.js'
+import type { ToolProfile } from '../runtime/tool-resolver.js'
 
 describe('tool-resolver', { timeout: 15_000 }, () => {
   it('resolves default git category into git tools when codegen is available', async () => {
@@ -186,6 +187,121 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
 
       // No MCP-related warnings
       expect(result.warnings.some((w) => w.includes('MCP'))).toBe(false)
+    })
+  })
+
+  describe('tool profiles', () => {
+    it('getToolProfileConfig returns correct config for each profile', () => {
+      const defaultCfg = getToolProfileConfig('default')
+      expect(defaultCfg.enabledCategories).toEqual(['git'])
+      expect(defaultCfg.enableMcp).toBe(false)
+      expect(defaultCfg.enableConnectors).toBe(false)
+
+      const codegenCfg = getToolProfileConfig('codegen')
+      expect(codegenCfg.enabledCategories).toEqual(['git', 'github'])
+      expect(codegenCfg.enableMcp).toBe(false)
+
+      const gitCfg = getToolProfileConfig('git')
+      expect(gitCfg.enabledCategories).toEqual(['git', 'github'])
+      expect(gitCfg.enableMcp).toBe(false)
+
+      const connectorsCfg = getToolProfileConfig('connectors')
+      expect(connectorsCfg.enabledCategories).toContain('git')
+      expect(connectorsCfg.enabledCategories).toContain('slack')
+      expect(connectorsCfg.enabledCategories).toContain('http')
+      expect(connectorsCfg.enableMcp).toBe(false)
+      expect(connectorsCfg.enableConnectors).toBe(true)
+
+      const fullCfg = getToolProfileConfig('full')
+      expect(fullCfg.enabledCategories).toContain('git')
+      expect(fullCfg.enabledCategories).toContain('github')
+      expect(fullCfg.enabledCategories).toContain('slack')
+      expect(fullCfg.enabledCategories).toContain('http')
+      expect(fullCfg.enableMcp).toBe(true)
+      expect(fullCfg.enableConnectors).toBe(true)
+    })
+
+    it('default profile resolves git tools only', async () => {
+      const result = await resolveAgentTools({ toolProfile: 'default' })
+
+      const names = result.tools.map((t) => t.name).sort()
+      expect(names).toEqual([
+        'git_branch',
+        'git_commit',
+        'git_diff',
+        'git_log',
+        'git_status',
+      ])
+      // No connector warnings when connectors not requested
+      expect(result.warnings.some((w) => w.includes('Connector tools requested'))).toBe(false)
+    })
+
+    it('codegen profile resolves git and github categories', async () => {
+      const result = await resolveAgentTools({
+        toolProfile: 'codegen',
+        metadata: {},
+        env: {},
+      })
+
+      // Git tools should be resolved
+      const gitTools = result.activated.filter((a) => a.source === 'git')
+      expect(gitTools.length).toBeGreaterThan(0)
+      // GitHub tools should be attempted (will warn about missing token)
+      expect(result.warnings.some((w) =>
+        w.includes('GitHub tools requested') || w.includes('Connector tools requested'),
+      )).toBe(true)
+    })
+
+    it('full profile enables mcp category', async () => {
+      const result = await resolveAgentTools({
+        toolProfile: 'full',
+        metadata: {},
+        env: {},
+      })
+
+      // MCP was attempted (will warn about no servers configured)
+      expect(result.warnings.some((w) => w.includes('no servers configured'))).toBe(true)
+      // Git tools should still be resolved
+      const gitTools = result.activated.filter((a) => a.source === 'git')
+      expect(gitTools.length).toBeGreaterThan(0)
+    })
+
+    it('explicit tool names override profile restrictions', async () => {
+      // 'default' profile only enables git, but explicit 'github_get_file' should still be attempted
+      const result = await resolveAgentTools({
+        toolProfile: 'default',
+        toolNames: ['github_get_file'],
+        metadata: {},
+        env: {},
+      })
+
+      // github_get_file was attempted — should warn about missing token or connector
+      expect(result.warnings.some((w) =>
+        w.includes('GitHub tools requested') || w.includes('Connector tools requested'),
+      )).toBe(true)
+    })
+
+    it('profile categories merge with explicit toolNames', async () => {
+      const result = await resolveAgentTools({
+        toolProfile: 'default',
+        toolNames: ['git_status'],
+      })
+
+      // Profile expands 'git:*', plus explicit 'git_status' — all git tools should resolve
+      const names = result.tools.map((t) => t.name).sort()
+      expect(names).toEqual([
+        'git_branch',
+        'git_commit',
+        'git_diff',
+        'git_log',
+        'git_status',
+      ])
+    })
+
+    it('no profile and no toolNames returns empty result', async () => {
+      const result = await resolveAgentTools({})
+      expect(result.tools).toEqual([])
+      expect(result.activated).toEqual([])
     })
   })
 

@@ -14,6 +14,9 @@ export { saveSnapshot, loadSnapshot } from './vfs/vfs-snapshot.js'
 export type { SnapshotStore } from './vfs/vfs-snapshot.js'
 export { CheckpointManager } from './vfs/checkpoint-manager.js'
 export type { CheckpointManagerConfig, CheckpointEntry, CheckpointDiff } from './vfs/checkpoint-manager.js'
+export { CopyOnWriteVFS } from './vfs/cow-vfs.js'
+export type { MergeStrategy, MergeConflict, MergeResult, VFSDiff, SampleResult } from './vfs/vfs-types.js'
+export { sample, selectBest, commitBest, sampleAndCommitBest } from './vfs/parallel-sampling.js'
 
 // --- Generation ---
 export { CodeGenService } from './generation/code-gen-service.js'
@@ -263,10 +266,27 @@ export type {
 // --- Repo Map ---
 export { extractSymbols } from './repomap/symbol-extractor.js'
 export type { ExtractedSymbol } from './repomap/symbol-extractor.js'
+export { extractSymbolsAST, isTreeSitterAvailable, detectLanguage as detectTreeSitterLanguage, EXTENSION_MAP } from './repomap/tree-sitter-extractor.js'
+export type { ASTSymbol, SupportedLanguage as TreeSitterLanguage } from './repomap/tree-sitter-extractor.js'
 export { buildImportGraph } from './repomap/import-graph.js'
 export type { ImportEdge, ImportGraph } from './repomap/import-graph.js'
 export { buildRepoMap } from './repomap/repo-map-builder.js'
 export type { RepoMapConfig, RepoMap } from './repomap/repo-map-builder.js'
+
+// --- Chunking ---
+export { chunkByAST } from './chunking/ast-chunker.js'
+export type { CodeChunk, ASTChunkerConfig } from './chunking/ast-chunker.js'
+
+// --- Code Search ---
+export { CodeSearchService } from './search/code-search-service.js'
+export type {
+  CodeSearchOptions,
+  CodeSearchResult,
+  CodeSearchServiceConfig,
+  IndexResult,
+  IndexStats,
+  ChunkMetadata,
+} from './search/code-search-types.js'
 
 // --- PR Lifecycle ---
 export { getNextAction, buildPRDescription, transitionState } from './pr/pr-manager.js'
@@ -293,6 +313,30 @@ export { detectConventions } from './conventions/convention-detector.js'
 export type { DetectedConvention, ConventionReport } from './conventions/convention-detector.js'
 export { enforceConventions, conventionsToPrompt } from './conventions/convention-enforcer.js'
 export type { ConventionViolation, EnforcementResult } from './conventions/convention-enforcer.js'
+
+// --- Correction (self-correction loop) ---
+export { SelfCorrectionLoop } from './correction/index.js'
+export type { CorrectionEventListeners, SelfCorrectionDeps } from './correction/index.js'
+export { ReflectionNode, ReflectionSchema } from './correction/index.js'
+export type { ReflectionNodeConfig, ReflectionResult } from './correction/index.js'
+export { LessonExtractor } from './correction/index.js'
+export type { LessonExtractorConfig, LessonExtractionResult } from './correction/index.js'
+export type {
+  ErrorCategory,
+  EvaluationResult,
+  Reflection,
+  CorrectionIteration,
+  CorrectionResult,
+  CorrectionContext,
+  Lesson,
+  SelfCorrectionConfig,
+  CodeEvaluator,
+  CodeFixer,
+  CorrectionIterationEvent,
+  CorrectionFixedEvent,
+  CorrectionExhaustedEvent,
+} from './correction/index.js'
+export { DEFAULT_CORRECTION_CONFIG } from './correction/index.js'
 
 // --- Migration ---
 export { getMigrationPlan, analyzeMigrationScope, buildMigrationPrompt } from './migration/migration-planner.js'

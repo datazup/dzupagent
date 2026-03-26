@@ -13,7 +13,9 @@ import type {
   ForgeEventBus,
 } from '@forgeagent/core'
 import type { ToolStat, StopReason } from './tool-loop.js'
+import type { StuckError } from './stuck-error.js'
 import type { GuardrailConfig } from '../guardrails/guardrail-types.js'
+import type { MemoryProfile } from './memory-profiles.js'
 
 /** Configuration for creating a ForgeAgent */
 export interface ForgeAgentConfig {
@@ -67,6 +69,33 @@ export interface ForgeAgentConfig {
    * If the import fails the agent falls back to the standard load-all path.
    */
   arrowMemory?: ArrowMemoryConfig
+
+  /**
+   * Memory budget profile preset.
+   *
+   * When set, provides default values for `arrowMemory` fields (totalBudget,
+   * maxMemoryFraction, minResponseReserve).  Explicit values in `arrowMemory`
+   * override the profile defaults.
+   *
+   * - `'minimal'`      — 32 K budget, 10 % memory, 8 K reserve (cost-constrained)
+   * - `'balanced'`     — 128 K budget, 30 % memory, 4 K reserve (default)
+   * - `'memory-heavy'` — 200 K budget, 50 % memory, 4 K reserve (knowledge-intensive)
+   */
+  memoryProfile?: MemoryProfile
+
+  /**
+   * How instructions are resolved:
+   * - `'static'` (default): use only the `instructions` string
+   * - `'static+agents'`: merge `instructions` with AGENTS.md files found
+   *   in `agentsDir` (or the current working directory)
+   */
+  instructionsMode?: 'static' | 'static+agents'
+
+  /**
+   * Directory to scan for AGENTS.md files when `instructionsMode` is
+   * `'static+agents'`. Defaults to `process.cwd()`.
+   */
+  agentsDir?: string
 }
 
 /** Configuration for Arrow-based token-budgeted memory selection. */
@@ -113,6 +142,11 @@ export interface GenerateResult {
   stopReason: StopReason
   /** Per-tool execution statistics. */
   toolStats: ToolStat[]
+  /**
+   * When `stopReason` is `'stuck'`, contains the structured StuckError
+   * with reason, repeatedTool, and escalationLevel.
+   */
+  stuckError?: StuckError
 }
 
 /** A single streamed event from the agent */

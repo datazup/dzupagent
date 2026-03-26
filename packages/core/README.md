@@ -1,5 +1,30 @@
 # @forgeagent/core
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Beta | **Coverage:** 73% | **Exports:** 261
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 174 |
+| Lines of Code | 39,592 |
+| Test Files | 55 |
+| Internal Dependencies | `@forgeagent/context`, `@forgeagent/memory`, `@forgeagent/memory-ipc` |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/core
+```
+<!-- AUTO-GENERATED-END -->
+
+[![Maturity: Stable](https://img.shields.io/badge/maturity-stable-brightgreen)](/docs/CAPABILITY_MATRIX.md)
+
+> See the full [Capability Matrix](/docs/CAPABILITY_MATRIX.md) for per-package maturity levels, test coverage, and API surface area. The matrix is regenerated on every CI run.
+
 Base agent infrastructure library providing reusable LLM agent building blocks: model registry, prompt management, memory, context engineering, middleware, persistence, routing, streaming, sub-agents, and skills. Built on LangChain and LangGraph.
 
 ## Installation
@@ -11,6 +36,29 @@ npm install @forgeagent/core
 ```
 
 ## Quick Start
+
+Import only what you need via curated facades:
+
+```typescript
+// Get started fast
+import { createQuickAgent } from '@forgeagent/core/quick-start';
+
+// Memory-focused work
+import { MemoryService, StoreFactory } from '@forgeagent/core/memory';
+
+// Orchestration
+import { ForgeEventBus } from '@forgeagent/core/orchestration';
+
+// Security
+import { PolicyEngine, AuditTrail } from '@forgeagent/core/security';
+```
+
+Or import everything from the main entry point:
+```typescript
+import { MemoryService, ForgeEventBus, PolicyEngine } from '@forgeagent/core';
+```
+
+### Classic Usage
 
 ```ts
 import {

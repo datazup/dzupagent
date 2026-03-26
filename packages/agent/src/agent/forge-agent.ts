@@ -42,6 +42,9 @@ import type {
 import { IterationBudget } from '../guardrails/iteration-budget.js'
 import { StuckDetector } from '../guardrails/stuck-detector.js'
 import { runToolLoop } from './tool-loop.js'
+import { resolveArrowMemoryConfig } from './memory-profiles.js'
+import { loadAgentsFiles } from '../instructions/instruction-loader.js'
+import { mergeInstructions, type MergedInstructions } from '../instructions/instruction-merger.js'
 
 const MODEL_TIERS: Set<string> = new Set(['chat', 'reasoning', 'codegen', 'embedding'])
 
@@ -52,6 +55,8 @@ export class ForgeAgent {
   private readonly config: ForgeAgentConfig
   private readonly resolvedModel: BaseChatModel
   private conversationSummary: string | null = null
+  private mergedInstructionsCache: MergedInstructions | null = null
+  private mergedInstructionsLoading: Promise<MergedInstructions> | null = null
 
   constructor(config: ForgeAgentConfig) {
     this.id = config.id
@@ -99,8 +104,14 @@ export class ForgeAgent {
     // Run middleware beforeAgent hooks
     await this.runBeforeAgentHooks()
 
-    // Create stuck detector for this run
-    const stuckDetector = new StuckDetector()
+    // Create stuck detector for this run, using guardrails config if provided
+    const stuckDetector = this.config.guardrails?.stuckDetector === false
+      ? undefined
+      : new StuckDetector(
+          typeof this.config.guardrails?.stuckDetector === 'object'
+            ? this.config.guardrails.stuckDetector
+            : undefined,
+        )
 
     // Run the tool loop
     const result = await runToolLoop(model, prepared, tools, {
@@ -184,6 +195,7 @@ export class ForgeAgent {
       hitIterationLimit: result.hitIterationLimit,
       stopReason: result.stopReason,
       toolStats: result.toolStats,
+      stuckError: result.stuckError,
     }
   }
 
@@ -248,7 +260,13 @@ export class ForgeAgent {
     const tools = this.getTools()
     const toolMap = new Map(tools.map(t => [t.name, t]))
     const model = this.bindTools(this.resolvedModel, tools)
-    const stuckDetector = new StuckDetector()
+    const stuckDetector = this.config.guardrails?.stuckDetector === false
+      ? undefined
+      : new StuckDetector(
+          typeof this.config.guardrails?.stuckDetector === 'object'
+            ? this.config.guardrails.stuckDetector
+            : undefined,
+        )
 
     const allMessages = [...prepared]
 
@@ -374,59 +392,67 @@ export class ForgeAgent {
             }
 
             // Stuck detection in streaming
-            const stuckCheck = toolError
-              ? stuckDetector.recordError(new Error(toolError))
-              : stuckDetector.recordToolCall(tc.name, tc.args)
+            if (stuckDetector) {
+              const stuckCheck = toolError
+                ? stuckDetector.recordError(new Error(toolError))
+                : stuckDetector.recordToolCall(tc.name, tc.args)
 
-            if (stuckCheck.stuck) {
-              const reason = stuckCheck.reason ?? 'Unknown stuck condition'
-              if (toolError) {
-                const recovery = 'Stopping due to repeated errors.'
-                yield { type: 'stuck', data: { reason, recovery } }
-                this.config.eventBus?.emit({
-                  type: 'agent:stuck_detected',
-                  agentId: this.id,
-                  reason,
-                  recovery,
-                  timestamp: Date.now(),
-                })
-                yield { type: 'done', data: { stopReason: 'stuck' } }
-                return
-              } else {
-                const recovery = `Tool "${tc.name}" has been blocked. Try a different approach.`
-                budget?.blockTool(tc.name)
-                yield { type: 'stuck', data: { reason, recovery } }
-                this.config.eventBus?.emit({
-                  type: 'agent:stuck_detected',
-                  agentId: this.id,
-                  reason,
-                  recovery,
-                  timestamp: Date.now(),
-                })
-                allMessages.push(new ToolMessage({
-                  content: `[Agent appears stuck: ${reason}. ${recovery}]`,
-                  tool_call_id: toolCallId,
-                  name: tc.name,
-                }))
+              if (stuckCheck.stuck) {
+                const reason = stuckCheck.reason ?? 'Unknown stuck condition'
+                if (toolError) {
+                  const recovery = 'Stopping due to repeated errors.'
+                  yield { type: 'stuck', data: { reason, recovery, repeatedTool: tc.name } }
+                  this.config.eventBus?.emit({
+                    type: 'agent:stuck_detected',
+                    agentId: this.id,
+                    reason,
+                    recovery,
+                    timestamp: Date.now(),
+                    repeatedTool: tc.name,
+                    escalationLevel: 3,
+                  })
+                  yield { type: 'done', data: { stopReason: 'stuck' } }
+                  return
+                } else {
+                  const recovery = `Tool "${tc.name}" has been blocked. Try a different approach.`
+                  budget?.blockTool(tc.name)
+                  yield { type: 'stuck', data: { reason, recovery, repeatedTool: tc.name } }
+                  this.config.eventBus?.emit({
+                    type: 'agent:stuck_detected',
+                    agentId: this.id,
+                    reason,
+                    recovery,
+                    timestamp: Date.now(),
+                    repeatedTool: tc.name,
+                    escalationLevel: 1,
+                  })
+                  allMessages.push(new ToolMessage({
+                    content: `[Agent appears stuck: ${reason}. ${recovery}]`,
+                    tool_call_id: toolCallId,
+                    name: tc.name,
+                  }))
+                }
               }
             }
           }
 
           // Idle iteration detection in streaming
-          const idleCheck = stuckDetector.recordIteration(toolCalls.length)
-          if (idleCheck.stuck) {
-            const reason = idleCheck.reason ?? 'No progress detected'
-            const recovery = 'Stopping due to idle iterations.'
-            yield { type: 'stuck', data: { reason, recovery } }
-            this.config.eventBus?.emit({
-              type: 'agent:stuck_detected',
-              agentId: this.id,
-              reason,
-              recovery,
-              timestamp: Date.now(),
-            })
-            yield { type: 'done', data: { stopReason: 'stuck' } }
-            return
+          if (stuckDetector) {
+            const idleCheck = stuckDetector.recordIteration(toolCalls.length)
+            if (idleCheck.stuck) {
+              const reason = idleCheck.reason ?? 'No progress detected'
+              const recovery = 'Stopping due to idle iterations.'
+              yield { type: 'stuck', data: { reason, recovery } }
+              this.config.eventBus?.emit({
+                type: 'agent:stuck_detected',
+                agentId: this.id,
+                reason,
+                recovery,
+                timestamp: Date.now(),
+              })
+              yield { type: 'done', data: { stopReason: 'stuck' } }
+              return
+            }
           }
         }
       } else {
@@ -528,7 +554,9 @@ export class ForgeAgent {
   }
 
   private async prepareMessages(messages: BaseMessage[]): Promise<BaseMessage[]> {
-    const parts: string[] = [this.config.instructions]
+    // Resolve instructions: static or merged with AGENTS.md
+    const baseInstructions = await this.resolveInstructions()
+    const parts: string[] = [baseInstructions]
 
     // Load memory context (Arrow-budgeted or standard)
     if (this.config.memory && this.config.memoryScope && this.config.memoryNamespace) {
@@ -552,6 +580,68 @@ export class ForgeAgent {
   }
 
   /**
+   * Resolve the effective instructions string.
+   *
+   * In `'static+agents'` mode, loads AGENTS.md files and merges them with
+   * the static instructions. The result is cached so file I/O only happens
+   * once per agent instance.
+   */
+  private async resolveInstructions(): Promise<string> {
+    if (this.config.instructionsMode !== 'static+agents') {
+      return this.config.instructions
+    }
+
+    // Return cached result if available
+    if (this.mergedInstructionsCache) {
+      return this.mergedInstructionsCache.systemPrompt
+    }
+
+    // Deduplicate concurrent calls
+    if (!this.mergedInstructionsLoading) {
+      this.mergedInstructionsLoading = this.loadAndMergeInstructions()
+    }
+
+    const merged = await this.mergedInstructionsLoading
+    this.mergedInstructionsCache = merged
+    return merged.systemPrompt
+  }
+
+  /**
+   * Load AGENTS.md files and merge them with static instructions.
+   */
+  private async loadAndMergeInstructions(): Promise<MergedInstructions> {
+    try {
+      const dir = this.config.agentsDir ?? process.cwd()
+      const files = await loadAgentsFiles(dir)
+
+      if (files.length === 0) {
+        return {
+          systemPrompt: this.config.instructions,
+          agentHierarchy: [],
+          sources: [],
+        }
+      }
+
+      const allSections = files.flatMap(f => f.sections)
+      const allSources = files.map(f => f.path)
+
+      return mergeInstructions(
+        this.config.instructions,
+        allSections,
+        this.id,
+        allSources,
+      )
+    } catch {
+      // AGENTS.md loading failures are non-fatal — fall back to static
+      return {
+        systemPrompt: this.config.instructions,
+        agentHierarchy: [],
+        sources: [],
+      }
+    }
+  }
+
+  /**
    * Load memory context, using Arrow token-budgeted selection when
    * `arrowMemory` config is set, falling back to standard load-all otherwise.
    */
@@ -560,10 +650,16 @@ export class ForgeAgent {
     const scope = this.config.memoryScope!
     const namespace = this.config.memoryNamespace!
 
-    // If arrowMemory config is set, attempt token-budgeted selection
-    if (this.config.arrowMemory) {
+    // Resolve Arrow memory config from profile + explicit overrides
+    const resolvedArrowConfig = resolveArrowMemoryConfig(
+      this.config.arrowMemory,
+      this.config.memoryProfile,
+    )
+
+    // If Arrow memory is configured, attempt token-budgeted selection
+    if (resolvedArrowConfig) {
       try {
-        return await this.loadArrowMemoryContext(memory, namespace, scope, messages)
+        return await this.loadArrowMemoryContext(memory, namespace, scope, messages, resolvedArrowConfig)
       } catch {
         // Fall through to standard path if Arrow fails
       }
@@ -586,6 +682,7 @@ export class ForgeAgent {
     namespace: string,
     scope: Record<string, string>,
     messages: BaseMessage[],
+    arrowCfg: NonNullable<ReturnType<typeof resolveArrowMemoryConfig>>,
   ): Promise<string | null> {
     // Dynamic import keeps @forgeagent/memory-ipc optional at runtime
     const {
@@ -603,7 +700,6 @@ export class ForgeAgent {
 
     if (frame.numRows === 0) return null
 
-    const arrowCfg = this.config.arrowMemory!
     const totalBudget = arrowCfg.totalBudget ?? 128_000
     const maxMemoryFraction = arrowCfg.maxMemoryFraction ?? 0.3
     const minResponseReserve = arrowCfg.minResponseReserve ?? 4_000

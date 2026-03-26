@@ -3,9 +3,10 @@
  *
  * Uses Drizzle ORM for type-safe queries against the forge_* tables.
  */
-import { eq, desc, and, type SQL } from 'drizzle-orm'
+import { eq, desc, and, sql, asc, type SQL } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
-import { forgeAgents, forgeRuns, forgeRunLogs } from './drizzle-schema.js'
+import { forgeAgents, forgeRuns, forgeRunLogs, forgeVectors } from './drizzle-schema.js'
+import { cosineDistance, l2Distance, innerProduct } from './vector-ops.js'
 import type {
   RunStore,
   Run,
@@ -244,6 +245,196 @@ export class PostgresAgentStore implements AgentStore {
       metadata: (row.metadata as Record<string, unknown>) ?? undefined,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DrizzleVectorStore — General-purpose vector storage via forge_vectors
+// ---------------------------------------------------------------------------
+
+/** Distance metric used for vector similarity search. */
+export type VectorDistanceMetric = 'cosine' | 'l2' | 'inner_product'
+
+/** A single vector entry for upsert. */
+export interface VectorEntry {
+  /** Unique key within the collection. */
+  key: string
+  /** The embedding vector (must match table dimensionality). */
+  embedding: number[]
+  /** Optional JSON metadata for filtering. */
+  metadata?: Record<string, unknown>
+  /** Original text that was embedded. */
+  text?: string
+}
+
+/** A search result from the vector store. */
+export interface VectorSearchResult {
+  key: string
+  distance: number
+  embedding: number[]
+  metadata: Record<string, unknown>
+  text: string | null
+}
+
+/** Options for vector similarity search. */
+export interface VectorSearchOptions {
+  /** Query vector to compare against. */
+  queryVector: number[]
+  /** Maximum number of results to return (default: 10). */
+  limit?: number
+  /** Distance metric to use (default: 'cosine'). */
+  metric?: VectorDistanceMetric
+}
+
+/**
+ * Drizzle-native vector store backed by the `forge_vectors` table.
+ *
+ * Provides upsert, search, and delete operations using pgvector distance
+ * functions through Drizzle's SQL template system.
+ *
+ * @example
+ * ```ts
+ * const store = new DrizzleVectorStore(db)
+ * await store.upsert('my-collection', [
+ *   { key: 'doc-1', embedding: [0.1, 0.2, ...], text: 'Hello world' },
+ * ])
+ * const results = await store.search('my-collection', {
+ *   queryVector: [0.1, 0.2, ...],
+ *   limit: 5,
+ * })
+ * ```
+ */
+export class DrizzleVectorStore {
+  constructor(private db: DB) {}
+
+  /**
+   * Insert or update vector entries in a collection.
+   * Uses ON CONFLICT (collection, key) DO UPDATE for upsert semantics.
+   */
+  async upsert(collection: string, entries: VectorEntry[]): Promise<void> {
+    if (entries.length === 0) return
+
+    const now = new Date()
+    for (const entry of entries) {
+      await this.db
+        .insert(forgeVectors)
+        .values({
+          collection,
+          key: entry.key,
+          embedding: entry.embedding,
+          metadata: entry.metadata ?? {},
+          text: entry.text ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [forgeVectors.collection, forgeVectors.key],
+          set: {
+            embedding: entry.embedding,
+            metadata: entry.metadata ?? {},
+            text: entry.text ?? null,
+            updatedAt: now,
+          },
+        })
+    }
+  }
+
+  /**
+   * Search for the nearest vectors in a collection.
+   *
+   * @param collection - The collection to search within.
+   * @param options - Query vector, limit, and distance metric.
+   * @returns Sorted results (nearest first) with distance scores.
+   */
+  async search(
+    collection: string,
+    options: VectorSearchOptions,
+  ): Promise<VectorSearchResult[]> {
+    const { queryVector, limit = 10, metric = 'cosine' } = options
+
+    const distanceFn = this.getDistanceFn(metric)
+    const distanceExpr = distanceFn(forgeVectors.embedding, queryVector)
+
+    const rows = await this.db
+      .select({
+        key: forgeVectors.key,
+        distance: distanceExpr,
+        embedding: forgeVectors.embedding,
+        metadata: forgeVectors.metadata,
+        text: forgeVectors.text,
+      })
+      .from(forgeVectors)
+      .where(eq(forgeVectors.collection, collection))
+      .orderBy(asc(distanceExpr))
+      .limit(limit)
+
+    return rows.map((row) => ({
+      key: row.key,
+      distance: Number(row.distance),
+      embedding: row.embedding ?? [],
+      metadata: (row.metadata as Record<string, unknown>) ?? {},
+      text: row.text,
+    }))
+  }
+
+  /**
+   * Delete a specific entry from a collection by key.
+   */
+  async delete(collection: string, key: string): Promise<void> {
+    await this.db
+      .delete(forgeVectors)
+      .where(
+        and(
+          eq(forgeVectors.collection, collection),
+          eq(forgeVectors.key, key),
+        ),
+      )
+  }
+
+  /**
+   * Delete all entries in a collection.
+   */
+  async deleteCollection(collection: string): Promise<void> {
+    await this.db
+      .delete(forgeVectors)
+      .where(eq(forgeVectors.collection, collection))
+  }
+
+  /**
+   * List all distinct collection names in the vector store.
+   */
+  async listCollections(): Promise<string[]> {
+    const rows = await this.db
+      .selectDistinct({ collection: forgeVectors.collection })
+      .from(forgeVectors)
+      .orderBy(asc(forgeVectors.collection))
+
+    return rows.map((r) => r.collection)
+  }
+
+  /**
+   * Count entries in a collection.
+   */
+  async count(collection: string): Promise<number> {
+    const rows = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(forgeVectors)
+      .where(eq(forgeVectors.collection, collection))
+
+    return rows[0]?.count ?? 0
+  }
+
+  private getDistanceFn(
+    metric: VectorDistanceMetric,
+  ): (column: typeof forgeVectors.embedding, vector: number[]) => SQL {
+    switch (metric) {
+      case 'cosine':
+        return cosineDistance
+      case 'l2':
+        return l2Distance
+      case 'inner_product':
+        return innerProduct
     }
   }
 }

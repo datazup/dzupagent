@@ -1,5 +1,26 @@
 # @forgeagent/test-utils
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Experimental | **Coverage:** N/A | **Exports:** 7
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 4 |
+| Lines of Code | 466 |
+| Test Files | 1 |
+| Internal Dependencies | `@forgeagent/core` |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/test-utils
+```
+<!-- AUTO-GENERATED-END -->
+
 Testing utilities for ForgeAgent. Provides mock LLM models, an LLM recorder for deterministic test replay, and factory helpers for creating test agents, stores, and event buses. Zero network dependencies -- all tests run fully offline.
 
 ## Installation

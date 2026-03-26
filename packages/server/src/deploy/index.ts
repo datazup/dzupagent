@@ -21,8 +21,35 @@ export { DeployConfidenceCalculator } from './confidence-calculator.js'
 // --- Deploy Gate ---
 export { DeployGate } from './deploy-gate.js'
 
-// --- Deployment History ---
+// --- Deployment History (in-memory) ---
 export { DeploymentHistory, generateDeploymentId, resetIdCounter } from './deployment-history.js'
+
+// --- Deployment History Store (persistent) ---
+export {
+  PostgresDeploymentHistoryStore,
+  InMemoryDeploymentHistoryStore,
+} from './deployment-history-store.js'
+export type {
+  DeploymentHistoryStoreInterface,
+  DeploymentHistoryRecord,
+  DeploymentHistoryInput,
+  DeploymentOutcome,
+  SuccessRateResult,
+} from './deployment-history-store.js'
+
+// --- Signal Checkers ---
+export {
+  checkRecoveryCopilotConfigured,
+  checkRollbackAvailable,
+  computeAllSignals,
+} from './signal-checkers.js'
+export type {
+  AgentConfigLike,
+  RollbackCheckResult,
+  RollbackChecker,
+  SignalComputationResult,
+  SignalComputationConfig,
+} from './signal-checkers.js'
 
 // --- Existing deploy utilities ---
 export { generateDockerfile, generateDockerCompose, generateDockerignore } from './docker-generator.js'

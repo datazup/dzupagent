@@ -11,6 +11,32 @@
 // Node types — discriminated union on `type`
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-node retry policy override. When set, these values take precedence
+ * over the global pipeline-level retry policy for this node.
+ *
+ * Kept inline (rather than imported) to avoid circular dependencies
+ * between core and agent packages.
+ */
+export interface NodeRetryPolicy {
+  /** Initial backoff delay in ms */
+  initialBackoffMs?: number
+  /** Maximum backoff delay in ms */
+  maxBackoffMs?: number
+  /** Backoff multiplier */
+  multiplier?: number
+  /** Alias for `multiplier` */
+  backoffMultiplier?: number
+  /** Add random jitter (0-50%) to backoff delay */
+  jitter?: boolean
+  /**
+   * Error patterns that are retryable.
+   * - `string` values match via `error.includes(pattern)`
+   * - `RegExp` values match via `pattern.test(error)`
+   */
+  retryableErrors?: Array<string | RegExp>
+}
+
 export interface PipelineNodeBase {
   /** Unique identifier within the pipeline */
   id: string
@@ -24,6 +50,12 @@ export interface PipelineNodeBase {
   timeoutMs?: number
   /** Number of retries on failure (0 = no retries) */
   retries?: number
+  /**
+   * Per-node retry policy override. When set, values here take precedence
+   * over the global pipeline-level retry policy for this specific node.
+   * The `retries` field above still controls max retry count.
+   */
+  retryPolicy?: NodeRetryPolicy
 }
 
 export interface AgentNode extends PipelineNodeBase {

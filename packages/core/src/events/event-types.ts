@@ -114,7 +114,7 @@ export type ForgeEvent =
   // --- Telemetry ---
   | { type: 'tool:latency'; toolName: string; durationMs: number; error?: string }
   | { type: 'agent:stop_reason'; agentId: string; reason: string; iterations: number; toolStats: ToolStatSummary[] }
-  | { type: 'agent:stuck_detected'; agentId: string; reason: string; recovery: string; timestamp: number }
+  | { type: 'agent:stuck_detected'; agentId: string; reason: string; recovery: string; timestamp: number; repeatedTool?: string; escalationLevel?: number }
   // --- Delegation ---
   | { type: 'delegation:started'; parentRunId: string; targetAgentId: string; delegationId: string }
   | { type: 'delegation:completed'; parentRunId: string; targetAgentId: string; delegationId: string; durationMs: number; success: boolean }

@@ -1,5 +1,26 @@
 # @forgeagent/playground
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Experimental | **Coverage:** N/A | **Exports:** 0
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 17 |
+| Lines of Code | 8,463 |
+| Test Files | 12 |
+| Internal Dependencies | None |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/playground
+```
+<!-- AUTO-GENERATED-END -->
+
 Tailwind-powered Vue 3 playground for running ForgeAgent conversations and inspecting execution in real time.
 
 This package is private to this monorepo and is not published to npm.

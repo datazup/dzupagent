@@ -1,5 +1,26 @@
 # @forgeagent/server
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Beta | **Coverage:** 66% | **Exports:** 201
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 84 |
+| Lines of Code | 21,421 |
+| Test Files | 39 |
+| Internal Dependencies | `@forgeagent/agent`, `@forgeagent/core`, `@forgeagent/memory-ipc` |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/server
+```
+<!-- AUTO-GENERATED-END -->
+
 Optional Hono-based HTTP/WebSocket runtime for ForgeAgent.
 
 It provides REST APIs for agents/runs, realtime event streaming, optional memory routes, auth and rate limiting middleware, queue worker integration, and deployment/runtime helpers.

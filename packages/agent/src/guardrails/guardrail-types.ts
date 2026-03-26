@@ -2,6 +2,8 @@
  * Guardrail and iteration budget types for agent safety boundaries.
  */
 
+import type { StuckDetectorConfig } from './stuck-detector.js'
+
 /** Configuration for agent guardrails */
 export interface GuardrailConfig {
   /** Maximum total input + output tokens across all LLM calls */
@@ -16,6 +18,12 @@ export interface GuardrailConfig {
   budgetWarnings?: number[]
   /** Content filter applied to the agent's final output */
   outputFilter?: (output: string) => Promise<string | null>
+  /**
+   * Stuck detector configuration. When provided, these thresholds override
+   * the StuckDetector defaults (maxRepeatCalls=3, maxErrorsInWindow=5, etc.).
+   * Set to `false` to disable stuck detection entirely.
+   */
+  stuckDetector?: Partial<StuckDetectorConfig> | false
 }
 
 /** Budget tracking state shared across parent and child agents */

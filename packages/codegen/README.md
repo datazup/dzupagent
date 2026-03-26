@@ -1,5 +1,26 @@
 # @forgeagent/codegen
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Experimental | **Coverage:** N/A | **Exports:** 202
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 101 |
+| Lines of Code | 16,463 |
+| Test Files | 9 |
+| Internal Dependencies | `@forgeagent/core` |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/codegen
+```
+<!-- AUTO-GENERATED-END -->
+
 Code generation engine built on `@forgeagent/core`. Provides a virtual filesystem, code generation services, sandbox execution, quality scoring, framework adaptation, pipeline builder, generic LangGraph tools, and API contract extraction.
 
 ## Installation

@@ -160,6 +160,20 @@ export type {
   BlackboardSnapshot,
 } from './blackboard.js'
 
+// --- Analytics (DuckDB-WASM) ---
+export { DuckDBEngine } from './analytics/duckdb-engine.js'
+export type { AnalyticsResult, RowRecord } from './analytics/duckdb-engine.js'
+
+export { MemoryAnalytics } from './analytics/memory-analytics.js'
+export type {
+  DecayTrendPoint,
+  NamespaceStats,
+  AgentPerformance,
+  ExpiringMemory,
+  UsagePatternBucket,
+  DuplicateCandidate,
+} from './analytics/memory-analytics.js'
+
 // --- Extended Frames ---
 export {
   TOOL_RESULT_SCHEMA,

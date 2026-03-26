@@ -1,5 +1,26 @@
 # @forgeagent/otel
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Experimental | **Coverage:** N/A | **Exports:** 31
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 13 |
+| Lines of Code | 5,080 |
+| Test Files | 8 |
+| Internal Dependencies | `@forgeagent/core` |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/otel
+```
+<!-- AUTO-GENERATED-END -->
+
 OpenTelemetry integration plugin for ForgeAgent. Provides distributed tracing, metrics, cost attribution, safety monitoring, and tamper-evident audit trails -- all wired through the ForgeEventBus.
 
 All OpenTelemetry SDK dependencies are optional peer dependencies. When not installed, noop implementations are used transparently with zero overhead.

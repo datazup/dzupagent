@@ -101,7 +101,7 @@ export class InMemoryVectorStore implements VectorStore {
         id: entry.id,
         score,
         metadata: query.includeMetadata === false ? {} : { ...entry.metadata },
-        text: entry.text,
+        ...(entry.text != null ? { text: entry.text } : {}),
       }
 
       if (query.includeVectors) {

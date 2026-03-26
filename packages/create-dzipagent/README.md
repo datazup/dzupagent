@@ -1,5 +1,26 @@
 # create-forgeagent
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Experimental | **Coverage:** N/A | **Exports:** 3
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 14 |
+| Lines of Code | 2,075 |
+| Test Files | 1 |
+| Internal Dependencies | None |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install create-forgeagent
+```
+<!-- AUTO-GENERATED-END -->
+
 CLI scaffolding tool for creating new ForgeAgent projects. Generates project files from template manifests with `{{variable}}` interpolation. Ships with five built-in templates covering common agent architectures.
 
 ## Usage

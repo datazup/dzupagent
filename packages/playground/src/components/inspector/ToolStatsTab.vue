@@ -3,12 +3,81 @@
  * ToolStatsTab -- Displays tool performance analytics in the inspector panel.
  *
  * Shows summary cards (tool count, avg success rate, fastest tool),
- * a ranked table of tools sorted by score, and aggregated error list.
+ * a ranked table of tools sorted by score, aggregated error list,
+ * and real-time tool usage counters with per-tool latency sparklines
+ * from live WebSocket events.
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useToolStatsStore } from '../../stores/tool-stats-store.js'
+import { useEventStream } from '../../composables/useEventStream.js'
+import { useLiveTrace, type NodeMetrics } from '../../composables/useLiveTrace.js'
+import { useChatStore } from '../../stores/chat-store.js'
 
 const toolStats = useToolStatsStore()
+const chatStore = useChatStore()
+
+// ── Live event stream integration ──────────────────
+const serverUrl = ref(
+  typeof window !== 'undefined'
+    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+    : 'ws://localhost:4000/ws',
+)
+
+const activeRunId = computed(() => chatStore.activeRunId)
+const { events: liveEvents, isConnected: liveConnected } = useEventStream(serverUrl, activeRunId)
+const { nodeMetrics } = useLiveTrace(liveEvents)
+
+/** Whether we have live tool metrics */
+const hasLiveMetrics = computed(() => {
+  for (const [, metrics] of nodeMetrics.value) {
+    if (metrics.name.startsWith('memory:')) continue
+    if (metrics.callCount > 0) return true
+  }
+  return false
+})
+
+/** Live tool metrics sorted by call count descending */
+const sortedLiveTools = computed<NodeMetrics[]>(() => {
+  const tools: NodeMetrics[] = []
+  for (const [, metrics] of nodeMetrics.value) {
+    // Only include tool-related metrics (not memory ops)
+    if (!metrics.name.startsWith('memory:')) {
+      tools.push(metrics)
+    }
+  }
+  return tools.sort((a, b) => b.callCount - a.callCount)
+})
+
+/** SVG sparkline path for latency samples */
+function sparklinePath(samples: number[]): string {
+  if (samples.length < 2) return ''
+  const maxVal = Math.max(...samples, 1)
+  const width = 60
+  const height = 16
+  const stepX = width / (samples.length - 1)
+
+  const points = samples.map((val, i) => {
+    const x = i * stepX
+    const y = height - (val / maxVal) * height
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+
+  return `M${points.join(' L')}`
+}
+
+/** Color class for live success rate */
+function liveSuccessColor(rate: number): string {
+  if (rate >= 0.9) return 'text-pg-success'
+  if (rate >= 0.7) return 'text-pg-warning'
+  return 'text-pg-error'
+}
+
+/** Sparkline stroke color based on success rate */
+function sparklineStroke(rate: number): string {
+  if (rate >= 0.9) return 'var(--color-pg-success)'
+  if (rate >= 0.7) return 'var(--color-pg-warning)'
+  return 'var(--color-pg-error)'
+}
 
 /**
  * Format a duration in milliseconds to a human-readable string.
@@ -59,9 +128,84 @@ const hasStats = computed(() => toolStats.toolCount > 0)
 
 <template>
   <div class="pg-scrollbar flex h-full flex-col overflow-y-auto">
+    <!-- Live tool metrics section -->
+    <div
+      v-if="hasLiveMetrics"
+      class="border-b border-pg-border"
+    >
+      <!-- Live header -->
+      <div class="flex items-center gap-2 px-4 py-2">
+        <span
+          class="inline-block h-2 w-2 rounded-full"
+          :class="liveConnected ? 'bg-pg-success animate-pulse' : 'bg-pg-text-muted'"
+          aria-hidden="true"
+        />
+        <h3 class="text-xs font-semibold text-pg-text-secondary">
+          Live Tool Usage
+        </h3>
+        <span class="text-[10px] text-pg-text-muted">
+          {{ sortedLiveTools.length }} tool{{ sortedLiveTools.length === 1 ? '' : 's' }}
+        </span>
+      </div>
+
+      <!-- Live tool cards -->
+      <div class="grid grid-cols-1 gap-2 px-4 pb-3">
+        <div
+          v-for="tool in sortedLiveTools"
+          :key="tool.name"
+          class="flex items-center gap-3 rounded-pg-sm border border-pg-border-subtle bg-pg-surface p-2"
+        >
+          <!-- Tool name & call count -->
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="truncate text-xs font-medium text-pg-text">
+                {{ tool.name }}
+              </span>
+              <span class="shrink-0 rounded-sm bg-pg-surface-raised px-1.5 py-0.5 font-mono text-[10px] text-pg-text-secondary">
+                {{ tool.callCount }}x
+              </span>
+            </div>
+            <div class="mt-0.5 flex items-center gap-2">
+              <span class="font-mono text-[10px] text-pg-text-muted">
+                avg {{ tool.avgDurationMs > 0 ? `${Math.round(tool.avgDurationMs)}ms` : '--' }}
+              </span>
+              <span
+                class="font-mono text-[10px]"
+                :class="liveSuccessColor(tool.successRate)"
+              >
+                {{ Math.round(tool.successRate * 100) }}%
+              </span>
+            </div>
+          </div>
+
+          <!-- Latency sparkline -->
+          <div
+            v-if="tool.latencySamples.length >= 2"
+            class="shrink-0"
+            :aria-label="`Latency trend for ${tool.name}`"
+          >
+            <svg
+              width="60"
+              height="16"
+              class="overflow-visible"
+            >
+              <path
+                :d="sparklinePath(tool.latencySamples)"
+                fill="none"
+                :stroke="sparklineStroke(tool.successRate)"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Empty state -->
     <div
-      v-if="!hasStats"
+      v-if="!hasStats && !hasLiveMetrics"
       class="flex h-32 items-center justify-center"
     >
       <p class="text-sm text-pg-text-muted">

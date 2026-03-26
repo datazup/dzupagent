@@ -15,8 +15,19 @@ export type {
   GenerateResult,
   AgentStreamEvent,
 } from './agent/agent-types.js'
+export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory-profiles.js'
+export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
 export { runToolLoop } from './agent/tool-loop.js'
 export type { ToolLoopConfig, ToolLoopResult, ToolStat, StopReason } from './agent/tool-loop.js'
+
+// --- Parallel Executor ---
+export { executeToolsParallel } from './agent/parallel-executor.js'
+export type {
+  ParallelToolCall,
+  ToolExecutionResult,
+  ToolLookup,
+  ParallelExecutorOptions,
+} from './agent/parallel-executor.js'
 
 // --- Tool Arg Validation ---
 export { validateAndRepairToolArgs, formatSchemaHint } from './agent/tool-arg-validator.js'
@@ -26,6 +37,8 @@ export type { ValidationResult, ToolArgValidatorConfig } from './agent/tool-arg-
 export { IterationBudget } from './guardrails/iteration-budget.js'
 export { StuckDetector } from './guardrails/stuck-detector.js'
 export type { StuckDetectorConfig, StuckStatus } from './guardrails/stuck-detector.js'
+export { StuckError } from './agent/stuck-error.js'
+export type { EscalationLevel, RecoveryAction as StuckRecoveryAction } from './agent/stuck-error.js'
 export { CascadingTimeout } from './guardrails/cascading-timeout.js'
 export type { CascadingTimeoutConfig } from './guardrails/cascading-timeout.js'
 export type {
@@ -213,6 +226,14 @@ export type {
   PipelineTracer,
 } from './pipeline/pipeline-runtime-types.js'
 
+// --- Pipeline Retry ---
+export {
+  DEFAULT_RETRY_POLICY,
+  calculateBackoff,
+  isRetryable,
+  resolveRetryPolicy,
+} from './pipeline/retry-policy.js'
+
 // --- Pipeline Templates ---
 export {
   createCodeReviewPipeline,
@@ -318,6 +339,14 @@ export type {
   ReplayNodeMetrics,
   ReplaySummary,
 } from './replay/index.js'
+
+// --- Instructions (AGENTS.md) ---
+export { parseAgentsMd } from './instructions/agents-md-parser.js'
+export type { AgentsMdSection } from './instructions/agents-md-parser.js'
+export { mergeInstructions } from './instructions/instruction-merger.js'
+export type { MergedInstructions } from './instructions/instruction-merger.js'
+export { loadAgentsFiles } from './instructions/instruction-loader.js'
+export type { LoadedAgentsFile, LoadAgentsOptions } from './instructions/instruction-loader.js'
 
 // --- Version ---
 export const FORGEAGENT_AGENT_VERSION = '0.1.0'

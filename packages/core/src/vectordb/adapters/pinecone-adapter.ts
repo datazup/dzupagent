@@ -128,7 +128,7 @@ export class PineconeAdapter implements VectorStore {
     const res = await this.fetchFn(url, {
       method,
       headers: this.headers(),
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     })
 
     if (res.status === 404) {
@@ -181,7 +181,7 @@ export class PineconeAdapter implements VectorStore {
     const res = await this.fetchFn(url, {
       method,
       headers: this.headers(),
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     })
 
     if (res.status === 404) {

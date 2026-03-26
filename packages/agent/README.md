@@ -1,5 +1,26 @@
 # @forgeagent/agent
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Beta | **Coverage:** 80% | **Exports:** 116
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 76 |
+| Lines of Code | 28,873 |
+| Test Files | 41 |
+| Internal Dependencies | `@forgeagent/context`, `@forgeagent/core`, `@forgeagent/memory-ipc` |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/agent
+```
+<!-- AUTO-GENERATED-END -->
+
 Top-level agent abstraction for the ForgeAgent framework. Provides the `ForgeAgent` class with generate/stream/asTool capabilities, guardrails, workflow engine, multi-agent orchestration, pipelines, structured output, approval gates, and security.
 
 ## Installation

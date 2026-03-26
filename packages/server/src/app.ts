@@ -50,6 +50,7 @@ import { createRoutingStatsRoutes } from './routes/routing-stats.js'
 import { createRunTraceRoutes } from './routes/run-trace.js'
 import type { RunTraceStore } from './persistence/run-trace-store.js'
 import { createMetricsRoute } from './routes/metrics.js'
+import { createDeployRoutes, type DeployRouteConfig } from './routes/deploy.js'
 import { PrometheusMetricsCollector } from './metrics/prometheus-collector.js'
 
 /**
@@ -117,6 +118,8 @@ export interface ForgeServerConfig {
   /** Optional retrieval feedback config. When provided alongside a reflector,
    *  maps reflection scores to AdaptiveRetriever feedback for weight learning. */
   retrievalFeedback?: RetrievalFeedbackHookConfig
+  /** Optional deploy confidence + history route config. When provided, mounts /api/deploy routes. */
+  deploy?: DeployRouteConfig
 }
 
 const startedRunQueues = new WeakSet<RunQueue>()
@@ -231,6 +234,10 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   }
 
   app.route('/api/events', createEventRoutes({ eventGateway }))
+
+  if (runtimeConfig.deploy) {
+    app.route('/api/deploy', createDeployRoutes(runtimeConfig.deploy))
+  }
 
   if (runtimeConfig.playground) {
     app.route('/playground', createPlaygroundRoutes(runtimeConfig.playground))

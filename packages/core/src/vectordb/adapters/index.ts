@@ -13,3 +13,9 @@ export type { PgVectorAdapterConfig } from './pgvector-adapter.js'
 
 export { ChromaDBAdapter } from './chroma-adapter.js'
 export type { ChromaDBAdapterConfig } from './chroma-adapter.js'
+
+export { TurbopufferAdapter, translateFilter as translateTurbopufferFilter } from './turbopuffer-adapter.js'
+export type { TurbopufferAdapterConfig } from './turbopuffer-adapter.js'
+
+export { LanceDBAdapter, translateFilter as translateLanceDBFilter } from './lancedb-adapter.js'
+export type { LanceDBAdapterConfig } from './lancedb-adapter.js'

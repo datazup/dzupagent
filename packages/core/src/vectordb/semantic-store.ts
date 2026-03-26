@@ -92,7 +92,7 @@ export class SemanticStore {
     const results = await this._store.search(collection, {
       vector: queryVector,
       limit,
-      filter,
+      ...(filter != null ? { filter } : {}),
       includeMetadata: true,
     })
 
@@ -148,7 +148,7 @@ export class SemanticStore {
     const fullConfig: CollectionConfig = {
       dimensions: config?.dimensions ?? this._embedding.dimensions,
       metric: config?.metric ?? 'cosine',
-      metadata: config?.metadata,
+      ...(config?.metadata != null ? { metadata: config.metadata } : {}),
     }
 
     await this._store.createCollection(collection, fullConfig)

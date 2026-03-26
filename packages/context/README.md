@@ -1,5 +1,26 @@
 # @forgeagent/context
 
+<!-- AUTO-GENERATED-START -->
+## Package Overview
+
+**Maturity:** Experimental | **Coverage:** N/A | **Exports:** 29
+
+| Metric | Value |
+|--------|-------|
+| Source Files | 11 |
+| Lines of Code | 3,602 |
+| Test Files | 4 |
+| Internal Dependencies | None |
+
+### Quality Gates
+✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
+
+### Install
+```bash
+npm install @forgeagent/context
+```
+<!-- AUTO-GENERATED-END -->
+
 Context window engineering for LLM conversations built on LangChain message types.
 
 ## Features
