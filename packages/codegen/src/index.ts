@@ -107,7 +107,12 @@ export type { WasiFileEntry, WasiStatResult } from './sandbox/wasm/index.js'
 export { CapabilityGuard, CapabilityDeniedError } from './sandbox/wasm/index.js'
 export type { WasiCapability } from './sandbox/wasm/index.js'
 export { WasmSandbox } from './sandbox/wasm/index.js'
-export type { WasmSandboxConfig, WasmExecResult } from './sandbox/wasm/index.js'
+export type { WasmSandboxConfig, WasmExecResult, SandboxResourceLimits } from './sandbox/wasm/index.js'
+export {
+  SandboxResourceError,
+  SandboxTimeoutError,
+  SandboxAccessDeniedError,
+} from './sandbox/wasm/index.js'
 export { WasmTypeScriptTranspiler } from './sandbox/wasm/index.js'
 export type { TranspileResult } from './sandbox/wasm/index.js'
 

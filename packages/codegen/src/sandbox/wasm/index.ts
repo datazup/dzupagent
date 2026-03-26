@@ -2,7 +2,8 @@
  * WASM sandbox module — lightweight in-process sandboxing.
  *
  * Provides a WASI filesystem, capability guard, QuickJS-based
- * JavaScript execution, and TypeScript transpilation support.
+ * JavaScript execution, TypeScript transpilation support,
+ * and resource limit error classes.
  */
 
 // --- WASI Filesystem ---
@@ -15,7 +16,14 @@ export type { WasiCapability } from './capability-guard.js'
 
 // --- WASM Sandbox ---
 export { WasmSandbox } from './wasm-sandbox.js'
-export type { WasmSandboxConfig, WasmExecResult } from './wasm-sandbox.js'
+export type { WasmSandboxConfig, WasmExecResult, SandboxResourceLimits } from './wasm-sandbox.js'
+
+// --- Sandbox Errors ---
+export {
+  SandboxResourceError,
+  SandboxTimeoutError,
+  SandboxAccessDeniedError,
+} from './sandbox-errors.js'
 
 // --- TypeScript Transpiler ---
 export { WasmTypeScriptTranspiler } from './ts-transpiler.js'

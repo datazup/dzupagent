@@ -82,10 +82,14 @@ export interface ToolLoopConfig {
 
   /**
    * Optional tool stats tracker for injecting preferred-tool hints
-   * into the system prompt before the first LLM invocation.
+   * into the system prompt before each LLM invocation.
    * Uses structural typing to avoid importing ToolStatsTracker from core.
+   * The hint is refreshed every iteration so rankings reflect the latest stats.
    */
   toolStatsTracker?: { formatAsPromptHint: (limit?: number, intent?: string) => string }
+
+  /** Current intent for per-intent tool ranking in toolStatsTracker hints. */
+  intent?: string
 
   /**
    * Called when stuck is detected with the tool name and escalation stage.
@@ -140,13 +144,9 @@ export async function runToolLoop(
     return stat
   }
 
-  // Inject tool stats hint before the first LLM invocation (once only)
-  if (config.toolStatsTracker) {
-    const hint = config.toolStatsTracker.formatAsPromptHint(5)
-    if (hint) {
-      allMessages.push(new SystemMessage(hint))
-    }
-  }
+  // Marker prefix used to identify tool-stats hint SystemMessages so we can
+  // replace (not duplicate) them each iteration.
+  const TOOL_STATS_HINT_PREFIX = 'Tool performance hint:'
 
   // Escalating stuck recovery stage: 0 = not stuck, 1 = tool blocked, 2 = nudge sent, 3 = abort
   let stuckStage = 0
@@ -176,6 +176,32 @@ export async function runToolLoop(
       const warnings = config.budget.recordIteration()
       for (const w of warnings) {
         config.onBudgetWarning?.(w.message)
+      }
+    }
+
+    // Refresh tool-stats hint before each LLM invocation.
+    // Remove the previous hint (if any) and insert the latest one so the
+    // LLM always sees up-to-date per-intent rankings.
+    if (config.toolStatsTracker) {
+      // Remove previous hint message
+      for (let i = allMessages.length - 1; i >= 0; i--) {
+        const m = allMessages[i]!
+        if (
+          m._getType() === 'system'
+          && typeof m.content === 'string'
+          && m.content.startsWith(TOOL_STATS_HINT_PREFIX)
+        ) {
+          allMessages.splice(i, 1)
+          break // there is at most one
+        }
+      }
+
+      const hint = config.toolStatsTracker.formatAsPromptHint(5, config.intent)
+      if (hint) {
+        // Insert after the last system message, before user/AI/tool messages
+        const insertIdx = allMessages.findIndex(m => m._getType() !== 'system')
+        const hintMsg = new SystemMessage(`${TOOL_STATS_HINT_PREFIX}\n${hint}`)
+        allMessages.splice(insertIdx >= 0 ? insertIdx : allMessages.length, 0, hintMsg)
       }
     }
 

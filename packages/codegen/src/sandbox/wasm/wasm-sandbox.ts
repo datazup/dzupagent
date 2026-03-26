@@ -13,6 +13,26 @@
 import { WasiFilesystem } from './wasi-fs.js'
 import { CapabilityGuard } from './capability-guard.js'
 import type { WasiCapability } from './capability-guard.js'
+import {
+  SandboxResourceError,
+  SandboxTimeoutError,
+  SandboxAccessDeniedError,
+} from './sandbox-errors.js'
+
+// ---------------------------------------------------------------------------
+// Resource limit types
+// ---------------------------------------------------------------------------
+
+export interface SandboxResourceLimits {
+  /** Maximum memory in bytes (default: 128 MB) */
+  maxMemoryBytes?: number
+  /** Maximum execution time in ms (default: 30_000) */
+  maxExecutionMs?: number
+  /** Allowed filesystem paths (default: none — no FS access restriction beyond capabilities) */
+  allowedPaths?: string[]
+  /** Maximum output size in bytes (default: 1 MB) */
+  maxOutputBytes?: number
+}
 
 // ---------------------------------------------------------------------------
 // Config & result types
@@ -29,6 +49,8 @@ export interface WasmSandboxConfig {
   timeoutMs?: number
   /** Files to pre-populate in the WASI filesystem (path -> UTF-8 content). */
   initialFiles?: Record<string, string>
+  /** Resource limits for hardened execution. */
+  resourceLimits?: SandboxResourceLimits
 }
 
 export interface WasmExecResult {
@@ -53,6 +75,13 @@ const DEFAULT_CAPABILITIES: WasiCapability[] = [
 const DEFAULT_MEMORY_LIMIT_PAGES = 256
 const DEFAULT_FUEL_LIMIT = 1_000_000
 const DEFAULT_TIMEOUT_MS = 30_000
+
+/** 128 MiB */
+const DEFAULT_MAX_MEMORY_BYTES = 128 * 1024 * 1024
+/** 30 seconds */
+const DEFAULT_MAX_EXECUTION_MS = 30_000
+/** 1 MiB */
+const DEFAULT_MAX_OUTPUT_BYTES = 1 * 1024 * 1024
 
 // ---------------------------------------------------------------------------
 // Encoder
@@ -86,6 +115,10 @@ export class WasmSandbox {
   private readonly memoryLimitPages: number
   private readonly fuelLimit: number
   private readonly timeoutMs: number
+  private readonly maxMemoryBytes: number
+  private readonly maxExecutionMs: number
+  private readonly allowedPaths: string[] | undefined
+  private readonly maxOutputBytes: number
 
   constructor(config?: WasmSandboxConfig) {
     this.fs = new WasiFilesystem()
@@ -95,6 +128,13 @@ export class WasmSandbox {
     this.memoryLimitPages = config?.memoryLimitPages ?? DEFAULT_MEMORY_LIMIT_PAGES
     this.fuelLimit = config?.fuelLimit ?? DEFAULT_FUEL_LIMIT
     this.timeoutMs = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS
+
+    // Resource limits
+    const rl = config?.resourceLimits
+    this.maxMemoryBytes = rl?.maxMemoryBytes ?? DEFAULT_MAX_MEMORY_BYTES
+    this.maxExecutionMs = rl?.maxExecutionMs ?? DEFAULT_MAX_EXECUTION_MS
+    this.allowedPaths = rl?.allowedPaths
+    this.maxOutputBytes = rl?.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
 
     // Pre-populate initial files
     if (config?.initialFiles) {
@@ -122,6 +162,13 @@ export class WasmSandbox {
   /**
    * Execute JavaScript code inside the QuickJS WASM sandbox.
    *
+   * Enforces resource limits:
+   * - Memory: WASM linear memory `maximum` pages derived from `maxMemoryBytes`
+   * - Time: `Promise.race` with AbortController-based timeout
+   * - Output: stdout/stderr truncated at `maxOutputBytes`
+   *
+   * @throws {SandboxTimeoutError} if execution exceeds `maxExecutionMs`.
+   * @throws {SandboxResourceError} if memory allocation exceeds `maxMemoryBytes`.
    * @throws Error if the QuickJS WASM runtime is not installed.
    */
   async execute(
@@ -134,6 +181,44 @@ export class WasmSandbox {
     if (!quickjs) {
       throw new Error(
         'QuickJS WASM not available — install quickjs-emscripten as a dependency to enable WASM sandbox execution.',
+      )
+    }
+
+    // Enforce execution time via Promise.race + AbortController
+    const controller = new AbortController()
+    const timeoutHandle = setTimeout(() => controller.abort(), this.maxExecutionMs)
+
+    const execPromise = this.executeInner(quickjs, code, start)
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      controller.signal.addEventListener('abort', () => {
+        reject(new SandboxTimeoutError(this.maxExecutionMs))
+      })
+    })
+
+    try {
+      const result = await Promise.race([execPromise, timeoutPromise])
+      return result
+    } finally {
+      clearTimeout(timeoutHandle)
+    }
+  }
+
+  /**
+   * Inner execution logic — separated so the outer execute() can wrap it
+   * with timeout enforcement.
+   */
+  private async executeInner(
+    quickjs: unknown,
+    code: string,
+    start: number,
+  ): Promise<WasmExecResult> {
+    // Validate memory limit: compute WASM max pages from maxMemoryBytes
+    const maxPages = Math.floor(this.maxMemoryBytes / 65536)
+    if (this.memoryLimitPages > maxPages) {
+      throw new SandboxResourceError(
+        'memory',
+        this.maxMemoryBytes,
+        this.memoryLimitPages * 65536,
       )
     }
 
@@ -172,9 +257,10 @@ export class WasmSandbox {
           const errorVal = typeof dump === 'function' ? String(dump(result['error'])) : 'unknown error'
           const dispose = (result['error'] as Record<string, unknown>)?.['dispose'] as (() => void) | undefined
           if (typeof dispose === 'function') dispose()
+
           return {
             stdout: '',
-            stderr: errorVal + '\n',
+            stderr: this.truncateOutput(errorVal + '\n'),
             exitCode: 1,
             fuelConsumed: this.fuelLimit,
             memoryPagesUsed: this.memoryLimitPages,
@@ -200,9 +286,15 @@ export class WasmSandbox {
         if (typeof rtDispose === 'function') rtDispose()
       }
     } catch (err) {
+      // Re-throw resource errors so they propagate correctly
+      if (err instanceof SandboxResourceError || err instanceof SandboxTimeoutError) {
+        throw err
+      }
       return {
         stdout: '',
-        stderr: (err instanceof Error ? err.message : String(err)) + '\n',
+        stderr: this.truncateOutput(
+          (err instanceof Error ? err.message : String(err)) + '\n',
+        ),
         exitCode: 1,
         fuelConsumed: 0,
         memoryPagesUsed: this.memoryLimitPages,
@@ -219,6 +311,7 @@ export class WasmSandbox {
   async uploadFiles(files: Record<string, string>): Promise<void> {
     this.guard.check('fs-write')
     for (const [path, content] of Object.entries(files)) {
+      this.validatePath(path)
       this.ensureParentDirs(path)
       this.fs.writeFile(path, encoder.encode(content))
     }
@@ -229,6 +322,7 @@ export class WasmSandbox {
     this.guard.check('fs-read')
     const result: Record<string, string> = {}
     for (const path of paths) {
+      this.validatePath(path)
       if (this.fs.exists(path)) {
         result[path] = decoder.decode(this.fs.readFile(path))
       }
@@ -259,17 +353,68 @@ export class WasmSandbox {
   }
 
   /** Get the configured resource limits. */
-  getConfig(): { memoryLimitPages: number; fuelLimit: number; timeoutMs: number } {
+  getConfig(): {
+    memoryLimitPages: number
+    fuelLimit: number
+    timeoutMs: number
+    maxMemoryBytes: number
+    maxExecutionMs: number
+    allowedPaths: string[] | undefined
+    maxOutputBytes: number
+  } {
     return {
       memoryLimitPages: this.memoryLimitPages,
       fuelLimit: this.fuelLimit,
       timeoutMs: this.timeoutMs,
+      maxMemoryBytes: this.maxMemoryBytes,
+      maxExecutionMs: this.maxExecutionMs,
+      allowedPaths: this.allowedPaths,
+      maxOutputBytes: this.maxOutputBytes,
     }
   }
 
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
+
+  /**
+   * Validate that a path is within the configured `allowedPaths`.
+   *
+   * When `allowedPaths` is not set (undefined), all paths are allowed.
+   * Path traversal (e.g., `/../`) is resolved before checking.
+   *
+   * @throws {SandboxAccessDeniedError} if the path is outside allowed paths.
+   */
+  validatePath(path: string): void {
+    if (!this.allowedPaths) return
+
+    // Normalize: resolve `.` and `..` segments
+    const normalized = resolvePath(path)
+
+    const isAllowed = this.allowedPaths.some((allowed) => {
+      const normalizedAllowed = resolvePath(allowed)
+      return (
+        normalized === normalizedAllowed
+        || normalized.startsWith(normalizedAllowed + '/')
+      )
+    })
+
+    if (!isAllowed) {
+      throw new SandboxAccessDeniedError(path, this.allowedPaths)
+    }
+  }
+
+  /**
+   * Truncate output to `maxOutputBytes`. If truncated, appends a warning.
+   */
+  truncateOutput(output: string): string {
+    const bytes = encoder.encode(output)
+    if (bytes.byteLength <= this.maxOutputBytes) {
+      return output
+    }
+    const truncated = decoder.decode(bytes.slice(0, this.maxOutputBytes))
+    return truncated + '\n[output truncated — exceeded ' + this.maxOutputBytes + ' byte limit]'
+  }
 
   /** Ensure all parent directories exist for the given file path. */
   private ensureParentDirs(filePath: string): void {
@@ -280,4 +425,28 @@ export class WasmSandbox {
     const parentPath = '/' + parentParts.join('/')
     this.fs.mkdirp(parentPath)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Path resolution helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a POSIX-style path by collapsing `.` and `..` segments.
+ * Always returns a path starting with `/`.
+ */
+function resolvePath(raw: string): string {
+  const parts = raw.split('/').filter((s) => s.length > 0)
+  const resolved: string[] = []
+
+  for (const part of parts) {
+    if (part === '.') continue
+    if (part === '..') {
+      resolved.pop()
+    } else {
+      resolved.push(part)
+    }
+  }
+
+  return '/' + resolved.join('/')
 }

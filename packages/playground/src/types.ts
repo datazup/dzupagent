@@ -205,6 +205,33 @@ export interface HealthReady {
 /** Metrics response (opaque shape) */
 export type HealthMetrics = Record<string, unknown>
 
+// ── Marketplace ─────────────────────────────────────
+
+/** Agent category in the marketplace */
+export type MarketplaceCategory =
+  | 'observability'
+  | 'memory'
+  | 'security'
+  | 'codegen'
+  | 'integration'
+  | 'testing'
+
+/** A plugin available in the agent marketplace */
+export interface MarketplaceAgent {
+  id: string
+  name: string
+  description: string
+  version: string
+  author: string
+  category: MarketplaceCategory
+  tags: string[]
+  installed: boolean
+  verified: boolean
+  downloadCount?: number
+  rating?: number
+  repository?: string
+}
+
 // ── API ──────────────────────────────────────────────────
 
 /** Standard API response wrapper */

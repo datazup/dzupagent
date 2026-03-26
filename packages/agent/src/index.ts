@@ -267,6 +267,7 @@ export type {
   ReflectionScore,
   ReflectionDimensions,
   ReflectionInput,
+  ReflectorConfig,
 } from './reflection/run-reflector.js'
 
 // --- Version ---

@@ -1,9 +1,11 @@
 /**
- * RunReflector — lightweight heuristic scoring of agent run quality.
+ * RunReflector — hybrid heuristic + optional LLM scoring of agent run quality.
  *
- * Zero LLM overhead. Pure heuristic analysis of run inputs/outputs,
- * tool call success rates, error counts, and output characteristics.
- * Designed to run on every single agent run without measurable latency impact.
+ * By default, pure heuristic analysis with zero LLM overhead.
+ * When configured with an LLM function, can enhance scoring with
+ * LLM-powered reflection (always or only when heuristic score is low).
+ * Designed to run on every single agent run without measurable latency impact
+ * in heuristic-only mode.
  */
 
 // ---------------------------------------------------------------------------
@@ -24,6 +26,16 @@ export interface ReflectionDimensions {
   reliability: number
 }
 
+/** Configuration for optional LLM-enhanced reflection. */
+export interface ReflectorConfig {
+  /** Optional LLM for enhanced reflection scoring. */
+  llm?: (prompt: string) => Promise<string>
+  /** Use LLM reflection on every run, or only when heuristic score is low. Default: 'on-low-score'. */
+  llmMode?: 'always' | 'on-low-score'
+  /** Threshold below which LLM reflection triggers in 'on-low-score' mode. Default: 0.6. */
+  llmThreshold?: number
+}
+
 /** Full reflection score returned by `RunReflector.score()`. */
 export interface ReflectionScore {
   /** Overall quality score 0-1 */
@@ -32,6 +44,14 @@ export interface ReflectionScore {
   dimensions: ReflectionDimensions
   /** Flags for notable patterns */
   flags: string[]
+}
+
+/** Parsed result from LLM reflection scoring. */
+interface LlmReflectionResult {
+  completeness: number
+  coherence: number
+  relevance: number
+  reasoning: string
 }
 
 /** Input data required for scoring a run. */
@@ -131,29 +151,78 @@ function hasTruncationMarkers(s: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Scores the quality of an agent run using lightweight heuristics.
+ * Scores the quality of an agent run using lightweight heuristics,
+ * optionally enhanced with LLM-powered reflection.
  *
  * Stateless — each call to `score()` is independent.
  *
  * ```ts
+ * // Heuristic-only (default, zero LLM overhead)
  * const reflector = new RunReflector()
- * const score = reflector.score({
+ * const score = await reflector.score({
  *   input: 'Summarize the document',
  *   output: 'Here is the summary...',
  *   toolCalls: [{ name: 'readFile', success: true, durationMs: 120 }],
  *   durationMs: 3200,
  * })
- * console.log(score.overall)       // 0.92
- * console.log(score.flags)         // []
+ *
+ * // With LLM reflection on low scores
+ * const reflectorWithLlm = new RunReflector({
+ *   llm: (prompt) => callMyModel(prompt),
+ *   llmMode: 'on-low-score',
+ *   llmThreshold: 0.6,
+ * })
  * ```
  */
 export class RunReflector {
+  private readonly config: ReflectorConfig | undefined
+
+  constructor(config?: ReflectorConfig) {
+    this.config = config
+  }
+
   /**
    * Score a completed agent run.
    *
-   * All scoring is heuristic-based with zero LLM calls.
+   * Computes heuristic scores first; optionally enhances with LLM scoring
+   * based on the configured mode.
    */
-  score(input: ReflectionInput): ReflectionScore {
+  async score(input: ReflectionInput): Promise<ReflectionScore> {
+    const heuristicResult = this.scoreHeuristic(input)
+
+    // If no LLM configured, return heuristic-only
+    if (!this.config?.llm) {
+      return heuristicResult
+    }
+
+    const mode = this.config.llmMode ?? 'on-low-score'
+    const threshold = this.config.llmThreshold ?? 0.6
+
+    // Determine if we should invoke LLM
+    const shouldInvokeLlm =
+      mode === 'always' || heuristicResult.overall < threshold
+
+    if (!shouldInvokeLlm) {
+      return heuristicResult
+    }
+
+    // Invoke LLM reflection and merge results
+    try {
+      const llmResult = await this.scoreLlm(input)
+      return this.mergeScores(heuristicResult, llmResult)
+    } catch {
+      // LLM failure: fall back to heuristic with flag
+      return {
+        ...heuristicResult,
+        flags: [...heuristicResult.flags, 'llm_reflection_failed'],
+      }
+    }
+  }
+
+  /**
+   * Compute heuristic-only score (synchronous, zero LLM overhead).
+   */
+  scoreHeuristic(input: ReflectionInput): ReflectionScore {
     const flags: string[] = []
 
     const inputStr = stringify(input.input)
@@ -191,6 +260,127 @@ export class RunReflector {
     )
 
     return { overall, dimensions, flags }
+  }
+
+  // ---- LLM reflection -----------------------------------------------------
+
+  /** LLM reflection dimension names. */
+  private static readonly LLM_DIMENSIONS = [
+    'completeness',
+    'coherence',
+    'relevance',
+  ] as const
+
+  /**
+   * Build the prompt for LLM reflection scoring.
+   */
+  private buildLlmPrompt(input: ReflectionInput): string {
+    const inputStr = stringify(input.input)
+    const outputStr = stringify(input.output)
+
+    const toolSummary = input.toolCalls
+      ? input.toolCalls
+          .map(
+            (tc) =>
+              `  - ${tc.name}: ${tc.success ? 'success' : 'failed'}${tc.durationMs !== undefined ? ` (${tc.durationMs}ms)` : ''}`,
+          )
+          .join('\n')
+      : '  (none)'
+
+    return (
+      `You are an expert evaluator. Score the following agent run on 3 dimensions, each from 0.0 to 1.0.\n` +
+      `Return ONLY a JSON object matching this schema:\n` +
+      `{ "completeness": number, "coherence": number, "relevance": number, "reasoning": string }\n\n` +
+      `Dimensions:\n` +
+      `- completeness (0.0-1.0): Does the output fully address all parts of the input?\n` +
+      `- coherence (0.0-1.0): Is the output well-structured and internally consistent?\n` +
+      `- relevance (0.0-1.0): Is the output relevant to the input without unnecessary content?\n\n` +
+      `Input: ${inputStr}\n\n` +
+      `Output: ${outputStr}\n\n` +
+      `Tool calls:\n${toolSummary}\n\n` +
+      `Errors: ${input.errorCount ?? 0}, Retries: ${input.retryCount ?? 0}, Duration: ${input.durationMs}ms`
+    )
+  }
+
+  /** Parsed LLM reflection response. */
+  private parseLlmResponse(raw: string): LlmReflectionResult | null {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) return null
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(jsonMatch[0])
+    } catch {
+      return null
+    }
+
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return null
+    }
+
+    const obj = parsed as Record<string, unknown>
+
+    // Validate required dimension fields
+    for (const dim of RunReflector.LLM_DIMENSIONS) {
+      if (typeof obj[dim] !== 'number') {
+        return null
+      }
+    }
+
+    return {
+      completeness: clamp01(obj['completeness'] as number),
+      coherence: clamp01(obj['coherence'] as number),
+      relevance: clamp01(obj['relevance'] as number),
+      reasoning: typeof obj['reasoning'] === 'string' ? obj['reasoning'] : '',
+    }
+  }
+
+  /**
+   * Score using LLM reflection. Throws on failure.
+   */
+  private async scoreLlm(input: ReflectionInput): Promise<LlmReflectionResult> {
+    const llm = this.config!.llm!
+    const prompt = this.buildLlmPrompt(input)
+    const raw = await llm(prompt)
+    const result = this.parseLlmResponse(raw)
+    if (result === null) {
+      throw new Error('Failed to parse LLM reflection response')
+    }
+    return result
+  }
+
+  /**
+   * Merge heuristic and LLM scores.
+   *
+   * Uses LLM dimensions for completeness/coherence and adds relevance.
+   * Keeps heuristic for toolSuccess/reliability/conciseness.
+   * Blends overall: 0.6 * llmOverall + 0.4 * heuristicOverall.
+   * Preserves all heuristic flags.
+   */
+  private mergeScores(
+    heuristic: ReflectionScore,
+    llm: LlmReflectionResult,
+  ): ReflectionScore {
+    // Compute LLM overall from its 3 dimensions (equal weight)
+    const llmOverall = (llm.completeness + llm.coherence + llm.relevance) / 3
+
+    // Merge dimensions: LLM overrides completeness/coherence, keep heuristic for the rest
+    const dimensions: ReflectionDimensions = {
+      completeness: llm.completeness,
+      coherence: llm.coherence,
+      toolSuccess: heuristic.dimensions.toolSuccess,
+      conciseness: heuristic.dimensions.conciseness,
+      reliability: heuristic.dimensions.reliability,
+    }
+
+    // Blend overall
+    const overall = clamp01(0.6 * llmOverall + 0.4 * heuristic.overall)
+
+    return {
+      overall,
+      dimensions,
+      flags: [...heuristic.flags, 'llm_enhanced'],
+    }
   }
 
   // ---- Dimension scorers --------------------------------------------------

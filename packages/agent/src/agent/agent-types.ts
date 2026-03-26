@@ -91,6 +91,8 @@ export interface GenerateOptions {
   context?: string
   /** Callback for token usage per LLM call */
   onUsage?: (usage: { model: string; inputTokens: number; outputTokens: number }) => void
+  /** Current intent for per-intent tool ranking (passed to ToolStatsTracker) */
+  intent?: string
 }
 
 /** Result of a generate() call */

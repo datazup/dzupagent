@@ -18,8 +18,8 @@ describe('RunReflector', () => {
   // Perfect run
   // ------------------------------------------------------------------
   describe('perfect run', () => {
-    it('scores near 1.0 with successful tools and no errors', () => {
-      const score = reflector.score(makeInput({
+    it('scores near 1.0 with successful tools and no errors', async () => {
+      const score = await reflector.score(makeInput({
         toolCalls: [
           { name: 'readFile', success: true, durationMs: 100 },
           { name: 'search', success: true, durationMs: 200 },
@@ -42,32 +42,32 @@ describe('RunReflector', () => {
   // Completeness
   // ------------------------------------------------------------------
   describe('completeness', () => {
-    it('scores 0 for empty output', () => {
-      const score = reflector.score(makeInput({ output: '' }))
+    it('scores 0 for empty output', async () => {
+      const score = await reflector.score(makeInput({ output: '' }))
       expect(score.dimensions.completeness).toBe(0)
       expect(score.flags).toContain('empty_output')
     })
 
-    it('scores 0 for null output', () => {
-      const score = reflector.score(makeInput({ output: null }))
+    it('scores 0 for null output', async () => {
+      const score = await reflector.score(makeInput({ output: null }))
       expect(score.dimensions.completeness).toBe(0)
       expect(score.flags).toContain('empty_output')
     })
 
-    it('scores 0 for undefined output', () => {
-      const score = reflector.score(makeInput({ output: undefined }))
+    it('scores 0 for undefined output', async () => {
+      const score = await reflector.score(makeInput({ output: undefined }))
       expect(score.dimensions.completeness).toBe(0)
       expect(score.flags).toContain('empty_output')
     })
 
-    it('scores low for very short output with non-trivial input', () => {
-      const score = reflector.score(makeInput({ output: 'OK' }))
+    it('scores low for very short output with non-trivial input', async () => {
+      const score = await reflector.score(makeInput({ output: 'OK' }))
       expect(score.dimensions.completeness).toBeLessThan(0.5)
       expect(score.flags).toContain('very_short_output')
     })
 
-    it('scores 1.0 for reasonable output', () => {
-      const score = reflector.score(makeInput())
+    it('scores 1.0 for reasonable output', async () => {
+      const score = await reflector.score(makeInput())
       expect(score.dimensions.completeness).toBe(1.0)
     })
   })
@@ -76,34 +76,34 @@ describe('RunReflector', () => {
   // Coherence
   // ------------------------------------------------------------------
   describe('coherence', () => {
-    it('scores 1.0 for normal text output', () => {
-      const score = reflector.score(makeInput())
+    it('scores 1.0 for normal text output', async () => {
+      const score = await reflector.score(makeInput())
       expect(score.dimensions.coherence).toBe(1.0)
     })
 
-    it('penalizes truncated output', () => {
-      const score = reflector.score(makeInput({
+    it('penalizes truncated output', async () => {
+      const score = await reflector.score(makeInput({
         output: 'This is a response that was cut short...',
       }))
       expect(score.dimensions.coherence).toBeLessThan(1.0)
       expect(score.flags).toContain('truncated_output')
     })
 
-    it('penalizes output containing error patterns', () => {
-      const score = reflector.score(makeInput({
+    it('penalizes output containing error patterns', async () => {
+      const score = await reflector.score(makeInput({
         output: 'Something went wrong. Internal Server Error occurred while processing.',
       }))
       expect(score.dimensions.coherence).toBeLessThan(1.0)
       expect(score.flags).toContain('error_in_output')
     })
 
-    it('scores 0 for empty output', () => {
-      const score = reflector.score(makeInput({ output: '' }))
+    it('scores 0 for empty output', async () => {
+      const score = await reflector.score(makeInput({ output: '' }))
       expect(score.dimensions.coherence).toBe(0)
     })
 
-    it('handles valid JSON output well', () => {
-      const score = reflector.score(makeInput({
+    it('handles valid JSON output well', async () => {
+      const score = await reflector.score(makeInput({
         output: JSON.stringify({ summary: 'Revenue grew 15%', confidence: 0.95 }),
       }))
       expect(score.dimensions.coherence).toBe(1.0)
@@ -114,18 +114,18 @@ describe('RunReflector', () => {
   // Tool success
   // ------------------------------------------------------------------
   describe('toolSuccess', () => {
-    it('scores 1.0 when no tools are used', () => {
-      const score = reflector.score(makeInput({ toolCalls: undefined }))
+    it('scores 1.0 when no tools are used', async () => {
+      const score = await reflector.score(makeInput({ toolCalls: undefined }))
       expect(score.dimensions.toolSuccess).toBe(1.0)
     })
 
-    it('scores 1.0 when empty tool array is provided', () => {
-      const score = reflector.score(makeInput({ toolCalls: [] }))
+    it('scores 1.0 when empty tool array is provided', async () => {
+      const score = await reflector.score(makeInput({ toolCalls: [] }))
       expect(score.dimensions.toolSuccess).toBe(1.0)
     })
 
-    it('scores 1.0 when all tools succeed', () => {
-      const score = reflector.score(makeInput({
+    it('scores 1.0 when all tools succeed', async () => {
+      const score = await reflector.score(makeInput({
         toolCalls: [
           { name: 'read', success: true },
           { name: 'write', success: true },
@@ -134,8 +134,8 @@ describe('RunReflector', () => {
       expect(score.dimensions.toolSuccess).toBe(1.0)
     })
 
-    it('scores 0.5 when half of tools fail', () => {
-      const score = reflector.score(makeInput({
+    it('scores 0.5 when half of tools fail', async () => {
+      const score = await reflector.score(makeInput({
         toolCalls: [
           { name: 'read', success: true },
           { name: 'write', success: false },
@@ -144,8 +144,8 @@ describe('RunReflector', () => {
       expect(score.dimensions.toolSuccess).toBe(0.5)
     })
 
-    it('scores 0 when all tools fail and sets flag', () => {
-      const score = reflector.score(makeInput({
+    it('scores 0 when all tools fail and sets flag', async () => {
+      const score = await reflector.score(makeInput({
         toolCalls: [
           { name: 'read', success: false },
           { name: 'write', success: false },
@@ -161,38 +161,38 @@ describe('RunReflector', () => {
   // Conciseness
   // ------------------------------------------------------------------
   describe('conciseness', () => {
-    it('scores 1.0 for moderate length output', () => {
-      const score = reflector.score(makeInput())
+    it('scores 1.0 for moderate length output', async () => {
+      const score = await reflector.score(makeInput())
       expect(score.dimensions.conciseness).toBe(1.0)
     })
 
-    it('penalizes very long output (>10K chars)', () => {
+    it('penalizes very long output (>10K chars)', async () => {
       const longOutput = 'x'.repeat(15_000)
-      const score = reflector.score(makeInput({ output: longOutput }))
+      const score = await reflector.score(makeInput({ output: longOutput }))
       expect(score.dimensions.conciseness).toBeLessThan(1.0)
       expect(score.flags).toContain('very_long_output')
     })
 
-    it('penalizes extremely long output more severely', () => {
+    it('penalizes extremely long output more severely', async () => {
       const veryLong = 'x'.repeat(50_000)
-      const score = reflector.score(makeInput({ output: veryLong }))
+      const score = await reflector.score(makeInput({ output: veryLong }))
       expect(score.dimensions.conciseness).toBeLessThan(0.5)
       expect(score.flags).toContain('very_long_output')
     })
 
-    it('penalizes high output/input ratio', () => {
+    it('penalizes high output/input ratio', async () => {
       const shortInput = 'List colors'
       // 25x ratio with non-trivial input
       const longOutput = 'a'.repeat(shortInput.length * 25)
-      const score = reflector.score(makeInput({
+      const score = await reflector.score(makeInput({
         input: shortInput,
         output: longOutput,
       }))
       expect(score.dimensions.conciseness).toBeLessThan(1.0)
     })
 
-    it('does not penalize empty output (handled by completeness)', () => {
-      const score = reflector.score(makeInput({ output: '' }))
+    it('does not penalize empty output (handled by completeness)', async () => {
+      const score = await reflector.score(makeInput({ output: '' }))
       expect(score.dimensions.conciseness).toBe(1.0)
     })
   })
@@ -201,40 +201,40 @@ describe('RunReflector', () => {
   // Reliability
   // ------------------------------------------------------------------
   describe('reliability', () => {
-    it('scores 1.0 with zero errors and zero retries', () => {
-      const score = reflector.score(makeInput({ errorCount: 0, retryCount: 0 }))
+    it('scores 1.0 with zero errors and zero retries', async () => {
+      const score = await reflector.score(makeInput({ errorCount: 0, retryCount: 0 }))
       expect(score.dimensions.reliability).toBe(1.0)
     })
 
-    it('penalizes errors (0.2 each)', () => {
-      const score = reflector.score(makeInput({ errorCount: 2, retryCount: 0 }))
+    it('penalizes errors (0.2 each)', async () => {
+      const score = await reflector.score(makeInput({ errorCount: 2, retryCount: 0 }))
       expect(score.dimensions.reliability).toBeCloseTo(0.6, 5)
     })
 
-    it('penalizes retries (0.1 each)', () => {
-      const score = reflector.score(makeInput({ errorCount: 0, retryCount: 3 }))
+    it('penalizes retries (0.1 each)', async () => {
+      const score = await reflector.score(makeInput({ errorCount: 0, retryCount: 3 }))
       expect(score.dimensions.reliability).toBeCloseTo(0.7, 5)
       expect(score.flags).toContain('excessive_retries')
     })
 
-    it('combines error and retry penalties', () => {
-      const score = reflector.score(makeInput({ errorCount: 1, retryCount: 2 }))
+    it('combines error and retry penalties', async () => {
+      const score = await reflector.score(makeInput({ errorCount: 1, retryCount: 2 }))
       // 1.0 - 0.2 - 0.2 = 0.6
       expect(score.dimensions.reliability).toBeCloseTo(0.6, 5)
     })
 
-    it('clamps at 0 for many errors', () => {
-      const score = reflector.score(makeInput({ errorCount: 10, retryCount: 5 }))
+    it('clamps at 0 for many errors', async () => {
+      const score = await reflector.score(makeInput({ errorCount: 10, retryCount: 5 }))
       expect(score.dimensions.reliability).toBe(0)
     })
 
-    it('flags excessive retries at 3+', () => {
-      const score = reflector.score(makeInput({ retryCount: 3 }))
+    it('flags excessive retries at 3+', async () => {
+      const score = await reflector.score(makeInput({ retryCount: 3 }))
       expect(score.flags).toContain('excessive_retries')
     })
 
-    it('does not flag retries below 3', () => {
-      const score = reflector.score(makeInput({ retryCount: 2 }))
+    it('does not flag retries below 3', async () => {
+      const score = await reflector.score(makeInput({ retryCount: 2 }))
       expect(score.flags).not.toContain('excessive_retries')
     })
   })
@@ -243,18 +243,18 @@ describe('RunReflector', () => {
   // Flags
   // ------------------------------------------------------------------
   describe('flags', () => {
-    it('sets very_fast flag for runs under 500ms', () => {
-      const score = reflector.score(makeInput({ durationMs: 200 }))
+    it('sets very_fast flag for runs under 500ms', async () => {
+      const score = await reflector.score(makeInput({ durationMs: 200 }))
       expect(score.flags).toContain('very_fast')
     })
 
-    it('does not set very_fast flag for normal duration', () => {
-      const score = reflector.score(makeInput({ durationMs: 2000 }))
+    it('does not set very_fast flag for normal duration', async () => {
+      const score = await reflector.score(makeInput({ durationMs: 2000 }))
       expect(score.flags).not.toContain('very_fast')
     })
 
-    it('can accumulate multiple flags', () => {
-      const score = reflector.score(makeInput({
+    it('can accumulate multiple flags', async () => {
+      const score = await reflector.score(makeInput({
         output: '',
         durationMs: 100,
         errorCount: 5,
@@ -275,8 +275,8 @@ describe('RunReflector', () => {
   // Overall weighted score
   // ------------------------------------------------------------------
   describe('overall score', () => {
-    it('is the weighted average of dimensions', () => {
-      const score = reflector.score(makeInput({
+    it('is the weighted average of dimensions', async () => {
+      const score = await reflector.score(makeInput({
         toolCalls: [{ name: 'a', success: true }],
         errorCount: 0,
         retryCount: 0,
@@ -291,8 +291,8 @@ describe('RunReflector', () => {
       expect(score.overall).toBeCloseTo(expected, 5)
     })
 
-    it('is low when multiple dimensions fail', () => {
-      const score = reflector.score(makeInput({
+    it('is low when multiple dimensions fail', async () => {
+      const score = await reflector.score(makeInput({
         output: '',
         errorCount: 5,
         toolCalls: [
@@ -302,8 +302,8 @@ describe('RunReflector', () => {
       expect(score.overall).toBeLessThan(0.5)
     })
 
-    it('is clamped between 0 and 1', () => {
-      const score = reflector.score(makeInput({
+    it('is clamped between 0 and 1', async () => {
+      const score = await reflector.score(makeInput({
         output: '',
         errorCount: 100,
         retryCount: 100,
@@ -318,8 +318,8 @@ describe('RunReflector', () => {
   // Edge cases
   // ------------------------------------------------------------------
   describe('edge cases', () => {
-    it('handles object input and output', () => {
-      const score = reflector.score(makeInput({
+    it('handles object input and output', async () => {
+      const score = await reflector.score(makeInput({
         input: { query: 'What is 2+2?' },
         output: { answer: 4, confidence: 1.0 },
       }))
@@ -327,31 +327,31 @@ describe('RunReflector', () => {
       expect(score.dimensions.completeness).toBe(1.0)
     })
 
-    it('handles no token usage', () => {
-      const score = reflector.score(makeInput({ tokenUsage: undefined }))
+    it('handles no token usage', async () => {
+      const score = await reflector.score(makeInput({ tokenUsage: undefined }))
       expect(score.overall).toBeGreaterThan(0)
     })
 
-    it('handles no tool calls', () => {
-      const score = reflector.score(makeInput({ toolCalls: undefined }))
+    it('handles no tool calls', async () => {
+      const score = await reflector.score(makeInput({ toolCalls: undefined }))
       expect(score.dimensions.toolSuccess).toBe(1.0)
     })
 
-    it('handles no error/retry counts (defaults to 0)', () => {
-      const score = reflector.score(makeInput({
+    it('handles no error/retry counts (defaults to 0)', async () => {
+      const score = await reflector.score(makeInput({
         errorCount: undefined,
         retryCount: undefined,
       }))
       expect(score.dimensions.reliability).toBe(1.0)
     })
 
-    it('handles numeric output', () => {
-      const score = reflector.score(makeInput({ output: 42 }))
+    it('handles numeric output', async () => {
+      const score = await reflector.score(makeInput({ output: 42 }))
       expect(score.dimensions.completeness).toBeLessThan(1.0) // "42" is very short
     })
 
-    it('handles zero duration', () => {
-      const score = reflector.score(makeInput({ durationMs: 0 }))
+    it('handles zero duration', async () => {
+      const score = await reflector.score(makeInput({ durationMs: 0 }))
       expect(score.flags).toContain('very_fast')
       expect(score.overall).toBeGreaterThan(0)
     })

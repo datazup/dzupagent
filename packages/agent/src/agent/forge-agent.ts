@@ -109,6 +109,7 @@ export class ForgeAgent {
       signal: options?.signal,
       stuckDetector,
       toolStatsTracker: this.config.toolStatsTracker,
+      intent: options?.intent,
       onStuckDetected: (reason, recovery) => {
         this.config.eventBus?.emit({
           type: 'agent:stuck_detected',
