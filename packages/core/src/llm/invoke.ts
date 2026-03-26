@@ -27,29 +27,99 @@ export interface InvokeOptions {
 const DEFAULT_TIMEOUT_MS = 120_000
 
 /**
- * Extract token usage from an LLM response's metadata.
- * Handles both Anthropic and OpenAI response formats.
+ * Extract real token usage from an LLM response's metadata.
+ *
+ * Tries multiple paths used by different LangChain providers:
+ *
+ * 1. Top-level `usage_metadata` (LangChain 0.3+ standardized field)
+ *    `{ input_tokens, output_tokens, total_tokens }`
+ *
+ * 2. `response_metadata.usage` — Anthropic format
+ *    `{ input_tokens, output_tokens }`
+ *
+ * 3. `response_metadata.usage` — OpenAI format
+ *    `{ prompt_tokens, completion_tokens, total_tokens }`
+ *
+ * 4. `response_metadata.usage_metadata` — some LangChain versions nest it here
+ *    `{ input_tokens, output_tokens }`
+ *
+ * 5. `response_metadata.tokenUsage` — older LangChain format
+ *    `{ promptTokens, completionTokens, totalTokens }`
+ *
+ * Returns `{ inputTokens: 0, outputTokens: 0 }` when no real usage is found.
  */
 export function extractTokenUsage(
   response: BaseMessage,
   modelName?: string,
 ): TokenUsage {
-  const meta = (response as BaseMessage & { response_metadata?: Record<string, unknown> }).response_metadata
-  const usageBlock = (meta?.['usage'] ?? meta?.['usage_metadata'] ?? {}) as Record<string, unknown>
-
-  return {
-    model: modelName ?? (meta?.['model'] as string | undefined) ?? 'unknown',
-    inputTokens: typeof usageBlock['input_tokens'] === 'number'
-      ? usageBlock['input_tokens']
-      : typeof usageBlock['prompt_tokens'] === 'number'
-        ? usageBlock['prompt_tokens']
-        : 0,
-    outputTokens: typeof usageBlock['output_tokens'] === 'number'
-      ? usageBlock['output_tokens']
-      : typeof usageBlock['completion_tokens'] === 'number'
-        ? usageBlock['completion_tokens']
-        : 0,
+  const resp = response as BaseMessage & {
+    response_metadata?: Record<string, unknown>
+    usage_metadata?: Record<string, unknown>
   }
+
+  const meta = resp.response_metadata
+  const resolvedModel = modelName ?? (meta?.['model'] as string | undefined) ?? 'unknown'
+
+  // Path 1: Top-level usage_metadata (LangChain 0.3+ standardized)
+  const topUsageMeta = resp.usage_metadata as Record<string, number> | undefined
+  if (topUsageMeta && typeof topUsageMeta['input_tokens'] === 'number' && typeof topUsageMeta['output_tokens'] === 'number') {
+    return {
+      model: resolvedModel,
+      inputTokens: topUsageMeta['input_tokens'],
+      outputTokens: topUsageMeta['output_tokens'],
+    }
+  }
+
+  // Path 2 & 3: response_metadata.usage (Anthropic input_tokens or OpenAI prompt_tokens)
+  const usage = meta?.['usage'] as Record<string, unknown> | undefined
+  if (usage) {
+    if (typeof usage['input_tokens'] === 'number' && typeof usage['output_tokens'] === 'number') {
+      return {
+        model: resolvedModel,
+        inputTokens: usage['input_tokens'],
+        outputTokens: usage['output_tokens'],
+      }
+    }
+    if (typeof usage['prompt_tokens'] === 'number' && typeof usage['completion_tokens'] === 'number') {
+      return {
+        model: resolvedModel,
+        inputTokens: usage['prompt_tokens'],
+        outputTokens: usage['completion_tokens'],
+      }
+    }
+  }
+
+  // Path 4: response_metadata.usage_metadata
+  const usageMeta = meta?.['usage_metadata'] as Record<string, unknown> | undefined
+  if (usageMeta) {
+    if (typeof usageMeta['input_tokens'] === 'number' && typeof usageMeta['output_tokens'] === 'number') {
+      return {
+        model: resolvedModel,
+        inputTokens: usageMeta['input_tokens'],
+        outputTokens: usageMeta['output_tokens'],
+      }
+    }
+  }
+
+  // Path 5: response_metadata.tokenUsage (older LangChain format)
+  const tokenUsage = meta?.['tokenUsage'] as Record<string, unknown> | undefined
+  if (tokenUsage && typeof tokenUsage['promptTokens'] === 'number' && typeof tokenUsage['completionTokens'] === 'number') {
+    return {
+      model: resolvedModel,
+      inputTokens: tokenUsage['promptTokens'],
+      outputTokens: tokenUsage['completionTokens'],
+    }
+  }
+
+  return { model: resolvedModel, inputTokens: 0, outputTokens: 0 }
+}
+
+/**
+ * Estimate tokens from text length. Only use as fallback when real usage is unavailable.
+ * Uses ~4 chars per token as a rough approximation.
+ */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4)
 }
 
 /**

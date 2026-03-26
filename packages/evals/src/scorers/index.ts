@@ -23,5 +23,14 @@ export type {
   CostScorerConfig,
 } from './deterministic-enhanced.js'
 
+export { LlmJudgeScorer } from './llm-judge-scorer.js'
+export type {
+  JudgeDimension,
+  JudgeScore,
+  JudgeAnchor,
+  JudgeScorerConfig,
+  JudgeScorerResult,
+} from './llm-judge-scorer.js'
+
 export { STANDARD_CRITERIA, CODE_CRITERIA, FIVE_POINT_RUBRIC, TEN_POINT_RUBRIC } from './criteria.js'
 export type { JudgeCriterion } from './criteria.js'

@@ -341,7 +341,7 @@ export class PipelineRuntime {
           const policy = this.config.retryPolicy ?? {}
           const initialMs = policy.initialBackoffMs ?? 1000
           const maxMs = policy.maxBackoffMs ?? 30000
-          const multiplier = policy.multiplier ?? 2
+          const multiplier = policy.multiplier ?? policy.backoffMultiplier ?? 2
           const backoffMs = Math.min(initialMs * Math.pow(multiplier, attempt - 1), maxMs)
 
           // Emit retry event
@@ -809,7 +809,9 @@ export class PipelineRuntime {
   private isRetryable(error: string): boolean {
     const patterns = this.config.retryPolicy?.retryableErrors
     if (!patterns || patterns.length === 0) return true // all errors retryable by default
-    return patterns.some(p => p.test(error))
+    return patterns.some(p =>
+      typeof p === 'string' ? error.includes(p) : p.test(error),
+    )
   }
 
   private delay(ms: number): Promise<void> {

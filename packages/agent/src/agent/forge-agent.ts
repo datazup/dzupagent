@@ -32,7 +32,7 @@ import {
   summarizeAndTrim,
   formatSummaryContext,
 } from '@forgeagent/core'
-import { extractTokenUsage, type TokenUsage } from '@forgeagent/core'
+import { extractTokenUsage, estimateTokens, type TokenUsage } from '@forgeagent/core'
 import type {
   ForgeAgentConfig,
   GenerateOptions,
@@ -292,13 +292,20 @@ export class ForgeAgent {
             const modelName = (model as BaseChatModel & { model?: string }).model
             const realUsage = extractTokenUsage(fullResponse, modelName ?? undefined)
 
-            const usage: TokenUsage = {
-              model: realUsage.model,
-              inputTokens: realUsage.inputTokens,
-              outputTokens: realUsage.outputTokens > 0
-                ? realUsage.outputTokens
-                : Math.ceil(chunks.join('').length / 4), // fallback estimate
-            }
+            // Only fall back to estimation if BOTH input and output are zero
+            // (i.e., the provider reported no usage at all).
+            const hasRealUsage = realUsage.inputTokens > 0 || realUsage.outputTokens > 0
+            const usage: TokenUsage = hasRealUsage
+              ? realUsage
+              : {
+                  model: realUsage.model,
+                  inputTokens: estimateTokens(
+                    allMessages.map(m =>
+                      typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+                    ).join(''),
+                  ),
+                  outputTokens: estimateTokens(chunks.join('')),
+                }
             const warnings = budget.recordUsage(usage)
             for (const w of warnings) {
               yield { type: 'budget_warning', data: { message: w.message } }

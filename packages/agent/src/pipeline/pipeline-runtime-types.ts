@@ -103,10 +103,16 @@ export interface RetryPolicy {
   initialBackoffMs?: number
   /** Maximum backoff delay in ms (default: 30000) */
   maxBackoffMs?: number
-  /** Backoff multiplier (default: 2) */
+  /** Backoff multiplier (default: 2). Alias: `backoffMultiplier`. */
   multiplier?: number
-  /** Error patterns that are retryable. If empty, all errors are retryable. */
-  retryableErrors?: RegExp[]
+  /** Alias for `multiplier` (default: 2). If both are set, `multiplier` takes precedence. */
+  backoffMultiplier?: number
+  /**
+   * Error patterns that are retryable. If empty/unset, all errors are retryable.
+   * - `string` values match via `error.includes(pattern)`
+   * - `RegExp` values match via `pattern.test(error)`
+   */
+  retryableErrors?: Array<string | RegExp>
 }
 
 // ---------------------------------------------------------------------------

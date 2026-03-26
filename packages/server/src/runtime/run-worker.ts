@@ -71,10 +71,27 @@ export interface RunReflectorLike {
   score(input: ReflectionInput): ReflectionScore
 }
 
+/** Structural type for the escalation policy result (avoids importing @forgeagent/core). */
+export interface EscalationResultLike {
+  shouldEscalate: boolean
+  fromTier: string
+  toTier: string
+  reason: string
+  consecutiveLowScores: number
+}
+
+/** Structural type for a model tier escalation policy. */
+export interface EscalationPolicyLike {
+  recordScore(key: string, score: number, currentTier: string): EscalationResultLike
+}
+
 export interface StartRunWorkerOptions {
   runQueue: RunQueue
   runStore: RunStore
-  agentStore: { get(id: string): Promise<AgentDefinition | null> }
+  agentStore: {
+    get(id: string): Promise<AgentDefinition | null>
+    save?(agent: AgentDefinition): Promise<void>
+  }
   eventBus: ForgeEventBus
   modelRegistry: ModelRegistry
   runExecutor: RunExecutor
@@ -93,6 +110,9 @@ export interface StartRunWorkerOptions {
   /** Optional trace store for step-by-step run replay and debugging.
    *  When provided, bookend steps (user_input, output) are recorded automatically. */
   traceStore?: RunTraceStore
+  /** Optional model tier escalation policy. When provided alongside a reflector,
+   *  auto-escalates the agent's model tier after consecutive low reflection scores. */
+  escalationPolicy?: EscalationPolicyLike
 }
 
 async function waitForApprovalDecision(
@@ -383,6 +403,56 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
               (job.metadata ?? {}) as Record<string, unknown>,
               reflectionScore,
             )
+          }
+
+          // --- Auto-escalate model tier on consecutive low scores ---
+          if (options.escalationPolicy) {
+            const currentTier = (job.metadata?.['modelTier'] as string) ?? 'chat'
+            const intent = resolveIntent(job, agent)
+            const escalationKey = `${job.agentId}:${intent ?? 'default'}`
+            const escalation = options.escalationPolicy.recordScore(
+              escalationKey,
+              reflectionScore.overall,
+              currentTier,
+            )
+
+            if (escalation.shouldEscalate && options.agentStore.save) {
+              try {
+                const agentDef = await options.agentStore.get(job.agentId)
+                if (agentDef) {
+                  await options.agentStore.save({
+                    ...agentDef,
+                    metadata: {
+                      ...agentDef.metadata,
+                      modelTier: escalation.toTier,
+                    },
+                  })
+                }
+                options.eventBus.emit({
+                  type: 'registry:agent_updated',
+                  agentId: job.agentId,
+                  fields: ['metadata.modelTier'],
+                })
+                await options.runStore.addLog(job.runId, {
+                  level: 'info',
+                  phase: 'escalation',
+                  message: `Model tier escalated: ${escalation.fromTier} -> ${escalation.toTier} (${escalation.reason})`,
+                  data: {
+                    fromTier: escalation.fromTier,
+                    toTier: escalation.toTier,
+                    consecutiveLowScores: escalation.consecutiveLowScores,
+                    escalationKey,
+                  },
+                })
+              } catch (escalationError) {
+                await options.runStore.addLog(job.runId, {
+                  level: 'warn',
+                  phase: 'escalation',
+                  message: 'Model tier escalation failed',
+                  data: { error: escalationError instanceof Error ? escalationError.message : String(escalationError) },
+                }).catch(() => { /* swallow nested failure */ })
+              }
+            }
           }
         } catch (_reflErr) {
           // Reflection is best-effort — never block the completion

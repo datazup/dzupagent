@@ -419,6 +419,144 @@ describe('PipelineRuntime — node retry with exponential backoff', () => {
     expect(result.state).toBe('suspended')
   })
 
+  it('retryableErrors with string patterns — matches via includes()', async () => {
+    let callCount = 0
+    const executor: NodeExecutor = async (nodeId) => {
+      callCount++
+      if (callCount === 1) {
+        return { nodeId, output: null, durationMs: 1, error: 'connection timeout after 30s' }
+      }
+      return { nodeId, output: 'ok', durationMs: 1 }
+    }
+
+    const runtime = new PipelineRuntime({
+      definition: makePipeline({
+        nodes: [{ id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000, retries: 2 }],
+      }),
+      nodeExecutor: executor,
+      retryPolicy: {
+        initialBackoffMs: 100,
+        retryableErrors: ['timeout', 'ECONNRESET'],
+      },
+    })
+
+    const resultPromise = runtime.execute()
+    await vi.runAllTimersAsync()
+    const result = await resultPromise
+
+    expect(result.state).toBe('completed')
+    expect(callCount).toBe(2) // retried because error includes 'timeout'
+  })
+
+  it('retryableErrors with string patterns — non-matching string skips retry', async () => {
+    let callCount = 0
+    const executor: NodeExecutor = async (nodeId) => {
+      callCount++
+      return { nodeId, output: null, durationMs: 1, error: 'validation failed' }
+    }
+
+    const runtime = new PipelineRuntime({
+      definition: makePipeline({
+        nodes: [{ id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000, retries: 2 }],
+      }),
+      nodeExecutor: executor,
+      retryPolicy: {
+        initialBackoffMs: 100,
+        retryableErrors: ['timeout', 'ECONNRESET'],
+      },
+    })
+
+    const resultPromise = runtime.execute()
+    await vi.runAllTimersAsync()
+    const result = await resultPromise
+
+    expect(result.state).toBe('failed')
+    expect(callCount).toBe(1) // no retry — error doesn't include any pattern
+  })
+
+  it('retryableErrors with mixed string and RegExp patterns', async () => {
+    let callCount = 0
+    const executor: NodeExecutor = async (nodeId) => {
+      callCount++
+      if (callCount === 1) {
+        return { nodeId, output: null, durationMs: 1, error: 'Rate Limit Exceeded' }
+      }
+      return { nodeId, output: 'ok', durationMs: 1 }
+    }
+
+    const runtime = new PipelineRuntime({
+      definition: makePipeline({
+        nodes: [{ id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000, retries: 2 }],
+      }),
+      nodeExecutor: executor,
+      retryPolicy: {
+        initialBackoffMs: 100,
+        retryableErrors: ['timeout', /rate limit/i],
+      },
+    })
+
+    const resultPromise = runtime.execute()
+    await vi.runAllTimersAsync()
+    const result = await resultPromise
+
+    expect(result.state).toBe('completed')
+    expect(callCount).toBe(2) // matched via RegExp
+  })
+
+  it('backoffMultiplier alias works when multiplier is not set', async () => {
+    const delays: number[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      return { nodeId, output: null, durationMs: 1, error: 'fail' }
+    }
+
+    const runtime = new PipelineRuntime({
+      definition: makePipeline({
+        nodes: [{ id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000, retries: 3 }],
+      }),
+      nodeExecutor: executor,
+      retryPolicy: { initialBackoffMs: 100, backoffMultiplier: 3, maxBackoffMs: 5000 },
+      onEvent: (event) => {
+        if (event.type === 'pipeline:node_retry') {
+          delays.push(event.backoffMs)
+        }
+      },
+    })
+
+    const resultPromise = runtime.execute()
+    await vi.runAllTimersAsync()
+    await resultPromise
+
+    // 100, 300, 900
+    expect(delays).toEqual([100, 300, 900])
+  })
+
+  it('multiplier takes precedence over backoffMultiplier', async () => {
+    const delays: number[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      return { nodeId, output: null, durationMs: 1, error: 'fail' }
+    }
+
+    const runtime = new PipelineRuntime({
+      definition: makePipeline({
+        nodes: [{ id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000, retries: 2 }],
+      }),
+      nodeExecutor: executor,
+      retryPolicy: { initialBackoffMs: 100, multiplier: 2, backoffMultiplier: 10 },
+      onEvent: (event) => {
+        if (event.type === 'pipeline:node_retry') {
+          delays.push(event.backoffMs)
+        }
+      },
+    })
+
+    const resultPromise = runtime.execute()
+    await vi.runAllTimersAsync()
+    await resultPromise
+
+    // multiplier=2 takes precedence: 100, 200
+    expect(delays).toEqual([100, 200])
+  })
+
   it('default retry policy (no retryPolicy config) uses sensible defaults', async () => {
     const delays: number[] = []
     const executor: NodeExecutor = async (nodeId) => {

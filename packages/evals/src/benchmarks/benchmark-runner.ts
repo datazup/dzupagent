@@ -6,6 +6,7 @@ import type { BenchmarkSuite, BenchmarkResult, BenchmarkComparison } from './ben
 import type { EvalInput } from '../types.js';
 import type { JudgeCriterion } from '../scorers/criteria.js';
 import { createLLMJudge } from '../scorers/llm-judge-enhanced.js';
+import { LlmJudgeScorer } from '../scorers/llm-judge-scorer.js';
 import { STANDARD_CRITERIA } from '../scorers/criteria.js';
 
 /**
@@ -174,26 +175,42 @@ async function computeScore(
           'benchmark-runner: llm-judge scorer used without providing an llm function in BenchmarkConfig. ' +
           'Falling back to non-empty heuristic. Pass { llm: yourLlmFn } to runBenchmark() for real scoring.',
         );
-        return output.trim().length > 0 ? 1.0 : 0.0;
+        return output.trim().length > 0 ? 0.5 : 0.0;
       }
 
-      const criteria = config.judgeCriteria ?? STANDARD_CRITERIA;
-      const judge = createLLMJudge({
-        id: 'benchmark-llm-judge',
-        criteria,
+      // Use 5-dimension LlmJudgeScorer when available, fall back to enhanced multi-criteria judge
+      if (config.judgeCriteria) {
+        // Custom criteria provided: use enhanced multi-criteria judge
+        const judge = createLLMJudge({
+          id: 'benchmark-llm-judge',
+          criteria: config.judgeCriteria,
+          llm: config.llm,
+          maxRetries: 1,
+        });
+
+        const evalInput: EvalInput = {
+          input,
+          output,
+          reference,
+        };
+
+        try {
+          const result = await judge.score(evalInput);
+          return result.aggregateScore;
+        } catch {
+          return 0.0;
+        }
+      }
+
+      // Default: use 5-dimension LlmJudgeScorer
+      const scorer = new LlmJudgeScorer({
         llm: config.llm,
         maxRetries: 1,
       });
 
-      const evalInput: EvalInput = {
-        input,
-        output,
-        reference,
-      };
-
       try {
-        const result = await judge.score(evalInput);
-        return result.aggregateScore;
+        const result = await scorer.score(input, output, reference);
+        return result.overall;
       } catch {
         return 0.0;
       }

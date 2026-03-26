@@ -50,13 +50,13 @@ describe('Benchmark LLM Judge Integration', () => {
   // 1. No LLM provided — fallback to heuristic
   // -----------------------------------------------------------------------
   describe('no LLM provided', () => {
-    it('should fall back to heuristic (non-empty = 1.0) and log a warning', async () => {
+    it('should fall back to heuristic (non-empty = 0.5) and log a warning', async () => {
       const suite = makeSuite();
       const target = async (_input: string) => 'some non-empty output';
 
       const result = await runBenchmark(suite, target);
 
-      expect(result.scores['judge']).toBe(1.0);
+      expect(result.scores['judge']).toBe(0.5);
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('llm-judge scorer used without providing an llm function'),
       );
@@ -85,32 +85,39 @@ describe('Benchmark LLM Judge Integration', () => {
   // 2. LLM provided — real judge scoring
   // -----------------------------------------------------------------------
   describe('LLM provided', () => {
-    it('should use the enhanced LLM judge and return actual scores', async () => {
+    it('should use the 5-dimension LlmJudgeScorer and return actual scores', async () => {
       const suite = makeSuite();
-      const llm = mockLlm([
-        { criterion: 'relevance', score: 0.9, reasoning: 'Very relevant' },
-        { criterion: 'accuracy', score: 0.8, reasoning: 'Mostly accurate' },
-        { criterion: 'completeness', score: 0.7, reasoning: 'Fairly complete' },
-      ]);
+      // Without judgeCriteria, benchmark-runner routes to LlmJudgeScorer
+      // which expects a 5-dimension JSON object
+      const llm = vi.fn(async (_prompt: string): Promise<string> => {
+        return JSON.stringify({
+          correctness: 0.9,
+          completeness: 0.8,
+          coherence: 0.85,
+          relevance: 0.95,
+          safety: 1.0,
+          reasoning: 'Good',
+        });
+      });
 
       const config: BenchmarkConfig = { llm };
       const target = async (_input: string) => 'The answer is 4';
       const result = await runBenchmark(suite, target, config);
 
-      // STANDARD_CRITERIA weights: relevance=0.3, accuracy=0.4, completeness=0.3
-      // weighted = (0.9*0.3 + 0.8*0.4 + 0.7*0.3) / (0.3+0.4+0.3) = (0.27+0.32+0.21)/1.0 = 0.80
-      expect(result.scores['judge']).toBeCloseTo(0.8, 1);
+      // Equal weights: (0.9 + 0.8 + 0.85 + 0.95 + 1.0) / 5 = 0.9
+      expect(result.scores['judge']).toBeCloseTo(0.9, 1);
       expect(llm).toHaveBeenCalledOnce();
       expect(warnSpy).not.toHaveBeenCalled();
     });
 
     it('should pass the input and output to the LLM prompt', async () => {
       const suite = makeSuite();
-      const llm = mockLlm([
-        { criterion: 'relevance', score: 1.0, reasoning: 'ok' },
-        { criterion: 'accuracy', score: 1.0, reasoning: 'ok' },
-        { criterion: 'completeness', score: 1.0, reasoning: 'ok' },
-      ]);
+      const llm = vi.fn(async (_prompt: string): Promise<string> => {
+        return JSON.stringify({
+          correctness: 1.0, completeness: 1.0, coherence: 1.0,
+          relevance: 1.0, safety: 1.0, reasoning: 'ok',
+        });
+      });
 
       const config: BenchmarkConfig = { llm };
       const target = async (_input: string) => 'The answer is 4';
@@ -132,13 +139,12 @@ describe('Benchmark LLM Judge Integration', () => {
       let callCount = 0;
       const llm = vi.fn(async (_prompt: string): Promise<string> => {
         callCount++;
-        // First call scores 0.6, second scores 1.0
+        // First call scores 0.6 on all dims, second scores 1.0
         const s = callCount === 1 ? 0.6 : 1.0;
-        return JSON.stringify([
-          { criterion: 'relevance', score: s, reasoning: 'ok' },
-          { criterion: 'accuracy', score: s, reasoning: 'ok' },
-          { criterion: 'completeness', score: s, reasoning: 'ok' },
-        ]);
+        return JSON.stringify({
+          correctness: s, completeness: s, coherence: s,
+          relevance: s, safety: s, reasoning: 'ok',
+        });
       });
 
       const config: BenchmarkConfig = { llm };
@@ -155,7 +161,7 @@ describe('Benchmark LLM Judge Integration', () => {
   // 3. LLM fails — returns 0.0
   // -----------------------------------------------------------------------
   describe('LLM failure', () => {
-    it('should return 0.0 when the LLM throws', async () => {
+    it('should return 0.5 fallback when the LLM throws', async () => {
       const suite = makeSuite();
       const llm = vi.fn(async (): Promise<string> => {
         throw new Error('LLM service unavailable');
@@ -165,11 +171,11 @@ describe('Benchmark LLM Judge Integration', () => {
       const target = async (_input: string) => 'some output';
       const result = await runBenchmark(suite, target, config);
 
-      // createLLMJudge retries once (maxRetries=1), all fail => aggregateScore=0
-      expect(result.scores['judge']).toBe(0.0);
+      // LlmJudgeScorer retries once (maxRetries=1), all fail => fallback 0.5
+      expect(result.scores['judge']).toBe(0.5);
     });
 
-    it('should return 0.0 when LLM returns unparseable response', async () => {
+    it('should return 0.5 fallback when LLM returns unparseable response', async () => {
       const suite = makeSuite();
       const llm = vi.fn(async (): Promise<string> => 'not valid json at all');
 
@@ -177,7 +183,7 @@ describe('Benchmark LLM Judge Integration', () => {
       const target = async (_input: string) => 'some output';
       const result = await runBenchmark(suite, target, config);
 
-      expect(result.scores['judge']).toBe(0.0);
+      expect(result.scores['judge']).toBe(0.5);
     });
   });
 
@@ -227,11 +233,12 @@ describe('Benchmark LLM Judge Integration', () => {
         baselineThresholds: { det: 0.5, judge: 0.5 },
       });
 
-      const llm = mockLlm([
-        { criterion: 'relevance', score: 0.8, reasoning: 'ok' },
-        { criterion: 'accuracy', score: 0.9, reasoning: 'ok' },
-        { criterion: 'completeness', score: 0.7, reasoning: 'ok' },
-      ]);
+      const llm = vi.fn(async (_prompt: string): Promise<string> => {
+        return JSON.stringify({
+          correctness: 0.8, completeness: 0.7, coherence: 0.85,
+          relevance: 0.9, safety: 1.0, reasoning: 'ok',
+        });
+      });
 
       const config: BenchmarkConfig = { llm };
       // Target output overlaps with expectedOutput "The answer is 4"
