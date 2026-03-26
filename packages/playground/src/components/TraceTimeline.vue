@@ -5,10 +5,14 @@
  * Displays trace events from the trace store as a vertical timeline with
  * color-coded cards. Events are sorted by startedAt and can be expanded
  * to show metadata. Auto-scrolls to the latest event when new ones arrive.
+ *
+ * Includes replay controls for stepping through events one at a time or
+ * auto-advancing at configurable speed.
  */
 import { computed, nextTick, ref, watch } from 'vue'
 import { useTraceStore } from '../stores/trace-store.js'
 import { formatDuration } from '../utils/format.js'
+import { useReplayControls } from '../composables/useReplayControls.js'
 import TraceTimelineCard from './TraceTimelineCard.vue'
 
 const traceStore = useTraceStore()
@@ -28,6 +32,23 @@ const sortedEvents = computed(() =>
   }),
 )
 
+/** Total number of sorted events (for replay controls) */
+const totalSteps = computed(() => sortedEvents.value.length)
+
+/** Replay controls composable */
+const replay = useReplayControls(totalSteps)
+
+/** Whether replay mode is active */
+const isReplayActive = computed(() => replay.currentIndex.value >= 0)
+
+/** Events to display: all when inactive, up to currentIndex when replaying */
+const visibleEvents = computed(() => {
+  if (!isReplayActive.value) {
+    return sortedEvents.value
+  }
+  return sortedEvents.value.slice(0, replay.currentIndex.value + 1)
+})
+
 /** Toggle expanded state for an event */
 function toggleEvent(eventId: string): void {
   const next = new Set(expandedIds.value)
@@ -41,16 +62,48 @@ function toggleEvent(eventId: string): void {
 
 /** Check if an event is expanded */
 function isExpanded(eventId: string): boolean {
+  // Auto-expand the current replay event
+  if (isReplayActive.value) {
+    const currentEvent = sortedEvents.value[replay.currentIndex.value]
+    if (currentEvent && currentEvent.id === eventId) {
+      return true
+    }
+  }
   return expandedIds.value.has(eventId)
 }
 
-/** Auto-scroll to bottom when new events arrive */
+/** Check if an event is the current replay step */
+function isHighlighted(eventId: string): boolean {
+  if (!isReplayActive.value) return false
+  const currentEvent = sortedEvents.value[replay.currentIndex.value]
+  return currentEvent !== undefined && currentEvent.id === eventId
+}
+
+/** Auto-scroll to bottom when new events arrive (only when not replaying) */
 watch(
   () => traceStore.events.length,
   () => {
+    if (isReplayActive.value) return
     void nextTick(() => {
       if (scrollContainer.value) {
         scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
+      }
+    })
+  },
+)
+
+/** Scroll to the current replay event when index changes */
+watch(
+  () => replay.currentIndex.value,
+  () => {
+    if (!isReplayActive.value) return
+    void nextTick(() => {
+      if (scrollContainer.value) {
+        const cards = scrollContainer.value.querySelectorAll('[data-timeline-card]')
+        const currentCard = cards[replay.currentIndex.value]
+        if (currentCard) {
+          currentCard.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+        }
       }
     })
   },
@@ -79,6 +132,78 @@ watch(
       </button>
     </div>
 
+    <!-- Replay controls bar -->
+    <div
+      v-if="sortedEvents.length > 0"
+      class="flex shrink-0 items-center gap-2 border-b border-pg-border px-3 py-1.5"
+      role="toolbar"
+      aria-label="Replay controls"
+    >
+      <!-- Step back -->
+      <button
+        class="rounded px-2 py-1 text-xs text-pg-text-secondary transition-colors hover:bg-pg-surface-raised disabled:cursor-not-allowed disabled:opacity-40"
+        :disabled="replay.currentIndex.value <= 0"
+        aria-label="Step back"
+        @click="replay.stepBack()"
+      >
+        &#9664;&#9664;
+      </button>
+
+      <!-- Play / Pause toggle -->
+      <button
+        class="rounded px-2.5 py-1 text-xs font-medium text-pg-text transition-colors hover:bg-pg-surface-raised"
+        :aria-label="replay.isPlaying.value ? 'Pause replay' : 'Play replay'"
+        @click="replay.isPlaying.value ? replay.pause() : replay.play()"
+      >
+        {{ replay.isPlaying.value ? 'Pause' : 'Play' }}
+      </button>
+
+      <!-- Step forward -->
+      <button
+        class="rounded px-2 py-1 text-xs text-pg-text-secondary transition-colors hover:bg-pg-surface-raised disabled:cursor-not-allowed disabled:opacity-40"
+        :disabled="replay.currentIndex.value >= sortedEvents.length - 1"
+        aria-label="Step forward"
+        @click="replay.stepForward()"
+      >
+        &#9654;&#9654;
+      </button>
+
+      <!-- Reset -->
+      <button
+        class="rounded px-2 py-1 text-xs text-pg-text-muted transition-colors hover:bg-pg-surface-raised hover:text-pg-text"
+        aria-label="Reset replay"
+        @click="replay.reset()"
+      >
+        Reset
+      </button>
+
+      <!-- Speed selector -->
+      <select
+        :value="replay.speed.value"
+        class="rounded border border-pg-border bg-pg-surface px-1.5 py-0.5 text-xs text-pg-text-secondary"
+        aria-label="Playback speed"
+        @change="replay.setSpeed(Number(($event.target as HTMLSelectElement).value) as 0.5 | 1 | 2)"
+      >
+        <option :value="0.5">
+          0.5x
+        </option>
+        <option :value="1">
+          1x
+        </option>
+        <option :value="2">
+          2x
+        </option>
+      </select>
+
+      <!-- Progress indicator -->
+      <span
+        v-if="isReplayActive"
+        class="ml-auto font-mono text-xs text-pg-text-muted"
+      >
+        {{ replay.currentIndex.value + 1 }} / {{ sortedEvents.length }}
+      </span>
+    </div>
+
     <!-- Scrollable timeline area -->
     <div
       ref="scrollContainer"
@@ -96,7 +221,7 @@ watch(
 
       <!-- Timeline -->
       <div
-        v-if="sortedEvents.length > 0"
+        v-if="visibleEvents.length > 0"
         class="relative px-4 py-3"
       >
         <!-- Vertical timeline line -->
@@ -108,9 +233,10 @@ watch(
         <!-- Event entries -->
         <div class="flex flex-col gap-2">
           <div
-            v-for="event in sortedEvents"
+            v-for="event in visibleEvents"
             :key="event.id"
             class="relative pl-6"
+            data-timeline-card
           >
             <!-- Timeline dot -->
             <div
@@ -121,6 +247,7 @@ watch(
             <TraceTimelineCard
               :event="event"
               :expanded="isExpanded(event.id)"
+              :highlighted="isHighlighted(event.id)"
               @toggle="toggleEvent(event.id)"
             />
           </div>

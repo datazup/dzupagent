@@ -14,9 +14,13 @@ interface Props {
   event: TraceEvent
   /** Whether the detail section is expanded */
   expanded: boolean
+  /** Whether the card is highlighted (e.g. current replay step) */
+  highlighted?: boolean
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  highlighted: false,
+})
 
 const emit = defineEmits<{
   /** Toggle the expanded state of this card */
@@ -64,6 +68,7 @@ function handleKeydown(e: KeyboardEvent): void {
 <template>
   <div
     class="group relative rounded-pg-sm border border-pg-border-subtle bg-pg-surface transition-colors hover:border-pg-border hover:bg-pg-surface-raised"
+    :class="highlighted && 'ring-2 ring-pg-accent ring-offset-1 ring-offset-pg-surface'"
     :style="{ borderLeftWidth: '3px', borderLeftColor: accentColor }"
   >
     <!-- Clickable header -->

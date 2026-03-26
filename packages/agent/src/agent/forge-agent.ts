@@ -608,7 +608,7 @@ export class ForgeAgent {
     const minResponseReserve = arrowCfg.minResponseReserve ?? 4_000
 
     // Estimate tokens already consumed by fixed parts of the prompt
-    const systemPromptTokens = this.estimateTokenCount(this.config.instructions)
+    const systemPromptTokens = estimateTokens(this.config.instructions)
     const conversationTokens = this.estimateConversationTokens(messages)
 
     // Remaining budget available for memory, capped at max fraction
@@ -647,21 +647,12 @@ export class ForgeAgent {
     return lines.join('\n')
   }
 
-  /** Rough token count for a string (~4 chars per token). */
-  private estimateTokenCount(text: string): number {
-    return Math.ceil(text.length / 4)
-  }
-
   /** Estimate total tokens consumed by conversation messages. */
   private estimateConversationTokens(messages: BaseMessage[]): number {
-    let chars = 0
-    for (const m of messages) {
-      const content = typeof m.content === 'string'
-        ? m.content
-        : JSON.stringify(m.content)
-      chars += content.length
-    }
-    return Math.ceil(chars / 4)
+    const fullText = messages
+      .map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+      .join('')
+    return estimateTokens(fullText)
   }
 
   private async maybeUpdateSummary(messages: BaseMessage[]): Promise<void> {

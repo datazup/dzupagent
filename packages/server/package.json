@@ -38,7 +38,9 @@
     }
   },
   "devDependencies": {
+    "bullmq": "^5.0.0",
     "drizzle-kit": "^0.30.0",
+    "testcontainers": "^10.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
