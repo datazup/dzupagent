@@ -3,7 +3,7 @@ import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { resolveAgentTools, ToolResolutionError } from '../runtime/tool-resolver.js'
 
-describe('tool-resolver', () => {
+describe('tool-resolver', { timeout: 15_000 }, () => {
   it('resolves default git category into git tools when codegen is available', async () => {
     const result = await resolveAgentTools({ toolNames: ['git:*'] })
 

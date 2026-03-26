@@ -1,8 +1,12 @@
-import type { AgentDefinition, ModelRegistry, RunStore } from '@forgeagent/core'
+import type { AgentDefinition, ModelRegistry, RunStore, MetricsCollector } from '@forgeagent/core'
 import type { ForgeEventBus } from '@forgeagent/core'
+import type { RunContextTransfer, PersistedIntentContext } from '@forgeagent/core'
 import type { RunQueue } from '../queue/run-queue.js'
 import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
+import type { RunTraceStore } from '../persistence/run-trace-store.js'
+import { extractTraceContext } from '@forgeagent/core'
 import { isStructuredResult } from './utils.js'
+import { reportRetrievalFeedback, type RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
 
 export interface RunExecutionContext {
   runId: string
@@ -31,6 +35,42 @@ export interface RunExecutorResult {
 
 export type RunExecutor = (context: RunExecutionContext) => Promise<unknown | RunExecutorResult>
 
+// ---------------------------------------------------------------------------
+// Structural types for RunReflector (avoids hard dependency on @forgeagent/agent)
+// ---------------------------------------------------------------------------
+
+/** Individual dimension scores, each in the range [0, 1]. */
+export interface ReflectionDimensions {
+  completeness: number
+  coherence: number
+  toolSuccess: number
+  conciseness: number
+  reliability: number
+}
+
+/** Full reflection score returned by a reflector's `score()` method. */
+export interface ReflectionScore {
+  overall: number
+  dimensions: ReflectionDimensions
+  flags: string[]
+}
+
+/** Input data required for scoring a run. */
+export interface ReflectionInput {
+  input: unknown
+  output: unknown
+  toolCalls?: Array<{ name: string; success: boolean; durationMs?: number }>
+  tokenUsage?: { input: number; output: number }
+  durationMs: number
+  errorCount?: number
+  retryCount?: number
+}
+
+/** Structural type matching RunReflector.score() without importing the class. */
+export interface RunReflectorLike {
+  score(input: ReflectionInput): ReflectionScore
+}
+
 export interface StartRunWorkerOptions {
   runQueue: RunQueue
   runStore: RunStore
@@ -39,6 +79,20 @@ export interface StartRunWorkerOptions {
   modelRegistry: ModelRegistry
   runExecutor: RunExecutor
   shutdown?: GracefulShutdown
+  /** Optional cross-intent context transfer. When provided, context is
+   *  loaded before each run and saved after successful completion. */
+  contextTransfer?: RunContextTransfer
+  /** Optional metrics collector for run-level observability */
+  metrics?: MetricsCollector
+  /** Optional run reflector — scores every completed run for quality tracking.
+   *  Uses structural typing to avoid a hard dependency on @forgeagent/agent. */
+  reflector?: RunReflectorLike
+  /** Optional retrieval feedback config. When provided alongside a reflector,
+   *  maps reflection scores to AdaptiveRetriever feedback for weight learning. */
+  retrievalFeedback?: RetrievalFeedbackHookConfig
+  /** Optional trace store for step-by-step run replay and debugging.
+   *  When provided, bookend steps (user_input, output) are recorded automatically. */
+  traceStore?: RunTraceStore
 }
 
 async function waitForApprovalDecision(
@@ -86,6 +140,16 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
     const startedAt = Date.now()
     options.shutdown?.trackRun(job.runId)
 
+    // Extract trace context from run metadata for log correlation.
+    // Declared before try/catch so traceId is available in error handlers.
+    let traceId: string | undefined
+    try {
+      const traceCtx = extractTraceContext(job.metadata as Record<string, unknown> | undefined)
+      traceId = traceCtx?.traceId
+    } catch {
+      // Trace extraction is non-fatal
+    }
+
     try {
       throwIfAborted(signal)
 
@@ -107,11 +171,21 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       }
 
       await options.runStore.update(job.runId, { status: 'running' })
+
+      // --- Start trace (optional) ---
+      options.traceStore?.startTrace(job.runId, job.agentId)
+      options.traceStore?.addStep(job.runId, {
+        timestamp: Date.now(),
+        type: 'user_input',
+        content: job.input,
+        metadata: job.metadata ? { ...job.metadata } : undefined,
+      })
+
       await options.runStore.addLog(job.runId, {
         level: 'info',
         phase: 'queue',
         message: 'Run dequeued for execution',
-        data: { jobId: job.id },
+        data: { jobId: job.id, ...(traceId ? { traceId } : {}) },
       })
       options.eventBus.emit({ type: 'agent:started', agentId: job.agentId, runId: job.runId })
 
@@ -165,11 +239,40 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       // Check cancellation before starting expensive executor work
       throwIfAborted(signal)
 
+      // --- Load prior cross-intent context (optional) ---
+      let enrichedMetadata = job.metadata
+      if (options.contextTransfer) {
+        try {
+          const sessionId = resolveSessionId(job)
+          const currentIntent = resolveIntent(job, agent)
+          if (currentIntent && currentIntent !== 'unknown') {
+            const priorContext = await options.contextTransfer.loadForIntent(sessionId, currentIntent)
+            if (priorContext) {
+              enrichedMetadata = { ...(job.metadata ?? {}), priorContext }
+              await options.runStore.addLog(job.runId, {
+                level: 'info',
+                phase: 'context-transfer',
+                message: `Loaded prior context from intent "${priorContext.fromIntent}"`,
+                data: { fromIntent: priorContext.fromIntent, tokenEstimate: priorContext.tokenEstimate },
+              })
+            }
+          }
+        } catch (_err) {
+          // Context loading is best-effort — never block the run
+          await options.runStore.addLog(job.runId, {
+            level: 'warn',
+            phase: 'context-transfer',
+            message: 'Failed to load prior context',
+            data: { error: _err instanceof Error ? _err.message : String(_err) },
+          }).catch(() => { /* swallow nested failure */ })
+        }
+      }
+
       const execution = await options.runExecutor({
         runId: job.runId,
         agentId: job.agentId,
         input: job.input,
-        metadata: job.metadata,
+        metadata: enrichedMetadata,
         agent,
         runStore: options.runStore,
         eventBus: options.eventBus,
@@ -195,26 +298,165 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         ...(metadata ? { metadata: { ...(job.metadata ?? {}), ...metadata } } : {}),
         completedAt: new Date(),
       })
+      // --- Record output step and complete trace (optional) ---
+      options.traceStore?.addStep(job.runId, {
+        timestamp: Date.now(),
+        type: 'output',
+        content: output,
+        metadata: {
+          ...(tokenUsage ? { tokenUsage } : {}),
+          ...(typeof costCents === 'number' ? { costCents } : {}),
+          durationMs,
+        },
+        durationMs,
+      })
+      options.traceStore?.completeTrace(job.runId)
+
       await options.runStore.addLog(job.runId, {
         level: 'info',
         phase: 'run',
         message: 'Run completed',
-        data: { durationMs },
+        data: { durationMs, ...(traceId ? { traceId } : {}) },
       })
-      for (const log of additionalLogs) {
-        await options.runStore.addLog(job.runId, {
+      if (additionalLogs.length > 0) {
+        await options.runStore.addLogs(job.runId, additionalLogs.map(log => ({
           level: log.level,
           phase: log.phase,
           message: log.message,
           data: log.data,
-        })
+        })))
       }
+      // --- Reflection scoring (optional) ---
+      if (options.reflector) {
+        try {
+          const errorCount = additionalLogs.filter(l => l.level === 'error').length
+          const retryCount = additionalLogs.filter(l =>
+            l.phase === 'retry' || l.message.toLowerCase().includes('retry'),
+          ).length
+
+          // Extract tool call info from logs if available
+          const toolCalls = additionalLogs
+            .filter(l => l.phase === 'tool_call' && l.data && typeof l.data === 'object')
+            .map(l => {
+              const d = l.data as Record<string, unknown>
+              return {
+                name: typeof d['toolName'] === 'string' ? d['toolName'] : 'unknown',
+                success: d['success'] !== false,
+                durationMs: typeof d['durationMs'] === 'number' ? d['durationMs'] : undefined,
+              }
+            })
+
+          const reflectionInput: ReflectionInput = {
+            input: job.input,
+            output,
+            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            tokenUsage,
+            durationMs,
+            errorCount,
+            retryCount,
+          }
+
+          const reflectionScore = options.reflector.score(reflectionInput)
+
+          // Merge reflection score into run metadata
+          const existingRun = await options.runStore.get(job.runId)
+          const existingMeta = (existingRun?.metadata ?? {}) as Record<string, unknown>
+          await options.runStore.update(job.runId, {
+            metadata: { ...existingMeta, reflectionScore },
+          })
+
+          await options.runStore.addLog(job.runId, {
+            level: 'info',
+            phase: 'reflection',
+            message: `Run quality score: ${reflectionScore.overall.toFixed(3)}`,
+            data: {
+              overall: reflectionScore.overall,
+              dimensions: reflectionScore.dimensions,
+              flags: reflectionScore.flags,
+            },
+          })
+
+          // --- Retrieval feedback: closed loop from reflection → weight learning ---
+          if (options.retrievalFeedback) {
+            reportRetrievalFeedback(
+              options.retrievalFeedback,
+              (job.metadata ?? {}) as Record<string, unknown>,
+              reflectionScore,
+            )
+          }
+        } catch (_reflErr) {
+          // Reflection is best-effort — never block the completion
+          await options.runStore.addLog(job.runId, {
+            level: 'warn',
+            phase: 'reflection',
+            message: 'Failed to compute reflection score',
+            data: { error: _reflErr instanceof Error ? _reflErr.message : String(_reflErr) },
+          }).catch(() => { /* swallow nested failure */ })
+        }
+      }
+
+      // --- Save cross-intent context after successful run (optional) ---
+      if (options.contextTransfer) {
+        try {
+          const sessionId = resolveSessionId(job)
+          const intent = resolveIntent(job, agent)
+          if (intent && intent !== 'unknown') {
+            const outputSummary = typeof output === 'string'
+              ? output.slice(0, 500)
+              : typeof output === 'object' && output !== null && 'summary' in output
+                ? String((output as Record<string, unknown>).summary).slice(0, 500)
+                : 'Run completed'
+
+            const relevantFiles: string[] =
+              (metadata?.['relevantFiles'] as string[] | undefined)
+              ?? (job.metadata?.['relevantFiles'] as string[] | undefined)
+              ?? []
+
+            const workingState: Record<string, unknown> =
+              (metadata?.['workingState'] as Record<string, unknown> | undefined)
+              ?? (job.metadata?.['workingState'] as Record<string, unknown> | undefined)
+              ?? {}
+
+            const persistedContext: PersistedIntentContext = {
+              fromIntent: intent,
+              summary: outputSummary,
+              decisions: (metadata?.['decisions'] as string[] | undefined) ?? [],
+              relevantFiles,
+              workingState,
+              transferredAt: Date.now(),
+              tokenEstimate: (tokenUsage?.input ?? 0) + (tokenUsage?.output ?? 0),
+            }
+
+            await options.contextTransfer.save(sessionId, persistedContext)
+            await options.runStore.addLog(job.runId, {
+              level: 'info',
+              phase: 'context-transfer',
+              message: `Saved context for intent "${intent}"`,
+              data: { tokenEstimate: persistedContext.tokenEstimate },
+            })
+          }
+        } catch (_err) {
+          // Context saving is best-effort — never block the completion
+          await options.runStore.addLog(job.runId, {
+            level: 'warn',
+            phase: 'context-transfer',
+            message: 'Failed to save context after run',
+            data: { error: _err instanceof Error ? _err.message : String(_err) },
+          }).catch(() => { /* swallow nested failure */ })
+        }
+      }
+
       options.eventBus.emit({
         type: 'agent:completed',
         agentId: job.agentId,
         runId: job.runId,
         durationMs,
       })
+
+      // --- Run completion metrics ---
+      const tierLabel = (job.metadata?.['modelTier'] as string) || 'unknown'
+      options.metrics?.increment('forge_run_completed_total', { tier: tierLabel })
+      options.metrics?.observe('forge_run_duration_ms', durationMs, { tier: tierLabel })
     } catch (error) {
       // If cancelled via AbortSignal, set cancelled status instead of failed
       if (signal.aborted) {
@@ -252,7 +494,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         level: 'error',
         phase: 'run',
         message: 'Run failed',
-        data: { error: message },
+        data: { error: message, ...(traceId ? { traceId } : {}) },
       })
       options.eventBus.emit({
         type: 'agent:failed',
@@ -265,4 +507,28 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       options.shutdown?.untrackRun(job.runId)
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for cross-intent context transfer
+// ---------------------------------------------------------------------------
+
+/** Derive a session identifier from the job metadata, falling back to runId. */
+function resolveSessionId(job: { runId: string; metadata?: Record<string, unknown> }): string {
+  const fromMeta = job.metadata?.['sessionId']
+  return typeof fromMeta === 'string' && fromMeta.length > 0 ? fromMeta : job.runId
+}
+
+/** Derive the current intent from job/agent metadata. */
+function resolveIntent(
+  job: { metadata?: Record<string, unknown> },
+  agent: AgentDefinition,
+): string | undefined {
+  const fromJob = job.metadata?.['intent']
+  if (typeof fromJob === 'string' && fromJob.length > 0) return fromJob
+
+  const fromAgent = agent.metadata?.['intent']
+  if (typeof fromAgent === 'string' && fromAgent.length > 0) return fromAgent
+
+  return undefined
 }

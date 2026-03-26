@@ -53,7 +53,7 @@ async function appendUsageLog(
  * Uses model registry when configured; otherwise returns deterministic fallback text.
  */
 export function createDefaultRunExecutor(modelRegistry: ModelRegistry): RunExecutor {
-  return async ({ input, agent, runId, runStore }) => {
+  return async ({ input, agent, runId, runStore, metadata }) => {
     const prompt = toPrompt(input)
 
     if (!modelRegistry.isConfigured()) {
@@ -64,7 +64,12 @@ export function createDefaultRunExecutor(modelRegistry: ModelRegistry): RunExecu
       }
     }
 
-    const { model, provider } = modelRegistry.getModelWithFallback('chat', { streaming: false })
+    // Use router-selected tier from metadata, fall back to agent tier, then 'chat'
+    const rawTier = typeof metadata?.['modelTier'] === 'string'
+      ? metadata['modelTier']
+      : (agent.modelTier || 'chat')
+    const tier = rawTier as 'chat' | 'reasoning' | 'codegen' | 'embedding'
+    const { model, provider } = modelRegistry.getModelWithFallback(tier, { streaming: false })
     await runStore.addLog(runId, {
       level: 'info',
       phase: 'llm',

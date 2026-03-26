@@ -102,6 +102,21 @@ export class PostgresRunStore implements RunStore {
     })
   }
 
+  async addLogs(runId: string, entries: LogEntry[]): Promise<void> {
+    if (entries.length === 0) return
+    const now = new Date()
+    await this.db.insert(forgeRunLogs).values(
+      entries.map(entry => ({
+        runId,
+        level: entry.level,
+        phase: entry.phase ?? null,
+        message: entry.message,
+        data: entry.data as Record<string, unknown> | null ?? null,
+        timestamp: entry.timestamp ?? now,
+      })),
+    )
+  }
+
   async getLogs(runId: string): Promise<LogEntry[]> {
     const rows = await this.db
       .select()

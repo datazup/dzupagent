@@ -240,6 +240,48 @@ describe('InMemoryQuotaManager', () => {
     expect(err.message).toContain('concurrentRuns')
     expect(err.name).toBe('QuotaExceededError')
   })
+
+  it('reserve throws QuotaExceededError when over quota', async () => {
+    await manager.setQuota('t-enforce', { concurrentRuns: 2 })
+    await manager.reserve('t-enforce', 'concurrentRuns', 2)
+
+    await expect(
+      manager.reserve('t-enforce', 'concurrentRuns', 1),
+    ).rejects.toThrow(QuotaExceededError)
+  })
+
+  it('reserve succeeds when within quota', async () => {
+    await manager.setQuota('t-ok', { concurrentRuns: 5 })
+    const res = await manager.reserve('t-ok', 'concurrentRuns', 3)
+    expect(res.id).toBeTruthy()
+
+    // Second reserve still within limit
+    const res2 = await manager.reserve('t-ok', 'concurrentRuns', 2)
+    expect(res2.id).toBeTruthy()
+  })
+
+  it('reserve allows unlimited when no quota set', async () => {
+    // No quota set for this tenant — should not throw
+    const res = await manager.reserve('t-unlimited', 'concurrentRuns', 9999)
+    expect(res.id).toBeTruthy()
+  })
+
+  it('reserve allows unlimited for unset dimension', async () => {
+    await manager.setQuota('t-partial', { concurrentRuns: 2 })
+    // tokensPerMinute not set — should not throw
+    const res = await manager.reserve('t-partial', 'tokensPerMinute', 9999)
+    expect(res.id).toBeTruthy()
+  })
+
+  it('reserve respects released reservations', async () => {
+    await manager.setQuota('t-release', { concurrentRuns: 2 })
+    const r1 = await manager.reserve('t-release', 'concurrentRuns', 2)
+    await manager.release(r1.id)
+
+    // After release, usage is 0 — should succeed
+    const r2 = await manager.reserve('t-release', 'concurrentRuns', 2)
+    expect(r2.id).toBeTruthy()
+  })
 })
 
 // ===========================================================================

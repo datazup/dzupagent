@@ -6,14 +6,14 @@
  * for interface compliance.
  */
 import { randomUUID } from 'node:crypto'
-import type {
-  ResourceDimensions,
-  ResourceQuota,
-  ResourceReservation,
-  ResourceQuotaManager,
-  QuotaCheckResult,
+import {
+  QuotaExceededError,
+  type ResourceDimensions,
+  type ResourceQuota,
+  type ResourceReservation,
+  type ResourceQuotaManager,
+  type QuotaCheckResult,
 } from './resource-quota.js'
-import { QuotaExceededError } from './resource-quota.js'
 
 const DEFAULT_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
@@ -108,17 +108,9 @@ export class InMemoryQuotaManager implements ResourceQuotaManager {
     amount: number,
     ttlMs?: number,
   ): Promise<ResourceReservation> {
-    // Enforce quota before reserving — prevents bypass of check()
-    const quota = this.quotas.get(tenantId)
-    if (quota) {
-      const limit = quota.dimensions[dimension]
-      if (limit !== undefined) {
-        const usage = await this.getUsage(tenantId)
-        const current = usage[dimension] ?? 0
-        if (current + amount > limit) {
-          throw new QuotaExceededError(dimension, limit, current)
-        }
-      }
+    const result = await this.check(tenantId, dimension, amount)
+    if (!result.allowed) {
+      throw new QuotaExceededError(result.dimension, result.limit, result.current)
     }
 
     const now = new Date()

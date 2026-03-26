@@ -141,20 +141,24 @@ describe('Run routes', () => {
 
   it('POST /api/runs enqueues work and returns 202 when runQueue is configured', async () => {
     class MockRunQueue implements RunQueue {
-      enqueued: Array<Omit<RunJob, 'id' | 'createdAt'>> = []
-      async enqueue(job: Omit<RunJob, 'id' | 'createdAt'>): Promise<RunJob> {
+      enqueued: Array<Omit<RunJob, 'id' | 'createdAt' | 'attempts'>> = []
+      async enqueue(job: Omit<RunJob, 'id' | 'createdAt' | 'attempts'>): Promise<RunJob> {
         this.enqueued.push(job)
         return {
           ...job,
+          attempts: 0,
           id: 'job-1',
           createdAt: new Date('2025-01-01T00:00:00.000Z'),
         }
       }
       start(_processor: JobProcessor): void {}
       async stop(_waitForActive?: boolean): Promise<void> {}
+      cancel(_runId: string): boolean { return false }
       stats(): QueueStats {
-        return { pending: this.enqueued.length, active: 0, completed: 0, failed: 0 }
+        return { pending: this.enqueued.length, active: 0, completed: 0, failed: 0, deadLetter: 0 }
       }
+      getDeadLetter() { return [] }
+      clearDeadLetter(): void {}
     }
 
     const runQueue = new MockRunQueue()
@@ -190,18 +194,22 @@ describe('Run routes', () => {
 
   it('POST /api/runs enqueues successfully with default executor when runQueue is configured without runExecutor', async () => {
     class MockRunQueue implements RunQueue {
-      async enqueue(job: Omit<RunJob, 'id' | 'createdAt'>): Promise<RunJob> {
+      async enqueue(job: Omit<RunJob, 'id' | 'createdAt' | 'attempts'>): Promise<RunJob> {
         return {
           ...job,
+          attempts: 0,
           id: 'job-unexpected',
           createdAt: new Date('2025-01-01T00:00:00.000Z'),
         }
       }
       start(_processor: JobProcessor): void {}
       async stop(_waitForActive?: boolean): Promise<void> {}
+      cancel(_runId: string): boolean { return false }
       stats(): QueueStats {
-        return { pending: 0, active: 0, completed: 0, failed: 0 }
+        return { pending: 0, active: 0, completed: 0, failed: 0, deadLetter: 0 }
       }
+      getDeadLetter() { return [] }
+      clearDeadLetter(): void {}
     }
 
     const queueConfig = createTestConfig()

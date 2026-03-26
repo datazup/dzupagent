@@ -191,29 +191,30 @@ describe('run-worker', () => {
       active: true,
     })
 
-    let executorCalled = false
+    let executorCallCount = 0
+    let releaseBlocker: () => void
 
-    // Block concurrency with a long-running job first
-    const blocker = new Promise<void>((resolve) => {
-      startRunWorker({
-        runQueue,
-        runStore,
-        agentStore,
-        eventBus,
-        modelRegistry,
-        runExecutor: async ({ runId }) => {
-          if (runId === 'block-run') {
-            // Hold slot until we cancel the second job
-            await new Promise((r) => setTimeout(r, 500))
-            return { content: 'blocker done' }
-          }
-          executorCalled = true
-          return { content: 'should not happen' }
-        },
-      })
+    const blockerHeld = new Promise<void>((resolve) => {
+      releaseBlocker = resolve
     })
 
-    // Create blocker run to fill concurrency
+    startRunWorker({
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus,
+      modelRegistry,
+      runExecutor: async () => {
+        executorCallCount++
+        // First call holds the concurrency slot until released
+        if (executorCallCount === 1) {
+          await blockerHeld
+        }
+        return { content: 'done' }
+      },
+    })
+
+    // Create blocker run to fill the single concurrency slot
     const blockRun = await runStore.create({ agentId: 'a-cancel-q', input: {} })
     await runQueue.enqueue({
       runId: blockRun.id,
@@ -222,7 +223,11 @@ describe('run-worker', () => {
       priority: 1,
     })
 
-    // Enqueue the run we'll cancel
+    // Wait for blocker to start executing (fills slot)
+    await new Promise((r) => setTimeout(r, 100))
+    expect(executorCallCount).toBe(1)
+
+    // Enqueue the run we'll cancel — it stays pending since slot is full
     const cancelRun = await runStore.create({ agentId: 'a-cancel-q', input: {} })
     await runQueue.enqueue({
       runId: cancelRun.id,
@@ -235,9 +240,12 @@ describe('run-worker', () => {
     const cancelled = runQueue.cancel(cancelRun.id)
     expect(cancelled).toBe(true)
 
-    // The cancelled job should never reach the executor
-    await new Promise((r) => setTimeout(r, 700))
-    expect(executorCalled).toBe(false)
+    // Release blocker and let queue drain
+    releaseBlocker!()
+    await new Promise((r) => setTimeout(r, 200))
+
+    // Only the blocker should have called the executor
+    expect(executorCallCount).toBe(1)
 
     await runQueue.stop(false)
   })

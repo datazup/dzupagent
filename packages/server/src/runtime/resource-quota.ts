@@ -75,7 +75,11 @@ export interface ResourceQuotaManager {
     amount: number,
   ): Promise<QuotaCheckResult>
 
-  /** Reserve capacity — returns a reservation to be released later. */
+  /**
+   * Reserve capacity — returns a reservation to be released later.
+   * Internally enforces a quota check before creating the reservation.
+   * @throws {QuotaExceededError} if the reservation would exceed the tenant's quota.
+   */
   reserve(
     tenantId: string,
     dimension: keyof ResourceDimensions,

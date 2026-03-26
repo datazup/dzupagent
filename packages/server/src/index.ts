@@ -9,7 +9,7 @@
 
 // --- App ---
 export { createForgeApp } from './app.js'
-export type { ForgeServerConfig } from './app.js'
+export type { ForgeServerConfig, ConsolidationConfig } from './app.js'
 
 // --- Routes ---
 export { createRunRoutes } from './routes/runs.js'
@@ -20,14 +20,35 @@ export { createMemoryRoutes } from './routes/memory.js'
 export type { MemoryRouteConfig } from './routes/memory.js'
 export { createMemoryBrowseRoutes } from './routes/memory-browse.js'
 export type { MemoryBrowseRouteConfig } from './routes/memory-browse.js'
+export { createMemoryHealthRoutes } from './routes/memory-health.js'
+export type { MemoryHealthRouteConfig, HealthProvider } from './routes/memory-health.js'
+export { createRoutingStatsRoutes } from './routes/routing-stats.js'
+export type { RoutingStatsConfig } from './routes/routing-stats.js'
 export { createPlaygroundRoutes } from './routes/playground.js'
 export type { PlaygroundRouteConfig } from './routes/playground.js'
 export { createEventRoutes } from './routes/events.js'
 export type { EventRouteConfig } from './routes/events.js'
+export { createMetricsRoute } from './routes/metrics.js'
+export type { MetricsRouteConfig } from './routes/metrics.js'
+
+// --- Metrics ---
+export { PrometheusMetricsCollector } from './metrics/prometheus-collector.js'
 
 // --- Persistence ---
 export { PostgresRunStore, PostgresAgentStore } from './persistence/postgres-stores.js'
 export { forgeAgents, forgeRuns, forgeRunLogs } from './persistence/drizzle-schema.js'
+export { InMemoryRunTraceStore, computeStepDistribution } from './persistence/run-trace-store.js'
+export type {
+  TraceStep,
+  RunTrace,
+  TraceStepDistribution,
+  RunTraceStore,
+  InMemoryRunTraceStoreOptions,
+} from './persistence/run-trace-store.js'
+
+// --- Run Trace Routes ---
+export { createRunTraceRoutes } from './routes/run-trace.js'
+export type { RunTraceRouteConfig } from './routes/run-trace.js'
 
 // --- Middleware ---
 export { authMiddleware } from './middleware/auth.js'
@@ -48,7 +69,9 @@ export type { TenantScopeConfig } from './middleware/tenant-scope.js'
 
 // --- Queue ---
 export { InMemoryRunQueue } from './queue/run-queue.js'
-export type { RunQueue, RunJob, RunQueueConfig, QueueStats, JobProcessor } from './queue/run-queue.js'
+export { BullMQRunQueue } from './queue/bullmq-run-queue.js'
+export type { BullMQRunQueueConfig } from './queue/bullmq-run-queue.js'
+export type { RunQueue, RunJob, RunQueueConfig, QueueStats, JobProcessor, DeadLetterEntry } from './queue/run-queue.js'
 
 // --- Lifecycle ---
 export { GracefulShutdown } from './lifecycle/graceful-shutdown.js'
@@ -150,6 +173,14 @@ export {
 export type { MarketplacePlugin, MarketplaceRegistry } from './cli/marketplace-command.js'
 
 // --- Runtime ---
+export { ConsolidationScheduler } from './runtime/consolidation-scheduler.js'
+export type { ConsolidationTask, ConsolidationReport, ConsolidationSchedulerConfig } from './runtime/consolidation-scheduler.js'
+export { createSleepConsolidationTask } from './runtime/sleep-consolidation-task.js'
+export type {
+  SleepConsolidationTaskConfig,
+  SleepConsolidatorLike,
+  SleepConsolidationReportLike,
+} from './runtime/sleep-consolidation-task.js'
 export { InMemoryQuotaManager } from './runtime/memory-quota-manager.js'
 export { startRunWorker } from './runtime/run-worker.js'
 export { createDefaultRunExecutor } from './runtime/default-run-executor.js'
@@ -164,7 +195,15 @@ export type {
 } from './runtime/resource-quota.js'
 export type { RunExecutionContext, RunExecutor, StartRunWorkerOptions } from './runtime/run-worker.js'
 export type { RunExecutorResult } from './runtime/run-worker.js'
+export type {
+  RunReflectorLike,
+  ReflectionInput,
+  ReflectionScore,
+  ReflectionDimensions,
+} from './runtime/run-worker.js'
 export type { ForgeAgentRunExecutorOptions } from './runtime/forge-agent-run-executor.js'
+export { reportRetrievalFeedback, mapScoreToQuality } from './runtime/retrieval-feedback-hook.js'
+export type { RetrievalFeedbackSink, RetrievalFeedbackHookConfig } from './runtime/retrieval-feedback-hook.js'
 export { resolveAgentTools, ToolResolutionError } from './runtime/tool-resolver.js'
 export type {
   ToolResolverContext,

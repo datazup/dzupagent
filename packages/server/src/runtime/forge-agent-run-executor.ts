@@ -1,8 +1,18 @@
 import { ForgeAgent } from '@forgeagent/agent'
 import { HumanMessage } from '@langchain/core/messages'
+import { calculateCostCents, type TokenUsage, type ModelRegistry } from '@forgeagent/core'
 import type { RunExecutor, RunExecutorResult } from './run-worker.js'
 import { resolveAgentTools, type CustomToolResolver, type ToolResolverOptions } from './tool-resolver.js'
 import { isStructuredResult } from './utils.js'
+
+function resolveModelName(modelTier: string, registry: ModelRegistry): string {
+  try {
+    const model = registry.getModel(modelTier as 'chat' | 'reasoning' | 'codegen' | 'embedding')
+    return (model as unknown as { model?: string }).model ?? modelTier
+  } catch {
+    return modelTier
+  }
+}
 
 function toPrompt(input: unknown): string {
   if (typeof input === 'string' && input.trim()) return input
@@ -48,12 +58,19 @@ export function createForgeAgentRunExecutor(
       )
       toolCleanup = resolvedTools.cleanup
 
+      // Use router-selected tier from run metadata if available, otherwise use agent definition
+      const effectiveModelTier = (
+        typeof ctx.metadata?.['modelTier'] === 'string'
+          ? ctx.metadata['modelTier']
+          : ctx.agent.modelTier
+      ) as 'chat' | 'reasoning' | 'codegen' | 'embedding'
+
       const agent = new ForgeAgent({
         id: ctx.agent.id,
         name: ctx.agent.name,
         description: ctx.agent.description,
         instructions: ctx.agent.instructions,
-        model: ctx.agent.modelTier as 'chat' | 'reasoning' | 'codegen' | 'embedding',
+        model: effectiveModelTier,
         registry: ctx.modelRegistry,
         tools: resolvedTools.tools,
       })
@@ -62,6 +79,8 @@ export function createForgeAgentRunExecutor(
       const logs: RunExecutorResult['logs'] = []
       let hitIterationLimit = false
       let lastFlushAt = 0
+      let totalInputTokens = 0
+      let totalOutputTokens = 0
 
       if (resolvedTools.activated.length > 0) {
         logs.push({
@@ -130,6 +149,9 @@ export function createForgeAgentRunExecutor(
 
         if (event.type === 'tool_result') {
           const toolName = typeof event.data['name'] === 'string' ? event.data['name'] : 'unknown'
+          const resultStr = typeof event.data['result'] === 'string' ? event.data['result'] : ''
+          // Tool results become input tokens in the next LLM call
+          totalInputTokens += Math.ceil(resultStr.length / 4)
           logs.push({
             level: 'info',
             phase: 'tool_result',
@@ -185,8 +207,25 @@ export function createForgeAgentRunExecutor(
         finalContent: content,
       })
 
+      // Estimate token usage from content length (~4 chars per token)
+      // Input: prompt + tool results accumulated during execution
+      const promptTokens = Math.ceil(prompt.length / 4)
+      totalInputTokens += promptTokens
+      totalOutputTokens += Math.ceil(content.length / 4)
+
+      const modelTier = effectiveModelTier ?? 'chat'
+      const modelName = resolveModelName(modelTier, ctx.modelRegistry)
+      const usage: TokenUsage = {
+        model: modelName,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+      }
+      const costCents = calculateCostCents(usage)
+
       return {
         output: { message: content || '[empty response]' },
+        tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
+        costCents,
         metadata: {
           streamMode: true,
           chunkCount: chunks.length,

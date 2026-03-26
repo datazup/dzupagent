@@ -12,6 +12,7 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { ForgeServerConfig } from '../app.js'
 import type { RunStatus } from '@forgeagent/core'
+import { injectTraceContext } from '@forgeagent/core'
 
 export function createRunRoutes(config: ForgeServerConfig): Hono {
   const app = new Hono()
@@ -30,10 +31,54 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
     }
 
+    // --- Cost-aware routing: classify input to determine optimal model tier ---
+    let routingMetadata: Record<string, unknown> = {}
+    if (config.router) {
+      const inputObj = body.input as Record<string, unknown> | null | undefined
+      const text = typeof body.input === 'string'
+        ? body.input
+        : (inputObj && typeof inputObj === 'object' && !Array.isArray(inputObj))
+          ? (typeof inputObj['message'] === 'string' ? inputObj['message']
+            : typeof inputObj['content'] === 'string' ? inputObj['content']
+            : typeof inputObj['prompt'] === 'string' ? inputObj['prompt']
+            : JSON.stringify(body.input))
+          : JSON.stringify(body.input ?? '')
+
+      try {
+        const result = await config.router.classify(text)
+        routingMetadata = {
+          modelTier: result.modelTier,
+          routingReason: result.routingReason,
+          complexity: result.complexity,
+        }
+
+        // Track routing decision distribution
+        config.metrics?.increment('forge_routing_total', {
+          tier: result.modelTier,
+          reason: result.routingReason,
+          complexity: result.complexity,
+        })
+      } catch {
+        // Router failure is non-fatal — fall through without routing metadata
+      }
+    }
+
+    const mergedMetadata = { ...(body.metadata ?? {}), ...routingMetadata }
+
+    // Inject trace context so every run has a traceId from birth.
+    // injectTraceContext is idempotent — if metadata already has _trace, it's preserved.
+    let tracedMetadata: Record<string, unknown>
+    try {
+      tracedMetadata = injectTraceContext(mergedMetadata)
+    } catch {
+      // Trace injection is non-fatal — proceed without it
+      tracedMetadata = mergedMetadata
+    }
+
     const run = await runStore.create({
       agentId: body.agentId,
       input: body.input,
-      metadata: body.metadata,
+      metadata: tracedMetadata,
     })
 
     if (config.runQueue) {
