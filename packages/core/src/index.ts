@@ -17,7 +17,7 @@ export type { ForgeErrorCode } from './errors/error-codes.js'
 // --- Events ---
 export { createEventBus } from './events/event-bus.js'
 export type { ForgeEventBus } from './events/event-bus.js'
-export type { ForgeEvent, ForgeEventOf, BudgetUsage } from './events/event-types.js'
+export type { ForgeEvent, ForgeEventOf, BudgetUsage, ToolStatSummary } from './events/event-types.js'
 export { AgentBus } from './events/agent-bus.js'
 export type { AgentMessage, AgentMessageHandler } from './events/agent-bus.js'
 
@@ -277,6 +277,10 @@ export type {
   IntentContext, IntentType, ContextTransferConfig, IntentRelevanceRule, TransferScope,
 } from '@forgeagent/context'
 
+// --- Run Context Transfer ---
+export { RunContextTransfer, INTENT_CONTEXT_CHAINS } from './context/run-context-transfer.js'
+export type { RunContextTransferConfig, PersistedIntentContext } from './context/run-context-transfer.js'
+
 // --- Middleware ---
 export type { AgentMiddleware } from './middleware/types.js'
 export { calculateCostCents, getModelCosts } from './middleware/cost-tracking.js'
@@ -303,8 +307,8 @@ export { IntentRouter } from './router/intent-router.js'
 export type { IntentRouterConfig, ClassificationResult } from './router/intent-router.js'
 export { KeywordMatcher } from './router/keyword-matcher.js'
 export { LLMClassifier } from './router/llm-classifier.js'
-export { CostAwareRouter, isSimpleTurn } from './router/cost-aware-router.js'
-export type { CostAwareResult, CostAwareRouterConfig } from './router/cost-aware-router.js'
+export { CostAwareRouter, isSimpleTurn, scoreComplexity } from './router/cost-aware-router.js'
+export type { CostAwareResult, CostAwareRouterConfig, ComplexityLevel } from './router/cost-aware-router.js'
 
 // --- Streaming ---
 export { SSETransformer } from './streaming/sse-transformer.js'
@@ -771,6 +775,19 @@ export type {
   QdrantAdapterConfig,
   PineconeAdapterConfig,
 } from './vectordb/index.js'
+
+// --- Tool Stats ---
+export { ToolStatsTracker } from './tools/tool-stats-tracker.js'
+export type {
+  ToolCallRecord,
+  ToolStats,
+  ToolRanking,
+  ToolStatsTrackerConfig,
+} from './tools/tool-stats-tracker.js'
+
+// --- Telemetry (lightweight trace propagation — no OTel SDK dependency) ---
+export { injectTraceContext, extractTraceContext, formatTraceparent, parseTraceparent } from './telemetry/trace-propagation.js'
+export type { TraceContext } from './telemetry/trace-propagation.js'
 
 // --- Version ---
 export const FORGEAGENT_CORE_VERSION = '0.1.0'
