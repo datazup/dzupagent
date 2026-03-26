@@ -207,6 +207,8 @@ export type {
   ReviewPhaseConfig,
 } from './pipeline/phase-types.js'
 export { PipelineExecutor } from './pipeline/pipeline-executor.js'
+export { runGuardrailGate, summarizeGateResult } from './pipeline/guardrail-gate.js'
+export type { GuardrailGateConfig, GuardrailGateResult } from './pipeline/guardrail-gate.js'
 export type {
   ExecutorConfig,
   PhaseConfig as ExecutorPhaseConfig,
@@ -295,6 +297,41 @@ export type { ConventionViolation, EnforcementResult } from './conventions/conve
 // --- Migration ---
 export { getMigrationPlan, analyzeMigrationScope, buildMigrationPrompt } from './migration/migration-planner.js'
 export type { MigrationTarget, MigrationStep, MigrationPlan } from './migration/migration-planner.js'
+
+// --- Guardrails ---
+export { GuardrailEngine } from './guardrails/guardrail-engine.js'
+export type { GuardrailEngineConfig } from './guardrails/guardrail-engine.js'
+export { ConventionLearner } from './guardrails/convention-learner.js'
+export type { ConventionLearnerConfig } from './guardrails/convention-learner.js'
+export { GuardrailReporter } from './guardrails/guardrail-reporter.js'
+export type { ReportFormat, ReporterConfig } from './guardrails/guardrail-reporter.js'
+export {
+  createBuiltinRules,
+  createLayeringRule,
+  createImportRestrictionRule,
+  createNamingConventionRule,
+  createSecurityRule,
+  createTypeSafetyRule,
+  createContractComplianceRule,
+} from './guardrails/rules/index.js'
+export type { ImportRestrictionConfig } from './guardrails/rules/index.js'
+export type {
+  GuardrailCategory,
+  GuardrailSeverity,
+  GeneratedFile,
+  ProjectStructure,
+  PackageInfo,
+  ConventionSet,
+  FileNamingPattern,
+  ExportNamingPattern,
+  ImportStylePattern,
+  RequiredPattern,
+  GuardrailContext,
+  GuardrailViolation,
+  GuardrailResult,
+  GuardrailRule,
+  GuardrailReport,
+} from './guardrails/guardrail-types.js'
 
 // Placeholder export to make the package valid
 export const FORGEAGENT_CODEGEN_VERSION = '0.1.0'

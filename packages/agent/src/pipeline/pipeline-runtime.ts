@@ -16,6 +16,7 @@ import type {
 } from '@forgeagent/core'
 import { validatePipeline } from './pipeline-validator.js'
 import { executeLoop } from './loop-executor.js'
+import type { FailureContext, FailureType } from '../recovery/recovery-types.js'
 import type {
   PipelineState,
   NodeResult,
@@ -35,6 +36,8 @@ export class PipelineRuntime {
   private readonly outgoingEdges: Map<string, PipelineEdge[]>
   private readonly errorEdges: Map<string, PipelineEdge[]>
   private state: PipelineState = 'idle'
+  /** Tracks recovery attempts across the entire pipeline run */
+  private recoveryAttemptsUsed = 0
 
   constructor(config: PipelineRuntimeConfig) {
     this.config = config
@@ -73,6 +76,7 @@ export class PipelineRuntime {
     let checkpointVersion = 0
 
     this.state = 'running'
+    this.recoveryAttemptsUsed = 0
     this.emit({ type: 'pipeline:started', pipelineId: this.config.definition.id, runId })
 
     const startTime = Date.now()
@@ -389,7 +393,17 @@ export class PipelineRuntime {
             continue
           }
 
-          // No error handler — fail pipeline
+          // Attempt recovery before failing pipeline
+          const recovered = await this.attemptRecovery(
+            node.id, node.type, finalResult.error, runId, context,
+          )
+          if (recovered) {
+            // Recovery succeeded — retry the same node
+            nodeResults.delete(node.id)
+            continue
+          }
+
+          // No error handler, no recovery — fail pipeline
           this.state = 'failed'
           this.emit({ type: 'pipeline:failed', runId, error: finalResult.error })
           return {
@@ -429,6 +443,16 @@ export class PipelineRuntime {
         const errorNext = this.getErrorTarget(node.id)
         if (errorNext) {
           currentNodeId = errorNext
+          continue
+        }
+
+        // Attempt recovery before throwing
+        const recovered = await this.attemptRecovery(
+          node.id, node.type, errorMessage, runId, context,
+        )
+        if (recovered) {
+          // Recovery succeeded — retry the same node
+          nodeResults.delete(node.id)
           continue
         }
 
@@ -812,6 +836,108 @@ export class PipelineRuntime {
     return patterns.some(p =>
       typeof p === 'string' ? error.includes(p) : p.test(error),
     )
+  }
+
+  // ---------------------------------------------------------------------------
+  // Recovery copilot integration
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Check whether the recovery copilot is configured and eligible for
+   * the given node, then attempt recovery. Returns `true` if recovery
+   * succeeded and the node should be retried.
+   */
+  private async attemptRecovery(
+    nodeId: string,
+    nodeType: string,
+    errorMessage: string,
+    runId: string,
+    _context: NodeExecutionContext,
+  ): Promise<boolean> {
+    const rc = this.config.recoveryCopilot
+    if (!rc) return false
+
+    // Check per-node eligibility
+    if (rc.enabledForNodes && rc.enabledForNodes.length > 0) {
+      if (!rc.enabledForNodes.includes(nodeId)) return false
+    }
+
+    // Check global attempt budget
+    const maxAttempts = rc.maxRecoveryAttempts ?? 3
+    if (this.recoveryAttemptsUsed >= maxAttempts) return false
+
+    this.recoveryAttemptsUsed++
+
+    this.emit({
+      type: 'pipeline:recovery_attempted',
+      nodeId,
+      attempt: this.recoveryAttemptsUsed,
+      maxAttempts,
+      error: errorMessage,
+    })
+
+    // Build a FailureContext for the copilot
+    const failureType = this.classifyError(errorMessage, nodeType)
+    const failureContext: FailureContext = {
+      type: failureType,
+      error: errorMessage,
+      runId,
+      nodeId,
+      timestamp: new Date(),
+      previousAttempts: this.recoveryAttemptsUsed - 1,
+    }
+
+    try {
+      const result = await rc.copilot.recover(failureContext)
+
+      if (result.success) {
+        this.emit({
+          type: 'pipeline:recovery_succeeded',
+          nodeId,
+          attempt: this.recoveryAttemptsUsed,
+          summary: result.summary,
+        })
+        return true
+      }
+
+      this.emit({
+        type: 'pipeline:recovery_failed',
+        nodeId,
+        attempt: this.recoveryAttemptsUsed,
+        error: result.summary,
+      })
+      return false
+    } catch (recoveryErr) {
+      const msg = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr)
+      this.emit({
+        type: 'pipeline:recovery_failed',
+        nodeId,
+        attempt: this.recoveryAttemptsUsed,
+        error: `Recovery threw: ${msg}`,
+      })
+      return false
+    }
+  }
+
+  /**
+   * Heuristically classify an error message into a FailureType
+   * for the recovery copilot.
+   */
+  private classifyError(error: string, _nodeType: string): FailureType {
+    const lower = error.toLowerCase()
+    if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('deadline')) {
+      return 'timeout'
+    }
+    if (lower.includes('memory') || lower.includes('oom') || lower.includes('quota') || lower.includes('rate limit') || lower.includes('resource')) {
+      return 'resource_exhaustion'
+    }
+    if (lower.includes('build') || lower.includes('compile') || lower.includes('syntax')) {
+      return 'build_failure'
+    }
+    if (lower.includes('test') || lower.includes('assertion') || lower.includes('expect')) {
+      return 'test_failure'
+    }
+    return 'generation_failure'
   }
 
   private delay(ms: number): Promise<void> {

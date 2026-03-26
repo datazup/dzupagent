@@ -13,6 +13,9 @@ import {
   codegenTemplate,
   multiAgentTemplate,
   serverTemplate,
+  productionSaasAgentTemplate,
+  secureInternalAssistantTemplate,
+  costConstrainedWorkerTemplate,
   getTemplate,
   listTemplates,
 } from '../templates/index.js'
@@ -53,10 +56,10 @@ describe('renderTemplate', () => {
 })
 
 describe('Template Manifests', () => {
-  const templateTypes: TemplateType[] = ['minimal', 'full-stack', 'codegen', 'multi-agent', 'server']
+  const templateTypes: TemplateType[] = ['minimal', 'full-stack', 'codegen', 'multi-agent', 'server', 'production-saas-agent', 'secure-internal-assistant', 'cost-constrained-worker']
 
-  it('all 5 templates exist in the registry', () => {
-    expect(Object.keys(templateRegistry)).toHaveLength(5)
+  it('all 8 templates exist in the registry', () => {
+    expect(Object.keys(templateRegistry)).toHaveLength(8)
     for (const t of templateTypes) {
       expect(templateRegistry[t]).toBeDefined()
     }
@@ -95,7 +98,7 @@ describe('Template Manifests', () => {
 
   it('listTemplates returns all templates', () => {
     const all = listTemplates()
-    expect(all).toHaveLength(5)
+    expect(all).toHaveLength(8)
   })
 
   it('specific templates are correctly imported', () => {
@@ -104,6 +107,9 @@ describe('Template Manifests', () => {
     expect(codegenTemplate.id).toBe('codegen')
     expect(multiAgentTemplate.id).toBe('multi-agent')
     expect(serverTemplate.id).toBe('server')
+    expect(productionSaasAgentTemplate.id).toBe('production-saas-agent')
+    expect(secureInternalAssistantTemplate.id).toBe('secure-internal-assistant')
+    expect(costConstrainedWorkerTemplate.id).toBe('cost-constrained-worker')
   })
 })
 
@@ -269,7 +275,7 @@ describe('E2E scaffold', () => {
 // Task 3: Parameterized — every template produces required files
 // ---------------------------------------------------------------------------
 describe('All templates produce required files', () => {
-  const allTemplates: TemplateType[] = ['minimal', 'full-stack', 'codegen', 'multi-agent', 'server']
+  const allTemplates: TemplateType[] = ['minimal', 'full-stack', 'codegen', 'multi-agent', 'server', 'production-saas-agent', 'secure-internal-assistant', 'cost-constrained-worker']
   let tempDir: string
   let engine: ScaffoldEngine
 
@@ -394,6 +400,9 @@ describe('CLI argument parsing', () => {
     expect(stdout).toContain('codegen')
     expect(stdout).toContain('multi-agent')
     expect(stdout).toContain('server')
+    expect(stdout).toContain('production-saas-agent')
+    expect(stdout).toContain('secure-internal-assistant')
+    expect(stdout).toContain('cost-constrained-worker')
   })
 
   it('unknown option shows error', async () => {

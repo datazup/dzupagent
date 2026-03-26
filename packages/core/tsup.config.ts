@@ -1,7 +1,14 @@
 import { defineConfig } from 'tsup'
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: [
+    'src/index.ts',
+    'src/facades/index.ts',
+    'src/facades/quick-start.ts',
+    'src/facades/memory.ts',
+    'src/facades/orchestration.ts',
+    'src/facades/security.ts',
+  ],
   format: ['esm'],
   dts: { resolve: true },
   clean: true,

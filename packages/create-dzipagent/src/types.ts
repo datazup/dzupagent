@@ -1,7 +1,7 @@
 /**
  * Supported scaffold template types.
  */
-export type TemplateType = 'minimal' | 'full-stack' | 'codegen' | 'multi-agent' | 'server'
+export type TemplateType = 'minimal' | 'full-stack' | 'codegen' | 'multi-agent' | 'server' | 'production-saas-agent' | 'secure-internal-assistant' | 'cost-constrained-worker'
 
 /**
  * Options passed to the scaffold engine.

@@ -3,6 +3,10 @@
  * retry strategies, per-phase timeouts, and checkpoint support.
  */
 
+import type { GuardrailGateConfig } from './guardrail-gate.js'
+import { runGuardrailGate, summarizeGateResult } from './guardrail-gate.js'
+import type { GuardrailContext } from '../guardrails/guardrail-types.js'
+
 export interface ExecutorConfig {
   /** Default timeout per phase in ms (default: 120_000) */
   defaultTimeoutMs: number
@@ -12,6 +16,19 @@ export interface ExecutorConfig {
   onCheckpoint?: (phaseId: string, state: Record<string, unknown>) => Promise<void>
   /** Progress callback */
   onProgress?: (phaseId: string, progress: number) => void
+  /**
+   * Optional guardrail gate that runs after each generation phase.
+   * If the gate fails, the phase is marked as 'failed' with violation details.
+   */
+  guardrailGate?: GuardrailGateConfig
+  /**
+   * Build a GuardrailContext from the current pipeline state after a phase completes.
+   * Required when guardrailGate is configured. If not provided, the gate is skipped.
+   */
+  buildGuardrailContext?: (
+    phaseId: string,
+    state: Record<string, unknown>,
+  ) => GuardrailContext | undefined
 }
 
 export interface PhaseConfig {
@@ -197,6 +214,36 @@ export class PipelineExecutor {
       const durationMs = Date.now() - phaseStart
 
       if (succeeded) {
+        // Run guardrail gate if configured and a context builder is provided
+        if (this.config.guardrailGate && this.config.buildGuardrailContext) {
+          const guardrailCtx = this.config.buildGuardrailContext(phase.id, state)
+          if (guardrailCtx) {
+            const gateResult = runGuardrailGate(this.config.guardrailGate, guardrailCtx)
+            state[`__phase_${phase.id}_guardrail`] = {
+              passed: gateResult.passed,
+              errorCount: gateResult.report.errorCount,
+              warningCount: gateResult.report.warningCount,
+            }
+            if (!gateResult.passed) {
+              results.push({
+                phaseId: phase.id,
+                status: 'failed',
+                durationMs,
+                retries,
+                error: summarizeGateResult(gateResult),
+                output,
+              })
+
+              return {
+                status: 'failed',
+                phases: results,
+                totalDurationMs: Date.now() - pipelineStart,
+                state,
+              }
+            }
+          }
+        }
+
         completed.add(phase.id)
         results.push({ phaseId: phase.id, status: 'completed', durationMs, retries, output })
         this.config.onProgress?.(phase.id, 1)

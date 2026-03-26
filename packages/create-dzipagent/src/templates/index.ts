@@ -4,6 +4,9 @@ import { fullStackTemplate } from './full-stack.js'
 import { codegenTemplate } from './codegen.js'
 import { multiAgentTemplate } from './multi-agent.js'
 import { serverTemplate } from './server.js'
+import { productionSaasAgentTemplate } from './production-saas-agent.js'
+import { secureInternalAssistantTemplate } from './secure-internal-assistant.js'
+import { costConstrainedWorkerTemplate } from './cost-constrained-worker.js'
 
 export const templateRegistry: Record<TemplateType, TemplateManifest> = {
   'minimal': minimalTemplate,
@@ -11,6 +14,9 @@ export const templateRegistry: Record<TemplateType, TemplateManifest> = {
   'codegen': codegenTemplate,
   'multi-agent': multiAgentTemplate,
   'server': serverTemplate,
+  'production-saas-agent': productionSaasAgentTemplate,
+  'secure-internal-assistant': secureInternalAssistantTemplate,
+  'cost-constrained-worker': costConstrainedWorkerTemplate,
 }
 
 export function getTemplate(id: TemplateType): TemplateManifest {
@@ -31,4 +37,7 @@ export {
   codegenTemplate,
   multiAgentTemplate,
   serverTemplate,
+  productionSaasAgentTemplate,
+  secureInternalAssistantTemplate,
+  costConstrainedWorkerTemplate,
 }

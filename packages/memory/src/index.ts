@@ -270,3 +270,49 @@ export type {
 // --- Vector Clock (Causal Ordering) ---
 export { VectorClock } from './vector-clock.js'
 export type { VectorClockComparison } from './vector-clock.js'
+
+// --- CRDT Network Sync Protocol ---
+export { MerkleDigest } from './sync/index.js'
+export { SyncProtocol } from './sync/index.js'
+export { SyncSession } from './sync/index.js'
+export { WebSocketSyncTransport } from './sync/index.js'
+export type { WebSocketLike } from './sync/index.js'
+export type {
+  SyncDigest,
+  SyncDelta,
+  SyncMessage,
+  SyncHelloMessage,
+  SyncDigestMessage,
+  SyncRequestDeltaMessage,
+  SyncDeltaMessage,
+  SyncAckMessage,
+  SyncErrorMessage,
+  SyncSessionState,
+  SyncConfig,
+  SyncTransport,
+  SyncEvent,
+  SyncConnectedEvent,
+  SyncDisconnectedEvent,
+  SyncDeltaSentEvent,
+  SyncDeltaReceivedEvent,
+  SyncErrorEvent,
+  SyncStats,
+} from './sync/index.js'
+
+// --- Team Memory Graph ---
+export { TeamMemoryGraph } from './graph/index.js'
+export { TrustScorer } from './graph/index.js'
+export { ConflictResolver } from './graph/index.js'
+export { GraphQuery } from './graph/index.js'
+export type {
+  GraphNode,
+  GraphEdge,
+  GraphNodeType,
+  GraphEdgeType,
+  GraphNodeProvenance,
+  TrustProfile,
+  ConflictRecord,
+  GraphConflictStrategy,
+  GraphQueryFilter,
+  TeamGraphConfig,
+} from './graph/index.js'

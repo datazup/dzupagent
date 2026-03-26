@@ -10,6 +10,7 @@ import type {
   PipelineNode,
   PipelineCheckpointStore,
 } from '@forgeagent/core'
+import type { RecoveryCopilot } from '../recovery/recovery-copilot.js'
 
 // ---------------------------------------------------------------------------
 // Pipeline state
@@ -81,6 +82,9 @@ export type PipelineRuntimeEvent =
   | { type: 'pipeline:checkpoint_saved'; runId: string; version: number }
   | { type: 'pipeline:loop_iteration'; nodeId: string; iteration: number; maxIterations: number }
   | { type: 'pipeline:node_retry'; nodeId: string; attempt: number; maxAttempts: number; error: string; backoffMs: number }
+  | { type: 'pipeline:recovery_attempted'; nodeId: string; attempt: number; maxAttempts: number; error: string }
+  | { type: 'pipeline:recovery_succeeded'; nodeId: string; attempt: number; summary: string }
+  | { type: 'pipeline:recovery_failed'; nodeId: string; attempt: number; error: string }
 
 // ---------------------------------------------------------------------------
 // Loop metrics
@@ -159,4 +163,13 @@ export interface PipelineRuntimeConfig {
   retryPolicy?: RetryPolicy
   /** Optional OTel tracer for creating spans per pipeline node */
   tracer?: PipelineTracer
+  /** Optional recovery copilot for automatic failure recovery */
+  recoveryCopilot?: {
+    /** The RecoveryCopilot instance to use for recovery attempts */
+    copilot: RecoveryCopilot
+    /** Only attempt recovery for these node IDs (if empty/unset, all nodes are eligible) */
+    enabledForNodes?: string[]
+    /** Max total recovery attempts per pipeline run (default: 3) */
+    maxRecoveryAttempts?: number
+  }
 }

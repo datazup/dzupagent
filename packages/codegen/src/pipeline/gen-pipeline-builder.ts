@@ -14,11 +14,12 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { QualityDimension } from '../quality/quality-types.js'
 import type { EscalationConfig } from './fix-escalation.js'
 import { DEFAULT_ESCALATION } from './fix-escalation.js'
+import type { GuardrailGateConfig } from './guardrail-gate.js'
 
 /** Configured phase in the pipeline */
 export interface PipelinePhase {
   name: string
-  type: 'generation' | 'subagent' | 'validation' | 'fix' | 'review'
+  type: 'generation' | 'subagent' | 'validation' | 'fix' | 'review' | 'guardrail'
   promptType?: string
   modelTier?: ModelTier
   tools?: StructuredToolInterface[]
@@ -34,6 +35,8 @@ export interface PipelinePhase {
   autoApprove?: boolean
   // Sub-agent-specific
   subagentConfig?: Record<string, unknown>
+  // Guardrail-specific
+  guardrailGate?: GuardrailGateConfig
 }
 
 /**
@@ -42,6 +45,28 @@ export interface PipelinePhase {
  */
 export class GenPipelineBuilder {
   private phases: PipelinePhase[] = []
+  private guardrailConfig?: GuardrailGateConfig
+
+  /**
+   * Configure a guardrail gate for this pipeline. This inserts a guardrail
+   * validation phase between the last generation/subagent phase and the
+   * first review phase. The gate config is also stored so that consumers
+   * (e.g., PipelineExecutor) can retrieve it via `getGuardrailConfig()`.
+   */
+  withGuardrails(config: GuardrailGateConfig): this {
+    this.guardrailConfig = config
+    this.phases.push({
+      name: 'guardrail-gate',
+      type: 'guardrail',
+      guardrailGate: config,
+    })
+    return this
+  }
+
+  /** Get the configured guardrail gate config, if any */
+  getGuardrailConfig(): GuardrailGateConfig | undefined {
+    return this.guardrailConfig
+  }
 
   /** Add a standard generation phase */
   addPhase(config: {

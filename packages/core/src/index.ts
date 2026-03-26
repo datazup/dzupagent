@@ -586,6 +586,15 @@ export {
   JSONSerializer,
   defaultSerializer,
   ProtocolBridge,
+  // A2A JSON-RPC 2.0
+  JSON_RPC_ERRORS,
+  A2A_ERRORS,
+  createJsonRpcError,
+  createJsonRpcSuccess,
+  validateJsonRpcRequest,
+  validateJsonRpcBatch,
+  // A2A Push Notifications
+  PushNotificationService,
 } from './protocol/index.js'
 export type {
   ForgeMessageId,
@@ -612,6 +621,20 @@ export type {
   MessageSerializer,
   ProtocolBridgeConfig,
   BridgeDirection,
+  // A2A JSON-RPC 2.0 types
+  JsonRpcRequest,
+  JsonRpcSuccessResponse,
+  JsonRpcErrorObject,
+  JsonRpcErrorResponse,
+  JsonRpcResponse,
+  JsonRpcValidationResult,
+  JsonRpcBatchValidationResult,
+  // A2A Push Notification types
+  PushNotificationEvent,
+  PushNotificationConfig,
+  PushNotification,
+  PushNotificationResult,
+  PushNotificationServiceConfig,
 } from './protocol/index.js'
 
 // --- Registry ---

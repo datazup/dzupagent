@@ -70,6 +70,14 @@ export interface AgentCardV2 {
   defaultOutputModes?: ContentMode[]
   sla?: AgentCardSLA
   metadata?: Record<string, unknown>
+  /** Whether this agent supports multi-turn conversations. */
+  supportsMultiTurn?: boolean
+  /** Whether this agent supports push notifications via webhooks. */
+  supportsPushNotifications?: boolean
+  /** Whether this agent supports JSON-RPC 2.0 batch requests. */
+  supportsBatchRequests?: boolean
+  /** A2A protocol version (e.g. "0.2.1"). */
+  protocolVersion?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +132,10 @@ export const AgentCardV2Schema = z.object({
   defaultOutputModes: z.array(ContentModeSchema).optional(),
   sla: AgentCardSLASchema.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  supportsMultiTurn: z.boolean().optional(),
+  supportsPushNotifications: z.boolean().optional(),
+  supportsBatchRequests: z.boolean().optional(),
+  protocolVersion: z.string().optional(),
 })
 
 // ---------------------------------------------------------------------------

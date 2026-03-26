@@ -136,7 +136,19 @@ export type {
   A2ATaskState,
   A2ATaskStore,
   A2ARoutesConfig,
+  A2AMessagePart,
+  A2ATaskMessage,
+  A2ATaskArtifact,
+  A2ATaskPushConfig,
 } from './a2a/index.js'
+
+// --- Memory CRDT Sync ---
+export { createMemorySyncRoutes, createMemorySyncHandler } from './routes/memory-sync.js'
+export type {
+  MemorySyncRouteConfig,
+  SyncWebSocket,
+  SyncConnectionHandle,
+} from './routes/memory-sync.js'
 
 // --- Triggers ---
 export { TriggerManager } from './triggers/index.js'
@@ -164,6 +176,15 @@ export { memoryBrowse, memorySearch } from './cli/memory-command.js'
 export type { MemoryBrowseOptions, MemoryBrowseEntry, MemorySearchResult } from './cli/memory-command.js'
 export { vectordbStatus, formatVectorDBStatus } from './cli/vectordb-command.js'
 export type { VectorDBStatusResult } from './cli/vectordb-command.js'
+export { runDoctor, formatDoctorReport, formatDoctorReportJSON } from './cli/doctor.js'
+export type {
+  CheckStatus,
+  CheckResult,
+  CheckCategory,
+  DoctorReport,
+  DoctorOptions,
+  DoctorContext,
+} from './cli/doctor.js'
 export {
   searchMarketplace,
   filterByCategory,
@@ -171,6 +192,23 @@ export {
   createSampleRegistry,
 } from './cli/marketplace-command.js'
 export type { MarketplacePlugin, MarketplaceRegistry } from './cli/marketplace-command.js'
+export { runScorecard, parseScorecardArgs } from './cli/scorecard-command.js'
+export type { ScorecardCommandOptions, ScorecardCommandResult } from './cli/scorecard-command.js'
+
+// --- Scorecard ---
+export { IntegrationScorecard } from './scorecard/index.js'
+export type {
+  ScorecardReport,
+  ScorecardCategory,
+  ScorecardCheck,
+  ScorecardProbeInput,
+  Recommendation,
+  Grade,
+  RecommendationPriority,
+} from './scorecard/index.js'
+export type { CheckStatus as ScorecardCheckStatus } from './scorecard/index.js'
+export { ScorecardReporter, formatConsole, formatMarkdown, formatJSON } from './scorecard/index.js'
+export type { ScorecardFormat } from './scorecard/index.js'
 
 // --- Runtime ---
 export { ConsolidationScheduler } from './runtime/consolidation-scheduler.js'
@@ -219,6 +257,19 @@ export { generateDockerfile, generateDockerCompose, generateDockerignore } from 
 export type { DockerConfig } from './deploy/docker-generator.js'
 export { checkHealth } from './deploy/health-checker.js'
 export type { HealthCheckResult } from './deploy/health-checker.js'
+
+// --- Deploy Confidence ---
+export { DeployConfidenceCalculator } from './deploy/confidence-calculator.js'
+export { DeployGate } from './deploy/deploy-gate.js'
+export { DeploymentHistory, generateDeploymentId, resetIdCounter } from './deploy/deployment-history.js'
+export type {
+  GateDecision,
+  ConfidenceSignal,
+  DeployConfidence,
+  ConfidenceThresholds,
+  DeployConfidenceConfig,
+  DeploymentRecord,
+} from './deploy/confidence-types.js'
 
 // --- Security / Incident Response ---
 export { IncidentResponseEngine, clearIncidentFlags, isAgentKilled, isToolDisabled, isNamespaceQuarantined } from './security/incident-response.js'

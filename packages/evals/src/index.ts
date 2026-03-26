@@ -81,3 +81,37 @@ export { QA_SUITE } from './benchmarks/suites/qa.js';
 export { TOOL_USE_SUITE } from './benchmarks/suites/tool-use.js';
 export { MULTI_TURN_SUITE } from './benchmarks/suites/multi-turn.js';
 export { VECTOR_SEARCH_SUITE } from './benchmarks/suites/vector-search.js';
+
+// Contracts (adapter conformance testing)
+export type {
+  AdapterType,
+  ComplianceLevel,
+  ComplianceReport,
+  ContractRunConfig,
+  ContractRunFilter,
+  ContractSuite,
+  ContractTest,
+  ContractTestCategory,
+  ContractTestReport,
+  ContractTestResult,
+} from './contracts/index.js';
+
+export { ContractSuiteBuilder, timedTest } from './contracts/index.js';
+export { runContractSuite, runContractSuites } from './contracts/index.js';
+export {
+  complianceBadge,
+  complianceSummary,
+  complianceToCIAnnotations,
+  complianceToJSON,
+  complianceToMarkdown,
+} from './contracts/index.js';
+export {
+  createVectorStoreContract,
+  VECTOR_STORE_CONTRACT,
+  createSandboxContract,
+  SANDBOX_CONTRACT,
+  createLLMProviderContract,
+  LLM_PROVIDER_CONTRACT,
+  createEmbeddingProviderContract,
+  EMBEDDING_PROVIDER_CONTRACT,
+} from './contracts/index.js';

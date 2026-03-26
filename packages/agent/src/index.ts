@@ -270,5 +270,54 @@ export type {
   ReflectorConfig,
 } from './reflection/run-reflector.js'
 
+// --- Recovery ---
+export { RecoveryCopilot } from './recovery/recovery-copilot.js'
+export type { StrategyGenerator } from './recovery/recovery-copilot.js'
+export { FailureAnalyzer } from './recovery/failure-analyzer.js'
+export type { FailureHistoryEntry, FailureAnalysis } from './recovery/failure-analyzer.js'
+export { StrategyRanker } from './recovery/strategy-ranker.js'
+export type { RankingWeights } from './recovery/strategy-ranker.js'
+export { RecoveryExecutor } from './recovery/recovery-executor.js'
+export type { ActionHandler, RecoveryExecutorConfig } from './recovery/recovery-executor.js'
+export type {
+  FailureType,
+  FailureContext,
+  RecoveryActionType,
+  RecoveryAction,
+  RiskLevel,
+  RecoveryStrategy,
+  RecoveryPlanStatus,
+  RecoveryPlan,
+  RecoveryCopilotConfig,
+  RecoveryResult,
+} from './recovery/recovery-types.js'
+
+// --- Replay Debugger ---
+export {
+  TraceCapture,
+  ReplayEngine,
+  ReplayController,
+  ReplayInspector,
+  TraceSerializer,
+} from './replay/index.js'
+export type {
+  ReplayEvent,
+  Breakpoint,
+  ReplayStatus,
+  ReplaySession,
+  TraceCaptureConfig,
+  CapturedTrace,
+  StateDiffEntry,
+  TimelineNode,
+  TimelineData,
+  SerializationFormat,
+  SerializeOptions,
+  ReplayEventCallback,
+  BreakpointHitCallback,
+  StatusChangeCallback,
+  ReplayNodeMetrics,
+  ReplaySummary,
+} from './replay/index.js'
+
 // --- Version ---
 export const FORGEAGENT_AGENT_VERSION = '0.1.0'

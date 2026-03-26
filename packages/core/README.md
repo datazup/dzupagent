@@ -122,6 +122,80 @@ const result = await invokeWithTimeout(model, messages, { timeoutMs: 30_000 })
 
 - `FORGEAGENT_CORE_VERSION: string` -- current package version (`'0.1.0'`)
 
+## Facade Imports
+
+`@forgeagent/core` exposes **curated facade entry points** that give you only the APIs relevant to your use case, reducing import surface and bundle size.
+
+### Quick Start — `@forgeagent/core/quick-start`
+
+Minimal bootstrap: DI container, event bus, model registry, memory, context management.
+
+```ts
+import { createQuickAgent, ModelRegistry, invokeWithTimeout } from '@forgeagent/core/quick-start'
+
+// One-line agent bootstrap — wires container, event bus, and model registry
+const { registry, eventBus, container } = createQuickAgent({
+  provider: 'anthropic',
+  apiKey: process.env.ANTHROPIC_API_KEY!,
+})
+
+// Or build up manually
+const registry = new ModelRegistry()
+registry.register('fast', { provider: 'anthropic', model: 'claude-haiku-4-5-20251001' })
+```
+
+**Key exports:** `createQuickAgent`, `ForgeContainer`, `createContainer`, `createEventBus`, `ModelRegistry`, `invokeWithTimeout`, `MemoryService`, `createStore`, `shouldSummarize`, `summarizeAndTrim`, `evictIfNeeded`, `resolveConfig`
+
+### Memory — `@forgeagent/core/memory`
+
+Full memory subsystem: stores, retrieval, consolidation, decay, provenance, CRDT sync.
+
+```ts
+import { MemoryService, createStore, fusionSearch, SemanticConsolidator } from '@forgeagent/core/memory'
+
+const store = createStore({ backend: 'postgres', connectionString: process.env.DATABASE_URL })
+const memory = new MemoryService({ store, namespace: { tenant: 'acme', project: 'web-app' } })
+```
+
+**Key exports:** `MemoryService`, `createStore`, `WorkingMemory`, `VersionedWorkingMemory`, `ScopedMemoryService`, `DualStreamWriter`, `SleepConsolidator`, `ProvenanceWriter`, `StoreVectorSearch`, `KeywordFTSSearch`, `EntityGraphSearch`, `AdaptiveRetriever`, `SemanticConsolidator`
+
+### Orchestration — `@forgeagent/core/orchestration`
+
+Multi-agent routing, pipelines, sub-agents, skills, protocols, persistence.
+
+```ts
+import { IntentRouter, createEventBus, SubAgentSpawner } from '@forgeagent/core/orchestration'
+
+const router = new IntentRouter({ routes: [...] })
+const result = router.classify('Build a login page')
+```
+
+**Key exports:** `IntentRouter`, `KeywordMatcher`, `LLMClassifier`, `CostAwareRouter`, `SubAgentSpawner`, `SkillLoader`, `SkillManager`, `PipelineDefinitionSchema`, `serializePipeline`, `deserializePipeline`, `ProtocolRouter`, `createForgeMessage`, `InMemoryRunStore`, `MetricsCollector`, `Semaphore`, `ConcurrencyPool`
+
+### Security — `@forgeagent/core/security`
+
+Risk classification, secrets/PII detection, policy engine, audit trail, safety monitoring.
+
+```ts
+import { createRiskClassifier, scanForSecrets, PolicyEvaluator } from '@forgeagent/core/security'
+
+const classifier = createRiskClassifier()
+const risk = classifier.classify('DROP TABLE users')
+```
+
+**Key exports:** `createRiskClassifier`, `scanForSecrets`, `redactSecrets`, `detectPII`, `redactPII`, `PolicyEvaluator`, `InMemoryPolicyStore`, `ComplianceAuditLogger`, `createSafetyMonitor`, `createMemoryDefense`, `OutputPipeline`, `DataClassifier`
+
+### All Facades — `@forgeagent/core/facades`
+
+Import all facades as namespaces when you need cross-cutting access:
+
+```ts
+import { quickStart, memory, orchestration, security } from '@forgeagent/core/facades'
+
+const agent = quickStart.createQuickAgent({ provider: 'anthropic', apiKey: '...' })
+const risk = security.createRiskClassifier()
+```
+
 ## Configuration
 
 The package is configuration-driven. Key environment variables consumed by its services:

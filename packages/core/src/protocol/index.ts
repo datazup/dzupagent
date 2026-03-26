@@ -69,3 +69,32 @@ export type { MessageSerializer } from './serialization.js'
 // --- Protocol Bridge ---
 export { ProtocolBridge } from './protocol-bridge.js'
 export type { ProtocolBridgeConfig, BridgeDirection } from './protocol-bridge.js'
+
+// --- A2A JSON-RPC 2.0 ---
+export {
+  JSON_RPC_ERRORS,
+  A2A_ERRORS,
+  createJsonRpcError,
+  createJsonRpcSuccess,
+  validateJsonRpcRequest,
+  validateJsonRpcBatch,
+} from './a2a-json-rpc.js'
+export type {
+  JsonRpcRequest,
+  JsonRpcSuccessResponse,
+  JsonRpcErrorObject,
+  JsonRpcErrorResponse,
+  JsonRpcResponse,
+  JsonRpcValidationResult,
+  JsonRpcBatchValidationResult,
+} from './a2a-json-rpc.js'
+
+// --- A2A Push Notifications ---
+export { PushNotificationService } from './a2a-push-notification.js'
+export type {
+  PushNotificationEvent,
+  PushNotificationConfig,
+  PushNotification,
+  PushNotificationResult,
+  PushNotificationServiceConfig,
+} from './a2a-push-notification.js'

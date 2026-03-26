@@ -20,6 +20,9 @@ const VALID_TEMPLATES: ReadonlySet<string> = new Set<TemplateType>([
   'codegen',
   'multi-agent',
   'server',
+  'production-saas-agent',
+  'secure-internal-assistant',
+  'cost-constrained-worker',
 ])
 
 const HELP_TEXT = `
@@ -36,11 +39,14 @@ Options:
   --help                Show this help message
 
 Templates:
-  minimal               Minimal single-agent setup
-  full-stack            Full-stack agent with memory, context, and server
-  codegen               Code generation agent with git tools
-  multi-agent           Multi-agent orchestration with supervisor
-  server                Standalone agent server with REST API
+  minimal                     Minimal single-agent setup
+  full-stack                  Full-stack agent with memory, context, and server
+  codegen                     Code generation agent with git tools
+  multi-agent                 Multi-agent orchestration with supervisor
+  server                      Standalone agent server with REST API
+  production-saas-agent       Enterprise agent with security, OTEL, Postgres, Redis, Docker
+  secure-internal-assistant   Corporate internal agent with strict security and encryption
+  cost-constrained-worker     Budget-optimized agent with Haiku and batch processing
 
 Examples:
   create-forgeagent my-agent
