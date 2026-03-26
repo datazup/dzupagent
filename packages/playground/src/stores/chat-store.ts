@@ -7,7 +7,7 @@
  * @module chat-store
  */
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { ChatMessage, AgentSummary, ApiResponse, TraceEvent, RunHistoryEntry } from '../types.js'
 import { useApi } from '../composables/useApi.js'
 import { useTraceStore } from './trace-store.js'
@@ -125,6 +125,9 @@ export const useChatStore = defineStore('chat', () => {
     const runId = extractTextField(eventLike, payload, 'runId')
     if (!runId) return
 
+    // Guard: ignore events from stale runs (e.g. after agent switch)
+    if (activeRunId.value && runId !== activeRunId.value) return
+
     if (type === 'agent:stream_delta') {
       const delta = extractTextField(eventLike, payload, 'content')
       upsertStreamingAssistant(runId, delta)
@@ -148,22 +151,75 @@ export const useChatStore = defineStore('chat', () => {
     return 'system'
   }
 
+  /**
+   * Wait for a run to reach a terminal state.
+   * Primary signal: WS events (agent:completed / agent:failed).
+   * Fallback: polls the REST API if WS doesn't deliver within timeout.
+   */
   async function waitForRunCompletion(runId: string): Promise<RunHistoryEntry> {
-    const MAX_ATTEMPTS = 120
-    const BASE_INTERVAL_MS = 500
-    const MAX_INTERVAL_MS = 4000
+    const WS_TIMEOUT_MS = 120_000
+    const POLL_INTERVAL_MS = 3000
 
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const run = await get<ApiResponse<RunHistoryEntry>>(`/api/runs/${runId}`)
-      const status = run.data.status
-      if (TERMINAL_STATUSES.has(status)) {
-        return run.data
+    // Race: WS terminal event vs polling fallback
+    return new Promise<RunHistoryEntry>((resolve, reject) => {
+      let settled = false
+      let pollTimer: ReturnType<typeof setInterval> | null = null
+
+      const cleanup = () => {
+        settled = true
+        if (pollTimer) clearInterval(pollTimer)
+        clearTimeout(timeoutTimer)
       }
-      const delay = Math.min(MAX_INTERVAL_MS, BASE_INTERVAL_MS * Math.pow(1.25, attempt))
-      await new Promise((resolve) => setTimeout(resolve, delay))
-    }
 
-    throw new Error(`Run ${runId} timed out before reaching a terminal state`)
+      const stopWatch = watch(
+        () => wsStore.lastEvent,
+        async (event) => {
+          if (settled || !event) return
+          const eventData = event as Record<string, unknown>
+          const payload = (eventData['payload'] && typeof eventData['payload'] === 'object')
+            ? eventData['payload'] as Record<string, unknown>
+            : eventData
+          const type = (payload['type'] as string) ?? ''
+          const eventRunId = (payload['runId'] as string) ?? ''
+
+          if (eventRunId !== runId) return
+          if (type === 'agent:completed' || type === 'agent:failed') {
+            cleanup()
+            stopWatch()
+            try {
+              const run = await get<ApiResponse<RunHistoryEntry>>(`/api/runs/${runId}`)
+              resolve(run.data)
+            } catch (err) {
+              reject(err)
+            }
+          }
+        },
+        { deep: true },
+      )
+
+      // Polling fallback — much slower cadence since WS is primary
+      pollTimer = setInterval(async () => {
+        if (settled) return
+        try {
+          const run = await get<ApiResponse<RunHistoryEntry>>(`/api/runs/${runId}`)
+          if (TERMINAL_STATUSES.has(run.data.status)) {
+            cleanup()
+            stopWatch()
+            resolve(run.data)
+          }
+        } catch {
+          // Swallow poll errors; WS or next poll will pick up
+        }
+      }, POLL_INTERVAL_MS)
+
+      // Hard timeout
+      const timeoutTimer = setTimeout(() => {
+        if (settled) return
+        cleanup()
+        stopWatch()
+        reject(new Error(`Run ${runId} timed out before reaching a terminal state`))
+      }, WS_TIMEOUT_MS)
+    })
   }
 
   async function refreshTrace(runId: string): Promise<void> {
@@ -194,11 +250,16 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /** Select an agent by ID */
+  /** Select an agent by ID, fully isolating state from any prior agent/run */
   function selectAgent(agentId: string): void {
+    // Unsubscribe from any in-flight run's WS events before switching
+    if (activeRunId.value) {
+      wsStore.setSubscription(null)
+    }
     currentAgentId.value = agentId
-    // Clear messages when switching agents
     messages.value = []
+    streamingMessageIds.clear()
+    activeRunId.value = null
     error.value = null
   }
 
