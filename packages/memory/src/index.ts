@@ -335,9 +335,17 @@ export type {
   GetApplicableParams,
 } from './skill-acquisition.js'
 
+// --- Skill Packs ---
+export { SkillPackLoader, BUILT_IN_PACKS } from './skill-packs.js'
+export type { SkillPack, SkillPackEntry } from './skill-packs.js'
+
 // --- Memory Integrator ---
 export { MemoryIntegrator } from './memory-integrator.js'
 export type { MemoryContext, MemoryIntegratorConfig } from './memory-integrator.js'
+
+// --- Tenant-Scoped Store (Multi-Tenant Isolation) ---
+export { TenantScopedStore } from './tenant-scoped-store.js'
+export type { TenantScopedStoreConfig, TenantSearchResult } from './tenant-scoped-store.js'
 
 // --- Team Memory Graph ---
 export { TeamMemoryGraph } from './graph/index.js'

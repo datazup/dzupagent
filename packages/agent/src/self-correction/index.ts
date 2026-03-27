@@ -122,3 +122,29 @@ export type {
   PerformanceHistory,
   PerformanceOptimizerConfig,
 } from './performance-optimizer.js'
+
+export { LangGraphLearningMiddleware } from './langgraph-middleware.js'
+export type {
+  LangGraphLearningConfig,
+  LearningRunMetrics,
+  WrapNodeOptions,
+} from './langgraph-middleware.js'
+
+export { FeedbackCollector } from './feedback-collector.js'
+export type {
+  FeedbackType,
+  FeedbackOutcome,
+  FeedbackRecord,
+  FeedbackStats,
+  FeedbackCollectorConfig,
+} from './feedback-collector.js'
+
+export { LearningDashboardService } from './learning-dashboard.js'
+export type {
+  LearningOverview,
+  QualityTrend,
+  CostTrend,
+  NodePerformanceSummary,
+  LearningDashboard,
+  DashboardServiceConfig,
+} from './learning-dashboard.js'
