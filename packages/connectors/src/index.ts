@@ -49,5 +49,36 @@ export type {
   ColumnInfo,
 } from './database/index.js'
 
+// --- SQL (unified: query execution + schema discovery, 8 dialects) ---
+export {
+  createSQLConnector,
+  createSQLTools,
+  BaseSQLConnector,
+  generateDDL,
+  PostgreSQLConnector,
+  MySQLConnector,
+  ClickHouseConnector,
+  SnowflakeConnector,
+  BigQueryConnector,
+  SQLiteConnector,
+  SQLServerConnector,
+  DuckDBConnector,
+} from './sql/index.js'
+export type {
+  SQLDialect,
+  DatabaseType,
+  SQLConnectionConfig,
+  QueryExecutionOptions,
+  QueryResultData,
+  ConnectionTestResult,
+  ColumnInfo as SQLColumnInfo,
+  ForeignKey as SQLForeignKey,
+  TableSchema as SQLTableSchema,
+  DatabaseSchema,
+  SchemaDiscoveryOptions,
+  SQLConnector,
+  SQLToolsConfig,
+} from './sql/index.js'
+
 // --- Version ---
 export const dzipagent_CONNECTORS_VERSION = '0.1.0'

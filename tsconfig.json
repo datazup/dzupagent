@@ -26,6 +26,7 @@
     { "path": "packages/testing" },
     { "path": "packages/test-utils" },
     { "path": "packages/connectors" },
+    { "path": "packages/domain-nl2sql" },
     { "path": "packages/playground" },
     { "path": "packages/create-dzipagent" }
   ]
