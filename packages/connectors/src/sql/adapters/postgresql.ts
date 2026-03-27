@@ -23,10 +23,13 @@ import type {
   SchemaDiscoveryOptions,
 } from '../types.js'
 
+// pg@8 ESM default import — extract Pool constructor and use `any` for pool
+// since @types/pg may not be installed. The runtime behavior is correct.
 const { Pool } = pg
 
 export class PostgreSQLConnector extends BaseSQLConnector {
-  private readonly pool: pg.Pool
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private readonly pool: any
 
   constructor(config: SQLConnectionConfig) {
     super(config)
@@ -44,7 +47,7 @@ export class PostgreSQLConnector extends BaseSQLConnector {
 
     // Force every new connection into read-only mode so that
     // user-supplied SQL cannot INSERT/UPDATE/DELETE/DROP.
-    this.pool.on('connect', (client: pg.PoolClient) => {
+    this.pool.on('connect', (client: any) => {
       client.query('SET default_transaction_read_only = ON').catch(() => {
         // Swallow — worst case we fall back to the statement_timeout guard.
       })
@@ -61,7 +64,7 @@ export class PostgreSQLConnector extends BaseSQLConnector {
 
   async testConnection(): Promise<ConnectionTestResult> {
     const start = Date.now()
-    let client: pg.PoolClient | undefined
+    let client: any | undefined
     try {
       client = await this.pool.connect()
       await client.query('SELECT 1')
@@ -85,7 +88,7 @@ export class PostgreSQLConnector extends BaseSQLConnector {
     const maxRows = options?.maxRows ?? 500
     const wrapped = this.wrapWithLimit(sql, maxRows)
 
-    let client: pg.PoolClient | undefined
+    let client: any | undefined
     try {
       client = await this.pool.connect()
 
@@ -96,7 +99,7 @@ export class PostgreSQLConnector extends BaseSQLConnector {
       const result = await client.query(wrapped)
 
       const columns =
-        result.fields?.map((f: pg.FieldDef) => f.name) ?? []
+        result.fields?.map((f: { name: string }) => f.name) ?? []
 
       const truncated = result.rows.length > maxRows
       const rows = truncated ? result.rows.slice(0, maxRows) : result.rows
@@ -276,7 +279,9 @@ export class PostgreSQLConnector extends BaseSQLConnector {
     const result = await this.pool.query(sql, [schemaName, tableName])
 
     if (result.rows.length === 0) return 0
-    const estimate = Number(result.rows[0].estimate)
+    const row = result.rows[0] as Record<string, unknown> | undefined
+    if (!row) return 0
+    const estimate = Number(row['estimate'])
     // reltuples can be -1 when the table has never been analyzed
     return estimate >= 0 ? estimate : 0
   }

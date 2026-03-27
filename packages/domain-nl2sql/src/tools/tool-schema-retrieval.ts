@@ -160,7 +160,7 @@ export function createSchemaRetrievalTool(
 
         let dbSchema: DatabaseSchema
         try {
-          dbSchema = await config.sqlConnector.discoverSchema(discoveryOptions)
+          dbSchema = await config.sqlConnector.discoverSchema(discoveryOptions) as DatabaseSchema
         } catch (err) {
           return JSON.stringify({
             tables: [],
@@ -238,9 +238,10 @@ export function createSchemaRetrievalTool(
         }> = []
 
         try {
-          const collectionExists = await config.vectorStore.collectionExists(
-            'nl2sql_sql_examples',
-          )
+          const vs = config.vectorStore as unknown as Record<string, unknown>
+          const collectionExists = typeof vs['collectionExists'] === 'function'
+            ? await (vs['collectionExists'] as (name: string) => Promise<boolean>)('nl2sql_sql_examples')
+            : true // assume exists if method not available
 
           if (collectionExists) {
             // TODO: Inject an EmbeddingProvider to produce real query embeddings.

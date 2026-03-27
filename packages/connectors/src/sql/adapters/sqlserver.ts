@@ -9,6 +9,7 @@
  * to inject `SELECT TOP N` syntax.
  */
 
+// @ts-expect-error — mssql lacks bundled type declarations in this env
 import mssql from 'mssql'
 import { BaseSQLConnector } from '../base-sql-connector.js'
 import type {

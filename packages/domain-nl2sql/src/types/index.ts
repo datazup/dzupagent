@@ -4,17 +4,68 @@
  * Consolidated from @nl2sql/core pipeline.types, vector.types, and pipeline node outputs.
  */
 
-import type {
-  SQLDialect,
-  SQLConnector,
-  TableSchema,
-  QueryResultData,
-} from '@dzipagent/connectors'
-import type { VectorStore } from '@dzipagent/core'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 
-// Re-export connector types that NL2SQL domain uses directly
-export type { SQLDialect, TableSchema, QueryResultData, SQLConnector }
+// ---------------------------------------------------------------------------
+// Types from @dzipagent/connectors and @dzipagent/core — defined locally
+// to avoid build-order dependency on unbuilt sibling packages.
+// At runtime, consumers inject concrete instances of these interfaces.
+// ---------------------------------------------------------------------------
+
+/** SQL dialect identifier */
+export type SQLDialect =
+  | 'postgresql' | 'mysql' | 'clickhouse' | 'snowflake'
+  | 'bigquery' | 'sqlite' | 'sqlserver' | 'duckdb' | 'generic'
+
+/** Minimal interface for SQL query execution (matches @dzipagent/connectors SQLConnector) */
+export interface SQLConnector {
+  getDialect(): SQLDialect
+  executeQuery(sql: string, options?: { timeoutMs?: number; maxRows?: number }): Promise<QueryResultData>
+  discoverSchema(options?: Record<string, unknown>): Promise<unknown>
+  generateDDL(table: TableSchema): string
+  destroy(): Promise<void>
+}
+
+/** Query result from SQL execution */
+export interface QueryResultData {
+  columns: string[]
+  rows: Record<string, unknown>[]
+  rowCount: number
+  truncated: boolean
+}
+
+/** Table schema metadata */
+export interface TableSchema {
+  tableName: string
+  schemaName: string
+  columns: Array<{
+    columnName: string
+    dataType: string
+    isNullable: boolean
+    isPrimaryKey: boolean
+    defaultValue: string | null
+    description: string | null
+    maxLength: number | null
+  }>
+  foreignKeys: Array<{
+    constraintName: string
+    columnName: string
+    referencedTable: string
+    referencedColumn: string
+    referencedSchema: string
+  }>
+  rowCountEstimate: number
+  description: string | null
+  sampleValues: Record<string, unknown[]>
+}
+
+/** Minimal VectorStore interface (matches @dzipagent/core VectorStore) */
+export interface VectorStore {
+  readonly provider: string
+  search(collection: string, query: { vector: number[]; limit: number; filter?: unknown; minScore?: number }): Promise<Array<{ id: string; score: number; metadata: Record<string, unknown>; text?: string }>>
+  upsert(collection: string, entries: Array<{ id: string; vector: number[]; metadata: Record<string, unknown>; text?: string }>): Promise<void>
+  healthCheck(): Promise<{ healthy: boolean; latencyMs: number; provider: string }>
+}
 
 // ---------------------------------------------------------------------------
 // Vector store types (NL2SQL-specific collections)
