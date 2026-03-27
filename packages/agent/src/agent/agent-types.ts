@@ -16,6 +16,7 @@ import type { ToolStat, StopReason } from './tool-loop.js'
 import type { StuckError } from './stuck-error.js'
 import type { GuardrailConfig } from '../guardrails/guardrail-types.js'
 import type { MemoryProfile } from './memory-profiles.js'
+import type { ToolLoopLearningConfig, RunLearnings } from './tool-loop-learning.js'
 
 /** Configuration for creating a ForgeAgent */
 export interface ForgeAgentConfig {
@@ -96,6 +97,17 @@ export interface ForgeAgentConfig {
    * `'static+agents'`. Defaults to `process.cwd()`.
    */
   agentsDir?: string
+
+  /**
+   * Self-learning configuration.
+   *
+   * When enabled, the agent records per-tool execution statistics via
+   * SkillLearner, optionally loads specialist config from a SpecialistRegistry,
+   * and fires learning callbacks after each tool call and after each run.
+   *
+   * Default: disabled (opt-in).
+   */
+  selfLearning?: ToolLoopLearningConfig
 }
 
 /** Configuration for Arrow-based token-budgeted memory selection. */
@@ -147,6 +159,11 @@ export interface GenerateResult {
    * with reason, repeatedTool, and escalationLevel.
    */
   stuckError?: StuckError
+  /**
+   * Self-learning signals from this run.
+   * Only present when `selfLearning.enabled` is true in the agent config.
+   */
+  learnings?: RunLearnings
 }
 
 /** A single streamed event from the agent */

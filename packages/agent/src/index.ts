@@ -464,5 +464,34 @@ export type {
   PerformanceOptimizerConfig,
 } from './self-correction/performance-optimizer.js'
 
+// --- Self-Correction (LangGraphLearningMiddleware) ---
+export { LangGraphLearningMiddleware } from './self-correction/langgraph-middleware.js'
+export type {
+  LangGraphLearningConfig,
+  LearningRunMetrics,
+  WrapNodeOptions,
+} from './self-correction/langgraph-middleware.js'
+
+// --- Self-Correction (FeedbackCollector) ---
+export { FeedbackCollector } from './self-correction/feedback-collector.js'
+export type {
+  FeedbackType,
+  FeedbackOutcome,
+  FeedbackRecord,
+  FeedbackStats,
+  FeedbackCollectorConfig,
+} from './self-correction/feedback-collector.js'
+
+// --- Self-Correction (LearningDashboardService) ---
+export { LearningDashboardService } from './self-correction/learning-dashboard.js'
+export type {
+  LearningOverview,
+  QualityTrend,
+  CostTrend,
+  NodePerformanceSummary,
+  LearningDashboard,
+  DashboardServiceConfig,
+} from './self-correction/learning-dashboard.js'
+
 // --- Version ---
 export const FORGEAGENT_AGENT_VERSION = '0.1.0'

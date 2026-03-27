@@ -10,8 +10,9 @@ import MemoryTab from './MemoryTab.vue'
 import ConfigTab from './ConfigTab.vue'
 import HistoryTab from './HistoryTab.vue'
 import ToolStatsTab from './ToolStatsTab.vue'
+import MemoryAnalyticsTab from './MemoryAnalyticsTab.vue'
 
-type TabId = 'trace' | 'memory' | 'config' | 'history' | 'tools'
+type TabId = 'trace' | 'memory' | 'analytics' | 'config' | 'history' | 'tools'
 
 interface Tab {
   id: TabId
@@ -21,6 +22,7 @@ interface Tab {
 const tabs: Tab[] = [
   { id: 'trace', label: 'Trace' },
   { id: 'memory', label: 'Memory' },
+  { id: 'analytics', label: 'Analytics' },
   { id: 'config', label: 'Config' },
   { id: 'history', label: 'History' },
   { id: 'tools', label: 'Tools' },
@@ -94,6 +96,15 @@ function selectTab(tabId: TabId): void {
         class="h-full"
       >
         <HistoryTab />
+      </div>
+      <div
+        v-show="activeTab === 'analytics'"
+        :id="`panel-analytics`"
+        role="tabpanel"
+        aria-label="Memory analytics panel"
+        class="h-full"
+      >
+        <MemoryAnalyticsTab />
       </div>
       <div
         v-show="activeTab === 'tools'"

@@ -36,14 +36,16 @@ function defaultModelFactory(
   spec: ModelSpec,
   overrides?: ModelOverrides,
 ): BaseChatModel {
+  const modelName = overrides?.model ?? spec.name
   const maxTokens = overrides?.maxTokens ?? spec.maxTokens
   const temperature = overrides?.temperature ?? spec.temperature
   const streaming = overrides?.streaming ?? spec.streaming ?? true
+  const reasoningEffort = overrides?.reasoningEffort
 
   switch (provider.provider) {
     case 'anthropic':
       return new ChatAnthropic({
-        model: spec.name,
+        model: modelName,
         apiKey: provider.apiKey,
         maxTokens,
         streaming,
@@ -51,27 +53,35 @@ function defaultModelFactory(
       })
 
     case 'openai': {
-      const supportsTemperature = !isTemperatureUnsupported(spec.name)
-      return new ChatOpenAI({
-        model: spec.name,
+      const supportsTemperature = !isTemperatureUnsupported(modelName)
+      const config: ConstructorParameters<typeof ChatOpenAI>[0] = {
+        model: modelName,
         apiKey: provider.apiKey,
         ...(provider.baseUrl ? { configuration: { baseURL: provider.baseUrl } } : {}),
         maxTokens,
         streaming,
         ...(supportsTemperature && temperature !== undefined ? { temperature } : {}),
-      })
+      }
+      if (reasoningEffort) {
+        ;(config as Record<string, unknown>)['reasoning'] = { effort: reasoningEffort }
+      }
+      return new ChatOpenAI(config)
     }
 
     case 'openrouter': {
-      const supportsTemperature = !isTemperatureUnsupported(spec.name)
-      return new ChatOpenAI({
-        model: spec.name,
+      const supportsTemperature = !isTemperatureUnsupported(modelName)
+      const config: ConstructorParameters<typeof ChatOpenAI>[0] = {
+        model: modelName,
         apiKey: provider.apiKey,
         configuration: { baseURL: provider.baseUrl ?? 'https://openrouter.ai/api/v1' },
         maxTokens,
         streaming,
         ...(supportsTemperature && temperature !== undefined ? { temperature } : {}),
-      })
+      }
+      if (reasoningEffort) {
+        ;(config as Record<string, unknown>)['reasoning'] = { effort: reasoningEffort }
+      }
+      return new ChatOpenAI(config)
     }
 
     case 'azure':
@@ -151,6 +161,26 @@ export class ModelRegistry {
       `No provider configured for tier "${tier}". ` +
       `Registered providers: ${this.providers.map(p => p.provider).join(', ') || 'none'}`,
     )
+  }
+
+  /**
+   * Get a model for a specific provider/tier combination.
+   * Throws if the provider is not configured or does not expose that tier.
+   */
+  getModelFromProvider(
+    providerName: LLMProviderConfig['provider'],
+    tier: ModelTier,
+    overrides?: ModelOverrides,
+  ): BaseChatModel {
+    const provider = this.providers.find(p => p.provider === providerName)
+    if (!provider) {
+      throw new Error(`Provider "${providerName}" is not configured`)
+    }
+    const spec = provider.models[tier]
+    if (!spec) {
+      throw new Error(`Provider "${providerName}" has no model for tier "${tier}"`)
+    }
+    return this.factory(provider, spec, overrides)
   }
 
   /**

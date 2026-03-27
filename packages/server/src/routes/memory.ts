@@ -4,6 +4,7 @@
  * POST   /api/memory/export  — Export memories as Arrow IPC or JSON
  * POST   /api/memory/import  — Import memories from Arrow IPC or JSON
  * GET    /api/memory/schema  — Return memory frame schema
+ * GET    /api/memory/analytics/*  — DuckDB-powered memory analytics
  *
  * These routes bridge the MCP memory transport handlers from
  * @forgeagent/memory-ipc into the Hono REST API.
@@ -19,6 +20,11 @@ import {
   type MemoryServiceLike,
   type ImportStrategy,
 } from '@forgeagent/memory-ipc'
+import {
+  getAnalytics,
+  isDuckDBError,
+  analyticsResultToJson,
+} from './analytics-handler.js'
 
 /**
  * Duck-type check for ZodError without importing zod directly.
@@ -100,6 +106,167 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
   app.get('/schema', (c) => {
     const result = handleMemorySchema()
     return c.json({ data: result })
+  })
+
+  // ── Analytics routes ─────────────────────────────────────
+
+  /**
+   * Helper: parse namespace/scope from query params and export as Arrow Table.
+   */
+  async function getMemoryTableFromQuery(c: {
+    req: { query(name: string): string | undefined }
+  }) {
+    const namespace = c.req.query('namespace') ?? 'lessons'
+    let scope: Record<string, string> = {}
+    const scopeStr = c.req.query('scope')
+    if (scopeStr) {
+      try {
+        const parsed: unknown = JSON.parse(scopeStr)
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          scope = parsed as Record<string, string>
+        }
+      } catch {
+        // Use empty scope on parse failure
+      }
+    }
+    return arrowMemory.exportFrame(namespace, scope, { limit: 10_000 })
+  }
+
+  // GET /analytics/decay-trends?window=hour|day|week&namespace=...&scope=...
+  app.get('/analytics/decay-trends', async (c) => {
+    try {
+      const analytics = await getAnalytics()
+      const window = c.req.query('window')
+      const bucketSize: 'hour' | 'day' | 'week' =
+        window === 'hour' || window === 'day' || window === 'week'
+          ? window
+          : 'day'
+      const table = await getMemoryTableFromQuery(c)
+      const result = await analytics.decayTrends(table, bucketSize)
+      return c.json({ data: analyticsResultToJson(result) })
+    } catch (err: unknown) {
+      if (isDuckDBError(err)) {
+        return c.json(
+          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
+          503,
+        )
+      }
+      throw err
+    }
+  })
+
+  // GET /analytics/namespace-stats?namespace=...&scope=...
+  app.get('/analytics/namespace-stats', async (c) => {
+    try {
+      const analytics = await getAnalytics()
+      const table = await getMemoryTableFromQuery(c)
+      const result = await analytics.namespaceStats(table)
+      return c.json({ data: analyticsResultToJson(result) })
+    } catch (err: unknown) {
+      if (isDuckDBError(err)) {
+        return c.json(
+          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
+          503,
+        )
+      }
+      throw err
+    }
+  })
+
+  // GET /analytics/expiring?horizonMs=86400000&namespace=...&scope=...
+  app.get('/analytics/expiring', async (c) => {
+    const horizonStr = c.req.query('horizonMs')
+    const horizonMs = horizonStr ? parseInt(horizonStr, 10) : 86_400_000
+    if (isNaN(horizonMs) || horizonMs <= 0) {
+      return c.json(
+        { error: { code: 'VALIDATION_ERROR', message: 'horizonMs must be a positive integer' } },
+        400,
+      )
+    }
+    try {
+      const analytics = await getAnalytics()
+      const table = await getMemoryTableFromQuery(c)
+      const result = await analytics.expiringMemories(table, horizonMs)
+      return c.json({ data: analyticsResultToJson(result) })
+    } catch (err: unknown) {
+      if (isDuckDBError(err)) {
+        return c.json(
+          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
+          503,
+        )
+      }
+      throw err
+    }
+  })
+
+  // GET /analytics/agent-performance?namespace=...&scope=...
+  app.get('/analytics/agent-performance', async (c) => {
+    try {
+      const analytics = await getAnalytics()
+      const table = await getMemoryTableFromQuery(c)
+      const result = await analytics.agentPerformance(table)
+      return c.json({ data: analyticsResultToJson(result) })
+    } catch (err: unknown) {
+      if (isDuckDBError(err)) {
+        return c.json(
+          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
+          503,
+        )
+      }
+      throw err
+    }
+  })
+
+  // GET /analytics/usage-patterns?bucketMs=3600000&namespace=...&scope=...
+  app.get('/analytics/usage-patterns', async (c) => {
+    const bucketStr = c.req.query('bucketMs')
+    const bucketMs = bucketStr ? parseInt(bucketStr, 10) : 3_600_000
+    if (isNaN(bucketMs) || bucketMs <= 0) {
+      return c.json(
+        { error: { code: 'VALIDATION_ERROR', message: 'bucketMs must be a positive integer' } },
+        400,
+      )
+    }
+    try {
+      const analytics = await getAnalytics()
+      const table = await getMemoryTableFromQuery(c)
+      const result = await analytics.usagePatterns(table, bucketMs)
+      return c.json({ data: analyticsResultToJson(result) })
+    } catch (err: unknown) {
+      if (isDuckDBError(err)) {
+        return c.json(
+          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
+          503,
+        )
+      }
+      throw err
+    }
+  })
+
+  // GET /analytics/duplicates?prefixLength=50&namespace=...&scope=...
+  app.get('/analytics/duplicates', async (c) => {
+    const prefixStr = c.req.query('prefixLength')
+    const prefixLength = prefixStr ? parseInt(prefixStr, 10) : 50
+    if (isNaN(prefixLength) || prefixLength <= 0) {
+      return c.json(
+        { error: { code: 'VALIDATION_ERROR', message: 'prefixLength must be a positive integer' } },
+        400,
+      )
+    }
+    try {
+      const analytics = await getAnalytics()
+      const table = await getMemoryTableFromQuery(c)
+      const result = await analytics.duplicateCandidates(table, prefixLength)
+      return c.json({ data: analyticsResultToJson(result) })
+    } catch (err: unknown) {
+      if (isDuckDBError(err)) {
+        return c.json(
+          { error: { code: 'DUCKDB_UNAVAILABLE', message: 'DuckDB-WASM is not installed. Analytics features require @duckdb/duckdb-wasm.' } },
+          503,
+        )
+      }
+      throw err
+    }
   })
 
   return app

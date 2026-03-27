@@ -172,7 +172,7 @@ export class DynamicRuleEngine {
    * Template-based (no LLM calls).
    */
   async learnFromError(params: LearnFromErrorParams): Promise<Rule> {
-    const { errorType, errorMessage, resolution, nodeId, taskType } = params
+    const { errorType, errorMessage: _errorMessage, resolution, nodeId, taskType } = params
 
     const content = `When ${errorType} occurs at ${nodeId}: ${resolution}`
     const scope = [nodeId]

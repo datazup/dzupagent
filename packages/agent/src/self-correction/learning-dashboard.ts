@@ -210,7 +210,7 @@ export class LearningDashboardService {
     if (trajectories.length === 0) return emptyQualityTrend()
 
     // Sort by timestamp ascending
-    trajectories.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+    trajectories.sort((a, b) => String(a.timestamp ?? '').localeCompare(String(b.timestamp ?? '')))
 
     const scores = trajectories.map((t) => ({
       runId: safeString(t.runId),
@@ -249,7 +249,7 @@ export class LearningDashboardService {
     if (trajectories.length === 0) return emptyCostTrend()
 
     // Sort by timestamp ascending
-    trajectories.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+    trajectories.sort((a, b) => String(a.timestamp ?? '').localeCompare(String(b.timestamp ?? '')))
 
     const costs = trajectories.map((t) => ({
       runId: safeString(t.runId),

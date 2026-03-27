@@ -227,8 +227,8 @@ describe('TraceTimeline', () => {
     const wrapper = mount(TraceTimeline)
     const cards = wrapper.findAllComponents(TraceTimelineCard)
 
-    expect(cards[0]?.props('event').name).toBe('early-event')
-    expect(cards[1]?.props('event').name).toBe('late-event')
+    expect((cards[0]?.props('event') as { name: string })?.name).toBe('early-event')
+    expect((cards[1]?.props('event') as { name: string })?.name).toBe('late-event')
   })
 
   it('toggles card expansion on click', async () => {

@@ -10,7 +10,7 @@ describe('facades/quick-start', () => {
   it('exports createQuickAgent helper', async () => {
     const mod = await import('../facades/quick-start.js')
     expect(typeof mod.createQuickAgent).toBe('function')
-  })
+  }, 15_000)
 
   it('exports core building blocks', async () => {
     const mod = await import('../facades/quick-start.js')

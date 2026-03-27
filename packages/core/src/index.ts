@@ -314,7 +314,13 @@ export type { EscalationPolicyConfig, EscalationResult } from './router/escalati
 
 // --- Streaming ---
 export { SSETransformer } from './streaming/sse-transformer.js'
-export type { StandardSSEEvent, StandardEventType } from './streaming/event-types.js'
+export type {
+  StandardSSEEvent,
+  StandardEventType,
+  FileStreamStartPayload,
+  FileStreamChunkPayload,
+  FileStreamEndPayload,
+} from './streaming/event-types.js'
 
 // --- Sub-agents ---
 export { SubAgentSpawner } from './subagent/subagent-spawner.js'

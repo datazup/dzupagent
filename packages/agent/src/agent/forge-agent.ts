@@ -45,6 +45,7 @@ import { runToolLoop } from './tool-loop.js'
 import { resolveArrowMemoryConfig } from './memory-profiles.js'
 import { loadAgentsFiles } from '../instructions/instruction-loader.js'
 import { mergeInstructions, type MergedInstructions } from '../instructions/instruction-merger.js'
+import { createToolLoopLearningHook } from './tool-loop-learning.js'
 
 const MODEL_TIERS: Set<string> = new Set(['chat', 'reasoning', 'codegen', 'embedding'])
 
@@ -112,6 +113,13 @@ export class ForgeAgent {
             ? this.config.guardrails.stuckDetector
             : undefined,
         )
+
+    // Create self-learning hook (undefined when disabled)
+    const learningHook = createToolLoopLearningHook(this.config.selfLearning)
+    if (learningHook) {
+      // Load specialist config before the loop (best-effort, non-blocking)
+      await learningHook.loadSpecialistConfig().catch(() => { /* non-fatal */ })
+    }
 
     // Run the tool loop
     const result = await runToolLoop(model, prepared, tools, {

@@ -93,7 +93,7 @@ const TOP_REASONS_LIMIT = 10
 // Serialization helpers
 // ---------------------------------------------------------------------------
 
-interface SerializedFeedbackRecord {
+export interface SerializedFeedbackRecord {
   id: string
   runId: string
   type: FeedbackType

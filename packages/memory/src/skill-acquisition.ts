@@ -433,7 +433,8 @@ export class SkillAcquisitionEngine {
 
       const toRemove = allSkills.length - this.maxSkills
       for (let i = 0; i < toRemove; i++) {
-        await this.store.delete(this.namespace, allSkills[i].id)
+        const skill = allSkills[i]
+        if (skill) await this.store.delete(this.namespace, skill.id)
       }
     } catch {
       // Non-fatal

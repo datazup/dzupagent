@@ -1128,6 +1128,11 @@ export const EVENT_METRIC_MAP: Record<ForgeEvent['type'], MetricMapping[]> = {
   // --- Agent streaming ---
   'agent:stream_delta': [],
   'agent:stream_done': [],
+
+  // --- Correction & quality ---
+  'correction:iteration': [],
+  'quality:degraded': [],
+  'quality:adjusted': [],
 }
 
 /**

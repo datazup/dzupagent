@@ -129,6 +129,10 @@ export type ForgeEvent =
   // --- Hooks / plugins ---
   | { type: 'hook:error'; hookName: string; message: string }
   | { type: 'plugin:registered'; pluginName: string }
+  // --- Quality metrics feedback loop ---
+  | { type: 'correction:iteration'; nodeId: string; iteration: number; passed: boolean; qualityScore: number; durationMs: number }
+  | { type: 'quality:degraded'; metric: string; value: number; threshold: number; recommendation: string; details: Record<string, unknown> }
+  | { type: 'quality:adjusted'; adjustment: string; reason: string; previousValue: unknown; newValue: unknown; reversible: boolean }
 
 /** Extract a specific event by its type discriminator */
 export type ForgeEventOf<T extends ForgeEvent['type']> = Extract<ForgeEvent, { type: T }>

@@ -4,162 +4,245 @@
  * create-forgeagent CLI entry point.
  *
  * Usage:
- *   create-forgeagent <project-name> [--template <type>]
+ *   create-forgeagent [project-name] [options]
+ *   create-forgeagent                          # starts interactive wizard
+ *   create-forgeagent my-app --template full-stack --features auth,billing
+ *   create-forgeagent my-app --preset starter
  *   create-forgeagent --list
- *   create-forgeagent --help
  */
 
 import { resolve } from 'node:path'
-import { ScaffoldEngine } from './scaffold-engine.js'
-import { listTemplates } from './templates/index.js'
-import type { TemplateType } from './types.js'
+import { Command } from 'commander'
+import { colors, Spinner } from './logger.js'
+import type {
+  TemplateType,
+  PackageManagerType,
+  ProjectConfig,
+  DatabaseProvider,
+  AuthProvider,
+} from './types.js'
+import { listTemplates, templateRegistry } from './templates/index.js'
+import { listPresets, getPreset } from './presets.js'
+import { listFeatures } from './features.js'
+import { generateProject } from './generator.js'
+import { runWizard } from './wizard.js'
+import { validateProjectName, getInstallCommand, getDevCommand } from './utils.js'
 
-const VALID_TEMPLATES: ReadonlySet<string> = new Set<TemplateType>([
-  'minimal',
-  'full-stack',
-  'codegen',
-  'multi-agent',
-  'server',
-  'production-saas-agent',
-  'secure-internal-assistant',
-  'cost-constrained-worker',
-])
+const VALID_TEMPLATES = new Set(Object.keys(templateRegistry))
 
-const HELP_TEXT = `
-Usage: create-forgeagent <project-name> [options]
+const program = new Command()
 
-Scaffold a new ForgeAgent project from a template.
-
-Arguments:
-  project-name          Name of the project directory to create
-
-Options:
-  --template <type>     Template to use (default: minimal)
-  --list                List all available templates
-  --help                Show this help message
-
-Templates:
-  minimal                     Minimal single-agent setup
-  full-stack                  Full-stack agent with memory, context, and server
-  codegen                     Code generation agent with git tools
-  multi-agent                 Multi-agent orchestration with supervisor
-  server                      Standalone agent server with REST API
-  production-saas-agent       Enterprise agent with security, OTEL, Postgres, Redis, Docker
-  secure-internal-assistant   Corporate internal agent with strict security and encryption
-  cost-constrained-worker     Budget-optimized agent with Haiku and batch processing
-
-Examples:
-  create-forgeagent my-agent
-  create-forgeagent my-agent --template full-stack
-  create-forgeagent --list
-`.trim()
-
-function parseArgs(argv: string[]): {
-  command: 'help' | 'list' | 'generate'
-  projectName?: string
-  template: TemplateType
-} {
-  // Strip node binary and script path
-  const args = argv.slice(2)
-
-  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
-    return { command: 'help', template: 'minimal' }
-  }
-
-  if (args.includes('--list')) {
-    return { command: 'list', template: 'minimal' }
-  }
-
-  let projectName: string | undefined
-  let template: TemplateType = 'minimal'
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (arg === '--template' || arg === '-t') {
-      const next = args[i + 1]
-      if (!next) {
-        console.error('Error: --template requires a value.')
-        console.error(`Valid templates: ${[...VALID_TEMPLATES].join(', ')}`)
-        process.exit(1)
-      }
-      if (!VALID_TEMPLATES.has(next)) {
-        console.error(`Error: Unknown template "${next}".`)
-        console.error(`Valid templates: ${[...VALID_TEMPLATES].join(', ')}`)
-        process.exit(1)
-      }
-      template = next as TemplateType
-      i++ // skip next arg (the template value)
-    } else if (arg?.startsWith('--')) {
-      console.error(`Error: Unknown option "${arg}".`)
-      console.error('Run create-forgeagent --help for usage.')
-      process.exit(1)
-    } else if (!projectName) {
-      projectName = arg
-    } else {
-      console.error(`Error: Unexpected argument "${arg}".`)
-      console.error('Run create-forgeagent --help for usage.')
+program
+  .name('create-forgeagent')
+  .description('Scaffold a new ForgeAgent project from a template')
+  .version('0.1.0')
+  .argument('[project-name]', 'Name of the project directory to create')
+  .option('-t, --template <type>', 'Template to use (default: minimal)')
+  .option('-f, --features <list>', 'Comma-separated feature list (e.g. auth,billing,teams)')
+  .option('-p, --preset <name>', 'Use a built-in preset (minimal, starter, full, api-only)')
+  .option('--no-git', 'Skip git initialization')
+  .option('--no-install', 'Skip dependency installation')
+  .option('--package-manager <pm>', 'Package manager: npm, yarn, or pnpm')
+  .option('--list', 'List all available templates')
+  .option('--list-presets', 'List all available presets')
+  .option('--list-features', 'List all available features')
+  .action(async (projectName: string | undefined, options: CLIOptions) => {
+    try {
+      await run(projectName, options)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(colors.red(`\nError: ${message}`))
       process.exit(1)
     }
+  })
+
+interface CLIOptions {
+  template?: string
+  features?: string
+  preset?: string
+  git: boolean
+  install: boolean
+  packageManager?: string
+  list?: boolean
+  listPresets?: boolean
+  listFeatures?: boolean
+}
+
+async function run(projectName: string | undefined, options: CLIOptions): Promise<void> {
+  // --list: show templates
+  if (options.list) {
+    showTemplateList()
+    return
   }
 
+  // --list-presets: show presets
+  if (options.listPresets) {
+    showPresetList()
+    return
+  }
+
+  // --list-features: show features
+  if (options.listFeatures) {
+    showFeatureList()
+    return
+  }
+
+  // No project name and no other flags = interactive wizard
+  if (!projectName && !options.template && !options.preset) {
+    const config = await runWizard()
+    await executeGeneration(config)
+    return
+  }
+
+  // CLI args mode — validate and build config
   if (!projectName) {
-    console.error('Error: Missing project name.')
+    console.error(colors.red('Error: Missing project name.'))
     console.error('Run create-forgeagent --help for usage.')
     process.exit(1)
   }
 
-  return { command: 'generate', projectName, template }
+  const nameError = validateProjectName(projectName)
+  if (nameError) {
+    console.error(colors.red(`Error: ${nameError}`))
+    process.exit(1)
+  }
+
+  // Resolve template
+  let template: TemplateType = 'minimal'
+  if (options.template) {
+    if (!VALID_TEMPLATES.has(options.template)) {
+      console.error(colors.red(`Error: Unknown template "${options.template}".`))
+      console.error(`Valid templates: ${[...VALID_TEMPLATES].join(', ')}`)
+      process.exit(1)
+    }
+    template = options.template as TemplateType
+  }
+
+  // Resolve features
+  const features = options.features
+    ? options.features.split(',').map((f) => f.trim()).filter(Boolean)
+    : []
+
+  // Resolve preset (overrides template + features)
+  let database: DatabaseProvider = 'none'
+  let authProvider: AuthProvider = 'none'
+
+  if (options.preset) {
+    const preset = getPreset(options.preset)
+    if (!preset) {
+      console.error(colors.red(`Error: Unknown preset "${options.preset}".`))
+      console.error(`Valid presets: ${listPresets().map((p) => p.name).join(', ')}`)
+      process.exit(1)
+    }
+    template = preset.template
+    if (features.length === 0) {
+      features.push(...preset.features)
+    }
+    database = preset.database
+    authProvider = preset.auth
+  }
+
+  // Resolve package manager
+  let packageManager: PackageManagerType = 'npm'
+  if (options.packageManager) {
+    if (!['npm', 'yarn', 'pnpm'].includes(options.packageManager)) {
+      console.error(colors.red(`Error: Invalid package manager "${options.packageManager}".`))
+      console.error('Valid options: npm, yarn, pnpm')
+      process.exit(1)
+    }
+    packageManager = options.packageManager as PackageManagerType
+  }
+
+  const config: ProjectConfig = {
+    projectName,
+    template,
+    features,
+    database,
+    authProvider,
+    packageManager,
+    initGit: options.git,
+    installDeps: options.install,
+  }
+
+  await executeGeneration(config)
 }
 
-function showList(): void {
-  const templates = listTemplates()
-  console.log('Available templates:\n')
-  for (const t of templates) {
-    console.log(`  ${t.id.padEnd(16)} ${t.description}`)
+async function executeGeneration(config: ProjectConfig): Promise<void> {
+  const outputDir = resolve(process.cwd())
+  const spinner = new Spinner()
+
+  console.log('')
+  console.log(colors.bold(`Creating ${colors.cyan(config.projectName)} with template ${colors.cyan(config.template)}...`))
+  if (config.features.length > 0) {
+    console.log(colors.dim(`  Features: ${config.features.join(', ')}`))
   }
   console.log('')
-}
 
-async function run(): Promise<void> {
-  const parsed = parseArgs(process.argv)
-
-  if (parsed.command === 'help') {
-    console.log(HELP_TEXT)
-    return
-  }
-
-  if (parsed.command === 'list') {
-    showList()
-    return
-  }
-
-  const projectName = parsed.projectName!
-  const outputDir = resolve(process.cwd())
-
-  console.log(`\nScaffolding "${projectName}" with template "${parsed.template}"...\n`)
-
-  const engine = new ScaffoldEngine()
-  const result = await engine.generate({
-    projectName,
-    template: parsed.template,
-    outputDir,
+  const result = await generateProject(config, outputDir, {
+    onStep: (step) => {
+      spinner.start(step)
+    },
   })
 
-  console.log(`Project created at ${result.projectDir}\n`)
-  console.log('Files created:')
+  spinner.succeed('Project created!')
+  console.log('')
+
+  console.log(colors.bold('Files created:'))
   for (const file of result.filesCreated) {
-    console.log(`  ${file}`)
+    console.log(colors.dim(`  ${file}`))
   }
   console.log('')
-  console.log('Next steps:')
-  console.log(`  cd ${projectName}`)
-  console.log('  npm install')
-  console.log('  npm run build')
+
+  if (result.gitInitialized) {
+    console.log(colors.green('  Git repository initialized'))
+  }
+  if (result.depsInstalled) {
+    console.log(colors.green('  Dependencies installed'))
+  }
+
+  console.log('')
+  console.log(colors.bold('Next steps:'))
+  console.log(`  ${colors.cyan(`cd ${config.projectName}`)}`)
+  if (!result.depsInstalled) {
+    console.log(`  ${colors.cyan(getInstallCommand(config.packageManager))}`)
+  }
+  console.log(`  ${colors.cyan('cp .env.example .env')}  ${colors.dim('# configure environment')}`)
+  console.log(`  ${colors.cyan(getDevCommand(config.packageManager))}`)
   console.log('')
 }
 
-run().catch((err: unknown) => {
-  const message = err instanceof Error ? err.message : String(err)
-  console.error(`Error: ${message}`)
-  process.exit(1)
-})
+function showTemplateList(): void {
+  const templates = listTemplates()
+  console.log('')
+  console.log(colors.bold('Available templates:'))
+  console.log('')
+  for (const t of templates) {
+    console.log(`  ${colors.cyan(t.id.padEnd(28))} ${t.description}`)
+  }
+  console.log('')
+}
+
+function showPresetList(): void {
+  const presetList = listPresets()
+  console.log('')
+  console.log(colors.bold('Available presets:'))
+  console.log('')
+  for (const p of presetList) {
+    console.log(`  ${colors.cyan(p.name.padEnd(12))} ${p.description}`)
+    console.log(`  ${' '.repeat(12)} Template: ${p.template}, Features: ${p.features.length > 0 ? p.features.join(', ') : 'none'}`)
+  }
+  console.log('')
+}
+
+function showFeatureList(): void {
+  const featureList = listFeatures()
+  console.log('')
+  console.log(colors.bold('Available features:'))
+  console.log('')
+  for (const f of featureList) {
+    console.log(`  ${colors.cyan(f.slug.padEnd(12))} ${f.description}`)
+  }
+  console.log('')
+}
+
+program.parse()

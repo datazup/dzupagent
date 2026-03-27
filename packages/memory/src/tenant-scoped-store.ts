@@ -113,7 +113,7 @@ export class TenantScopedStore {
     const prefixed = this.prefix(namespace)
 
     // Graceful degradation: if underlying store lacks list, fall back to search
-    const storeAny = this.store as Record<string, unknown>
+    const storeAny = this.store as unknown as Record<string, unknown>
     if (typeof storeAny['list'] === 'function') {
       return (storeAny['list'] as (ns: string[]) => Promise<string[]>)(prefixed)
     }
@@ -142,7 +142,7 @@ export class TenantScopedStore {
       tenantId: this._tenantId,
     })
     // Override the private prefix with our extended prefix
-    ;(scoped as { _namespacePrefix: string[] })._namespacePrefix = [
+    ;(scoped as unknown as { _namespacePrefix: string[] })._namespacePrefix = [
       ...this._namespacePrefix,
       additionalPrefix,
     ]

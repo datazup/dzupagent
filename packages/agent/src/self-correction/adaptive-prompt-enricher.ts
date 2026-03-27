@@ -328,7 +328,7 @@ export class AdaptivePromptEnricher {
 
   private async fetchBaselines(
     nodeId: string,
-    taskType?: string,
+    _taskType?: string,
   ): Promise<EnrichmentSection> {
     const items: string[] = []
     try {

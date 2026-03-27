@@ -81,10 +81,12 @@ export class SelfLearningRuntime {
   private readonly pipelineRuntime: PipelineRuntime
   private readonly hook: SelfLearningPipelineHook
   private readonly postRunAnalyzer: PostRunAnalyzer | undefined
-  private readonly observabilityBridge: ObservabilityCorrectionBridge | undefined
+  // Reserved for Sprint 7 wiring (observability bridge)
+  _observabilityBridge: ObservabilityCorrectionBridge | undefined
   private readonly trajectoryCalibrator: TrajectoryCalibrator | undefined
   private readonly errorDetector: ErrorDetectionOrchestrator | undefined
-  private readonly learningConfig: SelfLearningConfig
+  // Reserved for Sprint 7 wiring (learning config access)
+  _learningConfig: SelfLearningConfig
   private readonly taskType: string
   private readonly riskClass: 'critical' | 'sensitive' | 'standard' | 'cosmetic'
 
@@ -92,7 +94,7 @@ export class SelfLearningRuntime {
     pipelineConfig: PipelineRuntimeConfig,
     learningConfig: SelfLearningConfig,
   ) {
-    this.learningConfig = learningConfig
+    this._learningConfig = learningConfig
     this.taskType = learningConfig.taskType ?? 'unknown'
     this.riskClass = learningConfig.riskClass ?? 'standard'
 
@@ -180,7 +182,7 @@ export class SelfLearningRuntime {
 
     // (f) Create ObservabilityCorrectionBridge
     if (isEnabled && learningConfig.enableObservability !== false) {
-      this.observabilityBridge = new ObservabilityCorrectionBridge()
+      this._observabilityBridge = new ObservabilityCorrectionBridge()
     }
 
     // (g) Create PostRunAnalyzer
@@ -319,7 +321,7 @@ export class SelfLearningRuntime {
    */
   private async runPostRunAnalysis(
     baseResult: PipelineRunResult,
-    metrics: HookMetrics,
+    _metrics: HookMetrics,
   ): Promise<AnalysisResult | undefined> {
     if (!this.postRunAnalyzer) return undefined
 

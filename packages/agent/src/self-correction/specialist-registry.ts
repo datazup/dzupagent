@@ -227,7 +227,7 @@ export class SpecialistRegistry {
    */
   async getConfig(category: string, riskClass?: string): Promise<SpecialistConfig> {
     // Start with built-in (fall back to 'default')
-    const builtIn = BUILTIN_DEFAULTS[category] ?? BUILTIN_DEFAULTS['default']
+    const builtIn = BUILTIN_DEFAULTS[category] ?? BUILTIN_DEFAULTS['default']!
     const config = cloneConfig(builtIn)
     config.category = category
 
@@ -309,7 +309,7 @@ export class SpecialistRegistry {
    * Returns the 'default' config if the category is not registered.
    */
   getDefaultConfig(category: string): SpecialistConfig {
-    const builtIn = BUILTIN_DEFAULTS[category] ?? BUILTIN_DEFAULTS['default']
+    const builtIn = BUILTIN_DEFAULTS[category] ?? BUILTIN_DEFAULTS['default']!
     const config = cloneConfig(builtIn)
     config.category = category
     return config

@@ -12,6 +12,7 @@ import type {
 } from '@forgeagent/core'
 import type { RecoveryCopilot } from '../recovery/recovery-copilot.js'
 import type { PipelineStuckDetector } from '../self-correction/pipeline-stuck-detector.js'
+import type { TrajectoryCalibrator } from '../self-correction/trajectory-calibrator.js'
 
 // ---------------------------------------------------------------------------
 // Pipeline state
@@ -90,6 +91,8 @@ export type PipelineRuntimeEvent =
   | { type: 'pipeline:recovery_failed'; nodeId: string; attempt: number; error: string }
   | { type: 'pipeline:stuck_detected'; nodeId: string; reason: string; suggestedAction: string }
   | { type: 'pipeline:node_output_recorded'; nodeId: string; outputHash: string }
+  | { type: 'pipeline:calibration_suboptimal'; nodeId: string; baseline: number; currentScore: number; deviation: number; suggestion: string }
+  | { type: 'pipeline:iteration_budget_warning'; level: 'warn_70' | 'warn_90'; totalCost: number; budgetCents: number; iteration: number }
 
 // ---------------------------------------------------------------------------
 // Loop metrics
@@ -183,5 +186,29 @@ export interface PipelineRuntimeConfig {
     enabledForNodes?: string[]
     /** Max total recovery attempts per pipeline run (default: 3) */
     maxRecoveryAttempts?: number
+  }
+  /**
+   * Optional trajectory calibrator for step-level quality tracking.
+   * When configured, each node's quality score (from output) is compared
+   * against historical baselines. Suboptimal results emit a calibration event.
+   */
+  trajectoryCalibrator?: {
+    /** Function to extract a quality score (0-1) from a node result. Returns undefined to skip. */
+    extractQuality: (nodeId: string, result: NodeResult) => number | undefined
+    /** Task type for baseline grouping (e.g., 'feature_gen') */
+    taskType: string
+    /** The TrajectoryCalibrator instance */
+    calibrator: TrajectoryCalibrator
+  }
+  /**
+   * Optional global iteration budget for the entire pipeline run.
+   * When configured, tracks cumulative cost across all retried/failed nodes
+   * and emits budget warning events at 70% and 90% thresholds.
+   */
+  iterationBudget?: {
+    /** Maximum total cost in cents across the pipeline run */
+    maxCostCents: number
+    /** Function to extract cost from a node result. Returns 0 to skip. */
+    extractCost: (nodeId: string, result: NodeResult) => number
   }
 }

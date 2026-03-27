@@ -44,6 +44,10 @@ export class PipelineRuntime {
   private state: PipelineState = 'idle'
   /** Tracks recovery attempts across the entire pipeline run */
   private recoveryAttemptsUsed = 0
+  /** Cumulative cost tracked for iteration budget (cents) */
+  private cumulativeCostCents = 0
+  /** Whether budget warnings have already been emitted at each threshold */
+  private budgetWarnings = { warn70: false, warn90: false }
 
   constructor(config: PipelineRuntimeConfig) {
     this.config = config
@@ -83,6 +87,8 @@ export class PipelineRuntime {
 
     this.state = 'running'
     this.recoveryAttemptsUsed = 0
+    this.cumulativeCostCents = 0
+    this.budgetWarnings = { warn70: false, warn90: false }
     this.emit({ type: 'pipeline:started', pipelineId: this.config.definition.id, runId })
 
     const startTime = Date.now()
@@ -492,6 +498,73 @@ export class PipelineRuntime {
 
             if (stuckStatus.suggestedAction === 'switch_strategy') {
               context.stuckHint = stuckStatus.reason
+            }
+          }
+        }
+
+        // Trajectory calibration: compare step quality against historical baseline
+        if (this.config.trajectoryCalibrator) {
+          const tc = this.config.trajectoryCalibrator
+          const quality = tc.extractQuality(node.id, finalResult)
+          if (quality !== undefined) {
+            try {
+              // Record step quality for future baseline computation
+              await tc.calibrator.recordStep({
+                nodeId: node.id,
+                runId,
+                qualityScore: quality,
+                durationMs: finalResult.durationMs,
+                tokenCost: 0,
+                errorCount: 0,
+                timestamp: new Date(),
+              })
+
+              // Check against baseline
+              const suboptimal = await tc.calibrator.detectSuboptimal(
+                node.id, quality, tc.taskType,
+              )
+              if (suboptimal.isSuboptimal) {
+                this.emit({
+                  type: 'pipeline:calibration_suboptimal',
+                  nodeId: node.id,
+                  baseline: suboptimal.baseline,
+                  currentScore: suboptimal.currentScore,
+                  deviation: suboptimal.deviation,
+                  suggestion: suboptimal.suggestion ?? `Node "${node.id}" quality below baseline`,
+                })
+              }
+            } catch {
+              // Calibration is non-fatal
+            }
+          }
+        }
+
+        // Iteration budget tracking: accumulate cost and emit warnings
+        if (this.config.iterationBudget) {
+          const ib = this.config.iterationBudget
+          const cost = ib.extractCost(node.id, finalResult)
+          if (cost > 0) {
+            this.cumulativeCostCents += cost
+            const pct = this.cumulativeCostCents / ib.maxCostCents
+
+            if (pct >= 0.9 && !this.budgetWarnings.warn90) {
+              this.budgetWarnings.warn90 = true
+              this.emit({
+                type: 'pipeline:iteration_budget_warning',
+                level: 'warn_90',
+                totalCost: this.cumulativeCostCents,
+                budgetCents: ib.maxCostCents,
+                iteration: completedNodeIds.length,
+              })
+            } else if (pct >= 0.7 && !this.budgetWarnings.warn70) {
+              this.budgetWarnings.warn70 = true
+              this.emit({
+                type: 'pipeline:iteration_budget_warning',
+                level: 'warn_70',
+                totalCost: this.cumulativeCostCents,
+                budgetCents: ib.maxCostCents,
+                iteration: completedNodeIds.length,
+              })
             }
           }
         }

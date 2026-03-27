@@ -23,9 +23,11 @@ export interface LLMProviderConfig {
 
 /** Override options when requesting a model */
 export interface ModelOverrides {
+  model?: string
   temperature?: number
   maxTokens?: number
   streaming?: boolean
+  reasoningEffort?: 'low' | 'medium' | 'high'
 }
 
 /** Factory function type for creating model instances */
