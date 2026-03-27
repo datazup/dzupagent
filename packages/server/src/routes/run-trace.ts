@@ -5,7 +5,7 @@
  * GET /api/runs/:id/messages?from=&to= — paginated step range
  */
 import { Hono } from 'hono'
-import type { RunStore } from '@forgeagent/core'
+import type { RunStore } from '@dzipagent/core'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
 import { computeStepDistribution } from '../persistence/run-trace-store.js'
 

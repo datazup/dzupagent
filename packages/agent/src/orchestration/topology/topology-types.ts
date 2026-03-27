@@ -8,7 +8,7 @@
  * - mesh: all agents communicate with all others
  * - ring: circular pass with iterative refinement
  */
-import type { ForgeAgent } from '../../agent/forge-agent.js'
+import type { DzipAgent } from '../../agent/dzip-agent.js'
 
 export type TopologyType = 'hierarchical' | 'pipeline' | 'star' | 'mesh' | 'ring'
 
@@ -44,7 +44,7 @@ export interface TopologyMetrics {
 }
 
 export interface TopologyExecutorConfig {
-  agents: ForgeAgent[]
+  agents: DzipAgent[]
   task: string
   /** Maximum rounds for ring topology (default: 3) */
   maxRounds?: number

@@ -1,4 +1,4 @@
-# @forgeagent/core
+# @dzipagent/core
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,14 +10,14 @@
 | Source Files | 174 |
 | Lines of Code | 39,592 |
 | Test Files | 55 |
-| Internal Dependencies | `@forgeagent/context`, `@forgeagent/memory`, `@forgeagent/memory-ipc` |
+| Internal Dependencies | `@dzipagent/context`, `@dzipagent/memory`, `@dzipagent/memory-ipc` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @forgeagent/core
+npm install @dzipagent/core
 ```
 <!-- AUTO-GENERATED-END -->
 
@@ -30,9 +30,9 @@ Base agent infrastructure library providing reusable LLM agent building blocks: 
 ## Installation
 
 ```bash
-yarn add @forgeagent/core
+yarn add @dzipagent/core
 # or
-npm install @forgeagent/core
+npm install @dzipagent/core
 ```
 
 ## Quick Start
@@ -41,21 +41,21 @@ Import only what you need via curated facades:
 
 ```typescript
 // Get started fast
-import { createQuickAgent } from '@forgeagent/core/quick-start';
+import { createQuickAgent } from '@dzipagent/core/quick-start';
 
 // Memory-focused work
-import { MemoryService, StoreFactory } from '@forgeagent/core/memory';
+import { MemoryService, StoreFactory } from '@dzipagent/core/memory';
 
 // Orchestration
-import { ForgeEventBus } from '@forgeagent/core/orchestration';
+import { DzipEventBus } from '@dzipagent/core/orchestration';
 
 // Security
-import { PolicyEngine, AuditTrail } from '@forgeagent/core/security';
+import { PolicyEngine, AuditTrail } from '@dzipagent/core/security';
 ```
 
 Or import everything from the main entry point:
 ```typescript
-import { MemoryService, ForgeEventBus, PolicyEngine } from '@forgeagent/core';
+import { MemoryService, DzipEventBus, PolicyEngine } from '@dzipagent/core';
 ```
 
 ### Classic Usage
@@ -67,7 +67,7 @@ import {
   MemoryService,
   IntentRouter,
   createCheckpointer,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 
 // 1. Set up the model registry
 const models = new ModelRegistry()
@@ -79,7 +79,7 @@ const resolver = new PromptResolver(promptStore)
 const prompt = await resolver.resolve({ key: 'feature-planner', level: 'tenant', tenantId })
 
 // 3. Invoke with retry and timeout
-import { invokeWithTimeout } from '@forgeagent/core'
+import { invokeWithTimeout } from '@dzipagent/core'
 const result = await invokeWithTimeout(model, messages, { timeoutMs: 30_000 })
 ```
 
@@ -168,18 +168,18 @@ const result = await invokeWithTimeout(model, messages, { timeoutMs: 30_000 })
 
 ### Version
 
-- `FORGEAGENT_CORE_VERSION: string` -- current package version (`'0.1.0'`)
+- `dzipagent_CORE_VERSION: string` -- current package version (`'0.1.0'`)
 
 ## Facade Imports
 
-`@forgeagent/core` exposes **curated facade entry points** that give you only the APIs relevant to your use case, reducing import surface and bundle size.
+`@dzipagent/core` exposes **curated facade entry points** that give you only the APIs relevant to your use case, reducing import surface and bundle size.
 
-### Quick Start — `@forgeagent/core/quick-start`
+### Quick Start — `@dzipagent/core/quick-start`
 
 Minimal bootstrap: DI container, event bus, model registry, memory, context management.
 
 ```ts
-import { createQuickAgent, ModelRegistry, invokeWithTimeout } from '@forgeagent/core/quick-start'
+import { createQuickAgent, ModelRegistry, invokeWithTimeout } from '@dzipagent/core/quick-start'
 
 // One-line agent bootstrap — wires container, event bus, and model registry
 const { registry, eventBus, container } = createQuickAgent({
@@ -194,12 +194,12 @@ registry.register('fast', { provider: 'anthropic', model: 'claude-haiku-4-5-2025
 
 **Key exports:** `createQuickAgent`, `ForgeContainer`, `createContainer`, `createEventBus`, `ModelRegistry`, `invokeWithTimeout`, `MemoryService`, `createStore`, `shouldSummarize`, `summarizeAndTrim`, `evictIfNeeded`, `resolveConfig`
 
-### Memory — `@forgeagent/core/memory`
+### Memory — `@dzipagent/core/memory`
 
 Full memory subsystem: stores, retrieval, consolidation, decay, provenance, CRDT sync.
 
 ```ts
-import { MemoryService, createStore, fusionSearch, SemanticConsolidator } from '@forgeagent/core/memory'
+import { MemoryService, createStore, fusionSearch, SemanticConsolidator } from '@dzipagent/core/memory'
 
 const store = createStore({ backend: 'postgres', connectionString: process.env.DATABASE_URL })
 const memory = new MemoryService({ store, namespace: { tenant: 'acme', project: 'web-app' } })
@@ -207,12 +207,12 @@ const memory = new MemoryService({ store, namespace: { tenant: 'acme', project: 
 
 **Key exports:** `MemoryService`, `createStore`, `WorkingMemory`, `VersionedWorkingMemory`, `ScopedMemoryService`, `DualStreamWriter`, `SleepConsolidator`, `ProvenanceWriter`, `StoreVectorSearch`, `KeywordFTSSearch`, `EntityGraphSearch`, `AdaptiveRetriever`, `SemanticConsolidator`
 
-### Orchestration — `@forgeagent/core/orchestration`
+### Orchestration — `@dzipagent/core/orchestration`
 
 Multi-agent routing, pipelines, sub-agents, skills, protocols, persistence.
 
 ```ts
-import { IntentRouter, createEventBus, SubAgentSpawner } from '@forgeagent/core/orchestration'
+import { IntentRouter, createEventBus, SubAgentSpawner } from '@dzipagent/core/orchestration'
 
 const router = new IntentRouter({ routes: [...] })
 const result = router.classify('Build a login page')
@@ -220,12 +220,12 @@ const result = router.classify('Build a login page')
 
 **Key exports:** `IntentRouter`, `KeywordMatcher`, `LLMClassifier`, `CostAwareRouter`, `SubAgentSpawner`, `SkillLoader`, `SkillManager`, `PipelineDefinitionSchema`, `serializePipeline`, `deserializePipeline`, `ProtocolRouter`, `createForgeMessage`, `InMemoryRunStore`, `MetricsCollector`, `Semaphore`, `ConcurrencyPool`
 
-### Security — `@forgeagent/core/security`
+### Security — `@dzipagent/core/security`
 
 Risk classification, secrets/PII detection, policy engine, audit trail, safety monitoring.
 
 ```ts
-import { createRiskClassifier, scanForSecrets, PolicyEvaluator } from '@forgeagent/core/security'
+import { createRiskClassifier, scanForSecrets, PolicyEvaluator } from '@dzipagent/core/security'
 
 const classifier = createRiskClassifier()
 const risk = classifier.classify('DROP TABLE users')
@@ -233,12 +233,12 @@ const risk = classifier.classify('DROP TABLE users')
 
 **Key exports:** `createRiskClassifier`, `scanForSecrets`, `redactSecrets`, `detectPII`, `redactPII`, `PolicyEvaluator`, `InMemoryPolicyStore`, `ComplianceAuditLogger`, `createSafetyMonitor`, `createMemoryDefense`, `OutputPipeline`, `DataClassifier`
 
-### All Facades — `@forgeagent/core/facades`
+### All Facades — `@dzipagent/core/facades`
 
 Import all facades as namespaces when you need cross-cutting access:
 
 ```ts
-import { quickStart, memory, orchestration, security } from '@forgeagent/core/facades'
+import { quickStart, memory, orchestration, security } from '@dzipagent/core/facades'
 
 const agent = quickStart.createQuickAgent({ provider: 'anthropic', apiKey: '...' })
 const risk = security.createRiskClassifier()

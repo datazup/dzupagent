@@ -1,5 +1,5 @@
 /**
- * Graceful shutdown handler for ForgeAgent server.
+ * Graceful shutdown handler for DzipAgent server.
  *
  * On SIGTERM/SIGINT:
  * 1. Stop accepting new runs
@@ -8,8 +8,8 @@
  * 4. Close DB/MCP/WS connections
  * 5. Mark interrupted runs as 'cancelled'
  */
-import type { RunStore } from '@forgeagent/core'
-import type { ForgeEventBus } from '@forgeagent/core'
+import type { RunStore } from '@dzipagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
 import type { EventBridge } from '../ws/event-bridge.js'
 
 export interface ShutdownConfig {
@@ -18,7 +18,7 @@ export interface ShutdownConfig {
   /** RunStore for marking interrupted runs */
   runStore: RunStore
   /** EventBus to emit shutdown events */
-  eventBus: ForgeEventBus
+  eventBus: DzipEventBus
   /** EventBridge to close WebSocket connections */
   eventBridge?: EventBridge
   /** Custom cleanup callbacks */

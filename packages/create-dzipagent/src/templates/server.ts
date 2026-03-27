@@ -47,8 +47,8 @@ export const serverTemplate: TemplateManifest = {
     },
     {
       path: 'src/index.ts',
-      templateContent: `// {{projectName}} — server ForgeAgent project
-import { createForgeApp } from '@forgeagent/server'
+      templateContent: `// {{projectName}} — server DzipAgent project
+import { createForgeApp } from '@dzipagent/server'
 
 const app = createForgeApp({
   auth: { mode: 'api-key' },
@@ -79,7 +79,7 @@ CMD ["node", "dist/index.js"]
 `,
     },
     {
-      path: 'forgeagent.config.json',
+      path: 'dzipagent.config.json',
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
@@ -97,7 +97,7 @@ CMD ["node", "dist/index.js"]
       templateContent: `# {{projectName}} environment variables
 ANTHROPIC_API_KEY=your-api-key-here
 DATABASE_URL=postgresql://user:password@localhost:5432/{{projectName}}
-FORGE_API_KEY=your-forge-api-key
+DZIP_API_KEY=your-forge-api-key
 PORT=4000
 `,
     },
@@ -111,9 +111,9 @@ dist/
     },
   ],
   dependencies: {
-    '@forgeagent/core': '^0.1.0',
-    '@forgeagent/agent': '^0.1.0',
-    '@forgeagent/server': '^0.1.0',
+    '@dzipagent/core': '^0.1.0',
+    '@dzipagent/agent': '^0.1.0',
+    '@dzipagent/server': '^0.1.0',
     'drizzle-orm': '^0.36.0',
   },
   devDependencies: {

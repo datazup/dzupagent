@@ -1,7 +1,7 @@
 /**
  * Persistent cross-intent context transfer.
  *
- * Bridges the in-memory ContextTransferService (from @forgeagent/context)
+ * Bridges the in-memory ContextTransferService (from @dzipagent/context)
  * with BaseStore persistence, so context extracted at the end of one run
  * survives and is available to subsequent runs in the same session.
  *

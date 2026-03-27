@@ -1,2 +1,2 @@
-export type { ForgePlugin, PluginContext } from './plugin-types.js'
+export type { DzipPlugin, PluginContext } from './plugin-types.js'
 export { PluginRegistry } from './plugin-registry.js'

@@ -1,5 +1,5 @@
 /**
- * Test helper factories for common ForgeAgent test objects.
+ * Test helper factories for common DzipAgent test objects.
  *
  * These avoid boilerplate in test files by providing sensible defaults
  * that can be overridden via partial params.
@@ -9,20 +9,20 @@ import {
   InMemoryRunStore,
   InMemoryAgentStore,
   ModelRegistry,
-  type ForgeEventBus,
-  type ForgeEvent,
+  type DzipEventBus,
+  type DzipEvent,
   type RunStore,
   type AgentStore,
   type AgentDefinition,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 
 /** Create a test event bus that captures all emitted events */
 export function createTestEventBus(): {
-  bus: ForgeEventBus
-  events: ForgeEvent[]
+  bus: DzipEventBus
+  events: DzipEvent[]
 } {
   const bus = createEventBus()
-  const events: ForgeEvent[] = []
+  const events: DzipEvent[] = []
   bus.onAny((event) => { events.push(event) })
   return { bus, events }
 }
@@ -53,8 +53,8 @@ export function createTestAgent(overrides?: Partial<AgentDefinition>): AgentDefi
 export function createTestConfig(): {
   runStore: RunStore
   agentStore: AgentStore
-  eventBus: ForgeEventBus
-  events: ForgeEvent[]
+  eventBus: DzipEventBus
+  events: DzipEvent[]
   modelRegistry: ModelRegistry
 } {
   const { bus, events } = createTestEventBus()
@@ -71,11 +71,11 @@ export function createTestConfig(): {
  * Wait for a specific event type to be emitted.
  * Resolves with the event data or rejects on timeout.
  */
-export function waitForEvent<T extends ForgeEvent['type']>(
-  bus: ForgeEventBus,
+export function waitForEvent<T extends DzipEvent['type']>(
+  bus: DzipEventBus,
   type: T,
   timeoutMs = 5000,
-): Promise<Extract<ForgeEvent, { type: T }>> {
+): Promise<Extract<DzipEvent, { type: T }>> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       unsub()
@@ -85,7 +85,7 @@ export function waitForEvent<T extends ForgeEvent['type']>(
     const unsub = bus.on(type, (event) => {
       clearTimeout(timer)
       unsub()
-      resolve(event as Extract<ForgeEvent, { type: T }>)
+      resolve(event as Extract<DzipEvent, { type: T }>)
     })
   })
 }

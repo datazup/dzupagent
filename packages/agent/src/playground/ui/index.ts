@@ -1,16 +1,16 @@
 /**
  * Playground UI — Vue 3 components for visualizing agent execution traces.
  *
- * These components consume data structures from the `@forgeagent/agent` replay
+ * These components consume data structures from the `@dzipagent/agent` replay
  * module (TimelineNode, ReplaySummary, NodeMetrics, etc.) and render them as
  * interactive panels.
  *
  * Usage:
  * ```ts
- * import TraceTimeline from '@forgeagent/agent/playground/ui/TraceTimeline.vue'
- * import TraceNodeDetail from '@forgeagent/agent/playground/ui/TraceNodeDetail.vue'
- * import TraceStateInspector from '@forgeagent/agent/playground/ui/TraceStateInspector.vue'
- * import TraceSummary from '@forgeagent/agent/playground/ui/TraceSummary.vue'
+ * import TraceTimeline from '@dzipagent/agent/playground/ui/TraceTimeline.vue'
+ * import TraceNodeDetail from '@dzipagent/agent/playground/ui/TraceNodeDetail.vue'
+ * import TraceStateInspector from '@dzipagent/agent/playground/ui/TraceStateInspector.vue'
+ * import TraceSummary from '@dzipagent/agent/playground/ui/TraceSummary.vue'
  * ```
  *
  * @module playground/ui

@@ -1,5 +1,5 @@
 /**
- * @forgeagent/memory — Reusable memory management for LLM agents.
+ * @dzipagent/memory — Reusable memory management for LLM agents.
  *
  * Provides namespace-scoped memory service, decay engine, consolidation,
  * sanitization, staged writing, working memory, retrieval (vector, FTS,

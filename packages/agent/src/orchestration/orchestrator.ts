@@ -1,23 +1,23 @@
 /**
  * Multi-agent orchestration patterns.
  *
- * Provides composable patterns for coordinating multiple ForgeAgent instances:
+ * Provides composable patterns for coordinating multiple DzipAgent instances:
  * - Sequential: A -> B -> C (pipeline)
  * - Parallel: A, B, C concurrently, results merged
  * - Supervisor: Manager delegates to specialists via tool calling
  * - Debate: Multiple proposers, judge selects best
  */
 import { HumanMessage } from '@langchain/core/messages'
-import { ForgeAgent } from '../agent/forge-agent.js'
+import { DzipAgent } from '../agent/dzip-agent.js'
 import { OrchestrationError } from './orchestration-error.js'
 import { ContractNetManager } from './contract-net/contract-net-manager.js'
 import type { ContractNetConfig, ContractResult } from './contract-net/contract-net-types.js'
 
 export interface SupervisorConfig {
   /** The manager agent that coordinates specialists */
-  manager: ForgeAgent
+  manager: DzipAgent
   /** Specialist agents to be exposed as tools to the manager */
-  specialists: ForgeAgent[]
+  specialists: DzipAgent[]
   /** The task to delegate */
   task: string
   /** If true, run a lightweight health check on each specialist before exposing it */
@@ -45,7 +45,7 @@ export class AgentOrchestrator {
    * Run agents sequentially -- each receives the previous agent's output.
    */
   static async sequential(
-    agents: ForgeAgent[],
+    agents: DzipAgent[],
     initialInput: string,
   ): Promise<string> {
     let current = initialInput
@@ -60,7 +60,7 @@ export class AgentOrchestrator {
    * Run agents in parallel -- all receive the same input, results merged.
    */
   static async parallel(
-    agents: ForgeAgent[],
+    agents: DzipAgent[],
     input: string,
     merge?: MergeFn,
   ): Promise<string> {
@@ -80,17 +80,17 @@ export class AgentOrchestrator {
    */
   static async supervisor(config: SupervisorConfig): Promise<SupervisorResult>
   /** @deprecated Use the config object overload instead */
-  static async supervisor(manager: ForgeAgent, specialists: ForgeAgent[], task: string): Promise<string>
+  static async supervisor(manager: DzipAgent, specialists: DzipAgent[], task: string): Promise<string>
   static async supervisor(
-    configOrManager: SupervisorConfig | ForgeAgent,
-    maybeSpecialists?: ForgeAgent[],
+    configOrManager: SupervisorConfig | DzipAgent,
+    maybeSpecialists?: DzipAgent[],
     maybeTask?: string,
   ): Promise<SupervisorResult | string> {
     // Normalize arguments: support both old positional and new config-object signatures
     let config: SupervisorConfig
     let returnLegacy = false
 
-    if (configOrManager instanceof ForgeAgent) {
+    if (configOrManager instanceof DzipAgent) {
       if (!maybeSpecialists || !maybeTask) {
         throw new OrchestrationError(
           'supervisor() requires specialists and task when called with positional arguments',
@@ -127,7 +127,7 @@ export class AgentOrchestrator {
     // Optional health check: filter out unresponsive specialists
     const filteredSpecialists: string[] = []
     if (config.healthCheck) {
-      const healthySpecialists: ForgeAgent[] = []
+      const healthySpecialists: DzipAgent[] = []
       for (const specialist of specialists) {
         try {
           // Lightweight check: just verify asTool() resolves without error
@@ -159,7 +159,7 @@ export class AgentOrchestrator {
     // Create a new manager agent instance with specialist tools injected
     // alongside any tools the manager already has.
     const managerConfig = manager.agentConfig
-    const managerWithTools = new ForgeAgent({
+    const managerWithTools = new DzipAgent({
       ...managerConfig,
       id: `${managerConfig.id}__supervisor`,
       tools: [...(managerConfig.tools ?? []), ...specialistTools],
@@ -191,8 +191,8 @@ export class AgentOrchestrator {
    * Debate pattern -- multiple agents propose solutions, a judge selects the best.
    */
   static async debate(
-    proposers: ForgeAgent[],
-    judge: ForgeAgent,
+    proposers: DzipAgent[],
+    judge: DzipAgent,
     task: string,
     options?: { rounds?: number },
   ): Promise<string> {

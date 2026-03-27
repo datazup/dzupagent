@@ -1,6 +1,6 @@
-import { ForgeAgent } from '@forgeagent/agent'
+import { DzipAgent } from '@dzipagent/agent'
 import { HumanMessage } from '@langchain/core/messages'
-import { calculateCostCents, type TokenUsage, type ModelRegistry } from '@forgeagent/core'
+import { calculateCostCents, type TokenUsage, type ModelRegistry } from '@dzipagent/core'
 import type { RunExecutor, RunExecutorResult } from './run-worker.js'
 import { resolveAgentTools, type CustomToolResolver, type ToolResolverOptions } from './tool-resolver.js'
 import { isStructuredResult } from './utils.js'
@@ -28,7 +28,7 @@ function toPrompt(input: unknown): string {
   return String(input)
 }
 
-export interface ForgeAgentRunExecutorOptions {
+export interface DzipAgentRunExecutorOptions {
   fallback?: RunExecutor
   toolResolver?: CustomToolResolver
   /** 'strict' throws if any tools remain unresolved; 'lenient' warns (default). */
@@ -36,10 +36,10 @@ export interface ForgeAgentRunExecutorOptions {
 }
 
 /**
- * RunExecutor that executes runs through @forgeagent/agent ForgeAgent.
+ * RunExecutor that executes runs through @dzipagent/agent DzipAgent.
  */
-export function createForgeAgentRunExecutor(
-  options?: ForgeAgentRunExecutorOptions,
+export function createDzipAgentRunExecutor(
+  options?: DzipAgentRunExecutorOptions,
 ): RunExecutor {
   return async (ctx): Promise<RunExecutorResult> => {
     const prompt = toPrompt(ctx.input) || 'Proceed with the requested task.'
@@ -65,7 +65,7 @@ export function createForgeAgentRunExecutor(
           : ctx.agent.modelTier
       ) as 'chat' | 'reasoning' | 'codegen' | 'embedding'
 
-      const agent = new ForgeAgent({
+      const agent = new DzipAgent({
         id: ctx.agent.id,
         name: ctx.agent.name,
         description: ctx.agent.description,

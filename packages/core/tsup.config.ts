@@ -16,8 +16,8 @@ export default defineConfig({
   target: 'node20',
   outDir: 'dist',
   external: [
-    '@forgeagent/memory',
-    '@forgeagent/context',
+    '@dzipagent/memory',
+    '@dzipagent/context',
     '@langchain/core',
     'pg',
     'pg-pool',

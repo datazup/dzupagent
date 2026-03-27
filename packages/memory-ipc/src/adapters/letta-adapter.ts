@@ -193,7 +193,7 @@ export class LettaAdapter implements MemoryFrameAdapter<LettaArchivalPassage> {
  * `value` as the string content.
  *
  * @param coreMemory  Letta core memory with self-editing blocks
- * @returns           Record suitable for ForgeAgent WorkingMemory
+ * @returns           Record suitable for DzipAgent WorkingMemory
  */
 export function lettaCoreToWorkingMemory(
   coreMemory: LettaCoreMemory,
@@ -206,13 +206,13 @@ export function lettaCoreToWorkingMemory(
 }
 
 /**
- * Convert a ForgeAgent WorkingMemory record to Letta core memory blocks.
+ * Convert a DzipAgent WorkingMemory record to Letta core memory blocks.
  *
  * Each top-level field becomes a block with `label=fieldName`.
  * Non-string values are JSON-serialized. Values exceeding `blockLimit`
  * are truncated.
  *
- * @param workingMemory  ForgeAgent WorkingMemory state
+ * @param workingMemory  DzipAgent WorkingMemory state
  * @param blockLimit     Max characters per block (default: 2000)
  * @returns              Letta core memory with blocks
  */

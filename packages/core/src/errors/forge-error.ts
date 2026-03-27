@@ -16,7 +16,7 @@ export interface ForgeErrorOptions {
 }
 
 /**
- * Structured error type for ForgeAgent.
+ * Structured error type for DzipAgent.
  *
  * Every error has a typed code, recoverable flag, and optional
  * suggestion for automated or manual recovery.

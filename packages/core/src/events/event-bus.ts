@@ -1,10 +1,10 @@
-import type { ForgeEvent, ForgeEventOf } from './event-types.js'
+import type { DzipEvent, DzipEventOf } from './event-types.js'
 
-type Handler<T extends ForgeEvent['type']> = (event: ForgeEventOf<T>) => void | Promise<void>
-type AnyHandler = (event: ForgeEvent) => void | Promise<void>
+type Handler<T extends DzipEvent['type']> = (event: DzipEventOf<T>) => void | Promise<void>
+type AnyHandler = (event: DzipEvent) => void | Promise<void>
 
 /**
- * Typed, in-process event bus for ForgeAgent.
+ * Typed, in-process event bus for DzipAgent.
  *
  * - Emit is fire-and-forget (handler errors are caught and logged to stderr)
  * - Handlers run asynchronously in microtask queue
@@ -19,21 +19,21 @@ type AnyHandler = (event: ForgeEvent) => void | Promise<void>
  * unsub() // stop listening
  * ```
  */
-export interface ForgeEventBus {
+export interface DzipEventBus {
   /** Emit an event. Handlers run asynchronously; errors are caught. */
-  emit(event: ForgeEvent): void
+  emit(event: DzipEvent): void
 
   /** Subscribe to a specific event type. Returns unsubscribe function. */
-  on<T extends ForgeEvent['type']>(type: T, handler: Handler<T>): () => void
+  on<T extends DzipEvent['type']>(type: T, handler: Handler<T>): () => void
 
   /** Subscribe once — auto-unsubscribes after first invocation. */
-  once<T extends ForgeEvent['type']>(type: T, handler: Handler<T>): () => void
+  once<T extends DzipEvent['type']>(type: T, handler: Handler<T>): () => void
 
   /** Subscribe to ALL events (wildcard). Returns unsubscribe function. */
   onAny(handler: AnyHandler): () => void
 }
 
-export function createEventBus(): ForgeEventBus {
+export function createEventBus(): DzipEventBus {
   const handlers = new Map<string, Set<AnyHandler>>()
   const wildcards = new Set<AnyHandler>()
 
@@ -46,7 +46,7 @@ export function createEventBus(): ForgeEventBus {
     return set
   }
 
-  function runHandlers(list: Iterable<AnyHandler>, event: ForgeEvent): void {
+  function runHandlers(list: Iterable<AnyHandler>, event: DzipEvent): void {
     for (const handler of list) {
       try {
         const result = handler(event)
@@ -55,32 +55,32 @@ export function createEventBus(): ForgeEventBus {
           ;(result as Promise<void>).catch((err: unknown) => {
             const msg = err instanceof Error ? err.message : String(err)
             // eslint-disable-next-line no-console
-            console.error(`[ForgeEventBus] handler error for "${event.type}": ${msg}`)
+            console.error(`[DzipEventBus] handler error for "${event.type}": ${msg}`)
           })
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         // eslint-disable-next-line no-console
-        console.error(`[ForgeEventBus] handler error for "${event.type}": ${msg}`)
+        console.error(`[DzipEventBus] handler error for "${event.type}": ${msg}`)
       }
     }
   }
 
   return {
-    emit(event: ForgeEvent): void {
+    emit(event: DzipEvent): void {
       const set = handlers.get(event.type)
       if (set && set.size > 0) runHandlers(set, event)
       if (wildcards.size > 0) runHandlers(wildcards, event)
     },
 
-    on<T extends ForgeEvent['type']>(type: T, handler: Handler<T>): () => void {
+    on<T extends DzipEvent['type']>(type: T, handler: Handler<T>): () => void {
       const set = getSet(type)
       const wrapped = handler as AnyHandler
       set.add(wrapped)
       return () => { set.delete(wrapped) }
     },
 
-    once<T extends ForgeEvent['type']>(type: T, handler: Handler<T>): () => void {
+    once<T extends DzipEvent['type']>(type: T, handler: Handler<T>): () => void {
       const set = getSet(type)
       const wrapped: AnyHandler = (event) => {
         set.delete(wrapped)

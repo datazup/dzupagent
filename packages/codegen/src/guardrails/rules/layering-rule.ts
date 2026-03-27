@@ -2,17 +2,17 @@
  * Layering Rule — enforces package dependency direction.
  *
  * Prevents lower-level packages from importing higher-level ones.
- * For example, @forgeagent/core must not import from @forgeagent/agent.
+ * For example, @dzipagent/core must not import from @dzipagent/agent.
  */
 
 import type { GuardrailRule, GuardrailContext, GuardrailResult, GuardrailViolation } from '../guardrail-types.js'
 
 /** Default dependency layers: lower index = lower level. */
 const DEFAULT_LAYERS: string[][] = [
-  ['@forgeagent/core'],
-  ['@forgeagent/memory', '@forgeagent/context', '@forgeagent/codegen'],
-  ['@forgeagent/agent'],
-  ['@forgeagent/server'],
+  ['@dzipagent/core'],
+  ['@dzipagent/memory', '@dzipagent/context', '@dzipagent/codegen'],
+  ['@dzipagent/agent'],
+  ['@dzipagent/server'],
 ]
 
 function resolvePackageFromPath(

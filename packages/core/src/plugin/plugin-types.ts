@@ -1,29 +1,29 @@
-import type { ForgeEventBus } from '../events/event-bus.js'
-import type { ForgeEvent } from '../events/event-types.js'
+import type { DzipEventBus } from '../events/event-bus.js'
+import type { DzipEvent } from '../events/event-types.js'
 import type { AgentHooks } from '../hooks/hook-types.js'
 import type { AgentMiddleware } from '../middleware/types.js'
 import type { ModelRegistry } from '../llm/model-registry.js'
-import type { MemoryService } from '@forgeagent/memory'
+import type { MemoryService } from '@dzipagent/memory'
 
 /**
  * Context available to plugins during registration.
  */
 export interface PluginContext {
-  eventBus: ForgeEventBus
+  eventBus: DzipEventBus
   modelRegistry: ModelRegistry
   memoryService?: MemoryService
 }
 
 /**
- * ForgeAgent plugin interface.
+ * DzipAgent plugin interface.
  *
- * Plugins extend ForgeAgent's capabilities by contributing tools, middleware,
+ * Plugins extend DzipAgent's capabilities by contributing tools, middleware,
  * hooks, event handlers, and configuration. They are registered via
  * `PluginRegistry.register()` and resolved at agent creation time.
  *
  * @example
  * ```ts
- * const sentryPlugin: ForgePlugin = {
+ * const sentryPlugin: DzipPlugin = {
  *   name: 'sentry',
  *   version: '1.0.0',
  *   eventHandlers: {
@@ -32,7 +32,7 @@ export interface PluginContext {
  * }
  * ```
  */
-export interface ForgePlugin {
+export interface DzipPlugin {
   /** Unique plugin name */
   name: string
   /** Semver version */
@@ -48,5 +48,5 @@ export interface ForgePlugin {
   hooks?: Partial<AgentHooks>
 
   /** Event handlers to subscribe to the event bus */
-  eventHandlers?: Partial<Record<ForgeEvent['type'], (event: ForgeEvent) => void | Promise<void>>>
+  eventHandlers?: Partial<Record<DzipEvent['type'], (event: DzipEvent) => void | Promise<void>>>
 }

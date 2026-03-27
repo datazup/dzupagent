@@ -1,12 +1,12 @@
 /**
- * ForgeAgent — top-level agent abstraction.
+ * DzipAgent — top-level agent abstraction.
  *
  * Unifies ModelRegistry, tools, memory, middleware, guardrails,
  * context compression, and streaming into a single composable class.
  *
  * Usage:
  * ```ts
- * const agent = new ForgeAgent({
+ * const agent = new DzipAgent({
  *   id: 'code-reviewer',
  *   instructions: 'You review code for quality...',
  *   model: 'codegen', // ModelTier or BaseChatModel
@@ -31,10 +31,10 @@ import {
   shouldSummarize,
   summarizeAndTrim,
   formatSummaryContext,
-} from '@forgeagent/core'
-import { extractTokenUsage, estimateTokens, type TokenUsage } from '@forgeagent/core'
+} from '@dzipagent/core'
+import { extractTokenUsage, estimateTokens, type TokenUsage } from '@dzipagent/core'
 import type {
-  ForgeAgentConfig,
+  DzipAgentConfig,
   GenerateOptions,
   GenerateResult,
   AgentStreamEvent,
@@ -49,17 +49,17 @@ import { createToolLoopLearningHook } from './tool-loop-learning.js'
 
 const MODEL_TIERS: Set<string> = new Set(['chat', 'reasoning', 'codegen', 'embedding'])
 
-export class ForgeAgent {
+export class DzipAgent {
   readonly id: string
   readonly name: string
   readonly description: string
-  private readonly config: ForgeAgentConfig
+  private readonly config: DzipAgentConfig
   private readonly resolvedModel: BaseChatModel
   private conversationSummary: string | null = null
   private mergedInstructionsCache: MergedInstructions | null = null
   private mergedInstructionsLoading: Promise<MergedInstructions> | null = null
 
-  constructor(config: ForgeAgentConfig) {
+  constructor(config: DzipAgentConfig) {
     this.id = config.id
     this.name = config.name ?? config.id
     this.description = config.description ?? `Agent: ${this.name}`
@@ -71,7 +71,7 @@ export class ForgeAgent {
    * Expose the agent configuration (read-only copy) so orchestrators
    * can derive new agents with modified settings (e.g., additional tools).
    */
-  get agentConfig(): Readonly<ForgeAgentConfig> {
+  get agentConfig(): Readonly<DzipAgentConfig> {
     return this.config
   }
 
@@ -513,14 +513,14 @@ export class ForgeAgent {
 
   // ---------- Internal helpers --------------------------------------------------
 
-  private resolveModel(config: ForgeAgentConfig): BaseChatModel {
+  private resolveModel(config: DzipAgentConfig): BaseChatModel {
     if (typeof config.model !== 'string') {
       return config.model
     }
 
     if (!config.registry) {
       throw new Error(
-        `ForgeAgent "${config.id}": model is a string ("${config.model}") but no registry was provided`,
+        `DzipAgent "${config.id}": model is a string ("${config.model}") but no registry was provided`,
       )
     }
 
@@ -681,28 +681,28 @@ export class ForgeAgent {
   /**
    * Arrow-based token-budgeted memory selection.
    *
-   * Dynamically imports `@forgeagent/memory-ipc` so `apache-arrow` is never
+   * Dynamically imports `@dzipagent/memory-ipc` so `apache-arrow` is never
    * required at install time. If the import fails, the caller catches and
    * falls back to the standard path.
    */
   private async loadArrowMemoryContext(
-    memory: NonNullable<ForgeAgentConfig['memory']>,
+    memory: NonNullable<DzipAgentConfig['memory']>,
     namespace: string,
     scope: Record<string, string>,
     messages: BaseMessage[],
     arrowCfg: NonNullable<ReturnType<typeof resolveArrowMemoryConfig>>,
   ): Promise<string | null> {
-    // Dynamic import keeps @forgeagent/memory-ipc optional at runtime
+    // Dynamic import keeps @dzipagent/memory-ipc optional at runtime
     const {
       extendMemoryServiceWithArrow,
       selectMemoriesByBudget,
       phaseWeightedSelection,
       FrameReader,
-    } = await import('@forgeagent/memory-ipc')
+    } = await import('@dzipagent/memory-ipc')
 
     // Export memory records into an Arrow Table via the extension wrapper
     const arrowExt = extendMemoryServiceWithArrow(
-      memory as import('@forgeagent/memory-ipc').MemoryServiceLike,
+      memory as import('@dzipagent/memory-ipc').MemoryServiceLike,
     )
     const frame = await arrowExt.exportFrame(namespace, scope)
 

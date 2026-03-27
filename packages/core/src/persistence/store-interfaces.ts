@@ -1,9 +1,9 @@
 /**
- * Abstract persistence interfaces for ForgeAgent.
+ * Abstract persistence interfaces for DzipAgent.
  *
  * Core defines interfaces; implementations live in consumer packages:
  * - InMemoryRunStore / InMemoryAgentStore (core — for dev/test)
- * - PostgresRunStore / PostgresAgentStore (@forgeagent/server)
+ * - PostgresRunStore / PostgresAgentStore (@dzipagent/server)
  */
 
 // ---------------------------------------------------------------------------

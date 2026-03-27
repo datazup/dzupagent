@@ -1,5 +1,5 @@
 /**
- * FrameBuilder accumulates ForgeAgent memory records and builds an Arrow Table.
+ * FrameBuilder accumulates DzipAgent memory records and builds an Arrow Table.
  *
  * Records are plain objects with optional convention fields (_temporal, _decay,
  * _provenance, _agent, text, category, importance). Fields not mapped to schema
@@ -25,7 +25,7 @@ export interface FrameScope {
   session?: string | null
 }
 
-/** Temporal metadata matching ForgeAgent's TemporalMetadata convention. */
+/** Temporal metadata matching DzipAgent's TemporalMetadata convention. */
 export interface FrameTemporal {
   systemCreatedAt?: number
   systemExpiredAt?: number | null
@@ -33,7 +33,7 @@ export interface FrameTemporal {
   validUntil?: number | null
 }
 
-/** Decay metadata matching ForgeAgent's DecayMetadata convention. */
+/** Decay metadata matching DzipAgent's DecayMetadata convention. */
 export interface FrameDecay {
   strength?: number | null
   halfLifeMs?: number | null
@@ -55,7 +55,7 @@ export interface FrameRecordMeta {
   scope?: FrameScope
 }
 
-/** A value object as stored in ForgeAgent memory. */
+/** A value object as stored in DzipAgent memory. */
 export interface FrameRecordValue {
   text?: string | null
   _temporal?: FrameTemporal
@@ -144,7 +144,7 @@ function createEmptyBuffers(): ColumnBuffers {
 // ---------------------------------------------------------------------------
 
 /**
- * Accumulates ForgeAgent memory records and builds an Arrow Table.
+ * Accumulates DzipAgent memory records and builds an Arrow Table.
  *
  * Usage:
  * ```ts

@@ -1,6 +1,6 @@
 /**
  * FrameReader wraps an Arrow Table and provides typed accessors, filtering,
- * and conversion back to ForgeAgent record format.
+ * and conversion back to DzipAgent record format.
  *
  * Reconstructs convention fields (_temporal, _decay, _provenance, _agent)
  * from the flat Arrow columns.
@@ -62,7 +62,7 @@ function getFloat(col: Vector | null, idx: number): number | null {
 /**
  * Read-only wrapper around an Arrow Table conforming to MEMORY_FRAME_SCHEMA.
  *
- * Provides typed column access, filtering, and reconstruction of ForgeAgent
+ * Provides typed column access, filtering, and reconstruction of DzipAgent
  * convention fields.
  */
 export class FrameReader {
@@ -128,7 +128,7 @@ export class FrameReader {
   // -------------------------------------------------------------------------
 
   /**
-   * Convert all rows back to ForgeAgent record format.
+   * Convert all rows back to DzipAgent record format.
    *
    * Reconstructs _temporal, _decay, _provenance convention fields.
    * Parses payload_json back into top-level value fields.

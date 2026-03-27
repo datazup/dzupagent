@@ -22,8 +22,8 @@ export interface MemoryProvenance {
   /**
    * Agent URI that originally created this record.
    * MUST follow the `forge://org/agent-name` two-segment format
-   * from the ForgeAgent identity spec (Doc 01).
-   * When `@forgeagent/core` identity module is available, this
+   * from the DzipAgent identity spec (Doc 01).
+   * When `@dzipagent/core` identity module is available, this
    * will be tightened to a branded `ForgeUri` type.
    */
   createdBy: string

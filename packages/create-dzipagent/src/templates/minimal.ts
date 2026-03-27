@@ -45,10 +45,10 @@ export const minimalTemplate: TemplateManifest = {
     },
     {
       path: 'src/index.ts',
-      templateContent: `// {{projectName}} — minimal ForgeAgent project
-import { ForgeAgent } from '@forgeagent/agent'
+      templateContent: `// {{projectName}} — minimal DzipAgent project
+import { DzipAgent } from '@dzipagent/agent'
 
-const agent = new ForgeAgent({
+const agent = new DzipAgent({
   name: '{{projectName}}',
   instructions: 'You are a helpful assistant.',
 })
@@ -57,7 +57,7 @@ console.log('Agent created:', agent.name)
 `,
     },
     {
-      path: 'forgeagent.config.json',
+      path: 'dzipagent.config.json',
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
@@ -84,8 +84,8 @@ dist/
     },
   ],
   dependencies: {
-    '@forgeagent/core': '^0.1.0',
-    '@forgeagent/agent': '^0.1.0',
+    '@dzipagent/core': '^0.1.0',
+    '@dzipagent/agent': '^0.1.0',
   },
   devDependencies: {
     typescript: '^5.4.0',

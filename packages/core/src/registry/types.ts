@@ -2,10 +2,10 @@
  * Agent Registry types.
  *
  * Defines the core interfaces for agent registration, discovery, and health
- * tracking within the ForgeAgent ecosystem.
+ * tracking within the DzipAgent ecosystem.
  */
 import type { ForgeCapability, ForgeIdentityRef } from '../identity/index.js'
-import type { ForgeEventBus } from '../events/event-bus.js'
+import type { DzipEventBus } from '../events/event-bus.js'
 
 // ---------------------------------------------------------------------------
 // Backward-compat alias (C1 fix)
@@ -187,7 +187,7 @@ export type RegistryEvent =
 
 /** Configuration for an AgentRegistry implementation. */
 export interface AgentRegistryConfig {
-  eventBus?: ForgeEventBus
+  eventBus?: DzipEventBus
 }
 
 /** The AgentRegistry interface — core abstraction for agent registration and discovery. */

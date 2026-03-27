@@ -1,18 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createEventBus } from '@forgeagent/core'
-import type { ForgeEventBus, ForgeEvent } from '@forgeagent/core'
-import { ForgeTracer } from '../tracer.js'
+import { createEventBus } from '@dzipagent/core'
+import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
+import { DzipTracer } from '../tracer.js'
 import { OTelBridge, InMemoryMetricSink } from '../otel-bridge.js'
 
 describe('OTelBridge', () => {
-  let bus: ForgeEventBus
-  let tracer: ForgeTracer
+  let bus: DzipEventBus
+  let tracer: DzipTracer
   let sink: InMemoryMetricSink
   let bridge: OTelBridge
 
   beforeEach(() => {
     bus = createEventBus()
-    tracer = new ForgeTracer()
+    tracer = new DzipTracer()
     sink = new InMemoryMetricSink()
     bridge = new OTelBridge({ tracer, metricSink: sink })
   })
@@ -40,7 +40,7 @@ describe('OTelBridge', () => {
 
       bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
       // Should only count once, not twice
-      expect(sink.getCounter('forge_agent_runs_total', { agent_id: 'a1', status: 'started' })).toBe(1)
+      expect(sink.getCounter('dzip_agent_runs_total', { agent_id: 'a1', status: 'started' })).toBe(1)
     })
 
     it('does not record after detach', () => {
@@ -48,7 +48,7 @@ describe('OTelBridge', () => {
       bridge.detach()
 
       bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-      expect(sink.getCounter('forge_agent_runs_total', { agent_id: 'a1', status: 'started' })).toBe(0)
+      expect(sink.getCounter('dzip_agent_runs_total', { agent_id: 'a1', status: 'started' })).toBe(0)
     })
   })
 
@@ -60,7 +60,7 @@ describe('OTelBridge', () => {
     it('records agent:started counter', () => {
       bus.emit({ type: 'agent:started', agentId: 'code-gen', runId: 'r1' })
 
-      expect(sink.getCounter('forge_agent_runs_total', {
+      expect(sink.getCounter('dzip_agent_runs_total', {
         agent_id: 'code-gen',
         status: 'started',
       })).toBe(1)
@@ -69,12 +69,12 @@ describe('OTelBridge', () => {
     it('records agent:completed counter and duration histogram', () => {
       bus.emit({ type: 'agent:completed', agentId: 'code-gen', runId: 'r1', durationMs: 5000 })
 
-      expect(sink.getCounter('forge_agent_runs_total', {
+      expect(sink.getCounter('dzip_agent_runs_total', {
         agent_id: 'code-gen',
         status: 'completed',
       })).toBe(1)
 
-      const hist = sink.getHistogram('forge_agent_duration_seconds', { agent_id: 'code-gen' })
+      const hist = sink.getHistogram('dzip_agent_duration_seconds', { agent_id: 'code-gen' })
       expect(hist).toHaveLength(1)
       expect(hist[0]).toBe(5) // 5000ms -> 5s
     })
@@ -88,7 +88,7 @@ describe('OTelBridge', () => {
         message: 'API down',
       })
 
-      expect(sink.getCounter('forge_agent_errors_total', {
+      expect(sink.getCounter('dzip_agent_errors_total', {
         agent_id: 'code-gen',
         error_code: 'PROVIDER_UNAVAILABLE',
       })).toBe(1)
@@ -299,7 +299,7 @@ describe('OTelBridge', () => {
       expect(sink.getCounter('forge_tool_calls_total', { tool_name: 'git_status' })).toBe(0)
       expect(sink.getCounter('forge_memory_searches_total', { namespace: 'ns' })).toBe(0)
       // agent:started should still be recorded
-      expect(sink.getCounter('forge_agent_runs_total', { agent_id: 'a1', status: 'started' })).toBe(1)
+      expect(sink.getCounter('dzip_agent_runs_total', { agent_id: 'a1', status: 'started' })).toBe(1)
     })
   })
 
@@ -313,7 +313,7 @@ describe('OTelBridge', () => {
       noMetricsBridge.attach(bus)
 
       bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-      expect(sink.getCounter('forge_agent_runs_total', { agent_id: 'a1', status: 'started' })).toBe(0)
+      expect(sink.getCounter('dzip_agent_runs_total', { agent_id: 'a1', status: 'started' })).toBe(0)
     })
   })
 

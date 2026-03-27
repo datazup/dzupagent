@@ -47,10 +47,10 @@ export const costConstrainedWorkerTemplate: TemplateManifest = {
     {
       path: 'src/index.ts',
       templateContent: `// {{projectName}} — cost-constrained worker agent
-import { ForgeAgent } from '@forgeagent/agent'
+import { DzipAgent } from '@dzipagent/agent'
 import { config } from './config.js'
 
-const agent = new ForgeAgent({
+const agent = new DzipAgent({
   name: '{{projectName}}',
   instructions: 'You are a concise, efficient assistant. Keep responses short and actionable.',
   model: config.model,
@@ -111,7 +111,7 @@ export const config = {
 `,
     },
     {
-      path: 'forgeagent.config.json',
+      path: 'dzipagent.config.json',
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
@@ -156,7 +156,7 @@ CONCURRENCY=1
       path: 'README.md',
       templateContent: `# {{projectName}}
 
-Budget-optimized worker agent built with ForgeAgent.
+Budget-optimized worker agent built with DzipAgent.
 
 ## Design Principles
 
@@ -206,8 +206,8 @@ dist/
     },
   ],
   dependencies: {
-    '@forgeagent/core': '^0.1.0',
-    '@forgeagent/agent': '^0.1.0',
+    '@dzipagent/core': '^0.1.0',
+    '@dzipagent/agent': '^0.1.0',
   },
   devDependencies: {
     typescript: '^5.4.0',

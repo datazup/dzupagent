@@ -1,12 +1,12 @@
 /**
- * Hono app factory for ForgeAgent server.
+ * Hono app factory for DzipAgent server.
  *
  * Creates a configured Hono application with REST API routes, middleware,
  * and optional WebSocket support.
  *
  * @example
  * ```ts
- * import { createForgeApp } from '@forgeagent/server'
+ * import { createForgeApp } from '@dzipagent/server'
  *
  * const app = createForgeApp({
  *   eventBus: createEventBus(),
@@ -20,10 +20,10 @@
  */
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import type { RunStore, AgentStore, ModelRegistry } from '@forgeagent/core'
-import type { ForgeEventBus } from '@forgeagent/core'
-import type { MetricsCollector } from '@forgeagent/core'
-import type { CostAwareRouter } from '@forgeagent/core'
+import type { RunStore, AgentStore, ModelRegistry } from '@dzipagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
+import type { MetricsCollector } from '@dzipagent/core'
+import type { CostAwareRouter } from '@dzipagent/core'
 import { createHealthRoutes } from './routes/health.js'
 import { createRunRoutes } from './routes/runs.js'
 import { createAgentRoutes } from './routes/agents.js'
@@ -32,7 +32,7 @@ import { createMemoryRoutes } from './routes/memory.js'
 import { createMemoryBrowseRoutes } from './routes/memory-browse.js'
 import { createPlaygroundRoutes, type PlaygroundRouteConfig } from './routes/playground.js'
 import { createEventRoutes } from './routes/events.js'
-import type { MemoryServiceLike } from '@forgeagent/memory-ipc'
+import type { MemoryServiceLike } from '@dzipagent/memory-ipc'
 import { authMiddleware, type AuthConfig } from './middleware/auth.js'
 import { rateLimiterMiddleware, type RateLimiterConfig } from './middleware/rate-limiter.js'
 import type { RunQueue } from './queue/run-queue.js'
@@ -42,7 +42,7 @@ import { InMemoryEventGateway } from './events/event-gateway.js'
 import { startRunWorker, type RunExecutor, type RunReflectorLike } from './runtime/run-worker.js'
 import type { RetrievalFeedbackHookConfig } from './runtime/retrieval-feedback-hook.js'
 import { createDefaultRunExecutor } from './runtime/default-run-executor.js'
-import { createForgeAgentRunExecutor } from './runtime/forge-agent-run-executor.js'
+import { createDzipAgentRunExecutor } from './runtime/dzip-agent-run-executor.js'
 import { ConsolidationScheduler, type ConsolidationSchedulerConfig } from './runtime/consolidation-scheduler.js'
 import { createSleepConsolidationTask, type SleepConsolidatorLike } from './runtime/sleep-consolidation-task.js'
 import { createMemoryHealthRoutes, type MemoryHealthRouteConfig } from './routes/memory-health.js'
@@ -68,7 +68,7 @@ type ConsolidationSchedulingOpts = Omit<ConsolidationSchedulerConfig, 'eventBus'
 export type ConsolidationConfig =
   | (ConsolidationSchedulingOpts & { task: ConsolidationSchedulerConfig['task'] })
   | (ConsolidationSchedulingOpts & {
-      /** A SleepConsolidator instance (from @forgeagent/memory) */
+      /** A SleepConsolidator instance (from @dzipagent/memory) */
       consolidator: SleepConsolidatorLike
       /** A BaseStore instance passed to the consolidator */
       store: unknown
@@ -79,7 +79,7 @@ export type ConsolidationConfig =
 export interface ForgeServerConfig {
   runStore: RunStore
   agentStore: AgentStore
-  eventBus: ForgeEventBus
+  eventBus: DzipEventBus
   modelRegistry: ModelRegistry
   auth?: AuthConfig
   corsOrigins?: string | string[]
@@ -114,7 +114,7 @@ export interface ForgeServerConfig {
   /** Optional cost-aware router — automatically selects optimal model tier per run based on input complexity */
   router?: CostAwareRouter
   /** Optional run reflector — scores every completed run for quality tracking.
-   *  Uses structural typing to avoid a hard dependency on @forgeagent/agent. */
+   *  Uses structural typing to avoid a hard dependency on @dzipagent/agent. */
   reflector?: RunReflectorLike
   /** Optional retrieval feedback config. When provided alongside a reflector,
    *  maps reflection scores to AdaptiveRetriever feedback for weight learning. */
@@ -132,7 +132,7 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   const eventGateway = config.eventGateway ?? new InMemoryEventGateway(config.eventBus)
   const fallbackRunExecutor = createDefaultRunExecutor(config.modelRegistry)
   const effectiveRunExecutor = config.runExecutor
-    ?? createForgeAgentRunExecutor({ fallback: fallbackRunExecutor })
+    ?? createDzipAgentRunExecutor({ fallback: fallbackRunExecutor })
   const runtimeConfig: ForgeServerConfig = {
     ...config,
     runExecutor: effectiveRunExecutor,

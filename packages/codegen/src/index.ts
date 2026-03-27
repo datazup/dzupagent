@@ -1,7 +1,7 @@
 /**
- * @forgeagent/codegen — Code generation engine
+ * @dzipagent/codegen — Code generation engine
  *
- * Built on @forgeagent/core. Provides: virtual filesystem,
+ * Built on @dzipagent/core. Provides: virtual filesystem,
  * code generation nodes, sandbox execution, quality scoring,
  * framework adaptation, pipeline builder, generic tools,
  * and API contract extraction.
@@ -386,4 +386,4 @@ export type {
 } from './guardrails/guardrail-types.js'
 
 // Placeholder export to make the package valid
-export const FORGEAGENT_CODEGEN_VERSION = '0.1.0'
+export const dzipagent_CODEGEN_VERSION = '0.1.0'

@@ -3,7 +3,7 @@
  *
  * - `RunEvent` captures every meaningful event during a run
  * - `EventLogStore` is the abstract interface; `InMemoryEventLog` is the dev/test impl
- * - `EventLogSink` auto-captures ForgeEventBus events into a log
+ * - `EventLogSink` auto-captures DzipEventBus events into a log
  */
 
 // ---------------------------------------------------------------------------
@@ -91,16 +91,16 @@ export class InMemoryEventLog implements EventLogStore {
 }
 
 // ---------------------------------------------------------------------------
-// Event bus sink — auto-records ForgeEventBus events into an EventLogStore
+// Event bus sink — auto-records DzipEventBus events into an EventLogStore
 // ---------------------------------------------------------------------------
 
-/** Minimal event bus contract for the sink (avoids tight coupling to ForgeEventBus). */
+/** Minimal event bus contract for the sink (avoids tight coupling to DzipEventBus). */
 interface EventBusLike {
   onAny: (handler: (event: { type: string; [key: string]: unknown }) => void) => () => void
 }
 
 /**
- * Listens to a ForgeEventBus and auto-appends every event to an EventLogStore.
+ * Listens to a DzipEventBus and auto-appends every event to an EventLogStore.
  */
 export class EventLogSink {
   constructor(private readonly log: EventLogStore) {}

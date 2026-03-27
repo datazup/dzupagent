@@ -6,7 +6,7 @@
  * pluggable merge strategy.
  */
 import { HumanMessage } from '@langchain/core/messages'
-import type { ForgeAgent } from '../agent/forge-agent.js'
+import type { DzipAgent } from '../agent/dzip-agent.js'
 import type { MergeStrategyFn } from './merge-strategies.js'
 import { getMergeStrategy } from './merge-strategies.js'
 
@@ -95,7 +95,7 @@ function resolveMerge(config: Partial<MapReduceConfig>): MergeStrategyFn {
 }
 
 async function executeAgent(
-  agent: ForgeAgent,
+  agent: DzipAgent,
   input: string,
   chunkIndex: number,
   signal?: AbortSignal,
@@ -155,7 +155,7 @@ function buildResult(
  * Failed chunks are captured (not thrown) so other chunks can complete.
  */
 export async function mapReduce(
-  agent: ForgeAgent,
+  agent: DzipAgent,
   chunks: string[],
   config?: Partial<MapReduceConfig>,
 ): Promise<MapReduceResult> {
@@ -169,7 +169,7 @@ export async function mapReduce(
  * Uses `Promise.allSettled` internally so a single failure never blocks the batch.
  */
 export async function mapReduceMulti(
-  tasks: Array<{ agent: ForgeAgent; input: string }>,
+  tasks: Array<{ agent: DzipAgent; input: string }>,
   config?: Partial<MapReduceConfig>,
 ): Promise<MapReduceResult> {
   const cfg = config ?? {}

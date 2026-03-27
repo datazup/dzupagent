@@ -5,8 +5,8 @@
  * Uses immutable update patterns (S6 fix) and numeric semver comparison (S7 fix).
  */
 import { ForgeError } from '../errors/forge-error.js'
-import type { ForgeEventBus } from '../events/event-bus.js'
-import type { ForgeEvent } from '../events/event-types.js'
+import type { DzipEventBus } from '../events/event-bus.js'
+import type { DzipEvent } from '../events/event-types.js'
 import { CapabilityMatcher, compareSemver } from './capability-matcher.js'
 import type {
   AgentHealth,
@@ -52,7 +52,7 @@ interface Subscription {
 export class InMemoryRegistry implements AgentRegistry {
   private readonly agents = new Map<string, RegisteredAgent>()
   private readonly subscriptions = new Set<Subscription>()
-  private readonly eventBus?: ForgeEventBus
+  private readonly eventBus?: DzipEventBus
   private readonly matcher = new CapabilityMatcher()
 
   constructor(config?: AgentRegistryConfig) {
@@ -572,7 +572,7 @@ export class InMemoryRegistry implements AgentRegistry {
     }
   }
 
-  /** Emit a registry event to subscriptions and optionally to the ForgeEventBus. */
+  /** Emit a registry event to subscriptions and optionally to the DzipEventBus. */
   private emitRegistryEvent(event: RegistryEvent): void {
     // Notify subscriptions
     for (const sub of this.subscriptions) {
@@ -585,9 +585,9 @@ export class InMemoryRegistry implements AgentRegistry {
       }
     }
 
-    // Forward to ForgeEventBus if available
+    // Forward to DzipEventBus if available
     if (this.eventBus) {
-      this.eventBus.emit(event as ForgeEvent)
+      this.eventBus.emit(event as DzipEvent)
     }
   }
 

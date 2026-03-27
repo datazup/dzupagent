@@ -6,7 +6,7 @@
  * @module recovery/recovery-executor
  */
 
-import type { ForgeEventBus } from '@forgeagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
 import type { ApprovalGate } from '../approval/approval-gate.js'
 import type {
   RecoveryPlan,
@@ -34,7 +34,7 @@ export type ActionHandler = (
 
 export interface RecoveryExecutorConfig {
   /** The event bus for emitting lifecycle events. */
-  eventBus: ForgeEventBus
+  eventBus: DzipEventBus
   /** Optional approval gate for high-risk strategies. */
   approvalGate?: ApprovalGate
   /** Copilot config for thresholds and flags. */

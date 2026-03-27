@@ -1,5 +1,5 @@
 /**
- * @forgeagent/context — Context window engineering for LLM conversations.
+ * @dzipagent/context — Context window engineering for LLM conversations.
  *
  * Provides message compression, tool result pruning, structured summarization,
  * context eviction, system reminders, completeness scoring, auto-compression

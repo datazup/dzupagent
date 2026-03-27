@@ -1,5 +1,5 @@
 /**
- * Exhaustive error codes for ForgeAgent.
+ * Exhaustive error codes for DzipAgent.
  * Each code maps to a specific failure mode with known recovery strategies.
  */
 export type ForgeErrorCode =

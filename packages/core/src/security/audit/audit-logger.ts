@@ -1,13 +1,13 @@
 /**
  * ComplianceAuditLogger — high-level audit logger that integrates
- * with the ForgeEventBus and ComplianceAuditStore.
+ * with the DzipEventBus and ComplianceAuditStore.
  *
  * Automatically records security-relevant events when attached
  * to an event bus, and provides a manual `record()` method for
  * custom audit entries.
  */
 
-import type { ForgeEventBus } from '../../events/event-bus.js'
+import type { DzipEventBus } from '../../events/event-bus.js'
 import type { ComplianceAuditStore } from './audit-store.js'
 import type { ComplianceAuditEntry, AuditResult } from './audit-types.js'
 
@@ -23,7 +23,7 @@ function generateId(): string {
 }
 
 /**
- * Maps ForgeEvent types to audit actions and extracts relevant details.
+ * Maps DzipEvent types to audit actions and extracts relevant details.
  */
 function eventToAuditAction(eventType: string): string | undefined {
   // Only auto-record security-relevant events
@@ -63,7 +63,7 @@ export class ComplianceAuditLogger {
    * Attach to an event bus. Security-relevant events will be
    * automatically recorded as audit entries.
    */
-  attach(eventBus: ForgeEventBus): void {
+  attach(eventBus: DzipEventBus): void {
     this.detach()
 
     this.unsubscribe = eventBus.onAny((event) => {

@@ -39,7 +39,7 @@ export interface MemoryArtifactPart {
 
 /** A2A Artifact envelope for memory batch transfer. */
 export interface MemoryArtifact {
-  name: 'forgeagent_memory_batch'
+  name: 'dzipagent_memory_batch'
   description: string
   parts: [MemoryArtifactPart]
 }
@@ -73,7 +73,7 @@ export function createMemoryArtifact(
   const temporalRange = computeTemporalRange(table)
 
   return {
-    name: 'forgeagent_memory_batch',
+    name: 'dzipagent_memory_batch',
     description:
       description ??
       `Memory batch from ${sourceAgent} (${table.numRows} records)`,

@@ -1,5 +1,5 @@
 /**
- * Bi-temporal memory modeling for ForgeAgent.
+ * Bi-temporal memory modeling for DzipAgent.
  *
  * Provides Zep/Graphiti-style 4-timestamp temporal metadata so that:
  * - "What was true last month?" (validAt queries)

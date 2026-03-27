@@ -1,4 +1,4 @@
-# @forgeagent/server
+# @dzipagent/server
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,18 +10,18 @@
 | Source Files | 84 |
 | Lines of Code | 21,421 |
 | Test Files | 39 |
-| Internal Dependencies | `@forgeagent/agent`, `@forgeagent/core`, `@forgeagent/memory-ipc` |
+| Internal Dependencies | `@dzipagent/agent`, `@dzipagent/core`, `@dzipagent/memory-ipc` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @forgeagent/server
+npm install @dzipagent/server
 ```
 <!-- AUTO-GENERATED-END -->
 
-Optional Hono-based HTTP/WebSocket runtime for ForgeAgent.
+Optional Hono-based HTTP/WebSocket runtime for DzipAgent.
 
 It provides REST APIs for agents/runs, realtime event streaming, optional memory routes, auth and rate limiting middleware, queue worker integration, and deployment/runtime helpers.
 
@@ -40,9 +40,9 @@ It provides REST APIs for agents/runs, realtime event streaming, optional memory
 ## Installation
 
 ```bash
-yarn add @forgeagent/server
+yarn add @dzipagent/server
 # or
-npm install @forgeagent/server
+npm install @dzipagent/server
 ```
 
 ## How To Use
@@ -50,13 +50,13 @@ npm install @forgeagent/server
 ### 1. Create a server app
 
 ```ts
-import { createForgeApp } from '@forgeagent/server'
+import { createForgeApp } from '@dzipagent/server'
 import {
   InMemoryAgentStore,
   InMemoryRunStore,
   ModelRegistry,
   createEventBus,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 
 const app = createForgeApp({
   runStore: new InMemoryRunStore(),
@@ -74,7 +74,7 @@ export default app
 ```ts
 const app = createForgeApp({
   ...baseConfig,
-  auth: { apiKeys: [process.env.FORGE_API_KEY!] },
+  auth: { apiKeys: [process.env.DZIP_API_KEY!] },
   rateLimit: { capacity: 60, refillRate: 1 },
 })
 ```
@@ -87,7 +87,7 @@ import { resolve } from 'node:path'
 const app = createForgeApp({
   ...baseConfig,
   playground: {
-    distDir: resolve(process.cwd(), 'packages/forgeagent-playground/dist'),
+    distDir: resolve(process.cwd(), 'packages/dzipagent-playground/dist'),
   },
 })
 ```

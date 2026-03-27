@@ -1,7 +1,7 @@
 {
-  "name": "@forgeagent/memory-ipc",
+  "name": "@dzipagent/memory-ipc",
   "version": "0.1.0",
-  "description": "Arrow-based IPC for inter-agent memory sharing in ForgeAgent",
+  "description": "Arrow-based IPC for inter-agent memory sharing in DzipAgent",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -24,11 +24,11 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@forgeagent/memory": "workspace:*",
+    "@dzipagent/memory": "*",
     "@duckdb/duckdb-wasm": ">=1.29.0"
   },
   "peerDependenciesMeta": {
-    "@forgeagent/memory": {
+    "@dzipagent/memory": {
       "optional": true
     },
     "@duckdb/duckdb-wasm": {

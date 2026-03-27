@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { InMemoryRunStore, createEventBus } from '@forgeagent/core'
-import type { ForgeEventBus, ForgeEvent, AgentDefinition } from '@forgeagent/core'
+import { InMemoryRunStore, createEventBus } from '@dzipagent/core'
+import type { DzipEventBus, DzipEvent, AgentDefinition } from '@dzipagent/core'
 import {
   SimpleDelegationTracker,
   type DelegationExecutor,
@@ -85,8 +85,8 @@ function makeSpecialist(
 
 describe('DelegatingSupervisor', () => {
   let store: InMemoryRunStore
-  let eventBus: ForgeEventBus
-  let events: ForgeEvent[]
+  let eventBus: DzipEventBus
+  let events: DzipEvent[]
 
   beforeEach(() => {
     store = new InMemoryRunStore()

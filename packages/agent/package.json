@@ -1,5 +1,5 @@
 {
-  "name": "@forgeagent/agent",
+  "name": "@dzipagent/agent",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -19,9 +19,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@forgeagent/core": "0.1.0",
-    "@forgeagent/context": "0.1.0",
-    "@forgeagent/memory-ipc": "0.1.0"
+    "@dzipagent/core": "0.1.0",
+    "@dzipagent/context": "0.1.0",
+    "@dzipagent/memory-ipc": "0.1.0"
   },
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",

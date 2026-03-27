@@ -1,7 +1,7 @@
-# @forgeagent/context Architecture
+# @dzipagent/context Architecture
 
 ## Purpose
-`@forgeagent/context` manages prompt window pressure and context quality. It provides compression, eviction, reminder injection, phase-aware retention, and transfer logic that keeps model context useful under token constraints.
+`@dzipagent/context` manages prompt window pressure and context quality. It provides compression, eviction, reminder injection, phase-aware retention, and transfer logic that keeps model context useful under token constraints.
 
 ## Main Responsibilities
 - Detect when message history should be summarized/compressed.
@@ -38,8 +38,8 @@ Top-level modules under `src/`:
 - Prompt-cache controls for cost/performance optimization.
 
 ## Integration Boundaries
-- Used by `@forgeagent/agent` during message preparation.
-- Reused by `@forgeagent/core` via exports/integration points.
+- Used by `@dzipagent/agent` during message preparation.
+- Reused by `@dzipagent/core` via exports/integration points.
 - Depends on LangChain message abstractions.
 
 ## Extensibility Points

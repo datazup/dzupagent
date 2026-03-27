@@ -1,5 +1,5 @@
 /**
- * ForgeTracer — wraps OTel SDK tracer with ForgeAgent-specific helpers.
+ * DzipTracer — wraps OTel SDK tracer with DzipAgent-specific helpers.
  *
  * Provides convenience methods for starting spans with the correct
  * semantic attributes pre-populated. If @opentelemetry/api is not installed,
@@ -7,7 +7,7 @@
  *
  * @example
  * ```ts
- * const tracer = new ForgeTracer({ serviceName: 'my-agent-service' })
+ * const tracer = new DzipTracer({ serviceName: 'my-agent-service' })
  *
  * await tracer.startAgentSpan('code-gen', 'run-123', async (span) => {
  *   await tracer.startLLMSpan('claude-sonnet-4-6', 'anthropic', async (llmSpan) => {
@@ -25,10 +25,10 @@ import { ForgeSpanAttr } from './span-attributes.js'
 import { forgeContextStore, type ForgeTraceContext } from './trace-context-store.js'
 
 /**
- * Configuration for ForgeTracer.
+ * Configuration for DzipTracer.
  */
-export interface ForgeTracerConfig {
-  /** Service name reported to OTel backends (default: 'forgeagent') */
+export interface DzipTracerConfig {
+  /** Service name reported to OTel backends (default: 'dzipagent') */
   serviceName?: string
 
   /**
@@ -49,19 +49,19 @@ export interface ForgeTraceSnapshot {
 }
 
 /**
- * ForgeTracer wraps an OTel tracer with domain-specific span helpers.
+ * DzipTracer wraps an OTel tracer with domain-specific span helpers.
  *
  * Each helper method:
- * 1. Creates a span with pre-populated ForgeAgent semantic attributes
+ * 1. Creates a span with pre-populated DzipAgent semantic attributes
  * 2. Runs the callback within a ForgeTraceContext (AsyncLocalStorage)
  * 3. Ends the span and sets error status if the callback throws
  */
-export class ForgeTracer {
+export class DzipTracer {
   private readonly _tracer: OTelTracer
   private readonly _serviceName: string
 
-  constructor(config?: ForgeTracerConfig) {
-    this._serviceName = config?.serviceName ?? 'forgeagent'
+  constructor(config?: DzipTracerConfig) {
+    this._serviceName = config?.serviceName ?? 'dzipagent'
     this._tracer = config?.tracer ?? new NoopTracer()
   }
 

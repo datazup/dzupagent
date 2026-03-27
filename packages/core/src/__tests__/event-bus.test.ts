@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createEventBus } from '../events/event-bus.js'
-import type { ForgeEvent } from '../events/event-types.js'
+import type { DzipEvent } from '../events/event-types.js'
 
-describe('ForgeEventBus', () => {
+describe('DzipEventBus', () => {
   it('emits events to typed listeners', () => {
     const bus = createEventBus()
     const handler = vi.fn()
@@ -56,7 +56,7 @@ describe('ForgeEventBus', () => {
 
   it('onAny() receives all event types', () => {
     const bus = createEventBus()
-    const events: ForgeEvent[] = []
+    const events: DzipEvent[] = []
 
     bus.onAny((event) => { events.push(event) })
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })

@@ -1,9 +1,9 @@
 /**
  * Memory CLI commands — browse and search memory namespaces.
  *
- * Uses MemoryServiceLike to avoid hard dependency on @forgeagent/memory.
+ * Uses MemoryServiceLike to avoid hard dependency on @dzipagent/memory.
  */
-import type { MemoryServiceLike } from '@forgeagent/memory-ipc'
+import type { MemoryServiceLike } from '@dzipagent/memory-ipc'
 
 export interface MemoryBrowseOptions {
   namespace: string

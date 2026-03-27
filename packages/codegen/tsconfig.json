@@ -22,8 +22,8 @@
     "noUnusedParameters": true,
     "types": ["node"],
     "paths": {
-      "@forgeagent/core": ["../forgeagent-core/dist"],
-      "@forgeagent/core/*": ["../forgeagent-core/dist/*"]
+      "@dzipagent/core": ["../dzipagent-core/dist"],
+      "@dzipagent/core/*": ["../dzipagent-core/dist/*"]
     }
   },
   "include": ["src/**/*.ts"],

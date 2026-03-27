@@ -8,5 +8,5 @@ export default defineConfig({
   sourcemap: true,
   target: 'node20',
   outDir: 'dist',
-  external: ['@forgeagent/core'],
+  external: ['@dzipagent/core', 'web-tree-sitter'],
 })

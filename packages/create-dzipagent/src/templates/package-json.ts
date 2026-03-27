@@ -30,8 +30,8 @@ export function generatePackageJson(options: PackageJsonOptions): string {
   }
 
   const dependencies: Record<string, string> = {
-    '@forgeagent/core': '^0.1.0',
-    '@forgeagent/agent': '^0.1.0',
+    '@dzipagent/core': '^0.1.0',
+    '@dzipagent/agent': '^0.1.0',
     ...buildFeatureDependencies(options.features, options.database),
     ...(options.templateDependencies ?? {}),
   }
@@ -67,12 +67,12 @@ function buildFeatureDependencies(
   const deps: Record<string, string> = {}
 
   if (features.includes('auth') || features.includes('dashboard') || features.includes('ai')) {
-    deps['@forgeagent/server'] = '^0.1.0'
+    deps['@dzipagent/server'] = '^0.1.0'
   }
 
   if (features.includes('ai')) {
-    deps['@forgeagent/memory'] = '^0.1.0'
-    deps['@forgeagent/context'] = '^0.1.0'
+    deps['@dzipagent/memory'] = '^0.1.0'
+    deps['@dzipagent/context'] = '^0.1.0'
   }
 
   if (database === 'postgres') {

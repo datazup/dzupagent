@@ -6,7 +6,7 @@
  * battery of tests: collection lifecycle, upsert/search, delete, count, health.
  *
  * Currently tested adapters:
- * - InMemoryVectorStore (@forgeagent/core)
+ * - InMemoryVectorStore (@dzipagent/core)
  * - Inline mock vector store (minimal conformance baseline)
  */
 
@@ -119,13 +119,13 @@ function createInlineMockVectorStore() {
 }
 
 /**
- * Create InMemoryVectorStore from @forgeagent/core.
+ * Create InMemoryVectorStore from @dzipagent/core.
  * Uses dynamic import to handle cases where core is not built yet.
  */
 async function createCoreInMemoryVectorStore(): Promise<unknown> {
   try {
     // Import from core — this is an actual dependency of evals
-    const { InMemoryVectorStore } = await import('@forgeagent/core');
+    const { InMemoryVectorStore } = await import('@dzipagent/core');
     return new InMemoryVectorStore();
   } catch {
     return null;
@@ -218,10 +218,10 @@ describe('VectorStore contract tests', () => {
   });
 
   // -------------------------------------------------------------------------
-  // InMemoryVectorStore from @forgeagent/core — conditional
+  // InMemoryVectorStore from @dzipagent/core — conditional
   // -------------------------------------------------------------------------
 
-  describe('InMemoryVectorStore (@forgeagent/core)', () => {
+  describe('InMemoryVectorStore (@dzipagent/core)', () => {
     let adapter: unknown;
     let available = false;
 
@@ -238,7 +238,7 @@ describe('VectorStore contract tests', () => {
 
     it('should pass all contract tests when available', async () => {
       if (!available) {
-        console.log('Skipping: @forgeagent/core InMemoryVectorStore not available');
+        console.log('Skipping: @dzipagent/core InMemoryVectorStore not available');
         return;
       }
 

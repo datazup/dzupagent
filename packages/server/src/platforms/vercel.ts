@@ -12,8 +12,8 @@ import type { Hono } from 'hono'
  * @example
  * ```ts
  * // api/index.ts (Vercel entry point)
- * import { createForgeApp } from '@forgeagent/server'
- * import { toVercelHandler } from '@forgeagent/server/platforms/vercel'
+ * import { createForgeApp } from '@dzipagent/server'
+ * import { toVercelHandler } from '@dzipagent/server/platforms/vercel'
  *
  * const app = createForgeApp({ ... })
  * export default toVercelHandler(app)

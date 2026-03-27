@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
-import { ForgeAgent } from '../agent/forge-agent.js'
+import { DzipAgent } from '../agent/dzip-agent.js'
 import { TopologyAnalyzer } from '../orchestration/topology/topology-analyzer.js'
 import { TopologyExecutor } from '../orchestration/topology/topology-executor.js'
 import type { TaskCharacteristics } from '../orchestration/topology/topology-types.js'
@@ -34,8 +34,8 @@ function createMockModel(
   } as unknown as BaseChatModel
 }
 
-function createAgent(id: string, content: string): ForgeAgent {
-  return new ForgeAgent({
+function createAgent(id: string, content: string): DzipAgent {
+  return new DzipAgent({
     id,
     description: `Agent ${id}`,
     instructions: `You are ${id}.`,
@@ -43,7 +43,7 @@ function createAgent(id: string, content: string): ForgeAgent {
   })
 }
 
-function createFailingAgent(id: string): ForgeAgent {
+function createFailingAgent(id: string): DzipAgent {
   const model = {
     invoke: vi.fn(async () => {
       throw new Error(`Agent ${id} failed`)
@@ -55,7 +55,7 @@ function createFailingAgent(id: string): ForgeAgent {
     _llmType: () => 'mock',
   } as unknown as BaseChatModel
 
-  return new ForgeAgent({
+  return new DzipAgent({
     id,
     description: `Failing agent ${id}`,
     instructions: `You are ${id}.`,
@@ -240,9 +240,9 @@ describe('TopologyExecutor', () => {
       const model3 = createMockModel([{ content: 'Final result' }])
 
       const agents = [
-        new ForgeAgent({ id: 'r1', instructions: 'Agent 1', model: model1 }),
-        new ForgeAgent({ id: 'r2', instructions: 'Agent 2', model: model2 }),
-        new ForgeAgent({ id: 'r3', instructions: 'Agent 3', model: model3 }),
+        new DzipAgent({ id: 'r1', instructions: 'Agent 1', model: model1 }),
+        new DzipAgent({ id: 'r2', instructions: 'Agent 2', model: model2 }),
+        new DzipAgent({ id: 'r3', instructions: 'Agent 3', model: model3 }),
       ]
 
       const { result, metrics } = await TopologyExecutor.executeRing({
@@ -276,8 +276,8 @@ describe('TopologyExecutor', () => {
       }
 
       const agents = [
-        new ForgeAgent({ id: 'r1', instructions: 'A1', model: makeModel() }),
-        new ForgeAgent({ id: 'r2', instructions: 'A2', model: makeModel() }),
+        new DzipAgent({ id: 'r1', instructions: 'A1', model: makeModel() }),
+        new DzipAgent({ id: 'r2', instructions: 'A2', model: makeModel() }),
       ]
 
       await TopologyExecutor.executeRing({

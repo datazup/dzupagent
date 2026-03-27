@@ -233,7 +233,7 @@ const navLinks = [
         </div>
         <div>
           <div class="text-sm font-semibold tracking-wide text-pg-text">
-            ForgeAgent
+            DzipAgent
           </div>
           <div class="text-xs text-pg-text-muted">
             Control Playground
@@ -321,7 +321,7 @@ const navLinks = [
           </div>
           <div>
             <p class="text-sm font-semibold leading-tight text-pg-text">
-              ForgeAgent Playground
+              DzipAgent Playground
             </p>
             <p class="text-xs text-pg-text-muted">
               Mobile workspace

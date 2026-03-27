@@ -9,7 +9,7 @@ import type {
   PipelineDefinition,
   PipelineNode,
   PipelineCheckpointStore,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 import type { RecoveryCopilot } from '../recovery/recovery-copilot.js'
 import type { PipelineStuckDetector } from '../self-correction/pipeline-stuck-detector.js'
 import type { TrajectoryCalibrator } from '../self-correction/trajectory-calibrator.js'
@@ -133,11 +133,11 @@ export interface RetryPolicy {
 }
 
 // ---------------------------------------------------------------------------
-// OTel structural types (no @forgeagent/otel import — loose coupling)
+// OTel structural types (no @dzipagent/otel import — loose coupling)
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal span interface compatible with OTelSpan from @forgeagent/otel.
+ * Minimal span interface compatible with OTelSpan from @dzipagent/otel.
  * Uses structural typing so consumers can pass any compatible span.
  */
 export interface OTelSpanLike {
@@ -147,7 +147,7 @@ export interface OTelSpanLike {
 
 /**
  * Structural tracer interface for pipeline node instrumentation.
- * Compatible with ForgeTracer from @forgeagent/otel but does not import it.
+ * Compatible with DzipTracer from @dzipagent/otel but does not import it.
  */
 export interface PipelineTracer {
   startPhaseSpan(phase: string, options?: { attributes?: Record<string, string | number> }): OTelSpanLike

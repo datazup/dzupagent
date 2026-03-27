@@ -7,7 +7,7 @@
  * @example
  * ```ts
  * const tools = createGitHubConnector({ token: process.env.GITHUB_TOKEN! })
- * const agent = new ForgeAgent({ tools, ... })
+ * const agent = new DzipAgent({ tools, ... })
  * ```
  */
 import { z } from 'zod'

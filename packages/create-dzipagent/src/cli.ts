@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * create-forgeagent CLI entry point.
+ * create-dzipagent CLI entry point.
  *
  * Usage:
- *   create-forgeagent [project-name] [options]
- *   create-forgeagent                          # starts interactive wizard
- *   create-forgeagent my-app --template full-stack --features auth,billing
- *   create-forgeagent my-app --preset starter
- *   create-forgeagent --list
+ *   create-dzipagent [project-name] [options]
+ *   create-dzipagent                          # starts interactive wizard
+ *   create-dzipagent my-app --template full-stack --features auth,billing
+ *   create-dzipagent my-app --preset starter
+ *   create-dzipagent --list
  */
 
 import { resolve } from 'node:path'
@@ -33,8 +33,8 @@ const VALID_TEMPLATES = new Set(Object.keys(templateRegistry))
 const program = new Command()
 
 program
-  .name('create-forgeagent')
-  .description('Scaffold a new ForgeAgent project from a template')
+  .name('create-dzipagent')
+  .description('Scaffold a new DzipAgent project from a template')
   .version('0.1.0')
   .argument('[project-name]', 'Name of the project directory to create')
   .option('-t, --template <type>', 'Template to use (default: minimal)')
@@ -97,7 +97,7 @@ async function run(projectName: string | undefined, options: CLIOptions): Promis
   // CLI args mode — validate and build config
   if (!projectName) {
     console.error(colors.red('Error: Missing project name.'))
-    console.error('Run create-forgeagent --help for usage.')
+    console.error('Run create-dzipagent --help for usage.')
     process.exit(1)
   }
 

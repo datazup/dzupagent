@@ -45,15 +45,15 @@ export const multiAgentTemplate: TemplateManifest = {
     },
     {
       path: 'src/index.ts',
-      templateContent: `// {{projectName}} — multi-agent ForgeAgent project
-import { ForgeAgent } from '@forgeagent/agent'
+      templateContent: `// {{projectName}} — multi-agent DzipAgent project
+import { DzipAgent } from '@dzipagent/agent'
 
-const planner = new ForgeAgent({
+const planner = new DzipAgent({
   name: '{{projectName}}-planner',
   instructions: 'You break down complex tasks into sub-tasks.',
 })
 
-const executor = new ForgeAgent({
+const executor = new DzipAgent({
   name: '{{projectName}}-executor',
   instructions: 'You execute individual sub-tasks precisely.',
 })
@@ -64,10 +64,10 @@ console.log('Multi-agent system created:', planner.name, executor.name)
     {
       path: 'src/agents/planner.ts',
       templateContent: `// Planner agent for {{projectName}}
-import { ForgeAgent } from '@forgeagent/agent'
+import { DzipAgent } from '@dzipagent/agent'
 
-export function createPlanner(): ForgeAgent {
-  return new ForgeAgent({
+export function createPlanner(): DzipAgent {
+  return new DzipAgent({
     name: '{{projectName}}-planner',
     instructions: 'You are a task planner. Decompose complex requests into steps.',
   })
@@ -75,7 +75,7 @@ export function createPlanner(): ForgeAgent {
 `,
     },
     {
-      path: 'forgeagent.config.json',
+      path: 'dzipagent.config.json',
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
@@ -106,8 +106,8 @@ dist/
     },
   ],
   dependencies: {
-    '@forgeagent/core': '^0.1.0',
-    '@forgeagent/agent': '^0.1.0',
+    '@dzipagent/core': '^0.1.0',
+    '@dzipagent/agent': '^0.1.0',
   },
   devDependencies: {
     typescript: '^5.4.0',

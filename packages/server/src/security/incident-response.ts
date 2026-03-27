@@ -1,8 +1,8 @@
 /**
- * Incident response engine — monitors ForgeEventBus for security-relevant
+ * Incident response engine — monitors DzipEventBus for security-relevant
  * events and executes automated playbooks (kill agent, disable tool, etc.).
  */
-import type { ForgeEventBus, ForgeEvent } from '@forgeagent/core'
+import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,7 +16,7 @@ export type IncidentAction =
   | 'log_alert'
 
 export interface IncidentTrigger {
-  /** ForgeEvent type to match */
+  /** DzipEvent type to match */
   eventType: string
   /** Optional filter — only triggers when condition returns true */
   condition?: (event: Record<string, unknown>) => boolean
@@ -218,11 +218,11 @@ export class IncidentResponseEngine {
   }
 
   /**
-   * Start monitoring — subscribe to ForgeEventBus.
+   * Start monitoring — subscribe to DzipEventBus.
    */
-  attach(eventBus: ForgeEventBus): void {
+  attach(eventBus: DzipEventBus): void {
     this.detach()
-    this.unsubscribe = eventBus.onAny((event: ForgeEvent) => {
+    this.unsubscribe = eventBus.onAny((event: DzipEvent) => {
       void this.handleEvent(event)
     })
   }
@@ -313,7 +313,7 @@ export class IncidentResponseEngine {
   // Internal
   // -------------------------------------------------------------------------
 
-  private async handleEvent(event: ForgeEvent): Promise<void> {
+  private async handleEvent(event: DzipEvent): Promise<void> {
     const eventType = event.type
     const eventRecord = event as unknown as Record<string, unknown>
 

@@ -7,7 +7,7 @@
  * @module pipeline/pipeline-templates
  */
 
-import type { PipelineDefinition } from '@forgeagent/core'
+import type { PipelineDefinition } from '@dzipagent/core'
 
 // ---------------------------------------------------------------------------
 // Code Review Pipeline

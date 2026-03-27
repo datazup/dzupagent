@@ -1,4 +1,4 @@
-# @forgeagent/context
+# @dzipagent/context
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -17,7 +17,7 @@
 
 ### Install
 ```bash
-npm install @forgeagent/context
+npm install @dzipagent/context
 ```
 <!-- AUTO-GENERATED-END -->
 
@@ -36,7 +36,7 @@ Context window engineering for LLM conversations built on LangChain message type
 ## Install
 
 ```bash
-npm install @forgeagent/context
+npm install @dzipagent/context
 # peer deps
 npm install @langchain/core
 ```
@@ -49,7 +49,7 @@ import {
   SystemReminderInjector,
   evictIfNeeded,
   applyCacheBreakpoints,
-} from '@forgeagent/context'
+} from '@dzipagent/context'
 
 // Auto-compress when conversation grows too long
 const { messages, summary, compressed } = await autoCompress(

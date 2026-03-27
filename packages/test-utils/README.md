@@ -1,4 +1,4 @@
-# @forgeagent/test-utils
+# @dzipagent/test-utils
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,25 +10,25 @@
 | Source Files | 4 |
 | Lines of Code | 466 |
 | Test Files | 1 |
-| Internal Dependencies | `@forgeagent/core` |
+| Internal Dependencies | `@dzipagent/core` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @forgeagent/test-utils
+npm install @dzipagent/test-utils
 ```
 <!-- AUTO-GENERATED-END -->
 
-Testing utilities for ForgeAgent. Provides mock LLM models, an LLM recorder for deterministic test replay, and factory helpers for creating test agents, stores, and event buses. Zero network dependencies -- all tests run fully offline.
+Testing utilities for DzipAgent. Provides mock LLM models, an LLM recorder for deterministic test replay, and factory helpers for creating test agents, stores, and event buses. Zero network dependencies -- all tests run fully offline.
 
 ## Installation
 
 ```bash
-yarn add @forgeagent/test-utils --dev
+yarn add @dzipagent/test-utils --dev
 # or
-npm install @forgeagent/test-utils --save-dev
+npm install @dzipagent/test-utils --save-dev
 ```
 
 ## Quick Start
@@ -40,7 +40,7 @@ import {
   createTestAgent,
   createTestEventBus,
   waitForEvent,
-} from '@forgeagent/test-utils'
+} from '@dzipagent/test-utils'
 
 // Mock model with scripted responses
 const model = new MockChatModel([
@@ -64,7 +64,7 @@ const event = await eventPromise
 Record real LLM calls and replay them in tests for deterministic, offline testing:
 
 ```ts
-import { LLMRecorder } from '@forgeagent/test-utils'
+import { LLMRecorder } from '@dzipagent/test-utils'
 
 // Record mode: calls real LLM and saves fixtures
 const recorder = new LLMRecorder({
@@ -102,19 +102,19 @@ const replayer = new LLMRecorder({
 - `createTestEventBus()` -- in-memory event bus for testing
 - `createTestRunStore()` -- in-memory run store
 - `createTestAgentStore()` -- in-memory agent store
-- `createTestAgent(config)` -- create a ForgeAgent with all test dependencies
-- `createTestConfig(overrides)` -- create a ForgeAgentConfig with sensible defaults
+- `createTestAgent(config)` -- create a DzipAgent with all test dependencies
+- `createTestConfig(overrides)` -- create a DzipAgentConfig with sensible defaults
 - `waitForEvent(bus, type)` -- wait for a specific event with timeout
 
 ### Version
 
-- `FORGEAGENT_TEST_UTILS_VERSION: string` -- `'0.1.0'`
+- `dzipagent_TEST_UTILS_VERSION: string` -- `'0.1.0'`
 
 ## Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@forgeagent/core` | `0.1.0` | Core infrastructure |
+| `@dzipagent/core` | `0.1.0` | Core infrastructure |
 
 ## Peer Dependencies
 

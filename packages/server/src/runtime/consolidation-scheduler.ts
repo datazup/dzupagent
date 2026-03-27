@@ -7,7 +7,7 @@
  *
  * Integrates with GracefulShutdown for clean teardown.
  */
-import type { ForgeEventBus } from '@forgeagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
 
 export interface ConsolidationTask {
   /** Run one consolidation cycle. Returns a summary string for logging. */
@@ -35,7 +35,7 @@ export interface ConsolidationSchedulerConfig {
   /** Maximum concurrent consolidation runs (default: 1) */
   maxConcurrent?: number
   /** Optional event bus for emitting consolidation lifecycle events */
-  eventBus?: ForgeEventBus
+  eventBus?: DzipEventBus
   /** Active run count provider — consolidation waits until this returns 0 */
   activeRunCount?: () => number
 }
@@ -52,7 +52,7 @@ export class ConsolidationScheduler {
   private readonly idleThresholdMs: number
   private readonly maxConcurrent: number
   private readonly task: ConsolidationTask
-  private readonly eventBus?: ForgeEventBus
+  private readonly eventBus?: DzipEventBus
   private readonly activeRunCount: () => number
 
   constructor(config: ConsolidationSchedulerConfig) {

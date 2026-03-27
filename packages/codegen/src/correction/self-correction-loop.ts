@@ -13,10 +13,10 @@
  * provide real or mock implementations.
  *
  * Events are emitted through a simple callback interface rather than
- * coupling to ForgeEventBus directly, keeping the module self-contained.
+ * coupling to DzipEventBus directly, keeping the module self-contained.
  */
 
-import type { TokenUsage } from '@forgeagent/core'
+import type { TokenUsage } from '@dzipagent/core'
 import type {
   SelfCorrectionConfig,
   CorrectionContext,

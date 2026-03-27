@@ -2,7 +2,7 @@
  * Extension methods that add Arrow export/import to MemoryService.
  *
  * Uses a minimal MemoryServiceLike interface to avoid hard dependency
- * on @forgeagent/memory. Works with any object that has get/search/put methods.
+ * on @dzipagent/memory. Works with any object that has get/search/put methods.
  */
 
 import { type Table } from 'apache-arrow'
@@ -34,7 +34,7 @@ export type ImportStrategy = 'upsert' | 'append' | 'replace'
 
 /**
  * Minimal interface for MemoryService.
- * Avoids hard dependency on @forgeagent/memory.
+ * Avoids hard dependency on @dzipagent/memory.
  */
 export interface MemoryServiceLike {
   get(

@@ -5,7 +5,7 @@ import {
   InMemoryAgentStore,
   ModelRegistry,
   createEventBus,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 import type { RunQueue, RunJob, JobProcessor, QueueStats } from '../queue/run-queue.js'
 
 function createTestConfig(): ForgeServerConfig {

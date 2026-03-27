@@ -1,7 +1,7 @@
-# @forgeagent/otel Architecture
+# @dzipagent/otel Architecture
 
 ## Purpose
-`@forgeagent/otel` connects ForgeAgent event streams to observability and governance primitives: tracing, metrics, cost attribution, safety monitoring, and tamper-evident auditing.
+`@dzipagent/otel` connects DzipAgent event streams to observability and governance primitives: tracing, metrics, cost attribution, safety monitoring, and tamper-evident auditing.
 
 ## Main Responsibilities
 - Provide tracer abstraction with optional OpenTelemetry backends.
@@ -39,7 +39,7 @@ Top-level modules under `src/`:
 - Tamper-evident auditing for post-incident traceability.
 
 ## Integration Boundaries
-- Depends on `@forgeagent/core` event/plugin contracts.
+- Depends on `@dzipagent/core` event/plugin contracts.
 - Integrates with any Forge runtime exposing an event bus.
 - Optionally integrates with OTel SDK packages via peer dependencies.
 

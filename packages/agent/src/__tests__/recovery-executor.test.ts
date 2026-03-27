@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@forgeagent/core'
-import type { ForgeEventBus } from '@forgeagent/core'
+import { createEventBus } from '@dzipagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
 import { ApprovalGate } from '../approval/approval-gate.js'
 import { RecoveryExecutor } from '../recovery/recovery-executor.js'
 import type { RecoveryPlan, RecoveryCopilotConfig } from '../recovery/recovery-types.js'
@@ -44,7 +44,7 @@ function makePlan(overrides: Partial<RecoveryPlan> = {}): RecoveryPlan {
 }
 
 describe('RecoveryExecutor', () => {
-  let eventBus: ForgeEventBus
+  let eventBus: DzipEventBus
 
   beforeEach(() => {
     eventBus = createEventBus()

@@ -1,7 +1,7 @@
-# @forgeagent/server Architecture
+# @dzipagent/server Architecture
 
 ## Purpose
-`@forgeagent/server` is the network/runtime host for ForgeAgent. It exposes REST and event-stream interfaces, manages run execution lifecycles, and provides production middleware, queueing, persistence, and deployment adapters.
+`@dzipagent/server` is the network/runtime host for DzipAgent. It exposes REST and event-stream interfaces, manages run execution lifecycles, and provides production middleware, queueing, persistence, and deployment adapters.
 
 ## Main Responsibilities
 - Build a configured Hono app through `createForgeApp`.
@@ -15,7 +15,7 @@
 Top-level modules under `src/`:
 - `app.ts`: central app factory and wiring.
 - `routes/`: HTTP route groups (`health`, `agents`, `runs`, `approval`, `events`, `memory`, `registry`, `playground`, `a2a`).
-- `runtime/`: default and ForgeAgent run executors, worker startup, quota manager.
+- `runtime/`: default and DzipAgent run executors, worker startup, quota manager.
 - `queue/`: in-memory run queue abstraction.
 - `middleware/`: auth, rate limiter, identity, capability guard, RBAC, tenant scope.
 - `ws/`: node WS adapter, upgrade guards, control protocol, scope registry, session manager.
@@ -39,16 +39,16 @@ Top-level modules under `src/`:
 5. Stores are updated with run state/log artifacts.
 
 ## Main Features
-- Full HTTP + realtime control plane for ForgeAgent workloads.
-- Pluggable execution path (`default` or `forge-agent` executor).
+- Full HTTP + realtime control plane for DzipAgent workloads.
+- Pluggable execution path (`default` or `dzip-agent` executor).
 - Secure-by-default middleware composition.
 - Optional memory management APIs and static playground hosting.
 - Operational support for incident response, health checks, and deployment packaging.
 - Built-in docs and plugin/marketplace CLI utilities.
 
 ## Integration Boundaries
-- Depends on `@forgeagent/agent`, `@forgeagent/core`, and optional `@forgeagent/memory-ipc` memory services.
-- Serves `@forgeagent/playground` as static assets when configured.
+- Depends on `@dzipagent/agent`, `@dzipagent/core`, and optional `@dzipagent/memory-ipc` memory services.
+- Serves `@dzipagent/playground` as static assets when configured.
 - Designed to be embedded in worker/serverless adapters.
 
 ## Extensibility Points

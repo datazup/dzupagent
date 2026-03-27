@@ -1,5 +1,5 @@
 /**
- * @forgeagent/core/orchestration — Curated API facade for multi-agent
+ * @dzipagent/core/orchestration — Curated API facade for multi-agent
  * orchestration, pipelines, routing, and event-driven coordination.
  *
  * @example
@@ -8,7 +8,7 @@
  *   createEventBus,
  *   IntentRouter,
  *   PipelineDefinitionSchema,
- * } from '@forgeagent/core/orchestration';
+ * } from '@dzipagent/core/orchestration';
  * ```
  */
 
@@ -16,8 +16,8 @@
 // Events
 // ---------------------------------------------------------------------------
 export { createEventBus } from '../events/event-bus.js'
-export type { ForgeEventBus } from '../events/event-bus.js'
-export type { ForgeEvent, ForgeEventOf, BudgetUsage, ToolStatSummary } from '../events/event-types.js'
+export type { DzipEventBus } from '../events/event-bus.js'
+export type { DzipEvent, DzipEventOf, BudgetUsage, ToolStatSummary } from '../events/event-types.js'
 export { AgentBus } from '../events/agent-bus.js'
 export type { AgentMessage, AgentMessageHandler } from '../events/agent-bus.js'
 
@@ -30,7 +30,7 @@ export { runHooks, runModifierHook, mergeHooks } from '../hooks/hook-runner.js'
 // ---------------------------------------------------------------------------
 // Plugin system
 // ---------------------------------------------------------------------------
-export type { ForgePlugin, PluginContext } from '../plugin/plugin-types.js'
+export type { DzipPlugin, PluginContext } from '../plugin/plugin-types.js'
 export { PluginRegistry } from '../plugin/plugin-registry.js'
 export { discoverPlugins, validateManifest, resolvePluginOrder } from '../plugin/plugin-discovery.js'
 export type { PluginManifest, DiscoveredPlugin, PluginDiscoveryConfig } from '../plugin/plugin-discovery.js'

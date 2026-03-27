@@ -1,5 +1,5 @@
 /**
- * Resource quota management interfaces for multi-tenant ForgeAgent deployments.
+ * Resource quota management interfaces for multi-tenant DzipAgent deployments.
  *
  * Provides quota enforcement, reservation-based resource management, and
  * automatic cleanup of expired reservations.

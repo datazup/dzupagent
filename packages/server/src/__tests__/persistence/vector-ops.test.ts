@@ -181,10 +181,10 @@ describe('innerProduct', () => {
 // ---------------------------------------------------------------------------
 
 describe('drizzle-schema vector columns', () => {
-  it('forgeAgents has instructionEmbedding column', async () => {
-    const { forgeAgents } = await import('../../persistence/drizzle-schema.js')
-    expect(forgeAgents.instructionEmbedding).toBeDefined()
-    expect(forgeAgents.instructionEmbedding.name).toBe('instruction_embedding')
+  it('dzipAgents has instructionEmbedding column', async () => {
+    const { dzipAgents } = await import('../../persistence/drizzle-schema.js')
+    expect(dzipAgents.instructionEmbedding).toBeDefined()
+    expect(dzipAgents.instructionEmbedding.name).toBe('instruction_embedding')
   })
 
   it('forgeRuns has inputEmbedding column', async () => {

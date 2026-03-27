@@ -20,8 +20,8 @@ import type {
   IncidentPlaybook,
   IncidentResponseConfig,
 } from '../security/incident-response.js'
-import { createEventBus } from '@forgeagent/core'
-import type { ForgeEventBus } from '@forgeagent/core'
+import { createEventBus } from '@dzipagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
 
 // ===========================================================================
 // ECO-177: Plugin Marketplace
@@ -120,7 +120,7 @@ describe('Plugin Marketplace', () => {
 // ===========================================================================
 
 describe('IncidentResponseEngine', () => {
-  let eventBus: ForgeEventBus
+  let eventBus: DzipEventBus
   let engine: IncidentResponseEngine
 
   function makePlaybook(overrides?: Partial<IncidentPlaybook>): IncidentPlaybook {

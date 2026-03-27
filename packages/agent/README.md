@@ -1,4 +1,4 @@
-# @forgeagent/agent
+# @dzipagent/agent
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,33 +10,33 @@
 | Source Files | 76 |
 | Lines of Code | 28,873 |
 | Test Files | 41 |
-| Internal Dependencies | `@forgeagent/context`, `@forgeagent/core`, `@forgeagent/memory-ipc` |
+| Internal Dependencies | `@dzipagent/context`, `@dzipagent/core`, `@dzipagent/memory-ipc` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @forgeagent/agent
+npm install @dzipagent/agent
 ```
 <!-- AUTO-GENERATED-END -->
 
-Top-level agent abstraction for the ForgeAgent framework. Provides the `ForgeAgent` class with generate/stream/asTool capabilities, guardrails, workflow engine, multi-agent orchestration, pipelines, structured output, approval gates, and security.
+Top-level agent abstraction for the DzipAgent framework. Provides the `DzipAgent` class with generate/stream/asTool capabilities, guardrails, workflow engine, multi-agent orchestration, pipelines, structured output, approval gates, and security.
 
 ## Installation
 
 ```bash
-yarn add @forgeagent/agent
+yarn add @dzipagent/agent
 # or
-npm install @forgeagent/agent
+npm install @dzipagent/agent
 ```
 
 ## Quick Start
 
 ```ts
-import { ForgeAgent } from '@forgeagent/agent'
+import { DzipAgent } from '@dzipagent/agent'
 
-const agent = new ForgeAgent({
+const agent = new DzipAgent({
   name: 'code-reviewer',
   model: chatModel,
   systemPrompt: 'You are a code review agent.',
@@ -60,11 +60,11 @@ const reviewTool = agent.asTool({ description: 'Run code review' })
 
 ### Agent
 
-- `ForgeAgent` -- main agent class with `generate()`, `stream()`, and `asTool()` methods
+- `DzipAgent` -- main agent class with `generate()`, `stream()`, and `asTool()` methods
 - `runToolLoop(config): Promise<ToolLoopResult>` -- execute a tool loop with budget tracking
 - `DynamicToolRegistry` -- runtime tool add/remove with event notifications
 
-**Types:** `ForgeAgentConfig`, `ArrowMemoryConfig`, `GenerateOptions`, `GenerateResult`, `AgentStreamEvent`, `ToolLoopConfig`, `ToolLoopResult`, `ToolRegistryEvent`
+**Types:** `DzipAgentConfig`, `ArrowMemoryConfig`, `GenerateOptions`, `GenerateResult`, `AgentStreamEvent`, `ToolLoopConfig`, `ToolLoopResult`, `ToolRegistryEvent`
 
 ### Guardrails
 
@@ -156,15 +156,15 @@ const reviewTool = agent.asTool({ description: 'Run code review' })
 
 ### Version
 
-- `FORGEAGENT_AGENT_VERSION: string` -- `'0.1.0'`
+- `dzipagent_AGENT_VERSION: string` -- `'0.1.0'`
 
 ## Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@forgeagent/core` | `0.1.0` | Core infrastructure (LLM, memory, events) |
-| `@forgeagent/context` | `0.1.0` | Context window management |
-| `@forgeagent/memory-ipc` | `0.1.0` | Arrow-based memory IPC |
+| `@dzipagent/core` | `0.1.0` | Core infrastructure (LLM, memory, events) |
+| `@dzipagent/context` | `0.1.0` | Context window management |
+| `@dzipagent/memory-ipc` | `0.1.0` | Arrow-based memory IPC |
 
 ## Peer Dependencies
 

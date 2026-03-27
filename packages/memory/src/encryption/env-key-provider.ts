@@ -1,16 +1,16 @@
 /**
  * Reads encryption keys from environment variables.
  *
- * Format: FORGE_MEMORY_KEY_{ID}=hex-encoded-256-bit-key  (64 hex chars = 32 bytes)
- * Active key: FORGE_MEMORY_KEY_ACTIVE={ID}
+ * Format: DZIP_MEMORY_KEY_{ID}=hex-encoded-256-bit-key  (64 hex chars = 32 bytes)
+ * Active key: DZIP_MEMORY_KEY_ACTIVE={ID}
  *
  * Example:
- *   FORGE_MEMORY_KEY_k1=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
- *   FORGE_MEMORY_KEY_ACTIVE=k1
+ *   DZIP_MEMORY_KEY_k1=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+ *   DZIP_MEMORY_KEY_ACTIVE=k1
  */
 import type { EncryptionKeyProvider, EncryptionKeyDescriptor } from './types.js'
 
-const KEY_PREFIX = 'FORGE_MEMORY_KEY_'
+const KEY_PREFIX = 'DZIP_MEMORY_KEY_'
 const ACTIVE_SUFFIX = 'ACTIVE'
 const EXPECTED_HEX_LENGTH = 64 // 32 bytes = 64 hex chars
 const HEX_PATTERN = /^[0-9a-fA-F]+$/

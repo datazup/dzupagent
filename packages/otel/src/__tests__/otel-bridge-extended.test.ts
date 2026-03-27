@@ -7,20 +7,20 @@
  * - Error swallowing in event handler
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { createEventBus } from '@forgeagent/core'
-import type { ForgeEventBus } from '@forgeagent/core'
-import { ForgeTracer } from '../tracer.js'
+import { createEventBus } from '@dzipagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
+import { DzipTracer } from '../tracer.js'
 import { OTelBridge, InMemoryMetricSink } from '../otel-bridge.js'
 
 describe('OTelBridge extended', () => {
-  let bus: ForgeEventBus
-  let tracer: ForgeTracer
+  let bus: DzipEventBus
+  let tracer: DzipTracer
   let sink: InMemoryMetricSink
   let bridge: OTelBridge
 
   beforeEach(() => {
     bus = createEventBus()
-    tracer = new ForgeTracer()
+    tracer = new DzipTracer()
     sink = new InMemoryMetricSink()
     bridge = new OTelBridge({ tracer, metricSink: sink })
     bridge.attach(bus)
@@ -604,7 +604,7 @@ describe('OTelBridge extended', () => {
       })
 
       // Metrics should still be recorded
-      expect(noSpanSink.getCounter('forge_agent_runs_total', {
+      expect(noSpanSink.getCounter('dzip_agent_runs_total', {
         agent_id: 'a1',
         status: 'started',
       })).toBe(1)

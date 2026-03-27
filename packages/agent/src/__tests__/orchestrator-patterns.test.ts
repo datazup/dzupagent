@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
-import { ForgeAgent } from '../agent/forge-agent.js'
+import { DzipAgent } from '../agent/dzip-agent.js'
 import { AgentOrchestrator } from '../orchestration/orchestrator.js'
 import { OrchestrationError } from '../orchestration/orchestration-error.js'
 
@@ -65,8 +65,8 @@ function createFailModel(errorMsg: string): BaseChatModel {
 function createAgent(
   id: string,
   responses: Array<{ content: string }>,
-): ForgeAgent {
-  return new ForgeAgent({
+): DzipAgent {
+  return new DzipAgent({
     id,
     name: id,
     model: createMockModel(responses),
@@ -78,8 +78,8 @@ function createAgentWithModel(
   id: string,
   description: string,
   model: BaseChatModel,
-): ForgeAgent {
-  return new ForgeAgent({
+): DzipAgent {
+  return new DzipAgent({
     id,
     description,
     instructions: `You are ${id}.`,
@@ -143,7 +143,7 @@ describe('AgentOrchestrator.sequential', () => {
 
   it('middle agent failure propagates and stops the chain', async () => {
     const agentA = createAgent('a', [{ content: 'ok-from-a' }])
-    const failAgent = new ForgeAgent({
+    const failAgent = new DzipAgent({
       id: 'fail',
       name: 'fail',
       model: createFailModel('middle-agent-exploded'),
@@ -259,7 +259,7 @@ describe('AgentOrchestrator.parallel', () => {
 
   it('rejects if any agent fails (Promise.all behavior)', async () => {
     const goodAgent = createAgent('good', [{ content: 'ok' }])
-    const failAgent = new ForgeAgent({
+    const failAgent = new DzipAgent({
       id: 'fail',
       name: 'fail',
       model: createFailModel('parallel-fail'),
@@ -302,7 +302,7 @@ describe('AgentOrchestrator.supervisor', () => {
     expect(result.filteredSpecialists).toEqual([])
 
     // The manager's model should have had bindTools called with the specialist tool
-    // (the orchestrator creates a new ForgeAgent internally, so we check indirectly)
+    // (the orchestrator creates a new DzipAgent internally, so we check indirectly)
   })
 
   it('health check filters out unhealthy specialists', async () => {
@@ -548,7 +548,7 @@ describe('AgentOrchestrator.debate', () => {
     const proposer1 = createAgent('v-prop1', [{ content: 'Plan Alpha' }])
     const proposer2 = createAgent('v-prop2', [{ content: 'Plan Beta' }])
 
-    const judge = new ForgeAgent({
+    const judge = new DzipAgent({
       id: 'v-judge',
       name: 'v-judge',
       model: judgeModel,
@@ -593,7 +593,7 @@ describe('AgentOrchestrator.debate', () => {
 
   it('proposer failure rejects the entire debate', async () => {
     const goodProposer = createAgent('good', [{ content: 'good proposal' }])
-    const failProposer = new ForgeAgent({
+    const failProposer = new DzipAgent({
       id: 'fail-prop',
       name: 'fail-prop',
       model: createFailModel('proposer-crashed'),
@@ -613,7 +613,7 @@ describe('AgentOrchestrator.debate', () => {
 
   it('judge failure after proposals rejects the debate', async () => {
     const proposer = createAgent('prop', [{ content: 'A proposal' }])
-    const failJudge = new ForgeAgent({
+    const failJudge = new DzipAgent({
       id: 'fail-judge',
       name: 'fail-judge',
       model: createFailModel('judge-crashed'),

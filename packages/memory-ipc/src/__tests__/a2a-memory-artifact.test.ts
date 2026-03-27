@@ -49,7 +49,7 @@ describe('createMemoryArtifact', () => {
     const table = buildTestTable(3)
     const artifact = createMemoryArtifact(table, 'agent://planner')
 
-    expect(artifact.name).toBe('forgeagent_memory_batch')
+    expect(artifact.name).toBe('dzipagent_memory_batch')
     expect(artifact.description).toContain('agent://planner')
     expect(artifact.description).toContain('3 records')
     expect(artifact.parts.length).toBe(1)

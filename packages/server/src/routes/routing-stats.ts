@@ -8,7 +8,7 @@
  * visibility into how the cost-aware router distributes traffic.
  */
 import { Hono } from 'hono'
-import type { RunStore } from '@forgeagent/core'
+import type { RunStore } from '@dzipagent/core'
 
 export interface RoutingStatsConfig {
   runStore: RunStore

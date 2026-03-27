@@ -149,13 +149,13 @@ export function createSampleRegistry(): MarketplaceRegistry {
     {
       name: '@forge/otel-tracer',
       version: '1.2.0',
-      description: 'OpenTelemetry tracing for ForgeAgent runs and tool calls',
+      description: 'OpenTelemetry tracing for DzipAgent runs and tool calls',
       author: 'ForgeTeam',
       category: 'observability',
       tags: ['tracing', 'opentelemetry', 'spans', 'metrics'],
       verified: true,
       downloads: 12450,
-      repository: 'https://github.com/forgeagent/otel-tracer',
+      repository: 'https://github.com/dzipagent/otel-tracer',
     },
     {
       name: '@forge/prom-metrics',
@@ -166,7 +166,7 @@ export function createSampleRegistry(): MarketplaceRegistry {
       tags: ['prometheus', 'metrics', 'monitoring', 'grafana'],
       verified: true,
       downloads: 8320,
-      repository: 'https://github.com/forgeagent/prom-metrics',
+      repository: 'https://github.com/dzipagent/prom-metrics',
     },
     {
       name: '@forge/redis-memory',

@@ -1,8 +1,8 @@
 /**
- * @forgeagent/connectors — Pre-built integrations for ForgeAgent.
+ * @dzipagent/connectors — Pre-built integrations for DzipAgent.
  *
  * Each connector produces LangChain DynamicStructuredTools that can be
- * passed directly to ForgeAgent's `tools` config.
+ * passed directly to DzipAgent's `tools` config.
  */
 
 // --- Types ---
@@ -50,4 +50,4 @@ export type {
 } from './database/index.js'
 
 // --- Version ---
-export const FORGEAGENT_CONNECTORS_VERSION = '0.1.0'
+export const dzipagent_CONNECTORS_VERSION = '0.1.0'

@@ -5,7 +5,7 @@
  */
 import { eq, desc, and, sql, asc, type SQL } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
-import { forgeAgents, forgeRuns, forgeRunLogs, forgeVectors } from './drizzle-schema.js'
+import { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors } from './drizzle-schema.js'
 import { cosineDistance, l2Distance, innerProduct } from './vector-ops.js'
 import type {
   RunStore,
@@ -17,7 +17,7 @@ import type {
   AgentStore,
   AgentDefinition,
   AgentFilter,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 
 type DB = PostgresJsDatabase<Record<string, never>>
 
@@ -165,7 +165,7 @@ export class PostgresAgentStore implements AgentStore {
     const existing = await this.get(agent.id)
     if (existing) {
       await this.db
-        .update(forgeAgents)
+        .update(dzipAgents)
         .set({
           name: agent.name,
           description: agent.description ?? null,
@@ -179,9 +179,9 @@ export class PostgresAgentStore implements AgentStore {
           metadata: agent.metadata ?? {},
           updatedAt: new Date(),
         })
-        .where(eq(forgeAgents.id, agent.id))
+        .where(eq(dzipAgents.id, agent.id))
     } else {
-      await this.db.insert(forgeAgents).values({
+      await this.db.insert(dzipAgents).values({
         id: agent.id,
         name: agent.name,
         description: agent.description ?? null,
@@ -199,8 +199,8 @@ export class PostgresAgentStore implements AgentStore {
   async get(id: string): Promise<AgentDefinition | null> {
     const rows = await this.db
       .select()
-      .from(forgeAgents)
-      .where(eq(forgeAgents.id, id))
+      .from(dzipAgents)
+      .where(eq(dzipAgents.id, id))
       .limit(1)
     const row = rows[0]
     return row ? this.toAgent(row) : null
@@ -208,16 +208,16 @@ export class PostgresAgentStore implements AgentStore {
 
   async list(filter?: AgentFilter): Promise<AgentDefinition[]> {
     const conditions: SQL[] = []
-    if (filter?.active !== undefined) conditions.push(eq(forgeAgents.active, filter.active))
+    if (filter?.active !== undefined) conditions.push(eq(dzipAgents.active, filter.active))
 
     const where = conditions.length > 0 ? and(...conditions) : undefined
     const limit = filter?.limit ?? 100
 
     const rows = await this.db
       .select()
-      .from(forgeAgents)
+      .from(dzipAgents)
       .where(where)
-      .orderBy(desc(forgeAgents.createdAt))
+      .orderBy(desc(dzipAgents.createdAt))
       .limit(limit)
 
     return rows.map(r => this.toAgent(r))
@@ -225,12 +225,12 @@ export class PostgresAgentStore implements AgentStore {
 
   async delete(id: string): Promise<void> {
     await this.db
-      .update(forgeAgents)
+      .update(dzipAgents)
       .set({ active: false, updatedAt: new Date() })
-      .where(eq(forgeAgents.id, id))
+      .where(eq(dzipAgents.id, id))
   }
 
-  private toAgent(row: typeof forgeAgents.$inferSelect): AgentDefinition {
+  private toAgent(row: typeof dzipAgents.$inferSelect): AgentDefinition {
     return {
       id: row.id,
       name: row.name,

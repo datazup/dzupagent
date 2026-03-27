@@ -1,4 +1,4 @@
-import type { HookContext } from '@forgeagent/core'
+import type { HookContext } from '@dzipagent/core'
 
 /** Approval mode for agent execution */
 export type ApprovalMode = 'auto' | 'required' | 'conditional'

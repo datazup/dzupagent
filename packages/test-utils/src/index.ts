@@ -1,5 +1,5 @@
 /**
- * @forgeagent/test-utils — Testing utilities for ForgeAgent.
+ * @dzipagent/test-utils — Testing utilities for DzipAgent.
  *
  * Provides: MockChatModel, LLMRecorder, test helpers.
  * Zero network dependencies — all tests run offline.
@@ -20,4 +20,4 @@ export {
   waitForEvent,
 } from './test-helpers.js'
 
-export const FORGEAGENT_TEST_UTILS_VERSION = '0.1.0'
+export const dzipagent_TEST_UTILS_VERSION = '0.1.0'

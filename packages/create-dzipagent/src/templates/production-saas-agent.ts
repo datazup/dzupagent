@@ -51,7 +51,7 @@ export const productionSaasAgentTemplate: TemplateManifest = {
     {
       path: 'src/index.ts',
       templateContent: `// {{projectName}} — production SaaS agent
-import { createForgeApp } from '@forgeagent/server'
+import { createForgeApp } from '@dzipagent/server'
 import { config } from './config.js'
 
 const app = createForgeApp({
@@ -110,7 +110,7 @@ export const config = {
   redisUrl: requireEnv('REDIS_URL'),
 
   // Auth
-  forgeApiKey: requireEnv('FORGE_API_KEY'),
+  forgeApiKey: requireEnv('DZIP_API_KEY'),
 
   // LLM
   anthropicApiKey: requireEnv('ANTHROPIC_API_KEY'),
@@ -201,7 +201,7 @@ volumes:
 `,
     },
     {
-      path: 'forgeagent.config.json',
+      path: 'dzipagent.config.json',
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
@@ -233,7 +233,7 @@ DATABASE_URL=postgresql://forge:forge_secret@localhost:5432/{{projectName}}
 REDIS_URL=redis://localhost:6379
 
 # Auth
-FORGE_API_KEY=your-forge-api-key
+DZIP_API_KEY=your-forge-api-key
 
 # LLM
 ANTHROPIC_API_KEY=your-api-key-here
@@ -250,7 +250,7 @@ RATE_LIMIT_RPM=60
       path: 'README.md',
       templateContent: `# {{projectName}}
 
-Production SaaS agent built with ForgeAgent.
+Production SaaS agent built with DzipAgent.
 
 ## Features
 
@@ -298,12 +298,12 @@ dist/
     },
   ],
   dependencies: {
-    '@forgeagent/core': '^0.1.0',
-    '@forgeagent/agent': '^0.1.0',
-    '@forgeagent/server': '^0.1.0',
-    '@forgeagent/memory': '^0.1.0',
-    '@forgeagent/context': '^0.1.0',
-    '@forgeagent/otel': '^0.1.0',
+    '@dzipagent/core': '^0.1.0',
+    '@dzipagent/agent': '^0.1.0',
+    '@dzipagent/server': '^0.1.0',
+    '@dzipagent/memory': '^0.1.0',
+    '@dzipagent/context': '^0.1.0',
+    '@dzipagent/otel': '^0.1.0',
     'drizzle-orm': '^0.36.0',
     bullmq: '^5.0.0',
     ioredis: '^5.4.0',

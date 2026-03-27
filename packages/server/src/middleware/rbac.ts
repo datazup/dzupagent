@@ -1,5 +1,5 @@
 /**
- * Role-Based Access Control (RBAC) middleware for ForgeAgent server.
+ * Role-Based Access Control (RBAC) middleware for DzipAgent server.
  *
  * Provides role-permission mapping and middleware guards that check
  * whether the current request's role has permission to access a resource.

@@ -8,9 +8,9 @@
  * Supports GIN-style capability filtering (simulated via array containment).
  */
 
-import { ForgeError } from '@forgeagent/core'
-import type { ForgeEventBus, ForgeEvent } from '@forgeagent/core'
-import type { ForgeCapability } from '@forgeagent/core'
+import { ForgeError } from '@dzipagent/core'
+import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
+import type { ForgeCapability } from '@dzipagent/core'
 import type {
   AgentHealth,
   AgentHealthStatus,
@@ -26,7 +26,7 @@ import type {
   RegistryStats,
   RegistrySubscriptionFilter,
   ScoreBreakdown,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 
 // ------------------------------------------------------------------ Store abstraction
 
@@ -211,7 +211,7 @@ export interface PostgresRegistryConfig extends AgentRegistryConfig {
 
 export class PostgresRegistry implements AgentRegistry {
   private readonly _store: RegistryStore
-  private readonly _eventBus?: ForgeEventBus
+  private readonly _eventBus?: DzipEventBus
   private readonly _subscriptions = new Set<Subscription>()
 
   constructor(config?: PostgresRegistryConfig) {
@@ -529,7 +529,7 @@ export class PostgresRegistry implements AgentRegistry {
       }
     }
     if (this._eventBus) {
-      this._eventBus.emit(event as ForgeEvent)
+      this._eventBus.emit(event as DzipEvent)
     }
   }
 

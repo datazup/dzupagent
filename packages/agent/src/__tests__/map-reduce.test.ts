@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
-import { ForgeAgent } from '../agent/forge-agent.js'
+import { DzipAgent } from '../agent/dzip-agent.js'
 import { mapReduce, mapReduceMulti } from '../orchestration/map-reduce.js'
 import {
   concatMerge,
@@ -51,8 +51,8 @@ function createMockModel(
   } as unknown as BaseChatModel
 }
 
-function createAgent(id: string, responses: Array<{ content: string }>): ForgeAgent {
-  return new ForgeAgent({
+function createAgent(id: string, responses: Array<{ content: string }>): DzipAgent {
+  return new DzipAgent({
     id,
     name: id,
     model: createMockModel(responses),
@@ -72,7 +72,7 @@ describe('mapReduce', () => {
       { content: 'chunk-1-done' },
       { content: 'chunk-2-done' },
     ])
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'worker',
       name: 'worker',
       model,
@@ -108,7 +108,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'partial',
       name: 'partial',
       model,
@@ -137,7 +137,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'all-fail',
       name: 'all-fail',
       model,
@@ -172,7 +172,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'seq-worker',
       name: 'seq-worker',
       model,
@@ -205,7 +205,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'par-worker',
       name: 'par-worker',
       model,
@@ -251,7 +251,7 @@ describe('mapReduce', () => {
     const responses = chunks.map((_, i) => ({ content: `done-${i}` }))
 
     const model = createMockModel(responses)
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'batch-worker',
       name: 'batch-worker',
       model,
@@ -288,7 +288,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'limited-worker',
       name: 'limited-worker',
       model,
@@ -349,7 +349,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'mid-abort',
       name: 'mid-abort',
       model,
@@ -382,7 +382,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'order-worker',
       name: 'order-worker',
       model,

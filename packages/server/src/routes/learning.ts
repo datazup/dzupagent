@@ -14,10 +14,10 @@
  * GET  /rules              — get top rules (query: ?limit=10)
  *
  * All data is read directly from the MemoryServiceLike store to avoid
- * a hard dependency on @forgeagent/agent.
+ * a hard dependency on @dzipagent/agent.
  */
 import { Hono } from 'hono'
-import type { MemoryServiceLike } from '@forgeagent/memory-ipc'
+import type { MemoryServiceLike } from '@dzipagent/memory-ipc'
 
 export interface LearningRouteConfig {
   memoryService: MemoryServiceLike

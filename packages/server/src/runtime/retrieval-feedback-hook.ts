@@ -3,7 +3,7 @@
  *
  * Creates a closed loop: run -> reflect -> feedback -> retrieval weight tuning.
  *
- * Uses structural types only (no imports from @forgeagent/memory or @forgeagent/agent).
+ * Uses structural types only (no imports from @dzipagent/memory or @dzipagent/agent).
  */
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 /**
- * Semantic attribute keys for ForgeAgent spans.
+ * Semantic attribute keys for DzipAgent spans.
  *
  * Follows OpenTelemetry GenAI semantic conventions where applicable,
  * extends with `forge.*` namespace for agent-specific attributes.

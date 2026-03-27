@@ -1,5 +1,5 @@
 /**
- * Forge URI scheme — identity URIs for ForgeAgent agents.
+ * Forge URI scheme — identity URIs for DzipAgent agents.
  *
  * Format: `forge://<organization>/<agent-name>(@<semver>)?`
  *
@@ -16,7 +16,7 @@ import { z } from 'zod'
  * Matches `forge://org/name` or `forge://org/name@1.2.3`.
  * Organization and agent name allow lowercase letters, digits, underscores, hyphens.
  */
-const FORGE_URI_REGEX = /^forge:\/\/[a-z0-9_-]+\/[a-z0-9_-]+(@\d+\.\d+\.\d+)?$/
+const DZIP_URI_REGEX = /^forge:\/\/[a-z0-9_-]+\/[a-z0-9_-]+(@\d+\.\d+\.\d+)?$/
 
 // ---------------------------------------------------------------------------
 // Zod schema
@@ -28,7 +28,7 @@ const FORGE_URI_REGEX = /^forge:\/\/[a-z0-9_-]+\/[a-z0-9_-]+(@\d+\.\d+\.\d+)?$/
  * For message routing URIs that may use a2a://, mcp://, etc., use
  * ForgeMessageUriSchema instead.
  */
-export const ForgeUriSchema = z.string().regex(FORGE_URI_REGEX, {
+export const ForgeUriSchema = z.string().regex(DZIP_URI_REGEX, {
   message:
     'Invalid Forge URI. Expected format: forge://<org>/<name> or forge://<org>/<name>@<semver>',
 })
@@ -84,7 +84,7 @@ export function buildForgeUri(org: string, name: string, version?: string): stri
  * Check if a string is a valid Forge URI. Never throws.
  */
 export function isForgeUri(value: string): boolean {
-  return FORGE_URI_REGEX.test(value)
+  return DZIP_URI_REGEX.test(value)
 }
 
 /**

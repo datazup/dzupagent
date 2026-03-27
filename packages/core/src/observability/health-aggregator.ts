@@ -1,5 +1,5 @@
 /**
- * Health aggregator for ForgeAgent.
+ * Health aggregator for DzipAgent.
  *
  * Collects health status from multiple subsystems (providers, stores,
  * MCP connections) and produces a unified health report.

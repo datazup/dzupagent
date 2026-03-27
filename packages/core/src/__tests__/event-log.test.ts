@@ -98,7 +98,7 @@ describe('InMemoryEventLog', () => {
 })
 
 describe('EventLogSink', () => {
-  it('captures ForgeEventBus events for a run', async () => {
+  it('captures DzipEventBus events for a run', async () => {
     const log = new InMemoryEventLog()
     const sink = new EventLogSink(log)
     const bus = createEventBus()

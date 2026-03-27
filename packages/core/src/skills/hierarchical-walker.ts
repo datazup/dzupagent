@@ -5,7 +5,7 @@
  * collecting agent configuration files at each level.
  *
  * Discovery order (later overrides earlier):
- * 1. Global: ~/.config/forgeagent/AGENTS.md
+ * 1. Global: ~/.config/dzipagent/AGENTS.md
  * 2. Project root: git root/AGENTS.md, CLAUDE.md
  * 3. Subdirectories: walk from git root to CWD
  */
@@ -33,7 +33,7 @@ export function discoverAgentConfigs(cwd: string): HierarchyLevel[] {
   // 1. Global config
   const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? ''
   if (home) {
-    const globalDir = join(home, '.config', 'forgeagent')
+    const globalDir = join(home, '.config', 'dzipagent')
     for (const name of CONFIG_FILENAMES) {
       const filePath = join(globalDir, name)
       const config = tryReadConfig(filePath)

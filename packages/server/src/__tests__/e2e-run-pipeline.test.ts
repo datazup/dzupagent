@@ -18,8 +18,8 @@ import {
   RunContextTransfer,
   extractTraceContext,
   injectTraceContext,
-} from '@forgeagent/core'
-import type { ForgeEventBus, Run, LogEntry } from '@forgeagent/core'
+} from '@dzipagent/core'
+import type { DzipEventBus, Run, LogEntry } from '@dzipagent/core'
 import { InMemoryStore } from '@langchain/langgraph'
 import { createForgeApp, type ForgeServerConfig } from '../app.js'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
@@ -121,7 +121,7 @@ function createEchoExecutor(
 describe('E2E run pipeline', () => {
   let runStore: InMemoryRunStore
   let agentStore: InMemoryAgentStore
-  let eventBus: ForgeEventBus
+  let eventBus: DzipEventBus
   let runQueue: InMemoryRunQueue
   let modelRegistry: ModelRegistry
 

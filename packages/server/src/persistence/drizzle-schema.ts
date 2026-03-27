@@ -1,5 +1,5 @@
 /**
- * Drizzle ORM schema for ForgeAgent server persistence.
+ * Drizzle ORM schema for DzipAgent server persistence.
  *
  * Tables are prefixed with `forge_` to avoid collision with application
  * tables when deployed alongside other Drizzle/Prisma schemas.
@@ -23,7 +23,7 @@ import { vectorColumn } from './vector-column.js'
 // Agent Definitions
 // ---------------------------------------------------------------------------
 
-export const forgeAgents = pgTable('forge_agents', {
+export const dzipAgents = pgTable('dzip_agents', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
@@ -47,7 +47,7 @@ export const forgeAgents = pgTable('forge_agents', {
 
 export const forgeRuns = pgTable('forge_runs', {
   id: uuid('id').defaultRandom().primaryKey(),
-  agentId: uuid('agent_id').references(() => forgeAgents.id).notNull(),
+  agentId: uuid('agent_id').references(() => dzipAgents.id).notNull(),
   status: varchar('status', { length: 30 }).notNull().default('queued'),
   input: jsonb('input'),
   output: jsonb('output'),

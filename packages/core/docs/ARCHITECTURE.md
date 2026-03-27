@@ -1,7 +1,7 @@
-# @forgeagent/core Architecture
+# @dzipagent/core Architecture
 
 ## Purpose
-`@forgeagent/core` is the foundation layer for the ForgeAgent stack. It centralizes shared runtime concerns so higher-level packages (`agent`, `server`, `codegen`, `otel`, etc.) do not re-implement model invocation, eventing, identity, routing, security, plugins, or vector search plumbing.
+`@dzipagent/core` is the foundation layer for the DzipAgent stack. It centralizes shared runtime concerns so higher-level packages (`agent`, `server`, `codegen`, `otel`, etc.) do not re-implement model invocation, eventing, identity, routing, security, plugins, or vector search plumbing.
 
 ## Main Responsibilities
 - Provide core abstractions for model registration/invocation and retry/circuit-breaker behavior.
@@ -44,7 +44,7 @@ The package exports a broad API via `src/index.ts` including:
 - Protocol/router/registry APIs.
 - Plugin/hook APIs.
 - Security and vector retrieval APIs.
-- Version constant: `FORGEAGENT_CORE_VERSION`.
+- Version constant: `dzipagent_CORE_VERSION`.
 
 ## Main Features
 - High-coverage shared base (200+ source files, 40+ tests) for multi-package reuse.
@@ -54,8 +54,8 @@ The package exports a broad API via `src/index.ts` including:
 - Vector-native capability discovery and semantic retrieval support.
 
 ## Integration Boundaries
-- Upstream: consumed by almost every ForgeAgent package.
-- Downstream dependencies: `@forgeagent/memory` and `@forgeagent/context` are integrated/re-exported.
+- Upstream: consumed by almost every DzipAgent package.
+- Downstream dependencies: `@dzipagent/memory` and `@dzipagent/context` are integrated/re-exported.
 - External peers: LangChain/LangGraph/Zod ecosystem and optional memory-ipc integration.
 
 ## Extensibility Points

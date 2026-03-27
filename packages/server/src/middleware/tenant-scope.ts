@@ -1,5 +1,5 @@
 /**
- * Tenant scoping middleware for multi-tenant ForgeAgent deployments.
+ * Tenant scoping middleware for multi-tenant DzipAgent deployments.
  *
  * Ensures every request is associated with a tenant ID, making it available
  * to downstream handlers via Hono context.

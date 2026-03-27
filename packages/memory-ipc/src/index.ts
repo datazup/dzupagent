@@ -1,5 +1,5 @@
 /**
- * @forgeagent/memory-ipc — Arrow-based IPC for inter-agent memory sharing.
+ * @dzipagent/memory-ipc — Arrow-based IPC for inter-agent memory sharing.
  *
  * Provides a canonical Arrow schema, builder/reader for memory frames,
  * IPC serialization, and cross-framework adapters.

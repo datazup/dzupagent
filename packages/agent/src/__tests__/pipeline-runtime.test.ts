@@ -7,7 +7,7 @@ import type {
   PipelineNode,
   PipelineEdge,
   LoopNode,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 import type {
   NodeExecutor,
   NodeResult,

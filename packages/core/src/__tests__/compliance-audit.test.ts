@@ -3,7 +3,7 @@ import { InMemoryAuditStore } from '../security/audit/in-memory-audit-store.js'
 import { ComplianceAuditLogger } from '../security/audit/audit-logger.js'
 import { createEventBus } from '../events/event-bus.js'
 import type { ComplianceAuditEntry } from '../security/audit/audit-types.js'
-import type { ForgeEvent } from '../events/event-types.js'
+import type { DzipEvent } from '../events/event-types.js'
 
 // ---------------------------------------------------------------------------
 // InMemoryAuditStore
@@ -254,7 +254,7 @@ describe('ComplianceAuditLogger', () => {
       action: 'tool:execute',
       principalId: 'user-1',
       reason: 'insufficient permissions',
-    } as ForgeEvent)
+    } as DzipEvent)
 
     // Give the async handler time to complete
     await new Promise((resolve) => setTimeout(resolve, 10))
@@ -300,7 +300,7 @@ describe('ComplianceAuditLogger', () => {
       category: 'prompt_injection',
       severity: 'high',
       message: 'detected injection attempt',
-    } as ForgeEvent)
+    } as DzipEvent)
 
     await new Promise((resolve) => setTimeout(resolve, 10))
 
@@ -325,7 +325,7 @@ describe('ComplianceAuditLogger', () => {
 // ---------------------------------------------------------------------------
 describe('Pipeline event types', () => {
   it('pipeline:run_started has correct shape', () => {
-    const event: ForgeEvent = {
+    const event: DzipEvent = {
       type: 'pipeline:run_started',
       pipelineId: 'p1',
       runId: 'r1',
@@ -334,7 +334,7 @@ describe('Pipeline event types', () => {
   })
 
   it('pipeline:node_completed has durationMs', () => {
-    const event: ForgeEvent = {
+    const event: DzipEvent = {
       type: 'pipeline:node_completed',
       pipelineId: 'p1',
       runId: 'r1',
@@ -345,14 +345,14 @@ describe('Pipeline event types', () => {
   })
 
   it('pipeline:run_cancelled has optional reason', () => {
-    const event: ForgeEvent = {
+    const event: DzipEvent = {
       type: 'pipeline:run_cancelled',
       pipelineId: 'p1',
       runId: 'r1',
     }
     expect(event.type).toBe('pipeline:run_cancelled')
 
-    const eventWithReason: ForgeEvent = {
+    const eventWithReason: DzipEvent = {
       type: 'pipeline:run_cancelled',
       pipelineId: 'p1',
       runId: 'r1',
@@ -362,7 +362,7 @@ describe('Pipeline event types', () => {
   })
 
   it('pipeline:loop_iteration has iteration number', () => {
-    const event: ForgeEvent = {
+    const event: DzipEvent = {
       type: 'pipeline:loop_iteration',
       pipelineId: 'p1',
       runId: 'r1',
@@ -378,7 +378,7 @@ describe('Pipeline event types', () => {
 // ---------------------------------------------------------------------------
 describe('Security event types', () => {
   it('policy:evaluated has correct shape', () => {
-    const event: ForgeEvent = {
+    const event: DzipEvent = {
       type: 'policy:evaluated',
       policySetId: 'ps1',
       action: 'tool:execute',
@@ -389,7 +389,7 @@ describe('Security event types', () => {
   })
 
   it('safety:violation has optional agentId', () => {
-    const event: ForgeEvent = {
+    const event: DzipEvent = {
       type: 'safety:violation',
       category: 'prompt_injection',
       severity: 'critical',
@@ -399,7 +399,7 @@ describe('Security event types', () => {
   })
 
   it('memory:threat_detected has optional key', () => {
-    const event: ForgeEvent = {
+    const event: DzipEvent = {
       type: 'memory:threat_detected',
       threatType: 'injection',
       namespace: 'lessons',
@@ -408,7 +408,7 @@ describe('Security event types', () => {
   })
 
   it('memory:quarantined has required fields', () => {
-    const event: ForgeEvent = {
+    const event: DzipEvent = {
       type: 'memory:quarantined',
       namespace: 'lessons',
       key: 'bad-entry',

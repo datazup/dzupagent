@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createEventBus } from '@forgeagent/core'
+import { createEventBus } from '@dzipagent/core'
 import { InMemoryEventGateway } from '../events/event-gateway.js'
 
 describe('InMemoryEventGateway', () => {

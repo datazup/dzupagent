@@ -12,7 +12,7 @@
  * console.log(collector.render())
  * ```
  */
-import { MetricsCollector } from '@forgeagent/core'
+import { MetricsCollector } from '@dzipagent/core'
 
 /** Default histogram bucket boundaries (in ms). */
 const DEFAULT_BUCKETS = [50, 100, 250, 500, 1000, 2500, 5000, 10000] as const

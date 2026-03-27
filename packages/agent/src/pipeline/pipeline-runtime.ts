@@ -13,7 +13,7 @@ import type {
   ForkNode,
   JoinNode,
   LoopNode,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 import { validatePipeline } from './pipeline-validator.js'
 import { executeLoop } from './loop-executor.js'
 import type { FailureContext, FailureType } from '../recovery/recovery-types.js'

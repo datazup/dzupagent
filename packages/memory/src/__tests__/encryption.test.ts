@@ -60,13 +60,13 @@ const scope = { projectId: 'p1' }
 // ===========================================================================
 
 describe('EnvKeyProvider', () => {
-  it('parses FORGE_MEMORY_KEY_* env vars', async () => {
+  it('parses DZIP_MEMORY_KEY_* env vars', async () => {
     const hex1 = makeHexKey()
     const hex2 = makeHexKey()
     const provider = new EnvKeyProvider({
-      FORGE_MEMORY_KEY_k1: hex1,
-      FORGE_MEMORY_KEY_k2: hex2,
-      FORGE_MEMORY_KEY_ACTIVE: 'k1',
+      DZIP_MEMORY_KEY_k1: hex1,
+      DZIP_MEMORY_KEY_k2: hex2,
+      DZIP_MEMORY_KEY_ACTIVE: 'k1',
     })
 
     const keys = await provider.listKeys()
@@ -74,11 +74,11 @@ describe('EnvKeyProvider', () => {
     expect(keys.map(k => k.keyId).sort()).toEqual(['k1', 'k2'])
   })
 
-  it('getActiveKey() returns the key specified by FORGE_MEMORY_KEY_ACTIVE', async () => {
+  it('getActiveKey() returns the key specified by DZIP_MEMORY_KEY_ACTIVE', async () => {
     const hex1 = makeHexKey()
     const provider = new EnvKeyProvider({
-      FORGE_MEMORY_KEY_mykey: hex1,
-      FORGE_MEMORY_KEY_ACTIVE: 'mykey',
+      DZIP_MEMORY_KEY_mykey: hex1,
+      DZIP_MEMORY_KEY_ACTIVE: 'mykey',
     })
 
     const active = await provider.getActiveKey()
@@ -92,9 +92,9 @@ describe('EnvKeyProvider', () => {
     const hex1 = makeHexKey()
     const hex2 = makeHexKey()
     const provider = new EnvKeyProvider({
-      FORGE_MEMORY_KEY_alpha: hex1,
-      FORGE_MEMORY_KEY_beta: hex2,
-      FORGE_MEMORY_KEY_ACTIVE: 'alpha',
+      DZIP_MEMORY_KEY_alpha: hex1,
+      DZIP_MEMORY_KEY_beta: hex2,
+      DZIP_MEMORY_KEY_ACTIVE: 'alpha',
     })
 
     const key = await provider.getKey('beta')
@@ -106,8 +106,8 @@ describe('EnvKeyProvider', () => {
 
   it('missing key returns undefined', async () => {
     const provider = new EnvKeyProvider({
-      FORGE_MEMORY_KEY_k1: makeHexKey(),
-      FORGE_MEMORY_KEY_ACTIVE: 'k1',
+      DZIP_MEMORY_KEY_k1: makeHexKey(),
+      DZIP_MEMORY_KEY_ACTIVE: 'k1',
     })
 
     const key = await provider.getKey('nonexistent')
@@ -116,10 +116,10 @@ describe('EnvKeyProvider', () => {
 
   it('invalid hex (wrong length) is skipped', async () => {
     const provider = new EnvKeyProvider({
-      FORGE_MEMORY_KEY_short: 'abcdef', // too short
-      FORGE_MEMORY_KEY_toolong: makeHexKey() + 'ff', // too long (66 chars)
-      FORGE_MEMORY_KEY_valid: makeHexKey(),
-      FORGE_MEMORY_KEY_ACTIVE: 'valid',
+      DZIP_MEMORY_KEY_short: 'abcdef', // too short
+      DZIP_MEMORY_KEY_toolong: makeHexKey() + 'ff', // too long (66 chars)
+      DZIP_MEMORY_KEY_valid: makeHexKey(),
+      DZIP_MEMORY_KEY_ACTIVE: 'valid',
     })
 
     const keys = await provider.listKeys()
@@ -129,9 +129,9 @@ describe('EnvKeyProvider', () => {
 
   it('invalid hex (non-hex chars) is skipped', async () => {
     const provider = new EnvKeyProvider({
-      FORGE_MEMORY_KEY_bad: 'g'.repeat(64), // 'g' is not hex
-      FORGE_MEMORY_KEY_good: makeHexKey(),
-      FORGE_MEMORY_KEY_ACTIVE: 'good',
+      DZIP_MEMORY_KEY_bad: 'g'.repeat(64), // 'g' is not hex
+      DZIP_MEMORY_KEY_good: makeHexKey(),
+      DZIP_MEMORY_KEY_ACTIVE: 'good',
     })
 
     const keys = await provider.listKeys()
@@ -141,17 +141,17 @@ describe('EnvKeyProvider', () => {
 
   it('getActiveKey() returns undefined when no ACTIVE var is set', async () => {
     const provider = new EnvKeyProvider({
-      FORGE_MEMORY_KEY_k1: makeHexKey(),
+      DZIP_MEMORY_KEY_k1: makeHexKey(),
     })
 
     const active = await provider.getActiveKey()
     expect(active).toBeUndefined()
   })
 
-  it('non-FORGE_MEMORY_KEY_ env vars are ignored', async () => {
+  it('non-DZIP_MEMORY_KEY_ env vars are ignored', async () => {
     const provider = new EnvKeyProvider({
-      FORGE_MEMORY_KEY_k1: makeHexKey(),
-      FORGE_MEMORY_KEY_ACTIVE: 'k1',
+      DZIP_MEMORY_KEY_k1: makeHexKey(),
+      DZIP_MEMORY_KEY_ACTIVE: 'k1',
       HOME: '/home/user',
       PATH: '/usr/bin',
     })

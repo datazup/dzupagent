@@ -3,7 +3,7 @@ import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import type {
   PipelineDefinition,
   PipelineNode,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 import type {
   NodeExecutor,
   NodeResult,

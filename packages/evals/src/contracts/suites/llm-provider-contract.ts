@@ -1,7 +1,7 @@
 /**
  * LLM Provider Contract Suite — conformance tests for LLM provider adapters.
  *
- * Tests verify the BaseChatModel-like interface contract used by ForgeAgent.
+ * Tests verify the BaseChatModel-like interface contract used by DzipAgent.
  * These tests use lightweight operations to avoid expensive LLM calls in CI.
  */
 

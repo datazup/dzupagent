@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { createEventBus } from '@forgeagent/core'
+import { createEventBus } from '@dzipagent/core'
 import { EventBridge, type WSClient } from '../ws/event-bridge.js'
 import { WSClientScopeRegistry } from '../ws/scope-registry.js'
 import { WSSessionManager } from '../ws/session-manager.js'

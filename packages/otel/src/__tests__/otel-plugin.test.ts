@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createOTelPlugin } from '../otel-plugin.js'
-import type { PluginContext } from '@forgeagent/core'
-import { createEventBus } from '@forgeagent/core'
+import type { PluginContext } from '@dzipagent/core'
+import { createEventBus } from '@dzipagent/core'
 
 // --- Helpers ---
 
@@ -22,7 +22,7 @@ function makePluginContext(): PluginContext {
 describe('createOTelPlugin', () => {
   it('creates a plugin with correct name and version', () => {
     const plugin = createOTelPlugin()
-    expect(plugin.name).toBe('@forgeagent/otel')
+    expect(plugin.name).toBe('@dzipagent/otel')
     expect(plugin.version).toBe('0.1.0')
   })
 

@@ -2,7 +2,7 @@
  * `forge doctor` CLI command — comprehensive system diagnostics.
  *
  * Validates environment, connectivity, configuration, and security posture
- * for a ForgeAgent server deployment. Each check returns pass/warn/fail
+ * for a DzipAgent server deployment. Each check returns pass/warn/fail
  * and the results are grouped by category with a summary at the end.
  *
  * Supports `--json` for machine-readable output and `--fix` for auto-fixes.
@@ -79,7 +79,7 @@ export interface DoctorContext {
   pingOtel?: () => Promise<boolean>
   /** Check memory service initialization. */
   pingMemory?: () => Promise<{ initialized: boolean; embeddingProvider?: string }>
-  /** Retrieve installed @forgeagent/* package versions. */
+  /** Retrieve installed @dzipagent/* package versions. */
   getPackageVersions?: () => Promise<Record<string, string>>
   /** CORS origins as configured. */
   corsOrigins?: string | string[]
@@ -517,7 +517,7 @@ async function checkPackageVersions(ctx: DoctorContext): Promise<CheckCategory> 
   if (!ctx.getPackageVersions) {
     // Use a built-in fallback with the known server version
     checks.push({
-      name: '@forgeagent/server',
+      name: '@dzipagent/server',
       status: 'pass',
       message: 'v0.1.0 (self)',
     })
@@ -532,7 +532,7 @@ async function checkPackageVersions(ctx: DoctorContext): Promise<CheckCategory> 
       checks.push({
         name: 'Packages',
         status: 'warn',
-        message: 'No @forgeagent/* packages detected',
+        message: 'No @dzipagent/* packages detected',
       })
     } else {
       // Check version consistency
@@ -666,7 +666,7 @@ export function formatDoctorReport(report: DoctorReport): string {
   const lines: string[] = []
 
   lines.push('')
-  lines.push(`${ANSI.bold}${ANSI.cyan}  ForgeAgent Doctor${ANSI.reset}`)
+  lines.push(`${ANSI.bold}${ANSI.cyan}  DzipAgent Doctor${ANSI.reset}`)
   lines.push(`${ANSI.dim}  Comprehensive system diagnostics${ANSI.reset}`)
   lines.push('')
 

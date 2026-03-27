@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { PipelineNode } from '@forgeagent/core'
+import type { PipelineNode } from '@dzipagent/core'
 
 import {
   createSelfCorrectingExecutor,

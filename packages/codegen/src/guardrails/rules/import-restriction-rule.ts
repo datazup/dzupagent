@@ -2,8 +2,8 @@
  * Import Restriction Rule — prevents deep imports into package internals.
  *
  * External consumers should only import from a package's public entry
- * point (e.g., '@forgeagent/core'), not from internal paths like
- * '@forgeagent/core/src/internal/secret'.
+ * point (e.g., '@dzipagent/core'), not from internal paths like
+ * '@dzipagent/core/src/internal/secret'.
  */
 
 import type { GuardrailRule, GuardrailContext, GuardrailResult, GuardrailViolation } from '../guardrail-types.js'
@@ -39,13 +39,13 @@ function isDeepImport(importPath: string, allowedSubpaths: string[]): boolean {
 export interface ImportRestrictionConfig {
   /** Subpaths that are allowed beyond the index (e.g., ['dist', 'types']) */
   allowedSubpaths?: string[]
-  /** Package scopes to check (default: ['@forgeagent']) */
+  /** Package scopes to check (default: ['@dzipagent']) */
   scopes?: string[]
 }
 
 export function createImportRestrictionRule(config?: ImportRestrictionConfig): GuardrailRule {
   const allowedSubpaths = config?.allowedSubpaths ?? ['dist', 'types']
-  const scopes = config?.scopes ?? ['@forgeagent']
+  const scopes = config?.scopes ?? ['@dzipagent']
 
   return {
     id: 'import-restriction',

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono } from 'hono'
 import { createRegistryRoutes } from '../registry.js'
-import { InMemoryRegistry } from '@forgeagent/core'
-import type { AgentRegistry, ForgeCapability } from '@forgeagent/core'
+import { InMemoryRegistry } from '@dzipagent/core'
+import type { AgentRegistry, ForgeCapability } from '@dzipagent/core'
 
 // --- Helpers ---
 

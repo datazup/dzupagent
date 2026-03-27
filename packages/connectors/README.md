@@ -1,4 +1,4 @@
-# @forgeagent/connectors
+# @dzipagent/connectors
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,39 +10,39 @@
 | Source Files | 10 |
 | Lines of Code | 1,174 |
 | Test Files | 4 |
-| Internal Dependencies | `@forgeagent/core` |
+| Internal Dependencies | `@dzipagent/core` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @forgeagent/connectors
+npm install @dzipagent/connectors
 ```
 <!-- AUTO-GENERATED-END -->
 
-Pre-built integrations for ForgeAgent. Each connector produces LangChain `DynamicStructuredTool` instances that can be passed directly to `ForgeAgent`'s `tools` config.
+Pre-built integrations for DzipAgent. Each connector produces LangChain `DynamicStructuredTool` instances that can be passed directly to `DzipAgent`'s `tools` config.
 
 ## Installation
 
 ```bash
-yarn add @forgeagent/connectors
+yarn add @dzipagent/connectors
 # or
-npm install @forgeagent/connectors
+npm install @dzipagent/connectors
 ```
 
 ## Quick Start
 
 ```ts
-import { ForgeAgent } from '@forgeagent/agent'
-import { createGitHubConnector, createSlackConnector, filterTools } from '@forgeagent/connectors'
+import { DzipAgent } from '@dzipagent/agent'
+import { createGitHubConnector, createSlackConnector, filterTools } from '@dzipagent/connectors'
 
 // Create connectors
 const github = createGitHubConnector({ token: process.env.GITHUB_TOKEN! })
 const slack = createSlackConnector({ token: process.env.SLACK_TOKEN! })
 
 // Use all tools from a connector
-const agent = new ForgeAgent({
+const agent = new DzipAgent({
   tools: [...github.tools, ...slack.tools],
 })
 
@@ -55,7 +55,7 @@ const readOnlyGH = filterTools(github.tools, ['get_file', 'list_issues'])
 ### GitHub
 
 ```ts
-import { createGitHubConnector } from '@forgeagent/connectors'
+import { createGitHubConnector } from '@dzipagent/connectors'
 
 const github = createGitHubConnector({
   token: 'ghp_...',
@@ -69,7 +69,7 @@ Tools: file operations, issue management, PR management, repository search.
 ### HTTP
 
 ```ts
-import { createHTTPConnector } from '@forgeagent/connectors'
+import { createHTTPConnector } from '@dzipagent/connectors'
 
 const http = createHTTPConnector({
   baseUrl: 'https://api.example.com',
@@ -82,7 +82,7 @@ Tools: generic HTTP GET/POST/PUT/DELETE requests.
 ### Slack
 
 ```ts
-import { createSlackConnector } from '@forgeagent/connectors'
+import { createSlackConnector } from '@dzipagent/connectors'
 
 const slack = createSlackConnector({
   token: 'xoxb-...',
@@ -94,7 +94,7 @@ Tools: send messages, list channels, reply to threads.
 ### Database
 
 ```ts
-import { createDatabaseConnector } from '@forgeagent/connectors'
+import { createDatabaseConnector } from '@dzipagent/connectors'
 
 const db = createDatabaseConnector({
   connectionString: process.env.DATABASE_URL!,
@@ -114,13 +114,13 @@ Tools: execute SQL queries, list tables, describe schema.
 
 ### Version
 
-- `FORGEAGENT_CONNECTORS_VERSION: string` -- `'0.1.0'`
+- `dzipagent_CONNECTORS_VERSION: string` -- `'0.1.0'`
 
 ## Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@forgeagent/core` | `0.1.0` | Core infrastructure |
+| `@dzipagent/core` | `0.1.0` | Core infrastructure |
 
 ## Peer Dependencies
 

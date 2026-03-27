@@ -1,11 +1,11 @@
 /**
  * Runtime Safety Monitor — watches agent activity for security violations.
  *
- * Subscribes to ForgeEventBus and scans content on-demand using configurable
+ * Subscribes to DzipEventBus and scans content on-demand using configurable
  * SafetyRules. Violations are recorded and emitted as safety events.
  */
 
-import type { ForgeEventBus } from '../../events/event-bus.js'
+import type { DzipEventBus } from '../../events/event-bus.js'
 import type { SafetyCategory, SafetySeverity, SafetyAction, SafetyViolation, SafetyRule } from './built-in-rules.js'
 import { getBuiltInRules } from './built-in-rules.js'
 
@@ -17,12 +17,12 @@ export interface SafetyMonitorConfig {
   /** If true, provided rules replace built-in rules; otherwise they extend them */
   replaceBuiltInRules?: boolean
   /** Event bus to attach to */
-  eventBus?: ForgeEventBus
+  eventBus?: DzipEventBus
 }
 
 export interface SafetyMonitor {
   /** Attach to an event bus, subscribing to relevant events */
-  attach(eventBus: ForgeEventBus): void
+  attach(eventBus: DzipEventBus): void
   /** Detach from the current event bus */
   detach(): void
   /** Scan content on-demand and return all violations found */
@@ -41,9 +41,9 @@ export function createSafetyMonitor(config?: SafetyMonitorConfig): SafetyMonitor
   const rules: SafetyRule[] = [...builtIn, ...(config?.rules ?? [])]
   const violations: SafetyViolation[] = []
   let unsubscribers: Array<() => void> = []
-  let currentBus: ForgeEventBus | undefined
+  let currentBus: DzipEventBus | undefined
 
-  function recordViolation(violation: SafetyViolation, bus?: ForgeEventBus): void {
+  function recordViolation(violation: SafetyViolation, bus?: DzipEventBus): void {
     violations.push(violation)
     const emitBus = bus ?? currentBus
     if (!emitBus) return
@@ -92,7 +92,7 @@ export function createSafetyMonitor(config?: SafetyMonitorConfig): SafetyMonitor
     return found
   }
 
-  function attach(eventBus: ForgeEventBus): void {
+  function attach(eventBus: DzipEventBus): void {
     // Detach from any previous bus first
     detach()
     currentBus = eventBus

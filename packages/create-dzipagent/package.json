@@ -1,11 +1,11 @@
 {
-  "name": "create-forgeagent",
+  "name": "create-dzipagent",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "create-forgeagent": "./dist/cli.js"
+    "create-dzipagent": "./dist/cli.js"
   },
   "exports": {
     ".": {

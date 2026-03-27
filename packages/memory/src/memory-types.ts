@@ -37,7 +37,7 @@ export interface FormatOptions {
  * Minimal interface for a semantic store that MemoryService can use
  * for vector-backed search and auto-indexing.
  *
- * This is deliberately decoupled from @forgeagent/core's SemanticStore class
+ * This is deliberately decoupled from @dzipagent/core's SemanticStore class
  * to avoid circular dependencies. Any object implementing this interface
  * (including SemanticStore) can be passed to MemoryService.
  */

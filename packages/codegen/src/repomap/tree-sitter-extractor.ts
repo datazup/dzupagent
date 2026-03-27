@@ -197,7 +197,7 @@ async function getParserCtor(): Promise<(TreeSitterModule['default']) | null> {
 
   try {
     // Dynamic import -- web-tree-sitter is optional
-    const mod = await import('web-tree-sitter') as TreeSitterModule
+    const mod = await import('web-tree-sitter') as unknown as TreeSitterModule
     const Parser = mod.default
     if (!initialized) {
       await Parser.init()

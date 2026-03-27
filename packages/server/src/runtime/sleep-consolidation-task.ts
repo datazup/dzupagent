@@ -2,14 +2,14 @@
  * Factory that wraps a SleepConsolidator into the ConsolidationTask interface,
  * allowing it to plug into the ConsolidationScheduler.
  *
- * Uses dynamic imports so that @forgeagent/memory remains an optional dependency.
+ * Uses dynamic imports so that @dzipagent/memory remains an optional dependency.
  */
 
 import type { ConsolidationTask, ConsolidationReport } from './consolidation-scheduler.js'
 
 /**
  * Minimal interface extracted from SleepConsolidator so we can accept it
- * without importing @forgeagent/memory at the type level.
+ * without importing @dzipagent/memory at the type level.
  */
 export interface SleepConsolidatorLike {
   run(
@@ -36,7 +36,7 @@ export interface SleepConsolidationReportLike {
 }
 
 export interface SleepConsolidationTaskConfig {
-  /** A SleepConsolidator instance (from @forgeagent/memory) */
+  /** A SleepConsolidator instance (from @dzipagent/memory) */
   consolidator: SleepConsolidatorLike
   /** A BaseStore instance (from @langchain/langgraph) */
   store: unknown

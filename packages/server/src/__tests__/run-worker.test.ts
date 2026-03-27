@@ -4,7 +4,7 @@ import {
   InMemoryAgentStore,
   ModelRegistry,
   createEventBus,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 import { startRunWorker } from '../runtime/run-worker.js'
 

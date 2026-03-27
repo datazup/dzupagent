@@ -1,5 +1,5 @@
 /**
- * Dev mode CLI command — starts a ForgeAgent server with sensible defaults
+ * Dev mode CLI command — starts a DzipAgent server with sensible defaults
  * for local development (no auth, in-memory stores, trace printing).
  */
 import { Hono } from 'hono'
@@ -8,13 +8,13 @@ import {
   InMemoryAgentStore,
   ModelRegistry,
   createEventBus,
-} from '@forgeagent/core'
-import type { ForgeEventBus } from '@forgeagent/core'
+} from '@dzipagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
 import { createForgeApp } from '../app.js'
 import { TracePrinter } from './trace-printer.js'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 import { createDefaultRunExecutor } from '../runtime/default-run-executor.js'
-import { createForgeAgentRunExecutor } from '../runtime/forge-agent-run-executor.js'
+import { createDzipAgentRunExecutor } from '../runtime/dzip-agent-run-executor.js'
 
 export interface DevCommandConfig {
   /** Port to listen on (default: 4000) */
@@ -24,7 +24,7 @@ export interface DevCommandConfig {
   /** Disable playground routes (default: false) */
   noPlayground?: boolean
   /** Optional pre-configured event bus */
-  eventBus?: ForgeEventBus
+  eventBus?: DzipEventBus
 }
 
 export interface DevCommandHandle {
@@ -50,7 +50,7 @@ export function createDevCommand(config?: DevCommandConfig): DevCommandHandle {
         modelRegistry,
         eventBus,
         runQueue,
-        runExecutor: createForgeAgentRunExecutor({
+        runExecutor: createDzipAgentRunExecutor({
           fallback: createDefaultRunExecutor(modelRegistry),
         }),
       })

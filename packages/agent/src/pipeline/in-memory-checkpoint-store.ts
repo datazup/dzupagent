@@ -10,7 +10,7 @@ import type {
   PipelineCheckpointStore,
   PipelineCheckpoint,
   PipelineCheckpointSummary,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 
 /**
  * In-memory pipeline checkpoint store with versioned history.

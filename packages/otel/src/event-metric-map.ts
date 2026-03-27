@@ -1,18 +1,18 @@
 /**
  * Event-to-metric mapping rules.
  *
- * Each ForgeEvent type maps to zero or more metric operations.
+ * Each DzipEvent type maps to zero or more metric operations.
  * This table drives the OTelBridge's metric recording.
  */
 
-import type { ForgeEvent, ForgeEventOf } from '@forgeagent/core'
+import type { DzipEvent, DzipEventOf } from '@dzipagent/core'
 
 /**
- * A single metric mapping rule: defines how a ForgeEvent translates
+ * A single metric mapping rule: defines how a DzipEvent translates
  * to a metric observation (counter increment or histogram record).
  */
 export interface MetricMapping {
-  /** Metric name (e.g. 'forge_agent_runs_total') */
+  /** Metric name (e.g. 'dzip_agent_runs_total') */
   metricName: string
   /** Metric type */
   type: 'counter' | 'histogram' | 'gauge'
@@ -24,24 +24,24 @@ export interface MetricMapping {
    * Extract metric value and labels from an event.
    * For counters, value defaults to 1 if not specified.
    */
-  extract: (event: ForgeEvent) => { value: number; labels: Record<string, string> }
+  extract: (event: DzipEvent) => { value: number; labels: Record<string, string> }
 }
 
 /** Helper to safely narrow event types */
-function as<T extends ForgeEvent['type']>(event: ForgeEvent): ForgeEventOf<T> {
-  return event as ForgeEventOf<T>
+function as<T extends DzipEvent['type']>(event: DzipEvent): DzipEventOf<T> {
+  return event as DzipEventOf<T>
 }
 
 /**
- * Complete mapping of ForgeEvent types to their metric representations.
+ * Complete mapping of DzipEvent types to their metric representations.
  *
  * Events not listed here (mapped to empty arrays) produce no metrics.
  */
-export const EVENT_METRIC_MAP: Record<ForgeEvent['type'], MetricMapping[]> = {
+export const EVENT_METRIC_MAP: Record<DzipEvent['type'], MetricMapping[]> = {
   // --- Agent lifecycle ---
   'agent:started': [
     {
-      metricName: 'forge_agent_runs_total',
+      metricName: 'dzip_agent_runs_total',
       type: 'counter',
       description: 'Total agent run starts',
       labelKeys: ['agent_id', 'status'],
@@ -54,7 +54,7 @@ export const EVENT_METRIC_MAP: Record<ForgeEvent['type'], MetricMapping[]> = {
 
   'agent:completed': [
     {
-      metricName: 'forge_agent_runs_total',
+      metricName: 'dzip_agent_runs_total',
       type: 'counter',
       description: 'Total agent run completions',
       labelKeys: ['agent_id', 'status'],
@@ -64,7 +64,7 @@ export const EVENT_METRIC_MAP: Record<ForgeEvent['type'], MetricMapping[]> = {
       },
     },
     {
-      metricName: 'forge_agent_duration_seconds',
+      metricName: 'dzip_agent_duration_seconds',
       type: 'histogram',
       description: 'Agent run duration in seconds',
       labelKeys: ['agent_id'],
@@ -77,7 +77,7 @@ export const EVENT_METRIC_MAP: Record<ForgeEvent['type'], MetricMapping[]> = {
 
   'agent:failed': [
     {
-      metricName: 'forge_agent_errors_total',
+      metricName: 'dzip_agent_errors_total',
       type: 'counter',
       description: 'Total agent run failures',
       labelKeys: ['agent_id', 'error_code'],
@@ -971,7 +971,7 @@ export const EVENT_METRIC_MAP: Record<ForgeEvent['type'], MetricMapping[]> = {
 
   'agent:stop_reason': [
     {
-      metricName: 'forge_agent_stop_total',
+      metricName: 'dzip_agent_stop_total',
       type: 'counter',
       description: 'Total agent stop events by reason',
       labelKeys: ['agent_id', 'reason'],
@@ -984,7 +984,7 @@ export const EVENT_METRIC_MAP: Record<ForgeEvent['type'], MetricMapping[]> = {
 
   'agent:stuck_detected': [
     {
-      metricName: 'forge_agent_stuck_detected_total',
+      metricName: 'dzip_agent_stuck_detected_total',
       type: 'counter',
       description: 'Total agent stuck detection events',
       labelKeys: ['agent_id', 'reason'],

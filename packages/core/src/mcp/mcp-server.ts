@@ -1,5 +1,5 @@
 /**
- * MCP Server — Exposes ForgeAgent instances as MCP tools.
+ * MCP Server — Exposes DzipAgent instances as MCP tools.
  *
  * Implements the minimal JSON-RPC protocol surface for `tools/list`
  * and `tools/call` so any MCP client (Claude Code, Cursor, Zed) can
@@ -54,7 +54,7 @@ const JSON_RPC_INVALID_PARAMS = -32602
 const JSON_RPC_INTERNAL_ERROR = -32000
 
 // ---------------------------------------------------------------------------
-// ForgeAgentMCPServer
+// DzipAgentMCPServer
 // ---------------------------------------------------------------------------
 
 /**
@@ -62,7 +62,7 @@ const JSON_RPC_INTERNAL_ERROR = -32000
  *
  * Usage:
  * ```ts
- * const server = new ForgeAgentMCPServer({
+ * const server = new DzipAgentMCPServer({
  *   name: 'forge-codegen',
  *   version: '1.0.0',
  *   tools: [{ name: 'generate', description: '...', inputSchema: {...}, handler: async (args) => '...' }],
@@ -72,7 +72,7 @@ const JSON_RPC_INTERNAL_ERROR = -32000
  * const response = await server.handleRequest(jsonRpcRequest)
  * ```
  */
-export class ForgeAgentMCPServer {
+export class DzipAgentMCPServer {
   private readonly serverName: string
   private readonly serverVersion: string
   private readonly tools: Map<string, MCPExposedTool> = new Map()

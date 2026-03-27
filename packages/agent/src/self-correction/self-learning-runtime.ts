@@ -10,7 +10,7 @@
  */
 
 import type { BaseStore } from '@langchain/langgraph'
-import type { PipelineCheckpoint } from '@forgeagent/core'
+import type { PipelineCheckpoint } from '@dzipagent/core'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import type {
   PipelineRuntimeConfig,

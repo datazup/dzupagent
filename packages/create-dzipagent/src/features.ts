@@ -9,7 +9,7 @@ const featureRegistry: Record<string, FeatureDefinition> = {
     name: 'Authentication',
     description: 'API key or JWT authentication middleware',
     dependencies: {
-      '@forgeagent/server': '^0.1.0',
+      '@dzipagent/server': '^0.1.0',
     },
     files: [
       {
@@ -34,7 +34,7 @@ export function authMiddleware(apiKey: string) {
       },
     ],
     envVars: [
-      { key: 'FORGE_API_KEY', defaultValue: 'your-forge-api-key', description: 'API authentication key' },
+      { key: 'DZIP_API_KEY', defaultValue: 'your-forge-api-key', description: 'API authentication key' },
     ],
   },
 
@@ -43,7 +43,7 @@ export function authMiddleware(apiKey: string) {
     name: 'Dashboard',
     description: 'Admin dashboard UI with agent monitoring',
     dependencies: {
-      '@forgeagent/server': '^0.1.0',
+      '@dzipagent/server': '^0.1.0',
     },
     files: [
       {
@@ -182,8 +182,8 @@ export class TeamService {
     name: 'AI / LLM',
     description: 'AI features with memory, embeddings, and vector search',
     dependencies: {
-      '@forgeagent/memory': '^0.1.0',
-      '@forgeagent/context': '^0.1.0',
+      '@dzipagent/memory': '^0.1.0',
+      '@dzipagent/context': '^0.1.0',
     },
     files: [
       {

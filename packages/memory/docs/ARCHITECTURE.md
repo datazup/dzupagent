@@ -1,7 +1,7 @@
-# @forgeagent/memory Architecture
+# @dzipagent/memory Architecture
 
 ## Purpose
-`@forgeagent/memory` is the memory intelligence layer for ForgeAgent. It manages durable memory records, retrieval strategies, consolidation, policy-aware writes, provenance, and advanced graph/temporal structures.
+`@dzipagent/memory` is the memory intelligence layer for DzipAgent. It manages durable memory records, retrieval strategies, consolidation, policy-aware writes, provenance, and advanced graph/temporal structures.
 
 ## Main Responsibilities
 - Provide namespace-scoped memory CRUD and search APIs.
@@ -47,8 +47,8 @@ Top-level modules under `src/`:
 - Agent-file import/export for portability.
 
 ## Integration Boundaries
-- Used directly by `@forgeagent/core` and server memory routes.
-- Works with `@forgeagent/memory-ipc` for Arrow frame export/import and inter-process sharing.
+- Used directly by `@dzipagent/core` and server memory routes.
+- Works with `@dzipagent/memory-ipc` for Arrow frame export/import and inter-process sharing.
 - Relies on LangGraph-compatible stores (in-memory or Postgres-backed).
 
 ## Extensibility Points

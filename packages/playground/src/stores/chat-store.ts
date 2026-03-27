@@ -1,7 +1,7 @@
 /**
  * Chat store -- manages playground chat messages and agent selection.
  *
- * Handles sending messages to the ForgeAgent server,
+ * Handles sending messages to the DzipAgent server,
  * maintaining message history, and tracking the selected agent.
  *
  * @module chat-store

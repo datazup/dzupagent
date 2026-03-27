@@ -46,8 +46,8 @@ export const fullStackTemplate: TemplateManifest = {
     },
     {
       path: 'src/index.ts',
-      templateContent: `// {{projectName}} — full-stack ForgeAgent project
-import { createForgeApp } from '@forgeagent/server'
+      templateContent: `// {{projectName}} — full-stack DzipAgent project
+import { createForgeApp } from '@dzipagent/server'
 
 const app = createForgeApp({
   auth: { mode: 'none' },
@@ -58,7 +58,7 @@ console.log('{{projectName}} server running on port 4000')
 `,
     },
     {
-      path: 'forgeagent.config.json',
+      path: 'dzipagent.config.json',
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
@@ -89,11 +89,11 @@ dist/
     },
   ],
   dependencies: {
-    '@forgeagent/core': '^0.1.0',
-    '@forgeagent/agent': '^0.1.0',
-    '@forgeagent/server': '^0.1.0',
-    '@forgeagent/memory': '^0.1.0',
-    '@forgeagent/context': '^0.1.0',
+    '@dzipagent/core': '^0.1.0',
+    '@dzipagent/agent': '^0.1.0',
+    '@dzipagent/server': '^0.1.0',
+    '@dzipagent/memory': '^0.1.0',
+    '@dzipagent/context': '^0.1.0',
   },
   devDependencies: {
     typescript: '^5.4.0',

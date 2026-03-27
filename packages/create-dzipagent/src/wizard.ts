@@ -23,8 +23,8 @@ export async function runWizard(): Promise<ProjectConfig> {
   const { input, select, checkbox, confirm } = await import('@inquirer/prompts')
 
   console.log('')
-  console.log('  Welcome to create-forgeagent!')
-  console.log('  Let\'s set up your new ForgeAgent project.')
+  console.log('  Welcome to create-dzipagent!')
+  console.log('  Let\'s set up your new DzipAgent project.')
   console.log('')
 
   // Step 1: Project name

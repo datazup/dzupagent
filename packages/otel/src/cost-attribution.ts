@@ -1,7 +1,7 @@
 /**
  * CostAttributor — tracks per-agent, per-phase, and per-tool cost attribution.
  *
- * Subscribes to ForgeEventBus for cost-related events and maintains
+ * Subscribes to DzipEventBus for cost-related events and maintains
  * running totals. Emits budget:warning and budget:exceeded events
  * when configured thresholds are crossed.
  *
@@ -17,7 +17,7 @@
  * ```
  */
 
-import type { ForgeEventBus } from '@forgeagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
 
 // ------------------------------------------------------------------ Types
 
@@ -48,7 +48,7 @@ export interface CostAlertThreshold {
 
 export interface CostAttributorConfig {
   thresholds?: CostAlertThreshold
-  eventBus?: ForgeEventBus
+  eventBus?: DzipEventBus
 }
 
 // ----------------------------------------------------------- Accumulator
@@ -92,7 +92,7 @@ export class CostAttributor {
   private _totalTokens = 0
 
   private readonly _thresholds: CostAlertThreshold
-  private _eventBus: ForgeEventBus | undefined
+  private _eventBus: DzipEventBus | undefined
   private _unsubscribes: Array<() => void> = []
   private _currentPhase: string | undefined
   private _warningEmitted = false
@@ -108,9 +108,9 @@ export class CostAttributor {
   // ------------------------------------------------------ Lifecycle
 
   /**
-   * Subscribe to ForgeEventBus for cost-related events.
+   * Subscribe to DzipEventBus for cost-related events.
    */
-  attach(eventBus: ForgeEventBus): void {
+  attach(eventBus: DzipEventBus): void {
     // Detach previous if any
     this.detach()
     this._eventBus = eventBus

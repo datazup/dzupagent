@@ -1,5 +1,5 @@
 {
-  "name": "@forgeagent/otel",
+  "name": "@dzipagent/otel",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,7 +19,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@forgeagent/core": "0.1.0"
+    "@dzipagent/core": "0.1.0"
   },
   "peerDependencies": {
     "@opentelemetry/api": "^1.7.0",

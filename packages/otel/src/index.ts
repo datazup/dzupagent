@@ -1,8 +1,8 @@
 /**
- * @forgeagent/otel — OpenTelemetry integration for ForgeAgent.
+ * @dzipagent/otel — OpenTelemetry integration for DzipAgent.
  *
  * Provides distributed tracing, metrics, and context propagation
- * for ForgeAgent operations. All OTel dependencies are optional
+ * for DzipAgent operations. All OTel dependencies are optional
  * peer dependencies — when not installed, noop implementations
  * are used transparently.
  */
@@ -31,9 +31,9 @@ export {
 } from './trace-context-store.js'
 export type { ForgeTraceContext } from './trace-context-store.js'
 
-// --- ForgeTracer ---
-export { ForgeTracer } from './tracer.js'
-export type { ForgeTracerConfig, ForgeTraceSnapshot } from './tracer.js'
+// --- DzipTracer ---
+export { DzipTracer } from './tracer.js'
+export type { DzipTracerConfig, ForgeTraceSnapshot } from './tracer.js'
 
 // --- Event-to-Metric Mapping ---
 export { EVENT_METRIC_MAP, getAllMetricNames } from './event-metric-map.js'
@@ -80,4 +80,4 @@ export { createOTelPlugin } from './otel-plugin.js'
 export type { OTelPluginConfig } from './otel-plugin.js'
 
 // --- Version ---
-export const FORGEAGENT_OTEL_VERSION = '0.1.0'
+export const dzipagent_OTEL_VERSION = '0.1.0'

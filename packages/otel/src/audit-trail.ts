@@ -4,7 +4,7 @@
  * Each audit entry is linked to the previous via a SHA-256 hash chain,
  * allowing verification that no entries have been modified or removed.
  *
- * Subscribes to ForgeEventBus and maps events to audit categories:
+ * Subscribes to DzipEventBus and maps events to audit categories:
  * - agent:started/completed/failed -> agent_lifecycle
  * - tool:called/result/error -> tool_execution
  * - memory:written -> memory_mutation
@@ -21,7 +21,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import type { ForgeEventBus, ForgeEvent } from '@forgeagent/core'
+import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
 
 // ------------------------------------------------------------------ Types
 
@@ -138,11 +138,11 @@ export class InMemoryAuditStore implements AuditStore {
 interface EventMapping {
   category: AuditCategory
   action: string
-  extractDetails: (event: ForgeEvent) => Record<string, unknown>
-  extractIds: (event: ForgeEvent) => { agentId?: string; runId?: string }
+  extractDetails: (event: DzipEvent) => Record<string, unknown>
+  extractIds: (event: DzipEvent) => { agentId?: string; runId?: string }
 }
 
-function mapEvent(event: ForgeEvent): EventMapping | undefined {
+function mapEvent(event: DzipEvent): EventMapping | undefined {
   switch (event.type) {
     case 'agent:started':
       return {
@@ -252,9 +252,9 @@ export class AuditTrail {
   // ------------------------------------------------------ Lifecycle
 
   /**
-   * Attach to a ForgeEventBus. Maps events to audit entries.
+   * Attach to a DzipEventBus. Maps events to audit entries.
    */
-  attach(eventBus: ForgeEventBus): void {
+  attach(eventBus: DzipEventBus): void {
     this.detach()
 
     this._unsubscribes.push(

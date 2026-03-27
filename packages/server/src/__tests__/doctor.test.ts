@@ -507,9 +507,9 @@ describe('doctor — Package Versions', () => {
     const ctx: DoctorContext = {
       env: { DATABASE_URL: 'x', ANTHROPIC_API_KEY: 'x' },
       getPackageVersions: async () => ({
-        '@forgeagent/core': '0.1.0',
-        '@forgeagent/agent': '0.1.0',
-        '@forgeagent/server': '0.1.0',
+        '@dzipagent/core': '0.1.0',
+        '@dzipagent/agent': '0.1.0',
+        '@dzipagent/server': '0.1.0',
       }),
     }
     const report = await runDoctor(ctx)
@@ -523,8 +523,8 @@ describe('doctor — Package Versions', () => {
     const ctx: DoctorContext = {
       env: { DATABASE_URL: 'x', ANTHROPIC_API_KEY: 'x' },
       getPackageVersions: async () => ({
-        '@forgeagent/core': '0.1.0',
-        '@forgeagent/agent': '0.2.0',
+        '@dzipagent/core': '0.1.0',
+        '@dzipagent/agent': '0.2.0',
       }),
     }
     const report = await runDoctor(ctx)
@@ -539,7 +539,7 @@ describe('doctor — Package Versions', () => {
       env: { DATABASE_URL: 'x', ANTHROPIC_API_KEY: 'x' },
     }
     const report = await runDoctor(ctx)
-    const check = findCheck(report, '@forgeagent/server')!
+    const check = findCheck(report, '@dzipagent/server')!
 
     expect(check.status).toBe('pass')
     expect(check.message).toContain('0.1.0')
@@ -603,7 +603,7 @@ describe('doctor — Output Formatting', () => {
     })
     const output = formatDoctorReport(report)
 
-    expect(output).toContain('ForgeAgent Doctor')
+    expect(output).toContain('DzipAgent Doctor')
     expect(output).toContain('[PASS]')
     expect(output).toContain('Summary')
     expect(output).toContain('passed')
@@ -652,8 +652,8 @@ describe('doctor — Output Formatting', () => {
       corsOrigins: ['https://app.forge.dev'],
       auditTrailEnabled: true,
       getPackageVersions: async () => ({
-        '@forgeagent/core': '0.1.0',
-        '@forgeagent/server': '0.1.0',
+        '@dzipagent/core': '0.1.0',
+        '@dzipagent/server': '0.1.0',
       }),
     }
     const report = await runDoctor(ctx)
@@ -691,10 +691,10 @@ describe('doctor — Integration', () => {
       corsOrigins: ['https://forge.dev'],
       auditTrailEnabled: true,
       getPackageVersions: async () => ({
-        '@forgeagent/core': '0.1.0',
-        '@forgeagent/agent': '0.1.0',
-        '@forgeagent/server': '0.1.0',
-        '@forgeagent/memory': '0.1.0',
+        '@dzipagent/core': '0.1.0',
+        '@dzipagent/agent': '0.1.0',
+        '@dzipagent/server': '0.1.0',
+        '@dzipagent/memory': '0.1.0',
       }),
     }
 

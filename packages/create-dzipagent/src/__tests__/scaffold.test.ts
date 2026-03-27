@@ -265,7 +265,7 @@ describe('E2E scaffold', () => {
     expect(indexContent).not.toContain('{{projectName}}')
 
     // No leftover {{template}} variable in config
-    const configRaw = await readFile(join(projectDir, 'forgeagent.config.json'), 'utf-8')
+    const configRaw = await readFile(join(projectDir, 'dzipagent.config.json'), 'utf-8')
     expect(configRaw).not.toContain('{{template}}')
     expect(configRaw).toContain('"minimal"')
   })
@@ -375,7 +375,7 @@ describe('CLI argument parsing', () => {
   it('--help prints usage information', async () => {
     const { stdout, exitCode } = await runCli(['--help'])
     expect(exitCode).toBe(0)
-    expect(stdout).toContain('Usage: create-forgeagent')
+    expect(stdout).toContain('Usage: create-dzipagent')
     expect(stdout).toContain('--template')
     expect(stdout).toContain('--list')
   })
@@ -383,13 +383,13 @@ describe('CLI argument parsing', () => {
   it('-h also prints usage information', async () => {
     const { stdout, exitCode } = await runCli(['-h'])
     expect(exitCode).toBe(0)
-    expect(stdout).toContain('Usage: create-forgeagent')
+    expect(stdout).toContain('Usage: create-dzipagent')
   })
 
   it('no arguments prints help (treated as help)', async () => {
     const { stdout, exitCode } = await runCli([])
     expect(exitCode).toBe(0)
-    expect(stdout).toContain('Usage: create-forgeagent')
+    expect(stdout).toContain('Usage: create-dzipagent')
   })
 
   it('--list prints available template names', async () => {

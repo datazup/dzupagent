@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { MCPToolDescriptor, MCPToolResult } from '@forgeagent/core'
+import type { MCPToolDescriptor, MCPToolResult } from '@dzipagent/core'
 import { resolveAgentTools, type ToolResolverContext } from '../runtime/tool-resolver.js'
 
 // ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ class MockMcpServer {
 
 /**
  * Simulates the MCPClient interface that tool-resolver.ts constructs via
- * dynamic import of @forgeagent/core. The mock:
+ * dynamic import of @dzipagent/core. The mock:
  *   - addServer() / connect() follow the same contract
  *   - getEagerTools() returns tools from connected servers
  *   - disconnectAll() tracks that cleanup was called
@@ -170,7 +170,7 @@ function makeContext(
 }
 
 // ---------------------------------------------------------------------------
-// Test setup: mock @forgeagent/core dynamic import
+// Test setup: mock @dzipagent/core dynamic import
 // ---------------------------------------------------------------------------
 
 let mockClient: MockMCPClient
@@ -213,8 +213,8 @@ function mockMcpToolToLangChain(
 beforeEach(() => {
   mockClient = new MockMCPClient()
 
-  // Mock the dynamic import of @forgeagent/core that tool-resolver does
-  vi.mock('@forgeagent/core', () => {
+  // Mock the dynamic import of @dzipagent/core that tool-resolver does
+  vi.mock('@dzipagent/core', () => {
     return {
       MCPClient: class {
         // Proxy all method calls to the shared mockClient instance

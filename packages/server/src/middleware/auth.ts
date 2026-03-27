@@ -1,5 +1,5 @@
 /**
- * Authentication middleware for ForgeAgent server.
+ * Authentication middleware for DzipAgent server.
  *
  * Supports API key authentication via Bearer token in Authorization header.
  * When mode is 'none', all requests pass through without auth.

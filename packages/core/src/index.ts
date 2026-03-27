@@ -1,5 +1,5 @@
 /**
- * @forgeagent/core — Base agent infrastructure
+ * @dzipagent/core — Base agent infrastructure
  *
  * Reusable LLM agent engine: model registry, prompt management,
  * memory, context engineering, middleware, persistence, routing,
@@ -16,8 +16,8 @@ export type { ForgeErrorCode } from './errors/error-codes.js'
 
 // --- Events ---
 export { createEventBus } from './events/event-bus.js'
-export type { ForgeEventBus } from './events/event-bus.js'
-export type { ForgeEvent, ForgeEventOf, BudgetUsage, ToolStatSummary } from './events/event-types.js'
+export type { DzipEventBus } from './events/event-bus.js'
+export type { DzipEvent, DzipEventOf, BudgetUsage, ToolStatSummary } from './events/event-types.js'
 export { AgentBus } from './events/agent-bus.js'
 export type { AgentMessage, AgentMessageHandler } from './events/agent-bus.js'
 
@@ -26,7 +26,7 @@ export type { AgentHooks, HookContext } from './hooks/hook-types.js'
 export { runHooks, runModifierHook, mergeHooks } from './hooks/hook-runner.js'
 
 // --- Plugin ---
-export type { ForgePlugin, PluginContext } from './plugin/plugin-types.js'
+export type { DzipPlugin, PluginContext } from './plugin/plugin-types.js'
 export { PluginRegistry } from './plugin/plugin-registry.js'
 export { discoverPlugins, validateManifest, resolvePluginOrder } from './plugin/plugin-discovery.js'
 export type { PluginManifest, DiscoveredPlugin, PluginDiscoveryConfig } from './plugin/plugin-discovery.js'
@@ -71,7 +71,7 @@ export type {
   BulkPromptQuery,
 } from './prompt/template-types.js'
 
-// --- Memory (re-exported from @forgeagent/memory) ---
+// --- Memory (re-exported from @dzipagent/memory) ---
 export {
   // Core
   createStore,
@@ -151,7 +151,7 @@ export {
   HLC, CRDTResolver,
   // Multi-modal memory (ECO-060)
   MultiModalMemoryService, InMemoryAttachmentStorage, inferAttachmentType,
-} from '@forgeagent/memory'
+} from '@dzipagent/memory'
 export type {
   // Core types
   StoreConfig, StoreIndexConfig,
@@ -231,9 +231,9 @@ export type {
   HLCTimestamp, LWWRegister, ORSetEntry, ORSet, LWWMap, MergeResult,
   // Multi-modal memory types (ECO-060)
   AttachmentType, MemoryAttachment, AttachmentStorageProvider, MultiModalMemoryServiceConfig,
-} from '@forgeagent/memory'
+} from '@dzipagent/memory'
 
-// --- Context (re-exported from @forgeagent/context) ---
+// --- Context (re-exported from @dzipagent/context) ---
 export {
   // Message management
   shouldSummarize,
@@ -260,7 +260,7 @@ export {
   compressToLevel, compressToBudget, selectCompressionLevel,
   // Context transfer (Sprint 3)
   ContextTransferService,
-} from '@forgeagent/context'
+} from '@dzipagent/context'
 export type {
   MessageManagerConfig,
   CompletenessResult, DescriptionInput,
@@ -275,7 +275,7 @@ export type {
   CompressionLevel, ProgressiveCompressConfig, ProgressiveCompressResult,
   // Context transfer types
   IntentContext, IntentType, ContextTransferConfig, IntentRelevanceRule, TransferScope,
-} from '@forgeagent/context'
+} from '@dzipagent/context'
 
 // --- Run Context Transfer ---
 export { RunContextTransfer, INTENT_CONTEXT_CHAINS } from './context/run-context-transfer.js'
@@ -347,7 +347,7 @@ export type { HierarchyLevel } from './skills/hierarchical-walker.js'
 export { MCPClient } from './mcp/mcp-client.js'
 export { mcpToolToLangChain, mcpToolsToLangChain, langChainToolToMcp } from './mcp/mcp-tool-bridge.js'
 export { DeferredToolLoader } from './mcp/deferred-loader.js'
-export { ForgeAgentMCPServer } from './mcp/mcp-server.js'
+export { DzipAgentMCPServer } from './mcp/mcp-server.js'
 export type { MCPServerOptions, MCPExposedTool, MCPRequest, MCPResponse } from './mcp/mcp-server.js'
 export type {
   MCPTransport,
@@ -753,7 +753,7 @@ export type {
   AgentsMdMemoryConfig, AgentsMdSecurityConfig,
 } from './formats/index.js'
 
-// --- Memory IPC (optional, requires @forgeagent/memory-ipc peer) ---
+// --- Memory IPC (optional, requires @dzipagent/memory-ipc peer) ---
 export * from './memory-ipc.js'
 
 // --- VectorDB ---
@@ -825,4 +825,4 @@ export { injectTraceContext, extractTraceContext, formatTraceparent, parseTracep
 export type { TraceContext } from './telemetry/trace-propagation.js'
 
 // --- Version ---
-export const FORGEAGENT_CORE_VERSION = '0.1.0'
+export const dzipagent_CORE_VERSION = '0.1.0'

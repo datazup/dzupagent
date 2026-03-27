@@ -21,7 +21,7 @@ const execFileAsync = promisify(execFile)
 // ---------------------------------------------------------------------------
 
 export interface CheckpointManagerConfig {
-  /** Base directory for shadow repos (default ~/.forgeagent/checkpoints) */
+  /** Base directory for shadow repos (default ~/.dzipagent/checkpoints) */
   baseDir?: string
   /** Maximum number of snapshots to keep per directory (default 50) */
   maxSnapshots?: number
@@ -50,7 +50,7 @@ export interface CheckpointDiff {
 // ---------------------------------------------------------------------------
 
 const DEFAULTS = {
-  baseDir: join(process.env['HOME'] ?? '/tmp', '.forgeagent', 'checkpoints'),
+  baseDir: join(process.env['HOME'] ?? '/tmp', '.dzipagent', 'checkpoints'),
   maxSnapshots: 50,
   timeoutMs: 30_000,
   maxFiles: 50_000,
@@ -273,8 +273,8 @@ export class CheckpointManager {
       await this.git(shadowDir, workDir, ['init'])
 
       // Configure for checkpoint use
-      await this.git(shadowDir, workDir, ['config', 'user.email', 'checkpoint@forgeagent'])
-      await this.git(shadowDir, workDir, ['config', 'user.name', 'ForgeAgent Checkpoint'])
+      await this.git(shadowDir, workDir, ['config', 'user.email', 'checkpoint@dzipagent'])
+      await this.git(shadowDir, workDir, ['config', 'user.name', 'DzipAgent Checkpoint'])
     }
   }
 

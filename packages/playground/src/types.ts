@@ -1,5 +1,5 @@
 /**
- * Shared types for the ForgeAgent Playground SPA.
+ * Shared types for the DzipAgent Playground SPA.
  */
 
 // ── Chat ─────────────────────────────────────────────────

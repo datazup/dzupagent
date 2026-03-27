@@ -11,8 +11,8 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { ForgeServerConfig } from '../app.js'
-import type { RunStatus } from '@forgeagent/core'
-import { injectTraceContext } from '@forgeagent/core'
+import type { RunStatus } from '@dzipagent/core'
+import { injectTraceContext } from '@dzipagent/core'
 
 export function createRunRoutes(config: ForgeServerConfig): Hono {
   const app = new Hono()

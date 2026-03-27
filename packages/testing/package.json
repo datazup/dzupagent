@@ -1,5 +1,5 @@
 {
-  "name": "@forgeagent/testing",
+  "name": "@dzipagent/testing",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",

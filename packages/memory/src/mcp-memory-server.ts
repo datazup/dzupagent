@@ -1,5 +1,5 @@
 /**
- * MCP Memory Server — exposes ForgeAgent memory as MCP tool definitions
+ * MCP Memory Server — exposes DzipAgent memory as MCP tool definitions
  * with a dispatcher that maps MCP tool calls to memory operations.
  *
  * This module is transport-agnostic: it provides tool schemas and a handler
@@ -241,7 +241,7 @@ function asNumber(value: unknown, fallback: number): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Routes MCP tool calls to ForgeAgent memory operations.
+ * Routes MCP tool calls to DzipAgent memory operations.
  *
  * Usage:
  * ```ts

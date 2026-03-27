@@ -53,7 +53,7 @@ export interface SleepConsolidationConfig {
   decayPruneThreshold?: number
   /** Max total records to process per namespace (default: 200) */
   maxRecordsPerNamespace?: number
-  /** Enable Arrow-accelerated batch operations (requires @forgeagent/memory-ipc) */
+  /** Enable Arrow-accelerated batch operations (requires @dzipagent/memory-ipc) */
   useArrow?: boolean
   /** Jaccard similarity threshold for lesson deduplication (default: 0.6) */
   lessonDedupThreshold?: number
@@ -355,7 +355,7 @@ export class SleepConsolidator {
    * uses vectorized `batchDecayUpdate` to recompute all decay strengths in one
    * columnar pass, then deletes records below threshold.
    *
-   * Falls back to `standardDecayPrune` if @forgeagent/memory-ipc is not
+   * Falls back to `standardDecayPrune` if @dzipagent/memory-ipc is not
    * installed or any Arrow operation fails.
    */
   private async arrowDecayPrune(
@@ -364,7 +364,7 @@ export class SleepConsolidator {
   ): Promise<number> {
     try {
       const { FrameBuilder, FrameReader, batchDecayUpdate } =
-        await import('@forgeagent/memory-ipc')
+        await import('@dzipagent/memory-ipc')
 
       const items = await store.search(namespace, { limit: this.maxRecordsPerNamespace })
       if (items.length === 0) return 0
@@ -378,7 +378,7 @@ export class SleepConsolidator {
         if (!item) continue
         const value = item.value as Record<string, unknown>
 
-        // Map ForgeAgent _decay convention to FrameBuilder's FrameRecordValue
+        // Map DzipAgent _decay convention to FrameBuilder's FrameRecordValue
         const decayRaw = value['_decay']
         const decayObj = (decayRaw != null && typeof decayRaw === 'object')
           ? decayRaw as Record<string, unknown>

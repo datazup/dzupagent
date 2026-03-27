@@ -1,7 +1,7 @@
 /**
  * SafetyMonitor — detects prompt injection, tool misuse, and data exfiltration.
  *
- * Runs pattern-based detection on agent inputs and outputs via ForgeEventBus.
+ * Runs pattern-based detection on agent inputs and outputs via DzipEventBus.
  * All detection is **non-blocking** — it never stops agent execution, only
  * records events and optionally emits alerts.
  *
@@ -16,7 +16,7 @@
  * ```
  */
 
-import type { ForgeEventBus } from '@forgeagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
 
 // ------------------------------------------------------------------ Types
 
@@ -54,7 +54,7 @@ export interface SafetyMonitorConfig {
   /** Consecutive tool failure threshold before alerting (default: 3) */
   toolFailureThreshold?: number
   /** Event bus for emitting safety events */
-  eventBus?: ForgeEventBus
+  eventBus?: DzipEventBus
 }
 
 // ------------------------------------------------------- Default patterns
@@ -144,11 +144,11 @@ export class SafetyMonitor {
   // ------------------------------------------------------ Lifecycle
 
   /**
-   * Attach to a ForgeEventBus.
+   * Attach to a DzipEventBus.
    * Listens for tool:called (scan input), tool:result (scan output),
    * and tool:error (track consecutive failures).
    */
-  attach(eventBus: ForgeEventBus): void {
+  attach(eventBus: DzipEventBus): void {
     this.detach()
 
     this._unsubscribes.push(

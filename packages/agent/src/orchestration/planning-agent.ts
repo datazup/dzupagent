@@ -5,7 +5,7 @@
  * Supports both programmatic plan construction via `PlanningAgent.buildPlan()`
  * and LLM-powered decomposition via `decompose()`.
  *
- * Depends ONLY on sibling orchestration types + @forgeagent/core.
+ * Depends ONLY on sibling orchestration types + @dzipagent/core.
  */
 
 import { z } from 'zod'

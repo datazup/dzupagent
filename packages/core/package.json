@@ -1,5 +1,5 @@
 {
-  "name": "@forgeagent/core",
+  "name": "@dzipagent/core",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -39,19 +39,19 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@forgeagent/memory": "0.1.0",
-    "@forgeagent/context": "0.1.0"
+    "@dzipagent/memory": "0.1.0",
+    "@dzipagent/context": "0.1.0"
   },
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",
     "@langchain/langgraph": ">=1.0.0",
-    "@forgeagent/memory-ipc": "workspace:*",
+    "@dzipagent/memory-ipc": "*",
     "zod": ">=4.0.0",
     "@lancedb/lancedb": ">=0.10.0",
     "apache-arrow": ">=15.0.0"
   },
   "peerDependenciesMeta": {
-    "@forgeagent/memory-ipc": {
+    "@dzipagent/memory-ipc": {
       "optional": true
     },
     "@lancedb/lancedb": {

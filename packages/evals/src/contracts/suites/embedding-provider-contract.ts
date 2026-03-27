@@ -1,7 +1,7 @@
 /**
  * Embedding Provider Contract Suite — conformance tests for EmbeddingProvider adapters.
  *
- * Tests verify the EmbeddingProvider interface contract defined in @forgeagent/core.
+ * Tests verify the EmbeddingProvider interface contract defined in @dzipagent/core.
  */
 
 import { ContractSuiteBuilder, timedTest } from '../contract-test-generator.js';

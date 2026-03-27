@@ -1,5 +1,5 @@
 /**
- * Pre-built analytical queries for ForgeAgent memory data.
+ * Pre-built analytical queries for DzipAgent memory data.
  *
  * Wraps DuckDBEngine with domain-specific queries. All methods accept
  * an Arrow Table (from FrameBuilder.toTable()) and return typed results.
@@ -76,7 +76,7 @@ export type DuplicateCandidate = RowRecord & {
 // ---------------------------------------------------------------------------
 
 /**
- * Pre-built analytical queries for ForgeAgent memory data.
+ * Pre-built analytical queries for DzipAgent memory data.
  *
  * Wraps DuckDBEngine with domain-specific queries. All methods accept
  * an Arrow Table (from FrameBuilder.toTable()) and return typed results.

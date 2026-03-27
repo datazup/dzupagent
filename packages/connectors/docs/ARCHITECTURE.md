@@ -1,7 +1,7 @@
-# @forgeagent/connectors Architecture
+# @dzipagent/connectors Architecture
 
 ## Purpose
-`@forgeagent/connectors` packages external system integrations as LangChain-compatible structured tools. It is the integration edge that converts service APIs into agent-callable tool contracts.
+`@dzipagent/connectors` packages external system integrations as LangChain-compatible structured tools. It is the integration edge that converts service APIs into agent-callable tool contracts.
 
 ## Main Responsibilities
 - Provide ready-to-use connector factories for common integrations.
@@ -23,17 +23,17 @@ Top-level modules under `src/`:
 2. Factory builds one or more `DynamicStructuredTool` instances with schemas.
 3. Consumer combines tools from one or more connectors.
 4. Optional `filterTools()` narrows allowed tool names by role/use case.
-5. Resulting tool set is passed to `ForgeAgent`.
+5. Resulting tool set is passed to `DzipAgent`.
 
 ## Main Features
 - Rapid connector bootstrap with minimal integration boilerplate.
-- Compatible with existing ForgeAgent tool loop and guardrails.
+- Compatible with existing DzipAgent tool loop and guardrails.
 - Connector-level configuration for auth and defaults (repo/base URL/channel, etc.).
 - Straightforward tool filtering for principle-of-least-privilege setups.
 
 ## Integration Boundaries
-- Depends on `@forgeagent/core` types and patterns.
-- Exposes tool objects consumed directly by `@forgeagent/agent`.
+- Depends on `@dzipagent/core` types and patterns.
+- Exposes tool objects consumed directly by `@dzipagent/agent`.
 - Uses peer dependencies (`@langchain/core`, `zod`) for schema/tool typing.
 
 ## Extensibility Points

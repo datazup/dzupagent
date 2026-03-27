@@ -14,7 +14,7 @@
  * @module recovery/recovery-copilot
  */
 
-import type { ForgeEventBus } from '@forgeagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
 import type { StuckStatus } from '../guardrails/stuck-detector.js'
 import type { ApprovalGate } from '../approval/approval-gate.js'
 import { FailureAnalyzer, type FailureAnalysis } from './failure-analyzer.js'
@@ -63,14 +63,14 @@ export class RecoveryCopilot {
   private readonly analyzer: FailureAnalyzer
   private readonly ranker: StrategyRanker
   private readonly executor: RecoveryExecutor
-  private readonly eventBus: ForgeEventBus
+  private readonly eventBus: DzipEventBus
   private readonly plans = new Map<string, RecoveryPlan>()
   private readonly strategyGenerator: StrategyGenerator
   private readonly feedback: RecoveryFeedback | undefined
   private planCounter = 0
 
   constructor(opts: {
-    eventBus: ForgeEventBus
+    eventBus: DzipEventBus
     config?: Partial<RecoveryCopilotConfig>
     approvalGate?: ApprovalGate
     actionHandler: ActionHandler

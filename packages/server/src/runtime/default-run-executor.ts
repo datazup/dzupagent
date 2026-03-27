@@ -1,4 +1,4 @@
-import { invokeWithTimeout, type RunStore, type ModelRegistry } from '@forgeagent/core'
+import { invokeWithTimeout, type RunStore, type ModelRegistry } from '@dzipagent/core'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import type { RunExecutor } from './run-worker.js'
 

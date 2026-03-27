@@ -1,5 +1,5 @@
 /**
- * Core types for ForgeAgent — the top-level agent abstraction.
+ * Core types for DzipAgent — the top-level agent abstraction.
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
@@ -10,16 +10,16 @@ import type {
   AgentMiddleware,
   MemoryService,
   MessageManagerConfig,
-  ForgeEventBus,
-} from '@forgeagent/core'
+  DzipEventBus,
+} from '@dzipagent/core'
 import type { ToolStat, StopReason } from './tool-loop.js'
 import type { StuckError } from './stuck-error.js'
 import type { GuardrailConfig } from '../guardrails/guardrail-types.js'
 import type { MemoryProfile } from './memory-profiles.js'
 import type { ToolLoopLearningConfig, RunLearnings } from './tool-loop-learning.js'
 
-/** Configuration for creating a ForgeAgent */
-export interface ForgeAgentConfig {
+/** Configuration for creating a DzipAgent */
+export interface DzipAgentConfig {
   /** Unique agent identifier */
   id: string
   /** Human-readable name */
@@ -49,7 +49,7 @@ export interface ForgeAgentConfig {
   /** Description of what this agent does (used when agent is exposed as a tool) */
   description?: string
   /** Event bus for emitting telemetry and lifecycle events */
-  eventBus?: ForgeEventBus
+  eventBus?: DzipEventBus
 
   /**
    * Optional tool stats tracker for injecting preferred-tool hints
@@ -61,7 +61,7 @@ export interface ForgeAgentConfig {
   /**
    * Arrow-based memory configuration (optional, enables token budgeting).
    *
-   * When set, `prepareMessages()` uses `@forgeagent/memory-ipc`'s
+   * When set, `prepareMessages()` uses `@dzipagent/memory-ipc`'s
    * `TokenBudgetAllocator` and `phaseWeightedSelection` to select only the
    * most relevant memory records that fit within a token budget, instead of
    * loading every record.

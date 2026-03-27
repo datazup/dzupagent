@@ -1,5 +1,5 @@
 /**
- * Token-bucket rate limiter middleware for ForgeAgent server.
+ * Token-bucket rate limiter middleware for DzipAgent server.
  *
  * Limits requests per API key (or per IP if unauthenticated).
  * Uses a sliding-window token bucket algorithm.

@@ -237,7 +237,7 @@ describe('ScorecardReporter', () => {
 
   it('renders console format with ANSI codes', () => {
     const output = formatConsole(report)
-    expect(output).toContain('ForgeAgent Integration Scorecard')
+    expect(output).toContain('DzipAgent Integration Scorecard')
     expect(output).toContain('Overall Score:')
     expect(output).toContain('Coverage')
     expect(output).toContain('Safety')
@@ -247,7 +247,7 @@ describe('ScorecardReporter', () => {
 
   it('renders markdown format with table headers', () => {
     const output = formatMarkdown(report)
-    expect(output).toContain('# ForgeAgent Integration Scorecard')
+    expect(output).toContain('# DzipAgent Integration Scorecard')
     expect(output).toContain('| Status | Check | Score | Message |')
     expect(output).toContain('**Overall Score:**')
     expect(output).toContain('**Grade:**')
@@ -270,7 +270,7 @@ describe('ScorecardReporter', () => {
     expect(consoleOutput).toContain('\x1b[')
 
     const mdOutput = reporter.render('markdown')
-    expect(mdOutput).toContain('# ForgeAgent Integration Scorecard')
+    expect(mdOutput).toContain('# DzipAgent Integration Scorecard')
 
     const jsonOutput = reporter.render('json')
     expect(() => JSON.parse(jsonOutput)).not.toThrow()
@@ -339,7 +339,7 @@ describe('scorecard CLI command', () => {
       expect(result.report).toBeDefined()
       expect(result.report.overallScore).toBeGreaterThanOrEqual(0)
       expect(result.report.overallScore).toBeLessThanOrEqual(100)
-      expect(result.rendered).toContain('ForgeAgent Integration Scorecard')
+      expect(result.rendered).toContain('DzipAgent Integration Scorecard')
       expect(result.writtenTo).toBeUndefined()
     })
 
@@ -353,7 +353,7 @@ describe('scorecard CLI command', () => {
 
         expect(result.writtenTo).toBe(outPath)
         const content = await readFile(outPath, 'utf-8')
-        expect(content).toContain('# ForgeAgent Integration Scorecard')
+        expect(content).toContain('# DzipAgent Integration Scorecard')
       } finally {
         await rm(tempDir, { recursive: true, force: true })
       }

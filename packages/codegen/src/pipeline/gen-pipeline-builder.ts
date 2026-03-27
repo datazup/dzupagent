@@ -9,7 +9,7 @@
  * because graph topology requires domain-specific routing functions.
  * This builder captures the pipeline CONFIGURATION that the domain layer uses.
  */
-import type { ModelTier } from '@forgeagent/core'
+import type { ModelTier } from '@dzipagent/core'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { QualityDimension } from '../quality/quality-types.js'
 import type { EscalationConfig } from './fix-escalation.js'

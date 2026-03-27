@@ -112,7 +112,7 @@ export interface ImportResult {
 }
 
 /** The current AgentFile schema URI */
-export const AGENT_FILE_SCHEMA = 'https://forgeagent.dev/schemas/agent-file-v1.json' as const
+export const AGENT_FILE_SCHEMA = 'https://dzipagent.dev/schemas/agent-file-v1.json' as const
 
 /** The current AgentFile format version */
 export const AGENT_FILE_VERSION = '1.0.0' as const

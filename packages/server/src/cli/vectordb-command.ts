@@ -5,7 +5,7 @@
  * for the vector store backing an agent deployment.
  */
 
-import type { VectorStore } from '@forgeagent/core'
+import type { VectorStore } from '@dzipagent/core'
 
 /**
  * Result of a vector DB status check.

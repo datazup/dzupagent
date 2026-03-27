@@ -6,7 +6,7 @@ import type {
   PipelineRuntimeEvent,
   NodeResult,
 } from '../pipeline/pipeline-runtime-types.js'
-import type { PipelineDefinition, PipelineCheckpoint } from '@forgeagent/core'
+import type { PipelineDefinition, PipelineCheckpoint } from '@dzipagent/core'
 
 // ---------------------------------------------------------------------------
 // Helpers

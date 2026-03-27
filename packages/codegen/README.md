@@ -1,4 +1,4 @@
-# @forgeagent/codegen
+# @dzipagent/codegen
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,25 +10,25 @@
 | Source Files | 101 |
 | Lines of Code | 16,463 |
 | Test Files | 9 |
-| Internal Dependencies | `@forgeagent/core` |
+| Internal Dependencies | `@dzipagent/core` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @forgeagent/codegen
+npm install @dzipagent/codegen
 ```
 <!-- AUTO-GENERATED-END -->
 
-Code generation engine built on `@forgeagent/core`. Provides a virtual filesystem, code generation services, sandbox execution, quality scoring, framework adaptation, pipeline builder, generic LangGraph tools, and API contract extraction.
+Code generation engine built on `@dzipagent/core`. Provides a virtual filesystem, code generation services, sandbox execution, quality scoring, framework adaptation, pipeline builder, generic LangGraph tools, and API contract extraction.
 
 ## Installation
 
 ```bash
-yarn add @forgeagent/codegen
+yarn add @dzipagent/codegen
 # or
-npm install @forgeagent/codegen
+npm install @dzipagent/codegen
 ```
 
 ## Quick Start
@@ -40,7 +40,7 @@ import {
   QualityScorer,
   GenPipelineBuilder,
   builtinDimensions,
-} from '@forgeagent/codegen'
+} from '@dzipagent/codegen'
 
 // 1. Create an in-memory filesystem
 const vfs = new VirtualFS()
@@ -146,11 +146,11 @@ LangGraph-compatible tool factories for use inside agent nodes:
 
 ### Version
 
-- `FORGEAGENT_CODEGEN_VERSION: string` -- current package version (`'0.1.0'`)
+- `dzipagent_CODEGEN_VERSION: string` -- current package version (`'0.1.0'`)
 
 ## Configuration
 
-This package relies on `@forgeagent/core` for LLM and persistence configuration. Additional sandbox-specific options:
+This package relies on `@dzipagent/core` for LLM and persistence configuration. Additional sandbox-specific options:
 
 | Option | Used by | Description |
 |--------|---------|-------------|
@@ -171,7 +171,7 @@ This package relies on `@forgeagent/core` for LLM and persistence configuration.
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@forgeagent/core` | `0.1.0` | Core agent infrastructure (LLM, memory, prompts) |
+| `@dzipagent/core` | `0.1.0` | Core agent infrastructure (LLM, memory, prompts) |
 
 ## License
 

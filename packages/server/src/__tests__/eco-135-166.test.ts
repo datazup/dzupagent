@@ -21,9 +21,9 @@ import {
   InMemoryAgentStore,
   ModelRegistry,
   createEventBus,
-} from '@forgeagent/core'
-import type { ForgeEventBus } from '@forgeagent/core'
-import type { MemoryServiceLike } from '@forgeagent/memory-ipc'
+} from '@dzipagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
+import type { MemoryServiceLike } from '@dzipagent/memory-ipc'
 import { writeFileSync, unlinkSync, mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'

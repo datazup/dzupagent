@@ -1,4 +1,4 @@
-# create-forgeagent
+# create-dzipagent
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -17,27 +17,27 @@
 
 ### Install
 ```bash
-npm install create-forgeagent
+npm install create-dzipagent
 ```
 <!-- AUTO-GENERATED-END -->
 
-CLI scaffolding tool for creating new ForgeAgent projects. Generates project files from template manifests with `{{variable}}` interpolation. Ships with five built-in templates covering common agent architectures.
+CLI scaffolding tool for creating new DzipAgent projects. Generates project files from template manifests with `{{variable}}` interpolation. Ships with five built-in templates covering common agent architectures.
 
 ## Usage
 
 ```bash
 # Using npm create (recommended)
-npm create forgeagent my-project
+npm create dzipagent my-project
 
 # Using npx
-npx create-forgeagent my-project
+npx create-dzipagent my-project
 
 # Specify a template
-npx create-forgeagent my-project --template full-stack
-npx create-forgeagent my-project --template codegen
-npx create-forgeagent my-project --template multi-agent
-npx create-forgeagent my-project --template server
-npx create-forgeagent my-project --template minimal
+npx create-dzipagent my-project --template full-stack
+npx create-dzipagent my-project --template codegen
+npx create-dzipagent my-project --template multi-agent
+npx create-dzipagent my-project --template server
+npx create-dzipagent my-project --template minimal
 ```
 
 ## Installation
@@ -45,7 +45,7 @@ npx create-forgeagent my-project --template minimal
 For programmatic use in other tools:
 
 ```bash
-npm install create-forgeagent
+npm install create-dzipagent
 ```
 
 ## Templates
@@ -55,10 +55,10 @@ Five built-in project templates are available:
 | Template | Description |
 |----------|-------------|
 | `minimal` | Single-agent project with minimal dependencies. Good starting point for simple agents. |
-| `full-stack` | Agent with server, memory, and context management. Includes `@forgeagent/agent`, `@forgeagent/server`, `@forgeagent/memory`, and `@forgeagent/context`. |
-| `codegen` | Code generation agent with VFS, sandbox, and git tooling. Built on `@forgeagent/codegen`. |
+| `full-stack` | Agent with server, memory, and context management. Includes `@dzipagent/agent`, `@dzipagent/server`, `@dzipagent/memory`, and `@dzipagent/context`. |
+| `codegen` | Code generation agent with VFS, sandbox, and git tooling. Built on `@dzipagent/codegen`. |
 | `multi-agent` | Multi-agent orchestration with supervisor pattern. Multiple agents coordinating via the event bus. |
-| `server` | Standalone ForgeAgent server deployment. REST API and WebSocket server with persistence. |
+| `server` | Standalone DzipAgent server deployment. REST API and WebSocket server with persistence. |
 
 Each template defines its own set of files, dependencies, and dev dependencies through a `TemplateManifest`.
 
@@ -67,7 +67,7 @@ Each template defines its own set of files, dependencies, and dev dependencies t
 The scaffold engine can be used programmatically in build tools, CLIs, or other automation:
 
 ```ts
-import { ScaffoldEngine, listTemplates, getTemplate } from 'create-forgeagent'
+import { ScaffoldEngine, listTemplates, getTemplate } from 'create-dzipagent'
 
 // List all available templates
 const templates = listTemplates()
@@ -99,7 +99,7 @@ console.log(`Created ${result.filesCreated.length} files in ${result.projectDir}
 The `renderTemplate` function handles `{{variable}}` interpolation. Unknown variables are left as-is (no error thrown):
 
 ```ts
-import { renderTemplate } from 'create-forgeagent'
+import { renderTemplate } from 'create-dzipagent'
 
 const content = renderTemplate(
   'Hello {{projectName}}, version {{version}}!',
@@ -120,7 +120,7 @@ import {
   codegenTemplate,
   multiAgentTemplate,
   serverTemplate,
-} from 'create-forgeagent'
+} from 'create-dzipagent'
 
 // templateRegistry is Record<TemplateType, TemplateManifest>
 const minimal = templateRegistry['minimal']

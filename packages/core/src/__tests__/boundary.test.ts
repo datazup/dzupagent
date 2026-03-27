@@ -8,7 +8,7 @@ const SRC_DIR = join(__dirname, '..')
 
 /**
  * Scan all .ts files in a directory recursively and extract
- * @forgeagent/* import paths.
+ * @dzipagent/* import paths.
  */
 function scanForgeImports(dir: string): Array<{ file: string; importPath: string }> {
   const results: Array<{ file: string; importPath: string }> = []
@@ -22,7 +22,7 @@ function scanForgeImports(dir: string): Array<{ file: string; importPath: string
     const fullPath = join(entry.parentPath ?? entry.path, entry.name)
     const content = readFileSync(fullPath, 'utf8')
 
-    const importRegex = /from\s+['"](@forgeagent\/[^'"]+)['"]/g
+    const importRegex = /from\s+['"](@dzipagent\/[^'"]+)['"]/g
     let match
     while ((match = importRegex.exec(content)) !== null) {
       const importPath = match[1]!
@@ -37,25 +37,25 @@ function scanForgeImports(dir: string): Array<{ file: string; importPath: string
 }
 
 /**
- * @forgeagent/core is a re-export hub that intentionally depends on
- * @forgeagent/memory, @forgeagent/context, and optionally @forgeagent/memory-ipc.
+ * @dzipagent/core is a re-export hub that intentionally depends on
+ * @dzipagent/memory, @dzipagent/context, and optionally @dzipagent/memory-ipc.
  * These are declared in package.json dependencies/peerDependencies.
  *
  * This test ensures core does NOT import from packages outside that
- * explicit allowlist (e.g., @forgeagent/agent, @forgeagent/codegen).
+ * explicit allowlist (e.g., @dzipagent/agent, @dzipagent/codegen).
  */
 const ALLOWED_IMPORTS = new Set([
-  '@forgeagent/core',
-  '@forgeagent/memory',
-  '@forgeagent/context',
-  '@forgeagent/memory-ipc',
+  '@dzipagent/core',
+  '@dzipagent/memory',
+  '@dzipagent/context',
+  '@dzipagent/memory-ipc',
 ])
 
 describe('Package boundary enforcement', () => {
-  it('@forgeagent/core only imports from allowed @forgeagent packages', () => {
+  it('@dzipagent/core only imports from allowed @dzipagent packages', () => {
     const imports = scanForgeImports(SRC_DIR)
     const violations = imports.filter(i => {
-      // Extract the package name (e.g., "@forgeagent/memory" from "@forgeagent/memory/foo")
+      // Extract the package name (e.g., "@dzipagent/memory" from "@dzipagent/memory/foo")
       const parts = i.importPath.split('/')
       const pkgName = parts.slice(0, 2).join('/')
       return !ALLOWED_IMPORTS.has(pkgName)
@@ -66,22 +66,22 @@ describe('Package boundary enforcement', () => {
         .map(v => `  ${v.file} imports "${v.importPath}"`)
         .join('\n')
       expect.fail(
-        `@forgeagent/core imports disallowed @forgeagent packages:\n${details}`,
+        `@dzipagent/core imports disallowed @dzipagent packages:\n${details}`,
       )
     }
 
     expect(violations).toHaveLength(0)
   })
 
-  it('@forgeagent/core has at least one re-export from @forgeagent/memory', () => {
+  it('@dzipagent/core has at least one re-export from @dzipagent/memory', () => {
     const imports = scanForgeImports(SRC_DIR)
-    const memoryImports = imports.filter(i => i.importPath.startsWith('@forgeagent/memory'))
+    const memoryImports = imports.filter(i => i.importPath.startsWith('@dzipagent/memory'))
     expect(memoryImports.length).toBeGreaterThan(0)
   })
 
-  it('@forgeagent/core has at least one re-export from @forgeagent/context', () => {
+  it('@dzipagent/core has at least one re-export from @dzipagent/context', () => {
     const imports = scanForgeImports(SRC_DIR)
-    const contextImports = imports.filter(i => i.importPath.startsWith('@forgeagent/context'))
+    const contextImports = imports.filter(i => i.importPath.startsWith('@dzipagent/context'))
     expect(contextImports.length).toBeGreaterThan(0)
   })
 })

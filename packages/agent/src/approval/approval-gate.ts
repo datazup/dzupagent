@@ -16,14 +16,14 @@
  * if (result === 'rejected') throw new Error('Run rejected')
  * ```
  */
-import type { ForgeEventBus } from '@forgeagent/core'
-import type { HookContext } from '@forgeagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
+import type { HookContext } from '@dzipagent/core'
 import type { ApprovalConfig, ApprovalResult } from './approval-types.js'
 
 export class ApprovalGate {
   constructor(
     private config: ApprovalConfig,
-    private eventBus: ForgeEventBus,
+    private eventBus: DzipEventBus,
   ) {}
 
   /**

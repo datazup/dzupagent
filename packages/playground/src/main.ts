@@ -1,5 +1,5 @@
 /**
- * ForgeAgent Playground -- Vue 3 SPA entry point.
+ * DzipAgent Playground -- Vue 3 SPA entry point.
  *
  * Mounts the playground application with Pinia state management
  * and Vue Router for SPA navigation.

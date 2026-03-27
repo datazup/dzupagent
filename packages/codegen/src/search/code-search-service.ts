@@ -7,7 +7,7 @@
  * before embedding.
  */
 
-import type { SemanticStore, MetadataFilter } from '@forgeagent/core'
+import type { SemanticStore, MetadataFilter } from '@dzipagent/core'
 import { chunkByAST } from '../chunking/ast-chunker.js'
 import { detectLanguage } from '../repomap/tree-sitter-extractor.js'
 import type {

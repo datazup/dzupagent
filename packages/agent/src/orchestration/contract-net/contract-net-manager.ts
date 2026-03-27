@@ -9,8 +9,8 @@
  * 6. Return result
  */
 import { HumanMessage } from '@langchain/core/messages'
-import type { ForgeAgent } from '../../agent/forge-agent.js'
-import type { ForgeEventBus } from '@forgeagent/core'
+import type { DzipAgent } from '../../agent/dzip-agent.js'
+import type { DzipEventBus } from '@dzipagent/core'
 import { OrchestrationError } from '../orchestration-error.js'
 import { createWeightedStrategy } from './bid-strategies.js'
 import type {
@@ -30,13 +30,13 @@ function generateCfpId(): string {
 
 /** Emit a custom contract-net event via the event bus (fire-and-forget). */
 function emitContractEvent(
-  eventBus: ForgeEventBus | undefined,
+  eventBus: DzipEventBus | undefined,
   type: string,
   payload: Record<string, unknown>,
 ): void {
   if (!eventBus) return
-  // Use onAny-compatible custom events by casting to ForgeEvent.
-  // The task spec says NOT to modify core ForgeEvent types, so we
+  // Use onAny-compatible custom events by casting to DzipEvent.
+  // The task spec says NOT to modify core DzipEvent types, so we
   // emit via the protocol event type which accepts arbitrary string data.
   eventBus.emit({
     type: 'protocol:message_sent',
@@ -44,7 +44,7 @@ function emitContractEvent(
     to: 'broadcast',
     messageType: type,
     ...payload,
-  } as Parameters<ForgeEventBus['emit']>[0])
+  } as Parameters<DzipEventBus['emit']>[0])
 }
 
 /**
@@ -77,7 +77,7 @@ function parseBid(agentId: string, cfpId: string, response: string): ContractBid
  * Collect a bid from a single specialist with deadline enforcement.
  */
 async function collectBid(
-  specialist: ForgeAgent,
+  specialist: DzipAgent,
   cfp: CallForProposals,
   signal: AbortSignal | undefined,
 ): Promise<ContractBid | null> {
@@ -341,7 +341,7 @@ export class ContractNetManager {
    * Collect bids from all specialists in parallel.
    */
   private static async collectBids(
-    specialists: ForgeAgent[],
+    specialists: DzipAgent[],
     cfp: CallForProposals,
     signal: AbortSignal | undefined,
   ): Promise<ContractBid[]> {

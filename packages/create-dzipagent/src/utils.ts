@@ -88,7 +88,7 @@ export async function installDependencies(
 export async function initGitRepo(cwd: string): Promise<void> {
   await runCommand('git', ['init'], cwd)
   await runCommand('git', ['add', '.'], cwd)
-  await runCommand('git', ['commit', '-m', 'Initial commit from create-forgeagent'], cwd)
+  await runCommand('git', ['commit', '-m', 'Initial commit from create-dzipagent'], cwd)
 }
 
 /**

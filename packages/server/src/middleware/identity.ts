@@ -1,16 +1,16 @@
 /**
- * Identity resolution middleware for ForgeAgent server.
+ * Identity resolution middleware for DzipAgent server.
  *
  * Resolves a ForgeIdentity from the request's Authorization header
  * (Bearer or ApiKey format) or X-API-Key header, using the configured
- * IdentityResolver from @forgeagent/core.
+ * IdentityResolver from @dzipagent/core.
  */
 import type { Context, MiddlewareHandler } from 'hono'
 import type {
   IdentityResolver,
   ForgeIdentity,
   ForgeCapability,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 
 // ---------------------------------------------------------------------------
 // Config

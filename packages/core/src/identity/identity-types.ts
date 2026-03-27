@@ -1,7 +1,7 @@
 /**
- * ForgeAgent identity types.
+ * DzipAgent identity types.
  *
- * Defines the core identity primitives used across the ForgeAgent ecosystem:
+ * Defines the core identity primitives used across the DzipAgent ecosystem:
  * agents, credentials, capabilities, and lightweight identity references.
  */
 

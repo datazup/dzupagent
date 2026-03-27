@@ -1,5 +1,5 @@
 /**
- * create-forgeagent — CLI scaffold engine for ForgeAgent projects.
+ * create-dzipagent — CLI scaffold engine for DzipAgent projects.
  *
  * Provides template-based project generation with variable interpolation,
  * interactive wizard, presets, and feature overlays.

@@ -1,10 +1,10 @@
-import type { AgentDefinition, ModelRegistry, RunStore, MetricsCollector } from '@forgeagent/core'
-import type { ForgeEventBus } from '@forgeagent/core'
-import type { RunContextTransfer, PersistedIntentContext } from '@forgeagent/core'
+import type { AgentDefinition, ModelRegistry, RunStore, MetricsCollector } from '@dzipagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
+import type { RunContextTransfer, PersistedIntentContext } from '@dzipagent/core'
 import type { RunQueue } from '../queue/run-queue.js'
 import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
-import { extractTraceContext } from '@forgeagent/core'
+import { extractTraceContext } from '@dzipagent/core'
 import { isStructuredResult } from './utils.js'
 import { reportRetrievalFeedback, type RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
 
@@ -15,7 +15,7 @@ export interface RunExecutionContext {
   metadata?: Record<string, unknown>
   agent: AgentDefinition
   runStore: RunStore
-  eventBus: ForgeEventBus
+  eventBus: DzipEventBus
   modelRegistry: ModelRegistry
   signal: AbortSignal
 }
@@ -36,7 +36,7 @@ export interface RunExecutorResult {
 export type RunExecutor = (context: RunExecutionContext) => Promise<unknown | RunExecutorResult>
 
 // ---------------------------------------------------------------------------
-// Structural types for RunReflector (avoids hard dependency on @forgeagent/agent)
+// Structural types for RunReflector (avoids hard dependency on @dzipagent/agent)
 // ---------------------------------------------------------------------------
 
 /** Individual dimension scores, each in the range [0, 1]. */
@@ -71,7 +71,7 @@ export interface RunReflectorLike {
   score(input: ReflectionInput): ReflectionScore
 }
 
-/** Structural type for the escalation policy result (avoids importing @forgeagent/core). */
+/** Structural type for the escalation policy result (avoids importing @dzipagent/core). */
 export interface EscalationResultLike {
   shouldEscalate: boolean
   fromTier: string
@@ -92,7 +92,7 @@ export interface StartRunWorkerOptions {
     get(id: string): Promise<AgentDefinition | null>
     save?(agent: AgentDefinition): Promise<void>
   }
-  eventBus: ForgeEventBus
+  eventBus: DzipEventBus
   modelRegistry: ModelRegistry
   runExecutor: RunExecutor
   shutdown?: GracefulShutdown
@@ -102,7 +102,7 @@ export interface StartRunWorkerOptions {
   /** Optional metrics collector for run-level observability */
   metrics?: MetricsCollector
   /** Optional run reflector — scores every completed run for quality tracking.
-   *  Uses structural typing to avoid a hard dependency on @forgeagent/agent. */
+   *  Uses structural typing to avoid a hard dependency on @dzipagent/agent. */
   reflector?: RunReflectorLike
   /** Optional retrieval feedback config. When provided alongside a reflector,
    *  maps reflection scores to AdaptiveRetriever feedback for weight learning. */
@@ -116,7 +116,7 @@ export interface StartRunWorkerOptions {
 }
 
 async function waitForApprovalDecision(
-  eventBus: ForgeEventBus,
+  eventBus: DzipEventBus,
   runId: string,
   timeoutMs: number,
 ): Promise<{ approved: boolean; reason?: string }> {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { ForgeTracer } from '../tracer.js'
+import { DzipTracer } from '../tracer.js'
 import { NoopSpan } from '../noop.js'
 import { ForgeSpanAttr } from '../span-attributes.js'
 import { SpanKind, SpanStatusCode } from '../otel-types.js'
@@ -74,13 +74,13 @@ class RecordingTracer implements OTelTracer {
 
 // --- Tests ---
 
-describe('ForgeTracer extended', () => {
+describe('DzipTracer extended', () => {
   let recording: RecordingTracer
-  let sut: ForgeTracer
+  let sut: DzipTracer
 
   beforeEach(() => {
     recording = new RecordingTracer()
-    sut = new ForgeTracer({ tracer: recording, serviceName: 'test-svc' })
+    sut = new DzipTracer({ tracer: recording, serviceName: 'test-svc' })
   })
 
   describe('startAgentSpan with parent context', () => {
@@ -332,7 +332,7 @@ describe('ForgeTracer extended', () => {
 
   describe('NoopSpan extended', () => {
     it('generates unique span IDs', () => {
-      const ft = new ForgeTracer() // noop
+      const ft = new DzipTracer() // noop
       const span1 = ft.startAgentSpan('a', 'r')
       const span2 = ft.startAgentSpan('a', 'r')
 

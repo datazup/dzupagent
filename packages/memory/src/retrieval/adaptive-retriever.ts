@@ -17,8 +17,8 @@ import type { FusedResult } from './rrf-fusion.js';
 /**
  * Minimal event emitter interface accepted by AdaptiveRetriever.
  *
- * Structurally compatible with ForgeEventBus from `@forgeagent/core`,
- * but defined locally so `@forgeagent/memory` has no dependency on core.
+ * Structurally compatible with DzipEventBus from `@dzipagent/core`,
+ * but defined locally so `@dzipagent/memory` has no dependency on core.
  */
 export interface RetrievalEventEmitter {
   emit(event:

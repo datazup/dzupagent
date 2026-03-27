@@ -1,7 +1,7 @@
 /**
  * CLI command: `forge scorecard`
  *
- * Generates and displays an integration scorecard for a ForgeAgent server
+ * Generates and displays an integration scorecard for a DzipAgent server
  * configuration. Supports console, JSON, and markdown output formats.
  */
 import { writeFileSync } from 'node:fs'

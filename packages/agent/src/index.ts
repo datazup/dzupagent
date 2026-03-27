@@ -1,15 +1,15 @@
 /**
- * @forgeagent/agent — Top-level agent abstraction
+ * @dzipagent/agent — Top-level agent abstraction
  *
- * Provides: ForgeAgent class (generate/stream/asTool), guardrails
+ * Provides: DzipAgent class (generate/stream/asTool), guardrails
  * with iteration budgets, generic tool factory, auto-compression,
  * and structured output support.
  */
 
 // --- Agent ---
-export { ForgeAgent } from './agent/forge-agent.js'
+export { DzipAgent } from './agent/dzip-agent.js'
 export type {
-  ForgeAgentConfig,
+  DzipAgentConfig,
   ArrowMemoryConfig,
   GenerateOptions,
   GenerateResult,
@@ -494,4 +494,4 @@ export type {
 } from './self-correction/learning-dashboard.js'
 
 // --- Version ---
-export const FORGEAGENT_AGENT_VERSION = '0.1.0'
+export const dzipagent_AGENT_VERSION = '0.1.0'

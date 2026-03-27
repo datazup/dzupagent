@@ -3,12 +3,12 @@
  * orchestration pattern so a supervisor agent can delegate tasks to
  * specialist agents using the typed delegation protocol.
  *
- * This module depends ONLY on `@forgeagent/core` types (AgentDefinition,
- * RunStore, ForgeEventBus). It does NOT import from `@forgeagent/server`
+ * This module depends ONLY on `@dzipagent/core` types (AgentDefinition,
+ * RunStore, DzipEventBus). It does NOT import from `@dzipagent/server`
  * or any other sibling package.
  */
 
-import type { AgentDefinition, ForgeEventBus } from '@forgeagent/core'
+import type { AgentDefinition, DzipEventBus } from '@dzipagent/core'
 import { OrchestrationError } from './orchestration-error.js'
 import type {
   DelegationTracker,
@@ -61,7 +61,7 @@ export interface DelegatingSupervisorConfig {
   /** Parent run context for delegation requests */
   parentContext?: DelegationContext
   /** Event bus for lifecycle events */
-  eventBus?: ForgeEventBus
+  eventBus?: DzipEventBus
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ export class DelegatingSupervisor {
   private readonly specialists: Map<string, AgentDefinition>
   private readonly tracker: DelegationTracker
   private readonly parentContext: DelegationContext | undefined
-  private readonly eventBus: ForgeEventBus | undefined
+  private readonly eventBus: DzipEventBus | undefined
 
   constructor(config: DelegatingSupervisorConfig) {
     this.specialists = config.specialists

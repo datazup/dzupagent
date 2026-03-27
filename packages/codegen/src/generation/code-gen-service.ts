@@ -1,10 +1,10 @@
 /**
  * Code generation service — generates individual source files via LLM.
- * Uses ModelRegistry from @forgeagent/core for model resolution.
+ * Uses ModelRegistry from @dzipagent/core for model resolution.
  */
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
-import type { ModelRegistry, ModelTier, TokenUsage } from '@forgeagent/core'
-import { extractTokenUsage } from '@forgeagent/core'
+import type { ModelRegistry, ModelTier, TokenUsage } from '@dzipagent/core'
+import { extractTokenUsage } from '@dzipagent/core'
 import { extractLargestCodeBlock, detectLanguage } from './code-block-parser.js'
 
 export interface GenerateFileParams {

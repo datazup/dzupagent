@@ -61,8 +61,8 @@ describe('features', () => {
 
   it('ai feature has ai service and memory dependencies', () => {
     const ai = getFeatureOverlay('ai')
-    expect(ai?.dependencies?.['@forgeagent/memory']).toBeDefined()
-    expect(ai?.dependencies?.['@forgeagent/context']).toBeDefined()
+    expect(ai?.dependencies?.['@dzipagent/memory']).toBeDefined()
+    expect(ai?.dependencies?.['@dzipagent/context']).toBeDefined()
   })
 
   it('feature template content includes {{projectName}} placeholder', () => {

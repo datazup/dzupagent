@@ -1,10 +1,10 @@
-# @forgeagent/agent Architecture
+# @dzipagent/agent Architecture
 
 ## Purpose
-`@forgeagent/agent` is the orchestration layer that turns lower-level core primitives into a production agent runtime. Its central type is `ForgeAgent`, which supports direct generation, streaming, tool-calling loops, workflow composition, orchestration patterns, and safety guardrails.
+`@dzipagent/agent` is the orchestration layer that turns lower-level core primitives into a production agent runtime. Its central type is `DzipAgent`, which supports direct generation, streaming, tool-calling loops, workflow composition, orchestration patterns, and safety guardrails.
 
 ## Main Responsibilities
-- Provide `ForgeAgent` for `generate()`, `stream()`, and tool-wrapped usage.
+- Provide `DzipAgent` for `generate()`, `stream()`, and tool-wrapped usage.
 - Execute ReAct-style tool loops with iteration and budget controls.
 - Apply guardrails (iteration/token/cost, stuck detection, cascading timeout, output filtering).
 - Support multi-agent orchestration (supervisor, contract-net bidding, topology execution, map-reduce).
@@ -13,7 +13,7 @@
 
 ## Module Structure
 Top-level modules under `src/`:
-- `agent/`: `ForgeAgent`, tool loop, dynamic tool registry, state serialization helpers.
+- `agent/`: `DzipAgent`, tool loop, dynamic tool registry, state serialization helpers.
 - `guardrails/`: `IterationBudget`, `StuckDetector`, `CascadingTimeout`.
 - `workflow/`: workflow builder and compiled workflow executor.
 - `orchestration/`: supervisor, map-reduce, merge strategies, contract-net, topology analysis/execution.
@@ -25,7 +25,7 @@ Top-level modules under `src/`:
 - `templates/`, `tools/`, `streaming/`, `playground/`.
 
 ## How It Works (Generate Flow)
-1. Construct `ForgeAgent` with model, tools, guardrails, and optional hooks/config.
+1. Construct `DzipAgent` with model, tools, guardrails, and optional hooks/config.
 2. `generate()` prepares message context (system prompt, optional compression/summaries, memory context).
 3. Agent binds tools to model and executes `runToolLoop`.
 4. Guardrail budget is checked per iteration and token usage update.
@@ -49,9 +49,9 @@ Top-level modules under `src/`:
 - Snapshot and signed-message utilities for portability and integrity.
 
 ## Integration Boundaries
-- Depends on `@forgeagent/core`, `@forgeagent/context`, and `@forgeagent/memory-ipc`.
-- Commonly hosted by `@forgeagent/server`.
-- Often combined with `@forgeagent/codegen` tools and `@forgeagent/connectors` integrations.
+- Depends on `@dzipagent/core`, `@dzipagent/context`, and `@dzipagent/memory-ipc`.
+- Commonly hosted by `@dzipagent/server`.
+- Often combined with `@dzipagent/codegen` tools and `@dzipagent/connectors` integrations.
 
 ## Extensibility Points
 - Register tools dynamically with `DynamicToolRegistry`.

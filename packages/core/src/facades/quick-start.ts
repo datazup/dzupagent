@@ -1,5 +1,5 @@
 /**
- * @forgeagent/core/quick-start — Curated API facade for getting started fast.
+ * @dzipagent/core/quick-start — Curated API facade for getting started fast.
  *
  * Exports only the essentials needed to spin up a basic agent:
  * model registry, memory, context management, events, and a
@@ -7,7 +7,7 @@
  *
  * @example
  * ```ts
- * import { createQuickAgent } from '@forgeagent/core/quick-start';
+ * import { createQuickAgent } from '@dzipagent/core/quick-start';
  *
  * const { registry, eventBus, container } = createQuickAgent({
  *   provider: 'anthropic',
@@ -21,8 +21,8 @@ export { ForgeContainer, createContainer } from '../config/container.js'
 
 // --- Events ---
 export { createEventBus } from '../events/event-bus.js'
-export type { ForgeEventBus } from '../events/event-bus.js'
-export type { ForgeEvent } from '../events/event-types.js'
+export type { DzipEventBus } from '../events/event-bus.js'
+export type { DzipEvent } from '../events/event-types.js'
 
 // --- Errors ---
 export { ForgeError } from '../errors/forge-error.js'
@@ -35,8 +35,8 @@ export { invokeWithTimeout } from '../llm/invoke.js'
 export type { TokenUsage, InvokeOptions } from '../llm/invoke.js'
 
 // --- Memory (curated subset) ---
-export { MemoryService, createStore } from '@forgeagent/memory'
-export type { StoreConfig, NamespaceConfig } from '@forgeagent/memory'
+export { MemoryService, createStore } from '@dzipagent/memory'
+export type { StoreConfig, NamespaceConfig } from '@dzipagent/memory'
 
 // --- Context (curated subset) ---
 export {
@@ -45,12 +45,12 @@ export {
   pruneToolResults,
   scoreCompleteness,
   evictIfNeeded,
-} from '@forgeagent/context'
+} from '@dzipagent/context'
 export type {
   MessageManagerConfig,
   CompletenessResult,
   EvictionConfig,
-} from '@forgeagent/context'
+} from '@dzipagent/context'
 
 // --- Config ---
 export { DEFAULT_CONFIG, resolveConfig, mergeConfigs } from '../config/index.js'
@@ -69,7 +69,7 @@ export type { StandardSSEEvent } from '../streaming/event-types.js'
 
 import { createContainer } from '../config/container.js'
 import { createEventBus } from '../events/event-bus.js'
-import type { ForgeEventBus } from '../events/event-bus.js'
+import type { DzipEventBus } from '../events/event-bus.js'
 import { ModelRegistry } from '../llm/model-registry.js'
 import type { ForgeContainer } from '../config/container.js'
 
@@ -96,7 +96,7 @@ export interface QuickAgentResult {
   /** Pre-wired DI container with eventBus and registry. */
   container: ForgeContainer
   /** Typed event bus for observability. */
-  eventBus: ForgeEventBus
+  eventBus: DzipEventBus
   /** Model registry pre-configured with the provided credentials. */
   registry: ModelRegistry
 }
@@ -111,7 +111,7 @@ const PROVIDER_DEFAULTS: Record<string, { chat: string; codegen: string }> = {
 }
 
 /**
- * One-call bootstrap for a minimal ForgeAgent setup.
+ * One-call bootstrap for a minimal DzipAgent setup.
  *
  * Creates a DI container pre-wired with an event bus and a model registry
  * configured for the given provider. This is intentionally simple — for

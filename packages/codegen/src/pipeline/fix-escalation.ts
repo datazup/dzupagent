@@ -7,7 +7,7 @@
  * - expanded: full VFS listing + original plan context
  * - escalated: strongest model, consider full layer rewrite
  */
-import type { ModelTier } from '@forgeagent/core'
+import type { ModelTier } from '@dzipagent/core'
 
 export interface EscalationStrategy {
   name: 'targeted' | 'expanded' | 'escalated'

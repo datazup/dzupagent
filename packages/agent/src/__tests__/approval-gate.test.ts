@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createEventBus } from '@forgeagent/core'
+import { createEventBus } from '@dzipagent/core'
 import { ApprovalGate } from '../approval/approval-gate.js'
 
 describe('ApprovalGate', () => {

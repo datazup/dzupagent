@@ -12,7 +12,7 @@ import type {
   PipelineValidationWarning,
   PipelineNode,
   PipelineEdge,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 
 /**
  * Validate a pipeline definition for structural correctness.

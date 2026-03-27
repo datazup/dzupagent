@@ -128,7 +128,7 @@ async function resolveGitFactory(): Promise<{
   createGitTools: ((executor: unknown) => StructuredToolInterface[]) | null
   GitExecutor: (new (cfg?: { cwd?: string }) => unknown) | null
 }> {
-  const pkg = await importFirstAvailable(['@forgeagent/codegen'])
+  const pkg = await importFirstAvailable(['@dzipagent/codegen'])
   if (pkg && typeof pkg['createGitTools'] === 'function' && typeof pkg['GitExecutor'] === 'function') {
     return {
       createGitTools: pkg['createGitTools'] as (executor: unknown) => StructuredToolInterface[],
@@ -137,8 +137,8 @@ async function resolveGitFactory(): Promise<{
   }
 
   // Dev-only monorepo fallbacks — only resolve when package isn't published
-  const toolsMod = await importFirstAvailable(['../../../forgeagent-codegen/src/git/git-tools.ts'])
-  const execMod = await importFirstAvailable(['../../../forgeagent-codegen/src/git/git-executor.ts'])
+  const toolsMod = await importFirstAvailable(['../../../dzipagent-codegen/src/git/git-tools.ts'])
+  const execMod = await importFirstAvailable(['../../../dzipagent-codegen/src/git/git-executor.ts'])
   if (
     toolsMod && execMod
     && typeof toolsMod['createGitTools'] === 'function'
@@ -222,10 +222,10 @@ async function resolveMcpTools(
     return { tools, activated, resolved, warnings, cleanup: noop }
   }
 
-  // Dynamic import of @forgeagent/core MCP infrastructure
-  const corePkg = await importFirstAvailable(['@forgeagent/core'])
+  // Dynamic import of @dzipagent/core MCP infrastructure
+  const corePkg = await importFirstAvailable(['@dzipagent/core'])
   if (!corePkg || typeof corePkg['MCPClient'] !== 'function' || typeof corePkg['mcpToolToLangChain'] !== 'function') {
-    warnings.push('MCP tools requested but @forgeagent/core MCP infrastructure is not available.')
+    warnings.push('MCP tools requested but @dzipagent/core MCP infrastructure is not available.')
     return { tools, activated, resolved, warnings, cleanup: noop }
   }
 
@@ -322,13 +322,13 @@ async function resolveMcpTools(
 // ---------------------------------------------------------------------------
 
 async function resolveConnectorFactory(): Promise<Record<string, unknown> | null> {
-  const pkg = await importFirstAvailable(['@forgeagent/connectors'])
+  const pkg = await importFirstAvailable(['@dzipagent/connectors'])
   if (pkg) return pkg
 
   // Dev-only monorepo fallbacks — only resolve when package isn't published
-  const github = await importFirstAvailable(['../../../forgeagent-connectors/src/github/github-connector.ts'])
-  const slack = await importFirstAvailable(['../../../forgeagent-connectors/src/slack/slack-connector.ts'])
-  const http = await importFirstAvailable(['../../../forgeagent-connectors/src/http/http-connector.ts'])
+  const github = await importFirstAvailable(['../../../dzipagent-connectors/src/github/github-connector.ts'])
+  const slack = await importFirstAvailable(['../../../dzipagent-connectors/src/slack/slack-connector.ts'])
+  const http = await importFirstAvailable(['../../../dzipagent-connectors/src/http/http-connector.ts'])
   if (!github && !slack && !http) return null
 
   return {
@@ -406,7 +406,7 @@ export async function resolveAgentTools(
       unresolved.delete('git:*')
       unresolved.delete('connector:git')
     } else {
-      warnings.push('Git tools requested but @forgeagent/codegen is not available at runtime.')
+      warnings.push('Git tools requested but @dzipagent/codegen is not available at runtime.')
     }
   }
 
@@ -420,7 +420,7 @@ export async function resolveAgentTools(
 
   const connectors = wantConnectors ? await resolveConnectorFactory() : null
   if (wantConnectors && !connectors) {
-    warnings.push('Connector tools requested but @forgeagent/connectors is not available at runtime.')
+    warnings.push('Connector tools requested but @dzipagent/connectors is not available at runtime.')
   }
 
   // GitHub connector
@@ -477,10 +477,10 @@ export async function resolveAgentTools(
   const enabledHttp = pickEnabled(requested, HTTP_TOOL_NAMES, 'http')
   if (enabledHttp.length > 0 && connectors) {
     const baseUrl = (typeof context.metadata?.['httpBaseUrl'] === 'string' && context.metadata['httpBaseUrl'])
-      || context.env?.['FORGE_HTTP_BASE_URL']
+      || context.env?.['DZIP_HTTP_BASE_URL']
 
     if (!baseUrl) {
-      warnings.push('HTTP connector requested but no base URL provided (metadata.httpBaseUrl or FORGE_HTTP_BASE_URL).')
+      warnings.push('HTTP connector requested but no base URL provided (metadata.httpBaseUrl or DZIP_HTTP_BASE_URL).')
     } else if (typeof connectors['createHTTPConnector'] === 'function') {
       const headerRecord = context.metadata?.['httpHeaders']
       const headers = (headerRecord && typeof headerRecord === 'object' && !Array.isArray(headerRecord))
@@ -539,7 +539,7 @@ export async function resolveAgentTools(
   if (unresolved.size > 0) {
     warnings.push(
       'Some requested tools are unresolved by runtime resolver. ' +
-      'Provide createForgeAgentRunExecutor({ toolResolver }) to map tool names to concrete tools.',
+      'Provide createDzipAgentRunExecutor({ toolResolver }) to map tool names to concrete tools.',
     )
   }
 

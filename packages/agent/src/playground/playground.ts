@@ -1,9 +1,9 @@
 /**
  * AgentPlayground — a multi-agent workspace for spawning, coordinating,
- * and observing teams of ForgeAgent instances.
+ * and observing teams of DzipAgent instances.
  *
  * The playground is the user-facing API. It composes:
- * - `ForgeAgent` instances (spawned with `spawn()` / `spawnTeam()`)
+ * - `DzipAgent` instances (spawned with `spawn()` / `spawnTeam()`)
  * - `TeamCoordinator` for running coordinated tasks
  * - `SharedWorkspace` for inter-agent data sharing
  * - An async event stream for observability
@@ -35,7 +35,7 @@
  * await playground.shutdown()
  * ```
  */
-import { ForgeAgent } from '../agent/forge-agent.js'
+import { DzipAgent } from '../agent/dzip-agent.js'
 import { SharedWorkspace } from './shared-workspace.js'
 import { TeamCoordinator } from './team-coordinator.js'
 import type {
@@ -99,7 +99,7 @@ export class AgentPlayground {
 
     const { role, roleDescription, tags, id: _id, ...agentConfig } = config
 
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       ...agentConfig,
       id,
       description: roleDescription ?? agentConfig.description ?? `${role} agent`,
@@ -195,9 +195,9 @@ export class AgentPlayground {
   }
 
   /**
-   * Get the underlying ForgeAgent instance by ID.
+   * Get the underlying DzipAgent instance by ID.
    */
-  getAgent(agentId: string): ForgeAgent | undefined {
+  getAgent(agentId: string): DzipAgent | undefined {
     return this.agents.get(agentId)?.agent
   }
 

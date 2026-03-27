@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createEventBus } from '@forgeagent/core'
-import type { ForgeEventBus } from '@forgeagent/core'
+import { createEventBus } from '@dzipagent/core'
+import type { DzipEventBus } from '@dzipagent/core'
 import { CostAttributor } from '../cost-attribution.js'
 
 describe('CostAttributor extended', () => {
-  let bus: ForgeEventBus
+  let bus: DzipEventBus
 
   beforeEach(() => {
     bus = createEventBus()

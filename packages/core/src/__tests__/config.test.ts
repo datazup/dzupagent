@@ -23,48 +23,48 @@ describe('loadEnvConfig', () => {
   afterEach(() => {
     // Restore original env
     for (const key of Object.keys(process.env)) {
-      if (key.startsWith('FORGE_')) {
+      if (key.startsWith('DZIP_')) {
         delete process.env[key];
       }
     }
     Object.assign(process.env, origEnv);
   });
 
-  it('returns empty partial when no FORGE_ vars set', () => {
+  it('returns empty partial when no DZIP_ vars set', () => {
     const config = loadEnvConfig();
     expect(config).toEqual({});
   });
 
-  it('parses FORGE_PORT', () => {
-    process.env['FORGE_PORT'] = '8080';
+  it('parses DZIP_PORT', () => {
+    process.env['DZIP_PORT'] = '8080';
     const config = loadEnvConfig();
     expect(config.server?.port).toBe(8080);
   });
 
-  it('parses FORGE_MEMORY_STORE', () => {
-    process.env['FORGE_MEMORY_STORE'] = 'postgres';
-    process.env['FORGE_MEMORY_CONN'] = 'postgresql://localhost/db';
+  it('parses DZIP_MEMORY_STORE', () => {
+    process.env['DZIP_MEMORY_STORE'] = 'postgres';
+    process.env['DZIP_MEMORY_CONN'] = 'postgresql://localhost/db';
     const config = loadEnvConfig();
     expect(config.memory?.store).toBe('postgres');
     expect(config.memory?.connectionString).toBe('postgresql://localhost/db');
   });
 
-  it('ignores invalid FORGE_MEMORY_STORE values', () => {
-    process.env['FORGE_MEMORY_STORE'] = 'sqlite';
+  it('ignores invalid DZIP_MEMORY_STORE values', () => {
+    process.env['DZIP_MEMORY_STORE'] = 'sqlite';
     const config = loadEnvConfig();
     expect(config.memory).toBeUndefined();
   });
 
-  it('parses FORGE_MODEL_* vars', () => {
-    process.env['FORGE_MODEL_CHAT'] = 'gpt-4o-mini';
+  it('parses DZIP_MODEL_* vars', () => {
+    process.env['DZIP_MODEL_CHAT'] = 'gpt-4o-mini';
     const config = loadEnvConfig();
     expect(config.models?.chat).toBe('gpt-4o-mini');
     // Fills defaults for unset tiers
     expect(config.models?.codegen).toBe(DEFAULT_CONFIG.models.codegen);
   });
 
-  it('parses FORGE_PROVIDERS JSON', () => {
-    process.env['FORGE_PROVIDERS'] = JSON.stringify([
+  it('parses DZIP_PROVIDERS JSON', () => {
+    process.env['DZIP_PROVIDERS'] = JSON.stringify([
       { provider: 'anthropic', priority: 1 },
     ]);
     const config = loadEnvConfig();
@@ -72,26 +72,26 @@ describe('loadEnvConfig', () => {
     expect(config.providers![0].provider).toBe('anthropic');
   });
 
-  it('ignores malformed FORGE_PROVIDERS JSON', () => {
-    process.env['FORGE_PROVIDERS'] = 'not-json';
+  it('ignores malformed DZIP_PROVIDERS JSON', () => {
+    process.env['DZIP_PROVIDERS'] = 'not-json';
     const config = loadEnvConfig();
     expect(config.providers).toBeUndefined();
   });
 
-  it('parses FORGE_CORS_ORIGINS as comma-separated', () => {
-    process.env['FORGE_CORS_ORIGINS'] = 'http://a.com, http://b.com';
+  it('parses DZIP_CORS_ORIGINS as comma-separated', () => {
+    process.env['DZIP_CORS_ORIGINS'] = 'http://a.com, http://b.com';
     const config = loadEnvConfig();
     expect(config.server?.corsOrigins).toEqual(['http://a.com', 'http://b.com']);
   });
 
-  it('parses FORGE_PLUGINS as comma-separated', () => {
-    process.env['FORGE_PLUGINS'] = './a.js, ./b.js';
+  it('parses DZIP_PLUGINS as comma-separated', () => {
+    process.env['DZIP_PLUGINS'] = './a.js, ./b.js';
     const config = loadEnvConfig();
     expect(config.plugins).toEqual(['./a.js', './b.js']);
   });
 
   it('parses security booleans', () => {
-    process.env['FORGE_SECURITY_SECRETS_SCANNING'] = 'false';
+    process.env['DZIP_SECURITY_SECRETS_SCANNING'] = 'false';
     const config = loadEnvConfig();
     expect(config.security?.secretsScanning).toBe(false);
     expect(config.security?.riskClassification).toBe(true); // default
@@ -207,7 +207,7 @@ describe('resolveConfig', () => {
   afterEach(async () => {
     await rm(tmpDir, { recursive: true, force: true });
     for (const key of Object.keys(process.env)) {
-      if (key.startsWith('FORGE_')) delete process.env[key];
+      if (key.startsWith('DZIP_')) delete process.env[key];
     }
   });
 
@@ -226,13 +226,13 @@ describe('resolveConfig', () => {
   it('env overrides file config', async () => {
     const filePath = join(tmpDir, 'forge.json');
     await writeFile(filePath, JSON.stringify({ server: { port: 9000, corsOrigins: [], rateLimit: { maxRequests: 10, windowMs: 1000 } } }));
-    process.env['FORGE_PORT'] = '7777';
+    process.env['DZIP_PORT'] = '7777';
     const result = await resolveConfig({ configFile: filePath });
     expect(result.server.port).toBe(7777);
   });
 
   it('runtime overrides everything', async () => {
-    process.env['FORGE_PORT'] = '7777';
+    process.env['DZIP_PORT'] = '7777';
     const result = await resolveConfig({
       runtimeOverrides: { server: { port: 1111, corsOrigins: [], rateLimit: { maxRequests: 1, windowMs: 1 } } },
     });

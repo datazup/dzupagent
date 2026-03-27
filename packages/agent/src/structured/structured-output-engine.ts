@@ -4,7 +4,7 @@
  * Implements a fallback chain: detected strategy -> generic-parse -> fallback-prompt,
  * with retry logic on validation failure.
  */
-import { zodToJsonSchema } from '@forgeagent/core'
+import { zodToJsonSchema } from '@dzipagent/core'
 import type {
   StructuredOutputConfig,
   StructuredOutputResult,

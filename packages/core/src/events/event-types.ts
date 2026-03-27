@@ -25,12 +25,12 @@ export interface ToolStatSummary {
 }
 
 /**
- * Discriminated union of all events emitted through ForgeEventBus.
+ * Discriminated union of all events emitted through DzipEventBus.
  *
  * Each event has a `type` discriminator and type-specific payload fields.
- * Use `ForgeEvent['type']` to enumerate all event types.
+ * Use `DzipEvent['type']` to enumerate all event types.
  */
-export type ForgeEvent =
+export type DzipEvent =
   // --- Agent lifecycle ---
   | { type: 'agent:started'; agentId: string; runId: string }
   | { type: 'agent:completed'; agentId: string; runId: string; durationMs: number }
@@ -135,4 +135,4 @@ export type ForgeEvent =
   | { type: 'quality:adjusted'; adjustment: string; reason: string; previousValue: unknown; newValue: unknown; reversible: boolean }
 
 /** Extract a specific event by its type discriminator */
-export type ForgeEventOf<T extends ForgeEvent['type']> = Extract<ForgeEvent, { type: T }>
+export type DzipEventOf<T extends DzipEvent['type']> = Extract<DzipEvent, { type: T }>

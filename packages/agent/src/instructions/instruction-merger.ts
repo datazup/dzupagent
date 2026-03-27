@@ -2,7 +2,7 @@
  * Merges static agent instructions with AGENTS.md hierarchy.
  *
  * The merger combines a base system prompt (the `instructions` field from
- * ForgeAgentConfig) with structured sections parsed from AGENTS.md files
+ * DzipAgentConfig) with structured sections parsed from AGENTS.md files
  * to produce a single unified system prompt.
  */
 
@@ -21,7 +21,7 @@ export interface MergedInstructions {
 /**
  * Merge static instructions with AGENTS.md sections.
  *
- * @param staticInstructions - The base system prompt from ForgeAgentConfig.instructions
+ * @param staticInstructions - The base system prompt from DzipAgentConfig.instructions
  * @param agentsSections - Parsed AGENTS.md sections (may span multiple files)
  * @param agentId - When provided, only sections matching this ID (or its
  *   ancestors) are included. If omitted, all sections are rendered.

@@ -21,11 +21,11 @@ import {
   createJsonRpcSuccess,
   validateJsonRpcRequest,
   validateJsonRpcBatch,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 
 export interface A2ARoutesConfig {
   agentCard: AgentCard

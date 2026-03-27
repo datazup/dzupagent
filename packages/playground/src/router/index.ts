@@ -1,5 +1,5 @@
 /**
- * Vue Router configuration for the ForgeAgent Playground.
+ * Vue Router configuration for the DzipAgent Playground.
  */
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 

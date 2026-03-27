@@ -1,7 +1,7 @@
-# create-forgeagent Architecture
+# create-dzipagent Architecture
 
 ## Purpose
-`create-forgeagent` is a CLI scaffolding package that generates ForgeAgent projects from bundled template manifests. It provides both command-line and programmatic interfaces for bootstrapping opinionated project structures.
+`create-dzipagent` is a CLI scaffolding package that generates DzipAgent projects from bundled template manifests. It provides both command-line and programmatic interfaces for bootstrapping opinionated project structures.
 
 ## Main Responsibilities
 - Parse CLI arguments and validate template choices.
@@ -35,7 +35,7 @@ Top-level modules under `src/`:
 4. Result contains project path, template id, and created file list.
 
 ## Main Features
-- Five built-in starter templates targeting common ForgeAgent setups.
+- Five built-in starter templates targeting common DzipAgent setups.
 - Simple deterministic variable interpolation semantics.
 - Small dependency footprint and easy embedding in automation.
 - Dual interface: CLI binary + typed programmatic API.
@@ -43,7 +43,7 @@ Top-level modules under `src/`:
 ## Integration Boundaries
 - Uses local filesystem for writes.
 - Template manifests are internal to package (`src/templates/*`).
-- Intended as entrypoint for new projects that later consume ForgeAgent workspace packages.
+- Intended as entrypoint for new projects that later consume DzipAgent workspace packages.
 
 ## Extensibility Points
 - Add new template manifests to `src/templates` and registry.

@@ -47,7 +47,7 @@ export const secureInternalAssistantTemplate: TemplateManifest = {
     {
       path: 'src/index.ts',
       templateContent: `// {{projectName}} — secure internal assistant
-import { createForgeApp } from '@forgeagent/server'
+import { createForgeApp } from '@dzipagent/server'
 import { config } from './config.js'
 
 const app = createForgeApp({
@@ -104,7 +104,7 @@ export const config = {
 `,
     },
     {
-      path: 'forgeagent.config.json',
+      path: 'dzipagent.config.json',
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
@@ -164,7 +164,7 @@ AUDIT_LOG_PATH=./logs/audit.jsonl
       path: 'README.md',
       templateContent: `# {{projectName}}
 
-Secure internal assistant built with ForgeAgent for corporate use.
+Secure internal assistant built with DzipAgent for corporate use.
 
 ## Security Features
 
@@ -211,11 +211,11 @@ logs/
     },
   ],
   dependencies: {
-    '@forgeagent/core': '^0.1.0',
-    '@forgeagent/agent': '^0.1.0',
-    '@forgeagent/server': '^0.1.0',
-    '@forgeagent/memory': '^0.1.0',
-    '@forgeagent/context': '^0.1.0',
+    '@dzipagent/core': '^0.1.0',
+    '@dzipagent/agent': '^0.1.0',
+    '@dzipagent/server': '^0.1.0',
+    '@dzipagent/memory': '^0.1.0',
+    '@dzipagent/context': '^0.1.0',
   },
   devDependencies: {
     typescript: '^5.4.0',

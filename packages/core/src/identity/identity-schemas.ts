@@ -1,5 +1,5 @@
 /**
- * Zod validation schemas for ForgeAgent identity types.
+ * Zod validation schemas for DzipAgent identity types.
  *
  * All exported schemas use PascalCase (per S3 convention).
  */

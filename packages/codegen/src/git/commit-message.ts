@@ -4,8 +4,8 @@
  * Follows Aider's pattern: use a cheap/fast model tier to generate
  * commit messages from diffs, keeping costs low.
  */
-import type { ModelRegistry, ModelTier } from '@forgeagent/core'
-import { invokeWithTimeout } from '@forgeagent/core'
+import type { ModelRegistry, ModelTier } from '@dzipagent/core'
+import { invokeWithTimeout } from '@dzipagent/core'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import type { CommitMessageConfig, GitDiffResult } from './git-types.js'
 

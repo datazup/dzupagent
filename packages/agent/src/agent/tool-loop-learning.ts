@@ -4,20 +4,20 @@
  *
  * This module is the glue between:
  *   - tool-loop.ts callbacks (onToolCall, onToolResult, onToolLatency)
- *   - SkillLearner from @forgeagent/core (per-tool execution stats)
+ *   - SkillLearner from @dzipagent/core (per-tool execution stats)
  *   - SelfLearningPipelineHook (pipeline-level event dispatch)
  *   - SpecialistRegistry (feature-category routing)
  *
  * Design principles:
- *   - Opt-in: disabled by default, configured via ForgeAgentConfig.selfLearning
+ *   - Opt-in: disabled by default, configured via DzipAgentConfig.selfLearning
  *   - Non-blocking: all persistence is fire-and-forget (best-effort)
  *   - Zero-latency on hot path: learning hooks run AFTER tool execution completes
  *
  * @module agent/tool-loop-learning
  */
 
-import { SkillLearner } from '@forgeagent/core'
-import type { SkillMetrics } from '@forgeagent/core'
+import { SkillLearner } from '@dzipagent/core'
+import type { SkillMetrics } from '@dzipagent/core'
 import type { SpecialistRegistry, SpecialistConfig, NodeConfig } from '../self-correction/specialist-registry.js'
 import type { ToolStat, StopReason } from './tool-loop.js'
 
@@ -25,7 +25,7 @@ import type { ToolStat, StopReason } from './tool-loop.js'
 // Config
 // ---------------------------------------------------------------------------
 
-/** Configuration for the self-learning integration in ForgeAgent. */
+/** Configuration for the self-learning integration in DzipAgent. */
 export interface ToolLoopLearningConfig {
   /** Enable self-learning hooks (default: false). */
   enabled?: boolean
@@ -110,7 +110,7 @@ export interface RunLearnings {
 // ---------------------------------------------------------------------------
 
 /**
- * Manages self-learning hooks for a single ForgeAgent run.
+ * Manages self-learning hooks for a single DzipAgent run.
  *
  * Lifecycle:
  *   1. `create()` or `new ToolLoopLearningHook(config)` before the tool loop

@@ -3,7 +3,7 @@ import { EVENT_METRIC_MAP, getAllMetricNames } from '../event-metric-map.js'
 import type { MetricMapping } from '../event-metric-map.js'
 
 describe('EVENT_METRIC_MAP', () => {
-  it('has a mapping entry for every ForgeEvent type', () => {
+  it('has a mapping entry for every DzipEvent type', () => {
     // All keys should be strings (event type names)
     const keys = Object.keys(EVENT_METRIC_MAP)
     expect(keys.length).toBeGreaterThan(0)
@@ -164,7 +164,7 @@ describe('getAllMetricNames', () => {
 
   it('includes expected well-known metric names', () => {
     const names = getAllMetricNames()
-    expect(names).toContain('forge_agent_runs_total')
+    expect(names).toContain('dzip_agent_runs_total')
     expect(names).toContain('forge_tool_calls_total')
     expect(names).toContain('forge_memory_writes_total')
     expect(names).toContain('forge_vector_searches_total')

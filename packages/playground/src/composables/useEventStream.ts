@@ -1,5 +1,5 @@
 /**
- * Composable for subscribing to live WebSocket event streams from a ForgeAgent run.
+ * Composable for subscribing to live WebSocket event streams from a DzipAgent run.
  *
  * Provides a reactive event list that accumulates events from the WebSocket,
  * auto-reconnects on disconnect, and buffers events when the tab is not visible.

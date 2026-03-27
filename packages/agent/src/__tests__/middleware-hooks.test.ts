@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { AIMessage, HumanMessage, ToolMessage } from '@langchain/core/messages'
 import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
-import { ForgeAgent } from '../agent/forge-agent.js'
+import { DzipAgent } from '../agent/dzip-agent.js'
 
-describe('ForgeAgent middleware hooks', () => {
+describe('DzipAgent middleware hooks', () => {
   it('uses wrapModelCall when provided', async () => {
     let modelInvoked = false
     const model = {
@@ -14,7 +14,7 @@ describe('ForgeAgent middleware hooks', () => {
       },
     }
 
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'mw-model',
       instructions: 'test',
       model: model as never,
@@ -55,7 +55,7 @@ describe('ForgeAgent middleware hooks', () => {
       },
     )
 
-    const agent = new ForgeAgent({
+    const agent = new DzipAgent({
       id: 'mw-tool',
       instructions: 'test',
       model: model as never,

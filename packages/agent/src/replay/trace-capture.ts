@@ -1,11 +1,11 @@
 /**
- * TraceCapture — subscribes to ForgeEventBus to capture all events
+ * TraceCapture — subscribes to DzipEventBus to capture all events
  * during an agent run, with configurable snapshot intervals and filters.
  *
  * @module replay/trace-capture
  */
 
-import type { ForgeEventBus, ForgeEvent } from '@forgeagent/core'
+import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
 import type {
   ReplayEvent,
   TraceCaptureConfig,
@@ -26,7 +26,7 @@ const DEFAULT_CONFIG: TraceCaptureConfig = {
 // ---------------------------------------------------------------------------
 
 /**
- * Captures events from a ForgeEventBus into a replayable trace.
+ * Captures events from a DzipEventBus into a replayable trace.
  *
  * Usage:
  * ```ts
@@ -37,7 +37,7 @@ const DEFAULT_CONFIG: TraceCaptureConfig = {
  * ```
  */
 export class TraceCapture {
-  private readonly bus: ForgeEventBus
+  private readonly bus: DzipEventBus
   private readonly config: TraceCaptureConfig
   private events: ReplayEvent[] = []
   private runId: string | undefined
@@ -47,7 +47,7 @@ export class TraceCapture {
   private stateProvider: (() => Record<string, unknown>) | undefined
   private capturing = false
 
-  constructor(bus: ForgeEventBus, config?: Partial<TraceCaptureConfig>) {
+  constructor(bus: DzipEventBus, config?: Partial<TraceCaptureConfig>) {
     this.bus = bus
     this.config = { ...DEFAULT_CONFIG, ...config }
   }
@@ -77,7 +77,7 @@ export class TraceCapture {
     this.startedAt = Date.now()
     this.capturing = true
 
-    this.unsubscribe = this.bus.onAny((event: ForgeEvent) => {
+    this.unsubscribe = this.bus.onAny((event: DzipEvent) => {
       this.handleEvent(event)
     })
   }
@@ -132,7 +132,7 @@ export class TraceCapture {
   // Private
   // ---------------------------------------------------------------------------
 
-  private handleEvent(event: ForgeEvent): void {
+  private handleEvent(event: DzipEvent): void {
     if (!this.shouldCapture(event.type)) return
 
     const index = this.events.length

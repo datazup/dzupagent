@@ -1,11 +1,11 @@
 /**
- * Capability authorization guard for ForgeAgent server.
+ * Capability authorization guard for DzipAgent server.
  *
  * Checks whether the resolved ForgeIdentity has the required capabilities
  * to access a resource. Must be used AFTER identityMiddleware.
  */
 import type { MiddlewareHandler } from 'hono'
-import { createCapabilityChecker } from '@forgeagent/core'
+import { createCapabilityChecker } from '@dzipagent/core'
 import { getForgeIdentity } from './identity.js'
 
 /**

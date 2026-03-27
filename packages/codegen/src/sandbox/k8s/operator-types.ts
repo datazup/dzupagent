@@ -104,7 +104,7 @@ export interface AgentSandboxMetadata {
 }
 
 export interface AgentSandboxResource {
-  apiVersion: 'forgeagent.dev/v1alpha1'
+  apiVersion: 'dzipagent.dev/v1alpha1'
   kind: 'AgentSandbox'
   metadata: AgentSandboxMetadata
   spec: AgentSandboxSpec
@@ -122,13 +122,13 @@ export function createAgentSandboxResource(
   namespace?: string,
 ): AgentSandboxResource {
   return {
-    apiVersion: 'forgeagent.dev/v1alpha1',
+    apiVersion: 'dzipagent.dev/v1alpha1',
     kind: 'AgentSandbox',
     metadata: {
       name,
       ...(namespace ? { namespace } : {}),
       labels: {
-        'app.kubernetes.io/managed-by': 'forgeagent',
+        'app.kubernetes.io/managed-by': 'dzipagent',
       },
     },
     spec: {

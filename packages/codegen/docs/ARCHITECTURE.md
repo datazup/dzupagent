@@ -1,7 +1,7 @@
-# @forgeagent/codegen Architecture
+# @dzipagent/codegen Architecture
 
 ## Purpose
-`@forgeagent/codegen` provides the generation pipeline and execution environment for code-producing agents. It combines virtual filesystem staging, LLM generation services, sandboxed validation, quality scoring, and pipeline orchestration for iterative code synthesis.
+`@dzipagent/codegen` provides the generation pipeline and execution environment for code-producing agents. It combines virtual filesystem staging, LLM generation services, sandboxed validation, quality scoring, and pipeline orchestration for iterative code synthesis.
 
 ## Main Responsibilities
 - Stage generated code safely in an in-memory filesystem (`VirtualFS`).
@@ -44,8 +44,8 @@ Top-level modules under `src/`:
 - Git automation tools and PR/review utilities for autonomous fix loops.
 
 ## Integration Boundaries
-- Depends on `@forgeagent/core` for shared agent primitives.
-- Commonly consumed by `@forgeagent/agent` workflows and server-run pipelines.
+- Depends on `@dzipagent/core` for shared agent primitives.
+- Commonly consumed by `@dzipagent/agent` workflows and server-run pipelines.
 - Supports LangGraph/LangChain tool interfaces via exported tool factories.
 
 ## Extensibility Points

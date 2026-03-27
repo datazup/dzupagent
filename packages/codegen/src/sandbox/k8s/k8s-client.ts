@@ -43,7 +43,7 @@ interface ExecResult {
 const DEFAULT_API_SERVER = 'https://kubernetes.default.svc'
 const DEFAULT_NAMESPACE = 'default'
 const DEFAULT_TIMEOUT = 30_000
-const CRD_GROUP = 'forgeagent.dev'
+const CRD_GROUP = 'dzipagent.dev'
 const CRD_VERSION = 'v1alpha1'
 const CRD_PLURAL = 'agentsandboxes'
 

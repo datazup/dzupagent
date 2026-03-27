@@ -17,8 +17,8 @@ interface CloudflareWorkerHandler {
  * @example
  * ```ts
  * // src/worker.ts
- * import { createForgeApp } from '@forgeagent/server'
- * import { toCloudflareHandler } from '@forgeagent/server/platforms/cloudflare'
+ * import { createForgeApp } from '@dzipagent/server'
+ * import { toCloudflareHandler } from '@dzipagent/server/platforms/cloudflare'
  *
  * const app = createForgeApp({ ... })
  * export default toCloudflareHandler(app)

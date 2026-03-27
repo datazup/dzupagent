@@ -1,5 +1,5 @@
 /**
- * Layered configuration system for ForgeAgent.
+ * Layered configuration system for DzipAgent.
  *
  * Resolution order (highest priority wins):
  *   runtime overrides > environment variables > config file > defaults
@@ -103,36 +103,36 @@ function tryParseJson<T>(raw: string): T | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * Load configuration from environment variables (FORGE_* prefix).
+ * Load configuration from environment variables (DZIP_* prefix).
  *
  * Supported variables:
- * - FORGE_PROVIDERS        — JSON array of ProviderConfig
- * - FORGE_MODEL_CHAT       — chat tier model id
- * - FORGE_MODEL_CODEGEN    — codegen tier model id
- * - FORGE_MODEL_REASONING  — reasoning tier model id
- * - FORGE_MEMORY_STORE     — "postgres" | "in-memory"
- * - FORGE_MEMORY_CONN      — connection string
- * - FORGE_PORT             — server port
- * - FORGE_CORS_ORIGINS     — comma-separated origins
- * - FORGE_PLUGINS          — comma-separated plugin paths
- * - FORGE_SECURITY_RISK_CLASSIFICATION  — "true" | "false"
- * - FORGE_SECURITY_SECRETS_SCANNING     — "true" | "false"
- * - FORGE_SECURITY_OUTPUT_SANITIZATION  — "true" | "false"
+ * - DZIP_PROVIDERS        — JSON array of ProviderConfig
+ * - DZIP_MODEL_CHAT       — chat tier model id
+ * - DZIP_MODEL_CODEGEN    — codegen tier model id
+ * - DZIP_MODEL_REASONING  — reasoning tier model id
+ * - DZIP_MEMORY_STORE     — "postgres" | "in-memory"
+ * - DZIP_MEMORY_CONN      — connection string
+ * - DZIP_PORT             — server port
+ * - DZIP_CORS_ORIGINS     — comma-separated origins
+ * - DZIP_PLUGINS          — comma-separated plugin paths
+ * - DZIP_SECURITY_RISK_CLASSIFICATION  — "true" | "false"
+ * - DZIP_SECURITY_SECRETS_SCANNING     — "true" | "false"
+ * - DZIP_SECURITY_OUTPUT_SANITIZATION  — "true" | "false"
  */
 export function loadEnvConfig(): Partial<ForgeConfig> {
   const env = process.env;
   const config: Partial<ForgeConfig> = {};
 
   // Providers
-  if (env['FORGE_PROVIDERS']) {
-    const parsed = tryParseJson<ProviderConfig[]>(env['FORGE_PROVIDERS']);
+  if (env['DZIP_PROVIDERS']) {
+    const parsed = tryParseJson<ProviderConfig[]>(env['DZIP_PROVIDERS']);
     if (parsed) config.providers = parsed;
   }
 
   // Models
-  const chat = env['FORGE_MODEL_CHAT'];
-  const codegen = env['FORGE_MODEL_CODEGEN'];
-  const reasoning = env['FORGE_MODEL_REASONING'];
+  const chat = env['DZIP_MODEL_CHAT'];
+  const codegen = env['DZIP_MODEL_CODEGEN'];
+  const reasoning = env['DZIP_MODEL_REASONING'];
   if (chat || codegen || reasoning) {
     config.models = {
       chat: chat ?? DEFAULT_CONFIG.models.chat,
@@ -142,14 +142,14 @@ export function loadEnvConfig(): Partial<ForgeConfig> {
   }
 
   // Memory
-  const memStore = env['FORGE_MEMORY_STORE'];
+  const memStore = env['DZIP_MEMORY_STORE'];
   if (memStore === 'postgres' || memStore === 'in-memory') {
-    config.memory = { store: memStore, connectionString: env['FORGE_MEMORY_CONN'] };
+    config.memory = { store: memStore, connectionString: env['DZIP_MEMORY_CONN'] };
   }
 
   // Server
-  const port = env['FORGE_PORT'];
-  const cors = env['FORGE_CORS_ORIGINS'];
+  const port = env['DZIP_PORT'];
+  const cors = env['DZIP_CORS_ORIGINS'];
   if (port || cors) {
     config.server = {
       port: port ? Number(port) : DEFAULT_CONFIG.server.port,
@@ -159,14 +159,14 @@ export function loadEnvConfig(): Partial<ForgeConfig> {
   }
 
   // Plugins
-  if (env['FORGE_PLUGINS']) {
-    config.plugins = env['FORGE_PLUGINS'].split(',').map((s) => s.trim());
+  if (env['DZIP_PLUGINS']) {
+    config.plugins = env['DZIP_PLUGINS'].split(',').map((s) => s.trim());
   }
 
   // Security
-  const rc = env['FORGE_SECURITY_RISK_CLASSIFICATION'];
-  const ss = env['FORGE_SECURITY_SECRETS_SCANNING'];
-  const os = env['FORGE_SECURITY_OUTPUT_SANITIZATION'];
+  const rc = env['DZIP_SECURITY_RISK_CLASSIFICATION'];
+  const ss = env['DZIP_SECURITY_SECRETS_SCANNING'];
+  const os = env['DZIP_SECURITY_OUTPUT_SANITIZATION'];
   if (rc !== undefined || ss !== undefined || os !== undefined) {
     config.security = {
       riskClassification: rc !== undefined ? rc === 'true' : DEFAULT_CONFIG.security.riskClassification,

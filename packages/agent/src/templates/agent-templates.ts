@@ -36,7 +36,7 @@ export interface AgentTemplate {
   /**
    * Suggested tool names the agent works best with.
    * These are *hints* — actual `StructuredToolInterface` instances must be
-   * supplied by the consumer when constructing the `ForgeAgent`.
+   * supplied by the consumer when constructing the `DzipAgent`.
    */
   suggestedTools?: string[]
   /** Guardrail presets (sensible defaults per use-case). */

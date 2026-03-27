@@ -9,7 +9,7 @@
  *
  * @example
  * ```ts
- * import { BullMQRunQueue } from '@forgeagent/server'
+ * import { BullMQRunQueue } from '@dzipagent/server'
  *
  * const queue = new BullMQRunQueue({
  *   connection: { host: 'localhost', port: 6379 },
@@ -54,13 +54,13 @@ interface BullMQWorkerLike {
 export interface BullMQRunQueueConfig extends RunQueueConfig {
   /** Redis connection options */
   connection: BullMQConnection
-  /** Queue name in Redis (default: 'forgeagent-runs') */
+  /** Queue name in Redis (default: 'dzipagent-runs') */
   queueName?: string
   /** Prefix for all Redis keys (default: 'forge') */
   prefix?: string
 }
 
-const QUEUE_NAME = 'forgeagent-runs'
+const QUEUE_NAME = 'dzipagent-runs'
 
 export class BullMQRunQueue implements RunQueue {
   private queue: BullMQQueueLike | null = null

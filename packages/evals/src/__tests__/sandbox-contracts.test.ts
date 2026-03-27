@@ -7,8 +7,8 @@
  *
  * Currently tested adapters:
  * - Inline mock sandbox (minimal conformance baseline)
- * - MockSandbox from @forgeagent/codegen (when available)
- * - DockerSandbox from @forgeagent/codegen (skipped when Docker is unavailable)
+ * - MockSandbox from @dzipagent/codegen (when available)
+ * - DockerSandbox from @dzipagent/codegen (skipped when Docker is unavailable)
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -144,12 +144,12 @@ function createInlineMockSandbox() {
 // ---------------------------------------------------------------------------
 
 /**
- * Try to import MockSandbox from @forgeagent/codegen.
+ * Try to import MockSandbox from @dzipagent/codegen.
  * Returns null if the package is not available (not a dependency of evals).
  */
 async function createCodegenMockSandbox(): Promise<unknown> {
   try {
-    const mod = await import('@forgeagent/codegen');
+    const mod = await import('@dzipagent/codegen');
     const { MockSandbox } = mod as { MockSandbox: new () => unknown };
     const sandbox = new MockSandbox();
 
@@ -337,10 +337,10 @@ describe('Sandbox contract tests', () => {
   });
 
   // -------------------------------------------------------------------------
-  // MockSandbox from @forgeagent/codegen — conditional
+  // MockSandbox from @dzipagent/codegen — conditional
   // -------------------------------------------------------------------------
 
-  describe('MockSandbox (@forgeagent/codegen)', () => {
+  describe('MockSandbox (@dzipagent/codegen)', () => {
     let adapter: unknown;
     let available = false;
 
@@ -358,7 +358,7 @@ describe('Sandbox contract tests', () => {
     it('should pass all contract tests when available', async () => {
       if (!available) {
         console.log(
-          'Skipping: @forgeagent/codegen MockSandbox not available (not a direct dependency)',
+          'Skipping: @dzipagent/codegen MockSandbox not available (not a direct dependency)',
         );
         return;
       }
@@ -405,7 +405,7 @@ describe('Sandbox contract tests', () => {
         // Dynamic import since codegen is not a direct dependency
         let adapter: unknown;
         try {
-          const mod = await import('@forgeagent/codegen');
+          const mod = await import('@dzipagent/codegen');
           const { DockerSandbox } = mod as {
             DockerSandbox: new (config?: {
               timeoutMs?: number;
@@ -413,7 +413,7 @@ describe('Sandbox contract tests', () => {
           };
           adapter = new DockerSandbox({ timeoutMs: 30_000 });
         } catch {
-          console.log('Skipping: @forgeagent/codegen not available');
+          console.log('Skipping: @dzipagent/codegen not available');
           return;
         }
 

@@ -1,4 +1,4 @@
-# @forgeagent/playground
+# @dzipagent/playground
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -17,11 +17,11 @@
 
 ### Install
 ```bash
-npm install @forgeagent/playground
+npm install @dzipagent/playground
 ```
 <!-- AUTO-GENERATED-END -->
 
-Tailwind-powered Vue 3 playground for running ForgeAgent conversations and inspecting execution in real time.
+Tailwind-powered Vue 3 playground for running DzipAgent conversations and inspecting execution in real time.
 
 This package is private to this monorepo and is not published to npm.
 
@@ -39,7 +39,7 @@ This package is private to this monorepo and is not published to npm.
 ### 1. Install dependencies
 
 ```bash
-cd packages/forgeagent-playground
+cd packages/dzipagent-playground
 npm install
 ```
 
@@ -49,7 +49,7 @@ npm install
 npm run dev
 ```
 
-By default, Vite proxies `/api/*` requests to the ForgeAgent backend.
+By default, Vite proxies `/api/*` requests to the DzipAgent backend.
 
 ### 3. Configure backend endpoints (optional)
 
@@ -69,7 +69,7 @@ VITE_WS_PATH=/ws
 npm run build
 ```
 
-The generated assets are written to `dist/` and can be served by `@forgeagent/server` on `/playground`.
+The generated assets are written to `dist/` and can be served by `@dzipagent/server` on `/playground`.
 
 ## Scripts
 

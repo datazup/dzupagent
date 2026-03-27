@@ -6,7 +6,7 @@ import type {
   PipelineEdge,
   ForkNode,
   JoinNode,
-} from '@forgeagent/core'
+} from '@dzipagent/core'
 import type {
   NodeExecutor,
   NodeResult,

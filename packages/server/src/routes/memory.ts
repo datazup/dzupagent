@@ -7,7 +7,7 @@
  * GET    /api/memory/analytics/*  — DuckDB-powered memory analytics
  *
  * These routes bridge the MCP memory transport handlers from
- * @forgeagent/memory-ipc into the Hono REST API.
+ * @dzipagent/memory-ipc into the Hono REST API.
  */
 import { Hono } from 'hono'
 import {
@@ -19,7 +19,7 @@ import {
   extendMemoryServiceWithArrow,
   type MemoryServiceLike,
   type ImportStrategy,
-} from '@forgeagent/memory-ipc'
+} from '@dzipagent/memory-ipc'
 import {
   getAnalytics,
   isDuckDBError,

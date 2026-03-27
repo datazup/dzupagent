@@ -4,7 +4,7 @@
  * Supports:
  * - Persistent local storage (no external service required)
  * - Hybrid search (BM25 full-text + vector similarity + metadata filters)
- * - Zero-copy Arrow Table exchange with @forgeagent/memory-ipc
+ * - Zero-copy Arrow Table exchange with @dzipagent/memory-ipc
  * - S3-backed storage for production deployments
  * - MVCC versioning (time-travel queries)
  *
@@ -28,9 +28,9 @@ import { ForgeError } from '../../errors/forge-error.js'
 export interface LanceDBAdapterConfig {
   /**
    * LanceDB connection URI.
-   * - Local: "~/.forgeagent/lancedb" or "/tmp/lancedb"
+   * - Local: "~/.dzipagent/lancedb" or "/tmp/lancedb"
    * - S3: "s3://bucket/path"
-   * Defaults to ~/.forgeagent/lancedb
+   * Defaults to ~/.dzipagent/lancedb
    */
   uri?: string
 
@@ -182,12 +182,12 @@ const RESERVED_COLUMNS = new Set(['id', 'vector', 'text', '_distance', '_rowid']
  * Arrow-native embedded vector database. Supports:
  * - Persistent local storage (no external service)
  * - Hybrid search (BM25 + vector + metadata filters)
- * - Zero-copy Arrow Table exchange with @forgeagent/memory-ipc
+ * - Zero-copy Arrow Table exchange with @dzipagent/memory-ipc
  * - S3-backed storage for production deployments
  *
  * @example
  * ```ts
- * const adapter = await LanceDBAdapter.create({ uri: '~/.forgeagent/lancedb' })
+ * const adapter = await LanceDBAdapter.create({ uri: '~/.dzipagent/lancedb' })
  * await adapter.createCollection('memories', { dimensions: 1536 })
  * await adapter.upsert('memories', [{ id: '1', vector: [...], metadata: {}, text: 'hello' }])
  * const results = await adapter.search('memories', { vector: [...], limit: 10 })
@@ -428,7 +428,7 @@ export class LanceDBAdapter implements VectorStore {
 
   /**
    * Zero-copy upsert from an Apache Arrow Table.
-   * Accepts an arrow.Table instance (from @forgeagent/memory-ipc FrameBuilder.toTable()).
+   * Accepts an arrow.Table instance (from @dzipagent/memory-ipc FrameBuilder.toTable()).
    * Falls back to row-by-row extraction if Arrow is not available.
    *
    * @param collection - Target collection name
@@ -509,7 +509,7 @@ export class LanceDBAdapter implements VectorStore {
 /** Default LanceDB URI based on platform */
 function defaultUri(): string {
   const home = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '/tmp'
-  return `${home}/.forgeagent/lancedb`
+  return `${home}/.dzipagent/lancedb`
 }
 
 /** Build a seed row with correct schema for initial table creation */

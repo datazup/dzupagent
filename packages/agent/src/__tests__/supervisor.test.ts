@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
-import { ForgeAgent } from '../agent/forge-agent.js'
+import { DzipAgent } from '../agent/dzip-agent.js'
 import { AgentOrchestrator } from '../orchestration/orchestrator.js'
 import { OrchestrationError } from '../orchestration/orchestration-error.js'
 
@@ -36,7 +36,7 @@ function createMockModel(
     return msg
   })
 
-  // Minimal mock shape that satisfies what ForgeAgent needs
+  // Minimal mock shape that satisfies what DzipAgent needs
   return {
     invoke,
     bindTools: vi.fn(function (this: BaseChatModel, _tools: unknown[]) {
@@ -49,8 +49,8 @@ function createMockModel(
   } as unknown as BaseChatModel
 }
 
-function createAgent(id: string, description: string, model: BaseChatModel): ForgeAgent {
-  return new ForgeAgent({
+function createAgent(id: string, description: string, model: BaseChatModel): DzipAgent {
+  return new DzipAgent({
     id,
     description,
     instructions: `You are ${id}.`,

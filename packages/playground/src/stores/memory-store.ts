@@ -1,7 +1,7 @@
 /**
  * Memory store -- manages memory namespace browsing and record search.
  *
- * Fetches memory data from the ForgeAgent server's memory-browse API
+ * Fetches memory data from the DzipAgent server's memory-browse API
  * and provides namespace listing and record search.
  *
  * @module memory-store

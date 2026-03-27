@@ -25,7 +25,7 @@ export function generateReadme(options: ReadmeOptions): string {
   const sections: string[] = [
     `# ${options.projectName}`,
     '',
-    `Built with [ForgeAgent](https://github.com/forgeagent) using the \`${options.template}\` template.`,
+    `Built with [DzipAgent](https://github.com/dzipagent) using the \`${options.template}\` template.`,
     '',
     '## Features',
     '',
@@ -82,7 +82,7 @@ export function generateReadme(options: ReadmeOptions): string {
       '## Authentication',
       '',
       options.auth === 'api-key'
-        ? 'This project uses API key authentication. Set `FORGE_API_KEY` in your `.env` file.'
+        ? 'This project uses API key authentication. Set `DZIP_API_KEY` in your `.env` file.'
         : 'This project uses JWT authentication. Set `JWT_SECRET` in your `.env` file.',
       '',
     )

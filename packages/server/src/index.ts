@@ -1,5 +1,5 @@
 /**
- * @forgeagent/server — Optional HTTP/WS runtime for ForgeAgent.
+ * @dzipagent/server — Optional HTTP/WS runtime for DzipAgent.
  *
  * Provides: Hono REST API, run/agent persistence (Postgres + Drizzle),
  * approval management, SSE streaming, WebSocket event bridge,
@@ -44,7 +44,7 @@ export type {
   VectorSearchResult as DrizzleVectorSearchResult,
   VectorSearchOptions as DrizzleVectorSearchOptions,
 } from './persistence/postgres-stores.js'
-export { forgeAgents, forgeRuns, forgeRunLogs, forgeVectors, deploymentHistory } from './persistence/drizzle-schema.js'
+export { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors, deploymentHistory } from './persistence/drizzle-schema.js'
 
 // --- Vector (pgvector) ---
 export { vectorColumn } from './persistence/vector-column.js'
@@ -234,7 +234,7 @@ export type {
 export { InMemoryQuotaManager } from './runtime/memory-quota-manager.js'
 export { startRunWorker } from './runtime/run-worker.js'
 export { createDefaultRunExecutor } from './runtime/default-run-executor.js'
-export { createForgeAgentRunExecutor } from './runtime/forge-agent-run-executor.js'
+export { createDzipAgentRunExecutor } from './runtime/dzip-agent-run-executor.js'
 export { QuotaExceededError } from './runtime/resource-quota.js'
 export type {
   ResourceDimensions,
@@ -251,7 +251,7 @@ export type {
   ReflectionScore,
   ReflectionDimensions,
 } from './runtime/run-worker.js'
-export type { ForgeAgentRunExecutorOptions } from './runtime/forge-agent-run-executor.js'
+export type { DzipAgentRunExecutorOptions } from './runtime/dzip-agent-run-executor.js'
 export { reportRetrievalFeedback, mapScoreToQuality } from './runtime/retrieval-feedback-hook.js'
 export type { RetrievalFeedbackSink, RetrievalFeedbackHookConfig } from './runtime/retrieval-feedback-hook.js'
 export { resolveAgentTools, ToolResolutionError, getToolProfileConfig } from './runtime/tool-resolver.js'
@@ -351,4 +351,4 @@ export { createRegistryRoutes } from './routes/registry.js'
 export type { RegistryRouteConfig } from './routes/registry.js'
 
 // --- Version ---
-export const FORGEAGENT_SERVER_VERSION = '0.1.0'
+export const dzipagent_SERVER_VERSION = '0.1.0'

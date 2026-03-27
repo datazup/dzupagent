@@ -59,7 +59,7 @@ describe('BullMQRunQueue', () => {
 
       expect(mockAdd).toHaveBeenCalledOnce()
       const [name, , opts] = mockAdd.mock.calls[0]!
-      expect(name).toBe('forgeagent-runs')
+      expect(name).toBe('dzipagent-runs')
       expect(opts).toMatchObject({
         priority: 1,
         attempts: 3, // maxRetries(2) + 1

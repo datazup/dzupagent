@@ -1,7 +1,7 @@
-# @forgeagent/memory-ipc Architecture
+# @dzipagent/memory-ipc Architecture
 
 ## Purpose
-`@forgeagent/memory-ipc` defines a columnar interoperability layer for memory exchange between agents/processes/frameworks. It standardizes memory transfer around Apache Arrow tables plus serialization, adapter, selection, and transport utilities.
+`@dzipagent/memory-ipc` defines a columnar interoperability layer for memory exchange between agents/processes/frameworks. It standardizes memory transfer around Apache Arrow tables plus serialization, adapter, selection, and transport utilities.
 
 ## Main Responsibilities
 - Define a canonical memory frame schema for interop.
@@ -38,8 +38,8 @@ Top-level modules under `src/`:
 - Domain-specific extended frames (tool results, codegen, eval, entity graph).
 
 ## Integration Boundaries
-- Optional peer integration with `@forgeagent/memory`.
-- Used by `@forgeagent/agent`, `@forgeagent/server`, and memory tooling for interchange.
+- Optional peer integration with `@dzipagent/memory`.
+- Used by `@dzipagent/agent`, `@dzipagent/server`, and memory tooling for interchange.
 - Built on `apache-arrow` and `zod` schemas.
 
 ## Extensibility Points

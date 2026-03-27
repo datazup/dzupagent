@@ -559,7 +559,7 @@ describe('InMemoryRegistry', () => {
     })
   })
 
-  describe('ForgeEventBus integration', () => {
+  describe('DzipEventBus integration', () => {
     it('forwards registry events to the event bus', async () => {
       const bus = createEventBus()
       const handler = vi.fn()

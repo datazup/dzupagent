@@ -14,7 +14,7 @@ function createMockAgents(): MarketplaceAgent[] {
     {
       id: 'plugin-otel',
       name: '@forge/otel-tracer',
-      description: 'OpenTelemetry tracing for ForgeAgent runs',
+      description: 'OpenTelemetry tracing for DzipAgent runs',
       version: '1.2.0',
       author: 'ForgeTeam',
       category: 'observability',

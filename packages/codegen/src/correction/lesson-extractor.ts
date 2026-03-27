@@ -13,8 +13,8 @@
  */
 
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
-import type { ModelRegistry, ModelTier, TokenUsage } from '@forgeagent/core'
-import { extractTokenUsage } from '@forgeagent/core'
+import type { ModelRegistry, ModelTier, TokenUsage } from '@dzipagent/core'
+import { extractTokenUsage } from '@dzipagent/core'
 import type { CorrectionIteration, Lesson, ErrorCategory, CorrectionContext } from './correction-types.js'
 
 // ---------------------------------------------------------------------------
