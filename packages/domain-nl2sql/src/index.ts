@@ -103,3 +103,37 @@ export {
   SUPERVISOR_WORKFLOW,
 } from './workflows/index.js'
 export type { NL2SQLWorkflowSteps } from './workflows/index.js'
+
+// --- Embedding pipeline ---
+export {
+  SchemaEmbeddingPipeline,
+  embedSQLExamples,
+  deleteSQLExampleEmbeddings,
+  TABLE_SCHEMA_COLLECTION,
+  SQL_EXAMPLE_COLLECTION,
+} from './embedding/index.js'
+export type {
+  SchemaEmbeddingPipelineConfig,
+  EmbeddingPipelineInput,
+  EmbeddingPipelineResult,
+  DatabaseSchema,
+  SummaryGenerator,
+  TableSummaryInput,
+  TableSummaryResult,
+  SQLExampleEmbeddingInput,
+  SQLExampleEmbeddingDeps,
+} from './embedding/index.js'
+
+// --- Streaming ---
+export {
+  PipelineEventEmitter,
+  type StageStartEvent,
+  type StageCompleteEvent,
+  type SQLChunkEvent,
+  type ResultRowEvent,
+  type PipelineErrorEvent,
+  type PipelineDoneEvent,
+  type PipelineEvent,
+  type PipelineEventMap,
+  type PipelineEventName,
+} from './streaming/index.js'
