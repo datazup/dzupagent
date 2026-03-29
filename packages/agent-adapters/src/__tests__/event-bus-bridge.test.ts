@@ -1,0 +1,291 @@
+import { describe, it, expect, vi } from 'vitest'
+import { createEventBus } from '@dzipagent/core'
+import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+
+import { EventBusBridge } from '../registry/event-bus-bridge.js'
+import type {
+  AgentEvent,
+  AgentStartedEvent,
+  AgentCompletedEvent,
+  AgentFailedEvent,
+  AgentToolCallEvent,
+  AgentToolResultEvent,
+  AgentStreamDeltaEvent,
+  AgentMessageEvent,
+} from '../types.js'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function* yieldEvents(events: AgentEvent[]): AsyncGenerator<AgentEvent, void, undefined> {
+  for (const e of events) yield e
+}
+
+async function collectAll<T>(gen: AsyncGenerator<T>): Promise<T[]> {
+  const items: T[] = []
+  for await (const item of gen) items.push(item)
+  return items
+}
+
+function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
+  const events: DzipEvent[] = []
+  bus.onAny((e) => events.push(e))
+  return events
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('EventBusBridge', () => {
+  const RUN_ID = 'test-run-123'
+
+  describe('bridge()', () => {
+    it('bridges adapter:started to agent:started', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const startedEvent: AgentStartedEvent = {
+        type: 'adapter:started',
+        providerId: 'claude',
+        sessionId: 'sess-1',
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([startedEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toEqual({
+        type: 'agent:started',
+        agentId: 'claude',
+        runId: RUN_ID,
+      })
+    })
+
+    it('bridges adapter:completed to agent:completed', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const completedEvent: AgentCompletedEvent = {
+        type: 'adapter:completed',
+        providerId: 'gemini',
+        sessionId: 'sess-2',
+        result: 'done',
+        durationMs: 500,
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([completedEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toEqual({
+        type: 'agent:completed',
+        agentId: 'gemini',
+        runId: RUN_ID,
+        durationMs: 500,
+      })
+    })
+
+    it('bridges adapter:failed to agent:failed', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const failedEvent: AgentFailedEvent = {
+        type: 'adapter:failed',
+        providerId: 'codex',
+        error: 'timeout',
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([failedEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toEqual({
+        type: 'agent:failed',
+        agentId: 'codex',
+        runId: RUN_ID,
+        errorCode: 'ADAPTER_EXECUTION_FAILED',
+        message: 'timeout',
+      })
+    })
+
+    it('bridges adapter:tool_call to tool:called', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const toolCallEvent: AgentToolCallEvent = {
+        type: 'adapter:tool_call',
+        providerId: 'claude',
+        toolName: 'read_file',
+        input: { path: '/tmp/test.ts' },
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([toolCallEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toEqual({
+        type: 'tool:called',
+        toolName: 'read_file',
+        input: { path: '/tmp/test.ts' },
+      })
+    })
+
+    it('bridges adapter:tool_result to tool:result', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const toolResultEvent: AgentToolResultEvent = {
+        type: 'adapter:tool_result',
+        providerId: 'claude',
+        toolName: 'write_file',
+        output: 'ok',
+        durationMs: 42,
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([toolResultEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toEqual({
+        type: 'tool:result',
+        toolName: 'write_file',
+        durationMs: 42,
+      })
+    })
+
+    it('bridges adapter:stream_delta to agent:stream_delta', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const streamEvent: AgentStreamDeltaEvent = {
+        type: 'adapter:stream_delta',
+        providerId: 'qwen',
+        content: 'hello ',
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([streamEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toEqual({
+        type: 'agent:stream_delta',
+        agentId: 'qwen',
+        runId: RUN_ID,
+        content: 'hello ',
+      })
+    })
+
+    it('bridges adapter:message to agent:stream_delta', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const msgEvent: AgentMessageEvent = {
+        type: 'adapter:message',
+        providerId: 'crush',
+        content: 'thinking...',
+        role: 'assistant',
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([msgEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toEqual({
+        type: 'agent:stream_delta',
+        agentId: 'crush',
+        runId: RUN_ID,
+        content: 'thinking...',
+      })
+    })
+
+    it('yields original events unchanged (pass-through)', async () => {
+      const bus = createEventBus()
+      const bridge = new EventBusBridge(bus)
+
+      const originalEvents: AgentEvent[] = [
+        {
+          type: 'adapter:started',
+          providerId: 'claude',
+          sessionId: 'sess-1',
+          timestamp: 1000,
+        },
+        {
+          type: 'adapter:completed',
+          providerId: 'claude',
+          sessionId: 'sess-1',
+          result: 'done',
+          durationMs: 100,
+          timestamp: 2000,
+        },
+      ]
+
+      const yielded = await collectAll(bridge.bridge(yieldEvents(originalEvents), RUN_ID))
+
+      expect(yielded).toHaveLength(2)
+      expect(yielded[0]).toBe(originalEvents[0])
+      expect(yielded[1]).toBe(originalEvents[1])
+    })
+
+    it('generates runId when not provided', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const startedEvent: AgentStartedEvent = {
+        type: 'adapter:started',
+        providerId: 'claude',
+        sessionId: 'sess-1',
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([startedEvent])))
+
+      expect(emitted).toHaveLength(1)
+      const event = emitted[0] as { type: string; runId: string }
+      expect(event.runId).toBeDefined()
+      expect(typeof event.runId).toBe('string')
+      expect(event.runId.length).toBeGreaterThan(0)
+    })
+
+    it('bridges multiple events in sequence', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const events: AgentEvent[] = [
+        { type: 'adapter:started', providerId: 'claude', sessionId: 's1', timestamp: 1 },
+        { type: 'adapter:tool_call', providerId: 'claude', toolName: 'bash', input: 'ls', timestamp: 2 },
+        { type: 'adapter:tool_result', providerId: 'claude', toolName: 'bash', output: 'ok', durationMs: 10, timestamp: 3 },
+        { type: 'adapter:completed', providerId: 'claude', sessionId: 's1', result: 'done', durationMs: 50, timestamp: 4 },
+      ]
+
+      await collectAll(bridge.bridge(yieldEvents(events), RUN_ID))
+
+      expect(emitted).toHaveLength(4)
+      expect(emitted.map((e) => e.type)).toEqual([
+        'agent:started',
+        'tool:called',
+        'tool:result',
+        'agent:completed',
+      ])
+    })
+  })
+
+  describe('mapToDzipEvent()', () => {
+    it('returns null for unknown event types', () => {
+      // Use a type assertion to simulate an unknown event type
+      const unknownEvent = { type: 'adapter:unknown', providerId: 'claude', timestamp: 1 } as unknown as AgentEvent
+      const result = EventBusBridge.mapToDzipEvent(unknownEvent, RUN_ID)
+      expect(result).toBeNull()
+    })
+  })
+})

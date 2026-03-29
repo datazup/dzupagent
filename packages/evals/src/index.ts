@@ -142,3 +142,36 @@ export {
   createEmbeddingProviderContract,
   EMBEDDING_PROVIDER_CONTRACT,
 } from './contracts/index.js';
+
+// Prompt Experiment (A/B testing for system prompts)
+export { PromptExperiment } from './prompt-experiment/index.js';
+export type {
+  PromptVariant,
+  ExperimentConfig,
+  VariantResult,
+  VariantResultEntry,
+  PairedComparison,
+  ExperimentReport,
+} from './prompt-experiment/index.js';
+
+// Prompt Optimizer (LLM-driven prompt rewriting + version store)
+export { PromptVersionStore, PromptOptimizer } from './prompt-optimizer/index.js';
+export type {
+  PromptVersion,
+  PromptVersionEvalScores,
+  PromptVersionStoreConfig,
+  OptimizerConfig,
+  OptimizationResult,
+  OptimizationCandidate,
+} from './prompt-optimizer/index.js';
+
+// Domain-specific scorer (SQL, code, analysis, ops)
+export { DomainScorer } from './scorers/domain-scorer.js';
+export type {
+  EvalDomain,
+  DomainCriterion,
+  DomainConfig,
+  CriterionResult,
+  DomainScorerResult,
+  DomainScorerParams,
+} from './scorers/domain-scorer.js';

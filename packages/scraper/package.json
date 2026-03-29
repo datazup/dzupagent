@@ -1,0 +1,40 @@
+{
+  "name": "@dzipagent/scraper",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src/"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "puppeteer": ">=21.0.0",
+    "puppeteer-extra": ">=3.3.0",
+    "puppeteer-extra-plugin-stealth": ">=2.11.0"
+  },
+  "peerDependenciesMeta": {
+    "puppeteer": { "optional": true },
+    "puppeteer-extra": { "optional": true },
+    "puppeteer-extra-plugin-stealth": { "optional": true }
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT"
+}

@@ -76,5 +76,13 @@ export type ForgeErrorCode =
   | 'VECTOR_COLLECTION_EXISTS'
   | 'VECTOR_DIMENSION_MISMATCH'
   | 'VECTOR_STORE_UNAVAILABLE'
+  // --- Adapter errors ---
+  | 'ADAPTER_SDK_NOT_INSTALLED'
+  | 'ADAPTER_EXECUTION_FAILED'
+  | 'ADAPTER_SESSION_NOT_FOUND'
+  | 'ADAPTER_TIMEOUT'
+  | 'ALL_ADAPTERS_EXHAUSTED'
+  // --- Output parsing errors ---
+  | 'OUTPUT_PARSE_FAILED'
   // --- General ---
   | 'INTERNAL_ERROR'

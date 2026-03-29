@@ -13,7 +13,7 @@ export interface ModelSpec {
 
 /** Provider configuration registered with ModelRegistry */
 export interface LLMProviderConfig {
-  provider: 'anthropic' | 'openai' | 'openrouter' | 'azure' | 'bedrock' | 'custom'
+  provider: 'anthropic' | 'openai' | 'openrouter' | 'google' | 'qwen' | 'azure' | 'bedrock' | 'custom'
   apiKey: string
   baseUrl?: string
   models: Partial<Record<ModelTier, ModelSpec>>

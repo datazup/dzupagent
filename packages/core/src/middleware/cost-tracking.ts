@@ -11,6 +11,8 @@ const MODEL_COSTS: Record<string, { input: number; output: number }> = {
   'claude-opus-4-6': { input: 1500, output: 7500 },
   'gpt-5-mini': { input: 15, output: 60 },
   'gpt-5': { input: 250, output: 1000 },
+  'gemini-2.5-pro': { input: 125, output: 1000 },
+  'gemini-2.5-flash': { input: 15, output: 60 },
   default: { input: 200, output: 1000 },
 }
 

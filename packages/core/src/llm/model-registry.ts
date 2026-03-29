@@ -12,6 +12,8 @@ import { CircuitBreaker } from './circuit-breaker.js'
 import type { CircuitBreakerConfig } from './circuit-breaker.js'
 import { ForgeError } from '../errors/forge-error.js'
 import { isTransientError } from './retry.js'
+import type { RegistryMiddleware } from './registry-middleware.js'
+import { EmbeddingRegistry, createDefaultEmbeddingRegistry } from './embedding-registry.js'
 
 /**
  * Returns true for OpenAI reasoning models that only support the default
@@ -84,6 +86,34 @@ function defaultModelFactory(
       return new ChatOpenAI(config)
     }
 
+    case 'google': {
+      // Google Gemini models via @langchain/google-genai (ChatGoogleGenerativeAI)
+      // Uses OpenAI-compatible ChatOpenAI with Google's baseUrl as fallback
+      // For full native support, set a custom ModelFactory with ChatGoogleGenerativeAI
+      const config: ConstructorParameters<typeof ChatOpenAI>[0] = {
+        model: modelName,
+        apiKey: provider.apiKey,
+        configuration: { baseURL: provider.baseUrl ?? 'https://generativelanguage.googleapis.com/v1beta/openai/' },
+        maxTokens,
+        streaming,
+        ...(temperature !== undefined ? { temperature } : {}),
+      }
+      return new ChatOpenAI(config)
+    }
+
+    case 'qwen': {
+      // Qwen models via Alibaba Cloud's OpenAI-compatible API
+      const config: ConstructorParameters<typeof ChatOpenAI>[0] = {
+        model: modelName,
+        apiKey: provider.apiKey,
+        configuration: { baseURL: provider.baseUrl ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+        maxTokens,
+        streaming,
+        ...(temperature !== undefined ? { temperature } : {}),
+      }
+      return new ChatOpenAI(config)
+    }
+
     case 'azure':
     case 'bedrock':
     case 'custom':
@@ -116,6 +146,10 @@ export class ModelRegistry {
   private factory: ModelFactory = defaultModelFactory
   private breakers = new Map<string, CircuitBreaker>()
   private breakerConfig?: Partial<CircuitBreakerConfig>
+  private middlewares: RegistryMiddleware[] = []
+
+  /** Pre-loaded embedding model registry */
+  readonly embeddings: EmbeddingRegistry = createDefaultEmbeddingRegistry()
 
   /** Register a provider with model tier mappings */
   addProvider(config: LLMProviderConfig): this {
@@ -303,5 +337,26 @@ export class ModelRegistry {
       }
     }
     return health
+  }
+
+  // --- Middleware support ---
+
+  /** Register a middleware (executed in registration order) */
+  use(middleware: RegistryMiddleware): this {
+    this.middlewares.push(middleware)
+    return this
+  }
+
+  /** Get all registered middlewares (read-only) */
+  getMiddlewares(): readonly RegistryMiddleware[] {
+    return this.middlewares
+  }
+
+  /** Remove a middleware by name */
+  removeMiddleware(name: string): boolean {
+    const idx = this.middlewares.findIndex(m => m.name === name)
+    if (idx === -1) return false
+    this.middlewares.splice(idx, 1)
+    return true
   }
 }

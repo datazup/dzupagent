@@ -12,6 +12,10 @@ packages/
   memory/         — Memory: decay, consolidation, retrieval, store factory
   memory-ipc/     — Arrow IPC: schema, adapters, DuckDB analytics
   context/        — Context: message manager, compression, prompt cache
+  rag/            — RAG: chunking, retrieval, context assembly, citations
+  cache/          — LLM response caching: Redis, InMemory, ModelRegistry middleware
+  scraper/        — Web scraping: HTTP, Puppeteer, content extraction
+  express/        — Express adapter: SSE streaming, agent router
   server/         — HTTP: Hono API, Drizzle, WebSocket, queue
   otel/           — Observability: OpenTelemetry, tracing, metrics
   evals/          — Evaluation: scorers, LLM judge, benchmarks

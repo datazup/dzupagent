@@ -41,6 +41,9 @@ export { invokeWithTimeout, extractTokenUsage, estimateTokens } from './llm/invo
 export type { TokenUsage, InvokeOptions } from './llm/invoke.js'
 export { isTransientError, DEFAULT_RETRY_CONFIG } from './llm/retry.js'
 export type { RetryConfig } from './llm/retry.js'
+export type { RegistryMiddleware, MiddlewareContext, MiddlewareResult, MiddlewareTokenUsage } from './llm/registry-middleware.js'
+export { EmbeddingRegistry, createDefaultEmbeddingRegistry, COMMON_EMBEDDING_MODELS } from './llm/embedding-registry.js'
+export type { EmbeddingModelEntry } from './llm/embedding-registry.js'
 
 // --- Prompt ---
 export {

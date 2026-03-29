@@ -10,7 +10,7 @@ export default defineConfig({
     'src/facades/security.ts',
   ],
   format: ['esm'],
-  dts: { resolve: true },
+  dts: { compilerOptions: { composite: false } },
   clean: true,
   sourcemap: true,
   target: 'node20',

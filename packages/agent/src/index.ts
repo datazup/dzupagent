@@ -493,5 +493,18 @@ export type {
   DashboardServiceConfig,
 } from './self-correction/learning-dashboard.js'
 
+// --- Presets ---
+export {
+  type AgentPreset,
+  type PresetRuntimeDeps,
+  buildConfigFromPreset,
+  PresetRegistry,
+  createDefaultPresetRegistry,
+  RAGChatPreset,
+  ResearchPreset,
+  SummarizerPreset,
+  QAPreset,
+} from './presets/index.js'
+
 // --- Version ---
 export const dzipagent_AGENT_VERSION = '0.1.0'

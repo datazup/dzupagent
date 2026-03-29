@@ -130,6 +130,15 @@ export type {
   WrapNodeOptions,
 } from './langgraph-middleware.js'
 
+export { OutputRefinementLoop } from './output-refinement.js'
+export type {
+  RefinementDomain,
+  RefinementConfig,
+  RefinementIteration,
+  RefinementResult,
+  ScoreFn,
+} from './output-refinement.js'
+
 export { FeedbackCollector } from './feedback-collector.js'
 export type {
   FeedbackType,
