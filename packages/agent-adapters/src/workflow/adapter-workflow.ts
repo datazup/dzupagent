@@ -21,7 +21,14 @@
  * ```
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzipEventBus, PipelineDefinition, PipelineNode } from '@dzipagent/core'
+import { PipelineRuntime } from '@dzipagent/agent'
+import type {
+  NodeExecutionContext,
+  NodeExecutor,
+  NodeResult,
+  PipelineRuntimeEvent,
+} from '@dzipagent/agent'
 
 import type { AdapterRegistry } from '../registry/adapter-registry.js'
 import type {
@@ -116,6 +123,20 @@ type AdapterWorkflowNode =
   | { type: 'branch'; condition: BranchCondition; branches: Record<string, AdapterStepConfig[]> }
   | { type: 'transform'; id: string; fn: (state: Record<string, unknown>) => Record<string, unknown> }
 
+interface AdapterWorkflowCompilation {
+  definition: PipelineDefinition
+  predicates: Record<string, (state: Record<string, unknown>) => boolean | string>
+  internalStateKeys: Set<string>
+  createNodeExecutor: (
+    registry: AdapterRegistry,
+    emit: (event: AdapterWorkflowEvent) => void,
+    stepResults: AdapterStepResult[],
+    onStateObserved: (state: Record<string, unknown>) => void,
+  ) => NodeExecutor
+}
+
+const PREV_RESULT_STATE_KEY = '__adapter_workflow_internal_prev_result'
+
 // ---------------------------------------------------------------------------
 // Template resolution
 // ---------------------------------------------------------------------------
@@ -195,14 +216,23 @@ export interface AdapterWorkflowRunOptions {
  * delegating adapter calls to the registry with automatic fallback.
  */
 export class AdapterWorkflow {
+  private readonly compilation: AdapterWorkflowCompilation
+
   constructor(
     private readonly workflowConfig: AdapterWorkflowConfig,
-    private readonly nodes: AdapterWorkflowNode[],
-  ) {}
+    nodes: AdapterWorkflowNode[],
+  ) {
+    this.compilation = compileAdapterWorkflow(workflowConfig, nodes)
+  }
 
   /** The workflow identifier. */
   get id(): string {
     return this.workflowConfig.id
+  }
+
+  /** Inspect the compiled canonical pipeline definition. */
+  toPipelineDefinition(): PipelineDefinition {
+    return structuredClone(this.compilation.definition)
   }
 
   /**
@@ -217,402 +247,97 @@ export class AdapterWorkflow {
     options?: AdapterWorkflowRunOptions,
   ): Promise<AdapterWorkflowResult> {
     const state: Record<string, unknown> = { ...(options?.initialState ?? {}) }
+    let latestObservedState: Record<string, unknown> = state
     const stepResults: AdapterStepResult[] = []
     const emit = options?.onEvent ?? (() => {})
     const overallStart = Date.now()
-    let prevResult: string | undefined
+    let failureEventEmitted = false
 
     emit({ type: 'workflow:started', workflowId: this.workflowConfig.id })
 
     try {
-      for (const node of this.nodes) {
-        this.throwIfAborted(options?.signal)
+      const runtime = new PipelineRuntime({
+        definition: this.compilation.definition,
+        nodeExecutor: this.compilation.createNodeExecutor(registry, emit, stepResults, (observed) => {
+          latestObservedState = observed
+        }),
+        // Runtime accepts branch keys as strings, but config type narrows to boolean.
+        predicates: this.compilation.predicates as Record<string, (state: Record<string, unknown>) => boolean>,
+        signal: options?.signal,
+        onEvent: (event) => this.handleRuntimeEvent(event, emit, () => {
+          failureEventEmitted = true
+        }),
+      })
 
-        switch (node.type) {
-          case 'step': {
-            const result = await this.executeStep(
-              registry,
-              node.config,
-              state,
-              prevResult,
-              emit,
-              options?.signal,
-            )
-            stepResults.push(result)
-            state[node.config.id] = result.result
-            if (result.success) {
-              prevResult = result.result
-            }
-            if (!result.success) {
-              throw new Error(`Step "${node.config.id}" failed: ${result.error ?? 'unknown error'}`)
-            }
-            break
-          }
-
-          case 'parallel': {
-            const results = await this.executeParallel(
-              registry,
-              node.steps,
-              node.mergeStrategy,
-              state,
-              prevResult,
-              emit,
-              options?.signal,
-            )
-            stepResults.push(...results)
-
-            // Merge into state based on strategy
-            this.mergeParallelResults(state, results, node.mergeStrategy)
-
-            // Update prevResult to a summary of parallel results
-            const successResults = results.filter((r) => r.success).map((r) => r.result)
-            prevResult = successResults.join('\n\n')
-            break
-          }
-
-          case 'branch': {
-            const selected = node.condition(state)
-            emit({ type: 'branch:evaluated', workflowId: this.workflowConfig.id, selected })
-
-            const branchSteps = node.branches[selected]
-            if (!branchSteps) {
-              throw new Error(
-                `Branch "${selected}" not found in workflow "${this.workflowConfig.id}". ` +
-                  `Available branches: ${Object.keys(node.branches).join(', ')}`,
-              )
-            }
-
-            for (const stepConfig of branchSteps) {
-              this.throwIfAborted(options?.signal)
-              const result = await this.executeStep(
-                registry,
-                stepConfig,
-                state,
-                prevResult,
-                emit,
-                options?.signal,
-              )
-              stepResults.push(result)
-              state[stepConfig.id] = result.result
-              if (result.success) {
-                prevResult = result.result
-              }
-              if (!result.success) {
-                throw new Error(
-                  `Step "${stepConfig.id}" in branch "${selected}" failed: ${result.error ?? 'unknown error'}`,
-                )
-              }
-            }
-            break
-          }
-
-          case 'transform': {
-            const transformed = node.fn(state)
-            Object.assign(state, transformed)
-            break
-          }
-        }
+      const runtimeResult = await runtime.execute(state)
+      if (runtimeResult.state !== 'completed') {
+        throw new Error(this.extractFailure(runtimeResult.nodeResults) ?? 'Workflow execution failed')
       }
 
       const totalDurationMs = Date.now() - overallStart
-      emit({ type: 'workflow:completed', workflowId: this.workflowConfig.id, durationMs: totalDurationMs })
 
       return {
         workflowId: this.workflowConfig.id,
         success: true,
-        finalState: state,
+        finalState: this.publicStateFrom(latestObservedState),
         stepResults,
         totalDurationMs,
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      emit({ type: 'workflow:failed', workflowId: this.workflowConfig.id, error: message })
+      if (!failureEventEmitted) {
+        emit({ type: 'workflow:failed', workflowId: this.workflowConfig.id, error: message })
+      }
 
       return {
         workflowId: this.workflowConfig.id,
         success: false,
-        finalState: state,
+        finalState: this.publicStateFrom(latestObservedState),
         stepResults,
         totalDurationMs: Date.now() - overallStart,
       }
     }
   }
 
-  // -----------------------------------------------------------------------
-  // Private: step execution
-  // -----------------------------------------------------------------------
-
-  private async executeStep(
-    registry: AdapterRegistry,
-    config: AdapterStepConfig,
-    state: Record<string, unknown>,
-    prevResult: string | undefined,
+  private handleRuntimeEvent(
+    event: PipelineRuntimeEvent,
     emit: (event: AdapterWorkflowEvent) => void,
-    signal?: AbortSignal,
-  ): Promise<AdapterStepResult> {
-    const maxRetries = config.maxRetries ?? 0
-    let lastError: string | undefined
-    let attempt = 0
-
-    while (attempt <= maxRetries) {
-      this.throwIfAborted(signal)
-
-      if (attempt > 0) {
-        emit({
-          type: 'step:retrying',
-          workflowId: this.workflowConfig.id,
-          stepId: config.id,
-          attempt,
-          maxRetries,
-        })
-      }
-
-      emit({ type: 'step:started', workflowId: this.workflowConfig.id, stepId: config.id })
-      const stepStart = Date.now()
-
-      try {
-        const resolvedPrompt = resolveTemplate(config.prompt, state, prevResult)
-
-        const task: TaskDescriptor = {
-          prompt: resolvedPrompt,
-          tags: config.tags ?? [],
-          preferredProvider: config.preferredProvider,
-          requiresReasoning: config.requiresReasoning,
-          requiresExecution: config.requiresExecution,
-          workingDirectory: config.workingDirectory,
-        }
-
-        const input: AgentInput = {
-          prompt: resolvedPrompt,
-          systemPrompt: config.systemPrompt,
-          workingDirectory: config.workingDirectory,
-          maxTurns: config.maxTurns,
-          signal,
-        }
-
-        const { resultText, providerId } = await this.consumeAdapterEvents(
-          registry,
-          input,
-          task,
-          signal,
-        )
-
-        const durationMs = Date.now() - stepStart
-
-        emit({
-          type: 'step:completed',
-          workflowId: this.workflowConfig.id,
-          stepId: config.id,
-          durationMs,
-          providerId,
-        })
-
-        return {
-          stepId: config.id,
-          result: resultText,
-          providerId,
-          success: true,
-          durationMs,
-          retries: attempt,
-        }
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err)
-        lastError = errorMessage
-        const durationMs = Date.now() - stepStart
-
-        emit({
-          type: 'step:failed',
-          workflowId: this.workflowConfig.id,
-          stepId: config.id,
-          error: errorMessage,
-          retryCount: attempt,
-        })
-
-        // If we have retries left, continue the loop
-        if (attempt < maxRetries) {
-          attempt++
-          continue
-        }
-
-        // No retries left -- return failure
-        return {
-          stepId: config.id,
-          result: '',
-          providerId: config.preferredProvider ?? 'claude',
-          success: false,
-          durationMs,
-          retries: attempt,
-          error: lastError,
-        }
-      }
-    }
-
-    // Unreachable, but satisfies TypeScript exhaustiveness
-    return {
-      stepId: config.id,
-      result: '',
-      providerId: config.preferredProvider ?? 'claude',
-      success: false,
-      durationMs: 0,
-      retries: attempt,
-      error: lastError ?? 'Unknown error',
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Private: parallel execution
-  // -----------------------------------------------------------------------
-
-  private async executeParallel(
-    registry: AdapterRegistry,
-    steps: AdapterStepConfig[],
-    _mergeStrategy: ParallelMergeStrategy,
-    state: Record<string, unknown>,
-    prevResult: string | undefined,
-    emit: (event: AdapterWorkflowEvent) => void,
-    signal?: AbortSignal,
-  ): Promise<AdapterStepResult[]> {
-    const stepIds = steps.map((s) => s.id)
-    emit({ type: 'parallel:started', workflowId: this.workflowConfig.id, stepIds })
-
-    const parallelStart = Date.now()
-
-    // Snapshot state so parallel steps don't interfere with each other
-    const stateSnapshot = { ...state }
-
-    const settled = await Promise.allSettled(
-      steps.map((stepConfig) =>
-        this.executeStep(registry, stepConfig, stateSnapshot, prevResult, emit, signal),
-      ),
-    )
-
-    const results: AdapterStepResult[] = settled.map((outcome, idx) => {
-      const stepConfig = steps[idx] as AdapterStepConfig
-      if (outcome.status === 'fulfilled') {
-        return outcome.value
-      }
-      // Rejected -- shouldn't normally happen since executeStep catches errors,
-      // but handle gracefully
-      const errorMessage =
-        outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)
-      return {
-        stepId: stepConfig.id,
-        result: '',
-        providerId: stepConfig.preferredProvider ?? 'claude',
-        success: false,
-        durationMs: 0,
-        retries: 0,
-        error: errorMessage,
-      }
-    })
-
-    const parallelDuration = Date.now() - parallelStart
-    emit({
-      type: 'parallel:completed',
-      workflowId: this.workflowConfig.id,
-      stepIds,
-      durationMs: parallelDuration,
-    })
-
-    return results
-  }
-
-  // -----------------------------------------------------------------------
-  // Private: merge strategies
-  // -----------------------------------------------------------------------
-
-  private mergeParallelResults(
-    state: Record<string, unknown>,
-    results: AdapterStepResult[],
-    strategy: ParallelMergeStrategy,
+    onFailureEmitted: () => void,
   ): void {
-    switch (strategy) {
-      case 'merge': {
-        // Each step's result is stored under its ID
-        for (const result of results) {
-          state[result.stepId] = result.result
-        }
+    switch (event.type) {
+      case 'pipeline:completed':
+        emit({
+          type: 'workflow:completed',
+          workflowId: this.workflowConfig.id,
+          durationMs: event.totalDurationMs,
+        })
         break
-      }
-
-      case 'concat': {
-        // All results stored as an array under 'parallelResults'
-        state['parallelResults'] = results.map((r) => ({
-          stepId: r.stepId,
-          result: r.result,
-          success: r.success,
-        }))
-        // Also store individually
-        for (const result of results) {
-          state[result.stepId] = result.result
-        }
+      case 'pipeline:failed':
+        onFailureEmitted()
+        emit({
+          type: 'workflow:failed',
+          workflowId: this.workflowConfig.id,
+          error: event.error,
+        })
         break
-      }
-
-      case 'last-wins': {
-        // Last successful result overwrites; individual results still stored
-        const lastSuccess = [...results].reverse().find((r) => r.success)
-        if (lastSuccess) {
-          state['lastResult'] = lastSuccess.result
-        }
-        for (const result of results) {
-          state[result.stepId] = result.result
-        }
+      default:
         break
-      }
     }
   }
 
-  // -----------------------------------------------------------------------
-  // Private: adapter event consumption
-  // -----------------------------------------------------------------------
-
-  /**
-   * Execute via the registry's fallback chain and extract the final result.
-   * Consumes all events from the async generator, returning the result text
-   * and the provider that produced it.
-   */
-  private async consumeAdapterEvents(
-    registry: AdapterRegistry,
-    input: AgentInput,
-    task: TaskDescriptor,
-    signal?: AbortSignal,
-  ): Promise<{ resultText: string; providerId: AdapterProviderId }> {
-    const generator = registry.executeWithFallback(input, task)
-
-    let resultText = ''
-    let resultProviderId: AdapterProviderId = 'claude'
-    let completed = false
-    let lastError: string | undefined
-
-    for await (const event of generator) {
-      this.throwIfAborted(signal)
-
-      if (isCompletedEvent(event)) {
-        resultText = event.result
-        resultProviderId = event.providerId
-        completed = true
-      } else if (isFailedEvent(event)) {
-        lastError = event.error
-        resultProviderId = event.providerId
-      }
+  private extractFailure(nodeResults: Map<string, { error?: string }>): string | null {
+    for (const result of nodeResults.values()) {
+      if (result.error) return result.error
     }
-
-    if (!completed) {
-      throw new Error(lastError ?? 'Adapter completed without producing a result')
-    }
-
-    return { resultText, providerId: resultProviderId }
+    return null
   }
 
-  // -----------------------------------------------------------------------
-  // Private: abort handling
-  // -----------------------------------------------------------------------
-
-  private throwIfAborted(signal?: AbortSignal): void {
-    if (signal?.aborted) {
-      throw new Error('Workflow execution was aborted')
+  private publicStateFrom(state: Record<string, unknown>): Record<string, unknown> {
+    const publicState = { ...state }
+    for (const key of this.compilation.internalStateKeys) {
+      delete publicState[key]
     }
+    return publicState
   }
 }
 
@@ -688,4 +413,515 @@ export class AdapterWorkflowBuilder {
 /** Create a new adapter workflow builder with a fluent API. */
 export function defineWorkflow(config: AdapterWorkflowConfig): AdapterWorkflowBuilder {
   return new AdapterWorkflowBuilder(config)
+}
+
+function compileAdapterWorkflow(
+  config: AdapterWorkflowConfig,
+  nodes: AdapterWorkflowNode[],
+): AdapterWorkflowCompilation {
+  const pipelineNodes: PipelineNode[] = []
+  const edges: PipelineDefinition['edges'] = []
+  const predicates: Record<string, (state: Record<string, unknown>) => boolean | string> = {}
+  const handlers = new Map<string, (
+    registry: AdapterRegistry,
+    state: Record<string, unknown>,
+    signal: AbortSignal | undefined,
+    emit: (event: AdapterWorkflowEvent) => void,
+    stepResults: AdapterStepResult[],
+  ) => Promise<unknown>>()
+  const internalStateKeys = new Set<string>([PREV_RESULT_STATE_KEY])
+
+  let nodeSeq = 0
+  let transformSeq = 0
+  let predicateSeq = 0
+
+  const nextNodeId = (prefix: string): string => `${prefix}_${nodeSeq++}`
+  const nextTransformName = (prefix: string): string => `adapter_wf_${prefix}_${transformSeq++}`
+  const nextPredicateName = (): string => `adapter_wf_predicate_${predicateSeq++}`
+
+  const addTransformNode = (
+    prefix: string,
+    handler: (
+      registry: AdapterRegistry,
+      state: Record<string, unknown>,
+      signal: AbortSignal | undefined,
+      emit: (event: AdapterWorkflowEvent) => void,
+      stepResults: AdapterStepResult[],
+    ) => Promise<unknown>,
+    name: string,
+    timeoutMs = 120_000,
+  ): string => {
+    const nodeId = nextNodeId(prefix)
+    const transformName = nextTransformName(prefix)
+    handlers.set(transformName, handler)
+    pipelineNodes.push({
+      id: nodeId,
+      type: 'transform',
+      transformName,
+      name,
+      timeoutMs,
+    })
+    return nodeId
+  }
+
+  const appendSequential = (sourceNodeId: string, targetNodeId: string | undefined): void => {
+    if (!targetNodeId) return
+    edges.push({ type: 'sequential', sourceNodeId, targetNodeId })
+  }
+
+  const addStepNode = (step: AdapterStepConfig, labelPrefix: string): string => {
+    return addTransformNode(
+      'step',
+      async (registry, state, signal, emit, stepResults) => {
+        const prevResult = typeof state[PREV_RESULT_STATE_KEY] === 'string'
+          ? (state[PREV_RESULT_STATE_KEY] as string)
+          : undefined
+        const result = await executeAdapterStep(
+          registry,
+          config.id,
+          step,
+          state,
+          prevResult,
+          emit,
+          signal,
+        )
+        stepResults.push(result)
+        state[step.id] = result.result
+        if (result.success) {
+          state[PREV_RESULT_STATE_KEY] = result.result
+        }
+        if (!result.success) {
+          throw new Error(`Step "${step.id}" failed: ${result.error ?? 'unknown error'}`)
+        }
+        return { stepId: step.id, success: true }
+      },
+      `${labelPrefix}:${step.id}`,
+    )
+  }
+
+  const addParallelNode = (
+    steps: AdapterStepConfig[],
+    mergeStrategy: ParallelMergeStrategy,
+  ): string => {
+    return addTransformNode(
+      'parallel',
+      async (registry, state, signal, emit, stepResults) => {
+        const prevResult = typeof state[PREV_RESULT_STATE_KEY] === 'string'
+          ? (state[PREV_RESULT_STATE_KEY] as string)
+          : undefined
+        const snapshot = { ...state }
+        const stepIds = steps.map((s) => s.id)
+        emit({ type: 'parallel:started', workflowId: config.id, stepIds })
+        const parallelStart = Date.now()
+
+        const settled = await Promise.allSettled(
+          steps.map((stepConfig) =>
+            executeAdapterStep(registry, config.id, stepConfig, snapshot, prevResult, emit, signal),
+          ),
+        )
+
+        const results: AdapterStepResult[] = settled.map((outcome, idx) => {
+          const step = steps[idx] as AdapterStepConfig
+          if (outcome.status === 'fulfilled') {
+            return outcome.value
+          }
+          const errorMessage =
+            outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)
+          return {
+            stepId: step.id,
+            result: '',
+            providerId: step.preferredProvider ?? 'claude',
+            success: false,
+            durationMs: 0,
+            retries: 0,
+            error: errorMessage,
+          }
+        })
+
+        stepResults.push(...results)
+        mergeParallelResults(state, results, mergeStrategy)
+        state[PREV_RESULT_STATE_KEY] = results
+          .filter((r) => r.success)
+          .map((r) => r.result)
+          .join('\n\n')
+
+        emit({
+          type: 'parallel:completed',
+          workflowId: config.id,
+          stepIds,
+          durationMs: Date.now() - parallelStart,
+        })
+
+        return { parallelResults: results.length }
+      },
+      'parallel',
+    )
+  }
+
+  const addBranchSelectorNode = (
+    condition: BranchCondition,
+    branches: Record<string, AdapterStepConfig[]>,
+  ): { nodeId: string; predicateName: string; selectionKey: string } => {
+    const selectionKey = `__adapter_workflow_internal_branch_selection_${nodeSeq}`
+    internalStateKeys.add(selectionKey)
+    const predicateName = nextPredicateName()
+
+    predicates[predicateName] = (state) => {
+      const selected = state[selectionKey]
+      return typeof selected === 'string' ? selected : ''
+    }
+
+    const nodeId = addTransformNode(
+      'branch',
+      async (_registry, state, _signal, emit) => {
+        const selected = condition(state)
+        emit({ type: 'branch:evaluated', workflowId: config.id, selected })
+        if (!Object.prototype.hasOwnProperty.call(branches, selected)) {
+          throw new Error(
+            `Branch "${selected}" not found in workflow "${config.id}". ` +
+              `Available branches: ${Object.keys(branches).join(', ')}`,
+          )
+        }
+        state[selectionKey] = selected
+        return { [selectionKey]: selected }
+      },
+      'branch',
+    )
+
+    return { nodeId, predicateName, selectionKey }
+  }
+
+  const compileStepSequence = (
+    steps: AdapterStepConfig[],
+    continuationNodeId: string | undefined,
+    sequenceLabel: string,
+  ): string | undefined => {
+    if (steps.length === 0) return continuationNodeId
+
+    let next = continuationNodeId
+    for (let i = steps.length - 1; i >= 0; i--) {
+      const stepNodeId = addStepNode(steps[i]!, sequenceLabel)
+      appendSequential(stepNodeId, next)
+      next = stepNodeId
+    }
+    return next
+  }
+
+  let nextNodeIdInFlow: string | undefined
+
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const node = nodes[i]!
+
+    switch (node.type) {
+      case 'step': {
+        const stepNodeId = addStepNode(node.config, 'linear')
+        appendSequential(stepNodeId, nextNodeIdInFlow)
+        nextNodeIdInFlow = stepNodeId
+        break
+      }
+      case 'parallel': {
+        const parallelNodeId = addParallelNode(node.steps, node.mergeStrategy)
+        appendSequential(parallelNodeId, nextNodeIdInFlow)
+        nextNodeIdInFlow = parallelNodeId
+        break
+      }
+      case 'transform': {
+        const transformNodeId = addTransformNode(
+          'transform',
+          async (_registry, state) => {
+            const transformed = node.fn(state)
+            Object.assign(state, transformed)
+            return transformed
+          },
+          `transform:${node.id}`,
+        )
+        appendSequential(transformNodeId, nextNodeIdInFlow)
+        nextNodeIdInFlow = transformNodeId
+        break
+      }
+      case 'branch': {
+        const { nodeId, predicateName } = addBranchSelectorNode(node.condition, node.branches)
+        const branchTargets: Record<string, string> = {}
+        for (const [branchName, branchSteps] of Object.entries(node.branches)) {
+          const targetId = compileStepSequence(branchSteps, nextNodeIdInFlow, `branch:${branchName}`)
+          if (targetId) {
+            branchTargets[branchName] = targetId
+          }
+        }
+        if (Object.keys(branchTargets).length === 0 && nextNodeIdInFlow) {
+          branchTargets['__default__'] = nextNodeIdInFlow
+          predicates[predicateName] = () => '__default__'
+        }
+        edges.push({
+          type: 'conditional',
+          sourceNodeId: nodeId,
+          predicateName,
+          branches: branchTargets,
+        })
+        nextNodeIdInFlow = nodeId
+        break
+      }
+    }
+  }
+
+  if (!nextNodeIdInFlow) {
+    nextNodeIdInFlow = addTransformNode('noop', async () => ({}), 'empty-workflow')
+  }
+
+  const definition: PipelineDefinition = {
+    id: config.id,
+    name: config.id,
+    version: '1.0.0',
+    schemaVersion: '1.0.0',
+    description: config.description,
+    entryNodeId: nextNodeIdInFlow,
+    nodes: pipelineNodes,
+    edges,
+    checkpointStrategy: 'none',
+    metadata: {
+      source: 'AdapterWorkflowBuilder',
+      runtime: 'PipelineRuntime',
+    },
+    tags: ['adapter-workflow-compat'],
+  }
+
+  return {
+    definition,
+    predicates,
+    internalStateKeys,
+    createNodeExecutor: (registry, emit, stepResults, onStateObserved) => {
+      const nodeExecutor: NodeExecutor = async (
+        nodeId: string,
+        node: PipelineNode,
+        context: NodeExecutionContext,
+      ): Promise<NodeResult> => {
+        onStateObserved(context.state)
+        if (node.type !== 'transform') {
+          return {
+            nodeId,
+            output: null,
+            durationMs: 0,
+          }
+        }
+
+        const handler = handlers.get(node.transformName)
+        if (!handler) {
+          return {
+            nodeId,
+            output: null,
+            durationMs: 0,
+            error: `No adapter workflow handler found for "${node.transformName}"`,
+          }
+        }
+
+        const startedAt = Date.now()
+        try {
+          const output = await handler(
+            registry,
+            context.state,
+            context.signal,
+            emit,
+            stepResults,
+          )
+          onStateObserved(context.state)
+          return {
+            nodeId,
+            output: output ?? null,
+            durationMs: Date.now() - startedAt,
+          }
+        } catch (err) {
+          return {
+            nodeId,
+            output: null,
+            durationMs: Date.now() - startedAt,
+            error: err instanceof Error ? err.message : String(err),
+          }
+        }
+      }
+
+      return nodeExecutor
+    },
+  }
+}
+
+async function executeAdapterStep(
+  registry: AdapterRegistry,
+  workflowId: string,
+  config: AdapterStepConfig,
+  state: Record<string, unknown>,
+  prevResult: string | undefined,
+  emit: (event: AdapterWorkflowEvent) => void,
+  signal?: AbortSignal,
+): Promise<AdapterStepResult> {
+  const maxRetries = config.maxRetries ?? 0
+  let lastError: string | undefined
+  let attempt = 0
+
+  while (attempt <= maxRetries) {
+    if (signal?.aborted) {
+      throw new Error('Workflow execution was aborted')
+    }
+
+    if (attempt > 0) {
+      emit({
+        type: 'step:retrying',
+        workflowId,
+        stepId: config.id,
+        attempt,
+        maxRetries,
+      })
+    }
+
+    emit({ type: 'step:started', workflowId, stepId: config.id })
+    const stepStart = Date.now()
+
+    try {
+      const resolvedPrompt = resolveTemplate(config.prompt, state, prevResult)
+
+      const task: TaskDescriptor = {
+        prompt: resolvedPrompt,
+        tags: config.tags ?? [],
+        preferredProvider: config.preferredProvider,
+        requiresReasoning: config.requiresReasoning,
+        requiresExecution: config.requiresExecution,
+        workingDirectory: config.workingDirectory,
+      }
+
+      const input: AgentInput = {
+        prompt: resolvedPrompt,
+        systemPrompt: config.systemPrompt,
+        workingDirectory: config.workingDirectory,
+        maxTurns: config.maxTurns,
+        signal,
+      }
+
+      const { resultText, providerId } = await consumeAdapterEvents(registry, input, task, signal)
+      const durationMs = Date.now() - stepStart
+
+      emit({
+        type: 'step:completed',
+        workflowId,
+        stepId: config.id,
+        durationMs,
+        providerId,
+      })
+
+      return {
+        stepId: config.id,
+        result: resultText,
+        providerId,
+        success: true,
+        durationMs,
+        retries: attempt,
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      lastError = errorMessage
+      const durationMs = Date.now() - stepStart
+
+      emit({
+        type: 'step:failed',
+        workflowId,
+        stepId: config.id,
+        error: errorMessage,
+        retryCount: attempt,
+      })
+
+      if (attempt < maxRetries) {
+        attempt++
+        continue
+      }
+
+      return {
+        stepId: config.id,
+        result: '',
+        providerId: config.preferredProvider ?? 'claude',
+        success: false,
+        durationMs,
+        retries: attempt,
+        error: lastError,
+      }
+    }
+  }
+
+  return {
+    stepId: config.id,
+    result: '',
+    providerId: config.preferredProvider ?? 'claude',
+    success: false,
+    durationMs: 0,
+    retries: attempt,
+    error: lastError ?? 'Unknown error',
+  }
+}
+
+function mergeParallelResults(
+  state: Record<string, unknown>,
+  results: AdapterStepResult[],
+  strategy: ParallelMergeStrategy,
+): void {
+  switch (strategy) {
+    case 'merge': {
+      for (const result of results) {
+        state[result.stepId] = result.result
+      }
+      break
+    }
+    case 'concat': {
+      state['parallelResults'] = results.map((r) => ({
+        stepId: r.stepId,
+        result: r.result,
+        success: r.success,
+      }))
+      for (const result of results) {
+        state[result.stepId] = result.result
+      }
+      break
+    }
+    case 'last-wins': {
+      const lastSuccess = [...results].reverse().find((r) => r.success)
+      if (lastSuccess) {
+        state['lastResult'] = lastSuccess.result
+      }
+      for (const result of results) {
+        state[result.stepId] = result.result
+      }
+      break
+    }
+  }
+}
+
+async function consumeAdapterEvents(
+  registry: AdapterRegistry,
+  input: AgentInput,
+  task: TaskDescriptor,
+  signal?: AbortSignal,
+): Promise<{ resultText: string; providerId: AdapterProviderId }> {
+  const generator = registry.executeWithFallback(input, task)
+
+  let resultText = ''
+  let resultProviderId: AdapterProviderId = 'claude'
+  let completed = false
+  let lastError: string | undefined
+
+  for await (const event of generator) {
+    if (signal?.aborted) {
+      throw new Error('Workflow execution was aborted')
+    }
+
+    if (isCompletedEvent(event)) {
+      resultText = event.result
+      resultProviderId = event.providerId
+      completed = true
+    } else if (isFailedEvent(event)) {
+      lastError = event.error
+      resultProviderId = event.providerId
+    }
+  }
+
+  if (!completed) {
+    throw new Error(lastError ?? 'Adapter completed without producing a result')
+  }
+
+  return { resultText, providerId: resultProviderId }
 }

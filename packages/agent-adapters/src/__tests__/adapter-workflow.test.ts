@@ -202,6 +202,91 @@ describe('AdapterWorkflowBuilder', () => {
     expect(workflow).toBeInstanceOf(AdapterWorkflow)
     expect(workflow.id).toBe('test')
   })
+
+  it('exposes compiled canonical pipeline definition', () => {
+    const workflow = defineWorkflow({ id: 'compiled-wf' })
+      .step({ id: 'a', prompt: 'Step A' })
+      .build()
+
+    const definition = workflow.toPipelineDefinition()
+    expect(definition.id).toBe('compiled-wf')
+    expect(definition.entryNodeId).toBeTruthy()
+    expect(definition.nodes.length).toBeGreaterThan(0)
+    expect(definition.metadata?.['runtime']).toBe('PipelineRuntime')
+  })
+
+  it('returns isolated pipeline definition clones', () => {
+    const workflow = defineWorkflow({ id: 'clone-wf' })
+      .step({ id: 'a', prompt: 'Step A' })
+      .build()
+
+    const first = workflow.toPipelineDefinition()
+    const second = workflow.toPipelineDefinition()
+
+    first.id = 'mutated'
+    first.nodes.push({
+      id: 'mutated_node',
+      type: 'transform',
+      transformName: 'mutated_transform',
+      name: 'mutated',
+      timeoutMs: 1,
+    })
+
+    expect(second.id).toBe('clone-wf')
+    expect(second.nodes.some((n) => n.id === 'mutated_node')).toBe(false)
+  })
+
+  it('compiles mixed workflow graph to stable canonical shape', () => {
+    const workflow = defineWorkflow({ id: 'shape-wf' })
+      .step({ id: 'start', prompt: 'Start' })
+      .parallel(
+        [
+          { id: 'p1', prompt: 'P1 {{prev}}' },
+          { id: 'p2', prompt: 'P2 {{prev}}' },
+        ],
+        'concat',
+      )
+      .branch(
+        (state) => (state['mode'] === 'fast' ? 'fast' : 'slow'),
+        {
+          fast: [{ id: 'fast-step', prompt: 'Fast path' }],
+          slow: [{ id: 'slow-step', prompt: 'Slow path' }],
+        },
+      )
+      .transform('finalize', (state) => ({ ...state, done: true }))
+      .build()
+
+    const definition = workflow.toPipelineDefinition()
+    const nodeIds = new Set(definition.nodes.map((n) => n.id))
+
+    expect(definition.id).toBe('shape-wf')
+    expect(definition.entryNodeId).toBeTruthy()
+    expect(nodeIds.has(definition.entryNodeId)).toBe(true)
+    expect(definition.metadata?.['runtime']).toBe('PipelineRuntime')
+    expect(definition.tags).toContain('adapter-workflow-compat')
+    expect(definition.nodes.every((n) => n.type === 'transform')).toBe(true)
+
+    const conditionalEdges = definition.edges.filter((e) => e.type === 'conditional')
+    expect(conditionalEdges).toHaveLength(1)
+
+    const conditional = conditionalEdges[0]
+    if (!conditional || conditional.type !== 'conditional') {
+      throw new Error('Expected a single conditional edge')
+    }
+
+    expect(Object.keys(conditional.branches).sort()).toEqual(['fast', 'slow'])
+    for (const targetId of Object.values(conditional.branches)) {
+      expect(nodeIds.has(targetId)).toBe(true)
+    }
+
+    const sequentialEdges = definition.edges.filter((e) => e.type === 'sequential')
+    expect(sequentialEdges.length).toBeGreaterThan(0)
+    for (const edge of sequentialEdges) {
+      if (edge.type !== 'sequential') continue
+      expect(nodeIds.has(edge.sourceNodeId)).toBe(true)
+      expect(nodeIds.has(edge.targetNodeId)).toBe(true)
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -442,6 +527,23 @@ describe('AdapterWorkflow.run()', () => {
     expect(result.stepResults.some((s) => !s.success)).toBe(true)
   })
 
+  it('emits workflow:failed once on failure', async () => {
+    const failRegistry = createRegistry([createFailingAdapter('claude', 'hard failure')])
+    const events: AdapterWorkflowEvent[] = []
+
+    const workflow = defineWorkflow({ id: 'fail-once' })
+      .step({ id: 'a', prompt: 'Will fail' })
+      .build()
+
+    const result = await workflow.run(failRegistry, {
+      onEvent: (event) => events.push(event),
+    })
+
+    expect(result.success).toBe(false)
+    const failedEvents = events.filter((e) => e.type === 'workflow:failed')
+    expect(failedEvents).toHaveLength(1)
+  })
+
   it('uses initialState for template resolution', async () => {
     const echoRegistry = createRegistry([createEchoAdapter('claude')])
 
@@ -455,5 +557,29 @@ describe('AdapterWorkflow.run()', () => {
 
     expect(result.success).toBe(true)
     expect(result.stepResults[0]!.result).toBe('Context: bug in login')
+  })
+
+  it('does not leak internal compatibility keys into finalState', async () => {
+    const echoRegistry = createRegistry([createEchoAdapter('claude')])
+    const workflow = defineWorkflow({ id: 'state-hygiene' })
+      .step({ id: 's1', prompt: 'one' })
+      .branch(
+        (state) => (state['mode'] === 'a' ? 'a' : 'b'),
+        {
+          a: [{ id: 'sa', prompt: 'branch a {{prev}}' }],
+          b: [{ id: 'sb', prompt: 'branch b {{prev}}' }],
+        },
+      )
+      .build()
+
+    const result = await workflow.run(echoRegistry, {
+      initialState: { mode: 'a' },
+    })
+
+    expect(result.success).toBe(true)
+    const leakedKey = Object.keys(result.finalState).find((k) =>
+      k.startsWith('__adapter_workflow_internal_'),
+    )
+    expect(leakedKey).toBeUndefined()
   })
 })
