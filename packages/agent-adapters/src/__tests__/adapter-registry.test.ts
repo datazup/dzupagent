@@ -9,6 +9,7 @@ import type {
   TaskDescriptor,
   RoutingDecision,
 } from '../types.js'
+import { collectEvents } from './test-helpers.js'
 
 function createMockAdapter(
   providerId: AdapterProviderId,
@@ -32,16 +33,6 @@ function createMockAdapter(
     },
     configure() {},
   }
-}
-
-async function collectEvents(
-  generator: AsyncGenerator<AgentEvent, void, undefined>,
-): Promise<AgentEvent[]> {
-  const events: AgentEvent[] = []
-  for await (const event of generator) {
-    events.push(event)
-  }
-  return events
 }
 
 describe('AdapterRegistry', () => {

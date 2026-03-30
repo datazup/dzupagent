@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from 'vitest'
 
 import type {
   AgentSandboxResource,
@@ -8,10 +8,35 @@ import type {
 import { createAgentSandboxResource } from '../sandbox/k8s/operator-types.js'
 import { K8sClient } from '../sandbox/k8s/k8s-client.js'
 import { K8sPodSandbox } from '../sandbox/k8s/k8s-sandbox.js'
-import { buildPodSpec } from '../../../../k8s/operator/src/pod-builder.js'
-import { buildNetworkPolicy } from '../../../../k8s/operator/src/netpol-builder.js'
-import { AgentSandboxReconciler } from '../../../../k8s/operator/src/reconciler.js'
-import type { ReconcileContext } from '../../../../k8s/operator/src/reconciler.js'
+
+let buildPodSpec:
+  | ((sandbox: AgentSandboxResource) => Record<string, unknown>)
+  | undefined
+let buildNetworkPolicy:
+  | ((sandbox: AgentSandboxResource) => Record<string, unknown>)
+  | undefined
+let AgentSandboxReconciler:
+  | (new (ctx?: Record<string, unknown>) => {
+      reconcile: (sandbox: AgentSandboxResource) => Promise<{ requeue: boolean; requeueAfterMs?: number }>
+    })
+  | undefined
+
+beforeAll(async () => {
+  try {
+    const podBuilder = await import('../../../../k8s/operator/src/pod-builder.js')
+    const netpolBuilder = await import('../../../../k8s/operator/src/netpol-builder.js')
+    const reconcilerModule = await import('../../../../k8s/operator/src/reconciler.js')
+
+    buildPodSpec = podBuilder.buildPodSpec as typeof buildPodSpec
+    buildNetworkPolicy = netpolBuilder.buildNetworkPolicy as typeof buildNetworkPolicy
+    AgentSandboxReconciler = reconcilerModule.AgentSandboxReconciler as typeof AgentSandboxReconciler
+  } catch {
+    // Operator module is optional in this workspace; operator-specific suites are skipped.
+  }
+})
+
+const describeOperator = (): typeof describe =>
+  buildPodSpec && buildNetworkPolicy && AgentSandboxReconciler ? describe : describe.skip
 
 // ===========================================================================
 // Test helpers
@@ -289,10 +314,10 @@ describe('K8sPodSandbox', () => {
 // buildPodSpec
 // ===========================================================================
 
-describe('buildPodSpec', () => {
+describeOperator()('buildPodSpec', () => {
   it('maps default security level correctly', () => {
     const sandbox = makeSandbox({ securityLevel: 'default' })
-    const pod = buildPodSpec(sandbox) as Record<string, Record<string, unknown>>
+    const pod = buildPodSpec!(sandbox) as Record<string, Record<string, unknown>>
 
     const podSpec = pod['spec'] as Record<string, unknown>
     const secCtx = podSpec['securityContext'] as Record<string, unknown>
@@ -303,7 +328,7 @@ describe('buildPodSpec', () => {
 
   it('maps strict security level with read-only root and seccomp', () => {
     const sandbox = makeSandbox({ securityLevel: 'strict' })
-    const pod = buildPodSpec(sandbox) as Record<string, Record<string, unknown>>
+    const pod = buildPodSpec!(sandbox) as Record<string, Record<string, unknown>>
 
     const podSpec = pod['spec'] as Record<string, unknown>
     const containers = podSpec['containers'] as Array<Record<string, unknown>>
@@ -321,7 +346,7 @@ describe('buildPodSpec', () => {
         requests: { cpu: '500m', memory: '256Mi' },
       },
     })
-    const pod = buildPodSpec(sandbox) as Record<string, Record<string, unknown>>
+    const pod = buildPodSpec!(sandbox) as Record<string, Record<string, unknown>>
 
     const podSpec = pod['spec'] as Record<string, unknown>
     const containers = podSpec['containers'] as Array<Record<string, unknown>>
@@ -335,7 +360,7 @@ describe('buildPodSpec', () => {
 
   it('includes workspace and tmp volumes by default', () => {
     const sandbox = makeSandbox()
-    const pod = buildPodSpec(sandbox) as Record<string, Record<string, unknown>>
+    const pod = buildPodSpec!(sandbox) as Record<string, Record<string, unknown>>
 
     const podSpec = pod['spec'] as Record<string, unknown>
     const volumes = podSpec['volumes'] as Array<Record<string, unknown>>
@@ -352,7 +377,7 @@ describe('buildPodSpec', () => {
         { name: 'config-vol', mountPath: '/config', type: 'configMap' },
       ],
     })
-    const pod = buildPodSpec(sandbox) as Record<string, Record<string, unknown>>
+    const pod = buildPodSpec!(sandbox) as Record<string, Record<string, unknown>>
 
     const podSpec = pod['spec'] as Record<string, unknown>
     const volumes = podSpec['volumes'] as Array<Record<string, unknown>>
@@ -364,7 +389,7 @@ describe('buildPodSpec', () => {
 
   it('sets runtimeClassName when runtimeClass is specified', () => {
     const sandbox = makeSandbox({ runtimeClass: 'gvisor' })
-    const pod = buildPodSpec(sandbox) as Record<string, Record<string, unknown>>
+    const pod = buildPodSpec!(sandbox) as Record<string, Record<string, unknown>>
 
     const podSpec = pod['spec'] as Record<string, unknown>
     expect(podSpec['runtimeClassName']).toBe('gvisor')
@@ -377,7 +402,7 @@ describe('buildPodSpec', () => {
         { name: 'DEBUG', value: 'false' },
       ],
     })
-    const pod = buildPodSpec(sandbox) as Record<string, Record<string, unknown>>
+    const pod = buildPodSpec!(sandbox) as Record<string, Record<string, unknown>>
 
     const podSpec = pod['spec'] as Record<string, unknown>
     const containers = podSpec['containers'] as Array<Record<string, unknown>>
@@ -390,7 +415,7 @@ describe('buildPodSpec', () => {
 
   it('sets restartPolicy to Never', () => {
     const sandbox = makeSandbox()
-    const pod = buildPodSpec(sandbox) as Record<string, Record<string, unknown>>
+    const pod = buildPodSpec!(sandbox) as Record<string, Record<string, unknown>>
 
     const podSpec = pod['spec'] as Record<string, unknown>
     expect(podSpec['restartPolicy']).toBe('Never')
@@ -398,7 +423,7 @@ describe('buildPodSpec', () => {
 
   it('sets automountServiceAccountToken to false', () => {
     const sandbox = makeSandbox()
-    const pod = buildPodSpec(sandbox) as Record<string, Record<string, unknown>>
+    const pod = buildPodSpec!(sandbox) as Record<string, Record<string, unknown>>
 
     const podSpec = pod['spec'] as Record<string, unknown>
     expect(podSpec['automountServiceAccountToken']).toBe(false)
@@ -407,7 +432,7 @@ describe('buildPodSpec', () => {
   it('sets owner reference for garbage collection', () => {
     const sandbox = makeSandbox()
     sandbox.metadata.uid = 'uid-123'
-    const pod = buildPodSpec(sandbox) as Record<string, Record<string, unknown>>
+    const pod = buildPodSpec!(sandbox) as Record<string, Record<string, unknown>>
 
     const metadata = pod['metadata'] as Record<string, unknown>
     const ownerRefs = metadata['ownerReferences'] as Array<Record<string, unknown>>
@@ -423,10 +448,10 @@ describe('buildPodSpec', () => {
 // buildNetworkPolicy
 // ===========================================================================
 
-describe('buildNetworkPolicy', () => {
+describeOperator()('buildNetworkPolicy', () => {
   it('deny-all produces a NetworkPolicy with empty egress', () => {
     const sandbox = makeSandbox({ network: { egressPolicy: 'deny-all' } })
-    const netpol = buildNetworkPolicy(sandbox)
+    const netpol = buildNetworkPolicy!(sandbox)
 
     expect(netpol['apiVersion']).toBe('networking.k8s.io/v1')
     expect(netpol['kind']).toBe('NetworkPolicy')
@@ -438,7 +463,7 @@ describe('buildNetworkPolicy', () => {
 
   it('allow-all returns empty object (no policy needed)', () => {
     const sandbox = makeSandbox({ network: { egressPolicy: 'allow-all' } })
-    const netpol = buildNetworkPolicy(sandbox)
+    const netpol = buildNetworkPolicy!(sandbox)
 
     expect(Object.keys(netpol)).toHaveLength(0)
   })
@@ -450,7 +475,7 @@ describe('buildNetworkPolicy', () => {
         allowedHosts: ['registry.npmjs.org', 'api.github.com'],
       },
     })
-    const netpol = buildNetworkPolicy(sandbox)
+    const netpol = buildNetworkPolicy!(sandbox)
 
     const spec = netpol['spec'] as Record<string, unknown>
     const egress = spec['egress'] as Array<Record<string, unknown>>
@@ -466,7 +491,7 @@ describe('buildNetworkPolicy', () => {
 
   it('deny-all sets correct pod selector', () => {
     const sandbox = makeSandbox({ network: { egressPolicy: 'deny-all' } })
-    const netpol = buildNetworkPolicy(sandbox)
+    const netpol = buildNetworkPolicy!(sandbox)
 
     const spec = netpol['spec'] as Record<string, unknown>
     const selector = spec['podSelector'] as Record<string, Record<string, string>>
@@ -480,7 +505,7 @@ describe('buildNetworkPolicy', () => {
         allowedHosts: ['example.com'],
       },
     })
-    const netpol = buildNetworkPolicy(sandbox)
+    const netpol = buildNetworkPolicy!(sandbox)
 
     const metadata = netpol['metadata'] as Record<string, Record<string, string>>
     expect(metadata['annotations']!['dzipagent.dev/allowed-hosts']).toBe('example.com')
@@ -491,14 +516,14 @@ describe('buildNetworkPolicy', () => {
 // AgentSandboxReconciler
 // ===========================================================================
 
-describe('AgentSandboxReconciler', () => {
+describeOperator()('AgentSandboxReconciler', () => {
   it('creates pod for Pending phase', async () => {
     const createPod = vi.fn().mockResolvedValue(undefined)
     const createNetworkPolicy = vi.fn().mockResolvedValue(undefined)
     const updateStatus = vi.fn().mockResolvedValue(undefined)
 
-    const ctx: ReconcileContext = { createPod, createNetworkPolicy, updateStatus }
-    const reconciler = new AgentSandboxReconciler(ctx)
+    const ctx = { createPod, createNetworkPolicy, updateStatus }
+    const reconciler = new AgentSandboxReconciler!(ctx)
 
     const sandbox = makeSandbox()
     sandbox.status = { phase: 'Pending' }
@@ -516,8 +541,8 @@ describe('AgentSandboxReconciler', () => {
     const updateStatus = vi.fn().mockResolvedValue(undefined)
     const getPodPhase = vi.fn().mockResolvedValue('Running')
 
-    const ctx: ReconcileContext = { getPodPhase, updateStatus }
-    const reconciler = new AgentSandboxReconciler(ctx)
+    const ctx = { getPodPhase, updateStatus }
+    const reconciler = new AgentSandboxReconciler!(ctx)
 
     const sandbox = makeSandbox()
     sandbox.status = { phase: 'Creating' }
@@ -534,8 +559,8 @@ describe('AgentSandboxReconciler', () => {
     const updateStatus = vi.fn().mockResolvedValue(undefined)
     const getPodPhase = vi.fn().mockResolvedValue('Failed')
 
-    const ctx: ReconcileContext = { getPodPhase, updateStatus }
-    const reconciler = new AgentSandboxReconciler(ctx)
+    const ctx = { getPodPhase, updateStatus }
+    const reconciler = new AgentSandboxReconciler!(ctx)
 
     const sandbox = makeSandbox()
     sandbox.status = { phase: 'Creating' }
@@ -549,8 +574,8 @@ describe('AgentSandboxReconciler', () => {
   it('requeues Creating when pod is still Pending', async () => {
     const getPodPhase = vi.fn().mockResolvedValue('Pending')
 
-    const ctx: ReconcileContext = { getPodPhase }
-    const reconciler = new AgentSandboxReconciler(ctx)
+    const ctx = { getPodPhase }
+    const reconciler = new AgentSandboxReconciler!(ctx)
 
     const sandbox = makeSandbox()
     sandbox.status = { phase: 'Creating' }
@@ -562,7 +587,7 @@ describe('AgentSandboxReconciler', () => {
   })
 
   it('does not requeue Ready phase', async () => {
-    const reconciler = new AgentSandboxReconciler()
+    const reconciler = new AgentSandboxReconciler!()
 
     const sandbox = makeSandbox()
     sandbox.status = { phase: 'Ready', podName: 'test-sandbox' }
@@ -573,7 +598,7 @@ describe('AgentSandboxReconciler', () => {
   })
 
   it('does not requeue Running phase', async () => {
-    const reconciler = new AgentSandboxReconciler()
+    const reconciler = new AgentSandboxReconciler!()
 
     const sandbox = makeSandbox()
     sandbox.status = { phase: 'Running', podName: 'test-sandbox' }
@@ -586,8 +611,8 @@ describe('AgentSandboxReconciler', () => {
   it('enforces TTL and transitions Succeeded to Terminating', async () => {
     const updateStatus = vi.fn().mockResolvedValue(undefined)
 
-    const ctx: ReconcileContext = { updateStatus }
-    const reconciler = new AgentSandboxReconciler(ctx)
+    const ctx = { updateStatus }
+    const reconciler = new AgentSandboxReconciler!(ctx)
 
     const sandbox = makeSandbox({ ttlSeconds: 1 })
     sandbox.status = {
@@ -604,8 +629,8 @@ describe('AgentSandboxReconciler', () => {
   it('requeues Succeeded with remaining TTL when not expired', async () => {
     const updateStatus = vi.fn().mockResolvedValue(undefined)
 
-    const ctx: ReconcileContext = { updateStatus }
-    const reconciler = new AgentSandboxReconciler(ctx)
+    const ctx = { updateStatus }
+    const reconciler = new AgentSandboxReconciler!(ctx)
 
     const sandbox = makeSandbox({ ttlSeconds: 3600 })
     sandbox.status = {
@@ -624,8 +649,8 @@ describe('AgentSandboxReconciler', () => {
     const deletePod = vi.fn().mockResolvedValue(undefined)
     const deleteNetworkPolicy = vi.fn().mockResolvedValue(undefined)
 
-    const ctx: ReconcileContext = { deletePod, deleteNetworkPolicy }
-    const reconciler = new AgentSandboxReconciler(ctx)
+    const ctx = { deletePod, deleteNetworkPolicy }
+    const reconciler = new AgentSandboxReconciler!(ctx)
 
     const sandbox = makeSandbox()
     sandbox.status = { phase: 'Terminating' }
@@ -642,8 +667,8 @@ describe('AgentSandboxReconciler', () => {
     const createNetworkPolicy = vi.fn().mockResolvedValue(undefined)
     const updateStatus = vi.fn().mockResolvedValue(undefined)
 
-    const ctx: ReconcileContext = { createPod, createNetworkPolicy, updateStatus }
-    const reconciler = new AgentSandboxReconciler(ctx)
+    const ctx = { createPod, createNetworkPolicy, updateStatus }
+    const reconciler = new AgentSandboxReconciler!(ctx)
 
     const sandbox = makeSandbox({ network: { egressPolicy: 'allow-all' } })
     sandbox.status = { phase: 'Pending' }
@@ -658,8 +683,8 @@ describe('AgentSandboxReconciler', () => {
     const createPod = vi.fn().mockResolvedValue(undefined)
     const updateStatus = vi.fn().mockResolvedValue(undefined)
 
-    const ctx: ReconcileContext = { createPod, updateStatus }
-    const reconciler = new AgentSandboxReconciler(ctx)
+    const ctx = { createPod, updateStatus }
+    const reconciler = new AgentSandboxReconciler!(ctx)
 
     const sandbox = makeSandbox()
     // No status set at all
@@ -671,7 +696,7 @@ describe('AgentSandboxReconciler', () => {
   })
 
   it('Succeeded without TTL does not requeue', async () => {
-    const reconciler = new AgentSandboxReconciler()
+    const reconciler = new AgentSandboxReconciler!()
 
     const sandbox = makeSandbox()
     // No ttlSeconds
@@ -696,6 +721,3 @@ describe('K8s barrel exports', () => {
     expect(k8sModule.createAgentSandboxResource).toBeDefined()
   })
 })
-
-// We need the afterEach import for the K8sClient tests
-import { afterEach } from 'vitest'

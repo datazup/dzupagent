@@ -1,0 +1,7 @@
+[
+  { "event": "message", "text": "hello from gemini" },
+  { "type": "function_call", "tool": { "name": "search", "input": { "query": "dzip" } } },
+  { "type": "function_response", "function_response": { "name": "search", "result": { "hits": 2 }, "durationMs": 15 } },
+  { "type": "stream_delta", "delta": "part-1" },
+  { "type": "completed", "output": "gemini done", "duration_ms": 101 }
+]

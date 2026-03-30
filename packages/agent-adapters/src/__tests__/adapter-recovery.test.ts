@@ -16,6 +16,7 @@ import type {
   RoutingDecision,
   TaskDescriptor,
 } from '../types.js'
+import { collectEvents } from './test-helpers.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -129,12 +130,6 @@ function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
   const events: DzipEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
-}
-
-async function collectEvents(gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> {
-  const result: AgentEvent[] = []
-  for await (const e of gen) result.push(e)
-  return result
 }
 
 // ---------------------------------------------------------------------------

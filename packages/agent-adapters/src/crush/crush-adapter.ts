@@ -14,10 +14,21 @@ import type {
   AgentInput,
 } from '../types.js'
 import { BaseCliAdapter } from '../base/base-cli-adapter.js'
+import { getNumber, getObject, getString, toJsonString } from '../utils/event-record.js'
 import { isBinaryAvailable } from '../utils/process-helpers.js'
 
 const PROVIDER_ID: AdapterProviderId = 'crush'
 const CRUSH_BINARY = 'crush'
+
+function parseNonNegativeInt(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.trunc(value)
+  }
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+    return Number.parseInt(value, 10)
+  }
+  return undefined
+}
 
 /**
  * Map a raw JSONL record from the Crush CLI to an AgentEvent.
@@ -28,12 +39,14 @@ function mapCrushEvent(
   record: Record<string, unknown>,
   sessionId: string,
 ): AgentEvent | undefined {
-  const type = typeof record['type'] === 'string' ? record['type'] : undefined
+  const type = getString(record, 'type', 'event')
+  const tool = getObject(record, 'tool', 'function_call')
+  const nestedResult = getObject(record, 'tool_result')
 
   switch (type) {
     case 'message':
     case 'response': {
-      const content = typeof record['content'] === 'string' ? record['content'] : ''
+      const content = getString(record, 'content', 'text', 'message') ?? ''
       const role = record['role'] === 'user' || record['role'] === 'system'
         ? record['role']
         : 'assistant' as const
@@ -47,40 +60,46 @@ function mapCrushEvent(
     }
 
     case 'tool_call': {
-      // TODO: Confirm Crush tool call format
-      const toolName = typeof record['name'] === 'string' ? record['name'] : 'unknown'
+      const toolName = getString(record, 'name', 'tool_name')
+        ?? getString(tool ?? {}, 'name')
+        ?? 'unknown'
       return {
         type: 'adapter:tool_call',
         providerId: PROVIDER_ID,
         toolName,
-        input: record['arguments'] ?? record['input'] ?? {},
+        input: record['arguments'] ?? record['input'] ?? record['parameters']
+          ?? tool?.['arguments'] ?? tool?.['input'] ?? tool?.['parameters']
+          ?? {},
         timestamp: Date.now(),
       }
     }
 
     case 'tool_result': {
-      // TODO: Confirm Crush tool result format
-      const toolName = typeof record['name'] === 'string' ? record['name'] : 'unknown'
-      const output = typeof record['output'] === 'string'
-        ? record['output']
-        : JSON.stringify(record['output'] ?? '')
+      const toolName = getString(record, 'name', 'tool_name')
+        ?? getString(nestedResult ?? {}, 'name', 'tool_name')
+        ?? getString(tool ?? {}, 'name')
+        ?? 'unknown'
+      const output = toJsonString(
+        record['output'] ?? record['result'] ?? record['content']
+        ?? nestedResult?.['output'] ?? nestedResult?.['result'] ?? nestedResult?.['content']
+        ?? '',
+      )
       return {
         type: 'adapter:tool_result',
         providerId: PROVIDER_ID,
         toolName,
         output,
-        durationMs: typeof record['duration_ms'] === 'number' ? record['duration_ms'] : 0,
+        durationMs: getNumber(record, 'duration_ms', 'durationMs', 'elapsed_ms')
+          ?? getNumber(nestedResult ?? {}, 'duration_ms', 'durationMs', 'elapsed_ms')
+          ?? 0,
         timestamp: Date.now(),
       }
     }
 
+    case 'stream_delta':
     case 'delta':
     case 'stream': {
-      const content = typeof record['content'] === 'string'
-        ? record['content']
-        : typeof record['text'] === 'string'
-          ? record['text']
-          : ''
+      const content = getString(record, 'content', 'text', 'delta') ?? ''
       return {
         type: 'adapter:stream_delta',
         providerId: PROVIDER_ID,
@@ -95,21 +114,26 @@ function mapCrushEvent(
         type: 'adapter:completed',
         providerId: PROVIDER_ID,
         sessionId,
-        result: typeof record['result'] === 'string' ? record['result'] : '',
-        durationMs: typeof record['duration_ms'] === 'number' ? record['duration_ms'] : 0,
+        result: getString(record, 'result', 'content', 'output', 'text') ?? '',
+        durationMs: getNumber(record, 'duration_ms', 'durationMs', 'elapsed_ms') ?? 0,
         timestamp: Date.now(),
       }
     }
 
     case 'error': {
+      const errorMsg = getString(record, 'message', 'error')
+      const errorObj = getObject(record, 'error')
       return {
         type: 'adapter:failed',
         providerId: PROVIDER_ID,
         sessionId,
-        error: typeof record['message'] === 'string'
-          ? record['message']
+        error: typeof errorMsg === 'string'
+          ? errorMsg
+          : typeof errorObj?.['message'] === 'string'
+            ? errorObj['message']
           : 'Unknown Crush CLI error',
-        code: typeof record['code'] === 'string' ? record['code'] : undefined,
+        code: getString(record, 'code')
+          ?? getString(errorObj ?? {}, 'code'),
         timestamp: Date.now(),
       }
     }
@@ -193,7 +217,31 @@ export class CrushAdapter extends BaseCliAdapter {
       args.push('--max-turns', String(input.maxTurns))
     }
 
-    // TODO: Add Crush-specific flags (quantization, GPU layers, context size, etc.)
+    const providerOpts = this.config.providerOptions ?? {}
+
+    const quantization = getString(
+      providerOpts,
+      'quantization',
+      'quant',
+      'quantizationMode',
+    )
+    if (quantization && quantization.trim().length > 0) {
+      args.push('--quantization', quantization)
+    }
+
+    const gpuLayers = parseNonNegativeInt(
+      providerOpts['gpuLayers'] ?? providerOpts['gpu_layers'] ?? providerOpts['gpu-layers'],
+    )
+    if (gpuLayers !== undefined) {
+      args.push('--gpu-layers', String(gpuLayers))
+    }
+
+    const contextSize = parseNonNegativeInt(
+      providerOpts['contextSize'] ?? providerOpts['context_size'] ?? providerOpts['context-size'],
+    )
+    if (contextSize !== undefined && contextSize > 0) {
+      args.push('--context-size', String(contextSize))
+    }
 
     return args
   }

@@ -1,0 +1,7 @@
+[
+  { "event": "message", "text": "hello from crush" },
+  { "type": "tool_call", "name": "bash", "input": { "cmd": "pwd" } },
+  { "type": "tool_result", "name": "bash", "output": "ok", "durationMs": 8 },
+  { "type": "stream_delta", "content": "crush part" },
+  { "type": "completed", "output": "crush done", "duration_ms": 303 }
+]

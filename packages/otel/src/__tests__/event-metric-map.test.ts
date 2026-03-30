@@ -27,10 +27,10 @@ describe('EVENT_METRIC_MAP', () => {
     }
   })
 
-  it('metric names follow forge_ prefix convention', () => {
+  it('metric names follow supported prefix conventions', () => {
     for (const mappings of Object.values(EVENT_METRIC_MAP)) {
       for (const mapping of mappings) {
-        expect(mapping.metricName).toMatch(/^forge_/)
+        expect(mapping.metricName).toMatch(/^(forge_|dzip_)/)
       }
     }
   })
@@ -155,10 +155,10 @@ describe('getAllMetricNames', () => {
     expect(new Set(names).size).toBe(names.length)
   })
 
-  it('all names start with forge_', () => {
+  it('all names start with a supported prefix', () => {
     const names = getAllMetricNames()
     for (const name of names) {
-      expect(name).toMatch(/^forge_/)
+      expect(name).toMatch(/^(forge_|dzip_)/)
     }
   })
 

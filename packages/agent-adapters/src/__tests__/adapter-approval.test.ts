@@ -8,6 +8,7 @@ import {
   type ApprovalMode,
 } from '../approval/adapter-approval.js'
 import type { AdapterProviderId, AgentEvent } from '../types.js'
+import { collectEvents } from './test-helpers.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -24,12 +25,6 @@ function createContext(overrides: Partial<ApprovalContext> = {}): ApprovalContex
 
 async function* eventStream(events: AgentEvent[]): AsyncGenerator<AgentEvent> {
   for (const e of events) yield e
-}
-
-async function collectEvents(gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> {
-  const result: AgentEvent[] = []
-  for await (const e of gen) result.push(e)
-  return result
 }
 
 function collectBusEvents(bus: DzipEventBus): DzipEvent[] {

@@ -1,0 +1,7 @@
+[
+  { "event": "message", "text": "hello from qwen" },
+  { "type": "tool_call", "tool": { "name": "search", "arguments": { "query": "dzip" } } },
+  { "type": "tool_result", "tool_result": { "name": "search", "result": { "hits": 3 }, "durationMs": 19 } },
+  { "type": "stream_delta", "text": "qwen part" },
+  { "type": "completed", "content": "qwen done", "duration_ms": 202 }
+]

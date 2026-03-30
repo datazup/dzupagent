@@ -5,6 +5,7 @@ import type { DzipEventBus } from '@dzipagent/core'
 import { AdapterTracer } from '../observability/adapter-tracer.js'
 import type { TraceSpan } from '../observability/adapter-tracer.js'
 import type { AgentEvent, AdapterProviderId } from '../types.js'
+import { collectEvents } from './test-helpers.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,12 +24,6 @@ function makeEvent<T extends AgentEvent['type']>(
 
 async function* eventStream(events: AgentEvent[]): AsyncGenerator<AgentEvent> {
   for (const e of events) yield e
-}
-
-async function collectEvents(gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> {
-  const result: AgentEvent[] = []
-  for await (const e of gen) result.push(e)
-  return result
 }
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import type {
   AgentInput,
 } from '../types.js'
 import { BaseCliAdapter } from '../base/base-cli-adapter.js'
+import { getNumber, getObject, getString, toJsonString } from '../utils/event-record.js'
 
 const PROVIDER_ID: AdapterProviderId = 'gemini'
 const GEMINI_BINARY = 'gemini'
@@ -24,12 +25,14 @@ function mapGeminiEvent(
   record: Record<string, unknown>,
   sessionId: string,
 ): AgentEvent | undefined {
-  const type = typeof record['type'] === 'string' ? record['type'] : undefined
+  const type = getString(record, 'type', 'event')
+  const tool = getObject(record, 'tool', 'function_call')
+  const nestedResult = getObject(record, 'tool_result', 'function_response')
 
   switch (type) {
     case 'message':
     case 'response': {
-      const content = typeof record['content'] === 'string' ? record['content'] : ''
+      const content = getString(record, 'content', 'text', 'message') ?? ''
       const role = record['role'] === 'user' || record['role'] === 'system'
         ? record['role']
         : 'assistant' as const
@@ -44,35 +47,34 @@ function mapGeminiEvent(
 
     case 'tool_call':
     case 'function_call': {
-      const toolName = typeof record['name'] === 'string'
-        ? record['name']
-        : typeof record['tool_name'] === 'string'
-          ? record['tool_name']
-          : 'unknown'
+      const toolName = getString(record, 'name', 'tool_name')
+        ?? getString(tool ?? {}, 'name')
+        ?? 'unknown'
       return {
         type: 'adapter:tool_call',
         providerId: PROVIDER_ID,
         toolName,
-        input: record['arguments'] ?? record['input'] ?? {},
+        input: record['arguments'] ?? record['input'] ?? record['parameters']
+          ?? tool?.['arguments'] ?? tool?.['input'] ?? tool?.['parameters']
+          ?? {},
         timestamp: Date.now(),
       }
     }
 
     case 'tool_result':
     case 'function_response': {
-      const toolName = typeof record['name'] === 'string'
-        ? record['name']
-        : typeof record['tool_name'] === 'string'
-          ? record['tool_name']
-          : 'unknown'
-      const output = typeof record['output'] === 'string'
-        ? record['output']
-        : typeof record['result'] === 'string'
-          ? record['result']
-          : JSON.stringify(record['output'] ?? record['result'] ?? '')
-      const durationMs = typeof record['duration_ms'] === 'number'
-        ? record['duration_ms']
-        : 0
+      const toolName = getString(record, 'name', 'tool_name')
+        ?? getString(nestedResult ?? {}, 'name', 'tool_name')
+        ?? getString(tool ?? {}, 'name')
+        ?? 'unknown'
+      const output = toJsonString(
+        record['output'] ?? record['result'] ?? record['content']
+        ?? nestedResult?.['output'] ?? nestedResult?.['result'] ?? nestedResult?.['content']
+        ?? '',
+      )
+      const durationMs = getNumber(record, 'duration_ms', 'durationMs', 'elapsed_ms')
+        ?? getNumber(nestedResult ?? {}, 'duration_ms', 'durationMs', 'elapsed_ms')
+        ?? 0
       return {
         type: 'adapter:tool_result',
         providerId: PROVIDER_ID,
@@ -85,11 +87,7 @@ function mapGeminiEvent(
 
     case 'stream_delta':
     case 'delta': {
-      const content = typeof record['content'] === 'string'
-        ? record['content']
-        : typeof record['text'] === 'string'
-          ? record['text']
-          : ''
+      const content = getString(record, 'content', 'text', 'delta') ?? ''
       return {
         type: 'adapter:stream_delta',
         providerId: PROVIDER_ID,
@@ -100,33 +98,31 @@ function mapGeminiEvent(
 
     case 'done':
     case 'completed': {
-      const result = typeof record['result'] === 'string'
-        ? record['result']
-        : typeof record['content'] === 'string'
-          ? record['content']
-          : ''
+      const result = getString(record, 'result', 'content', 'output', 'text') ?? ''
       return {
         type: 'adapter:completed',
         providerId: PROVIDER_ID,
         sessionId,
         result,
-        durationMs: typeof record['duration_ms'] === 'number' ? record['duration_ms'] : 0,
+        durationMs: getNumber(record, 'duration_ms', 'durationMs', 'elapsed_ms') ?? 0,
         timestamp: Date.now(),
       }
     }
 
     case 'error': {
-      const errorMsg = typeof record['message'] === 'string'
-        ? record['message']
-        : typeof record['error'] === 'string'
-          ? record['error']
-          : 'Unknown Gemini CLI error'
+      const errorMsg = getString(record, 'message', 'error')
+      const errorObj = getObject(record, 'error')
       return {
         type: 'adapter:failed',
         providerId: PROVIDER_ID,
         sessionId,
-        error: errorMsg,
-        code: typeof record['code'] === 'string' ? record['code'] : undefined,
+        error: typeof errorMsg === 'string'
+          ? errorMsg
+          : typeof errorObj?.['message'] === 'string'
+            ? errorObj['message']
+            : 'Unknown Gemini CLI error',
+        code: getString(record, 'code')
+          ?? getString(errorObj ?? {}, 'code'),
         timestamp: Date.now(),
       }
     }

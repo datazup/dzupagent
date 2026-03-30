@@ -7,6 +7,7 @@ import {
   AdapterGuardrails,
 } from '../guardrails/adapter-guardrails.js'
 import type { AgentEvent } from '../types.js'
+import { collectEvents } from './test-helpers.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -16,14 +17,6 @@ async function* eventStream(events: AgentEvent[]): AsyncGenerator<AgentEvent, vo
   for (const event of events) {
     yield event
   }
-}
-
-async function collectEvents(gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> {
-  const result: AgentEvent[] = []
-  for await (const event of gen) {
-    result.push(event)
-  }
-  return result
 }
 
 function makeToolCallEvent(

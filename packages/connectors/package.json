@@ -16,7 +16,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:esm-smoke": "node ./scripts/esm-smoke.mjs",
+    "build:verified": "yarn build && yarn test:esm-smoke"
   },
   "dependencies": {
     "@dzipagent/core": "0.1.0",

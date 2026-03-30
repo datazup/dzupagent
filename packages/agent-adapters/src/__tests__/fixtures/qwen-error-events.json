@@ -1,0 +1,5 @@
+[
+  { "type": "unknown_event", "payload": "ignored" },
+  { "type": "error", "error": { "message": "qwen failed", "code": "QWEN_ERR" } },
+  { "type": "completed", "content": "qwen recovered", "duration_ms": 44 }
+]

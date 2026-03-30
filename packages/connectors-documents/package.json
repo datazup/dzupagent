@@ -12,7 +12,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@dzipagent/agent": "0.1.0",
@@ -26,6 +27,7 @@
     "@types/pdf-parse": "^1.1.5",
     "typescript": "^5.4.0",
     "tsup": "^8.0.0",
+    "vitest": "^1.6.0",
     "zod": "^4.3.6"
   },
   "files": [

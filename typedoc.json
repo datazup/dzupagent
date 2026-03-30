@@ -1,0 +1,18 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "packages/core/src/index.ts",
+    "packages/agent/src/index.ts",
+    "packages/memory/src/index.ts",
+    "packages/rag/src/index.ts",
+    "packages/scraper/src/index.ts"
+  ],
+  "entryPointStrategy": "expand",
+  "out": "docs/api",
+  "name": "dzipagent API Reference",
+  "includeVersion": true,
+  "exclude": ["**/__tests__/**", "**/node_modules/**"],
+  "cleanOutputDir": true,
+  "plugin": ["typedoc-plugin-markdown"],
+  "hideGenerator": true
+}

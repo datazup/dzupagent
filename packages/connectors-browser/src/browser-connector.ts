@@ -23,6 +23,13 @@ export interface BrowserConnectorConfig {
   auth?: AuthCredentials
   crawlOptions?: Partial<CrawlOptions>
 }
+type BrowserToolFactory = (config: {
+  id: string
+  description: string
+  inputSchema: unknown
+  execute: (input: any) => Promise<any>
+  toModelOutput?: (output: any) => string
+}) => ReturnType<typeof createForgeTool>
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -82,38 +89,54 @@ async function createBrowserSession(config: BrowserConnectorConfig) {
  * @returns An array of 5 StructuredTools ready for agent registration.
  */
 export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
+  const createBrowserTool = createForgeTool as unknown as BrowserToolFactory
+
+  const crawlSiteInputSchema = z.object({
+    startUrl: z.string().url().describe('The URL to start crawling from'),
+    maxPages: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe('Maximum number of pages to crawl (default: 50)'),
+    maxDepth: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe('Maximum crawl depth from the start URL (default: 3)'),
+    includePatterns: z
+      .array(z.string())
+      .optional()
+      .describe('URL patterns to include (glob-style). If set, only matching URLs are crawled.'),
+    excludePatterns: z
+      .array(z.string())
+      .optional()
+      .describe('URL patterns to exclude (glob-style).'),
+  })
+
+  const screenshotInputSchema = z.object({
+    url: z.string().url().describe('The URL of the page to capture'),
+    fullPage: z
+      .boolean()
+      .optional()
+      .describe('Whether to capture the full scrollable page (default: true)'),
+  })
+
+  const urlOnlyInputSchema = z.object({
+    url: z.string().url().describe('The URL of the page'),
+  })
+
   // -------------------------------------------------------------------------
   // Tool 1: crawlSiteTool
   // -------------------------------------------------------------------------
 
-  const crawlSiteTool = createForgeTool({
+  const crawlSiteTool = createBrowserTool({
     id: 'browser-crawl-site',
     description:
       'Crawl a website starting from a URL using BFS. Returns an array of discovered pages with metadata including URL, title, link count, form count, and interactive element count.',
-    inputSchema: z.object({
-      startUrl: z.string().url().describe('The URL to start crawling from'),
-      maxPages: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe('Maximum number of pages to crawl (default: 50)'),
-      maxDepth: z
-        .number()
-        .int()
-        .min(0)
-        .optional()
-        .describe('Maximum crawl depth from the start URL (default: 3)'),
-      includePatterns: z
-        .array(z.string())
-        .optional()
-        .describe('URL patterns to include (glob-style). If set, only matching URLs are crawled.'),
-      excludePatterns: z
-        .array(z.string())
-        .optional()
-        .describe('URL patterns to exclude (glob-style).'),
-    }),
-    execute: async (input): Promise<string> => {
+    inputSchema: crawlSiteInputSchema,
+    execute: async (input: z.infer<typeof crawlSiteInputSchema>): Promise<string> => {
       let manager: BrowserManager | undefined
       try {
         const session = await createBrowserSession(config)
@@ -168,18 +191,12 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
   // Tool 2: captureScreenshotTool
   // -------------------------------------------------------------------------
 
-  const captureScreenshotTool = createForgeTool({
+  const captureScreenshotTool = createBrowserTool({
     id: 'browser-capture-screenshot',
     description:
       'Capture a screenshot of a web page at the given URL. Returns the screenshot as a base64-encoded JPEG string.',
-    inputSchema: z.object({
-      url: z.string().url().describe('The URL of the page to capture'),
-      fullPage: z
-        .boolean()
-        .optional()
-        .describe('Whether to capture the full scrollable page (default: true)'),
-    }),
-    execute: async (input): Promise<string> => {
+    inputSchema: screenshotInputSchema,
+    execute: async (input: z.infer<typeof screenshotInputSchema>): Promise<string> => {
       let manager: BrowserManager | undefined
       try {
         const session = await createBrowserSession(config)
@@ -228,14 +245,12 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
   // Tool 3: extractFormsTool
   // -------------------------------------------------------------------------
 
-  const extractFormsTool = createForgeTool({
+  const extractFormsTool = createBrowserTool({
     id: 'browser-extract-forms',
     description:
       'Extract all HTML forms from a web page, including their fields, actions, methods, labels, and validation attributes.',
-    inputSchema: z.object({
-      url: z.string().url().describe('The URL of the page to extract forms from'),
-    }),
-    execute: async (input): Promise<string> => {
+    inputSchema: urlOnlyInputSchema,
+    execute: async (input: z.infer<typeof urlOnlyInputSchema>): Promise<string> => {
       let manager: BrowserManager | undefined
       try {
         const session = await createBrowserSession(config)
@@ -273,14 +288,12 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
   // Tool 4: extractElementsTool
   // -------------------------------------------------------------------------
 
-  const extractElementsTool = createForgeTool({
+  const extractElementsTool = createBrowserTool({
     id: 'browser-extract-elements',
     description:
       'Extract all interactive elements (buttons, links, tabs, checkboxes, etc.) from a web page with their roles, labels, and ARIA attributes.',
-    inputSchema: z.object({
-      url: z.string().url().describe('The URL of the page to extract elements from'),
-    }),
-    execute: async (input): Promise<string> => {
+    inputSchema: urlOnlyInputSchema,
+    execute: async (input: z.infer<typeof urlOnlyInputSchema>): Promise<string> => {
       let manager: BrowserManager | undefined
       try {
         const session = await createBrowserSession(config)
@@ -318,14 +331,12 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
   // Tool 5: extractAccessibilityTreeTool
   // -------------------------------------------------------------------------
 
-  const extractAccessibilityTreeTool = createForgeTool({
+  const extractAccessibilityTreeTool = createBrowserTool({
     id: 'browser-extract-a11y-tree',
     description:
       'Extract the accessibility tree from a web page, returning a hierarchical structure of ARIA roles, names, states, and properties.',
-    inputSchema: z.object({
-      url: z.string().url().describe('The URL of the page to extract the accessibility tree from'),
-    }),
-    execute: async (input): Promise<string> => {
+    inputSchema: urlOnlyInputSchema,
+    execute: async (input: z.infer<typeof urlOnlyInputSchema>): Promise<string> => {
       let manager: BrowserManager | undefined
       try {
         const session = await createBrowserSession(config)

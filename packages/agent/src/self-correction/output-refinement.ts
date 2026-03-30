@@ -364,14 +364,12 @@ export class OutputRefinementLoop {
 
       // Step 1: Critique the current best output
       let critique: string
-      let critiqueScore: number
       try {
         const critiqueResult = params.scoreFn
           ? await params.scoreFn(bestOutput, params.task)
           : await this.critiqueAndScore(params.task, bestOutput, domain, params.context)
 
         critique = critiqueResult.feedback
-        critiqueScore = critiqueResult.score
 
         if (!params.scoreFn) {
           const totalChars = params.task.length + bestOutput.length + DOMAIN_CRITIQUE_PROMPTS[domain].length + critique.length

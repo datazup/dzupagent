@@ -9,9 +9,18 @@
     "build": "yarn workspace @dzipagent/context build && yarn workspace @dzipagent/memory-ipc build && yarn workspace @dzipagent/memory build && yarn workspace @dzipagent/core build && yarn workspace @dzipagent/agent build && yarn workspace @dzipagent/codegen build && yarn workspace @dzipagent/otel build && yarn workspace @dzipagent/evals build && yarn workspace @dzipagent/testing build && yarn workspace @dzipagent/test-utils build && yarn workspace @dzipagent/connectors build && yarn workspace @dzipagent/connectors-browser build && yarn workspace @dzipagent/connectors-documents build && yarn workspace @dzipagent/scraper build && yarn workspace @dzipagent/domain-nl2sql build && yarn workspace @dzipagent/server build && yarn workspace @dzipagent/playground build && yarn workspace create-dzipagent build",
     "typecheck": "yarn workspaces run typecheck",
     "lint": "yarn workspaces run lint",
-    "test": "yarn workspaces run test"
+    "test": "yarn workspaces run test",
+    "docs:generate": "typedoc"
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@typescript-eslint/eslint-plugin": "^8.58.0",
+    "@typescript-eslint/parser": "^8.58.0",
+    "eslint": "^10.1.0",
+    "typedoc": "^0.25.0",
+    "typedoc-plugin-markdown": "^3.16.0"
   }
 }

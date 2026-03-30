@@ -16,6 +16,7 @@ import type {
   AgentInput,
 } from '../types.js'
 import { BaseCliAdapter } from '../base/base-cli-adapter.js'
+import { getNumber, getObject, getString, toJsonString } from '../utils/event-record.js'
 import { isBinaryAvailable } from '../utils/process-helpers.js'
 
 const PROVIDER_ID: AdapterProviderId = 'qwen'
@@ -30,12 +31,14 @@ function mapQwenEvent(
   record: Record<string, unknown>,
   sessionId: string,
 ): AgentEvent | undefined {
-  const type = typeof record['type'] === 'string' ? record['type'] : undefined
+  const type = getString(record, 'type', 'event')
+  const tool = getObject(record, 'tool', 'function_call')
+  const nestedResult = getObject(record, 'tool_result')
 
   switch (type) {
     case 'message':
     case 'response': {
-      const content = typeof record['content'] === 'string' ? record['content'] : ''
+      const content = getString(record, 'content', 'text', 'message') ?? ''
       const role = record['role'] === 'user' || record['role'] === 'system'
         ? record['role']
         : 'assistant' as const
@@ -49,44 +52,46 @@ function mapQwenEvent(
     }
 
     case 'tool_call': {
-      // TODO: Map Qwen-specific tool call format
-      const toolName = typeof record['name'] === 'string'
-        ? record['name']
-        : typeof record['function'] === 'string'
-          ? record['function']
-          : 'unknown'
+      const toolName = getString(record, 'name', 'tool_name', 'function')
+        ?? getString(tool ?? {}, 'name')
+        ?? 'unknown'
       return {
         type: 'adapter:tool_call',
         providerId: PROVIDER_ID,
         toolName,
-        input: record['arguments'] ?? record['parameters'] ?? {},
+        input: record['arguments'] ?? record['parameters'] ?? record['input']
+          ?? tool?.['arguments'] ?? tool?.['parameters'] ?? tool?.['input']
+          ?? {},
         timestamp: Date.now(),
       }
     }
 
     case 'tool_result': {
-      // TODO: Map Qwen-specific tool result format
-      const toolName = typeof record['name'] === 'string' ? record['name'] : 'unknown'
-      const output = typeof record['output'] === 'string'
-        ? record['output']
-        : JSON.stringify(record['output'] ?? '')
+      const toolName = getString(record, 'name', 'tool_name')
+        ?? getString(nestedResult ?? {}, 'name', 'tool_name')
+        ?? getString(tool ?? {}, 'name')
+        ?? 'unknown'
+      const output = toJsonString(
+        record['output'] ?? record['result'] ?? record['content']
+        ?? nestedResult?.['output'] ?? nestedResult?.['result'] ?? nestedResult?.['content']
+        ?? '',
+      )
       return {
         type: 'adapter:tool_result',
         providerId: PROVIDER_ID,
         toolName,
         output,
-        durationMs: typeof record['duration_ms'] === 'number' ? record['duration_ms'] : 0,
+        durationMs: getNumber(record, 'duration_ms', 'durationMs', 'elapsed_ms')
+          ?? getNumber(nestedResult ?? {}, 'duration_ms', 'durationMs', 'elapsed_ms')
+          ?? 0,
         timestamp: Date.now(),
       }
     }
 
+    case 'stream_delta':
     case 'delta':
     case 'stream': {
-      const content = typeof record['content'] === 'string'
-        ? record['content']
-        : typeof record['text'] === 'string'
-          ? record['text']
-          : ''
+      const content = getString(record, 'content', 'text', 'delta') ?? ''
       return {
         type: 'adapter:stream_delta',
         providerId: PROVIDER_ID,
@@ -101,21 +106,26 @@ function mapQwenEvent(
         type: 'adapter:completed',
         providerId: PROVIDER_ID,
         sessionId,
-        result: typeof record['result'] === 'string' ? record['result'] : '',
-        durationMs: typeof record['duration_ms'] === 'number' ? record['duration_ms'] : 0,
+        result: getString(record, 'result', 'content', 'output', 'text') ?? '',
+        durationMs: getNumber(record, 'duration_ms', 'durationMs', 'elapsed_ms') ?? 0,
         timestamp: Date.now(),
       }
     }
 
     case 'error': {
+      const errorMsg = getString(record, 'message', 'error')
+      const errorObj = getObject(record, 'error')
       return {
         type: 'adapter:failed',
         providerId: PROVIDER_ID,
         sessionId,
-        error: typeof record['message'] === 'string'
-          ? record['message']
+        error: typeof errorMsg === 'string'
+          ? errorMsg
+          : typeof errorObj?.['message'] === 'string'
+            ? errorObj['message']
           : 'Unknown Qwen CLI error',
-        code: typeof record['code'] === 'string' ? record['code'] : undefined,
+        code: getString(record, 'code')
+          ?? getString(errorObj ?? {}, 'code'),
         timestamp: Date.now(),
       }
     }

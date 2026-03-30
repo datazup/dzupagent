@@ -28,6 +28,14 @@ export interface DocumentConnectorConfig {
   overlap?: number
 }
 
+type DocumentToolFactory = (config: {
+  id: string
+  description: string
+  inputSchema: unknown
+  execute: (input: any) => Promise<any>
+  toModelOutput?: (output: any) => string
+}) => ReturnType<typeof createForgeTool>
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -55,6 +63,8 @@ function truncate(value: string, maxLength: number): string {
 export function createDocumentConnector(
   config: DocumentConnectorConfig = {},
 ): StructuredToolInterface[] {
+  const createDocumentTool = createForgeTool as unknown as DocumentToolFactory
+
   const defaultMaxChunkSize = config.maxChunkSize ?? 4000
   const defaultOverlap = config.overlap ?? 200
 
@@ -62,7 +72,7 @@ export function createDocumentConnector(
   // Tool 1: parseDocumentTool
   // -------------------------------------------------------------------------
 
-  const parseDocumentTool = createForgeTool({
+  const parseDocumentTool = createDocumentTool({
     id: 'parse-document',
     description:
       'Parse a document (PDF, DOCX, Markdown, or plain text) and extract its text content',
@@ -100,7 +110,7 @@ export function createDocumentConnector(
   // Tool 2: chunkDocumentTool
   // -------------------------------------------------------------------------
 
-  const chunkDocumentTool = createForgeTool({
+  const chunkDocumentTool = createDocumentTool({
     id: 'chunk-document',
     description:
       'Split text into semantic chunks suitable for LLM processing, respecting heading and paragraph boundaries',

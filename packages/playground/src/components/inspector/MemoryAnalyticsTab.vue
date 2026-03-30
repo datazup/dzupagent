@@ -65,7 +65,8 @@ const refreshIntervalSec = computed({
 const totalNamespaces = computed(() => namespaceStats.value?.rowCount ?? 0)
 const totalMemories = computed(() => {
   if (!namespaceStats.value) return 0
-  return namespaceStats.value.rows.reduce((sum: number, r: NamespaceStatsRow) => sum + r.total_memories, 0)
+  const rows = namespaceStats.value.rows ?? []
+  return rows.reduce((sum: number, r: NamespaceStatsRow) => sum + r.total_memories, 0)
 })
 const expiringCount = computed(() => expiringMemories.value?.rowCount ?? 0)
 const duplicateCount = computed(() => duplicates.value?.rowCount ?? 0)
