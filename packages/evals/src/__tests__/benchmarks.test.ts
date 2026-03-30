@@ -153,6 +153,22 @@ describe('runBenchmark', () => {
     expect(result.passedBaseline).toBe(true);
     expect(result.scores['s1']).toBe(0);
   });
+
+  it('should fail in strict mode when llm-judge scorer has no llm', async () => {
+    const strictSuite: BenchmarkSuite = {
+      id: 'strict-llm',
+      name: 'Strict LLM',
+      description: 'Strict mode should fail without llm',
+      category: 'qa',
+      dataset: [{ id: 'e1', input: 'hello', expectedOutput: 'world' }],
+      scorers: [{ id: 'judge', name: 'judge', type: 'llm-judge' }],
+      baselineThresholds: {},
+    };
+
+    await expect(
+      runBenchmark(strictSuite, async () => 'output', { strict: true }),
+    ).rejects.toThrow('strict mode');
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -63,6 +63,7 @@ export { runEvalSuite } from './eval-runner.js';
 export { EvalRunner, reportToMarkdown, reportToJSON, reportToCIAnnotations } from './runner/enhanced-runner.js';
 export type {
   EvalRunnerConfig,
+  EvalTargetResult,
   EvalReportEntry,
   EvalReport,
   RegressionResult,

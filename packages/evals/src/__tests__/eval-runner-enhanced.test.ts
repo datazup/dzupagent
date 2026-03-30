@@ -84,6 +84,41 @@ describe('EvalRunner', () => {
       expect(report.overallAvgScore).toBe(0);
       expect(report.overallPassRate).toBe(0);
     });
+
+    it('uses target executor output when provided', async () => {
+      const seenOutputs: string[] = [];
+      const scorer = createMockScorer('capture', async (input) => {
+        seenOutputs.push(input.output);
+        return {
+          scorerId: 'capture',
+          scores: [{ criterion: 'capture', score: 1, reasoning: 'ok' }],
+          aggregateScore: 1,
+          passed: true,
+          durationMs: 1,
+        };
+      });
+
+      const runner = new EvalRunner({
+        scorers: [scorer],
+        target: async (input) => ({
+          output: `generated:${input}`,
+          latencyMs: 12,
+          costCents: 0.2,
+          traceId: 'trace-1',
+        }),
+      });
+
+      const report = await runner.evaluateDataset(
+        EvalDataset.from([
+          { id: 'e1', input: 'in-1', expectedOutput: 'ref-1' },
+        ]),
+      );
+
+      expect(seenOutputs).toEqual(['generated:in-1']);
+      expect(report.entries[0]?.targetLatencyMs).toBe(12);
+      expect(report.entries[0]?.targetCostCents).toBe(0.2);
+      expect(report.entries[0]?.traceId).toBe('trace-1');
+    });
   });
 
   describe('concurrency', () => {

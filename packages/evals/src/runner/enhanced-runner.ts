@@ -12,6 +12,11 @@ import type { EvalInput, Scorer, ScorerResult } from '../types.js';
 
 export interface EvalRunnerConfig {
   scorers: Scorer<EvalInput>[];
+  /** Optional target executor to produce real outputs for each entry. */
+  target?: (
+    input: string,
+    metadata?: Record<string, unknown>,
+  ) => Promise<EvalTargetResult>;
   /** Max concurrent evaluations (default: 5) */
   concurrency?: number;
   /** AbortSignal to cancel evaluation */
@@ -22,11 +27,21 @@ export interface EvalRunnerConfig {
   ciMode?: boolean;
 }
 
+export interface EvalTargetResult {
+  output: string;
+  latencyMs?: number;
+  costCents?: number;
+  traceId?: string;
+}
+
 export interface EvalReportEntry {
   entryId: string;
   scorerResults: ScorerResult[];
   aggregateScore: number;
   passed: boolean;
+  targetLatencyMs?: number;
+  targetCostCents?: number;
+  traceId?: string;
 }
 
 export interface EvalReport {
@@ -93,7 +108,7 @@ export class EvalRunner {
    * Evaluate all entries in a dataset against all scorers.
    */
   async evaluateDataset(dataset: EvalDataset): Promise<EvalReport> {
-    const { scorers, concurrency = 5, signal, onProgress } = this.config;
+    const { scorers, concurrency = 5, signal, onProgress, target } = this.config;
     const startTime = Date.now();
     const sem = new Semaphore(concurrency);
     const entries: EvalReportEntry[] = [];
@@ -107,13 +122,17 @@ export class EvalRunner {
         if (signal?.aborted) return;
 
         const scorerResults: ScorerResult[] = [];
+        let targetResult: EvalTargetResult | null = null;
+        if (target) {
+          targetResult = await target(entry.input, entry.metadata);
+        }
 
         for (const scorer of scorers) {
           if (signal?.aborted) break;
 
           const evalInput: EvalInput = {
             input: entry.input,
-            output: entry.expectedOutput ?? '',
+            output: targetResult?.output ?? entry.expectedOutput ?? '',
             reference: entry.expectedOutput,
             tags: entry.tags,
             metadata: entry.metadata,
@@ -136,6 +155,15 @@ export class EvalRunner {
           scorerResults,
           aggregateScore,
           passed: scorerResults.length > 0 && scorerResults.every((sr) => sr.passed),
+          ...(typeof targetResult?.latencyMs === 'number'
+            ? { targetLatencyMs: targetResult.latencyMs }
+            : {}),
+          ...(typeof targetResult?.costCents === 'number'
+            ? { targetCostCents: targetResult.costCents }
+            : {}),
+          ...(typeof targetResult?.traceId === 'string'
+            ? { traceId: targetResult.traceId }
+            : {}),
         };
 
         entries.push(reportEntry);

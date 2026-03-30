@@ -17,6 +17,8 @@ export interface BenchmarkConfig {
   llm?: (prompt: string) => Promise<string>;
   /** Criteria for LLM judge evaluation. Defaults to STANDARD_CRITERIA. */
   judgeCriteria?: JudgeCriterion[];
+  /** If true, fail when a scorer dependency is missing instead of heuristic fallback. */
+  strict?: boolean;
 }
 
 /**
@@ -171,6 +173,11 @@ async function computeScore(
     }
     case 'llm-judge': {
       if (!config?.llm) {
+        if (config?.strict) {
+          throw new Error(
+            'benchmark-runner: strict mode requires BenchmarkConfig.llm for llm-judge scorer',
+          );
+        }
         console.warn(
           'benchmark-runner: llm-judge scorer used without providing an llm function in BenchmarkConfig. ' +
           'Falling back to non-empty heuristic. Pass { llm: yourLlmFn } to runBenchmark() for real scoring.',
