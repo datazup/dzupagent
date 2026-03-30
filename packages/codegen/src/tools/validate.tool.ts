@@ -4,18 +4,34 @@
 import { z } from 'zod'
 import { tool } from '@langchain/core/tools'
 import type { QualityScorer } from '../quality/quality-scorer.js'
+import type { QualityContext } from '../quality/quality-types.js'
 
-export function createValidateTool(_scorer: QualityScorer) {
+const qualityContextSchema = z.object({
+  plan: z.record(z.string(), z.unknown()).optional(),
+  techStack: z.record(z.string(), z.string()).optional(),
+  testResults: z
+    .object({
+      passed: z.number().int().nonnegative(),
+      failed: z.number().int().nonnegative(),
+      errors: z.array(z.string()),
+    })
+    .optional(),
+})
+
+export function createValidateTool(scorer: QualityScorer) {
   return tool(
-    async ({ featureId }) => {
-      // NOTE: The actual VFS content is injected by the calling node,
-      // not by the tool itself. The tool runs scoring on what it receives.
-      // In practice, the graph node reads vfsSnapshot from state and passes it.
-      // Here we return a placeholder that the node interprets.
+    async ({ featureId, vfsSnapshot, context }) => {
+      const qualityContext = context as QualityContext | undefined
+      const result = await scorer.evaluate(vfsSnapshot, qualityContext)
+
       return JSON.stringify({
         action: 'validate',
         featureId,
-        message: 'Validation should be invoked by the graph node with VFS content. Call scorer.evaluate(vfsSnapshot) directly.',
+        quality: result.quality,
+        success: result.success,
+        dimensions: result.dimensions,
+        errors: result.errors,
+        warnings: result.warnings,
       })
     },
     {
@@ -23,6 +39,12 @@ export function createValidateTool(_scorer: QualityScorer) {
       description: 'Run quality validation on the generated feature. Returns a quality score and list of errors/warnings.',
       schema: z.object({
         featureId: z.string().describe('Feature ID to validate'),
+        vfsSnapshot: z
+          .record(z.string(), z.string())
+          .describe('Current file-system snapshot: path -> file content'),
+        context: qualityContextSchema
+          .optional()
+          .describe('Optional quality-evaluation context (plan, tech stack, test results).'),
       }),
     },
   )
