@@ -13,6 +13,7 @@
 // --- Core types ---
 export type {
   AdapterProviderId,
+  AdapterCapabilityProfile,
   AgentInput,
   AgentEvent,
   AgentStartedEvent,

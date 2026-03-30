@@ -278,6 +278,62 @@ describe('SupervisorOrchestrator', () => {
       const result = await supervisor.execute('Empty goal')
       expect(result.subtaskResults).toHaveLength(0)
     })
+
+    it('marks dependency-skipped subtasks with null providerId', async () => {
+      const adapter = createMockAdapter('claude', [])
+      let callCount = 0
+      const registry = {
+        getForTask(_task: TaskDescriptor) {
+          return {
+            adapter,
+            decision: { provider: 'claude' as AdapterProviderId, reason: 'mock', confidence: 1 },
+          }
+        },
+        async *executeWithFallback(_input: AgentInput, _task: TaskDescriptor) {
+          const current = callCount++
+          if (current === 0) {
+            yield {
+              type: 'adapter:failed' as const,
+              providerId: 'claude' as AdapterProviderId,
+              error: 'first task failed',
+              timestamp: Date.now(),
+            }
+            return
+          }
+          yield {
+            type: 'adapter:completed' as const,
+            providerId: 'claude' as AdapterProviderId,
+            sessionId: 'sess-1',
+            result: 'done',
+            durationMs: 10,
+            timestamp: Date.now(),
+          }
+        },
+      } as unknown as AdapterRegistry
+
+      const decomposer: TaskDecomposer = {
+        async decompose(): Promise<SubTask[]> {
+          return [
+            { description: 'Task 1', tags: ['general'] },
+            { description: 'Task 2', tags: ['general'], dependsOn: [0] },
+          ]
+        },
+      }
+
+      const supervisor = new SupervisorOrchestrator({
+        registry,
+        eventBus: bus,
+        decomposer,
+        maxConcurrentDelegations: 1,
+      })
+
+      const result = await supervisor.execute('Dependent tasks')
+      expect(result.subtaskResults).toHaveLength(2)
+      expect(result.subtaskResults[0]!.success).toBe(false)
+      expect(result.subtaskResults[1]!.success).toBe(false)
+      expect(result.subtaskResults[1]!.providerId).toBeNull()
+      expect(result.subtaskResults[1]!.error).toContain('Skipped: dependency subtask 0 failed')
+    })
   })
 
   describe('concurrency control', () => {

@@ -49,7 +49,7 @@ export interface TaskDecomposer {
 /** Result of a single subtask delegation. */
 export interface SubTaskResult {
   subtask: SubTask
-  providerId: AdapterProviderId
+  providerId: AdapterProviderId | null
   result: string
   success: boolean
   durationMs: number
@@ -320,7 +320,7 @@ export class SupervisorOrchestrator {
             if (depResult && !depResult.success) {
               results[idx] = {
                 subtask,
-                providerId: 'claude', // placeholder -- no execution happened
+                providerId: null, // no execution happened
                 result: '',
                 success: false,
                 durationMs: 0,
@@ -370,7 +370,7 @@ export class SupervisorOrchestrator {
 
     const startMs = Date.now()
     let resultText = ''
-    let resultProviderId: AdapterProviderId = 'claude'
+    let resultProviderId: AdapterProviderId | null = null
     let success = false
     let errorMessage: string | undefined
 

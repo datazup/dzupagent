@@ -160,6 +160,25 @@ describe('OrchestratorFacade', () => {
       expect(result.usage!.inputTokens).toBe(100)
       expect(result.usage!.outputTokens).toBe(50)
     })
+
+    it('throws when stream ends without adapter:completed event', async () => {
+      const facade = createOrchestrator({
+        adapters: [claudeAdapter],
+        eventBus: bus,
+      })
+
+      ;(facade as unknown as { _registry: { executeWithFallback: (...args: unknown[]) => AsyncGenerator<AgentEvent, void, undefined> } })
+        ._registry.executeWithFallback = (async function *(): AsyncGenerator<AgentEvent, void, undefined> {
+          yield {
+            type: 'adapter:started',
+            providerId: 'claude',
+            sessionId: 'sess-claude',
+            timestamp: Date.now(),
+          }
+        }) as (...args: unknown[]) => AsyncGenerator<AgentEvent, void, undefined>
+
+      await expect(facade.run('incomplete stream')).rejects.toThrow('No adapter:completed event observed')
+    })
   })
 
   describe('supervisor()', () => {

@@ -405,7 +405,7 @@ describe('MapReduceOrchestrator', () => {
   })
 
   describe('abort signal', () => {
-    it('respects abort signal — pre-aborted signal drops chunks', async () => {
+    it('respects abort signal — pre-aborted signal marks chunks as failed', async () => {
       const controller = new AbortController()
       controller.abort() // Abort before starting
 
@@ -424,11 +424,15 @@ describe('MapReduceOrchestrator', () => {
         signal: controller.signal,
       })
 
-      // When abort signal is pre-set, the semaphore.acquire rejects with AbortError.
-      // Promise.allSettled catches these rejections and they are silently dropped
-      // (no mapResults are produced for rejected promises). So we get fewer results
-      // than total chunks, and successfulChunks should be 0.
+      // Pre-aborted signals produce rejected map tasks which are now converted
+      // into explicit failed chunk entries for deterministic accounting.
       expect(result.successfulChunks).toBe(0)
+      expect(result.failedChunks).toBe(3)
+      expect(result.perChunkStats).toHaveLength(3)
+      for (const stat of result.perChunkStats) {
+        expect(stat.providerId).toBeNull()
+        expect(stat.success).toBe(false)
+      }
       expect(result.result).toBe(0)
     })
   })

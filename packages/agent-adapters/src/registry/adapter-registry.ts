@@ -126,6 +126,10 @@ export class AdapterRegistry {
       if (!adapter || (breaker && !breaker.canExecute())) continue
 
       try {
+        let sawCompleted = false
+        let sawFailed = false
+        let lastFailedEvent: Extract<AgentEvent, { type: 'adapter:failed' }> | undefined
+
         this.emitEvent({
           type: 'agent:started',
           agentId: providerId,
@@ -136,18 +140,56 @@ export class AdapterRegistry {
         const gen = adapter.execute(input)
 
         for await (const event of gen) {
+          if (event.type === 'adapter:completed') {
+            sawCompleted = true
+          } else if (event.type === 'adapter:failed') {
+            sawFailed = true
+            lastFailedEvent = event
+          }
           yield event
         }
 
-        // If we get here without throwing, record success
-        this.recordSuccess(providerId)
+        // Success is only valid with an explicit terminal completion event.
+        if (sawCompleted) {
+          this.recordSuccess(providerId)
+          this.emitEvent({
+            type: 'agent:completed',
+            agentId: providerId,
+            runId: `${providerId}-${startMs}`,
+            durationMs: Date.now() - startMs,
+          })
+          return // successfully completed
+        }
+
+        const failureMessage = sawFailed
+          ? (lastFailedEvent?.error ?? 'Adapter emitted failure event without details')
+          : 'Adapter stream ended without terminal adapter:completed event'
+        const failureCode = sawFailed
+          ? (lastFailedEvent?.code ?? 'ADAPTER_EXECUTION_FAILED')
+          : 'MISSING_TERMINAL_COMPLETION'
+        const terminalError = new Error(failureMessage)
+        lastError = terminalError
+        this.recordFailure(providerId, terminalError)
+
         this.emitEvent({
-          type: 'agent:completed',
+          type: 'agent:failed',
           agentId: providerId,
-          runId: `${providerId}-${startMs}`,
-          durationMs: Date.now() - startMs,
+          runId: `${providerId}-fallback`,
+          errorCode: failureCode,
+          message: failureMessage,
         })
-        return // successfully completed
+
+        // If the adapter never emitted a failed event, synthesize one so
+        // downstream observers receive a terminal failure signal for this provider.
+        if (!sawFailed) {
+          yield {
+            type: 'adapter:failed',
+            providerId,
+            error: failureMessage,
+            code: failureCode,
+            timestamp: Date.now(),
+          }
+        }
 
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err))

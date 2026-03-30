@@ -23,7 +23,7 @@
  * ```
  */
 
-import { createEventBus } from '@dzipagent/core'
+import { createEventBus, ForgeError } from '@dzipagent/core'
 import type { CircuitBreakerConfig, DzipEventBus } from '@dzipagent/core'
 
 import { AdapterRegistry } from '../registry/adapter-registry.js'
@@ -251,24 +251,35 @@ export class OrchestratorFacade {
     }
 
     // Consume the stream and extract the result
-    let resultText = ''
-    let resultProviderId: AdapterProviderId = 'claude'
-    let resultUsage: TokenUsage | undefined
+    let completion: AgentCompletedEvent | undefined
+    let lastFailure: Extract<AgentEvent, { type: 'adapter:failed' }> | undefined
 
     for await (const event of eventStream) {
       if (event.type === 'adapter:completed') {
-        const completed = event as AgentCompletedEvent
-        resultText = completed.result
-        resultProviderId = completed.providerId
-        resultUsage = completed.usage
+        completion = event
+      } else if (event.type === 'adapter:failed') {
+        lastFailure = event
       }
     }
 
+    if (!completion) {
+      throw new ForgeError({
+        code: 'ADAPTER_EXECUTION_FAILED',
+        message: lastFailure?.error ?? 'No adapter:completed event observed for run()',
+        recoverable: false,
+        context: {
+          source: 'OrchestratorFacade.run',
+          providerId: lastFailure?.providerId,
+          failureCode: lastFailure?.code,
+        },
+      })
+    }
+
     return {
-      result: resultText,
-      providerId: resultProviderId,
+      result: completion.result,
+      providerId: completion.providerId,
       durationMs: Date.now() - startMs,
-      usage: resultUsage,
+      usage: completion.usage,
     }
   }
 

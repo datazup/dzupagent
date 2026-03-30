@@ -8,6 +8,16 @@
 /** Supported adapter provider IDs */
 export type AdapterProviderId = 'claude' | 'codex' | 'gemini' | 'qwen' | 'crush'
 
+/** Runtime capability declaration for adapter behavior. */
+export interface AdapterCapabilityProfile {
+  supportsResume: boolean
+  supportsFork: boolean
+  supportsToolCalls: boolean
+  supportsStreaming: boolean
+  supportsCostUsage: boolean
+  maxContextTokens?: number
+}
+
 /** Input to an agent adapter */
 export interface AgentInput {
   /** The prompt or instruction to send */
@@ -172,6 +182,9 @@ export interface AgentCLIAdapter {
 
   /** Update adapter configuration */
   configure(opts: Partial<AdapterConfig>): void
+
+  /** Runtime capability declaration (optional for backward compatibility). */
+  getCapabilities?(): AdapterCapabilityProfile
 
   /** List available sessions (if supported by the adapter) */
   listSessions?(): Promise<SessionInfo[]>

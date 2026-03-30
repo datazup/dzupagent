@@ -44,7 +44,7 @@ export type ReducerFn<TMapResult, TReduceResult> = (
 /** The outcome of mapping a single chunk. */
 export interface MapChunkResult<TMapResult> {
   chunkIndex: number
-  providerId: AdapterProviderId
+  providerId: AdapterProviderId | null
   result: TMapResult
   rawResult: string
   success: boolean
@@ -61,7 +61,7 @@ export interface MapReduceResult<TReduceResult> {
   totalDurationMs: number
   perChunkStats: Array<{
     index: number
-    providerId: AdapterProviderId
+    providerId: AdapterProviderId | null
     durationMs: number
     success: boolean
   }>
@@ -229,11 +229,23 @@ export class MapReduceOrchestrator {
 
     const settled = await Promise.allSettled(mapTasks)
 
-    for (const outcome of settled) {
+    for (const [index, outcome] of settled.entries()) {
       if (outcome.status === 'fulfilled') {
         mapResults.push(outcome.value)
+      } else {
+        const error = outcome.reason instanceof Error
+          ? outcome.reason
+          : new Error(String(outcome.reason))
+        mapResults.push({
+          chunkIndex: index,
+          providerId: null,
+          result: undefined as TMapResult,
+          rawResult: '',
+          success: false,
+          durationMs: 0,
+          error: error.message,
+        })
       }
-      // Rejections (e.g. abort) are silently dropped — they never produced a result
     }
 
     // Sort by chunk index so the reducer always receives deterministic ordering
@@ -305,7 +317,7 @@ export class MapReduceOrchestrator {
 
       // Consume the async generator and capture the completed event
       let completedEvent: AgentCompletedEvent | undefined
-      let lastProviderId: AdapterProviderId = 'claude' // default fallback
+      let lastProviderId: AdapterProviderId | null = null
 
       const gen = this.registry.executeWithFallback(inputWithSignal, task)
 
@@ -360,7 +372,7 @@ export class MapReduceOrchestrator {
 
       return {
         chunkIndex: index,
-        providerId: 'claude', // unknown at failure time
+        providerId: null, // unknown at failure time
         result: undefined as TMapResult,
         rawResult: '',
         success: false,
@@ -372,11 +384,11 @@ export class MapReduceOrchestrator {
     }
   }
 
-  private extractProviderId(event: AgentEvent): AdapterProviderId {
+  private extractProviderId(event: AgentEvent): AdapterProviderId | null {
     if ('providerId' in event) {
       return event.providerId
     }
-    return 'claude'
+    return null
   }
 
   private emitEvent(

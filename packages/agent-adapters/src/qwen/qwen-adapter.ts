@@ -4,29 +4,19 @@
  * Qwen models are primarily accessible via OpenAI-compatible API endpoints
  * (Alibaba Cloud DashScope or local deployments). There is no official
  * dedicated Qwen CLI agent SDK yet.
- *
- * This adapter:
- * - Spawns the `qwen` CLI binary if available
- * - Parses JSONL output from stdout
- * - Falls back with a clear error indicating that Qwen models should be
- *   accessed via ModelRegistry's OpenAI-compatible provider (baseUrl override)
- *
- * TODO: Replace child_process spawning with official Qwen Agent SDK once available.
- * TODO: Add support for DashScope-specific features (long-context, code interpreter).
- * TODO: Map Qwen-specific tool call formats to AgentEvent.
  */
 
-import { randomUUID } from 'node:crypto'
 import { ForgeError } from '@dzipagent/core'
+
 import type {
   AdapterConfig,
+  AdapterCapabilityProfile,
   AdapterProviderId,
-  AgentCLIAdapter,
   AgentEvent,
   AgentInput,
-  HealthStatus,
 } from '../types.js'
-import { isBinaryAvailable, spawnAndStreamJsonl } from '../utils/process-helpers.js'
+import { BaseCliAdapter } from '../base/base-cli-adapter.js'
+import { isBinaryAvailable } from '../utils/process-helpers.js'
 
 const PROVIDER_ID: AdapterProviderId = 'qwen'
 const QWEN_BINARY = 'qwen'
@@ -135,30 +125,16 @@ function mapQwenEvent(
   }
 }
 
-/**
- * Qwen CLI agent adapter (stub implementation).
- *
- * Spawns the `qwen` binary if available and streams JSONL output. If the binary
- * is not installed, throws ADAPTER_SDK_NOT_INSTALLED with a suggestion to use
- * the OpenAI-compatible provider via ModelRegistry instead.
- *
- * TODO: Replace with official Qwen Agent SDK integration when available.
- */
-export class QwenAdapter implements AgentCLIAdapter {
-  readonly providerId: AdapterProviderId = PROVIDER_ID
-
-  private config: AdapterConfig
-  private currentAbortController: AbortController | null = null
-
+export class QwenAdapter extends BaseCliAdapter {
   constructor(config: AdapterConfig = {}) {
-    this.config = { ...config }
+    super(PROVIDER_ID, config)
   }
 
-  async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
-    const sessionId = randomUUID()
-    const startTime = Date.now()
+  protected getBinaryName(): string {
+    return QWEN_BINARY
+  }
 
-    // Check binary availability upfront to give a helpful error message
+  protected async assertReady(): Promise<void> {
     const available = await isBinaryAvailable(QWEN_BINARY)
     if (!available) {
       throw new ForgeError({
@@ -171,112 +147,31 @@ export class QwenAdapter implements AgentCLIAdapter {
         context: { command: QWEN_BINARY, providerId: PROVIDER_ID },
       })
     }
-
-    yield {
-      type: 'adapter:started',
-      providerId: PROVIDER_ID,
-      sessionId,
-      timestamp: startTime,
-    }
-
-    this.currentAbortController = new AbortController()
-    const combinedSignal = input.signal
-      ? AbortSignal.any([this.currentAbortController.signal, input.signal])
-      : this.currentAbortController.signal
-
-    const args = this.buildArgs(input)
-    const env = this.buildEnv()
-
-    try {
-      let hasCompleted = false
-
-      for await (const record of spawnAndStreamJsonl(QWEN_BINARY, args, {
-        cwd: input.workingDirectory ?? this.config.workingDirectory,
-        env,
-        signal: combinedSignal,
-        timeoutMs: this.config.timeoutMs,
-      })) {
-        const event = mapQwenEvent(record, sessionId)
-        if (event) {
-          if (event.type === 'adapter:completed') {
-            hasCompleted = true
-          }
-          yield event
-        }
-      }
-
-      if (!hasCompleted) {
-        yield {
-          type: 'adapter:completed',
-          providerId: PROVIDER_ID,
-          sessionId,
-          result: '',
-          durationMs: Date.now() - startTime,
-          timestamp: Date.now(),
-        }
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      yield {
-        type: 'adapter:failed',
-        providerId: PROVIDER_ID,
-        sessionId,
-        error: message,
-        code: ForgeError.is(err) ? err.code : undefined,
-        timestamp: Date.now(),
-      }
-
-      if (ForgeError.is(err)) {
-        throw err
-      }
-    } finally {
-      this.currentAbortController = null
-    }
   }
 
-  async *resumeSession(
+  protected getUnavailableBinaryMessage(binary: string): string {
+    return `'${binary}' binary not found in PATH. ` +
+      'Qwen models can be accessed via ModelRegistry with OpenAI-compatible provider.'
+  }
+
+  protected mapProviderEvent(
+    record: Record<string, unknown>,
     sessionId: string,
-    input: AgentInput,
-  ): AsyncGenerator<AgentEvent, void, undefined> {
-    // TODO: Implement session resume once Qwen CLI supports it
-    const modifiedInput: AgentInput = {
-      ...input,
-      resumeSessionId: sessionId,
-    }
-    yield* this.execute(modifiedInput)
+  ): AgentEvent | undefined {
+    return mapQwenEvent(record, sessionId)
   }
 
-  interrupt(): void {
-    if (this.currentAbortController) {
-      this.currentAbortController.abort()
-      this.currentAbortController = null
-    }
-  }
-
-  async healthCheck(): Promise<HealthStatus> {
-    const cliAvailable = await isBinaryAvailable(QWEN_BINARY)
+  getCapabilities(): AdapterCapabilityProfile {
     return {
-      healthy: cliAvailable,
-      providerId: PROVIDER_ID,
-      sdkInstalled: cliAvailable,
-      cliAvailable,
-      lastError: cliAvailable
-        ? undefined
-        : `'${QWEN_BINARY}' binary not found in PATH. ` +
-          'Qwen models can be accessed via ModelRegistry with OpenAI-compatible provider.',
+      supportsResume: true,
+      supportsFork: false,
+      supportsToolCalls: true,
+      supportsStreaming: true,
+      supportsCostUsage: false,
     }
   }
 
-  configure(opts: Partial<AdapterConfig>): void {
-    this.config = { ...this.config, ...opts }
-  }
-
-  /**
-   * Build CLI arguments from the agent input.
-   *
-   * TODO: Update argument mapping once the Qwen CLI stabilizes.
-   */
-  private buildArgs(input: AgentInput): string[] {
+  protected buildArgs(input: AgentInput): string[] {
     const args: string[] = []
 
     // TODO: Confirm output format flag name for Qwen CLI
@@ -305,17 +200,12 @@ export class QwenAdapter implements AgentCLIAdapter {
     return args
   }
 
-  /** Build environment variables for the child process. */
-  private buildEnv(): Record<string, string> {
-    const env: Record<string, string> = { ...process.env as Record<string, string> }
+  protected buildEnv(): Record<string, string> {
+    const env = super.buildEnv()
 
     if (this.config.apiKey) {
       // DashScope uses DASHSCOPE_API_KEY
       env['DASHSCOPE_API_KEY'] = this.config.apiKey
-    }
-
-    if (this.config.env) {
-      Object.assign(env, this.config.env)
     }
 
     return env
