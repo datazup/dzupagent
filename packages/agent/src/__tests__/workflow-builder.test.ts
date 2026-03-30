@@ -75,11 +75,33 @@ describe('WorkflowBuilder', () => {
       .then(step('execute', () => ({ executed: true })))
       .build()
 
-    await workflow.run({}, { onEvent: (e) => events.push(e) })
+    const result = await workflow.run({}, { onEvent: (e) => events.push(e) })
 
     const suspended = events.find(e => e.type === 'suspended')
     expect(suspended).toBeDefined()
     expect((suspended as { reason: string }).reason).toBe('review_needed')
+    expect(result['plan']).toBe('done')
+    expect(result['executed']).toBeUndefined()
+  })
+
+  it('compiles workflow into canonical PipelineDefinition', () => {
+    const workflow = createWorkflow({ id: 'compiled' })
+      .then(step('a', () => ({ a: 1 })))
+      .branch(
+        () => 'x',
+        {
+          x: [step('x1', () => ({ x: true }))],
+          y: [step('y1', () => ({ y: true }))],
+        },
+      )
+      .build()
+
+    const definition = workflow.toPipelineDefinition()
+    expect(definition.id).toBe('compiled')
+    expect(definition.schemaVersion).toBe('1.0.0')
+    expect(definition.entryNodeId.length).toBeGreaterThan(0)
+    expect(definition.nodes.length).toBeGreaterThan(0)
+    expect(definition.edges.length).toBeGreaterThan(0)
   })
 
   it('propagates step errors', async () => {
