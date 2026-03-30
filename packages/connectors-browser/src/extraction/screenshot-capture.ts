@@ -7,12 +7,28 @@ import type { ScreenshotResult } from '../types.js'
  */
 const MAX_HEIGHT_MULTIPLIER = 3
 
-export async function captureScreenshot(page: Page): Promise<ScreenshotResult> {
+export async function captureScreenshot(
+  page: Page,
+  fullPage = true,
+): Promise<ScreenshotResult> {
   const viewport = page.viewportSize()
   const viewportHeight = viewport?.height ?? 720
   const viewportWidth = viewport?.width ?? 1280
-  const maxHeight = viewportHeight * MAX_HEIGHT_MULTIPLIER
+  if (!fullPage) {
+    const buffer = await page.screenshot({
+      fullPage: false,
+      type: 'jpeg',
+      quality: 80,
+    })
+    return {
+      buffer,
+      mimeType: 'image/jpeg',
+      width: viewportWidth,
+      height: viewportHeight,
+    }
+  }
 
+  const maxHeight = viewportHeight * MAX_HEIGHT_MULTIPLIER
   // Clip the capture area if the page is taller than the cap
   const pageHeight = await page.evaluate(() => Math.max(
     document.body?.scrollHeight ?? 0,

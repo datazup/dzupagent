@@ -196,7 +196,7 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
             // networkidle may not fire for SPAs with persistent connections
           })
 
-          const result = await captureScreenshot(page)
+          const result = await captureScreenshot(page, input.fullPage ?? true)
           const base64 = result.buffer.toString('base64')
 
           return JSON.stringify({
