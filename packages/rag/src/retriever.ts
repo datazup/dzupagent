@@ -229,8 +229,11 @@ export class HybridRetriever {
   }
 
   /** Extract source quality from chunk metadata, defaulting to 0.5 */
-  private extractSourceQuality(_chunk: ScoredChunk): number {
-    // Quality can be stored in search hit metadata; default to 0.5
+  private extractSourceQuality(chunk: ScoredChunk): number {
+    const direct = chunk.sourceQuality
+    if (typeof direct === 'number') {
+      return Math.max(0, Math.min(1, direct))
+    }
     return 0.5
   }
 
@@ -263,6 +266,7 @@ export class HybridRetriever {
   // -------------------------------------------------------------------------
 
   private vectorHitToChunk(hit: VectorSearchHit): ScoredChunk {
+    const sourceQuality = this.parseSourceQuality(hit.metadata)
     return {
       id: hit.id,
       text: hit.text,
@@ -272,11 +276,13 @@ export class HybridRetriever {
       sourceId: (hit.metadata['source_id'] as string | undefined) ?? '',
       sourceTitle: (hit.metadata['source_title'] as string | undefined) ?? undefined,
       sourceUrl: (hit.metadata['source_url'] as string | undefined) ?? undefined,
+      ...(sourceQuality !== undefined ? { sourceQuality } : {}),
       chunkIndex: (hit.metadata['chunk_index'] as number | undefined) ?? 0,
     }
   }
 
   private keywordHitToChunk(hit: KeywordSearchHit): ScoredChunk {
+    const sourceQuality = this.parseSourceQuality(hit.metadata)
     return {
       id: hit.id,
       text: hit.text,
@@ -286,7 +292,28 @@ export class HybridRetriever {
       sourceId: (hit.metadata['source_id'] as string | undefined) ?? '',
       sourceTitle: (hit.metadata['source_title'] as string | undefined) ?? undefined,
       sourceUrl: (hit.metadata['source_url'] as string | undefined) ?? undefined,
+      ...(sourceQuality !== undefined ? { sourceQuality } : {}),
       chunkIndex: (hit.metadata['chunk_index'] as number | undefined) ?? 0,
     }
+  }
+
+  private parseSourceQuality(metadata: Record<string, unknown>): number | undefined {
+    const candidates = [
+      metadata['source_quality'],
+      metadata['sourceQuality'],
+      metadata['domain_authority'],
+    ]
+    for (const value of candidates) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return Math.max(0, Math.min(1, value))
+      }
+      if (typeof value === 'string') {
+        const parsed = Number(value)
+        if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+          return Math.max(0, Math.min(1, parsed))
+        }
+      }
+    }
+    return undefined
   }
 }

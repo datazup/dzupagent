@@ -91,6 +91,21 @@ function storedToChunkResult(stored: StoredChunk): ChunkResult {
   }
 }
 
+function normalizeScope(
+  scope: Record<string, string>,
+  requiredKeys: string[],
+): Record<string, string> {
+  const normalized: Record<string, string> = {}
+  for (const key of requiredKeys) {
+    const value = scope[key]
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`Missing required scope key "${key}"`)
+    }
+    normalized[key] = value
+  }
+  return normalized
+}
+
 // ---------------------------------------------------------------------------
 // RagMemoryNamespace
 // ---------------------------------------------------------------------------
@@ -111,6 +126,7 @@ export class RagMemoryNamespace {
     chunks: ChunkResult[],
     scope: Record<string, string>,
   ): Promise<void> {
+    const normalizedScope = normalizeScope(scope, this.config.scopeKeys)
     for (const chunk of chunks) {
       const value: Record<string, unknown> = {
         id: chunk.id,
@@ -121,7 +137,7 @@ export class RagMemoryNamespace {
       }
       await this.memoryService.put(
         this.config.namespace,
-        scope,
+        normalizedScope,
         chunk.id,
         value,
       )
@@ -135,7 +151,8 @@ export class RagMemoryNamespace {
    * (memory namespaces can contain heterogeneous data).
    */
   async getChunks(scope: Record<string, string>): Promise<ChunkResult[]> {
-    const records = await this.memoryService.get(this.config.namespace, scope)
+    const normalizedScope = normalizeScope(scope, this.config.scopeKeys)
+    const records = await this.memoryService.get(this.config.namespace, normalizedScope)
     const chunks: ChunkResult[] = []
     for (const record of records) {
       if (isStoredChunk(record)) {
@@ -158,9 +175,10 @@ export class RagMemoryNamespace {
     if (!this.memoryService.search) {
       throw new Error('Memory service does not support search')
     }
+    const normalizedScope = normalizeScope(scope, this.config.scopeKeys)
     const results = await this.memoryService.search(
       this.config.namespace,
-      scope,
+      normalizedScope,
       query,
       limit,
     )
@@ -192,18 +210,20 @@ export class RagMemoryNamespace {
     if (!this.memoryService.delete) {
       throw new Error('Memory service does not support delete')
     }
-    const records = await this.memoryService.get(this.config.namespace, scope)
+    const normalizedScope = normalizeScope(scope, this.config.scopeKeys)
+    const records = await this.memoryService.get(this.config.namespace, normalizedScope)
     for (const record of records) {
       if (!isStoredChunk(record)) continue
       if (record.metadata.sourceId === sourceId) {
-        await this.memoryService.delete(this.config.namespace, scope, record.id)
+        await this.memoryService.delete(this.config.namespace, normalizedScope, record.id)
       }
     }
   }
 
   /** Get chunk count for a scope */
   async getChunkCount(scope: Record<string, string>): Promise<number> {
-    const records = await this.memoryService.get(this.config.namespace, scope)
+    const normalizedScope = normalizeScope(scope, this.config.scopeKeys)
+    const records = await this.memoryService.get(this.config.namespace, normalizedScope)
     return records.filter(r => isStoredChunk(r)).length
   }
 }

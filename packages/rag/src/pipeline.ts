@@ -94,7 +94,7 @@ export class RagPipeline {
   private readonly deps: RagPipelineDeps
   private readonly chunker: SmartChunker
   private readonly assembler: ContextAssembler
-  private retriever: HybridRetriever | undefined
+  private readonly retrievers = new Map<string, HybridRetriever>()
 
   constructor(config: Partial<RagPipelineConfig>, deps: RagPipelineDeps) {
     this.config = {
@@ -261,9 +261,20 @@ export class RagPipeline {
     return `${this.config.vectorStore.collectionPrefix}${tenantId}`
   }
 
-  /** Lazily create or return the HybridRetriever */
+  /** Dispose a single tenant retriever instance (if present). */
+  disposeTenant(tenantId: string): void {
+    this.retrievers.delete(tenantId)
+  }
+
+  /** Dispose all cached retriever instances. */
+  disposeAll(): void {
+    this.retrievers.clear()
+  }
+
+  /** Lazily create or return the tenant-specific HybridRetriever */
   private getRetriever(tenantId: string): HybridRetriever {
-    if (this.retriever) return this.retriever
+    const existing = this.retrievers.get(tenantId)
+    if (existing) return existing
 
     const collectionName = this.getCollectionName(tenantId)
 
@@ -288,8 +299,9 @@ export class RagPipeline {
       keywordSearch: this.deps.keywordSearch,
     }
 
-    this.retriever = new HybridRetriever(retrieverConfig)
-    return this.retriever
+    const retriever = new HybridRetriever(retrieverConfig)
+    this.retrievers.set(tenantId, retriever)
+    return retriever
   }
 
   /** Convert a flat filter record to the @dzipagent/core MetadataFilter format */

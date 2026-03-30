@@ -143,6 +143,8 @@ export interface ScoredChunk {
   sourceTitle?: string
   /** Source document URL */
   sourceUrl?: string
+  /** Source-level quality score (0-1) when available */
+  sourceQuality?: number
   /** 0-based chunk index within the source */
   chunkIndex: number
 }
