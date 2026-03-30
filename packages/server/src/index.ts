@@ -22,6 +22,8 @@ export { createMemoryBrowseRoutes } from './routes/memory-browse.js'
 export type { MemoryBrowseRouteConfig } from './routes/memory-browse.js'
 export { createLearningRoutes } from './routes/learning.js'
 export type { LearningRouteConfig } from './routes/learning.js'
+export { createBenchmarkRoutes } from './routes/benchmarks.js'
+export type { BenchmarkRouteConfig } from './routes/benchmarks.js'
 export { createMemoryHealthRoutes } from './routes/memory-health.js'
 export type { MemoryHealthRouteConfig, HealthProvider } from './routes/memory-health.js'
 export { createRoutingStatsRoutes } from './routes/routing-stats.js'
@@ -50,6 +52,7 @@ export { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors, deploymentHistory } 
 export { vectorColumn } from './persistence/vector-column.js'
 export { cosineDistance, l2Distance, innerProduct, toVector } from './persistence/vector-ops.js'
 export { InMemoryRunTraceStore, computeStepDistribution } from './persistence/run-trace-store.js'
+export { InMemoryBenchmarkRunStore } from './persistence/benchmark-run-store.js'
 export type {
   TraceStep,
   RunTrace,
@@ -57,6 +60,12 @@ export type {
   RunTraceStore,
   InMemoryRunTraceStoreOptions,
 } from './persistence/run-trace-store.js'
+export type {
+  BenchmarkRunRecord,
+  BenchmarkBaselineRecord,
+  BenchmarkCompareRecord,
+  BenchmarkRunStore,
+} from './persistence/benchmark-run-store.js'
 
 // --- Run Trace Routes ---
 export { createRunTraceRoutes } from './routes/run-trace.js'
@@ -224,6 +233,8 @@ export type { ScorecardFormat } from './scorecard/index.js'
 
 // --- Runtime ---
 export { ConsolidationScheduler } from './runtime/consolidation-scheduler.js'
+export { BenchmarkOrchestrator } from './services/benchmark-orchestrator.js'
+export type { BenchmarkOrchestratorConfig } from './services/benchmark-orchestrator.js'
 export type { ConsolidationTask, ConsolidationReport, ConsolidationSchedulerConfig } from './runtime/consolidation-scheduler.js'
 export { createSleepConsolidationTask } from './runtime/sleep-consolidation-task.js'
 export type {

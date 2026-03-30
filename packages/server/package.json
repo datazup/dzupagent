@@ -23,7 +23,9 @@
   "dependencies": {
     "@dzipagent/agent": "0.1.0",
     "@dzipagent/core": "0.1.0",
+    "@dzipagent/evals": "0.1.0",
     "@dzipagent/memory-ipc": "0.1.0",
+    "@dzipagent/otel": "0.1.0",
     "@langchain/core": "^1.1.32",
     "drizzle-orm": "^0.40.1",
     "hono": "^4.12.9"

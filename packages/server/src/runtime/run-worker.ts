@@ -1,6 +1,7 @@
 import type { AgentDefinition, ModelRegistry, RunStore, MetricsCollector } from '@dzipagent/core'
 import type { DzipEventBus } from '@dzipagent/core'
 import type { RunContextTransfer, PersistedIntentContext } from '@dzipagent/core'
+import { withForgeContext, type ForgeTraceContext } from '@dzipagent/otel'
 import type { RunQueue } from '../queue/run-queue.js'
 import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
@@ -163,9 +164,22 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
     // Extract trace context from run metadata for log correlation.
     // Declared before try/catch so traceId is available in error handlers.
     let traceId: string | undefined
+    let forgeTraceContext: ForgeTraceContext | undefined
     try {
       const traceCtx = extractTraceContext(job.metadata as Record<string, unknown> | undefined)
       traceId = traceCtx?.traceId
+      if (traceCtx) {
+        forgeTraceContext = {
+          traceId: traceCtx.traceId,
+          spanId: traceCtx.spanId,
+          agentId: job.agentId,
+          runId: job.runId,
+          tenantId: typeof job.metadata?.['tenantId'] === 'string'
+            ? job.metadata['tenantId']
+            : undefined,
+          baggage: {},
+        }
+      }
     } catch {
       // Trace extraction is non-fatal
     }
@@ -288,7 +302,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         }
       }
 
-      const execution = await options.runExecutor({
+      const executeRun = () => options.runExecutor({
         runId: job.runId,
         agentId: job.agentId,
         input: job.input,
@@ -299,6 +313,9 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         modelRegistry: options.modelRegistry,
         signal,
       })
+      const execution = forgeTraceContext
+        ? await withForgeContext(forgeTraceContext, executeRun)
+        : await executeRun()
 
       // Guard: don't overwrite terminal state if cancelled during execution
       throwIfAborted(signal)

@@ -5,6 +5,7 @@ import {
   ModelRegistry,
   createEventBus,
 } from '@dzipagent/core'
+import { currentForgeContext } from '@dzipagent/otel'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 import { startRunWorker } from '../runtime/run-worker.js'
 
@@ -356,6 +357,68 @@ describe('run-worker', () => {
     const rejected = await runStore.get(run.id)
     expect(rejected?.error).toContain('not safe')
     expect(rejected?.output).toBeUndefined()
+
+    await runQueue.stop(false)
+  })
+
+  it('propagates forge trace context into run executor', async () => {
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const eventBus = createEventBus()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+    const modelRegistry = new ModelRegistry()
+
+    await agentStore.save({
+      id: 'a-trace',
+      name: 'Trace Agent',
+      instructions: 'test',
+      modelTier: 'chat',
+      active: true,
+    })
+
+    startRunWorker({
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus,
+      modelRegistry,
+      runExecutor: async () => {
+        const ctx = currentForgeContext()
+        return {
+          traceId: ctx?.traceId,
+          spanId: ctx?.spanId,
+          runId: ctx?.runId,
+          agentId: ctx?.agentId,
+        }
+      },
+    })
+
+    const run = await runStore.create({
+      agentId: 'a-trace',
+      input: { message: 'trace' },
+      metadata: {
+        _trace: { traceparent: '00-1234567890abcdef1234567890abcdef-1234567890abcdef-01' },
+      },
+    })
+    await runQueue.enqueue({
+      runId: run.id,
+      agentId: 'a-trace',
+      input: { message: 'trace' },
+      metadata: {
+        _trace: { traceparent: '00-1234567890abcdef1234567890abcdef-1234567890abcdef-01' },
+      },
+      priority: 1,
+    })
+
+    const status = await waitForTerminalStatus(runStore, run.id, 4000)
+    expect(status).toBe('completed')
+    const completed = await runStore.get(run.id)
+    expect(completed?.output).toEqual({
+      traceId: '1234567890abcdef1234567890abcdef',
+      spanId: '1234567890abcdef',
+      runId: run.id,
+      agentId: 'a-trace',
+    })
 
     await runQueue.stop(false)
   })

@@ -52,6 +52,7 @@ import type { RunTraceStore } from './persistence/run-trace-store.js'
 import { createMetricsRoute } from './routes/metrics.js'
 import { createDeployRoutes, type DeployRouteConfig } from './routes/deploy.js'
 import { createLearningRoutes, type LearningRouteConfig } from './routes/learning.js'
+import { createBenchmarkRoutes, type BenchmarkRouteConfig } from './routes/benchmarks.js'
 import { PrometheusMetricsCollector } from './metrics/prometheus-collector.js'
 
 /**
@@ -123,6 +124,8 @@ export interface ForgeServerConfig {
   deploy?: DeployRouteConfig
   /** Optional learning route config. When provided, mounts /api/learning routes for self-learning dashboard. */
   learning?: LearningRouteConfig
+  /** Optional benchmark routes config. When provided, mounts /api/benchmarks routes. */
+  benchmark?: BenchmarkRouteConfig
 }
 
 const startedRunQueues = new WeakSet<RunQueue>()
@@ -244,6 +247,10 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
 
   if (runtimeConfig.learning) {
     app.route('/api/learning', createLearningRoutes(runtimeConfig.learning))
+  }
+
+  if (runtimeConfig.benchmark) {
+    app.route('/api/benchmarks', createBenchmarkRoutes(runtimeConfig.benchmark))
   }
 
   if (runtimeConfig.playground) {
