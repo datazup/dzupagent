@@ -1,4 +1,4 @@
-import type { BrowserPoolConfig, FetchResult } from './types.js'
+import type { BrowserPoolConfig, FetchResult, ExtractionConfig } from './types.js'
 import { ContentExtractor } from './content-extractor.js'
 
 const DEFAULT_CONFIG: BrowserPoolConfig = {
@@ -136,7 +136,7 @@ export class BrowserPool {
   /** Fetch a URL using the browser pool and return extracted content */
   async fetch(
     url: string,
-    options?: { timeout?: number; waitFor?: string },
+    options?: { timeout?: number; waitFor?: string; extraction?: Partial<ExtractionConfig> },
   ): Promise<FetchResult> {
     const timeout = options?.timeout ?? 30_000
     const startTime = Date.now()
@@ -160,7 +160,11 @@ export class BrowserPool {
 
       const html = await typedPage.content()
       const status = response?.status() ?? 0
-      const extracted = this.extractor.extract(html, { mode: 'all', cleanHtml: true })
+      const extracted = this.extractor.extract(html, {
+        mode: 'all',
+        cleanHtml: true,
+        ...options?.extraction,
+      })
 
       return {
         url,

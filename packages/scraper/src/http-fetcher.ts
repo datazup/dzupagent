@@ -1,4 +1,4 @@
-import type { HttpFetcherConfig, FetchResult } from './types.js'
+import type { HttpFetcherConfig, FetchResult, ExtractionConfig } from './types.js'
 import { ContentExtractor } from './content-extractor.js'
 
 const DEFAULT_USER_AGENTS = [
@@ -35,6 +35,7 @@ export class HttpFetcher {
   private readonly userAgents: string[]
   private readonly extractor: ContentExtractor
   private userAgentIndex = 0
+  private readonly robotsCache = new Map<string, { fetchedAt: number; rules: RobotsRules | null }>()
 
   constructor(config?: Partial<HttpFetcherConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config }
@@ -43,7 +44,10 @@ export class HttpFetcher {
   }
 
   /** Fetch a URL and return extracted content */
-  async fetch(url: string, options?: { timeout?: number }): Promise<FetchResult> {
+  async fetch(
+    url: string,
+    options?: { timeout?: number; extraction?: Partial<ExtractionConfig> },
+  ): Promise<FetchResult> {
     const timeout = options?.timeout ?? 30_000
     const startTime = Date.now()
 
@@ -51,7 +55,11 @@ export class HttpFetcher {
     const html = await response.text()
     const contentType = response.headers.get('content-type') ?? 'text/html'
 
-    const extracted = this.extractor.extract(html, { mode: 'all', cleanHtml: true })
+    const extracted = this.extractor.extract(html, {
+      mode: 'all',
+      cleanHtml: true,
+      ...options?.extraction,
+    })
 
     return {
       url: response.url || url,
@@ -85,10 +93,19 @@ export class HttpFetcher {
       try {
         const controller = new AbortController()
         const timeoutId = setTimeout(() => controller.abort(), timeout)
+        const userAgent = this.getNextUserAgent()
+
+        if (this.config.respectRobotsTxt) {
+          const allowed = await this.isAllowedByRobots(currentUrl, userAgent)
+          if (!allowed) {
+            clearTimeout(timeoutId)
+            throw new Error(`Blocked by robots.txt: ${currentUrl}`)
+          }
+        }
 
         const response = await fetch(currentUrl, {
           headers: {
-            'User-Agent': this.getNextUserAgent(),
+            'User-Agent': userAgent,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate',
@@ -145,8 +162,130 @@ export class HttpFetcher {
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
   }
+
+  private async isAllowedByRobots(url: string, userAgent: string): Promise<boolean> {
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      return true
+    }
+
+    const rules = await this.getRobotsRules(parsed.origin)
+    if (!rules) return true
+    return evaluateRobots(rules, userAgent, parsed.pathname || '/')
+  }
+
+  private async getRobotsRules(origin: string): Promise<RobotsRules | null> {
+    const ttlMs = 10 * 60 * 1000
+    const now = Date.now()
+    const cached = this.robotsCache.get(origin)
+    if (cached && now - cached.fetchedAt < ttlMs) {
+      return cached.rules
+    }
+
+    let rules: RobotsRules | null = null
+    try {
+      const robotsUrl = `${origin}/robots.txt`
+      const response = await fetch(robotsUrl, {
+        headers: {
+          'User-Agent': this.userAgents[0] ?? DEFAULT_USER_AGENTS[0]!,
+          'Accept': 'text/plain,*/*;q=0.5',
+        },
+      })
+      if (response.ok) {
+        rules = parseRobots(await response.text())
+      }
+    } catch {
+      rules = null
+    }
+
+    this.robotsCache.set(origin, { fetchedAt: now, rules })
+    return rules
+  }
 }
 
 function isRedirect(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308
+}
+
+interface RobotsRuleGroup {
+  allow: string[]
+  disallow: string[]
+}
+
+interface RobotsRules {
+  groups: Map<string, RobotsRuleGroup>
+}
+
+function parseRobots(content: string): RobotsRules {
+  const groups = new Map<string, RobotsRuleGroup>()
+  let activeAgents: string[] = []
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.split('#')[0]?.trim() ?? ''
+    if (!line) continue
+    const [rawKey, ...rest] = line.split(':')
+    const key = rawKey?.trim().toLowerCase()
+    const value = rest.join(':').trim()
+    if (!key) continue
+
+    if (key === 'user-agent') {
+      const ua = value.toLowerCase()
+      activeAgents = [ua]
+      if (!groups.has(ua)) {
+        groups.set(ua, { allow: [], disallow: [] })
+      }
+      continue
+    }
+
+    if (activeAgents.length === 0) continue
+    if (key !== 'allow' && key !== 'disallow') continue
+
+    for (const ua of activeAgents) {
+      const group = groups.get(ua) ?? { allow: [], disallow: [] }
+      if (key === 'allow') {
+        group.allow.push(value)
+      } else {
+        group.disallow.push(value)
+      }
+      groups.set(ua, group)
+    }
+  }
+
+  return { groups }
+}
+
+function evaluateRobots(rules: RobotsRules, userAgent: string, path: string): boolean {
+  const group = selectGroup(rules.groups, userAgent.toLowerCase())
+  if (!group) return true
+
+  let bestAllow = -1
+  let bestDisallow = -1
+
+  for (const allow of group.allow) {
+    if (!allow) continue
+    if (path.startsWith(allow) && allow.length > bestAllow) {
+      bestAllow = allow.length
+    }
+  }
+  for (const disallow of group.disallow) {
+    if (!disallow) continue
+    if (path.startsWith(disallow) && disallow.length > bestDisallow) {
+      bestDisallow = disallow.length
+    }
+  }
+
+  if (bestAllow === -1 && bestDisallow === -1) return true
+  return bestAllow >= bestDisallow
+}
+
+function selectGroup(groups: Map<string, RobotsRuleGroup>, userAgent: string): RobotsRuleGroup | undefined {
+  for (const [pattern, group] of groups.entries()) {
+    if (pattern === '*') continue
+    if (userAgent.includes(pattern)) {
+      return group
+    }
+  }
+  return groups.get('*')
 }

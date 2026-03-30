@@ -36,17 +36,18 @@ export class WebScraper {
     options?: Partial<ExtractionConfig>,
   ): Promise<FetchResult> {
     const timeout = this.config.timeout ?? 30_000
+    const extraction = { ...this.config.extraction, ...options }
 
     switch (this.config.mode) {
       case 'http':
-        return this.scrapeHttp(url, timeout, options)
+        return this.scrapeHttp(url, timeout, extraction)
 
       case 'browser':
-        return this.scrapeBrowser(url, timeout)
+        return this.scrapeBrowser(url, timeout, extraction)
 
       case 'auto':
       default:
-        return this.scrapeAuto(url, timeout, options)
+        return this.scrapeAuto(url, timeout, extraction)
     }
   }
 
@@ -159,15 +160,19 @@ export class WebScraper {
   private async scrapeHttp(
     url: string,
     timeout: number,
-    _options?: Partial<ExtractionConfig>,
+    options?: Partial<ExtractionConfig>,
   ): Promise<FetchResult> {
-    return this.httpFetcher.fetch(url, { timeout })
+    return this.httpFetcher.fetch(url, { timeout, extraction: options })
   }
 
   /** Scrape using browser pool */
-  private async scrapeBrowser(url: string, timeout: number): Promise<FetchResult> {
+  private async scrapeBrowser(
+    url: string,
+    timeout: number,
+    options?: Partial<ExtractionConfig>,
+  ): Promise<FetchResult> {
     const pool = this.getOrCreateBrowserPool()
-    return pool.fetch(url, { timeout })
+    return pool.fetch(url, { timeout, extraction: options })
   }
 
   /** Try HTTP first, fall back to browser if it fails or returns empty/error content */
@@ -185,11 +190,11 @@ export class WebScraper {
       }
 
       // Content too short or bad status — try browser
-      return this.scrapeBrowser(url, timeout)
+      return this.scrapeBrowser(url, timeout, options)
     } catch {
       // HTTP failed entirely — try browser as fallback
       try {
-        return await this.scrapeBrowser(url, timeout)
+        return await this.scrapeBrowser(url, timeout, options)
       } catch (browserError) {
         throw new Error(
           `Both HTTP and browser fetch failed for ${url}: ${

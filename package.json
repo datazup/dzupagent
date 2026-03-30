@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "yarn workspace @dzipagent/context build && yarn workspace @dzipagent/memory-ipc build && yarn workspace @dzipagent/memory build && yarn workspace @dzipagent/core build && yarn workspace @dzipagent/agent build && yarn workspace @dzipagent/codegen build && yarn workspace @dzipagent/otel build && yarn workspace @dzipagent/evals build && yarn workspace @dzipagent/testing build && yarn workspace @dzipagent/test-utils build && yarn workspace @dzipagent/connectors build && yarn workspace @dzipagent/domain-nl2sql build && yarn workspace @dzipagent/server build && yarn workspace @dzipagent/playground build && yarn workspace create-dzipagent build",
+    "build": "yarn workspace @dzipagent/context build && yarn workspace @dzipagent/memory-ipc build && yarn workspace @dzipagent/memory build && yarn workspace @dzipagent/core build && yarn workspace @dzipagent/agent build && yarn workspace @dzipagent/codegen build && yarn workspace @dzipagent/otel build && yarn workspace @dzipagent/evals build && yarn workspace @dzipagent/testing build && yarn workspace @dzipagent/test-utils build && yarn workspace @dzipagent/connectors build && yarn workspace @dzipagent/connectors-browser build && yarn workspace @dzipagent/connectors-documents build && yarn workspace @dzipagent/scraper build && yarn workspace @dzipagent/domain-nl2sql build && yarn workspace @dzipagent/server build && yarn workspace @dzipagent/playground build && yarn workspace create-dzipagent build",
     "typecheck": "yarn workspaces run typecheck",
     "lint": "yarn workspaces run lint",
     "test": "yarn workspaces run test"
