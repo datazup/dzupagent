@@ -243,31 +243,58 @@ export function createSchemaRetrievalTool(
             ? await (vs['collectionExists'] as (name: string) => Promise<boolean>)('nl2sql_sql_examples')
             : true // assume exists if method not available
 
-          if (collectionExists) {
-            // TODO: Inject an EmbeddingProvider to produce real query embeddings.
-            // For now, we attempt search only if the collection exists.
-            // The vector search requires a pre-computed embedding vector.
-            // Until an embedding provider is wired in, we log a warning and skip.
-            //
-            // Future implementation:
-            //   const embedding = await config.embeddingProvider.embed(query)
-            //   const exampleResults = await config.vectorStore.search(
-            //     'nl2sql_sql_examples',
-            //     {
-            //       vector: embedding,
-            //       limit: 5,
-            //       filter: {
-            //         and: [
-            //           { field: 'tenant_id', op: 'eq', value: config.tenantId },
-            //           { field: 'data_source_id', op: 'eq', value: config.dataSourceId },
-            //         ],
-            //       },
-            //     },
-            //   )
-            //   examples = exampleResults.map(vectorResultToExample)
+          if (collectionExists && config.embeddingProvider) {
+            const queryEmbedding = config.embeddingProvider.embedQuery
+              ? await config.embeddingProvider.embedQuery(query)
+              : (await config.embeddingProvider.embed([query]))[0]
 
-            // Placeholder: collection exists but we lack an embedding vector
-            examples = []
+            if (queryEmbedding) {
+              const filterClauses: unknown[] = [
+                { field: 'tenant_id', op: 'eq', value: config.tenantId },
+                { field: 'data_source_id', op: 'eq', value: config.dataSourceId },
+              ]
+
+              if (config.workspaceId) {
+                filterClauses.push({ field: 'workspace_id', op: 'eq', value: config.workspaceId })
+              }
+
+              const filter =
+                filterClauses.length === 1
+                  ? filterClauses[0]
+                  : { and: filterClauses }
+
+              const exampleResults = await config.vectorStore.search(
+                'nl2sql_sql_examples',
+                {
+                  vector: queryEmbedding,
+                  limit: 5,
+                  filter,
+                },
+              )
+
+              examples = exampleResults
+                .map((result) => {
+                  const question = result.metadata['question']
+                  const sql = result.metadata['sql']
+                  const explanation = result.metadata['explanation']
+
+                  if (
+                    typeof question !== 'string' ||
+                    typeof sql !== 'string' ||
+                    typeof explanation !== 'string'
+                  ) {
+                    return null
+                  }
+
+                  return {
+                    question,
+                    sql,
+                    explanation,
+                    score: result.score,
+                  }
+                })
+                .filter((example): example is NonNullable<typeof example> => example !== null)
+            }
           }
         } catch {
           // Vector search is best-effort; continue without examples

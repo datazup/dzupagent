@@ -67,6 +67,12 @@ export interface VectorStore {
   healthCheck(): Promise<{ healthy: boolean; latencyMs: number; provider: string }>
 }
 
+/** Minimal embedding provider interface used by retrieval + ingestion flows. */
+export interface EmbeddingProvider {
+  embed(texts: string[]): Promise<number[][]>
+  embedQuery?(text: string): Promise<number[]>
+}
+
 // ---------------------------------------------------------------------------
 // Vector store types (NL2SQL-specific collections)
 // ---------------------------------------------------------------------------
@@ -213,6 +219,8 @@ export interface NL2SQLToolkitConfig {
   chatModel: BaseChatModel
   /** Vector store for schema/example retrieval */
   vectorStore: VectorStore
+  /** Optional embedding provider for semantic example retrieval */
+  embeddingProvider?: EmbeddingProvider
   /** SQL connector for query execution + schema discovery */
   sqlConnector: SQLConnector
   /** Tenant identifier */

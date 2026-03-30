@@ -4,7 +4,7 @@
  * Tools are organized into tiers:
  * - Core (6): The essential NL2SQL pipeline tools
  * - Extended (10): Core + classification, ambiguity, chart, decomposition
- * - Full (15): All tools including entity tracking, model routing, multi-agent, etc.
+ * - Full (14): All tools including entity tracking, model routing, multi-agent, etc.
  */
 
 import type { DynamicStructuredTool } from '@langchain/core/tools'
