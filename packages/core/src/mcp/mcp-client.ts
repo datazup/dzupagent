@@ -13,6 +13,7 @@ import type {
   MCPConnectionState,
   MCPServerStatus,
 } from './mcp-types.js'
+import { validateMcpExecutablePath, sanitizeMcpEnv } from './mcp-security.js'
 
 // ---------------------------------------------------------------------------
 // Connection
@@ -230,7 +231,7 @@ export class MCPClient {
       toolCount: conn.tools.length,
       eagerToolCount: conn.eagerTools.length,
       deferredToolCount: conn.deferredTools.length,
-      lastError: conn.lastError,
+      ...(conn.lastError !== undefined && { lastError: conn.lastError }),
     }))
   }
 
@@ -430,8 +431,10 @@ export class MCPClient {
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       import('node:child_process').then(({ spawn }) => {
+        validateMcpExecutablePath(config.url)
+        const env = sanitizeMcpEnv(process.env as Record<string, string | undefined>, config.env)
         const proc = spawn(config.url, config.args ?? [], {
-          env: { ...process.env, ...config.env },
+          env: env as NodeJS.ProcessEnv,
           stdio: ['pipe', 'pipe', 'pipe'],
           timeout,
         })

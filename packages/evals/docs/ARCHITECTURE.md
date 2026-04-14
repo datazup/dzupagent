@@ -1,7 +1,7 @@
-# @dzipagent/evals Architecture
+# @dzupagent/evals Architecture
 
 ## Purpose
-`@dzipagent/evals` is the evaluation subsystem for agent outputs. It supports deterministic and LLM-judge scoring, dataset loading/filtering/sampling, benchmark suites, and concurrent runner execution with regression checks.
+`@dzupagent/evals` is the evaluation subsystem for agent outputs. It supports deterministic and LLM-judge scoring, dataset loading/filtering/sampling, benchmark suites, and concurrent runner execution with regression checks.
 
 ## Main Responsibilities
 - Represent eval datasets as immutable collections.
@@ -35,7 +35,7 @@ Top-level modules under `src/`:
 - Built-in benchmark suites aligned to common agent workloads.
 
 ## Integration Boundaries
-- Depends on `@dzipagent/core` for base runtime compatibility.
+- Depends on `@dzupagent/core` for base runtime compatibility.
 - Used in CI and quality gates for agent/codegen release confidence.
 - LLM scorer mode plugs into user-provided model invocation function.
 

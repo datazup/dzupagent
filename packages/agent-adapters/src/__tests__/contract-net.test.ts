@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import {
   ContractNetOrchestrator,
@@ -74,8 +74,8 @@ function failedEvents(providerId: AdapterProviderId, error: string): AgentEvent[
   ]
 }
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -196,8 +196,8 @@ describe('StaticBidStrategy', () => {
 // ---------------------------------------------------------------------------
 
 describe('ContractNetOrchestrator', () => {
-  let bus: DzipEventBus
-  let emitted: DzipEvent[]
+  let bus: DzupEventBus
+  let emitted: DzupEvent[]
 
   beforeEach(() => {
     bus = createEventBus()
@@ -322,11 +322,144 @@ describe('ContractNetOrchestrator', () => {
     const controller = new AbortController()
     controller.abort()
 
-    await expect(
-      orchestrator.execute(makeTask(['general']), makeInput(), {
-        signal: controller.signal,
-      }),
-    ).rejects.toThrow('aborted')
+    const result = await orchestrator.execute(makeTask(['general']), makeInput(), {
+      signal: controller.signal,
+    })
+
+    expect(result.cancelled).toBe(true)
+    expect(result.success).toBe(false)
+    expect(result.winningBid).toBeNull()
+    expect(result.error).toBe('Contract-Net execution was aborted')
+  })
+
+  it('returns an explicit cancelled result when aborted during bid collection', async () => {
+    const adapter = createMockAdapter('claude', completedEvents('claude', 'Hello'))
+    const slowStrategy: BidStrategy = {
+      name: 'slow',
+      async generateBids(_task, providers) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        return providers.map((providerId) => ({
+          providerId,
+          estimatedCostCents: 1,
+          confidence: 0.5,
+        }))
+      },
+    }
+
+    const registry = buildRegistry([adapter])
+    const orchestrator = buildOrchestrator(registry, { bidStrategy: slowStrategy })
+    const controller = new AbortController()
+
+    setTimeout(() => {
+      controller.abort()
+    }, 10)
+
+    const result = await orchestrator.execute(makeTask(['general']), makeInput(), {
+      signal: controller.signal,
+    })
+
+    expect(result.cancelled).toBe(true)
+    expect(result.success).toBe(false)
+    expect(result.winningBid).toBeNull()
+    expect(result.allBids).toEqual([])
+    expect(result.error).toBe('Bid collection aborted')
+  })
+
+  it('returns an explicit cancelled result when aborted during adapter execution', async () => {
+    const adapter: AgentCLIAdapter = {
+      providerId: 'claude',
+      async *execute(input: AgentInput) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        if (input.signal?.aborted) {
+          return
+        }
+        yield {
+          type: 'adapter:completed' as const,
+          providerId: 'claude',
+          sessionId: 'sess-1',
+          result: 'late result',
+          durationMs: 50,
+          timestamp: Date.now(),
+        }
+      },
+      async *resumeSession() { /* noop */ },
+      interrupt() {},
+      async healthCheck() {
+        return { healthy: true, providerId: 'claude', sdkInstalled: true, cliAvailable: true }
+      },
+      configure() {},
+    }
+    const registry = buildRegistry([adapter])
+    const orchestrator = buildOrchestrator(registry)
+    const controller = new AbortController()
+
+    setTimeout(() => {
+      controller.abort()
+    }, 10)
+
+    const result = await orchestrator.execute(makeTask(['general']), makeInput(), {
+      signal: controller.signal,
+    })
+
+    expect(result.cancelled).toBe(true)
+    expect(result.success).toBe(false)
+    expect(result.winningBid?.providerId).toBe('claude')
+    expect(result.error).toContain('aborted')
+  })
+
+  it('prefers cancellation when abort is observed after adapter completion but before final return', async () => {
+    const controller = new AbortController()
+
+    let releaseFinalReturn: (() => void) | undefined
+    let completedBoundaryReached: (() => void) | undefined
+    const completedBoundary = new Promise<void>((resolve) => {
+      completedBoundaryReached = resolve
+    })
+    const finalReturnGate = new Promise<void>((resolve) => {
+      releaseFinalReturn = resolve
+    })
+
+    const adapter: AgentCLIAdapter = {
+      providerId: 'claude',
+      async *execute() {
+        yield {
+          type: 'adapter:completed' as const,
+          providerId: 'claude',
+          sessionId: 'sess-1',
+          result: 'boundary result',
+          durationMs: 1,
+          timestamp: Date.now(),
+        }
+
+        completedBoundaryReached?.()
+        await finalReturnGate
+      },
+      async *resumeSession() { /* noop */ },
+      interrupt() {},
+      async healthCheck() {
+        return { healthy: true, providerId: 'claude', sdkInstalled: true, cliAvailable: true }
+      },
+      configure() {},
+    }
+
+    const registry = buildRegistry([adapter])
+    const orchestrator = buildOrchestrator(registry)
+
+    const execution = orchestrator.execute(makeTask(['general']), makeInput(), {
+      signal: controller.signal,
+    })
+
+    await completedBoundary
+    controller.abort()
+    releaseFinalReturn?.()
+
+    const result = await execution
+
+    expect(result.cancelled).toBe(true)
+    expect(result.success).toBe(false)
+    expect(result.winningBid?.providerId).toBe('claude')
+    expect(result.executionResult).toBe('')
+    expect(result.error).toBe('Contract-Net execution was aborted')
   })
 
   it('uses custom bid selection criteria with customScorer', async () => {

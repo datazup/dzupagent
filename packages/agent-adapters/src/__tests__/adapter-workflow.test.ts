@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import {
   defineWorkflow,
@@ -512,6 +512,8 @@ describe('AdapterWorkflow.run()', () => {
     const result = await workflow.run(registry, { signal: ac.signal })
 
     expect(result.success).toBe(false)
+    expect(result.cancelled).toBe(true)
+    expect(result.stepResults).toHaveLength(0)
   })
 
   it('failed workflow reports error', async () => {
@@ -525,6 +527,32 @@ describe('AdapterWorkflow.run()', () => {
 
     expect(result.success).toBe(false)
     expect(result.stepResults.some((s) => !s.success)).toBe(true)
+  })
+
+  it('uses the first registered adapter instead of a generic claude fallback on failure', async () => {
+    const failRegistry = createRegistry([createFailingAdapter('codex')])
+
+    const workflow = defineWorkflow({ id: 'codex-fail-test' })
+      .step({ id: 'a', prompt: 'Will fail' })
+      .build()
+
+    const result = await workflow.run(failRegistry)
+
+    expect(result.success).toBe(false)
+    expect(result.stepResults[0]!.providerId).toBe('codex')
+  })
+
+  it('uses unknown fallback semantics when no adapters are registered', async () => {
+    const emptyRegistry = createRegistry([])
+
+    const workflow = defineWorkflow({ id: 'unknown-fail-test' })
+      .step({ id: 'a', prompt: 'Will fail' })
+      .build()
+
+    const result = await workflow.run(emptyRegistry)
+
+    expect(result.success).toBe(false)
+    expect(result.stepResults[0]!.providerId).toBe('unknown')
   })
 
   it('emits workflow:failed once on failure', async () => {

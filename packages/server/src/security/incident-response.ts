@@ -1,8 +1,8 @@
 /**
- * Incident response engine — monitors DzipEventBus for security-relevant
+ * Incident response engine — monitors DzupEventBus for security-relevant
  * events and executes automated playbooks (kill agent, disable tool, etc.).
  */
-import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,7 +16,7 @@ export type IncidentAction =
   | 'log_alert'
 
 export interface IncidentTrigger {
-  /** DzipEvent type to match */
+  /** DzupEvent type to match */
   eventType: string
   /** Optional filter — only triggers when condition returns true */
   condition?: (event: Record<string, unknown>) => boolean
@@ -173,7 +173,7 @@ async function executeAction(
       if (typeof message !== 'string') {
         return { action: 'log_alert', success: false, details: 'Missing message in config' }
       }
-      // eslint-disable-next-line no-console
+       
       console.warn(`[IncidentResponse] ALERT: ${message}`)
       return { action: 'log_alert', success: true, details: message }
     }
@@ -218,11 +218,11 @@ export class IncidentResponseEngine {
   }
 
   /**
-   * Start monitoring — subscribe to DzipEventBus.
+   * Start monitoring — subscribe to DzupEventBus.
    */
-  attach(eventBus: DzipEventBus): void {
+  attach(eventBus: DzupEventBus): void {
     this.detach()
-    this.unsubscribe = eventBus.onAny((event: DzipEvent) => {
+    this.unsubscribe = eventBus.onAny((event: DzupEvent) => {
       void this.handleEvent(event)
     })
   }
@@ -313,7 +313,7 @@ export class IncidentResponseEngine {
   // Internal
   // -------------------------------------------------------------------------
 
-  private async handleEvent(event: DzipEvent): Promise<void> {
+  private async handleEvent(event: DzupEvent): Promise<void> {
     const eventType = event.type
     const eventRecord = event as unknown as Record<string, unknown>
 

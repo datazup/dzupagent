@@ -32,7 +32,7 @@ function detectNaming(lines: string[]): DetectedConvention[] {
     for (const v of vars) {
       const name = v.split(/\s+/).pop() ?? '';
       if (/^[a-z][a-zA-Z0-9]*$/.test(name) && name.length > 1) camel++;
-      if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(name)) snake++;
+      if (/^[a-z][a-z0-9]*_[_a-z0-9]*$/.test(name)) snake++;
     }
     const cls = line.match(/(?:class|interface|type)\s+([A-Z][a-zA-Z0-9]*)/);
     if (cls?.[1] && pascalExamples.length < 3) pascalExamples.push(cls[1]);
@@ -193,8 +193,8 @@ function detectPatterns(lines: string[]): DetectedConvention[] {
   for (const line of lines) {
     if (/\bawait\b/.test(line)) asyncAwait++;
     if (/\.then\s*\(/.test(line)) thenCatch++;
-    if (/^\s*(?:export\s+)?class\s/.test(line)) classDef++;
-    if (/^\s*(?:export\s+)?(?:async\s+)?function\s/.test(line)) funcDef++;
+    if (/^\s*(?:export\s)?class\s/.test(line)) classDef++;
+    if (/^\s*(?:export\s)?(?:async\s)?function\s/.test(line)) funcDef++;
     if (/^\s*export\s+(?:const|function|class|interface|type|enum|async)\s/.test(line)) namedExport++;
     if (/^\s*export\s+default\s/.test(line)) defaultExport++;
   }

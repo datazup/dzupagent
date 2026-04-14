@@ -1,5 +1,5 @@
 /**
- * @dzipagent/connectors-browser — Browser automation tools for DzipAgent.
+ * @dzupagent/connectors-browser — Browser automation tools for DzupAgent.
  *
  * Provides Playwright-based crawling, form/element/a11y extraction,
  * and LangChain-compatible tool wrappers via createBrowserConnector.
@@ -9,6 +9,11 @@ export {
   createBrowserConnector,
   type BrowserConnectorConfig,
 } from './browser-connector.js'
+export {
+  normalizeBrowserTool,
+  normalizeBrowserTools,
+  type BrowserConnectorTool,
+} from './connector-contract.js'
 
 // Browser management
 export { BrowserManager } from './browser/browser-manager.js'

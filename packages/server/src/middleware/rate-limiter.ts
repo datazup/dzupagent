@@ -1,5 +1,5 @@
 /**
- * Token-bucket rate limiter middleware for DzipAgent server.
+ * Token-bucket rate limiter middleware for DzupAgent server.
  *
  * Limits requests per API key (or per IP if unauthenticated).
  * Uses a sliding-window token bucket algorithm.
@@ -13,8 +13,20 @@ export interface RateLimiterConfig {
   windowMs: number
   /** Header name for rate limit info (default: 'X-RateLimit') */
   headerPrefix: string
-  /** Function to extract the rate limit key from a request (default: API key or IP) */
+  /**
+   * Function to extract the rate limit key from a request.
+   *
+   * If omitted, the middleware uses the built-in extractor, which keys on the
+   * bearer token when present and otherwise falls back to anonymous unless
+   * `trustForwardedFor` is explicitly enabled.
+   */
   keyExtractor?: (c: { req: { header: (name: string) => string | undefined }; env?: Record<string, unknown> }) => string
+  /**
+   * Trust the left-most X-Forwarded-For entry when no bearer token is present.
+   *
+   * Disabled by default because raw forwarded headers are trivially spoofed.
+   */
+  trustForwardedFor?: boolean
 }
 
 interface BucketEntry {
@@ -26,6 +38,36 @@ const DEFAULT_CONFIG: RateLimiterConfig = {
   maxRequests: 100,
   windowMs: 60_000,
   headerPrefix: 'X-RateLimit',
+}
+
+function extractBearerToken(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  const match = /^Bearer\s+(.+)$/i.exec(trimmed)
+  if (!match) return undefined
+  const token = match[1]?.trim()
+  return token && token.length > 0 ? token : undefined
+}
+
+function extractClientIp(forwardedFor: string | undefined): string | undefined {
+  if (!forwardedFor) return undefined
+  const first = forwardedFor.split(',', 1)[0]?.trim()
+  return first && first.length > 0 ? first : undefined
+}
+
+export function extractDefaultRateLimitKey(
+  c: { req: { header: (name: string) => string | undefined } },
+  options?: Pick<RateLimiterConfig, 'trustForwardedFor'>,
+): string {
+  const bearerToken = extractBearerToken(c.req.header('Authorization'))
+  if (bearerToken) return bearerToken
+
+  if (options?.trustForwardedFor) {
+    return extractClientIp(c.req.header('X-Forwarded-For')) ?? 'anonymous'
+  }
+
+  return 'anonymous'
 }
 
 export class TokenBucketLimiter {
@@ -93,6 +135,7 @@ export function rateLimiterMiddleware(config?: Partial<RateLimiterConfig>): Midd
   const limiter = new TokenBucketLimiter(config)
   const prefix = config?.headerPrefix ?? DEFAULT_CONFIG.headerPrefix
   const maxRequests = config?.maxRequests ?? DEFAULT_CONFIG.maxRequests
+  const trustForwardedFor = config?.trustForwardedFor ?? false
 
   return async (c, next) => {
     // Skip rate limiting for health endpoints
@@ -101,9 +144,7 @@ export function rateLimiterMiddleware(config?: Partial<RateLimiterConfig>): Midd
     }
 
     const key = config?.keyExtractor?.(c)
-      ?? c.req.header('Authorization')?.slice(7)  // API key
-      ?? c.req.header('X-Forwarded-For')
-      ?? 'anonymous'
+      ?? extractDefaultRateLimitKey(c, { trustForwardedFor })
 
     const result = limiter.consume(key)
 

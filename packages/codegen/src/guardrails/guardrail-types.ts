@@ -4,6 +4,7 @@
  * Defines rules, contexts, results, and violations used to validate
  * generated code against architectural constraints.
  */
+import type { RepoMap } from '../repomap/repo-map-builder.js'
 
 export type GuardrailCategory =
   | 'layering'
@@ -88,7 +89,7 @@ export interface GuardrailContext {
   files: GeneratedFile[]
   projectStructure: ProjectStructure
   conventions: ConventionSet
-  repoMap?: import('../repomap/repo-map-builder.js').RepoMap
+  repoMap?: RepoMap
 }
 
 /**

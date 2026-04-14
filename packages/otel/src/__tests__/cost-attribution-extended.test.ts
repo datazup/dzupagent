@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import { CostAttributor } from '../cost-attribution.js'
 
 describe('CostAttributor extended', () => {
-  let bus: DzipEventBus
+  let bus: DzupEventBus
 
   beforeEach(() => {
     bus = createEventBus()

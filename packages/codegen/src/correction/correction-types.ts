@@ -8,7 +8,7 @@
  * be extracted and the loop can be introspected after completion.
  */
 
-import type { TokenUsage } from '@dzipagent/core'
+import type { TokenUsage } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Error categories used by reflection and diagnosis

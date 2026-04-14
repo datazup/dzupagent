@@ -36,15 +36,15 @@ export interface AgentFileExporterConfig {
   /** forge:// URI of the agent performing the export */
   agentUri: string
   /** Optional agent description */
-  agentDescription?: string
+  agentDescription?: string | undefined
   /** Optional list of agent capabilities */
-  capabilities?: string[]
+  capabilities?: string[] | undefined
   /** Scope used to read namespaces (e.g. { tenantId: 't1', projectId: 'p1' }) */
   scope: Record<string, string>
   /** Optional prompt templates to include in the export */
-  prompts?: AgentFilePromptsSection
+  prompts?: AgentFilePromptsSection | undefined
   /** Optional state snapshot to include in the export */
-  state?: AgentFileStateSection
+  state?: AgentFileStateSection | undefined
 }
 
 /**
@@ -52,9 +52,9 @@ export interface AgentFileExporterConfig {
  */
 export interface ExportOptions {
   /** Specific namespaces to export (default: all non-internal) */
-  namespaces?: string[]
+  namespaces?: string[] | undefined
   /** Whether to include SHA-256 signature (default: true) */
-  sign?: boolean
+  sign?: boolean | undefined
 }
 
 /**

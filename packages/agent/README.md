@@ -1,4 +1,4 @@
-# @dzipagent/agent
+# @dzupagent/agent
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,33 +10,33 @@
 | Source Files | 76 |
 | Lines of Code | 28,873 |
 | Test Files | 41 |
-| Internal Dependencies | `@dzipagent/context`, `@dzipagent/core`, `@dzipagent/memory-ipc` |
+| Internal Dependencies | `@dzupagent/context`, `@dzupagent/core`, `@dzupagent/memory-ipc` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @dzipagent/agent
+npm install @dzupagent/agent
 ```
 <!-- AUTO-GENERATED-END -->
 
-Top-level agent abstraction for the DzipAgent framework. Provides the `DzipAgent` class with generate/stream/asTool capabilities, guardrails, workflow engine, multi-agent orchestration, pipelines, structured output, approval gates, and security.
+Top-level agent abstraction for the DzupAgent framework. Provides the `DzupAgent` class with generate/stream/asTool capabilities, guardrails, workflow engine, multi-agent orchestration, pipelines, structured output, approval gates, and security.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/agent
+yarn add @dzupagent/agent
 # or
-npm install @dzipagent/agent
+npm install @dzupagent/agent
 ```
 
 ## Quick Start
 
 ```ts
-import { DzipAgent } from '@dzipagent/agent'
+import { DzupAgent } from '@dzupagent/agent'
 
-const agent = new DzipAgent({
+const agent = new DzupAgent({
   name: 'code-reviewer',
   model: chatModel,
   systemPrompt: 'You are a code review agent.',
@@ -60,11 +60,11 @@ const reviewTool = agent.asTool({ description: 'Run code review' })
 
 ### Agent
 
-- `DzipAgent` -- main agent class with `generate()`, `stream()`, and `asTool()` methods
+- `DzupAgent` -- main agent class with `generate()`, `stream()`, and `asTool()` methods
 - `runToolLoop(config): Promise<ToolLoopResult>` -- execute a tool loop with budget tracking
 - `DynamicToolRegistry` -- runtime tool add/remove with event notifications
 
-**Types:** `DzipAgentConfig`, `ArrowMemoryConfig`, `GenerateOptions`, `GenerateResult`, `AgentStreamEvent`, `ToolLoopConfig`, `ToolLoopResult`, `ToolRegistryEvent`
+**Types:** `DzupAgentConfig`, `ArrowMemoryConfig`, `GenerateOptions`, `GenerateResult`, `AgentStreamEvent`, `ToolLoopConfig`, `ToolLoopResult`, `ToolRegistryEvent`
 
 ### Guardrails
 
@@ -156,15 +156,15 @@ const reviewTool = agent.asTool({ description: 'Run code review' })
 
 ### Version
 
-- `dzipagent_AGENT_VERSION: string` -- `'0.1.0'`
+- `dzupagent_AGENT_VERSION: string` -- `'0.1.0'`
 
 ## Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@dzipagent/core` | `0.1.0` | Core infrastructure (LLM, memory, events) |
-| `@dzipagent/context` | `0.1.0` | Context window management |
-| `@dzipagent/memory-ipc` | `0.1.0` | Arrow-based memory IPC |
+| `@dzupagent/core` | `0.1.0` | Core infrastructure (LLM, memory, events) |
+| `@dzupagent/context` | `0.1.0` | Context window management |
+| `@dzupagent/memory-ipc` | `0.1.0` | Arrow-based memory IPC |
 
 ## Peer Dependencies
 

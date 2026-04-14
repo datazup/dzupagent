@@ -2,7 +2,7 @@
  * OpenAI-compatible function/tool definition types.
  *
  * These types mirror the OpenAI API specification for function calling
- * so that DzipAgent tools can be exposed as OpenAI-compatible tools.
+ * so that DzupAgent tools can be exposed as OpenAI-compatible tools.
  */
 
 // ---------------------------------------------------------------------------

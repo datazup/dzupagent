@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { InMemoryEventLog, EventLogSink } from '../persistence/event-log.js'
 import { createEventBus } from '../events/event-bus.js'
 
@@ -7,6 +7,10 @@ describe('InMemoryEventLog', () => {
 
   beforeEach(() => {
     log = new InMemoryEventLog()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('appends events with auto-incrementing seq and timestamp', async () => {
@@ -95,10 +99,63 @@ describe('InMemoryEventLog', () => {
     events.pop()
     expect(await log.getEvents('r1')).toHaveLength(1)
   })
+
+  it('enforces maxEventsPerRun when configured', async () => {
+    const limited = new InMemoryEventLog({ maxEventsPerRun: 2 })
+    await limited.append({ runId: 'r1', type: 'a', payload: {} })
+    await limited.append({ runId: 'r1', type: 'b', payload: {} })
+    await limited.append({ runId: 'r1', type: 'c', payload: {} })
+
+    const events = await limited.getEvents('r1')
+    expect(events).toHaveLength(2)
+    expect(events[0]!.type).toBe('b')
+    expect(events[1]!.type).toBe('c')
+  })
+
+  it('enforces maxRuns when configured', async () => {
+    const limited = new InMemoryEventLog({ maxRuns: 2 })
+    await limited.append({ runId: 'r1', type: 'a', payload: {} })
+    await limited.append({ runId: 'r2', type: 'a', payload: {} })
+    await limited.append({ runId: 'r3', type: 'a', payload: {} })
+
+    expect(await limited.getEvents('r1')).toEqual([])
+    expect((await limited.getEvents('r2')).length).toBeGreaterThan(0)
+    expect((await limited.getEvents('r3')).length).toBeGreaterThan(0)
+  })
+
+  it('uses finite default retention limits', () => {
+    expect(log.getRetentionLimits()).toEqual({
+      maxRuns: 10_000,
+      maxEventsPerRun: 5_000,
+    })
+  })
+
+  it('preserves explicit unbounded opt-out and warns once per opt-out field', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const unbounded = new InMemoryEventLog({
+      maxRuns: Number.POSITIVE_INFINITY,
+      maxEventsPerRun: Number.POSITIVE_INFINITY,
+    })
+
+    await unbounded.append({ runId: 'r1', type: 'a', payload: {} })
+    await unbounded.append({ runId: 'r2', type: 'b', payload: {} })
+    await unbounded.append({ runId: 'r3', type: 'c', payload: {} })
+    await unbounded.append({ runId: 'r1', type: 'd', payload: {} })
+    await unbounded.append({ runId: 'r1', type: 'e', payload: {} })
+
+    expect(unbounded.getRetentionLimits()).toEqual({
+      maxRuns: Number.POSITIVE_INFINITY,
+      maxEventsPerRun: Number.POSITIVE_INFINITY,
+    })
+    await expect(unbounded.getEvents('r1')).resolves.toHaveLength(3)
+    await expect(unbounded.getEvents('r2')).resolves.toHaveLength(1)
+    await expect(unbounded.getEvents('r3')).resolves.toHaveLength(1)
+    expect(warn).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('EventLogSink', () => {
-  it('captures DzipEventBus events for a run', async () => {
+  it('captures DzupEventBus events for a run', async () => {
     const log = new InMemoryEventLog()
     const sink = new EventLogSink(log)
     const bus = createEventBus()

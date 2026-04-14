@@ -9,35 +9,53 @@ export interface SnapshotStore {
   load(id: string, phase: string): Promise<Record<string, string> | null>
 }
 
+/** Result of a snapshot save operation */
+export interface SnapshotSaveResult {
+  success: boolean
+  id?: string
+  phase?: string
+  error?: string
+}
+
+/** Result of a snapshot load operation */
+export type SnapshotLoadResult =
+  | { success: true; data: Record<string, string> }
+  | { success: false; error?: string }
+
 /**
  * Save a VFS snapshot for recovery purposes.
- * Non-fatal — errors are caught and logged.
+ * Non-fatal — returns a typed result instead of throwing.
  */
 export async function saveSnapshot(
   store: SnapshotStore,
   id: string,
   phase: string,
   vfs: Record<string, string>,
-): Promise<void> {
+): Promise<SnapshotSaveResult> {
   try {
     await store.save(id, phase, vfs)
-  } catch {
-    // Non-fatal — snapshot save failure should not break the pipeline
+    return { success: true, id, phase }
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
 
 /**
  * Load a VFS snapshot from storage.
- * Returns null if not found or on error.
+ * Returns a typed result indicating success/failure and reason.
  */
 export async function loadSnapshot(
   store: SnapshotStore,
   id: string,
   phase: string,
-): Promise<Record<string, string> | null> {
+): Promise<SnapshotLoadResult> {
   try {
-    return await store.load(id, phase)
-  } catch {
-    return null
+    const data = await store.load(id, phase)
+    if (data === null) {
+      return { success: false, error: 'not_found' }
+    }
+    return { success: true, data }
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : String(err) }
   }
 }

@@ -6,7 +6,7 @@
  * breaker state per agent.
  */
 
-import type { AgentRegistry, AgentHealth, DzipEventBus } from '@dzipagent/core'
+import type { AgentRegistry, AgentHealth, DzupEventBus } from '@dzupagent/core'
 
 // ------------------------------------------------------------------ Config
 
@@ -18,7 +18,7 @@ export interface HealthMonitorConfig {
   /** Timeout for each probe request in ms (default: 5000). */
   probeTimeoutMs?: number
   /** Optional event bus for emitting health change events. */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
   /** Maximum number of latency samples to keep in sliding window (default: 100). */
   maxSamples?: number
   /** Number of consecutive failures to open circuit (default: 3). */
@@ -141,7 +141,7 @@ export class HealthMonitor {
   private readonly _registry: AgentRegistry
   private readonly _intervalMs: number
   private readonly _probeTimeoutMs: number
-  private readonly _eventBus: DzipEventBus | undefined
+  private readonly _eventBus: DzupEventBus | undefined
   private readonly _maxSamples: number
   private readonly _failureThreshold: number
   private readonly _probeFn: (endpoint: string, timeoutMs: number) => Promise<ProbeResult>

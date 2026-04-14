@@ -2,7 +2,7 @@
  * RagMemoryNamespace — Bridges RAG chunk storage with a MemoryService.
  *
  * Uses MemoryServiceLike interface (duck-typing) to avoid a hard dependency
- * on @dzipagent/memory. Any object that satisfies put/get/search/delete
+ * on @dzupagent/memory. Any object that satisfies put/get/search/delete
  * with the right signatures can be used, making the integration optional.
  */
 
@@ -23,7 +23,7 @@ export interface RagMemoryConfig {
 /**
  * Minimal interface for memory service operations needed by RAG.
  *
- * Compatible with @dzipagent/memory MemoryService:
+ * Compatible with @dzupagent/memory MemoryService:
  * - put(namespace, scope, key, value) — stores a record
  * - get(namespace, scope) — retrieves all records in a scope
  * - search(namespace, scope, query, limit) — semantic search (optional)

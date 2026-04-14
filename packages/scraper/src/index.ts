@@ -1,4 +1,8 @@
 export * from './types.js'
+export {
+  normalizeScraperTool,
+  type ScraperConnectorTool,
+} from './connector-contract.js'
 export { HttpFetcher } from './http-fetcher.js'
 export { ContentExtractor } from './content-extractor.js'
 export type { ExtractedContent } from './content-extractor.js'

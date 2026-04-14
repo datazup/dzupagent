@@ -100,7 +100,7 @@ function createBuiltinConventions(): LearnedConvention[] {
         const stem = fileStem(filePath)
         // Allow index, single lowercase word, or kebab-case
         if (stem === 'index' || stem.startsWith('.')) return true
-        return /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(stem)
+        return /^[a-z][-a-z0-9]*$/.test(stem)
       },
     },
     {
@@ -169,7 +169,7 @@ function createBuiltinConventions(): LearnedConvention[] {
       category: 'exports',
       confidence: 0.9,
       test: (content: string): boolean => {
-        const classRe = /^\s*export\s+(?:abstract\s+)?class\s+(\w+)/gm
+        const classRe = /^\s*export\s+(?:abstract\s)?class\s+(\w+)/gm
         let match: RegExpExecArray | null
         while ((match = classRe.exec(content)) !== null) {
           const name = match[1] as string
@@ -185,7 +185,7 @@ function createBuiltinConventions(): LearnedConvention[] {
       category: 'exports',
       confidence: 0.85,
       test: (content: string): boolean => {
-        const funcRe = /^\s*export\s+(?:async\s+)?function\s+(\w+)/gm
+        const funcRe = /^\s*export\s+(?:async\s)?function\s+(\w+)/gm
         let match: RegExpExecArray | null
         while ((match = funcRe.exec(content)) !== null) {
           const name = match[1] as string
@@ -247,11 +247,12 @@ export class ConventionGate {
   static withDefaults(overrides?: Partial<ConventionGateConfig>): ConventionGate {
     const builtins = createBuiltinConventions()
     const extra = overrides?.conventions ?? []
-    return new ConventionGate({
+    const config: ConventionGateConfig = {
       conventions: [...builtins, ...extra],
-      minConfidence: overrides?.minConfidence,
-      warningsOnly: overrides?.warningsOnly,
-    })
+    }
+    if (overrides?.minConfidence !== undefined) config.minConfidence = overrides.minConfidence
+    if (overrides?.warningsOnly !== undefined) config.warningsOnly = overrides.warningsOnly
+    return new ConventionGate(config)
   }
 
   // -------------------------------------------------------------------------

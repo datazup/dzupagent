@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
+import { waitForCondition } from '@dzupagent/test-utils'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 import type { RunJob } from '../queue/run-queue.js'
 
@@ -22,13 +23,13 @@ describe('InMemoryRunQueue', () => {
       await queue.enqueue({ runId: 'r2', agentId: 'a', input: {}, priority: 2 })
       await queue.enqueue({ runId: 'r4', agentId: 'a', input: {}, priority: 4 })
 
-      await new Promise<void>((resolve) => {
-        queue.start(async (job) => {
-          processed.push(job.runId)
-          if (processed.length === 5) resolve()
-        })
-        setTimeout(resolve, 3000)
+      queue.start(async (job) => {
+        processed.push(job.runId)
       })
+      await waitForCondition(
+        () => processed.length === 5,
+        { description: 'timed out waiting for all priority jobs to process' },
+      )
 
       expect(processed).toEqual(['r1', 'r2', 'r3', 'r4', 'r5'])
     })
@@ -41,13 +42,13 @@ describe('InMemoryRunQueue', () => {
       await queue.enqueue({ runId: 'second', agentId: 'a', input: {}, priority: 1 })
       await queue.enqueue({ runId: 'third', agentId: 'a', input: {}, priority: 1 })
 
-      await new Promise<void>((resolve) => {
-        queue.start(async (job) => {
-          processed.push(job.runId)
-          if (processed.length === 3) resolve()
-        })
-        setTimeout(resolve, 3000)
+      queue.start(async (job) => {
+        processed.push(job.runId)
       })
+      await waitForCondition(
+        () => processed.length === 3,
+        { description: 'timed out waiting for FIFO jobs to process' },
+      )
 
       expect(processed).toEqual(['first', 'second', 'third'])
     })
@@ -71,7 +72,10 @@ describe('InMemoryRunQueue', () => {
       queue.start(async (job) => { capturedJob = job })
 
       await queue.enqueue({ runId: 'r1', agentId: 'a', input: {}, priority: 1 })
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await waitForCondition(
+        () => capturedJob !== null,
+        { description: 'timed out waiting for initial job capture' },
+      )
 
       expect(capturedJob).not.toBeNull()
       expect(capturedJob!.attempts).toBe(0)
@@ -87,19 +91,18 @@ describe('InMemoryRunQueue', () => {
       })
 
       let attemptCount = 0
-      const done = new Promise<void>((resolve) => {
-        queue.start(async () => {
-          attemptCount++
-          if (attemptCount < 3) {
-            throw new Error(`fail-${attemptCount}`)
-          }
-          resolve()
-        })
+      queue.start(async () => {
+        attemptCount++
+        if (attemptCount < 3) {
+          throw new Error(`fail-${attemptCount}`)
+        }
       })
 
       await queue.enqueue({ runId: 'r1', agentId: 'a', input: {}, priority: 1 })
-
-      await Promise.race([done, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))])
+      await waitForCondition(
+        () => attemptCount === 3 && queue.stats().completed === 1,
+        { description: 'timed out waiting for retry success sequence' },
+      )
 
       expect(attemptCount).toBe(3)
       expect(queue.stats().completed).toBe(1)
@@ -121,9 +124,10 @@ describe('InMemoryRunQueue', () => {
       })
 
       await queue.enqueue({ runId: 'r1', agentId: 'a', input: {}, priority: 1 })
-
-      // Wait for all retries + dead-letter processing
-      await new Promise((resolve) => setTimeout(resolve, 800))
+      await waitForCondition(
+        () => attemptCount === 3 && queue.stats().deadLetter === 1,
+        { description: 'timed out waiting for dead-letter after retries' },
+      )
 
       expect(attemptCount).toBe(3)
       expect(queue.stats().failed).toBe(1)
@@ -147,7 +151,10 @@ describe('InMemoryRunQueue', () => {
       })
 
       await queue.enqueue({ runId: 'r1', agentId: 'a', input: {}, priority: 1 })
-      await new Promise((resolve) => setTimeout(resolve, 200))
+      await waitForCondition(
+        () => attemptCount === 1 && queue.stats().failed === 1,
+        { description: 'timed out waiting for single-attempt failure' },
+      )
 
       expect(attemptCount).toBe(1)
       expect(queue.stats().failed).toBe(1)
@@ -162,7 +169,10 @@ describe('InMemoryRunQueue', () => {
       queue.start(async () => { throw new Error('boom') })
 
       await queue.enqueue({ runId: 'r1', agentId: 'a', input: {}, priority: 1 })
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      await waitForCondition(
+        () => queue.getDeadLetter().length === 1,
+        { description: 'timed out waiting for dead-letter entry' },
+      )
 
       expect(queue.getDeadLetter()).toHaveLength(1)
       expect(queue.stats().deadLetter).toBe(1)
@@ -185,7 +195,10 @@ describe('InMemoryRunQueue', () => {
       })
 
       await queue.enqueue({ runId: 'r1', agentId: 'a', input: {}, priority: 1 })
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await waitForCondition(
+        () => jobStarted && queue.stats().active === 1,
+        { description: 'timed out waiting for active job start' },
+      )
 
       expect(jobStarted).toBe(true)
       expect(queue.stats().active).toBe(1)

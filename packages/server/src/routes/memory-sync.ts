@@ -3,7 +3,7 @@
  *
  * Exposes a WebSocket endpoint at `/api/memory/sync` that accepts
  * incoming connections from remote nodes and runs the CRDT sync protocol
- * using `SyncSession` from `@dzipagent/memory`.
+ * using `SyncSession` from `@dzupagent/memory`.
  *
  * The route itself is a plain Hono route that returns connection instructions;
  * actual WebSocket upgrade is handled by the server's WebSocket adapter
@@ -17,7 +17,7 @@ import type {
   SyncEvent,
   SyncTransport,
   SyncMessage,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -128,7 +128,7 @@ export function createMemorySyncRoutes(config: MemorySyncRouteConfig): Hono {
   app.get('/api/memory/sync', (c) => {
     const namespaceNames = config.allowedNamespaces ?? Array.from(config.namespaces.keys())
     return c.json({
-      protocol: 'dzipagent-crdt-sync',
+      protocol: 'dzupagent-crdt-sync',
       version: '1.0.0',
       nodeId: config.nodeId,
       namespaces: namespaceNames,

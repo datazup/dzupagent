@@ -1,0 +1,32 @@
+#
+# Verdaccio configuration for local package publishing in CI compat matrix.
+#
+storage: /tmp/verdaccio-storage
+auth:
+  htpasswd:
+    file: /tmp/verdaccio-htpasswd
+
+uplinks:
+  npmjs:
+    url: https://registry.npmjs.org/
+
+packages:
+  "@dzupagent/*":
+    access: $all
+    publish: $all
+    proxy: npmjs
+
+  "**":
+    access: $all
+    publish: $all
+    proxy: npmjs
+
+server:
+  keepAliveTimeout: 60
+
+middlewares:
+  audit:
+    enabled: true
+
+logs:
+  - { type: stdout, format: pretty, level: warn }

@@ -9,7 +9,7 @@ export class ConsoleChannel implements NotificationChannel {
   async send(notification: Notification): Promise<void> {
     const prefix = notification.tier === 'human-required' ? '[HUMAN]' : '[AGENT]'
     const tag = `[${notification.priority.toUpperCase()}]`
-    // eslint-disable-next-line no-console
+     
     console.log(
       `${prefix} ${tag} ${notification.title} — ${notification.body}`,
       notification.runId ? `(run: ${notification.runId})` : '',

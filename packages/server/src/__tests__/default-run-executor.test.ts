@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { InMemoryRunStore, ModelRegistry, createEventBus } from '@dzipagent/core'
+import { InMemoryRunStore, ModelRegistry, createEventBus } from '@dzupagent/core'
 import { createDefaultRunExecutor } from '../runtime/default-run-executor.js'
 
 describe('default-run-executor', () => {

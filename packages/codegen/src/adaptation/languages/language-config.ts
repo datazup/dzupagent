@@ -57,7 +57,6 @@ export const LANGUAGE_CONFIGS: Record<SupportedLanguage, LanguageConfig> = {
       'Include docstrings on all public functions and classes.',
     ].join('\n'),
     lintCommand: 'python -m mypy . && python -m ruff check .',
-    buildCommand: undefined,
     testCommand: 'python -m pytest',
     packageManager: 'pip',
     sandboxImage: 'python:3.12-slim',

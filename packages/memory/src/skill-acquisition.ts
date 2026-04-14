@@ -14,6 +14,8 @@
  *   const prompt = engine.formatForPrompt(applicable)
  */
 import type { BaseStore } from '@langchain/langgraph'
+import { tokenizeText, jaccardSimilarity } from './shared/text-similarity.js'
+import { createTimestampedId } from './shared/id-factory.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,20 +48,20 @@ export interface AcquiredSkill {
   /** Confidence in this skill (0-1) */
   confidence: number
   createdAt: Date
-  lastUsedAt?: Date
+  lastUsedAt?: Date | undefined
 }
 
 export interface SkillAcquisitionConfig {
   store: BaseStore
-  namespace?: string[]
+  namespace?: string[] | undefined
   /** Min lesson/rule confidence to consider for crystallization (default: 0.8) */
-  minConfidence?: number
+  minConfidence?: number | undefined
   /** Min usage count before crystallizing (default: 3) */
-  minUsageCount?: number
+  minUsageCount?: number | undefined
   /** Min success rate to crystallize (default: 0.75) */
-  minSuccessRate?: number
+  minSuccessRate?: number | undefined
   /** Max skills to keep (default: 50) */
-  maxSkills?: number
+  maxSkills?: number | undefined
 }
 
 /** Input lesson shape for scan() */
@@ -87,40 +89,8 @@ export interface ScanParams {
 }
 
 export interface GetApplicableParams {
-  nodeId?: string
-  taskType?: string
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Tokenize text into a set of lower-case words */
-function tokenize(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 1),
-  )
-}
-
-/** Jaccard similarity between two token sets */
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1
-  let intersectionSize = 0
-  for (const word of a) {
-    if (b.has(word)) intersectionSize++
-  }
-  const unionSize = a.size + b.size - intersectionSize
-  return unionSize === 0 ? 0 : intersectionSize / unionSize
-}
-
-/** Generate a skill ID with timestamp and random suffix */
-function generateSkillId(): string {
-  const suffix = Math.random().toString(36).slice(2, 8)
-  return `skill_${Date.now()}_${suffix}`
+  nodeId?: string | undefined
+  taskType?: string | undefined
 }
 
 /** Extract a short name from the first 5 words of a description */
@@ -232,7 +202,7 @@ export class SkillAcquisitionEngine {
       if (this.isDuplicate(content, existing)) continue
 
       const skill: AcquiredSkill = {
-        id: generateSkillId(),
+        id: createTimestampedId('skill'),
         name: nameFromDescription(description),
         description,
         applicableWhen,
@@ -262,7 +232,7 @@ export class SkillAcquisitionEngine {
       if (this.isDuplicate(content, existing)) continue
 
       const skill: AcquiredSkill = {
-        id: generateSkillId(),
+        id: createTimestampedId('skill'),
         name: nameFromDescription(description),
         description,
         applicableWhen,
@@ -410,9 +380,9 @@ export class SkillAcquisitionEngine {
    * Check whether content is a duplicate of any existing skill (Jaccard > 0.7).
    */
   private isDuplicate(content: string, existing: AcquiredSkill[]): boolean {
-    const newTokens = tokenize(content)
+    const newTokens = tokenizeText(content)
     for (const skill of existing) {
-      const existingTokens = tokenize(skill.content)
+      const existingTokens = tokenizeText(skill.content)
       if (jaccardSimilarity(newTokens, existingTokens) > 0.7) {
         return true
       }

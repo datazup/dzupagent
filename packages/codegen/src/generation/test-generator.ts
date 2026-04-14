@@ -90,7 +90,7 @@ export function extractExports(content: string): ExportInfo[] {
   }
 
   // Match: export (async)? function|class|interface|type|const|enum Name
-  const exportRe = /export\s+(?:async\s+)?(function|class|interface|type|const|enum)\s+(\w+)/g
+  const exportRe = /export\s+(?:async\s)?(function|class|interface|type|const|enum)\s+(\w+)/g
   let match: RegExpExecArray | null
   while ((match = exportRe.exec(content)) !== null) {
     const rawKind = match[1] ?? 'const'
@@ -107,7 +107,9 @@ export function extractExports(content: string): ExportInfo[] {
       }
     }
 
-    results.push({ name, kind, signature })
+    const info: ExportInfo = { name, kind }
+    if (signature !== undefined) info.signature = signature
+    results.push(info)
   }
 
   return results

@@ -6,7 +6,8 @@
  * pluggable merge strategy.
  */
 import { HumanMessage } from '@langchain/core/messages'
-import type { DzipAgent } from '../agent/dzip-agent.js'
+import { Semaphore } from '@dzupagent/core/orchestration'
+import type { DzupAgent } from '../agent/dzip-agent.js'
 import type { MergeStrategyFn } from './merge-strategies.js'
 import { getMergeStrategy } from './merge-strategies.js'
 
@@ -46,38 +47,18 @@ export interface AgentOutput {
 }
 
 // ---------------------------------------------------------------------------
-// Inline semaphore (~15 LOC) — limits concurrency without external deps
-// ---------------------------------------------------------------------------
-
-class Semaphore {
-  private queue: Array<() => void> = []
-  private active = 0
-
-  constructor(private readonly limit: number) {}
-
-  async acquire(): Promise<void> {
-    if (this.active < this.limit) {
-      this.active++
-      return
-    }
-    return new Promise<void>((resolve) => {
-      this.queue.push(() => {
-        this.active++
-        resolve()
-      })
-    })
-  }
-
-  release(): void {
-    this.active--
-    const next = this.queue.shift()
-    if (next) next()
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function normalizeConcurrency(value: number | undefined, defaultValue = 5): number {
+  const concurrency = value ?? defaultValue
+  if (!Number.isFinite(concurrency) || !Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error(
+      `MapReduce concurrency must be a finite positive integer; received ${String(concurrency)}`,
+    )
+  }
+  return concurrency
+}
 
 function resolveMerge(config: Partial<MapReduceConfig>): MergeStrategyFn {
   const strategy = config.mergeStrategy ?? 'concat'
@@ -95,7 +76,7 @@ function resolveMerge(config: Partial<MapReduceConfig>): MergeStrategyFn {
 }
 
 async function executeAgent(
-  agent: DzipAgent,
+  agent: DzupAgent,
   input: string,
   chunkIndex: number,
   signal?: AbortSignal,
@@ -155,7 +136,7 @@ function buildResult(
  * Failed chunks are captured (not thrown) so other chunks can complete.
  */
 export async function mapReduce(
-  agent: DzipAgent,
+  agent: DzupAgent,
   chunks: string[],
   config?: Partial<MapReduceConfig>,
 ): Promise<MapReduceResult> {
@@ -169,11 +150,11 @@ export async function mapReduce(
  * Uses `Promise.allSettled` internally so a single failure never blocks the batch.
  */
 export async function mapReduceMulti(
-  tasks: Array<{ agent: DzipAgent; input: string }>,
+  tasks: Array<{ agent: DzupAgent; input: string }>,
   config?: Partial<MapReduceConfig>,
 ): Promise<MapReduceResult> {
   const cfg = config ?? {}
-  const concurrency = cfg.concurrency ?? 5
+  const concurrency = normalizeConcurrency(cfg.concurrency)
   const mergeFn = resolveMerge(cfg)
   const sem = new Semaphore(concurrency)
   const startTime = Date.now()

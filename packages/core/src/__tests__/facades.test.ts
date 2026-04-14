@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 
 // ---------------------------------------------------------------------------
 // Validate that each facade re-exports the expected symbols without pulling
@@ -6,14 +6,27 @@ import { describe, it, expect } from 'vitest'
 // confirm that the module graph resolves and key symbols are available.
 // ---------------------------------------------------------------------------
 
+const quickStartModulePromise = import('../facades/quick-start.js')
+const memoryModulePromise = import('../facades/memory.js')
+const orchestrationModulePromise = import('../facades/orchestration.js')
+const securityModulePromise = import('../facades/security.js')
+const facadesIndexModulePromise = import('../facades/index.js')
+const stableModulePromise = import('../stable.js')
+const advancedModulePromise = import('../advanced.js')
+const rootModulePromise = import('../index.js')
+
 describe('facades/quick-start', () => {
+  let mod: Awaited<typeof quickStartModulePromise>
+
+  beforeAll(async () => {
+    mod = await quickStartModulePromise
+  })
+
   it('exports createQuickAgent helper', async () => {
-    const mod = await import('../facades/quick-start.js')
     expect(typeof mod.createQuickAgent).toBe('function')
   }, 15_000)
 
   it('exports core building blocks', async () => {
-    const mod = await import('../facades/quick-start.js')
     expect(typeof mod.createContainer).toBe('function')
     expect(typeof mod.createEventBus).toBe('function')
     expect(typeof mod.ModelRegistry).toBe('function')
@@ -23,14 +36,12 @@ describe('facades/quick-start', () => {
   })
 
   it('exports config helpers', async () => {
-    const mod = await import('../facades/quick-start.js')
     expect(mod.DEFAULT_CONFIG).toBeDefined()
     expect(typeof mod.resolveConfig).toBe('function')
     expect(typeof mod.mergeConfigs).toBe('function')
   })
 
   it('exports memory and context basics', async () => {
-    const mod = await import('../facades/quick-start.js')
     expect(typeof mod.MemoryService).toBe('function')
     expect(typeof mod.createStore).toBe('function')
     expect(typeof mod.shouldSummarize).toBe('function')
@@ -39,8 +50,7 @@ describe('facades/quick-start', () => {
   })
 
   it('createQuickAgent wires container correctly', async () => {
-    const { createQuickAgent } = await import('../facades/quick-start.js')
-    const result = createQuickAgent({
+    const result = mod.createQuickAgent({
       provider: 'anthropic',
       apiKey: 'test-key',
     })
@@ -59,8 +69,7 @@ describe('facades/quick-start', () => {
   })
 
   it('createQuickAgent applies custom model names', async () => {
-    const { createQuickAgent } = await import('../facades/quick-start.js')
-    const result = createQuickAgent({
+    const result = mod.createQuickAgent({
       provider: 'openai',
       apiKey: 'test-key',
       chatModel: 'gpt-4-turbo',
@@ -75,8 +84,13 @@ describe('facades/quick-start', () => {
 })
 
 describe('facades/memory', () => {
+  let mod: Awaited<typeof memoryModulePromise>
+
+  beforeAll(async () => {
+    mod = await memoryModulePromise
+  })
+
   it('exports core memory APIs', async () => {
-    const mod = await import('../facades/memory.js')
     expect(typeof mod.MemoryService).toBe('function')
     expect(typeof mod.createStore).toBe('function')
     expect(typeof mod.calculateStrength).toBe('function')
@@ -87,7 +101,6 @@ describe('facades/memory', () => {
   })
 
   it('exports retrieval strategies', async () => {
-    const mod = await import('../facades/memory.js')
     expect(typeof mod.AdaptiveRetriever).toBe('function')
     expect(typeof mod.classifyIntent).toBe('function')
     expect(typeof mod.voidFilter).toBe('function')
@@ -96,7 +109,6 @@ describe('facades/memory', () => {
   })
 
   it('exports advanced memory subsystems', async () => {
-    const mod = await import('../facades/memory.js')
     expect(typeof mod.TemporalMemoryService).toBe('function')
     expect(typeof mod.ScopedMemoryService).toBe('function')
     expect(typeof mod.DualStreamWriter).toBe('function')
@@ -107,14 +119,18 @@ describe('facades/memory', () => {
 })
 
 describe('facades/orchestration', () => {
+  let mod: Awaited<typeof orchestrationModulePromise>
+
+  beforeAll(async () => {
+    mod = await orchestrationModulePromise
+  })
+
   it('exports event bus and agent bus', async () => {
-    const mod = await import('../facades/orchestration.js')
     expect(typeof mod.createEventBus).toBe('function')
     expect(typeof mod.AgentBus).toBe('function')
   })
 
   it('exports routing', async () => {
-    const mod = await import('../facades/orchestration.js')
     expect(typeof mod.IntentRouter).toBe('function')
     expect(typeof mod.KeywordMatcher).toBe('function')
     expect(typeof mod.CostAwareRouter).toBe('function')
@@ -122,7 +138,6 @@ describe('facades/orchestration', () => {
   })
 
   it('exports pipeline schemas', async () => {
-    const mod = await import('../facades/orchestration.js')
     expect(mod.PipelineDefinitionSchema).toBeDefined()
     expect(typeof mod.serializePipeline).toBe('function')
     expect(typeof mod.deserializePipeline).toBe('function')
@@ -130,7 +145,6 @@ describe('facades/orchestration', () => {
   })
 
   it('exports sub-agent and skill management', async () => {
-    const mod = await import('../facades/orchestration.js')
     expect(typeof mod.SubAgentSpawner).toBe('function')
     expect(typeof mod.SkillLoader).toBe('function')
     expect(typeof mod.SkillManager).toBe('function')
@@ -139,7 +153,6 @@ describe('facades/orchestration', () => {
   })
 
   it('exports protocol messaging', async () => {
-    const mod = await import('../facades/orchestration.js')
     expect(typeof mod.createForgeMessage).toBe('function')
     expect(typeof mod.createResponse).toBe('function')
     expect(typeof mod.ProtocolRouter).toBe('function')
@@ -147,14 +160,12 @@ describe('facades/orchestration', () => {
   })
 
   it('exports persistence stores', async () => {
-    const mod = await import('../facades/orchestration.js')
     expect(typeof mod.InMemoryRunStore).toBe('function')
     expect(typeof mod.InMemoryAgentStore).toBe('function')
     expect(typeof mod.InMemoryEventLog).toBe('function')
   })
 
   it('exports concurrency and observability', async () => {
-    const mod = await import('../facades/orchestration.js')
     expect(typeof mod.Semaphore).toBe('function')
     expect(typeof mod.ConcurrencyPool).toBe('function')
     expect(typeof mod.MetricsCollector).toBe('function')
@@ -163,13 +174,17 @@ describe('facades/orchestration', () => {
 })
 
 describe('facades/security', () => {
+  let mod: Awaited<typeof securityModulePromise>
+
+  beforeAll(async () => {
+    mod = await securityModulePromise
+  })
+
   it('exports risk classification', async () => {
-    const mod = await import('../facades/security.js')
     expect(typeof mod.createRiskClassifier).toBe('function')
   })
 
   it('exports secrets scanning and PII detection', async () => {
-    const mod = await import('../facades/security.js')
     expect(typeof mod.scanForSecrets).toBe('function')
     expect(typeof mod.redactSecrets).toBe('function')
     expect(typeof mod.detectPII).toBe('function')
@@ -177,43 +192,36 @@ describe('facades/security', () => {
   })
 
   it('exports output pipeline', async () => {
-    const mod = await import('../facades/security.js')
     expect(typeof mod.OutputPipeline).toBe('function')
     expect(typeof mod.createDefaultPipeline).toBe('function')
   })
 
   it('exports policy engine', async () => {
-    const mod = await import('../facades/security.js')
     expect(typeof mod.PolicyEvaluator).toBe('function')
     expect(typeof mod.InMemoryPolicyStore).toBe('function')
     expect(typeof mod.PolicyTranslator).toBe('function')
   })
 
   it('exports audit trail', async () => {
-    const mod = await import('../facades/security.js')
     expect(typeof mod.ComplianceAuditLogger).toBe('function')
     expect(typeof mod.InMemoryAuditStore).toBe('function')
   })
 
   it('exports safety monitor', async () => {
-    const mod = await import('../facades/security.js')
     expect(typeof mod.createSafetyMonitor).toBe('function')
     expect(typeof mod.getBuiltInRules).toBe('function')
   })
 
   it('exports memory defense', async () => {
-    const mod = await import('../facades/security.js')
     expect(typeof mod.createMemoryDefense).toBe('function')
   })
 
   it('exports data classification', async () => {
-    const mod = await import('../facades/security.js')
     expect(typeof mod.DataClassifier).toBe('function')
     expect(mod.DEFAULT_CLASSIFICATION_PATTERNS).toBeDefined()
   })
 
   it('exports tool permission defaults', async () => {
-    const mod = await import('../facades/security.js')
     expect(Array.isArray(mod.DEFAULT_AUTO_APPROVE_TOOLS)).toBe(true)
     expect(Array.isArray(mod.DEFAULT_LOG_TOOLS)).toBe(true)
     expect(Array.isArray(mod.DEFAULT_REQUIRE_APPROVAL_TOOLS)).toBe(true)
@@ -221,8 +229,13 @@ describe('facades/security', () => {
 })
 
 describe('facades/index (namespace re-exports)', () => {
+  let mod: Awaited<typeof facadesIndexModulePromise>
+
+  beforeAll(async () => {
+    mod = await facadesIndexModulePromise
+  })
+
   it('exports all four namespaces', async () => {
-    const mod = await import('../facades/index.js')
     expect(mod.quickStart).toBeDefined()
     expect(mod.memory).toBeDefined()
     expect(mod.orchestration).toBeDefined()
@@ -230,10 +243,55 @@ describe('facades/index (namespace re-exports)', () => {
   })
 
   it('namespaces contain expected symbols', async () => {
-    const mod = await import('../facades/index.js')
     expect(typeof mod.quickStart.createQuickAgent).toBe('function')
     expect(typeof mod.memory.MemoryService).toBe('function')
     expect(typeof mod.orchestration.IntentRouter).toBe('function')
     expect(typeof mod.security.PolicyEvaluator).toBe('function')
+  })
+})
+
+describe('stable entrypoint', () => {
+  let mod: Awaited<typeof stableModulePromise>
+
+  beforeAll(async () => {
+    mod = await stableModulePromise
+  })
+
+  it('exports the curated facade namespaces', async () => {
+    expect(mod.quickStart).toBeDefined()
+    expect(mod.memory).toBeDefined()
+    expect(mod.orchestration).toBeDefined()
+    expect(mod.security).toBeDefined()
+  })
+
+  it('keeps access through the facade namespaces', async () => {
+    expect(typeof mod.quickStart.createQuickAgent).toBe('function')
+    expect(typeof mod.memory.MemoryService).toBe('function')
+    expect(typeof mod.orchestration.IntentRouter).toBe('function')
+    expect(typeof mod.security.PolicyEvaluator).toBe('function')
+  })
+})
+
+describe('advanced entrypoint', () => {
+  let mod: Awaited<typeof advancedModulePromise>
+  let root: Awaited<typeof rootModulePromise>
+
+  beforeAll(async () => {
+    ;[mod, root] = await Promise.all([advancedModulePromise, rootModulePromise])
+  })
+
+  it('re-exports representative root symbols', async () => {
+    expect(typeof mod.createContainer).toBe('function')
+    expect(typeof mod.createEventBus).toBe('function')
+    expect(typeof mod.ModelRegistry).toBe('function')
+    expect(typeof mod.MemoryService).toBe('function')
+    expect(typeof mod.IntentRouter).toBe('function')
+    expect(typeof mod.createRiskClassifier).toBe('function')
+  })
+
+  it('tracks the current root entrypoint for compatibility', async () => {
+    expect(mod.createContainer).toBe(root.createContainer)
+    expect(mod.createEventBus).toBe(root.createEventBus)
+    expect(mod.ModelRegistry).toBe(root.ModelRegistry)
   })
 })

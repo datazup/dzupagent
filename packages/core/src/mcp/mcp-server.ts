@@ -1,11 +1,11 @@
 /**
- * MCP Server — Exposes DzipAgent instances as MCP tools.
+ * MCP Server — Exposes DzupAgent instances as MCP tools.
  *
  * Implements the minimal JSON-RPC protocol surface for `tools/list`
  * and `tools/call` so any MCP client (Claude Code, Cursor, Zed) can
  * discover and invoke registered tools. No SDK dependency required.
  */
-import type { MCPToolDescriptor } from './mcp-types.js'
+import type { MCPToolDescriptor, MCPToolParameter } from './mcp-types.js'
 
 // ---------------------------------------------------------------------------
 // JSON-RPC types (MCP protocol surface)
@@ -54,7 +54,7 @@ const JSON_RPC_INVALID_PARAMS = -32602
 const JSON_RPC_INTERNAL_ERROR = -32000
 
 // ---------------------------------------------------------------------------
-// DzipAgentMCPServer
+// DzupAgentMCPServer
 // ---------------------------------------------------------------------------
 
 /**
@@ -62,7 +62,7 @@ const JSON_RPC_INTERNAL_ERROR = -32000
  *
  * Usage:
  * ```ts
- * const server = new DzipAgentMCPServer({
+ * const server = new DzupAgentMCPServer({
  *   name: 'forge-codegen',
  *   version: '1.0.0',
  *   tools: [{ name: 'generate', description: '...', inputSchema: {...}, handler: async (args) => '...' }],
@@ -72,7 +72,7 @@ const JSON_RPC_INTERNAL_ERROR = -32000
  * const response = await server.handleRequest(jsonRpcRequest)
  * ```
  */
-export class DzipAgentMCPServer {
+export class DzupAgentMCPServer {
   private readonly serverName: string
   private readonly serverVersion: string
   private readonly tools: Map<string, MCPExposedTool> = new Map()
@@ -106,13 +106,14 @@ export class DzipAgentMCPServer {
   listTools(): MCPToolDescriptor[] {
     const descriptors: MCPToolDescriptor[] = []
     for (const tool of this.tools.values()) {
+      const requiredFields = tool.inputSchema['required'] as string[] | undefined
       descriptors.push({
         name: tool.name,
         description: tool.description,
         inputSchema: {
           type: 'object',
-          properties: (tool.inputSchema['properties'] ?? {}) as Record<string, import('./mcp-types.js').MCPToolParameter>,
-          required: tool.inputSchema['required'] as string[] | undefined,
+          properties: (tool.inputSchema['properties'] ?? {}) as Record<string, MCPToolParameter>,
+          ...(requiredFields !== undefined && { required: requiredFields }),
         },
         serverId: this.serverName,
       })

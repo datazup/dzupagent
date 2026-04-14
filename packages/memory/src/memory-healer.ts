@@ -5,6 +5,7 @@
  * contradictions (keyword opposition), and staleness (age-based).
  * Returns a structured HealingReport with issues and resolution stats.
  */
+import { tokenizeText, jaccardSimilarity } from './shared/text-similarity.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,30 +43,6 @@ const DEFAULT_CONFIG: MemoryHealerConfig = {
   autoPruneStale: false,
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function tokenize(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 0),
-  )
-}
-
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1
-  let intersectionSize = 0
-  for (const word of a) {
-    if (b.has(word)) intersectionSize++
-  }
-  const unionSize = a.size + b.size - intersectionSize
-  return unionSize === 0 ? 0 : intersectionSize / unionSize
-}
-
 // Opposition patterns: pairs of phrases that indicate contradiction
 const OPPOSITION_PATTERNS: Array<[RegExp, RegExp]> = [
   [/\balways\s+(\w+)/i, /\bnever\s+(\w+)/i],
@@ -95,7 +72,8 @@ export function findDuplicates(
   threshold: number = DEFAULT_CONFIG.duplicateThreshold,
 ): HealingIssue[] {
   const issues: HealingIssue[] = []
-  const tokenSets = records.map(r => tokenize(r.text))
+  // Preserve prior behavior by keeping single-character tokens.
+  const tokenSets = records.map(r => tokenizeText(r.text, { minTokenLength: 1 }))
   const reported = new Set<string>()
 
   for (let i = 0; i < records.length; i++) {

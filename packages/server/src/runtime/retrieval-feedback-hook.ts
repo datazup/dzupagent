@@ -3,7 +3,7 @@
  *
  * Creates a closed loop: run -> reflect -> feedback -> retrieval weight tuning.
  *
- * Uses structural types only (no imports from @dzipagent/memory or @dzipagent/agent).
+ * Uses structural types only (no imports from @dzupagent/memory or @dzupagent/agent).
  */
 
 // ---------------------------------------------------------------------------

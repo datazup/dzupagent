@@ -1,0 +1,14 @@
+{
+  "entryPoints": ["packages/agent-adapters/src/index.ts"],
+  "out": "docs/api/agent-adapters",
+  "plugin": ["typedoc-plugin-markdown"],
+  "theme": "markdown",
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "readme": "none",
+  "sort": ["source-order"],
+  "categorizeByGroup": true,
+  "navigation": {
+    "includeCategories": true
+  }
+}

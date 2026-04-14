@@ -38,7 +38,7 @@ export interface DetectedConvention {
   category: ConventionCategory
   description: string
   /** Regex or glob pattern that identifies this convention */
-  pattern?: string
+  pattern?: string | undefined
   /** Code examples demonstrating the convention */
   examples: string[]
   /** Confidence 0.0-1.0 */
@@ -46,9 +46,9 @@ export interface DetectedConvention {
   /** Number of occurrences observed */
   occurrences: number
   /** Which tech stack this applies to (e.g., 'vue3', 'react', 'express') */
-  techStack?: string
+  techStack?: string | undefined
   /** Human verdict: true = confirmed, false = rejected, undefined = pending */
-  humanVerified?: boolean
+  humanVerified?: boolean | undefined
 }
 
 export interface ConventionFollowed {
@@ -72,24 +72,24 @@ export interface ConventionCheckResult {
 export interface ConventionExtractorConfig {
   memoryService: MemoryService
   /** LLM function for analyzing code. Accepts prompt, returns string. */
-  llm?: (prompt: string) => Promise<string>
+  llm?: ((prompt: string) => Promise<string>) | undefined
   /** Namespace for storing conventions (default: '__conventions') */
-  namespace?: string
+  namespace?: string | undefined
   /** Optional semantic store for auto-embedding and semantic retrieval of conventions */
-  semanticStore?: SemanticStoreAdapter
+  semanticStore?: SemanticStoreAdapter | undefined
 }
 
 export interface ConventionFilter {
-  category?: ConventionCategory
-  techStack?: string
-  minConfidence?: number
+  category?: ConventionCategory | undefined
+  techStack?: string | undefined
+  minConfidence?: number | undefined
   /** Semantic query for ranking conventions by relevance (requires semanticStore) */
-  query?: string
+  query?: string | undefined
 }
 
 export interface ConsolidateOptions {
   /** Minimum confidence to keep (default: 0.3) */
-  minConfidence?: number
+  minConfidence?: number | undefined
   /** Similarity threshold for merging 0.0-1.0 (default: 0.8) */
-  mergeSimilarity?: number
+  mergeSimilarity?: number | undefined
 }

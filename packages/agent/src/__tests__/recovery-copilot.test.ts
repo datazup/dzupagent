@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import { RecoveryCopilot } from '../recovery/recovery-copilot.js'
 import type {
   FailureContext,
@@ -20,7 +20,7 @@ function makeFailure(overrides: Partial<FailureContext> = {}): FailureContext {
 }
 
 describe('RecoveryCopilot', () => {
-  let eventBus: DzipEventBus
+  let eventBus: DzupEventBus
   let actionHandler: ReturnType<typeof vi.fn>
 
   beforeEach(() => {

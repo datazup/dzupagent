@@ -13,7 +13,7 @@ import type { DeploymentHistoryStoreInterface, SuccessRateResult } from './deplo
 // Types
 // ---------------------------------------------------------------------------
 
-/** Agent configuration shape — uses structural typing to avoid hard dependency on @dzipagent/agent. */
+/** Agent configuration shape — uses structural typing to avoid hard dependency on @dzupagent/agent. */
 export interface AgentConfigLike {
   tools?: Array<{ name: string } | string>
   guardrails?: Record<string, unknown>

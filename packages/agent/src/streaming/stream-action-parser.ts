@@ -158,7 +158,7 @@ export class StreamActionParser {
 
   private runTracked(run: () => Promise<StreamActionEvent>): Promise<StreamActionEvent> {
     const promise = run()
-    promise.finally(() => {
+    void promise.finally(() => {
       this.active.delete(promise)
     })
     return promise

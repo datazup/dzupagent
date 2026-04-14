@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { ForgeError } from '@dzipagent/core'
+import { ForgeError } from '@dzupagent/core'
 
 import type {
   AdapterConfig,
@@ -9,12 +9,54 @@ import type {
   AgentEvent,
   AgentInput,
   HealthStatus,
+  EnvFilterConfig,
 } from '../types.js'
 import { isBinaryAvailable, spawnAndStreamJsonl } from '../utils/process-helpers.js'
 
+/** Default patterns for sensitive env vars that should not leak to child processes */
+const DEFAULT_SENSITIVE_PATTERNS: RegExp[] = [
+  /SECRET/i,
+  /PASSWORD/i,
+  /PRIVATE_KEY/i,
+  /^DATABASE_URL$/i,
+  /^JWT_SECRET$/i,
+  /^COOKIE_SECRET$/i,
+  /TOKEN(?!_LIMIT|_COUNT|S_PER)/i,
+]
+
+/**
+ * Filter sensitive environment variables based on the provided config.
+ *
+ * Removes entries whose keys match any blocked pattern, unless the key
+ * is explicitly listed in `allowedVars`. Returns a new object; does not
+ * mutate the input.
+ */
+export function filterSensitiveEnvVars(
+  env: Record<string, string>,
+  config?: EnvFilterConfig,
+): Record<string, string> {
+  if (config?.disableFilter) {
+    return { ...env }
+  }
+  const patterns = [
+    ...DEFAULT_SENSITIVE_PATTERNS,
+    ...(config?.blockedPatterns ?? []),
+  ]
+  const allowed = new Set(config?.allowedVars ?? [])
+  const result: Record<string, string> = {}
+  for (const key of Object.keys(env)) {
+    if (!allowed.has(key) && patterns.some((p) => p.test(key))) {
+      continue
+    }
+    const val = env[key]
+    if (val !== undefined) result[key] = val
+  }
+  return result
+}
+
 interface NormalizedAdapterError {
   message: string
-  code?: string
+  code?: string | undefined
   original: unknown
 }
 
@@ -49,6 +91,12 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       providerId: this.providerId,
       sessionId,
       timestamp: startTime,
+      prompt: input.prompt,
+      systemPrompt: input.systemPrompt,
+      model: this.config.model,
+      workingDirectory: input.workingDirectory ?? this.config.workingDirectory,
+      isResume: !!input.resumeSessionId,
+      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
     }
 
     this.currentAbortController = new AbortController()
@@ -61,6 +109,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
     try {
       let hasCompleted = false
+      let hasFailed = false
 
       for await (const record of spawnAndStreamJsonl(this.getBinaryName(), args, {
         cwd: input.workingDirectory ?? this.config.workingDirectory,
@@ -71,13 +120,20 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         const event = this.mapProviderEvent(record, sessionId)
         if (!event) continue
 
+        if (input.correlationId) {
+          ;(event as unknown as Record<string, unknown>).correlationId = input.correlationId
+        }
+
         if (event.type === 'adapter:completed') {
           hasCompleted = true
+        }
+        if (event.type === 'adapter:failed') {
+          hasFailed = true
         }
         yield event
       }
 
-      if (!hasCompleted) {
+      if (!hasCompleted && !hasFailed) {
         yield {
           type: 'adapter:completed',
           providerId: this.providerId,
@@ -85,6 +141,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           result: '',
           durationMs: Date.now() - startTime,
           timestamp: Date.now(),
+          ...(input.correlationId ? { correlationId: input.correlationId } : {}),
         }
       }
     } catch (err: unknown) {
@@ -96,6 +153,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         error: normalized.message,
         code: normalized.code,
         timestamp: Date.now(),
+        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
       }
 
       if (this.shouldRethrow(normalized.original)) {
@@ -155,11 +213,14 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   }
 
   protected buildEnv(): Record<string, string> {
-    const env: Record<string, string> = { ...process.env as Record<string, string> }
+    const raw = filterSensitiveEnvVars(
+      { ...process.env } as Record<string, string>,
+      this.config.envFilter,
+    )
     if (this.config.env) {
-      Object.assign(env, this.config.env)
+      Object.assign(raw, this.config.env)
     }
-    return env
+    return raw
   }
 
   protected normalizeError(err: unknown): NormalizedAdapterError {

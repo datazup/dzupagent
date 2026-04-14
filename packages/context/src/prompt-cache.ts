@@ -131,7 +131,7 @@ export function applyAnthropicCacheControl(
  * Apply cache breakpoints to LangChain BaseMessage[] format.
  *
  * This is a convenience wrapper that works with the LangChain message types
- * used throughout dzipagent-core. It modifies the `additional_kwargs`
+ * used throughout dzupagent-core. It modifies the `additional_kwargs`
  * on each marked message to include Anthropic's cache_control metadata.
  *
  * Note: This only has effect when using ChatAnthropic — other providers

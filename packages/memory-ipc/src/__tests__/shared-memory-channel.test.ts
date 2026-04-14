@@ -223,4 +223,113 @@ describe('SharedMemoryChannel', () => {
       ).toThrow('invalid slot index')
     })
   })
+
+  describe('concurrent writes (multi-writer safety)', () => {
+    it('should not corrupt data when multiple writes happen concurrently', () => {
+      // Use a channel with enough slots for concurrent writes
+      const concurrentChannel = new SharedMemoryChannel({
+        maxBytes: 1024 * 1024,
+        maxSlots: 8,
+      })
+
+      // Simulate multiple concurrent writes
+      const writeCount = 8
+      const handles: Array<ReturnType<typeof concurrentChannel.write>> = []
+
+      for (let i = 0; i < writeCount; i++) {
+        const b = new FrameBuilder()
+        b.add(
+          { text: `concurrent-write-${i}` },
+          { id: `id-${i}`, namespace: 'concurrent', key: `k${i}` },
+        )
+        handles.push(concurrentChannel.writeTable(b.build()))
+      }
+
+      // Verify each write produced a unique, non-overlapping handle
+      const slotIndices = new Set(handles.map(h => h.slotIndex))
+      expect(slotIndices.size).toBe(writeCount)
+
+      // Verify each written table can be read back correctly
+      for (let i = 0; i < writeCount; i++) {
+        const handle = handles[i]!
+        const table = concurrentChannel.readTable(handle)
+        expect(table.numRows).toBe(1)
+        expect(table.getChild('text')?.get(0)).toBe(`concurrent-write-${i}`)
+      }
+    })
+
+    it('should handle write-release-write cycles without corruption', () => {
+      // Fill all slots, release some, write again
+      const handles = Array.from({ length: 4 }, (_, i) => {
+        const b = new FrameBuilder()
+        b.add(
+          { text: `cycle-${i}` },
+          { id: `id-${i}`, namespace: 'cycle', key: `k${i}` },
+        )
+        return channel.writeTable(b.build())
+      })
+
+      // Release slots 0 and 2
+      channel.release(handles[0]!)
+      channel.release(handles[2]!)
+
+      // Write two new entries into the freed slots
+      const newHandles = Array.from({ length: 2 }, (_, i) => {
+        const b = new FrameBuilder()
+        b.add(
+          { text: `rewrite-${i}` },
+          { id: `new-${i}`, namespace: 'cycle', key: `new${i}` },
+        )
+        return channel.writeTable(b.build())
+      })
+
+      // Verify old slot 1 and 3 still readable
+      expect(channel.readTable(handles[1]!).getChild('text')?.get(0)).toBe('cycle-1')
+      expect(channel.readTable(handles[3]!).getChild('text')?.get(0)).toBe('cycle-3')
+
+      // Verify new entries are readable and correct
+      for (let i = 0; i < 2; i++) {
+        const table = channel.readTable(newHandles[i]!)
+        expect(table.getChild('text')?.get(0)).toBe(`rewrite-${i}`)
+      }
+    })
+
+    it('should produce unique data offsets for concurrent allocations', () => {
+      const concurrentChannel = new SharedMemoryChannel({
+        maxBytes: 1024 * 1024,
+        maxSlots: 4,
+      })
+
+      // Write different-sized payloads
+      const payloads = [
+        new Uint8Array(100).fill(0xAA),
+        new Uint8Array(200).fill(0xBB),
+        new Uint8Array(50).fill(0xCC),
+      ]
+
+      const handles = payloads.map(p => concurrentChannel.write(p))
+
+      // Verify offsets do not overlap
+      for (let i = 0; i < handles.length; i++) {
+        for (let j = i + 1; j < handles.length; j++) {
+          const a = handles[i]!
+          const b = handles[j]!
+          const aEnd = a.offset + a.length
+          const bEnd = b.offset + b.length
+          // No overlap: a ends before b starts, or b ends before a starts
+          const noOverlap = aEnd <= b.offset || bEnd <= a.offset
+          expect(noOverlap).toBe(true)
+        }
+      }
+
+      // Verify each payload reads back correctly
+      for (let i = 0; i < payloads.length; i++) {
+        const readBytes = concurrentChannel.read(handles[i]!)
+        expect(readBytes.byteLength).toBe(payloads[i]!.byteLength)
+        for (let b = 0; b < readBytes.byteLength; b++) {
+          expect(readBytes[b]).toBe(payloads[i]![b])
+        }
+      }
+    })
+  })
 })

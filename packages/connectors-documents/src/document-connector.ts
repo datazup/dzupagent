@@ -1,9 +1,9 @@
 /**
  * Document connector — wraps document parsing utilities as LangChain-compatible
- * tools via createForgeTool from @dzipagent/agent.
+ * tools via createForgeTool from @dzupagent/agent.
  */
 
-import { createForgeTool } from '@dzipagent/agent'
+import { createForgeTool } from '@dzupagent/agent'
 import { z } from 'zod'
 import { parseDocument } from './parse-document.js'
 import { splitIntoChunks } from './chunking/split-into-chunks.js'
@@ -32,8 +32,8 @@ type DocumentToolFactory = (config: {
   id: string
   description: string
   inputSchema: unknown
-  execute: (input: any) => Promise<any>
-  toModelOutput?: (output: any) => string
+  execute: (input: unknown) => Promise<unknown>
+  toModelOutput?: (output: unknown) => string
 }) => ReturnType<typeof createForgeTool>
 
 // ---------------------------------------------------------------------------
@@ -84,10 +84,8 @@ export function createDocumentConnector(
           'MIME type, e.g. application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         ),
     }),
-    execute: async (input: {
-      content: string
-      contentType: string
-    }): Promise<string> => {
+    execute: async (rawInput: unknown): Promise<unknown> => {
+      const input = rawInput as { content: string; contentType: string }
       try {
         if (!isSupportedDocumentType(input.contentType)) {
           const supported = [...SUPPORTED_MIME_TYPES].join(', ')
@@ -103,7 +101,7 @@ export function createDocumentConnector(
         return `Error: ${message}`
       }
     },
-    toModelOutput: (output: string): string => output,
+    toModelOutput: (output: unknown): string => typeof output === 'string' ? output : String(output),
   })
 
   // -------------------------------------------------------------------------
@@ -125,11 +123,8 @@ export function createDocumentConnector(
         .optional()
         .describe('Character overlap between chunks'),
     }),
-    execute: async (input: {
-      text: string
-      maxChunkSize?: number
-      overlap?: number
-    }): Promise<string> => {
+    execute: async (rawInput: unknown): Promise<unknown> => {
+      const input = rawInput as { text: string; maxChunkSize?: number; overlap?: number }
       try {
         const chunkSize = input.maxChunkSize ?? defaultMaxChunkSize
         const overlapSize = input.overlap ?? defaultOverlap
@@ -142,12 +137,13 @@ export function createDocumentConnector(
         return `Error: ${message}`
       }
     },
-    toModelOutput: (output: string): string => {
+    toModelOutput: (output: unknown): string => {
+      const text = typeof output === 'string' ? output : String(output)
       try {
-        const chunks: unknown[] = JSON.parse(output) as unknown[]
+        const chunks: unknown[] = JSON.parse(text) as unknown[]
         return `${String(chunks.length)} chunks created`
       } catch {
-        return output
+        return text
       }
     },
   })

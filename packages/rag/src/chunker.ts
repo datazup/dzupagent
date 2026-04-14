@@ -6,12 +6,16 @@
  * - Quality scoring built-in
  * - Returns ChunkResult with full metadata
  *
- * Uses `estimateTokens` from @dzipagent/core for token estimation.
+ * Uses a local token estimator (length / 4, ceiling) — avoids importing
+ * the full @dzupagent/core module graph in this lightweight utility.
  */
 
-import { estimateTokens } from '@dzipagent/core'
-
 import type { ChunkingConfig, ChunkResult, ChunkMetadata, QualityMetrics } from './types.js'
+
+/** Conservative token estimate: 4 chars per token (ceiling). */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4)
+}
 
 // ---------------------------------------------------------------------------
 // Boundary Definitions (priority-ordered)
@@ -41,7 +45,7 @@ const BOUNDARY_PRIORITIES: BoundaryDef[] = [
 const BOILERPLATE_PATTERNS: RegExp[] = [
   /cookie/i, /subscribe/i, /newsletter/i, /share\s+(this|on)/i,
   /follow\s+us/i, /copyright\s*©?/i, /all\s+rights\s+reserved/i,
-  /terms\s+(of\s+)?(service|use)/i, /privacy\s+policy/i,
+  /terms\s+(?:of\s)?(?:service|use)/i, /privacy\s+policy/i,
   /sign\s+(up|in)/i, /log\s*(in|out)/i, /accept\s+cookies/i,
   /we\s+use\s+cookies/i, /navigation/i, /breadcrumb/i,
   /skip\s+to\s+(content|main)/i, /advertisement/i, /sponsored/i,
@@ -114,14 +118,23 @@ export class SmartChunker {
         rawChunks.push({ content, startOffset: start, endOffset: end, boundaryType })
       }
 
-      start = end - effectiveOverlap
+      // Once we have consumed to the end of the text, stop —
+      // do not slide the window backwards to create duplicate chunks.
+      if (end >= text.length) break
+
+      // Always advance forward; cap overlap so start never goes backwards.
+      const nextStart = end - effectiveOverlap
+      start = nextStart > start ? nextStart : start + 1
       if (start >= text.length) break
     }
 
-    // Merge tiny trailing chunk into its predecessor
+    // Merge tiny trailing chunk into its predecessor.
+    // A chunk is "tiny" if it is under 25% of the configured target size
+    // (also bounded by the absolute MIN_CHUNK_TOKENS floor for large targets).
+    const tinyThreshold = Math.min(MIN_CHUNK_TOKENS, Math.floor(targetTokens * 0.25))
     if (rawChunks.length > 1) {
       const lastChunk = rawChunks[rawChunks.length - 1]!
-      if (estimateTokens(lastChunk.content) < MIN_CHUNK_TOKENS) {
+      if (estimateTokens(lastChunk.content) < tinyThreshold) {
         const prevChunk = rawChunks[rawChunks.length - 2]!
         prevChunk.content += '\n' + lastChunk.content
         prevChunk.endOffset = lastChunk.endOffset

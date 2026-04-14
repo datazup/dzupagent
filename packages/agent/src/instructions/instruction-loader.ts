@@ -6,6 +6,7 @@
  * honouring .gitignore when present.
  */
 
+import type { Dirent } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { parseAgentsMd, type AgentsMdSection } from './agents-md-parser.js'
@@ -87,7 +88,7 @@ async function walk(
 ): Promise<void> {
   if (depth > maxDepth) return
 
-  let entries: import('node:fs').Dirent[]
+  let entries: Dirent[]
   try {
     entries = await readdir(dir, { withFileTypes: true })
   } catch {

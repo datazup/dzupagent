@@ -2,13 +2,13 @@
  * Import Restriction Rule — prevents deep imports into package internals.
  *
  * External consumers should only import from a package's public entry
- * point (e.g., '@dzipagent/core'), not from internal paths like
- * '@dzipagent/core/src/internal/secret'.
+ * point (e.g., '@dzupagent/core'), not from internal paths like
+ * '@dzupagent/core/src/internal/secret'.
  */
 
 import type { GuardrailRule, GuardrailContext, GuardrailResult, GuardrailViolation } from '../guardrail-types.js'
 
-const IMPORT_RE = /^\s*import\s+(?:type\s+)?(?:\{[^}]*\}|[^;'"]*)\s+from\s+['"]([^'"]+)['"]/
+const IMPORT_RE = /^\s*import\s+(?:type\s)?(?:\{[^}]*\}|[^;'"]*)\s+from\s+['"]([^'"]+)['"]/
 
 /**
  * Check whether an import path reaches into package internals.
@@ -39,13 +39,13 @@ function isDeepImport(importPath: string, allowedSubpaths: string[]): boolean {
 export interface ImportRestrictionConfig {
   /** Subpaths that are allowed beyond the index (e.g., ['dist', 'types']) */
   allowedSubpaths?: string[]
-  /** Package scopes to check (default: ['@dzipagent']) */
+  /** Package scopes to check (default: ['@dzupagent']) */
   scopes?: string[]
 }
 
 export function createImportRestrictionRule(config?: ImportRestrictionConfig): GuardrailRule {
   const allowedSubpaths = config?.allowedSubpaths ?? ['dist', 'types']
-  const scopes = config?.scopes ?? ['@dzipagent']
+  const scopes = config?.scopes ?? ['@dzupagent']
 
   return {
     id: 'import-restriction',

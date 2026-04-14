@@ -52,8 +52,8 @@ function fileStem(filePath: string): string {
 
 function classifyFileNaming(stem: string): keyof NamingCount | undefined {
   if (stem === 'index' || stem.startsWith('.')) return undefined
-  if (/^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/.test(stem)) return 'kebab'
-  if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(stem)) return 'snake'
+  if (/^[a-z][a-z0-9]*-[a-z0-9][-a-z0-9]*$/.test(stem)) return 'kebab'
+  if (/^[a-z][a-z0-9]*_[a-z0-9][_a-z0-9]*$/.test(stem)) return 'snake'
   if (/^[A-Z][a-zA-Z0-9]*$/.test(stem)) return 'pascal'
   if (/^[a-z][a-zA-Z0-9]*$/.test(stem)) return 'camel'
   // Single-word lowercase could be kebab or camel — favor kebab
@@ -148,7 +148,7 @@ export class ConventionLearner {
     let upperConsts = 0
     let camelConsts = 0
 
-    const FUNC_RE = /^\s*export\s+(?:async\s+)?function\s+(\w+)/
+    const FUNC_RE = /^\s*export\s+(?:async\s)?function\s+(\w+)/
     const CONST_RE = /^\s*export\s+const\s+(\w+)/
 
     for (const file of files) {
@@ -192,7 +192,7 @@ export class ConventionLearner {
         else regularImports++
 
         // Check for deep imports of scoped packages
-        const fromMatch = /from\s+['"](@[^/]+\/[^/'"]+)(?:\/[^'"]+)?['"]/.exec(line)
+        const fromMatch = /from\s+['"](@[^/]+\/[^/'"]+)[^'"]*['"]/.exec(line)
         if (fromMatch) {
           const full = /from\s+['"]([^'"]+)['"]/.exec(line)?.[1] ?? ''
           const pkg = fromMatch[1]!

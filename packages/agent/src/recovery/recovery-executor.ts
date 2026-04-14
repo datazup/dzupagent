@@ -6,7 +6,7 @@
  * @module recovery/recovery-executor
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import type { ApprovalGate } from '../approval/approval-gate.js'
 import type {
   RecoveryPlan,
@@ -34,7 +34,7 @@ export type ActionHandler = (
 
 export interface RecoveryExecutorConfig {
   /** The event bus for emitting lifecycle events. */
-  eventBus: DzipEventBus
+  eventBus: DzupEventBus
   /** Optional approval gate for high-risk strategies. */
   approvalGate?: ApprovalGate
   /** Copilot config for thresholds and flags. */

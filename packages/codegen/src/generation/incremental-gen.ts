@@ -47,12 +47,12 @@ interface SectionPattern {
 
 const SECTION_PATTERNS: SectionPattern[] = [
   { regex: /^import\s+/, type: 'import', nameGroup: 0 },
-  { regex: /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/, type: 'function', nameGroup: 1 },
-  { regex: /^(?:export\s+)?class\s+(\w+)/, type: 'class', nameGroup: 1 },
-  { regex: /^(?:export\s+)?interface\s+(\w+)/, type: 'interface', nameGroup: 1 },
-  { regex: /^(?:export\s+)?type\s+(\w+)/, type: 'type', nameGroup: 1 },
-  { regex: /^(?:export\s+)?(?:const|let|var)\s+(\w+)/, type: 'const', nameGroup: 1 },
-  { regex: /^(?:export\s+)?enum\s+(\w+)/, type: 'const', nameGroup: 1 },
+  { regex: /^(?:export\s)?(?:async\s)?function\s+(\w+)/, type: 'function', nameGroup: 1 },
+  { regex: /^(?:export\s)?class\s+(\w+)/, type: 'class', nameGroup: 1 },
+  { regex: /^(?:export\s)?interface\s+(\w+)/, type: 'interface', nameGroup: 1 },
+  { regex: /^(?:export\s)?type\s+(\w+)/, type: 'type', nameGroup: 1 },
+  { regex: /^(?:export\s)?(?:const|let|var)\s+(\w+)/, type: 'const', nameGroup: 1 },
+  { regex: /^(?:export\s)?enum\s+(\w+)/, type: 'const', nameGroup: 1 },
 ]
 
 function classifyLine(trimmed: string): { type: SectionType; name: string } | undefined {

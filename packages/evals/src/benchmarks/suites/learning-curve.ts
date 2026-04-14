@@ -81,8 +81,8 @@ export interface SimulatedRunAnalysis {
     nodeId: string;
     error: string;
     resolved: boolean;
-    resolution?: string;
-    fixAttempt?: number;
+    resolution?: string | undefined;
+    fixAttempt?: number | undefined;
   }>;
   overallScore: number;
   totalCostCents: number;

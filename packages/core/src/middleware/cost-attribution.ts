@@ -65,8 +65,8 @@ export class CostAttributionCollector {
 
   constructor(config?: CostAttributionConfig) {
     this.context = {
-      agentId: config?.agentId,
-      runId: config?.runId,
+      ...(config?.agentId !== undefined && { agentId: config.agentId }),
+      ...(config?.runId !== undefined && { runId: config.runId }),
     }
   }
 
@@ -76,11 +76,13 @@ export class CostAttributionCollector {
    * in the entry take precedence.
    */
   record(entry: CostAttribution): void {
+    const runId = entry.runId ?? this.context.runId
+    const toolName = entry.toolName ?? this.context.toolName
     const merged: CostAttribution = {
       ...entry,
       agentId: entry.agentId || this.context.agentId || 'unknown',
-      runId: entry.runId ?? this.context.runId,
-      toolName: entry.toolName ?? this.context.toolName,
+      ...(runId !== undefined && { runId }),
+      ...(toolName !== undefined && { toolName }),
     }
     this.entries.push(merged)
   }

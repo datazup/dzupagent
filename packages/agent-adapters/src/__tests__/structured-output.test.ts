@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import {
   JsonOutputSchema,
@@ -202,7 +202,7 @@ describe('RegexOutputSchema', () => {
 // ---------------------------------------------------------------------------
 
 describe('StructuredOutputAdapter', () => {
-  let bus: DzipEventBus
+  let bus: DzupEventBus
   let registry: AdapterRegistry
 
   beforeEach(() => {

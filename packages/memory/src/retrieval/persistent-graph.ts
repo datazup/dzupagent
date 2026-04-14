@@ -45,7 +45,8 @@ function extractEntities(text: string): Set<string> {
   }
 
   // PascalCase words (2+ uppercase transitions)
-  for (const m of text.matchAll(/\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b/g)) {
+  // eslint-disable-next-line security/detect-unsafe-regex
+  for (const m of text.matchAll(/\b((?:[A-Z][a-z]{1,30}){2,10})\b/g)) {
     if (m[1] !== undefined) entities.add(m[1].toLowerCase())
   }
 

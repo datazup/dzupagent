@@ -250,14 +250,15 @@ export class BrowserPool {
   /** Start an idle timer that closes a browser after idleTimeoutMs */
   private startIdleTimer(entry: PoolEntry): void {
     this.clearIdleTimer(entry)
-    entry.idleTimer = setTimeout(async () => {
+    const closeIdleEntry = async (): Promise<void> => {
       const index = this.entries.indexOf(entry)
       if (index !== -1 && entry.activePages === 0) {
         this.entries.splice(index, 1)
         const browser = entry.browser as { close: () => Promise<void> }
         await browser.close().catch(() => {})
       }
-    }, this.config.idleTimeoutMs)
+    }
+    entry.idleTimer = setTimeout(() => { void closeIdleEntry() }, this.config.idleTimeoutMs)
   }
 
   /** Clear a pending idle timer */

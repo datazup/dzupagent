@@ -25,9 +25,9 @@ export interface EncryptedMemoryServiceConfig {
   /** Key provider */
   keyProvider: EncryptionKeyProvider
   /** Namespaces to encrypt (if not specified, all namespaces are encrypted) */
-  encryptedNamespaces?: string[]
+  encryptedNamespaces?: string[] | undefined
   /** Fields to preserve in plaintext for searchability */
-  plaintextFields?: string[]
+  plaintextFields?: string[] | undefined
 }
 
 /**

@@ -1,15 +1,15 @@
-# @dzipagent/scraper
+# @dzupagent/scraper
 
-High-performance web scraping and content extraction for DzipAgent.
+High-performance web scraping and content extraction for DzupAgent.
 
 This package provides a unified interface for fetching web content using either fast HTTP requests or full browser automation (Puppeteer), with built-in support for cleaning and extracting structured data from HTML.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/scraper
+yarn add @dzupagent/scraper
 # or
-npm install @dzipagent/scraper
+npm install @dzupagent/scraper
 ```
 
 ### Optional Dependencies
@@ -31,14 +31,14 @@ yarn add puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
 - **Browser Pool Management**
   - `BrowserPool` manages a pool of browser instances to optimize resource usage and performance during bulk scraping.
 - **Agent Integration**
-  - `WebScraper.asTool()` returns a LangChain-compatible tool for easy integration into your DzipAgent toolsets.
+  - `WebScraper.asTool()` returns a LangChain-compatible tool for easy integration into your DzupAgent toolsets.
 - **Stealth Support**
   - Integrated with `puppeteer-extra-plugin-stealth` to reduce bot detection.
 
 ## Quick Start
 
 ```ts
-import { WebScraper } from '@dzipagent/scraper'
+import { WebScraper } from '@dzupagent/scraper'
 
 const scraper = new WebScraper({
   timeout: 30000,
@@ -61,7 +61,7 @@ console.log(result.metadata.title)
 Efficiently scrape multiple URLs using the built-in browser pool.
 
 ```ts
-import { WebScraper } from '@dzipagent/scraper'
+import { WebScraper } from '@dzupagent/scraper'
 
 const scraper = new WebScraper()
 
@@ -78,17 +78,17 @@ for (const res of results) {
 }
 ```
 
-### 2) Integration with DzipAgent
+### 2) Integration with DzupAgent
 
 Register the scraper as a tool for your AI agents.
 
 ```ts
-import { DzipAgent } from '@dzipagent/agent'
-import { WebScraper } from '@dzipagent/scraper'
+import { DzupAgent } from '@dzupagent/agent'
+import { WebScraper } from '@dzupagent/scraper'
 
 const scraper = new WebScraper()
 
-const agent = new DzipAgent({
+const agent = new DzupAgent({
   name: 'researcher',
   tools: [scraper.asTool()]
 })
@@ -101,7 +101,7 @@ const response = await agent.generate('Find the latest news about quantum comput
 Use the `ContentExtractor` directly on existing HTML strings.
 
 ```ts
-import { ContentExtractor } from '@dzipagent/scraper'
+import { ContentExtractor } from '@dzupagent/scraper'
 
 const html = '<html><body><nav>...</nav><main><h1>Title</h1><p>Body...</p></main></body></html>'
 const extractor = new ContentExtractor()

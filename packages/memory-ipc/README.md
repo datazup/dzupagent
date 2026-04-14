@@ -1,9 +1,9 @@
-# @dzipagent/memory-ipc
+# @dzupagent/memory-ipc
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
 
-> Arrow-based IPC for inter-agent memory sharing in DzipAgent
+> Arrow-based IPC for inter-agent memory sharing in DzupAgent
 
 **Maturity:** Experimental | **Coverage:** N/A | **Exports:** 24
 
@@ -12,25 +12,25 @@
 | Source Files | 28 |
 | Lines of Code | 8,956 |
 | Test Files | 13 |
-| Internal Dependencies | `@dzipagent/memory` |
+| Internal Dependencies | `@dzupagent/memory` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @dzipagent/memory-ipc
+npm install @dzupagent/memory-ipc
 ```
 <!-- AUTO-GENERATED-END -->
 
-Arrow-based IPC for inter-agent memory sharing in DzipAgent. Provides a canonical 22-column Apache Arrow schema, builder/reader for memory frames, IPC serialization, columnar operations, token budget allocation, cross-framework adapters, and MCP transport.
+Arrow-based IPC for inter-agent memory sharing in DzupAgent. Provides a canonical 22-column Apache Arrow schema, builder/reader for memory frames, IPC serialization, columnar operations, token budget allocation, cross-framework adapters, and MCP transport.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/memory-ipc
+yarn add @dzupagent/memory-ipc
 # or
-npm install @dzipagent/memory-ipc
+npm install @dzupagent/memory-ipc
 ```
 
 ## Quick Start
@@ -42,7 +42,7 @@ import {
   serializeToIPC,
   deserializeFromIPC,
   TokenBudgetAllocator,
-} from '@dzipagent/memory-ipc'
+} from '@dzupagent/memory-ipc'
 
 // Build a memory frame
 const builder = new FrameBuilder()
@@ -195,7 +195,7 @@ Specialized frame schemas for domain-specific data:
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@dzipagent/memory` | `workspace:*` | Memory service (optional) |
+| `@dzupagent/memory` | `workspace:*` | Memory service (optional) |
 
 ## License
 

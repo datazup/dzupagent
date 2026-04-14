@@ -5,7 +5,7 @@
  * arbitrary state) so that a workflow can be suspended and later resumed from
  * exactly where it left off.
  *
- * Events emitted (all defined in @dzipagent/core DzipEvent):
+ * Events emitted (all defined in @dzupagent/core DzupEvent):
  *   pipeline:checkpoint_saved
  *   pipeline:suspended
  *   pipeline:resumed
@@ -13,7 +13,7 @@
 
 import crypto from 'node:crypto'
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import type { AdapterProviderId } from '../types.js'
 
@@ -78,7 +78,7 @@ export interface CheckpointStore {
 /** Configuration for WorkflowCheckpointer. */
 export interface CheckpointerConfig {
   store?: CheckpointStore
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
   /** Auto-checkpoint after each step. Default true */
   autoCheckpoint?: boolean
 }
@@ -152,7 +152,7 @@ export class InMemoryCheckpointStore implements CheckpointStore {
  */
 export class WorkflowCheckpointer {
   private readonly store: CheckpointStore
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
   private readonly autoCheckpoint: boolean
 
   /** In-flight workflow states keyed by workflowId. */
@@ -368,7 +368,7 @@ export class WorkflowCheckpointer {
       | { type: 'pipeline:resumed'; pipelineId: string; runId: string; nodeId: string },
   ): void {
     if (this.eventBus) {
-      this.eventBus.emit(event as Parameters<DzipEventBus['emit']>[0])
+      this.eventBus.emit(event as Parameters<DzupEventBus['emit']>[0])
     }
   }
 }

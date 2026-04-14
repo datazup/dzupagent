@@ -16,9 +16,9 @@ export function createManifest(opts: {
     name: opts.name,
     version: opts.version,
     description: opts.description,
-    author: opts.author,
+    ...(opts.author !== undefined ? { author: opts.author } : {}),
     capabilities: opts.capabilities ?? [],
-    dependencies: opts.dependencies,
+    ...(opts.dependencies !== undefined ? { dependencies: opts.dependencies } : {}),
     entryPoint: opts.entryPoint ?? './index.js',
   }
 }

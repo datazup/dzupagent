@@ -1,5 +1,5 @@
 /**
- * @dzipagent/rag — RAG (Retrieval-Augmented Generation) pipeline.
+ * @dzupagent/rag — RAG (Retrieval-Augmented Generation) pipeline.
  *
  * Provides smart text chunking, hybrid retrieval (vector + keyword + RRF),
  * quality-boosted scoring, token-budget-aware context assembly, and a

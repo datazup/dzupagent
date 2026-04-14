@@ -18,7 +18,7 @@ import type { CheckpointStore, WorkflowCheckpoint } from '../session/workflow-ch
 // ---------------------------------------------------------------------------
 
 export interface FileCheckpointStoreConfig {
-  /** Directory to store checkpoint files. Default: '.dzipagent/checkpoints' */
+  /** Directory to store checkpoint files. Default: '.dzupagent/checkpoints' */
   directory: string
   /** Whether to pretty-print JSON. Default false */
   prettyPrint?: boolean

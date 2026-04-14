@@ -210,10 +210,11 @@ export class GitHubClient {
   }
 
   private put<T>(path: string, body?: unknown): Promise<T> {
+    const serialized = body !== undefined ? JSON.stringify(body) : undefined
     return this.request<T>(path, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
+      ...(serialized !== undefined ? { body: serialized } : {}),
     })
   }
 

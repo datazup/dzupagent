@@ -50,4 +50,27 @@ describe('HttpFetcher', () => {
       fetcher.fetch('https://example.com/private/page'),
     ).rejects.toThrow('robots.txt')
   })
+
+  it('allows fetch when robots.txt permits the requested path', async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const href = String(url)
+      if (href.endsWith('/robots.txt')) {
+        return makeResponse('User-agent: *\nAllow: /public\nDisallow: /private', {
+          status: 200,
+          headers: { 'content-type': 'text/plain' },
+        })
+      }
+      return makeResponse(
+        '<html><head><title>Allowed</title></head><body>' + 'A'.repeat(120) + '</body></html>',
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const fetcher = new HttpFetcher({ respectRobotsTxt: true, maxRetries: 0 })
+    const result = await fetcher.fetch('https://example.com/public/page')
+
+    expect(result.status).toBe(200)
+    expect(result.title).toBe('Allowed')
+    expect(result.text.length).toBeGreaterThan(0)
+  })
 })

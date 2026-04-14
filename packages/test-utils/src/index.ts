@@ -1,5 +1,5 @@
 /**
- * @dzipagent/test-utils — Testing utilities for DzipAgent.
+ * @dzupagent/test-utils — Testing utilities for DzupAgent.
  *
  * Provides: MockChatModel, LLMRecorder, test helpers.
  * Zero network dependencies — all tests run offline.
@@ -18,6 +18,7 @@ export {
   createTestAgent,
   createTestConfig,
   waitForEvent,
+  waitForCondition,
 } from './test-helpers.js'
 
-export const dzipagent_TEST_UTILS_VERSION = '0.1.0'
+export const dzupagent_TEST_UTILS_VERSION = '0.1.0'

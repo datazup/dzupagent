@@ -1,3 +1,5 @@
+import { defaultLogger, type FrameworkLogger } from '../utils/logger.js'
+
 export interface AgentMessage {
   /** Sender agent ID */
   from: string
@@ -29,6 +31,8 @@ export type AgentMessageHandler = (message: AgentMessage) => void | Promise<void
  * bus.publish('agent-a', 'code-changes', { files: ['auth.ts'] })
  * ```
  */
+const logger: FrameworkLogger = defaultLogger
+
 export class AgentBus {
   private subscriptions: Map<string, Map<string, AgentMessageHandler>> = new Map()
   private history: AgentMessage[] = []
@@ -61,14 +65,14 @@ export class AgentBus {
         if (result && typeof result === 'object' && 'catch' in result) {
           ;(result as Promise<void>).catch((err: unknown) => {
             const msg = err instanceof Error ? err.message : String(err)
-            // eslint-disable-next-line no-console
-            console.error(`[AgentBus] handler error on "${channel}": ${msg}`)
+             
+            logger.error(`[AgentBus] handler error on "${channel}": ${msg}`)
           })
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        // eslint-disable-next-line no-console
-        console.error(`[AgentBus] handler error on "${channel}": ${msg}`)
+         
+        logger.error(`[AgentBus] handler error on "${channel}": ${msg}`)
       }
     }
   }

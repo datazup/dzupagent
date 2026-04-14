@@ -1,6 +1,6 @@
 {
-  "name": "@dzipagent/memory",
-  "version": "0.1.0",
+  "name": "@dzupagent/memory",
+  "version": "0.2.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,24 +18,21 @@
     "lint": "eslint src/",
     "test:coverage": "vitest run --coverage"
   },
+  "dependencies": {
+    "@dzupagent/memory-ipc": "0.2.0"
+  },
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",
     "@langchain/langgraph": ">=1.0.0",
-    "@dzipagent/memory-ipc": "*",
     "zod": ">=4.0.0"
   },
-  "peerDependenciesMeta": {
-    "@dzipagent/memory-ipc": {
-      "optional": true
-    }
-  },
   "devDependencies": {
-    "@langchain/core": "^1.1.32",
-    "@langchain/langgraph": "^1.2.2",
-    "@langchain/langgraph-checkpoint-postgres": "^1.0.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0",
+    "@langchain/core": "^1.1.39",
+    "@langchain/langgraph": "^1.2.5",
+    "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
     "zod": "^4.3.6"
   },
   "files": [

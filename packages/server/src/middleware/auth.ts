@@ -1,5 +1,5 @@
 /**
- * Authentication middleware for DzipAgent server.
+ * Authentication middleware for DzupAgent server.
  *
  * Supports API key authentication via Bearer token in Authorization header.
  * When mode is 'none', all requests pass through without auth.
@@ -29,6 +29,18 @@ export function authMiddleware(config: AuthConfig): MiddlewareHandler {
       return next()
     }
 
+    if (!config.validateKey) {
+      return c.json(
+        {
+          error: {
+            code: 'INVALID_CONFIG',
+            message: 'API key auth is enabled but no validateKey function was configured',
+          },
+        },
+        503,
+      )
+    }
+
     const authHeader = c.req.header('Authorization')
     if (!authHeader) {
       return c.json(
@@ -48,16 +60,14 @@ export function authMiddleware(config: AuthConfig): MiddlewareHandler {
       )
     }
 
-    if (config.validateKey) {
-      const keyMeta = await config.validateKey(token)
-      if (!keyMeta) {
-        return c.json(
-          { error: { code: 'UNAUTHORIZED', message: 'Invalid API key' } },
-          401,
-        )
-      }
-      c.set('apiKey' as never, keyMeta as never)
+    const keyMeta = await config.validateKey(token)
+    if (!keyMeta) {
+      return c.json(
+        { error: { code: 'UNAUTHORIZED', message: 'Invalid API key' } },
+        401,
+      )
     }
+    c.set('apiKey' as never, keyMeta as never)
 
     return next()
   }

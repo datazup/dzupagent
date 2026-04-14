@@ -113,8 +113,8 @@ export class ProtocolBridge {
       to: message.to,
       protocol: 'a2a',
       payload,
-      correlationId: message.correlationId,
-      parentId: message.parentId,
+      ...(message.correlationId !== undefined && { correlationId: message.correlationId }),
+      ...(message.parentId !== undefined && { parentId: message.parentId }),
       metadata: {
         ...message.metadata,
       },
@@ -171,8 +171,8 @@ export class ProtocolBridge {
       to: message.to,
       protocol: 'mcp',
       payload,
-      correlationId: message.correlationId,
-      parentId: message.parentId,
+      ...(message.correlationId !== undefined && { correlationId: message.correlationId }),
+      ...(message.parentId !== undefined && { parentId: message.parentId }),
       metadata: {
         ...message.metadata,
       },

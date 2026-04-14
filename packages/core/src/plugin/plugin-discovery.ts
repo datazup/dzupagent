@@ -28,19 +28,19 @@ export interface DiscoveredPlugin {
  * Configuration for plugin discovery scanning.
  */
 export interface PluginDiscoveryConfig {
-  /** Directories to scan for plugin manifests. Defaults to ~/.dzipagent/plugins and ./dzipagent-plugins */
+  /** Directories to scan for plugin manifests. Defaults to ~/.dzupagent/plugins and ./dzupagent-plugins */
   localDirs?: string[]
   /** Builtin plugin manifests to include without scanning */
   builtinPlugins?: PluginManifest[]
 }
 
-const MANIFEST_FILENAME = 'dzipagent-plugin.json'
+const MANIFEST_FILENAME = 'dzupagent-plugin.json'
 
 const REQUIRED_FIELDS: (keyof PluginManifest)[] = ['name', 'version', 'description', 'capabilities', 'entryPoint']
 
 const DEFAULT_DIRS = [
-  join(homedir(), '.dzipagent', 'plugins'),
-  resolve('dzipagent-plugins'),
+  join(homedir(), '.dzupagent', 'plugins'),
+  resolve('dzupagent-plugins'),
 ]
 
 /**
@@ -88,7 +88,7 @@ export function validateManifest(manifest: unknown): { valid: boolean; errors: s
 }
 
 /**
- * Scan configured directories for plugin manifests (dzipagent-plugin.json files).
+ * Scan configured directories for plugin manifests (dzupagent-plugin.json files).
  * Also includes any builtin plugins from config.
  */
 export async function discoverPlugins(config?: PluginDiscoveryConfig): Promise<DiscoveredPlugin[]> {

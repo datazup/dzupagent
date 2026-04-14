@@ -128,7 +128,7 @@ const HEURISTIC_PATTERNS: HeuristicPattern[] = [
     suggestedAction: 'Check API keys, tokens, and permissions',
     patterns: [
       /unauthorized/i, /forbidden/i, /401/, /403/,
-      /invalid\s+(?:api\s+)?key/i, /authentication\s+failed/i,
+      /invalid\s+(?:api\s+)?key/i, /authentication\s+failed/i, // eslint-disable-line security/detect-unsafe-regex
       /permission\s+denied/i, /access\s+denied/i,
     ],
   },
@@ -157,7 +157,7 @@ const HEURISTIC_PATTERNS: HeuristicPattern[] = [
     suggestedAction: 'Fix failing assertions or update test expectations',
     patterns: [
       /test\s+(?:failed|failure)/i, /assertion\s+(?:error|failed)/i,
-      /expect.*(?:toBe|toEqual|toMatch)/i, /\d+\s+(?:tests?\s+)?failed/i,
+      /expect.*(?:toBe|toEqual|toMatch)/i, /\d+\s+(?:tests?\s+)?failed/i, // eslint-disable-line security/detect-unsafe-regex
     ],
   },
   {

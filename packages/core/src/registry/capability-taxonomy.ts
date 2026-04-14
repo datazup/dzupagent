@@ -1,5 +1,5 @@
 /**
- * Standard capability taxonomy for DzipAgent agents.
+ * Standard capability taxonomy for DzupAgent agents.
  *
  * Capabilities use dot-separated hierarchical names (e.g. `code.review.security`).
  * This module defines the standard tree and provides lookup helpers.

@@ -1,5 +1,5 @@
 /**
- * @dzipagent/core — Base agent infrastructure
+ * @dzupagent/core — Base agent infrastructure
  *
  * Reusable LLM agent engine: model registry, prompt management,
  * memory, context engineering, middleware, persistence, routing,
@@ -16,8 +16,11 @@ export type { ForgeErrorCode } from './errors/error-codes.js'
 
 // --- Events ---
 export { createEventBus } from './events/event-bus.js'
-export type { DzipEventBus } from './events/event-bus.js'
-export type { DzipEvent, DzipEventOf, BudgetUsage, ToolStatSummary } from './events/event-types.js'
+export type { DzupEventBus } from './events/event-bus.js'
+export type { DzupEvent, DzupEventOf, BudgetUsage, ToolStatSummary } from './events/event-types.js'
+export { emitDegradedOperation } from './events/degraded-operation.js'
+export { requireTerminalToolExecutionRunId } from './events/tool-event-correlation.js'
+export type { TerminalToolExecutionRunIdOptions, TerminalToolEventType } from './events/tool-event-correlation.js'
 export { AgentBus } from './events/agent-bus.js'
 export type { AgentMessage, AgentMessageHandler } from './events/agent-bus.js'
 
@@ -26,7 +29,7 @@ export type { AgentHooks, HookContext } from './hooks/hook-types.js'
 export { runHooks, runModifierHook, mergeHooks } from './hooks/hook-runner.js'
 
 // --- Plugin ---
-export type { DzipPlugin, PluginContext } from './plugin/plugin-types.js'
+export type { DzupPlugin, PluginContext } from './plugin/plugin-types.js'
 export { PluginRegistry } from './plugin/plugin-registry.js'
 export { discoverPlugins, validateManifest, resolvePluginOrder } from './plugin/plugin-discovery.js'
 export type { PluginManifest, DiscoveredPlugin, PluginDiscoveryConfig } from './plugin/plugin-discovery.js'
@@ -74,7 +77,7 @@ export type {
   BulkPromptQuery,
 } from './prompt/template-types.js'
 
-// --- Memory (re-exported from @dzipagent/memory) ---
+// --- Memory (re-exported from @dzupagent/memory) ---
 export {
   // Core
   createStore,
@@ -154,7 +157,7 @@ export {
   HLC, CRDTResolver,
   // Multi-modal memory (ECO-060)
   MultiModalMemoryService, InMemoryAttachmentStorage, inferAttachmentType,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   // Core types
   StoreConfig, StoreIndexConfig,
@@ -234,9 +237,9 @@ export type {
   HLCTimestamp, LWWRegister, ORSetEntry, ORSet, LWWMap, MergeResult,
   // Multi-modal memory types (ECO-060)
   AttachmentType, MemoryAttachment, AttachmentStorageProvider, MultiModalMemoryServiceConfig,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
-// --- Context (re-exported from @dzipagent/context) ---
+// --- Context (re-exported from @dzupagent/context) ---
 export {
   // Message management
   shouldSummarize,
@@ -263,7 +266,7 @@ export {
   compressToLevel, compressToBudget, selectCompressionLevel,
   // Context transfer (Sprint 3)
   ContextTransferService,
-} from '@dzipagent/context'
+} from '@dzupagent/context'
 export type {
   MessageManagerConfig,
   CompletenessResult, DescriptionInput,
@@ -278,7 +281,7 @@ export type {
   CompressionLevel, ProgressiveCompressConfig, ProgressiveCompressResult,
   // Context transfer types
   IntentContext, IntentType, ContextTransferConfig, IntentRelevanceRule, TransferScope,
-} from '@dzipagent/context'
+} from '@dzupagent/context'
 
 // --- Run Context Transfer ---
 export { RunContextTransfer, INTENT_CONTEXT_CHAINS } from './context/run-context-transfer.js'
@@ -304,6 +307,16 @@ export type {
 } from './persistence/store-interfaces.js'
 export { InMemoryEventLog, EventLogSink } from './persistence/event-log.js'
 export type { RunEvent, EventLogStore } from './persistence/event-log.js'
+
+// --- Run Persistence ---
+export { InMemoryRunStore as InMemoryRunRecordStore } from './persistence/in-memory-run-store.js'
+export type {
+  RunStore as RunRecordStore,
+  RunRecord,
+  StoredRunEvent,
+  RunFilters,
+  RunStatus as RunRecordStatus,
+} from './persistence/run-store.js'
 
 // --- Router ---
 export { IntentRouter } from './router/intent-router.js'
@@ -334,11 +347,16 @@ export { mergeFileChanges, fileDataReducer } from './subagent/file-merge.js'
 // --- Skills ---
 export { SkillLoader } from './skills/skill-loader.js'
 export { injectSkills } from './skills/skill-injector.js'
-export type { SkillDefinition } from './skills/skill-types.js'
+export type { SkillDefinition, SkillRegistryEntry, LoadedSkill, SkillMatch } from './skills/skill-types.js'
+export { SkillRegistry } from './skills/skill-registry.js'
+export { SkillDirectoryLoader, parseMarkdownSkill, parseJsonSkill } from './skills/skill-directory-loader.js'
+export type { SkillDirectoryLoaderOptions } from './skills/skill-directory-loader.js'
 export { SkillManager } from './skills/skill-manager.js'
 export type { SkillManagerConfig, CreateSkillInput, PatchSkillInput, SkillWriteResult } from './skills/skill-manager.js'
 export { SkillLearner } from './skills/skill-learner.js'
 export type { SkillMetrics, SkillExecutionResult, SkillLearnerConfig } from './skills/skill-learner.js'
+export type { SkillResolutionContext, FeatureBrief, WorkItem, PersonaProfile, PersonaRoleType, SkillLifecycleStatus, SkillScope, SkillReviewPolicy, SkillDefinitionV2, SkillUsageRecord, SkillReviewRecord } from './skills/skill-model-v2.js'
+export { SKILL_LIFECYCLE_TRANSITIONS, isValidSkillTransition } from './skills/skill-model-v2.js'
 export { createSkillChain, validateChain } from './skills/skill-chain.js'
 export type { SkillChainStep, SkillChain, ChainValidationResult } from './skills/skill-chain.js'
 export { parseAgentsMd, mergeAgentsMdConfigs } from './skills/agents-md-parser.js'
@@ -350,7 +368,7 @@ export type { HierarchyLevel } from './skills/hierarchical-walker.js'
 export { MCPClient } from './mcp/mcp-client.js'
 export { mcpToolToLangChain, mcpToolsToLangChain, langChainToolToMcp } from './mcp/mcp-tool-bridge.js'
 export { DeferredToolLoader } from './mcp/deferred-loader.js'
-export { DzipAgentMCPServer } from './mcp/mcp-server.js'
+export { DzupAgentMCPServer } from './mcp/mcp-server.js'
 export type { MCPServerOptions, MCPExposedTool, MCPRequest, MCPResponse } from './mcp/mcp-server.js'
 export type {
   MCPTransport,
@@ -362,6 +380,15 @@ export type {
   MCPServerStatus,
 } from './mcp/mcp-types.js'
 export type { DeferredLoaderConfig } from './mcp/deferred-loader.js'
+// MCP Reliability
+export { McpReliabilityManager } from './mcp/mcp-reliability.js'
+export type { McpServerHealth, McpReliabilityConfig } from './mcp/mcp-reliability.js'
+export { InMemoryMcpManager } from './mcp/mcp-manager.js'
+export type { McpManager, InMemoryMcpManagerOptions } from './mcp/mcp-manager.js'
+export { McpServerDefinitionSchema, McpProfileSchema } from './mcp/mcp-registry-types.js'
+export type { McpServerDefinition, McpProfile, McpServerInput, McpServerPatch, McpTestResult } from './mcp/mcp-registry-types.js'
+// MCP Security
+export { validateMcpExecutablePath, sanitizeMcpEnv } from './mcp/mcp-security.js'
 // MCP Resources
 export { MCPResourceClient } from './mcp/mcp-resources.js'
 export type { MCPResourceClientConfig } from './mcp/mcp-resources.js'
@@ -756,9 +783,6 @@ export type {
   AgentsMdMemoryConfig, AgentsMdSecurityConfig,
 } from './formats/index.js'
 
-// --- Memory IPC (optional, requires @dzipagent/memory-ipc peer) ---
-export * from './memory-ipc.js'
-
 // --- VectorDB ---
 export type {
   DistanceMetric,
@@ -814,6 +838,10 @@ export type {
   TurbopufferAdapterConfig,
 } from './vectordb/index.js'
 
+// --- Connector Contract ---
+export type { BaseConnectorTool } from './tools/connector-contract.js'
+export { isBaseConnectorTool, normalizeBaseConnectorTool, normalizeBaseConnectorTools } from './tools/connector-contract.js'
+
 // --- Tool Stats ---
 export { ToolStatsTracker } from './tools/tool-stats-tracker.js'
 export type {
@@ -823,9 +851,24 @@ export type {
   ToolStatsTrackerConfig,
 } from './tools/tool-stats-tracker.js'
 
+// --- Tool Governance ---
+export { ToolGovernance } from './tools/tool-governance.js'
+export type {
+  ToolGovernanceConfig,
+  ToolValidationResult,
+  ToolAuditHandler,
+  ToolAuditEntry,
+  ToolResultAuditEntry,
+  ToolAccessResult,
+} from './tools/tool-governance.js'
+
 // --- Telemetry (lightweight trace propagation — no OTel SDK dependency) ---
 export { injectTraceContext, extractTraceContext, formatTraceparent, parseTraceparent } from './telemetry/trace-propagation.js'
 export type { TraceContext } from './telemetry/trace-propagation.js'
 
+// --- Utils ---
+export { defaultLogger, noopLogger } from './utils/logger.js'
+export type { FrameworkLogger } from './utils/logger.js'
+
 // --- Version ---
-export const dzipagent_CORE_VERSION = '0.1.0'
+export const dzupagent_CORE_VERSION = '0.1.0'

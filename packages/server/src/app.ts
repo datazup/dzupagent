@@ -1,12 +1,12 @@
 /**
- * Hono app factory for DzipAgent server.
+ * Hono app factory for DzupAgent server.
  *
  * Creates a configured Hono application with REST API routes, middleware,
  * and optional WebSocket support.
  *
  * @example
  * ```ts
- * import { createForgeApp } from '@dzipagent/server'
+ * import { createForgeApp } from '@dzupagent/server'
  *
  * const app = createForgeApp({
  *   eventBus: createEventBus(),
@@ -20,10 +20,12 @@
  */
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import type { RunStore, AgentStore, ModelRegistry } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
-import type { MetricsCollector } from '@dzipagent/core'
-import type { CostAwareRouter } from '@dzipagent/core'
+import type { RunStore, AgentStore, ModelRegistry } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
+import type { MetricsCollector } from '@dzupagent/core'
+import type { CostAwareRouter } from '@dzupagent/core'
+import type { McpManager } from '@dzupagent/core'
+import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters'
 import { createHealthRoutes } from './routes/health.js'
 import { createRunRoutes } from './routes/runs.js'
 import { createAgentRoutes } from './routes/agents.js'
@@ -32,7 +34,7 @@ import { createMemoryRoutes } from './routes/memory.js'
 import { createMemoryBrowseRoutes } from './routes/memory-browse.js'
 import { createPlaygroundRoutes, type PlaygroundRouteConfig } from './routes/playground.js'
 import { createEventRoutes } from './routes/events.js'
-import type { MemoryServiceLike } from '@dzipagent/memory-ipc'
+import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
 import { authMiddleware, type AuthConfig } from './middleware/auth.js'
 import { rateLimiterMiddleware, type RateLimiterConfig } from './middleware/rate-limiter.js'
 import type { RunQueue } from './queue/run-queue.js'
@@ -42,7 +44,7 @@ import { InMemoryEventGateway } from './events/event-gateway.js'
 import { startRunWorker, type RunExecutor, type RunReflectorLike } from './runtime/run-worker.js'
 import type { RetrievalFeedbackHookConfig } from './runtime/retrieval-feedback-hook.js'
 import { createDefaultRunExecutor } from './runtime/default-run-executor.js'
-import { createDzipAgentRunExecutor } from './runtime/dzip-agent-run-executor.js'
+import { createDzupAgentRunExecutor } from './runtime/dzip-agent-run-executor.js'
 import { ConsolidationScheduler, type ConsolidationSchedulerConfig } from './runtime/consolidation-scheduler.js'
 import { createSleepConsolidationTask, type SleepConsolidatorLike } from './runtime/sleep-consolidation-task.js'
 import { createMemoryHealthRoutes, type MemoryHealthRouteConfig } from './routes/memory-health.js'
@@ -53,7 +55,11 @@ import { createMetricsRoute } from './routes/metrics.js'
 import { createDeployRoutes, type DeployRouteConfig } from './routes/deploy.js'
 import { createLearningRoutes, type LearningRouteConfig } from './routes/learning.js'
 import { createBenchmarkRoutes, type BenchmarkRouteConfig } from './routes/benchmarks.js'
+import { createEvalRoutes, type EvalRouteConfig } from './routes/evals.js'
 import { PrometheusMetricsCollector } from './metrics/prometheus-collector.js'
+import type { ServerRoutePlugin } from './route-plugin.js'
+import { createMcpRoutes } from './routes/mcp.js'
+import { createSkillRoutes } from './routes/skills.js'
 
 /**
  * Shared scheduling options for consolidation (everything except the task itself
@@ -69,7 +75,7 @@ type ConsolidationSchedulingOpts = Omit<ConsolidationSchedulerConfig, 'eventBus'
 export type ConsolidationConfig =
   | (ConsolidationSchedulingOpts & { task: ConsolidationSchedulerConfig['task'] })
   | (ConsolidationSchedulingOpts & {
-      /** A SleepConsolidator instance (from @dzipagent/memory) */
+      /** A SleepConsolidator instance (from @dzupagent/memory) */
       consolidator: SleepConsolidatorLike
       /** A BaseStore instance passed to the consolidator */
       store: unknown
@@ -80,7 +86,7 @@ export type ConsolidationConfig =
 export interface ForgeServerConfig {
   runStore: RunStore
   agentStore: AgentStore
-  eventBus: DzipEventBus
+  eventBus: DzupEventBus
   modelRegistry: ModelRegistry
   auth?: AuthConfig
   corsOrigins?: string | string[]
@@ -115,7 +121,7 @@ export interface ForgeServerConfig {
   /** Optional cost-aware router — automatically selects optimal model tier per run based on input complexity */
   router?: CostAwareRouter
   /** Optional run reflector — scores every completed run for quality tracking.
-   *  Uses structural typing to avoid a hard dependency on @dzipagent/agent. */
+   *  Uses structural typing to avoid a hard dependency on @dzupagent/agent. */
   reflector?: RunReflectorLike
   /** Optional retrieval feedback config. When provided alongside a reflector,
    *  maps reflection scores to AdaptiveRetriever feedback for weight learning. */
@@ -126,16 +132,132 @@ export interface ForgeServerConfig {
   learning?: LearningRouteConfig
   /** Optional benchmark routes config. When provided, mounts /api/benchmarks routes. */
   benchmark?: BenchmarkRouteConfig
+  /** Optional eval routes config. When provided, mounts /api/evals routes. */
+  evals?: EvalRouteConfig
+  /** Optional MCP manager — enables /api/mcp routes for server lifecycle management */
+  mcpManager?: McpManager
+  /** Optional adapter skill registry — enables /api/skills routes for skill preview */
+  skillRegistry?: AdapterSkillRegistry
+  /** Optional domain route plugins mounted after built-in core routes */
+  routePlugins?: ServerRoutePlugin[]
 }
 
 const startedRunQueues = new WeakSet<RunQueue>()
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+interface ExplicitRetentionMetadata {
+  explicitUnbounded: boolean
+}
+
+function readExplicitRetentionMetadata(value: unknown): ExplicitRetentionMetadata | null {
+  if (!isObject(value)) {
+    return null
+  }
+
+  const metadata = value['__dzupagentRetention']
+  if (!isObject(metadata) || typeof metadata['explicitUnbounded'] !== 'boolean') {
+    return null
+  }
+
+  return {
+    explicitUnbounded: metadata['explicitUnbounded'],
+  }
+}
+
+function registerShutdownDrainHook(
+  shutdown: GracefulShutdown,
+  hook: () => Promise<void>,
+): void {
+  const shutdownConfig = shutdown as unknown as { config: { onDrain?: () => Promise<void> } }
+  const previousOnDrain = shutdownConfig.config.onDrain
+
+  shutdownConfig.config.onDrain = async () => {
+    let hookError: unknown
+
+    try {
+      await hook()
+    } catch (error) {
+      hookError = error
+    }
+
+    try {
+      await previousOnDrain?.()
+    } finally {
+      if (hookError) {
+        throw hookError
+      }
+    }
+  }
+}
+
+function warnIfUnboundedInMemoryRetention(config: ForgeServerConfig): void {
+  const runStoreRetention = readExplicitRetentionMetadata(config.runStore)
+  if (runStoreRetention?.explicitUnbounded) {
+      console.warn(
+        '[ForgeServer] InMemoryRunStore is running with unbounded retention. ' +
+          'Set finite limits for production workloads unless this opt-out is intentional.',
+      )
+  }
+
+  const traceStoreRetention = readExplicitRetentionMetadata(config.traceStore)
+  if (traceStoreRetention?.explicitUnbounded) {
+      console.warn(
+        '[ForgeServer] InMemoryRunTraceStore is running with unbounded retention. ' +
+          'Set finite limits for production workloads unless this opt-out is intentional.',
+      )
+  }
+}
+
+function mountRoutePlugins(
+  app: Hono,
+  plugins: readonly ServerRoutePlugin[],
+  serverConfig: ForgeServerConfig,
+): void {
+  for (const plugin of plugins) {
+    if (!plugin.prefix.startsWith('/')) {
+      console.warn(
+        `[ForgeServer] Skipping route plugin with invalid prefix "${plugin.prefix}". Prefix must start with '/'.`,
+      )
+      continue
+    }
+
+    const subApp = plugin.createRoutes() as Parameters<typeof app.route>[1]
+    app.route(plugin.prefix, subApp)
+    plugin.onMount?.(serverConfig)
+  }
+}
+
+function createBuiltInRoutePlugins(config: ForgeServerConfig): ServerRoutePlugin[] {
+  const plugins: ServerRoutePlugin[] = []
+
+  if (config.mcpManager) {
+    plugins.push({
+      prefix: '/api/mcp',
+      createRoutes: () => createMcpRoutes({ mcpManager: config.mcpManager }),
+    })
+  }
+
+  if (config.skillRegistry) {
+    plugins.push({
+      prefix: '/api/skills',
+      createRoutes: () => createSkillRoutes({ skillRegistry: config.skillRegistry }),
+    })
+  }
+
+  return plugins
+}
+
 export function createForgeApp(config: ForgeServerConfig): Hono {
+  warnIfUnboundedInMemoryRetention(config)
+
   const app = new Hono()
   const eventGateway = config.eventGateway ?? new InMemoryEventGateway(config.eventBus)
   const fallbackRunExecutor = createDefaultRunExecutor(config.modelRegistry)
   const effectiveRunExecutor = config.runExecutor
-    ?? createDzipAgentRunExecutor({ fallback: fallbackRunExecutor })
+    ?? createDzupAgentRunExecutor({ fallback: fallbackRunExecutor })
   const runtimeConfig: ForgeServerConfig = {
     ...config,
     runExecutor: effectiveRunExecutor,
@@ -207,7 +329,7 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   // --- Global error handler ---
   app.onError((err, c) => {
     const message = err instanceof Error ? err.message : String(err)
-    // eslint-disable-next-line no-console
+     
     console.error(`[ForgeServer] ${c.req.method} ${c.req.path}: ${message}`)
     config.metrics?.increment('http_errors_total', { path: c.req.path })
     return c.json(
@@ -253,8 +375,23 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
     app.route('/api/benchmarks', createBenchmarkRoutes(runtimeConfig.benchmark))
   }
 
+  if (runtimeConfig.evals) {
+    app.route('/api/evals', createEvalRoutes({
+      ...runtimeConfig.evals,
+      metrics: runtimeConfig.evals.metrics ?? runtimeConfig.metrics,
+    }))
+  }
+
   if (runtimeConfig.playground) {
     app.route('/playground', createPlaygroundRoutes(runtimeConfig.playground))
+  }
+
+  const allRoutePlugins = [
+    ...createBuiltInRoutePlugins(runtimeConfig),
+    ...(runtimeConfig.routePlugins ?? []),
+  ]
+  if (allRoutePlugins.length) {
+    mountRoutePlugins(app, allRoutePlugins, runtimeConfig)
   }
 
   // --- Prometheus metrics endpoint (only when using PrometheusMetricsCollector) ---
@@ -287,15 +424,10 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
 
     // Register with shutdown if available
     if (runtimeConfig.shutdown) {
-      const originalOnDrain = (runtimeConfig.shutdown as unknown as { config: { onDrain?: () => Promise<void> } }).config?.onDrain
-      // Scheduler will be stopped via shutdown's onDrain hook
-      const stopScheduler = async () => {
-        await scheduler.stop()
-        if (originalOnDrain) await originalOnDrain()
-      }
+      registerShutdownDrainHook(runtimeConfig.shutdown, () => scheduler.stop())
+
       // Expose scheduler status via health route
       app.get('/api/health/consolidation', (c) => c.json({ data: scheduler.status() }))
-      void stopScheduler // registered but only called during shutdown
     }
   }
 

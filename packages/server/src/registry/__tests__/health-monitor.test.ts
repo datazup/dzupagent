@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { HealthMonitor } from '../health-monitor.js'
 import type { ProbeResult } from '../health-monitor.js'
-import { InMemoryRegistry } from '@dzipagent/core'
-import type { AgentRegistry, RegisterAgentInput, ForgeCapability } from '@dzipagent/core'
+import { InMemoryRegistry } from '@dzupagent/core'
+import type { AgentRegistry, RegisterAgentInput, ForgeCapability } from '@dzupagent/core'
 
 // --- Helpers ---
 

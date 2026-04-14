@@ -1,4 +1,4 @@
-# @dzipagent/server
+# @dzupagent/server
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,18 +10,18 @@
 | Source Files | 84 |
 | Lines of Code | 21,421 |
 | Test Files | 39 |
-| Internal Dependencies | `@dzipagent/agent`, `@dzipagent/core`, `@dzipagent/memory-ipc` |
+| Internal Dependencies | `@dzupagent/agent`, `@dzupagent/core`, `@dzupagent/memory-ipc` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @dzipagent/server
+npm install @dzupagent/server
 ```
 <!-- AUTO-GENERATED-END -->
 
-Optional Hono-based HTTP/WebSocket runtime for DzipAgent.
+Optional Hono-based HTTP/WebSocket runtime for DzupAgent.
 
 It provides REST APIs for agents/runs, realtime event streaming, optional memory routes, auth and rate limiting middleware, queue worker integration, and deployment/runtime helpers.
 
@@ -40,9 +40,9 @@ It provides REST APIs for agents/runs, realtime event streaming, optional memory
 ## Installation
 
 ```bash
-yarn add @dzipagent/server
+yarn add @dzupagent/server
 # or
-npm install @dzipagent/server
+npm install @dzupagent/server
 ```
 
 ## How To Use
@@ -50,13 +50,13 @@ npm install @dzipagent/server
 ### 1. Create a server app
 
 ```ts
-import { createForgeApp } from '@dzipagent/server'
+import { createForgeApp } from '@dzupagent/server'
 import {
   InMemoryAgentStore,
   InMemoryRunStore,
   ModelRegistry,
   createEventBus,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 
 const app = createForgeApp({
   runStore: new InMemoryRunStore(),
@@ -87,7 +87,7 @@ import { resolve } from 'node:path'
 const app = createForgeApp({
   ...baseConfig,
   playground: {
-    distDir: resolve(process.cwd(), 'packages/dzipagent-playground/dist'),
+    distDir: resolve(process.cwd(), 'packages/dzupagent-playground/dist'),
   },
 })
 ```

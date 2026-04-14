@@ -7,7 +7,8 @@
  * comparison report including Welch's t-test approximations.
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
+import { Semaphore } from '@dzupagent/core/orchestration'
 
 import type { AdapterRegistry } from '../registry/adapter-registry.js'
 import type {
@@ -23,7 +24,7 @@ import type {
 
 export interface ABTestConfig {
   registry: AdapterRegistry
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
 }
 
 export interface ABTestCase {
@@ -119,38 +120,45 @@ export interface ABComparison {
 }
 
 // ---------------------------------------------------------------------------
-// Concurrency semaphore
-// ---------------------------------------------------------------------------
-
-class Semaphore {
-  private waiting: Array<() => void> = []
-  private current = 0
-
-  constructor(private readonly max: number) {}
-
-  async acquire(): Promise<void> {
-    if (this.current < this.max) {
-      this.current++
-      return
-    }
-    return new Promise<void>((resolve) => {
-      this.waiting.push(resolve)
-    })
-  }
-
-  release(): void {
-    const next = this.waiting.shift()
-    if (next) {
-      next()
-    } else {
-      this.current--
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Statistical helpers
 // ---------------------------------------------------------------------------
+
+function normalizeConcurrency(value: number | undefined, defaultValue = 2): number {
+  const concurrency = value ?? defaultValue
+  if (!Number.isFinite(concurrency) || !Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error(
+      `ABTestRunner maxConcurrency must be a finite positive integer; received ${String(concurrency)}`,
+    )
+  }
+  return concurrency
+}
+
+async function acquireSemaphore(semaphore: Semaphore, signal?: AbortSignal): Promise<boolean> {
+  if (!signal) {
+    await semaphore.acquire()
+    return true
+  }
+
+  if (signal.aborted) {
+    return false
+  }
+
+  const acquirePromise = semaphore.acquire().then(() => {
+    if (signal.aborted) {
+      semaphore.release()
+      return false
+    }
+    return true
+  })
+
+  const abortPromise = new Promise<boolean>((resolve) => {
+    const onAbort = (): void => resolve(false)
+    signal.addEventListener('abort', onAbort, { once: true })
+    acquirePromise.finally(() => signal.removeEventListener('abort', onAbort))
+  })
+
+  return await Promise.race([acquirePromise, abortPromise])
+}
 
 function mean(values: number[]): number {
   if (values.length === 0) return 0
@@ -313,7 +321,7 @@ interface ABJob {
 
 export class ABTestRunner {
   private readonly registry: AdapterRegistry
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
 
   constructor(config: ABTestConfig) {
     this.registry = config.registry
@@ -334,7 +342,7 @@ export class ABTestRunner {
   async run(plan: ABTestPlan): Promise<ABTestReport> {
     const startedAt = new Date()
     const repetitions = plan.repetitions ?? 1
-    const maxConcurrency = plan.maxConcurrency ?? 2
+    const maxConcurrency = normalizeConcurrency(plan.maxConcurrency)
 
     this.emit({
       type: 'pipeline:run_started',
@@ -360,14 +368,20 @@ export class ABTestRunner {
       if (plan.signal?.aborted) break
 
       const promise = (async (): Promise<VariantResult> => {
-        await semaphore.acquire()
+        const acquired = await acquireSemaphore(semaphore, plan.signal)
         try {
+          if (!acquired) {
+            return this.buildAbortedResult(job)
+          }
+
           if (plan.signal?.aborted) {
             return this.buildAbortedResult(job)
           }
           return await this.runSingle(job.testCase, job.variant, plan.scorers)
         } finally {
-          semaphore.release()
+          if (acquired) {
+            semaphore.release()
+          }
         }
       })()
 

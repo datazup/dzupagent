@@ -1,4 +1,4 @@
-# @dzipagent/memory
+# @dzupagent/memory
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,14 +10,14 @@
 | Source Files | 76 |
 | Lines of Code | 29,532 |
 | Test Files | 37 |
-| Internal Dependencies | `@dzipagent/memory-ipc` |
+| Internal Dependencies | `@dzupagent/memory-ipc` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @dzipagent/memory
+npm install @dzupagent/memory
 ```
 <!-- AUTO-GENERATED-END -->
 
@@ -40,7 +40,7 @@ Reusable memory management for LLM agents built on LangGraph Store.
 ## Install
 
 ```bash
-npm install @dzipagent/memory
+npm install @dzupagent/memory
 # peer deps
 npm install @langchain/core @langchain/langgraph zod
 ```
@@ -48,7 +48,7 @@ npm install @langchain/core @langchain/langgraph zod
 ## Quick Start
 
 ```typescript
-import { createStore, MemoryService } from '@dzipagent/memory'
+import { createStore, MemoryService } from '@dzupagent/memory'
 
 const store = await createStore({ type: 'memory' })
 const memory = new MemoryService(store, [

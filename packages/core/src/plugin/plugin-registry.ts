@@ -1,11 +1,11 @@
-import type { DzipPlugin, PluginContext } from './plugin-types.js'
-import type { DzipEventBus } from '../events/event-bus.js'
-import type { DzipEvent } from '../events/event-types.js'
+import type { DzupPlugin, PluginContext } from './plugin-types.js'
+import type { DzupEventBus } from '../events/event-bus.js'
+import type { DzupEvent } from '../events/event-types.js'
 import type { AgentMiddleware } from '../middleware/types.js'
 import type { AgentHooks } from '../hooks/hook-types.js'
 
 /**
- * Registry for DzipAgent plugins.
+ * Registry for DzupAgent plugins.
  *
  * Manages plugin registration, validates for conflicts, and provides
  * aggregated middleware/hooks/event handlers for agent creation.
@@ -22,15 +22,15 @@ import type { AgentHooks } from '../hooks/hook-types.js'
  * ```
  */
 export class PluginRegistry {
-  private plugins = new Map<string, DzipPlugin>()
-  private eventBus: DzipEventBus
+  private plugins = new Map<string, DzupPlugin>()
+  private eventBus: DzupEventBus
 
-  constructor(eventBus: DzipEventBus) {
+  constructor(eventBus: DzupEventBus) {
     this.eventBus = eventBus
   }
 
   /** Register a plugin. Throws on duplicate name. */
-  async register(plugin: DzipPlugin, ctx: PluginContext): Promise<void> {
+  async register(plugin: DzupPlugin, ctx: PluginContext): Promise<void> {
     if (this.plugins.has(plugin.name)) {
       throw new Error(`Plugin "${plugin.name}" is already registered`)
     }
@@ -45,8 +45,8 @@ export class PluginRegistry {
       for (const [eventType, handler] of Object.entries(plugin.eventHandlers)) {
         if (typeof handler === 'function') {
           this.eventBus.on(
-            eventType as DzipEvent['type'],
-            handler as (event: DzipEvent) => void,
+            eventType as DzupEvent['type'],
+            handler as (event: DzupEvent) => void,
           )
         }
       }
@@ -85,7 +85,7 @@ export class PluginRegistry {
   }
 
   /** Get a specific plugin by name */
-  get(name: string): DzipPlugin | undefined {
+  get(name: string): DzupPlugin | undefined {
     return this.plugins.get(name)
   }
 }

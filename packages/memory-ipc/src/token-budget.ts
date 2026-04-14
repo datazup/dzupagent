@@ -5,7 +5,7 @@
  * and a rebalancing allocator that adjusts memory budget as conversation grows.
  */
 
-import { Table } from 'apache-arrow'
+import { type Table } from 'apache-arrow'
 import {
   batchTokenEstimate,
   computeCompositeScore,

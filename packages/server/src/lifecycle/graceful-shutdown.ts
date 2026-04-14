@@ -1,5 +1,5 @@
 /**
- * Graceful shutdown handler for DzipAgent server.
+ * Graceful shutdown handler for DzupAgent server.
  *
  * On SIGTERM/SIGINT:
  * 1. Stop accepting new runs
@@ -8,8 +8,8 @@
  * 4. Close DB/MCP/WS connections
  * 5. Mark interrupted runs as 'cancelled'
  */
-import type { RunStore } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import type { RunStore } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import type { EventBridge } from '../ws/event-bridge.js'
 
 export interface ShutdownConfig {
@@ -18,7 +18,7 @@ export interface ShutdownConfig {
   /** RunStore for marking interrupted runs */
   runStore: RunStore
   /** EventBus to emit shutdown events */
-  eventBus: DzipEventBus
+  eventBus: DzupEventBus
   /** EventBridge to close WebSocket connections */
   eventBridge?: EventBridge
   /** Custom cleanup callbacks */
@@ -76,7 +76,7 @@ export class GracefulShutdown {
   }
 
   private async performShutdown(): Promise<void> {
-    // eslint-disable-next-line no-console
+     
     console.log('[ForgeServer] Initiating graceful shutdown...')
     this.state = 'draining'
 
@@ -88,7 +88,7 @@ export class GracefulShutdown {
 
     // Wait for in-progress runs with timeout
     if (this.activeRunIds.size > 0) {
-      // eslint-disable-next-line no-console
+       
       console.log(`[ForgeServer] Waiting for ${this.activeRunIds.size} active run(s)...`)
 
       await Promise.race([
@@ -99,7 +99,7 @@ export class GracefulShutdown {
 
     // Mark any remaining runs as cancelled
     if (this.activeRunIds.size > 0) {
-      // eslint-disable-next-line no-console
+       
       console.log(`[ForgeServer] Cancelling ${this.activeRunIds.size} remaining run(s)`)
 
       const cancelPromises = [...this.activeRunIds].map(async (runId) => {
@@ -130,7 +130,7 @@ export class GracefulShutdown {
     }
 
     this.state = 'stopped'
-    // eslint-disable-next-line no-console
+     
     console.log('[ForgeServer] Shutdown complete.')
     process.exit(0)
   }

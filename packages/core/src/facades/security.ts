@@ -1,5 +1,5 @@
 /**
- * @dzipagent/core/security — Curated API facade for security, policy,
+ * @dzupagent/core/security — Curated API facade for security, policy,
  * auditing, and data protection capabilities.
  *
  * @example
@@ -8,7 +8,7 @@
  *   PolicyEvaluator,
  *   scanForSecrets,
  *   ComplianceAuditLogger,
- * } from '@dzipagent/core/security';
+ * } from '@dzupagent/core/security';
  * ```
  */
 

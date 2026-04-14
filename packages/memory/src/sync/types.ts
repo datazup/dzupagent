@@ -99,11 +99,11 @@ export interface SyncConfig {
   /** Unique identifier for this node */
   nodeId: string
   /** Namespaces to sync (undefined = all available) */
-  namespaces?: string[]
+  namespaces?: string[] | undefined
   /** Anti-entropy interval in ms (default: 30000) */
-  antiEntropyIntervalMs?: number
+  antiEntropyIntervalMs?: number | undefined
   /** Max entries per delta batch (default: 100) */
-  maxBatchSize?: number
+  maxBatchSize?: number | undefined
 }
 
 // ---------------------------------------------------------------------------

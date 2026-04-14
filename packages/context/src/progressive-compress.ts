@@ -142,13 +142,24 @@ function applyLevel2(
       '\n\n...[trimmed]...\n\n' +
       content.slice(-keepTail)
 
-    return new AIMessage({
+    const fields: {
+      content: string
+      additional_kwargs: typeof ai.additional_kwargs
+      response_metadata: typeof ai.response_metadata
+      tool_calls?: typeof ai.tool_calls
+      id?: string
+    } = {
       content: trimmed,
-      tool_calls: ai.tool_calls,
       additional_kwargs: ai.additional_kwargs,
       response_metadata: ai.response_metadata,
-      id: ai.id,
-    })
+    }
+    if (ai.tool_calls !== undefined) {
+      fields.tool_calls = ai.tool_calls
+    }
+    if (ai.id !== undefined) {
+      fields.id = ai.id
+    }
+    return new AIMessage(fields)
   })
 }
 

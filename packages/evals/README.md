@@ -1,4 +1,4 @@
-# @dzipagent/evals
+# @dzupagent/evals
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,14 +10,14 @@
 | Source Files | 37 |
 | Lines of Code | 8,130 |
 | Test Files | 9 |
-| Internal Dependencies | `@dzipagent/core` |
+| Internal Dependencies | `@dzupagent/core` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @dzipagent/evals
+npm install @dzupagent/evals
 ```
 <!-- AUTO-GENERATED-END -->
 
@@ -26,7 +26,7 @@ Evaluation framework for LLM agent outputs. Provides deterministic scorers, LLM-
 ## Installation
 
 ```bash
-npm install @dzipagent/evals
+npm install @dzupagent/evals
 ```
 
 ## Quick Start
@@ -38,7 +38,7 @@ import {
   createKeywordScorer,
   createLLMJudge,
   reportToMarkdown,
-} from '@dzipagent/evals'
+} from '@dzupagent/evals'
 
 // Build a dataset
 const dataset = EvalDataset.from([
@@ -78,7 +78,7 @@ console.log(reportToMarkdown(report))
 Supports four modes: `exactMatch`, `contains`, `regex`, and `jsonSchema`.
 
 ```ts
-import { DeterministicScorer } from '@dzipagent/evals'
+import { DeterministicScorer } from '@dzupagent/evals'
 
 const exactMatch = new DeterministicScorer({
   mode: 'exactMatch',
@@ -112,7 +112,7 @@ import {
   createKeywordScorer,
   createLatencyScorer,
   createCostScorer,
-} from '@dzipagent/evals'
+} from '@dzupagent/evals'
 
 // Validate JSON structure
 const schema = createJSONSchemaScorer({
@@ -143,7 +143,7 @@ const cost = createCostScorer({
 Sends a prompt to an LLM and parses the structured JSON response:
 
 ```ts
-import { LLMJudgeScorer } from '@dzipagent/evals'
+import { LLMJudgeScorer } from '@dzupagent/evals'
 
 const judge = new LLMJudgeScorer({
   rubric: 'Rate the code quality on correctness, style, and documentation',
@@ -160,7 +160,7 @@ const result = await judge.score(input, output, reference)
 Supports multi-criteria evaluation with per-criterion scores and custom prompt templates:
 
 ```ts
-import { createLLMJudge, STANDARD_CRITERIA, CODE_CRITERIA } from '@dzipagent/evals'
+import { createLLMJudge, STANDARD_CRITERIA, CODE_CRITERIA } from '@dzupagent/evals'
 
 // Single rubric string
 const simpleJudge = createLLMJudge({
@@ -194,7 +194,7 @@ const result = await codeJudge.score({
 Combines multiple scorers with weighted aggregation:
 
 ```ts
-import { CompositeScorer, DeterministicScorer, LLMJudgeScorer } from '@dzipagent/evals'
+import { CompositeScorer, DeterministicScorer, LLMJudgeScorer } from '@dzupagent/evals'
 
 const composite = new CompositeScorer({
   scorers: [
@@ -209,7 +209,7 @@ const composite = new CompositeScorer({
 `EvalDataset` is an immutable, filterable, sampleable collection of evaluation entries. Supports loading from JSON arrays, JSONL (one object per line), and CSV files.
 
 ```ts
-import { EvalDataset } from '@dzipagent/evals'
+import { EvalDataset } from '@dzupagent/evals'
 
 // Create from an array
 const dataset = EvalDataset.from([
@@ -243,7 +243,7 @@ dataset.metadata     // { name, description, version, createdAt, totalEntries, t
 Concurrent evaluation runner with progress callbacks, abort support, regression detection, and multiple report output formats.
 
 ```ts
-import { EvalRunner } from '@dzipagent/evals'
+import { EvalRunner } from '@dzupagent/evals'
 
 const controller = new AbortController()
 
@@ -278,7 +278,7 @@ const regression = await runner.regressionCheck(dataset, baseline)
 Simple suite runner for the legacy `EvalScorer` interface:
 
 ```ts
-import { runEvalSuite } from '@dzipagent/evals'
+import { runEvalSuite } from '@dzupagent/evals'
 
 const result = await runEvalSuite(suite, async (input) => agent.generate(input))
 // { suiteId, timestamp, results, aggregateScore, passRate }
@@ -287,7 +287,7 @@ const result = await runEvalSuite(suite, async (input) => agent.generate(input))
 ### Report Formatters
 
 ```ts
-import { reportToMarkdown, reportToJSON, reportToCIAnnotations } from '@dzipagent/evals'
+import { reportToMarkdown, reportToJSON, reportToCIAnnotations } from '@dzupagent/evals'
 
 // Markdown table for PR comments
 const md = reportToMarkdown(report)
@@ -312,7 +312,7 @@ import {
   QA_SUITE,
   TOOL_USE_SUITE,
   MULTI_TURN_SUITE,
-} from '@dzipagent/evals'
+} from '@dzupagent/evals'
 
 // Run a benchmark
 const result = await runBenchmark(CODE_GEN_SUITE, async (input) => {
@@ -343,7 +343,7 @@ Integrate evaluations into your CI pipeline:
 
 ```ts
 // ci-eval.ts
-import { EvalRunner, EvalDataset, createKeywordScorer, reportToCIAnnotations } from '@dzipagent/evals'
+import { EvalRunner, EvalDataset, createKeywordScorer, reportToCIAnnotations } from '@dzupagent/evals'
 
 const dataset = EvalDataset.fromJSON(await readFile('evals/dataset.json', 'utf-8'))
 
@@ -408,7 +408,7 @@ await runner.regressionCheck(dataset, baseline)
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@dzipagent/core` | `0.1.0` | Core infrastructure |
+| `@dzupagent/core` | `0.1.0` | Core infrastructure |
 
 ## License
 

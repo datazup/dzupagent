@@ -11,8 +11,8 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { ForgeServerConfig } from '../app.js'
-import type { RunStatus } from '@dzipagent/core'
-import { injectTraceContext } from '@dzipagent/core'
+import type { RunStatus, LogEntry } from '@dzupagent/core'
+import { injectTraceContext } from '@dzupagent/core'
 
 export function createRunRoutes(config: ForgeServerConfig): Hono {
   const app = new Hono()
@@ -194,17 +194,17 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
 
     // Extract tool calls and phases from logs
     const toolCalls = logs
-      .filter((l) => l.phase === 'tool_call' || l.data && typeof l.data === 'object' && 'toolName' in (l.data as Record<string, unknown>))
-      .map((l) => ({
+      .filter((l: LogEntry) => l.phase === 'tool_call' || (l.data != null && typeof l.data === 'object' && 'toolName' in (l.data as Record<string, unknown>)))
+      .map((l: LogEntry) => ({
         message: l.message,
         data: l.data,
         timestamp: l.timestamp,
       }))
 
     const phases = logs
-      .filter((l) => l.phase != null)
-      .map((l) => l.phase!)
-      .filter((v, i, a) => a.indexOf(v) === i)
+      .filter((l: LogEntry) => l.phase != null)
+      .map((l: LogEntry) => l.phase!)
+      .filter((v: string, i: number, a: string[]) => a.indexOf(v) === i)
 
     return c.json({
       data: {
@@ -248,7 +248,7 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
       await stream.writeSSE({ data: JSON.stringify({ status: run.status }), event: 'init' })
 
       // Keep alive until client disconnects or run completes
-      const checkInterval = setInterval(async () => {
+      const checkInterval = setInterval(() => { void (async () => {
         if (closed) { clearInterval(checkInterval); unsub(); return }
         const current = await runStore.get(runId)
         if (!current || ['completed', 'failed', 'cancelled', 'rejected'].includes(current.status)) {
@@ -257,7 +257,7 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
           clearInterval(checkInterval)
           unsub()
         }
-      }, 2000)
+      })() }, 2000)
 
       // Wait for stream to close
       stream.onAbort(() => {

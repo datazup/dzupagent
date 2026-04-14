@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { RelationshipStore } from '../retrieval/relationship-store.js'
 import type { RelationshipEdge, RelationshipType } from '../retrieval/relationship-store.js'
 import type { BaseStore } from '@langchain/langgraph'
+import type { MemoryStoreCapabilities } from '../store-capabilities.js'
 
 // ---------------------------------------------------------------------------
 // Mock BaseStore — in-memory implementation with filter support
@@ -9,6 +10,11 @@ import type { BaseStore } from '@langchain/langgraph'
 
 function createMockStore() {
   const data = new Map<string, Map<string, Record<string, unknown>>>()
+  const capabilities: MemoryStoreCapabilities = {
+    supportsDelete: true,
+    supportsSearchFilters: true,
+    supportsPagination: true,
+  }
   return {
     async get(ns: string[], key: string) {
       const entry = data.get(ns.join('.'))?.get(key)
@@ -38,7 +44,15 @@ function createMockStore() {
       }
       return results.slice(0, opts?.limit ?? 100)
     },
-  } as unknown as BaseStore
+    capabilities,
+  } as unknown as BaseStore & {
+    capabilities: MemoryStoreCapabilities
+    _data: Map<string, Map<string, Record<string, unknown>>>
+    search: ReturnType<typeof vi.fn>
+    put: ReturnType<typeof vi.fn>
+    get: ReturnType<typeof vi.fn>
+    delete: ReturnType<typeof vi.fn>
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +126,17 @@ describe('RelationshipStore', () => {
     it('removing non-existent edge does not throw', async () => {
       await expect(rs.removeEdge('X', 'causes', 'Y')).resolves.toBeUndefined()
     })
+
+    it('soft-deletes when delete capability is unavailable', async () => {
+      store.capabilities.supportsDelete = false
+      rs = new RelationshipStore(store as unknown as BaseStore, ['test', 'ns'])
+
+      await rs.addEdge(makeEdge('A', 'causes', 'B'))
+      await rs.removeEdge('A', 'causes', 'B')
+
+      const outgoing = await rs.getEdges('A', 'outgoing')
+      expect(outgoing).toHaveLength(0)
+    })
   })
 
   // -----------------------------------------------------------------------
@@ -150,6 +175,17 @@ describe('RelationshipStore', () => {
     })
 
     it('filters by edge types', async () => {
+      const edges = await rs.getEdges('A', 'outgoing', ['causes'])
+      expect(edges).toHaveLength(1)
+      expect(edges[0]!.type).toBe('causes')
+    })
+
+    it('applies filters locally when search filters are unsupported', async () => {
+      store.capabilities.supportsSearchFilters = false
+      rs = new RelationshipStore(store as unknown as BaseStore, ['test', 'ns'])
+      await rs.addEdge(makeEdge('A', 'causes', 'B'))
+      await rs.addEdge(makeEdge('A', 'triggers', 'C'))
+
       const edges = await rs.getEdges('A', 'outgoing', ['causes'])
       expect(edges).toHaveLength(1)
       expect(edges[0]!.type).toBe('causes')

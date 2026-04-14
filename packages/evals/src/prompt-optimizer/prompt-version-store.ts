@@ -23,10 +23,10 @@ export interface PromptVersion {
   promptKey: string;
   content: string;
   version: number;
-  parentVersionId?: string;
+  parentVersionId?: string | undefined;
   createdAt: string;
-  metadata?: Record<string, unknown>;
-  evalScores?: PromptVersionEvalScores;
+  metadata?: Record<string, unknown> | undefined;
+  evalScores?: PromptVersionEvalScores | undefined;
   active: boolean;
 }
 
@@ -54,10 +54,10 @@ export class PromptVersionStore {
   async save(params: {
     promptKey: string;
     content: string;
-    parentVersionId?: string;
-    metadata?: Record<string, unknown>;
-    evalScores?: PromptVersionEvalScores;
-    active?: boolean;
+    parentVersionId?: string | undefined;
+    metadata?: Record<string, unknown> | undefined;
+    evalScores?: PromptVersionEvalScores | undefined;
+    active?: boolean | undefined;
   }): Promise<PromptVersion> {
     const existing = await this.listVersions(params.promptKey);
     const nextVersion = existing.length > 0

@@ -199,7 +199,7 @@ function extractText(content: string | Array<{ type: string; text?: string }>): 
  */
 function parseCritiqueResponse(response: string): { score: number; feedback: string } {
   // Try "Score: 0.XX" pattern (0-1 range)
-  const scoreMatch01 = response.match(/Score:\s*(0(?:\.\d+)?|1(?:\.0+)?)\b/i)
+  const scoreMatch01 = response.match(/Score:\s*(0(?:\.\d+)?|1(?:\.0+)?)\b/i) // eslint-disable-line security/detect-unsafe-regex
   if (scoreMatch01) {
     const score = Math.max(0, Math.min(1, parseFloat(scoreMatch01[1]!)))
     const feedbackMatch = response.match(/Feedback:\s*([\s\S]*)/i)
@@ -210,7 +210,7 @@ function parseCritiqueResponse(response: string): { score: number; feedback: str
   }
 
   // Try "Score: X" pattern where X could be 0-10 range
-  const scoreMatch10 = response.match(/Score:\s*(\d+(?:\.\d+)?)/i)
+  const scoreMatch10 = response.match(/Score:\s*(\d+(?:\.\d+)?)/i) // eslint-disable-line security/detect-unsafe-regex
   if (scoreMatch10) {
     let rawScore = parseFloat(scoreMatch10[1]!)
     // If value > 1, assume 0-10 scale and normalize

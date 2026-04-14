@@ -1,5 +1,4 @@
 [
-  { "type": "unknown_event", "payload": "ignored" },
   { "type": "error", "error": { "message": "gemini failed", "code": "GEMINI_ERR" } },
   { "type": "completed", "output": "gemini recovered", "duration_ms": 33 }
 ]

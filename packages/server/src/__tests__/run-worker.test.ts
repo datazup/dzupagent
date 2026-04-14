@@ -4,25 +4,35 @@ import {
   InMemoryAgentStore,
   ModelRegistry,
   createEventBus,
-} from '@dzipagent/core'
-import { currentForgeContext } from '@dzipagent/otel'
+} from '@dzupagent/core'
+import { currentForgeContext } from '@dzupagent/otel'
+import { waitForCondition } from '@dzupagent/test-utils'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 import { startRunWorker } from '../runtime/run-worker.js'
+import { InMemoryRunTraceStore } from '../persistence/run-trace-store.js'
 
 async function waitForTerminalStatus(
   store: InMemoryRunStore,
   runId: string,
   timeoutMs = 3000,
 ): Promise<'completed' | 'failed' | 'rejected' | 'cancelled'> {
-  const started = Date.now()
-  while (Date.now() - started < timeoutMs) {
-    const run = await store.get(runId)
-    if (run?.status === 'completed' || run?.status === 'failed' || run?.status === 'rejected' || run?.status === 'cancelled') {
-      return run.status
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25))
-  }
-  throw new Error(`Timed out waiting for run ${runId} to reach terminal state`)
+  let terminalStatus: 'completed' | 'failed' | 'rejected' | 'cancelled' | undefined
+  await waitForCondition(
+    async () => {
+      const run = await store.get(runId)
+      if (run?.status === 'completed' || run?.status === 'failed' || run?.status === 'rejected' || run?.status === 'cancelled') {
+        terminalStatus = run.status
+        return true
+      }
+      return false
+    },
+    {
+      timeoutMs,
+      intervalMs: 25,
+      description: `Timed out waiting for run ${runId} to reach terminal state`,
+    },
+  )
+  return terminalStatus!
 }
 
 describe('run-worker', () => {
@@ -85,6 +95,7 @@ describe('run-worker', () => {
     const eventBus = createEventBus()
     const runQueue = new InMemoryRunQueue({ concurrency: 1 })
     const modelRegistry = new ModelRegistry()
+    const traceStore = new InMemoryRunTraceStore()
 
     await agentStore.save({
       id: 'a2',
@@ -100,6 +111,7 @@ describe('run-worker', () => {
       agentStore,
       eventBus,
       modelRegistry,
+      traceStore,
       runExecutor: async () => {
         throw new Error('boom')
       },
@@ -117,6 +129,9 @@ describe('run-worker', () => {
     expect(status).toBe('failed')
     const failed = await runStore.get(run.id)
     expect(failed?.error).toContain('boom')
+    const trace = traceStore.getTrace(run.id)
+    expect(trace?.completedAt).toBeGreaterThan(0)
+    expect(trace?.steps.some(step => step.type === 'system' && (step.content as { status?: string }).status === 'failed')).toBe(true)
 
     await runQueue.stop(false)
   })
@@ -257,6 +272,7 @@ describe('run-worker', () => {
     const eventBus = createEventBus()
     const runQueue = new InMemoryRunQueue({ concurrency: 2 })
     const modelRegistry = new ModelRegistry()
+    const traceStore = new InMemoryRunTraceStore()
 
     await agentStore.save({
       id: 'a-cancel-run',
@@ -272,6 +288,7 @@ describe('run-worker', () => {
       agentStore,
       eventBus,
       modelRegistry,
+      traceStore,
       runExecutor: async ({ signal }) => {
         // Simulate long-running work that respects cancellation
         return new Promise((resolve, reject) => {
@@ -304,6 +321,9 @@ describe('run-worker', () => {
     expect(status).toBe('cancelled')
     const updated = await runStore.get(run.id)
     expect(updated?.error).toContain('Cancelled')
+    const trace = traceStore.getTrace(run.id)
+    expect(trace?.completedAt).toBeGreaterThan(0)
+    expect(trace?.steps.some(step => step.type === 'system' && (step.content as { status?: string }).status === 'cancelled')).toBe(true)
 
     await runQueue.stop(false)
   })
@@ -314,6 +334,7 @@ describe('run-worker', () => {
     const eventBus = createEventBus()
     const runQueue = new InMemoryRunQueue({ concurrency: 1 })
     const modelRegistry = new ModelRegistry()
+    const traceStore = new InMemoryRunTraceStore()
 
     await agentStore.save({
       id: 'a4',
@@ -330,6 +351,7 @@ describe('run-worker', () => {
       agentStore,
       eventBus,
       modelRegistry,
+      traceStore,
       runExecutor: async () => ({ content: 'should-not-run' }),
     })
 
@@ -357,6 +379,9 @@ describe('run-worker', () => {
     const rejected = await runStore.get(run.id)
     expect(rejected?.error).toContain('not safe')
     expect(rejected?.output).toBeUndefined()
+    const trace = traceStore.getTrace(run.id)
+    expect(trace?.completedAt).toBeGreaterThan(0)
+    expect(trace?.steps.some(step => step.type === 'system' && (step.content as { status?: string }).status === 'rejected')).toBe(true)
 
     await runQueue.stop(false)
   })

@@ -1,7 +1,7 @@
-# @dzipagent/playground Architecture
+# @dzupagent/playground Architecture
 
 ## Purpose
-`@dzipagent/playground` is the interactive UI client for DzipAgent. It provides a chat-first operator surface with realtime run visibility, trace/memory inspection, and configuration/history panels.
+`@dzupagent/playground` is the interactive UI client for DzupAgent. It provides a chat-first operator surface with realtime run visibility, trace/memory inspection, and configuration/history panels.
 
 ## Main Responsibilities
 - Provide the end-user chat workflow for agent interaction.
@@ -35,7 +35,7 @@ Top-level modules under `src/`:
 - E2E + unit-test support for chat flow and store behavior.
 
 ## Integration Boundaries
-- Designed to run against `@dzipagent/server` APIs and websocket routes.
+- Designed to run against `@dzupagent/server` APIs and websocket routes.
 - No direct dependency on core/agent internals; communicates over HTTP/WS contracts.
 - Can be served statically by server route `/playground`.
 

@@ -1,6 +1,6 @@
 /**
  * Cross-framework memory adapters — bidirectional conversion between
- * external agent memory formats and the DzipAgent MemoryFrame Arrow schema.
+ * external agent memory formats and the DzupAgent MemoryFrame Arrow schema.
  */
 
 // --- Adapter Interface & Registry ---

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import { runToolLoop, type ToolLoopConfig } from '../agent/tool-loop.js'
 
 /**
@@ -18,7 +19,7 @@ function mockTool(name: string, result = 'ok', delayMs = 0) {
       }
       return result
     }),
-  } as unknown as import('@langchain/core/tools').StructuredToolInterface
+  } as unknown as StructuredToolInterface
 }
 
 /**
@@ -33,7 +34,7 @@ function failingTool(name: string, errorMsg = 'boom') {
     invoke: vi.fn(async () => {
       throw new Error(errorMsg)
     }),
-  } as unknown as import('@langchain/core/tools').StructuredToolInterface
+  } as unknown as StructuredToolInterface
 }
 
 /**
@@ -246,7 +247,7 @@ describe('Tool Loop Telemetry', () => {
         await new Promise((r) => setTimeout(r, delay))
         return 'ok'
       }),
-    } as unknown as import('@langchain/core/tools').StructuredToolInterface
+    } as unknown as StructuredToolInterface
 
     const model = createMockModel([
       aiWithToolCalls([{ name: 'timed_tool', args: {} }]),

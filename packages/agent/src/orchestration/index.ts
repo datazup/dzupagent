@@ -51,3 +51,9 @@ export type {
   TopologyMetrics,
   TopologyExecutorConfig,
 } from './topology/topology-types.js'
+
+// --- Provider Adapter Port ---
+export type {
+  ProviderExecutionPort,
+  ProviderExecutionResult,
+} from './provider-adapter/index.js'

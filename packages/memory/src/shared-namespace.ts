@@ -28,7 +28,7 @@ export interface SharedEntry {
   /** Creation timestamp */
   createdAt: number
   /** Serialized VectorClock for causal ordering (optional for backward compat) */
-  vectorClock?: Record<string, number>
+  vectorClock?: Record<string, number> | undefined
 }
 
 /** Result of merging remote entries into this namespace. */
@@ -56,11 +56,11 @@ export interface SharedNamespaceConfig {
   /** Namespace path (e.g., ['shared', 'project-123']) */
   namespace: string[]
   /** Agents allowed to write (empty = all allowed) */
-  allowedWriters?: string[]
+  allowedWriters?: string[] | undefined
   /** Max entries in the namespace (default: 1000) */
-  maxEntries?: number
+  maxEntries?: number | undefined
   /** Enable audit trail (default: false) */
-  enableAudit?: boolean
+  enableAudit?: boolean | undefined
 }
 
 export interface AuditEntry {
@@ -68,7 +68,7 @@ export interface AuditEntry {
   key: string
   agentId: string
   timestamp: number
-  previousVersion?: number
+  previousVersion?: number | undefined
 }
 
 export interface SharedNamespaceStats {
@@ -356,14 +356,15 @@ export class SharedMemoryNamespace {
 
   /** Evict oldest entries (by updatedAt) when maxEntries is exceeded. */
   private evictIfNeeded(): void {
-    if (this.entries.size <= this.config.maxEntries) return
+    const maxEntries = this.config.maxEntries ?? 1000
+    if (this.entries.size <= maxEntries) return
 
     // Sort entries by updatedAt ascending (oldest first)
     const sorted = Array.from(this.entries.values()).sort(
       (a, b) => a.updatedAt - b.updatedAt,
     )
 
-    const toEvict = this.entries.size - this.config.maxEntries
+    const toEvict = this.entries.size - maxEntries
     for (let i = 0; i < toEvict; i++) {
       this.entries.delete(sorted[i]!.key)
     }

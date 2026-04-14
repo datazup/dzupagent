@@ -57,10 +57,13 @@ const LOCAL_TAGS = new Set([
  */
 const COST_RANK: Record<AdapterProviderId, number> = {
   crush: 1,
-  qwen: 2,
-  gemini: 3,
-  codex: 4,
-  claude: 5,
+  goose: 2,
+  qwen: 3,
+  gemini: 4,
+  'gemini-sdk': 4,
+  codex: 5,
+  claude: 6,
+  openrouter: 6,
 }
 
 /**
@@ -71,8 +74,11 @@ const DEFAULT_PRIORITY: Record<AdapterProviderId, number> = {
   claude: 5,
   codex: 4,
   gemini: 3,
+  'gemini-sdk': 3,
   qwen: 2,
   crush: 1,
+  goose: 3,
+  openrouter: 4,
 }
 
 // --- Helpers ---

@@ -1,4 +1,4 @@
-import type { DzipEventBus } from '../events/event-bus.js'
+import type { DzupEventBus } from '../events/event-bus.js'
 import type { BudgetUsage } from '../events/event-types.js'
 
 /**
@@ -7,12 +7,12 @@ import type { BudgetUsage } from '../events/event-types.js'
 export interface HookContext {
   agentId: string
   runId: string
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
   metadata: Record<string, unknown>
 }
 
 /**
- * Lifecycle hooks for DzipAgent execution.
+ * Lifecycle hooks for DzupAgent execution.
  *
  * All hooks are optional and run sequentially (not parallel).
  * Hook errors are caught and logged — they never break agent execution.

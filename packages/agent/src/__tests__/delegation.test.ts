@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { InMemoryRunStore, createEventBus } from '@dzipagent/core'
-import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
+import { InMemoryRunStore, createEventBus } from '@dzupagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
 import {
   SimpleDelegationTracker,
   type DelegationRequest,
@@ -119,8 +119,8 @@ function makeRequest(overrides: Partial<DelegationRequest> = {}): DelegationRequ
 
 describe('SimpleDelegationTracker', () => {
   let store: InMemoryRunStore
-  let eventBus: DzipEventBus
-  let events: DzipEvent[]
+  let eventBus: DzupEventBus
+  let events: DzupEvent[]
 
   beforeEach(() => {
     store = new InMemoryRunStore()

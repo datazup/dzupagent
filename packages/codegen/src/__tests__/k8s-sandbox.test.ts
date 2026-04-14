@@ -89,7 +89,7 @@ describe('AgentSandboxResource types', () => {
       image: 'node:20-slim',
     })
 
-    expect(resource.apiVersion).toBe('dzipagent.dev/v1alpha1')
+    expect(resource.apiVersion).toBe('dzupagent.dev/v1alpha1')
     expect(resource.kind).toBe('AgentSandbox')
     expect(resource.metadata.name).toBe('my-sandbox')
     expect(resource.spec.image).toBe('node:20-slim')
@@ -122,7 +122,7 @@ describe('AgentSandboxResource types', () => {
 
   it('resource has correct managed-by label', () => {
     const resource = createAgentSandboxResource('sb', { image: 'alpine' })
-    expect(resource.metadata.labels?.['app.kubernetes.io/managed-by']).toBe('dzipagent')
+    expect(resource.metadata.labels?.['app.kubernetes.io/managed-by']).toBe('dzupagent')
   })
 })
 
@@ -155,7 +155,7 @@ describe('K8sClient', () => {
     expect(result.metadata.uid).toBe('abc-123')
     expect(globalThis.fetch).toHaveBeenCalledOnce()
     const callArgs = vi.mocked(globalThis.fetch).mock.calls[0]!
-    expect(callArgs[0]).toContain('/apis/dzipagent.dev/v1alpha1/namespaces/test-ns/agentsandboxes')
+    expect(callArgs[0]).toContain('/apis/dzupagent.dev/v1alpha1/namespaces/test-ns/agentsandboxes')
     expect(callArgs[1]?.method).toBe('POST')
   })
 
@@ -495,7 +495,7 @@ describeOperator()('buildNetworkPolicy', () => {
 
     const spec = netpol['spec'] as Record<string, unknown>
     const selector = spec['podSelector'] as Record<string, Record<string, string>>
-    expect(selector['matchLabels']!['dzipagent.dev/sandbox']).toBe('test-sandbox')
+    expect(selector['matchLabels']!['dzupagent.dev/sandbox']).toBe('test-sandbox')
   })
 
   it('custom policy stores allowed hosts in annotation', () => {
@@ -508,7 +508,7 @@ describeOperator()('buildNetworkPolicy', () => {
     const netpol = buildNetworkPolicy!(sandbox)
 
     const metadata = netpol['metadata'] as Record<string, Record<string, string>>
-    expect(metadata['annotations']!['dzipagent.dev/allowed-hosts']).toBe('example.com')
+    expect(metadata['annotations']!['dzupagent.dev/allowed-hosts']).toBe('example.com')
   })
 })
 

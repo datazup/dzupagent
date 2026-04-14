@@ -32,7 +32,7 @@ export interface WorkingMemoryConfig<T extends z.ZodType> {
   /** Namespace in the memory service */
   namespace: string
   /** Auto-save after each update (default: true) */
-  autoSave?: boolean
+  autoSave?: boolean | undefined
 }
 
 export class WorkingMemory<T extends z.ZodType> {

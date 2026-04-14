@@ -14,6 +14,14 @@ export type ConflictStrategy = 'lww' | 'manual' | 'crdt'
 /** Mode used when sharing data into a space. */
 export type ShareMode = 'push' | 'pull-request' | 'subscribe'
 
+/**
+ * Share modes accepted by `MemorySpaceManager.share()`.
+ *
+ * `subscribe` remains in the public type for compatibility, but the runtime
+ * API now routes consumers to `MemorySpaceManager.subscribe()` instead.
+ */
+export type WritableShareMode = Exclude<ShareMode, 'subscribe'>
+
 /** An agent participating in a shared memory space. */
 export interface MemoryParticipant {
   /** Agent URI in forge://org/agent-name format */
@@ -27,9 +35,9 @@ export interface MemoryParticipant {
 /** Retention policy for records within a shared space. */
 export interface RetentionPolicy {
   /** Maximum age of records in milliseconds */
-  maxAgeMs?: number
+  maxAgeMs?: number | undefined
   /** Maximum number of records in the space */
-  maxRecords?: number
+  maxRecords?: number | undefined
 }
 
 /** Metadata describing a shared memory space. */
@@ -43,7 +51,7 @@ export interface SharedMemorySpace {
   /** List of participating agents */
   participants: MemoryParticipant[]
   /** Optional retention rules */
-  retentionPolicy?: RetentionPolicy
+  retentionPolicy?: RetentionPolicy | undefined
   /** How write conflicts are resolved */
   conflictResolution: ConflictStrategy
   /** ISO-8601 creation timestamp */
@@ -75,9 +83,19 @@ export interface PendingShareRequest {
   /** ISO-8601 creation timestamp */
   createdAt: string
   /** URI of the reviewer (if reviewed) */
-  reviewedBy?: string
+  reviewedBy?: string | undefined
   /** ISO-8601 review timestamp (if reviewed) */
-  reviewedAt?: string
+  reviewedAt?: string | undefined
+}
+
+/** Metrics emitted by tombstone compaction. */
+export interface TombstoneCompactionMetrics {
+  runs: number
+  tombstonesFound: number
+  tombstonesCompacted: number
+  tombstonesSkipped: number
+  totalDurationMs: number
+  lastDurationMs: number | null
 }
 
 /** Discriminated union of events emitted by the shared memory system. */
@@ -89,3 +107,11 @@ export type SharedMemoryEvent =
   | { type: 'memory:space:pull_request'; spaceId: string; requestId: string; agentUri: string }
   | { type: 'memory:space:pull_reviewed'; spaceId: string; requestId: string; status: 'approved' | 'rejected' }
   | { type: 'memory:space:conflict'; spaceId: string; key: string; agentUri: string }
+  | {
+      type: 'memory:space:tombstones_compacted'
+      spaceId: string
+      tombstonesFound: number
+      tombstonesCompacted: number
+      tombstonesSkipped: number
+      durationMs: number
+    }

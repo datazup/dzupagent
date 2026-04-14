@@ -190,4 +190,22 @@ describe('ConcurrencyPool', () => {
     expect(results).toContain(2)
     expect(pool.stats().active).toBe(0)
   })
+
+  it('evicts idle key semaphores when retention limits are reached', async () => {
+    const pool = new ConcurrencyPool({
+      maxConcurrent: 2,
+      maxPerKey: 1,
+      maxIdleMsPerKey: 10_000,
+      maxTrackedKeys: 1,
+    })
+
+    await pool.execute('k1', async () => 'ok')
+    expect(pool.trackedKeyCount()).toBe(1)
+
+    // Allow timestamps to advance so idle eviction is eligible.
+    await new Promise((r) => setTimeout(r, 1))
+
+    await pool.execute('k2', async () => 'ok')
+    expect(pool.trackedKeyCount()).toBeLessThanOrEqual(1)
+  })
 })

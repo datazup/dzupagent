@@ -4,7 +4,8 @@ import type {
   FetchResult,
   ScraperToolSchema,
 } from './types.js'
-import { HttpFetcher } from './http-fetcher.js'
+import { normalizeScraperTool, type ScraperConnectorTool } from './connector-contract.js'
+import { HttpFetcher, RobotsDisallowedError } from './http-fetcher.js'
 import { BrowserPool } from './browser-pool.js'
 
 const DEFAULT_CONFIG: ScraperConfig = {
@@ -58,8 +59,12 @@ export class WebScraper {
   ): Promise<FetchResult[]> {
     const concurrency = options?.concurrency ?? 5
     const results: FetchResult[] = []
-    const extractionOpts = options
-      ? { mode: options.mode, cleanHtml: options.cleanHtml, maxLength: options.maxLength }
+    const extractionOpts: Partial<ExtractionConfig> | undefined = options
+      ? {
+          ...(options.mode !== undefined ? { mode: options.mode } : {}),
+          ...(options.cleanHtml !== undefined ? { cleanHtml: options.cleanHtml } : {}),
+          ...(options.maxLength !== undefined ? { maxLength: options.maxLength } : {}),
+        }
       : undefined
 
     // Process in batches
@@ -92,22 +97,14 @@ export class WebScraper {
   }
 
   /**
-   * Create a DzipAgent-compatible tool descriptor.
+   * Create a DzupAgent-compatible tool descriptor.
    *
-   * Follows the pattern used by `createForgeTool` in `@dzipagent/agent` —
+   * Follows the pattern used by `createForgeTool` in `@dzupagent/agent` —
    * returns an object with name, description, schema, and invoke function.
    */
-  asTool(): {
-    name: string
-    description: string
-    schema: {
-      type: 'object'
-      properties: Record<string, unknown>
-      required: string[]
-    }
-    invoke: (input: ScraperToolSchema) => Promise<string>
-  } {
-    return {
+  asTool(): ScraperConnectorTool {
+    return normalizeScraperTool({
+      id: 'web_scraper',
       name: 'web_scraper',
       description:
         'Fetch and extract clean text content from a web URL. Returns the page text, title, and metadata.',
@@ -117,17 +114,32 @@ export class WebScraper {
           url: { type: 'string', description: 'The URL to scrape' },
           extractMode: {
             type: 'string',
-            enum: ['text', 'html', 'metadata'],
+            enum: ['text', 'html', 'metadata', 'all'],
             description: 'What to extract (default: text)',
+          },
+          cleanHtml: {
+            type: 'boolean',
+            description: 'Whether to remove scripts, styles, and boilerplate elements (default: true)',
+          },
+          maxLength: {
+            type: 'number',
+            description: 'Maximum number of characters to return',
           },
         },
         required: ['url'],
       },
       invoke: async (input: ScraperToolSchema): Promise<string> => {
-        const result = await this.scrape(input.url, {
+        const extraction: Partial<ExtractionConfig> = {
           mode: input.extractMode ?? 'text',
-          cleanHtml: true,
-        })
+        }
+        if (input.cleanHtml !== undefined) {
+          extraction.cleanHtml = input.cleanHtml
+        }
+        if (input.maxLength !== undefined) {
+          extraction.maxLength = input.maxLength
+        }
+
+        const result = await this.scrape(input.url, extraction)
 
         return JSON.stringify(
           {
@@ -145,7 +157,7 @@ export class WebScraper {
           2,
         )
       },
-    }
+    })
   }
 
   /** Shut down resources (browser pool) */
@@ -162,7 +174,7 @@ export class WebScraper {
     timeout: number,
     options?: Partial<ExtractionConfig>,
   ): Promise<FetchResult> {
-    return this.httpFetcher.fetch(url, { timeout, extraction: options })
+    return this.httpFetcher.fetch(url, { timeout, ...(options !== undefined ? { extraction: options } : {}) })
   }
 
   /** Scrape using browser pool */
@@ -172,7 +184,7 @@ export class WebScraper {
     options?: Partial<ExtractionConfig>,
   ): Promise<FetchResult> {
     const pool = this.getOrCreateBrowserPool()
-    return pool.fetch(url, { timeout, extraction: options })
+    return pool.fetch(url, { timeout, ...(options !== undefined ? { extraction: options } : {}) })
   }
 
   /** Try HTTP first, fall back to browser if it fails or returns empty/error content */
@@ -191,7 +203,10 @@ export class WebScraper {
 
       // Content too short or bad status — try browser
       return this.scrapeBrowser(url, timeout, options)
-    } catch {
+    } catch (error) {
+      if (error instanceof RobotsDisallowedError) {
+        throw error
+      }
       // HTTP failed entirely — try browser as fallback
       try {
         return await this.scrapeBrowser(url, timeout, options)

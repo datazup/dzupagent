@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
-import { DzipAgent } from '../agent/dzip-agent.js'
+import { DzupAgent } from '../agent/dzip-agent.js'
 import { AgentOrchestrator } from '../orchestration/orchestrator.js'
 import { OrchestrationError } from '../orchestration/orchestration-error.js'
 
@@ -65,8 +65,8 @@ function createFailModel(errorMsg: string): BaseChatModel {
 function createAgent(
   id: string,
   responses: Array<{ content: string }>,
-): DzipAgent {
-  return new DzipAgent({
+): DzupAgent {
+  return new DzupAgent({
     id,
     name: id,
     model: createMockModel(responses),
@@ -78,8 +78,8 @@ function createAgentWithModel(
   id: string,
   description: string,
   model: BaseChatModel,
-): DzipAgent {
-  return new DzipAgent({
+): DzupAgent {
+  return new DzupAgent({
     id,
     description,
     instructions: `You are ${id}.`,
@@ -143,7 +143,7 @@ describe('AgentOrchestrator.sequential', () => {
 
   it('middle agent failure propagates and stops the chain', async () => {
     const agentA = createAgent('a', [{ content: 'ok-from-a' }])
-    const failAgent = new DzipAgent({
+    const failAgent = new DzupAgent({
       id: 'fail',
       name: 'fail',
       model: createFailModel('middle-agent-exploded'),
@@ -259,7 +259,7 @@ describe('AgentOrchestrator.parallel', () => {
 
   it('rejects if any agent fails (Promise.all behavior)', async () => {
     const goodAgent = createAgent('good', [{ content: 'ok' }])
-    const failAgent = new DzipAgent({
+    const failAgent = new DzupAgent({
       id: 'fail',
       name: 'fail',
       model: createFailModel('parallel-fail'),
@@ -302,7 +302,7 @@ describe('AgentOrchestrator.supervisor', () => {
     expect(result.filteredSpecialists).toEqual([])
 
     // The manager's model should have had bindTools called with the specialist tool
-    // (the orchestrator creates a new DzipAgent internally, so we check indirectly)
+    // (the orchestrator creates a new DzupAgent internally, so we check indirectly)
   })
 
   it('health check filters out unhealthy specialists', async () => {
@@ -548,7 +548,7 @@ describe('AgentOrchestrator.debate', () => {
     const proposer1 = createAgent('v-prop1', [{ content: 'Plan Alpha' }])
     const proposer2 = createAgent('v-prop2', [{ content: 'Plan Beta' }])
 
-    const judge = new DzipAgent({
+    const judge = new DzupAgent({
       id: 'v-judge',
       name: 'v-judge',
       model: judgeModel,
@@ -593,7 +593,7 @@ describe('AgentOrchestrator.debate', () => {
 
   it('proposer failure rejects the entire debate', async () => {
     const goodProposer = createAgent('good', [{ content: 'good proposal' }])
-    const failProposer = new DzipAgent({
+    const failProposer = new DzupAgent({
       id: 'fail-prop',
       name: 'fail-prop',
       model: createFailModel('proposer-crashed'),
@@ -613,7 +613,7 @@ describe('AgentOrchestrator.debate', () => {
 
   it('judge failure after proposals rejects the debate', async () => {
     const proposer = createAgent('prop', [{ content: 'A proposal' }])
-    const failJudge = new DzipAgent({
+    const failJudge = new DzupAgent({
       id: 'fail-judge',
       name: 'fail-judge',
       model: createFailModel('judge-crashed'),
@@ -728,5 +728,103 @@ describe('Agent state isolation', () => {
     expect(receivedInputs).toContain('m2:shared-task')
     expect(receivedInputs).toContain('m3:shared-task')
     expect(receivedInputs).toHaveLength(3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Supervisor with provider-adapter mode
+// ---------------------------------------------------------------------------
+
+describe('AgentOrchestrator.supervisor with provider-adapter mode', () => {
+  it('routes execution through providerPort when executionMode is provider-adapter', async () => {
+    const managerModel = createMockModel([{ content: 'should-not-be-used' }])
+    const specModel = createMockModel([{ content: 'spec output' }])
+    const manager = createAgentWithModel('mgr', 'Manager', managerModel)
+    const specialist = createAgentWithModel('db-spec', 'Database expert', specModel)
+
+    const mockProviderPort = {
+      run: vi.fn(async () => ({
+        content: 'provider-adapter result',
+        providerId: 'claude' as const,
+        attemptedProviders: ['claude' as const],
+        fallbackAttempts: 0,
+      })),
+      stream: vi.fn(),
+    }
+
+    const result = await AgentOrchestrator.supervisor({
+      manager,
+      specialists: [specialist],
+      task: 'Design DB schema',
+      executionMode: 'provider-adapter',
+      providerPort: mockProviderPort,
+    })
+
+    expect(result.content).toBe('provider-adapter result')
+    expect(result.availableSpecialists).toEqual(['db-spec'])
+    expect(result.filteredSpecialists).toEqual([])
+
+    // The provider port should have been called
+    expect(mockProviderPort.run).toHaveBeenCalledTimes(1)
+
+    // The manager model should NOT have been invoked (routed through port)
+    expect(managerModel.invoke).not.toHaveBeenCalled()
+  })
+
+  it('falls back to agent mode when providerPort is not set', async () => {
+    const managerModel = createMockModel([{ content: 'agent-mode result' }])
+    const specModel = createMockModel([{ content: 'spec output' }])
+    const manager = createAgentWithModel('mgr', 'Manager', managerModel)
+    const specialist = createAgentWithModel('db-spec', 'Database expert', specModel)
+
+    const result = await AgentOrchestrator.supervisor({
+      manager,
+      specialists: [specialist],
+      task: 'Design DB schema',
+      // executionMode is not set, so should default to agent mode
+    })
+
+    expect(result.content).toBe('agent-mode result')
+    // The manager model should have been invoked (agent mode)
+    expect(managerModel.invoke).toHaveBeenCalled()
+  })
+
+  it('propagates abort signal to providerPort.run()', async () => {
+    const managerModel = createMockModel([{ content: 'unused' }])
+    const specModel = createMockModel([{ content: 'unused' }])
+    const manager = createAgentWithModel('mgr', 'Manager', managerModel)
+    const specialist = createAgentWithModel('spec', 'Specialist', specModel)
+
+    const controller = new AbortController()
+    const capturedSignals: (AbortSignal | undefined)[] = []
+
+    const mockProviderPort = {
+      run: vi.fn(async (
+        _input: unknown,
+        _task: unknown,
+        options?: { signal?: AbortSignal },
+      ) => {
+        capturedSignals.push(options?.signal)
+        return {
+          content: 'result',
+          providerId: 'claude' as const,
+          attemptedProviders: ['claude' as const],
+          fallbackAttempts: 0,
+        }
+      }),
+      stream: vi.fn(),
+    }
+
+    await AgentOrchestrator.supervisor({
+      manager,
+      specialists: [specialist],
+      task: 'Do work',
+      executionMode: 'provider-adapter',
+      providerPort: mockProviderPort,
+      signal: controller.signal,
+    })
+
+    expect(capturedSignals).toHaveLength(1)
+    expect(capturedSignals[0]).toBe(controller.signal)
   })
 })

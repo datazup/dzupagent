@@ -1,5 +1,5 @@
 /**
- * Vue Router configuration for the DzipAgent Playground.
+ * Vue Router configuration for the DzupAgent Playground.
  */
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
@@ -8,6 +8,26 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'playground',
     component: () => import('../views/PlaygroundView.vue'),
+  },
+  {
+    path: '/evals',
+    name: 'evals',
+    component: () => import('../views/EvalsView.vue'),
+  },
+  {
+    path: '/evals/:id',
+    name: 'eval-detail',
+    component: () => import('../views/EvalRunDetailView.vue'),
+  },
+  {
+    path: '/benchmarks',
+    name: 'benchmarks',
+    component: () => import('../views/BenchmarksView.vue'),
+  },
+  {
+    path: '/benchmarks/:runId',
+    name: 'benchmark-detail',
+    component: () => import('../views/BenchmarkRunDetailView.vue'),
   },
   {
     path: '/agents',

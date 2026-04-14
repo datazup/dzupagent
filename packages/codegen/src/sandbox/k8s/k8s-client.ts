@@ -43,7 +43,7 @@ interface ExecResult {
 const DEFAULT_API_SERVER = 'https://kubernetes.default.svc'
 const DEFAULT_NAMESPACE = 'default'
 const DEFAULT_TIMEOUT = 30_000
-const CRD_GROUP = 'dzipagent.dev'
+const CRD_GROUP = 'dzupagent.dev'
 const CRD_VERSION = 'v1alpha1'
 const CRD_PLURAL = 'agentsandboxes'
 
@@ -228,12 +228,13 @@ export class K8sClient {
       if (this.token) {
         headers['Authorization'] = `Bearer ${this.token}`
       }
-      return await fetch(url, {
+      const fetchInit: RequestInit = {
         method: opts.method,
         headers,
-        body: opts.body,
         signal: controller.signal,
-      })
+      }
+      if (opts.body !== undefined) fetchInit.body = opts.body
+      return await fetch(url, fetchInit)
     } finally {
       clearTimeout(timer)
     }

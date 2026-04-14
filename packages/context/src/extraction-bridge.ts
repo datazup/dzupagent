@@ -2,8 +2,8 @@
  * Bridge between context compression and memory extraction.
  *
  * Creates an onBeforeSummarize hook from a generic extraction function.
- * This allows @dzipagent/context to support pre-compression extraction
- * without depending on @dzipagent/memory.
+ * This allows @dzupagent/context to support pre-compression extraction
+ * without depending on @dzupagent/memory.
  */
 import type { BaseMessage } from '@langchain/core/messages'
 

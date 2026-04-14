@@ -276,6 +276,19 @@ describe('AgentIntegrationBridge', () => {
       expect(schema.inputSchema.required).toContain('prompt')
     })
 
+    it('uses the first registered adapter instead of a generic claude fallback on routed failure', async () => {
+      const codexOnlyBridge = new AgentIntegrationBridge(
+        createRegistry([createFailingAdapter('codex', 'Codex failure')]),
+      )
+      const tool = codexOnlyBridge.createRoutedTool({ name: 'agent' })
+
+      const result = await tool.invoke({ prompt: 'Hello' })
+
+      expect(result.success).toBe(false)
+      expect(result.providerId).toBe('codex')
+      expect(result.error).toContain('Codex failure')
+    })
+
     it('throws when no adapters are registered', () => {
       const emptyRegistry = new AdapterRegistry()
       const emptyBridge = new AgentIntegrationBridge(emptyRegistry)

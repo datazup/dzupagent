@@ -17,6 +17,13 @@ const DEFAULT_CONFIG: HttpFetcherConfig = {
   maxRedirects: 5,
 }
 
+export class RobotsDisallowedError extends Error {
+  constructor(url: string) {
+    super(`Blocked by robots.txt: ${url}`)
+    this.name = 'RobotsDisallowedError'
+  }
+}
+
 /** Whether an HTTP status code is retryable */
 function isRetryableStatus(status: number): boolean {
   return status === 429 || status === 502 || status === 503 || status === 504
@@ -99,7 +106,7 @@ export class HttpFetcher {
           const allowed = await this.isAllowedByRobots(currentUrl, userAgent)
           if (!allowed) {
             clearTimeout(timeoutId)
-            throw new Error(`Blocked by robots.txt: ${currentUrl}`)
+            throw new RobotsDisallowedError(currentUrl)
           }
         }
 

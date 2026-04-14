@@ -105,7 +105,7 @@ export class JSONSerializer implements MessageSerializer {
         code: 'SERIALIZATION_FAILED',
         message: `Failed to parse JSON: ${err instanceof Error ? err.message : String(err)}`,
         recoverable: false,
-        cause: err instanceof Error ? err : undefined,
+        ...(err instanceof Error && { cause: err }),
       })
     }
 

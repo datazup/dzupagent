@@ -5,7 +5,7 @@
  * use parameterized bindings (?) to prevent SQL injection.
  */
 
-import mysql from 'mysql2/promise'
+import { createRequire } from 'node:module'
 import { BaseSQLConnector } from '../base-sql-connector.js'
 import type {
   SQLDialect,
@@ -19,21 +19,59 @@ import type {
   SchemaDiscoveryOptions,
 } from '../types.js'
 
+import type * as MySQL2Pkg from 'mysql2/promise'
+
+type MySQLModule = typeof MySQL2Pkg
+type MySQLPool = MySQL2Pkg.Pool
+type MySQLPoolConnection = MySQL2Pkg.PoolConnection
+type MySQLFieldPacket = MySQL2Pkg.FieldPacket
+
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_MAX_ROWS = 500
+const runtimeRequire = createRequire(import.meta.url)
+const MYSQL_DRIVER_PACKAGE = 'mysql2'
+
+let mysqlModule: MySQLModule | undefined
+
+function isMissingModuleError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND'
+  )
+}
+
+function loadMySQLModule(): MySQLModule {
+  if (mysqlModule) return mysqlModule
+
+  try {
+    mysqlModule = runtimeRequire('mysql2/promise') as MySQLModule
+    return mysqlModule
+  } catch (error: unknown) {
+    if (isMissingModuleError(error)) {
+      throw new Error(
+        `MySQLConnector requires the optional dependency "${MYSQL_DRIVER_PACKAGE}". Install it with: yarn add ${MYSQL_DRIVER_PACKAGE}`,
+      )
+    }
+    throw error
+  }
+}
 
 export class MySQLConnector extends BaseSQLConnector {
-  private readonly pool: mysql.Pool
+  private readonly pool: MySQLPool
 
   constructor(config: SQLConnectionConfig) {
     super(config)
+    const mysql = loadMySQLModule()
+
     this.pool = mysql.createPool({
       host: config.host,
       port: config.port,
       database: config.database,
       user: config.username,
       password: config.password,
-      ssl: config.ssl ? {} : undefined,
+      ...(config.ssl ? { ssl: {} } : {}),
       connectionLimit: 5,
       idleTimeout: 30_000,
       enableKeepAlive: true,
@@ -52,7 +90,7 @@ export class MySQLConnector extends BaseSQLConnector {
    * Acquire a connection and set it to READ ONLY for the session.
    * Caller is responsible for releasing the connection.
    */
-  private async getReadOnlyConnection(): Promise<mysql.PoolConnection> {
+  private async getReadOnlyConnection(): Promise<MySQLPoolConnection> {
     const conn = await this.pool.getConnection()
     await conn.query('SET SESSION TRANSACTION READ ONLY')
     return conn
@@ -60,7 +98,7 @@ export class MySQLConnector extends BaseSQLConnector {
 
   async testConnection(): Promise<ConnectionTestResult> {
     const start = Date.now()
-    let conn: mysql.PoolConnection | undefined
+    let conn: MySQLPoolConnection | undefined
     try {
       conn = await this.getReadOnlyConnection()
       await conn.query('SELECT 1')
@@ -92,7 +130,7 @@ export class MySQLConnector extends BaseSQLConnector {
         return { columns: [], rows: [], rowCount: 0, truncated: false }
       }
 
-      const fields = rawFields as mysql.FieldPacket[]
+      const fields = rawFields as MySQLFieldPacket[]
       const columns = fields.map((f) => f.name)
       const allRows = rawRows as Record<string, unknown>[]
 

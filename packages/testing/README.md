@@ -1,4 +1,4 @@
-# @dzipagent/testing
+# @dzupagent/testing
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -17,16 +17,16 @@
 
 ### Install
 ```bash
-npm install @dzipagent/testing
+npm install @dzupagent/testing
 ```
 <!-- AUTO-GENERATED-END -->
 
-Security testing framework for DzipAgent agents. Provides pre-built test suites that verify agent resilience against prompt injection, privilege escalation, memory poisoning, and sandbox escape attacks. Each test case defines a malicious input, expected system behavior, and severity level.
+Security testing framework for DzupAgent agents. Provides pre-built test suites that verify agent resilience against prompt injection, privilege escalation, memory poisoning, and sandbox escape attacks. Each test case defines a malicious input, expected system behavior, and severity level.
 
 ## Installation
 
 ```bash
-npm install @dzipagent/testing --save-dev
+npm install @dzupagent/testing --save-dev
 ```
 
 ## Quick Start
@@ -36,7 +36,7 @@ import {
   runSecuritySuite,
   INJECTION_SUITE,
   ESCALATION_SUITE,
-} from '@dzipagent/testing'
+} from '@dzupagent/testing'
 
 // Define a checker that tests your agent's defenses
 const checker = async (input: string) => {
@@ -130,11 +130,11 @@ The runner evaluates each test result against the expected behavior:
 
 ### Testing with SafetyMonitor
 
-Combine with `@dzipagent/otel`'s `SafetyMonitor` for pattern-based checking:
+Combine with `@dzupagent/otel`'s `SafetyMonitor` for pattern-based checking:
 
 ```ts
-import { runSecuritySuite, INJECTION_SUITE } from '@dzipagent/testing'
-import { SafetyMonitor } from '@dzipagent/otel'
+import { runSecuritySuite, INJECTION_SUITE } from '@dzupagent/testing'
+import { SafetyMonitor } from '@dzupagent/otel'
 
 const monitor = new SafetyMonitor()
 
@@ -162,7 +162,7 @@ import {
   ESCALATION_SUITE,
   POISONING_SUITE,
   ESCAPE_SUITE,
-} from '@dzipagent/testing'
+} from '@dzupagent/testing'
 
 const suites = [INJECTION_SUITE, ESCALATION_SUITE, POISONING_SUITE, ESCAPE_SUITE]
 
@@ -183,7 +183,7 @@ for (const suite of suites) {
 
 ```ts
 // security-test.ts
-import { runSecuritySuite, INJECTION_SUITE, ESCALATION_SUITE } from '@dzipagent/testing'
+import { runSecuritySuite, INJECTION_SUITE, ESCALATION_SUITE } from '@dzupagent/testing'
 
 const suites = [INJECTION_SUITE, ESCALATION_SUITE]
 let allPassed = true

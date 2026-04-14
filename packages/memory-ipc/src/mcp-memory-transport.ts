@@ -7,6 +7,7 @@
 
 import { z } from 'zod'
 import type { Table } from 'apache-arrow'
+import type { FrameRecordValue } from './frame-builder.js'
 
 import {
   serializeToIPC,
@@ -130,7 +131,7 @@ export async function handleExportMemory(
   const table = await deps.exportFrame(
     input.namespace,
     input.scope ?? {},
-    { query: input.query, limit: input.limit },
+    { ...(input.query !== undefined ? { query: input.query } : {}), limit: input.limit },
   )
 
   const reader = new FrameReader(table)
@@ -223,7 +224,7 @@ export async function handleImportMemory(
             value: Record<string, unknown>
           }
           builder.add(
-            rec.value as import('./frame-builder.js').FrameRecordValue,
+            rec.value as FrameRecordValue,
             {
               id: rec.meta.id,
               namespace: rec.meta.namespace,

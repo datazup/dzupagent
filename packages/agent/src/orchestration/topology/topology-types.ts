@@ -8,7 +8,7 @@
  * - mesh: all agents communicate with all others
  * - ring: circular pass with iterative refinement
  */
-import type { DzipAgent } from '../../agent/dzip-agent.js'
+import type { DzupAgent } from '../../agent/dzip-agent.js'
 
 export type TopologyType = 'hierarchical' | 'pipeline' | 'star' | 'mesh' | 'ring'
 
@@ -41,10 +41,16 @@ export interface TopologyMetrics {
   messageCount: number
   errorCount: number
   switchedFrom?: TopologyType
+  /** Provider ID when execution was routed through a provider adapter */
+  providerId?: string
+  /** Number of fallback attempts when using provider adapter execution */
+  fallbackAttempts?: number
+  /** All providers attempted (in order) when using provider adapter execution */
+  attemptedProviders?: string[]
 }
 
 export interface TopologyExecutorConfig {
-  agents: DzipAgent[]
+  agents: DzupAgent[]
   task: string
   /** Maximum rounds for ring topology (default: 3) */
   maxRounds?: number

@@ -7,7 +7,7 @@
  * @module pipeline/pipeline-templates
  */
 
-import type { PipelineDefinition } from '@dzipagent/core'
+import type { PipelineDefinition } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Code Review Pipeline

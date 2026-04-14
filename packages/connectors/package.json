@@ -1,6 +1,6 @@
 {
-  "name": "@dzipagent/connectors",
-  "version": "0.1.0",
+  "name": "@dzupagent/connectors",
+  "version": "0.2.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,19 +21,27 @@
     "build:verified": "yarn build && yarn test:esm-smoke"
   },
   "dependencies": {
-    "@dzipagent/core": "0.1.0",
-    "pg": "^8.13.0"
+    "@clickhouse/client": "^1.18.2",
+    "@dzupagent/core": "0.2.0",
+    "@google-cloud/bigquery": "^8.1.1",
+    "better-sqlite3": "^12.8.0",
+    "duckdb": "^1.4.4",
+    "mssql": "^12.2.1",
+    "mysql2": "^3.19.1",
+    "node-sql-parser": "^5.4.0",
+    "pg": "^8.13.0",
+    "snowflake-sdk": "^2.3.6"
   },
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",
     "zod": ">=4.0.0"
   },
   "devDependencies": {
-    "@langchain/core": "^1.1.32",
+    "@langchain/core": "^1.1.39",
     "@types/pg": "^8.11.0",
-    "typescript": "^5.4.0",
-    "tsup": "^8.0.0",
-    "vitest": "^1.6.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
     "zod": "^4.3.6"
   },
   "files": [

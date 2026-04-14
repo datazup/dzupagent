@@ -1,8 +1,8 @@
 {
-  "name": "@dzipagent/agent-adapters",
-  "version": "0.1.0",
+  "name": "@dzupagent/agent-adapters",
+  "version": "0.2.0",
   "type": "module",
-  "description": "AI agent CLI/SDK adapters for DzipAgent — orchestrate Claude, Codex, Gemini, Qwen, and Crush agents",
+  "description": "AI agent CLI/SDK adapters for DzupAgent — orchestrate Claude, Codex, Gemini, Qwen, and Crush agents",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -16,26 +16,30 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:orchestration:race": "vitest run src/__tests__/parallel-executor.test.ts src/__tests__/orchestrator-facade.test.ts src/__tests__/parallel-executor.contract.test.ts src/__tests__/parallel-executor-unhandled-rejection.test.ts",
+    "test:orchestration:cancel": "vitest run src/__tests__/parallel-executor.test.ts src/__tests__/orchestrator-facade.test.ts src/__tests__/contract-net.test.ts src/__tests__/map-reduce.test.ts",
+    "test:orchestration:contracts": "vitest run src/__tests__/parallel-executor.contract.test.ts src/__tests__/parallel-executor-unhandled-rejection.test.ts src/__tests__/adapter-registry.test.ts src/__tests__/event-bus-bridge.test.ts",
     "lint": "eslint src/",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@dzipagent/core": "0.1.0",
-    "@dzipagent/agent": "0.1.0"
+    "@dzupagent/adapter-types": "0.2.0",
+    "@dzupagent/agent": "0.2.0",
+    "@dzupagent/core": "0.2.0"
   },
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",
     "zod": ">=4.0.0"
   },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.87",
-    "@openai/codex-sdk": "^0.117.0"
+    "@anthropic-ai/claude-agent-sdk": "^0.2.98",
+    "@openai/codex-sdk": "^0.118.0"
   },
   "devDependencies": {
-    "@langchain/core": "^1.1.32",
-    "typescript": "^5.4.0",
-    "tsup": "^8.0.0",
-    "vitest": "^1.6.0",
+    "@langchain/core": "^1.1.39",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
     "zod": "^4.3.6"
   },
   "files": [

@@ -54,7 +54,7 @@ export class MockChatModel extends BaseChatModel {
 
     const aiMessage = new AIMessage({
       content: response.content,
-      tool_calls: response.tool_calls,
+      ...(response.tool_calls !== undefined ? { tool_calls: response.tool_calls } : {}),
     })
 
     return {

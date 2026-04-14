@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import {
   MapReduceOrchestrator,
@@ -72,8 +72,8 @@ function createFailingRegistry(failAtChunk?: number): AdapterRegistry {
   } as unknown as AdapterRegistry
 }
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -190,8 +190,8 @@ describe('DirectoryChunker', () => {
 // ---------------------------------------------------------------------------
 
 describe('MapReduceOrchestrator', () => {
-  let bus: DzipEventBus
-  let emitted: DzipEvent[]
+  let bus: DzupEventBus
+  let emitted: DzupEvent[]
 
   beforeEach(() => {
     bus = createEventBus()
@@ -301,6 +301,25 @@ describe('MapReduceOrchestrator', () => {
 
       expect(maxConcurrentObserved).toBeLessThanOrEqual(2)
     })
+
+    it.each([
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['-Infinity', Number.NEGATIVE_INFINITY],
+      ['NaN', Number.NaN],
+      ['zero', 0],
+      ['negative', -1],
+      ['non-integer', 1.5],
+    ])('rejects %s as maxConcurrency', async (_, maxConcurrency) => {
+      const registry = createMockRegistry()
+
+      expect(() => new MapReduceOrchestrator({
+        registry,
+        eventBus: bus,
+        maxConcurrency,
+      })).toThrow(
+        `MapReduceOrchestrator maxConcurrency must be a finite positive integer; received ${String(maxConcurrency)}`,
+      )
+    })
   })
 
   describe('chunk failure handling', () => {
@@ -405,7 +424,7 @@ describe('MapReduceOrchestrator', () => {
   })
 
   describe('abort signal', () => {
-    it('respects abort signal — pre-aborted signal marks chunks as failed', async () => {
+    it('respects abort signal — pre-aborted signal marks chunks as cancelled', async () => {
       const controller = new AbortController()
       controller.abort() // Abort before starting
 
@@ -424,16 +443,61 @@ describe('MapReduceOrchestrator', () => {
         signal: controller.signal,
       })
 
-      // Pre-aborted signals produce rejected map tasks which are now converted
-      // into explicit failed chunk entries for deterministic accounting.
+      // Pre-aborted signals are converted into explicit cancelled chunk entries.
+      expect(result.cancelled).toBe(true)
       expect(result.successfulChunks).toBe(0)
       expect(result.failedChunks).toBe(3)
       expect(result.perChunkStats).toHaveLength(3)
       for (const stat of result.perChunkStats) {
         expect(stat.providerId).toBeNull()
         expect(stat.success).toBe(false)
+        expect(stat.cancelled).toBe(true)
       }
       expect(result.result).toBe(0)
+    })
+
+    it('marks in-flight chunk work as cancelled when aborted during execution', async () => {
+      const controller = new AbortController()
+      const registry = {
+        async *executeWithFallback(input: AgentInput, _task: TaskDescriptor) {
+          expect(input.signal).toBe(controller.signal)
+          await new Promise((resolve) => setTimeout(resolve, 50))
+          if (input.signal?.aborted) {
+            return
+          }
+          yield {
+            type: 'adapter:completed' as const,
+            providerId: 'claude' as AdapterProviderId,
+            sessionId: 'sess-1',
+            result: 'done',
+            durationMs: 50,
+            timestamp: Date.now(),
+          }
+        },
+      } as unknown as AdapterRegistry
+
+      const orchestrator = new MapReduceOrchestrator({
+        registry,
+        eventBus: bus,
+        maxConcurrency: 1,
+      })
+
+      setTimeout(() => {
+        controller.abort()
+      }, 10)
+
+      const result = await orchestrator.execute('a\nb', {
+        chunker: new LineChunker(1),
+        mapper: stringArrayMapper,
+        resultExtractor: identityExtractor,
+        reducer: (results) => results.filter((entry) => entry.success).length,
+        signal: controller.signal,
+      })
+
+      expect(result.cancelled).toBe(true)
+      expect(result.successfulChunks).toBe(0)
+      expect(result.failedChunks).toBe(2)
+      expect(result.perChunkStats.every((stat) => stat.cancelled)).toBe(true)
     })
   })
 })

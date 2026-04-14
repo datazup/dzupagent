@@ -1,8 +1,8 @@
 import type { AgentPreset, PresetRuntimeDeps } from './types.js'
 
 /**
- * Create a DzipAgent configuration object from a preset and runtime dependencies.
- * Returns a config object compatible with DzipAgent constructor.
+ * Create a DzupAgent configuration object from a preset and runtime dependencies.
+ * Returns a config object compatible with DzupAgent constructor.
  */
 export function buildConfigFromPreset(
   preset: AgentPreset,

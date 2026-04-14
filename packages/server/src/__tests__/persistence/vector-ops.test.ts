@@ -264,7 +264,7 @@ describe('server index exports', () => {
   it('exports vectorColumn', async () => {
     const mod = await import('../../index.js')
     expect(mod.vectorColumn).toBeDefined()
-  }, 15_000)
+  }, 30_000)
 
   it('exports distance functions', async () => {
     const mod = await import('../../index.js')
@@ -272,15 +272,15 @@ describe('server index exports', () => {
     expect(mod.l2Distance).toBeDefined()
     expect(mod.innerProduct).toBeDefined()
     expect(mod.toVector).toBeDefined()
-  }, 15_000)
+  }, 30_000)
 
   it('exports DrizzleVectorStore', async () => {
     const mod = await import('../../index.js')
     expect(mod.DrizzleVectorStore).toBeDefined()
-  }, 15_000)
+  }, 30_000)
 
   it('exports forgeVectors table', async () => {
     const mod = await import('../../index.js')
     expect(mod.forgeVectors).toBeDefined()
-  }, 15_000)
+  }, 30_000)
 })

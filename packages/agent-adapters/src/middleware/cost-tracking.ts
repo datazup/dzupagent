@@ -2,11 +2,11 @@
  * Cost-tracking middleware for agent adapters.
  *
  * Wraps an adapter's event stream to accumulate token usage and cost,
- * emit budget warnings via DzipEventBus, and throw when budgets are exceeded.
+ * emit budget warnings via DzupEventBus, and throw when budgets are exceeded.
  */
 
-import { ForgeError } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import { ForgeError } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import type { AgentEvent, AdapterProviderId, TokenUsage } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -22,8 +22,11 @@ const PROVIDER_RATES: Record<AdapterProviderId, ProviderRates> = {
   claude: { inputCentsPer1M: 300, outputCentsPer1M: 1500 },
   codex: { inputCentsPer1M: 200, outputCentsPer1M: 800 },
   gemini: { inputCentsPer1M: 125, outputCentsPer1M: 500 },
+  'gemini-sdk': { inputCentsPer1M: 125, outputCentsPer1M: 500 },
   qwen: { inputCentsPer1M: 50, outputCentsPer1M: 200 },
   crush: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
+  goose: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
+  openrouter: { inputCentsPer1M: 300, outputCentsPer1M: 1500 },
 }
 
 // ---------------------------------------------------------------------------
@@ -40,7 +43,7 @@ export interface CostTrackingConfig {
   /** Emit a "critical" budget event at this percentage. Default 95. */
   criticalThresholdPercent?: number
   /** Event bus for budget notifications. */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
 }
 
 export interface CostReport {
@@ -81,7 +84,7 @@ export class CostTrackingMiddleware {
   private readonly perProviderBudgetCents: Partial<Record<AdapterProviderId, number>>
   private readonly warningThreshold: number
   private readonly criticalThreshold: number
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
 
   private accumulators = new Map<AdapterProviderId, ProviderAccumulator>()
   private totalCostCents = 0
@@ -224,6 +227,7 @@ export class CostTrackingMiddleware {
 
   private estimateCost(providerId: AdapterProviderId, usage: TokenUsage): number {
     const rates = PROVIDER_RATES[providerId]
+    if (!rates) return 0
     const inputCost = (usage.inputTokens * rates.inputCentsPer1M) / 1_000_000
     const outputCost = (usage.outputTokens * rates.outputCentsPer1M) / 1_000_000
     return inputCost + outputCost

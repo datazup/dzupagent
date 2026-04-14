@@ -1,15 +1,15 @@
-# @dzipagent/cache
+# @dzupagent/cache
 
-Lightweight response caching primitives for LLM workflows in DzipAgent.
+Lightweight response caching primitives for LLM workflows in DzupAgent.
 
 This package provides a policy-driven `CacheMiddleware`, deterministic key generation, and pluggable backends (in-memory and Redis) so you can reduce repeated LLM calls while keeping cache behavior explicit and observable.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/cache
+yarn add @dzupagent/cache
 # or
-npm install @dzipagent/cache
+npm install @dzupagent/cache
 ```
 
 If you want Redis-backed caching, also install `ioredis` (peer dependency):
@@ -37,7 +37,7 @@ yarn add ioredis
 ## Quick Start
 
 ```ts
-import { CacheMiddleware, InMemoryCacheBackend } from '@dzipagent/cache'
+import { CacheMiddleware, InMemoryCacheBackend } from '@dzupagent/cache'
 
 const cache = new CacheMiddleware({
   backend: new InMemoryCacheBackend({ maxEntries: 1000 }),
@@ -71,7 +71,7 @@ console.log(await cache.stats())
 ### 1) Wrap an LLM call
 
 ```ts
-import { CacheMiddleware, InMemoryCacheBackend } from '@dzipagent/cache'
+import { CacheMiddleware, InMemoryCacheBackend } from '@dzupagent/cache'
 
 const cache = new CacheMiddleware({
   backend: new InMemoryCacheBackend(),
@@ -96,7 +96,7 @@ export async function invokeWithCache(request: {
 ### 2) Use custom cacheability logic
 
 ```ts
-import { CacheMiddleware, InMemoryCacheBackend } from '@dzipagent/cache'
+import { CacheMiddleware, InMemoryCacheBackend } from '@dzupagent/cache'
 
 const cache = new CacheMiddleware({
   backend: new InMemoryCacheBackend(),
@@ -116,12 +116,12 @@ const cache = new CacheMiddleware({
 
 ```ts
 import Redis from 'ioredis'
-import { CacheMiddleware, RedisCacheBackend } from '@dzipagent/cache'
+import { CacheMiddleware, RedisCacheBackend } from '@dzupagent/cache'
 
 const redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379')
 
 const cache = new CacheMiddleware({
-  backend: new RedisCacheBackend(redis, { prefix: 'dzipagent:cache' }),
+  backend: new RedisCacheBackend(redis, { prefix: 'dzupagent:cache' }),
   policy: {
     maxTemperature: 0.3,
     defaultTtlSeconds: 3600,

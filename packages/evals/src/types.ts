@@ -71,11 +71,11 @@ export interface EvalRunResult {
 export interface EvalInput {
   input: string;
   output: string;
-  reference?: string;
-  tags?: string[];
-  latencyMs?: number;
-  costCents?: number;
-  metadata?: Record<string, unknown>;
+  reference?: string | undefined;
+  tags?: string[] | undefined;
+  latencyMs?: number | undefined;
+  costCents?: number | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 /**
@@ -99,7 +99,7 @@ export interface ScorerResult {
   aggregateScore: number;
   passed: boolean;
   durationMs: number;
-  costCents?: number;
+  costCents?: number | undefined;
 }
 
 /**

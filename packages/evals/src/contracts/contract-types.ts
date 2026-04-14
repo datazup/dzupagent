@@ -30,8 +30,8 @@ export type ContractTestCategory = 'required' | 'recommended' | 'optional';
 export interface ContractTestResult {
   passed: boolean;
   duration: number;
-  error?: string;
-  details?: Record<string, unknown>;
+  error?: string | undefined;
+  details?: Record<string, unknown> | undefined;
 }
 
 /** A single contract test case */
@@ -59,9 +59,9 @@ export interface ContractSuite {
   /** All test cases in this suite */
   tests: ContractTest[];
   /** Optional setup before all tests */
-  setup?: () => Promise<void>;
+  setup?: (() => Promise<void>) | undefined;
   /** Optional teardown after all tests */
-  teardown?: () => Promise<void>;
+  teardown?: (() => Promise<void>) | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,8 +99,8 @@ export interface ContractTestReport {
   category: ContractTestCategory;
   status: 'passed' | 'failed' | 'skipped';
   duration: number;
-  error?: string;
-  details?: Record<string, unknown>;
+  error?: string | undefined;
+  details?: Record<string, unknown> | undefined;
 }
 
 /** Compliance level based on which test categories passed */

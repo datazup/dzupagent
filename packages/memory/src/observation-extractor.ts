@@ -40,11 +40,11 @@ export interface ObservationExtractorConfig {
   /** LLM model for extraction (use cheap/fast tier) */
   model: BaseChatModel
   /** Minimum messages before triggering extraction (default: 10) */
-  minMessages?: number
+  minMessages?: number | undefined
   /** Minimum interval between extractions in ms (default: 30_000) */
-  debounceMs?: number
+  debounceMs?: number | undefined
   /** Maximum observations per session (default: 50) */
-  maxObservations?: number
+  maxObservations?: number | undefined
 }
 
 const EXTRACTION_PROMPT = `Extract key observations from this conversation. For each observation, provide:

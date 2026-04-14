@@ -1,12 +1,12 @@
 /**
- * @dzipagent/core/memory — Curated API facade for memory-focused use cases.
+ * @dzupagent/core/memory — Curated API facade for memory-focused use cases.
  *
  * Exports memory service, retrieval strategies, store management,
  * consolidation, and decay — without pulling in the full core surface.
  *
  * @example
  * ```ts
- * import { MemoryService, createStore, fusionSearch } from '@dzipagent/core/memory';
+ * import { MemoryService, createStore, fusionSearch } from '@dzupagent/core/memory';
  * ```
  */
 
@@ -16,14 +16,14 @@
 export {
   createStore,
   MemoryService,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   StoreConfig,
   StoreIndexConfig,
   NamespaceConfig,
   FormatOptions,
   SemanticStoreAdapter,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Decay
@@ -34,8 +34,8 @@ export {
   createDecayMetadata,
   scoreWithDecay,
   findWeakMemories,
-} from '@dzipagent/memory'
-export type { DecayConfig, DecayMetadata } from '@dzipagent/memory'
+} from '@dzupagent/memory'
+export type { DecayConfig, DecayMetadata } from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Sanitization
@@ -43,8 +43,8 @@ export type { DecayConfig, DecayMetadata } from '@dzipagent/memory'
 export {
   sanitizeMemoryContent,
   stripInvisibleUnicode,
-} from '@dzipagent/memory'
-export type { SanitizeResult } from '@dzipagent/memory'
+} from '@dzupagent/memory'
+export type { SanitizeResult } from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Consolidation
@@ -54,7 +54,7 @@ export {
   consolidateAll,
   SemanticConsolidator,
   consolidateWithLLM,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   ConsolidationConfig,
   ConsolidationResult,
@@ -62,7 +62,7 @@ export type {
   SemanticConsolidationResult,
   ConsolidationAction,
   ConsolidationDecision,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Healer
@@ -72,8 +72,8 @@ export {
   findContradictions,
   findStaleRecords,
   healMemory,
-} from '@dzipagent/memory'
-export type { HealingIssue, HealingReport, MemoryHealerConfig } from '@dzipagent/memory'
+} from '@dzupagent/memory'
+export type { HealingIssue, HealingReport, MemoryHealerConfig } from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Working Memory
@@ -81,12 +81,12 @@ export type { HealingIssue, HealingReport, MemoryHealerConfig } from '@dzipagent
 export {
   WorkingMemory,
   VersionedWorkingMemory,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   WorkingMemoryConfig,
   VersionedWorkingMemoryConfig,
   WorkingMemoryDiff,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Observation Extractors
@@ -94,14 +94,14 @@ export type {
 export {
   ObservationExtractor,
   MemoryAwareExtractor,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   ObservationExtractorConfig,
   Observation,
   ObservationCategory,
   MemoryAwareExtractorConfig,
   ExtractionResult,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Staged Writers & Policies
@@ -111,7 +111,7 @@ export {
   PolicyAwareStagedWriter,
   defaultWritePolicy,
   composePolicies,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   StagedRecord,
   MemoryStage,
@@ -119,7 +119,7 @@ export type {
   PolicyAwareStagedWriterConfig,
   WritePolicy,
   WriteAction,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Retrieval — base strategies
@@ -130,14 +130,14 @@ export {
   KeywordFTSSearch,
   EntityGraphSearch,
   fusionSearch,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   VectorSearchResult,
   VectorSearchProvider,
   FTSSearchResult,
   GraphSearchResult,
   FusedResult,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Retrieval — adaptive
@@ -146,7 +146,7 @@ export {
   AdaptiveRetriever,
   DEFAULT_STRATEGIES,
   classifyIntent,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   QueryIntent,
   RetrievalWeights,
@@ -154,46 +154,46 @@ export type {
   RetrievalProviders,
   AdaptiveRetrieverConfig,
   AdaptiveSearchResult,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Retrieval — graph
 // ---------------------------------------------------------------------------
-export { PersistentEntityGraph } from '@dzipagent/memory'
-export type { EntityNode, GraphTraversalResult } from '@dzipagent/memory'
+export { PersistentEntityGraph } from '@dzupagent/memory'
+export type { EntityNode, GraphTraversalResult } from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Retrieval — advanced (void filter, hub dampening, PageRank, reranking)
 // ---------------------------------------------------------------------------
-export { voidFilter } from '@dzipagent/memory'
-export type { MemoryState, VoidFilterConfig, VoidFilterResult } from '@dzipagent/memory'
+export { voidFilter } from '@dzupagent/memory'
+export type { MemoryState, VoidFilterConfig, VoidFilterResult } from '@dzupagent/memory'
 
-export { applyHubDampening, getAccessCount } from '@dzipagent/memory'
-export type { HubDampenedResult, HubDampeningConfig } from '@dzipagent/memory'
+export { applyHubDampening, getAccessCount } from '@dzupagent/memory'
+export type { HubDampenedResult, HubDampeningConfig } from '@dzupagent/memory'
 
-export { computePPR, queryPPR } from '@dzipagent/memory'
-export type { PPRConfig, PPRResult } from '@dzipagent/memory'
+export { computePPR, queryPPR } from '@dzupagent/memory'
+export type { PPRConfig, PPRResult } from '@dzupagent/memory'
 
-export { rerank, createLLMReranker } from '@dzipagent/memory'
-export type { CrossEncoderProvider, RerankerConfig, RerankedResult } from '@dzipagent/memory'
+export { rerank, createLLMReranker } from '@dzupagent/memory'
+export type { CrossEncoderProvider, RerankerConfig, RerankedResult } from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Retrieval — relationships & communities
 // ---------------------------------------------------------------------------
-export { RelationshipStore } from '@dzipagent/memory'
+export { RelationshipStore } from '@dzupagent/memory'
 export type {
   RelationshipType,
   RelationshipEdge,
   EdgeMetadata,
   TraversalResult,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
-export { CommunityDetector } from '@dzipagent/memory'
+export { CommunityDetector } from '@dzupagent/memory'
 export type {
   MemoryCommunity,
   CommunityDetectorConfig,
   CommunityDetectionResult,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Temporal memory
@@ -205,8 +205,8 @@ export {
   wasActiveAsOf,
   wasValidAt,
   filterByTemporal,
-} from '@dzipagent/memory'
-export type { TemporalMetadata, TemporalQuery, TemporalChange } from '@dzipagent/memory'
+} from '@dzupagent/memory'
+export type { TemporalMetadata, TemporalQuery, TemporalChange } from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Scoped / multi-agent memory
@@ -215,36 +215,36 @@ export {
   ScopedMemoryService,
   createAgentMemories,
   PolicyTemplates,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   MemoryAccessPolicy,
   NamespaceAccess,
   AccessViolation,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Dual-stream & sleep consolidation
 // ---------------------------------------------------------------------------
-export { DualStreamWriter } from '@dzipagent/memory'
-export type { DualStreamConfig, PendingRecord, IngestResult } from '@dzipagent/memory'
+export { DualStreamWriter } from '@dzupagent/memory'
+export type { DualStreamConfig, PendingRecord, IngestResult } from '@dzupagent/memory'
 
-export { SleepConsolidator, runSleepConsolidation } from '@dzipagent/memory'
+export { SleepConsolidator, runSleepConsolidation } from '@dzupagent/memory'
 export type {
   SleepConsolidationConfig,
   SleepConsolidationReport,
   SleepPhase,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Observational memory
 // ---------------------------------------------------------------------------
-export { ObservationalMemory } from '@dzipagent/memory'
+export { ObservationalMemory } from '@dzupagent/memory'
 export type {
   ObservationalMemoryConfig,
   ObservationalMemoryStats,
   ObserverResult,
   ReflectorResult,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Provenance
@@ -254,34 +254,34 @@ export {
   createProvenance,
   extractProvenance,
   createContentHash,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   MemoryProvenance,
   ProvenanceSource,
   ProvenanceWriteOptions,
   ProvenanceQuery,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Frozen Snapshot
 // ---------------------------------------------------------------------------
-export { FrozenMemorySnapshot } from '@dzipagent/memory'
+export { FrozenMemorySnapshot } from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Encryption
 // ---------------------------------------------------------------------------
-export { EnvKeyProvider, EncryptedMemoryService } from '@dzipagent/memory'
+export { EnvKeyProvider, EncryptedMemoryService } from '@dzupagent/memory'
 export type {
   EncryptedEnvelope,
   EncryptionKeyDescriptor,
   EncryptionKeyProvider,
   EncryptedMemoryServiceConfig,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Convention detection
 // ---------------------------------------------------------------------------
-export { ConventionExtractor, ALL_CONVENTION_CATEGORIES } from '@dzipagent/memory'
+export { ConventionExtractor, ALL_CONVENTION_CATEGORIES } from '@dzupagent/memory'
 export type {
   ConventionCategory,
   DetectedConvention,
@@ -291,23 +291,23 @@ export type {
   ConventionExtractorConfig,
   ConventionFilter,
   ConsolidateOptions,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Causal graph
 // ---------------------------------------------------------------------------
-export { CausalGraph } from '@dzipagent/memory'
+export { CausalGraph } from '@dzupagent/memory'
 export type {
   CausalRelation,
   CausalNode,
   CausalTraversalOptions,
   CausalGraphResult,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Shared memory spaces & CRDTs
 // ---------------------------------------------------------------------------
-export { MemorySpaceManager } from '@dzipagent/memory'
+export { MemorySpaceManager } from '@dzupagent/memory'
 export type {
   MemorySpaceManagerConfig,
   SpacePermission,
@@ -319,9 +319,9 @@ export type {
   MemoryShareRequest,
   PendingShareRequest,
   SharedMemoryEvent,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
-export { HLC, CRDTResolver } from '@dzipagent/memory'
+export { HLC, CRDTResolver } from '@dzupagent/memory'
 export type {
   HLCTimestamp,
   LWWRegister,
@@ -329,7 +329,7 @@ export type {
   ORSet,
   LWWMap,
   MergeResult,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Multi-modal memory
@@ -338,18 +338,18 @@ export {
   MultiModalMemoryService,
   InMemoryAttachmentStorage,
   inferAttachmentType,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 export type {
   AttachmentType,
   MemoryAttachment,
   AttachmentStorageProvider,
   MultiModalMemoryServiceConfig,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Multi-network memory
 // ---------------------------------------------------------------------------
-export { MultiNetworkMemory, DEFAULT_NETWORK_CONFIGS } from '@dzipagent/memory'
+export { MultiNetworkMemory, DEFAULT_NETWORK_CONFIGS } from '@dzupagent/memory'
 export type {
   MemoryNetwork,
   NetworkConfig,
@@ -357,12 +357,12 @@ export type {
   MultiNetworkSearchResult,
   NetworkStats,
   MultiNetworkMemoryConfig,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Agent File export/import
 // ---------------------------------------------------------------------------
-export { AgentFileExporter, AgentFileImporter, AGENT_FILE_SCHEMA, AGENT_FILE_VERSION } from '@dzipagent/memory'
+export { AgentFileExporter, AgentFileImporter, AGENT_FILE_SCHEMA, AGENT_FILE_VERSION } from '@dzupagent/memory'
 export type {
   AgentFile,
   AgentFileAgentSection,
@@ -374,14 +374,14 @@ export type {
   ImportResult,
   AgentFileExporterConfig,
   ExportOptions,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // MCP memory handler
 // ---------------------------------------------------------------------------
-export { MCPMemoryHandler, MCP_MEMORY_TOOLS } from '@dzipagent/memory'
+export { MCPMemoryHandler, MCP_MEMORY_TOOLS } from '@dzupagent/memory'
 export type {
   MCPToolDefinition,
   MCPToolResult as MCPMemoryToolResult,
   MCPMemoryServices,
-} from '@dzipagent/memory'
+} from '@dzupagent/memory'

@@ -224,7 +224,7 @@ export class TurbopufferAdapter implements VectorStore {
     const all: string[] = []
     let cursor: string | undefined
 
-    // eslint-disable-next-line no-constant-condition
+     
     while (true) {
       const path = cursor
         ? `/v1/vectors?cursor=${encodeURIComponent(cursor)}`

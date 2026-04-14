@@ -7,7 +7,7 @@
  * StreamOutputEvent objects or serialized strings in SSE/JSONL/NDJSON format.
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import type {
   AgentCompletedEvent,
@@ -36,7 +36,7 @@ export interface StreamingConfig {
   /** Whether to track and emit progress updates. Default true */
   trackProgress?: boolean
   /** Event bus for observability */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus | undefined
 }
 
 /** Structured output event for UIs */
@@ -61,8 +61,8 @@ export type StreamEventData =
 export interface StatusData {
   type: 'status'
   status: 'started' | 'running' | 'completed' | 'failed'
-  providerId?: string
-  sessionId?: string
+  providerId?: string | undefined
+  sessionId?: string | undefined
 }
 
 export interface ContentData {
@@ -87,15 +87,15 @@ export interface ToolResultData {
 export interface ProgressData {
   type: 'progress'
   percent: number
-  currentStep?: string
-  totalSteps?: number
-  tokensUsed?: number
+  currentStep?: string | undefined
+  totalSteps?: number | undefined
+  tokensUsed?: number | undefined
 }
 
 export interface ErrorData {
   type: 'error'
   message: string
-  code?: string
+  code?: string | undefined
   recoverable: boolean
 }
 
@@ -103,7 +103,7 @@ export interface DoneData {
   type: 'done'
   result: string
   durationMs: number
-  usage?: { inputTokens: number; outputTokens: number }
+  usage?: { inputTokens: number; outputTokens: number } | undefined
 }
 
 /** Progress tracking state */
@@ -134,7 +134,7 @@ const TOOL_PHASE_END = 80
 export class StreamingHandler {
   private readonly config: Required<
     Pick<StreamingConfig, 'format' | 'includeToolCalls' | 'includeRawEvents' | 'trackProgress'>
-  > & { eventBus?: DzipEventBus }
+  > & { eventBus?: DzupEventBus | undefined }
 
   private progress: ProgressState
 
@@ -415,11 +415,13 @@ export class StreamingHandler {
   private formatEvent(event: StreamOutputEvent): string {
     const json = JSON.stringify(event)
 
-    switch (this.config.format) {
+    const fmt = this.config.format
+    switch (fmt) {
       case 'sse':
         return `data: ${json}\n\n`
       case 'jsonl':
       case 'ndjson':
+      default:
         return `${json}\n`
     }
   }

@@ -1,15 +1,15 @@
 /**
- * AsyncLocalStorage-based trace context propagation for DzipAgent.
+ * AsyncLocalStorage-based trace context propagation for DzupAgent.
  *
  * Provides application-level context (agent ID, run ID, phase, tenant)
  * that flows through all async operations without explicit parameter passing.
  *
- * This is NOT a replacement for OTel Context — it is DzipAgent's own
+ * This is NOT a replacement for OTel Context — it is DzupAgent's own
  * application-level context, used to correlate logs, metrics, and spans.
  *
  * @example
  * ```ts
- * import { withForgeContext, currentForgeContext } from '@dzipagent/otel'
+ * import { withForgeContext, currentForgeContext } from '@dzupagent/otel'
  *
  * await withForgeContext({
  *   traceId: '0af7651916cd43dd8448eb211c80319c',
@@ -27,7 +27,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 /**
- * The context carried through all async operations within a DzipAgent run.
+ * The context carried through all async operations within a DzupAgent run.
  */
 export interface ForgeTraceContext {
   /** W3C trace ID (32 hex chars) */
@@ -47,7 +47,7 @@ export interface ForgeTraceContext {
 }
 
 /**
- * Global AsyncLocalStorage instance for DzipAgent trace context.
+ * Global AsyncLocalStorage instance for DzupAgent trace context.
  */
 export const forgeContextStore = new AsyncLocalStorage<ForgeTraceContext>()
 

@@ -1,5 +1,6 @@
 {
   "$schema": "https://typedoc.org/schema.json",
+  "tsconfig": "tsconfig.docs.json",
   "entryPoints": [
     "packages/core/src/index.ts",
     "packages/agent/src/index.ts",
@@ -9,9 +10,10 @@
   ],
   "entryPointStrategy": "expand",
   "out": "docs/api",
-  "name": "dzipagent API Reference",
+  "name": "dzupagent API Reference",
   "includeVersion": true,
-  "exclude": ["**/__tests__/**", "**/node_modules/**"],
+  "skipErrorChecking": true,
+  "exclude": ["**/__tests__/**", "**/node_modules/**", "**/dist/**"],
   "cleanOutputDir": true,
   "plugin": ["typedoc-plugin-markdown"],
   "hideGenerator": true

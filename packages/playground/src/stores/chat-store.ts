@@ -1,7 +1,7 @@
 /**
  * Chat store -- manages playground chat messages and agent selection.
  *
- * Handles sending messages to the DzipAgent server,
+ * Handles sending messages to the DzupAgent server,
  * maintaining message history, and tracking the selected agent.
  *
  * @module chat-store
@@ -198,7 +198,7 @@ export const useChatStore = defineStore('chat', () => {
       )
 
       // Polling fallback — much slower cadence since WS is primary
-      pollTimer = setInterval(async () => {
+      const pollTick = async (): Promise<void> => {
         if (settled) return
         try {
           const run = await get<ApiResponse<RunHistoryEntry>>(`/api/runs/${runId}`)
@@ -210,7 +210,8 @@ export const useChatStore = defineStore('chat', () => {
         } catch {
           // Swallow poll errors; WS or next poll will pick up
         }
-      }, POLL_INTERVAL_MS)
+      }
+      pollTimer = setInterval(() => { void pollTick() }, POLL_INTERVAL_MS)
 
       // Hard timeout
       const timeoutTimer = setTimeout(() => {

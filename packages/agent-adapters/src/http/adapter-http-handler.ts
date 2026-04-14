@@ -16,11 +16,22 @@
  *   GET  /cost         — cost report
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
+import type { z } from 'zod'
 
 import type { OrchestratorFacade } from '../facade/orchestrator-facade.js'
+import type { RateLimitConfig } from './rate-limiter.js'
+import { SlidingWindowRateLimiter } from './rate-limiter.js'
 import { StreamingHandler } from '../streaming/streaming-handler.js'
 import type { AdapterProviderId, AgentCompletedEvent, AgentEvent, AgentInput } from '../types.js'
+import { resolveFallbackProviderId } from '../utils/provider-helpers.js'
+import {
+  RunRequestSchema,
+  SupervisorRequestSchema,
+  ParallelRequestSchema,
+  BidRequestSchema,
+  ApproveRequestSchema,
+} from './request-schemas.js'
 
 // ---------------------------------------------------------------------------
 // Request / Response types
@@ -57,36 +68,36 @@ export type HttpResult = HttpResponse | HttpStreamResponse
 
 export interface RunRequestBody {
   prompt: string
-  tags?: string[]
-  preferredProvider?: AdapterProviderId
-  workingDirectory?: string
-  systemPrompt?: string
-  maxTurns?: number
-  stream?: boolean
+  tags?: string[] | undefined
+  preferredProvider?: AdapterProviderId | undefined
+  workingDirectory?: string | undefined
+  systemPrompt?: string | undefined
+  maxTurns?: number | undefined
+  stream?: boolean | undefined
 }
 
 export interface SupervisorRequestBody {
   goal: string
-  maxConcurrentDelegations?: number
-  stream?: boolean
+  maxConcurrentDelegations?: number | undefined
+  stream?: boolean | undefined
 }
 
 export interface ParallelRequestBody {
   prompt: string
-  providers?: AdapterProviderId[]
-  strategy?: 'first-wins' | 'all' | 'best-of-n'
-  stream?: boolean
+  providers?: AdapterProviderId[] | undefined
+  strategy?: 'first-wins' | 'all' | 'best-of-n' | undefined
+  stream?: boolean | undefined
 }
 
 export interface BidRequestBody {
   prompt: string
-  tags?: string[]
+  tags?: string[] | undefined
 }
 
 export interface ApprovalRequestBody {
   approved: boolean
-  approvedBy?: string
-  reason?: string
+  approvedBy?: string | undefined
+  reason?: string | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +107,7 @@ export interface ApprovalRequestBody {
 export interface HealthResponse {
   status: 'ok' | 'degraded' | 'down'
   adapters: Record<string, { healthy: boolean; circuitState?: string }>
-  costReport?: unknown
+  costReport?: unknown | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +123,16 @@ export interface AdapterApprovalGate {
 }
 
 // ---------------------------------------------------------------------------
+// Token validation
+// ---------------------------------------------------------------------------
+
+export interface TokenValidationResult {
+  valid: boolean
+  identity?: string | undefined
+  scopes?: string[] | undefined
+}
+
+// ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
@@ -119,11 +140,17 @@ export interface AdapterHttpConfig {
   /** The orchestrator facade to expose */
   orchestrator: OrchestratorFacade
   /** Optional approval gate for guarded endpoints */
-  approvalGate?: AdapterApprovalGate
+  approvalGate?: AdapterApprovalGate | undefined
   /** Event bus */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus | undefined
   /** API key validation function. If provided, all requests must pass. */
   validateApiKey?: (key: string) => boolean | Promise<boolean>
+  /** Custom async token validator. Takes precedence over validateApiKey. */
+  tokenValidator?: (token: string) => Promise<TokenValidationResult>
+  /** Endpoints that don't require auth (e.g., '/health') */
+  publicEndpoints?: string[] | undefined
+  /** Rate limit configuration. If set, enables rate limiting. */
+  rateLimit?: Partial<RateLimitConfig> | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -142,9 +169,53 @@ function errorResponse(status: number, message: string, code?: string): HttpResp
   return jsonResponse(status, { error: message, code })
 }
 
+function collectProviderIds(
+  entries:
+    | Array<{ providerId?: AdapterProviderId | null }>
+    | undefined,
+): AdapterProviderId[] {
+  if (!entries) return []
+
+  const providerIds: AdapterProviderId[] = []
+  for (const entry of entries) {
+    const providerId = entry.providerId
+    if (providerId) {
+      providerIds.push(providerId)
+    }
+  }
+
+  return providerIds
+}
+
 /** Type guard: is this result a streaming response? */
 export function isStreamResponse(result: HttpResult): result is HttpStreamResponse {
   return 'stream' in result
+}
+
+/**
+ * Extract a correlation ID from standard HTTP headers.
+ *
+ * Checks (in priority order):
+ *  1. `x-correlation-id`
+ *  2. `x-request-id`
+ *  3. W3C `traceparent` trace-id segment
+ */
+function extractCorrelationId(
+  headers: Record<string, string | undefined>,
+): string | undefined {
+  const explicit = headers['x-correlation-id'] ?? headers['x-request-id']
+  if (explicit) return explicit
+
+  const traceparent = headers['traceparent']
+  if (traceparent) {
+    // W3C traceparent format: version-traceId-parentId-flags
+    const segments = traceparent.split('-')
+    if (segments.length >= 2 && segments[1]!.length > 0) {
+      return segments[1]
+    }
+  }
+
+  return undefined
 }
 
 /**
@@ -164,6 +235,39 @@ function matchPathParam(
   return param.length > 0 ? param : undefined
 }
 
+export function resolveRuntimeFallbackProviderId(
+  registry: { listAdapters(): AdapterProviderId[] },
+  preferredProvider?: AdapterProviderId,
+  providers?: AdapterProviderId[],
+): AdapterProviderId {
+  return preferredProvider
+    ?? providers?.[0]
+    ?? resolveFallbackProviderId(registry.listAdapters())
+    ?? ('unknown' as AdapterProviderId)
+}
+
+function resolveStreamCompletionProviderId(
+  registry: { listAdapters(): AdapterProviderId[] },
+  completion: {
+    providerId?: AdapterProviderId | null
+    selectedResult?: { providerId?: AdapterProviderId | null }
+    subtaskResults?: Array<{ providerId?: AdapterProviderId | null }>
+  },
+  fallbackProviders?: AdapterProviderId[],
+): AdapterProviderId {
+  const actualProviderId =
+    completion.selectedResult?.providerId
+    ?? completion.providerId
+
+  const providers = fallbackProviders ?? collectProviderIds(completion.subtaskResults)
+
+  return resolveRuntimeFallbackProviderId(
+    registry,
+    actualProviderId ?? undefined,
+    providers,
+  )
+}
+
 // ---------------------------------------------------------------------------
 // AdapterHttpHandler
 // ---------------------------------------------------------------------------
@@ -171,16 +275,22 @@ function matchPathParam(
 export class AdapterHttpHandler {
   private readonly orchestrator: OrchestratorFacade
   private readonly approvalGate: AdapterApprovalGate | undefined
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
+  private readonly config: AdapterHttpConfig
   private readonly validateApiKey:
     | ((key: string) => boolean | Promise<boolean>)
     | undefined
+  private readonly rateLimiter?: SlidingWindowRateLimiter
 
   constructor(config: AdapterHttpConfig) {
     this.orchestrator = config.orchestrator
     this.approvalGate = config.approvalGate
     this.eventBus = config.eventBus
+    this.config = config
     this.validateApiKey = config.validateApiKey
+    if (config.rateLimit) {
+      this.rateLimiter = new SlidingWindowRateLimiter(config.rateLimit)
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -196,38 +306,52 @@ export class AdapterHttpHandler {
     const authResult = await this.checkAuth(request)
     if (authResult) return authResult
 
+    // --- Rate limit check ---
+    if (this.rateLimiter) {
+      const clientKey = request.headers?.['x-api-key']
+        ?? request.headers?.['authorization']
+        ?? request.headers?.['x-forwarded-for']
+        ?? '*'
+      if (!this.rateLimiter.check(clientKey)) {
+        return jsonResponse(429, { error: 'Too many requests' })
+      }
+    }
+
+    // --- Extract correlation ID from request headers ---
+    const correlationId = extractCorrelationId(request.headers)
+
     const method = request.method.toUpperCase()
     const path = request.path
 
     // --- Route matching ---
     if (method === 'POST' && path === '/run') {
-      const validation = this.validateBody<RunRequestBody>(request.body, ['prompt'])
+      const validation = this.validateBody(request.body, RunRequestSchema)
       if ('error' in validation) return validation.error
-      return this.handleRun(validation.body)
+      return this.handleRun(validation.body, correlationId)
     }
 
     if (method === 'POST' && path === '/supervisor') {
-      const validation = this.validateBody<SupervisorRequestBody>(request.body, ['goal'])
+      const validation = this.validateBody(request.body, SupervisorRequestSchema)
       if ('error' in validation) return validation.error
-      return this.handleSupervisor(validation.body)
+      return this.handleSupervisor(validation.body, correlationId)
     }
 
     if (method === 'POST' && path === '/parallel') {
-      const validation = this.validateBody<ParallelRequestBody>(request.body, ['prompt'])
+      const validation = this.validateBody(request.body, ParallelRequestSchema)
       if ('error' in validation) return validation.error
-      return this.handleParallel(validation.body)
+      return this.handleParallel(validation.body, correlationId)
     }
 
     if (method === 'POST' && path === '/bid') {
-      const validation = this.validateBody<BidRequestBody>(request.body, ['prompt'])
+      const validation = this.validateBody(request.body, BidRequestSchema)
       if ('error' in validation) return validation.error
-      return this.handleBid(validation.body)
+      return this.handleBid(validation.body, correlationId)
     }
 
     if (method === 'POST') {
       const requestId = matchPathParam(path, '/approve')
       if (requestId !== undefined) {
-        const validation = this.validateBody<ApprovalRequestBody>(request.body, ['approved'])
+        const validation = this.validateBody(request.body, ApproveRequestSchema)
         if ('error' in validation) return validation.error
         return this.handleApproval(requestId, validation.body)
       }
@@ -235,6 +359,10 @@ export class AdapterHttpHandler {
 
     if (method === 'GET' && path === '/health') {
       return this.handleHealth()
+    }
+
+    if (method === 'GET' && path === '/health/detailed') {
+      return this.handleDetailedHealth()
     }
 
     if (method === 'GET' && path === '/cost') {
@@ -249,12 +377,13 @@ export class AdapterHttpHandler {
   // -------------------------------------------------------------------------
 
   /** POST /run -- execute with auto-routing */
-  async handleRun(body: RunRequestBody): Promise<HttpResult> {
+  async handleRun(body: RunRequestBody, correlationId?: string): Promise<HttpResult> {
     const input: AgentInput = {
       prompt: body.prompt,
       workingDirectory: body.workingDirectory,
       systemPrompt: body.systemPrompt,
       maxTurns: body.maxTurns,
+      correlationId,
     }
 
     if (body.stream) {
@@ -277,7 +406,7 @@ export class AdapterHttpHandler {
   }
 
   /** POST /supervisor -- supervisor pattern */
-  async handleSupervisor(body: SupervisorRequestBody): Promise<HttpResult> {
+  async handleSupervisor(body: SupervisorRequestBody, _correlationId?: string): Promise<HttpResult> {
     if (body.stream) {
       return this.streamSupervisor(body)
     }
@@ -294,7 +423,7 @@ export class AdapterHttpHandler {
   }
 
   /** POST /parallel -- parallel execution */
-  async handleParallel(body: ParallelRequestBody): Promise<HttpResult> {
+  async handleParallel(body: ParallelRequestBody, _correlationId?: string): Promise<HttpResult> {
     if (body.stream) {
       return this.streamParallel(body)
     }
@@ -314,7 +443,7 @@ export class AdapterHttpHandler {
   }
 
   /** POST /bid -- contract-net bidding */
-  async handleBid(body: BidRequestBody): Promise<HttpResult> {
+  async handleBid(body: BidRequestBody, _correlationId?: string): Promise<HttpResult> {
     try {
       const result = await this.orchestrator.bid(body.prompt)
       return jsonResponse(200, result)
@@ -398,6 +527,21 @@ export class AdapterHttpHandler {
     }
   }
 
+  /** GET /health/detailed -- detailed adapter health with circuit breaker state */
+  async handleDetailedHealth(): Promise<HttpResponse> {
+    const registry = this.orchestrator.registry
+    if ('getDetailedHealth' in registry) {
+      try {
+        const health = await (registry as { getDetailedHealth(): Promise<unknown> }).getDetailedHealth()
+        return jsonResponse(200, health)
+      } catch (err) {
+        return this.handleError(err, 'health/detailed') as HttpResponse
+      }
+    }
+    // Fallback to basic health
+    return this.handleHealth()
+  }
+
   /** GET /cost -- cost report */
   handleCostReport(): HttpResponse {
     const report = this.orchestrator.getCostReport()
@@ -444,7 +588,7 @@ export class AdapterHttpHandler {
         }
         const failEvent: AgentEvent = {
           type: 'adapter:failed',
-          providerId: 'claude',
+          providerId: resolveRuntimeFallbackProviderId(orchestrator.registry, body.preferredProvider),
           error: errorMessage,
           timestamp: Date.now(),
         }
@@ -466,7 +610,11 @@ export class AdapterHttpHandler {
 
         const completedEvent: AgentCompletedEvent = {
           type: 'adapter:completed',
-          providerId: 'claude',
+          providerId: resolveStreamCompletionProviderId(
+            orchestrator.registry,
+            result,
+            collectProviderIds(result.subtaskResults),
+          ),
           sessionId: 'supervisor',
           result: JSON.stringify(result),
           durationMs: result.totalDurationMs,
@@ -476,7 +624,7 @@ export class AdapterHttpHandler {
       } catch (err) {
         const failEvent: AgentEvent = {
           type: 'adapter:failed',
-          providerId: 'claude',
+          providerId: resolveRuntimeFallbackProviderId(orchestrator.registry),
           error: err instanceof Error ? err.message : String(err),
           timestamp: Date.now(),
         }
@@ -501,7 +649,11 @@ export class AdapterHttpHandler {
 
         const completedEvent: AgentCompletedEvent = {
           type: 'adapter:completed',
-          providerId: 'claude',
+          providerId: resolveStreamCompletionProviderId(
+            orchestrator.registry,
+            result,
+            collectProviderIds(result.allResults),
+          ),
           sessionId: 'parallel',
           result: JSON.stringify(result),
           durationMs: result.totalDurationMs,
@@ -511,7 +663,7 @@ export class AdapterHttpHandler {
       } catch (err) {
         const failEvent: AgentEvent = {
           type: 'adapter:failed',
-          providerId: 'claude',
+          providerId: resolveRuntimeFallbackProviderId(orchestrator.registry, undefined, body.providers),
           error: err instanceof Error ? err.message : String(err),
           timestamp: Date.now(),
         }
@@ -548,21 +700,47 @@ export class AdapterHttpHandler {
   // -------------------------------------------------------------------------
 
   private async checkAuth(request: HttpRequest): Promise<HttpResponse | undefined> {
-    if (!this.validateApiKey) return undefined
+    // Check if this is a public endpoint
+    if (this.config.publicEndpoints?.includes(request.path)) {
+      return undefined
+    }
+
+    // If no auth configured, pass through
+    if (!this.validateApiKey && !this.config.tokenValidator) {
+      return undefined
+    }
 
     const authHeader = request.headers['authorization'] ?? request.headers['Authorization']
     if (!authHeader) {
-      return errorResponse(401, 'Missing Authorization header', 'UNAUTHORIZED')
+      return errorResponse(401, 'Missing Authorization header', 'AUTH_REQUIRED')
     }
 
     const match = /^Bearer\s+(.+)$/i.exec(authHeader)
     if (!match?.[1]) {
-      return errorResponse(401, 'Invalid Authorization header format. Expected: Bearer <key>', 'UNAUTHORIZED')
+      return errorResponse(401, 'Invalid Authorization format. Expected: Bearer <token>', 'AUTH_INVALID_FORMAT')
     }
 
-    const isValid = await this.validateApiKey(match[1])
-    if (!isValid) {
-      return errorResponse(401, 'Invalid API key', 'UNAUTHORIZED')
+    const token = match[1]
+
+    // Custom token validator takes precedence
+    if (this.config.tokenValidator) {
+      try {
+        const result = await this.config.tokenValidator(token)
+        if (!result.valid) {
+          return errorResponse(401, 'Token validation failed', 'AUTH_TOKEN_INVALID')
+        }
+        return undefined
+      } catch {
+        return errorResponse(500, 'Token validation error', 'AUTH_VALIDATION_ERROR')
+      }
+    }
+
+    // Legacy simple API key check
+    if (this.validateApiKey) {
+      const isValid = await this.validateApiKey(token)
+      if (!isValid) {
+        return errorResponse(401, 'Invalid API key', 'AUTH_INVALID_KEY')
+      }
     }
 
     return undefined
@@ -574,28 +752,21 @@ export class AdapterHttpHandler {
 
   private validateBody<T>(
     body: unknown,
-    requiredFields: string[],
+    schema: z.ZodType<T>,
   ): { body: T } | { error: HttpResponse } {
-    if (!body || typeof body !== 'object') {
+    const result = schema.safeParse(body)
+    if (!result.success) {
       return {
-        error: errorResponse(400, 'Request body must be a JSON object', 'INVALID_BODY'),
+        error: jsonResponse(400, {
+          error: 'Validation failed',
+          details: result.error.issues.map((i) => ({
+            path: i.path.join('.'),
+            message: i.message,
+          })),
+        }),
       }
     }
-
-    const record = body as Record<string, unknown>
-    const missing = requiredFields.filter((f) => !(f in record) || record[f] === undefined || record[f] === '')
-
-    if (missing.length > 0) {
-      return {
-        error: errorResponse(
-          400,
-          `Missing required fields: ${missing.join(', ')}`,
-          'MISSING_FIELDS',
-        ),
-      }
-    }
-
-    return { body: body as T }
+    return { body: result.data }
   }
 
   // -------------------------------------------------------------------------

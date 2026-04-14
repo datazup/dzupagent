@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { DzipTracer } from '../tracer.js'
+import { DzupTracer } from '../tracer.js'
 import { NoopTracer, NoopSpan } from '../noop.js'
 import { ForgeSpanAttr } from '../span-attributes.js'
 import { SpanStatusCode } from '../otel-types.js'
@@ -68,37 +68,37 @@ class RecordingTracer implements OTelTracer {
 
 // --- Tests ---
 
-describe('DzipTracer', () => {
+describe('DzupTracer', () => {
   describe('constructor', () => {
     it('uses NoopTracer when no tracer provided', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       expect(ft.tracer).toBeInstanceOf(NoopTracer)
     })
 
     it('uses provided tracer', () => {
       const recording = new RecordingTracer()
-      const ft = new DzipTracer({ tracer: recording })
+      const ft = new DzupTracer({ tracer: recording })
       expect(ft.tracer).toBe(recording)
     })
 
-    it('defaults serviceName to dzipagent', () => {
-      const ft = new DzipTracer()
-      expect(ft.serviceName).toBe('dzipagent')
+    it('defaults serviceName to dzupagent', () => {
+      const ft = new DzupTracer()
+      expect(ft.serviceName).toBe('dzupagent')
     })
 
     it('uses custom serviceName', () => {
-      const ft = new DzipTracer({ serviceName: 'my-service' })
+      const ft = new DzupTracer({ serviceName: 'my-service' })
       expect(ft.serviceName).toBe('my-service')
     })
   })
 
   describe('startAgentSpan', () => {
     let recording: RecordingTracer
-    let ft: DzipTracer
+    let ft: DzupTracer
 
     beforeEach(() => {
       recording = new RecordingTracer()
-      ft = new DzipTracer({ tracer: recording })
+      ft = new DzupTracer({ tracer: recording })
     })
 
     it('creates a span with agent attributes', () => {
@@ -120,11 +120,11 @@ describe('DzipTracer', () => {
 
   describe('startLLMSpan', () => {
     let recording: RecordingTracer
-    let ft: DzipTracer
+    let ft: DzupTracer
 
     beforeEach(() => {
       recording = new RecordingTracer()
-      ft = new DzipTracer({ tracer: recording })
+      ft = new DzupTracer({ tracer: recording })
     })
 
     it('creates a span with GenAI attributes', () => {
@@ -153,7 +153,7 @@ describe('DzipTracer', () => {
   describe('startToolSpan', () => {
     it('creates a span with tool name', () => {
       const recording = new RecordingTracer()
-      const ft = new DzipTracer({ tracer: recording })
+      const ft = new DzupTracer({ tracer: recording })
 
       ft.startToolSpan('git_status')
       const recorded = recording.spans[0]!.recorded
@@ -163,7 +163,7 @@ describe('DzipTracer', () => {
 
     it('includes inputSize when provided', () => {
       const recording = new RecordingTracer()
-      const ft = new DzipTracer({ tracer: recording })
+      const ft = new DzupTracer({ tracer: recording })
 
       ft.startToolSpan('read_file', { inputSize: 256 })
       const recorded = recording.spans[0]!.recorded
@@ -174,7 +174,7 @@ describe('DzipTracer', () => {
   describe('startMemorySpan', () => {
     it('creates a span with memory attributes', () => {
       const recording = new RecordingTracer()
-      const ft = new DzipTracer({ tracer: recording })
+      const ft = new DzupTracer({ tracer: recording })
 
       ft.startMemorySpan('search', 'user_preferences')
       const recorded = recording.spans[0]!.recorded
@@ -187,7 +187,7 @@ describe('DzipTracer', () => {
   describe('startPhaseSpan', () => {
     it('creates a span with phase attribute', () => {
       const recording = new RecordingTracer()
-      const ft = new DzipTracer({ tracer: recording })
+      const ft = new DzupTracer({ tracer: recording })
 
       ft.startPhaseSpan('gen_backend', { agentId: 'a1', runId: 'r1' })
       const recorded = recording.spans[0]!.recorded
@@ -199,7 +199,7 @@ describe('DzipTracer', () => {
 
     it('omits agent/run when not provided', () => {
       const recording = new RecordingTracer()
-      const ft = new DzipTracer({ tracer: recording })
+      const ft = new DzupTracer({ tracer: recording })
 
       ft.startPhaseSpan('validate')
       const recorded = recording.spans[0]!.recorded
@@ -210,12 +210,12 @@ describe('DzipTracer', () => {
 
   describe('currentContext', () => {
     it('returns undefined when no ForgeTraceContext active', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       expect(ft.currentContext()).toBeUndefined()
     })
 
     it('returns snapshot from ForgeTraceContext store', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       const result = withForgeContext(
         {
           traceId: 'aaaa',
@@ -237,14 +237,14 @@ describe('DzipTracer', () => {
 
   describe('inject', () => {
     it('does nothing when no context', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       const carrier: Record<string, string> = {}
       ft.inject(carrier)
       expect(Object.keys(carrier)).toHaveLength(0)
     })
 
     it('injects W3C traceparent', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       const carrier: Record<string, string> = {}
 
       withForgeContext(
@@ -262,7 +262,7 @@ describe('DzipTracer', () => {
     })
 
     it('injects baggage header', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       const carrier: Record<string, string> = {}
 
       withForgeContext(
@@ -283,12 +283,12 @@ describe('DzipTracer', () => {
 
   describe('extract', () => {
     it('returns undefined for missing traceparent', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       expect(ft.extract({})).toBeUndefined()
     })
 
     it('parses W3C traceparent', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       const result = ft.extract({
         traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
       })
@@ -298,7 +298,7 @@ describe('DzipTracer', () => {
     })
 
     it('parses baggage', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       const result = ft.extract({
         traceparent: '00-aaa-bbb-01',
         baggage: 'userId=42,env=prod',
@@ -307,7 +307,7 @@ describe('DzipTracer', () => {
     })
 
     it('returns undefined for malformed traceparent', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       expect(ft.extract({ traceparent: 'invalid' })).toBeUndefined()
     })
   })
@@ -315,7 +315,7 @@ describe('DzipTracer', () => {
   describe('endSpanWithError', () => {
     it('sets error status and ends span', () => {
       const recording = new RecordingTracer()
-      const ft = new DzipTracer({ tracer: recording })
+      const ft = new DzupTracer({ tracer: recording })
 
       const span = ft.startToolSpan('failing_tool')
       ft.endSpanWithError(span, new Error('something broke'))
@@ -330,7 +330,7 @@ describe('DzipTracer', () => {
 
     it('handles non-Error objects', () => {
       const recording = new RecordingTracer()
-      const ft = new DzipTracer({ tracer: recording })
+      const ft = new DzupTracer({ tracer: recording })
 
       const span = ft.startToolSpan('t')
       ft.endSpanWithError(span, 'string error')
@@ -343,7 +343,7 @@ describe('DzipTracer', () => {
   describe('endSpanOk', () => {
     it('sets OK status and ends span', () => {
       const recording = new RecordingTracer()
-      const ft = new DzipTracer({ tracer: recording })
+      const ft = new DzupTracer({ tracer: recording })
 
       const span = ft.startAgentSpan('a', 'r')
       ft.endSpanOk(span)
@@ -356,7 +356,7 @@ describe('DzipTracer', () => {
 
   describe('noop fallback', () => {
     it('all operations succeed with noop tracer', () => {
-      const ft = new DzipTracer() // no tracer = noop
+      const ft = new DzupTracer() // no tracer = noop
 
       const agentSpan = ft.startAgentSpan('a', 'r')
       expect(agentSpan).toBeInstanceOf(NoopSpan)
@@ -386,7 +386,7 @@ describe('DzipTracer', () => {
     })
 
     it('noop span reports isRecording as false', () => {
-      const ft = new DzipTracer()
+      const ft = new DzupTracer()
       const span = ft.startAgentSpan('a', 'r')
       expect(span.isRecording()).toBe(false)
     })

@@ -37,9 +37,9 @@ export interface MemoryAwareExtractorConfig extends ObservationExtractorConfig {
   /** Scope for memory operations */
   scope: Record<string, string>
   /** Similarity threshold above which an observation is considered duplicate (default: 0.8) */
-  similarityThreshold?: number
+  similarityThreshold?: number | undefined
   /** Max similar entries to check per observation (default: 3) */
-  deduplicationTopK?: number
+  deduplicationTopK?: number | undefined
 }
 
 export interface ExtractionResult {

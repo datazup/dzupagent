@@ -161,6 +161,7 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
     return this.toRecord(rows[0])
   }
 
+   
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private toRecord(row: any): DeploymentHistoryRecord {
     return {

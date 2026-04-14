@@ -75,22 +75,22 @@ function isProtected(entry: MemoryEntry, importanceThreshold: number): boolean {
 
 export interface StalenessPrunerOptions {
   /** Staleness score above which entries are pruned (default: 30) */
-  maxStaleness?: number
+  maxStaleness?: number | undefined
   /**
    * Absolute maximum age in days. Entries older than this are always
    * pruned regardless of access count (unless pinned/important).
    * Set to Infinity to disable. Default: 90.
    */
-  maxAgeDays?: number
+  maxAgeDays?: number | undefined
   /** Minimum importance score that protects an entry from pruning (default: 0.8) */
-  importanceThreshold?: number
+  importanceThreshold?: number | undefined
   /**
    * Maximum number of entries to prune in a single pass.
    * Useful for rate-limiting store deletes. Default: Infinity (no limit).
    */
-  maxPruneCount?: number
+  maxPruneCount?: number | undefined
   /** Override for "now" timestamp (ms). Useful in tests. */
-  now?: number
+  now?: number | undefined
 }
 
 /**

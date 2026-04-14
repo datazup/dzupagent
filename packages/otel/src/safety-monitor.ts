@@ -1,7 +1,7 @@
 /**
  * SafetyMonitor — detects prompt injection, tool misuse, and data exfiltration.
  *
- * Runs pattern-based detection on agent inputs and outputs via DzipEventBus.
+ * Runs pattern-based detection on agent inputs and outputs via DzupEventBus.
  * All detection is **non-blocking** — it never stops agent execution, only
  * records events and optionally emits alerts.
  *
@@ -16,7 +16,7 @@
  * ```
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 // ------------------------------------------------------------------ Types
 
@@ -35,8 +35,8 @@ export interface SafetyEvent {
   severity: SafetySeverity
   message: string
   confidence: number // 0.0 - 1.0
-  agentId?: string
-  details?: Record<string, unknown>
+  agentId?: string | undefined
+  details?: Record<string, unknown> | undefined
   timestamp: Date
 }
 
@@ -54,14 +54,14 @@ export interface SafetyMonitorConfig {
   /** Consecutive tool failure threshold before alerting (default: 3) */
   toolFailureThreshold?: number
   /** Event bus for emitting safety events */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
 }
 
 // ------------------------------------------------------- Default patterns
 
 const DEFAULT_INPUT_PATTERNS: SafetyPatternRule[] = [
   {
-    pattern: /ignore\s+(?:all\s+)?previous\s+instructions/i,
+    pattern: /ignore\s+(?:all\s)?previous\s+instructions/i,
     category: 'prompt_injection_input',
     severity: 'critical',
   },
@@ -86,7 +86,7 @@ const DEFAULT_INPUT_PATTERNS: SafetyPatternRule[] = [
     severity: 'critical',
   },
   {
-    pattern: /forget\s+(?:all\s+)?(?:your\s+)?(?:previous\s+)?instructions/i,
+    pattern: /forget\s+(?:all\s)?(?:your\s)?(?:previous\s)?instructions/i,
     category: 'prompt_injection_input',
     severity: 'critical',
   },
@@ -144,11 +144,11 @@ export class SafetyMonitor {
   // ------------------------------------------------------ Lifecycle
 
   /**
-   * Attach to a DzipEventBus.
+   * Attach to a DzupEventBus.
    * Listens for tool:called (scan input), tool:result (scan output),
    * and tool:error (track consecutive failures).
    */
-  attach(eventBus: DzipEventBus): void {
+  attach(eventBus: DzupEventBus): void {
     this.detach()
 
     this._unsubscribes.push(

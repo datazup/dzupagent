@@ -1,5 +1,5 @@
 /**
- * @dzipagent/memory — Reusable memory management for LLM agents.
+ * @dzupagent/memory — Reusable memory management for LLM agents.
  *
  * Provides namespace-scoped memory service, decay engine, consolidation,
  * sanitization, staged writing, working memory, retrieval (vector, FTS,
@@ -9,6 +9,7 @@
 // --- Store ---
 export { createStore } from './store-factory.js'
 export type { StoreConfig, StoreIndexConfig } from './store-factory.js'
+export type { MemoryStoreCapabilities } from './store-capabilities.js'
 
 // --- Core Service ---
 export { MemoryService } from './memory-service.js'
@@ -218,11 +219,13 @@ export type {
   SpacePermission,
   ConflictStrategy,
   ShareMode,
+  WritableShareMode,
   MemoryParticipant,
   RetentionPolicy,
   SharedMemorySpace,
   MemoryShareRequest,
   PendingShareRequest,
+  TombstoneCompactionMetrics,
   SharedMemoryEvent,
 } from './sharing/index.js'
 

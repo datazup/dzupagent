@@ -1,5 +1,5 @@
 /**
- * DzipTracer — wraps OTel SDK tracer with DzipAgent-specific helpers.
+ * DzupTracer — wraps OTel SDK tracer with DzupAgent-specific helpers.
  *
  * Provides convenience methods for starting spans with the correct
  * semantic attributes pre-populated. If @opentelemetry/api is not installed,
@@ -7,7 +7,7 @@
  *
  * @example
  * ```ts
- * const tracer = new DzipTracer({ serviceName: 'my-agent-service' })
+ * const tracer = new DzupTracer({ serviceName: 'my-agent-service' })
  *
  * await tracer.startAgentSpan('code-gen', 'run-123', async (span) => {
  *   await tracer.startLLMSpan('claude-sonnet-4-6', 'anthropic', async (llmSpan) => {
@@ -25,10 +25,10 @@ import { ForgeSpanAttr } from './span-attributes.js'
 import { forgeContextStore, type ForgeTraceContext } from './trace-context-store.js'
 
 /**
- * Configuration for DzipTracer.
+ * Configuration for DzupTracer.
  */
-export interface DzipTracerConfig {
-  /** Service name reported to OTel backends (default: 'dzipagent') */
+export interface DzupTracerConfig {
+  /** Service name reported to OTel backends (default: 'dzupagent') */
   serviceName?: string
 
   /**
@@ -49,19 +49,19 @@ export interface ForgeTraceSnapshot {
 }
 
 /**
- * DzipTracer wraps an OTel tracer with domain-specific span helpers.
+ * DzupTracer wraps an OTel tracer with domain-specific span helpers.
  *
  * Each helper method:
- * 1. Creates a span with pre-populated DzipAgent semantic attributes
+ * 1. Creates a span with pre-populated DzupAgent semantic attributes
  * 2. Runs the callback within a ForgeTraceContext (AsyncLocalStorage)
  * 3. Ends the span and sets error status if the callback throws
  */
-export class DzipTracer {
+export class DzupTracer {
   private readonly _tracer: OTelTracer
   private readonly _serviceName: string
 
-  constructor(config?: DzipTracerConfig) {
-    this._serviceName = config?.serviceName ?? 'dzipagent'
+  constructor(config?: DzupTracerConfig) {
+    this._serviceName = config?.serviceName ?? 'dzupagent'
     this._tracer = config?.tracer ?? new NoopTracer()
   }
 

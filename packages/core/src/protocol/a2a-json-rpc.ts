@@ -195,7 +195,7 @@ export function validateJsonRpcRequest(data: unknown): JsonRpcValidationResult {
       jsonrpc: '2.0',
       id,
       method,
-      params: params as Record<string, unknown> | undefined,
+      ...(params !== undefined && { params: params as Record<string, unknown> }),
     },
   }
 }

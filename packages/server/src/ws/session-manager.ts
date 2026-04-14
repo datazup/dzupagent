@@ -1,5 +1,5 @@
 import type { WSClient, EventBridge } from './event-bridge.js'
-import { WSClientScopeRegistry } from './scope-registry.js'
+import type { WSClientScopeRegistry } from './scope-registry.js'
 import type { WSClientScope } from './authorization.js'
 import type { ScopedWsControlHandlerOptions } from './scoped-control-handler.js'
 import { createScopedWsControlHandler } from './scoped-control-handler.js'

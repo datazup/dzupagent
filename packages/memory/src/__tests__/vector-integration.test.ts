@@ -4,6 +4,7 @@ import { VectorStoreSearch } from '../retrieval/vector-store-search.js'
 import { ConventionExtractor } from '../convention/convention-extractor.js'
 import type { SemanticStoreAdapter } from '../memory-types.js'
 import type { NamespaceConfig } from '../memory-types.js'
+import type { BaseStore } from '@langchain/langgraph'
 
 // ─── Mock BaseStore ─────────────────────────────────────────────────────────
 
@@ -76,8 +77,8 @@ describe('MemoryService with SemanticStore (VEC-009)', () => {
   beforeEach(() => {
     store = createMockBaseStore()
     semanticStore = createMockSemanticStore()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    svc = new MemoryService(store as any, NAMESPACES, {
+     
+    svc = new MemoryService(store as unknown as BaseStore, NAMESPACES, {
       rejectUnsafe: false,
       semanticStore,
     })
@@ -154,8 +155,8 @@ describe('MemoryService with SemanticStore (VEC-009)', () => {
 describe('MemoryService without SemanticStore (backward compat)', () => {
   it('search() works identically without semanticStore', async () => {
     const store = createMockBaseStore()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const svc = new MemoryService(store as any, NAMESPACES, { rejectUnsafe: false })
+     
+    const svc = new MemoryService(store as unknown as BaseStore, NAMESPACES, { rejectUnsafe: false })
 
     store.search.mockResolvedValueOnce([
       { key: 'x', value: { text: 'Result X' } },
@@ -169,8 +170,8 @@ describe('MemoryService without SemanticStore (backward compat)', () => {
 
   it('put() does NOT call any vector operations', async () => {
     const store = createMockBaseStore()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const svc = new MemoryService(store as any, NAMESPACES, { rejectUnsafe: false })
+     
+    const svc = new MemoryService(store as unknown as BaseStore, NAMESPACES, { rejectUnsafe: false })
 
     await svc.put('lessons', { tenantId: 't1', lessons: 'lessons' }, 'lesson-1', {
       text: 'Test',
@@ -240,8 +241,8 @@ describe('ConventionExtractor with SemanticStore (VEC-012)', () => {
   beforeEach(() => {
     store = createMockBaseStore()
     semanticStore = createMockSemanticStore()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    memorySvc = new MemoryService(store as any, NAMESPACES, { rejectUnsafe: false })
+     
+    memorySvc = new MemoryService(store as unknown as BaseStore, NAMESPACES, { rejectUnsafe: false })
     extractor = new ConventionExtractor({
       memoryService: memorySvc,
       semanticStore,
@@ -365,8 +366,8 @@ describe('ConventionExtractor with SemanticStore (VEC-012)', () => {
 describe('ConventionExtractor without SemanticStore (backward compat)', () => {
   it('getConventions ignores query param when no semanticStore', async () => {
     const store = createMockBaseStore()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const memorySvc = new MemoryService(store as any, NAMESPACES, { rejectUnsafe: false })
+     
+    const memorySvc = new MemoryService(store as unknown as BaseStore, NAMESPACES, { rejectUnsafe: false })
     const extractor = new ConventionExtractor({
       memoryService: memorySvc,
       namespace: '__conventions',

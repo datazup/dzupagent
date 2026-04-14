@@ -55,6 +55,12 @@ export interface CacheMiddlewareConfig {
   onHit?: (key: string, model: string) => void
   /** Optional callback fired on cache misses */
   onMiss?: (key: string, model: string) => void
+  /**
+   * Optional callback fired on degraded cache operations (non-fatal failures).
+   * When provided, the middleware emits structured diagnostics instead of
+   * silently swallowing errors.
+   */
+  onDegraded?: (operation: 'get' | 'set' | 'delete' | 'clear', reason: string, key?: string) => void
 }
 
 /**

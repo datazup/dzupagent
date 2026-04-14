@@ -8,7 +8,7 @@
 import { z } from 'zod'
 import { tool } from '@langchain/core/tools'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { GitExecutor } from './git-executor.js'
+import type { GitExecutor } from './git-executor.js'
 
 /**
  * Create all git tools bound to a GitExecutor instance.
@@ -59,12 +59,13 @@ export function createGitDiffTool(executor: GitExecutor) {
   return tool(
     async ({ staged, ref1, ref2, paths }) => {
       try {
-        const result = await executor.diff({
+        const diffOpts: { staged?: boolean; ref1?: string; ref2?: string; paths?: string[] } = {
           staged: staged ?? false,
-          ref1: ref1 ?? undefined,
-          ref2: ref2 ?? undefined,
-          paths: paths ?? undefined,
-        })
+        }
+        if (ref1 != null) diffOpts.ref1 = ref1
+        if (ref2 != null) diffOpts.ref2 = ref2
+        if (paths != null) diffOpts.paths = paths
+        const result = await executor.diff(diffOpts)
 
         // Truncate large diffs to prevent context overflow
         const maxDiffLen = 8_000

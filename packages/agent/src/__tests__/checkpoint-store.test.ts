@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { InMemoryPipelineCheckpointStore } from '../pipeline/in-memory-checkpoint-store.js'
-import type { PipelineCheckpoint } from '@dzipagent/core'
+import type { PipelineCheckpoint } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Helpers

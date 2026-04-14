@@ -7,8 +7,8 @@
  * observability across all adapter operations.
  */
 
-import { CircuitBreaker, ForgeError } from '@dzipagent/core'
-import type { CircuitBreakerConfig, DzipEventBus } from '@dzipagent/core'
+import { CircuitBreaker, ForgeError } from '@dzupagent/core'
+import type { CircuitBreakerConfig, DzupEventBus } from '@dzupagent/core'
 
 import type {
   AdapterProviderId,
@@ -25,15 +25,43 @@ import { TagBasedRouter } from './task-router.js'
 
 export interface AdapterRegistryConfig {
   /** Circuit breaker config applied to all adapters */
-  circuitBreaker?: Partial<CircuitBreakerConfig>
+  circuitBreaker?: Partial<CircuitBreakerConfig> | undefined
+}
+
+/** Detailed per-adapter health including circuit breaker diagnostics. */
+export interface AdapterHealthDetail {
+  healthy: boolean
+  providerId: string
+  sdkInstalled: boolean
+  cliAvailable: boolean
+  lastError?: string | undefined
+  /** Circuit breaker state */
+  circuitState: 'closed' | 'open' | 'half-open'
+  /** Number of consecutive failures */
+  consecutiveFailures: number
+  /** Last successful execution timestamp */
+  lastSuccessAt?: number | undefined
+  /** Last failure timestamp */
+  lastFailureAt?: number | undefined
+}
+
+/** Aggregated detailed health status for all registered adapters. */
+export interface DetailedHealthStatus {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  adapters: Record<string, AdapterHealthDetail>
+  timestamp: number
 }
 
 export class AdapterRegistry {
   private readonly adapters = new Map<AdapterProviderId, AgentCLIAdapter>()
   private readonly breakers = new Map<AdapterProviderId, CircuitBreaker>()
   private readonly cbConfig: Partial<CircuitBreakerConfig> | undefined
+  private readonly lastSuccess = new Map<AdapterProviderId, number>()
+  private readonly lastFailure = new Map<AdapterProviderId, number>()
+  private readonly consecutiveFailures = new Map<AdapterProviderId, number>()
+  private readonly disabledAdapters = new Set<AdapterProviderId>()
   private router: TaskRoutingStrategy = new TagBasedRouter()
-  private eventBus: DzipEventBus | undefined
+  private eventBus: DzupEventBus | undefined
 
   constructor(config?: AdapterRegistryConfig) {
     this.cbConfig = config?.circuitBreaker
@@ -51,6 +79,42 @@ export class AdapterRegistry {
       name: `adapter:${adapter.providerId}`,
     })
     return this
+  }
+
+  /** Unregister an adapter by provider ID. Returns true if it existed. */
+  unregister(providerId: AdapterProviderId): boolean {
+    const existed = this.adapters.has(providerId)
+    this.adapters.delete(providerId)
+    this.breakers.delete(providerId)
+    this.lastSuccess.delete(providerId)
+    this.lastFailure.delete(providerId)
+    this.consecutiveFailures.delete(providerId)
+    this.disabledAdapters.delete(providerId)
+    if (existed) {
+      this.emitEvent({
+        type: 'registry:agent_deregistered',
+        agentId: providerId,
+        reason: 'unregistered',
+      })
+    }
+    return existed
+  }
+
+  /** Disable an adapter (keeps registration but excludes from routing). */
+  disable(providerId: AdapterProviderId): boolean {
+    if (!this.adapters.has(providerId)) return false
+    this.disabledAdapters.add(providerId)
+    return true
+  }
+
+  /** Re-enable a disabled adapter. */
+  enable(providerId: AdapterProviderId): boolean {
+    return this.disabledAdapters.delete(providerId)
+  }
+
+  /** Check if an adapter is registered and enabled. */
+  isEnabled(providerId: AdapterProviderId): boolean {
+    return this.adapters.has(providerId) && !this.disabledAdapters.has(providerId)
   }
 
   /** Get an adapter by provider ID (no health check). */
@@ -193,6 +257,10 @@ export class AdapterRegistry {
 
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err))
+        if (ForgeError.is(err) && err.code === 'AGENT_ABORTED') {
+          throw err
+        }
+
         lastError = error
         this.recordFailure(providerId, error)
 
@@ -224,6 +292,10 @@ export class AdapterRegistry {
       recoverable: false,
       cause: lastError,
       suggestion: 'Check adapter health and circuit breaker states',
+      context: {
+        attemptedProviders: ordered,
+        taskTags: task.tags,
+      },
     })
   }
 
@@ -234,6 +306,8 @@ export class AdapterRegistry {
 
     const wasClosed = breaker.getState() === 'closed'
     breaker.recordSuccess()
+    this.lastSuccess.set(providerId, Date.now())
+    this.consecutiveFailures.set(providerId, 0)
 
     if (!wasClosed) {
       this.emitEvent({
@@ -250,6 +324,8 @@ export class AdapterRegistry {
 
     const wasOpen = breaker.getState() === 'open'
     breaker.recordFailure()
+    this.lastFailure.set(providerId, Date.now())
+    this.consecutiveFailures.set(providerId, (this.consecutiveFailures.get(providerId) ?? 0) + 1)
 
     if (!wasOpen && breaker.getState() === 'open') {
       this.emitEvent({
@@ -278,7 +354,11 @@ export class AdapterRegistry {
     for (const check of checks) {
       if (check.status === 'fulfilled') {
         const { id, health } = check.value
-        result[id] = health
+        if (this.disabledAdapters.has(id)) {
+          result[id] = { ...health, healthy: false, lastError: 'disabled' }
+        } else {
+          result[id] = health
+        }
       } else {
         // If healthCheck itself throws, synthesize a status
         // We need to figure out which adapter it was — use index correlation
@@ -300,6 +380,41 @@ export class AdapterRegistry {
     return result
   }
 
+  /**
+   * Get detailed health with circuit breaker state for each adapter.
+   * Use for /health/detailed endpoints and Kubernetes readiness probes.
+   */
+  async getDetailedHealth(): Promise<DetailedHealthStatus> {
+    const basicHealth = await this.getHealthStatus()
+    const adapters: Record<string, AdapterHealthDetail> = {}
+
+    let allHealthy = true
+    let anyHealthy = false
+
+    for (const [id, health] of Object.entries(basicHealth)) {
+      const breaker = this.breakers.get(id as AdapterProviderId)
+      const lastSuccessAt = this.lastSuccess.get(id as AdapterProviderId)
+      const lastFailureAt = this.lastFailure.get(id as AdapterProviderId)
+      const { lastError, ...healthWithoutLastError } = health
+      adapters[id] = {
+        ...healthWithoutLastError,
+        ...(lastError !== undefined ? { lastError } : {}),
+        circuitState: breaker?.getState() ?? 'closed',
+        consecutiveFailures: this.consecutiveFailures.get(id as AdapterProviderId) ?? 0,
+        ...(lastSuccessAt !== undefined ? { lastSuccessAt } : {}),
+        ...(lastFailureAt !== undefined ? { lastFailureAt } : {}),
+      }
+      if (health.healthy) anyHealthy = true
+      else allHealthy = false
+    }
+
+    return {
+      status: allHealthy ? 'healthy' : anyHealthy ? 'degraded' : 'unhealthy',
+      adapters,
+      timestamp: Date.now(),
+    }
+  }
+
   /** List all registered adapter provider IDs. */
   listAdapters(): AdapterProviderId[] {
     return [...this.adapters.keys()]
@@ -311,8 +426,19 @@ export class AdapterRegistry {
     return this
   }
 
+  /** Warm up all registered adapters by pre-loading their SDKs. */
+  async warmupAll(): Promise<void> {
+    const warmups = this.listAdapters().map(async (id) => {
+      const adapter = this.get(id)
+      if (adapter?.warmup) {
+        try { await adapter.warmup() } catch { /* non-fatal */ }
+      }
+    })
+    await Promise.all(warmups)
+  }
+
   /** Set the event bus for emitting adapter events. */
-  setEventBus(bus: DzipEventBus): this {
+  setEventBus(bus: DzupEventBus): this {
     this.eventBus = bus
     return this
   }
@@ -322,6 +448,7 @@ export class AdapterRegistry {
   private getHealthyProviderIds(): AdapterProviderId[] {
     const ids: AdapterProviderId[] = []
     for (const [id] of this.adapters) {
+      if (this.disabledAdapters.has(id)) continue
       const breaker = this.breakers.get(id)
       if (!breaker || breaker.canExecute()) {
         ids.push(id)
@@ -376,12 +503,12 @@ export class AdapterRegistry {
       | { type: 'provider:failed'; tier: string; provider: string; message: string }
       | { type: 'provider:circuit_opened'; provider: string }
       | { type: 'provider:circuit_closed'; provider: string }
-      | { type: 'registry:agent_registered'; agentId: string; name: string },
+      | { type: 'registry:agent_registered'; agentId: string; name: string }
+      | { type: 'registry:agent_deregistered'; agentId: string; reason: string },
   ): void {
     if (this.eventBus) {
-      // The event types are a subset of DzipEvent, safe to emit
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this.eventBus.emit(event as Parameters<DzipEventBus['emit']>[0])
+      // The event types are a subset of DzupEvent, safe to emit
+      this.eventBus.emit(event as Parameters<DzupEventBus['emit']>[0])
     }
   }
 }

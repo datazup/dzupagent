@@ -1,7 +1,7 @@
 /**
  * Persistent cross-intent context transfer.
  *
- * Bridges the in-memory ContextTransferService (from @dzipagent/context)
+ * Bridges the in-memory ContextTransferService (from @dzupagent/context)
  * with BaseStore persistence, so context extracted at the end of one run
  * survives and is available to subsequent runs in the same session.
  *
@@ -49,6 +49,10 @@ export interface RunContextTransferConfig {
 
 const DEFAULT_NAMESPACE_PREFIX = ['_run_context']
 const DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const SEARCH_PAGE_SIZE = 100
+const MAX_SEARCH_PAGES = 1000
+
+type StoreSearchItem = Awaited<ReturnType<BaseStore['search']>>[number]
 
 export class RunContextTransfer {
   private readonly store: BaseStore
@@ -80,9 +84,8 @@ export class RunContextTransfer {
    */
   async load(sessionId: string, fromIntent: string): Promise<PersistedIntentContext | null> {
     const namespace = [...this.namespacePrefix, sessionId]
-    const items = await this.store.search(namespace, { limit: 100 })
     const key = `intent:${fromIntent}`
-    const item = items.find(i => i.key === key)
+    const item = await this.findContextItem(namespace, key)
 
     if (!item) return null
 
@@ -116,7 +119,7 @@ export class RunContextTransfer {
    */
   async listContexts(sessionId: string): Promise<PersistedIntentContext[]> {
     const namespace = [...this.namespacePrefix, sessionId]
-    const items = await this.store.search(namespace, { limit: 100 })
+    const items = await this.searchAllContextItems(namespace)
     return items
       .map(i => i.value as unknown as PersistedIntentContext)
       .filter(c => c.fromIntent && c.transferredAt)
@@ -127,9 +130,42 @@ export class RunContextTransfer {
    */
   async clear(sessionId: string): Promise<void> {
     const namespace = [...this.namespacePrefix, sessionId]
-    const items = await this.store.search(namespace, { limit: 100 })
+    const items = await this.searchAllContextItems(namespace)
     for (const item of items) {
       await this.store.delete(namespace, item.key)
     }
+  }
+
+  private async findContextItem(namespace: string[], key: string): Promise<StoreSearchItem | undefined> {
+    let page = 0
+    let offset = 0
+
+    while (page < MAX_SEARCH_PAGES) {
+      const items = await this.store.search(namespace, { limit: SEARCH_PAGE_SIZE, offset })
+      const match = items.find(item => item.key === key)
+      if (match) return match
+      if (items.length < SEARCH_PAGE_SIZE) return undefined
+
+      page++
+      offset += SEARCH_PAGE_SIZE
+    }
+
+    throw new Error(`RunContextTransfer search exceeded ${MAX_SEARCH_PAGES} pages while loading "${key}"`)
+  }
+
+  private async searchAllContextItems(namespace: string[]): Promise<StoreSearchItem[]> {
+    const items: StoreSearchItem[] = []
+
+    for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
+      const offset = page * SEARCH_PAGE_SIZE
+      const batch = await this.store.search(namespace, { limit: SEARCH_PAGE_SIZE, offset })
+      items.push(...batch)
+
+      if (batch.length < SEARCH_PAGE_SIZE) {
+        return items
+      }
+    }
+
+    throw new Error(`RunContextTransfer search exceeded ${MAX_SEARCH_PAGES} pages for namespace "${namespace.join('/')}"`)
   }
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono } from 'hono'
-import type { MemoryServiceLike } from '@dzipagent/memory-ipc'
+import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
 import { createLearningRoutes } from '../routes/learning.js'
 
 /**

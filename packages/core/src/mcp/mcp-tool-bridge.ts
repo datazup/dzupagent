@@ -131,6 +131,10 @@ export function mcpToolsToLangChain(client: MCPClient): StructuredToolInterface[
  * Uses zodToJsonSchema from the schema's toJsonSchema() if available,
  * otherwise falls back to simple type string.
  */
+function descriptionPart(schema: z.ZodType): { description: string } | Record<string, never> {
+  return schema.description !== undefined ? { description: schema.description } : {}
+}
+
 function zodToJsonSchema(schema: z.ZodType): MCPToolParameter {
   // Use Zod's built-in JSON Schema conversion when available
   const def = (schema as unknown as Record<string, unknown>)['_zod'] as
@@ -149,20 +153,20 @@ function zodToJsonSchema(schema: z.ZodType): MCPToolParameter {
   }
 
   if (typeName === 'string') {
-    return { type: 'string', description: schema.description }
+    return { type: 'string', ...descriptionPart(schema) }
   }
   if (typeName === 'number' || typeName === 'int') {
-    return { type: 'number', description: schema.description }
+    return { type: 'number', ...descriptionPart(schema) }
   }
   if (typeName === 'boolean') {
-    return { type: 'boolean', description: schema.description }
+    return { type: 'boolean', ...descriptionPart(schema) }
   }
   if (typeName === 'array') {
     const element = def?.def?.element
     return {
       type: 'array',
       items: element ? zodToJsonSchema(element) : { type: 'string' },
-      description: schema.description,
+      ...descriptionPart(schema),
     }
   }
   if (typeName === 'object') {
@@ -172,17 +176,17 @@ function zodToJsonSchema(schema: z.ZodType): MCPToolParameter {
       for (const [key, value] of Object.entries(shape)) {
         properties[key] = zodToJsonSchema(value)
       }
-      return { type: 'object', properties, description: schema.description }
+      return { type: 'object', properties, ...descriptionPart(schema) }
     }
-    return { type: 'object', description: schema.description }
+    return { type: 'object', ...descriptionPart(schema) }
   }
   if (typeName === 'enum') {
     const values = def?.def?.values
-    return { type: 'string', enum: values as unknown[] ?? [], description: schema.description }
+    return { type: 'string', enum: values as unknown[] ?? [], ...descriptionPart(schema) }
   }
 
   // Fallback: try to infer from description
-  return { type: 'string', description: schema.description }
+  return { type: 'string', ...descriptionPart(schema) }
 }
 
 /**
@@ -211,7 +215,7 @@ export function langChainToolToMcp(
     inputSchema: {
       type: 'object',
       properties,
-      required: required.length > 0 ? required : undefined,
+      ...(required.length > 0 && { required }),
     },
     serverId,
   }

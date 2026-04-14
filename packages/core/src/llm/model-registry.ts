@@ -13,7 +13,8 @@ import type { CircuitBreakerConfig } from './circuit-breaker.js'
 import { ForgeError } from '../errors/forge-error.js'
 import { isTransientError } from './retry.js'
 import type { RegistryMiddleware } from './registry-middleware.js'
-import { EmbeddingRegistry, createDefaultEmbeddingRegistry } from './embedding-registry.js'
+import type { EmbeddingRegistry } from './embedding-registry.js'
+import { createDefaultEmbeddingRegistry } from './embedding-registry.js'
 
 /**
  * Returns true for OpenAI reasoning models that only support the default

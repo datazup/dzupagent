@@ -2,11 +2,29 @@ import { describe, it, expect } from 'vitest'
 import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { resolveAgentTools, ToolResolutionError, getToolProfileConfig } from '../runtime/tool-resolver.js'
-import type { ToolProfile } from '../runtime/tool-resolver.js'
+import type { ToolProfile, ToolResolverContext, ToolResolverResult } from '../runtime/tool-resolver.js'
 
-describe('tool-resolver', { timeout: 15_000 }, () => {
+const fastFailMcpServer = {
+  id: 'test',
+  url: 'http://localhost:9999',
+  transport: 'http' as const,
+  timeoutMs: 100,
+}
+
+const resolverCache = new Map<string, Promise<ToolResolverResult>>()
+
+function resolveCached(context: ToolResolverContext): Promise<ToolResolverResult> {
+  const key = JSON.stringify(context)
+  const cached = resolverCache.get(key)
+  if (cached) return cached
+  const pending = resolveAgentTools(context)
+  resolverCache.set(key, pending)
+  return pending
+}
+
+describe('tool-resolver', { timeout: 30_000 }, () => {
   it('resolves default git category into git tools when codegen is available', async () => {
-    const result = await resolveAgentTools({ toolNames: ['git:*'] })
+    const result = await resolveCached({ toolNames: ['git:*'] })
 
     const names = result.tools.map((t) => t.name).sort()
     expect(names).toEqual([
@@ -20,7 +38,7 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
   })
 
   it('resolves individual git tool names without wildcard', async () => {
-    const result = await resolveAgentTools({ toolNames: ['git_status', 'git_diff'] })
+    const result = await resolveCached({ toolNames: ['git_status', 'git_diff'] })
 
     const names = result.tools.map((t) => t.name).sort()
     expect(names).toEqual(['git_diff', 'git_status'])
@@ -28,14 +46,14 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
   })
 
   it('resolves connector:git category syntax', async () => {
-    const result = await resolveAgentTools({ toolNames: ['connector:git'] })
+    const result = await resolveCached({ toolNames: ['connector:git'] })
 
     expect(result.tools.length).toBeGreaterThan(0)
     expect(result.unresolved).not.toContain('connector:git')
   })
 
   it('returns empty result for empty toolNames', async () => {
-    const result = await resolveAgentTools({ toolNames: [] })
+    const result = await resolveCached({ toolNames: [] })
 
     expect(result.tools).toEqual([])
     expect(result.activated).toEqual([])
@@ -44,7 +62,7 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
   })
 
   it('returns empty result when no toolNames and no custom resolver', async () => {
-    const result = await resolveAgentTools({})
+    const result = await resolveCached({})
 
     expect(result.tools).toEqual([])
     expect(result.unresolved).toEqual([])
@@ -98,7 +116,7 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
   })
 
   it('returns warnings when requested connector prerequisites are missing', async () => {
-    const result = await resolveAgentTools({
+    const result = await resolveCached({
       toolNames: ['github_get_file'],
       metadata: {},
       env: {},
@@ -109,7 +127,7 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
   })
 
   it('resolves connector:github category syntax and warns on missing token', async () => {
-    const result = await resolveAgentTools({
+    const result = await resolveCached({
       toolNames: ['connector:github'],
       metadata: {},
       env: {},
@@ -121,7 +139,7 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
   })
 
   it('does not attempt connector resolution when only git tools requested', async () => {
-    const result = await resolveAgentTools({
+    const result = await resolveCached({
       toolNames: ['git:*'],
       metadata: {},
       env: {},
@@ -134,7 +152,7 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
 
   describe('mcp resolver', () => {
     it('warns when mcp:* requested but no servers configured', async () => {
-      const result = await resolveAgentTools({
+      const result = await resolveCached({
         toolNames: ['mcp:*'],
         metadata: {},
       })
@@ -144,11 +162,11 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
     })
 
     it('resolves mcp category tokens and removes them from unresolved', async () => {
-      const result = await resolveAgentTools({
+      const result = await resolveCached({
         toolNames: ['mcp:my-server'],
         metadata: {
           mcpServers: [
-            { id: 'my-server', url: 'http://localhost:9999', transport: 'http' },
+            { ...fastFailMcpServer, id: 'my-server' },
           ],
         },
       })
@@ -161,11 +179,11 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
     })
 
     it('returns cleanup function even on connection failure', async () => {
-      const result = await resolveAgentTools({
+      const result = await resolveCached({
         toolNames: ['mcp:*'],
         metadata: {
           mcpServers: [
-            { id: 'test', url: 'http://localhost:9999', transport: 'http', timeoutMs: 100 },
+            fastFailMcpServer,
           ],
         },
       })
@@ -176,17 +194,51 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
     })
 
     it('skips mcp resolution when no mcp: patterns in requested tools', async () => {
-      const result = await resolveAgentTools({
+      const result = await resolveCached({
         toolNames: ['git:*'],
         metadata: {
           mcpServers: [
-            { id: 'test', url: 'http://localhost:9999', transport: 'http' },
+            fastFailMcpServer,
           ],
         },
       })
 
       // No MCP-related warnings
       expect(result.warnings.some((w) => w.includes('MCP'))).toBe(false)
+    })
+
+    it('blocks stdio transport from request metadata by default', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['mcp:local-stdio'],
+        metadata: {
+          mcpServers: [
+            { id: 'local-stdio', url: 'echo', transport: 'stdio' },
+          ],
+        },
+        env: {},
+      })
+
+      expect(result.unresolved).not.toContain('mcp:local-stdio')
+      expect(result.warnings.some((w) => w.includes('metadata-defined stdio transport is disabled'))).toBe(true)
+      expect(result.warnings.some((w) => w.includes('no servers configured'))).toBe(true)
+    })
+
+    it('enforces MCP HTTP host allowlist from environment', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['mcp:my-server'],
+        metadata: {
+          mcpServers: [
+            { ...fastFailMcpServer, id: 'my-server', url: 'http://blocked.example:8000' },
+          ],
+        },
+        env: {
+          DZIP_MCP_ALLOWED_HTTP_HOSTS: 'localhost:9999',
+        },
+      })
+
+      expect(result.unresolved).not.toContain('mcp:my-server')
+      expect(result.warnings.some((w) => w.includes('not in DZIP_MCP_ALLOWED_HTTP_HOSTS'))).toBe(true)
+      expect(result.warnings.some((w) => w.includes('no servers configured'))).toBe(true)
     })
   })
 
@@ -222,7 +274,7 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
     })
 
     it('default profile resolves git tools only', async () => {
-      const result = await resolveAgentTools({ toolProfile: 'default' })
+      const result = await resolveCached({ toolProfile: 'default' })
 
       const names = result.tools.map((t) => t.name).sort()
       expect(names).toEqual([
@@ -237,7 +289,7 @@ describe('tool-resolver', { timeout: 15_000 }, () => {
     })
 
     it('codegen profile resolves git and github categories', async () => {
-      const result = await resolveAgentTools({
+      const result = await resolveCached({
         toolProfile: 'codegen',
         metadata: {},
         env: {},

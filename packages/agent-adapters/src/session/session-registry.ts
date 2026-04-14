@@ -8,7 +8,7 @@
 
 import { randomUUID } from 'node:crypto'
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import type {
   AdapterProviderId,
@@ -16,6 +16,8 @@ import type {
   AgentInput,
 } from '../types.js'
 import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ConversationCompressor } from './conversation-compressor.js'
+import type { ConversationCompressorOptions } from './conversation-compressor.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,26 +52,28 @@ export interface WorkflowSession {
   /** Metadata for the workflow */
   metadata: Record<string, unknown>
   /** Current active provider */
-  activeProvider?: AdapterProviderId
+  activeProvider?: AdapterProviderId | undefined
 }
 
 export interface SessionRegistryConfig {
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus | undefined
   /** Max conversation history entries to keep per workflow. Default 100 */
-  maxHistoryEntries?: number
+  maxHistoryEntries?: number | undefined
   /** TTL for inactive sessions in ms. Default: 1 hour */
-  sessionTtlMs?: number
+  sessionTtlMs?: number | undefined
+  /** Options for per-workflow conversation compressors (token budget, etc.) */
+  compressorOptions?: ConversationCompressorOptions | undefined
 }
 
 export interface MultiTurnOptions {
   /** The workflow to continue */
   workflowId: string
   /** Which provider to use for the next turn */
-  provider?: AdapterProviderId
+  provider?: AdapterProviderId | undefined
   /** Whether to include conversation history as context */
-  includeHistory?: boolean
+  includeHistory?: boolean | undefined
   /** Max history entries to include in context. Default 10 */
-  maxContextEntries?: number
+  maxContextEntries?: number | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -78,14 +82,17 @@ export interface MultiTurnOptions {
 
 export class SessionRegistry {
   private readonly workflows = new Map<string, WorkflowSession>()
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly _compressors = new Map<string, ConversationCompressor>()
+  private readonly eventBus: DzupEventBus | undefined
   private readonly maxHistoryEntries: number
   private readonly sessionTtlMs: number
+  private readonly compressorOptions: ConversationCompressorOptions | undefined
 
   constructor(config?: SessionRegistryConfig) {
     this.eventBus = config?.eventBus
     this.maxHistoryEntries = config?.maxHistoryEntries ?? 100
     this.sessionTtlMs = config?.sessionTtlMs ?? 60 * 60 * 1000
+    this.compressorOptions = config?.compressorOptions
   }
 
   // -----------------------------------------------------------------------
@@ -93,8 +100,8 @@ export class SessionRegistry {
   // -----------------------------------------------------------------------
 
   /** Create a new workflow session. Returns the workflowId. */
-  createWorkflow(metadata?: Record<string, unknown>): string {
-    const workflowId = randomUUID()
+  createWorkflow(metadata?: Record<string, unknown>, existingWorkflowId?: string): string {
+    const workflowId = existingWorkflowId ?? randomUUID()
     const now = new Date()
 
     const session: WorkflowSession = {
@@ -124,6 +131,7 @@ export class SessionRegistry {
   /** Delete a workflow and all its sessions. */
   deleteWorkflow(workflowId: string): boolean {
     const existed = this.workflows.delete(workflowId)
+    this._compressors.delete(workflowId)
     if (existed) {
       this.emitEvent({
         type: 'session:workflow_deleted',
@@ -283,6 +291,9 @@ export class SessionRegistry {
     const now = new Date()
     workflow.lastActiveAt = now
 
+    // --- Get or create per-workflow compressor ---
+    const compressor = this.getOrCreateCompressor(options.workflowId)
+
     // --- Build effective prompt ---
     let effectivePrompt = input.prompt
     if (options.includeHistory) {
@@ -302,6 +313,17 @@ export class SessionRegistry {
     const effectiveInput: AgentInput = {
       ...input,
       prompt: effectivePrompt,
+    }
+
+    // Inject compressed conversation history into the system prompt
+    if (compressor.hasTurns) {
+      const history = compressor.buildHistory()
+      if (history) {
+        const existing = effectiveInput.systemPrompt ?? ''
+        effectiveInput.systemPrompt = existing
+          ? `${history}\n\n${existing}`
+          : history
+      }
     }
 
     // If we have an existing provider session, set resumeSessionId
@@ -335,6 +357,9 @@ export class SessionRegistry {
     const startMs = Date.now()
 
     for await (const event of eventStream) {
+      // Feed every event to the compressor for future turns
+      compressor.recordEvent(event)
+
       // --- Capture session ID from started events ---
       if (event.type === 'adapter:started') {
         resolvedProvider = event.providerId
@@ -412,6 +437,15 @@ export class SessionRegistry {
   // Private helpers
   // -----------------------------------------------------------------------
 
+  private getOrCreateCompressor(workflowId: string): ConversationCompressor {
+    let compressor = this._compressors.get(workflowId)
+    if (!compressor) {
+      compressor = new ConversationCompressor(this.compressorOptions ?? {})
+      this._compressors.set(workflowId, compressor)
+    }
+    return compressor
+  }
+
   private requireWorkflow(workflowId: string): WorkflowSession {
     const workflow = this.workflows.get(workflowId)
     if (!workflow) {
@@ -432,10 +466,9 @@ export class SessionRegistry {
       | { type: 'session:pruned'; count: number },
   ): void {
     if (this.eventBus) {
-      // Session events are adapter-layer extensions not in core DzipEvent union.
+      // Session events are adapter-layer extensions not in core DzupEvent union.
       // Cast through unknown to satisfy the type constraint.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this.eventBus.emit(event as unknown as Parameters<DzipEventBus['emit']>[0])
+      this.eventBus.emit(event as unknown as Parameters<DzupEventBus['emit']>[0])
     }
   }
 }

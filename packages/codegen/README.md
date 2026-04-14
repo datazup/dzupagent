@@ -1,4 +1,4 @@
-# @dzipagent/codegen
+# @dzupagent/codegen
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,25 +10,25 @@
 | Source Files | 101 |
 | Lines of Code | 16,463 |
 | Test Files | 9 |
-| Internal Dependencies | `@dzipagent/core` |
+| Internal Dependencies | `@dzupagent/core` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @dzipagent/codegen
+npm install @dzupagent/codegen
 ```
 <!-- AUTO-GENERATED-END -->
 
-Code generation engine built on `@dzipagent/core`. Provides a virtual filesystem, code generation services, sandbox execution, quality scoring, framework adaptation, pipeline builder, generic LangGraph tools, and API contract extraction.
+Code generation engine built on `@dzupagent/core`. Provides a virtual filesystem, code generation services, sandbox execution, quality scoring, framework adaptation, pipeline builder, generic LangGraph tools, and API contract extraction.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/codegen
+yarn add @dzupagent/codegen
 # or
-npm install @dzipagent/codegen
+npm install @dzupagent/codegen
 ```
 
 ## Quick Start
@@ -40,7 +40,7 @@ import {
   QualityScorer,
   GenPipelineBuilder,
   builtinDimensions,
-} from '@dzipagent/codegen'
+} from '@dzupagent/codegen'
 
 // 1. Create an in-memory filesystem
 const vfs = new VirtualFS()
@@ -146,11 +146,11 @@ LangGraph-compatible tool factories for use inside agent nodes:
 
 ### Version
 
-- `dzipagent_CODEGEN_VERSION: string` -- current package version (`'0.1.0'`)
+- `dzupagent_CODEGEN_VERSION: string` -- current package version (`'0.1.0'`)
 
 ## Configuration
 
-This package relies on `@dzipagent/core` for LLM and persistence configuration. Additional sandbox-specific options:
+This package relies on `@dzupagent/core` for LLM and persistence configuration. Additional sandbox-specific options:
 
 | Option | Used by | Description |
 |--------|---------|-------------|
@@ -171,7 +171,7 @@ This package relies on `@dzipagent/core` for LLM and persistence configuration. 
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@dzipagent/core` | `0.1.0` | Core agent infrastructure (LLM, memory, prompts) |
+| `@dzupagent/core` | `0.1.0` | Core agent infrastructure (LLM, memory, prompts) |
 
 ## License
 

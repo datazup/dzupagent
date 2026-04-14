@@ -1,5 +1,5 @@
 /**
- * Composable for fetching memory analytics data from the DzipAgent server.
+ * Composable for fetching memory analytics data from the DzupAgent server.
  *
  * Provides reactive state for each analytics view with configurable
  * auto-polling and error handling.

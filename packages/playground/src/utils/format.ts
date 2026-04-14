@@ -1,5 +1,5 @@
 /**
- * Formatting utilities for the DzipAgent Playground.
+ * Formatting utilities for the DzupAgent Playground.
  *
  * @module format
  */

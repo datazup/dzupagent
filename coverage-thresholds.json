@@ -1,0 +1,118 @@
+{
+  "defaultThresholds": {
+    "statements": 70,
+    "branches": 60,
+    "functions": 60,
+    "lines": 70
+  },
+  "trackedPackages": [
+    "agent",
+    "agent-adapters",
+    "core",
+    "memory",
+    "memory-ipc",
+    "rag"
+  ],
+  "packages": {
+    "agent": {
+      "thresholds": {
+        "statements": 80,
+        "branches": 75,
+        "functions": 80,
+        "lines": 80
+      }
+    },
+    "core": {
+      "thresholds": {
+        "statements": 80,
+        "branches": 75,
+        "functions": 80,
+        "lines": 80
+      }
+    },
+    "codegen": {
+      "waiver": {
+        "reason": "Coverage baseline is not published yet; keep the generator package in the rollout waiver set until reports are stable.",
+        "until": "2026-07-31"
+      }
+    },
+    "connectors": {
+      "thresholds": {
+        "statements": 70,
+        "branches": 60,
+        "functions": 60,
+        "lines": 70
+      }
+    },
+    "context": {
+      "waiver": {
+        "reason": "Coverage baseline is not published yet; this package remains on the staged adoption list.",
+        "until": "2026-07-31"
+      }
+    },
+    "create-dzupagent": {
+      "waiver": {
+        "reason": "CLI scaffolding coverage is still being baselined.",
+        "until": "2026-06-30"
+      }
+    },
+    "evals": {
+      "thresholds": {
+        "statements": 70,
+        "branches": 75,
+        "functions": 75,
+        "lines": 70
+      }
+    },
+    "memory-ipc": {
+      "thresholds": {
+        "statements": 95,
+        "branches": 80,
+        "functions": 90,
+        "lines": 95
+      }
+    },
+    "otel": {
+      "thresholds": {
+        "statements": 90,
+        "branches": 90,
+        "functions": 80,
+        "lines": 90
+      }
+    },
+    "playground": {
+      "waiver": {
+        "reason": "Frontend app coverage is still being baselined during the staged rollout.",
+        "until": "2026-06-30"
+      }
+    },
+    "rag": {
+      "thresholds": {
+        "statements": 90,
+        "branches": 85,
+        "functions": 85,
+        "lines": 90
+      }
+    },
+    "server": {
+      "thresholds": {
+        "statements": 70,
+        "branches": 60,
+        "functions": 60,
+        "lines": 70
+      }
+    },
+    "test-utils": {
+      "waiver": {
+        "reason": "Shared test utilities are still being baselined.",
+        "until": "2026-06-30"
+      }
+    },
+    "testing": {
+      "waiver": {
+        "reason": "Security test suite coverage is still being baselined.",
+        "until": "2026-06-30"
+      }
+    }
+  }
+}

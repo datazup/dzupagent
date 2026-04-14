@@ -1,26 +1,58 @@
 {
-  "name": "dzipagent",
+  "name": "dzupagent",
   "private": true,
+  "packageManager": "yarn@1.22.22",
   "type": "module",
+  "license": "MIT",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "build": "yarn workspace @dzipagent/context build && yarn workspace @dzipagent/memory-ipc build && yarn workspace @dzipagent/memory build && yarn workspace @dzipagent/core build && yarn workspace @dzipagent/agent build && yarn workspace @dzipagent/codegen build && yarn workspace @dzipagent/otel build && yarn workspace @dzipagent/evals build && yarn workspace @dzipagent/testing build && yarn workspace @dzipagent/test-utils build && yarn workspace @dzipagent/connectors build && yarn workspace @dzipagent/connectors-browser build && yarn workspace @dzipagent/connectors-documents build && yarn workspace @dzipagent/scraper build && yarn workspace @dzipagent/domain-nl2sql build && yarn workspace @dzipagent/server build && yarn workspace @dzipagent/playground build && yarn workspace create-dzipagent build",
-    "typecheck": "yarn workspaces run typecheck",
-    "lint": "yarn workspaces run lint",
-    "test": "yarn workspaces run test",
-    "docs:generate": "typedoc"
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "start": "yarn dev",
+    "typecheck": "turbo run typecheck",
+    "check:turbo:typecheck-order": "node scripts/assert-turbo-typecheck-order.mjs",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:inventory:runtime": "node scripts/check-runtime-test-inventory.mjs",
+    "test:inventory:runtime:strict": "node scripts/check-runtime-test-inventory.mjs --strict-integration",
+    "test:coverage:workspace": "node scripts/check-workspace-coverage.mjs",
+    "test:coverage:workspace:report": "node scripts/check-workspace-coverage.mjs --report-only",
+    "check:improvements:drift": "node scripts/check-improvements-drift.mjs",
+    "test:orchestration:race": "yarn workspace @dzupagent/agent-adapters test:orchestration:race",
+    "test:orchestration:cancel": "yarn workspace @dzupagent/agent-adapters test:orchestration:cancel",
+    "test:orchestration:contracts": "yarn workspace @dzupagent/agent-adapters test:orchestration:contracts",
+    "orchestration:protect-dispatch": "bash scripts/configure-orchestration-protection-and-dispatch.sh",
+    "orchestration:protect-dispatch:dry-run": "bash scripts/configure-orchestration-protection-and-dispatch.sh --dry-run",
+    "check:workspace:coverage": "node scripts/check-workspace-coverage.mjs",
+    "verify:strict": "yarn test:inventory:runtime:strict && yarn check:improvements:drift && yarn check:workspace:coverage && yarn check:waiver-expiry && yarn check:capability-matrix && yarn check:domain-boundaries && yarn check:terminal-tool-event-guards && turbo run build typecheck lint test",
+    "verify": "yarn test:inventory:runtime && yarn check:improvements:drift && yarn check:domain-boundaries && yarn check:terminal-tool-event-guards && turbo run build typecheck lint test",
+    "docs:generate": "typedoc --options typedoc.json",
+    "docs:adapters": "typedoc --options typedoc.adapter-config.json",
+    "build:connectors:verified": "yarn workspace @dzupagent/connectors build:verified",
+    "docs:capability-matrix": "npx tsx scripts/generate-capability-matrix.ts",
+    "check:capability-matrix": "node scripts/check-capability-matrix-freshness.mjs",
+    "check:domain-boundaries": "node scripts/check-domain-boundaries.mjs",
+    "check:terminal-tool-event-guards": "node scripts/check-terminal-tool-event-guards.mjs",
+    "check:waiver-expiry": "node scripts/check-waiver-expiry.mjs",
+    "release:version": "changeset version",
+    "release:publish": "changeset publish",
+    "release:status": "changeset status"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.27.0",
     "@eslint/js": "^10.0.1",
-    "@typescript-eslint/eslint-plugin": "^8.58.0",
-    "@typescript-eslint/parser": "^8.58.0",
+    "@typescript-eslint/eslint-plugin": "^8",
+    "@typescript-eslint/parser": "^8",
     "eslint": "^10.1.0",
-    "typedoc": "^0.25.0",
-    "typedoc-plugin-markdown": "^3.16.0"
+    "eslint-plugin-security": "^4.0.0",
+    "glob": "^11.0.0",
+    "turbo": "^2.9.0",
+    "typedoc": "^0.28.18",
+    "typedoc-plugin-markdown": "^4.11.0"
   }
 }

@@ -1,5 +1,5 @@
 /**
- * Lightweight metrics collector for DzipAgent.
+ * Lightweight metrics collector for DzupAgent.
  *
  * Tracks counters, gauges, and histograms. Exposes data in a format
  * compatible with Prometheus text exposition (or JSON for REST endpoints).

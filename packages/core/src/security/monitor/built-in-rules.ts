@@ -41,6 +41,7 @@ export interface SafetyRule {
 
 // --- Prompt Injection Patterns ---
 
+/* eslint-disable security/detect-unsafe-regex */
 const INJECTION_PATTERNS: RegExp[] = [
   /ignore\s+(all\s+)?previous\s+instructions/i,
   /disregard\s+(all\s+)?(previous|prior|above)\s+(instructions|rules|guidelines)/i,
@@ -55,6 +56,7 @@ const INJECTION_PATTERNS: RegExp[] = [
   /act\s+as\s+if\s+you\s+have\s+no\s+(restrictions?|limitations?|rules)/i,
   /override\s+(your\s+)?(programming|instructions|safety)/i,
 ]
+/* eslint-enable security/detect-unsafe-regex */
 
 function createInjectionRule(): SafetyRule {
   return {
@@ -88,6 +90,7 @@ const PII_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\b\d{3}-\d{2}-\d{4}\b/g, label: 'SSN' },
   { pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, label: 'email' },
   {
+    // eslint-disable-next-line security/detect-unsafe-regex
     pattern: /(?<![.\d])(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\.\d)/g,
     label: 'phone',
   },

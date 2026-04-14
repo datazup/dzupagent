@@ -16,14 +16,14 @@
  * if (result === 'rejected') throw new Error('Run rejected')
  * ```
  */
-import type { DzipEventBus } from '@dzipagent/core'
-import type { HookContext } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
+import type { HookContext } from '@dzupagent/core'
 import type { ApprovalConfig, ApprovalResult } from './approval-types.js'
 
 export class ApprovalGate {
   constructor(
     private config: ApprovalConfig,
-    private eventBus: DzipEventBus,
+    private eventBus: DzupEventBus,
   ) {}
 
   /**

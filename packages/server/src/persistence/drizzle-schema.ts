@@ -1,5 +1,5 @@
 /**
- * Drizzle ORM schema for DzipAgent server persistence.
+ * Drizzle ORM schema for DzupAgent server persistence.
  *
  * Tables are prefixed with `forge_` to avoid collision with application
  * tables when deployed alongside other Drizzle/Prisma schemas.

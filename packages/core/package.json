@@ -1,6 +1,6 @@
 {
-  "name": "@dzipagent/core",
-  "version": "0.1.0",
+  "name": "@dzupagent/core",
+  "version": "0.2.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -8,6 +8,14 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./stable": {
+      "import": "./dist/stable.js",
+      "types": "./dist/stable.d.ts"
+    },
+    "./advanced": {
+      "import": "./dist/advanced.js",
+      "types": "./dist/advanced.d.ts"
     },
     "./quick-start": {
       "import": "./dist/facades/quick-start.js",
@@ -25,6 +33,10 @@
       "import": "./dist/facades/security.js",
       "types": "./dist/facades/security.d.ts"
     },
+    "./memory-ipc": {
+      "import": "./dist/memory-ipc.js",
+      "types": "./dist/memory-ipc.d.ts"
+    },
     "./facades": {
       "import": "./dist/facades/index.js",
       "types": "./dist/facades/index.d.ts"
@@ -39,19 +51,20 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@dzipagent/memory": "0.1.0",
-    "@dzipagent/context": "0.1.0"
+    "@dzupagent/context": "0.2.0",
+    "@dzupagent/memory": "0.2.0",
+    "@dzupagent/runtime-contracts": "0.2.0"
   },
   "peerDependencies": {
+    "@dzupagent/memory-ipc": "*",
+    "@lancedb/lancedb": ">=0.10.0",
     "@langchain/core": ">=1.0.0",
     "@langchain/langgraph": ">=1.0.0",
-    "@dzipagent/memory-ipc": "*",
-    "zod": ">=4.0.0",
-    "@lancedb/lancedb": ">=0.10.0",
-    "apache-arrow": ">=15.0.0"
+    "apache-arrow": ">=15.0.0",
+    "zod": ">=4.0.0"
   },
   "peerDependenciesMeta": {
-    "@dzipagent/memory-ipc": {
+    "@dzupagent/memory-ipc": {
       "optional": true
     },
     "@lancedb/lancedb": {
@@ -62,14 +75,14 @@
     }
   },
   "devDependencies": {
-    "@langchain/anthropic": "^1.3.0",
-    "@langchain/core": "^1.1.32",
-    "@langchain/langgraph": "^1.2.2",
-    "@langchain/langgraph-checkpoint-postgres": "^1.0.0",
-    "@langchain/openai": "^1.2.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0",
+    "@langchain/anthropic": "^1.3.23",
+    "@langchain/core": "^1.1.39",
+    "@langchain/langgraph": "^1.2.5",
+    "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
+    "@langchain/openai": "^1.4.3",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
     "zod": "^4.3.6"
   },
   "files": [

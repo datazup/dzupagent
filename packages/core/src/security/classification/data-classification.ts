@@ -57,6 +57,7 @@ export const DEFAULT_CLASSIFICATION_PATTERNS: ClassificationPattern[] = [
     reason: 'Possible SSN (9-digit number)',
   },
   {
+    // eslint-disable-next-line security/detect-unsafe-regex
     pattern: /\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\b/,
     level: 'restricted',
     reason: 'Credit card number detected',
@@ -89,6 +90,7 @@ export const DEFAULT_CLASSIFICATION_PATTERNS: ClassificationPattern[] = [
     reason: 'Email address detected',
   },
   {
+    // eslint-disable-next-line security/detect-unsafe-regex
     pattern: /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/,
     level: 'internal',
     reason: 'Phone number detected',
@@ -127,11 +129,12 @@ export class DataClassifier {
       }
     }
 
-    return {
+    const tag: DataClassificationTag = {
       level: highestLevel,
-      reason: highestReason,
       taggedAt: new Date().toISOString(),
     }
+    if (highestReason !== undefined) tag.reason = highestReason
+    return tag
   }
 
   /** Extract the classification level from a tag. */

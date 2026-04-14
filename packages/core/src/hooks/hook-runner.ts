@@ -1,4 +1,4 @@
-import type { DzipEventBus } from '../events/event-bus.js'
+import type { DzupEventBus } from '../events/event-bus.js'
 
 /**
  * Run a list of hook functions sequentially with error isolation.
@@ -11,7 +11,7 @@ import type { DzipEventBus } from '../events/event-bus.js'
  */
 export async function runHooks(
   hooks: Array<((...args: never[]) => Promise<void>) | undefined> | undefined,
-  eventBus: DzipEventBus | undefined,
+  eventBus: DzupEventBus | undefined,
   hookName: string,
   ...args: unknown[]
 ): Promise<void> {
@@ -36,7 +36,7 @@ export async function runHooks(
  */
 export async function runModifierHook<T>(
   hook: ((...args: never[]) => Promise<T | void>) | undefined,
-  eventBus: DzipEventBus | undefined,
+  eventBus: DzupEventBus | undefined,
   hookName: string,
   currentValue: T,
   ...args: unknown[]

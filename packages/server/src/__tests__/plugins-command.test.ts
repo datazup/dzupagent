@@ -10,7 +10,7 @@ describe('Plugin Commands', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'forge-plugins-'))
-    configPath = join(tempDir, 'dzipagent.config.json')
+    configPath = join(tempDir, 'dzupagent.config.json')
   })
 
   afterEach(async () => {
@@ -32,20 +32,20 @@ describe('Plugin Commands', () => {
       await writeTestConfig({
         name: 'test-project',
         plugins: [
-          { name: '@dzipagent/otel', version: '0.1.0' },
-          { name: '@dzipagent/evals', version: '0.2.0' },
+          { name: '@dzupagent/otel', version: '0.1.0' },
+          { name: '@dzupagent/evals', version: '0.2.0' },
         ],
       })
 
       const result = listPlugins(configPath)
       expect(result).toHaveLength(2)
       expect(result[0]).toEqual({
-        name: '@dzipagent/otel',
+        name: '@dzupagent/otel',
         version: '0.1.0',
         status: 'active',
         manifestValid: true,
       })
-      expect(result[1]?.name).toBe('@dzipagent/evals')
+      expect(result[1]?.name).toBe('@dzupagent/evals')
     })
 
     it('throws if config file does not exist', () => {
@@ -57,18 +57,18 @@ describe('Plugin Commands', () => {
     it('adds a plugin to the config', async () => {
       await writeTestConfig({ name: 'test-project', plugins: [] })
 
-      const result = addPlugin('@dzipagent/memory', configPath)
+      const result = addPlugin('@dzupagent/memory', configPath)
       expect(result.success).toBe(true)
 
       const plugins = listPlugins(configPath)
       expect(plugins).toHaveLength(1)
-      expect(plugins[0]?.name).toBe('@dzipagent/memory')
+      expect(plugins[0]?.name).toBe('@dzupagent/memory')
     })
 
     it('creates plugins array if not present', async () => {
       await writeTestConfig({ name: 'test-project' })
 
-      const result = addPlugin('@dzipagent/otel', configPath)
+      const result = addPlugin('@dzupagent/otel', configPath)
       expect(result.success).toBe(true)
 
       const plugins = listPlugins(configPath)
@@ -78,10 +78,10 @@ describe('Plugin Commands', () => {
     it('rejects duplicate plugin names', async () => {
       await writeTestConfig({
         name: 'test-project',
-        plugins: [{ name: '@dzipagent/otel', version: '0.1.0' }],
+        plugins: [{ name: '@dzupagent/otel', version: '0.1.0' }],
       })
 
-      const result = addPlugin('@dzipagent/otel', configPath)
+      const result = addPlugin('@dzupagent/otel', configPath)
       expect(result.success).toBe(false)
       expect(result.error).toContain('already registered')
     })
@@ -95,7 +95,7 @@ describe('Plugin Commands', () => {
     })
 
     it('returns error for missing config file', () => {
-      const result = addPlugin('@dzipagent/x', '/nonexistent/path.json')
+      const result = addPlugin('@dzupagent/x', '/nonexistent/path.json')
       expect(result.success).toBe(false)
       expect(result.error).toContain('Config file not found')
     })
@@ -106,29 +106,29 @@ describe('Plugin Commands', () => {
       await writeTestConfig({
         name: 'test-project',
         plugins: [
-          { name: '@dzipagent/otel', version: '0.1.0' },
-          { name: '@dzipagent/evals', version: '0.2.0' },
+          { name: '@dzupagent/otel', version: '0.1.0' },
+          { name: '@dzupagent/evals', version: '0.2.0' },
         ],
       })
 
-      const result = removePlugin('@dzipagent/otel', configPath)
+      const result = removePlugin('@dzupagent/otel', configPath)
       expect(result.success).toBe(true)
 
       const plugins = listPlugins(configPath)
       expect(plugins).toHaveLength(1)
-      expect(plugins[0]?.name).toBe('@dzipagent/evals')
+      expect(plugins[0]?.name).toBe('@dzupagent/evals')
     })
 
     it('returns error when plugin not found', async () => {
       await writeTestConfig({ name: 'test-project', plugins: [] })
 
-      const result = removePlugin('@dzipagent/nonexistent', configPath)
+      const result = removePlugin('@dzupagent/nonexistent', configPath)
       expect(result.success).toBe(false)
       expect(result.error).toContain('not found')
     })
 
     it('returns error for missing config file', () => {
-      const result = removePlugin('@dzipagent/x', '/nonexistent/path.json')
+      const result = removePlugin('@dzupagent/x', '/nonexistent/path.json')
       expect(result.success).toBe(false)
       expect(result.error).toContain('Config file not found')
     })

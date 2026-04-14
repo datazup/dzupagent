@@ -23,15 +23,15 @@ export interface DualStreamConfig {
   /** Scope for writes */
   scope: Record<string, string>
   /** Write policies for fast-path checking (default: [defaultWritePolicy]) */
-  policies?: WritePolicy[]
+  policies?: WritePolicy[] | undefined
   /** Batch size before triggering slow path (default: 10) */
-  batchSize?: number
+  batchSize?: number | undefined
   /** Max delay before forced flush in ms (default: 60_000) */
-  maxDelayMs?: number
+  maxDelayMs?: number | undefined
   /** Callback for slow-path processing. If not provided, records just accumulate. */
-  onSlowPath?: (records: PendingRecord[]) => Promise<void>
+  onSlowPath?: ((records: PendingRecord[]) => Promise<void>) | undefined
   /** Whether to reject unsafe content on fast path (default: true) */
-  rejectUnsafe?: boolean
+  rejectUnsafe?: boolean | undefined
 }
 
 export interface PendingRecord {
@@ -43,7 +43,7 @@ export interface PendingRecord {
 export interface IngestResult {
   stored: boolean
   rejected: boolean
-  rejectionReason?: string
+  rejectionReason?: string | undefined
   pendingBatchSize: number
 }
 
@@ -59,7 +59,7 @@ export class DualStreamWriter {
   private readonly memoryService: MemoryService
   private readonly namespace: string
   private readonly scope: Record<string, string>
-  private readonly onSlowPath?: (records: PendingRecord[]) => Promise<void>
+  private readonly onSlowPath?: ((records: PendingRecord[]) => Promise<void>) | undefined
 
   constructor(cfg: DualStreamConfig) {
     this.memoryService = cfg.memoryService
@@ -115,7 +115,7 @@ export class DualStreamWriter {
     this.pending.push({ key, value, ingestedAt: Date.now() })
 
     // 5. Auto-flush if batch size reached
-    if (this.pending.length >= this.config.batchSize) {
+    if (this.pending.length >= (this.config.batchSize ?? 10)) {
       // Fire-and-forget — flush errors are non-fatal
       void this.flush().catch(() => {})
     } else if (this.flushTimer === null) {

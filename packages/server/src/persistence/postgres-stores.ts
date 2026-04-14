@@ -17,7 +17,7 @@ import type {
   AgentStore,
   AgentDefinition,
   AgentFilter,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 
 type DB = PostgresJsDatabase<Record<string, never>>
 

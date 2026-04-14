@@ -82,7 +82,7 @@ export function formatConsole(report: ScorecardReport): string {
   const lines: string[] = []
 
   lines.push('')
-  lines.push(`${BOLD}=== DzipAgent Integration Scorecard ===${RESET}`)
+  lines.push(`${BOLD}=== DzupAgent Integration Scorecard ===${RESET}`)
   lines.push(`Generated: ${report.generatedAt.toISOString()}`)
   lines.push('')
 
@@ -145,7 +145,7 @@ function renderCategoryMarkdown(cat: ScorecardCategory): string {
 export function formatMarkdown(report: ScorecardReport): string {
   const lines: string[] = []
 
-  lines.push('# DzipAgent Integration Scorecard')
+  lines.push('# DzupAgent Integration Scorecard')
   lines.push('')
   lines.push(`**Generated:** ${report.generatedAt.toISOString()}`)
   lines.push('')

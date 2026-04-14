@@ -24,11 +24,11 @@ export interface CrossEncoderProvider {
 
 export interface RerankerConfig {
   /** Number of candidates to fetch from base retriever for reranking (default: 20) */
-  rerankTopK?: number;
+  rerankTopK?: number | undefined;
   /** Number of final results to return after reranking (default: 5) */
-  finalTopK?: number;
+  finalTopK?: number | undefined;
   /** Minimum score to include in final results (default: 0 — include all) */
-  minScore?: number;
+  minScore?: number | undefined;
 }
 
 export interface RerankedResult {

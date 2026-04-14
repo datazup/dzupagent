@@ -213,6 +213,8 @@ const healthLabel = computed(() => {
 
 const navLinks = [
   { to: '/', label: 'Agent Chat', icon: '>' },
+  { to: '/benchmarks', label: 'Benchmarks', icon: '~' },
+  { to: '/evals', label: 'Evals', icon: '=' },
   { to: '/agents', label: 'Agents', icon: '#' },
   { to: '/marketplace', label: 'Marketplace', icon: '@' },
 ]

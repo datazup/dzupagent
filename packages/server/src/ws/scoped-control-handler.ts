@@ -2,7 +2,7 @@ import type { EventBridge, WSClient } from './event-bridge.js'
 import type { WSControlHandlerOptions } from './control-protocol.js'
 import { createWsControlHandler } from './control-protocol.js'
 import type { ScopedAuthorizeFilterOptions } from './authorization.js'
-import { WSClientScopeRegistry } from './scope-registry.js'
+import type { WSClientScopeRegistry } from './scope-registry.js'
 
 export interface ScopedWsControlHandlerOptions extends Omit<WSControlHandlerOptions, 'authorizeFilter'> {
   /**

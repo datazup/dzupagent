@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { RagPipeline } from '../pipeline.js'
 import type { RagPipelineDeps } from '../pipeline.js'
 import { RagMemoryNamespace } from '../memory-namespace.js'
@@ -84,5 +84,189 @@ describe('HybridRetriever source quality boosting', () => {
     const low = await makeRetriever(0).retrieve('q', {}, { mode: 'vector' })
 
     expect(high.chunks[0]?.score).toBeGreaterThan(low.chunks[0]?.score ?? 0)
+  })
+
+  it('falls back to 0.5 when source quality is missing', async () => {
+    const retriever = new HybridRetriever({
+      mode: 'vector',
+      topK: 1,
+      qualityBoosting: true,
+      qualityWeights: { chunk: 0.6, source: 0.4 },
+      tokenBudget: 8000,
+      embedQuery: async () => [0.1],
+      vectorSearch: async () => [{
+        id: 'c1',
+        score: 1,
+        text: 'doc',
+        metadata: {
+          source_id: 's1',
+          chunk_index: 0,
+          quality_score: 0.5,
+        },
+      }],
+    })
+
+    const result = await retriever.retrieve('q', {}, { mode: 'vector' })
+
+    expect(result.chunks[0]?.qualityScore).toBeCloseTo(0.5, 5)
+    expect(result.chunks[0]?.score).toBeCloseTo(1, 5)
+  })
+
+  it('uses a configured source-quality provider before the fallback value', async () => {
+    const sourceQualityProvider = vi.fn(async ({ chunk }) => {
+      return chunk.sourceId === 'high-quality-source' ? 1 : 0
+    })
+
+    const makeRetriever = (sourceId: string) => new HybridRetriever({
+      mode: 'vector',
+      topK: 1,
+      qualityBoosting: true,
+      qualityWeights: { chunk: 0.6, source: 0.4 },
+      tokenBudget: 8000,
+      embedQuery: async () => [0.1],
+      sourceQuality: {
+        provider: sourceQualityProvider,
+        fallback: 0.25,
+      },
+      vectorSearch: async () => [{
+        id: 'c1',
+        score: 1,
+        text: 'doc',
+        metadata: {
+          source_id: sourceId,
+          chunk_index: 0,
+          quality_score: 0.5,
+        },
+      }],
+    })
+
+    const high = await makeRetriever('high-quality-source').retrieve('q', {}, { mode: 'vector' })
+    const low = await makeRetriever('low-quality-source').retrieve('q', {}, { mode: 'vector' })
+
+    expect(sourceQualityProvider).toHaveBeenCalled()
+    expect(sourceQualityProvider).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        query: 'q',
+        filter: {},
+        mode: 'vector',
+        topK: 1,
+        chunk: expect.objectContaining({ sourceId: 'high-quality-source' }),
+      }),
+    )
+    expect(sourceQualityProvider).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        query: 'q',
+        filter: {},
+        mode: 'vector',
+        topK: 1,
+        chunk: expect.objectContaining({ sourceId: 'low-quality-source' }),
+      }),
+    )
+    expect(high.chunks[0]?.qualityScore).toBeGreaterThan(low.chunks[0]?.qualityScore ?? 0)
+    expect(high.chunks[0]?.score).toBeGreaterThan(low.chunks[0]?.score ?? 0)
+    expect(high.chunks[0]?.qualityScore).toBeCloseTo(0.7, 5)
+    expect(low.chunks[0]?.qualityScore).toBeCloseTo(0.3, 5)
+  })
+
+  it('falls back when a source-quality provider rejects', async () => {
+    const sourceQualityProvider = vi.fn(async () => {
+      throw new Error('source quality unavailable')
+    })
+
+    const retriever = new HybridRetriever({
+      mode: 'vector',
+      topK: 1,
+      qualityBoosting: true,
+      qualityWeights: { chunk: 0.6, source: 0.4 },
+      tokenBudget: 8000,
+      embedQuery: async () => [0.1],
+      sourceQuality: {
+        provider: sourceQualityProvider,
+        fallback: 0.25,
+      },
+      vectorSearch: async () => [{
+        id: 'c1',
+        score: 1,
+        text: 'doc',
+        metadata: {
+          source_id: 's1',
+          chunk_index: 0,
+          quality_score: 0.5,
+        },
+      }],
+    })
+
+    const result = await retriever.retrieve('q', {}, { mode: 'vector' })
+
+    expect(sourceQualityProvider).toHaveBeenCalledTimes(1)
+    expect(result.chunks[0]?.qualityScore).toBeCloseTo(0.4, 5)
+    expect(result.chunks[0]?.score).toBeCloseTo(0.97, 5)
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY])(
+    'falls back when a source-quality provider returns %s',
+    async (invalidValue) => {
+      const sourceQualityProvider = vi.fn(async () => invalidValue)
+
+      const retriever = new HybridRetriever({
+        mode: 'vector',
+        topK: 1,
+        qualityBoosting: true,
+        qualityWeights: { chunk: 0.6, source: 0.4 },
+        tokenBudget: 8000,
+        embedQuery: async () => [0.1],
+        sourceQuality: {
+          provider: sourceQualityProvider,
+          fallback: 0.25,
+        },
+        vectorSearch: async () => [{
+          id: 'c1',
+          score: 1,
+          text: 'doc',
+          metadata: {
+            source_id: 's1',
+            chunk_index: 0,
+            quality_score: 0.5,
+          },
+        }],
+      })
+
+      const result = await retriever.retrieve('q', {}, { mode: 'vector' })
+
+      expect(sourceQualityProvider).toHaveBeenCalledTimes(1)
+      expect(result.chunks[0]?.qualityScore).toBeCloseTo(0.4, 5)
+      expect(result.chunks[0]?.score).toBeCloseTo(0.97, 5)
+    },
+  )
+
+  it('uses the configured source-quality fallback when the provider is absent', async () => {
+    const retriever = new HybridRetriever({
+      mode: 'vector',
+      topK: 1,
+      qualityBoosting: true,
+      qualityWeights: { chunk: 0.6, source: 0.4 },
+      tokenBudget: 8000,
+      embedQuery: async () => [0.1],
+      sourceQuality: {
+        fallback: 0.25,
+      },
+      vectorSearch: async () => [{
+        id: 'c1',
+        score: 1,
+        text: 'doc',
+        metadata: {
+          source_id: 's1',
+          chunk_index: 0,
+          quality_score: 0.5,
+        },
+      }],
+    })
+
+    const result = await retriever.retrieve('q', {}, { mode: 'vector' })
+
+    expect(result.chunks[0]?.qualityScore).toBeCloseTo(0.4, 5)
+    expect(result.chunks[0]?.score).toBeCloseTo(0.97, 5)
   })
 })

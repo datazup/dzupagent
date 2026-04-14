@@ -13,7 +13,7 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { extractTokenUsage, type TokenUsage } from '@dzipagent/core'
+import { extractTokenUsage, type TokenUsage } from '@dzupagent/core'
 import type { IterationBudget } from '../guardrails/iteration-budget.js'
 import type { StuckDetector, StuckStatus } from '../guardrails/stuck-detector.js'
 import { StuckError } from './stuck-error.js'

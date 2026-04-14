@@ -131,12 +131,13 @@ export class GitExecutor {
 
       if (indexStatus !== ' ' && indexStatus !== '?') {
         // Staged change
-        files.push({
+        const stagedEntry: GitFileEntry = {
           path: resolvedPath,
           status: STATUS_MAP[indexStatus] ?? 'modified',
-          originalPath: renameMatch?.[1],
           staged: true,
-        })
+        }
+        if (renameMatch?.[1] !== undefined) stagedEntry.originalPath = renameMatch[1]
+        files.push(stagedEntry)
       }
 
       if (workTreeStatus !== ' ' && workTreeStatus !== '?') {
@@ -158,14 +159,15 @@ export class GitExecutor {
       }
     }
 
-    return {
+    const statusResult: GitStatusResult = {
       branch,
-      upstream,
       ahead,
       behind,
       files,
       clean: files.length === 0,
     }
+    if (upstream !== undefined) statusResult.upstream = upstream
+    return statusResult
   }
 
   /**

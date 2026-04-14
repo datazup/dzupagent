@@ -1,29 +1,29 @@
-import type { DzipEventBus } from '../events/event-bus.js'
-import type { DzipEvent } from '../events/event-types.js'
+import type { DzupEventBus } from '../events/event-bus.js'
+import type { DzupEvent } from '../events/event-types.js'
 import type { AgentHooks } from '../hooks/hook-types.js'
 import type { AgentMiddleware } from '../middleware/types.js'
 import type { ModelRegistry } from '../llm/model-registry.js'
-import type { MemoryService } from '@dzipagent/memory'
+import type { MemoryService } from '@dzupagent/memory'
 
 /**
  * Context available to plugins during registration.
  */
 export interface PluginContext {
-  eventBus: DzipEventBus
+  eventBus: DzupEventBus
   modelRegistry: ModelRegistry
   memoryService?: MemoryService
 }
 
 /**
- * DzipAgent plugin interface.
+ * DzupAgent plugin interface.
  *
- * Plugins extend DzipAgent's capabilities by contributing tools, middleware,
+ * Plugins extend DzupAgent's capabilities by contributing tools, middleware,
  * hooks, event handlers, and configuration. They are registered via
  * `PluginRegistry.register()` and resolved at agent creation time.
  *
  * @example
  * ```ts
- * const sentryPlugin: DzipPlugin = {
+ * const sentryPlugin: DzupPlugin = {
  *   name: 'sentry',
  *   version: '1.0.0',
  *   eventHandlers: {
@@ -32,7 +32,7 @@ export interface PluginContext {
  * }
  * ```
  */
-export interface DzipPlugin {
+export interface DzupPlugin {
   /** Unique plugin name */
   name: string
   /** Semver version */
@@ -48,5 +48,5 @@ export interface DzipPlugin {
   hooks?: Partial<AgentHooks>
 
   /** Event handlers to subscribe to the event bus */
-  eventHandlers?: Partial<Record<DzipEvent['type'], (event: DzipEvent) => void | Promise<void>>>
+  eventHandlers?: Partial<Record<DzupEvent['type'], (event: DzupEvent) => void | Promise<void>>>
 }

@@ -46,25 +46,25 @@ export interface SleepConsolidationConfig {
   /** LLM model for semantic consolidation (cheap tier) */
   model: BaseChatModel
   /** Which phases to run (default: all) */
-  phases?: SleepPhase[]
+  phases?: SleepPhase[] | undefined
   /** Max LLM calls across the entire consolidation run (default: 30) */
-  maxLLMCalls?: number
+  maxLLMCalls?: number | undefined
   /** Decay strength threshold below which memories are pruned (default: 0.1) */
-  decayPruneThreshold?: number
+  decayPruneThreshold?: number | undefined
   /** Max total records to process per namespace (default: 200) */
-  maxRecordsPerNamespace?: number
-  /** Enable Arrow-accelerated batch operations (requires @dzipagent/memory-ipc) */
-  useArrow?: boolean
+  maxRecordsPerNamespace?: number | undefined
+  /** Enable Arrow-accelerated batch operations (requires @dzupagent/memory-ipc) */
+  useArrow?: boolean | undefined
   /** Jaccard similarity threshold for lesson deduplication (default: 0.6) */
-  lessonDedupThreshold?: number
+  lessonDedupThreshold?: number | undefined
   /** Minimum occurrences for convention extraction (default: 3) */
-  conventionExtractThreshold?: number
+  conventionExtractThreshold?: number | undefined
   /** Staleness score above which entries are pruned (default: 30) */
-  stalenessThreshold?: number
+  stalenessThreshold?: number | undefined
   /** Max age in days for staleness pruning (default: 90) */
-  stalenessMaxAgeDays?: number
+  stalenessMaxAgeDays?: number | undefined
   /** Importance threshold that protects entries from staleness pruning (default: 0.8) */
-  stalenessImportanceThreshold?: number
+  stalenessImportanceThreshold?: number | undefined
 }
 
 export interface SleepConsolidationReport {
@@ -200,10 +200,11 @@ export class SleepConsolidator {
           const records = items.map(item => {
             const value = item.value as Record<string, unknown>
             const decay = extractDecay(value)
+            const lastAccessedAt = decay?.lastAccessedAt
             return {
               key: item.key,
               text: extractText(value),
-              lastAccessedAt: decay?.lastAccessedAt,
+              ...(lastAccessedAt !== undefined ? { lastAccessedAt } : {}),
             }
           })
           const report = healMemory(records)
@@ -355,7 +356,7 @@ export class SleepConsolidator {
    * uses vectorized `batchDecayUpdate` to recompute all decay strengths in one
    * columnar pass, then deletes records below threshold.
    *
-   * Falls back to `standardDecayPrune` if @dzipagent/memory-ipc is not
+   * Falls back to `standardDecayPrune` if @dzupagent/memory-ipc is not
    * installed or any Arrow operation fails.
    */
   private async arrowDecayPrune(
@@ -364,7 +365,7 @@ export class SleepConsolidator {
   ): Promise<number> {
     try {
       const { FrameBuilder, FrameReader, batchDecayUpdate } =
-        await import('@dzipagent/memory-ipc')
+        await import('@dzupagent/memory-ipc')
 
       const items = await store.search(namespace, { limit: this.maxRecordsPerNamespace })
       if (items.length === 0) return 0
@@ -378,31 +379,33 @@ export class SleepConsolidator {
         if (!item) continue
         const value = item.value as Record<string, unknown>
 
-        // Map DzipAgent _decay convention to FrameBuilder's FrameRecordValue
+        // Map DzupAgent _decay convention to FrameBuilder's FrameRecordValue
         const decayRaw = value['_decay']
         const decayObj = (decayRaw != null && typeof decayRaw === 'object')
           ? decayRaw as Record<string, unknown>
           : null
 
+        const decayValue = decayObj
+          ? {
+              strength: typeof decayObj['strength'] === 'number'
+                ? decayObj['strength']
+                : null,
+              halfLifeMs: typeof decayObj['halfLifeMs'] === 'number'
+                ? decayObj['halfLifeMs']
+                : null,
+              lastAccessedAt: typeof decayObj['lastAccessedAt'] === 'number'
+                ? decayObj['lastAccessedAt']
+                : null,
+              accessCount: typeof decayObj['accessCount'] === 'number'
+                ? decayObj['accessCount']
+                : null,
+            }
+          : undefined
+
         builder.add(
           {
             text: typeof value['text'] === 'string' ? value['text'] : null,
-            _decay: decayObj
-              ? {
-                  strength: typeof decayObj['strength'] === 'number'
-                    ? decayObj['strength']
-                    : null,
-                  halfLifeMs: typeof decayObj['halfLifeMs'] === 'number'
-                    ? decayObj['halfLifeMs']
-                    : null,
-                  lastAccessedAt: typeof decayObj['lastAccessedAt'] === 'number'
-                    ? decayObj['lastAccessedAt']
-                    : null,
-                  accessCount: typeof decayObj['accessCount'] === 'number'
-                    ? decayObj['accessCount']
-                    : null,
-                }
-              : undefined,
+            ...(decayValue !== undefined ? { _decay: decayValue } : {}),
           },
           {
             id: `${nsString}:${item.key}`,

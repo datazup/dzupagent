@@ -94,6 +94,25 @@ describe('RunContextTransfer', () => {
     expect(contexts.length).toBe(0)
   })
 
+  it('paginates through more than 100 contexts for load/list/clear', async () => {
+    const totalContexts = 120
+
+    for (let i = 0; i < totalContexts; i++) {
+      await transfer.save('session-1', makeContext(`intent-${i}`))
+    }
+
+    const loaded = await transfer.load('session-1', 'intent-119')
+    expect(loaded).not.toBeNull()
+    expect(loaded!.fromIntent).toBe('intent-119')
+
+    const contexts = await transfer.listContexts('session-1')
+    expect(contexts).toHaveLength(totalContexts)
+    expect(contexts.map((context) => context.fromIntent)).toContain('intent-119')
+
+    await transfer.clear('session-1')
+    expect(await transfer.listContexts('session-1')).toHaveLength(0)
+  })
+
   it('sessions are isolated', async () => {
     await transfer.save('session-1', makeContext('generate_feature'))
     await transfer.save('session-2', makeContext('configure'))

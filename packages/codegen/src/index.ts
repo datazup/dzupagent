@@ -1,7 +1,7 @@
 /**
- * @dzipagent/codegen — Code generation engine
+ * @dzupagent/codegen — Code generation engine
  *
- * Built on @dzipagent/core. Provides: virtual filesystem,
+ * Built on @dzupagent/core. Provides: virtual filesystem,
  * code generation nodes, sandbox execution, quality scoring,
  * framework adaptation, pipeline builder, generic tools,
  * and API contract extraction.
@@ -11,16 +11,34 @@
 export { VirtualFS } from './vfs/virtual-fs.js'
 export type { FileDiff } from './vfs/virtual-fs.js'
 export { saveSnapshot, loadSnapshot } from './vfs/vfs-snapshot.js'
-export type { SnapshotStore } from './vfs/vfs-snapshot.js'
+export type { SnapshotStore, SnapshotSaveResult, SnapshotLoadResult } from './vfs/vfs-snapshot.js'
 export { CheckpointManager } from './vfs/checkpoint-manager.js'
-export type { CheckpointManagerConfig, CheckpointEntry, CheckpointDiff } from './vfs/checkpoint-manager.js'
+export type { CheckpointManagerConfig, CheckpointEntry, CheckpointDiff, CheckpointResult } from './vfs/checkpoint-manager.js'
 export { CopyOnWriteVFS } from './vfs/cow-vfs.js'
 export type { MergeStrategy, MergeConflict, MergeResult, VFSDiff, SampleResult } from './vfs/vfs-types.js'
 export { sample, selectBest, commitBest, sampleAndCommitBest } from './vfs/parallel-sampling.js'
+export { parseUnifiedDiff, applyPatch, applyPatchSet, PatchParseError } from './vfs/patch-engine.js'
+export type {
+  PatchErrorCode,
+  PatchHunk,
+  PatchLine,
+  FilePatch,
+  HunkResult,
+  PatchApplyResult,
+  ApplyPatchSetOptions,
+} from './vfs/patch-engine.js'
+
+export { WorkspaceRunner } from './vfs/workspace-runner.js'
+export type { WorkspaceRunResult, WorkspaceRunOptions } from './vfs/workspace-runner.js'
+
+export { InMemoryWorkspaceFS, DiskWorkspaceFS, GitWorktreeWorkspaceFS } from './vfs/workspace-fs.js'
+export type { WorkspaceFS, PatchOptions, WorkspacePatchResult } from './vfs/workspace-fs.js'
 
 // --- Generation ---
 export { CodeGenService } from './generation/code-gen-service.js'
 export type { GenerateFileParams, GenerateFileResult } from './generation/code-gen-service.js'
+export { CodegenRunEngine } from './generation/codegen-run-engine.js'
+export type { CodegenRunEngineConfig } from './generation/codegen-run-engine.js'
 export { parseCodeBlocks, extractLargestCodeBlock, detectLanguage } from './generation/code-block-parser.js'
 export type { CodeBlock } from './generation/code-block-parser.js'
 export {
@@ -48,6 +66,7 @@ export type {
 
 // --- Sandbox ---
 export type { SandboxProtocol, ExecOptions, ExecResult } from './sandbox/sandbox-protocol.js'
+export type { SandboxProtocolV2, SessionOptions, ExecEvent } from './sandbox/sandbox-protocol-v2.js'
 export { DockerSandbox } from './sandbox/docker-sandbox.js'
 export type { DockerSandboxConfig } from './sandbox/docker-sandbox.js'
 export { MockSandbox } from './sandbox/mock-sandbox.js'
@@ -226,6 +245,8 @@ export type {
   PhaseResult,
   PipelineExecutionResult,
 } from './pipeline/pipeline-executor.js'
+export { runBudgetGate } from './pipeline/budget-gate.js'
+export type { BudgetGateConfig, BudgetGateResult } from './pipeline/budget-gate.js'
 export {
   hasKey,
   previousSucceeded,
@@ -244,6 +265,8 @@ export { createRunTestsTool } from './tools/run-tests.tool.js'
 export { createValidateTool } from './tools/validate.tool.js'
 export { quickSyntaxCheck, sandboxLintCheck } from './tools/lint-validator.js'
 export type { LintError, LintResult } from './tools/lint-validator.js'
+export { createPreviewAppTool } from './tools/preview-app.tool.js'
+export type { PreviewAppResult } from './tools/preview-app.tool.js'
 
 // --- Git ---
 export { GitExecutor } from './git/git-executor.js'
@@ -386,4 +409,4 @@ export type {
 } from './guardrails/guardrail-types.js'
 
 // Placeholder export to make the package valid
-export const dzipagent_CODEGEN_VERSION = '0.1.0'
+export const dzupagent_CODEGEN_VERSION = '0.1.0'

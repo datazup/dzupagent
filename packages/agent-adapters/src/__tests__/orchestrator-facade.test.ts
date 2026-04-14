@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import {
   OrchestratorFacade,
@@ -72,8 +73,8 @@ function createMockAdapter(
   }
 }
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -83,8 +84,8 @@ function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
 // ---------------------------------------------------------------------------
 
 describe('OrchestratorFacade', () => {
-  let bus: DzipEventBus
-  let emitted: DzipEvent[]
+  let bus: DzupEventBus
+  let emitted: DzupEvent[]
   let claudeAdapter: AgentCLIAdapter
   let codexAdapter: AgentCLIAdapter
 
@@ -179,6 +180,67 @@ describe('OrchestratorFacade', () => {
 
       await expect(facade.run('incomplete stream')).rejects.toThrow('No adapter:completed event observed')
     })
+
+    it('returns a cancelled result when execution is aborted', async () => {
+      const facade = createOrchestrator({
+        adapters: [claudeAdapter],
+        eventBus: bus,
+      })
+
+      ;(facade as unknown as {
+        _registry: {
+          executeWithFallback: (...args: unknown[]) => AsyncGenerator<AgentEvent, void, undefined>
+        }
+      })._registry.executeWithFallback = (async function *(): AsyncGenerator<AgentEvent, void, undefined> {
+        yield {
+          type: 'adapter:started',
+          providerId: 'claude',
+          sessionId: 'sess-claude',
+          timestamp: Date.now(),
+        }
+        throw new ForgeError({
+          code: 'AGENT_ABORTED',
+          message: 'cancelled',
+          recoverable: true,
+        })
+      }) as (...args: unknown[]) => AsyncGenerator<AgentEvent, void, undefined>
+
+      const result = await facade.run('cancel me')
+
+      expect(result.cancelled).toBe(true)
+      expect(result.result).toBe('')
+      expect(result.providerId).toBe('claude')
+    })
+
+    it('uses the first registered adapter instead of a generic claude fallback on cancellation', async () => {
+      const facade = createOrchestrator({
+        adapters: [codexAdapter],
+        eventBus: bus,
+      })
+
+      ;(facade as unknown as {
+        _registry: {
+          executeWithFallback: (...args: unknown[]) => AsyncGenerator<AgentEvent, void, undefined>
+        }
+      })._registry.executeWithFallback = (async function *(): AsyncGenerator<AgentEvent, void, undefined> {
+        yield {
+          type: 'adapter:started',
+          providerId: 'codex',
+          sessionId: 'sess-codex',
+          timestamp: Date.now(),
+        }
+        throw new ForgeError({
+          code: 'AGENT_ABORTED',
+          message: 'cancelled',
+          recoverable: true,
+        })
+      }) as (...args: unknown[]) => AsyncGenerator<AgentEvent, void, undefined>
+
+      const result = await facade.run('cancel me')
+
+      expect(result.cancelled).toBe(true)
+      expect(result.providerId).toBe('codex')
+    })
   })
 
   describe('supervisor()', () => {
@@ -223,6 +285,32 @@ describe('OrchestratorFacade', () => {
       const providerIds = result.allResults.map((r) => r.providerId)
       expect(providerIds).toContain('codex')
     })
+
+    it('surfaces cancellation at the public API boundary', async () => {
+      vi.useFakeTimers()
+      try {
+        const slowClaude = createMockAdapter('claude', 'Claude result', 1_000)
+        const slowCodex = createMockAdapter('codex', 'Codex result', 1_000)
+        const facade = createOrchestrator({
+          adapters: [slowClaude, slowCodex],
+          eventBus: bus,
+        })
+
+        const resultPromise = facade.parallel('Fix the test', {
+          providers: ['claude', 'codex'],
+          timeoutMs: 1,
+        })
+
+        await vi.advanceTimersByTimeAsync(1_000)
+        const result = await resultPromise
+
+        expect(result.cancelled).toBe(true)
+        expect(result.selectedResult.cancelled).toBe(true)
+        expect(result.allResults.every((provider) => provider.cancelled)).toBe(true)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 
   describe('race()', () => {
@@ -240,6 +328,33 @@ describe('OrchestratorFacade', () => {
       expect(result).toBeDefined()
       expect(result.success).toBe(true)
     })
+
+    it('surfaces cancellation as run_cancelled and not run_completed', async () => {
+      const facade = createOrchestrator({
+        adapters: [claudeAdapter, codexAdapter],
+        eventBus: bus,
+      })
+      const controller = new AbortController()
+      controller.abort()
+
+      const result = await facade.race('Fix the test', ['claude', 'codex'], controller.signal)
+
+      expect(result.cancelled).toBe(true)
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('cancel')
+
+      const types = emitted.map((event) => event.type)
+      expect(types).toContain('pipeline:run_started')
+      expect(types).toContain('pipeline:run_cancelled')
+      expect(types).not.toContain('pipeline:run_completed')
+
+      const cancelledEvent = emitted.find((event) => event.type === 'pipeline:run_cancelled')
+      expect(cancelledEvent).toMatchObject({
+        type: 'pipeline:run_cancelled',
+        pipelineId: 'parallel-executor',
+        reason: expect.stringContaining('cancel'),
+      })
+    })
   })
 
   describe('bid()', () => {
@@ -254,6 +369,54 @@ describe('OrchestratorFacade', () => {
       expect(result).toBeDefined()
       expect(result.winningBid).toBeDefined()
       expect(result.durationMs).toBeGreaterThanOrEqual(0)
+    })
+
+    it('surfaces cancellation at the public API boundary', async () => {
+      const facade = createOrchestrator({
+        adapters: [claudeAdapter, codexAdapter],
+        eventBus: bus,
+      })
+      const controller = new AbortController()
+      controller.abort()
+
+      const result = await facade.bid('Fix the failing test', {
+        signal: controller.signal,
+      })
+
+      expect(result.cancelled).toBe(true)
+      expect(result.success).toBe(false)
+      expect(result.winningBid).toBeNull()
+    })
+  })
+
+  describe('mapReduce()', () => {
+    it('surfaces cancellation at the public API boundary', async () => {
+      const facade = createOrchestrator({
+        adapters: [claudeAdapter],
+        eventBus: bus,
+      })
+      const controller = new AbortController()
+      controller.abort()
+
+      const result = await facade.mapReduce(
+        'chunk-a\nchunk-b',
+        {
+          chunker: {
+            split: () => ['chunk-a', 'chunk-b'],
+          },
+          mapper: (chunk: string) => ({
+            input: { prompt: chunk },
+            task: { prompt: chunk, tags: ['general'] },
+          }),
+          resultExtractor: (raw: string) => raw,
+          reducer: (results) => results.length,
+          signal: controller.signal,
+        },
+      )
+
+      expect(result.cancelled).toBe(true)
+      expect(result.failedChunks).toBe(2)
+      expect(result.perChunkStats.every((stat) => stat.cancelled)).toBe(true)
     })
   })
 
@@ -368,6 +531,64 @@ describe('OrchestratorFacade', () => {
       })
 
       expect(facade.costTracking).toBeDefined()
+    })
+  })
+
+  describe('memoryEnrichment', () => {
+    it('enriches adapter input with recalled memories when configured', async () => {
+      // Create a mock adapter that captures the input it receives
+      let capturedSystemPrompt: string | undefined
+      const memoryAdapter: AgentCLIAdapter = {
+        providerId: 'claude' as AdapterProviderId,
+        async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+          capturedSystemPrompt = input.systemPrompt
+          yield {
+            type: 'adapter:started',
+            providerId: 'claude',
+            sessionId: 'sess-mem',
+            timestamp: Date.now(),
+          }
+          yield {
+            type: 'adapter:completed',
+            providerId: 'claude',
+            sessionId: 'sess-mem',
+            result: 'done',
+            usage: { inputTokens: 10, outputTokens: 5 },
+            durationMs: 10,
+            timestamp: Date.now(),
+          }
+        },
+        async *resumeSession() {},
+        interrupt() {},
+        async healthCheck() {
+          return { healthy: true, providerId: 'claude' as AdapterProviderId, sdkInstalled: true, cliAvailable: true }
+        },
+        configure() {},
+      }
+
+      const mockMemoryService = {
+        search: vi.fn().mockResolvedValue([
+          { text: 'The user prefers TypeScript strict mode' },
+          { text: 'Project uses Vitest for testing' },
+        ]),
+      }
+
+      const facade = createOrchestrator({
+        adapters: [memoryAdapter],
+        eventBus: bus,
+        memoryEnrichment: {
+          memoryService: mockMemoryService,
+          namespace: 'agent-context',
+          scope: { tenantId: 'acme' },
+        },
+      })
+
+      await facade.run('Fix the test')
+
+      expect(mockMemoryService.search).toHaveBeenCalled()
+      expect(capturedSystemPrompt).toBeDefined()
+      expect(capturedSystemPrompt).toContain('TypeScript strict mode')
+      expect(capturedSystemPrompt).toContain('Vitest for testing')
     })
   })
 

@@ -1,5 +1,5 @@
 /**
- * Analytics module for DzipAgent memory data.
+ * Analytics module for DzupAgent memory data.
  *
  * Uses DuckDB-WASM to run SQL queries over Arrow Tables.
  * @duckdb/duckdb-wasm is an optional peer dependency.

@@ -1,19 +1,19 @@
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 export interface EventEnvelope {
   id: string
   version: 'v1'
-  type: DzipEvent['type']
+  type: DzupEvent['type']
   timestamp: string
   runId?: string
   agentId?: string
-  payload: DzipEvent
+  payload: DzupEvent
 }
 
 export interface EventSubscriptionFilter {
   runId?: string
   agentId?: string
-  eventTypes?: DzipEvent['type'][]
+  eventTypes?: DzupEvent['type'][]
 }
 
 export type EventSink = (event: EventEnvelope) => boolean | void
@@ -29,7 +29,7 @@ export interface EventGateway {
     sink: EventSink,
     options?: { maxQueueSize?: number; overflowStrategy?: OverflowStrategy },
   ): EventSubscription
-  publish(event: DzipEvent): void
+  publish(event: DzupEvent): void
   readonly subscriberCount: number
   destroy(): void
 }
@@ -53,7 +53,7 @@ export interface InMemoryEventGatewayConfig {
 
 let globalEnvelopeCounter = 0
 
-function toEnvelope(event: DzipEvent): EventEnvelope {
+function toEnvelope(event: DzupEvent): EventEnvelope {
   const hasRunId = 'runId' in event && typeof (event as { runId?: unknown }).runId === 'string'
   const hasAgentId = 'agentId' in event && typeof (event as { agentId?: unknown }).agentId === 'string'
   return {
@@ -85,7 +85,7 @@ export class InMemoryEventGateway implements EventGateway {
   private readonly defaultMaxQueueSize: number
   private readonly defaultOverflowStrategy: OverflowStrategy
 
-  constructor(eventBus?: DzipEventBus, config?: InMemoryEventGatewayConfig) {
+  constructor(eventBus?: DzupEventBus, config?: InMemoryEventGatewayConfig) {
     this.defaultMaxQueueSize = config?.maxQueueSize ?? 256
     this.defaultOverflowStrategy = config?.overflowStrategy ?? 'drop_oldest'
 
@@ -118,7 +118,7 @@ export class InMemoryEventGateway implements EventGateway {
     }
   }
 
-  publish(event: DzipEvent): void {
+  publish(event: DzupEvent): void {
     const envelope = toEnvelope(event)
     for (const sub of this.subscriptions.values()) {
       if (!matchesFilter(envelope, sub.filter)) continue

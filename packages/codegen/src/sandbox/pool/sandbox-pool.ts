@@ -83,7 +83,7 @@ export class SandboxPool {
   private readonly _acquireWaitMs: number[] = []
 
   constructor(userConfig: SandboxPoolConfig) {
-    this.config = {
+    const cfg: typeof this.config = {
       minIdle: userConfig.minIdle ?? 0,
       maxSize: userConfig.maxSize ?? 10,
       maxWaitMs: userConfig.maxWaitMs ?? 30_000,
@@ -91,8 +91,9 @@ export class SandboxPool {
       healthCheckOnAcquire: userConfig.healthCheckOnAcquire ?? false,
       createSandbox: userConfig.createSandbox,
       destroySandbox: userConfig.destroySandbox,
-      healthCheck: userConfig.healthCheck,
     }
+    if (userConfig.healthCheck !== undefined) cfg.healthCheck = userConfig.healthCheck
+    this.config = cfg
   }
 
   /** Pre-warm the pool to minIdle sandboxes and start eviction timer. */

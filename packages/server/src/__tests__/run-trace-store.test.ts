@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   InMemoryRunTraceStore,
   computeStepDistribution,
@@ -10,6 +10,10 @@ describe('InMemoryRunTraceStore', () => {
 
   beforeEach(() => {
     store = new InMemoryRunTraceStore()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   // -----------------------------------------------------------------------
@@ -258,6 +262,54 @@ describe('InMemoryRunTraceStore', () => {
     store.deleteTrace('run-1')
     expect(store.getTrace('run-1')).toBeNull()
     expect(store.getTrace('run-2')).not.toBeNull()
+  })
+
+  it('should evict oldest traces when maxTraces is exceeded', () => {
+    const limitedStore = new InMemoryRunTraceStore({ maxTraces: 2 })
+
+    limitedStore.startTrace('run-1', 'agent-1')
+    limitedStore.startTrace('run-2', 'agent-2')
+    limitedStore.startTrace('run-3', 'agent-3')
+
+    expect(limitedStore.getTrace('run-1')).toBeNull()
+    expect(limitedStore.getTrace('run-2')).not.toBeNull()
+    expect(limitedStore.getTrace('run-3')).not.toBeNull()
+  })
+
+  it('should use finite default retention limits', () => {
+    expect(store.getRetentionLimits()).toEqual({
+      maxStepsPerTrace: 1_000,
+      maxTraces: 10_000,
+    })
+  })
+
+  it('should preserve explicit unbounded opt-out and warn once per opt-out field', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const unboundedStore = new InMemoryRunTraceStore({
+      maxStepsPerTrace: Number.POSITIVE_INFINITY,
+      maxTraces: Number.POSITIVE_INFINITY,
+    })
+
+    unboundedStore.startTrace('run-1', 'agent-1')
+    unboundedStore.startTrace('run-2', 'agent-2')
+    unboundedStore.startTrace('run-3', 'agent-3')
+
+    for (let index = 0; index < 4; index++) {
+      unboundedStore.addStep('run-1', {
+        timestamp: 1000 + index,
+        type: 'system',
+        content: `step-${index}`,
+      })
+    }
+
+    expect(unboundedStore.getRetentionLimits()).toEqual({
+      maxStepsPerTrace: Number.POSITIVE_INFINITY,
+      maxTraces: Number.POSITIVE_INFINITY,
+    })
+    expect(unboundedStore.getTrace('run-1')?.steps).toHaveLength(4)
+    expect(unboundedStore.getTrace('run-2')).not.toBeNull()
+    expect(unboundedStore.getTrace('run-3')).not.toBeNull()
+    expect(warn).toHaveBeenCalledTimes(2)
   })
 
   // -----------------------------------------------------------------------

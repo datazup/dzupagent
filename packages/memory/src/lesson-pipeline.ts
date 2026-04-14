@@ -12,6 +12,8 @@
  *   const prompt = pipeline.formatForPrompt(relevant)
  */
 import type { BaseStore } from '@langchain/langgraph'
+import { tokenizeText, jaccardSimilarity } from './shared/text-similarity.js'
+import { createTimestampedId } from './shared/id-factory.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,11 +25,11 @@ export type LessonType = 'error_resolution' | 'successful_pattern' | 'failed_rec
 /** Evidence supporting a lesson, linking it back to the originating run */
 export interface LessonEvidence {
   runId: string
-  nodeId?: string
-  errorType?: string
-  strategyUsed?: string
-  qualityBefore?: number
-  qualityAfter?: number
+  nodeId?: string | undefined
+  errorType?: string | undefined
+  strategyUsed?: string | undefined
+  qualityBefore?: number | undefined
+  qualityAfter?: number | undefined
 }
 
 /** A lesson extracted from an agent run */
@@ -43,7 +45,7 @@ export interface Lesson {
   /** Evidence supporting this lesson */
   evidence: LessonEvidence
   createdAt: string
-  lastAppliedAt?: string
+  lastAppliedAt?: string | undefined
   applyCount: number
 }
 
@@ -51,11 +53,11 @@ export interface LessonPipelineConfig {
   /** LangGraph BaseStore for persistence */
   store: BaseStore
   /** Namespace prefix for lesson storage (default: ['lessons']) */
-  namespace?: string[]
+  namespace?: string[] | undefined
   /** Similarity threshold for dedup (0-1, default: 0.6) */
-  dedupThreshold?: number
+  dedupThreshold?: number | undefined
   /** Max lessons to keep per context (default: 50) */
-  maxLessonsPerContext?: number
+  maxLessonsPerContext?: number | undefined
 }
 
 export interface RecoveryParams {
@@ -75,42 +77,10 @@ export interface SuccessParams {
 }
 
 export interface RetrieveParams {
-  nodeId?: string
-  taskType?: string
-  errorType?: string
-  limit?: number
-}
-
-// ---------------------------------------------------------------------------
-// Helpers (inlined to avoid circular deps with lesson-dedup.ts)
-// ---------------------------------------------------------------------------
-
-/** Tokenize text into a set of lower-case words */
-function tokenize(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 1),
-  )
-}
-
-/** Jaccard similarity between two token sets */
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1
-  let intersectionSize = 0
-  for (const word of a) {
-    if (b.has(word)) intersectionSize++
-  }
-  const unionSize = a.size + b.size - intersectionSize
-  return unionSize === 0 ? 0 : intersectionSize / unionSize
-}
-
-/** Generate a lesson ID with timestamp and random suffix */
-function generateLessonId(): string {
-  const suffix = Math.random().toString(36).slice(2, 8)
-  return `lesson_${Date.now()}_${suffix}`
+  nodeId?: string | undefined
+  taskType?: string | undefined
+  errorType?: string | undefined
+  limit?: number | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +169,7 @@ export class LessonPipeline {
       : `Attempted "${strategy}" for error "${errorMessage}" in node ${nodeId}, but it did not resolve the issue.`
 
     const lesson: Lesson = {
-      id: generateLessonId(),
+      id: createTimestampedId('lesson'),
       type,
       summary,
       details,
@@ -236,7 +206,7 @@ export class LessonPipeline {
 
     for (const pattern of patterns) {
       const lesson: Lesson = {
-        id: generateLessonId(),
+        id: createTimestampedId('lesson'),
         type: 'successful_pattern',
         summary: pattern,
         details: `Pattern observed in run ${runId} with quality score ${overallScore.toFixed(2)}.`,
@@ -383,10 +353,10 @@ export class LessonPipeline {
   private async storeWithDedup(lesson: Lesson): Promise<void> {
     try {
       const existing = await this.loadAllLessons()
-      const newTokens = tokenize(`${lesson.summary} ${lesson.details}`)
+      const newTokens = tokenizeText(`${lesson.summary} ${lesson.details}`)
 
       for (const existingLesson of existing) {
-        const existingTokens = tokenize(`${existingLesson.summary} ${existingLesson.details}`)
+        const existingTokens = tokenizeText(`${existingLesson.summary} ${existingLesson.details}`)
         const similarity = jaccardSimilarity(newTokens, existingTokens)
 
         if (similarity >= this.dedupThreshold) {

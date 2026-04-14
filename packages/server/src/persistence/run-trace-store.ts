@@ -77,17 +77,69 @@ export interface RunTraceStore {
 export interface InMemoryRunTraceStoreOptions {
   /** Maximum number of steps per trace (default: 1000) */
   maxStepsPerTrace?: number
+  /** Maximum number of traces retained in memory (default: 10_000). Use `Infinity` to opt out. */
+  maxTraces?: number
+}
+
+const DEFAULT_MAX_STEPS_PER_TRACE = 1_000
+const DEFAULT_MAX_TRACES = 10_000
+
+function attachRetentionMetadata(
+  target: object,
+  limits: { maxStepsPerTrace: number; maxTraces: number },
+  explicitUnbounded: boolean,
+): void {
+  Object.defineProperty(target, '__dzupagentRetention', {
+    value: {
+      ...limits,
+      explicitUnbounded,
+    },
+    configurable: true,
+    enumerable: false,
+    writable: true,
+  })
+}
+
+function warnIfExplicitlyUnbounded(limitName: string): void {
+  console.warn(
+    `[InMemoryRunTraceStore] ${limitName} is configured as unbounded. ` +
+      'This is intended for explicit development/test opt-out only.',
+  )
 }
 
 export class InMemoryRunTraceStore implements RunTraceStore {
   private readonly traces = new Map<string, RunTrace>()
+  private readonly traceOrder: string[] = []
   private readonly maxSteps: number
+  private readonly maxTraces: number
 
   constructor(options?: InMemoryRunTraceStoreOptions) {
-    this.maxSteps = options?.maxStepsPerTrace ?? 1000
+    if (options?.maxStepsPerTrace === Number.POSITIVE_INFINITY) {
+      warnIfExplicitlyUnbounded('maxStepsPerTrace')
+    }
+    if (options?.maxTraces === Number.POSITIVE_INFINITY) {
+      warnIfExplicitlyUnbounded('maxTraces')
+    }
+
+    this.maxSteps = options?.maxStepsPerTrace ?? DEFAULT_MAX_STEPS_PER_TRACE
+    this.maxTraces = options?.maxTraces ?? DEFAULT_MAX_TRACES
+    attachRetentionMetadata(this, this.getRetentionLimits(), Boolean(
+      options?.maxStepsPerTrace === Number.POSITIVE_INFINITY ||
+      options?.maxTraces === Number.POSITIVE_INFINITY,
+    ))
+  }
+
+  getRetentionLimits(): { maxStepsPerTrace: number; maxTraces: number } {
+    return {
+      maxStepsPerTrace: this.maxSteps,
+      maxTraces: this.maxTraces,
+    }
   }
 
   startTrace(runId: string, agentId: string): void {
+    if (!this.traces.has(runId)) {
+      this.traceOrder.push(runId)
+    }
     this.traces.set(runId, {
       runId,
       agentId,
@@ -95,6 +147,7 @@ export class InMemoryRunTraceStore implements RunTraceStore {
       startedAt: Date.now(),
       totalSteps: 0,
     })
+    this.enforceTraceLimit()
   }
 
   addStep(runId: string, step: Omit<TraceStep, 'stepIndex'>): void {
@@ -136,6 +189,17 @@ export class InMemoryRunTraceStore implements RunTraceStore {
 
   deleteTrace(runId: string): void {
     this.traces.delete(runId)
+    const idx = this.traceOrder.indexOf(runId)
+    if (idx >= 0) this.traceOrder.splice(idx, 1)
+  }
+
+  private enforceTraceLimit(): void {
+    if (!Number.isFinite(this.maxTraces)) return
+    while (this.traceOrder.length > this.maxTraces) {
+      const evictedRunId = this.traceOrder.shift()
+      if (!evictedRunId) break
+      this.traces.delete(evictedRunId)
+    }
   }
 }
 

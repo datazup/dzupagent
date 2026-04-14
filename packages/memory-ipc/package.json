@@ -1,7 +1,7 @@
 {
-  "name": "@dzipagent/memory-ipc",
-  "version": "0.1.0",
-  "description": "Arrow-based IPC for inter-agent memory sharing in DzipAgent",
+  "name": "@dzupagent/memory-ipc",
+  "version": "0.2.0",
+  "description": "Arrow-based IPC for inter-agent memory sharing in DzupAgent",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -24,21 +24,17 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "@dzipagent/memory": "*",
     "@duckdb/duckdb-wasm": ">=1.29.0"
   },
   "peerDependenciesMeta": {
-    "@dzipagent/memory": {
-      "optional": true
-    },
     "@duckdb/duckdb-wasm": {
       "optional": true
     }
   },
   "devDependencies": {
-    "vitest": "^1.6.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.5.0"
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "files": [
     "dist"

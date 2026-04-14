@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "composite": true,
+    "composite": false,
     "declaration": true,
     "declarationMap": true,
     "strict": true,
@@ -14,6 +14,7 @@
     "isolatedModules": true
   },
   "references": [
+    { "path": "packages/runtime-contracts" },
     { "path": "packages/core" },
     { "path": "packages/agent" },
     { "path": "packages/codegen" },
@@ -26,8 +27,7 @@
     { "path": "packages/testing" },
     { "path": "packages/test-utils" },
     { "path": "packages/connectors" },
-    { "path": "packages/domain-nl2sql" },
     { "path": "packages/playground" },
-    { "path": "packages/create-dzipagent" }
+    { "path": "packages/create-dzupagent" }
   ]
 }

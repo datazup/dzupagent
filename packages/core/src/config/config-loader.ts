@@ -1,11 +1,12 @@
 /**
- * Layered configuration system for DzipAgent.
+ * Layered configuration system for DzupAgent.
  *
  * Resolution order (highest priority wins):
  *   runtime overrides > environment variables > config file > defaults
  */
 
 import { readFile } from 'node:fs/promises';
+import { validateConfig } from './config-schema.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -144,7 +145,10 @@ export function loadEnvConfig(): Partial<ForgeConfig> {
   // Memory
   const memStore = env['DZIP_MEMORY_STORE'];
   if (memStore === 'postgres' || memStore === 'in-memory') {
-    config.memory = { store: memStore, connectionString: env['DZIP_MEMORY_CONN'] };
+    const connStr = env['DZIP_MEMORY_CONN'];
+    config.memory = connStr !== undefined
+      ? { store: memStore, connectionString: connStr }
+      : { store: memStore };
   }
 
   // Server
@@ -190,6 +194,8 @@ export async function loadFileConfig(filePath: string): Promise<Partial<ForgeCon
     const raw = await readFile(filePath, 'utf-8');
     const parsed: unknown = JSON.parse(raw);
     if (!isPlainObject(parsed)) return {};
+    const result = validateConfig(parsed);
+    if (!result.valid) return {};
     return parsed as Partial<ForgeConfig>;
   } catch {
     return {};

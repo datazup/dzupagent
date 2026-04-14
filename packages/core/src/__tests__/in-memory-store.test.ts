@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { InMemoryRunStore, InMemoryAgentStore } from '../persistence/in-memory-store.js'
 
 describe('InMemoryRunStore', () => {
@@ -6,6 +6,10 @@ describe('InMemoryRunStore', () => {
 
   beforeEach(() => {
     store = new InMemoryRunStore()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('creates a run with generated id', async () => {
@@ -98,6 +102,68 @@ describe('InMemoryRunStore', () => {
     store.clear()
     const all = await store.list()
     expect(all).toHaveLength(0)
+  })
+
+  it('enforces maxRuns retention when configured', async () => {
+    const limited = new InMemoryRunStore({ maxRuns: 2 })
+    const r1 = await limited.create({ agentId: 'a1', input: 'one' })
+    const r2 = await limited.create({ agentId: 'a1', input: 'two' })
+    const r3 = await limited.create({ agentId: 'a1', input: 'three' })
+
+    expect(await limited.get(r1.id)).toBeNull()
+    expect(await limited.get(r2.id)).not.toBeNull()
+    expect(await limited.get(r3.id)).not.toBeNull()
+  })
+
+  it('enforces maxLogsPerRun retention when configured', async () => {
+    const limited = new InMemoryRunStore({ maxLogsPerRun: 2 })
+    const run = await limited.create({ agentId: 'a1', input: 'test' })
+
+    await limited.addLog(run.id, { level: 'info', message: 'log-1' })
+    await limited.addLog(run.id, { level: 'info', message: 'log-2' })
+    await limited.addLog(run.id, { level: 'info', message: 'log-3' })
+
+    const logs = await limited.getLogs(run.id)
+    expect(logs).toHaveLength(2)
+    expect(logs[0]!.message).toBe('log-2')
+    expect(logs[1]!.message).toBe('log-3')
+  })
+
+  it('uses finite default retention limits', () => {
+    expect(store.getRetentionLimits()).toEqual({
+      maxRuns: 10_000,
+      maxLogsPerRun: 1_000,
+    })
+  })
+
+  it('preserves explicit unbounded opt-out and warns once per opt-out field', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const unbounded = new InMemoryRunStore({
+      maxRuns: Number.POSITIVE_INFINITY,
+      maxLogsPerRun: Number.POSITIVE_INFINITY,
+    })
+
+    const runIds: string[] = []
+    for (let index = 0; index < 3; index++) {
+      const run = await unbounded.create({ agentId: 'agent', input: `task-${index}` })
+      runIds.push(run.id)
+    }
+
+    for (let index = 0; index < 3; index++) {
+      await unbounded.addLog(runIds[0]!, { level: 'info', message: `log-${index}` })
+    }
+
+    expect(unbounded.getRetentionLimits()).toEqual({
+      maxRuns: Number.POSITIVE_INFINITY,
+      maxLogsPerRun: Number.POSITIVE_INFINITY,
+    })
+    await expect(Promise.all(runIds.map((id) => unbounded.get(id)))).resolves.toEqual([
+      expect.objectContaining({ id: runIds[0] }),
+      expect.objectContaining({ id: runIds[1] }),
+      expect.objectContaining({ id: runIds[2] }),
+    ])
+    await expect(unbounded.getLogs(runIds[0]!)).resolves.toHaveLength(3)
+    expect(warn).toHaveBeenCalledTimes(2)
   })
 })
 

@@ -1,7 +1,7 @@
-# @dzipagent/memory Architecture
+# @dzupagent/memory Architecture
 
 ## Purpose
-`@dzipagent/memory` is the memory intelligence layer for DzipAgent. It manages durable memory records, retrieval strategies, consolidation, policy-aware writes, provenance, and advanced graph/temporal structures.
+`@dzupagent/memory` is the memory intelligence layer for DzupAgent. It manages durable memory records, retrieval strategies, consolidation, policy-aware writes, provenance, and advanced graph/temporal structures.
 
 ## Main Responsibilities
 - Provide namespace-scoped memory CRUD and search APIs.
@@ -47,8 +47,8 @@ Top-level modules under `src/`:
 - Agent-file import/export for portability.
 
 ## Integration Boundaries
-- Used directly by `@dzipagent/core` and server memory routes.
-- Works with `@dzipagent/memory-ipc` for Arrow frame export/import and inter-process sharing.
+- Used directly by `@dzupagent/core` and server memory routes.
+- Works with `@dzupagent/memory-ipc` for Arrow frame export/import and inter-process sharing.
 - Relies on LangGraph-compatible stores (in-memory or Postgres-backed).
 
 ## Extensibility Points

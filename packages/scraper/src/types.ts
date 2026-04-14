@@ -65,23 +65,25 @@ export interface FetchResult {
   /** Clean extracted text */
   text: string
   /** Page title */
-  title?: string
+  title?: string | undefined
   /** Meta description */
-  description?: string
+  description?: string | undefined
   /** Author if found */
-  author?: string
+  author?: string | undefined
   /** Published date if found */
-  publishedDate?: string
+  publishedDate?: string | undefined
   /** Raw HTML (if requested) */
-  html?: string
+  html?: string | undefined
   /** Fetch duration in ms */
   durationMs: number
   /** Which method was used */
   method: 'browser' | 'http'
 }
 
-/** Schema for the DzipAgent-compatible tool */
+/** Schema for the DzupAgent-compatible tool */
 export interface ScraperToolSchema {
   url: string
-  extractMode?: 'text' | 'html' | 'metadata'
+  extractMode?: 'text' | 'html' | 'metadata' | 'all'
+  cleanHtml?: boolean
+  maxLength?: number
 }

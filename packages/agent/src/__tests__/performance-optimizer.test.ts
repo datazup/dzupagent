@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import type { BaseStore } from '@langchain/langgraph'
 import {
   AgentPerformanceOptimizer,
   type ModelTier,
@@ -69,7 +70,7 @@ function createMockStore() {
     async stop() {
       /* noop */
     },
-  } as unknown as import('@langchain/langgraph').BaseStore
+  } as unknown as BaseStore
 }
 
 /* ------------------------------------------------------------------ */

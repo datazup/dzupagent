@@ -1,5 +1,5 @@
 /**
- * @dzipagent/server — Optional HTTP/WS runtime for DzipAgent.
+ * @dzupagent/server — Optional HTTP/WS runtime for DzupAgent.
  *
  * Provides: Hono REST API, run/agent persistence (Postgres + Drizzle),
  * approval management, SSE streaming, WebSocket event bridge,
@@ -10,6 +10,7 @@
 // --- App ---
 export { createForgeApp } from './app.js'
 export type { ForgeServerConfig, ConsolidationConfig } from './app.js'
+export type { ServerRoutePlugin } from './route-plugin.js'
 
 // --- Routes ---
 export { createRunRoutes } from './routes/runs.js'
@@ -24,6 +25,8 @@ export { createLearningRoutes } from './routes/learning.js'
 export type { LearningRouteConfig } from './routes/learning.js'
 export { createBenchmarkRoutes } from './routes/benchmarks.js'
 export type { BenchmarkRouteConfig } from './routes/benchmarks.js'
+export { createEvalRoutes } from './routes/evals.js'
+export type { EvalRouteConfig } from './routes/evals.js'
 export { createMemoryHealthRoutes } from './routes/memory-health.js'
 export type { MemoryHealthRouteConfig, HealthProvider } from './routes/memory-health.js'
 export { createRoutingStatsRoutes } from './routes/routing-stats.js'
@@ -53,6 +56,7 @@ export { vectorColumn } from './persistence/vector-column.js'
 export { cosineDistance, l2Distance, innerProduct, toVector } from './persistence/vector-ops.js'
 export { InMemoryRunTraceStore, computeStepDistribution } from './persistence/run-trace-store.js'
 export { InMemoryBenchmarkRunStore } from './persistence/benchmark-run-store.js'
+export { InMemoryEvalRunStore } from './persistence/eval-run-store.js'
 export type {
   TraceStep,
   RunTrace,
@@ -66,6 +70,15 @@ export type {
   BenchmarkCompareRecord,
   BenchmarkRunStore,
 } from './persistence/benchmark-run-store.js'
+export type {
+  EvalRunErrorRecord,
+  EvalRunAttemptRecord,
+  EvalRunRecord,
+  EvalRunRecoveryRecord,
+  EvalRunStatus,
+  EvalRunListFilter,
+  EvalRunStore,
+} from './persistence/eval-run-store.js'
 
 // --- Run Trace Routes ---
 export { createRunTraceRoutes } from './routes/run-trace.js'
@@ -97,6 +110,10 @@ export type { RunQueue, RunJob, RunQueueConfig, QueueStats, JobProcessor, DeadLe
 // --- Lifecycle ---
 export { GracefulShutdown } from './lifecycle/graceful-shutdown.js'
 export type { ShutdownConfig, ShutdownState } from './lifecycle/graceful-shutdown.js'
+
+// --- Eval Orchestration ---
+export { EvalOrchestrator, EvalExecutionUnavailableError, EvalRunInvalidStateError } from './services/eval-orchestrator.js'
+export type { EvalOrchestratorConfig, EvalExecutionTarget, EvalExecutionContext, EvalQueueStats } from './services/eval-orchestrator.js'
 
 // --- WebSocket ---
 export { EventBridge } from './ws/event-bridge.js'
@@ -245,7 +262,7 @@ export type {
 export { InMemoryQuotaManager } from './runtime/memory-quota-manager.js'
 export { startRunWorker } from './runtime/run-worker.js'
 export { createDefaultRunExecutor } from './runtime/default-run-executor.js'
-export { createDzipAgentRunExecutor } from './runtime/dzip-agent-run-executor.js'
+export { createDzupAgentRunExecutor } from './runtime/dzip-agent-run-executor.js'
 export { QuotaExceededError } from './runtime/resource-quota.js'
 export type {
   ResourceDimensions,
@@ -262,7 +279,7 @@ export type {
   ReflectionScore,
   ReflectionDimensions,
 } from './runtime/run-worker.js'
-export type { DzipAgentRunExecutorOptions } from './runtime/dzip-agent-run-executor.js'
+export type { DzupAgentRunExecutorOptions } from './runtime/dzip-agent-run-executor.js'
 export { reportRetrievalFeedback, mapScoreToQuality } from './runtime/retrieval-feedback-hook.js'
 export type { RetrievalFeedbackSink, RetrievalFeedbackHookConfig } from './runtime/retrieval-feedback-hook.js'
 export { resolveAgentTools, ToolResolutionError, getToolProfileConfig } from './runtime/tool-resolver.js'
@@ -362,4 +379,4 @@ export { createRegistryRoutes } from './routes/registry.js'
 export type { RegistryRouteConfig } from './routes/registry.js'
 
 // --- Version ---
-export const dzipagent_SERVER_VERSION = '0.1.0'
+export const dzupagent_SERVER_VERSION = '0.1.0'

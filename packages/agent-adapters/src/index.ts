@@ -1,7 +1,7 @@
 /**
- * @dzipagent/agent-adapters
+ * @dzupagent/agent-adapters
  *
- * AI agent CLI/SDK adapters for DzipAgent.
+ * AI agent CLI/SDK adapters for DzupAgent.
  * Enables orchestration of multiple AI agents:
  * - Claude (via @anthropic-ai/claude-agent-sdk)
  * - Codex (via @openai/codex-sdk)
@@ -23,9 +23,11 @@ export type {
   AgentCompletedEvent,
   AgentFailedEvent,
   AgentStreamDeltaEvent,
+  AgentProgressEvent,
   TokenUsage,
   HealthStatus,
   SessionInfo,
+  EnvFilterConfig,
   AdapterConfig,
   AgentCLIAdapter,
   TaskDescriptor,
@@ -37,12 +39,30 @@ export type {
 export { ClaudeAgentAdapter } from './claude/claude-adapter.js'
 export { CodexAdapter } from './codex/codex-adapter.js'
 export { GeminiCLIAdapter } from './gemini/gemini-adapter.js'
+export { GeminiSDKAdapter } from './gemini/gemini-sdk-adapter.js'
+export type { GeminiSDKAdapterConfig } from './gemini/gemini-sdk-adapter.js'
 export { QwenAdapter } from './qwen/qwen-adapter.js'
 export { CrushAdapter } from './crush/crush-adapter.js'
+export { GooseAdapter } from './goose/goose-adapter.js'
+export { OpenRouterAdapter } from './openrouter/openrouter-adapter.js'
+export type { OpenRouterConfig } from './openrouter/openrouter-adapter.js'
+
+// --- Prompts ---
+export { SystemPromptBuilder } from './prompts/system-prompt-builder.js'
+export type {
+  SystemPromptPayload,
+  ClaudeAppendPayload,
+  ClaudeReplacePayload,
+  CodexPromptPayload,
+  StringPromptPayload,
+  SystemPromptBuilderOptions,
+  PersonaTemplateContext,
+} from './prompts/system-prompt-builder.js'
+export { resolvePersonaTemplate } from './prompts/system-prompt-builder.js'
 
 // --- Registry & Router ---
 export { AdapterRegistry } from './registry/adapter-registry.js'
-export type { AdapterRegistryConfig } from './registry/adapter-registry.js'
+export type { AdapterRegistryConfig, DetailedHealthStatus, AdapterHealthDetail } from './registry/adapter-registry.js'
 export {
   TagBasedRouter,
   CostOptimizedRouter,
@@ -50,13 +70,22 @@ export {
   CompositeRouter,
 } from './registry/task-router.js'
 export type { WeightedStrategy } from './registry/task-router.js'
+export { LearningRouter } from './registry/learning-router.js'
+export type { LearningRouterConfig } from './registry/learning-router.js'
 
 // --- Event Bus Bridge ---
 export { EventBusBridge } from './registry/event-bus-bridge.js'
 
 // --- Middleware ---
+export { withMemoryEnrichment } from './middleware/memory-enrichment.js'
+export type { MemoryServiceLike, MemoryEnrichmentOptions } from './middleware/memory-enrichment.js'
 export { CostTrackingMiddleware } from './middleware/cost-tracking.js'
 export type { CostTrackingConfig, CostReport } from './middleware/cost-tracking.js'
+export { MiddlewarePipeline } from './middleware/middleware-pipeline.js'
+export type { AdapterMiddleware, MiddlewareContext } from './middleware/middleware-pipeline.js'
+export { createCostTrackingMiddleware, createGuardrailsMiddleware } from './middleware/middleware-factories.js'
+export { sanitizeContent, createContentSanitizerMiddleware } from './middleware/content-sanitizer.js'
+export type { ContentSanitizerConfig } from './middleware/content-sanitizer.js'
 
 // --- Orchestration ---
 export { SupervisorOrchestrator, KeywordTaskDecomposer } from './orchestration/supervisor.js'
@@ -106,6 +135,16 @@ export type {
   MultiTurnOptions,
 } from './session/session-registry.js'
 export { WorkflowCheckpointer, InMemoryCheckpointStore } from './session/workflow-checkpointer.js'
+export { ConversationCompressor } from './session/conversation-compressor.js'
+export type { ConversationTurn, ConversationCompressorOptions } from './session/conversation-compressor.js'
+export { DefaultCompactionStrategy } from './session/compaction-strategy.js'
+export type {
+  CompactionStrategy,
+  CompactionRequest,
+  CompactionType,
+  CompactionSessionInfo,
+  DefaultCompactionConfig,
+} from './session/compaction-strategy.js'
 export type {
   WorkflowCheckpoint,
   StepDefinition,
@@ -129,6 +168,16 @@ export type {
   ABComparison,
 } from './testing/ab-test-runner.js'
 
+// --- Cost Models ---
+export { CostModelRegistry } from './middleware/cost-models.js'
+export type {
+  TokenRates,
+  CostEstimationInput,
+  CostEstimate,
+  CostCalculation,
+  ProviderCostModel,
+} from './middleware/cost-models.js'
+
 // --- Cost Optimization ---
 export { CostOptimizationEngine } from './middleware/cost-optimization.js'
 export type {
@@ -146,6 +195,15 @@ export type {
   ToolSharingStats,
 } from './mcp/mcp-tool-sharing.js'
 
+// --- MCP Adapter Management ---
+export { InMemoryMcpAdapterManager, McpAdapterManager } from './mcp/mcp-adapter-manager.js'
+export type {
+  AdapterMcpServer,
+  AdapterMcpBinding,
+  McpServerTestResult,
+  EffectiveMcpConfig,
+} from './mcp/mcp-adapter-types.js'
+
 // --- Capability Router ---
 export { CapabilityRouter } from './registry/capability-router.js'
 export type {
@@ -161,6 +219,11 @@ export type {
   AdapterPluginInstance,
 } from './plugin/adapter-plugin.js'
 
+// --- Plugin SDK ---
+export { defineAdapterPlugin, isAdapterPlugin } from './plugin/adapter-plugin-sdk.js'
+export type { AdapterPluginDefinition, AdapterPlugin } from './plugin/adapter-plugin-sdk.js'
+export { AdapterPluginLoader } from './plugin/adapter-plugin-loader.js'
+
 // --- Facade ---
 export { OrchestratorFacade, createOrchestrator } from './facade/orchestrator-facade.js'
 export type { OrchestratorConfig } from './facade/orchestrator-facade.js'
@@ -173,6 +236,7 @@ export type {
   AdapterToolSchema,
   ToolInvocationArgs,
 } from './integration/agent-bridge.js'
+export { RegistryExecutionPort } from './integration/index.js'
 
 // --- Guardrails ---
 export { AdapterGuardrails, AdapterStuckDetector } from './guardrails/adapter-guardrails.js'
@@ -186,7 +250,7 @@ export type {
 } from './guardrails/adapter-guardrails.js'
 
 // --- Workflow DSL ---
-export { AdapterWorkflowBuilder, AdapterWorkflow, defineWorkflow } from './workflow/adapter-workflow.js'
+export { AdapterWorkflowBuilder, AdapterWorkflow, defineWorkflow, typedStep } from './workflow/adapter-workflow.js'
 export type {
   AdapterWorkflowConfig,
   AdapterStepConfig,
@@ -194,7 +258,12 @@ export type {
   AdapterStepResult,
   AdapterWorkflowEvent,
   BranchCondition,
+  LoopConfig,
 } from './workflow/adapter-workflow.js'
+export { TemplateResolver } from './workflow/template-resolver.js'
+export type { TemplateContext, TemplateReference } from './workflow/template-resolver.js'
+export { WorkflowValidator } from './workflow/workflow-validator.js'
+export type { ValidationError, ValidationResult } from './workflow/workflow-validator.js'
 
 // --- Streaming ---
 export { StreamingHandler } from './streaming/streaming-handler.js'
@@ -214,6 +283,7 @@ export type {
   AdapterTracerConfig,
   TraceContext,
 } from './observability/adapter-tracer.js'
+export { createTracingMiddleware } from './observability/tracing-middleware.js'
 
 // --- Approval ---
 export { AdapterApprovalGate } from './approval/adapter-approval.js'
@@ -224,20 +294,49 @@ export type {
   ApprovalMode,
   ApprovalResult,
 } from './approval/adapter-approval.js'
+export { InMemoryApprovalAuditStore } from './approval/approval-audit.js'
+export type {
+  ApprovalAuditEntry,
+  AuditQueryFilters,
+  ApprovalAuditStore,
+} from './approval/approval-audit.js'
+export { createPolicyCondition, compareBlastRadius } from './approval/policy-driven-approval.js'
+export type { PolicyConditionConfig } from './approval/policy-driven-approval.js'
 
 // --- Recovery ---
 export { AdapterRecoveryCopilot, ExecutionTraceCapture } from './recovery/adapter-recovery.js'
 export type {
   RecoveryStrategy,
   RecoveryConfig,
+  TraceEvictionConfig,
   FailureContext,
+  RecoverySuccessResult,
+  RecoveryFailureResult,
+  RecoveryCancelledResult,
   RecoveryResult,
   ExecutionTrace,
   TraceDecision,
   TracedEvent,
 } from './recovery/adapter-recovery.js'
 
+// --- Recovery Policies ---
+export { RecoveryPolicySelector, RECOVERY_POLICIES } from './recovery/recovery-policies.js'
+export type { RecoveryPolicy, RecoveryStrategyConfig, PolicyContext } from './recovery/recovery-policies.js'
+
+// --- Escalation ---
+export { EventBusEscalationHandler, WebhookEscalationHandler } from './recovery/escalation-handler.js'
+export { CrossProviderHandoff } from './recovery/cross-provider-handoff.js'
+export type { HandoffItem, CrossProviderHandoffOptions } from './recovery/cross-provider-handoff.js'
+export type {
+  EscalationHandler,
+  EscalationContext,
+  EscalationResolution,
+  RecoveryAttemptSummary,
+} from './recovery/escalation-handler.js'
+
 // --- HTTP Handler ---
+export { SlidingWindowRateLimiter } from './http/rate-limiter.js'
+export type { RateLimitConfig } from './http/rate-limiter.js'
 export { AdapterHttpHandler } from './http/adapter-http-handler.js'
 export type {
   AdapterHttpConfig,
@@ -250,7 +349,22 @@ export type {
   ParallelRequestBody,
   BidRequestBody,
   HealthResponse,
+  TokenValidationResult,
 } from './http/adapter-http-handler.js'
+export {
+  RunRequestSchema,
+  SupervisorRequestSchema,
+  ParallelRequestSchema,
+  BidRequestSchema,
+  ApproveRequestSchema,
+} from './http/request-schemas.js'
+export type {
+  RunRequest,
+  SupervisorRequest,
+  ParallelRequest,
+  BidRequest,
+  ApproveRequest,
+} from './http/request-schemas.js'
 
 // --- Context-Aware Routing ---
 export { ContextAwareRouter, ContextInjectionMiddleware } from './context/context-aware-router.js'
@@ -292,6 +406,51 @@ export type {
   PerformanceReport,
   ProviderComparison,
 } from './learning/adapter-learning-loop.js'
+export { InMemoryLearningStore } from './learning/in-memory-learning-store.js'
+export { FileLearningStore } from './learning/file-learning-store.js'
+export type { LearningStore, LearningSnapshot } from './learning/learning-store.js'
+
+// --- Error Aliases ---
+export { DzupError } from './utils/errors.js'
+export type { DzupErrorOptions } from './utils/errors.js'
 
 // --- Utilities ---
 export { isBinaryAvailable, spawnAndStreamJsonl } from './utils/process-helpers.js'
+export { filterSensitiveEnvVars } from './base/base-cli-adapter.js'
+export { validateWebhookUrl } from './utils/url-validator.js'
+export { resolveFallbackProviderId, requireFallbackProviderId } from './utils/provider-helpers.js'
+export type { UrlValidationOptions } from './utils/url-validator.js'
+
+// --- Skill Projection ---
+export { SkillProjector } from './skills/skill-projector.js'
+export type { SkillProjection, ProjectionOptions } from './skills/skill-projector.js'
+
+// --- Adapter Skill Bundle & Compilers ---
+export type {
+  AdapterSkillBundle,
+  CompiledAdapterSkill,
+  AdapterSkillCompiler,
+  ProjectionUsageRecord,
+} from './skills/adapter-skill-types.js'
+export { AdapterSkillRegistry, createDefaultSkillRegistry } from './skills/adapter-skill-registry.js'
+export type { VersionedProjection, AdapterSkillVersionStore } from './skills/adapter-skill-version-store.js'
+export { InMemoryAdapterSkillVersionStore } from './skills/adapter-skill-version-store.js'
+export type {
+  ProjectionTelemetryRecord,
+  ProjectionUsageStats,
+  AdapterSkillTelemetry,
+} from './skills/adapter-skill-telemetry.js'
+export { InMemoryAdapterSkillTelemetry } from './skills/adapter-skill-telemetry.js'
+export { CodexSkillCompiler } from './skills/compilers/codex-skill-compiler.js'
+export { ClaudeSkillCompiler } from './skills/compilers/claude-skill-compiler.js'
+export { CliSkillCompiler, isCliProviderId } from './skills/compilers/cli-skill-compiler.js'
+
+// --- Policy Compiler & Conformance ---
+export { compilePolicyForProvider, compilePolicyForAll } from './policy/index.js'
+export type { AdapterPolicy, CompiledPolicyOverrides, CompiledGuardrailHints } from './policy/index.js'
+export { PolicyConformanceChecker } from './policy/index.js'
+export type { PolicyViolation, PolicyViolationSeverity, PolicyConformanceResult } from './policy/index.js'
+
+// --- Batched Event Emitter ---
+export { BatchedEventEmitter } from './utils/batched-event-emitter.js'
+export type { BatchConfig } from './utils/batched-event-emitter.js'

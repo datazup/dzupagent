@@ -24,29 +24,29 @@ const PATTERNS: Array<{
   {
     kind: 'class',
     regex:
-      /^(export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+(?:extends|implements)\s+[^{]+)?/,
+      /^(export\s)?(?:abstract\s)?class\s+(\w+)/,
   },
   {
     kind: 'interface',
-    regex: /^(export\s+)?interface\s+(\w+)(?:\s+extends\s+[^{]+)?/,
+    regex: /^(export\s)?interface\s+(\w+)/,
   },
   {
     kind: 'enum',
-    regex: /^(export\s+)?(?:const\s+)?enum\s+(\w+)/,
+    regex: /^(export\s)?(?:const\s)?enum\s+(\w+)/,
   },
   {
     kind: 'type',
-    regex: /^(export\s+)?type\s+(\w+)(?:\s*<[^>]*>)?\s*=/,
+    regex: /^(export\s)?type\s+(\w+)\s*[<=]/,
   },
   {
     kind: 'function',
     regex:
-      /^(export\s+)?(?:async\s+)?function\s+(\w+)\s*(?:<[^>]*>)?\s*\([^)]*\)(?:\s*:\s*[^\n{]+)?/,
+      /^(export\s)?(?:async\s)?function\s+(\w+)/,
   },
   {
     kind: 'const',
     regex:
-      /^(export\s+)?const\s+(\w+)(?:\s*:\s*[^=\n]+)?\s*=/,
+      /^(export\s)?const\s+(\w+)/,
   },
 ]
 

@@ -9,8 +9,13 @@
  *
  * Slot states: 0=FREE, 1=WRITING, 2=READY, 3=CLAIMED
  *
- * Uses Atomics for thread-safe state transitions and a bump allocator with
- * wrap-around for the data region.
+ * Uses Atomics for thread-safe state transitions and a CAS-based bump allocator
+ * with wrap-around for the data region.
+ *
+ * **Multi-writer safety:** Safe for concurrent async writes within a single
+ * Node.js process. Both slot acquisition (CAS: FREE -> WRITING) and data
+ * allocation (CAS bump pointer) are atomic. Cross-process multi-writer
+ * requires external coordination (e.g. file locks or a dedicated allocator process).
  */
 
 import { type Table } from 'apache-arrow'
@@ -47,6 +52,26 @@ export interface SharedMemoryChannelOptions {
   maxSlots?: number
   /** Use an existing SharedArrayBuffer (for worker side). */
   existingBuffer?: SharedArrayBuffer
+  /**
+   * Opt-in to multi-writer mode.
+   *
+   * **Default: false (single-writer contract enforced).**
+   *
+   * This channel's CAS-based allocator is safe for concurrent async writes
+   * within a **single** Node.js process. Cross-process multi-writer requires
+   * external coordination (e.g. file locks or a dedicated allocator process)
+   * because the CAS loop assumes a shared event loop that cannot be preempted
+   * between the load and compareExchange calls.
+   *
+   * When `multiWriter` is false (the default), calling `write()` or
+   * `writeTable()` after the channel was constructed with `existingBuffer`
+   * (i.e. on the worker/consumer side) throws immediately with a descriptive
+   * error. This prevents accidental cross-process write races.
+   *
+   * Set to `true` only when you have verified external coordination and accept
+   * the cross-process safety limitations documented above.
+   */
+  multiWriter?: boolean
 }
 
 /** Handle returned from a write operation, used to read or release the slot. */
@@ -67,10 +92,17 @@ export class SharedMemoryChannel {
   private readonly maxSlots: number
   private readonly dataRegionOffset: number
   private readonly dataRegionSize: number
+  /**
+   * True when this instance was created from an existingBuffer (consumer/worker side).
+   * Used to enforce the single-writer contract when multiWriter is false.
+   */
+  private readonly isConsumerSide: boolean
+  private readonly multiWriter: boolean
 
   constructor(options?: SharedMemoryChannelOptions) {
     const maxBytes = options?.maxBytes ?? DEFAULT_MAX_BYTES
     this.maxSlots = options?.maxSlots ?? DEFAULT_MAX_SLOTS
+    this.multiWriter = options?.multiWriter ?? false
 
     // Header size = (HEADER_INTS + maxSlots * SLOT_INTS) * 4 bytes
     const headerBytes =
@@ -80,11 +112,13 @@ export class SharedMemoryChannel {
     if (options?.existingBuffer) {
       this.sab = options.existingBuffer
       this.dataRegionSize = this.sab.byteLength - headerBytes
+      this.isConsumerSide = true
     } else {
       // Total buffer: header + data region
       const totalBytes = headerBytes + maxBytes
       this.sab = new SharedArrayBuffer(totalBytes)
       this.dataRegionSize = maxBytes
+      this.isConsumerSide = false
 
       // Initialize header
       const view = new Int32Array(this.sab, 0, HEADER_INTS)
@@ -111,6 +145,7 @@ export class SharedMemoryChannel {
 
   /** Write raw IPC bytes to the channel. Returns a handle for readers. */
   write(ipcBytes: Uint8Array): SlotHandle {
+    this.assertWriteAllowed()
     if (ipcBytes.byteLength === 0) {
       throw new Error('SharedMemoryChannel: cannot write zero-length data')
     }
@@ -236,6 +271,26 @@ export class SharedMemoryChannel {
   // Private helpers
   // -------------------------------------------------------------------------
 
+  /**
+   * Enforce the single-writer contract.
+   *
+   * Throws if this instance was created with `existingBuffer` (consumer side) and
+   * `multiWriter` is false. Consumer-side instances must not write — only the
+   * original producer (the process that created the SharedArrayBuffer) is the
+   * designated writer. This prevents silent cross-process write races that the
+   * in-process CAS loop cannot prevent.
+   */
+  private assertWriteAllowed(): void {
+    if (this.isConsumerSide && !this.multiWriter) {
+      throw new Error(
+        'SharedMemoryChannel: write() called on a consumer-side instance (constructed with existingBuffer). ' +
+        'Only the producer process that created the SharedArrayBuffer may write. ' +
+        'To allow cross-process writes, pass { multiWriter: true } — but note that ' +
+        'cross-process multi-writer safety requires external coordination (e.g. file locks).',
+      )
+    }
+  }
+
   /** Get the Int32Array index for a slot's first metadata field. */
   private slotMetaIndex(slotIndex: number): number {
     return HEADER_INTS + slotIndex * SLOT_INTS
@@ -258,23 +313,47 @@ export class SharedMemoryChannel {
     return -1
   }
 
-  /** Bump-allocate data in the data region. Returns offset relative to data region start. */
+  /**
+   * Bump-allocate data in the data region. Returns offset relative to data region start.
+   *
+   * **Multi-writer safety:** Uses compareExchange (CAS) to atomically claim space.
+   * Safe for concurrent async writes within a single Node.js process. Cross-process
+   * multi-writer requires external coordination (e.g. file locks or a dedicated
+   * allocator process).
+   */
   private allocateData(size: number): number {
-    // Simple bump allocator with wrap-around
-    // Use Atomics.add to atomically claim space
-    const currentOffset = Atomics.load(this.int32View, 1)
-    let newOffset = currentOffset + size
+    // CAS loop: atomically claim space in the bump allocator.
+    // Retries on contention from concurrent async writers.
+    const MAX_CAS_RETRIES = 64
+    for (let attempt = 0; attempt < MAX_CAS_RETRIES; attempt++) {
+      const currentOffset = Atomics.load(this.int32View, 1)
+      let claimedOffset = currentOffset
+      let newOffset = currentOffset + size
 
-    if (newOffset > this.dataRegionSize) {
-      // Wrap around to beginning
-      // Note: in a real concurrent scenario this would need more sophisticated handling.
-      // For our use case (single writer thread), this is sufficient.
-      Atomics.store(this.int32View, 1, size)
-      return 0
+      if (newOffset > this.dataRegionSize) {
+        // Wrap around to beginning
+        claimedOffset = 0
+        newOffset = size
+      }
+
+      // Atomically try to advance the write pointer
+      const prev = Atomics.compareExchange(
+        this.int32View,
+        1,
+        currentOffset,
+        newOffset,
+      )
+
+      if (prev === currentOffset) {
+        // CAS succeeded — we own [claimedOffset, claimedOffset + size)
+        return claimedOffset
+      }
+      // CAS failed — another writer moved the pointer; retry
     }
 
-    Atomics.store(this.int32View, 1, newOffset)
-    return currentOffset
+    throw new Error(
+      `SharedMemoryChannel: allocateData CAS failed after ${MAX_CAS_RETRIES} retries (contention too high)`,
+    )
   }
 
   /** Validate that a handle references a valid slot index. */

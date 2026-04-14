@@ -1,0 +1,47 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "@dzupagent/memory#build": {
+      "dependsOn": ["@dzupagent/memory-ipc#build"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": ["^build", "^typecheck"],
+      "outputs": []
+    },
+    "@dzupagent/memory#typecheck": {
+      "dependsOn": ["@dzupagent/memory-ipc#build"]
+    },
+    "lint": {
+      "inputs": ["src/**", "package.json", ".eslintrc*", "eslint.config.*"],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
+      "outputs": ["coverage/**"]
+    },
+    "@dzupagent/evals#test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
+      "outputs": []
+    },
+    "@dzupagent/rag#test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
+      "outputs": []
+    },
+    "@dzupagent/test-utils#test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
+      "outputs": []
+    }
+  }
+}

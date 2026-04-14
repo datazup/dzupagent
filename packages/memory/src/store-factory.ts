@@ -8,6 +8,11 @@
 import { PostgresStore } from '@langchain/langgraph-checkpoint-postgres/store'
 import type { BaseStore } from '@langchain/langgraph'
 import type { EmbeddingsInterface } from '@langchain/core/embeddings'
+import {
+  attachMemoryStoreCapabilities,
+  DEFAULT_MEMORY_STORE_CAPABILITIES,
+  type MemoryStoreCapabilities,
+} from './store-capabilities.js'
 
 /**
  * Embedding index configuration for semantic search.
@@ -21,14 +26,38 @@ export interface StoreIndexConfig {
   /** Embedding vector dimensions (must match the model output) */
   dims: number
   /** Fields in the stored value to embed (default: ["text"]) */
-  fields?: string[]
+  fields?: string[] | undefined
 }
 
 export interface StoreConfig {
   type: 'postgres' | 'memory'
-  connectionString?: string
+  connectionString?: string | undefined
   /** Optional embedding index config for semantic search */
-  index?: StoreIndexConfig
+  index?: StoreIndexConfig | undefined
+  /** Explicit capability overrides for the returned store */
+  capabilities?: Partial<MemoryStoreCapabilities> | undefined
+}
+
+/**
+ * Query options for InMemoryBaseStore.search().
+ * Provides filter, text query, and pagination support.
+ */
+export interface StoreQueryOptions {
+  /** Metadata field equality filters (AND semantics) */
+  filter?: Record<string, unknown> | undefined
+  /** Case-insensitive substring match against `text` or `content` fields */
+  query?: string | undefined
+  /** Maximum number of results to return */
+  limit?: number | undefined
+  /** Number of results to skip before returning */
+  offset?: number | undefined
+}
+
+/**
+ * Capabilities exposed by the in-memory store.
+ */
+export const IN_MEMORY_STORE_CAPABILITIES: MemoryStoreCapabilities = {
+  ...DEFAULT_MEMORY_STORE_CAPABILITIES,
 }
 
 /**
@@ -37,6 +66,8 @@ export interface StoreConfig {
  */
 class InMemoryBaseStore {
   private data = new Map<string, Map<string, { value: Record<string, unknown>; createdAt: Date; updatedAt: Date }>>()
+  readonly capabilities = { ...DEFAULT_MEMORY_STORE_CAPABILITIES }
+  readonly searchParity = 'limited' as const
 
   async setup(): Promise<void> { /* no-op */ }
 
@@ -57,9 +88,13 @@ class InMemoryBaseStore {
     this.data.get(nsKey)?.delete(key)
   }
 
-  async search(namespacePrefix: string[]): Promise<Array<{ namespace: string[]; key: string; value: Record<string, unknown> }>> {
+  async search(
+    namespacePrefix: string[],
+    options?: StoreQueryOptions,
+  ): Promise<Array<{ namespace: string[]; key: string; value: Record<string, unknown> }>> {
     const prefix = namespacePrefix.join('.')
-    const results: Array<{ namespace: string[]; key: string; value: Record<string, unknown> }> = []
+    let results: Array<{ namespace: string[]; key: string; value: Record<string, unknown> }> = []
+
     for (const [nsKey, entries] of this.data) {
       if (nsKey.startsWith(prefix)) {
         for (const [key, entry] of entries) {
@@ -67,6 +102,35 @@ class InMemoryBaseStore {
         }
       }
     }
+
+    // Apply metadata field equality filters (AND semantics)
+    if (options?.filter) {
+      const filterEntries = Object.entries(options.filter)
+      results = results.filter(r =>
+        filterEntries.every(([field, expected]) => r.value[field] === expected),
+      )
+    }
+
+    // Apply case-insensitive substring text query against `text` or `content` fields
+    if (options?.query) {
+      const q = options.query.toLowerCase()
+      results = results.filter(r => {
+        const text = r.value['text']
+        const content = r.value['content']
+        if (typeof text === 'string' && text.toLowerCase().includes(q)) return true
+        if (typeof content === 'string' && content.toLowerCase().includes(q)) return true
+        return false
+      })
+    }
+
+    // Apply pagination
+    if (options?.offset) {
+      results = results.slice(options.offset)
+    }
+    if (options?.limit !== undefined) {
+      results = results.slice(0, options.limit)
+    }
+
     return results
   }
 
@@ -99,13 +163,13 @@ export async function createStore(config: StoreConfig): Promise<BaseStore> {
       indexConfig ? { index: indexConfig } : undefined,
     )
     await store.setup()
-    return store
+    return attachMemoryStoreCapabilities(store as BaseStore, config.capabilities)
   }
 
   if (config.type === 'memory') {
     const store = new InMemoryBaseStore()
     await store.setup()
-    return store as unknown as BaseStore
+    return attachMemoryStoreCapabilities(store as unknown as BaseStore, config.capabilities)
   }
 
   throw new Error(`Unknown store type: ${String(config.type)}`)

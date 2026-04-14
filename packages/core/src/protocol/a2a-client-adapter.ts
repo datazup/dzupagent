@@ -222,7 +222,7 @@ export class A2AClientAdapter implements ProtocolAdapter {
         code: 'PROTOCOL_CONNECTION_FAILED',
         message: `Failed to connect to A2A endpoint: ${message}`,
         recoverable: true,
-        cause: err instanceof Error ? err : undefined,
+        ...(err instanceof Error && { cause: err }),
       })
     }
   }
@@ -402,7 +402,7 @@ export class A2AClientAdapter implements ProtocolAdapter {
     // Stream updates via SSE
     const baseUrl = resolveBaseUrl(message.to, this.configBaseUrl)
     yield* streamA2ATask(baseUrl, taskId, {
-      signal: options?.signal,
+      ...(options?.signal !== undefined && { signal: options.signal }),
       fetch: this.fetchFn,
       maxReconnects: this.maxRetries,
       reconnectDelayMs: this.retryDelayMs,
@@ -427,9 +427,8 @@ export class A2AClientAdapter implements ProtocolAdapter {
   health(): AdapterHealthStatus {
     return {
       state: this.adapterState,
-      latencyMs: undefined,
-      lastError: this.lastError,
-      lastConnectedAt: this.lastConnectedAt,
+      ...(this.lastError !== undefined && { lastError: this.lastError }),
+      ...(this.lastConnectedAt !== undefined && { lastConnectedAt: this.lastConnectedAt }),
     }
   }
 }

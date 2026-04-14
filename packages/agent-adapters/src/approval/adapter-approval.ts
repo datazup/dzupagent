@@ -10,7 +10,7 @@
  * Additionally supports cost-based auto-approval: if `autoApproveBelowCostCents`
  * is set and the estimated cost is below the threshold, the gate auto-approves.
  *
- * Events emitted (all defined in @dzipagent/core DzipEvent):
+ * Events emitted (all defined in @dzupagent/core DzupEvent):
  *   approval:requested
  *   approval:granted
  *   approval:rejected
@@ -30,9 +30,13 @@
  * ```
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import type { AdapterProviderId, AgentEvent } from '../types.js'
+import { validateWebhookUrl } from '../utils/url-validator.js'
+import type { UrlValidationOptions } from '../utils/url-validator.js'
+import { InMemoryApprovalAuditStore } from './approval-audit.js'
+import type { ApprovalAuditStore } from './approval-audit.js'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -53,11 +57,15 @@ export interface ApprovalContext {
   /** Which provider would execute the work. */
   providerId: AdapterProviderId
   /** Estimated cost in cents (used for auto-approve threshold). */
-  estimatedCostCents?: number
+  estimatedCostCents?: number | undefined
   /** Task tags for categorisation. */
-  tags?: string[]
+  tags?: string[] | undefined
   /** Additional metadata forwarded to webhooks and events. */
   metadata?: Record<string, unknown>
+  /** Estimated blast radius of the action. */
+  blastRadius?: 'low' | 'medium' | 'high' | 'critical'
+  /** AI confidence score for the proposed action (0–1). */
+  confidenceScore?: number
 }
 
 /** A tracked approval request. */
@@ -82,8 +90,12 @@ export interface AdapterApprovalConfig {
   webhookUrl?: string
   /** Auto-approve if estimated cost is below this threshold (cents). */
   autoApproveBelowCostCents?: number
+  /** SSRF-protection options applied to webhookUrl. */
+  webhookUrlValidation?: UrlValidationOptions
   /** Event bus for approval events. */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
+  /** Audit store for recording approval decisions. Defaults to in-memory store. */
+  auditStore?: ApprovalAuditStore
 }
 
 // ---------------------------------------------------------------------------
@@ -106,10 +118,17 @@ export class AdapterApprovalGate {
   private readonly timeoutMs: number
   private readonly pending = new Map<string, ApprovalRequest>()
   private readonly resolvers = new Map<string, PendingResolvers>()
+  private readonly auditStore: ApprovalAuditStore
 
   constructor(config: AdapterApprovalConfig) {
     this.config = config
     this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    this.auditStore = config.auditStore ?? new InMemoryApprovalAuditStore()
+
+    // Validate webhook URL at construction time (fail fast)
+    if (config.webhookUrl) {
+      validateWebhookUrl(config.webhookUrl, config.webhookUrlValidation)
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -125,6 +144,16 @@ export class AdapterApprovalGate {
   async requestApproval(context: ApprovalContext): Promise<ApprovalResult> {
     // 1. Auto mode -- always approve
     if (this.config.mode === 'auto') {
+      this.recordAudit({
+        requestId: crypto.randomUUID(),
+        providerId: context.providerId,
+        action: 'auto_approved',
+        timestamp: Date.now(),
+        actor: 'auto-policy',
+        reason: 'Auto-approved by policy (auto mode)',
+        estimatedCostCents: context.estimatedCostCents,
+        mode: this.config.mode,
+      })
       return 'approved'
     }
 
@@ -134,6 +163,16 @@ export class AdapterApprovalGate {
       context.estimatedCostCents !== undefined &&
       context.estimatedCostCents < this.config.autoApproveBelowCostCents
     ) {
+      this.recordAudit({
+        requestId: crypto.randomUUID(),
+        providerId: context.providerId,
+        action: 'auto_approved',
+        timestamp: Date.now(),
+        actor: 'auto-policy',
+        reason: 'Auto-approved by cost threshold',
+        estimatedCostCents: context.estimatedCostCents,
+        mode: this.config.mode,
+      })
       return 'approved'
     }
 
@@ -141,6 +180,16 @@ export class AdapterApprovalGate {
     if (this.config.mode === 'conditional' && this.config.condition) {
       const needsApproval = await this.config.condition(context)
       if (!needsApproval) {
+        this.recordAudit({
+          requestId: crypto.randomUUID(),
+          providerId: context.providerId,
+          action: 'auto_approved',
+          timestamp: Date.now(),
+          actor: 'auto-policy',
+          reason: 'Auto-approved by conditional predicate',
+          estimatedCostCents: context.estimatedCostCents,
+          mode: this.config.mode,
+        })
         return 'approved'
       }
     }
@@ -161,6 +210,16 @@ export class AdapterApprovalGate {
 
     this.pending.set(requestId, request)
 
+    this.recordAudit({
+      requestId,
+      providerId: context.providerId,
+      action: 'requested',
+      timestamp: Date.now(),
+      actor: 'system',
+      estimatedCostCents: context.estimatedCostCents,
+      mode: this.config.mode,
+    })
+
     // 5. Emit approval:requested event
     this.emitEvent({ type: 'approval:requested', runId: context.runId, plan: context })
 
@@ -179,6 +238,15 @@ export class AdapterApprovalGate {
           req.status = 'expired'
           this.pending.delete(requestId)
           this.resolvers.delete(requestId)
+          this.recordAudit({
+            requestId,
+            providerId: context.providerId,
+            action: 'timed_out',
+            timestamp: Date.now(),
+            actor: 'system',
+            reason: `Timed out after ${String(this.timeoutMs)}ms`,
+            mode: this.config.mode,
+          })
           this.emitEvent({
             type: 'approval:rejected',
             runId: context.runId,
@@ -187,6 +255,9 @@ export class AdapterApprovalGate {
           resolve('timeout')
         }
       }, this.timeoutMs)
+      if (typeof timer.unref === 'function') {
+        timer.unref()
+      }
 
       this.resolvers.set(requestId, { resolve, timer })
     })
@@ -208,6 +279,15 @@ export class AdapterApprovalGate {
 
     request.status = 'approved'
     this.cleanup(requestId, resolvers)
+
+    this.recordAudit({
+      requestId,
+      providerId: request.context.providerId,
+      action: 'granted',
+      timestamp: Date.now(),
+      actor: approvedBy ?? 'unknown',
+      mode: this.config.mode,
+    })
 
     this.emitEvent({
       type: 'approval:granted',
@@ -234,6 +314,16 @@ export class AdapterApprovalGate {
 
     request.status = 'rejected'
     this.cleanup(requestId, resolvers)
+
+    this.recordAudit({
+      requestId,
+      providerId: request.context.providerId,
+      action: 'rejected',
+      timestamp: Date.now(),
+      actor: 'user',
+      reason,
+      mode: this.config.mode,
+    })
 
     this.emitEvent({
       type: 'approval:rejected',
@@ -270,6 +360,20 @@ export class AdapterApprovalGate {
       this.resolvers.delete(requestId)
     }
     this.pending.clear()
+  }
+
+  /**
+   * Dispose the gate, clearing all pending requests and timers.
+   */
+  dispose(): void {
+    this.clear()
+  }
+
+  /**
+   * Get the audit store for querying approval history.
+   */
+  getAuditStore(): ApprovalAuditStore {
+    return this.auditStore
   }
 
   /**
@@ -310,6 +414,14 @@ export class AdapterApprovalGate {
   // Private helpers
   // -------------------------------------------------------------------------
 
+  private recordAudit(entry: import('./approval-audit.js').ApprovalAuditEntry): void {
+    try {
+      this.auditStore.record(entry)
+    } catch {
+      // Audit recording must never throw — it is non-critical.
+    }
+  }
+
   private cleanup(requestId: string, resolvers: PendingResolvers): void {
     if (resolvers.timer !== undefined) {
       clearTimeout(resolvers.timer)
@@ -321,16 +433,19 @@ export class AdapterApprovalGate {
   private emitEvent(
     event:
       | { type: 'approval:requested'; runId: string; plan: unknown }
-      | { type: 'approval:granted'; runId: string; approvedBy?: string }
-      | { type: 'approval:rejected'; runId: string; reason?: string },
+      | { type: 'approval:granted'; runId: string; approvedBy?: string | undefined }
+      | { type: 'approval:rejected'; runId: string; reason?: string | undefined },
   ): void {
     if (this.config.eventBus) {
-      this.config.eventBus.emit(event as Parameters<DzipEventBus['emit']>[0])
+      this.config.eventBus.emit(event as Parameters<DzupEventBus['emit']>[0])
     }
   }
 
   private async notifyWebhook(requestId: string, context: ApprovalContext): Promise<void> {
     if (!this.config.webhookUrl) return
+
+    // Re-validate at call time in case the URL was mutated after construction
+    validateWebhookUrl(this.config.webhookUrl, this.config.webhookUrlValidation)
 
     await fetch(this.config.webhookUrl, {
       method: 'POST',

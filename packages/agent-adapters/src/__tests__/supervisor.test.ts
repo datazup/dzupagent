@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import {
   SupervisorOrchestrator,
@@ -107,8 +107,8 @@ function createFailingRegistry(
   } as unknown as AdapterRegistry
 }
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -177,8 +177,8 @@ describe('KeywordTaskDecomposer', () => {
 // ---------------------------------------------------------------------------
 
 describe('SupervisorOrchestrator', () => {
-  let bus: DzipEventBus
-  let emitted: DzipEvent[]
+  let bus: DzupEventBus
+  let emitted: DzupEvent[]
 
   beforeEach(() => {
     bus = createEventBus()
@@ -389,10 +389,30 @@ describe('SupervisorOrchestrator', () => {
 
       expect(maxConcurrentObserved).toBeLessThanOrEqual(2)
     })
+
+    it.each([
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['-Infinity', Number.NEGATIVE_INFINITY],
+      ['NaN', Number.NaN],
+      ['zero', 0],
+      ['negative', -1],
+      ['non-integer', 1.5],
+    ])('rejects %s as maxConcurrentDelegations', async (_, maxConcurrentDelegations) => {
+      const adapter = createMockAdapter('claude', [])
+      const registry = createMockRegistry(adapter)
+
+      expect(() => new SupervisorOrchestrator({
+        registry,
+        eventBus: bus,
+        maxConcurrentDelegations,
+      })).toThrow(
+        `Supervisor maxConcurrentDelegations must be a finite positive integer; received ${String(maxConcurrentDelegations)}`,
+      )
+    })
   })
 
   describe('AbortSignal cancellation', () => {
-    it('throws when signal is already aborted', async () => {
+    it('returns a cancelled result when signal is already aborted', async () => {
       const adapter = createMockAdapter('claude', [])
       const registry = createMockRegistry(adapter)
       const controller = new AbortController()
@@ -400,12 +420,13 @@ describe('SupervisorOrchestrator', () => {
 
       const supervisor = new SupervisorOrchestrator({ registry, eventBus: bus })
 
-      await expect(
-        supervisor.execute('Do something', { signal: controller.signal }),
-      ).rejects.toThrow('aborted')
+      const result = await supervisor.execute('Do something', { signal: controller.signal })
+
+      expect(result.cancelled).toBe(true)
+      expect(result.subtaskResults).toHaveLength(0)
     })
 
-    it('marks subtask as failed when signal is aborted during execution', async () => {
+    it('marks the result as cancelled when signal is aborted during execution', async () => {
       const adapter = createMockAdapter('claude', [])
       const controller = new AbortController()
 
@@ -433,11 +454,12 @@ describe('SupervisorOrchestrator', () => {
 
       const supervisor = new SupervisorOrchestrator({ registry, eventBus: bus })
 
-      // The supervisor catches abort errors per-subtask and marks them as failed
       const result = await supervisor.execute('Do something', { signal: controller.signal })
 
+      expect(result.cancelled).toBe(true)
       expect(result.subtaskResults).toHaveLength(1)
       expect(result.subtaskResults[0]!.success).toBe(false)
+      expect(result.subtaskResults[0]!.cancelled).toBe(true)
       expect(result.subtaskResults[0]!.error).toContain('aborted')
     })
   })
@@ -455,7 +477,7 @@ describe('SupervisorOrchestrator', () => {
       await supervisor.execute('Implement the feature')
 
       const planEvent = emitted.find((e) => e.type === 'supervisor:plan_created') as
-        | (DzipEvent & { source?: string })
+        | (DzupEvent & { source?: string })
         | undefined
       expect(planEvent).toBeDefined()
       expect(planEvent!['source']).toBe('keyword')
@@ -480,7 +502,7 @@ describe('SupervisorOrchestrator', () => {
       await supervisor.execute('Any goal')
 
       const planEvent = emitted.find((e) => e.type === 'supervisor:plan_created') as
-        | (DzipEvent & { source?: string })
+        | (DzupEvent & { source?: string })
         | undefined
       expect(planEvent).toBeDefined()
       expect(planEvent!['source']).toBe('llm')

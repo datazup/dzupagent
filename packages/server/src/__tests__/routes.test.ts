@@ -1,11 +1,12 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { createForgeApp, type ForgeServerConfig } from '../app.js'
 import {
   InMemoryRunStore,
   InMemoryAgentStore,
   ModelRegistry,
   createEventBus,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
+import { InMemoryRunTraceStore } from '../persistence/run-trace-store.js'
 import type { RunQueue, RunJob, JobProcessor, QueueStats } from '../queue/run-queue.js'
 
 function createTestConfig(): ForgeServerConfig {
@@ -27,6 +28,10 @@ async function req(app: ReturnType<typeof createForgeApp>, method: string, path:
 }
 
 describe('Health routes', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('GET /api/health returns 200', async () => {
     const app = createForgeApp(createTestConfig())
     const res = await app.request('/api/health')
@@ -41,6 +46,37 @@ describe('Health routes', () => {
     expect(res.status).toBe(200)
     const data = await res.json() as Record<string, unknown>
     expect(data['status']).toBe('ok')
+  })
+
+  it('warns when in-memory runtime stores are explicitly configured as unbounded', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const runStore = new InMemoryRunStore({
+      maxRuns: Number.POSITIVE_INFINITY,
+      maxLogsPerRun: Number.POSITIVE_INFINITY,
+    }) as InMemoryRunStore & {
+      __dzupagentRetention?: { explicitUnbounded: boolean }
+    }
+    runStore.__dzupagentRetention = { explicitUnbounded: true }
+    const app = createForgeApp({
+      ...createTestConfig(),
+      runStore,
+      traceStore: new InMemoryRunTraceStore({
+        maxTraces: Number.POSITIVE_INFINITY,
+        maxStepsPerTrace: Number.POSITIVE_INFINITY,
+      }),
+    })
+
+    const response = await app.request('/api/health')
+
+    expect(response.status).toBe(200)
+    expect(warn).toHaveBeenCalledWith(
+      '[ForgeServer] InMemoryRunStore is running with unbounded retention. ' +
+        'Set finite limits for production workloads unless this opt-out is intentional.',
+    )
+    expect(warn).toHaveBeenCalledWith(
+      '[ForgeServer] InMemoryRunTraceStore is running with unbounded retention. ' +
+        'Set finite limits for production workloads unless this opt-out is intentional.',
+    )
   })
 })
 

@@ -9,7 +9,7 @@
  * at the application level. Timeout is enforced via ALTER SESSION.
  */
 
-import snowflake from 'snowflake-sdk'
+import { createRequire } from 'node:module'
 import { BaseSQLConnector } from '../base-sql-connector.js'
 import type {
   SQLDialect,
@@ -23,8 +23,62 @@ import type {
   SchemaDiscoveryOptions,
 } from '../types.js'
 
-// Suppress noisy OCSP logging in non-production environments
-snowflake.configure({ logLevel: 'WARN' })
+import type * as SnowflakePkg from 'snowflake-sdk'
+
+type SnowflakeSDK = typeof SnowflakePkg
+type SnowflakeConnection = ReturnType<SnowflakeSDK['createConnection']>
+
+const runtimeRequire = createRequire(import.meta.url)
+const SNOWFLAKE_DRIVER_PACKAGE = 'snowflake-sdk'
+
+let snowflakeModulePromise: Promise<SnowflakeSDK> | null = null
+
+function isMissingModuleError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND'
+  )
+}
+
+function assertSnowflakeDriverInstalled(): void {
+  try {
+    runtimeRequire.resolve(SNOWFLAKE_DRIVER_PACKAGE)
+  } catch (error: unknown) {
+    if (isMissingModuleError(error)) {
+      throw new Error(
+        `SnowflakeConnector requires the optional dependency "${SNOWFLAKE_DRIVER_PACKAGE}". Install it with: yarn add ${SNOWFLAKE_DRIVER_PACKAGE}`,
+      )
+    }
+    throw error
+  }
+}
+
+async function loadSnowflakeSDK(): Promise<SnowflakeSDK> {
+  if (!snowflakeModulePromise) {
+    assertSnowflakeDriverInstalled()
+    snowflakeModulePromise = import('snowflake-sdk')
+      .then((mod) => {
+        const loaded = mod as SnowflakeSDK & { default?: SnowflakeSDK }
+        const snowflake = loaded.default ?? loaded
+
+        // Suppress noisy OCSP logging in non-production environments.
+        snowflake.configure({ logLevel: 'WARN' })
+        return snowflake
+      })
+      .catch((error: unknown) => {
+        if (isMissingModuleError(error)) {
+          throw new Error(
+            `SnowflakeConnector requires the optional dependency "${SNOWFLAKE_DRIVER_PACKAGE}". Install it with: yarn add ${SNOWFLAKE_DRIVER_PACKAGE}`,
+          )
+        }
+        throw error
+      })
+  }
+
+  return snowflakeModulePromise
+}
 
 // ---------------------------------------------------------------------------
 // Row shapes for INFORMATION_SCHEMA queries
@@ -63,11 +117,12 @@ interface InfoSchemaRowCountRow {
 // ---------------------------------------------------------------------------
 
 export class SnowflakeConnector extends BaseSQLConnector {
-  private connection: snowflake.Connection | null = null
-  private connecting: Promise<snowflake.Connection> | null = null
+  private connection: SnowflakeConnection | null = null
+  private connecting: Promise<SnowflakeConnection> | null = null
 
   constructor(config: SQLConnectionConfig) {
     super(config)
+    assertSnowflakeDriverInstalled()
   }
 
   getDialect(): SQLDialect {
@@ -272,13 +327,14 @@ export class SnowflakeConnector extends BaseSQLConnector {
    * Lazily establishes and caches a Snowflake connection.
    * Uses a shared promise to avoid duplicate concurrent connect() calls.
    */
-  private async getConnection(): Promise<snowflake.Connection> {
+  private async getConnection(): Promise<SnowflakeConnection> {
     if (this.connection) return this.connection
 
     if (this.connecting) return this.connecting
 
-    this.connecting = new Promise<snowflake.Connection>((resolve, reject) => {
-      const opts: snowflake.ConnectionOptions = {
+    this.connecting = (async () => {
+      const snowflake = await loadSnowflakeSDK()
+      const opts: Parameters<SnowflakeSDK['createConnection']>[0] = {
         account: this.config.account ?? this.config.host,
         username: this.config.username,
         password: this.config.password,
@@ -290,16 +346,18 @@ export class SnowflakeConnector extends BaseSQLConnector {
 
       const conn = snowflake.createConnection(opts)
 
-      conn.connect((err, connected) => {
-        if (err) {
-          this.connecting = null
-          reject(new Error(`Snowflake connection failed: ${err.message}`))
-        } else {
-          this.connection = connected
-          resolve(connected)
-        }
+      return await new Promise<SnowflakeConnection>((resolve, reject) => {
+        conn.connect((err, connected) => {
+          if (err) {
+            this.connecting = null
+            reject(new Error(`Snowflake connection failed: ${err.message}`))
+          } else {
+            this.connection = connected
+            resolve(connected)
+          }
+        })
       })
-    })
+    })()
 
     return this.connecting
   }
@@ -310,7 +368,7 @@ export class SnowflakeConnector extends BaseSQLConnector {
    */
   private async query<T = Record<string, unknown>>(
     sql: string,
-    binds: snowflake.Binds = [],
+    binds: SnowflakePkg.Binds = [],
   ): Promise<T[]> {
     const conn = await this.getConnection()
 

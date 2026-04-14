@@ -119,6 +119,89 @@ describe('EvalRunner', () => {
       expect(report.entries[0]?.targetCostCents).toBe(0.2);
       expect(report.entries[0]?.traceId).toBe('trace-1');
     });
+
+    it('falls back to expectedOutput by default when no target executor is configured', async () => {
+      const seenOutputs: string[] = [];
+      const scorer = createMockScorer('capture', async (input) => {
+        seenOutputs.push(input.output);
+        return {
+          scorerId: 'capture',
+          scores: [{ criterion: 'capture', score: input.output === 'ref-1' ? 1 : 0, reasoning: 'ok' }],
+          aggregateScore: input.output === 'ref-1' ? 1 : 0,
+          passed: input.output === 'ref-1',
+          durationMs: 1,
+        };
+      });
+
+      const runner = new EvalRunner({
+        scorers: [scorer],
+      });
+
+      const report = await runner.evaluateDataset(
+        EvalDataset.from([
+          { id: 'e1', input: 'in-1', expectedOutput: 'ref-1' },
+        ]),
+      );
+
+      expect(seenOutputs).toEqual(['ref-1']);
+      expect(report.entries).toHaveLength(1);
+      expect(report.entries[0]?.aggregateScore).toBe(1);
+      expect(report.entries[0]?.passed).toBe(true);
+    });
+
+    it('throws when missingTargetFallback is error and no target executor is configured', async () => {
+      const scorer = createSimpleScorer('s1', 1.0, true);
+      const runner = new EvalRunner({
+        scorers: [scorer],
+        missingTargetFallback: 'error',
+      });
+
+      await expect(runner.evaluateDataset(makeDataset(1))).rejects.toThrow(
+        'missingTargetFallback is "error"',
+      );
+    });
+
+    it('throws in strict mode when no target executor is configured', async () => {
+      const scorer = createSimpleScorer('s1', 1.0, true);
+      const runner = new EvalRunner({
+        scorers: [scorer],
+        strict: true,
+      });
+
+      await expect(runner.evaluateDataset(makeDataset(1))).rejects.toThrow(
+        'strict mode requires a target executor',
+      );
+    });
+
+    it('continues to evaluate successfully in strict mode when a target executor is configured', async () => {
+      const scorer = createMockScorer('capture', async (input) => ({
+        scorerId: 'capture',
+        scores: [{ criterion: 'capture', score: input.output === 'generated:in-1' ? 1 : 0, reasoning: 'ok' }],
+        aggregateScore: input.output === 'generated:in-1' ? 1 : 0,
+        passed: input.output === 'generated:in-1',
+        durationMs: 1,
+      }));
+
+      const runner = new EvalRunner({
+        scorers: [scorer],
+        strict: true,
+        target: async (input) => ({
+          output: `generated:${input}`,
+          latencyMs: 4,
+        }),
+      });
+
+      const report = await runner.evaluateDataset(
+        EvalDataset.from([
+          { id: 'e1', input: 'in-1', expectedOutput: 'ref-1' },
+        ]),
+      );
+
+      expect(report.entries).toHaveLength(1);
+      expect(report.entries[0]?.aggregateScore).toBe(1);
+      expect(report.entries[0]?.passed).toBe(true);
+      expect(report.entries[0]?.targetLatencyMs).toBe(4);
+    });
   });
 
   describe('concurrency', () => {
@@ -150,6 +233,22 @@ describe('EvalRunner', () => {
 
       expect(maxConcurrent).toBeLessThanOrEqual(2);
       expect(maxConcurrent).toBeGreaterThan(0);
+    });
+
+    it.each([
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['-Infinity', Number.NEGATIVE_INFINITY],
+      ['NaN', Number.NaN],
+      ['zero', 0],
+      ['negative', -1],
+      ['non-integer', 1.5],
+    ])('rejects %s as concurrency', async (_, concurrency) => {
+      const scorer = createSimpleScorer('s1', 1.0, true);
+      const runner = new EvalRunner({ scorers: [scorer], concurrency });
+
+      await expect(runner.evaluateDataset(makeDataset(1))).rejects.toThrow(
+        `EvalRunner concurrency must be a finite positive integer; received ${String(concurrency)}`,
+      );
     });
   });
 

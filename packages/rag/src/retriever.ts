@@ -5,8 +5,6 @@
  * to accept injected search functions via constructor config.
  */
 
-import { estimateTokens } from '@dzipagent/core'
-
 import type {
   RetrievalConfig,
   RetrievalResult,
@@ -16,6 +14,40 @@ import type {
   VectorSearchHit,
   KeywordSearchHit,
 } from './types.js'
+
+/** Conservative token estimate: 4 chars per token (ceiling). */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4)
+}
+
+// ---------------------------------------------------------------------------
+// Source Quality Strategy
+// ---------------------------------------------------------------------------
+
+export interface SourceQualityContext {
+  query: string
+  filter: Record<string, unknown>
+  mode: RetrievalConfig['mode']
+  topK: number
+  chunk: ScoredChunk
+}
+
+export type SourceQualityProvider =
+  (context: SourceQualityContext) => number | Promise<number>
+
+export interface SourceQualityStrategyConfig {
+  /**
+   * Optional provider used to derive source quality from the chunk plus
+   * retrieval context. When omitted, the retriever falls back to the chunk's
+   * normalized `sourceQuality` field and then `0.5`.
+   */
+  provider?: SourceQualityProvider
+  /**
+   * Fallback value used when neither the provider nor chunk-level source
+   * quality is available. Defaults to `0.5`.
+   */
+  fallback?: number
+}
 
 // ---------------------------------------------------------------------------
 // Default Config
@@ -43,6 +75,8 @@ export interface HybridRetrieverConfig extends RetrievalConfig {
   keywordSearch?: KeywordSearchFn
   /** Embedding function to convert query text to a vector */
   embedQuery: (text: string) => Promise<number[]>
+  /** Optional source-quality strategy used during quality boosting */
+  sourceQuality?: SourceQualityStrategyConfig
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +131,12 @@ export class HybridRetriever {
 
     // Apply quality boosting
     if (qualityBoosting) {
-      chunks = this.applyQualityBoosting(chunks)
+      chunks = await this.applyQualityBoosting(chunks, {
+        query,
+        filter,
+        mode,
+        topK,
+      })
     }
 
     // Sort by final score descending
@@ -210,12 +249,15 @@ export class HybridRetriever {
    * The quality score is a weighted blend of chunk quality (default 0.6)
    * and source quality (default 0.4). The boost factor is +/- 15% max.
    */
-  private applyQualityBoosting(chunks: ScoredChunk[]): ScoredChunk[] {
+  private async applyQualityBoosting(
+    chunks: ScoredChunk[],
+    context: Omit<SourceQualityContext, 'chunk'>,
+  ): Promise<ScoredChunk[]> {
     const weights = this.config.qualityWeights
 
-    return chunks.map(chunk => {
+    return Promise.all(chunks.map(async (chunk) => {
       const chunkQuality = (chunk.qualityScore ?? 0.5)
-      const sourceQuality = this.extractSourceQuality(chunk)
+      const sourceQuality = await this.resolveSourceQuality(chunk, context)
       const blended = chunkQuality * weights.chunk + sourceQuality * weights.source
       // +/- 15% max adjustment around quality midpoint (0.5)
       const boost = 1 + (blended - 0.5) * 0.3
@@ -225,16 +267,46 @@ export class HybridRetriever {
         score: chunk.score * boost,
         qualityScore: blended,
       }
-    })
+    }))
   }
 
-  /** Extract source quality from chunk metadata, defaulting to 0.5 */
-  private extractSourceQuality(chunk: ScoredChunk): number {
-    const direct = chunk.sourceQuality
-    if (typeof direct === 'number') {
-      return Math.max(0, Math.min(1, direct))
+  /**
+   * Resolve source quality using the configured strategy.
+   *
+   * Resolution order:
+   * 1. Configured provider, if present and returns a finite number.
+   *    Provider failures are ignored and treated as a miss.
+   * 2. Chunk-level `sourceQuality`, which is the normalized default path.
+   * 3. Configured fallback, or `0.5` when no fallback is configured.
+   */
+  private async resolveSourceQuality(
+    chunk: ScoredChunk,
+    context: Omit<SourceQualityContext, 'chunk'>,
+  ): Promise<number> {
+    const strategy = this.config.sourceQuality
+
+    if (strategy?.provider) {
+      try {
+        const resolved = await strategy.provider({ ...context, chunk })
+        const normalized = this.normalizeQuality(resolved)
+        if (normalized !== undefined) return normalized
+      } catch {
+        // Provider errors should not fail retrieval; fall through to chunk/fallback.
+      }
     }
-    return 0.5
+
+    const direct = this.normalizeQuality(chunk.sourceQuality)
+    if (direct !== undefined) return direct
+
+    const fallback = this.normalizeQuality(strategy?.fallback)
+    return fallback ?? 0.5
+  }
+
+  private normalizeQuality(value: unknown): number | undefined {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return undefined
+    }
+    return Math.max(0, Math.min(1, value))
   }
 
   // -------------------------------------------------------------------------
@@ -267,15 +339,18 @@ export class HybridRetriever {
 
   private vectorHitToChunk(hit: VectorSearchHit): ScoredChunk {
     const sourceQuality = this.parseSourceQuality(hit.metadata)
+    const qualityScore = hit.metadata['quality_score'] as number | undefined
+    const sourceTitle = hit.metadata['source_title'] as string | undefined
+    const sourceUrl = hit.metadata['source_url'] as string | undefined
     return {
       id: hit.id,
       text: hit.text,
       score: hit.score,
       vectorScore: hit.score,
-      qualityScore: (hit.metadata['quality_score'] as number | undefined) ?? undefined,
+      ...(qualityScore !== undefined ? { qualityScore } : {}),
       sourceId: (hit.metadata['source_id'] as string | undefined) ?? '',
-      sourceTitle: (hit.metadata['source_title'] as string | undefined) ?? undefined,
-      sourceUrl: (hit.metadata['source_url'] as string | undefined) ?? undefined,
+      ...(sourceTitle !== undefined ? { sourceTitle } : {}),
+      ...(sourceUrl !== undefined ? { sourceUrl } : {}),
       ...(sourceQuality !== undefined ? { sourceQuality } : {}),
       chunkIndex: (hit.metadata['chunk_index'] as number | undefined) ?? 0,
     }
@@ -283,15 +358,18 @@ export class HybridRetriever {
 
   private keywordHitToChunk(hit: KeywordSearchHit): ScoredChunk {
     const sourceQuality = this.parseSourceQuality(hit.metadata)
+    const qualityScore = hit.metadata['quality_score'] as number | undefined
+    const sourceTitle = hit.metadata['source_title'] as string | undefined
+    const sourceUrl = hit.metadata['source_url'] as string | undefined
     return {
       id: hit.id,
       text: hit.text,
       score: hit.score,
       keywordScore: hit.score,
-      qualityScore: (hit.metadata['quality_score'] as number | undefined) ?? undefined,
+      ...(qualityScore !== undefined ? { qualityScore } : {}),
       sourceId: (hit.metadata['source_id'] as string | undefined) ?? '',
-      sourceTitle: (hit.metadata['source_title'] as string | undefined) ?? undefined,
-      sourceUrl: (hit.metadata['source_url'] as string | undefined) ?? undefined,
+      ...(sourceTitle !== undefined ? { sourceTitle } : {}),
+      ...(sourceUrl !== undefined ? { sourceUrl } : {}),
       ...(sourceQuality !== undefined ? { sourceQuality } : {}),
       chunkIndex: (hit.metadata['chunk_index'] as number | undefined) ?? 0,
     }

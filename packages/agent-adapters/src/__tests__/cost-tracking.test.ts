@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { CostTrackingMiddleware } from '../middleware/cost-tracking.js'
 import type { CostTrackingConfig } from '../middleware/cost-tracking.js'
@@ -20,8 +20,8 @@ async function collectAll<T>(gen: AsyncGenerator<T>): Promise<T[]> {
   return items
 }
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -46,8 +46,8 @@ function makeCompletedEvent(
 // ---------------------------------------------------------------------------
 
 describe('CostTrackingMiddleware', () => {
-  let bus: DzipEventBus
-  let emitted: DzipEvent[]
+  let bus: DzupEventBus
+  let emitted: DzupEvent[]
 
   beforeEach(() => {
     bus = createEventBus()

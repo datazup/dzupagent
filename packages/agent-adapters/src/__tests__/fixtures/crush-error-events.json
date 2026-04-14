@@ -1,5 +1,4 @@
 [
-  { "type": "unknown_event", "payload": "ignored" },
   { "type": "error", "error": { "message": "crush failed", "code": "CRUSH_ERR" } },
   { "type": "completed", "output": "crush recovered", "duration_ms": 55 }
 ]

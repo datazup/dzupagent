@@ -1,7 +1,7 @@
-# @dzipagent/testing Architecture
+# @dzupagent/testing Architecture
 
 ## Purpose
-`@dzipagent/testing` is a security validation harness for agent deployments. It ships curated adversarial suites and a runner that evaluates whether a target system blocks or detects hostile prompts/behaviors.
+`@dzupagent/testing` is a security validation harness for agent deployments. It ships curated adversarial suites and a runner that evaluates whether a target system blocks or detects hostile prompts/behaviors.
 
 ## Main Responsibilities
 - Define security test case schema and severity taxonomy.
@@ -33,7 +33,7 @@ Top-level modules under `src/`:
 
 ## Integration Boundaries
 - Works with any agent runtime that can expose a checker function.
-- Often paired with `@dzipagent/otel` safety monitor and server CI flows.
+- Often paired with `@dzupagent/otel` safety monitor and server CI flows.
 
 ## Extensibility Points
 - Add organization-specific threat suites.

@@ -100,7 +100,7 @@ export interface MultiNetworkMemoryConfig {
   /** Scope for all operations */
   scope: Record<string, string>
   /** Network configurations (uses defaults if not provided) */
-  networks?: NetworkConfig[]
+  networks?: NetworkConfig[] | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +123,8 @@ const OPINION_PATTERNS: RegExp[] = [
 
 const ENTITY_PATTERNS: RegExp[] = [
   /`[^`]+`/,
-  /\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/,
+  // eslint-disable-next-line security/detect-unsafe-regex
+  /\b(?:[A-Z][a-z]{1,30}){2,10}\b/,
   /\b(project|user|team|service|component|module)\s*:/i,
   /\b(stack|status|version|type)\s*[:=]/i,
 ]

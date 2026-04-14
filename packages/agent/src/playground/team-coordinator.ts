@@ -15,7 +15,7 @@
 import { HumanMessage } from '@langchain/core/messages'
 import { AgentOrchestrator } from '../orchestration/orchestrator.js'
 import { getMergeStrategy, type MergeStrategyFn } from '../orchestration/merge-strategies.js'
-import { SharedWorkspace } from './shared-workspace.js'
+import type { SharedWorkspace } from './shared-workspace.js'
 import type {
   CoordinationPattern,
   TeamConfig,

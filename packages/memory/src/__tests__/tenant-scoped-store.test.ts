@@ -1,12 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TenantScopedStore } from '../tenant-scoped-store.js'
 import type { BaseStore } from '@langchain/langgraph'
+import type { MemoryStoreCapabilities } from '../store-capabilities.js'
 
 // ---------------------------------------------------------------------------
 // Mock store factory (same pattern as lesson-pipeline.test.ts)
 // ---------------------------------------------------------------------------
 
-function createMockStore() {
+function createMockStore(capabilities: MemoryStoreCapabilities = {
+  supportsDelete: true,
+  supportsSearchFilters: true,
+  supportsPagination: true,
+}) {
   // Composite key: "ns-joined|key" → value
   const data = new Map<string, Record<string, unknown>>()
 
@@ -49,10 +54,12 @@ function createMockStore() {
       }
       return Promise.resolve(keys)
     }),
+    capabilities,
     _data: data,
   }
 
   return store as unknown as BaseStore & {
+    capabilities: MemoryStoreCapabilities
     _data: Map<string, Record<string, unknown>>
     put: ReturnType<typeof vi.fn>
     get: ReturnType<typeof vi.fn>
@@ -225,6 +232,19 @@ describe('TenantScopedStore', () => {
       expect(await scopedA.get(['lessons'], 'key')).toBeUndefined()
       expect(await scopedB.get(['lessons'], 'key')).toEqual({ tenant: 'B' })
     })
+
+    it('soft-deletes when delete capability is unavailable', async () => {
+      underlying.capabilities.supportsDelete = false
+      const softScoped = new TenantScopedStore({ store: underlying, tenantId: 'tenant-soft' })
+
+      await softScoped.put(['lessons'], 'soft-key', { summary: 'temp' })
+      await softScoped.delete(['lessons'], 'soft-key')
+
+      expect(underlying.delete).not.toHaveBeenCalled()
+      expect(await softScoped.get(['lessons'], 'soft-key')).toBeUndefined()
+      const results = await softScoped.search(['lessons'])
+      expect(results).toHaveLength(0)
+    })
   })
 
   // ---- search --------------------------------------------------------------
@@ -250,6 +270,78 @@ describe('TenantScopedStore', () => {
 
       const results = await scopedA.search(['rules'], { limit: 2 })
       expect(results).toHaveLength(2)
+    })
+
+    it('applies filters locally when search filters are unsupported', async () => {
+      underlying.capabilities.supportsSearchFilters = false
+      underlying.capabilities.supportsPagination = false
+      const filterScoped = new TenantScopedStore({ store: underlying, tenantId: 'tenant-filter' })
+
+      await filterScoped.put(['rules'], 'r1', { content: 'match', category: 'A' })
+      await filterScoped.put(['rules'], 'r2', { content: 'miss', category: 'B' })
+
+      // Underlying search ignores filters, so the scoped wrapper must enforce them.
+      underlying.search.mockImplementation(async (ns: string[], _opts?: { query?: string; limit?: number; filter?: Record<string, unknown> }) => {
+        const prefix = ns.join('/') + '|'
+        const items: Array<{ key: string; value: Record<string, unknown>; namespace: string[] }> = []
+        for (const [ck, value] of (underlying._data as Map<string, Record<string, unknown>>).entries()) {
+          if (ck.startsWith(prefix)) {
+            const key = ck.slice(prefix.length)
+            items.push({ key, value, namespace: ns })
+          }
+        }
+        return items
+      })
+
+      const filtered = await filterScoped.search(['rules'], { filter: { category: 'A' } })
+      expect(filtered).toHaveLength(1)
+      expect(filtered[0]!.value['category']).toBe('A')
+    })
+
+    it('preserves filters when search filters are supported but pagination is not', async () => {
+      underlying.capabilities.supportsSearchFilters = true
+      underlying.capabilities.supportsPagination = false
+      const filterScoped = new TenantScopedStore({ store: underlying, tenantId: 'tenant-filter' })
+
+      await filterScoped.put(['rules'], 'r1', { content: 'match', category: 'A' })
+      await filterScoped.put(['rules'], 'r2', { content: 'miss', category: 'B' })
+
+      underlying.search.mockImplementation(async (ns: string[], opts?: { query?: string; limit?: number; filter?: Record<string, unknown> }) => {
+        const prefix = ns.join('/') + '|'
+        const items: Array<{ key: string; value: Record<string, unknown>; namespace: string[] }> = []
+        for (const [ck, value] of (underlying._data as Map<string, Record<string, unknown>>).entries()) {
+          if (!ck.startsWith(prefix)) continue
+
+          const key = ck.slice(prefix.length)
+          if (opts?.filter) {
+            const matches = Object.entries(opts.filter).every(([filterKey, expected]) => value[filterKey] === expected)
+            if (!matches) continue
+          }
+
+          items.push({ key, value, namespace: ns })
+        }
+        return items
+      })
+
+      const filtered = await filterScoped.search(['rules'], { filter: { category: 'A' }, limit: 1 })
+
+      expect(underlying.search).toHaveBeenCalledWith(
+        ['tenant-filter', 'rules'],
+        { filter: { category: 'A' } },
+      )
+      expect(filtered).toHaveLength(1)
+      expect(filtered[0]!.value['category']).toBe('A')
+    })
+
+    it('does not rely on pagination when unsupported', async () => {
+      underlying.capabilities.supportsPagination = false
+      const paginationScoped = new TenantScopedStore({ store: underlying, tenantId: 'tenant-page' })
+
+      await paginationScoped.put(['rules'], 'r1', { content: 'rule 1' })
+      await paginationScoped.put(['rules'], 'r2', { content: 'rule 2' })
+
+      const results = await paginationScoped.search(['rules'], { limit: 1 })
+      expect(results).toHaveLength(1)
     })
 
     it('should return empty array when underlying store lacks search', async () => {
@@ -284,7 +376,10 @@ describe('TenantScopedStore', () => {
           underlying._data.set(`${_ns.join('/')}|${key}`, value)
           return Promise.resolve()
         }),
-        get: vi.fn(),
+        get: vi.fn().mockImplementation((ns: string[], key: string) => {
+          const value = underlying._data.get(`${ns.join('/')}|${key}`)
+          return Promise.resolve(value ? { key, value } : undefined)
+        }),
         delete: vi.fn(),
         search: vi.fn().mockImplementation((ns: string[]) => {
           const prefix = ns.join('/') + '|'

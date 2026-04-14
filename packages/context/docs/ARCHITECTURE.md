@@ -1,7 +1,7 @@
-# @dzipagent/context Architecture
+# @dzupagent/context Architecture
 
 ## Purpose
-`@dzipagent/context` manages prompt window pressure and context quality. It provides compression, eviction, reminder injection, phase-aware retention, and transfer logic that keeps model context useful under token constraints.
+`@dzupagent/context` manages prompt window pressure and context quality. It provides compression, eviction, reminder injection, phase-aware retention, and transfer logic that keeps model context useful under token constraints.
 
 ## Main Responsibilities
 - Detect when message history should be summarized/compressed.
@@ -38,8 +38,8 @@ Top-level modules under `src/`:
 - Prompt-cache controls for cost/performance optimization.
 
 ## Integration Boundaries
-- Used by `@dzipagent/agent` during message preparation.
-- Reused by `@dzipagent/core` via exports/integration points.
+- Used by `@dzupagent/agent` during message preparation.
+- Reused by `@dzupagent/core` via exports/integration points.
 - Depends on LangChain message abstractions.
 
 ## Extensibility Points

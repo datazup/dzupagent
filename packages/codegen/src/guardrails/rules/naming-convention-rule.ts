@@ -15,10 +15,10 @@ import type {
   ConventionSet,
 } from '../guardrail-types.js'
 
-const KEBAB_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+const KEBAB_RE = /^[a-z][-a-z0-9]*$/
 const CAMEL_RE = /^[a-z][a-zA-Z0-9]*$/
 const PASCAL_RE = /^[A-Z][a-zA-Z0-9]*$/
-const UPPER_SNAKE_RE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/
+const UPPER_SNAKE_RE = /^[A-Z][A-Z0-9_]*$/
 
 function isKebabCase(name: string): boolean {
   return KEBAB_RE.test(name)
@@ -43,12 +43,12 @@ function fileStem(filePath: string): string {
   return basename.replace(/\.(?:test|spec|d)?\.(?:ts|tsx|js|jsx|mjs|cjs)$/, '').replace(/\.(?:ts|tsx|js|jsx|mjs|cjs)$/, '')
 }
 
-const CLASS_EXPORT_RE = /^\s*export\s+(?:abstract\s+)?class\s+(\w+)/
+const CLASS_EXPORT_RE = /^\s*export\s+(?:abstract\s)?class\s+(\w+)/
 const INTERFACE_EXPORT_RE = /^\s*export\s+interface\s+(\w+)/
 const TYPE_EXPORT_RE = /^\s*export\s+type\s+(\w+)/
-const FUNCTION_EXPORT_RE = /^\s*export\s+(?:async\s+)?function\s+(\w+)/
+const FUNCTION_EXPORT_RE = /^\s*export\s+(?:async\s)?function\s+(\w+)/
 const CONST_EXPORT_RE = /^\s*export\s+const\s+(\w+)/
-const ENUM_EXPORT_RE = /^\s*export\s+(?:const\s+)?enum\s+(\w+)/
+const ENUM_EXPORT_RE = /^\s*export\s+(?:const\s)?enum\s+(\w+)/
 
 export function createNamingConventionRule(): GuardrailRule {
   return {
@@ -101,7 +101,7 @@ function checkFileName(
       valid = isPascalCase(stem)
       break
     case 'snake_case':
-      valid = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(stem)
+      valid = /^[a-z][_a-z0-9]*$/.test(stem)
       break
   }
 

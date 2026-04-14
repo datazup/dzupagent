@@ -12,7 +12,7 @@ import type {
   PipelineValidationWarning,
   PipelineNode,
   PipelineEdge,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 
 /**
  * Validate a pipeline definition for structural correctness.

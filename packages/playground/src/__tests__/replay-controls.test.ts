@@ -4,13 +4,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ref, nextTick } from 'vue'
 import { useReplayControls, type ReplaySpeed } from '../composables/useReplayControls.js'
+import type * as VueNs from 'vue'
 
 /**
  * Helper: run the composable outside a component context.
  * We mock onUnmounted since we are not in a real component lifecycle.
  */
 vi.mock('vue', async () => {
-  const actual = await vi.importActual<typeof import('vue')>('vue')
+  const actual = await vi.importActual<typeof VueNs>('vue')
   return {
     ...actual,
     onUnmounted: vi.fn((cb: () => void) => {

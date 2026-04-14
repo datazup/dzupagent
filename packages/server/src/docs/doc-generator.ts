@@ -41,6 +41,7 @@ function toHtml(markdown: string): string {
   // For production use a real Markdown parser; this covers the generated output.
   let html = markdown
     // Code blocks (mermaid and regular)
+    // eslint-disable-next-line security/detect-unsafe-regex
     .replace(/```(\w+)?\n([\s\S]*?)```/g, (_match, lang: string | undefined, code: string) => {
       const langAttr = lang ? ` class="language-${lang}"` : ''
       return `<pre><code${langAttr}>${code.trim()}</code></pre>`
@@ -66,8 +67,10 @@ function toHtml(markdown: string): string {
     .replace(/^- (.+)$/gm, '<li>$1</li>')
 
   // Wrap table rows in <table>
+  // eslint-disable-next-line security/detect-unsafe-regex
   html = html.replace(/((?:<tr>.*<\/tr>\n?)+)/g, '<table>$1</table>')
   // Wrap list items in <ul>
+  // eslint-disable-next-line security/detect-unsafe-regex
   html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
 
   return `<!DOCTYPE html>\n<html><body>\n${html}\n</body></html>`

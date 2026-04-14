@@ -16,7 +16,7 @@ export interface ForgeErrorOptions {
 }
 
 /**
- * Structured error type for DzipAgent.
+ * Structured error type for DzupAgent.
  *
  * Every error has a typed code, recoverable flag, and optional
  * suggestion for automated or manual recovery.
@@ -43,9 +43,9 @@ export class ForgeError extends Error {
     this.name = 'ForgeError'
     this.code = opts.code
     this.recoverable = opts.recoverable ?? false
-    this.phase = opts.phase
-    this.suggestion = opts.suggestion
-    this.context = opts.context
+    if (opts.phase !== undefined) this.phase = opts.phase
+    if (opts.suggestion !== undefined) this.suggestion = opts.suggestion
+    if (opts.context !== undefined) this.context = opts.context
   }
 
   /** Check if an unknown error is a ForgeError */
@@ -57,8 +57,8 @@ export class ForgeError extends Error {
   static wrap(err: unknown, defaults: Partial<ForgeErrorOptions> & { code: ForgeErrorCode }): ForgeError {
     if (err instanceof ForgeError) return err
     const message = err instanceof Error ? err.message : String(err)
-    const cause = err instanceof Error ? err : undefined
-    return new ForgeError({ message, cause, ...defaults })
+    const causeOpts: Pick<ForgeErrorOptions, 'cause'> = err instanceof Error ? { cause: err } : {}
+    return new ForgeError({ message, ...causeOpts, ...defaults })
   }
 
   toJSON(): Record<string, unknown> {

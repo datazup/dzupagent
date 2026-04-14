@@ -21,10 +21,10 @@ import type {
 function makeStructure(packages?: Map<string, { name: string; dir: string; allowedDependencies: string[]; entryPoints: string[] }>): ProjectStructure {
   return {
     packages: packages ?? new Map([
-      ['@dzipagent/core', { name: '@dzipagent/core', dir: 'packages/dzipagent-core/', allowedDependencies: [], entryPoints: ['index.ts'] }],
-      ['@dzipagent/codegen', { name: '@dzipagent/codegen', dir: 'packages/dzipagent-codegen/', allowedDependencies: ['@dzipagent/core'], entryPoints: ['index.ts'] }],
-      ['@dzipagent/agent', { name: '@dzipagent/agent', dir: 'packages/dzipagent-agent/', allowedDependencies: ['@dzipagent/core', '@dzipagent/codegen'], entryPoints: ['index.ts'] }],
-      ['@dzipagent/server', { name: '@dzipagent/server', dir: 'packages/dzipagent-server/', allowedDependencies: ['@dzipagent/core', '@dzipagent/agent'], entryPoints: ['index.ts'] }],
+      ['@dzupagent/core', { name: '@dzupagent/core', dir: 'packages/dzupagent-core/', allowedDependencies: [], entryPoints: ['index.ts'] }],
+      ['@dzupagent/codegen', { name: '@dzupagent/codegen', dir: 'packages/dzupagent-codegen/', allowedDependencies: ['@dzupagent/core'], entryPoints: ['index.ts'] }],
+      ['@dzupagent/agent', { name: '@dzupagent/agent', dir: 'packages/dzupagent-agent/', allowedDependencies: ['@dzupagent/core', '@dzupagent/codegen'], entryPoints: ['index.ts'] }],
+      ['@dzupagent/server', { name: '@dzupagent/server', dir: 'packages/dzupagent-server/', allowedDependencies: ['@dzupagent/core', '@dzupagent/agent'], entryPoints: ['index.ts'] }],
     ]),
     rootDir: '.',
   }
@@ -136,8 +136,8 @@ describe('LayeringRule', () => {
   it('passes when imports follow correct direction', () => {
     const result = rule.check(makeContext([
       {
-        path: 'packages/dzipagent-codegen/src/service.ts',
-        content: "import { SomeType } from '@dzipagent/core'",
+        path: 'packages/dzupagent-codegen/src/service.ts',
+        content: "import { SomeType } from '@dzupagent/core'",
       },
     ]))
     expect(result.passed).toBe(true)
@@ -146,8 +146,8 @@ describe('LayeringRule', () => {
   it('fails when lower-layer imports higher-layer', () => {
     const result = rule.check(makeContext([
       {
-        path: 'packages/dzipagent-core/src/bad.ts',
-        content: "import { Agent } from '@dzipagent/agent'",
+        path: 'packages/dzupagent-core/src/bad.ts',
+        content: "import { Agent } from '@dzupagent/agent'",
       },
     ]))
     expect(result.passed).toBe(false)
@@ -158,8 +158,8 @@ describe('LayeringRule', () => {
   it('passes when importing from same layer', () => {
     const result = rule.check(makeContext([
       {
-        path: 'packages/dzipagent-codegen/src/service.ts',
-        content: "import { MemoryService } from '@dzipagent/memory'",
+        path: 'packages/dzupagent-codegen/src/service.ts',
+        content: "import { MemoryService } from '@dzupagent/memory'",
       },
     ]))
     // Same layer (1) importing same layer — no violation
@@ -169,7 +169,7 @@ describe('LayeringRule', () => {
   it('ignores non-scoped imports', () => {
     const result = rule.check(makeContext([
       {
-        path: 'packages/dzipagent-core/src/util.ts',
+        path: 'packages/dzupagent-core/src/util.ts',
         content: "import { z } from 'zod'",
       },
     ]))
@@ -186,7 +186,7 @@ describe('ImportRestrictionRule', () => {
     const result = rule.check(makeContext([
       {
         path: 'src/service.ts',
-        content: "import { Foo } from '@dzipagent/core'",
+        content: "import { Foo } from '@dzupagent/core'",
       },
     ]))
     expect(result.passed).toBe(true)
@@ -196,7 +196,7 @@ describe('ImportRestrictionRule', () => {
     const result = rule.check(makeContext([
       {
         path: 'src/service.ts',
-        content: "import { secret } from '@dzipagent/core/src/internal/secret'",
+        content: "import { secret } from '@dzupagent/core/src/internal/secret'",
       },
     ]))
     expect(result.passed).toBe(false)
@@ -208,7 +208,7 @@ describe('ImportRestrictionRule', () => {
     const result = ruleWithAllowed.check(makeContext([
       {
         path: 'src/service.ts',
-        content: "import { helper } from '@dzipagent/core/utils/helper'",
+        content: "import { helper } from '@dzupagent/core/utils/helper'",
       },
     ]))
     expect(result.passed).toBe(true)
@@ -555,8 +555,8 @@ describe('GuardrailReporter', () => {
 
     const report = engine.evaluate(makeContext([
       {
-        path: 'packages/dzipagent-core/src/bad.ts',
-        content: "import { Agent } from '@dzipagent/agent'\nconst x: any = 1",
+        path: 'packages/dzupagent-core/src/bad.ts',
+        content: "import { Agent } from '@dzupagent/agent'\nconst x: any = 1",
       },
     ]))
 
@@ -629,7 +629,7 @@ describe('Full Guardrail Pipeline', () => {
       {
         path: 'src/good-service.ts',
         content: [
-          "import type { Foo } from '@dzipagent/core'",
+          "import type { Foo } from '@dzupagent/core'",
           '',
           'export interface ServiceConfig {',
           '  name: string',
@@ -660,10 +660,10 @@ describe('Full Guardrail Pipeline', () => {
 
     const files: GeneratedFile[] = [
       {
-        path: 'packages/dzipagent-core/src/BadFile.ts',
+        path: 'packages/dzupagent-core/src/BadFile.ts',
         content: [
-          "import { Agent } from '@dzipagent/agent'",           // layering violation
-          "import { internal } from '@dzipagent/core/src/int'", // deep import
+          "import { Agent } from '@dzupagent/agent'",           // layering violation
+          "import { internal } from '@dzupagent/core/src/int'", // deep import
           '// @ts-ignore',                                        // type safety
           'const secret = "AKIAIOSFODNN7EXAMPLE1"',              // security
           'const x: any = 1',                                     // type safety

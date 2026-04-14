@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { SessionRegistry } from '../session/session-registry.js'
 import type {
@@ -40,8 +40,8 @@ function createMockAdapter(
   }
 }
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -52,7 +52,7 @@ function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
 
 describe('SessionRegistry', () => {
   let registry: SessionRegistry
-  let bus: DzipEventBus
+  let bus: DzupEventBus
 
   beforeEach(() => {
     bus = createEventBus()
@@ -142,7 +142,7 @@ describe('SessionRegistry', () => {
 
       const switchEvent = emitted.find(
         (e) => e.type === 'session:provider_switched',
-      ) as DzipEvent & { to?: string } | undefined
+      ) as DzupEvent & { to?: string } | undefined
       expect(switchEvent).toBeDefined()
     })
   })
@@ -342,6 +342,156 @@ describe('SessionRegistry', () => {
       // Conversation history should include user + assistant entries
       const history = registry.getHistory(workflowId)
       expect(history.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  describe('ConversationCompressor integration', () => {
+    it('injects compressed history into system prompt on second turn', async () => {
+      const workflowId = registry.createWorkflow()
+
+      // First turn events — includes adapter:started, message, and completed
+      const turn1Events: AgentEvent[] = [
+        {
+          type: 'adapter:started' as const,
+          providerId: 'claude' as AdapterProviderId,
+          sessionId: 'sess-1',
+          timestamp: Date.now(),
+          prompt: 'Write a test',
+        },
+        {
+          type: 'adapter:message' as const,
+          providerId: 'claude' as AdapterProviderId,
+          content: 'Here is the test code',
+          role: 'assistant' as const,
+          timestamp: Date.now(),
+        },
+        {
+          type: 'adapter:completed' as const,
+          providerId: 'claude' as AdapterProviderId,
+          sessionId: 'sess-1',
+          result: 'Done',
+          durationMs: 100,
+          timestamp: Date.now(),
+        },
+      ]
+
+      const mockAdapterRegistry1 = {
+        async *executeWithFallback(_input: AgentInput, _task: TaskDescriptor) {
+          for (const e of turn1Events) yield e
+        },
+      } as unknown as AdapterRegistry
+
+      // Execute first turn
+      for await (const _event of registry.executeMultiTurn(
+        { prompt: 'Write a test' },
+        { workflowId, provider: 'claude' },
+        mockAdapterRegistry1,
+      )) {
+        // consume
+      }
+
+      // Second turn — capture the input that reaches the adapter registry
+      let capturedInput: AgentInput | undefined
+      const turn2Events: AgentEvent[] = [
+        {
+          type: 'adapter:started' as const,
+          providerId: 'claude' as AdapterProviderId,
+          sessionId: 'sess-1',
+          timestamp: Date.now(),
+          prompt: 'Add error handling',
+        },
+        {
+          type: 'adapter:completed' as const,
+          providerId: 'claude' as AdapterProviderId,
+          sessionId: 'sess-1',
+          result: 'Done 2',
+          durationMs: 50,
+          timestamp: Date.now(),
+        },
+      ]
+
+      const mockAdapterRegistry2 = {
+        async *executeWithFallback(input: AgentInput, _task: TaskDescriptor) {
+          capturedInput = input
+          for (const e of turn2Events) yield e
+        },
+      } as unknown as AdapterRegistry
+
+      for await (const _event of registry.executeMultiTurn(
+        { prompt: 'Add error handling' },
+        { workflowId, provider: 'claude' },
+        mockAdapterRegistry2,
+      )) {
+        // consume
+      }
+
+      // The system prompt should contain compressed conversation history
+      expect(capturedInput).toBeDefined()
+      expect(capturedInput!.systemPrompt).toBeDefined()
+      expect(capturedInput!.systemPrompt).toContain('Conversation history')
+      expect(capturedInput!.systemPrompt).toContain('Write a test')
+    })
+
+    it('deleting a workflow also removes its compressor', async () => {
+      const workflowId = registry.createWorkflow()
+
+      const events: AgentEvent[] = [
+        {
+          type: 'adapter:started' as const,
+          providerId: 'claude' as AdapterProviderId,
+          sessionId: 'sess-1',
+          timestamp: Date.now(),
+          prompt: 'Hello',
+        },
+        {
+          type: 'adapter:completed' as const,
+          providerId: 'claude' as AdapterProviderId,
+          sessionId: 'sess-1',
+          result: 'Hi',
+          durationMs: 10,
+          timestamp: Date.now(),
+        },
+      ]
+
+      const mockAdapterRegistry = {
+        async *executeWithFallback(_input: AgentInput, _task: TaskDescriptor) {
+          for (const e of events) yield e
+        },
+      } as unknown as AdapterRegistry
+
+      // Execute a turn to create the compressor
+      for await (const _event of registry.executeMultiTurn(
+        { prompt: 'Hello' },
+        { workflowId, provider: 'claude' },
+        mockAdapterRegistry,
+      )) {
+        // consume
+      }
+
+      // Delete the workflow
+      registry.deleteWorkflow(workflowId)
+
+      // Re-create the workflow and execute again — should not have history
+      registry.createWorkflow(undefined, workflowId)
+      let capturedInput: AgentInput | undefined
+      const mockAdapterRegistry2 = {
+        async *executeWithFallback(input: AgentInput, _task: TaskDescriptor) {
+          capturedInput = input
+          for (const e of events) yield e
+        },
+      } as unknown as AdapterRegistry
+
+      for await (const _event of registry.executeMultiTurn(
+        { prompt: 'Fresh start' },
+        { workflowId, provider: 'claude' },
+        mockAdapterRegistry2,
+      )) {
+        // consume
+      }
+
+      // No conversation history should be injected since compressor was deleted
+      expect(capturedInput).toBeDefined()
+      expect(capturedInput!.systemPrompt).toBeUndefined()
     })
   })
 

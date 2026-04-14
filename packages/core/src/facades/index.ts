@@ -1,9 +1,9 @@
 /**
- * @dzipagent/core/facades — Namespace re-exports for all curated API facades.
+ * @dzupagent/core/facades — Namespace re-exports for all curated API facades.
  *
  * @example
  * ```ts
- * import { quickStart, memory, orchestration, security } from '@dzipagent/core/facades';
+ * import { quickStart, memory, orchestration, security } from '@dzupagent/core/facades';
  *
  * const agent = quickStart.createQuickAgent({ provider: 'anthropic', apiKey: '...' });
  * ```

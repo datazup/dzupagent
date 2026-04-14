@@ -5,7 +5,7 @@
  * Query params: limit, offset, search, scope (JSON-encoded)
  */
 import { Hono } from 'hono'
-import type { MemoryServiceLike } from '@dzipagent/memory-ipc'
+import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
 
 export interface MemoryBrowseRouteConfig {
   memoryService: MemoryServiceLike

@@ -1,5 +1,5 @@
 /**
- * Zod validation schemas for DzipAgent identity types.
+ * Zod validation schemas for DzupAgent identity types.
  *
  * All exported schemas use PascalCase (per S3 convention).
  */
@@ -17,6 +17,7 @@ import { z } from 'zod'
  * Valid: `code.review`, `code-gen.typescript`, `a`
  * Invalid: `Code.review`, `.foo`, `foo.`, `foo..bar`
  */
+// eslint-disable-next-line security/detect-unsafe-regex
 const CAPABILITY_NAME_REGEX = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$/
 
 // ---------------------------------------------------------------------------

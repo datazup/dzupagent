@@ -22,7 +22,6 @@ export interface TranspileResult {
  */
 async function tryImport(moduleName: string): Promise<unknown> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
     const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<unknown>
     return await dynamicImport(moduleName)
   } catch {
@@ -81,13 +80,14 @@ export class WasmTypeScriptTranspiler {
           format: 'esm',
         })
 
-        return {
+        const transpiled: TranspileResult = {
           code: result.code,
-          sourceMap: result.map || undefined,
           diagnostics: result.warnings.map(
             (w) => `${w.text} (${w.location?.file ?? ''}:${w.location?.line ?? 0})`,
           ),
         }
+        if (result.map) transpiled.sourceMap = result.map
+        return transpiled
       } catch {
         // esbuild-wasm initialization or transform failed — fall through
       }
@@ -251,12 +251,12 @@ function removeBlockDeclaration(source: string, keyword: string): string {
 function removeTypeAliases(source: string): string {
   // Handles single-line type aliases: type Foo = string | number;
   let result = source.replace(
-    /(?:^|\n)(?:export\s+)?type\s+\w+(?:<[^>]*>)?\s*=[^;{]*;/g,
+    /(?:^|\n)(?:export\s)?type\s+\w+[^=;{]*=[^;{]*;/g,
     '',
   )
 
   // Handles multi-line type aliases with object types: type Foo = { ... };
-  const pattern = /(?:^|\n)(?:export\s+)?type\s+\w+(?:<[^>]*>)?\s*=\s*\{/g
+  const pattern = /(?:^|\n)(?:export\s)?type\s+\w+[^=;{]*=\s*\{/g
   let match: RegExpExecArray | null
 
   const matches: Array<{ index: number; length: number }> = []

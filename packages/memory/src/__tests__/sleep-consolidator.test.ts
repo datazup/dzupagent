@@ -502,7 +502,7 @@ describe('SleepConsolidator', () => {
     it('should fall back to standard path when Arrow import fails', async () => {
       // We mock the dynamic import to fail
       const originalImport = vi.fn()
-      vi.mock('@dzipagent/memory-ipc', () => {
+      vi.mock('@dzupagent/memory-ipc', () => {
         throw new Error('Module not found')
       })
 

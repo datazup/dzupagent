@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import type { AgentStreamEvent } from '@dzipagent/agent'
+import type { AgentStreamEvent } from '@dzupagent/agent'
 import type { SSEEvent, SSEHandlerConfig, AgentResult } from './types.js'
 
 /**
@@ -102,7 +102,7 @@ export class SSEWriter {
 }
 
 /**
- * High-level SSE handler that bridges DzipAgent streaming to Express responses.
+ * High-level SSE handler that bridges DzupAgent streaming to Express responses.
  *
  * Sets appropriate SSE headers, manages keep-alive, maps AgentStreamEvent
  * types to SSE events, and handles client disconnects gracefully.
@@ -137,7 +137,7 @@ export class SSEHandler {
   }
 
   /**
-   * Stream a DzipAgent's output to an Express SSE response.
+   * Stream a DzupAgent's output to an Express SSE response.
    *
    * Consumes the agent's AsyncGenerator, maps each AgentStreamEvent to
    * an SSE event, tracks accumulated content and tool calls, and returns

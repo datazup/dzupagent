@@ -37,7 +37,7 @@ export interface WorkingMemoryDiff {
     newValue: unknown
   }>
   /** Optional reason for the change */
-  reason?: string
+  reason?: string | undefined
   /** Version number (monotonically increasing) */
   version: number
 }
@@ -50,11 +50,11 @@ export interface VersionedWorkingMemoryConfig<T extends z.ZodType> {
   /** Namespace for working memory state */
   namespace: string
   /** Namespace for history records (default: `${namespace}-history`) */
-  historyNamespace?: string
+  historyNamespace?: string | undefined
   /** Max history entries to keep (default: 50) */
-  maxHistory?: number
+  maxHistory?: number | undefined
   /** Auto-save after each update (default: true) */
-  autoSave?: boolean
+  autoSave?: boolean | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@ export class VersionedWorkingMemory<T extends z.ZodType> {
     limit?: number,
   ): Promise<WorkingMemoryDiff[]> {
     const diffs: WorkingMemoryDiff[] = []
-    const effectiveLimit = limit ?? this.config.maxHistory
+    const effectiveLimit = limit ?? this.config.maxHistory ?? 50
     const startVersion = this.version
     const stopVersion = Math.max(this.minVersion, this.version - effectiveLimit)
 
@@ -417,7 +417,7 @@ export class VersionedWorkingMemory<T extends z.ZodType> {
    * a tombstone and advance minVersion so they are skipped on read.
    */
   private async pruneHistory(scope: Record<string, string>): Promise<void> {
-    const overflow = this.version - this.minVersion - this.config.maxHistory
+    const overflow = this.version - this.minVersion - (this.config.maxHistory ?? 50)
     if (overflow <= 0) return
 
     const newMin = this.minVersion + overflow

@@ -9,11 +9,11 @@
 
 export interface PPRConfig {
   /** Damping factor — probability of following an edge vs teleporting back to seed (default: 0.85) */
-  damping?: number
+  damping?: number | undefined
   /** Max iterations (default: 20) */
-  maxIterations?: number
+  maxIterations?: number | undefined
   /** Convergence threshold (default: 1e-6) */
-  epsilon?: number
+  epsilon?: number | undefined
 }
 
 export interface PPRResult {
@@ -167,7 +167,8 @@ function extractEntities(text: string): Set<string> {
   }
 
   // PascalCase words (at least two uppercase-started segments)
-  const pascalMatches = text.matchAll(/\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b/g)
+  // eslint-disable-next-line security/detect-unsafe-regex
+  const pascalMatches = text.matchAll(/\b((?:[A-Z][a-z]{1,30}){2,10})\b/g)
   for (const m of pascalMatches) {
     if (m[1] !== undefined) entities.add(m[1].toLowerCase())
   }

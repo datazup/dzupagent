@@ -1,0 +1,174 @@
+# Security CI Gate
+# Blocking mode — baseline verified clean 2026-04-05
+
+name: Security Gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Dependency audit
+  # Scans all workspace packages for known vulnerabilities (moderate+).
+  # ---------------------------------------------------------------------------
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # Yarn Classic (1.x) uses `yarn audit`; --level sets minimum severity.
+      - name: Run dependency audit
+        run: yarn audit --level moderate
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Secret scanning
+  # Uses gitleaks to detect accidentally committed secrets/tokens.
+  # Scans only the PR diff (not full repo history) for speed.
+  # ---------------------------------------------------------------------------
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0              # gitleaks needs history for diff scanning
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Scan only the diff introduced by this push/PR, not the full history.
+          GITLEAKS_ENABLE_COMMENTS: false
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Static Application Security Testing (SAST)
+  # Two-pronged approach:
+  #   a) Run the project's own ESLint setup (catches many code-quality issues).
+  #   b) Grep-based checks for high-risk patterns that ESLint may not flag.
+  # ---------------------------------------------------------------------------
+  sast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # --- a) ESLint ---
+      - name: Run ESLint (project config)
+        run: yarn lint
+
+      # --- b) Grep-based security pattern checks ---
+      # Each pattern is checked independently. Matches are printed as errors.
+      # The step fails if any pattern is found, blocking the PR.
+      #
+      # Baseline exclusions (verified 2026-04-05):
+      #   eval()        — only appears in string literals/comments (prompt text, rule descriptions)
+      #   new Function() — only in codegen/sandbox as a dynamic-import polyfill (safe, sandboxed)
+      #   innerHTML      — only in test fixture strings inside __tests__; no production assignment
+      - name: Check for dangerous patterns
+        shell: bash
+        run: |
+          set +e   # don't exit on first grep match — collect all findings first
+          FOUND=0
+
+          echo "=== Checking for eval() usage (excluding comments and string literals) ==="
+          # Exclude lines where eval appears inside a string (quoted) or comment.
+          # Baseline: prompt fragments and rule-description strings contain 'eval()' as text.
+          if grep -rn --include='*.ts' --include='*.js' --include='*.mjs' \
+               --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=coverage \
+               --exclude-dir=__tests__ \
+               -E '\beval\s*\(' packages/ \
+               | grep -v "eval()" \
+               | grep -v '#'; then
+            echo "::error::Found eval() call outside tests — review for injection risk"
+            FOUND=1
+          fi
+
+          echo ""
+          echo "=== Checking for Function() constructor (excluding codegen sandbox) ==="
+          # Baseline: codegen/sandbox uses new Function('m','return import(m)') as
+          # a dynamic-import shim — this is intentional and sandboxed.
+          if grep -rn --include='*.ts' --include='*.js' --include='*.mjs' \
+               --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=coverage \
+               --exclude-dir=__tests__ \
+               -E '\bnew\s+Function\s*\(' packages/ \
+               | grep -v 'packages/codegen/src/sandbox/'; then
+            echo "::error::Found new Function() outside codegen sandbox — potential code injection"
+            FOUND=1
+          fi
+
+          echo ""
+          echo "=== Checking for child_process.exec with interpolation ==="
+          # Matches exec(\`...${...}...\`) — template-literal shell interpolation.
+          if grep -rn --include='*.ts' --include='*.js' --include='*.mjs' \
+               --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=coverage \
+               -E '\.exec\s*\(\s*`[^`]*\$\{' packages/; then
+            echo "::error::Found child_process.exec with template literal — risk of command injection"
+            FOUND=1
+          fi
+
+          echo ""
+          echo "=== Checking for innerHTML assignment outside tests ==="
+          # Baseline: innerHTML only appears in __tests__ fixture strings; no production code.
+          if grep -rn --include='*.ts' --include='*.js' --include='*.mjs' --include='*.vue' \
+               --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=coverage \
+               --exclude-dir=__tests__ \
+               -E '\.innerHTML\s*=' packages/; then
+            echo "::error::Found innerHTML assignment in production code — potential XSS vector"
+            FOUND=1
+          fi
+
+          echo ""
+          echo "=== Checking for hardcoded secrets/tokens ==="
+          if grep -rn --include='*.ts' --include='*.js' --include='*.mjs' \
+               --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=coverage \
+               --exclude-dir=__tests__ \
+               -E "(api[_-]?key|api[_-]?secret|auth[_-]?token|password|secret[_-]?key)\s*[:=]\s*['\"][^'\"]{8,}" packages/; then
+            echo "::error::Potential hardcoded secret found — verify these are not real credentials"
+            FOUND=1
+          fi
+
+          echo ""
+          if [ "$FOUND" -eq 1 ]; then
+            echo "::error::Security pattern checks found issues — see above for details"
+            exit 1
+          else
+            echo "No dangerous patterns detected."
+          fi

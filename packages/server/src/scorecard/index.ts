@@ -7,6 +7,7 @@ export type {
   ScorecardCategory,
   ScorecardCheck,
   ScorecardProbeInput,
+  IntegrationScorecardOptions,
   Recommendation,
   CheckStatus,
   Grade,

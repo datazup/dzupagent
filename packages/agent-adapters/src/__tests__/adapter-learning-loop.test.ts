@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import {
   AdapterLearningLoop,
@@ -57,7 +57,7 @@ function addRecords(
 
 describe('AdapterLearningLoop', () => {
   let loop: AdapterLearningLoop
-  let bus: DzipEventBus
+  let bus: DzupEventBus
 
   beforeEach(() => {
     bus = createEventBus()
@@ -215,6 +215,8 @@ describe('AdapterLearningLoop', () => {
     it('groups errors and returns patterns with frequency >= 3', () => {
       const now = Date.now()
 
+      addRecords(loop, 'gemini', 'gen', 10, 0.9)
+
       for (let i = 0; i < 5; i++) {
         loop.record(makeRecord('claude', 'gen', false, {
           errorType: 'rate_limit',
@@ -245,12 +247,16 @@ describe('AdapterLearningLoop', () => {
 
   describe('suggestRecovery', () => {
     it('returns switch-provider for rate_limit', () => {
-      loop.record(makeRecord('claude', 'gen', false, { errorType: 'rate_limit' }))
+      loop.record(makeRecord('codex', 'gen', false, { errorType: 'rate_limit' }))
+      addRecords(loop, 'gemini', 'gen', 10, 0.9)
 
-      const suggestion = loop.suggestRecovery('claude', 'rate_limit')
+      const suggestion = loop.suggestRecovery('codex', 'rate_limit')
 
       expect(suggestion).toBeDefined()
       expect(suggestion!.action).toBe('switch-provider')
+      if (suggestion!.action === 'switch-provider') {
+        expect(suggestion!.targetProvider).toBe('gemini')
+      }
     })
 
     it('returns increase-budget for timeout', () => {
@@ -266,6 +272,30 @@ describe('AdapterLearningLoop', () => {
       loop.record(makeRecord('claude', 'gen', false, { errorType: 'context_too_long' }))
 
       const suggestion = loop.suggestRecovery('claude', 'context_too_long')
+
+      expect(suggestion).toBeDefined()
+      expect(suggestion!.action).toBe('switch-provider')
+      if (suggestion!.action === 'switch-provider') {
+        expect(suggestion!.targetProvider).toBe('gemini')
+      }
+    })
+
+    it('returns retry when no alternative provider has been observed', () => {
+      loop.record(makeRecord('codex', 'gen', false, { errorType: 'rate_limit' }))
+
+      const suggestion = loop.suggestRecovery('codex', 'rate_limit')
+
+      expect(suggestion).toBeDefined()
+      expect(suggestion!.action).toBe('retry')
+      expect('targetProvider' in suggestion!).toBe(false)
+    })
+
+    it('uses an observed alternative provider for quality_low instead of a generic default', () => {
+      loop.record(makeRecord('codex', 'gen', false, { errorType: 'quality_low' }))
+      addRecords(loop, 'codex', 'gen', 10, 0.2)
+      addRecords(loop, 'gemini', 'gen', 10, 0.9)
+
+      const suggestion = loop.suggestRecovery('codex', 'quality_low')
 
       expect(suggestion).toBeDefined()
       expect(suggestion!.action).toBe('switch-provider')

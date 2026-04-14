@@ -14,6 +14,7 @@
  *   4. Return the deduped set
  */
 import type { MemoryEntry, LessonDedupResult, DedupLesson } from './consolidation-types.js'
+import { tokenizeText, jaccardSimilarity } from './shared/text-similarity.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,34 +22,6 @@ import type { MemoryEntry, LessonDedupResult, DedupLesson } from './consolidatio
 
 /** Default Jaccard threshold — 0.6 balances catching paraphrases vs. false positives. */
 const DEFAULT_SIMILARITY_THRESHOLD = 0.6
-
-/**
- * Tokenize text into a set of lower-case words (alphanumeric only).
- * Strips punctuation and collapses whitespace.
- */
-function tokenize(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 1), // drop single chars
-  )
-}
-
-/**
- * Jaccard similarity between two token sets.
- * Returns 1.0 when both sets are identical or both empty.
- */
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1
-  let intersectionSize = 0
-  for (const word of a) {
-    if (b.has(word)) intersectionSize++
-  }
-  const unionSize = a.size + b.size - intersectionSize
-  return unionSize === 0 ? 0 : intersectionSize / unionSize
-}
 
 /**
  * Pick the best representative from a group of similar entries.
@@ -89,7 +62,7 @@ export function dedupLessons(
   }
 
   // Pre-compute token sets
-  const tokenSets = lessons.map(l => tokenize(l.text))
+  const tokenSets = lessons.map(l => tokenizeText(l.text))
 
   // Track which indices have been consumed into a group
   const consumed = new Set<number>()

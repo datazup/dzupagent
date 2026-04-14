@@ -7,6 +7,12 @@
  * results. The overall score is a weighted average.
  */
 import type { ForgeServerConfig } from '../app.js'
+import {
+  collectScorecardProbes,
+  type ScorecardProbeCollectionOptions,
+  type ScorecardProbeField,
+  type ScorecardProbeFieldMetadata,
+} from './probe-collector.js'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -47,7 +53,7 @@ export interface ScorecardReport {
 }
 
 // ---------------------------------------------------------------------------
-// Optional probe inputs (provided by the caller, not read from disk)
+// Optional probe inputs (provided by the caller or collected automatically)
 // ---------------------------------------------------------------------------
 
 /** Extra information the caller may supply so the scorecard can score
@@ -83,6 +89,30 @@ export interface ScorecardProbeInput {
   rbacEnforcementPresent?: boolean
 }
 
+export interface IntegrationScorecardOptions extends ScorecardProbeCollectionOptions {
+  /** Disable filesystem and environment probe collection. */
+  autoCollectProbe?: boolean
+}
+
+type ScorecardProbeMetadata = Partial<Record<ScorecardProbeField, ScorecardProbeFieldMetadata>>
+
+const PROBE_FIELDS: ScorecardProbeField[] = [
+  'testCoveragePercent',
+  'hasCriticalPathTests',
+  'hasIntegrationTests',
+  'policyEngineConfigured',
+  'auditTrailEnabled',
+  'secretDetectionActive',
+  'inputSanitizationPresent',
+  'tokenBudgetLimitsSet',
+  'modelFallbackConfigured',
+  'otelExporterConfigured',
+  'errorAlertingConfigured',
+  'corsRestricted',
+  'apiKeyRotationEnabled',
+  'rbacEnforcementPresent',
+]
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -107,8 +137,8 @@ function failCheck(name: string, message: string, details?: Record<string, unkno
   return { name, status: 'fail', score: 0, message, details }
 }
 
-function skipCheck(name: string, message: string): ScorecardCheck {
-  return { name, status: 'skip', score: 0, message }
+function skipCheck(name: string, message: string, details?: Record<string, unknown>): ScorecardCheck {
+  return { name, status: 'skip', score: 0, message, details }
 }
 
 function categoryScore(checks: ScorecardCheck[]): number {
@@ -118,72 +148,118 @@ function categoryScore(checks: ScorecardCheck[]): number {
   return Math.round(total / scored.length)
 }
 
+function attachProbeDetails(
+  details: Record<string, unknown> | undefined,
+  metadata: ScorecardProbeFieldMetadata | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) {
+    return details
+  }
+
+  return {
+    ...details,
+    probeSource: metadata.source,
+    probeReason: metadata.reason,
+    ...(metadata.rootDir ? { probeRootDir: metadata.rootDir } : {}),
+    ...(metadata.evidence && metadata.evidence.length > 0 ? { probeEvidence: metadata.evidence } : {}),
+    ...(metadata.diagnostic ? { probeDiagnostic: metadata.diagnostic } : {}),
+  }
+}
+
+function resolveProbeContext(
+  probe: ScorecardProbeInput | undefined,
+  options: IntegrationScorecardOptions | undefined,
+): { probe: ScorecardProbeInput; metadata: ScorecardProbeMetadata } {
+  const mergedProbe: ScorecardProbeInput = {}
+  const metadata: ScorecardProbeMetadata = {}
+  const writableProbe = mergedProbe as Record<ScorecardProbeField, number | boolean | undefined>
+
+  if (options?.autoCollectProbe !== false) {
+    const collected = collectScorecardProbes({
+      rootDir: options?.rootDir,
+      env: options?.env,
+    })
+
+    Object.assign(mergedProbe, collected.probe)
+    Object.assign(metadata, collected.metadata)
+  }
+
+  for (const field of PROBE_FIELDS) {
+    const value = probe?.[field]
+    if (value !== undefined) {
+      writableProbe[field] = value
+      metadata[field] = {
+        source: 'input',
+        reason: 'Caller-provided probe input',
+      }
+    }
+  }
+
+  return { probe: mergedProbe, metadata }
+}
+
 // ---------------------------------------------------------------------------
 // Category evaluators
 // ---------------------------------------------------------------------------
 
-function evaluateCoverage(probe: ScorecardProbeInput): ScorecardCategory {
+function evaluateCoverage(probe: ScorecardProbeInput, metadata: ScorecardProbeMetadata): ScorecardCategory {
   const checks: ScorecardCheck[] = []
 
-  // Test coverage percentage
   if (probe.testCoveragePercent !== undefined) {
     const pct = probe.testCoveragePercent
+    const details = attachProbeDetails({ percent: pct }, metadata.testCoveragePercent)
     if (pct >= 80) {
-      checks.push(passCheck('Test coverage', `Coverage is at ${pct}%`, { percent: pct }))
+      checks.push(passCheck('Test coverage', `Coverage is at ${pct}%`, details))
     } else if (pct >= 50) {
-      checks.push(warnCheck('Test coverage', `Coverage is ${pct}% — aim for 80%+`, pct, { percent: pct }))
+      checks.push(warnCheck('Test coverage', `Coverage is ${pct}% — aim for 80%+`, pct, details))
     } else {
-      checks.push(failCheck('Test coverage', `Coverage is only ${pct}%`, { percent: pct }))
+      checks.push(failCheck('Test coverage', `Coverage is only ${pct}%`, details))
     }
   } else {
-    checks.push(skipCheck('Test coverage', 'Coverage percentage not provided'))
+    checks.push(skipCheck('Test coverage', 'Coverage percentage not provided', attachProbeDetails(undefined, metadata.testCoveragePercent)))
   }
 
-  // Critical path tests
   if (probe.hasCriticalPathTests !== undefined) {
     checks.push(
       probe.hasCriticalPathTests
-        ? passCheck('Critical path tests', 'Critical-path tests are present')
-        : failCheck('Critical path tests', 'No critical-path tests detected'),
+        ? passCheck('Critical path tests', 'Critical-path tests are present', attachProbeDetails(undefined, metadata.hasCriticalPathTests))
+        : failCheck('Critical path tests', 'No critical-path tests detected', attachProbeDetails(undefined, metadata.hasCriticalPathTests)),
     )
   } else {
-    checks.push(skipCheck('Critical path tests', 'Not evaluated'))
+    checks.push(skipCheck('Critical path tests', 'Not evaluated', attachProbeDetails(undefined, metadata.hasCriticalPathTests)))
   }
 
-  // Integration tests
   if (probe.hasIntegrationTests !== undefined) {
     checks.push(
       probe.hasIntegrationTests
-        ? passCheck('Integration tests', 'Integration tests are present')
-        : warnCheck('Integration tests', 'No integration tests detected', 30),
+        ? passCheck('Integration tests', 'Integration tests are present', attachProbeDetails(undefined, metadata.hasIntegrationTests))
+        : warnCheck('Integration tests', 'No integration tests detected', 30, attachProbeDetails(undefined, metadata.hasIntegrationTests)),
     )
   } else {
-    checks.push(skipCheck('Integration tests', 'Not evaluated'))
+    checks.push(skipCheck('Integration tests', 'Not evaluated', attachProbeDetails(undefined, metadata.hasIntegrationTests)))
   }
 
   return { name: 'Coverage', score: categoryScore(checks), weight: 0.20, checks }
 }
 
-function evaluateSafety(config: ForgeServerConfig, probe: ScorecardProbeInput): ScorecardCategory {
+function evaluateSafety(config: ForgeServerConfig, probe: ScorecardProbeInput, metadata: ScorecardProbeMetadata): ScorecardCategory {
   const checks: ScorecardCheck[] = []
 
-  // Policy engine
   if (probe.policyEngineConfigured !== undefined) {
     checks.push(
       probe.policyEngineConfigured
-        ? passCheck('Policy engine', 'Policy engine is configured')
-        : failCheck('Policy engine', 'No policy engine configured'),
+        ? passCheck('Policy engine', 'Policy engine is configured', attachProbeDetails(undefined, metadata.policyEngineConfigured))
+        : failCheck('Policy engine', 'No policy engine configured', attachProbeDetails(undefined, metadata.policyEngineConfigured)),
     )
   } else {
-    checks.push(skipCheck('Policy engine', 'Not evaluated'))
+    checks.push(skipCheck('Policy engine', 'Not evaluated', attachProbeDetails(undefined, metadata.policyEngineConfigured)))
   }
 
-  // Audit trail (we can infer this if metrics or event gateway exists)
   if (probe.auditTrailEnabled !== undefined) {
     checks.push(
       probe.auditTrailEnabled
-        ? passCheck('Audit trail', 'Audit trail is enabled')
-        : failCheck('Audit trail', 'Audit trail is not enabled'),
+        ? passCheck('Audit trail', 'Audit trail is enabled', attachProbeDetails(undefined, metadata.auditTrailEnabled))
+        : failCheck('Audit trail', 'Audit trail is not enabled', attachProbeDetails(undefined, metadata.auditTrailEnabled)),
     )
   } else if (config.metrics || config.eventGateway) {
     checks.push(warnCheck('Audit trail', 'Metrics/events present but dedicated audit trail not confirmed', 50))
@@ -191,54 +267,54 @@ function evaluateSafety(config: ForgeServerConfig, probe: ScorecardProbeInput): 
     checks.push(failCheck('Audit trail', 'No audit trail or event system detected'))
   }
 
-  // Secret detection
   if (probe.secretDetectionActive !== undefined) {
     checks.push(
       probe.secretDetectionActive
-        ? passCheck('Secret detection', 'Secret detection is active')
-        : failCheck('Secret detection', 'Secret detection not configured'),
+        ? passCheck('Secret detection', 'Secret detection is active', attachProbeDetails(undefined, metadata.secretDetectionActive))
+        : failCheck('Secret detection', 'Secret detection not configured', attachProbeDetails(undefined, metadata.secretDetectionActive)),
     )
   } else {
-    checks.push(skipCheck('Secret detection', 'Not evaluated'))
+    checks.push(skipCheck('Secret detection', 'Not evaluated', attachProbeDetails(undefined, metadata.secretDetectionActive)))
   }
 
-  // Input sanitization
   if (probe.inputSanitizationPresent !== undefined) {
     checks.push(
       probe.inputSanitizationPresent
-        ? passCheck('Input sanitization', 'Input sanitization is present')
-        : failCheck('Input sanitization', 'No input sanitization detected'),
+        ? passCheck('Input sanitization', 'Input sanitization is present', attachProbeDetails(undefined, metadata.inputSanitizationPresent))
+        : failCheck('Input sanitization', 'No input sanitization detected', attachProbeDetails(undefined, metadata.inputSanitizationPresent)),
     )
   } else {
-    checks.push(skipCheck('Input sanitization', 'Not evaluated'))
+    checks.push(skipCheck('Input sanitization', 'Not evaluated', attachProbeDetails(undefined, metadata.inputSanitizationPresent)))
   }
 
   return { name: 'Safety', score: categoryScore(checks), weight: 0.25, checks }
 }
 
-function evaluateCostControls(config: ForgeServerConfig, probe: ScorecardProbeInput): ScorecardCategory {
+function evaluateCostControls(config: ForgeServerConfig, probe: ScorecardProbeInput, metadata: ScorecardProbeMetadata): ScorecardCategory {
   const checks: ScorecardCheck[] = []
 
-  // Token budget limits
   if (probe.tokenBudgetLimitsSet !== undefined) {
     checks.push(
       probe.tokenBudgetLimitsSet
-        ? passCheck('Token budget limits', 'Token budget limits are set')
-        : failCheck('Token budget limits', 'No token budget limits configured'),
+        ? passCheck('Token budget limits', 'Token budget limits are set', attachProbeDetails(undefined, metadata.tokenBudgetLimitsSet))
+        : failCheck('Token budget limits', 'No token budget limits configured', attachProbeDetails(undefined, metadata.tokenBudgetLimitsSet)),
     )
   } else {
-    checks.push(skipCheck('Token budget limits', 'Not evaluated'))
+    checks.push(skipCheck('Token budget limits', 'Not evaluated', attachProbeDetails(undefined, metadata.tokenBudgetLimitsSet)))
   }
 
-  // Model fallback chains
   if (probe.modelFallbackConfigured !== undefined) {
     checks.push(
       probe.modelFallbackConfigured
-        ? passCheck('Model fallback chains', 'Model fallback chains are configured')
-        : warnCheck('Model fallback chains', 'No model fallback chains configured', 40),
+        ? passCheck('Model fallback chains', 'Model fallback chains are configured', attachProbeDetails(undefined, metadata.modelFallbackConfigured))
+        : warnCheck(
+            'Model fallback chains',
+            'No model fallback chains configured',
+            40,
+            attachProbeDetails(undefined, metadata.modelFallbackConfigured),
+          ),
     )
   } else {
-    // Try to infer from model registry provider count
     const providerHealth = config.modelRegistry.getProviderHealth()
     const providerCount = Object.keys(providerHealth).length
     if (providerCount > 1) {
@@ -250,7 +326,6 @@ function evaluateCostControls(config: ForgeServerConfig, probe: ScorecardProbeIn
     }
   }
 
-  // Rate limiting
   if (config.rateLimit) {
     checks.push(passCheck('Rate limiting', 'Rate limiting is active', {
       maxRequests: config.rateLimit.maxRequests,
@@ -260,7 +335,6 @@ function evaluateCostControls(config: ForgeServerConfig, probe: ScorecardProbeIn
     checks.push(failCheck('Rate limiting', 'Rate limiting is not configured'))
   }
 
-  // Quota enforcement (run queue presence is a proxy)
   if (config.runQueue) {
     checks.push(passCheck('Quota enforcement', 'Run queue is configured for quota enforcement'))
   } else {
@@ -270,35 +344,35 @@ function evaluateCostControls(config: ForgeServerConfig, probe: ScorecardProbeIn
   return { name: 'Cost Controls', score: categoryScore(checks), weight: 0.15, checks }
 }
 
-function evaluateObservability(config: ForgeServerConfig, probe: ScorecardProbeInput): ScorecardCategory {
+function evaluateObservability(
+  config: ForgeServerConfig,
+  probe: ScorecardProbeInput,
+  metadata: ScorecardProbeMetadata,
+): ScorecardCategory {
   const checks: ScorecardCheck[] = []
 
-  // OTEL exporter
   if (probe.otelExporterConfigured !== undefined) {
     checks.push(
       probe.otelExporterConfigured
-        ? passCheck('OTEL exporter', 'OpenTelemetry exporter is configured')
-        : failCheck('OTEL exporter', 'No OTEL exporter configured'),
+        ? passCheck('OTEL exporter', 'OpenTelemetry exporter is configured', attachProbeDetails(undefined, metadata.otelExporterConfigured))
+        : failCheck('OTEL exporter', 'No OTEL exporter configured', attachProbeDetails(undefined, metadata.otelExporterConfigured)),
     )
   } else {
-    checks.push(skipCheck('OTEL exporter', 'Not evaluated'))
+    checks.push(skipCheck('OTEL exporter', 'Not evaluated', attachProbeDetails(undefined, metadata.otelExporterConfigured)))
   }
 
-  // Health checks (these are always present in the server)
   checks.push(passCheck('Health checks', 'Health endpoints are available (/api/health, /api/health/ready)'))
 
-  // Error alerting
   if (probe.errorAlertingConfigured !== undefined) {
     checks.push(
       probe.errorAlertingConfigured
-        ? passCheck('Error alerting', 'Error alerting is configured')
-        : failCheck('Error alerting', 'No error alerting configured'),
+        ? passCheck('Error alerting', 'Error alerting is configured', attachProbeDetails(undefined, metadata.errorAlertingConfigured))
+        : failCheck('Error alerting', 'No error alerting configured', attachProbeDetails(undefined, metadata.errorAlertingConfigured)),
     )
   } else {
-    checks.push(skipCheck('Error alerting', 'Not evaluated'))
+    checks.push(skipCheck('Error alerting', 'Not evaluated', attachProbeDetails(undefined, metadata.errorAlertingConfigured)))
   }
 
-  // Metrics collection
   if (config.metrics) {
     checks.push(passCheck('Metrics collection', 'Metrics collector is active'))
   } else {
@@ -308,10 +382,9 @@ function evaluateObservability(config: ForgeServerConfig, probe: ScorecardProbeI
   return { name: 'Observability', score: categoryScore(checks), weight: 0.20, checks }
 }
 
-function evaluateSecurity(config: ForgeServerConfig, probe: ScorecardProbeInput): ScorecardCategory {
+function evaluateSecurity(config: ForgeServerConfig, probe: ScorecardProbeInput, metadata: ScorecardProbeMetadata): ScorecardCategory {
   const checks: ScorecardCheck[] = []
 
-  // Auth middleware
   if (config.auth) {
     if (config.auth.mode === 'api-key') {
       checks.push(passCheck('Auth middleware', 'API key authentication is active'))
@@ -322,15 +395,13 @@ function evaluateSecurity(config: ForgeServerConfig, probe: ScorecardProbeInput)
     checks.push(failCheck('Auth middleware', 'No authentication configured'))
   }
 
-  // CORS configuration
   if (probe.corsRestricted !== undefined) {
     checks.push(
       probe.corsRestricted
-        ? passCheck('CORS configuration', 'CORS is properly restricted')
-        : warnCheck('CORS configuration', 'CORS allows all origins', 30),
+        ? passCheck('CORS configuration', 'CORS is properly restricted', attachProbeDetails(undefined, metadata.corsRestricted))
+        : warnCheck('CORS configuration', 'CORS allows all origins', 30, attachProbeDetails(undefined, metadata.corsRestricted)),
     )
   } else {
-    // Infer from config
     const origins = config.corsOrigins
     if (origins && origins !== '*') {
       checks.push(passCheck('CORS configuration', 'CORS origins are restricted', { origins }))
@@ -339,26 +410,24 @@ function evaluateSecurity(config: ForgeServerConfig, probe: ScorecardProbeInput)
     }
   }
 
-  // API key rotation
   if (probe.apiKeyRotationEnabled !== undefined) {
     checks.push(
       probe.apiKeyRotationEnabled
-        ? passCheck('API key rotation', 'API key rotation is enabled')
-        : warnCheck('API key rotation', 'API key rotation not enabled', 40),
+        ? passCheck('API key rotation', 'API key rotation is enabled', attachProbeDetails(undefined, metadata.apiKeyRotationEnabled))
+        : warnCheck('API key rotation', 'API key rotation not enabled', 40, attachProbeDetails(undefined, metadata.apiKeyRotationEnabled)),
     )
   } else {
-    checks.push(skipCheck('API key rotation', 'Not evaluated'))
+    checks.push(skipCheck('API key rotation', 'Not evaluated', attachProbeDetails(undefined, metadata.apiKeyRotationEnabled)))
   }
 
-  // RBAC enforcement
   if (probe.rbacEnforcementPresent !== undefined) {
     checks.push(
       probe.rbacEnforcementPresent
-        ? passCheck('RBAC enforcement', 'RBAC enforcement is active')
-        : warnCheck('RBAC enforcement', 'RBAC enforcement not detected', 30),
+        ? passCheck('RBAC enforcement', 'RBAC enforcement is active', attachProbeDetails(undefined, metadata.rbacEnforcementPresent))
+        : warnCheck('RBAC enforcement', 'RBAC enforcement not detected', 30, attachProbeDetails(undefined, metadata.rbacEnforcementPresent)),
     )
   } else {
-    checks.push(skipCheck('RBAC enforcement', 'Not evaluated'))
+    checks.push(skipCheck('RBAC enforcement', 'Not evaluated', attachProbeDetails(undefined, metadata.rbacEnforcementPresent)))
   }
 
   return { name: 'Security', score: categoryScore(checks), weight: 0.20, checks }
@@ -391,7 +460,6 @@ function generateRecommendations(categories: ScorecardCategory[]): Recommendatio
     }
   }
 
-  // Sort by priority
   const priorityOrder: Record<RecommendationPriority, number> = {
     critical: 0,
     high: 1,
@@ -410,23 +478,25 @@ function generateRecommendations(categories: ScorecardCategory[]): Recommendatio
 export class IntegrationScorecard {
   private readonly config: ForgeServerConfig
   private readonly probe: ScorecardProbeInput
+  private readonly probeMetadata: ScorecardProbeMetadata
 
-  constructor(config: ForgeServerConfig, probe?: ScorecardProbeInput) {
+  constructor(config: ForgeServerConfig, probe?: ScorecardProbeInput, options?: IntegrationScorecardOptions) {
     this.config = config
-    this.probe = probe ?? {}
+    const resolved = resolveProbeContext(probe, options)
+    this.probe = resolved.probe
+    this.probeMetadata = resolved.metadata
   }
 
   /** Generate the full scorecard report. */
   generate(): ScorecardReport {
     const categories: ScorecardCategory[] = [
-      evaluateCoverage(this.probe),
-      evaluateSafety(this.config, this.probe),
-      evaluateCostControls(this.config, this.probe),
-      evaluateObservability(this.config, this.probe),
-      evaluateSecurity(this.config, this.probe),
+      evaluateCoverage(this.probe, this.probeMetadata),
+      evaluateSafety(this.config, this.probe, this.probeMetadata),
+      evaluateCostControls(this.config, this.probe, this.probeMetadata),
+      evaluateObservability(this.config, this.probe, this.probeMetadata),
+      evaluateSecurity(this.config, this.probe, this.probeMetadata),
     ]
 
-    // Weighted average (skip categories where all checks were skipped)
     let weightedSum = 0
     let totalWeight = 0
     for (const cat of categories) {

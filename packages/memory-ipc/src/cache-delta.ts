@@ -6,7 +6,7 @@
  * content hashing for efficient modification detection.
  */
 
-import { Table } from 'apache-arrow'
+import { type Table } from 'apache-arrow'
 
 // ---------------------------------------------------------------------------
 // Types

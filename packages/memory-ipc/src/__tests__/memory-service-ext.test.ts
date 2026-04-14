@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { extendMemoryServiceWithArrow } from '../memory-service-ext.js'
 import type { MemoryServiceLike } from '../memory-service-ext.js'
 import { FrameBuilder } from '../frame-builder.js'
@@ -11,6 +11,7 @@ import { FrameReader } from '../frame-reader.js'
 class MockMemoryService implements MemoryServiceLike {
   /** Storage: Map<compositeKey, record> where compositeKey = ns|scopeHash|key */
   private store = new Map<string, Record<string, unknown>>()
+  private deleted = new Set<string>()
 
   private compositeKey(
     namespace: string,
@@ -81,9 +82,28 @@ class MockMemoryService implements MemoryServiceLike {
     this.store.set(ck, { ...value })
   }
 
+  async delete(
+    namespace: string,
+    scope: Record<string, string>,
+    key: string,
+  ): Promise<void> {
+    const ck = this.compositeKey(namespace, scope, key)
+    this.deleted.add(ck)
+    this.store.delete(ck)
+  }
+
   /** Helper to get store size for test assertions. */
   get size(): number {
     return this.store.size
+  }
+
+  /** Helper to check whether a key was deleted during replace. */
+  wasDeleted(
+    namespace: string,
+    scope: Record<string, string>,
+    key: string,
+  ): boolean {
+    return this.deleted.has(this.compositeKey(namespace, scope, key))
   }
 }
 
@@ -222,6 +242,56 @@ describe('extendMemoryServiceWithArrow', () => {
 
       const updated = await mock.get(ns, scope, 'imp-0')
       expect(updated[0]?.['text']).toBe('new-value')
+    })
+
+    it('should replace existing records when delete is supported', async () => {
+      await mock.put(ns, scope, 'stale-0', { text: 'old-0' })
+      await mock.put(ns, scope, 'stale-1', { text: 'old-1' })
+
+      const builder = new FrameBuilder()
+      builder.add(
+        { text: 'replacement-value' },
+        { id: 'replacement-id', namespace: ns, key: 'fresh-0' },
+      )
+      const table = builder.build()
+
+      const result = await ext.importFrame(ns, scope, table, 'replace')
+
+      expect(result.imported).toBe(1)
+      expect(result.skipped).toBe(0)
+      expect(result.conflicts).toBe(0)
+      expect(mock.size).toBe(1)
+      expect(mock.wasDeleted(ns, scope, 'stale-0')).toBe(true)
+      expect(mock.wasDeleted(ns, scope, 'stale-1')).toBe(true)
+
+      const remaining = await mock.get(ns, scope)
+      expect(remaining).toHaveLength(1)
+      expect(remaining[0]?.['key']).toBe('fresh-0')
+      expect(remaining[0]?.['text']).toBe('replacement-value')
+    })
+
+    it('should reject replace when delete capability is absent', async () => {
+      const put = vi.fn(async () => undefined)
+      const service: MemoryServiceLike = {
+        get: async () => [{ key: 'existing-0', text: 'old-value' }],
+        search: async () => [],
+        put,
+      }
+
+      const extWithoutDelete = extendMemoryServiceWithArrow(service)
+
+      const builder = new FrameBuilder()
+      builder.add(
+        { text: 'replacement-value' },
+        { id: 'replacement-id', namespace: ns, key: 'fresh-0' },
+      )
+      const table = builder.build()
+
+      await expect(
+        extWithoutDelete.importFrame(ns, scope, table, 'replace'),
+      ).rejects.toThrow(/delete\(\) support/)
+
+      expect(put).not.toHaveBeenCalled()
     })
   })
 

@@ -28,16 +28,16 @@ export interface ContextEstimate {
   /** Whether this fits in the provider's context window */
   fitsInContext: boolean
   /** Recommended provider based on context needs */
-  recommendedProvider?: AdapterProviderId
+  recommendedProvider?: AdapterProviderId | undefined
 }
 
 export interface ContextAwareRouterConfig {
   /** Provider context window sizes (override defaults) */
-  contextWindows?: Partial<Record<AdapterProviderId, number>>
+  contextWindows?: Partial<Record<AdapterProviderId, number>> | undefined
   /** Safety margin -- reserve this percentage of context window. Default 0.2 (20%) */
-  safetyMargin?: number
+  safetyMargin?: number | undefined
   /** Default estimated output tokens when unknown. Default 4000 */
-  defaultOutputTokens?: number
+  defaultOutputTokens?: number | undefined
   /** Custom token estimator. Default: ~4 chars per token */
   tokenEstimator?: (text: string) => number
 }
@@ -50,14 +50,14 @@ export interface ContextInjection {
   /** Priority (higher = injected first if space is tight) */
   priority: number
   /** Whether this is required or can be dropped if budget is tight */
-  required?: boolean
+  required?: boolean | undefined
 }
 
 export interface ContextInjectionConfig {
   /** Max tokens to use for injected context. Default: 50% of provider's context window */
-  maxContextTokens?: number
+  maxContextTokens?: number | undefined
   /** Separator between context chunks. Default: '\n\n---\n\n' */
-  separator?: string
+  separator?: string | undefined
   /** Where to inject: 'prepend' (before prompt) or 'system' (as system prompt). Default 'prepend' */
   position?: 'prepend' | 'system'
 }
@@ -70,8 +70,11 @@ const DEFAULT_CONTEXT_WINDOWS: Record<AdapterProviderId, number> = {
   claude: 200_000,
   codex: 128_000,
   gemini: 1_000_000,
+  'gemini-sdk': 1_000_000,
   qwen: 128_000,
   crush: 32_000,
+  goose: 128_000,
+  openrouter: 200_000,
 }
 
 /**
@@ -412,8 +415,11 @@ export class ContextInjectionMiddleware {
       claude: 200_000,
       codex: 128_000,
       gemini: 1_000_000,
+      'gemini-sdk': 1_000_000,
       qwen: 128_000,
       crush: 32_000,
+      goose: 128_000,
+      openrouter: 200_000,
     }
     const rawWindow = contextWindows[providerId] ?? 0
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
 import { InMemoryEventGateway } from '../events/event-gateway.js'
 
 describe('InMemoryEventGateway', () => {

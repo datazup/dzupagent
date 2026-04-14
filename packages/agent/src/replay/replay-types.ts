@@ -18,7 +18,7 @@ export interface ReplayEvent {
   index: number
   /** When the event was captured (epoch ms). */
   timestamp: number
-  /** Event type discriminator (mirrors DzipEvent['type']). */
+  /** Event type discriminator (mirrors DzupEvent['type']). */
   type: string
   /** Pipeline node that emitted this event, if applicable. */
   nodeId?: string

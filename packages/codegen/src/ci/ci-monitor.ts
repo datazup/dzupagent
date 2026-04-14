@@ -92,25 +92,27 @@ export function parseGitHubActionsStatus(apiResponse: Record<string, unknown>): 
         const logExcerpt = typeof job['log'] === 'string' ? job['log'] : ''
         const failure: CIFailure = {
           jobName: String(job['name'] ?? 'unknown'),
-          step: typeof job['step'] === 'string' ? job['step'] : undefined,
           logExcerpt,
-          exitCode: typeof job['exit_code'] === 'number' ? job['exit_code'] : undefined,
-          errorCategory: categorizeFailure(logExcerpt),
         }
+        if (typeof job['step'] === 'string') failure.step = job['step']
+        if (typeof job['exit_code'] === 'number') failure.exitCode = job['exit_code']
+        const cat = categorizeFailure(logExcerpt)
+        if (cat !== undefined) failure.errorCategory = cat
         failures.push(failure)
       }
     }
   }
 
-  return {
+  const result: CIStatus = {
     provider: 'github-actions',
     runId: String(apiResponse['id'] ?? ''),
     branch: String(apiResponse['head_branch'] ?? ''),
     status,
     failures,
-    url: typeof apiResponse['html_url'] === 'string' ? apiResponse['html_url'] : undefined,
     timestamp: new Date(typeof apiResponse['updated_at'] === 'string' ? apiResponse['updated_at'] : Date.now()),
   }
+  if (typeof apiResponse['html_url'] === 'string') result.url = apiResponse['html_url']
+  return result
 }
 
 /**
@@ -122,13 +124,15 @@ export function parseCIWebhook(payload: Record<string, unknown>, provider: CIPro
   if (Array.isArray(rawFailures)) {
     for (const f of rawFailures) {
       const logExcerpt = typeof f['log'] === 'string' ? f['log'] : typeof f['logExcerpt'] === 'string' ? f['logExcerpt'] : ''
-      failures.push({
+      const entry: CIFailure = {
         jobName: String(f['jobName'] ?? f['job'] ?? 'unknown'),
-        step: typeof f['step'] === 'string' ? f['step'] : undefined,
         logExcerpt,
-        exitCode: typeof f['exitCode'] === 'number' ? f['exitCode'] : undefined,
-        errorCategory: categorizeFailure(logExcerpt),
-      })
+      }
+      if (typeof f['step'] === 'string') entry.step = f['step']
+      if (typeof f['exitCode'] === 'number') entry.exitCode = f['exitCode']
+      const cat = categorizeFailure(logExcerpt)
+      if (cat !== undefined) entry.errorCategory = cat
+      failures.push(entry)
     }
   }
 
@@ -138,13 +142,14 @@ export function parseCIWebhook(payload: Record<string, unknown>, provider: CIPro
     status = 'failure'
   }
 
-  return {
+  const ciStatus: CIStatus = {
     provider,
     runId: String(payload['runId'] ?? payload['id'] ?? ''),
     branch: String(payload['branch'] ?? payload['ref'] ?? ''),
     status,
     failures,
-    url: typeof payload['url'] === 'string' ? payload['url'] : undefined,
     timestamp: new Date(typeof payload['timestamp'] === 'string' ? payload['timestamp'] : Date.now()),
   }
+  if (typeof payload['url'] === 'string') ciStatus.url = payload['url']
+  return ciStatus
 }

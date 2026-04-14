@@ -1,15 +1,15 @@
-# @dzipagent/rag
+# @dzupagent/rag
 
-Modular RAG (Retrieval-Augmented Generation) pipeline for DzipAgent.
+Modular RAG (Retrieval-Augmented Generation) pipeline for DzupAgent.
 
 This package provides high-level primitives for text chunking, hybrid retrieval, and context assembly, allowing you to build sophisticated RAG flows with minimal boilerplate.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/rag
+yarn add @dzupagent/rag
 # or
-npm install @dzipagent/rag
+npm install @dzupagent/rag
 ```
 
 ## Key Features
@@ -30,7 +30,7 @@ npm install @dzipagent/rag
 ## Quick Start
 
 ```ts
-import { RagPipeline } from '@dzipagent/rag'
+import { RagPipeline } from '@dzupagent/rag'
 
 const rag = new RagPipeline({
   chunking: { chunkSize: 500, chunkOverlap: 50 },
@@ -64,7 +64,7 @@ console.log(context.citations)
 Fine-tune the balance between semantic (vector) and lexical (keyword) search.
 
 ```ts
-import { HybridRetriever } from '@dzipagent/rag'
+import { HybridRetriever } from '@dzupagent/rag'
 
 const retriever = new HybridRetriever({
   topK: 10,
@@ -84,7 +84,7 @@ const results = await retriever.retrieve({
 Boost results from "official" documentation over other sources.
 
 ```ts
-import { QualityBoostedRetriever } from '@dzipagent/rag'
+import { QualityBoostedRetriever } from '@dzupagent/rag'
 
 const booster = new QualityBoostedRetriever({
   boosts: {
@@ -103,7 +103,7 @@ const reranked = booster.boost(initialResults)
 Maintain a clear audit trail for your RAG outputs.
 
 ```ts
-import { CitationTracker } from '@dzipagent/rag'
+import { CitationTracker } from '@dzupagent/rag'
 
 const tracker = new CitationTracker()
 const chunks = await rag.retrieve("...")

@@ -6,7 +6,7 @@
  * for each candidate, execute in isolation, pick the best, merge.
  */
 
-import { VirtualFS } from './virtual-fs.js'
+import type { VirtualFS } from './virtual-fs.js'
 import { CopyOnWriteVFS } from './cow-vfs.js'
 import type { SampleResult } from './vfs-types.js'
 

@@ -1,5 +1,5 @@
 /**
- * Forge URI scheme — identity URIs for DzipAgent agents.
+ * Forge URI scheme — identity URIs for DzupAgent agents.
  *
  * Format: `forge://<organization>/<agent-name>(@<semver>)?`
  *
@@ -16,6 +16,7 @@ import { z } from 'zod'
  * Matches `forge://org/name` or `forge://org/name@1.2.3`.
  * Organization and agent name allow lowercase letters, digits, underscores, hyphens.
  */
+// eslint-disable-next-line security/detect-unsafe-regex
 const DZIP_URI_REGEX = /^forge:\/\/[a-z0-9_-]+\/[a-z0-9_-]+(@\d+\.\d+\.\d+)?$/
 
 // ---------------------------------------------------------------------------
@@ -125,11 +126,34 @@ export interface UriResolver {
 export interface UriResolverConfig {
   /** For 'static' strategy: map of URI -> endpoint URL. */
   staticMap?: Record<string, string>
-  /** For 'convention' strategy: base URL template with {org} and {name} placeholders. */
+  /** For 'convention' strategy: base URL template with {org} and {name} placeholders; also used as registry fallback when provided. */
   urlTemplate?: string
   /** For 'registry' strategy: registry endpoint URL. */
   registryUrl?: string
+  /** Timeout in milliseconds for each registry lookup attempt. */
+  timeoutMs?: number
+  /** Maximum number of retries after the initial registry lookup attempt. */
+  maxRetries?: number
+  /** Optional fetch implementation for registry lookups. */
+  fetchImpl?: RegistryFetch
 }
+
+interface RegistryFetchResponse {
+  ok: boolean
+  status: number
+  text(): Promise<string>
+}
+
+type RegistryFetch = (input: string, init?: { signal?: AbortSignal }) => Promise<RegistryFetchResponse>
+
+type RegistryLookupResult =
+  | { kind: 'resolved'; endpoint: string }
+  | { kind: 'not_found' }
+  | { kind: 'retryable'; reason: 'timeout' | 'network' }
+  | { kind: 'terminal' }
+
+const DEFAULT_REGISTRY_TIMEOUT_MS = 5_000
+const DEFAULT_REGISTRY_RETRIES = 1
 
 /**
  * Create a URI resolver for the given strategy.
@@ -144,7 +168,7 @@ export function createUriResolver(
     case 'convention':
       return createConventionResolver(config.urlTemplate ?? 'https://{org}.agents.forge.dev/{name}')
     case 'registry':
-      return createRegistryResolver(config.registryUrl ?? 'https://registry.forge.dev')
+      return createRegistryResolver(config)
   }
 }
 
@@ -165,22 +189,206 @@ function createConventionResolver(template: string): UriResolver {
     async resolve(uri: string): Promise<string | null> {
       if (!isForgeUri(uri)) return null
       const parsed = parseForgeUri(uri)
-      return template
-        .replace('{org}', parsed.organization)
-        .replace('{name}', parsed.agentName)
+      return buildTemplateUrl(template, parsed)
     },
   }
 }
 
-function createRegistryResolver(registryUrl: string): UriResolver {
+function createRegistryResolver(config: UriResolverConfig): UriResolver {
+  const registryUrl = config.registryUrl ?? 'https://registry.forge.dev'
+  const timeoutMs = Math.max(0, config.timeoutMs ?? DEFAULT_REGISTRY_TIMEOUT_MS)
+  const maxRetries = Math.max(0, config.maxRetries ?? DEFAULT_REGISTRY_RETRIES)
+  const fetchImpl = config.fetchImpl ?? globalThis.fetch?.bind(globalThis)
+  const fallbackTemplate = config.urlTemplate
+
   return {
     async resolve(uri: string): Promise<string | null> {
       if (!isForgeUri(uri)) return null
-      // Registry resolution is a placeholder — real implementation would do an HTTP lookup.
-      // For now, return the registry lookup URL so callers know where to query.
+
       const parsed = parseForgeUri(uri)
-      const versionSuffix = parsed.version ? `?version=${parsed.version}` : ''
-      return `${registryUrl}/agents/${parsed.organization}/${parsed.agentName}${versionSuffix}`
+      const fallbackUrl = fallbackTemplate
+        ? buildTemplateUrl(fallbackTemplate, parsed)
+        : null
+
+      let lookupUrl: string
+      try {
+        lookupUrl = buildRegistryLookupUrl(registryUrl, parsed)
+      } catch {
+        return fallbackUrl
+      }
+
+      const attemptLimit = maxRetries + 1
+      for (let attempt = 0; attempt < attemptLimit; attempt++) {
+        const result = await performRegistryLookup(fetchImpl, lookupUrl, timeoutMs)
+        if (result.kind === 'resolved') {
+          return result.endpoint
+        }
+
+        if (result.kind !== 'retryable') {
+          break
+        }
+
+        if (attempt === attemptLimit - 1) {
+          break
+        }
+      }
+
+      return fallbackUrl
     },
   }
+}
+
+function buildTemplateUrl(template: string, parsed: ParsedForgeUri): string {
+  return template
+    .replaceAll('{org}', parsed.organization)
+    .replaceAll('{name}', parsed.agentName)
+}
+
+function buildRegistryLookupUrl(registryUrl: string, parsed: ParsedForgeUri): string {
+  const base = registryUrl.endsWith('/') ? registryUrl : `${registryUrl}/`
+  const lookup = new URL(`agents/${encodeURIComponent(parsed.organization)}/${encodeURIComponent(parsed.agentName)}`, base)
+  if (parsed.version) {
+    lookup.searchParams.set('version', parsed.version)
+  }
+  return lookup.toString()
+}
+
+async function performRegistryLookup(
+  fetchImpl: RegistryFetch | undefined,
+  lookupUrl: string,
+  timeoutMs: number,
+): Promise<RegistryLookupResult> {
+  if (!fetchImpl) {
+    return { kind: 'terminal' }
+  }
+
+  const controller = new AbortController()
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    const request = fetchImpl(lookupUrl, { signal: controller.signal })
+    const timeout = new Promise<RegistryLookupResult>((resolve) => {
+      timeoutHandle = setTimeout(() => {
+        controller.abort()
+        resolve({ kind: 'retryable', reason: 'timeout' })
+      }, timeoutMs)
+    })
+
+    const settled = await Promise.race([
+      request.then(async (response) => {
+        const result = await readRegistryResponse(response)
+        return result
+      }).catch((error: unknown) => classifyRegistryError(error)),
+      timeout,
+    ])
+
+    return settled
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle)
+    }
+  }
+}
+
+async function readRegistryResponse(response: RegistryFetchResponse): Promise<RegistryLookupResult> {
+  if (!response.ok) {
+    if (response.status === 404 || response.status === 410) {
+      return { kind: 'not_found' }
+    }
+
+    if (response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500) {
+      return { kind: 'retryable', reason: 'network' }
+    }
+
+    if (response.status >= 400 && response.status < 500) {
+      return { kind: 'terminal' }
+    }
+
+    return { kind: 'retryable', reason: 'network' }
+  }
+
+  try {
+    const body = await response.text()
+    const endpoint = extractRegistryEndpoint(body)
+    if (!endpoint) {
+      return { kind: 'terminal' }
+    }
+    return { kind: 'resolved', endpoint }
+  } catch {
+    return { kind: 'terminal' }
+  }
+}
+
+function classifyRegistryError(error: unknown): RegistryLookupResult {
+  if (error instanceof Error && error.name === 'AbortError') {
+    return { kind: 'retryable', reason: 'timeout' }
+  }
+
+  return { kind: 'retryable', reason: 'network' }
+}
+
+function extractRegistryEndpoint(body: string): string | null {
+  const trimmed = body.trim()
+  if (!trimmed) return null
+
+  const direct = normalizeRegistryEndpoint(trimmed)
+  if (direct) return direct
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    return extractEndpointFromPayload(parsed)
+  } catch {
+    return null
+  }
+}
+
+function extractEndpointFromPayload(payload: unknown): string | null {
+  if (typeof payload === 'string') {
+    return normalizeRegistryEndpoint(payload)
+  }
+
+  if (!isRecord(payload)) return null
+
+  const candidateFields = [
+    'endpoint',
+    'url',
+    'uri',
+    'agentUrl',
+    'location',
+    'href',
+  ] as const
+
+  for (const field of candidateFields) {
+    const candidate = payload[field]
+    const endpoint = extractEndpointFromPayload(candidate)
+    if (endpoint) return endpoint
+  }
+
+  const nestedCandidates = ['data', 'result', 'value'] as const
+  for (const field of nestedCandidates) {
+    const candidate = payload[field]
+    const endpoint = extractEndpointFromPayload(candidate)
+    if (endpoint) return endpoint
+  }
+
+  return null
+}
+
+function normalizeRegistryEndpoint(value: string): string | null {
+  const candidate = value.trim()
+  if (!candidate) return null
+
+  try {
+    const url = new URL(candidate)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null
+    }
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

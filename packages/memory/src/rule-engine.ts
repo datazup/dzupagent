@@ -12,6 +12,8 @@
  *   const prompt = engine.formatForPrompt(rules)
  */
 import type { BaseStore } from '@langchain/langgraph'
+import { tokenizeText, jaccardSimilarity } from './shared/text-similarity.js'
+import { createTimestampedId } from './shared/id-factory.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,20 +38,20 @@ export interface Rule {
   /** Success rate when applied (0-1) */
   successRate: number
   createdAt: string
-  lastAppliedAt?: string
+  lastAppliedAt?: string | undefined
 }
 
 export interface RuleEngineConfig {
   /** Store for persistence */
   store: BaseStore
   /** Namespace (default: ['rules']) */
-  namespace?: string[]
+  namespace?: string[] | undefined
   /** Minimum confidence to include in prompts (default: 0.5) */
-  minConfidence?: number
+  minConfidence?: number | undefined
   /** Max rules per context (default: 10) */
-  maxRulesPerContext?: number
+  maxRulesPerContext?: number | undefined
   /** Jaccard similarity threshold for dedup (default: 0.7) */
-  dedupThreshold?: number
+  dedupThreshold?: number | undefined
 }
 
 export interface LearnFromErrorParams {
@@ -57,52 +59,20 @@ export interface LearnFromErrorParams {
   errorMessage: string
   resolution: string
   nodeId: string
-  taskType?: string
+  taskType?: string | undefined
 }
 
 export interface AddRuleParams {
   content: string
   scope: string[]
-  source?: 'human' | 'convention'
-  confidence?: number
+  source?: 'human' | 'convention' | undefined
+  confidence?: number | undefined
 }
 
 export interface GetRulesParams {
-  nodeId?: string
-  taskType?: string
-  limit?: number
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Tokenize text into a set of lower-case words */
-function tokenize(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 1),
-  )
-}
-
-/** Jaccard similarity between two token sets */
-function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 && b.size === 0) return 1
-  let intersectionSize = 0
-  for (const word of a) {
-    if (b.has(word)) intersectionSize++
-  }
-  const unionSize = a.size + b.size - intersectionSize
-  return unionSize === 0 ? 0 : intersectionSize / unionSize
-}
-
-/** Generate a rule ID with timestamp and random suffix */
-function generateRuleId(): string {
-  const suffix = Math.random().toString(36).slice(2, 8)
-  return `rule_${Date.now()}_${suffix}`
+  nodeId?: string | undefined
+  taskType?: string | undefined
+  limit?: number | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +149,7 @@ export class DynamicRuleEngine {
     if (taskType) scope.push(taskType)
 
     const rule: Rule = {
-      id: generateRuleId(),
+      id: createTimestampedId('rule'),
       source: 'error',
       content,
       scope,
@@ -202,7 +172,7 @@ export class DynamicRuleEngine {
     const { content, scope, source = 'human', confidence = 0.8 } = params
 
     const rule: Rule = {
-      id: generateRuleId(),
+      id: createTimestampedId('rule'),
       source,
       content,
       scope,
@@ -377,10 +347,10 @@ export class DynamicRuleEngine {
   private async storeWithDedup(rule: Rule): Promise<void> {
     try {
       const existing = await this.loadAllRules()
-      const newTokens = tokenize(rule.content)
+      const newTokens = tokenizeText(rule.content)
 
       for (const existingRule of existing) {
-        const existingTokens = tokenize(existingRule.content)
+        const existingTokens = tokenizeText(existingRule.content)
         const similarity = jaccardSimilarity(newTokens, existingTokens)
 
         if (similarity >= this.dedupThreshold) {

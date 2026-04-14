@@ -1,6 +1,6 @@
 {
-  "name": "@dzipagent/otel",
-  "version": "0.1.0",
+  "name": "@dzupagent/otel",
+  "version": "0.2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,31 +19,31 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@dzipagent/core": "0.1.0"
+    "@dzupagent/core": "0.2.0"
   },
   "peerDependencies": {
     "@opentelemetry/api": "^1.7.0",
-    "@opentelemetry/sdk-trace-base": "^1.21.0",
-    "@opentelemetry/sdk-metrics": "^1.21.0"
+    "@opentelemetry/sdk-metrics": "^1.21.0",
+    "@opentelemetry/sdk-trace-base": "^1.21.0"
   },
   "peerDependenciesMeta": {
     "@opentelemetry/api": {
       "optional": true
     },
-    "@opentelemetry/sdk-trace-base": {
+    "@opentelemetry/sdk-metrics": {
       "optional": true
     },
-    "@opentelemetry/sdk-metrics": {
+    "@opentelemetry/sdk-trace-base": {
       "optional": true
     }
   },
   "devDependencies": {
-    "@opentelemetry/api": "^1.7.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/sdk-metrics": "^2.6.0",
     "@opentelemetry/sdk-trace-base": "^1.21.0",
-    "@opentelemetry/sdk-metrics": "^1.21.0",
-    "vitest": "^1.6.0",
-    "typescript": "^5.4.0",
-    "tsup": "^8.0.0"
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "files": [
     "dist"

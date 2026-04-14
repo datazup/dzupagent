@@ -1,5 +1,5 @@
 /**
- * Composable for making typed API requests to the DzipAgent server.
+ * Composable for making typed API requests to the DzupAgent server.
  *
  * Wraps `fetch` with JSON handling, error normalization, and base URL construction.
  *

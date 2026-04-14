@@ -10,7 +10,12 @@ import type {
   AgentInput,
 } from '../types.js'
 import { BaseCliAdapter } from '../base/base-cli-adapter.js'
-import { getNumber, getObject, getString, toJsonString } from '../utils/event-record.js'
+import { getNumber, getObject, getString } from '../utils/event-record.js'
+import {
+  readErrorCode,
+  readErrorMessage,
+  serializeProviderPayload,
+} from '../utils/provider-event-normalization.js'
 
 const PROVIDER_ID: AdapterProviderId = 'gemini'
 const GEMINI_BINARY = 'gemini'
@@ -32,7 +37,8 @@ function mapGeminiEvent(
   switch (type) {
     case 'message':
     case 'response': {
-      const content = getString(record, 'content', 'text', 'message') ?? ''
+      const content = serializeProviderPayload(record['content'] ?? record['text'] ?? record['message'] ?? '')
+        ?? ''
       const role = record['role'] === 'user' || record['role'] === 'system'
         ? record['role']
         : 'assistant' as const
@@ -67,11 +73,11 @@ function mapGeminiEvent(
         ?? getString(nestedResult ?? {}, 'name', 'tool_name')
         ?? getString(tool ?? {}, 'name')
         ?? 'unknown'
-      const output = toJsonString(
+      const output = serializeProviderPayload(
         record['output'] ?? record['result'] ?? record['content']
         ?? nestedResult?.['output'] ?? nestedResult?.['result'] ?? nestedResult?.['content']
         ?? '',
-      )
+      ) ?? ''
       const durationMs = getNumber(record, 'duration_ms', 'durationMs', 'elapsed_ms')
         ?? getNumber(nestedResult ?? {}, 'duration_ms', 'durationMs', 'elapsed_ms')
         ?? 0
@@ -98,7 +104,9 @@ function mapGeminiEvent(
 
     case 'done':
     case 'completed': {
-      const result = getString(record, 'result', 'content', 'output', 'text') ?? ''
+      const result = serializeProviderPayload(
+        record['result'] ?? record['content'] ?? record['output'] ?? record['text'] ?? '',
+      ) ?? ''
       return {
         type: 'adapter:completed',
         providerId: PROVIDER_ID,
@@ -110,19 +118,13 @@ function mapGeminiEvent(
     }
 
     case 'error': {
-      const errorMsg = getString(record, 'message', 'error')
-      const errorObj = getObject(record, 'error')
+      const errorCode = readErrorCode(record)
       return {
         type: 'adapter:failed',
         providerId: PROVIDER_ID,
         sessionId,
-        error: typeof errorMsg === 'string'
-          ? errorMsg
-          : typeof errorObj?.['message'] === 'string'
-            ? errorObj['message']
-            : 'Unknown Gemini CLI error',
-        code: getString(record, 'code')
-          ?? getString(errorObj ?? {}, 'code'),
+        error: readErrorMessage(record) ?? 'Unknown Gemini CLI error',
+        ...(errorCode !== undefined ? { code: errorCode } : {}),
         timestamp: Date.now(),
       }
     }

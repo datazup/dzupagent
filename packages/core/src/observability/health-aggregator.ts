@@ -1,5 +1,5 @@
 /**
- * Health aggregator for DzipAgent.
+ * Health aggregator for DzupAgent.
  *
  * Collects health status from multiple subsystems (providers, stores,
  * MCP connections) and produces a unified health report.

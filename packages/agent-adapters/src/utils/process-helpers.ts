@@ -8,7 +8,7 @@
 import { spawn, type SpawnOptions } from 'node:child_process'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { ForgeError } from '@dzipagent/core'
+import { ForgeError } from '@dzupagent/core'
 
 const execFileAsync = promisify(execFile)
 
@@ -30,9 +30,11 @@ export async function isBinaryAvailable(name: string): Promise<boolean> {
 /** Options for the JSONL spawner. */
 export interface SpawnJsonlOptions extends SpawnOptions {
   /** AbortSignal for cancellation */
-  signal?: AbortSignal
+  signal?: AbortSignal | undefined
   /** Timeout in milliseconds — kills the process after this duration */
-  timeoutMs?: number
+  timeoutMs?: number | undefined
+  /** Enable backpressure — pause stdout when consumer is processing. Default: false */
+  backpressure?: boolean | undefined
 }
 
 /**
@@ -47,33 +49,51 @@ export interface SpawnJsonlOptions extends SpawnOptions {
  * @throws {ForgeError} with code ADAPTER_SDK_NOT_INSTALLED if the binary is not found (ENOENT).
  * @throws {ForgeError} with code ADAPTER_EXECUTION_FAILED if the process exits with a non-zero code.
  * @throws {ForgeError} with code ADAPTER_TIMEOUT if the process exceeds timeoutMs.
+ * @throws {ForgeError} with code AGENT_ABORTED if execution is cancelled via AbortSignal.
  */
 export async function* spawnAndStreamJsonl(
   command: string,
   args: string[],
   options: SpawnJsonlOptions = {},
 ): AsyncGenerator<Record<string, unknown>> {
-  const { signal, timeoutMs, ...spawnOpts } = options
+  const { signal, timeoutMs, backpressure, ...spawnOpts } = options
 
   const child = spawn(command, args, {
     ...spawnOpts,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
 
-  // Track whether we initiated the kill so we can distinguish from external signals
-  let killedByUs = false
+  // Track who initiated termination so timeout and user abort are classified correctly.
+  let terminationReason: 'abort' | 'timeout' | undefined
   let timeoutId: ReturnType<typeof setTimeout> | undefined
+  let forceKillTimer: ReturnType<typeof setTimeout> | undefined
+
+  const terminateChild = (reason: 'abort' | 'timeout'): void => {
+    if (!terminationReason) {
+      terminationReason = reason
+    }
+    if (!child.killed) {
+      child.kill('SIGTERM')
+      // Escalate to SIGKILL if the process doesn't exit after SIGTERM
+      forceKillTimer = setTimeout(() => {
+        if (!child.killed) {
+          child.kill('SIGKILL')
+        }
+      }, 5000)
+      if (typeof forceKillTimer.unref === 'function') {
+        forceKillTimer.unref()
+      }
+    }
+  }
 
   // Abort signal handler
   const onAbort = (): void => {
-    killedByUs = true
-    child.kill('SIGTERM')
+    terminateChild('abort')
   }
 
   if (signal) {
     if (signal.aborted) {
-      child.kill('SIGTERM')
-      return
+      terminateChild('abort')
     }
     signal.addEventListener('abort', onAbort, { once: true })
   }
@@ -81,8 +101,7 @@ export async function* spawnAndStreamJsonl(
   // Timeout handler
   if (timeoutMs !== undefined && timeoutMs > 0) {
     timeoutId = setTimeout(() => {
-      killedByUs = true
-      child.kill('SIGTERM')
+      terminateChild('timeout')
     }, timeoutMs)
   }
 
@@ -137,7 +156,13 @@ export async function* spawnAndStreamJsonl(
         try {
           const parsed: unknown = JSON.parse(trimmed)
           if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            if (backpressure && stdout && !stdout.destroyed) {
+              stdout.pause()
+            }
             yield parsed as Record<string, unknown>
+            if (backpressure && stdout && !stdout.destroyed) {
+              stdout.resume()
+            }
           }
         } catch {
           // Skip non-JSON lines (CLI preamble, progress indicators, etc.)
@@ -166,7 +191,7 @@ export async function* spawnAndStreamJsonl(
       child.on('close', (code) => resolve(code))
     })
 
-    if (killedByUs && timeoutMs !== undefined) {
+    if (terminationReason === 'timeout' && timeoutMs !== undefined) {
       throw new ForgeError({
         code: 'ADAPTER_TIMEOUT',
         message: `Process '${command}' timed out after ${timeoutMs}ms`,
@@ -176,7 +201,17 @@ export async function* spawnAndStreamJsonl(
       })
     }
 
-    if (exitCode !== null && exitCode !== 0 && !killedByUs) {
+    if (terminationReason === 'abort') {
+      throw new ForgeError({
+        code: 'AGENT_ABORTED',
+        message: `Process '${command}' aborted`,
+        recoverable: true,
+        suggestion: 'Retry the request if cancellation was unintentional',
+        context: { command },
+      })
+    }
+
+    if (exitCode !== null && exitCode !== 0 && !terminationReason) {
       throw new ForgeError({
         code: 'ADAPTER_EXECUTION_FAILED',
         message: `Process '${command}' exited with code ${exitCode}`,
@@ -185,15 +220,30 @@ export async function* spawnAndStreamJsonl(
       })
     }
   } finally {
+    // Ensure stdout is resumed if backpressure paused it
+    if (backpressure && child.stdout && !child.stdout.destroyed) {
+      child.stdout.resume()
+    }
     if (timeoutId !== undefined) {
       clearTimeout(timeoutId)
+    }
+    if (forceKillTimer !== undefined) {
+      clearTimeout(forceKillTimer)
     }
     if (signal) {
       signal.removeEventListener('abort', onAbort)
     }
-    // Ensure cleanup
+    // Ensure cleanup — kill the process if it's still running
     if (child.exitCode === null && !child.killed) {
       child.kill('SIGTERM')
+      const finalKillTimer = setTimeout(() => {
+        if (!child.killed) {
+          child.kill('SIGKILL')
+        }
+      }, 5000)
+      if (typeof finalKillTimer.unref === 'function') {
+        finalKillTimer.unref()
+      }
     }
   }
 }

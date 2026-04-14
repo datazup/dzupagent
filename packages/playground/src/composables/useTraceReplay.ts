@@ -13,7 +13,7 @@ import { useTraceStore } from '../stores/trace-store.js'
 import type { TraceEvent, ApiResponse } from '../types.js'
 
 // ---------------------------------------------------------------------------
-// Server response types (mirrors dzipagent-server TraceStep shape)
+// Server response types (mirrors dzupagent-server TraceStep shape)
 // ---------------------------------------------------------------------------
 
 /** Step type as returned by the server trace endpoint */

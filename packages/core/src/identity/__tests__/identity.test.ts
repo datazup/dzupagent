@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   ForgeCapabilitySchema,
   ForgeIdentitySchema,
@@ -45,6 +45,18 @@ function makeIdentity(overrides?: Partial<ForgeIdentity>): ForgeIdentity {
     ...overrides,
   }
 }
+
+function makeRegistryResponse(status: number, body: string) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => body,
+  }
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 // ---------------------------------------------------------------------------
 // ForgeCapabilitySchema
@@ -459,25 +471,118 @@ describe('createUriResolver', () => {
     expect(url).toBe('https://acme.agents.dev/reviewer')
   })
 
+  it('convention resolver replaces repeated placeholders', async () => {
+    const resolver = createUriResolver('convention', {
+      urlTemplate: 'https://{org}.agents.dev/{org}/{name}/{name}',
+    })
+    const url = await resolver.resolve('forge://acme/reviewer')
+    expect(url).toBe('https://acme.agents.dev/acme/reviewer/reviewer')
+  })
+
   it('convention resolver returns null for non-forge URI', async () => {
     const resolver = createUriResolver('convention')
     const url = await resolver.resolve('http://not-forge')
     expect(url).toBeNull()
   })
 
-  it('registry resolver builds lookup URL', async () => {
+  it('registry resolver fetches endpoint URL from registry JSON', async () => {
+    const fetchImpl = vi.fn(async () =>
+      makeRegistryResponse(
+        200,
+        JSON.stringify({ endpoint: 'https://acme.example.com/reviewer' }),
+      ),
+    )
     const resolver = createUriResolver('registry', {
       registryUrl: 'https://reg.forge.dev',
+      fetchImpl,
+      maxRetries: 0,
     })
+
     const url = await resolver.resolve('forge://acme/reviewer@1.0.0')
-    expect(url).toBe('https://reg.forge.dev/agents/acme/reviewer?version=1.0.0')
+
+    expect(url).toBe('https://acme.example.com/reviewer')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(
+      'https://reg.forge.dev/agents/acme/reviewer?version=1.0.0',
+    )
   })
 
-  it('registry resolver without version omits query param', async () => {
+  it('registry resolver rejects non-http(s) endpoint payloads and falls back', async () => {
+    const fetchImpl = vi.fn(async () =>
+      makeRegistryResponse(
+        200,
+        JSON.stringify({ endpoint: 'ftp://acme.example.com/reviewer' }),
+      ),
+    )
     const resolver = createUriResolver('registry', {
       registryUrl: 'https://reg.forge.dev',
+      fetchImpl,
+      urlTemplate: 'https://{org}.agents.dev/{name}',
     })
+
     const url = await resolver.resolve('forge://acme/reviewer')
-    expect(url).toBe('https://reg.forge.dev/agents/acme/reviewer')
+
+    expect(url).toBe('https://acme.agents.dev/reviewer')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('registry resolver returns null for registry 404 without fallback', async () => {
+    const fetchImpl = vi.fn(async () => makeRegistryResponse(404, 'not found'))
+    const resolver = createUriResolver('registry', {
+      registryUrl: 'https://reg.forge.dev',
+      fetchImpl,
+      maxRetries: 2,
+    })
+
+    const url = await resolver.resolve('forge://acme/reviewer')
+
+    expect(url).toBeNull()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('registry resolver does not retry on 401 and falls back immediately', async () => {
+    const fetchImpl = vi.fn(async () => makeRegistryResponse(401, 'unauthorized'))
+    const resolver = createUriResolver('registry', {
+      registryUrl: 'https://reg.forge.dev',
+      fetchImpl,
+      maxRetries: 2,
+      urlTemplate: 'https://{org}.agents.dev/{name}',
+    })
+
+    const url = await resolver.resolve('forge://acme/reviewer')
+
+    expect(url).toBe('https://acme.agents.dev/reviewer')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('registry resolver retries on timeout but stops at the configured bound', async () => {
+    vi.useFakeTimers()
+
+    const fetchImpl = vi.fn(() => new Promise(() => {}))
+    const resolver = createUriResolver('registry', {
+      registryUrl: 'https://reg.forge.dev',
+      fetchImpl,
+      timeoutMs: 10,
+      maxRetries: 1,
+    })
+
+    const promise = resolver.resolve('forge://acme/reviewer')
+    await vi.advanceTimersByTimeAsync(20)
+
+    await expect(promise).resolves.toBeNull()
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('registry resolver falls back to the configured template when lookup misses', async () => {
+    const fetchImpl = vi.fn(async () => makeRegistryResponse(404, 'not found'))
+    const resolver = createUriResolver('registry', {
+      registryUrl: 'https://reg.forge.dev',
+      fetchImpl,
+      urlTemplate: 'https://{org}.agents.dev/{name}',
+    })
+
+    const url = await resolver.resolve('forge://acme/reviewer')
+
+    expect(url).toBe('https://acme.agents.dev/reviewer')
   })
 })

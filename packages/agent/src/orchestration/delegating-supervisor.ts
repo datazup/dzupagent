@@ -3,12 +3,12 @@
  * orchestration pattern so a supervisor agent can delegate tasks to
  * specialist agents using the typed delegation protocol.
  *
- * This module depends ONLY on `@dzipagent/core` types (AgentDefinition,
- * RunStore, DzipEventBus). It does NOT import from `@dzipagent/server`
+ * This module depends ONLY on `@dzupagent/core` types (AgentDefinition,
+ * RunStore, DzupEventBus). It does NOT import from `@dzupagent/server`
  * or any other sibling package.
  */
 
-import type { AgentDefinition, DzipEventBus } from '@dzipagent/core'
+import type { AgentDefinition, DzupEventBus } from '@dzupagent/core'
 import { OrchestrationError } from './orchestration-error.js'
 import type {
   DelegationTracker,
@@ -17,6 +17,7 @@ import type {
   DelegationContext,
 } from './delegation.js'
 import type { StructuredLLM } from '../structured/structured-output-engine.js'
+import type { ProviderExecutionPort } from './provider-adapter/provider-execution-port.js'
 
 /** Options for LLM-powered planAndDelegate. */
 export interface PlanAndDelegateOptions {
@@ -61,7 +62,48 @@ export interface DelegatingSupervisorConfig {
   /** Parent run context for delegation requests */
   parentContext?: DelegationContext
   /** Event bus for lifecycle events */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
+  /**
+   * Provider execution port for adapter-based execution.
+   * When set, `delegateTask` routes through `providerPort.run()`
+   * instead of the delegation tracker.
+   */
+  providerPort?: ProviderExecutionPort
+  // ── Hierarchy (ORCHESTRATION_V2) ──
+  /** ID of the parent run when this supervisor is itself a sub-orchestrator. */
+  parentRunId?: string
+  /** Branch identifier when running inside a parallel/conditional tree. */
+  branchId?: string
+  /** Depth in orchestration hierarchy. Root = 0. */
+  depth?: number
+}
+
+// ─── Hierarchical sub-orchestrator support (ORCHESTRATION_V2) ────────────────
+
+export const MAX_ORCHESTRATION_DEPTH = 3
+
+export interface SubOrchestratorSpawnOptions {
+  parentRunId: string
+  branchId: string
+  depth: number
+  inputPrompt: string
+  personaId?: string
+  preferredProvider?: string
+  budgetCents?: number
+}
+
+/**
+ * Guard that enforces the maximum orchestration depth.
+ * Call this before spawning any sub-orchestrator.
+ * Throws if depth would exceed MAX_ORCHESTRATION_DEPTH.
+ */
+export function assertDepthAllowed(depth: number, max = MAX_ORCHESTRATION_DEPTH): void {
+  if (depth >= max) {
+    throw new Error(
+      `Orchestration depth limit reached: depth=${depth} >= max=${max}. ` +
+        'Cannot spawn another sub-orchestrator.',
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -89,13 +131,15 @@ export class DelegatingSupervisor {
   private readonly specialists: Map<string, AgentDefinition>
   private readonly tracker: DelegationTracker
   private readonly parentContext: DelegationContext | undefined
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
+  private readonly providerPort: ProviderExecutionPort | undefined
 
   constructor(config: DelegatingSupervisorConfig) {
     this.specialists = config.specialists
     this.tracker = config.tracker
     this.parentContext = config.parentContext
     this.eventBus = config.eventBus
+    this.providerPort = config.providerPort
   }
 
   /**
@@ -118,18 +162,47 @@ export class DelegatingSupervisor {
       )
     }
 
+    this.eventBus?.emit({
+      type: 'supervisor:delegating',
+      specialistId,
+      task,
+    })
+
+    // Route through provider port when configured
+    if (this.providerPort) {
+      const tags: string[] = (specialist.metadata?.tags ?? []) as string[]
+      const portResult = await this.providerPort.run(
+        { prompt: task },
+        {
+          prompt: task,
+          tags: tags.length > 0 ? tags : [specialistId],
+        },
+      )
+
+      const delegationResult: DelegationResult = {
+        success: true,
+        output: portResult.content,
+        metadata: {
+          durationMs: 0,
+        },
+      }
+
+      this.eventBus?.emit({
+        type: 'supervisor:delegation_complete',
+        specialistId,
+        task,
+        success: true,
+      })
+
+      return delegationResult
+    }
+
     const request: DelegationRequest = {
       targetAgentId: specialistId,
       task,
       input,
       context: this.parentContext,
     }
-
-    this.eventBus?.emit({
-      type: 'supervisor:delegating',
-      specialistId,
-      task,
-    })
 
     const result = await this.tracker.delegate(request)
 

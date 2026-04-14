@@ -23,7 +23,7 @@
  * const result = await workflow.run({ spec: '...' })
  * ```
  */
-import type { PipelineDefinition, PipelineNode } from '@dzipagent/core'
+import type { PipelineDefinition, PipelineNode } from '@dzupagent/core'
 import type {
   WorkflowStep,
   WorkflowNode,

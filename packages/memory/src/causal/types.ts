@@ -18,7 +18,7 @@ export interface CausalRelation {
   /** Confidence that this causal link is real (0.0-1.0) */
   confidence: number
   /** Evidence supporting this causal link */
-  evidence?: string
+  evidence?: string | undefined
   /** When this relation was established (ISO 8601) */
   createdAt: string
 }
@@ -38,9 +38,9 @@ export interface CausalTraversalOptions {
   /** Direction to traverse */
   direction: 'causes' | 'effects' | 'both'
   /** Maximum depth (default: 5) */
-  maxDepth?: number
+  maxDepth?: number | undefined
   /** Minimum confidence threshold (default: 0.0) */
-  minConfidence?: number
+  minConfidence?: number | undefined
 }
 
 /** Result of a causal graph traversal. */

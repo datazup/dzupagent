@@ -1,18 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
-import { DzipTracer } from '../tracer.js'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
+import { DzupTracer } from '../tracer.js'
 import { OTelBridge, InMemoryMetricSink } from '../otel-bridge.js'
 
 describe('OTelBridge', () => {
-  let bus: DzipEventBus
-  let tracer: DzipTracer
+  let bus: DzupEventBus
+  let tracer: DzupTracer
   let sink: InMemoryMetricSink
   let bridge: OTelBridge
 
   beforeEach(() => {
     bus = createEventBus()
-    tracer = new DzipTracer()
+    tracer = new DzupTracer()
     sink = new InMemoryMetricSink()
     bridge = new OTelBridge({ tracer, metricSink: sink })
   })

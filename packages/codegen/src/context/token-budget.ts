@@ -190,7 +190,7 @@ export function extractInterfaceSummary(path: string, content: string): string {
     }
 
     // Capture export function signatures (just the signature line)
-    if (/^export\s+(?:async\s+)?function\s+/.test(trimmed)) {
+    if (/^export\s+(?:async\s)?function\s+/.test(trimmed)) {
       const sigEnd = line.indexOf('{')
       extracted.push(sigEnd > 0 ? line.substring(0, sigEnd).trimEnd() : line)
       continue

@@ -13,10 +13,10 @@
  * provide real or mock implementations.
  *
  * Events are emitted through a simple callback interface rather than
- * coupling to DzipEventBus directly, keeping the module self-contained.
+ * coupling to DzupEventBus directly, keeping the module self-contained.
  */
 
-import type { TokenUsage } from '@dzipagent/core'
+import type { TokenUsage } from '@dzupagent/core'
 import type {
   SelfCorrectionConfig,
   CorrectionContext,
@@ -335,7 +335,7 @@ function buildFallbackReflection(evaluation: EvaluationResult): Reflection {
   else if (/lint|eslint|no-unused/.test(errorText)) category = 'lint_violation'
 
   // Extract file paths from error messages
-  const filePattern = /(?:\/[\w.-]+)+\.[tj]sx?/g
+  const filePattern = /\/[\w./-]+\.[tj]sx?/g
   const affectedFiles: string[] = []
   for (const err of allErrors) {
     const matches = err.match(filePattern)

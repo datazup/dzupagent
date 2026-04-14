@@ -2,17 +2,17 @@
  * Layering Rule — enforces package dependency direction.
  *
  * Prevents lower-level packages from importing higher-level ones.
- * For example, @dzipagent/core must not import from @dzipagent/agent.
+ * For example, @dzupagent/core must not import from @dzupagent/agent.
  */
 
 import type { GuardrailRule, GuardrailContext, GuardrailResult, GuardrailViolation } from '../guardrail-types.js'
 
 /** Default dependency layers: lower index = lower level. */
 const DEFAULT_LAYERS: string[][] = [
-  ['@dzipagent/core'],
-  ['@dzipagent/memory', '@dzipagent/context', '@dzipagent/codegen'],
-  ['@dzipagent/agent'],
-  ['@dzipagent/server'],
+  ['@dzupagent/core'],
+  ['@dzupagent/memory', '@dzupagent/context', '@dzupagent/codegen'],
+  ['@dzupagent/agent'],
+  ['@dzupagent/server'],
 ]
 
 function resolvePackageFromPath(
@@ -34,7 +34,7 @@ function getLayerIndex(packageName: string, layers: string[][]): number {
   return -1
 }
 
-const IMPORT_RE = /^\s*import\s+(?:type\s+)?(?:\{[^}]*\}|[^;'"]*)\s+from\s+['"]([^'"]+)['"]/
+const IMPORT_RE = /^\s*import\s+(?:type\s)?(?:\{[^}]*\}|[^;'"]*)\s+from\s+['"]([^'"]+)['"]/
 
 export function createLayeringRule(customLayers?: string[][]): GuardrailRule {
   const layers = customLayers ?? DEFAULT_LAYERS

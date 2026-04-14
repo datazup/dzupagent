@@ -1,9 +1,9 @@
 /**
  * Browser connector — creates LangChain-compatible tools that wrap
- * browser automation capabilities for use in DzipAgent pipelines.
+ * browser automation capabilities for use in DzupAgent pipelines.
  */
 
-import { createForgeTool } from '@dzipagent/agent'
+import { createForgeTool } from '@dzupagent/agent'
 import { z } from 'zod'
 import { BrowserManager } from './browser/browser-manager.js'
 import { PageCrawler } from './crawler/page-crawler.js'
@@ -23,13 +23,6 @@ export interface BrowserConnectorConfig {
   auth?: AuthCredentials
   crawlOptions?: Partial<CrawlOptions>
 }
-type BrowserToolFactory = (config: {
-  id: string
-  description: string
-  inputSchema: unknown
-  execute: (input: any) => Promise<any>
-  toModelOutput?: (output: any) => string
-}) => ReturnType<typeof createForgeTool>
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -89,8 +82,6 @@ async function createBrowserSession(config: BrowserConnectorConfig) {
  * @returns An array of 5 StructuredTools ready for agent registration.
  */
 export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
-  const createBrowserTool = createForgeTool as unknown as BrowserToolFactory
-
   const crawlSiteInputSchema = z.object({
     startUrl: z.string().url().describe('The URL to start crawling from'),
     maxPages: z
@@ -131,7 +122,7 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
   // Tool 1: crawlSiteTool
   // -------------------------------------------------------------------------
 
-  const crawlSiteTool = createBrowserTool({
+  const crawlSiteTool = createForgeTool({
     id: 'browser-crawl-site',
     description:
       'Crawl a website starting from a URL using BFS. Returns an array of discovered pages with metadata including URL, title, link count, form count, and interactive element count.',
@@ -191,7 +182,7 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
   // Tool 2: captureScreenshotTool
   // -------------------------------------------------------------------------
 
-  const captureScreenshotTool = createBrowserTool({
+  const captureScreenshotTool = createForgeTool({
     id: 'browser-capture-screenshot',
     description:
       'Capture a screenshot of a web page at the given URL. Returns the screenshot as a base64-encoded JPEG string.',
@@ -245,7 +236,7 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
   // Tool 3: extractFormsTool
   // -------------------------------------------------------------------------
 
-  const extractFormsTool = createBrowserTool({
+  const extractFormsTool = createForgeTool({
     id: 'browser-extract-forms',
     description:
       'Extract all HTML forms from a web page, including their fields, actions, methods, labels, and validation attributes.',
@@ -288,7 +279,7 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
   // Tool 4: extractElementsTool
   // -------------------------------------------------------------------------
 
-  const extractElementsTool = createBrowserTool({
+  const extractElementsTool = createForgeTool({
     id: 'browser-extract-elements',
     description:
       'Extract all interactive elements (buttons, links, tabs, checkboxes, etc.) from a web page with their roles, labels, and ARIA attributes.',
@@ -331,7 +322,7 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
   // Tool 5: extractAccessibilityTreeTool
   // -------------------------------------------------------------------------
 
-  const extractAccessibilityTreeTool = createBrowserTool({
+  const extractAccessibilityTreeTool = createForgeTool({
     id: 'browser-extract-a11y-tree',
     description:
       'Extract the accessibility tree from a web page, returning a hierarchical structure of ARIA roles, names, states, and properties.',

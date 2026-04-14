@@ -5,11 +5,11 @@
  * `SimpleDelegationTracker` that manages in-flight delegations with
  * timeout handling, cancellation, and event bus integration.
  *
- * This module depends ONLY on `@dzipagent/core` (RunStore, DzipEventBus).
- * It does NOT import from `@dzipagent/server` or any other sibling package.
+ * This module depends ONLY on `@dzupagent/core` (RunStore, DzupEventBus).
+ * It does NOT import from `@dzupagent/server` or any other sibling package.
  */
 
-import type { RunStore, DzipEventBus } from '@dzipagent/core'
+import type { RunStore, DzupEventBus } from '@dzupagent/core'
 import { OrchestrationError } from './orchestration-error.js'
 
 // ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ export interface DelegationTracker {
  *
  * The tracker creates a Run record via `RunStore`, then hands the runId
  * to this executor. The executor is responsible for actually running the
- * agent (e.g. via a RunQueue worker, direct DzipAgent.generate(), etc.).
+ * agent (e.g. via a RunQueue worker, direct DzupAgent.generate(), etc.).
  *
  * The executor MUST update the Run's `status` and `output` fields via the
  * RunStore when finished, so the tracker's polling loop can detect completion.
@@ -122,7 +122,7 @@ export interface SimpleDelegationTrackerConfig {
   /** Persistence store for run records. */
   runStore: RunStore
   /** Event bus for delegation lifecycle events. */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
   /** Callback that executes the delegated run. */
   executor: DelegationExecutor
   /** Polling interval for checking run completion (ms, default: 100). */
@@ -141,7 +141,7 @@ export interface SimpleDelegationTrackerConfig {
  */
 export class SimpleDelegationTracker implements DelegationTracker {
   private readonly runStore: RunStore
-  private readonly eventBus?: DzipEventBus
+  private readonly eventBus?: DzupEventBus
   private readonly executor: DelegationExecutor
   private readonly defaultTimeoutMs: number
 

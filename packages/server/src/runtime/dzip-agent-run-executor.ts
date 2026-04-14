@@ -1,6 +1,11 @@
-import { DzipAgent } from '@dzipagent/agent'
+import { DzupAgent } from '@dzupagent/agent'
 import { HumanMessage } from '@langchain/core/messages'
-import { calculateCostCents, type TokenUsage, type ModelRegistry } from '@dzipagent/core'
+import {
+  calculateCostCents,
+  requireTerminalToolExecutionRunId,
+  type TokenUsage,
+  type ModelRegistry,
+} from '@dzupagent/core'
 import type { RunExecutor, RunExecutorResult } from './run-worker.js'
 import { resolveAgentTools, type CustomToolResolver, type ToolResolverOptions } from './tool-resolver.js'
 import { isStructuredResult } from './utils.js'
@@ -28,7 +33,7 @@ function toPrompt(input: unknown): string {
   return String(input)
 }
 
-export interface DzipAgentRunExecutorOptions {
+export interface DzupAgentRunExecutorOptions {
   fallback?: RunExecutor
   toolResolver?: CustomToolResolver
   /** 'strict' throws if any tools remain unresolved; 'lenient' warns (default). */
@@ -36,10 +41,10 @@ export interface DzipAgentRunExecutorOptions {
 }
 
 /**
- * RunExecutor that executes runs through @dzipagent/agent DzipAgent.
+ * RunExecutor that executes runs through @dzupagent/agent DzupAgent.
  */
-export function createDzipAgentRunExecutor(
-  options?: DzipAgentRunExecutorOptions,
+export function createDzupAgentRunExecutor(
+  options?: DzupAgentRunExecutorOptions,
 ): RunExecutor {
   return async (ctx): Promise<RunExecutorResult> => {
     const prompt = toPrompt(ctx.input) || 'Proceed with the requested task.'
@@ -65,7 +70,7 @@ export function createDzipAgentRunExecutor(
           : ctx.agent.modelTier
       ) as 'chat' | 'reasoning' | 'codegen' | 'embedding'
 
-      const agent = new DzipAgent({
+      const agent = new DzupAgent({
         id: ctx.agent.id,
         name: ctx.agent.name,
         description: ctx.agent.description,
@@ -81,6 +86,7 @@ export function createDzipAgentRunExecutor(
       let lastFlushAt = 0
       let totalInputTokens = 0
       let totalOutputTokens = 0
+      let activeToolName: string | undefined
 
       if (resolvedTools.activated.length > 0) {
         logs.push({
@@ -132,6 +138,7 @@ export function createDzipAgentRunExecutor(
 
         if (event.type === 'tool_call') {
           const toolName = typeof event.data['name'] === 'string' ? event.data['name'] : 'unknown'
+          activeToolName = toolName
           const input = event.data['args']
           logs.push({
             level: 'info',
@@ -143,13 +150,20 @@ export function createDzipAgentRunExecutor(
             type: 'tool:called',
             toolName,
             input: input ?? {},
-          })
+            executionRunId: ctx.runId,
+          } as Parameters<typeof ctx.eventBus.emit>[0])
           continue
         }
 
         if (event.type === 'tool_result') {
           const toolName = typeof event.data['name'] === 'string' ? event.data['name'] : 'unknown'
+          activeToolName = undefined
           const resultStr = typeof event.data['result'] === 'string' ? event.data['result'] : ''
+          const executionRunId = requireTerminalToolExecutionRunId({
+            eventType: 'tool:result',
+            toolName,
+            executionRunId: ctx.runId,
+          })
           // Tool results become input tokens in the next LLM call
           totalInputTokens += Math.ceil(resultStr.length / 4)
           logs.push({
@@ -162,7 +176,8 @@ export function createDzipAgentRunExecutor(
             type: 'tool:result',
             toolName,
             durationMs: 0,
-          })
+            executionRunId,
+          } as Parameters<typeof ctx.eventBus.emit>[0])
           continue
         }
 
@@ -182,6 +197,21 @@ export function createDzipAgentRunExecutor(
           const message = typeof event.data['message'] === 'string'
             ? event.data['message']
             : 'Unknown stream error'
+          if (activeToolName) {
+            const executionRunId = requireTerminalToolExecutionRunId({
+              eventType: 'tool:error',
+              toolName: activeToolName,
+              executionRunId: ctx.runId,
+            })
+            ctx.eventBus.emit({
+              type: 'tool:error',
+              toolName: activeToolName,
+              errorCode: 'TOOL_EXECUTION_FAILED',
+              message,
+              executionRunId,
+            } as Parameters<typeof ctx.eventBus.emit>[0])
+            activeToolName = undefined
+          }
           logs.push({
             level: 'error',
             phase: 'agent',

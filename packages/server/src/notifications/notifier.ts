@@ -102,7 +102,7 @@ export class Notifier {
     )
   }
 
-  /** Convert a DzipEvent to a notification and dispatch it */
+  /** Convert a DzupEvent to a notification and dispatch it */
   async fromEvent(eventType: string, eventData: Record<string, unknown>): Promise<void> {
     let notification: Notification | null = null
 

@@ -1,18 +1,18 @@
-# @dzipagent/agent-adapters
+# @dzupagent/agent-adapters
 
-AI agent CLI/SDK adapters for DzipAgent. This package standardizes provider integrations (Claude, Codex, Gemini, Qwen, Crush), routing, fallback execution, orchestration patterns, structured output, approvals, recovery, and workflow composition.
+AI agent CLI/SDK adapters for DzupAgent. This package standardizes provider integrations (Claude, Codex, Gemini, Qwen, Crush), routing, fallback execution, orchestration patterns, structured output, approvals, recovery, and workflow composition.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/agent-adapters
+yarn add @dzupagent/agent-adapters
 # or
-npm install @dzipagent/agent-adapters
+npm install @dzupagent/agent-adapters
 ```
 
 ## Provider requirements
 
-`@dzipagent/agent-adapters` unifies several provider backends under one interface.
+`@dzupagent/agent-adapters` unifies several provider backends under one interface.
 
 | Provider | Adapter | Runtime dependency |
 |---|---|---|
@@ -45,7 +45,7 @@ npm install @dzipagent/agent-adapters
 ### 2) Registry, routing, and fallback execution
 
 - `AdapterRegistry` registers adapters and executes with router-selected primary + fallback providers.
-- Health-aware selection with circuit breaker integration from `@dzipagent/core`.
+- Health-aware selection with circuit breaker integration from `@dzupagent/core`.
 - Router options:
   - **Tag based** (`TagBasedRouter`) for heuristics by task tags.
   - **Cost optimized** (`CostOptimizedRouter`) for low-cost routing.
@@ -105,12 +105,12 @@ npm install @dzipagent/agent-adapters
 ### Example 1: Quick start with the orchestrator facade
 
 ```ts
-import { createEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
 import {
   createOrchestrator,
   ClaudeAgentAdapter,
   CodexAdapter,
-} from '@dzipagent/agent-adapters'
+} from '@dzupagent/agent-adapters'
 
 const eventBus = createEventBus()
 
@@ -142,7 +142,7 @@ import {
   ContextInjectionMiddleware,
   type AdapterProviderId,
   type TaskDescriptor,
-} from '@dzipagent/agent-adapters'
+} from '@dzupagent/agent-adapters'
 
 const router = new ContextAwareRouter({
   safetyMargin: 0.2,
@@ -172,12 +172,12 @@ console.log(chosenProvider, enriched.prompt)
 ### Example 3: Human approval gate before execution
 
 ```ts
-import { createEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
 import {
   AdapterApprovalGate,
   ClaudeAgentAdapter,
   type ApprovalContext,
-} from '@dzipagent/agent-adapters'
+} from '@dzupagent/agent-adapters'
 
 const eventBus = createEventBus()
 
@@ -216,7 +216,7 @@ import {
   ClaudeAgentAdapter,
   StructuredOutputAdapter,
   JsonOutputSchema,
-} from '@dzipagent/agent-adapters'
+} from '@dzupagent/agent-adapters'
 
 interface ReleasePlan {
   steps: string[]
@@ -261,7 +261,7 @@ import {
   ClaudeAgentAdapter,
   CodexAdapter,
   defineWorkflow,
-} from '@dzipagent/agent-adapters'
+} from '@dzupagent/agent-adapters'
 
 const registry = new AdapterRegistry()
 registry.register(new ClaudeAgentAdapter({ apiKey: process.env.ANTHROPIC_API_KEY }))

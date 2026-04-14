@@ -113,12 +113,35 @@ function pickEnabled(
   return [...names].filter((name) => requested.has(name))
 }
 
+function getErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const maybeCode = (error as { code?: unknown }).code
+  return typeof maybeCode === 'string' ? maybeCode : undefined
+}
+
+function isModuleNotFoundError(error: unknown): boolean {
+  const code = getErrorCode(error)
+  const message = error instanceof Error ? error.message : String(error)
+  if (code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND') {
+    return true
+  }
+  return (
+    message.includes('Cannot find module')
+    || message.includes('Cannot find package')
+    || message.includes('Failed to load url')
+  )
+}
+
 async function importFirstAvailable(paths: string[]): Promise<Record<string, unknown> | null> {
   for (const p of paths) {
     try {
       return await import(p)
-    } catch {
-      // try next candidate
+    } catch (error) {
+      if (isModuleNotFoundError(error)) {
+        continue
+      }
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`Failed to import "${p}": ${message}`)
     }
   }
   return null
@@ -128,7 +151,7 @@ async function resolveGitFactory(): Promise<{
   createGitTools: ((executor: unknown) => StructuredToolInterface[]) | null
   GitExecutor: (new (cfg?: { cwd?: string }) => unknown) | null
 }> {
-  const pkg = await importFirstAvailable(['@dzipagent/codegen'])
+  const pkg = await importFirstAvailable(['@dzupagent/codegen'])
   if (pkg && typeof pkg['createGitTools'] === 'function' && typeof pkg['GitExecutor'] === 'function') {
     return {
       createGitTools: pkg['createGitTools'] as (executor: unknown) => StructuredToolInterface[],
@@ -137,8 +160,8 @@ async function resolveGitFactory(): Promise<{
   }
 
   // Dev-only monorepo fallbacks — only resolve when package isn't published
-  const toolsMod = await importFirstAvailable(['../../../dzipagent-codegen/src/git/git-tools.ts'])
-  const execMod = await importFirstAvailable(['../../../dzipagent-codegen/src/git/git-executor.ts'])
+  const toolsMod = await importFirstAvailable(['../../../codegen/src/git/git-tools.ts'])
+  const execMod = await importFirstAvailable(['../../../codegen/src/git/git-executor.ts'])
   if (
     toolsMod && execMod
     && typeof toolsMod['createGitTools'] === 'function'
@@ -169,23 +192,161 @@ interface McpServerEntry {
   maxEagerTools?: number
 }
 
+interface McpMetadataPolicy {
+  allowMetadataStdio: boolean
+  allowedServerIds?: Set<string>
+  allowedHttpHosts?: Set<string>
+  allowedStdioCommands?: Set<string>
+}
+
 function parseMcpCategory(token: string): { serverFilter?: string; toolFilter?: string } | null {
   if (token === 'mcp' || token === 'mcp:*') return {}
+  // eslint-disable-next-line security/detect-unsafe-regex
   const match = /^mcp:([^:]+)(?::(.+))?$/.exec(token)
   if (!match) return null
   return { serverFilter: match[1], toolFilter: match[2] }
 }
 
-function extractMcpServers(metadata: Record<string, unknown> | undefined): McpServerEntry[] {
-  if (!metadata) return []
+function parseBooleanEnv(value: string | undefined): boolean {
+  if (!value) return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
+}
+
+function parseCsvEnvSet(value: string | undefined, normalize?: (value: string) => string): Set<string> | undefined {
+  if (!value) return undefined
+  const entries = value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => normalize ? normalize(entry) : entry)
+  return entries.length > 0 ? new Set(entries) : undefined
+}
+
+function parseMcpMetadataPolicy(env: NodeJS.ProcessEnv | undefined): McpMetadataPolicy {
+  return {
+    allowMetadataStdio: parseBooleanEnv(env?.['DZIP_MCP_ALLOW_METADATA_STDIO']),
+    allowedServerIds: parseCsvEnvSet(env?.['DZIP_MCP_ALLOWED_SERVER_IDS']),
+    allowedHttpHosts: parseCsvEnvSet(env?.['DZIP_MCP_ALLOWED_HTTP_HOSTS'], value => value.toLowerCase()),
+    allowedStdioCommands: parseCsvEnvSet(env?.['DZIP_MCP_ALLOWED_STDIO_COMMANDS']),
+  }
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const entries = Object.entries(value).filter(([, v]) => typeof v === 'string') as Array<[string, string]>
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined
+}
+
+function extractMcpServers(
+  metadata: Record<string, unknown> | undefined,
+  policy: McpMetadataPolicy,
+): { servers: McpServerEntry[]; warnings: string[] } {
+  const warnings: string[] = []
+  if (!metadata) return { servers: [], warnings }
   const raw = metadata['mcpServers']
-  if (!Array.isArray(raw)) return []
-  return raw.filter(
-    (entry): entry is McpServerEntry =>
-      typeof entry === 'object' && entry !== null
-      && typeof (entry as Record<string, unknown>)['id'] === 'string'
-      && typeof (entry as Record<string, unknown>)['url'] === 'string',
-  )
+  if (!Array.isArray(raw)) return { servers: [], warnings }
+
+  const servers: McpServerEntry[] = []
+  for (const [index, entry] of raw.entries()) {
+    if (!entry || typeof entry !== 'object') {
+      warnings.push(`Ignoring metadata.mcpServers[${index}] because it is not an object.`)
+      continue
+    }
+
+    const record = entry as Record<string, unknown>
+    const id = typeof record['id'] === 'string' ? record['id'].trim() : ''
+    const name = typeof record['name'] === 'string' && record['name'].trim().length > 0
+      ? record['name'].trim()
+      : undefined
+    const url = typeof record['url'] === 'string' ? record['url'].trim() : ''
+
+    if (!id || !url) {
+      warnings.push(`Ignoring metadata.mcpServers[${index}] because "id" and "url" must be non-empty strings.`)
+      continue
+    }
+
+    if (
+      policy.allowedServerIds
+      && !policy.allowedServerIds.has(id)
+      && (!name || !policy.allowedServerIds.has(name))
+    ) {
+      warnings.push(`Ignoring MCP server "${id}" because it is not in DZIP_MCP_ALLOWED_SERVER_IDS.`)
+      continue
+    }
+
+    const rawTransport = record['transport']
+    const transport = rawTransport === undefined
+      ? 'http'
+      : rawTransport === 'http' || rawTransport === 'sse' || rawTransport === 'stdio'
+        ? rawTransport
+        : undefined
+
+    if (!transport) {
+      warnings.push(`Ignoring MCP server "${id}" because transport "${String(rawTransport)}" is invalid.`)
+      continue
+    }
+
+    if (transport === 'stdio') {
+      if (!policy.allowMetadataStdio) {
+        warnings.push(`Ignoring MCP server "${id}" because metadata-defined stdio transport is disabled by policy.`)
+        continue
+      }
+      const command = url.split(/\s+/, 1)[0] ?? ''
+      if (!command) {
+        warnings.push(`Ignoring MCP server "${id}" because stdio command is empty.`)
+        continue
+      }
+      if (policy.allowedStdioCommands && !policy.allowedStdioCommands.has(command)) {
+        warnings.push(`Ignoring MCP server "${id}" because command "${command}" is not in DZIP_MCP_ALLOWED_STDIO_COMMANDS.`)
+        continue
+      }
+    } else {
+      try {
+        const parsedUrl = new URL(url)
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+          warnings.push(`Ignoring MCP server "${id}" because URL protocol must be http/https for ${transport}.`)
+          continue
+        }
+        if (policy.allowedHttpHosts && !policy.allowedHttpHosts.has(parsedUrl.host.toLowerCase())) {
+          warnings.push(`Ignoring MCP server "${id}" because host "${parsedUrl.host}" is not in DZIP_MCP_ALLOWED_HTTP_HOSTS.`)
+          continue
+        }
+      } catch {
+        warnings.push(`Ignoring MCP server "${id}" because URL "${url}" is invalid.`)
+        continue
+      }
+    }
+
+    const rawArgs = record['args']
+    const args = Array.isArray(rawArgs)
+      ? rawArgs.filter((value): value is string => typeof value === 'string')
+      : undefined
+    if (Array.isArray(rawArgs) && rawArgs.length !== args?.length) {
+      warnings.push(`MCP server "${id}" has non-string args entries; invalid entries were dropped.`)
+    }
+
+    const timeoutMs = typeof record['timeoutMs'] === 'number' && Number.isFinite(record['timeoutMs'])
+      ? record['timeoutMs']
+      : undefined
+    const maxEagerTools = typeof record['maxEagerTools'] === 'number' && Number.isFinite(record['maxEagerTools'])
+      ? record['maxEagerTools']
+      : undefined
+
+    servers.push({
+      id,
+      name,
+      url,
+      transport,
+      args,
+      env: normalizeStringRecord(record['env']),
+      headers: normalizeStringRecord(record['headers']),
+      timeoutMs,
+      maxEagerTools,
+    })
+  }
+
+  return { servers, warnings }
 }
 
 async function resolveMcpTools(
@@ -216,16 +377,18 @@ async function resolveMcpTools(
   // Always mark mcp pattern tokens as resolved (they are category selectors, not tool names)
   for (const pat of mcpPatterns) resolved.push(pat.token)
 
-  const servers = extractMcpServers(context.metadata)
+  const mcpPolicy = parseMcpMetadataPolicy(context.env)
+  const { servers, warnings: policyWarnings } = extractMcpServers(context.metadata, mcpPolicy)
+  warnings.push(...policyWarnings)
   if (servers.length === 0) {
     warnings.push('MCP tools requested but no servers configured in metadata.mcpServers.')
     return { tools, activated, resolved, warnings, cleanup: noop }
   }
 
-  // Dynamic import of @dzipagent/core MCP infrastructure
-  const corePkg = await importFirstAvailable(['@dzipagent/core'])
+  // Dynamic import of @dzupagent/core MCP infrastructure
+  const corePkg = await importFirstAvailable(['@dzupagent/core'])
   if (!corePkg || typeof corePkg['MCPClient'] !== 'function' || typeof corePkg['mcpToolToLangChain'] !== 'function') {
-    warnings.push('MCP tools requested but @dzipagent/core MCP infrastructure is not available.')
+    warnings.push('MCP tools requested but @dzupagent/core MCP infrastructure is not available.')
     return { tools, activated, resolved, warnings, cleanup: noop }
   }
 
@@ -322,13 +485,13 @@ async function resolveMcpTools(
 // ---------------------------------------------------------------------------
 
 async function resolveConnectorFactory(): Promise<Record<string, unknown> | null> {
-  const pkg = await importFirstAvailable(['@dzipagent/connectors'])
+  const pkg = await importFirstAvailable(['@dzupagent/connectors'])
   if (pkg) return pkg
 
   // Dev-only monorepo fallbacks — only resolve when package isn't published
-  const github = await importFirstAvailable(['../../../dzipagent-connectors/src/github/github-connector.ts'])
-  const slack = await importFirstAvailable(['../../../dzipagent-connectors/src/slack/slack-connector.ts'])
-  const http = await importFirstAvailable(['../../../dzipagent-connectors/src/http/http-connector.ts'])
+  const github = await importFirstAvailable(['../../../connectors/src/github/github-connector.ts'])
+  const slack = await importFirstAvailable(['../../../connectors/src/slack/slack-connector.ts'])
+  const http = await importFirstAvailable(['../../../connectors/src/http/http-connector.ts'])
   if (!github && !slack && !http) return null
 
   return {
@@ -406,7 +569,7 @@ export async function resolveAgentTools(
       unresolved.delete('git:*')
       unresolved.delete('connector:git')
     } else {
-      warnings.push('Git tools requested but @dzipagent/codegen is not available at runtime.')
+      warnings.push('Git tools requested but @dzupagent/codegen is not available at runtime.')
     }
   }
 
@@ -420,7 +583,7 @@ export async function resolveAgentTools(
 
   const connectors = wantConnectors ? await resolveConnectorFactory() : null
   if (wantConnectors && !connectors) {
-    warnings.push('Connector tools requested but @dzipagent/connectors is not available at runtime.')
+    warnings.push('Connector tools requested but @dzupagent/connectors is not available at runtime.')
   }
 
   // GitHub connector
@@ -539,7 +702,7 @@ export async function resolveAgentTools(
   if (unresolved.size > 0) {
     warnings.push(
       'Some requested tools are unresolved by runtime resolver. ' +
-      'Provide createDzipAgentRunExecutor({ toolResolver }) to map tool names to concrete tools.',
+      'Provide createDzupAgentRunExecutor({ toolResolver }) to map tool names to concrete tools.',
     )
   }
 

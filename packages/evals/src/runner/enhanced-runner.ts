@@ -3,6 +3,8 @@
  * abort support, regression checks, and report formatting.
  */
 
+import { Semaphore } from '@dzupagent/core/orchestration';
+
 import type { EvalDataset, EvalEntry } from '../dataset/eval-dataset.js';
 import type { EvalInput, Scorer, ScorerResult } from '../types.js';
 
@@ -17,6 +19,13 @@ export interface EvalRunnerConfig {
     input: string,
     metadata?: Record<string, unknown>,
   ) => Promise<EvalTargetResult>;
+  /** If true, evaluation must fail when no target executor is configured. */
+  strict?: boolean;
+  /**
+   * Policy used when `strict` is false and no target executor is configured.
+   * Defaults to `expected-output` to preserve the current fallback behavior.
+   */
+  missingTargetFallback?: 'expected-output' | 'error';
   /** Max concurrent evaluations (default: 5) */
   concurrency?: number;
   /** AbortSignal to cancel evaluation */
@@ -59,41 +68,6 @@ export interface RegressionResult {
 }
 
 // ---------------------------------------------------------------------------
-// Semaphore for concurrency control
-// ---------------------------------------------------------------------------
-
-class Semaphore {
-  private _current = 0;
-  private readonly _max: number;
-  private readonly _queue: Array<() => void> = [];
-
-  constructor(max: number) {
-    this._max = max;
-  }
-
-  async acquire(): Promise<void> {
-    if (this._current < this._max) {
-      this._current++;
-      return;
-    }
-    return new Promise<void>((resolve) => {
-      this._queue.push(() => {
-        this._current++;
-        resolve();
-      });
-    });
-  }
-
-  release(): void {
-    this._current--;
-    const next = this._queue.shift();
-    if (next) {
-      next();
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
 // EvalRunner
 // ---------------------------------------------------------------------------
 
@@ -108,7 +82,18 @@ export class EvalRunner {
    * Evaluate all entries in a dataset against all scorers.
    */
   async evaluateDataset(dataset: EvalDataset): Promise<EvalReport> {
-    const { scorers, concurrency = 5, signal, onProgress, target } = this.config;
+    const { scorers, signal, onProgress, target, strict } = this.config;
+    const concurrency = normalizeConcurrency(this.config.concurrency);
+    const missingTargetFallback = resolveMissingTargetFallback(this.config.missingTargetFallback);
+    if (strict && !target) {
+      throw new Error('EvalRunner strict mode requires a target executor')
+    }
+    if (!strict && !target && missingTargetFallback === 'error') {
+      throw new Error(
+        'EvalRunner non-strict mode requires a target executor when missingTargetFallback is "error"',
+      )
+    }
+
     const startTime = Date.now();
     const sem = new Semaphore(concurrency);
     const entries: EvalReportEntry[] = [];
@@ -130,9 +115,14 @@ export class EvalRunner {
         for (const scorer of scorers) {
           if (signal?.aborted) break;
 
+          const output =
+            targetResult !== null
+              ? targetResult.output
+              : entry.expectedOutput ?? '';
+
           const evalInput: EvalInput = {
             input: entry.input,
-            output: targetResult?.output ?? entry.expectedOutput ?? '',
+            output,
             reference: entry.expectedOutput,
             tags: entry.tags,
             metadata: entry.metadata,
@@ -261,6 +251,24 @@ function buildReport(entries: EvalReportEntry[], startTime: number): EvalReport 
     overallAvgScore,
     totalDurationMs,
   };
+}
+
+function normalizeConcurrency(concurrency: number | undefined, defaultConcurrency = 5): number {
+  const value = concurrency === undefined ? defaultConcurrency : concurrency;
+
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new Error(
+      `EvalRunner concurrency must be a finite positive integer; received ${String(value)}`,
+    );
+  }
+
+  return value;
+}
+
+function resolveMissingTargetFallback(
+  fallback: EvalRunnerConfig['missingTargetFallback'],
+): 'expected-output' | 'error' {
+  return fallback ?? 'expected-output'
 }
 
 // ---------------------------------------------------------------------------

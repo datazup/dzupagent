@@ -14,11 +14,11 @@ export type MemoryState = 1 | 0 | -1
 
 export interface VoidFilterConfig {
   /** Target fraction of candidates to suppress as void. @default 0.30 */
-  targetVoidFraction?: number
+  targetVoidFraction?: number | undefined
   /** Minimum score gap to consider for the void boundary. @default 0.05 */
-  minScoreGap?: number
+  minScoreGap?: number | undefined
   /** Don't filter if fewer candidates than this. @default 3 */
-  minCandidates?: number
+  minCandidates?: number | undefined
 }
 
 export interface VoidFilterResult<T> {

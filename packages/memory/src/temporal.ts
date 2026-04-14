@@ -1,5 +1,5 @@
 /**
- * Bi-temporal memory modeling for DzipAgent.
+ * Bi-temporal memory modeling for DzupAgent.
  *
  * Provides Zep/Graphiti-style 4-timestamp temporal metadata so that:
  * - "What was true last month?" (validAt queries)
@@ -33,9 +33,9 @@ export interface TemporalMetadata {
 /** Parameters for temporal filtering on search/get operations. */
 export interface TemporalQuery {
   /** System time — "what did we know at this point?" */
-  asOf?: number
+  asOf?: number | undefined
   /** Real-world time — "what was true at this point?" */
-  validAt?: number
+  validAt?: number | undefined
 }
 
 /** Describes a single field-level change between record versions. */

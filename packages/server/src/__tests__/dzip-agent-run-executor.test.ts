@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { InMemoryRunStore, ModelRegistry, createEventBus } from '@dzipagent/core'
-import { createDzipAgentRunExecutor } from '../runtime/dzip-agent-run-executor.js'
+import { InMemoryRunStore, ModelRegistry, createEventBus } from '@dzupagent/core'
+import { createDzupAgentRunExecutor } from '../runtime/dzip-agent-run-executor.js'
 import type { RunExecutionContext } from '../runtime/run-worker.js'
 
 function baseContext(overrides?: Partial<RunExecutionContext>): RunExecutionContext {
@@ -23,8 +23,8 @@ function baseContext(overrides?: Partial<RunExecutionContext>): RunExecutionCont
 }
 
 describe('dzip-agent-run-executor', () => {
-  it('uses structured fallback result when DzipAgent execution fails', async () => {
-    const executor = createDzipAgentRunExecutor({
+  it('uses structured fallback result when DzupAgent execution fails', async () => {
+    const executor = createDzupAgentRunExecutor({
       fallback: async () => ({
         output: { message: 'fallback' },
         tokenUsage: { input: 1, output: 2 },
@@ -46,7 +46,7 @@ describe('dzip-agent-run-executor', () => {
   })
 
   it('wraps plain fallback output into structured result', async () => {
-    const executor = createDzipAgentRunExecutor({
+    const executor = createDzupAgentRunExecutor({
       fallback: async () => ({ message: 'plain-fallback' }),
     })
 

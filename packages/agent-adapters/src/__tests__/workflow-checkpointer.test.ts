@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import {
   WorkflowCheckpointer,
@@ -15,8 +15,8 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -211,8 +211,8 @@ describe('InMemoryCheckpointStore', () => {
 // ---------------------------------------------------------------------------
 
 describe('WorkflowCheckpointer', () => {
-  let bus: DzipEventBus
-  let emitted: DzipEvent[]
+  let bus: DzupEventBus
+  let emitted: DzupEvent[]
   let checkpointer: WorkflowCheckpointer
 
   beforeEach(() => {

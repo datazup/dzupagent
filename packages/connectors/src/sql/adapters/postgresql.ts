@@ -23,13 +23,37 @@ import type {
   SchemaDiscoveryOptions,
 } from '../types.js'
 
-// pg@8 ESM default import — extract Pool constructor and use `any` for pool
-// since @types/pg may not be installed. The runtime behavior is correct.
+// pg@8 ESM default import — extract Pool constructor.
 const { Pool } = pg
 
+// ---------------------------------------------------------------------------
+// Structural types for pg (avoids @types/pg dependency)
+// ---------------------------------------------------------------------------
+
+/** Minimal structural interface for a pooled pg client. */
+interface PgPoolClient {
+  query(text: string, values?: unknown[]): Promise<PgQueryResult>
+  release(): void
+}
+
+/** Result shape returned by pg client.query(). */
+interface PgQueryResult {
+  rows: Record<string, unknown>[]
+  rowCount: number | null
+  fields: Array<{ name: string; dataTypeID: number }>
+}
+
+/** Minimal structural interface for a pg Pool instance. */
+interface PgPoolLike {
+  query(text: string, values?: unknown[]): Promise<PgQueryResult>
+  connect(): Promise<PgPoolClient>
+  on(event: string, listener: (client: PgPoolClient) => void): void
+  end(): Promise<void>
+}
+
 export class PostgreSQLConnector extends BaseSQLConnector {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private readonly pool: any
+
+  private readonly pool: PgPoolLike
 
   constructor(config: SQLConnectionConfig) {
     super(config)
@@ -40,14 +64,18 @@ export class PostgreSQLConnector extends BaseSQLConnector {
       database: config.database,
       user: config.username,
       password: config.password,
-      ssl: config.ssl ? { rejectUnauthorized: false } : false,
+      ssl: config.ssl
+        ? typeof config.ssl === 'object'
+          ? config.ssl
+          : { rejectUnauthorized: config.sslAllowSelfSigned !== true }
+        : false,
       max: 5,
       idleTimeoutMillis: 30_000,
-    })
+    }) as unknown as PgPoolLike
 
     // Force every new connection into read-only mode so that
     // user-supplied SQL cannot INSERT/UPDATE/DELETE/DROP.
-    this.pool.on('connect', (client: any) => {
+    this.pool.on('connect', (client: PgPoolClient) => {
       client.query('SET default_transaction_read_only = ON').catch(() => {
         // Swallow — worst case we fall back to the statement_timeout guard.
       })
@@ -64,7 +92,7 @@ export class PostgreSQLConnector extends BaseSQLConnector {
 
   async testConnection(): Promise<ConnectionTestResult> {
     const start = Date.now()
-    let client: any | undefined
+    let client: PgPoolClient | undefined
     try {
       client = await this.pool.connect()
       await client.query('SELECT 1')
@@ -88,7 +116,7 @@ export class PostgreSQLConnector extends BaseSQLConnector {
     const maxRows = options?.maxRows ?? 500
     const wrapped = this.wrapWithLimit(sql, maxRows)
 
-    let client: any | undefined
+    let client: PgPoolClient | undefined
     try {
       client = await this.pool.connect()
 

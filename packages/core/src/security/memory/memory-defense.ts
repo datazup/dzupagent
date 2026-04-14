@@ -220,11 +220,13 @@ export function createMemoryDefense(config?: MemoryDefenseConfig): MemoryDefense
     const hasQuarantine = threats.some((t) => t.action === 'quarantine')
     const allowed = !hasReject && !hasQuarantine
 
-    return {
+    const resolvedContent = normalizedContent ?? (allowed ? content : undefined)
+    const result: MemoryDefenseResult = {
       allowed,
       threats,
-      normalizedContent: normalizedContent ?? (allowed ? content : undefined),
     }
+    if (resolvedContent !== undefined) result.normalizedContent = resolvedContent
+    return result
   }
 
   return {

@@ -3,7 +3,7 @@ import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import type {
   PipelineDefinition,
   PipelineNode,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 import type {
   NodeExecutor,
   NodeResult,
@@ -127,7 +127,7 @@ describe('PipelineRuntime — node retry with exponential backoff', () => {
     const executor: NodeExecutor = async (nodeId) => {
       order.push(nodeId)
       if (nodeId === 'A') {
-        return { nodeId, output: null, durationMs: 1, error: 'persistent failure' }
+        return { nodeId, output: null, durationMs: 1, error: 'TIMEOUT: persistent failure' }
       }
       return { nodeId, output: 'handled', durationMs: 1 }
     }
@@ -136,9 +136,11 @@ describe('PipelineRuntime — node retry with exponential backoff', () => {
       definition: makePipeline({
         nodes: [
           { id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000, retries: 1 },
+          { id: 'timeout-handler', type: 'agent', agentId: 'timeout', timeoutMs: 5000 },
           { id: 'err-handler', type: 'agent', agentId: 'err', timeoutMs: 5000 },
         ],
         edges: [
+          { type: 'error', sourceNodeId: 'A', targetNodeId: 'timeout-handler', errorCodes: ['TIMEOUT'] },
           { type: 'error', sourceNodeId: 'A', targetNodeId: 'err-handler' },
         ],
       }),
@@ -152,7 +154,7 @@ describe('PipelineRuntime — node retry with exponential backoff', () => {
 
     expect(result.state).toBe('completed')
     // A called twice (initial + 1 retry), then error handler
-    expect(order).toEqual(['A', 'A', 'err-handler'])
+    expect(order).toEqual(['A', 'A', 'timeout-handler'])
   })
 
   it('retry exhausted, no error edge — pipeline fails', async () => {

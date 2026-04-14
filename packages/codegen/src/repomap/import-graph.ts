@@ -29,7 +29,7 @@ export interface ImportGraph {
  *   import * as A from './path'
  */
 const IMPORT_RE =
-  /import\s+(?:type\s+)?(?:(?:\{([^}]*)\})|(?:\*\s+as\s+(\w+))|(\w+))\s+from\s+['"]([^'"]+)['"]/g
+  /import\s+(?:type\s)?(?:\{([^}]*)\}|\*\s+as\s+(\w+)|(\w+))\s+from\s+['"]([^'"]+)['"]/g
 
 /**
  * Resolve an import specifier to an absolute file path.

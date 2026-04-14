@@ -21,6 +21,6 @@ export default defineConfig({
     '@google-cloud/bigquery',
     'better-sqlite3',
     'mssql',
-    /^@dzipagent\//,
+    /^@dzupagent\//,
   ],
 });

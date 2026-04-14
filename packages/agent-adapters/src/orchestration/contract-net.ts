@@ -13,13 +13,13 @@
  * via pluggable BidStrategy implementations. The default StaticBidStrategy
  * uses known cost rates and tag-based confidence scoring.
  *
- * Events emitted (all defined in @dzipagent/core DzipEvent):
+ * Events emitted (all defined in @dzupagent/core DzupEvent):
  *   protocol:message_sent   — CFP broadcast and award notification
  *   protocol:message_received — bids received from providers
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
-import { ForgeError } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core'
 
 import type { AdapterRegistry } from '../registry/adapter-registry.js'
 import type {
@@ -40,8 +40,8 @@ export interface Bid {
   providerId: AdapterProviderId
   estimatedCostCents: number
   confidence: number // 0-1
-  approach?: string
-  estimatedDurationMs?: number
+  approach?: string | undefined
+  estimatedDurationMs?: number | undefined
 }
 
 /** Strategy that generates bids for a set of providers. */
@@ -56,40 +56,41 @@ export interface BidStrategy {
 /** Criteria for scoring and selecting the winning bid. */
 export interface BidSelectionCriteria {
   /** Weight for cost (lower cost = better). Default 0.3 */
-  costWeight?: number
+  costWeight?: number | undefined
   /** Weight for confidence (higher = better). Default 0.5 */
-  confidenceWeight?: number
+  confidenceWeight?: number | undefined
   /** Weight for speed (lower duration = better). Default 0.2 */
-  speedWeight?: number
+  speedWeight?: number | undefined
   /** Custom scorer override — higher is better. */
   customScorer?: (bid: Bid) => number
 }
 
 /** Options passed to `ContractNetOrchestrator.execute`. */
 export interface ContractNetOptions {
-  selectionCriteria?: BidSelectionCriteria
-  signal?: AbortSignal
+  selectionCriteria?: BidSelectionCriteria | undefined
+  signal?: AbortSignal | undefined
 }
 
 /** Configuration for the ContractNetOrchestrator. */
 export interface ContractNetConfig {
   registry: AdapterRegistry
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus | undefined
   /** Max time (ms) to collect bids. Default 5000. */
-  bidTimeoutMs?: number
+  bidTimeoutMs?: number | undefined
   /** Bid generation strategy. Default: StaticBidStrategy. */
-  bidStrategy?: BidStrategy
+  bidStrategy?: BidStrategy | undefined
 }
 
 /** Result of a contract-net execution. */
 export interface ContractNetResult {
   task: TaskDescriptor
-  winningBid: Bid
+  winningBid: Bid | null
   allBids: Bid[]
   executionResult: string
   success: boolean
   durationMs: number
-  error?: string
+  error?: string | undefined
+  cancelled?: true | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -134,19 +135,25 @@ const LOCAL_TAGS = new Set([
 /** Approximate cost in cents per estimated 10K tokens. */
 const COST_PER_10K_TOKENS: Record<AdapterProviderId, number> = {
   crush: 1,
+  goose: 1,
   qwen: 2,
   gemini: 3,
+  'gemini-sdk': 3,
   codex: 4,
   claude: 5,
+  openrouter: 5,
 }
 
 /** Default estimated duration in ms for a standard task. */
 const DEFAULT_DURATION_MS: Record<AdapterProviderId, number> = {
   crush: 2_000,
+  goose: 3_000,
   qwen: 3_000,
   gemini: 4_000,
+  'gemini-sdk': 4_000,
   codex: 5_000,
   claude: 5_000,
+  openrouter: 5_000,
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +289,7 @@ function scoreBid(bid: Bid, criteria: BidSelectionCriteria): number {
 
 export class ContractNetOrchestrator {
   private readonly registry: AdapterRegistry
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
   private readonly bidTimeoutMs: number
   private readonly bidStrategy: BidStrategy
 
@@ -308,7 +315,9 @@ export class ContractNetOrchestrator {
   ): Promise<ContractNetResult> {
     const overallStart = Date.now()
 
-    this.throwIfAborted(options?.signal)
+    if (options?.signal?.aborted) {
+      return this.buildCancelledResult(task, [], null, overallStart, 'Contract-Net execution was aborted')
+    }
 
     // 1. Discover healthy providers
     const availableProviders = this.registry
@@ -332,7 +341,25 @@ export class ContractNetOrchestrator {
     })
 
     // 3. Collect bids (with timeout)
-    const bids = await this.collectBids(task, availableProviders, options?.signal)
+    let bids: Bid[]
+    try {
+      bids = await this.collectBids(task, availableProviders, options?.signal)
+    } catch (err) {
+      if (ForgeError.is(err) && err.code === 'AGENT_ABORTED') {
+        return this.buildCancelledResult(
+          task,
+          [],
+          null,
+          overallStart,
+          err.message,
+        )
+      }
+      throw err
+    }
+
+    if (options?.signal?.aborted) {
+      return this.buildCancelledResult(task, bids, null, overallStart, 'Contract-Net execution was aborted')
+    }
 
     if (bids.length === 0) {
       throw new ForgeError({
@@ -366,10 +393,7 @@ export class ContractNetOrchestrator {
       options?.signal,
     )
 
-    return {
-      ...result,
-      durationMs: Date.now() - overallStart,
-    }
+    return { ...result, durationMs: Date.now() - overallStart }
   }
 
   // -------------------------------------------------------------------------
@@ -402,7 +426,7 @@ export class ContractNetOrchestrator {
           clearTimeout(handle)
           reject(
             new ForgeError({
-              code: 'BUDGET_EXCEEDED',
+              code: 'AGENT_ABORTED',
               message: 'Bid collection aborted',
               recoverable: false,
             }),
@@ -422,7 +446,7 @@ export class ContractNetOrchestrator {
       // be pending. For static strategies this is unlikely, but we handle
       // it defensively by returning an empty array.
       if (err instanceof ForgeError && err.code === 'BUDGET_EXCEEDED') {
-        // Timeout or abort — return whatever bids we have (none in this case)
+        // Timeout — return whatever bids we have (none in this case)
         return []
       }
       throw err
@@ -443,7 +467,9 @@ export class ContractNetOrchestrator {
     let lastError: string | undefined
 
     for (const bid of rankedBids) {
-      this.throwIfAborted(signal)
+      if (signal?.aborted) {
+        return this.buildCancelledResult(task, allBids, null, Date.now(), 'Contract-Net execution was aborted')
+      }
 
       // Emit award
       this.emitProtocol('message_sent', {
@@ -472,6 +498,12 @@ export class ContractNetOrchestrator {
           signal,
         )
 
+        // Late aborts that arrive after the adapter yielded its completed
+        // result but before this method returns should still win.
+        if (signal?.aborted) {
+          return this.buildCancelledResult(task, allBids, bid, Date.now(), 'Contract-Net execution was aborted')
+        }
+
         if (result.success) {
           return {
             task,
@@ -482,10 +514,17 @@ export class ContractNetOrchestrator {
           }
         }
 
+        if (signal?.aborted) {
+          return this.buildCancelledResult(task, allBids, bid, Date.now(), 'Contract-Net execution was aborted')
+        }
+
         // Adapter completed but without a successful result
         lastError = result.error ?? 'Adapter completed without producing a result'
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err))
+        if (ForgeError.is(err) && err.code === 'AGENT_ABORTED') {
+          return this.buildCancelledResult(task, allBids, bid, Date.now(), error.message)
+        }
         lastError = error.message
 
         // Record failure in the registry so circuit breaker is updated
@@ -541,7 +580,7 @@ export class ContractNetOrchestrator {
       this.registry.recordSuccess(providerId)
     }
 
-    return { success, text: resultText, error: errorMessage }
+    return { success, text: resultText, ...(errorMessage !== undefined ? { error: errorMessage } : {}) }
   }
 
   // -------------------------------------------------------------------------
@@ -551,10 +590,29 @@ export class ContractNetOrchestrator {
   private throwIfAborted(signal?: AbortSignal): void {
     if (signal?.aborted) {
       throw new ForgeError({
-        code: 'BUDGET_EXCEEDED',
+        code: 'AGENT_ABORTED',
         message: 'Contract-Net execution was aborted',
         recoverable: false,
       })
+    }
+  }
+
+  private buildCancelledResult(
+    task: TaskDescriptor,
+    allBids: Bid[],
+    winningBid: Bid | null,
+    overallStart: number,
+    error: string,
+  ): ContractNetResult {
+    return {
+      task,
+      winningBid,
+      allBids,
+      executionResult: '',
+      success: false,
+      durationMs: Date.now() - overallStart,
+      error,
+      cancelled: true,
     }
   }
 
@@ -570,8 +628,8 @@ export class ContractNetOrchestrator {
     type: 'message_sent' | 'message_received',
     detail: {
       protocol: string
-      to?: string
-      from?: string
+      to?: string | undefined
+      from?: string | undefined
       messageType: string
     },
   ): void {
@@ -583,14 +641,14 @@ export class ContractNetOrchestrator {
         protocol: detail.protocol,
         to: detail.to ?? '',
         messageType: detail.messageType,
-      } as Parameters<DzipEventBus['emit']>[0])
+      } as Parameters<DzupEventBus['emit']>[0])
     } else {
       this.eventBus.emit({
         type: 'protocol:message_received',
         protocol: detail.protocol,
         from: detail.from ?? '',
         messageType: detail.messageType,
-      } as Parameters<DzipEventBus['emit']>[0])
+      } as Parameters<DzupEventBus['emit']>[0])
     }
   }
 }

@@ -1,5 +1,5 @@
 /**
- * Lightweight DI container for DzipAgent service wiring.
+ * Lightweight DI container for DzupAgent service wiring.
  *
  * Every service is a lazy singleton: the factory runs on the first
  * `get()` call, and the result is cached for all subsequent calls.
@@ -11,7 +11,7 @@
  *   .register('registry', () => new ModelRegistry())
  *   .register('memory', (c) => new MemoryService(c.get('store')));
  *
- * const bus = container.get<DzipEventBus>('eventBus');
+ * const bus = container.get<DzupEventBus>('eventBus');
  * ```
  */
 

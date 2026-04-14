@@ -47,12 +47,12 @@ export class InMemoryVolumeManager implements VolumeManager {
       type: desc.type,
       scopeId: desc.scopeId,
       mountPath: desc.mountPath,
-      readOnly: desc.readOnly,
       createdAt: now,
       lastUsedAt: now,
       sizeBytes: 0,
       accessCount: 1,
     }
+    if (desc.readOnly !== undefined) vol.readOnly = desc.readOnly
     this.volumes.set(key, vol)
     return this.toVolumeInfo(vol)
   }
@@ -113,15 +113,16 @@ export class InMemoryVolumeManager implements VolumeManager {
   }
 
   private toVolumeInfo(tv: TrackedVolume): VolumeInfo {
-    return {
+    const info: VolumeInfo = {
       name: tv.name,
       type: tv.type,
       scopeId: tv.scopeId,
       mountPath: tv.mountPath,
-      readOnly: tv.readOnly,
       createdAt: tv.createdAt,
       lastUsedAt: tv.lastUsedAt,
-      sizeBytes: tv.sizeBytes,
     }
+    if (tv.readOnly !== undefined) info.readOnly = tv.readOnly
+    if (tv.sizeBytes !== undefined) info.sizeBytes = tv.sizeBytes
+    return info
   }
 }

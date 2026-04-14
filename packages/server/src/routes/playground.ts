@@ -9,7 +9,7 @@
  * import { createPlaygroundRoutes } from './routes/playground.js'
  *
  * app.route('/playground', createPlaygroundRoutes({
- *   distDir: resolve(__dirname, '../../dzipagent-playground/dist'),
+ *   distDir: resolve(__dirname, '../../dzupagent-playground/dist'),
  * }))
  * ```
  */
@@ -110,7 +110,7 @@ export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono {
     if (response) {
       return response
     }
-    return c.text('Playground not built. Run: yarn workspace @dzipagent/playground build', 404)
+    return c.text('Playground not built. Run: yarn workspace @dzupagent/playground build', 404)
   })
 
   return app

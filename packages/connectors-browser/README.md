@@ -1,15 +1,15 @@
-# @dzipagent/connectors-browser
+# @dzupagent/connectors-browser
 
-Playwright-powered browser automation and extraction tools for DzipAgent.
+Playwright-powered browser automation and extraction tools for DzupAgent.
 
 This package gives you a ready-to-use connector (`createBrowserConnector`) that returns LangChain-compatible tools for crawling, screenshots, form extraction, interactive element discovery, and accessibility-tree inspection.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/connectors-browser
+yarn add @dzupagent/connectors-browser
 # or
-npm install @dzipagent/connectors-browser
+npm install @dzupagent/connectors-browser
 ```
 
 Install required peer dependencies:
@@ -36,8 +36,8 @@ yarn add playwright zod
 ## Quick Start (Agent Tools)
 
 ```ts
-import { DzipAgent } from '@dzipagent/agent'
-import { createBrowserConnector } from '@dzipagent/connectors-browser'
+import { DzupAgent } from '@dzupagent/agent'
+import { createBrowserConnector } from '@dzupagent/connectors-browser'
 
 const browserTools = createBrowserConnector({
   headless: true,
@@ -48,7 +48,7 @@ const browserTools = createBrowserConnector({
   },
 })
 
-const agent = new DzipAgent({
+const agent = new DzupAgent({
   name: 'web-auditor',
   model: chatModel,
   systemPrompt: 'Inspect websites and summarize findings.',
@@ -79,7 +79,7 @@ console.log(result.text)
 ### 1) Authenticated crawling
 
 ```ts
-import { createBrowserConnector } from '@dzipagent/connectors-browser'
+import { createBrowserConnector } from '@dzupagent/connectors-browser'
 
 const tools = createBrowserConnector({
   auth: {
@@ -96,7 +96,7 @@ const tools = createBrowserConnector({
 ### 2) Direct crawling without tool wrappers
 
 ```ts
-import { BrowserManager, PageCrawler } from '@dzipagent/connectors-browser'
+import { BrowserManager, PageCrawler } from '@dzupagent/connectors-browser'
 
 const manager = new BrowserManager()
 await manager.launch({ headless: true })
@@ -125,7 +125,7 @@ import {
   extractForms,
   extractInteractiveElements,
   extractAccessibilityTree,
-} from '@dzipagent/connectors-browser'
+} from '@dzupagent/connectors-browser'
 
 const manager = new BrowserManager()
 await manager.launch({ headless: true })

@@ -10,7 +10,7 @@
 
 import { randomUUID } from 'node:crypto'
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import type { AgentEvent } from '../types.js'
 
@@ -27,24 +27,24 @@ export interface SpanEvent {
 export interface TraceSpan {
   traceId: string
   spanId: string
-  parentSpanId?: string
+  parentSpanId?: string | undefined
   name: string
   startTime: number
-  endTime?: number
+  endTime?: number | undefined
   status: 'ok' | 'error' | 'unset'
   attributes: Record<string, string | number | boolean>
   events: SpanEvent[]
 }
 
 export interface AdapterTracerConfig {
-  /** Service name. Default: 'dzipagent-adapters' */
-  serviceName?: string
+  /** Service name. Default: 'dzupagent-adapters' */
+  serviceName?: string | undefined
   /** Event bus for emitting trace events */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus | undefined
   /** Whether to propagate trace context to adapter processes via env vars. Default true */
-  propagateContext?: boolean
+  propagateContext?: boolean | undefined
   /** Custom span exporter callback */
-  onSpanEnd?: (span: TraceSpan) => void
+  onSpanEnd?: ((span: TraceSpan) => void) | undefined
 }
 
 export interface TraceContext {
@@ -72,16 +72,16 @@ function generateSpanId(): string {
 
 export class AdapterTracer {
   private readonly serviceName: string
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
   private readonly propagateContext: boolean
-  private readonly onSpanEnd: ((span: TraceSpan) => void) | undefined
+  private readonly onSpanEnd: ((span: TraceSpan) => void)
   private readonly spans: TraceSpan[] = []
 
   constructor(config?: AdapterTracerConfig) {
-    this.serviceName = config?.serviceName ?? 'dzipagent-adapters'
+    this.serviceName = config?.serviceName ?? 'dzupagent-adapters'
     this.eventBus = config?.eventBus
     this.propagateContext = config?.propagateContext ?? true
-    this.onSpanEnd = config?.onSpanEnd
+    this.onSpanEnd = config?.onSpanEnd ?? (() => {})
   }
 
   /**

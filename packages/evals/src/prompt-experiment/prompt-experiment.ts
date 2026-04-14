@@ -8,6 +8,7 @@
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { Semaphore } from '@dzupagent/core/orchestration';
 import type { EvalDataset, EvalEntry } from '../dataset/eval-dataset.js';
 import type { EvalInput, Scorer, ScorerResult } from '../types.js';
 
@@ -93,43 +94,47 @@ export interface ExperimentReport {
 }
 
 // ---------------------------------------------------------------------------
-// Semaphore (concurrency limiter)
-// ---------------------------------------------------------------------------
-
-class Semaphore {
-  private _current = 0;
-  private readonly _max: number;
-  private readonly _queue: Array<() => void> = [];
-
-  constructor(max: number) {
-    this._max = max;
-  }
-
-  async acquire(): Promise<void> {
-    if (this._current < this._max) {
-      this._current++;
-      return;
-    }
-    return new Promise<void>((resolve) => {
-      this._queue.push(() => {
-        this._current++;
-        resolve();
-      });
-    });
-  }
-
-  release(): void {
-    this._current--;
-    const next = this._queue.shift();
-    if (next) {
-      next();
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Statistical helpers
 // ---------------------------------------------------------------------------
+
+function normalizeConcurrency(value: number | undefined, defaultValue = 3): number {
+  const concurrency = value ?? defaultValue;
+
+  if (!Number.isFinite(concurrency) || !Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error(
+      `PromptExperiment concurrency must be a finite positive integer; received ${String(concurrency)}`,
+    );
+  }
+
+  return concurrency;
+}
+
+async function acquireSemaphore(semaphore: Semaphore, signal?: AbortSignal): Promise<boolean> {
+  if (!signal) {
+    await semaphore.acquire();
+    return true;
+  }
+
+  if (signal.aborted) {
+    return false;
+  }
+
+  const acquirePromise = semaphore.acquire().then(() => {
+    if (signal.aborted) {
+      semaphore.release();
+      return false;
+    }
+    return true;
+  });
+
+  const abortPromise = new Promise<boolean>((resolve) => {
+    const onAbort = (): void => resolve(false);
+    signal.addEventListener('abort', onAbort, { once: true });
+    void acquirePromise.finally(() => signal.removeEventListener('abort', onAbort));
+  });
+
+  return await Promise.race([acquirePromise, abortPromise]);
+}
 
 function mean(values: number[]): number {
   if (values.length === 0) return 0;
@@ -431,7 +436,8 @@ export class PromptExperiment {
       throw new Error('PromptExperiment requires at least 2 variants');
     }
 
-    const { model, scorers, concurrency = 3, signal, onProgress } = this.config;
+    const { model, scorers, signal, onProgress } = this.config;
+    const concurrency = normalizeConcurrency(this.config.concurrency);
     const startTime = Date.now();
     const sem = new Semaphore(concurrency);
 
@@ -448,8 +454,10 @@ export class PromptExperiment {
       const promises = dataset.entries.map(async (entry: EvalEntry) => {
         if (signal?.aborted) return;
 
-        await sem.acquire();
+        const acquired = await acquireSemaphore(sem, signal);
         try {
+          if (!acquired) return;
+
           if (signal?.aborted) return;
 
           // Invoke model
@@ -526,7 +534,9 @@ export class PromptExperiment {
             onProgress(variant.name, completed, dataset.size);
           }
         } finally {
-          sem.release();
+          if (acquired) {
+            sem.release();
+          }
         }
       });
 

@@ -1,5 +1,5 @@
 /**
- * MCP Memory Server — exposes DzipAgent memory as MCP tool definitions
+ * MCP Memory Server — exposes DzupAgent memory as MCP tool definitions
  * with a dispatcher that maps MCP tool calls to memory operations.
  *
  * This module is transport-agnostic: it provides tool schemas and a handler
@@ -39,14 +39,14 @@ export interface MCPToolDefinition {
 /** Result from an MCP tool invocation. */
 export interface MCPToolResult {
   content: Array<{ type: 'text'; text: string }>
-  isError?: boolean
+  isError?: boolean | undefined
 }
 
 /** Services needed by the MCP memory handler. */
 export interface MCPMemoryServices {
   memory: MemoryService
-  temporal?: TemporalMemoryService
-  relationships?: RelationshipStore
+  temporal?: TemporalMemoryService | undefined
+  relationships?: RelationshipStore | undefined
   /** Default scope for all operations */
   defaultScope: Record<string, string>
   /** Default namespace */
@@ -241,7 +241,7 @@ function asNumber(value: unknown, fallback: number): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Routes MCP tool calls to DzipAgent memory operations.
+ * Routes MCP tool calls to DzupAgent memory operations.
  *
  * Usage:
  * ```ts
@@ -384,7 +384,7 @@ export class MCPMemoryHandler {
       const key = typeof r['key'] === 'string' ? r['key'] : `record_${idx}`
       const text = typeof r['text'] === 'string' ? r['text'] : JSON.stringify(r)
       const lastAccessedAt = typeof r['lastAccessedAt'] === 'number' ? r['lastAccessedAt'] : undefined
-      return { key, text, lastAccessedAt }
+      return { key, text, ...(lastAccessedAt !== undefined ? { lastAccessedAt } : {}) }
     })
 
     const report: HealingReport = healMemory(healable)

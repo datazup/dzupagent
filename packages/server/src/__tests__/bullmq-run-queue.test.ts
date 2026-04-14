@@ -3,6 +3,7 @@
  * Mocks bullmq to avoid Redis dependency in unit tests.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { waitForCondition } from '@dzupagent/test-utils'
 
 // Mock bullmq module
 const mockAdd = vi.fn(async () => ({ id: 'bull-job-1' }))
@@ -59,7 +60,7 @@ describe('BullMQRunQueue', () => {
 
       expect(mockAdd).toHaveBeenCalledOnce()
       const [name, , opts] = mockAdd.mock.calls[0]!
-      expect(name).toBe('dzipagent-runs')
+      expect(name).toBe('dzupagent-runs')
       expect(opts).toMatchObject({
         priority: 1,
         attempts: 3, // maxRetries(2) + 1
@@ -75,8 +76,10 @@ describe('BullMQRunQueue', () => {
     it('creates a BullMQ worker with the processor', async () => {
       const processor = vi.fn(async () => {})
       queue.start(processor)
-      // Wait for async worker creation
-      await new Promise(r => setTimeout(r, 50))
+      await waitForCondition(
+        () => mockWorkerOn.mock.calls.length >= 2,
+        { description: 'timed out waiting for BullMQ worker handlers to register' },
+      )
       expect(mockWorkerOn).toHaveBeenCalledWith('completed', expect.any(Function))
       expect(mockWorkerOn).toHaveBeenCalledWith('failed', expect.any(Function))
     })

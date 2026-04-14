@@ -10,8 +10,6 @@
  * - Grounded and extended prompt generation
  */
 
-import { estimateTokens } from '@dzipagent/core'
-
 import type {
   AssembledContext,
   AssemblyOptions,
@@ -25,6 +23,11 @@ import type {
 // ---------------------------------------------------------------------------
 // Default Options
 // ---------------------------------------------------------------------------
+
+/** Conservative token estimate: 4 chars per token (ceiling). */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4)
+}
 
 const DEFAULT_SNIPPET_LENGTH = 400
 
@@ -84,7 +87,7 @@ export class ContextAssembler {
         contextPieces.push({
           sourceId,
           sourceTitle: meta.title,
-          sourceUrl: meta.url,
+          ...(meta.url !== undefined ? { sourceUrl: meta.url } : {}),
           mode: 'insights',
           text: meta.summary,
           score: 0.5, // Insight summaries get a baseline score
@@ -102,10 +105,11 @@ export class ContextAssembler {
       if (mode === 'off') continue
       if (mode === 'insights') continue // Already handled above
 
+      const resolvedUrl = chunk.sourceUrl ?? meta?.url
       contextPieces.push({
         sourceId: chunk.sourceId,
         sourceTitle: chunk.sourceTitle ?? meta?.title ?? 'Unknown',
-        sourceUrl: chunk.sourceUrl ?? meta?.url,
+        ...(resolvedUrl !== undefined ? { sourceUrl: resolvedUrl } : {}),
         mode: 'full',
         text: chunk.text,
         score: chunk.score,
@@ -128,7 +132,7 @@ export class ContextAssembler {
     const citations: CitationResult[] = budgetedPieces.map((piece) => ({
       sourceId: piece.sourceId,
       sourceTitle: piece.sourceTitle,
-      sourceUrl: piece.sourceUrl,
+      ...(piece.sourceUrl !== undefined ? { sourceUrl: piece.sourceUrl } : {}),
       chunkIndex: piece.chunkIndex,
       score: piece.score,
       snippet: piece.text.slice(0, snippetLength),

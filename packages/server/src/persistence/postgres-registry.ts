@@ -8,9 +8,9 @@
  * Supports GIN-style capability filtering (simulated via array containment).
  */
 
-import { ForgeError } from '@dzipagent/core'
-import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
-import type { ForgeCapability } from '@dzipagent/core'
+import { ForgeError } from '@dzupagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
+import type { ForgeCapability } from '@dzupagent/core'
 import type {
   AgentHealth,
   AgentHealthStatus,
@@ -26,7 +26,7 @@ import type {
   RegistryStats,
   RegistrySubscriptionFilter,
   ScoreBreakdown,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 
 // ------------------------------------------------------------------ Store abstraction
 
@@ -145,11 +145,37 @@ function generateId(): string {
   return `pg-agent-${Date.now().toString(36)}-${idCounter.toString(36)}`
 }
 
+type AgentAuthenticationType = NonNullable<RegisteredAgent['authentication']>['type']
+
+const AGENT_AUTHENTICATION_TYPES = new Set<AgentAuthenticationType>([
+  'none',
+  'bearer',
+  'api-key',
+  'oauth2',
+  'mtls',
+  'delegation',
+])
+
+function isAgentAuthenticationType(value: string): value is AgentAuthenticationType {
+  return AGENT_AUTHENTICATION_TYPES.has(value as AgentAuthenticationType)
+}
+
+function cloneRecord(value: Record<string, unknown> | null): Record<string, unknown> | null {
+  return value ? { ...value } : null
+}
+
 function rowToAgent(row: AgentRow): RegisteredAgent {
   const health: AgentHealth = {
     status: row.health_status,
     ...(row.health_data as Partial<AgentHealth> | null),
   }
+
+  const authentication = row.authentication_type && isAgentAuthenticationType(row.authentication_type)
+    ? {
+        type: row.authentication_type,
+        config: cloneRecord(row.authentication_config) ?? undefined,
+      }
+    : undefined
 
   return {
     id: row.id,
@@ -158,9 +184,7 @@ function rowToAgent(row: AgentRow): RegisteredAgent {
     endpoint: row.endpoint ?? undefined,
     protocols: row.protocols,
     capabilities: row.capabilities,
-    authentication: row.authentication_type
-      ? { type: row.authentication_type as AgentHealth['status'] extends string ? 'none' : 'none', config: row.authentication_config ?? undefined } as RegisteredAgent['authentication']
-      : undefined,
+    authentication,
     version: row.version ?? undefined,
     sla: row.sla as RegisteredAgent['sla'],
     health,
@@ -168,7 +192,7 @@ function rowToAgent(row: AgentRow): RegisteredAgent {
     registeredAt: new Date(row.registered_at),
     lastUpdatedAt: new Date(row.last_updated_at),
     ttlMs: row.ttl_ms ?? undefined,
-    identity: row.identity as unknown as RegisteredAgent['identity'],
+    identity: row.identity ? ({ ...row.identity } as unknown as RegisteredAgent['identity']) : undefined,
     uri: row.uri ?? undefined,
   }
 }
@@ -211,7 +235,7 @@ export interface PostgresRegistryConfig extends AgentRegistryConfig {
 
 export class PostgresRegistry implements AgentRegistry {
   private readonly _store: RegistryStore
-  private readonly _eventBus?: DzipEventBus
+  private readonly _eventBus?: DzupEventBus
   private readonly _subscriptions = new Set<Subscription>()
 
   constructor(config?: PostgresRegistryConfig) {
@@ -296,10 +320,19 @@ export class PostgresRegistry implements AgentRegistry {
       partial.capabilities = [...changes.capabilities]
       changedFields.push('capabilities')
     }
+    if (changes.authentication !== undefined) {
+      partial.authentication_type = changes.authentication.type
+      partial.authentication_config = cloneRecord(changes.authentication.config ?? null)
+      changedFields.push('authentication')
+    }
     if (changes.version !== undefined) { partial.version = changes.version; changedFields.push('version') }
     if (changes.sla !== undefined) { partial.sla = { ...changes.sla }; changedFields.push('sla') }
     if (changes.metadata !== undefined) { partial.metadata = { ...changes.metadata }; changedFields.push('metadata') }
     if (changes.ttlMs !== undefined) { partial.ttl_ms = changes.ttlMs; changedFields.push('ttlMs') }
+    if (changes.identity !== undefined) {
+      partial.identity = { ...changes.identity }
+      changedFields.push('identity')
+    }
     if (changes.uri !== undefined) { partial.uri = changes.uri; changedFields.push('uri') }
 
     await this._store.update(agentId, partial)
@@ -529,7 +562,7 @@ export class PostgresRegistry implements AgentRegistry {
       }
     }
     if (this._eventBus) {
-      this._eventBus.emit(event as DzipEvent)
+      this._eventBus.emit(event as DzupEvent)
     }
   }
 

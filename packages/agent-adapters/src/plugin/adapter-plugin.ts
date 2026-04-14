@@ -1,14 +1,15 @@
 /**
- * AdapterPlugin — a DzipPlugin-compatible factory that auto-wires the full
+ * AdapterPlugin — a DzupPlugin-compatible factory that auto-wires the full
  * adapter orchestration stack (registry, event bridge, cost tracking, sessions)
- * into the DzipAgent plugin system.
+ * into the DzupAgent plugin system.
  *
- * This module does NOT import DzipPlugin directly to avoid pulling in
- * `@dzipagent/memory` as a transitive dependency. Instead it exports a
+ * This module does NOT import DzupPlugin directly to avoid pulling in
+ * `@dzupagent/memory` as a transitive dependency. Instead it exports a
  * structurally-compatible object via `createAdapterPlugin()`.
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus, DzupEventOf } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core'
 
 import type { AgentCLIAdapter, TaskRoutingStrategy } from '../types.js'
 import { AdapterRegistry } from '../registry/adapter-registry.js'
@@ -52,7 +53,7 @@ export interface AdapterPluginInstance {
   /** Plugin version */
   readonly version: string
   /** Called when registered with PluginRegistry */
-  onRegister(ctx: { eventBus: DzipEventBus; modelRegistry?: unknown }): void
+  onRegister(ctx: { eventBus: DzupEventBus; modelRegistry?: unknown }): void
   /** Event handlers wired up by the plugin */
   eventHandlers: Record<string, (event: unknown) => void | Promise<void>>
 
@@ -74,7 +75,7 @@ const PLUGIN_NAME = 'adapter-orchestration'
 const PLUGIN_VERSION = '0.1.0'
 
 /**
- * Creates a DzipPlugin-compatible object that wires up the full adapter
+ * Creates a DzupPlugin-compatible object that wires up the full adapter
  * orchestration stack.
  *
  * @example
@@ -107,7 +108,7 @@ export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPl
     name: PLUGIN_NAME,
     version: PLUGIN_VERSION,
 
-    onRegister(ctx: { eventBus: DzipEventBus; modelRegistry?: unknown }): void {
+    onRegister(ctx: { eventBus: DzupEventBus; modelRegistry?: unknown }): void {
       const { eventBus } = ctx
 
       // 1. Create AdapterRegistry
@@ -184,55 +185,51 @@ export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPl
   // Internal: wire event handlers onto the bus and into the eventHandlers map
   // -------------------------------------------------------------------------
 
-  function wireEventHandlers(eventBus: DzipEventBus): void {
+  function wireEventHandlers(eventBus: DzupEventBus): void {
     // agent:failed — record failure in circuit breaker via registry
-    const handleAgentFailed = (event: unknown): void => {
-      const e = event as { type: string; agentId?: string; message?: string }
-      if (registry && e.agentId) {
+    const handleAgentFailed = (event: DzupEventOf<'agent:failed'>): void => {
+      if (event.errorCode === 'AGENT_ABORTED') {
+        return
+      }
+
+      if (registry && event.agentId) {
         // The registry's recordFailure expects an AdapterProviderId.
         // Only record if the agentId matches a registered adapter.
         const adapters = registry.listAdapters()
-        const providerId = e.agentId
+        const providerId = event.agentId
         if (adapters.includes(providerId as Parameters<typeof adapters.includes>[0])) {
           registry.recordFailure(
             providerId as Parameters<typeof registry.recordFailure>[0],
-            new Error(typeof e.message === 'string' ? e.message : 'Agent failed'),
+            new Error(typeof event.message === 'string' ? event.message : 'Agent failed'),
           )
         }
       }
     }
 
     // provider:circuit_opened — log warning
-    const handleCircuitOpened = (event: unknown): void => {
-      const e = event as { type: string; provider?: string }
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[${PLUGIN_NAME}] Circuit breaker OPENED for provider "${e.provider ?? 'unknown'}". ` +
+    const handleCircuitOpened = (event: DzupEventOf<'provider:circuit_opened'>): void => {
+      defaultLogger.warn(
+        `[${PLUGIN_NAME}] Circuit breaker OPENED for provider "${event.provider ?? 'unknown'}". ` +
           'Requests will be routed to fallback adapters.',
       )
     }
 
     // provider:circuit_closed — log recovery
-    const handleCircuitClosed = (event: unknown): void => {
-      const e = event as { type: string; provider?: string }
-      // eslint-disable-next-line no-console
-      console.info(
-        `[${PLUGIN_NAME}] Circuit breaker CLOSED for provider "${e.provider ?? 'unknown'}". ` +
+    const handleCircuitClosed = (event: DzupEventOf<'provider:circuit_closed'>): void => {
+      defaultLogger.warn(
+        `[${PLUGIN_NAME}] Circuit breaker CLOSED for provider "${event.provider ?? 'unknown'}". ` +
           'Provider has recovered.',
       )
     }
 
     // Subscribe on the event bus
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    eventBus.on('agent:failed' as any, handleAgentFailed as any)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    eventBus.on('provider:circuit_opened' as any, handleCircuitOpened as any)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    eventBus.on('provider:circuit_closed' as any, handleCircuitClosed as any)
+    eventBus.on('agent:failed', handleAgentFailed)
+    eventBus.on('provider:circuit_opened', handleCircuitOpened)
+    eventBus.on('provider:circuit_closed', handleCircuitClosed)
 
     // Expose on the eventHandlers record so PluginRegistry can introspect
-    eventHandlers['agent:failed'] = handleAgentFailed
-    eventHandlers['provider:circuit_opened'] = handleCircuitOpened
-    eventHandlers['provider:circuit_closed'] = handleCircuitClosed
+    eventHandlers['agent:failed'] = handleAgentFailed as (event: unknown) => void
+    eventHandlers['provider:circuit_opened'] = handleCircuitOpened as (event: unknown) => void
+    eventHandlers['provider:circuit_closed'] = handleCircuitClosed as (event: unknown) => void
   }
 }

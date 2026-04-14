@@ -1,5 +1,5 @@
 /**
- * FrameBuilder accumulates DzipAgent memory records and builds an Arrow Table.
+ * FrameBuilder accumulates DzupAgent memory records and builds an Arrow Table.
  *
  * Records are plain objects with optional convention fields (_temporal, _decay,
  * _provenance, _agent, text, category, importance). Fields not mapped to schema
@@ -7,7 +7,7 @@
  */
 
 import {
-  Table,
+  type Table,
   tableFromArrays,
 } from 'apache-arrow'
 
@@ -25,7 +25,7 @@ export interface FrameScope {
   session?: string | null
 }
 
-/** Temporal metadata matching DzipAgent's TemporalMetadata convention. */
+/** Temporal metadata matching DzupAgent's TemporalMetadata convention. */
 export interface FrameTemporal {
   systemCreatedAt?: number
   systemExpiredAt?: number | null
@@ -33,7 +33,7 @@ export interface FrameTemporal {
   validUntil?: number | null
 }
 
-/** Decay metadata matching DzipAgent's DecayMetadata convention. */
+/** Decay metadata matching DzupAgent's DecayMetadata convention. */
 export interface FrameDecay {
   strength?: number | null
   halfLifeMs?: number | null
@@ -52,10 +52,10 @@ export interface FrameRecordMeta {
   id: string
   namespace: string
   key: string
-  scope?: FrameScope
+  scope?: FrameScope | undefined
 }
 
-/** A value object as stored in DzipAgent memory. */
+/** A value object as stored in DzupAgent memory. */
 export interface FrameRecordValue {
   text?: string | null
   _temporal?: FrameTemporal
@@ -144,7 +144,7 @@ function createEmptyBuffers(): ColumnBuffers {
 // ---------------------------------------------------------------------------
 
 /**
- * Accumulates DzipAgent memory records and builds an Arrow Table.
+ * Accumulates DzupAgent memory records and builds an Arrow Table.
  *
  * Usage:
  * ```ts

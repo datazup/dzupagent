@@ -9,7 +9,7 @@
  * AdapterRegistry as a drop-in router.
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import type {
   AdapterProviderId,
   RoutingDecision,
@@ -31,7 +31,7 @@ export interface CostOptimizationConfig {
   /** Decay factor for older observations (0-1). 1 = no decay. Default 0.95 */
   decayFactor?: number
   /** Event bus for emitting optimization events */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
 }
 
 export interface ProviderPerformanceRecord {
@@ -69,7 +69,10 @@ export interface OptimizationDecision {
 const DEFAULT_PRIORITY: Record<AdapterProviderId, number> = {
   claude: 5,
   codex: 4,
+  openrouter: 4,
   gemini: 3,
+  'gemini-sdk': 3,
+  goose: 3,
   qwen: 2,
   crush: 1,
 }
@@ -175,7 +178,7 @@ export class CostOptimizationEngine implements TaskRoutingStrategy {
   private readonly maxQualityDegradation: number
   private readonly minSampleSize: number
   private readonly decayFactor: number
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
 
   /**
    * Nested map: providerId → tagKey → ring buffer of observations.

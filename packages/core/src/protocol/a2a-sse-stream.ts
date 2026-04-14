@@ -52,12 +52,13 @@ export function parseSSEEvents(text: string): SSEEvent[] {
 
   function flush(): void {
     if (currentData.length > 0) {
-      events.push({
-        event: currentEvent,
+      const evt: SSEEvent = {
         data: currentData.join('\n'),
-        id: currentId,
-        retry: currentRetry,
-      })
+      }
+      if (currentEvent !== undefined) evt.event = currentEvent
+      if (currentId !== undefined) evt.id = currentId
+      if (currentRetry !== undefined) evt.retry = currentRetry
+      events.push(evt)
     }
     currentEvent = undefined
     currentData = []
@@ -197,7 +198,7 @@ export async function* streamA2ATask(
       response = await fetchFn(url, {
         method: 'GET',
         headers,
-        signal: config?.signal,
+        ...(config?.signal !== undefined && { signal: config.signal }),
       })
     } catch (err: unknown) {
       // Abort signal will throw — just return
@@ -211,7 +212,7 @@ export async function* streamA2ATask(
           code: 'PROTOCOL_CONNECTION_FAILED',
           message: `A2A SSE connection failed after ${maxReconnects} reconnect attempts: ${err instanceof Error ? err.message : String(err)}`,
           recoverable: false,
-          cause: err instanceof Error ? err : undefined,
+          ...(err instanceof Error && { cause: err }),
         })
       }
       await sleepWithSignal(reconnectDelayMs, config?.signal)
@@ -260,7 +261,7 @@ export async function* streamA2ATask(
           code: 'PROTOCOL_CONNECTION_FAILED',
           message: `A2A SSE stream dropped after ${maxReconnects} reconnect attempts`,
           recoverable: false,
-          cause: err instanceof Error ? err : undefined,
+          ...(err instanceof Error && { cause: err }),
         })
       }
       await sleepWithSignal(reconnectDelayMs, config?.signal)

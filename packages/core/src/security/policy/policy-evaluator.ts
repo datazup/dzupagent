@@ -235,7 +235,6 @@ export class PolicyEvaluator {
       return {
         effect: 'deny',
         matchedRules: [],
-        decidingRule: undefined,
         evaluationTimeUs: elapsed,
       }
     }
@@ -252,10 +251,12 @@ export class PolicyEvaluator {
     }
 
     // All matched rules are allow — use highest-priority one as deciding
+    // Safe: matchedRules is non-empty (checked above)
+    const decidingRule = matchedRules[0]
     return {
       effect: 'allow',
       matchedRules,
-      decidingRule: matchedRules[0],
+      ...(decidingRule !== undefined && { decidingRule }),
       evaluationTimeUs: elapsed,
     }
   }

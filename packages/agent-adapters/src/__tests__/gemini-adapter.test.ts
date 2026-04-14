@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { GeminiCLIAdapter } from '../gemini/gemini-adapter.js'
-import { ForgeError } from '@dzipagent/core'
+import { ForgeError } from '@dzupagent/core'
 import { collectEvents, getProcessHelperMocks } from './test-helpers.js'
 
 vi.mock('../utils/process-helpers.js', () => ({
@@ -67,6 +67,56 @@ describe('GeminiCLIAdapter', () => {
     expect(args).toContain('2')
   })
 
+  it('handles malformed and mixed Gemini records deterministically', async () => {
+    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+      yield { payload: 'ignored' }
+      yield { event: 'message', text: { parts: ['hello from gemini'] } }
+      yield { type: 'function_call', tool: { name: 'search', input: { query: 'dzip' } } }
+      yield { type: 'function_response', function_response: { name: 'search', content: { hits: 2 }, durationMs: 11 } }
+      yield { type: 'error', error: { cause: { message: 'nested failure', code: 'GEMINI_NESTED' } } }
+      yield { type: 'completed', output: { text: 'gemini recovered', meta: { ok: true } }, duration_ms: 33 }
+    })
+
+    const adapter = new GeminiCLIAdapter()
+    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
+
+    expect(events.map((e) => e.type)).toEqual([
+      'adapter:started',
+      'adapter:message',
+      'adapter:tool_call',
+      'adapter:tool_result',
+      'adapter:failed',
+      'adapter:completed',
+    ])
+
+    const message = events.find((e) => e.type === 'adapter:message')
+    expect(message).toBeDefined()
+    if (message?.type === 'adapter:message') {
+      expect(message.content).toBe('{"parts":["hello from gemini"]}')
+    }
+
+    const toolResult = events.find((e) => e.type === 'adapter:tool_result')
+    expect(toolResult).toBeDefined()
+    if (toolResult?.type === 'adapter:tool_result') {
+      expect(toolResult.output).toBe('{"hits":2}')
+      expect(toolResult.durationMs).toBe(11)
+    }
+
+    const failed = events.find((e) => e.type === 'adapter:failed')
+    expect(failed).toBeDefined()
+    if (failed?.type === 'adapter:failed') {
+      expect(failed.error).toBe('nested failure')
+      expect(failed.code).toBe('GEMINI_NESTED')
+    }
+
+    const completed = events.find((e) => e.type === 'adapter:completed')
+    expect(completed).toBeDefined()
+    if (completed?.type === 'adapter:completed') {
+      expect(completed.result).toBe('{"text":"gemini recovered","meta":{"ok":true}}')
+      expect(completed.durationMs).toBe(33)
+    }
+  })
+
   it('emits adapter:failed and does not rethrow for non-Forge errors', async () => {
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
       throw new Error('boom')
@@ -130,5 +180,19 @@ describe('GeminiCLIAdapter', () => {
       expect(completed.result).toBe('')
       expect(completed.durationMs).toBeGreaterThanOrEqual(0)
     }
+  })
+
+  it('does not emit synthetic adapter:completed after provider adapter:failed event', async () => {
+    mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+      yield { type: 'error', error: { message: 'provider failure', code: 'GEMINI_ERR' } }
+    })
+
+    const adapter = new GeminiCLIAdapter()
+    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
+
+    expect(events.map((e) => e.type)).toEqual([
+      'adapter:started',
+      'adapter:failed',
+    ])
   })
 })

@@ -7,7 +7,7 @@ import type {
   PipelineNode,
   PipelineEdge,
   LoopNode,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 import type {
   NodeExecutor,
   NodeResult,
@@ -266,6 +266,299 @@ describe('PipelineRuntime — error edges', () => {
     const result = await runtime.execute()
     expect(order).toEqual(['A', 'B', 'err-handler'])
     expect(result.state).toBe('completed')
+  })
+
+  it.each([
+    { label: '[CODE] message', error: '[TIMEOUT] upstream timed out' },
+    { label: 'CODE: message', error: 'TIMEOUT: upstream timed out' },
+    { label: 'exact CODE', error: 'TIMEOUT' },
+  ])('routes to a code-specific error handler for $label', async ({ error }) => {
+    const order: string[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      order.push(nodeId)
+      if (nodeId === 'B') {
+        return { nodeId, output: null, durationMs: 0, error }
+      }
+      return { nodeId, output: nodeId, durationMs: 0 }
+    }
+
+    const definition = makePipeline({
+      nodes: [
+        { id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000 },
+        { id: 'B', type: 'agent', agentId: 'a2', timeoutMs: 5000 },
+        { id: 'timeout-handler', type: 'agent', agentId: 'timeout', timeoutMs: 5000 },
+        { id: 'generic-handler', type: 'agent', agentId: 'generic', timeoutMs: 5000 },
+      ],
+      edges: [
+        { type: 'sequential', sourceNodeId: 'A', targetNodeId: 'B' },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'timeout-handler', errorCodes: ['TIMEOUT'] },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'generic-handler' },
+      ],
+    })
+
+    const runtime = new PipelineRuntime({
+      definition,
+      nodeExecutor: executor,
+    })
+
+    const result = await runtime.execute()
+
+    expect(order).toEqual(['A', 'B', 'timeout-handler'])
+    expect(result.state).toBe('completed')
+  })
+
+  it('routes lowercase code-like prefixes to the generic handler', async () => {
+    const order: string[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      order.push(nodeId)
+      if (nodeId === 'B') {
+        return { nodeId, output: null, durationMs: 0, error: 'timeout: upstream timed out' }
+      }
+      return { nodeId, output: nodeId, durationMs: 0 }
+    }
+
+    const definition = makePipeline({
+      nodes: [
+        { id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000 },
+        { id: 'B', type: 'agent', agentId: 'a2', timeoutMs: 5000 },
+        { id: 'timeout-handler', type: 'agent', agentId: 'timeout', timeoutMs: 5000 },
+        { id: 'generic-handler', type: 'agent', agentId: 'generic', timeoutMs: 5000 },
+      ],
+      edges: [
+        { type: 'sequential', sourceNodeId: 'A', targetNodeId: 'B' },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'timeout-handler', errorCodes: ['TIMEOUT'] },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'generic-handler' },
+      ],
+    })
+
+    const runtime = new PipelineRuntime({
+      definition,
+      nodeExecutor: executor,
+    })
+
+    const result = await runtime.execute()
+
+    expect(order).toEqual(['A', 'B', 'generic-handler'])
+    expect(result.state).toBe('completed')
+  })
+
+  it('routes mixed-case code-like prefixes to the generic handler', async () => {
+    const order: string[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      order.push(nodeId)
+      if (nodeId === 'B') {
+        return { nodeId, output: null, durationMs: 0, error: 'Timeout: upstream timed out' }
+      }
+      return { nodeId, output: nodeId, durationMs: 0 }
+    }
+
+    const definition = makePipeline({
+      nodes: [
+        { id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000 },
+        { id: 'B', type: 'agent', agentId: 'a2', timeoutMs: 5000 },
+        { id: 'timeout-handler', type: 'agent', agentId: 'timeout', timeoutMs: 5000 },
+        { id: 'generic-handler', type: 'agent', agentId: 'generic', timeoutMs: 5000 },
+      ],
+      edges: [
+        { type: 'sequential', sourceNodeId: 'A', targetNodeId: 'B' },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'timeout-handler', errorCodes: ['TIMEOUT'] },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'generic-handler' },
+      ],
+    })
+
+    const runtime = new PipelineRuntime({
+      definition,
+      nodeExecutor: executor,
+    })
+
+    const result = await runtime.execute()
+
+    expect(order).toEqual(['A', 'B', 'generic-handler'])
+    expect(result.state).toBe('completed')
+  })
+
+  it.each([
+    { label: 'non-string code', error: { code: 504 } },
+    { label: 'empty string code', error: { code: '' } },
+  ])('routes to the generic handler for $label', async ({ error }) => {
+    const order: string[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      order.push(nodeId)
+      if (nodeId === 'B') {
+        return { nodeId, output: null, durationMs: 0, error }
+      }
+      return { nodeId, output: nodeId, durationMs: 0 }
+    }
+
+    const definition = makePipeline({
+      nodes: [
+        { id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000 },
+        { id: 'B', type: 'agent', agentId: 'a2', timeoutMs: 5000 },
+        { id: 'timeout-handler', type: 'agent', agentId: 'timeout', timeoutMs: 5000 },
+        { id: 'generic-handler', type: 'agent', agentId: 'generic', timeoutMs: 5000 },
+      ],
+      edges: [
+        { type: 'sequential', sourceNodeId: 'A', targetNodeId: 'B' },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'timeout-handler', errorCodes: ['TIMEOUT'] },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'generic-handler' },
+      ],
+    })
+
+    const runtime = new PipelineRuntime({
+      definition,
+      nodeExecutor: executor,
+    })
+
+    const result = await runtime.execute()
+
+    expect(order).toEqual(['A', 'B', 'generic-handler'])
+    expect(result.state).toBe('completed')
+  })
+
+  it.each([
+    { label: 'object-shaped error', error: { code: 'TIMEOUT' } },
+    {
+      label: 'Error instance with code property',
+      error: (() => {
+        const err = new Error('irrelevant')
+        ;(err as Error & { code: string }).code = 'TIMEOUT'
+        return err
+      })(),
+    },
+  ])('routes to a code-specific error handler for $label', async ({ error }) => {
+    const order: string[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      order.push(nodeId)
+      if (nodeId === 'B') {
+        return { nodeId, output: null, durationMs: 0, error }
+      }
+      return { nodeId, output: nodeId, durationMs: 0 }
+    }
+
+    const definition = makePipeline({
+      nodes: [
+        { id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000 },
+        { id: 'B', type: 'agent', agentId: 'a2', timeoutMs: 5000 },
+        { id: 'timeout-handler', type: 'agent', agentId: 'timeout', timeoutMs: 5000 },
+        { id: 'generic-handler', type: 'agent', agentId: 'generic', timeoutMs: 5000 },
+      ],
+      edges: [
+        { type: 'sequential', sourceNodeId: 'A', targetNodeId: 'B' },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'timeout-handler', errorCodes: ['TIMEOUT'] },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'generic-handler' },
+      ],
+    })
+
+    const runtime = new PipelineRuntime({
+      definition,
+      nodeExecutor: executor,
+    })
+
+    const result = await runtime.execute()
+
+    expect(order).toEqual(['A', 'B', 'timeout-handler'])
+    expect(result.state).toBe('completed')
+  })
+
+  it('routes non-parseable error text to the generic handler when coded edges come first', async () => {
+    const order: string[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      order.push(nodeId)
+      if (nodeId === 'B') {
+        return { nodeId, output: null, durationMs: 0, error: 'something went wrong' }
+      }
+      return { nodeId, output: nodeId, durationMs: 0 }
+    }
+
+    const definition = makePipeline({
+      nodes: [
+        { id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000 },
+        { id: 'B', type: 'agent', agentId: 'a2', timeoutMs: 5000 },
+        { id: 'timeout-handler', type: 'agent', agentId: 'timeout', timeoutMs: 5000 },
+        { id: 'generic-handler', type: 'agent', agentId: 'generic', timeoutMs: 5000 },
+      ],
+      edges: [
+        { type: 'sequential', sourceNodeId: 'A', targetNodeId: 'B' },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'timeout-handler', errorCodes: ['TIMEOUT'] },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'generic-handler' },
+      ],
+    })
+
+    const runtime = new PipelineRuntime({
+      definition,
+      nodeExecutor: executor,
+    })
+
+    const result = await runtime.execute()
+
+    expect(order).toEqual(['A', 'B', 'generic-handler'])
+    expect(result.state).toBe('completed')
+  })
+
+  it('falls back to a generic error handler when no specific code matches', async () => {
+    const order: string[] = []
+    const executor: NodeExecutor = async (nodeId) => {
+      order.push(nodeId)
+      if (nodeId === 'B') {
+        return { nodeId, output: null, durationMs: 0, error: 'PROVIDER_TIMEOUT: upstream timed out' }
+      }
+      return { nodeId, output: nodeId, durationMs: 0 }
+    }
+
+    const definition = makePipeline({
+      nodes: [
+        { id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000 },
+        { id: 'B', type: 'agent', agentId: 'a2', timeoutMs: 5000 },
+        { id: 'timeout-handler', type: 'agent', agentId: 'timeout', timeoutMs: 5000 },
+        { id: 'generic-handler', type: 'agent', agentId: 'generic', timeoutMs: 5000 },
+      ],
+      edges: [
+        { type: 'sequential', sourceNodeId: 'A', targetNodeId: 'B' },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'timeout-handler', errorCodes: ['TIMEOUT'] },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'generic-handler' },
+      ],
+    })
+
+    const runtime = new PipelineRuntime({
+      definition,
+      nodeExecutor: executor,
+    })
+
+    const result = await runtime.execute()
+
+    expect(order).toEqual(['A', 'B', 'generic-handler'])
+    expect(result.state).toBe('completed')
+  })
+
+  it('fails the pipeline when only non-matching coded error edges exist', async () => {
+    const executor: NodeExecutor = async (nodeId) => {
+      if (nodeId === 'B') {
+        return { nodeId, output: null, durationMs: 0, error: 'PROVIDER_TIMEOUT: upstream timed out' }
+      }
+      return { nodeId, output: nodeId, durationMs: 0 }
+    }
+
+    const definition = makePipeline({
+      nodes: [
+        { id: 'A', type: 'agent', agentId: 'a1', timeoutMs: 5000 },
+        { id: 'B', type: 'agent', agentId: 'a2', timeoutMs: 5000 },
+        { id: 'timeout-handler', type: 'agent', agentId: 'timeout', timeoutMs: 5000 },
+      ],
+      edges: [
+        { type: 'sequential', sourceNodeId: 'A', targetNodeId: 'B' },
+        { type: 'error', sourceNodeId: 'B', targetNodeId: 'timeout-handler', errorCodes: ['TIMEOUT'] },
+      ],
+    })
+
+    const runtime = new PipelineRuntime({
+      definition,
+      nodeExecutor: executor,
+    })
+
+    const result = await runtime.execute()
+
+    expect(result.state).toBe('failed')
+    expect(result.nodeResults.get('B')?.error).toBe('PROVIDER_TIMEOUT: upstream timed out')
   })
 
   it('fails pipeline when no error handler exists', async () => {

@@ -1,4 +1,4 @@
-import type { DzipEvent } from '@dzipagent/core'
+import type { DzupEvent } from '@dzupagent/core'
 import type { EventSubscriptionFilter } from '../events/event-gateway.js'
 import type { ClientFilter, EventBridge, WSClient } from './event-bridge.js'
 
@@ -58,14 +58,14 @@ function normalizeFilter(input: unknown): ClientFilter | null {
     ? src['agentId'].trim()
     : undefined
 
-  let eventTypes: DzipEvent['type'][] | undefined
+  let eventTypes: DzupEvent['type'][] | undefined
   if (src['eventTypes'] !== undefined) {
     if (!Array.isArray(src['eventTypes'])) return null
     const parsed = src['eventTypes']
       .filter((item): item is string => typeof item === 'string')
       .map((item) => item.trim())
       .filter((item) => item.length > 0)
-    eventTypes = parsed.length > 0 ? (parsed as DzipEvent['type'][]) : undefined
+    eventTypes = parsed.length > 0 ? (parsed as DzupEvent['type'][]) : undefined
   }
 
   return { runId, agentId, eventTypes }

@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import {
   AdapterHttpHandler,
   isStreamResponse,
+  resolveRuntimeFallbackProviderId,
   type HttpRequest,
   type HttpResponse,
   type HttpStreamResponse,
@@ -12,6 +13,7 @@ import {
   type AdapterHttpConfig,
 } from '../http/adapter-http-handler.js'
 import type { OrchestratorFacade } from '../facade/orchestrator-facade.js'
+import { StreamingHandler } from '../streaming/streaming-handler.js'
 import type {
   AdapterProviderId,
   AgentEvent,
@@ -93,6 +95,24 @@ function asJsonResponse(result: HttpResponse): {
   }
 }
 
+function captureStreamedEvents(): {
+  events: AgentEvent[]
+  restore: () => void
+} {
+  const events: AgentEvent[] = []
+  const spy = vi.spyOn(StreamingHandler.prototype, 'serialize').mockImplementation(async function* (source) {
+    for await (const event of source) {
+      events.push(event)
+    }
+    yield 'captured\n'
+  })
+
+  return {
+    events,
+    restore: () => spy.mockRestore(),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -104,6 +124,10 @@ describe('AdapterHttpHandler', () => {
   beforeEach(() => {
     orchestrator = createMockOrchestrator()
     handler = new AdapterHttpHandler({ orchestrator })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   // -------------------------------------------------------------------------
@@ -157,13 +181,159 @@ describe('AdapterHttpHandler', () => {
 
     it('POST /parallel returns result', async () => {
       const result = await handler.handle(
-        makeRequest('POST', '/parallel', { prompt: 'Solve this' }),
+        makeRequest('POST', '/parallel', { prompt: 'Solve this', providers: ['claude', 'codex'] }),
       )
 
       expect(isStreamResponse(result)).toBe(false)
       const json = asJsonResponse(result as HttpResponse)
       expect(json.status).toBe(200)
       expect(orchestrator.parallel).toHaveBeenCalled()
+    })
+
+    it('POST /supervisor stream uses provider identity from result data', async () => {
+      const orch = createMockOrchestrator({
+        supervisor: vi.fn().mockResolvedValue({
+          goal: 'test',
+          subtaskResults: [
+            {
+              subtask: { description: 'analyze', tags: ['reasoning'] },
+              providerId: 'gemini',
+              result: 'analysis complete',
+              success: true,
+              durationMs: 25,
+            },
+            {
+              subtask: { description: 'implement', tags: ['execution'] },
+              providerId: 'codex',
+              result: 'implementation complete',
+              success: true,
+              durationMs: 40,
+            },
+          ],
+          totalDurationMs: 65,
+        }),
+        registry: {
+          listAdapters: vi.fn().mockReturnValue(['claude']),
+        },
+      })
+      const h = new AdapterHttpHandler({ orchestrator: orch })
+      const capture = captureStreamedEvents()
+
+      try {
+        const result = await h.handle(
+          makeRequest('POST', '/supervisor', { goal: 'Review the code', stream: true }),
+        )
+
+        expect(isStreamResponse(result)).toBe(true)
+        const stream = result as HttpStreamResponse
+        const chunks: string[] = []
+        for await (const chunk of stream.stream) {
+          chunks.push(chunk)
+        }
+
+        expect(chunks.length).toBeGreaterThan(0)
+        const completed = capture.events.find((event) => event.type === 'adapter:completed')
+        expect(completed?.type).toBe('adapter:completed')
+        if (completed?.type === 'adapter:completed') {
+          expect(completed.providerId).toBe('gemini')
+        }
+      } finally {
+        capture.restore()
+      }
+    })
+
+    it('POST /parallel stream prefers selected result identity over top-level providerId', async () => {
+      const orch = createMockOrchestrator({
+        parallel: vi.fn().mockResolvedValue({
+          providerId: 'claude',
+          selectedResult: {
+            providerId: 'qwen',
+            result: 'parallel result',
+            success: true,
+            durationMs: 30,
+            events: [],
+          },
+          allResults: [
+            {
+              providerId: 'qwen',
+              result: 'parallel result',
+              success: true,
+              durationMs: 30,
+              events: [],
+            },
+          ],
+          strategy: 'all',
+          totalDurationMs: 30,
+        }),
+        registry: {
+          listAdapters: vi.fn().mockReturnValue(['claude']),
+        },
+      })
+      const h = new AdapterHttpHandler({ orchestrator: orch })
+      const capture = captureStreamedEvents()
+
+      try {
+        const result = await h.handle(
+          makeRequest('POST', '/parallel', { prompt: 'Solve this', providers: ['claude', 'codex'], stream: true }),
+        )
+
+        expect(isStreamResponse(result)).toBe(true)
+        const stream = result as HttpStreamResponse
+        const chunks: string[] = []
+        for await (const chunk of stream.stream) {
+          chunks.push(chunk)
+        }
+
+        expect(chunks.length).toBeGreaterThan(0)
+        const completed = capture.events.find((event) => event.type === 'adapter:completed')
+        expect(completed?.type).toBe('adapter:completed')
+        if (completed?.type === 'adapter:completed') {
+          expect(completed.providerId).toBe('qwen')
+        }
+      } finally {
+        capture.restore()
+      }
+    })
+
+    it('POST /parallel stream falls back to unknown when result data and registry are empty', async () => {
+      const orch = createMockOrchestrator({
+        parallel: vi.fn().mockResolvedValue({
+          selectedResult: {
+            result: 'parallel result',
+            success: true,
+            durationMs: 30,
+            events: [],
+          },
+          allResults: [],
+          strategy: 'all',
+          totalDurationMs: 30,
+        }),
+        registry: {
+          listAdapters: vi.fn().mockReturnValue([]),
+        },
+      })
+      const h = new AdapterHttpHandler({ orchestrator: orch })
+      const capture = captureStreamedEvents()
+
+      try {
+        const result = await h.handle(
+          makeRequest('POST', '/parallel', { prompt: 'Solve this', providers: ['claude', 'codex'], stream: true }),
+        )
+
+        expect(isStreamResponse(result)).toBe(true)
+        const stream = result as HttpStreamResponse
+        for await (const _chunk of stream.stream) {
+          // drain stream
+        }
+
+        const completed = capture.events.find((event) => event.type === 'adapter:completed')
+        expect(completed?.type).toBe('adapter:completed')
+        if (completed?.type === 'adapter:completed') {
+          expect(completed.providerId).toBe('unknown' as AdapterProviderId)
+        }
+      } finally {
+        capture.restore()
+      }
     })
 
     it('POST /bid returns result', async () => {
@@ -243,6 +413,27 @@ describe('AdapterHttpHandler', () => {
     })
   })
 
+  describe('runtime fallback attribution', () => {
+    it('prefers the requested provider, then explicit providers, then registry order, then unknown', () => {
+      const registry = {
+        listAdapters: vi.fn().mockReturnValue(['gemini', 'claude']),
+      }
+
+      expect(
+        resolveRuntimeFallbackProviderId(registry, 'codex', ['gemini']),
+      ).toBe('codex')
+      expect(
+        resolveRuntimeFallbackProviderId(registry, undefined, ['gemini']),
+      ).toBe('gemini')
+      expect(
+        resolveRuntimeFallbackProviderId(registry),
+      ).toBe('gemini')
+      expect(
+        resolveRuntimeFallbackProviderId({ listAdapters: vi.fn().mockReturnValue([]) }),
+      ).toBe('unknown' as AdapterProviderId)
+    })
+  })
+
   // -------------------------------------------------------------------------
   // Validation
   // -------------------------------------------------------------------------
@@ -255,7 +446,8 @@ describe('AdapterHttpHandler', () => {
 
       const json = asJsonResponse(result as HttpResponse)
       expect(json.status).toBe(400)
-      expect(json.body['code']).toBe('MISSING_FIELDS')
+      expect(json.body['error']).toBe('Validation failed')
+      expect(json.body['details']).toBeDefined()
     })
 
     it('empty prompt returns 400', async () => {
@@ -265,7 +457,7 @@ describe('AdapterHttpHandler', () => {
 
       const json = asJsonResponse(result as HttpResponse)
       expect(json.status).toBe(400)
-      expect(json.body['code']).toBe('MISSING_FIELDS')
+      expect(json.body['error']).toBe('Validation failed')
     })
 
     it('invalid body (null) returns 400', async () => {
@@ -275,7 +467,7 @@ describe('AdapterHttpHandler', () => {
 
       const json = asJsonResponse(result as HttpResponse)
       expect(json.status).toBe(400)
-      expect(json.body['code']).toBe('INVALID_BODY')
+      expect(json.body['error']).toBe('Validation failed')
     })
 
     it('invalid body (string) returns 400', async () => {
@@ -285,7 +477,7 @@ describe('AdapterHttpHandler', () => {
 
       const json = asJsonResponse(result as HttpResponse)
       expect(json.status).toBe(400)
-      expect(json.body['code']).toBe('INVALID_BODY')
+      expect(json.body['error']).toBe('Validation failed')
     })
 
     it('missing goal for supervisor returns 400', async () => {
@@ -315,7 +507,7 @@ describe('AdapterHttpHandler', () => {
 
       const json = asJsonResponse(result as HttpResponse)
       expect(json.status).toBe(401)
-      expect(json.body['code']).toBe('UNAUTHORIZED')
+      expect(json.body['code']).toBe('AUTH_REQUIRED')
     })
 
     it('invalid Authorization format returns 401', async () => {
@@ -330,6 +522,7 @@ describe('AdapterHttpHandler', () => {
 
       const json = asJsonResponse(result as HttpResponse)
       expect(json.status).toBe(401)
+      expect(json.body['code']).toBe('AUTH_INVALID_FORMAT')
     })
 
     it('invalid API key returns 401', async () => {
@@ -346,6 +539,7 @@ describe('AdapterHttpHandler', () => {
 
       const json = asJsonResponse(result as HttpResponse)
       expect(json.status).toBe(401)
+      expect(json.body['code']).toBe('AUTH_INVALID_KEY')
     })
 
     it('valid API key passes', async () => {
@@ -378,6 +572,113 @@ describe('AdapterHttpHandler', () => {
 
       const json = asJsonResponse(result as HttpResponse)
       expect(json.status).toBe(200)
+    })
+
+    it('custom tokenValidator is called when configured', async () => {
+      const validator = vi.fn().mockResolvedValue({ valid: true, identity: 'user-1', scopes: ['read'] })
+      const authedHandler = new AdapterHttpHandler({
+        orchestrator,
+        tokenValidator: validator,
+      })
+
+      const result = await authedHandler.handle(
+        makeRequest('GET', '/health', undefined, {
+          authorization: 'Bearer my-jwt-token',
+        }),
+      )
+
+      const json = asJsonResponse(result as HttpResponse)
+      expect(json.status).toBe(200)
+      expect(validator).toHaveBeenCalledWith('my-jwt-token')
+    })
+
+    it('tokenValidator rejection returns 401', async () => {
+      const validator = vi.fn().mockResolvedValue({ valid: false })
+      const authedHandler = new AdapterHttpHandler({
+        orchestrator,
+        tokenValidator: validator,
+      })
+
+      const result = await authedHandler.handle(
+        makeRequest('GET', '/health', undefined, {
+          authorization: 'Bearer bad-token',
+        }),
+      )
+
+      const json = asJsonResponse(result as HttpResponse)
+      expect(json.status).toBe(401)
+      expect(json.body['code']).toBe('AUTH_TOKEN_INVALID')
+    })
+
+    it('tokenValidator error returns 500', async () => {
+      const validator = vi.fn().mockRejectedValue(new Error('validator crash'))
+      const authedHandler = new AdapterHttpHandler({
+        orchestrator,
+        tokenValidator: validator,
+      })
+
+      const result = await authedHandler.handle(
+        makeRequest('GET', '/health', undefined, {
+          authorization: 'Bearer some-token',
+        }),
+      )
+
+      const json = asJsonResponse(result as HttpResponse)
+      expect(json.status).toBe(500)
+      expect(json.body['code']).toBe('AUTH_VALIDATION_ERROR')
+    })
+
+    it('tokenValidator takes precedence over validateApiKey', async () => {
+      const tokenValidator = vi.fn().mockResolvedValue({ valid: true })
+      const validateApiKey = vi.fn().mockReturnValue(false)
+      const authedHandler = new AdapterHttpHandler({
+        orchestrator,
+        tokenValidator,
+        validateApiKey,
+      })
+
+      const result = await authedHandler.handle(
+        makeRequest('GET', '/health', undefined, {
+          authorization: 'Bearer token',
+        }),
+      )
+
+      const json = asJsonResponse(result as HttpResponse)
+      expect(json.status).toBe(200)
+      expect(tokenValidator).toHaveBeenCalled()
+      expect(validateApiKey).not.toHaveBeenCalled()
+    })
+
+    it('publicEndpoints bypass auth', async () => {
+      const authedHandler = new AdapterHttpHandler({
+        orchestrator,
+        validateApiKey: () => false,
+        publicEndpoints: ['/health'],
+      })
+
+      // /health is public - should pass even without auth header
+      const result = await authedHandler.handle(
+        makeRequest('GET', '/health'),
+      )
+
+      const json = asJsonResponse(result as HttpResponse)
+      expect(json.status).toBe(200)
+    })
+
+    it('publicEndpoints does not bypass non-listed paths', async () => {
+      const authedHandler = new AdapterHttpHandler({
+        orchestrator,
+        validateApiKey: () => false,
+        publicEndpoints: ['/health'],
+      })
+
+      // /cost is NOT public
+      const result = await authedHandler.handle(
+        makeRequest('GET', '/cost'),
+      )
+
+      const json = asJsonResponse(result as HttpResponse)
+      expect(json.status).toBe(401)
     })
   })
 
@@ -521,6 +822,70 @@ describe('AdapterHttpHandler', () => {
       await h.handle(makeRequest('POST', '/run', { prompt: 'hello' }))
 
       expect(emitted.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Correlation ID extraction
+  // -------------------------------------------------------------------------
+
+  describe('correlation ID from headers', () => {
+    it('passes x-correlation-id header into AgentInput', async () => {
+      await handler.handle(
+        makeRequest('POST', '/run', { prompt: 'hello' }, {
+          'x-correlation-id': 'corr-abc-123',
+        }),
+      )
+
+      expect(orchestrator.run).toHaveBeenCalledWith('hello', expect.objectContaining({
+        tags: undefined,
+      }))
+    })
+
+    it('extracts x-correlation-id into the AgentInput constructed by handleRun', async () => {
+      const result = await handler.handle(
+        makeRequest('POST', '/run', { prompt: 'hello' }, {
+          'x-correlation-id': 'corr-abc-123',
+        }),
+      )
+
+      expect(isStreamResponse(result)).toBe(false)
+      expect((result as HttpResponse).status).toBe(200)
+    })
+
+    it('falls back to x-request-id when x-correlation-id is absent', async () => {
+      const result = await handler.handle(
+        makeRequest('POST', '/run', { prompt: 'hello' }, {
+          'x-request-id': 'req-456',
+        }),
+      )
+
+      expect(isStreamResponse(result)).toBe(false)
+      expect((result as HttpResponse).status).toBe(200)
+    })
+
+    it('extracts trace ID from W3C traceparent header', async () => {
+      const result = await handler.handle(
+        makeRequest('POST', '/run', { prompt: 'hello' }, {
+          'traceparent': '00-abcdef1234567890abcdef1234567890-0123456789abcdef-01',
+        }),
+      )
+
+      expect(isStreamResponse(result)).toBe(false)
+      expect((result as HttpResponse).status).toBe(200)
+    })
+
+    it('prefers x-correlation-id over x-request-id and traceparent', async () => {
+      const result = await handler.handle(
+        makeRequest('POST', '/run', { prompt: 'hello' }, {
+          'x-correlation-id': 'corr-primary',
+          'x-request-id': 'req-secondary',
+          'traceparent': '00-trace-tertiary-01',
+        }),
+      )
+
+      expect(isStreamResponse(result)).toBe(false)
+      expect((result as HttpResponse).status).toBe(200)
     })
   })
 

@@ -1,7 +1,7 @@
 /**
  * CostAttributor — tracks per-agent, per-phase, and per-tool cost attribution.
  *
- * Subscribes to DzipEventBus for cost-related events and maintains
+ * Subscribes to DzupEventBus for cost-related events and maintains
  * running totals. Emits budget:warning and budget:exceeded events
  * when configured thresholds are crossed.
  *
@@ -17,14 +17,14 @@
  * ```
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 // ------------------------------------------------------------------ Types
 
 export interface CostEntry {
   agentId: string
-  phase?: string
-  toolName?: string
+  phase?: string | undefined
+  toolName?: string | undefined
   costCents: number
   tokens: number
   timestamp: Date
@@ -48,7 +48,7 @@ export interface CostAlertThreshold {
 
 export interface CostAttributorConfig {
   thresholds?: CostAlertThreshold
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
 }
 
 // ----------------------------------------------------------- Accumulator
@@ -92,7 +92,7 @@ export class CostAttributor {
   private _totalTokens = 0
 
   private readonly _thresholds: CostAlertThreshold
-  private _eventBus: DzipEventBus | undefined
+  private _eventBus: DzupEventBus | undefined
   private _unsubscribes: Array<() => void> = []
   private _currentPhase: string | undefined
   private _warningEmitted = false
@@ -108,9 +108,9 @@ export class CostAttributor {
   // ------------------------------------------------------ Lifecycle
 
   /**
-   * Subscribe to DzipEventBus for cost-related events.
+   * Subscribe to DzupEventBus for cost-related events.
    */
-  attach(eventBus: DzipEventBus): void {
+  attach(eventBus: DzupEventBus): void {
     // Detach previous if any
     this.detach()
     this._eventBus = eventBus

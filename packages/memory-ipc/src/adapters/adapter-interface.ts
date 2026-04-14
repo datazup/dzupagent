@@ -1,6 +1,6 @@
 /**
  * Cross-framework adapter interface for bidirectional conversion between
- * external memory formats and the DzipAgent MemoryFrame Arrow schema.
+ * external memory formats and the DzupAgent MemoryFrame Arrow schema.
  *
  * Adapters are stateless — they transform data but do not manage connections
  * or persistence.
@@ -10,7 +10,7 @@ import type { Table } from 'apache-arrow'
 
 /**
  * Bidirectional adapter between an external memory format and the
- * DzipAgent MemoryFrame Arrow schema.
+ * DzupAgent MemoryFrame Arrow schema.
  *
  * @typeParam TExternal  The external framework's record type
  */

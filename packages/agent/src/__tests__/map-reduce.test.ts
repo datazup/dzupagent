@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
-import { DzipAgent } from '../agent/dzip-agent.js'
+import { DzupAgent } from '../agent/dzip-agent.js'
 import { mapReduce, mapReduceMulti } from '../orchestration/map-reduce.js'
 import {
   concatMerge,
@@ -51,8 +51,8 @@ function createMockModel(
   } as unknown as BaseChatModel
 }
 
-function createAgent(id: string, responses: Array<{ content: string }>): DzipAgent {
-  return new DzipAgent({
+function createAgent(id: string, responses: Array<{ content: string }>): DzupAgent {
+  return new DzupAgent({
     id,
     name: id,
     model: createMockModel(responses),
@@ -72,7 +72,7 @@ describe('mapReduce', () => {
       { content: 'chunk-1-done' },
       { content: 'chunk-2-done' },
     ])
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'worker',
       name: 'worker',
       model,
@@ -108,7 +108,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'partial',
       name: 'partial',
       model,
@@ -137,7 +137,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'all-fail',
       name: 'all-fail',
       model,
@@ -172,7 +172,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'seq-worker',
       name: 'seq-worker',
       model,
@@ -205,7 +205,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'par-worker',
       name: 'par-worker',
       model,
@@ -217,6 +217,21 @@ describe('mapReduce', () => {
 
     // All 3 should have run at the same time since limit (5) > count (3)
     expect(concurrentCount.max).toBe(3)
+  })
+
+  it.each([
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+    ['NaN', Number.NaN],
+    ['zero', 0],
+    ['negative', -1],
+    ['non-integer', 1.5],
+  ])('rejects %s as concurrency', async (_, concurrency) => {
+    const agent = createAgent('invalid-worker', [{ content: 'ok' }])
+
+    await expect(mapReduce(agent, ['a'], { concurrency })).rejects.toThrow(
+      `MapReduce concurrency must be a finite positive integer; received ${String(concurrency)}`,
+    )
   })
 
   it('uses custom merge strategy (numbered)', async () => {
@@ -251,7 +266,7 @@ describe('mapReduce', () => {
     const responses = chunks.map((_, i) => ({ content: `done-${i}` }))
 
     const model = createMockModel(responses)
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'batch-worker',
       name: 'batch-worker',
       model,
@@ -288,7 +303,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'limited-worker',
       name: 'limited-worker',
       model,
@@ -349,7 +364,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'mid-abort',
       name: 'mid-abort',
       model,
@@ -382,7 +397,7 @@ describe('mapReduce', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'order-worker',
       name: 'order-worker',
       model,

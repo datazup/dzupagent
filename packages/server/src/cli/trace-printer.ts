@@ -1,11 +1,11 @@
 /**
- * TracePrinter — Pretty-prints DzipEventBus events to stdout.
+ * TracePrinter — Pretty-prints DzupEventBus events to stdout.
  *
  * Format: [HH:MM:SS] [runId] event_type — details
  *
  * In verbose mode, includes full event data as JSON.
  */
-import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
 
 export class TracePrinter {
   private unsubscribe: (() => void) | null = null
@@ -13,7 +13,7 @@ export class TracePrinter {
   constructor(private readonly verbose: boolean = false) {}
 
   /** Subscribe to all events on the bus and print them. */
-  attach(eventBus: DzipEventBus): void {
+  attach(eventBus: DzupEventBus): void {
     this.detach()
     this.unsubscribe = eventBus.onAny((event) => {
       this.printEvent(event)
@@ -29,7 +29,7 @@ export class TracePrinter {
   }
 
   /** Format a single event for display. Exposed for testing. */
-  formatEvent(event: DzipEvent): string {
+  formatEvent(event: DzupEvent): string {
     const now = new Date()
     const time = formatTime(now)
     const runId = extractRunId(event)
@@ -48,9 +48,9 @@ export class TracePrinter {
     return line
   }
 
-  private printEvent(event: DzipEvent): void {
+  private printEvent(event: DzupEvent): void {
     const line = this.formatEvent(event)
-    // eslint-disable-next-line no-console
+     
     console.log(line)
   }
 }
@@ -66,14 +66,14 @@ function formatTime(date: Date): string {
   return `${h}:${m}:${s}`
 }
 
-function extractRunId(event: DzipEvent): string | undefined {
+function extractRunId(event: DzupEvent): string | undefined {
   if ('runId' in event) {
     return (event as { runId: string }).runId
   }
   return undefined
 }
 
-function extractDetails(event: DzipEvent): string {
+function extractDetails(event: DzupEvent): string {
   switch (event.type) {
     case 'agent:started':
       return `agent=${event.agentId}`

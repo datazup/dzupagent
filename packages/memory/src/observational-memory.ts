@@ -56,15 +56,15 @@ export interface ObservationalMemoryConfig {
   /** Scope for memory operations */
   scope: Record<string, string>
   /** Message count threshold to trigger Observer (default: 15) */
-  observerThreshold?: number
+  observerThreshold?: number | undefined
   /** Observation count threshold to trigger Reflector (default: 50) */
-  reflectorThreshold?: number
+  reflectorThreshold?: number | undefined
   /** Max observations to keep after reflection (default: 30) */
-  reflectorTargetCount?: number
+  reflectorTargetCount?: number | undefined
   /** Minimum interval between Observer runs in ms (default: 30_000) */
-  observerDebounceMs?: number
+  observerDebounceMs?: number | undefined
   /** Max LLM calls per Reflector run (default: 15) */
-  reflectorMaxLLMCalls?: number
+  reflectorMaxLLMCalls?: number | undefined
 }
 
 export interface ObservationalMemoryStats {

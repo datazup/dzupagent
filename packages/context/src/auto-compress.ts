@@ -7,7 +7,7 @@
  * 3. Boundary-aware split + LLM summarization
  * 4. Frozen snapshot support for prompt cache optimization
  *
- * This module orchestrates the primitives from @dzipagent/core's
+ * This module orchestrates the primitives from @dzupagent/core's
  * message-manager into a single autoCompress() call suitable for
  * agent loop integration.
  */

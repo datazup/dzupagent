@@ -7,7 +7,7 @@
  * @example
  * ```ts
  * const tools = createGitHubConnector({ token: process.env.GITHUB_TOKEN! })
- * const agent = new DzipAgent({ tools, ... })
+ * const agent = new DzupAgent({ tools, ... })
  * ```
  */
 import { z } from 'zod'
@@ -39,7 +39,7 @@ async function safe<T>(fn: () => Promise<T>): Promise<T | string> {
 export function createGitHubConnector(config: GitHubConnectorConfig): DynamicStructuredTool[] {
   const client = new GitHubClient({
     token: config.token,
-    baseUrl: config.baseUrl,
+    ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
   })
 
   const all: DynamicStructuredTool[] = [

@@ -2,14 +2,14 @@
  * RunManager -- Lifecycle tracking for adapter runs.
  *
  * Creates, tracks, and reports on individual agent execution runs.
- * Optionally emits events to a DzipEventBus and provides an
+ * Optionally emits events to a DzupEventBus and provides an
  * async-generator wrapper (`trackRun`) that automatically updates
  * run state from adapter events.
  */
 
 import crypto from 'node:crypto'
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import type {
   AdapterProviderId,
@@ -30,19 +30,19 @@ export type RunStatus = 'pending' | 'queued' | 'executing' | 'completed' | 'fail
 
 export interface AdapterRun {
   runId: string
-  workflowId?: string
-  providerId?: AdapterProviderId
+  workflowId?: string | undefined
+  providerId?: AdapterProviderId | undefined
   status: RunStatus
   input: AgentInput
-  task?: TaskDescriptor
-  result?: string
-  error?: string
+  task?: TaskDescriptor | undefined
+  result?: string | undefined
+  error?: string | undefined
   createdAt: Date
-  startedAt?: Date
-  completedAt?: Date
-  durationMs?: number
-  usage?: TokenUsage
-  metadata?: Record<string, unknown>
+  startedAt?: Date | undefined
+  completedAt?: Date | undefined
+  durationMs?: number | undefined
+  usage?: TokenUsage | undefined
+  metadata?: Record<string, unknown> | undefined
 }
 
 export interface RunStats {
@@ -54,9 +54,9 @@ export interface RunStats {
 }
 
 export interface RunManagerConfig {
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus | undefined
   /** Max completed runs to keep in memory. Default 1000 */
-  maxCompletedRuns?: number
+  maxCompletedRuns?: number | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ const DEFAULT_MAX_COMPLETED_RUNS = 1000
 
 export class RunManager {
   private readonly runs = new Map<string, AdapterRun>()
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
   private readonly maxCompletedRuns: number
 
   constructor(config?: RunManagerConfig) {
@@ -362,6 +362,6 @@ export class RunManager {
       status: run.status,
     }
 
-    this.eventBus.emit(event as unknown as Parameters<DzipEventBus['emit']>[0])
+    this.eventBus.emit(event as unknown as Parameters<DzupEventBus['emit']>[0])
   }
 }

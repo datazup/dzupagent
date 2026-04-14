@@ -3,7 +3,7 @@ import { EVENT_METRIC_MAP, getAllMetricNames } from '../event-metric-map.js'
 import type { MetricMapping } from '../event-metric-map.js'
 
 describe('EVENT_METRIC_MAP', () => {
-  it('has a mapping entry for every DzipEvent type', () => {
+  it('has a mapping entry for every DzupEvent type', () => {
     // All keys should be strings (event type names)
     const keys = Object.keys(EVENT_METRIC_MAP)
     expect(keys.length).toBeGreaterThan(0)
@@ -35,16 +35,33 @@ describe('EVENT_METRIC_MAP', () => {
     }
   })
 
-  it('events with empty mapping arrays produce no metrics', () => {
-    const emptyMappings = Object.entries(EVENT_METRIC_MAP)
-      .filter(([, mappings]) => mappings.length === 0)
-      .map(([eventType]) => eventType)
+  it('previously empty events now have real metric producers', () => {
+    const populatedEvents = [
+      'hook:error',
+      'plugin:registered',
+      'agent:stream_delta',
+      'agent:stream_done',
+      'agent:progress',
+      'recovery:cancelled',
+      'recovery:attempt_started',
+      'recovery:succeeded',
+      'recovery:exhausted',
+      'correction:iteration',
+      'quality:degraded',
+      'quality:adjusted',
+      'system:degraded',
+      'system:consolidation_started',
+      'system:consolidation_completed',
+      'system:consolidation_failed',
+      'cache:degraded',
+      'memory:index_failed',
+      'context:transfer_partial',
+    ] as const
 
-    // hook:error, plugin:registered, agent:stream_delta, agent:stream_done
-    expect(emptyMappings).toContain('hook:error')
-    expect(emptyMappings).toContain('plugin:registered')
-    expect(emptyMappings).toContain('agent:stream_delta')
-    expect(emptyMappings).toContain('agent:stream_done')
+    for (const eventType of populatedEvents) {
+      const mappings = EVENT_METRIC_MAP[eventType]
+      expect(mappings.length, `${eventType} should have at least one metric`).toBeGreaterThan(0)
+    }
   })
 
   describe('extract functions return valid shape', () => {
@@ -125,6 +142,26 @@ describe('EVENT_METRIC_MAP', () => {
       'supervisor:delegation_complete': { type: 'supervisor:delegation_complete', specialistId: 's1', task: 'codegen', success: true },
       'supervisor:plan_created': { type: 'supervisor:plan_created', goal: 'build', assignments: [{ task: 'code', specialistId: 's1' }], source: 'llm' },
       'supervisor:llm_decompose_fallback': { type: 'supervisor:llm_decompose_fallback', goal: 'build', error: 'parse fail' },
+      // --- Previously-empty events now with real metrics ---
+      'hook:error': { type: 'hook:error', hookName: 'onBefore', message: 'failed' },
+      'plugin:registered': { type: 'plugin:registered', pluginName: 'cache-plugin' },
+      'agent:stream_delta': { type: 'agent:stream_delta', agentId: 'a1', runId: 'r1', content: 'chunk' },
+      'agent:stream_done': { type: 'agent:stream_done', agentId: 'a1', runId: 'r1', finalContent: 'done' },
+      'agent:progress': { type: 'agent:progress', agentId: 'a1', phase: 'planning', percentage: 50, message: 'halfway', timestamp: Date.now() },
+      'recovery:cancelled': { type: 'recovery:cancelled', agentId: 'a1', runId: 'r1', attempts: 3, durationMs: 5000, reason: 'user' },
+      'recovery:attempt_started': { type: 'recovery:attempt_started', agentId: 'a1', runId: 'r1', attempt: 1, maxAttempts: 3, strategy: 'retry', timestamp: Date.now() },
+      'recovery:succeeded': { type: 'recovery:succeeded', agentId: 'a1', runId: 'r1', attempt: 2, strategy: 'retry', durationMs: 1200 },
+      'recovery:exhausted': { type: 'recovery:exhausted', agentId: 'a1', runId: 'r1', attempts: 3, strategies: ['retry', 'fallback'], durationMs: 10000 },
+      'correction:iteration': { type: 'correction:iteration', nodeId: 'n1', iteration: 2, passed: true, qualityScore: 0.85, durationMs: 300 },
+      'quality:degraded': { type: 'quality:degraded', metric: 'latency', value: 500, threshold: 200, recommendation: 'scale up', details: {} },
+      'quality:adjusted': { type: 'quality:adjusted', adjustment: 'batch_size', reason: 'high latency', previousValue: 10, newValue: 5, reversible: true },
+      'system:degraded': { type: 'system:degraded', subsystem: 'cache', reason: 'redis down', timestamp: Date.now(), recoverable: true },
+      'system:consolidation_started': { type: 'system:consolidation_started', timestamp: Date.now() },
+      'system:consolidation_completed': { type: 'system:consolidation_completed', durationMs: 2000, recordsProcessed: 150, pruned: 10, merged: 5, timestamp: Date.now() },
+      'system:consolidation_failed': { type: 'system:consolidation_failed', error: 'disk full', durationMs: 500, timestamp: Date.now() },
+      'cache:degraded': { type: 'cache:degraded', operation: 'get', key: 'k1', reason: 'timeout', timestamp: Date.now(), recoverable: true },
+      'memory:index_failed': { type: 'memory:index_failed', namespace: 'ns', key: 'k1', reason: 'corrupt', timestamp: Date.now(), recoverable: false },
+      'context:transfer_partial': { type: 'context:transfer_partial', sessionId: 's1', reason: 'truncated', timestamp: Date.now(), recoverable: true },
     }
 
     for (const [eventType, event] of Object.entries(testEvents)) {

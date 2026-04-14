@@ -13,7 +13,7 @@ import type {
   ForkNode,
   JoinNode,
   LoopNode,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 import { validatePipeline } from './pipeline-validator.js'
 import { executeLoop } from './loop-executor.js'
 import type { FailureContext, FailureType } from '../recovery/recovery-types.js'
@@ -31,6 +31,37 @@ import {
   isRetryable as isRetryableError,
   resolveRetryPolicy,
 } from './retry-policy.js'
+import { generateRunId } from './pipeline-runtime/run-id.js'
+import {
+  pipelineStartedEvent,
+  pipelineCompletedEvent,
+  pipelineFailedEvent,
+  pipelineSuspendedEvent,
+  checkpointSavedEvent,
+  nodeStartedEvent,
+  nodeCompletedEvent,
+  nodeFailedEvent,
+  nodeRetryEvent,
+  recoveryAttemptedEvent,
+  recoverySucceededEvent,
+  recoveryFailedEvent,
+  stuckDetectedEvent,
+  nodeOutputRecordedEvent,
+  calibrationSuboptimalEvent,
+  iterationBudgetWarningEvent,
+} from './pipeline-runtime/runtime-events.js'
+import {
+  getNextNodeIds,
+  getErrorTarget,
+  findJoinNode,
+  getForkBranchStartIds,
+} from './pipeline-runtime/edge-resolution.js'
+import { createPipelineCheckpoint } from './pipeline-runtime/checkpoint-helpers.js'
+import {
+  collectStateDelta,
+  mergeBranchExecutionResult,
+  type BranchExecutionResult,
+} from './pipeline-runtime/branch-merge.js'
 
 // ---------------------------------------------------------------------------
 // Pipeline Runtime
@@ -89,7 +120,7 @@ export class PipelineRuntime {
     this.recoveryAttemptsUsed = 0
     this.cumulativeCostCents = 0
     this.budgetWarnings = { warn70: false, warn90: false }
-    this.emit({ type: 'pipeline:started', pipelineId: this.config.definition.id, runId })
+    this.emit(pipelineStartedEvent(this.config.definition.id, runId))
 
     const startTime = Date.now()
 
@@ -106,7 +137,7 @@ export class PipelineRuntime {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       this.state = 'failed'
-      this.emit({ type: 'pipeline:failed', runId, error: errorMessage })
+      this.emit(pipelineFailedEvent(runId, errorMessage))
       return {
         pipelineId: this.config.definition.id,
         runId,
@@ -137,14 +168,14 @@ export class PipelineRuntime {
     }
 
     this.state = 'running'
-    this.emit({ type: 'pipeline:started', pipelineId: this.config.definition.id, runId })
+    this.emit(pipelineStartedEvent(this.config.definition.id, runId))
 
     const startTime = Date.now()
 
     if (!checkpoint.suspendedAtNodeId) {
       // No suspension point — nothing to resume
       this.state = 'completed'
-      this.emit({ type: 'pipeline:completed', runId, totalDurationMs: 0 })
+      this.emit(pipelineCompletedEvent(runId, 0))
       return {
         pipelineId: this.config.definition.id,
         runId,
@@ -168,7 +199,7 @@ export class PipelineRuntime {
         // Suspend was terminal
         this.state = 'completed'
         const totalMs = Date.now() - startTime
-        this.emit({ type: 'pipeline:completed', runId, totalDurationMs: totalMs })
+        this.emit(pipelineCompletedEvent(runId, totalMs))
         return {
           pipelineId: this.config.definition.id,
           runId,
@@ -191,7 +222,7 @@ export class PipelineRuntime {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
       this.state = 'failed'
-      this.emit({ type: 'pipeline:failed', runId, error: errorMessage })
+      this.emit(pipelineFailedEvent(runId, errorMessage))
       return {
         pipelineId: this.config.definition.id,
         runId,
@@ -272,7 +303,7 @@ export class PipelineRuntime {
         )
         if (forkResult) return forkResult
         // After fork+join, find next from join node
-        const joinNode = this.findJoinNode((node as ForkNode).forkId)
+        const joinNode = findJoinNode((node as ForkNode).forkId, this.config.definition.nodes)
         if (joinNode) {
           completedNodeIds.push(joinNode.id)
           await this.saveCheckpoint(runId, runState, completedNodeIds, versionTracker)
@@ -295,7 +326,7 @@ export class PipelineRuntime {
         )
         if (loopResult.error) {
           // Try error edges
-          const errorNext = this.getErrorTarget(currentNodeId)
+          const errorNext = this.getErrorTarget(currentNodeId, loopResult.error)
           if (errorNext) {
             nodeResults.set(currentNodeId, loopResult)
             currentNodeId = errorNext
@@ -303,7 +334,7 @@ export class PipelineRuntime {
           }
           this.state = 'failed'
           nodeResults.set(currentNodeId, loopResult)
-          this.emit({ type: 'pipeline:failed', runId, error: loopResult.error })
+          this.emit(pipelineFailedEvent(runId, loopResult.error))
           return {
             pipelineId: this.config.definition.id,
             runId,
@@ -321,7 +352,7 @@ export class PipelineRuntime {
       }
 
       // Standard node execution (with retry support)
-      this.emit({ type: 'pipeline:node_started', nodeId: node.id, nodeType: node.type })
+      this.emit(nodeStartedEvent(node.id, node.type))
 
       // Start OTel span for this node (no-op when tracer not configured)
       const span = this.config.tracer?.startPhaseSpan(node.id, {
@@ -361,14 +392,7 @@ export class PipelineRuntime {
           const backoffMs = calculateBackoff(attempt, effectivePolicy)
 
           // Emit retry event
-          this.emit({
-            type: 'pipeline:node_retry',
-            nodeId: node.id,
-            attempt,
-            maxAttempts,
-            error: result.error,
-            backoffMs,
-          })
+          this.emit(nodeRetryEvent(node.id, attempt, maxAttempts, result.error, backoffMs))
 
           // Wait with abort support
           await this.delay(backoffMs)
@@ -395,25 +419,26 @@ export class PipelineRuntime {
           // End span with error before continuing
           if (span) this.config.tracer?.endSpanWithError(span, finalResult.error)
 
-          this.emit({ type: 'pipeline:node_failed', nodeId: node.id, error: finalResult.error })
+          this.emit(nodeFailedEvent(node.id, finalResult.error))
           nodeResults.set(node.id, finalResult)
 
           // Record failure in stuck detector (if configured)
           if (this.config.stuckDetector) {
             const stuckStatus = this.config.stuckDetector.recordNodeFailure(node.id, finalResult.error)
             if (stuckStatus.stuck) {
-              this.emit({
-                type: 'pipeline:stuck_detected',
-                nodeId: stuckStatus.nodeId ?? node.id,
-                reason: stuckStatus.reason ?? 'Unknown',
-                suggestedAction: stuckStatus.suggestedAction ?? 'abort',
-              })
+              this.emit(
+                stuckDetectedEvent(
+                  stuckStatus.nodeId ?? node.id,
+                  stuckStatus.reason ?? 'Unknown',
+                  stuckStatus.suggestedAction ?? 'abort',
+                ),
+              )
 
               if (stuckStatus.suggestedAction === 'abort') {
                 // Stuck detector says abort — skip recovery and fail immediately
                 this.state = 'failed'
                 const abortError = `Pipeline stuck: ${stuckStatus.reason}`
-                this.emit({ type: 'pipeline:failed', runId, error: abortError })
+                this.emit(pipelineFailedEvent(runId, abortError))
                 return {
                   pipelineId: this.config.definition.id,
                   runId,
@@ -431,7 +456,7 @@ export class PipelineRuntime {
           }
 
           // Check for error edges
-          const errorNext = this.getErrorTarget(node.id)
+          const errorNext = this.getErrorTarget(node.id, finalResult.error)
           if (errorNext) {
             currentNodeId = errorNext
             continue
@@ -449,7 +474,7 @@ export class PipelineRuntime {
 
           // No error handler, no recovery — fail pipeline
           this.state = 'failed'
-          this.emit({ type: 'pipeline:failed', runId, error: finalResult.error })
+          this.emit(pipelineFailedEvent(runId, finalResult.error))
           return {
             pipelineId: this.config.definition.id,
             runId,
@@ -462,31 +487,28 @@ export class PipelineRuntime {
         // End span with OK status
         if (span) this.config.tracer?.endSpanOk(span)
 
-        this.emit({ type: 'pipeline:node_completed', nodeId: node.id, durationMs: finalResult.durationMs })
+        this.emit(nodeCompletedEvent(node.id, finalResult.durationMs))
         nodeResults.set(node.id, finalResult)
 
         // Record successful output in stuck detector (if configured)
         if (this.config.stuckDetector) {
           const outputStr = JSON.stringify(finalResult.output) ?? ''
           const stuckStatus = this.config.stuckDetector.recordNodeOutput(node.id, outputStr)
-          this.emit({
-            type: 'pipeline:node_output_recorded',
-            nodeId: node.id,
-            outputHash: outputStr.slice(0, 32),
-          })
+          this.emit(nodeOutputRecordedEvent(node.id, outputStr.slice(0, 32)))
 
           if (stuckStatus.stuck) {
-            this.emit({
-              type: 'pipeline:stuck_detected',
-              nodeId: stuckStatus.nodeId ?? node.id,
-              reason: stuckStatus.reason ?? 'Unknown',
-              suggestedAction: stuckStatus.suggestedAction ?? 'switch_strategy',
-            })
+            this.emit(
+              stuckDetectedEvent(
+                stuckStatus.nodeId ?? node.id,
+                stuckStatus.reason ?? 'Unknown',
+                stuckStatus.suggestedAction ?? 'switch_strategy',
+              ),
+            )
 
             if (stuckStatus.suggestedAction === 'abort') {
               this.state = 'failed'
               const abortError = `Pipeline stuck: ${stuckStatus.reason}`
-              this.emit({ type: 'pipeline:failed', runId, error: abortError })
+              this.emit(pipelineFailedEvent(runId, abortError))
               return {
                 pipelineId: this.config.definition.id,
                 runId,
@@ -524,14 +546,15 @@ export class PipelineRuntime {
                 node.id, quality, tc.taskType,
               )
               if (suboptimal.isSuboptimal) {
-                this.emit({
-                  type: 'pipeline:calibration_suboptimal',
-                  nodeId: node.id,
-                  baseline: suboptimal.baseline,
-                  currentScore: suboptimal.currentScore,
-                  deviation: suboptimal.deviation,
-                  suggestion: suboptimal.suggestion ?? `Node "${node.id}" quality below baseline`,
-                })
+                this.emit(
+                  calibrationSuboptimalEvent(
+                    node.id,
+                    suboptimal.baseline,
+                    suboptimal.currentScore,
+                    suboptimal.deviation,
+                    suboptimal.suggestion ?? `Node "${node.id}" quality below baseline`,
+                  ),
+                )
               }
             } catch {
               // Calibration is non-fatal
@@ -549,22 +572,24 @@ export class PipelineRuntime {
 
             if (pct >= 0.9 && !this.budgetWarnings.warn90) {
               this.budgetWarnings.warn90 = true
-              this.emit({
-                type: 'pipeline:iteration_budget_warning',
-                level: 'warn_90',
-                totalCost: this.cumulativeCostCents,
-                budgetCents: ib.maxCostCents,
-                iteration: completedNodeIds.length,
-              })
+              this.emit(
+                iterationBudgetWarningEvent(
+                  'warn_90',
+                  this.cumulativeCostCents,
+                  ib.maxCostCents,
+                  completedNodeIds.length,
+                ),
+              )
             } else if (pct >= 0.7 && !this.budgetWarnings.warn70) {
               this.budgetWarnings.warn70 = true
-              this.emit({
-                type: 'pipeline:iteration_budget_warning',
-                level: 'warn_70',
-                totalCost: this.cumulativeCostCents,
-                budgetCents: ib.maxCostCents,
-                iteration: completedNodeIds.length,
-              })
+              this.emit(
+                iterationBudgetWarningEvent(
+                  'warn_70',
+                  this.cumulativeCostCents,
+                  ib.maxCostCents,
+                  completedNodeIds.length,
+                ),
+              )
             }
           }
         }
@@ -581,7 +606,7 @@ export class PipelineRuntime {
         if (span) this.config.tracer?.endSpanWithError(span, err)
 
         const errorMessage = err instanceof Error ? err.message : String(err)
-        this.emit({ type: 'pipeline:node_failed', nodeId: node.id, error: errorMessage })
+        this.emit(nodeFailedEvent(node.id, errorMessage))
         nodeResults.set(node.id, {
           nodeId: node.id,
           output: null,
@@ -589,7 +614,7 @@ export class PipelineRuntime {
           error: errorMessage,
         })
 
-        const errorNext = this.getErrorTarget(node.id)
+        const errorNext = this.getErrorTarget(node.id, err)
         if (errorNext) {
           currentNodeId = errorNext
           continue
@@ -612,7 +637,7 @@ export class PipelineRuntime {
     // No more nodes — pipeline completed
     const totalMs = Date.now() - startTime
     this.state = 'completed'
-    this.emit({ type: 'pipeline:completed', runId, totalDurationMs: totalMs })
+    this.emit(pipelineCompletedEvent(runId, totalMs))
     return {
       pipelineId: this.config.definition.id,
       runId,
@@ -636,23 +661,21 @@ export class PipelineRuntime {
     startTime: number,
   ): Promise<PipelineRunResult> {
     this.state = 'suspended'
-    this.emit({ type: 'pipeline:suspended', nodeId })
+    this.emit(pipelineSuspendedEvent(nodeId))
 
     // Save checkpoint at suspension point
     if (this.config.checkpointStore) {
       versionTracker.version++
-      const checkpoint: PipelineCheckpoint = {
+      const checkpoint: PipelineCheckpoint = createPipelineCheckpoint({
         pipelineRunId: runId,
         pipelineId: this.config.definition.id,
         version: versionTracker.version,
-        schemaVersion: '1.0.0',
-        completedNodeIds: [...completedNodeIds],
-        state: structuredClone(runState),
+        completedNodeIds,
+        state: runState,
         suspendedAtNodeId: nodeId,
-        createdAt: new Date().toISOString(),
-      }
+      })
       await this.config.checkpointStore.save(checkpoint)
-      this.emit({ type: 'pipeline:checkpoint_saved', runId, version: versionTracker.version })
+      this.emit(checkpointSavedEvent(runId, versionTracker.version))
     }
 
     return {
@@ -676,21 +699,12 @@ export class PipelineRuntime {
     completedNodeIds: string[],
     _versionTracker: { version: number },
   ): Promise<PipelineRunResult | undefined> {
-    this.emit({ type: 'pipeline:node_started', nodeId: forkNode.id, nodeType: 'fork' })
+    this.emit(nodeStartedEvent(forkNode.id, 'fork'))
     completedNodeIds.push(forkNode.id)
 
     // Get all outgoing targets from fork node
     const outgoing = this.outgoingEdges.get(forkNode.id) ?? []
-    const branchStartIds: string[] = []
-    for (const edge of outgoing) {
-      if (edge.type === 'sequential') {
-        branchStartIds.push(edge.targetNodeId)
-      } else if (edge.type === 'conditional') {
-        for (const targetId of Object.values(edge.branches)) {
-          branchStartIds.push(targetId)
-        }
-      }
-    }
+    const branchStartIds = getForkBranchStartIds(outgoing)
 
     const joinNode = this.findJoinNode(forkNode.forkId)
     const branchBaseState = structuredClone(runState)
@@ -730,28 +744,20 @@ export class PipelineRuntime {
       const outcome = settled[i]!
       if (outcome.status === 'fulfilled') {
         const br = outcome.value
-        for (const [nodeId, result] of br.nodeResults) {
-          nodeResults.set(nodeId, result)
-        }
-        completedNodeIds.push(...br.completedNodeIds)
-        Object.assign(runState, br.stateDelta)
+        mergeBranchExecutionResult(nodeResults, completedNodeIds, runState, br)
       } else {
         const branchStartId = branchStartIds[i]!
         const errorMessage = outcome.reason instanceof Error
           ? outcome.reason.message
           : String(outcome.reason)
-        this.emit({
-          type: 'pipeline:node_failed',
-          nodeId: branchStartId,
-          error: errorMessage,
-        })
+        this.emit(nodeFailedEvent(branchStartId, errorMessage))
       }
     }
 
     // End fork parent span
     if (forkSpan) this.config.tracer?.endSpanOk(forkSpan)
 
-    this.emit({ type: 'pipeline:node_completed', nodeId: forkNode.id, durationMs: 0 })
+    this.emit(nodeCompletedEvent(forkNode.id, 0))
 
     return undefined // Continue normal flow
   }
@@ -761,12 +767,7 @@ export class PipelineRuntime {
     joinNodeId: string | undefined,
     baseRunState: Record<string, unknown>,
     baseNodeResults: Map<string, NodeResult>,
-  ): Promise<{
-      state: 'completed'
-      stateDelta: Record<string, unknown>
-      nodeResults: Map<string, NodeResult>
-      completedNodeIds: string[]
-    }> {
+  ): Promise<BranchExecutionResult> {
     let currentId: string | undefined = startNodeId
     const runState = structuredClone(baseRunState)
     const baselineState = structuredClone(baseRunState)
@@ -778,7 +779,7 @@ export class PipelineRuntime {
       const node = this.nodeMap.get(currentId)
       if (!node) break
 
-      this.emit({ type: 'pipeline:node_started', nodeId: node.id, nodeType: node.type })
+      this.emit(nodeStartedEvent(node.id, node.type))
 
       const context: NodeExecutionContext = {
         state: runState,
@@ -792,22 +793,17 @@ export class PipelineRuntime {
       completedNodeIds.push(node.id)
 
       if (result.error) {
-        this.emit({ type: 'pipeline:node_failed', nodeId: node.id, error: result.error })
+        this.emit(nodeFailedEvent(node.id, result.error))
         break
       }
 
-      this.emit({ type: 'pipeline:node_completed', nodeId: node.id, durationMs: result.durationMs })
+      this.emit(nodeCompletedEvent(node.id, result.durationMs))
 
       const nextIds = this.getNextNodeIds(node.id, runState)
       currentId = nextIds[0]
     }
 
-    const stateDelta: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(runState)) {
-      if (!valuesEqual(value, baselineState[key])) {
-        stateDelta[key] = value
-      }
-    }
+    const stateDelta = collectStateDelta(baselineState, runState)
 
     return {
       state: 'completed',
@@ -829,7 +825,7 @@ export class PipelineRuntime {
     _completedNodeIds: string[],
     _versionTracker: { version: number },
   ): Promise<NodeResult> {
-    this.emit({ type: 'pipeline:node_started', nodeId: loopNode.id, nodeType: 'loop' })
+    this.emit(nodeStartedEvent(loopNode.id, 'loop'))
 
     // Start OTel span for the loop node
     const loopSpan = this.config.tracer?.startPhaseSpan(loopNode.id, {
@@ -874,10 +870,10 @@ export class PipelineRuntime {
 
     if (result.error) {
       if (loopSpan) this.config.tracer?.endSpanWithError(loopSpan, result.error)
-      this.emit({ type: 'pipeline:node_failed', nodeId: loopNode.id, error: result.error })
+      this.emit(nodeFailedEvent(loopNode.id, result.error))
     } else {
       if (loopSpan) this.config.tracer?.endSpanOk(loopSpan)
-      this.emit({ type: 'pipeline:node_completed', nodeId: loopNode.id, durationMs: result.durationMs })
+      this.emit(nodeCompletedEvent(loopNode.id, result.durationMs))
     }
 
     // Attach metrics to output
@@ -891,49 +887,49 @@ export class PipelineRuntime {
   // ---------------------------------------------------------------------------
 
   private getNextNodeIds(nodeId: string, runState: Record<string, unknown>): string[] {
-    const edges = this.outgoingEdges.get(nodeId) ?? []
-    const targets: string[] = []
+    return getNextNodeIds(nodeId, this.outgoingEdges, this.config.predicates, runState)
+  }
 
-    for (const edge of edges) {
-      switch (edge.type) {
-        case 'sequential':
-          targets.push(edge.targetNodeId)
-          break
-        case 'conditional': {
-          const predicate = this.config.predicates?.[edge.predicateName]
-          if (predicate) {
-            const result = predicate(runState)
-            const branchKey = String(result)
-            const target = edge.branches[branchKey]
-            if (target) {
-              targets.push(target)
-            }
-          }
-          break
-        }
+  private getErrorTarget(nodeId: string, error?: unknown): string | undefined {
+    return getErrorTarget(nodeId, this.errorEdges, this.extractErrorCode(error))
+  }
+
+  private extractErrorCode(error: unknown): string | undefined {
+    if (typeof error === 'object' && error !== null && 'code' in error) {
+      const code = (error as { code?: unknown }).code
+      if (typeof code === 'string' && code.length > 0) {
+        return code
       }
     }
 
-    return targets
+    if (typeof error !== 'string') {
+      if (error instanceof Error) {
+        return this.extractErrorCodeFromMessage(error.message)
+      }
+      if (error !== undefined && error !== null) {
+        return this.extractErrorCodeFromMessage(String(error))
+      }
+      return undefined
+    }
+
+    return this.extractErrorCodeFromMessage(error)
   }
 
-  private getErrorTarget(nodeId: string): string | undefined {
-    const edges = this.errorEdges.get(nodeId) ?? []
-    if (edges.length === 0) return undefined
-    const firstError = edges[0]
-    if (firstError && firstError.type === 'error') {
-      return firstError.targetNodeId
-    }
+  private extractErrorCodeFromMessage(message: string): string | undefined {
+    const bracketedCode = message.match(/^\[([A-Z][A-Z0-9_]{2,})\]\s*/)
+    if (bracketedCode?.[1]) return bracketedCode[1]
+
+    const prefixedCode = message.match(/^([A-Z][A-Z0-9_]{2,})\s*:/)
+    if (prefixedCode?.[1]) return prefixedCode[1]
+
+    const exactCode = message.match(/^([A-Z][A-Z0-9_]{2,})$/)
+    if (exactCode?.[1]) return exactCode[1]
+
     return undefined
   }
 
   private findJoinNode(forkId: string): JoinNode | undefined {
-    for (const node of this.config.definition.nodes) {
-      if (node.type === 'join' && node.forkId === forkId) {
-        return node
-      }
-    }
-    return undefined
+    return findJoinNode(forkId, this.config.definition.nodes)
   }
 
   // ---------------------------------------------------------------------------
@@ -953,17 +949,15 @@ export class PipelineRuntime {
 
     if (strategy === 'after_each_node') {
       versionTracker.version++
-      const checkpoint: PipelineCheckpoint = {
+      const checkpoint: PipelineCheckpoint = createPipelineCheckpoint({
         pipelineRunId: runId,
         pipelineId: this.config.definition.id,
         version: versionTracker.version,
-        schemaVersion: '1.0.0',
-        completedNodeIds: [...completedNodeIds],
-        state: structuredClone(runState),
-        createdAt: new Date().toISOString(),
-      }
+        completedNodeIds,
+        state: runState,
+      })
       await this.config.checkpointStore.save(checkpoint)
-      this.emit({ type: 'pipeline:checkpoint_saved', runId, version: versionTracker.version })
+      this.emit(checkpointSavedEvent(runId, versionTracker.version))
     }
   }
 
@@ -1005,13 +999,7 @@ export class PipelineRuntime {
 
     this.recoveryAttemptsUsed++
 
-    this.emit({
-      type: 'pipeline:recovery_attempted',
-      nodeId,
-      attempt: this.recoveryAttemptsUsed,
-      maxAttempts,
-      error: errorMessage,
-    })
+    this.emit(recoveryAttemptedEvent(nodeId, this.recoveryAttemptsUsed, maxAttempts, errorMessage))
 
     // Build a FailureContext for the copilot
     const failureType = this.classifyError(errorMessage, nodeType)
@@ -1028,30 +1016,15 @@ export class PipelineRuntime {
       const result = await rc.copilot.recover(failureContext)
 
       if (result.success) {
-        this.emit({
-          type: 'pipeline:recovery_succeeded',
-          nodeId,
-          attempt: this.recoveryAttemptsUsed,
-          summary: result.summary,
-        })
+        this.emit(recoverySucceededEvent(nodeId, this.recoveryAttemptsUsed, result.summary))
         return true
       }
 
-      this.emit({
-        type: 'pipeline:recovery_failed',
-        nodeId,
-        attempt: this.recoveryAttemptsUsed,
-        error: result.summary,
-      })
+      this.emit(recoveryFailedEvent(nodeId, this.recoveryAttemptsUsed, result.summary))
       return false
     } catch (recoveryErr) {
       const msg = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr)
-      this.emit({
-        type: 'pipeline:recovery_failed',
-        nodeId,
-        attempt: this.recoveryAttemptsUsed,
-        error: `Recovery threw: ${msg}`,
-      })
+      this.emit(recoveryFailedEvent(nodeId, this.recoveryAttemptsUsed, `Recovery threw: ${msg}`))
       return false
     }
   }
@@ -1088,28 +1061,5 @@ export class PipelineRuntime {
         this.config.signal.addEventListener('abort', onAbort, { once: true })
       }
     })
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-let runCounter = 0
-
-function generateRunId(): string {
-  runCounter++
-  return `run_${Date.now()}_${runCounter}`
-}
-
-function valuesEqual(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true
-  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) {
-    return false
-  }
-  try {
-    return JSON.stringify(a) === JSON.stringify(b)
-  } catch {
-    return false
   }
 }

@@ -252,11 +252,12 @@ export class ChromaDBAdapter implements VectorStore {
         continue
       }
 
+      const docText = documents[i] as string | null
       const entry: VectorSearchResult = {
         id,
         score,
         metadata: (metadatas[i] as Record<string, unknown> | null) ?? {},
-        text: (documents[i] as string | null) ?? undefined,
+        ...(docText != null && { text: docText }),
       }
 
       if (query.includeVectors && embeddings[i]) {

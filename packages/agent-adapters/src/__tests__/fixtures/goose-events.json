@@ -1,0 +1,6 @@
+[
+  {"type": "message", "role": "assistant", "content": "Starting analysis..."},
+  {"type": "tool_call", "tool": {"name": "read_file", "arguments": {"path": "src/main.ts"}}},
+  {"type": "tool_result", "tool_result": {"name": "read_file", "output": "file contents", "duration_ms": 50}},
+  {"type": "completed", "result": "Analysis complete", "duration_ms": 2500}
+]

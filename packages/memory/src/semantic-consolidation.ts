@@ -21,9 +21,9 @@ export type ConsolidationAction = 'add' | 'update' | 'delete' | 'noop' | 'merge'
 export interface ConsolidationDecision {
   action: ConsolidationAction
   /** Key of existing memory to update/delete/merge with */
-  targetKey?: string
+  targetKey?: string | undefined
   /** New content for update/merge actions */
-  mergedContent?: string
+  mergedContent?: string | undefined
   /** Explanation of why this action was chosen */
   reason: string
 }
@@ -32,11 +32,11 @@ export interface SemanticConsolidationConfig {
   /** LLM model for consolidation (use cheapest tier, e.g. Haiku) */
   model: BaseChatModel
   /** Max similar entries to compare per candidate (default: 5) */
-  topK?: number
+  topK?: number | undefined
   /** Max LLM calls per consolidation run (default: 20) */
-  maxLLMCalls?: number
+  maxLLMCalls?: number | undefined
   /** Similarity threshold for triggering LLM comparison (default: 0.5) */
-  similarityThreshold?: number
+  similarityThreshold?: number | undefined
 }
 
 export interface SemanticConsolidationResult {
@@ -89,7 +89,7 @@ function extractText(value: Record<string, unknown>): string {
  * Parse a JSON response from the LLM. Handles markdown code blocks and
  * other common wrappers that models sometimes add.
  */
-function parseLLMJson(raw: string): { action: string; mergedContent?: string; reason: string } | null {
+function parseLLMJson(raw: string): { action: string; mergedContent?: string | undefined; reason: string } | null {
   // Strip markdown code fences if present
   let cleaned = raw.trim()
   const fenceMatch = /```(?:json)?\s*([\s\S]*?)```/.exec(cleaned)

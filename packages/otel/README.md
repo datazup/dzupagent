@@ -1,4 +1,4 @@
-# @dzipagent/otel
+# @dzupagent/otel
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,25 +10,25 @@
 | Source Files | 13 |
 | Lines of Code | 5,080 |
 | Test Files | 8 |
-| Internal Dependencies | `@dzipagent/core` |
+| Internal Dependencies | `@dzupagent/core` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @dzipagent/otel
+npm install @dzupagent/otel
 ```
 <!-- AUTO-GENERATED-END -->
 
-OpenTelemetry integration plugin for DzipAgent. Provides distributed tracing, metrics, cost attribution, safety monitoring, and tamper-evident audit trails -- all wired through the DzipEventBus.
+OpenTelemetry integration plugin for DzupAgent. Provides distributed tracing, metrics, cost attribution, safety monitoring, and tamper-evident audit trails -- all wired through the DzupEventBus.
 
 All OpenTelemetry SDK dependencies are optional peer dependencies. When not installed, noop implementations are used transparently with zero overhead.
 
 ## Installation
 
 ```bash
-npm install @dzipagent/otel
+npm install @dzupagent/otel
 
 # Optional: install OTel SDK for real telemetry export
 npm install @opentelemetry/api @opentelemetry/sdk-trace-base @opentelemetry/sdk-metrics
@@ -39,8 +39,8 @@ npm install @opentelemetry/api @opentelemetry/sdk-trace-base @opentelemetry/sdk-
 The simplest way to enable observability is through the plugin factory:
 
 ```ts
-import { createOTelPlugin } from '@dzipagent/otel'
-import { createEventBus, PluginRegistry } from '@dzipagent/core'
+import { createOTelPlugin } from '@dzupagent/otel'
+import { createEventBus, PluginRegistry } from '@dzupagent/core'
 
 const eventBus = createEventBus()
 const plugins = new PluginRegistry(eventBus)
@@ -54,7 +54,7 @@ const plugin = createOTelPlugin({
 })
 
 plugins.register(plugin)
-// All DzipEventBus events now produce traces, metrics, cost tracking,
+// All DzupEventBus events now produce traces, metrics, cost tracking,
 // safety checks, and audit entries automatically.
 ```
 
@@ -62,14 +62,14 @@ Each section is independently togglable. Setting a section to `false` or omittin
 
 ## Features
 
-### DzipTracer
+### DzupTracer
 
 Wraps an OTel SDK tracer with domain-specific span helpers. Falls back to a `NoopTracer` when `@opentelemetry/api` is not installed.
 
 ```ts
-import { DzipTracer, ForgeSpanAttr } from '@dzipagent/otel'
+import { DzupTracer, ForgeSpanAttr } from '@dzupagent/otel'
 
-const tracer = new DzipTracer({ serviceName: 'my-agent-service' })
+const tracer = new DzupTracer({ serviceName: 'my-agent-service' })
 
 // Agent-level span
 const agentSpan = tracer.startAgentSpan('code-gen', 'run-123')
@@ -112,12 +112,12 @@ try {
 
 ### OTelBridge
 
-Subscribes to `DzipEventBus` and translates events into OTel metrics and span events. This is the single wiring point between DzipAgent's event-driven architecture and OpenTelemetry.
+Subscribes to `DzupEventBus` and translates events into OTel metrics and span events. This is the single wiring point between DzupAgent's event-driven architecture and OpenTelemetry.
 
 ```ts
-import { DzipTracer, OTelBridge, InMemoryMetricSink } from '@dzipagent/otel'
+import { DzupTracer, OTelBridge, InMemoryMetricSink } from '@dzupagent/otel'
 
-const tracer = new DzipTracer()
+const tracer = new DzupTracer()
 const sink = new InMemoryMetricSink()
 
 const bridge = new OTelBridge({
@@ -147,7 +147,7 @@ Bridge errors are intentionally silent and never propagate to the event bus -- b
 Tracks per-agent, per-phase, and per-tool cost attribution. Emits `budget:warning` and `budget:exceeded` events when configurable thresholds are crossed.
 
 ```ts
-import { CostAttributor } from '@dzipagent/otel'
+import { CostAttributor } from '@dzupagent/otel'
 
 const cost = new CostAttributor({
   thresholds: {
@@ -189,7 +189,7 @@ When attached to an event bus, the `CostAttributor` automatically listens for `a
 Detects prompt injection, tool misuse, and data exfiltration using pattern-based detection on agent inputs and outputs. All detection is non-blocking -- it records events but never stops agent execution.
 
 ```ts
-import { SafetyMonitor } from '@dzipagent/otel'
+import { SafetyMonitor } from '@dzupagent/otel'
 
 const monitor = new SafetyMonitor({
   toolFailureThreshold: 3,  // alert after 3 consecutive tool failures
@@ -233,7 +233,7 @@ monitor.reset()
 Tamper-evident audit log with SHA-256 hash-chain integrity. Each entry is linked to the previous via a cryptographic hash, allowing verification that no entries have been modified or removed.
 
 ```ts
-import { AuditTrail, InMemoryAuditStore } from '@dzipagent/otel'
+import { AuditTrail, InMemoryAuditStore } from '@dzupagent/otel'
 
 const trail = new AuditTrail({
   store: new InMemoryAuditStore(),  // default
@@ -273,28 +273,28 @@ The `AuditStore` interface can be implemented for persistent storage (e.g., Post
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `tracer` | `boolean \| DzipTracerConfig` | `undefined` | Enable DzipTracer |
+| `tracer` | `boolean \| DzupTracerConfig` | `undefined` | Enable DzupTracer |
 | `bridge` | `boolean \| OTelBridgeConfig` | `undefined` | Enable event-to-metric mapping |
 | `costAttribution` | `boolean \| CostAttributorConfig` | `undefined` | Enable cost tracking |
 | `safetyMonitor` | `boolean \| SafetyMonitorConfig` | `undefined` | Enable safety detection |
 | `auditTrail` | `boolean \| AuditTrailConfig` | `undefined` | Enable tamper-evident audit log |
 
-### DzipTracerConfig
+### DzupTracerConfig
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `serviceName` | `string` | `'dzipagent'` | Service name reported to OTel backends |
+| `serviceName` | `string` | `'dzupagent'` | Service name reported to OTel backends |
 | `tracer` | `OTelTracer` | `NoopTracer` | OTel Tracer instance from `@opentelemetry/api` |
 
 ### OTelBridgeConfig
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `tracer` | `DzipTracer` | required | DzipTracer instance for span operations |
+| `tracer` | `DzupTracer` | required | DzupTracer instance for span operations |
 | `enableMetrics` | `boolean` | `true` | Record metrics from events |
 | `enableSpanEvents` | `boolean` | `true` | Add span events on active spans |
 | `metricSink` | `MetricSink` | `InMemoryMetricSink` | Metric accumulator |
-| `ignoreEvents` | `DzipEvent['type'][]` | `[]` | Event types to skip |
+| `ignoreEvents` | `DzupEvent['type'][]` | `[]` | Event types to skip |
 
 ### CostAttributorConfig
 
@@ -322,7 +322,7 @@ The `AuditStore` interface can be implemented for persistent storage (e.g., Post
 
 ## Metrics Reference
 
-The `OTelBridge` maps DzipEventBus events to the following Prometheus-compatible metrics:
+The `OTelBridge` maps DzupEventBus events to the following Prometheus-compatible metrics:
 
 **Agent lifecycle:**
 - `dzip_agent_runs_total` (counter) -- agent run starts and completions
@@ -371,10 +371,10 @@ Use `getAllMetricNames()` to retrieve the complete list programmatically.
 
 ## Span Attributes
 
-DzipAgent defines semantic attributes under the `forge.*` namespace and follows OTel GenAI conventions:
+DzupAgent defines semantic attributes under the `forge.*` namespace and follows OTel GenAI conventions:
 
 ```ts
-import { ForgeSpanAttr } from '@dzipagent/otel'
+import { ForgeSpanAttr } from '@dzupagent/otel'
 
 // Agent identity
 ForgeSpanAttr.AGENT_ID           // 'forge.agent.id'
@@ -417,7 +417,7 @@ ForgeSpanAttr.GEN_AI_USAGE_TOTAL_TOKENS  // 'gen_ai.usage.total_tokens'
 
 ### Classes
 
-- `DzipTracer` -- domain-specific OTel tracer with span helpers
+- `DzupTracer` -- domain-specific OTel tracer with span helpers
 - `OTelBridge` -- event-bus-to-OTel metric/span bridge
 - `InMemoryMetricSink` -- in-memory metric accumulator for testing
 - `CostAttributor` -- per-agent/phase/tool cost tracking with budget alerts
@@ -428,7 +428,7 @@ ForgeSpanAttr.GEN_AI_USAGE_TOTAL_TOKENS  // 'gen_ai.usage.total_tokens'
 
 ### Functions
 
-- `createOTelPlugin(config?)` -- create a DzipPlugin wiring all OTel features
+- `createOTelPlugin(config?)` -- create a DzupPlugin wiring all OTel features
 - `getAllMetricNames()` -- list all metric names from the event-metric map
 - `withForgeContext(ctx, fn)` -- run a function within a ForgeTraceContext
 - `currentForgeContext()` -- get the current trace context from AsyncLocalStorage
@@ -439,17 +439,17 @@ ForgeSpanAttr.GEN_AI_USAGE_TOTAL_TOKENS  // 'gen_ai.usage.total_tokens'
 - `SpanStatusCode` -- OTel span status codes (`OK`, `ERROR`, `UNSET`)
 - `SpanKind` -- OTel span kinds (`INTERNAL`, `CLIENT`, `SERVER`, `PRODUCER`, `CONSUMER`)
 - `EVENT_METRIC_MAP` -- complete event-to-metric mapping table
-- `dzipagent_OTEL_VERSION` -- package version (`'0.1.0'`)
+- `dzupagent_OTEL_VERSION` -- package version (`'0.1.0'`)
 
 ### Types
 
-`OTelPluginConfig`, `DzipTracerConfig`, `ForgeTraceSnapshot`, `ForgeTraceContext`, `OTelBridgeConfig`, `MetricSink`, `MetricMapping`, `CostEntry`, `CostReport`, `CostAlertThreshold`, `CostAttributorConfig`, `SafetyCategory`, `SafetySeverity`, `SafetyEvent`, `SafetyPatternRule`, `SafetyMonitorConfig`, `AuditCategory`, `AuditEntry`, `AuditStore`, `AuditTrailConfig`, `OTelSpan`, `OTelTracer`, `OTelSpanOptions`, `OTelContext`, `ForgeSpanAttrKey`
+`OTelPluginConfig`, `DzupTracerConfig`, `ForgeTraceSnapshot`, `ForgeTraceContext`, `OTelBridgeConfig`, `MetricSink`, `MetricMapping`, `CostEntry`, `CostReport`, `CostAlertThreshold`, `CostAttributorConfig`, `SafetyCategory`, `SafetySeverity`, `SafetyEvent`, `SafetyPatternRule`, `SafetyMonitorConfig`, `AuditCategory`, `AuditEntry`, `AuditStore`, `AuditTrailConfig`, `OTelSpan`, `OTelTracer`, `OTelSpanOptions`, `OTelContext`, `ForgeSpanAttrKey`
 
 ## Dependencies
 
 | Package | Version | Required | Purpose |
 |---------|---------|----------|---------|
-| `@dzipagent/core` | `0.1.0` | yes | Event bus, plugin interfaces |
+| `@dzupagent/core` | `0.1.0` | yes | Event bus, plugin interfaces |
 | `@opentelemetry/api` | `^1.7.0` | optional | OTel API for real tracing |
 | `@opentelemetry/sdk-trace-base` | `^1.21.0` | optional | Trace SDK |
 | `@opentelemetry/sdk-metrics` | `^1.21.0` | optional | Metrics SDK |

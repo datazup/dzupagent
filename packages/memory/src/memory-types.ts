@@ -11,9 +11,9 @@ export interface NamespaceConfig {
   /** Ordered list of scope keys used to build the store tuple (e.g. ["tenantId", "lessons"]) */
   scopeKeys: string[]
   /** Whether this namespace supports semantic search (requires embedding config on the store) */
-  searchable?: boolean
+  searchable?: boolean | undefined
   /** Optional TTL in milliseconds — not enforced by the store, but available for eviction logic */
-  ttlMs?: number
+  ttlMs?: number | undefined
 }
 
 /** Configuration for Ebbinghaus forgetting curve decay on a namespace */
@@ -21,23 +21,23 @@ export interface DecayConfig {
   /** Enable Ebbinghaus decay for this namespace (default: false) */
   enabled: boolean
   /** Minimum strength before memory is prunable (default: 0.1) */
-  pruneThreshold?: number
+  pruneThreshold?: number | undefined
 }
 
 export interface FormatOptions {
   /** Maximum number of records to include */
-  maxItems?: number
+  maxItems?: number | undefined
   /** Maximum characters per record before truncation */
-  maxCharsPerItem?: number
+  maxCharsPerItem?: number | undefined
   /** Header line prepended to the formatted output */
-  header?: string
+  header?: string | undefined
 }
 
 /**
  * Minimal interface for a semantic store that MemoryService can use
  * for vector-backed search and auto-indexing.
  *
- * This is deliberately decoupled from @dzipagent/core's SemanticStore class
+ * This is deliberately decoupled from @dzupagent/core's SemanticStore class
  * to avoid circular dependencies. Any object implementing this interface
  * (including SemanticStore) can be passed to MemoryService.
  */

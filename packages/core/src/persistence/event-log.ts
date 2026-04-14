@@ -3,8 +3,10 @@
  *
  * - `RunEvent` captures every meaningful event during a run
  * - `EventLogStore` is the abstract interface; `InMemoryEventLog` is the dev/test impl
- * - `EventLogSink` auto-captures DzipEventBus events into a log
+ * - `EventLogSink` auto-captures DzupEventBus events into a log
  */
+
+import { defaultLogger, type FrameworkLogger } from '../utils/logger.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,9 +35,70 @@ export interface EventLogStore {
 // In-memory implementation
 // ---------------------------------------------------------------------------
 
+export interface InMemoryEventLogOptions {
+  /** Maximum number of runs retained in memory (default: 10_000). Use `Infinity` to opt out. */
+  maxRuns?: number
+  /** Maximum number of events retained per run (default: 5_000). Use `Infinity` to opt out. */
+  maxEventsPerRun?: number
+}
+
+const DEFAULT_MAX_EVENT_LOG_RUNS = 10_000
+const DEFAULT_MAX_EVENTS_PER_RUN = 5_000
+
+function attachRetentionMetadata(
+  target: object,
+  limits: { maxRuns: number; maxEventsPerRun: number },
+  explicitUnbounded: boolean,
+): void {
+  Object.defineProperty(target, '__dzupagentRetention', {
+    value: {
+      ...limits,
+      explicitUnbounded,
+    },
+    configurable: true,
+    enumerable: false,
+    writable: true,
+  })
+}
+
+const logger: FrameworkLogger = defaultLogger
+
+function warnIfExplicitlyUnbounded(limitName: string): void {
+  logger.warn(
+    `[InMemoryEventLog] ${limitName} is configured as unbounded. ` +
+      'This is intended for explicit development/test opt-out only.',
+  )
+}
+
 export class InMemoryEventLog implements EventLogStore {
   private events: Map<string, RunEvent[]> = new Map()
   private seqCounters: Map<string, number> = new Map()
+  private readonly runOrder: string[] = []
+  private readonly maxRuns: number
+  private readonly maxEventsPerRun: number
+
+  constructor(options?: InMemoryEventLogOptions) {
+    if (options?.maxRuns === Number.POSITIVE_INFINITY) {
+      warnIfExplicitlyUnbounded('maxRuns')
+    }
+    if (options?.maxEventsPerRun === Number.POSITIVE_INFINITY) {
+      warnIfExplicitlyUnbounded('maxEventsPerRun')
+    }
+
+    this.maxRuns = options?.maxRuns ?? DEFAULT_MAX_EVENT_LOG_RUNS
+    this.maxEventsPerRun = options?.maxEventsPerRun ?? DEFAULT_MAX_EVENTS_PER_RUN
+    attachRetentionMetadata(this, this.getRetentionLimits(), Boolean(
+      options?.maxRuns === Number.POSITIVE_INFINITY ||
+      options?.maxEventsPerRun === Number.POSITIVE_INFINITY,
+    ))
+  }
+
+  getRetentionLimits(): { maxRuns: number; maxEventsPerRun: number } {
+    return {
+      maxRuns: this.maxRuns,
+      maxEventsPerRun: this.maxEventsPerRun,
+    }
+  }
 
   async append(event: Omit<RunEvent, 'seq' | 'timestamp'>): Promise<RunEvent> {
     const { runId, type, payload } = event
@@ -54,8 +117,11 @@ export class InMemoryEventLog implements EventLogStore {
     if (!list) {
       list = []
       this.events.set(runId, list)
+      this.runOrder.push(runId)
+      this.enforceRunLimit()
     }
     list.push(full)
+    this.enforcePerRunLimit(runId, list)
     return full
   }
 
@@ -87,20 +153,42 @@ export class InMemoryEventLog implements EventLogStore {
   clear(): void {
     this.events.clear()
     this.seqCounters.clear()
+    this.runOrder.length = 0
+  }
+
+  private enforceRunLimit(): void {
+    if (!Number.isFinite(this.maxRuns)) return
+    while (this.runOrder.length > this.maxRuns) {
+      const evictedRunId = this.runOrder.shift()
+      if (!evictedRunId) break
+      this.events.delete(evictedRunId)
+      this.seqCounters.delete(evictedRunId)
+    }
+  }
+
+  private enforcePerRunLimit(runId: string, events: RunEvent[]): void {
+    if (!Number.isFinite(this.maxEventsPerRun)) return
+    const overflow = events.length - this.maxEventsPerRun
+    if (overflow <= 0) return
+    events.splice(0, overflow)
+    // Keep run order stable; no-op when runId missing due external mutation.
+    if (!this.runOrder.includes(runId)) {
+      this.runOrder.push(runId)
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Event bus sink — auto-records DzipEventBus events into an EventLogStore
+// Event bus sink — auto-records DzupEventBus events into an EventLogStore
 // ---------------------------------------------------------------------------
 
-/** Minimal event bus contract for the sink (avoids tight coupling to DzipEventBus). */
+/** Minimal event bus contract for the sink (avoids tight coupling to DzupEventBus). */
 interface EventBusLike {
   onAny: (handler: (event: { type: string; [key: string]: unknown }) => void) => () => void
 }
 
 /**
- * Listens to a DzipEventBus and auto-appends every event to an EventLogStore.
+ * Listens to a DzupEventBus and auto-appends every event to an EventLogStore.
  */
 export class EventLogSink {
   constructor(private readonly log: EventLogStore) {}

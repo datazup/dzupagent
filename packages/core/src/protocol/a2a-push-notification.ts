@@ -206,12 +206,15 @@ export class PushNotificationService {
         signal: controller.signal,
       })
 
-      return {
+      const result: PushNotificationResult = {
         delivered: response.ok,
         statusCode: response.status,
-        error: response.ok ? undefined : `Webhook returned ${response.status}`,
         attemptedAt: new Date().toISOString(),
       }
+      if (!response.ok) {
+        result.error = `Webhook returned ${response.status}`
+      }
+      return result
     } finally {
       clearTimeout(timer)
     }

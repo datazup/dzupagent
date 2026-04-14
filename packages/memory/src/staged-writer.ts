@@ -17,12 +17,12 @@ export interface StagedRecord {
   value: Record<string, unknown>
   stage: MemoryStage
   /** Why this record was captured */
-  captureReason?: string
+  captureReason?: string | undefined
   /** Confidence score 0-1 (from observation extractor or explicit) */
   confidence: number
   createdAt: number
-  promotedAt?: number
-  confirmedAt?: number
+  promotedAt?: number | undefined
+  confirmedAt?: number | undefined
 }
 
 export interface StagedWriterConfig {

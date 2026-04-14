@@ -1,6 +1,6 @@
 {
-  "name": "@dzipagent/scraper",
-  "version": "0.1.0",
+  "name": "@dzupagent/scraper",
+  "version": "0.2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -17,21 +17,29 @@
     "test": "vitest run",
     "lint": "eslint src/"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@dzupagent/core": "0.2.0"
+  },
   "peerDependencies": {
     "puppeteer": ">=21.0.0",
     "puppeteer-extra": ">=3.3.0",
     "puppeteer-extra-plugin-stealth": ">=2.11.0"
   },
   "peerDependenciesMeta": {
-    "puppeteer": { "optional": true },
-    "puppeteer-extra": { "optional": true },
-    "puppeteer-extra-plugin-stealth": { "optional": true }
+    "puppeteer": {
+      "optional": true
+    },
+    "puppeteer-extra": {
+      "optional": true
+    },
+    "puppeteer-extra-plugin-stealth": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "tsup": "^8.0.0",
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "files": [
     "dist"

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { EventBusBridge } from '../registry/event-bus-bridge.js'
 import type {
@@ -8,10 +8,12 @@ import type {
   AgentStartedEvent,
   AgentCompletedEvent,
   AgentFailedEvent,
+  AgentRecoveryCancelledEvent,
   AgentToolCallEvent,
   AgentToolResultEvent,
   AgentStreamDeltaEvent,
   AgentMessageEvent,
+  AgentProgressEvent,
 } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -28,8 +30,8 @@ async function collectAll<T>(gen: AsyncGenerator<T>): Promise<T[]> {
   return items
 }
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -113,6 +115,59 @@ describe('EventBusBridge', () => {
       })
     })
 
+    it('preserves AGENT_ABORTED when bridging adapter:failed', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const failedEvent: AgentFailedEvent = {
+        type: 'adapter:failed',
+        providerId: 'codex',
+        error: 'cancelled',
+        code: 'AGENT_ABORTED',
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([failedEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toEqual({
+        type: 'agent:failed',
+        agentId: 'codex',
+        runId: RUN_ID,
+        errorCode: 'AGENT_ABORTED',
+        message: 'cancelled',
+      })
+    })
+
+    it('bridges recovery:cancelled to a typed recovery event', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const cancelledEvent: AgentRecoveryCancelledEvent = {
+        type: 'recovery:cancelled',
+        providerId: 'claude',
+        strategy: 'abort',
+        error: 'cancelled',
+        totalAttempts: 1,
+        totalDurationMs: 42,
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([cancelledEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toMatchObject({
+        type: 'recovery:cancelled',
+        agentId: 'claude',
+        runId: RUN_ID,
+        attempts: 1,
+        durationMs: 42,
+        reason: 'cancelled',
+      })
+    })
+
     it('bridges adapter:tool_call to tool:called', async () => {
       const bus = createEventBus()
       const emitted = collectBusEvents(bus)
@@ -133,6 +188,7 @@ describe('EventBusBridge', () => {
         type: 'tool:called',
         toolName: 'read_file',
         input: { path: '/tmp/test.ts' },
+        executionRunId: RUN_ID,
       })
     })
 
@@ -157,7 +213,87 @@ describe('EventBusBridge', () => {
         type: 'tool:result',
         toolName: 'write_file',
         durationMs: 42,
+        executionRunId: RUN_ID,
       })
+    })
+
+    it('throws when adapter:tool_result is bridged with an empty run id', async () => {
+      const bus = createEventBus()
+      const bridge = new EventBusBridge(bus)
+
+      const toolResultEvent: AgentToolResultEvent = {
+        type: 'adapter:tool_result',
+        providerId: 'claude',
+        toolName: 'write_file',
+        output: 'ok',
+        durationMs: 42,
+        timestamp: Date.now(),
+      }
+
+      await expect(
+        collectAll(bridge.bridge(yieldEvents([toolResultEvent]), '')),
+      ).rejects.toThrow('Missing executionRunId for tool:result (write_file).')
+    })
+
+    it('emits tool:error when adapter fails during an active tool call', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const toolCallEvent: AgentToolCallEvent = {
+        type: 'adapter:tool_call',
+        providerId: 'claude',
+        toolName: 'write_file',
+        input: { path: '/tmp/test.ts' },
+        timestamp: Date.now(),
+      }
+      const failedEvent: AgentFailedEvent = {
+        type: 'adapter:failed',
+        providerId: 'claude',
+        error: 'write denied',
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([toolCallEvent, failedEvent]), RUN_ID))
+
+      const toolError = emitted.find((event) => event.type === 'tool:error') as
+        | Extract<DzupEvent, { type: 'tool:error' }>
+        | undefined
+      const agentFailed = emitted.find((event) => event.type === 'agent:failed') as
+        | Extract<DzupEvent, { type: 'agent:failed' }>
+        | undefined
+
+      expect(toolError).toEqual({
+        type: 'tool:error',
+        toolName: 'write_file',
+        errorCode: 'TOOL_EXECUTION_FAILED',
+        message: 'write denied',
+        executionRunId: RUN_ID,
+      })
+      expect(agentFailed?.message).toBe('write denied')
+    })
+
+    it('throws when tool:error is bridged with an empty run id', async () => {
+      const bus = createEventBus()
+      const bridge = new EventBusBridge(bus)
+
+      const toolCallEvent: AgentToolCallEvent = {
+        type: 'adapter:tool_call',
+        providerId: 'claude',
+        toolName: 'write_file',
+        input: { path: '/tmp/test.ts' },
+        timestamp: Date.now(),
+      }
+      const failedEvent: AgentFailedEvent = {
+        type: 'adapter:failed',
+        providerId: 'claude',
+        error: 'write denied',
+        timestamp: Date.now(),
+      }
+
+      await expect(
+        collectAll(bridge.bridge(yieldEvents([toolCallEvent, failedEvent]), '')),
+      ).rejects.toThrow('Missing executionRunId for tool:error (write_file).')
     })
 
     it('bridges adapter:stream_delta to agent:stream_delta', async () => {
@@ -280,12 +416,58 @@ describe('EventBusBridge', () => {
     })
   })
 
-  describe('mapToDzipEvent()', () => {
+  describe('mapToDzupEvent()', () => {
     it('returns null for unknown event types', () => {
       // Use a type assertion to simulate an unknown event type
       const unknownEvent = { type: 'adapter:unknown', providerId: 'claude', timestamp: 1 } as unknown as AgentEvent
-      const result = EventBusBridge.mapToDzipEvent(unknownEvent, RUN_ID)
+      const result = EventBusBridge.mapToDzupEvent(unknownEvent, RUN_ID)
       expect(result).toBeNull()
+    })
+
+    it('maps adapter:progress to agent:progress on the core bus', () => {
+      const progressEvent: AgentProgressEvent = {
+        type: 'adapter:progress',
+        providerId: 'claude',
+        phase: 'tool_execution',
+        percentage: 50,
+        message: 'Running tool 3/6',
+        timestamp: Date.now(),
+      }
+      const result = EventBusBridge.mapToDzupEvent(progressEvent, RUN_ID)
+      expect(result).toEqual({
+        type: 'agent:progress',
+        agentId: 'claude',
+        phase: 'tool_execution',
+        percentage: 50,
+        message: 'Running tool 3/6',
+        timestamp: progressEvent.timestamp,
+      })
+    })
+
+    it('emits agent:progress bus events for adapter:progress', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const progressEvent: AgentProgressEvent = {
+        type: 'adapter:progress',
+        providerId: 'claude',
+        phase: 'thinking',
+        timestamp: Date.now(),
+      }
+
+      const yielded = await collectAll(bridge.bridge(yieldEvents([progressEvent]), RUN_ID))
+
+      // The original event is still yielded (pass-through)
+      expect(yielded).toHaveLength(1)
+      expect(yielded[0]).toBe(progressEvent)
+      // Progress is now bridged to the core bus
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).toMatchObject({
+        type: 'agent:progress',
+        agentId: 'claude',
+        phase: 'thinking',
+      })
     })
   })
 })

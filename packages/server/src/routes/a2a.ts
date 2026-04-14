@@ -21,11 +21,11 @@ import {
   createJsonRpcSuccess,
   validateJsonRpcRequest,
   validateJsonRpcBatch,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 
 export interface A2ARoutesConfig {
   agentCard: AgentCard

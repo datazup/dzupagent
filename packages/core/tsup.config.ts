@@ -3,6 +3,9 @@ import { defineConfig } from 'tsup'
 export default defineConfig({
   entry: [
     'src/index.ts',
+    'src/stable.ts',
+    'src/advanced.ts',
+    'src/memory-ipc.ts',
     'src/facades/index.ts',
     'src/facades/quick-start.ts',
     'src/facades/memory.ts',
@@ -10,14 +13,14 @@ export default defineConfig({
     'src/facades/security.ts',
   ],
   format: ['esm'],
-  dts: { compilerOptions: { composite: false } },
+  dts: { compilerOptions: { composite: false, exactOptionalPropertyTypes: false } },
   clean: true,
   sourcemap: true,
   target: 'node20',
   outDir: 'dist',
   external: [
-    '@dzipagent/memory',
-    '@dzipagent/context',
+    '@dzupagent/memory',
+    '@dzupagent/context',
     '@langchain/core',
     'pg',
     'pg-pool',

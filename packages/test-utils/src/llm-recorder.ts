@@ -20,6 +20,7 @@
  */
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import type * as NodeFs from 'node:fs'
 import { join, dirname } from 'node:path'
 import { AIMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
@@ -86,7 +87,7 @@ export class LLMRecorder {
   /** List all fixture files in the fixture directory */
   listFixtures(): string[] {
     if (!existsSync(this.config.fixtureDir)) return []
-    const { readdirSync } = require('node:fs') as typeof import('node:fs')
+    const { readdirSync } = require('node:fs') as typeof NodeFs
     return readdirSync(this.config.fixtureDir)
       .filter((f: string) => f.endsWith('.json'))
       .map((f: string) => f.replace('.json', ''))

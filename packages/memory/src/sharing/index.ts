@@ -10,8 +10,10 @@ export type {
   ShareMode,
   MemoryParticipant,
   RetentionPolicy,
+  WritableShareMode,
   SharedMemorySpace,
   MemoryShareRequest,
   PendingShareRequest,
+  TombstoneCompactionMetrics,
   SharedMemoryEvent,
 } from './types.js'

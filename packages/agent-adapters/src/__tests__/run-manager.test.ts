@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { RunManager } from '../persistence/run-manager.js'
 import type { AdapterProviderId, AgentEvent } from '../types.js'
@@ -9,8 +9,8 @@ import type { AdapterProviderId, AgentEvent } from '../types.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -64,8 +64,8 @@ async function* throwingAdapterEvents(): AsyncGenerator<AgentEvent, void, undefi
 
 describe('RunManager', () => {
   let manager: RunManager
-  let bus: DzipEventBus
-  let emitted: DzipEvent[]
+  let bus: DzupEventBus
+  let emitted: DzupEvent[]
 
   beforeEach(() => {
     bus = createEventBus()

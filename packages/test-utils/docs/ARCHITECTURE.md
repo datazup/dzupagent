@@ -1,7 +1,7 @@
-# @dzipagent/test-utils Architecture
+# @dzupagent/test-utils Architecture
 
 ## Purpose
-`@dzipagent/test-utils` provides deterministic testing utilities for DzipAgent packages and applications. It focuses on offline-first model simulation and predictable event/store setup.
+`@dzupagent/test-utils` provides deterministic testing utilities for DzupAgent packages and applications. It focuses on offline-first model simulation and predictable event/store setup.
 
 ## Main Responsibilities
 - Provide a mock chat model for scripted, deterministic responses.
@@ -29,8 +29,8 @@ Top-level modules under `src/`:
 - Compatible with core event/run store abstractions.
 
 ## Integration Boundaries
-- Depends on `@dzipagent/core` utilities and peer LangChain/Vitest types.
-- Used broadly by other DzipAgent packages in unit/integration tests.
+- Depends on `@dzupagent/core` utilities and peer LangChain/Vitest types.
+- Used broadly by other DzupAgent packages in unit/integration tests.
 
 ## Extensibility Points
 - Add additional factory helpers for new runtime abstractions.

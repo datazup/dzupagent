@@ -38,11 +38,13 @@ const PII_PATTERNS: Array<{ pattern: RegExp; type: PIIType }> = [
   },
   // Phone numbers (US/international formats)
   {
+    // eslint-disable-next-line security/detect-unsafe-regex
     pattern: /(?<![.\d])(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\.\d)/g,
     type: 'phone',
   },
   // IPv4 addresses (validate octet range 0-255)
   {
+    // eslint-disable-next-line security/detect-unsafe-regex
     pattern: /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g,
     type: 'ip-address',
   },

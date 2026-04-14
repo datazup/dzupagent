@@ -1,10 +1,8 @@
 /**
- * Crush adapter (stub).
- *
- * Crush is a local model runner optimized for code tasks and exposes a CLI.
+ * Crush CLI adapter for local code-oriented model runners.
  */
 
-import { ForgeError } from '@dzipagent/core'
+import { ForgeError } from '@dzupagent/core'
 
 import type {
   AdapterConfig,
@@ -14,11 +12,21 @@ import type {
   AgentInput,
 } from '../types.js'
 import { BaseCliAdapter } from '../base/base-cli-adapter.js'
-import { getNumber, getObject, getString, toJsonString } from '../utils/event-record.js'
+import { getString } from '../utils/event-record.js'
+import {
+  mapCliProviderEvent,
+  type CliEventMappingConfig,
+} from '../utils/provider-event-normalization.js'
 import { isBinaryAvailable } from '../utils/process-helpers.js'
 
 const PROVIDER_ID: AdapterProviderId = 'crush'
 const CRUSH_BINARY = 'crush'
+const CRUSH_OUTPUT_FORMAT_ARGS = ['--output-format', 'jsonl'] as const
+
+const CRUSH_EVENT_CONFIG: CliEventMappingConfig = {
+  providerId: PROVIDER_ID,
+  defaultErrorMessage: 'Unknown Crush CLI error',
+}
 
 function parseNonNegativeInt(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
@@ -28,119 +36,6 @@ function parseNonNegativeInt(value: unknown): number | undefined {
     return Number.parseInt(value, 10)
   }
   return undefined
-}
-
-/**
- * Map a raw JSONL record from the Crush CLI to an AgentEvent.
- *
- * TODO: Update event mapping once the Crush CLI output schema is documented.
- */
-function mapCrushEvent(
-  record: Record<string, unknown>,
-  sessionId: string,
-): AgentEvent | undefined {
-  const type = getString(record, 'type', 'event')
-  const tool = getObject(record, 'tool', 'function_call')
-  const nestedResult = getObject(record, 'tool_result')
-
-  switch (type) {
-    case 'message':
-    case 'response': {
-      const content = getString(record, 'content', 'text', 'message') ?? ''
-      const role = record['role'] === 'user' || record['role'] === 'system'
-        ? record['role']
-        : 'assistant' as const
-      return {
-        type: 'adapter:message',
-        providerId: PROVIDER_ID,
-        content,
-        role,
-        timestamp: Date.now(),
-      }
-    }
-
-    case 'tool_call': {
-      const toolName = getString(record, 'name', 'tool_name')
-        ?? getString(tool ?? {}, 'name')
-        ?? 'unknown'
-      return {
-        type: 'adapter:tool_call',
-        providerId: PROVIDER_ID,
-        toolName,
-        input: record['arguments'] ?? record['input'] ?? record['parameters']
-          ?? tool?.['arguments'] ?? tool?.['input'] ?? tool?.['parameters']
-          ?? {},
-        timestamp: Date.now(),
-      }
-    }
-
-    case 'tool_result': {
-      const toolName = getString(record, 'name', 'tool_name')
-        ?? getString(nestedResult ?? {}, 'name', 'tool_name')
-        ?? getString(tool ?? {}, 'name')
-        ?? 'unknown'
-      const output = toJsonString(
-        record['output'] ?? record['result'] ?? record['content']
-        ?? nestedResult?.['output'] ?? nestedResult?.['result'] ?? nestedResult?.['content']
-        ?? '',
-      )
-      return {
-        type: 'adapter:tool_result',
-        providerId: PROVIDER_ID,
-        toolName,
-        output,
-        durationMs: getNumber(record, 'duration_ms', 'durationMs', 'elapsed_ms')
-          ?? getNumber(nestedResult ?? {}, 'duration_ms', 'durationMs', 'elapsed_ms')
-          ?? 0,
-        timestamp: Date.now(),
-      }
-    }
-
-    case 'stream_delta':
-    case 'delta':
-    case 'stream': {
-      const content = getString(record, 'content', 'text', 'delta') ?? ''
-      return {
-        type: 'adapter:stream_delta',
-        providerId: PROVIDER_ID,
-        content,
-        timestamp: Date.now(),
-      }
-    }
-
-    case 'done':
-    case 'completed': {
-      return {
-        type: 'adapter:completed',
-        providerId: PROVIDER_ID,
-        sessionId,
-        result: getString(record, 'result', 'content', 'output', 'text') ?? '',
-        durationMs: getNumber(record, 'duration_ms', 'durationMs', 'elapsed_ms') ?? 0,
-        timestamp: Date.now(),
-      }
-    }
-
-    case 'error': {
-      const errorMsg = getString(record, 'message', 'error')
-      const errorObj = getObject(record, 'error')
-      return {
-        type: 'adapter:failed',
-        providerId: PROVIDER_ID,
-        sessionId,
-        error: typeof errorMsg === 'string'
-          ? errorMsg
-          : typeof errorObj?.['message'] === 'string'
-            ? errorObj['message']
-          : 'Unknown Crush CLI error',
-        code: getString(record, 'code')
-          ?? getString(errorObj ?? {}, 'code'),
-        timestamp: Date.now(),
-      }
-    }
-
-    default:
-      return undefined
-  }
 }
 
 export class CrushAdapter extends BaseCliAdapter {
@@ -192,14 +87,13 @@ export class CrushAdapter extends BaseCliAdapter {
     record: Record<string, unknown>,
     sessionId: string,
   ): AgentEvent | undefined {
-    return mapCrushEvent(record, sessionId)
+    return mapCliProviderEvent(record, sessionId, CRUSH_EVENT_CONFIG)
   }
 
   protected buildArgs(input: AgentInput): string[] {
     const args: string[] = []
 
-    // TODO: Confirm output format flag for Crush CLI
-    args.push('--output-format', 'jsonl')
+    args.push(...CRUSH_OUTPUT_FORMAT_ARGS)
 
     if (input.prompt) {
       args.push('--prompt', input.prompt)
@@ -211,6 +105,19 @@ export class CrushAdapter extends BaseCliAdapter {
 
     if (this.config.model) {
       args.push('--model', this.config.model)
+    }
+
+    if (this.config.sandboxMode) {
+      // Crush uses --permission to control filesystem access level
+      const modeMap: Record<string, string> = {
+        'read-only': 'read-only',
+        'workspace-write': 'workspace',
+        'full-access': 'full',
+      }
+      const mapped = modeMap[this.config.sandboxMode]
+      if (mapped) {
+        args.push('--permission', mapped)
+      }
     }
 
     if (input.maxTurns !== undefined) {

@@ -1,0 +1,294 @@
+name: Compatibility Matrix
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: compat-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ─── Step 1: Publish snapshot to local Verdaccio ───────────────────────────
+  publish-snapshot:
+    name: Publish snapshot to Verdaccio
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      snapshot-version: ${{ steps.snapshot.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Start Verdaccio
+        run: |
+          npx verdaccio --config .github/verdaccio.yml &
+          sleep 3
+          echo "Verdaccio started on http://localhost:4873"
+
+      - name: Set snapshot version
+        id: snapshot
+        run: |
+          VERSION="0.2.0-compat.$(git rev-parse --short HEAD)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Snapshot version: $VERSION"
+
+      - name: Bump versions to snapshot
+        run: |
+          VERSION="${{ steps.snapshot.outputs.snapshot-version }}"
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const glob = require('glob');
+            const pkgs = glob.sync('packages/*/package.json');
+            pkgs.forEach(p => {
+              const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+              pkg.version = '$VERSION';
+              // update cross-package deps
+              ['dependencies','devDependencies','peerDependencies'].forEach(section => {
+                if (!pkg[section]) return;
+                Object.keys(pkg[section]).forEach(dep => {
+                  if (dep.startsWith('@dzupagent/')) pkg[section][dep] = '$VERSION';
+                });
+              });
+              fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+            });
+          "
+
+      - name: Build all packages
+        run: yarn build
+
+      - name: Publish to Verdaccio
+        run: |
+          npm set registry http://localhost:4873
+          npm adduser --registry http://localhost:4873 <<EOF
+          compat
+          compat
+          compat@example.com
+          EOF
+          for pkg in packages/*/; do
+            if [ -f "$pkg/package.json" ]; then
+              echo "Publishing $pkg..."
+              cd "$pkg"
+              npm publish --registry http://localhost:4873 || true
+              cd ../..
+            fi
+          done
+
+      - name: Save Verdaccio storage
+        uses: actions/upload-artifact@v4
+        with:
+          name: verdaccio-storage
+          path: /tmp/verdaccio-storage
+          retention-days: 1
+
+  # ─── Step 2: Test against datazup-agent-kit (mandatory) ───────────────────
+  test-agent-kit:
+    name: Test datazup-agent-kit
+    needs: publish-snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: monorepo
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download Verdaccio storage
+        uses: actions/download-artifact@v4
+        with:
+          name: verdaccio-storage
+          path: /tmp/verdaccio-storage
+
+      - name: Start Verdaccio with snapshot packages
+        run: |
+          npx verdaccio --config monorepo/dzupagent/.github/verdaccio.yml &
+          sleep 3
+
+      - name: Install agent-kit with snapshot deps
+        working-directory: monorepo/packages/dzupagent-kit
+        run: |
+          npm set registry http://localhost:4873
+          # Replace @dzupagent/* with snapshot version
+          VERSION="${{ needs.publish-snapshot.outputs.snapshot-version }}"
+          node -e "
+            const fs = require('fs');
+            const pkgs = require('glob').sync('*/package.json');
+            pkgs.forEach(p => {
+              const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+              ['dependencies','devDependencies','peerDependencies'].forEach(s => {
+                if (!pkg[s]) return;
+                Object.keys(pkg[s]).forEach(dep => {
+                  if (dep.startsWith('@dzupagent/')) pkg[s][dep] = '\"$VERSION\"';
+                });
+              });
+              fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+            });
+          "
+          yarn install --registry http://localhost:4873
+
+      - name: Build, typecheck, and test agent-kit
+        working-directory: monorepo/packages/dzupagent-kit
+        run: |
+          yarn build
+          yarn typecheck
+          yarn test
+
+  # ─── Step 3: Test against testman-app (heaviest consumer) ─────────────────
+  test-testman-app:
+    name: Test testman-app
+    needs: publish-snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: monorepo
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download Verdaccio storage
+        uses: actions/download-artifact@v4
+        with:
+          name: verdaccio-storage
+          path: /tmp/verdaccio-storage
+
+      - name: Start Verdaccio with snapshot packages
+        run: |
+          npx verdaccio --config monorepo/dzupagent/.github/verdaccio.yml &
+          sleep 3
+
+      - name: Install testman-app with snapshot deps
+        working-directory: monorepo/apps/testman-app
+        run: |
+          VERSION="${{ needs.publish-snapshot.outputs.snapshot-version }}"
+          node -e "
+            const fs = require('fs');
+            const glob = require('glob');
+            const pkgs = glob.sync('**/package.json', { ignore: ['**/node_modules/**','**/dist/**'] });
+            pkgs.forEach(p => {
+              const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+              ['dependencies','devDependencies'].forEach(s => {
+                if (!pkg[s]) return;
+                Object.keys(pkg[s]).forEach(dep => {
+                  if (dep.startsWith('@dzupagent/')) pkg[s][dep] = '$VERSION';
+                });
+              });
+              fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+            });
+          "
+          yarn install --registry http://localhost:4873
+
+      - name: Build and typecheck testman-app
+        working-directory: monorepo/apps/testman-app
+        run: |
+          yarn build
+          yarn typecheck
+
+      - name: Run testman-app tests
+        working-directory: monorepo/apps/testman-app
+        run: yarn test --passWithNoTests
+
+  # ─── Step 4: Test against nl2sql (domain-specific integration) ────────────
+  test-nl2sql:
+    name: Test nl2sql
+    needs: publish-snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: monorepo
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download Verdaccio storage
+        uses: actions/download-artifact@v4
+        with:
+          name: verdaccio-storage
+          path: /tmp/verdaccio-storage
+
+      - name: Start Verdaccio with snapshot packages
+        run: |
+          npx verdaccio --config monorepo/dzupagent/.github/verdaccio.yml &
+          sleep 3
+
+      - name: Install nl2sql with snapshot deps
+        working-directory: monorepo/apps/nl2sql
+        run: |
+          VERSION="${{ needs.publish-snapshot.outputs.snapshot-version }}"
+          node -e "
+            const fs = require('fs');
+            const glob = require('glob');
+            const pkgs = glob.sync('**/package.json', { ignore: ['**/node_modules/**','**/dist/**'] });
+            pkgs.forEach(p => {
+              const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
+              ['dependencies','devDependencies'].forEach(s => {
+                if (!pkg[s]) return;
+                Object.keys(pkg[s]).forEach(dep => {
+                  if (dep.startsWith('@dzupagent/')) pkg[s][dep] = '$VERSION';
+                });
+              });
+              fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+            });
+          "
+          yarn install --registry http://localhost:4873
+
+      - name: Build and typecheck nl2sql
+        working-directory: monorepo/apps/nl2sql
+        run: |
+          yarn build
+          yarn typecheck
+
+      - name: Run nl2sql tests
+        working-directory: monorepo/apps/nl2sql
+        run: yarn test --passWithNoTests
+
+  # ─── Summary gate ──────────────────────────────────────────────────────────
+  compat-gate:
+    name: Compatibility Matrix Gate
+    needs: [test-agent-kit, test-testman-app, test-nl2sql]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Check all jobs passed
+        run: |
+          if [[ "${{ needs.test-agent-kit.result }}" != "success" ]]; then
+            echo "❌ agent-kit compat test failed"
+            exit 1
+          fi
+          if [[ "${{ needs.test-testman-app.result }}" != "success" ]]; then
+            echo "❌ testman-app compat test failed"
+            exit 1
+          fi
+          if [[ "${{ needs.test-nl2sql.result }}" != "success" ]]; then
+            echo "❌ nl2sql compat test failed"
+            exit 1
+          fi
+          echo "✅ All compatibility matrix tests passed"

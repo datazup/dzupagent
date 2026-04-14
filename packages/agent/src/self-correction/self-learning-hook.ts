@@ -198,7 +198,6 @@ export class SelfLearningPipelineHook {
 
   private log(eventType: string, event: PipelineRuntimeEvent): void {
     const details = JSON.stringify(event)
-    // eslint-disable-next-line no-console
     console.log(`[SelfLearning] ${eventType}: ${details}`)
   }
 

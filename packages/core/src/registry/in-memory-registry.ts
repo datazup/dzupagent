@@ -5,8 +5,8 @@
  * Uses immutable update patterns (S6 fix) and numeric semver comparison (S7 fix).
  */
 import { ForgeError } from '../errors/forge-error.js'
-import type { DzipEventBus } from '../events/event-bus.js'
-import type { DzipEvent } from '../events/event-types.js'
+import type { DzupEventBus } from '../events/event-bus.js'
+import type { DzupEvent } from '../events/event-types.js'
 import { CapabilityMatcher, compareSemver } from './capability-matcher.js'
 import type {
   AgentHealth,
@@ -26,17 +26,6 @@ import type {
 } from './types.js'
 
 // ---------------------------------------------------------------------------
-// ID generation
-// ---------------------------------------------------------------------------
-
-let idCounter = 0
-
-function generateId(): string {
-  idCounter++
-  return `agent-${Date.now().toString(36)}-${idCounter.toString(36)}`
-}
-
-// ---------------------------------------------------------------------------
 // Subscription entry
 // ---------------------------------------------------------------------------
 
@@ -52,8 +41,9 @@ interface Subscription {
 export class InMemoryRegistry implements AgentRegistry {
   private readonly agents = new Map<string, RegisteredAgent>()
   private readonly subscriptions = new Set<Subscription>()
-  private readonly eventBus?: DzipEventBus
+  private readonly eventBus: DzupEventBus | undefined
   private readonly matcher = new CapabilityMatcher()
+  private idCounter = 0
 
   constructor(config?: AgentRegistryConfig) {
     this.eventBus = config?.eventBus
@@ -80,26 +70,27 @@ export class InMemoryRegistry implements AgentRegistry {
       })
     }
 
-    const id = generateId()
+    this.idCounter++
+    const id = `agent-${Date.now().toString(36)}-${this.idCounter.toString(36)}`
     const now = new Date()
 
     const agent: RegisteredAgent = {
       id,
       name: input.name,
       description: input.description,
-      endpoint: input.endpoint,
       protocols: input.protocols ?? [],
       capabilities: [...input.capabilities],
-      authentication: input.authentication,
-      version: input.version,
-      sla: input.sla ? { ...input.sla } : undefined,
       health: { status: 'unknown' },
-      metadata: input.metadata ? { ...input.metadata } : undefined,
       registeredAt: now,
       lastUpdatedAt: now,
-      ttlMs: input.ttlMs,
-      identity: input.identity ? { ...input.identity } : undefined,
-      uri: input.uri,
+      ...(input.endpoint !== undefined && { endpoint: input.endpoint }),
+      ...(input.authentication !== undefined && { authentication: input.authentication }),
+      ...(input.version !== undefined && { version: input.version }),
+      ...(input.sla !== undefined && { sla: { ...input.sla } }),
+      ...(input.metadata !== undefined && { metadata: { ...input.metadata } }),
+      ...(input.ttlMs !== undefined && { ttlMs: input.ttlMs }),
+      ...(input.identity !== undefined && { identity: { ...input.identity } }),
+      ...(input.uri !== undefined && { uri: input.uri }),
     }
 
     this.agents.set(id, agent)
@@ -572,7 +563,7 @@ export class InMemoryRegistry implements AgentRegistry {
     }
   }
 
-  /** Emit a registry event to subscriptions and optionally to the DzipEventBus. */
+  /** Emit a registry event to subscriptions and optionally to the DzupEventBus. */
   private emitRegistryEvent(event: RegistryEvent): void {
     // Notify subscriptions
     for (const sub of this.subscriptions) {
@@ -585,9 +576,9 @@ export class InMemoryRegistry implements AgentRegistry {
       }
     }
 
-    // Forward to DzipEventBus if available
+    // Forward to DzupEventBus if available
     if (this.eventBus) {
-      this.eventBus.emit(event as DzipEvent)
+      this.eventBus.emit(event as DzupEvent)
     }
   }
 

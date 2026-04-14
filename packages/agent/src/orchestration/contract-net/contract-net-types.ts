@@ -9,8 +9,8 @@
  * 5. Winner executes the task
  * 6. Result is returned
  */
-import type { DzipAgent } from '../../agent/dzip-agent.js'
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupAgent } from '../../agent/dzip-agent.js'
+import type { DzupEventBus } from '@dzupagent/core'
 
 export type ContractNetPhase =
   | 'announcing'
@@ -69,8 +69,8 @@ export interface BidEvaluationStrategy {
 }
 
 export interface ContractNetConfig {
-  manager: DzipAgent
-  specialists: DzipAgent[]
+  manager: DzupAgent
+  specialists: DzupAgent[]
   task: string
   strategy?: BidEvaluationStrategy
   bidDeadlineMs?: number
@@ -78,5 +78,5 @@ export interface ContractNetConfig {
   requiredCapabilities?: string[]
   retryOnNoBids?: boolean
   signal?: AbortSignal
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
 }

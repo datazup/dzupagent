@@ -41,7 +41,7 @@ export interface GraphNodeProvenance {
   timestamp: Date
   confidence: number // 0-1
   evidenceRefs: string[]
-  domain?: string
+  domain?: string | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -95,9 +95,9 @@ export interface ConflictRecord {
   nodeB: string
   edgeId: string // the CONTRADICTS edge
   detectedAt: Date
-  resolvedAt?: Date
-  resolution?: string
-  strategy?: GraphConflictStrategy
+  resolvedAt?: Date | undefined
+  resolution?: string | undefined
+  strategy?: GraphConflictStrategy | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -105,12 +105,12 @@ export interface ConflictRecord {
 // ---------------------------------------------------------------------------
 
 export interface GraphQueryFilter {
-  types?: GraphNodeType[]
-  namespace?: string
-  minConfidence?: number
-  agentId?: string
-  domain?: string
-  since?: Date
+  types?: GraphNodeType[] | undefined
+  namespace?: string | undefined
+  minConfidence?: number | undefined
+  agentId?: string | undefined
+  domain?: string | undefined
+  since?: Date | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -119,9 +119,9 @@ export interface GraphQueryFilter {
 
 export interface TeamGraphConfig {
   namespace: string
-  conflictStrategy?: GraphConflictStrategy
-  decayEnabled?: boolean
-  decayInterval?: number // ms
-  trustDecayRate?: number // per day
-  minTrustThreshold?: number
+  conflictStrategy?: GraphConflictStrategy | undefined
+  decayEnabled?: boolean | undefined
+  decayInterval?: number | undefined // ms
+  trustDecayRate?: number | undefined // per day
+  minTrustThreshold?: number | undefined
 }

@@ -1,29 +1,42 @@
 /**
  * Multi-agent orchestration patterns.
  *
- * Provides composable patterns for coordinating multiple DzipAgent instances:
+ * Provides composable patterns for coordinating multiple DzupAgent instances:
  * - Sequential: A -> B -> C (pipeline)
  * - Parallel: A, B, C concurrently, results merged
  * - Supervisor: Manager delegates to specialists via tool calling
  * - Debate: Multiple proposers, judge selects best
  */
 import { HumanMessage } from '@langchain/core/messages'
-import { DzipAgent } from '../agent/dzip-agent.js'
+import { DzupAgent } from '../agent/dzip-agent.js'
 import { OrchestrationError } from './orchestration-error.js'
 import { ContractNetManager } from './contract-net/contract-net-manager.js'
 import type { ContractNetConfig, ContractResult } from './contract-net/contract-net-types.js'
+import type { ProviderExecutionPort } from './provider-adapter/provider-execution-port.js'
 
 export interface SupervisorConfig {
   /** The manager agent that coordinates specialists */
-  manager: DzipAgent
+  manager: DzupAgent
   /** Specialist agents to be exposed as tools to the manager */
-  specialists: DzipAgent[]
+  specialists: DzupAgent[]
   /** The task to delegate */
   task: string
   /** If true, run a lightweight health check on each specialist before exposing it */
   healthCheck?: boolean
   /** Abort signal for cancellation */
   signal?: AbortSignal
+  /**
+   * Execution mode for the supervisor.
+   * - `'agent'` (default): use DzupAgent for execution
+   * - `'provider-adapter'`: route via the injected `providerPort`
+   */
+  executionMode?: 'agent' | 'provider-adapter'
+  /**
+   * Provider execution port for adapter-based execution.
+   * Required when `executionMode` is `'provider-adapter'`.
+   * Ignored when `executionMode` is `'agent'` or unset.
+   */
+  providerPort?: ProviderExecutionPort
 }
 
 export interface SupervisorResult {
@@ -45,7 +58,7 @@ export class AgentOrchestrator {
    * Run agents sequentially -- each receives the previous agent's output.
    */
   static async sequential(
-    agents: DzipAgent[],
+    agents: DzupAgent[],
     initialInput: string,
   ): Promise<string> {
     let current = initialInput
@@ -60,7 +73,7 @@ export class AgentOrchestrator {
    * Run agents in parallel -- all receive the same input, results merged.
    */
   static async parallel(
-    agents: DzipAgent[],
+    agents: DzupAgent[],
     input: string,
     merge?: MergeFn,
   ): Promise<string> {
@@ -80,17 +93,17 @@ export class AgentOrchestrator {
    */
   static async supervisor(config: SupervisorConfig): Promise<SupervisorResult>
   /** @deprecated Use the config object overload instead */
-  static async supervisor(manager: DzipAgent, specialists: DzipAgent[], task: string): Promise<string>
+  static async supervisor(manager: DzupAgent, specialists: DzupAgent[], task: string): Promise<string>
   static async supervisor(
-    configOrManager: SupervisorConfig | DzipAgent,
-    maybeSpecialists?: DzipAgent[],
+    configOrManager: SupervisorConfig | DzupAgent,
+    maybeSpecialists?: DzupAgent[],
     maybeTask?: string,
   ): Promise<SupervisorResult | string> {
     // Normalize arguments: support both old positional and new config-object signatures
     let config: SupervisorConfig
     let returnLegacy = false
 
-    if (configOrManager instanceof DzipAgent) {
+    if (configOrManager instanceof DzupAgent) {
       if (!maybeSpecialists || !maybeTask) {
         throw new OrchestrationError(
           'supervisor() requires specialists and task when called with positional arguments',
@@ -103,8 +116,25 @@ export class AgentOrchestrator {
       config = configOrManager
     }
 
-    const { manager, task, signal } = config
+    const { manager, task, signal, executionMode, providerPort } = config
     let { specialists } = config
+
+    // Provider-adapter execution mode: route through the injected port
+    if (executionMode === 'provider-adapter' && providerPort) {
+      const portResult = await providerPort.run(
+        { prompt: task, signal },
+        { prompt: task, tags: specialists.map((s) => s.id) },
+        { signal },
+      )
+
+      const result: SupervisorResult = {
+        content: portResult.content,
+        availableSpecialists: specialists.map((s) => s.id),
+        filteredSpecialists: [],
+      }
+
+      return returnLegacy ? portResult.content : result
+    }
 
     // Validate inputs
     if (specialists.length === 0) {
@@ -127,7 +157,7 @@ export class AgentOrchestrator {
     // Optional health check: filter out unresponsive specialists
     const filteredSpecialists: string[] = []
     if (config.healthCheck) {
-      const healthySpecialists: DzipAgent[] = []
+      const healthySpecialists: DzupAgent[] = []
       for (const specialist of specialists) {
         try {
           // Lightweight check: just verify asTool() resolves without error
@@ -159,7 +189,7 @@ export class AgentOrchestrator {
     // Create a new manager agent instance with specialist tools injected
     // alongside any tools the manager already has.
     const managerConfig = manager.agentConfig
-    const managerWithTools = new DzipAgent({
+    const managerWithTools = new DzupAgent({
       ...managerConfig,
       id: `${managerConfig.id}__supervisor`,
       tools: [...(managerConfig.tools ?? []), ...specialistTools],
@@ -191,8 +221,8 @@ export class AgentOrchestrator {
    * Debate pattern -- multiple agents propose solutions, a judge selects the best.
    */
   static async debate(
-    proposers: DzipAgent[],
-    judge: DzipAgent,
+    proposers: DzupAgent[],
+    judge: DzupAgent,
     task: string,
     options?: { rounds?: number },
   ): Promise<string> {

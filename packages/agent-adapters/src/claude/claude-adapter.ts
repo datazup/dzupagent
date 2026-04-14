@@ -4,8 +4,10 @@
  * Wraps `@anthropic-ai/claude-agent-sdk` query() and normalizes
  * its events into the unified AgentEvent stream.
  */
-import { ForgeError } from '@dzipagent/core'
+import { ForgeError } from '@dzupagent/core'
+import { SystemPromptBuilder } from '../prompts/system-prompt-builder.js'
 import type {
+  AdapterCapabilityProfile,
   AdapterConfig,
   AgentCLIAdapter,
   AgentEvent,
@@ -173,6 +175,20 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
   }
 
   // -----------------------------------------------------------------------
+  // AgentCLIAdapter.getCapabilities
+  // -----------------------------------------------------------------------
+
+  getCapabilities(): AdapterCapabilityProfile {
+    return {
+      supportsResume: true,
+      supportsFork: true,
+      supportsToolCalls: true,
+      supportsStreaming: true,
+      supportsCostUsage: true,
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // AgentCLIAdapter.execute
   // -----------------------------------------------------------------------
 
@@ -199,7 +215,11 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
       throw ForgeError.wrap(err, {
         code: 'ADAPTER_EXECUTION_FAILED',
         suggestion: 'Verify Claude Agent SDK is correctly installed and configured',
-        context: { adapter: 'claude' },
+        context: {
+          providerId: 'claude',
+          model: this.config.model,
+          promptLength: input.prompt.length,
+        },
       })
     }
 
@@ -211,11 +231,19 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
 
         if (isSystemMessage(message)) {
           sessionId = message.session_id
+          const resolvedModel = this.config.model ?? (typeof message.model === 'string' ? message.model : undefined)
+          const resolvedWorkingDirectory = input.workingDirectory ?? this.config.workingDirectory
           yield {
             type: 'adapter:started',
             providerId: 'claude',
             sessionId,
             timestamp: Date.now(),
+            prompt: input.prompt,
+            ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
+            ...(resolvedModel !== undefined ? { model: resolvedModel } : {}),
+            ...(resolvedWorkingDirectory !== undefined ? { workingDirectory: resolvedWorkingDirectory } : {}),
+            isResume: !!input.resumeSessionId,
+            ...(input.correlationId ? { correlationId: input.correlationId } : {}),
           }
           continue
         }
@@ -229,6 +257,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
               content: text,
               role: 'assistant',
               timestamp: Date.now(),
+              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
             }
           }
           continue
@@ -244,6 +273,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
               toolName: message.tool_name,
               input: message.input ?? {},
               timestamp: Date.now(),
+              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
             }
           } else {
             // completed or failed
@@ -257,6 +287,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
               output: typeof message.output === 'string' ? message.output : '',
               durationMs,
               timestamp: Date.now(),
+              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
             }
           }
           continue
@@ -270,6 +301,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
               providerId: 'claude',
               content: delta,
               timestamp: Date.now(),
+              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
             }
           }
           continue
@@ -281,26 +313,30 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
             : Date.now() - startTime
 
           if (message.subtype === 'success') {
+            const tokenUsage = extractTokenUsage(message.usage)
             yield {
               type: 'adapter:completed',
               providerId: 'claude',
               sessionId: message.session_id ?? sessionId,
               result: typeof message.result === 'string' ? message.result : '',
-              usage: extractTokenUsage(message.usage),
+              ...(tokenUsage !== undefined ? { usage: tokenUsage } : {}),
               durationMs,
               timestamp: Date.now(),
+              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
             }
           } else {
             // error_* subtypes
+            const failedSessionId = message.session_id ?? (sessionId || undefined)
             yield {
               type: 'adapter:failed',
               providerId: 'claude',
-              sessionId: message.session_id ?? (sessionId || undefined),
+              ...(failedSessionId !== undefined ? { sessionId: failedSessionId } : {}),
               error: typeof message.error === 'string'
                 ? message.error
                 : `Claude agent failed with subtype: ${message.subtype}`,
               code: message.subtype,
               timestamp: Date.now(),
+              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
             }
           }
           continue
@@ -313,7 +349,12 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
       }
       throw ForgeError.wrap(err, {
         code: 'ADAPTER_EXECUTION_FAILED',
-        context: { adapter: 'claude', sessionId },
+        context: {
+          providerId: 'claude',
+          model: this.config.model,
+          sessionId,
+          promptLength: input.prompt.length,
+        },
       })
     } finally {
       this.activeConversation = null
@@ -389,7 +430,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
       providerId: 'claude',
       sdkInstalled,
       cliAvailable,
-      lastError: sdkInstalled ? undefined : lastError,
+      ...(!sdkInstalled && lastError !== undefined ? { lastError } : {}),
     }
   }
 
@@ -411,7 +452,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
       throw ForgeError.wrap(err, {
         code: 'ADAPTER_EXECUTION_FAILED',
         suggestion: 'Failed to list Claude sessions',
-        context: { adapter: 'claude' },
+        context: { providerId: 'claude', operation: 'listSessions' },
       })
     }
   }
@@ -460,7 +501,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
           reject(
             ForgeError.wrap(err, {
               code: 'ADAPTER_EXECUTION_FAILED',
-              context: { adapter: 'claude', sessionId },
+              context: { providerId: 'claude', sessionId, operation: 'forkSession' },
             }),
           )
         }
@@ -468,6 +509,14 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
 
       void iterate()
     })
+  }
+
+  // -----------------------------------------------------------------------
+  // AgentCLIAdapter.warmup
+  // -----------------------------------------------------------------------
+
+  async warmup(): Promise<void> {
+    await this.loadSDK()
   }
 
   // -----------------------------------------------------------------------
@@ -500,7 +549,11 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
     const options: Record<string, unknown> = {}
 
     if (input.systemPrompt) {
-      options['systemPrompt'] = input.systemPrompt
+      const mode = (input.options?.['systemPromptMode'] as string | undefined) ?? 'append'
+      const builder = new SystemPromptBuilder(input.systemPrompt, {
+        claudeMode: mode === 'replace' ? 'replace' : 'append',
+      })
+      options['systemPrompt'] = builder.buildFor('claude')
     }
     if (input.maxTurns !== undefined) {
       options['maxTurns'] = input.maxTurns
@@ -558,10 +611,10 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
         : new Date(typeof obj['last_active_at'] === 'string' || typeof obj['last_active_at'] === 'number'
           ? obj['last_active_at']
           : Date.now()),
-      workingDirectory: typeof obj['cwd'] === 'string' ? obj['cwd'] : undefined,
-      metadata: typeof obj['metadata'] === 'object' && obj['metadata'] !== null
-        ? obj['metadata'] as Record<string, unknown>
-        : undefined,
+      ...(typeof obj['cwd'] === 'string' ? { workingDirectory: obj['cwd'] } : {}),
+      ...(typeof obj['metadata'] === 'object' && obj['metadata'] !== null
+        ? { metadata: obj['metadata'] as Record<string, unknown> }
+        : {}),
     }
   }
 }

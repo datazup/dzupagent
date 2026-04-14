@@ -1,22 +1,22 @@
 /**
  * OTel Plugin Factory — ECO-022.
  *
- * Creates a DzipPlugin that wires enabled OTel features (tracer, bridge,
- * cost attribution, safety monitor, audit trail) to the DzipEventBus.
+ * Creates a DzupPlugin that wires enabled OTel features (tracer, bridge,
+ * cost attribution, safety monitor, audit trail) to the DzupEventBus.
  * Omitting a section disables it at zero cost.
  *
  * @example
  * ```ts
- * import { createOTelPlugin } from '@dzipagent/otel'
+ * import { createOTelPlugin } from '@dzupagent/otel'
  *
  * const plugin = createOTelPlugin({ tracer: true, bridge: true })
  * pluginRegistry.register(plugin)
  * ```
  */
 
-import type { DzipPlugin, PluginContext, DzipEventBus } from '@dzipagent/core'
-import { DzipTracer } from './tracer.js'
-import type { DzipTracerConfig } from './tracer.js'
+import type { DzupPlugin, PluginContext, DzupEventBus } from '@dzupagent/core'
+import { DzupTracer } from './tracer.js'
+import type { DzupTracerConfig } from './tracer.js'
 import { OTelBridge } from './otel-bridge.js'
 import type { OTelBridgeConfig } from './otel-bridge.js'
 import { CostAttributor } from './cost-attribution.js'
@@ -29,8 +29,8 @@ import type { AuditTrailConfig } from './audit-trail.js'
 // ------------------------------------------------------------------ Config
 
 export interface OTelPluginConfig {
-  /** Enable DzipTracer. Pass `true` for defaults or a config object. */
-  tracer?: boolean | DzipTracerConfig
+  /** Enable DzupTracer. Pass `true` for defaults or a config object. */
+  tracer?: boolean | DzupTracerConfig
   /** Enable OTelBridge (event → metric mapping). Pass `true` for defaults or a config object. */
   bridge?: boolean | OTelBridgeConfig
   /** Enable cost attribution tracking. Pass `true` for defaults or a config object. */
@@ -45,7 +45,7 @@ export interface OTelPluginConfig {
 
 /** Runtime state of the plugin — kept in closure so each plugin instance is isolated. */
 interface OTelPluginState {
-  tracer?: DzipTracer
+  tracer?: DzupTracer
   bridge?: OTelBridge
   costAttributor?: CostAttributor
   safetyMonitor?: SafetyMonitor
@@ -55,36 +55,36 @@ interface OTelPluginState {
 // ------------------------------------------------------------------ Factory
 
 /**
- * Create a DzipPlugin that wires OTel features to the event bus.
+ * Create a DzupPlugin that wires OTel features to the event bus.
  *
  * Each section (tracer, bridge, costAttribution, safetyMonitor, auditTrail)
  * is independently togglable. When a section is `false` or `undefined`,
  * no objects are created and no event handlers are attached (zero cost).
  *
  * @param config - Which OTel features to enable. Defaults to all off.
- * @returns A DzipPlugin instance ready for registration.
+ * @returns A DzupPlugin instance ready for registration.
  */
-export function createOTelPlugin(config?: OTelPluginConfig): DzipPlugin {
+export function createOTelPlugin(config?: OTelPluginConfig): DzupPlugin {
   const cfg = config ?? {}
   const state: OTelPluginState = {}
 
   return {
-    name: '@dzipagent/otel',
+    name: '@dzupagent/otel',
     version: '0.1.0',
 
     onRegister(ctx: PluginContext): void {
-      const eventBus: DzipEventBus = ctx.eventBus
+      const eventBus: DzupEventBus = ctx.eventBus
 
       // --- Tracer ---
       if (cfg.tracer) {
-        const tracerConfig: DzipTracerConfig = typeof cfg.tracer === 'object' ? cfg.tracer : {}
-        state.tracer = new DzipTracer(tracerConfig)
+        const tracerConfig: DzupTracerConfig = typeof cfg.tracer === 'object' ? cfg.tracer : {}
+        state.tracer = new DzupTracer(tracerConfig)
       }
 
       // --- Bridge (requires tracer) ---
       if (cfg.bridge) {
         // If bridge is enabled but tracer is not, create a default tracer
-        const tracer = state.tracer ?? new DzipTracer()
+        const tracer = state.tracer ?? new DzupTracer()
 
         const bridgeConfig: OTelBridgeConfig = typeof cfg.bridge === 'object'
           ? { ...cfg.bridge, tracer }

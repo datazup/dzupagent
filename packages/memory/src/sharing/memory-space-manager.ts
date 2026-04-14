@@ -30,6 +30,8 @@ import type {
   SpacePermission,
   ConflictStrategy,
   RetentionPolicy,
+  WritableShareMode,
+  TombstoneCompactionMetrics,
 } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -48,9 +50,9 @@ const PENDING_SCOPE: Record<string, string> = { _ns: PENDING_NAMESPACE }
 export interface MemorySpaceManagerConfig {
   memoryService: MemoryService
   /** Optional event handler for shared memory events */
-  onEvent?: (event: SharedMemoryEvent) => void
+  onEvent?: ((event: SharedMemoryEvent) => void) | undefined
   /** Node identifier for the HLC (defaults to a random UUID) */
-  nodeId?: string
+  nodeId?: string | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +65,14 @@ export class MemorySpaceManager {
   private readonly onEvent: ((event: SharedMemoryEvent) => void) | undefined
   private readonly subscriptions: Map<string, Set<(event: SharedMemoryEvent) => void>> = new Map()
   private readonly crdtResolver: CRDTResolver
+  private readonly tombstoneCompactionMetrics: TombstoneCompactionMetrics = {
+    runs: 0,
+    tombstonesFound: 0,
+    tombstonesCompacted: 0,
+    tombstonesSkipped: 0,
+    totalDurationMs: 0,
+    lastDurationMs: null,
+  }
   private disposed = false
 
   constructor(config: MemorySpaceManagerConfig) {
@@ -165,9 +175,9 @@ export class MemorySpaceManager {
    *
    * - `push`: direct write (requires read-write or admin permission)
    * - `pull-request`: creates a pending request for admin review
-   * - `subscribe`: not implemented (placeholder for future)
+   * - `subscribe`: deprecated; use `MemorySpaceManager.subscribe()` instead
    */
-  async share(request: MemoryShareRequest): Promise<void> {
+  async share(request: Omit<MemoryShareRequest, 'mode'> & { mode: WritableShareMode }): Promise<void> {
     const space = await this.loadSpace(request.spaceId)
     if (!space) {
       throw new Error(`Space not found: ${request.spaceId}`)
@@ -178,8 +188,8 @@ export class MemorySpaceManager {
         return this.handlePush(space, request)
       case 'pull-request':
         return this.handlePullRequest(space, request)
-      case 'subscribe':
-        throw new Error('Subscribe mode is not yet implemented')
+      default:
+        throw new Error('Subscribe mode is not supported in share(); use MemorySpaceManager.subscribe() instead.')
     }
   }
 
@@ -359,6 +369,10 @@ export class MemorySpaceManager {
 
   /**
    * Enforce retention policy on a space, pruning records that exceed limits.
+   *
+   * Pruned entries are written back as tombstones. Tombstone compaction is
+   * exposed separately via `compactTombstones()` so callers can control when
+   * hard deletion happens and observe compaction metrics independently.
    */
   async enforceRetention(spaceId: string): Promise<{ pruned: number }> {
     const space = await this.loadSpace(spaceId)
@@ -417,6 +431,102 @@ export class MemorySpaceManager {
     }
 
     return { pruned }
+  }
+
+  /**
+   * Compact tombstones in a shared space when the backing store supports delete.
+   *
+   * This reclaims tombstone records after retention pruning and records
+   * counters/latency in the manager metrics snapshot.
+   */
+  async compactTombstones(spaceId: string): Promise<{
+    spaceId: string
+    tombstonesFound: number
+    tombstonesCompacted: number
+    tombstonesSkipped: number
+    durationMs: number
+  }> {
+    const startedAt = Date.now()
+    const space = await this.loadSpace(spaceId)
+    if (!space) {
+      return {
+        spaceId,
+        tombstonesFound: 0,
+        tombstonesCompacted: 0,
+        tombstonesSkipped: 0,
+        durationMs: Date.now() - startedAt,
+      }
+    }
+
+    const scope = spaceScope(spaceId)
+    const records = await this.memoryService.get(spaceNamespace(spaceId), scope)
+    const tombstones = records
+      .map((record, index) => ({ record, index, deletedAt: extractDeletedAt(record) }))
+      .filter(item => isTombstoneRecord(item.record))
+      .sort((a, b) => a.deletedAt - b.deletedAt)
+
+    const policy = space.retentionPolicy
+    const now = Date.now()
+    let candidates = tombstones
+
+    if (policy?.maxAgeMs != null) {
+      candidates = candidates.filter(item => item.deletedAt > 0 && (now - item.deletedAt) > policy.maxAgeMs!)
+    }
+
+    if (policy?.maxRecords != null && candidates.length > policy.maxRecords) {
+      candidates = candidates.slice(0, candidates.length - policy.maxRecords)
+    }
+
+    const capabilities = this.memoryService.getStoreCapabilities()
+    let compacted = 0
+    let skipped = 0
+
+    if (capabilities.supportsDelete) {
+      for (const candidate of candidates) {
+        const record = records[candidate.index]
+        if (!record) continue
+        const key = keyFromValue(record, candidate.index)
+        const deleted = await this.memoryService.delete(spaceNamespace(spaceId), scope, key)
+        if (deleted) {
+          compacted++
+        } else {
+          skipped++
+        }
+      }
+    } else {
+      skipped = candidates.length
+    }
+
+    const durationMs = Date.now() - startedAt
+    this.tombstoneCompactionMetrics.runs++
+    this.tombstoneCompactionMetrics.tombstonesFound += tombstones.length
+    this.tombstoneCompactionMetrics.tombstonesCompacted += compacted
+    this.tombstoneCompactionMetrics.tombstonesSkipped += skipped
+    this.tombstoneCompactionMetrics.totalDurationMs += durationMs
+    this.tombstoneCompactionMetrics.lastDurationMs = durationMs
+
+    const report = {
+      type: 'memory:space:tombstones_compacted' as const,
+      spaceId,
+      tombstonesFound: tombstones.length,
+      tombstonesCompacted: compacted,
+      tombstonesSkipped: skipped,
+      durationMs,
+    }
+    this.emit(report)
+
+    return {
+      spaceId,
+      tombstonesFound: tombstones.length,
+      tombstonesCompacted: compacted,
+      tombstonesSkipped: skipped,
+      durationMs,
+    }
+  }
+
+  /** Snapshot tombstone compaction counters/latency metrics. */
+  getTombstoneCompactionMetrics(): TombstoneCompactionMetrics {
+    return { ...this.tombstoneCompactionMetrics }
   }
 
   // -------------------------------------------------------------------------
@@ -662,6 +772,19 @@ function extractCreatedAt(record: Record<string, unknown>): number {
   // Fallback: check top-level createdAt
   if (typeof record['createdAt'] === 'string') {
     const ts = Date.parse(record['createdAt'])
+    if (!Number.isNaN(ts)) return ts
+  }
+  return 0
+}
+
+function isTombstoneRecord(record: Record<string, unknown>): boolean {
+  return record['_tombstone'] === true
+}
+
+function extractDeletedAt(record: Record<string, unknown>): number {
+  const deletedAt = record['_deletedAt']
+  if (typeof deletedAt === 'string') {
+    const ts = Date.parse(deletedAt)
     if (!Number.isNaN(ts)) return ts
   }
   return 0

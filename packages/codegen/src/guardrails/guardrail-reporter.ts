@@ -89,15 +89,18 @@ export class GuardrailReporter {
         warnings: report.warningCount,
         info: report.infoCount,
       },
-      violations: violations.map((v) => ({
-        ruleId: v.ruleId,
-        file: v.file,
-        line: v.line,
-        message: v.message,
-        severity: v.severity,
-        suggestion: v.suggestion,
-        autoFixable: v.autoFixable,
-      })),
+      violations: violations.map((v) => {
+        const jv: JsonViolation = {
+          ruleId: v.ruleId,
+          file: v.file,
+          message: v.message,
+          severity: v.severity,
+          autoFixable: v.autoFixable,
+        }
+        if (v.line !== undefined) jv.line = v.line
+        if (v.suggestion !== undefined) jv.suggestion = v.suggestion
+        return jv
+      }),
     }
 
     return JSON.stringify(output, null, 2)

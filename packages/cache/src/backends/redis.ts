@@ -22,11 +22,13 @@ export class RedisCacheBackend implements CacheBackend {
   private client: RedisClientLike
   private prefix: string
   private stats_: { hits: number; misses: number }
+  private onDegraded?: ((operation: 'get' | 'set' | 'delete' | 'clear', reason: string, key?: string) => void) | undefined
 
-  constructor(client: unknown, options?: { prefix?: string }) {
+  constructor(client: unknown, options?: { prefix?: string; onDegraded?: (operation: 'get' | 'set' | 'delete' | 'clear', reason: string, key?: string) => void }) {
     this.client = client as RedisClientLike
     this.prefix = options?.prefix ?? ''
     this.stats_ = { hits: 0, misses: 0 }
+    this.onDegraded = options?.onDegraded
   }
 
   private prefixedKey(key: string): string {
@@ -42,7 +44,9 @@ export class RedisCacheBackend implements CacheBackend {
       }
       this.stats_.hits++
       return value
-    } catch {
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      this.onDegraded?.('get', reason, key)
       this.stats_.misses++
       return null
     }
@@ -56,16 +60,18 @@ export class RedisCacheBackend implements CacheBackend {
       } else {
         await this.client.set(prefixed, value)
       }
-    } catch {
-      // Best-effort — silently ignore Redis write failures
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      this.onDegraded?.('set', reason, key)
     }
   }
 
   async delete(key: string): Promise<void> {
     try {
       await this.client.del(this.prefixedKey(key))
-    } catch {
-      // Best-effort
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      this.onDegraded?.('delete', reason, key)
     }
   }
 
@@ -83,8 +89,9 @@ export class RedisCacheBackend implements CacheBackend {
       } while (cursor !== '0')
 
       this.stats_ = { hits: 0, misses: 0 }
-    } catch {
-      // Best-effort
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      this.onDegraded?.('clear', reason)
     }
   }
 

@@ -1,12 +1,12 @@
 /**
- * DzipAgent — top-level agent abstraction.
+ * DzupAgent — top-level agent abstraction.
  *
  * Unifies ModelRegistry, tools, memory, middleware, guardrails,
  * context compression, and streaming into a single composable class.
  *
  * Usage:
  * ```ts
- * const agent = new DzipAgent({
+ * const agent = new DzupAgent({
  *   id: 'code-reviewer',
  *   instructions: 'You review code for quality...',
  *   model: 'codegen', // ModelTier or BaseChatModel
@@ -18,11 +18,10 @@
  * const result = await agent.generate([new HumanMessage('Review this PR')])
  * ```
  */
-import {
-  SystemMessage,
+import type { ZodType } from 'zod'
+import type {
   AIMessage,
-  ToolMessage,
-  type BaseMessage,
+  BaseMessage,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
@@ -30,48 +29,75 @@ import {
   type ModelTier,
   shouldSummarize,
   summarizeAndTrim,
-  formatSummaryContext,
-} from '@dzipagent/core'
-import { extractTokenUsage, estimateTokens, type TokenUsage } from '@dzipagent/core'
+} from '@dzupagent/core'
+import { extractTokenUsage, estimateTokens, type TokenUsage } from '@dzupagent/core'
 import type {
-  DzipAgentConfig,
+  DzupAgentConfig,
   GenerateOptions,
   GenerateResult,
   AgentStreamEvent,
 } from './agent-types.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
-import { StuckDetector } from '../guardrails/stuck-detector.js'
-import { runToolLoop } from './tool-loop.js'
-import { resolveArrowMemoryConfig } from './memory-profiles.js'
-import { loadAgentsFiles } from '../instructions/instruction-loader.js'
-import { mergeInstructions, type MergedInstructions } from '../instructions/instruction-merger.js'
-import { createToolLoopLearningHook } from './tool-loop-learning.js'
+import {
+  buildPreparedMessages,
+  estimateConversationTokensForMessages,
+} from './message-utils.js'
+import { AgentInstructionResolver } from './instruction-resolution.js'
+import { AgentMemoryContextLoader } from './memory-context-loader.js'
+import { AgentMiddlewareRuntime } from './middleware-runtime.js'
+import {
+  createToolStatTracker,
+  emitStopReasonTelemetry,
+  executeGenerateRun,
+  executeStreamingToolCall,
+  prepareRunState,
+} from './run-engine.js'
 
 const MODEL_TIERS: Set<string> = new Set(['chat', 'reasoning', 'codegen', 'embedding'])
 
-export class DzipAgent {
+export class DzupAgent {
   readonly id: string
   readonly name: string
   readonly description: string
-  private readonly config: DzipAgentConfig
+  private readonly config: DzupAgentConfig
   private readonly resolvedModel: BaseChatModel
+  private readonly instructionResolver: AgentInstructionResolver
+  private readonly memoryContextLoader: AgentMemoryContextLoader
+  private readonly middlewareRuntime: AgentMiddlewareRuntime
   private conversationSummary: string | null = null
-  private mergedInstructionsCache: MergedInstructions | null = null
-  private mergedInstructionsLoading: Promise<MergedInstructions> | null = null
 
-  constructor(config: DzipAgentConfig) {
+  constructor(config: DzupAgentConfig) {
     this.id = config.id
     this.name = config.name ?? config.id
     this.description = config.description ?? `Agent: ${this.name}`
     this.config = config
     this.resolvedModel = this.resolveModel(config)
+    this.instructionResolver = new AgentInstructionResolver({
+      agentId: this.id,
+      instructions: config.instructions,
+      instructionsMode: config.instructionsMode,
+      agentsDir: config.agentsDir,
+    })
+    this.memoryContextLoader = new AgentMemoryContextLoader({
+      instructions: config.instructions,
+      memory: config.memory,
+      memoryNamespace: config.memoryNamespace,
+      memoryScope: config.memoryScope,
+      arrowMemory: config.arrowMemory,
+      memoryProfile: config.memoryProfile,
+      estimateConversationTokens: (messages) => this.estimateConversationTokens(messages),
+    })
+    this.middlewareRuntime = new AgentMiddlewareRuntime({
+      agentId: this.id,
+      middleware: config.middleware,
+    })
   }
 
   /**
    * Expose the agent configuration (read-only copy) so orchestrators
    * can derive new agents with modified settings (e.g., additional tools).
    */
-  get agentConfig(): Readonly<DzipAgentConfig> {
+  get agentConfig(): Readonly<DzupAgentConfig> {
     return this.config
   }
 
@@ -85,126 +111,28 @@ export class DzipAgent {
     messages: BaseMessage[],
     options?: GenerateOptions,
   ): Promise<GenerateResult> {
-    const maxIterations = options?.maxIterations
-      ?? this.config.guardrails?.maxIterations
-      ?? this.config.maxIterations
-      ?? 10
-
-    // Build budget tracker
-    const budget = this.config.guardrails
-      ? new IterationBudget(this.config.guardrails)
-      : undefined
-
-    // Prepare messages with system prompt + memory context + compression
-    const prepared = await this.prepareMessages(messages)
-
-    // Bind tools to model if available
-    const tools = this.getTools()
-    const model = this.bindTools(this.resolvedModel, tools)
-
-    // Run middleware beforeAgent hooks
-    await this.runBeforeAgentHooks()
-
-    // Create stuck detector for this run, using guardrails config if provided
-    const stuckDetector = this.config.guardrails?.stuckDetector === false
-      ? undefined
-      : new StuckDetector(
-          typeof this.config.guardrails?.stuckDetector === 'object'
-            ? this.config.guardrails.stuckDetector
-            : undefined,
-        )
-
-    // Create self-learning hook (undefined when disabled)
-    const learningHook = createToolLoopLearningHook(this.config.selfLearning)
-    if (learningHook) {
-      // Load specialist config before the loop (best-effort, non-blocking)
-      await learningHook.loadSpecialistConfig().catch(() => { /* non-fatal */ })
-    }
-
-    // Run the tool loop
-    const result = await runToolLoop(model, prepared, tools, {
-      maxIterations,
-      budget,
-      signal: options?.signal,
-      stuckDetector,
-      toolStatsTracker: this.config.toolStatsTracker,
-      intent: options?.intent,
-      onStuckDetected: (reason, recovery) => {
-        this.config.eventBus?.emit({
-          type: 'agent:stuck_detected',
-          agentId: this.id,
-          reason,
-          recovery,
-          timestamp: Date.now(),
-        })
-      },
-      onStuck: (toolName, stage) => {
-        this.config.eventBus?.emit({
-          type: 'agent:stuck_detected',
-          agentId: this.id,
-          reason: `Stuck on tool "${toolName}" (escalation stage ${stage})`,
-          recovery: stage >= 3 ? 'Aborting loop' : stage === 2 ? 'Nudge injected' : 'Tool blocked',
-          timestamp: Date.now(),
-        })
-      },
-      invokeModel: (m, msgs) => this.invokeModelWithMiddleware(m, msgs),
-      transformToolResult: (name, input, output) =>
-        this.transformToolResultWithMiddleware(name, input, output),
-      onUsage: (usage) => {
-        options?.onUsage?.(usage)
-      },
-      onToolLatency: (name, durationMs, error) => {
-        this.config.eventBus?.emit({
-          type: 'tool:latency',
-          toolName: name,
-          durationMs,
-          ...(error !== undefined ? { error } : {}),
-        })
-      },
+    const runState = await prepareRunState({
+      config: this.config,
+      resolvedModel: this.resolvedModel,
+      messages,
+      options,
+      prepareMessages: (inputMessages) => this.prepareMessages(inputMessages),
+      getTools: () => this.getTools(),
+      bindTools: (model, tools) => this.bindTools(model, tools),
+      runBeforeAgentHooks: () => this.runBeforeAgentHooks(),
     })
 
-    // Emit stop-reason telemetry
-    this.config.eventBus?.emit({
-      type: 'agent:stop_reason',
+    return executeGenerateRun({
       agentId: this.id,
-      reason: result.stopReason,
-      iterations: result.llmCalls,
-      toolStats: result.toolStats,
+      config: this.config,
+      options,
+      runState,
+      invokeModel: (model, preparedMessages) =>
+        this.invokeModelWithMiddleware(model, preparedMessages),
+      transformToolResult: (toolName, input, result) =>
+        this.transformToolResultWithMiddleware(toolName, input, result),
+      maybeUpdateSummary: (allMessages) => this.maybeUpdateSummary(allMessages),
     })
-
-    // Extract final content
-    const lastAI = [...result.messages].reverse().find(m => m._getType() === 'ai')
-    let content = ''
-    if (lastAI) {
-      content = typeof lastAI.content === 'string'
-        ? lastAI.content
-        : JSON.stringify(lastAI.content)
-    }
-
-    // Apply output filter guardrail
-    if (this.config.guardrails?.outputFilter && content) {
-      const filtered = await this.config.guardrails.outputFilter(content)
-      if (filtered !== null) {
-        content = filtered
-      }
-    }
-
-    // Update conversation summary if needed
-    await this.maybeUpdateSummary(result.messages)
-
-    return {
-      content,
-      messages: result.messages,
-      usage: {
-        totalInputTokens: result.totalInputTokens,
-        totalOutputTokens: result.totalOutputTokens,
-        llmCalls: result.llmCalls,
-      },
-      hitIterationLimit: result.hitIterationLimit,
-      stopReason: result.stopReason,
-      toolStats: result.toolStats,
-      stuckError: result.stuckError,
-    }
   }
 
   /**
@@ -215,14 +143,14 @@ export class DzipAgent {
    */
   async generateStructured<T>(
     messages: BaseMessage[],
-    schema: import('zod').ZodType<T>,
+    schema: ZodType<T>,
     options?: GenerateOptions,
   ): Promise<{ data: T; usage: GenerateResult['usage'] }> {
     // Try withStructuredOutput first (Anthropic/OpenAI support this natively)
     const model = this.resolvedModel
     if ('withStructuredOutput' in model && typeof model.withStructuredOutput === 'function') {
       const structuredModel = (model as BaseChatModel & {
-        withStructuredOutput: (s: import('zod').ZodType<T>) => BaseChatModel
+        withStructuredOutput: (s: ZodType<T>) => BaseChatModel
       }).withStructuredOutput(schema)
 
       const prepared = await this.prepareMessages(messages)
@@ -255,224 +183,224 @@ export class DzipAgent {
     messages: BaseMessage[],
     options?: GenerateOptions,
   ): AsyncGenerator<AgentStreamEvent> {
-    const maxIterations = options?.maxIterations
-      ?? this.config.guardrails?.maxIterations
-      ?? this.config.maxIterations
-      ?? 10
+    const runState = await prepareRunState({
+      config: this.config,
+      resolvedModel: this.resolvedModel,
+      messages,
+      options,
+      prepareMessages: (inputMessages) => this.prepareMessages(inputMessages),
+      getTools: () => this.getTools(),
+      bindTools: (model, tools) => this.bindTools(model, tools),
+      runBeforeAgentHooks: () => this.runBeforeAgentHooks(),
+    })
+    const usesModelWrapper = this.config.middleware?.some(
+      middleware => typeof middleware.wrapModelCall === 'function',
+    ) ?? false
 
-    const budget = this.config.guardrails
-      ? new IterationBudget(this.config.guardrails)
-      : undefined
+    if (!('stream' in runState.model) || typeof runState.model.stream !== 'function' || usesModelWrapper) {
+      const result = await executeGenerateRun({
+        agentId: this.id,
+        config: this.config,
+        options,
+        runState,
+        invokeModel: (model, preparedMessages) =>
+          this.invokeModelWithMiddleware(model, preparedMessages),
+        transformToolResult: (toolName, input, result) =>
+          this.transformToolResultWithMiddleware(toolName, input, result),
+        maybeUpdateSummary: (allMessages) => this.maybeUpdateSummary(allMessages),
+      })
 
-    const prepared = await this.prepareMessages(messages)
-    const tools = this.getTools()
-    const toolMap = new Map(tools.map(t => [t.name, t]))
-    const model = this.bindTools(this.resolvedModel, tools)
-    const stuckDetector = this.config.guardrails?.stuckDetector === false
-      ? undefined
-      : new StuckDetector(
-          typeof this.config.guardrails?.stuckDetector === 'object'
-            ? this.config.guardrails.stuckDetector
-            : undefined,
-        )
+      if (result.content) {
+        yield { type: 'text', data: { content: result.content } }
+      }
+      yield {
+        type: 'done',
+        data: {
+          content: result.content,
+          stopReason: result.stopReason,
+          ...(result.hitIterationLimit ? { hitIterationLimit: true } : {}),
+        },
+      }
+      return
+    }
 
-    const allMessages = [...prepared]
+    const streamModel = runState.model as BaseChatModel & {
+      stream: (msgs: BaseMessage[]) => Promise<AsyncIterable<AIMessage>>
+    }
+    const allMessages = [...runState.preparedMessages]
+    const toolStats = createToolStatTracker()
+    let llmCalls = 0
 
-    for (let iteration = 0; iteration < maxIterations; iteration++) {
-      if (options?.signal?.aborted) break
+    const finalizeRun = async (stopReason: 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'stuck') => {
+      emitStopReasonTelemetry(this.config, this.id, {
+        stopReason,
+        llmCalls,
+        toolStats: toolStats.toArray(),
+      })
+      await this.maybeUpdateSummary(allMessages)
+    }
 
-      if (budget) {
-        const check = budget.isExceeded()
+    for (let iteration = 0; iteration < runState.maxIterations; iteration++) {
+      if (options?.signal?.aborted) {
+        await finalizeRun('aborted')
+        yield { type: 'done', data: { stopReason: 'aborted' } }
+        return
+      }
+
+      if (runState.budget) {
+        const check = runState.budget.isExceeded()
         if (check.exceeded) {
           yield { type: 'error', data: { message: check.reason } }
-          break
+          await finalizeRun('budget_exceeded')
+          yield { type: 'done', data: { stopReason: 'budget_exceeded', hitIterationLimit: true } }
+          return
         }
-        const warnings = budget.recordIteration()
-        for (const w of warnings) {
-          yield { type: 'budget_warning', data: { message: w.message } }
+
+        const warnings = runState.budget.recordIteration()
+        for (const warning of warnings) {
+          yield { type: 'budget_warning', data: { message: warning.message } }
         }
       }
 
-      // Stream from LLM
-      if ('stream' in model && typeof model.stream === 'function') {
-        const chunks: string[] = []
-        const stream = await (model as BaseChatModel & {
-          stream: (msgs: BaseMessage[]) => Promise<AsyncIterable<AIMessage>>
-        }).stream(allMessages)
+      const chunks: string[] = []
+      const stream = await streamModel.stream(allMessages)
+      llmCalls += 1
 
-        let fullResponse: AIMessage | null = null
-        for await (const chunk of stream) {
-          fullResponse = chunk
-          const content = typeof chunk.content === 'string' ? chunk.content : ''
-          if (content) {
-            chunks.push(content)
-            yield { type: 'text', data: { content } }
-          }
+      let fullResponse: AIMessage | null = null
+      for await (const chunk of stream) {
+        fullResponse = chunk
+        const content = typeof chunk.content === 'string' ? chunk.content : ''
+        if (content) {
+          chunks.push(content)
+          yield { type: 'text', data: { content } }
+        }
+      }
+
+      if (!fullResponse) {
+        continue
+      }
+
+      allMessages.push(fullResponse)
+
+      if (runState.budget) {
+        const modelName = (runState.model as BaseChatModel & { model?: string }).model
+        const realUsage = extractTokenUsage(fullResponse, modelName ?? undefined)
+        const hasRealUsage = realUsage.inputTokens > 0 || realUsage.outputTokens > 0
+        const usage: TokenUsage = hasRealUsage
+          ? realUsage
+          : {
+              model: realUsage.model,
+              inputTokens: estimateTokens(
+                allMessages.map(message =>
+                  typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
+                ).join(''),
+              ),
+              outputTokens: estimateTokens(chunks.join('')),
+            }
+        const warnings = runState.budget.recordUsage(usage)
+        for (const warning of warnings) {
+          yield { type: 'budget_warning', data: { message: warning.message } }
+        }
+      }
+
+      const toolCalls = fullResponse.tool_calls as Array<{
+        id?: string
+        name: string
+        args: Record<string, unknown>
+      }> | undefined
+
+      if (!toolCalls || toolCalls.length === 0) {
+        await finalizeRun('complete')
+        yield {
+          type: 'done',
+          data: {
+            content: chunks.join(''),
+            stopReason: 'complete',
+          },
+        }
+        return
+      }
+
+      for (const toolCall of toolCalls) {
+        yield { type: 'tool_call', data: { name: toolCall.name, args: toolCall.args } }
+
+        const execution = await executeStreamingToolCall({
+          toolCall,
+          toolMap: runState.toolMap,
+          budget: runState.budget,
+          stuckDetector: runState.stuckDetector,
+          transformToolResult: (toolName, input, result) =>
+            this.transformToolResultWithMiddleware(toolName, input, result),
+          onToolLatency: (name, durationMs, error) => {
+            this.config.eventBus?.emit({
+              type: 'tool:latency',
+              toolName: name,
+              durationMs,
+              ...(error !== undefined ? { error } : {}),
+            })
+          },
+          statTracker: toolStats,
+        })
+
+        allMessages.push(execution.message)
+        yield {
+          type: 'tool_result',
+          data: { name: toolCall.name, result: execution.eventResult },
         }
 
-        if (fullResponse) {
-          allMessages.push(fullResponse)
+        if (execution.stuckReason && execution.stuckRecovery) {
+          yield {
+            type: 'stuck',
+            data: {
+              reason: execution.stuckReason,
+              recovery: execution.stuckRecovery,
+              ...(execution.repeatedTool ? { repeatedTool: execution.repeatedTool } : {}),
+            },
+          }
+          this.config.eventBus?.emit({
+            type: 'agent:stuck_detected',
+            agentId: this.id,
+            reason: execution.stuckReason,
+            recovery: execution.stuckRecovery,
+            timestamp: Date.now(),
+            ...(execution.repeatedTool ? { repeatedTool: execution.repeatedTool } : {}),
+            escalationLevel: execution.shouldStop ? 3 : 1,
+          })
 
-          // Track usage — extract real token counts from the final stream chunk,
-          // falling back to a rough estimate only when the provider doesn't report usage.
-          if (budget) {
-            const modelName = (model as BaseChatModel & { model?: string }).model
-            const realUsage = extractTokenUsage(fullResponse, modelName ?? undefined)
-
-            // Only fall back to estimation if BOTH input and output are zero
-            // (i.e., the provider reported no usage at all).
-            const hasRealUsage = realUsage.inputTokens > 0 || realUsage.outputTokens > 0
-            const usage: TokenUsage = hasRealUsage
-              ? realUsage
-              : {
-                  model: realUsage.model,
-                  inputTokens: estimateTokens(
-                    allMessages.map(m =>
-                      typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-                    ).join(''),
-                  ),
-                  outputTokens: estimateTokens(chunks.join('')),
-                }
-            const warnings = budget.recordUsage(usage)
-            for (const w of warnings) {
-              yield { type: 'budget_warning', data: { message: w.message } }
-            }
+          if (execution.stuckNudge) {
+            allMessages.push(execution.stuckNudge)
           }
 
-          // Check for tool calls
-          const toolCalls = fullResponse.tool_calls as Array<{
-            id?: string; name: string; args: Record<string, unknown>
-          }> | undefined
-
-          if (!toolCalls || toolCalls.length === 0) {
-            yield { type: 'done', data: { content: chunks.join('') } }
+          if (execution.shouldStop) {
+            await finalizeRun('stuck')
+            yield { type: 'done', data: { stopReason: 'stuck' } }
             return
           }
-
-          // Execute tools
-          for (const tc of toolCalls) {
-            const toolCallId = tc.id ?? `call_${Date.now()}`
-            yield { type: 'tool_call', data: { name: tc.name, args: tc.args } }
-
-            if (budget?.isToolBlocked(tc.name)) {
-              const msg = new ToolMessage({
-                content: `[Tool "${tc.name}" is blocked by guardrails]`,
-                tool_call_id: toolCallId,
-                name: tc.name,
-              })
-              allMessages.push(msg)
-              yield { type: 'tool_result', data: { name: tc.name, result: '[blocked]' } }
-              continue
-            }
-
-            const tool = toolMap.get(tc.name)
-            if (!tool) {
-              const msg = new ToolMessage({
-                content: `Error: Tool "${tc.name}" not found`,
-                tool_call_id: toolCallId,
-                name: tc.name,
-              })
-              allMessages.push(msg)
-              yield { type: 'tool_result', data: { name: tc.name, result: '[not found]' } }
-              continue
-            }
-
-            let toolError: string | undefined
-            try {
-              const result = await tool.invoke(tc.args)
-              const resultStr = typeof result === 'string' ? result : JSON.stringify(result)
-              const msg = new ToolMessage({
-                content: resultStr,
-                tool_call_id: toolCallId,
-                name: tc.name,
-              })
-              allMessages.push(msg)
-              yield { type: 'tool_result', data: { name: tc.name, result: resultStr } }
-            } catch (err: unknown) {
-              toolError = err instanceof Error ? err.message : String(err)
-              const msg = new ToolMessage({
-                content: `Error: ${toolError}`,
-                tool_call_id: toolCallId,
-                name: tc.name,
-              })
-              allMessages.push(msg)
-              yield { type: 'tool_result', data: { name: tc.name, result: `[error: ${toolError}]` } }
-            }
-
-            // Stuck detection in streaming
-            if (stuckDetector) {
-              const stuckCheck = toolError
-                ? stuckDetector.recordError(new Error(toolError))
-                : stuckDetector.recordToolCall(tc.name, tc.args)
-
-              if (stuckCheck.stuck) {
-                const reason = stuckCheck.reason ?? 'Unknown stuck condition'
-                if (toolError) {
-                  const recovery = 'Stopping due to repeated errors.'
-                  yield { type: 'stuck', data: { reason, recovery, repeatedTool: tc.name } }
-                  this.config.eventBus?.emit({
-                    type: 'agent:stuck_detected',
-                    agentId: this.id,
-                    reason,
-                    recovery,
-                    timestamp: Date.now(),
-                    repeatedTool: tc.name,
-                    escalationLevel: 3,
-                  })
-                  yield { type: 'done', data: { stopReason: 'stuck' } }
-                  return
-                } else {
-                  const recovery = `Tool "${tc.name}" has been blocked. Try a different approach.`
-                  budget?.blockTool(tc.name)
-                  yield { type: 'stuck', data: { reason, recovery, repeatedTool: tc.name } }
-                  this.config.eventBus?.emit({
-                    type: 'agent:stuck_detected',
-                    agentId: this.id,
-                    reason,
-                    recovery,
-                    timestamp: Date.now(),
-                    repeatedTool: tc.name,
-                    escalationLevel: 1,
-                  })
-                  allMessages.push(new ToolMessage({
-                    content: `[Agent appears stuck: ${reason}. ${recovery}]`,
-                    tool_call_id: toolCallId,
-                    name: tc.name,
-                  }))
-                }
-              }
-            }
-          }
-
-          // Idle iteration detection in streaming
-          if (stuckDetector) {
-            const idleCheck = stuckDetector.recordIteration(toolCalls.length)
-            if (idleCheck.stuck) {
-              const reason = idleCheck.reason ?? 'No progress detected'
-              const recovery = 'Stopping due to idle iterations.'
-              yield { type: 'stuck', data: { reason, recovery } }
-              this.config.eventBus?.emit({
-                type: 'agent:stuck_detected',
-                agentId: this.id,
-                reason,
-                recovery,
-                timestamp: Date.now(),
-              })
-              yield { type: 'done', data: { stopReason: 'stuck' } }
-              return
-            }
-          }
         }
-      } else {
-        // Non-streaming fallback
-        const result = await this.generate(messages, options)
-        yield { type: 'text', data: { content: result.content } }
-        yield { type: 'done', data: { content: result.content } }
-        return
+      }
+
+      if (runState.stuckDetector) {
+        const idleCheck = runState.stuckDetector.recordIteration(toolCalls.length)
+        if (idleCheck.stuck) {
+          const reason = idleCheck.reason ?? 'No progress detected'
+          const recovery = 'Stopping due to idle iterations.'
+          yield { type: 'stuck', data: { reason, recovery } }
+          this.config.eventBus?.emit({
+            type: 'agent:stuck_detected',
+            agentId: this.id,
+            reason,
+            recovery,
+            timestamp: Date.now(),
+          })
+          await finalizeRun('stuck')
+          yield { type: 'done', data: { stopReason: 'stuck' } }
+          return
+        }
       }
     }
 
-    yield { type: 'done', data: { hitIterationLimit: true } }
+    await finalizeRun('iteration_limit')
+    yield { type: 'done', data: { hitIterationLimit: true, stopReason: 'iteration_limit' } }
   }
 
   /**
@@ -513,14 +441,14 @@ export class DzipAgent {
 
   // ---------- Internal helpers --------------------------------------------------
 
-  private resolveModel(config: DzipAgentConfig): BaseChatModel {
+  private resolveModel(config: DzupAgentConfig): BaseChatModel {
     if (typeof config.model !== 'string') {
       return config.model
     }
 
     if (!config.registry) {
       throw new Error(
-        `DzipAgent "${config.id}": model is a string ("${config.model}") but no registry was provided`,
+        `DzupAgent "${config.id}": model is a string ("${config.model}") but no registry was provided`,
       )
     }
 
@@ -532,18 +460,7 @@ export class DzipAgent {
   }
 
   private getTools(): StructuredToolInterface[] {
-    const tools = [...(this.config.tools ?? [])]
-
-    // Add middleware-provided tools
-    if (this.config.middleware) {
-      for (const mw of this.config.middleware) {
-        if (mw.tools) {
-          tools.push(...mw.tools)
-        }
-      }
-    }
-
-    return tools
+    return this.middlewareRuntime.resolveTools(this.config.tools ?? [])
   }
 
   private bindTools(
@@ -564,27 +481,25 @@ export class DzipAgent {
   private async prepareMessages(messages: BaseMessage[]): Promise<BaseMessage[]> {
     // Resolve instructions: static or merged with AGENTS.md
     const baseInstructions = await this.resolveInstructions()
-    const parts: string[] = [baseInstructions]
 
     // Load memory context (Arrow-budgeted or standard)
+    let memoryContext: string | null = null
     if (this.config.memory && this.config.memoryScope && this.config.memoryNamespace) {
       try {
-        const memoryContext = await this.loadMemoryContext(messages)
-        if (memoryContext) parts.push(memoryContext)
+        memoryContext = await this.memoryContextLoader.load(messages)
       } catch {
         // Memory failures are non-fatal
       }
     }
 
-    // Add conversation summary if available
-    const summaryContext = formatSummaryContext(this.conversationSummary)
-    if (summaryContext) parts.push(summaryContext)
-
-    const systemMsg = new SystemMessage(parts.join('\n\n'))
-
     // Context compression is handled by maybeUpdateSummary after generation.
     // summarizeAndTrim internally runs prune + repair + split + summarize.
-    return [systemMsg, ...messages]
+    return buildPreparedMessages({
+      baseInstructions,
+      memoryContext,
+      conversationSummary: this.conversationSummary,
+      messages,
+    })
   }
 
   /**
@@ -595,169 +510,12 @@ export class DzipAgent {
    * once per agent instance.
    */
   private async resolveInstructions(): Promise<string> {
-    if (this.config.instructionsMode !== 'static+agents') {
-      return this.config.instructions
-    }
-
-    // Return cached result if available
-    if (this.mergedInstructionsCache) {
-      return this.mergedInstructionsCache.systemPrompt
-    }
-
-    // Deduplicate concurrent calls
-    if (!this.mergedInstructionsLoading) {
-      this.mergedInstructionsLoading = this.loadAndMergeInstructions()
-    }
-
-    const merged = await this.mergedInstructionsLoading
-    this.mergedInstructionsCache = merged
-    return merged.systemPrompt
-  }
-
-  /**
-   * Load AGENTS.md files and merge them with static instructions.
-   */
-  private async loadAndMergeInstructions(): Promise<MergedInstructions> {
-    try {
-      const dir = this.config.agentsDir ?? process.cwd()
-      const files = await loadAgentsFiles(dir)
-
-      if (files.length === 0) {
-        return {
-          systemPrompt: this.config.instructions,
-          agentHierarchy: [],
-          sources: [],
-        }
-      }
-
-      const allSections = files.flatMap(f => f.sections)
-      const allSources = files.map(f => f.path)
-
-      return mergeInstructions(
-        this.config.instructions,
-        allSections,
-        this.id,
-        allSources,
-      )
-    } catch {
-      // AGENTS.md loading failures are non-fatal — fall back to static
-      return {
-        systemPrompt: this.config.instructions,
-        agentHierarchy: [],
-        sources: [],
-      }
-    }
-  }
-
-  /**
-   * Load memory context, using Arrow token-budgeted selection when
-   * `arrowMemory` config is set, falling back to standard load-all otherwise.
-   */
-  private async loadMemoryContext(messages: BaseMessage[]): Promise<string | null> {
-    const memory = this.config.memory!
-    const scope = this.config.memoryScope!
-    const namespace = this.config.memoryNamespace!
-
-    // Resolve Arrow memory config from profile + explicit overrides
-    const resolvedArrowConfig = resolveArrowMemoryConfig(
-      this.config.arrowMemory,
-      this.config.memoryProfile,
-    )
-
-    // If Arrow memory is configured, attempt token-budgeted selection
-    if (resolvedArrowConfig) {
-      try {
-        return await this.loadArrowMemoryContext(memory, namespace, scope, messages, resolvedArrowConfig)
-      } catch {
-        // Fall through to standard path if Arrow fails
-      }
-    }
-
-    // Standard (non-Arrow) path: load all records
-    const records = await memory.get(namespace, scope)
-    return memory.formatForPrompt(records) || null
-  }
-
-  /**
-   * Arrow-based token-budgeted memory selection.
-   *
-   * Dynamically imports `@dzipagent/memory-ipc` so `apache-arrow` is never
-   * required at install time. If the import fails, the caller catches and
-   * falls back to the standard path.
-   */
-  private async loadArrowMemoryContext(
-    memory: NonNullable<DzipAgentConfig['memory']>,
-    namespace: string,
-    scope: Record<string, string>,
-    messages: BaseMessage[],
-    arrowCfg: NonNullable<ReturnType<typeof resolveArrowMemoryConfig>>,
-  ): Promise<string | null> {
-    // Dynamic import keeps @dzipagent/memory-ipc optional at runtime
-    const {
-      extendMemoryServiceWithArrow,
-      selectMemoriesByBudget,
-      phaseWeightedSelection,
-      FrameReader,
-    } = await import('@dzipagent/memory-ipc')
-
-    // Export memory records into an Arrow Table via the extension wrapper
-    const arrowExt = extendMemoryServiceWithArrow(
-      memory as import('@dzipagent/memory-ipc').MemoryServiceLike,
-    )
-    const frame = await arrowExt.exportFrame(namespace, scope)
-
-    if (frame.numRows === 0) return null
-
-    const totalBudget = arrowCfg.totalBudget ?? 128_000
-    const maxMemoryFraction = arrowCfg.maxMemoryFraction ?? 0.3
-    const minResponseReserve = arrowCfg.minResponseReserve ?? 4_000
-
-    // Estimate tokens already consumed by fixed parts of the prompt
-    const systemPromptTokens = estimateTokens(this.config.instructions)
-    const conversationTokens = this.estimateConversationTokens(messages)
-
-    // Remaining budget available for memory, capped at max fraction
-    const remaining = totalBudget - systemPromptTokens - conversationTokens - minResponseReserve
-    const memoryBudget = Math.max(0, Math.min(
-      Math.floor(remaining),
-      Math.floor(totalBudget * maxMemoryFraction),
-    ))
-
-    if (memoryBudget <= 0) return null
-
-    // Select records: phase-weighted when a non-general phase is set,
-    // otherwise plain composite-score based selection
-    const phase = arrowCfg.currentPhase
-    const selected = phase && phase !== 'general'
-      ? phaseWeightedSelection(frame, phase, memoryBudget)
-      : selectMemoriesByBudget(frame, memoryBudget)
-
-    if (selected.length === 0) return null
-
-    // Reconstruct full records from the frame so we can format text
-    const reader = new FrameReader(frame)
-    const allRecords = reader.toRecords()
-
-    // Format selected records into a readable context block
-    const lines: string[] = ['## Memory Context']
-    for (const s of selected) {
-      const rec = allRecords[s.rowIndex]
-      if (!rec) continue
-
-      const ns = rec.meta.namespace || namespace
-      const text = rec.value.text ?? JSON.stringify(rec.value)
-      lines.push(`- [${ns}] ${text}`)
-    }
-
-    return lines.join('\n')
+    return this.instructionResolver.resolve()
   }
 
   /** Estimate total tokens consumed by conversation messages. */
   private estimateConversationTokens(messages: BaseMessage[]): number {
-    const fullText = messages
-      .map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
-      .join('')
-    return estimateTokens(fullText)
+    return estimateConversationTokensForMessages(messages)
   }
 
   private async maybeUpdateSummary(messages: BaseMessage[]): Promise<void> {
@@ -782,17 +540,7 @@ export class DzipAgent {
   }
 
   private async runBeforeAgentHooks(): Promise<void> {
-    if (!this.config.middleware) return
-
-    for (const mw of this.config.middleware) {
-      if (mw.beforeAgent) {
-        try {
-          await mw.beforeAgent({})
-        } catch {
-          // Middleware failures are non-fatal
-        }
-      }
-    }
+    await this.middlewareRuntime.runBeforeAgentHooks()
   }
 
   /**
@@ -805,12 +553,7 @@ export class DzipAgent {
     model: BaseChatModel,
     messages: BaseMessage[],
   ): Promise<BaseMessage> {
-    const middlewares = this.config.middleware ?? []
-    const wrapper = middlewares.find((mw) => typeof mw.wrapModelCall === 'function')
-    if (wrapper?.wrapModelCall) {
-      return wrapper.wrapModelCall(model, messages, { agentId: this.id })
-    }
-    return model.invoke(messages)
+    return this.middlewareRuntime.invokeModel(model, messages)
   }
 
   /**
@@ -821,15 +564,6 @@ export class DzipAgent {
     input: Record<string, unknown>,
     result: string,
   ): Promise<string> {
-    let current = result
-    for (const mw of this.config.middleware ?? []) {
-      if (!mw.wrapToolCall) continue
-      try {
-        current = await mw.wrapToolCall(toolName, input, current)
-      } catch {
-        // Non-fatal middleware failures
-      }
-    }
-    return current
+    return this.middlewareRuntime.transformToolResult(toolName, input, result)
   }
 }

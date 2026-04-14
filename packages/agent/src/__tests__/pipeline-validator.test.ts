@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { validatePipeline } from '../pipeline/pipeline-validator.js'
-import type { PipelineDefinition, PipelineNode, PipelineEdge } from '@dzipagent/core'
+import type { PipelineDefinition, PipelineNode, PipelineEdge } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Helpers

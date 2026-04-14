@@ -40,7 +40,7 @@ export class InMemoryAttachmentStorage implements AttachmentStorageProvider {
     metadata: { mimeType: string; description?: string },
   ): Promise<string> {
     const uri = `mem://${randomUUID()}`
-    this._store.set(uri, { data, mimeType: metadata.mimeType, description: metadata.description })
+    this._store.set(uri, { data, mimeType: metadata.mimeType, ...(metadata.description !== undefined ? { description: metadata.description } : {}) })
     return uri
   }
 
@@ -72,7 +72,7 @@ export interface MultiModalMemoryServiceConfig {
   /** Underlying MemoryService for storing record metadata. */
   memoryService: MemoryService
   /** Storage provider for binary attachment data. Defaults to InMemoryAttachmentStorage. */
-  storageProvider?: AttachmentStorageProvider
+  storageProvider?: AttachmentStorageProvider | undefined
 }
 
 // ------------------------------------------------------------------ Service
@@ -108,7 +108,7 @@ export class MultiModalMemoryService {
     // Upload binary
     const uri = await this._storageProvider.upload(attachment.data, {
       mimeType: attachment.mimeType,
-      description: attachment.description,
+      ...(attachment.description !== undefined ? { description: attachment.description } : {}),
     })
 
     // Build attachment metadata

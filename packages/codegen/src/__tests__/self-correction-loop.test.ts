@@ -12,7 +12,7 @@ import type {
   CorrectionExhaustedEvent,
   CorrectionContext,
 } from '../correction/correction-types.js'
-import type { TokenUsage } from '@dzipagent/core'
+import type { TokenUsage } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Test helpers

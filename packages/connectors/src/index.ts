@@ -1,13 +1,22 @@
 /**
- * @dzipagent/connectors — Pre-built integrations for DzipAgent.
+ * @dzupagent/connectors — Pre-built integrations for DzupAgent.
  *
  * Each connector produces LangChain DynamicStructuredTools that can be
- * passed directly to DzipAgent's `tools` config.
+ * passed directly to DzupAgent's `tools` config.
  */
 
 // --- Types ---
 export type { Connector, ConnectorConfig } from './connector-types.js'
 export { filterTools } from './connector-types.js'
+export type {
+  ConnectorTool,
+  ConnectorToolLike,
+} from './connector-contract.js'
+export {
+  isConnectorTool,
+  normalizeConnectorTool,
+  normalizeConnectorTools,
+} from './connector-contract.js'
 
 // --- GitHub ---
 export { createGitHubConnector } from './github/index.js'
@@ -81,4 +90,4 @@ export type {
 } from './sql/index.js'
 
 // --- Version ---
-export const dzipagent_CONNECTORS_VERSION = '0.1.0'
+export const dzupagent_CONNECTORS_VERSION = '0.1.0'

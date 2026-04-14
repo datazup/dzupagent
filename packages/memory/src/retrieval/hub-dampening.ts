@@ -23,11 +23,11 @@ export interface HubDampenedResult {
 
 export interface HubDampeningConfig {
   /** Log base for dampening (default: 2) */
-  logBase?: number
+  logBase?: number | undefined
   /** Offset added to accessCount before log (default: 2) */
-  offset?: number
+  offset?: number | undefined
   /** Minimum accessCount before dampening kicks in (default: 0) */
-  minAccessCount?: number
+  minAccessCount?: number | undefined
 }
 
 /**

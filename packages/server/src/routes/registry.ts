@@ -13,7 +13,7 @@
  */
 
 import { Hono } from 'hono'
-import type { AgentRegistry, RegisterAgentInput, DiscoveryQuery, ForgeCapability, AgentHealthStatus } from '@dzipagent/core'
+import type { AgentRegistry, RegisterAgentInput, DiscoveryQuery, ForgeCapability, AgentHealthStatus } from '@dzupagent/core'
 
 export interface RegistryRouteConfig {
   registry: AgentRegistry

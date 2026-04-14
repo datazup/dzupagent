@@ -10,7 +10,7 @@ export interface GuardrailConfig {
   maxTokens?: number
   /** Maximum spend in cents across all LLM calls */
   maxCostCents?: number
-  /** Maximum tool-call loop iterations (overrides DzipAgentConfig.maxIterations) */
+  /** Maximum tool-call loop iterations (overrides DzupAgentConfig.maxIterations) */
   maxIterations?: number
   /** Tool names that this agent is forbidden from calling */
   blockedTools?: string[]

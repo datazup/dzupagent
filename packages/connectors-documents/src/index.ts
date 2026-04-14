@@ -2,6 +2,11 @@ export {
   createDocumentConnector,
   type DocumentConnectorConfig,
 } from './document-connector.js'
+export {
+  normalizeDocumentTool,
+  normalizeDocumentTools,
+  type DocumentConnectorTool,
+} from './connector-contract.js'
 
 export {
   parseDocument,

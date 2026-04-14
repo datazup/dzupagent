@@ -6,7 +6,7 @@
  * battery of tests: collection lifecycle, upsert/search, delete, count, health.
  *
  * Currently tested adapters:
- * - InMemoryVectorStore (@dzipagent/core)
+ * - InMemoryVectorStore (@dzupagent/core)
  * - Inline mock vector store (minimal conformance baseline)
  */
 
@@ -119,13 +119,13 @@ function createInlineMockVectorStore() {
 }
 
 /**
- * Create InMemoryVectorStore from @dzipagent/core.
+ * Create InMemoryVectorStore from @dzupagent/core.
  * Uses dynamic import to handle cases where core is not built yet.
  */
 async function createCoreInMemoryVectorStore(): Promise<unknown> {
   try {
     // Import from core — this is an actual dependency of evals
-    const { InMemoryVectorStore } = await import('@dzipagent/core');
+    const { InMemoryVectorStore } = await import('@dzupagent/core');
     return new InMemoryVectorStore();
   } catch {
     return null;
@@ -218,17 +218,17 @@ describe('VectorStore contract tests', () => {
   });
 
   // -------------------------------------------------------------------------
-  // InMemoryVectorStore from @dzipagent/core — conditional
+  // InMemoryVectorStore from @dzupagent/core — conditional
   // -------------------------------------------------------------------------
 
-  describe('InMemoryVectorStore (@dzipagent/core)', () => {
+  describe('InMemoryVectorStore (@dzupagent/core)', () => {
     let adapter: unknown;
     let available = false;
 
     beforeEach(async () => {
       adapter = await createCoreInMemoryVectorStore();
       available = adapter !== null;
-    });
+    }, 30_000);
 
     afterEach(async () => {
       if (adapter && typeof (adapter as Record<string, unknown>)['close'] === 'function') {
@@ -238,7 +238,7 @@ describe('VectorStore contract tests', () => {
 
     it('should pass all contract tests when available', async () => {
       if (!available) {
-        console.log('Skipping: @dzipagent/core InMemoryVectorStore not available');
+        console.log('Skipping: @dzupagent/core InMemoryVectorStore not available');
         return;
       }
 

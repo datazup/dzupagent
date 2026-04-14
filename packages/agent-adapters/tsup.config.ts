@@ -8,7 +8,7 @@ export default defineConfig({
   target: 'node20',
   sourcemap: true,
   external: [
-    /^@dzipagent\//,
+    /^@dzupagent\//,
     '@anthropic-ai/claude-agent-sdk',
     '@openai/codex-sdk',
   ],

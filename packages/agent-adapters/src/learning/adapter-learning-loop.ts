@@ -7,7 +7,7 @@
  * can be exported/imported for persistence across process restarts.
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import type { AdapterProviderId } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ export interface LearningConfig {
   /** Min records before provider profile is considered reliable. Default 10 */
   minSampleSize?: number
   /** Event bus */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
 }
 
 export interface PerformanceReport {
@@ -151,7 +151,7 @@ export class AdapterLearningLoop {
   private readonly maxRecordsPerProvider: number
   private readonly failureWindowMs: number
   private readonly minSampleSize: number
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
 
   /** providerId -> ring buffer of execution records */
   private readonly records = new Map<AdapterProviderId, RingBuffer<ExecutionRecord>>()
@@ -427,10 +427,21 @@ export class AdapterLearningLoop {
   private buildRecoverySuggestion(providerId: AdapterProviderId, errorType: string): RecoverySuggestion {
     switch (errorType) {
       case 'rate_limit':
-        return {
-          action: 'switch-provider',
-          targetProvider: this.pickAlternativeProvider(providerId),
-          reason: `Provider "${providerId}" is rate-limited; switching to alternative`,
+        {
+          const targetProvider = this.pickAlternativeProvider(providerId, 'reliability')
+          if (targetProvider) {
+            return {
+              action: 'switch-provider',
+              targetProvider,
+              reason: `Provider "${providerId}" is rate-limited; switching to ${targetProvider}`,
+            }
+          }
+
+          return {
+            action: 'retry',
+            backoffMs: 1000,
+            reason: `Provider "${providerId}" is rate-limited; no observed alternative providers available, retrying with backoff`,
+          }
         }
       case 'timeout':
         return {
@@ -445,10 +456,21 @@ export class AdapterLearningLoop {
           reason: 'Context exceeds provider limits; switching to Gemini for larger context window',
         }
       case 'quality_low':
-        return {
-          action: 'switch-provider',
-          targetProvider: 'claude',
-          reason: 'Quality below threshold; switching to Claude for higher quality output',
+        {
+          const targetProvider = this.pickAlternativeProvider(providerId, 'quality')
+          if (targetProvider) {
+            return {
+              action: 'switch-provider',
+              targetProvider,
+              reason: `Quality below threshold for "${providerId}"; switching to ${targetProvider}`,
+            }
+          }
+
+          return {
+            action: 'retry',
+            backoffMs: 1000,
+            reason: `Quality below threshold for "${providerId}"; no observed alternative providers available, retrying with backoff`,
+          }
         }
       default:
         return {
@@ -460,30 +482,44 @@ export class AdapterLearningLoop {
   }
 
   /**
-   * Pick an alternative provider. Prefers providers that are already tracked
-   * with decent success rates. Falls back to a static preference list.
+   * Pick an alternative provider from observed data.
+   * Prefers providers that are already tracked with stronger execution signals.
    */
-  private pickAlternativeProvider(excludeId: AdapterProviderId): AdapterProviderId {
-    const fallbackOrder: AdapterProviderId[] = ['claude', 'gemini', 'codex', 'qwen', 'crush']
+  private pickAlternativeProvider(
+    excludeId: AdapterProviderId,
+    preference: 'reliability' | 'quality' = 'reliability',
+  ): AdapterProviderId | undefined {
+    const candidates = this.getAllProfiles()
+      .filter((profile) => profile.providerId !== excludeId && profile.totalExecutions > 0)
+      .sort((a, b) => {
+        if (preference === 'quality' && a.avgQualityScore !== b.avgQualityScore) {
+          return b.avgQualityScore - a.avgQualityScore
+        }
 
-    // Try providers we have data for, pick best success rate
-    let bestId: AdapterProviderId | undefined
-    let bestRate = -1
-    for (const [pid, buffer] of this.records) {
-      if (pid === excludeId) continue
-      const all = buffer.toArray()
-      if (all.length === 0) continue
-      const rate = all.filter((r) => r.success).length / all.length
-      if (rate > bestRate) {
-        bestRate = rate
-        bestId = pid
-      }
-    }
+        if (preference === 'reliability' && a.successRate !== b.successRate) {
+          return b.successRate - a.successRate
+        }
 
-    if (bestId) return bestId
+        if (a.successRate !== b.successRate) {
+          return b.successRate - a.successRate
+        }
 
-    // Static fallback
-    return fallbackOrder.find((id) => id !== excludeId) ?? 'claude'
+        if (a.avgQualityScore !== b.avgQualityScore) {
+          return b.avgQualityScore - a.avgQualityScore
+        }
+
+        if (a.avgDurationMs !== b.avgDurationMs) {
+          return a.avgDurationMs - b.avgDurationMs
+        }
+
+        if (a.avgCostCents !== b.avgCostCents) {
+          return a.avgCostCents - b.avgCostCents
+        }
+
+        return a.providerId.localeCompare(b.providerId)
+      })
+
+    return candidates[0]?.providerId
   }
 }
 

@@ -10,7 +10,7 @@
  * and is blocked by the SQL safety validator at the application level.
  */
 
-import { createClient, type ClickHouseClient } from '@clickhouse/client'
+import { createRequire } from 'node:module'
 import { BaseSQLConnector } from '../base-sql-connector.js'
 import type {
   SQLDialect,
@@ -23,6 +23,41 @@ import type {
   ForeignKey,
   SchemaDiscoveryOptions,
 } from '../types.js'
+
+import type * as ClickHousePkg from '@clickhouse/client'
+
+type ClickHouseModule = typeof ClickHousePkg
+type ClickHouseClient = ClickHousePkg.ClickHouseClient
+
+const runtimeRequire = createRequire(import.meta.url)
+const CLICKHOUSE_DRIVER_PACKAGE = '@clickhouse/client'
+
+let clickhouseModule: ClickHouseModule | undefined
+
+function isMissingModuleError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND'
+  )
+}
+
+function loadClickHouseModule(): ClickHouseModule {
+  if (clickhouseModule) return clickhouseModule
+
+  try {
+    clickhouseModule = runtimeRequire(CLICKHOUSE_DRIVER_PACKAGE) as ClickHouseModule
+    return clickhouseModule
+  } catch (error: unknown) {
+    if (isMissingModuleError(error)) {
+      throw new Error(
+        `ClickHouseConnector requires the optional dependency "${CLICKHOUSE_DRIVER_PACKAGE}". Install it with: yarn add ${CLICKHOUSE_DRIVER_PACKAGE}`,
+      )
+    }
+    throw error
+  }
+}
 
 // ---------------------------------------------------------------------------
 // ClickHouse JSON response shape
@@ -67,6 +102,7 @@ export class ClickHouseConnector extends BaseSQLConnector {
 
   constructor(config: SQLConnectionConfig) {
     super(config)
+    const { createClient } = loadClickHouseModule()
 
     const host = config.host.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
     const protocol = config.ssl ? 'https' : 'http'

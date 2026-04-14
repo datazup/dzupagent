@@ -1,7 +1,7 @@
 /**
  * Sandbox Contract Suite — conformance tests for SandboxProtocol adapters.
  *
- * Tests verify the SandboxProtocol interface contract defined in @dzipagent/codegen.
+ * Tests verify the SandboxProtocol interface contract defined in @dzupagent/codegen.
  */
 
 import { ContractSuiteBuilder, timedTest } from '../contract-test-generator.js';

@@ -34,17 +34,17 @@ export interface MemoryIntegratorConfig {
   /** LangGraph BaseStore for memory access */
   store: BaseStore
   /** Namespace prefix for lessons (default: ['lessons']) */
-  lessonsNamespace?: string[]
+  lessonsNamespace?: string[] | undefined
   /** Namespace prefix for conventions (default: ['conventions']) */
-  conventionsNamespace?: string[]
+  conventionsNamespace?: string[] | undefined
   /** Namespace prefix for errors (default: ['errors']) */
-  errorsNamespace?: string[]
+  errorsNamespace?: string[] | undefined
   /** Max lessons to retrieve per context (default: 5) */
-  maxLessons?: number
+  maxLessons?: number | undefined
   /** Max conventions to retrieve (default: 10) */
-  maxConventions?: number
+  maxConventions?: number | undefined
   /** Max past errors to retrieve (default: 3) */
-  maxErrors?: number
+  maxErrors?: number | undefined
 }
 
 // ---------------------------------------------------------------------------

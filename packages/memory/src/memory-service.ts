@@ -18,11 +18,16 @@ import type { NamespaceConfig, FormatOptions, SemanticStoreAdapter } from './mem
 import { sanitizeMemoryContent } from './memory-sanitizer.js'
 import { scoreWithDecay } from './decay-engine.js'
 import type { DecayMetadata } from './decay-engine.js'
+import {
+  getMemoryStoreCapabilities,
+  type MemoryStoreCapabilities,
+} from './store-capabilities.js'
 
 export class MemoryService {
   private readonly nsMap: Map<string, NamespaceConfig>
   private readonly rejectUnsafe: boolean
   private readonly semanticStore: SemanticStoreAdapter | undefined
+  private readonly storeCapabilities: MemoryStoreCapabilities
 
   constructor(
     private readonly store: BaseStore,
@@ -32,6 +37,7 @@ export class MemoryService {
     this.nsMap = new Map(namespaces.map(ns => [ns.name, ns]))
     this.rejectUnsafe = options?.rejectUnsafe ?? true
     this.semanticStore = options?.semanticStore
+    this.storeCapabilities = getMemoryStoreCapabilities(store)
   }
 
   // ---------- Internals -------------------------------------------------------
@@ -163,6 +169,35 @@ export class MemoryService {
   }
 
   /**
+   * Delete a single record from the backing store.
+   *
+   * When the backing store does not support deletes, this is a no-op so
+   * callers can branch on capabilities and choose a tombstone fallback.
+   *
+   * Returns `true` when the underlying delete completed without error and
+   * `false` when delete is unsupported or the store rejected the operation.
+   */
+  async delete(
+    namespace: string,
+    scope: Record<string, string>,
+    key: string,
+  ): Promise<boolean> {
+    if (!this.storeCapabilities.supportsDelete) {
+      return false
+    }
+
+    const ns = this.getNamespace(namespace)
+    const tuple = this.buildNamespaceTuple(ns, scope)
+    try {
+      await this.store.delete(tuple, key)
+      return true
+    } catch {
+      // Non-fatal — callers can fall back to tombstones when needed.
+      return false
+    }
+  }
+
+  /**
    * Semantic search within a searchable namespace.
    * Falls back to plain `get()` if the namespace is not marked searchable.
    * Non-fatal: returns [] on error.
@@ -181,7 +216,12 @@ export class MemoryService {
     try {
       // Fetch extra results so decay re-ranking can still fill the limit
       const fetchLimit = Math.min(limit * 2, limit + 20)
-      const results = await this.store.search(tuple, { query, limit: fetchLimit })
+      const results = await this.store.search(
+        tuple,
+        this.storeCapabilities.supportsPagination
+          ? { query, limit: fetchLimit }
+          : { query },
+      )
 
       // Apply decay scoring when records carry _decay metadata
       const now = Date.now()
@@ -207,6 +247,11 @@ export class MemoryService {
     } catch {
       return []
     }
+  }
+
+  /** Snapshot the capabilities exposed by the backing store. */
+  getStoreCapabilities(): MemoryStoreCapabilities {
+    return { ...this.storeCapabilities }
   }
 
   /**

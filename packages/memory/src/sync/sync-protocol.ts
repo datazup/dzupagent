@@ -74,11 +74,11 @@ export class SyncProtocol {
     let deltaEntries = MerkleDigest.findDelta(localEntries, remoteVersionMap)
 
     // Respect max batch size
-    if (deltaEntries.length > this.config.maxBatchSize) {
+    if (deltaEntries.length > (this.config.maxBatchSize ?? 100)) {
       // Sort by version ascending so the receiver gets oldest-first (causal order)
       deltaEntries = deltaEntries
         .sort((a, b) => a.version - b.version)
-        .slice(0, this.config.maxBatchSize)
+        .slice(0, this.config.maxBatchSize ?? 100)
     }
 
     return {

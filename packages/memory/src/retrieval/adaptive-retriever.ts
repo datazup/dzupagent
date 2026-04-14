@@ -17,8 +17,8 @@ import type { FusedResult } from './rrf-fusion.js';
 /**
  * Minimal event emitter interface accepted by AdaptiveRetriever.
  *
- * Structurally compatible with DzipEventBus from `@dzipagent/core`,
- * but defined locally so `@dzipagent/memory` has no dependency on core.
+ * Structurally compatible with DzupEventBus from `@dzupagent/core`,
+ * but defined locally so `@dzupagent/memory` has no dependency on core.
  */
 export interface RetrievalEventEmitter {
   emit(event:
@@ -55,7 +55,7 @@ export interface RetrievalWeights {
   fts: number;
   graph: number;
   /** Optional causal graph weight (default: 0, not used unless a causal provider is configured) */
-  causal?: number;
+  causal?: number | undefined;
 }
 
 /** Named retrieval strategy */
@@ -70,37 +70,37 @@ export interface RetrievalStrategy {
 export interface RetrievalProviders {
   vector?: {
     search(namespace: string[], query: string, limit: number): Promise<VectorSearchResult[]>;
-  };
+  } | undefined;
   fts?: {
     search(
       records: Array<{ key: string; value: Record<string, unknown> }>,
       query: string,
       limit: number,
     ): FTSSearchResult[];
-  };
+  } | undefined;
   graph?: {
     search(
       records: Array<{ key: string; value: Record<string, unknown> }>,
       query: string,
       limit: number,
     ): GraphSearchResult[];
-  };
+  } | undefined;
 }
 
 export interface AdaptiveRetrieverConfig {
   providers: RetrievalProviders;
   /** Override default strategies */
-  strategies?: RetrievalStrategy[];
+  strategies?: RetrievalStrategy[] | undefined;
   /** Default retrieval limit (default: 10) */
-  defaultLimit?: number;
+  defaultLimit?: number | undefined;
   /** Namespace for vector search */
-  namespace?: string[];
+  namespace?: string[] | undefined;
   /** RRF constant k (default: 60) */
-  k?: number;
+  k?: number | undefined;
   /** Optional event bus for retrieval failure observability */
-  eventBus?: RetrievalEventEmitter;
+  eventBus?: RetrievalEventEmitter | undefined;
   /** Enable dynamic weight learning from search quality feedback (default: false) */
-  learnFromFeedback?: boolean;
+  learnFromFeedback?: boolean | undefined;
 }
 
 export interface AdaptiveSearchResult extends FusedResult {
@@ -156,7 +156,8 @@ export const DEFAULT_STRATEGIES: RetrievalStrategy[] = [
       /\bwho\b/i,
       /\b(about|regarding|related to|concerning)\b/i,
       /`[^`]+`/,
-      /\b[A-Z][a-z]+(?:[A-Z][a-z]+)+\b/,
+      // eslint-disable-next-line security/detect-unsafe-regex
+      /\b(?:[A-Z][a-z]{1,30}){2,10}\b/,
     ],
   },
   {
@@ -263,7 +264,7 @@ export interface ProviderHealthMetrics {
   totalLatencyMs: number;
   avgLatencyMs: number;
   successRate: number;
-  lastFailure?: { error: string; timestamp: Date };
+  lastFailure?: { error: string; timestamp: Date } | undefined;
 }
 
 const DEFAULT_HEALTH_WINDOW_SIZE = 100;
@@ -277,7 +278,7 @@ class ProviderHealthTracker {
   }
 
   record(ok: boolean, latencyMs: number, error?: string): void {
-    this.entries.push({ ok, latencyMs, error });
+    this.entries.push({ ok, latencyMs, ...(error !== undefined ? { error } : {}) });
     if (this.entries.length > this.windowSize) {
       this.entries.shift();
     }
@@ -306,11 +307,11 @@ class ProviderHealthTracker {
 /** Configuration for the weight learner */
 export interface WeightLearnerConfig {
   /** EMA learning rate (default: 0.05) */
-  learningRate?: number;
+  learningRate?: number | undefined;
   /** Minimum weight for any provider (default: 0.05) */
-  minWeight?: number;
+  minWeight?: number | undefined;
   /** Maximum weight for any provider (default: 0.8) */
-  maxWeight?: number;
+  maxWeight?: number | undefined;
 }
 
 /** Feedback quality rating for a search result */
@@ -504,7 +505,7 @@ export class AdaptiveRetriever {
   private readonly namespace: string[];
   private readonly k: number;
   private readonly providers: RetrievalProviders;
-  private readonly eventBus?: RetrievalEventEmitter;
+  private readonly eventBus?: RetrievalEventEmitter | undefined;
   private readonly healthTrackers = new Map<SourceName, ProviderHealthTracker>();
   private readonly learnFromFeedback: boolean;
   private readonly weightLearner: WeightLearner;

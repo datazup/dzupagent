@@ -119,7 +119,7 @@ export class DelegationManager {
       delegatee: params.delegatee,
       scope: params.scope,
       constraints: params.constraints ?? [],
-      parentTokenId: params.parentTokenId,
+      ...(params.parentTokenId !== undefined && { parentTokenId: params.parentTokenId }),
       depth,
       issuedAt: now,
       expiresAt,

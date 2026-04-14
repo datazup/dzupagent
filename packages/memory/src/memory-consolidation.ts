@@ -14,9 +14,9 @@ import type { BaseStore } from '@langchain/langgraph'
 
 export interface ConsolidationConfig {
   /** Max entries to keep per namespace after pruning */
-  maxEntries?: number
+  maxEntries?: number | undefined
   /** Entries older than this (ms) are candidates for pruning */
-  maxAgeMs?: number
+  maxAgeMs?: number | undefined
 }
 
 export interface ConsolidationResult {

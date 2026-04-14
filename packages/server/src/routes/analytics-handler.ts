@@ -6,7 +6,7 @@
  */
 
 import type { Table } from 'apache-arrow'
-import type { AnalyticsResult, RowRecord } from '@dzipagent/memory-ipc'
+import type { AnalyticsResult, RowRecord } from '@dzupagent/memory-ipc'
 
 // ---------------------------------------------------------------------------
 // Lazy singleton for MemoryAnalytics
@@ -39,7 +39,7 @@ export async function getAnalytics(): Promise<MemoryAnalyticsLike> {
     initPromise = (async () => {
       try {
         // Dynamic import to keep DuckDB optional
-        const { MemoryAnalytics } = await import('@dzipagent/memory-ipc')
+        const { MemoryAnalytics } = await import('@dzupagent/memory-ipc')
         const instance = await MemoryAnalytics.create()
         cachedAnalytics = instance
         return instance

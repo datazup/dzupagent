@@ -70,10 +70,11 @@ export class CitationTracker {
       seen.add(key)
 
       const source = this.sources.get(chunk.sourceId)
+      const resolvedUrl = source?.url ?? chunk.sourceUrl
       citations.push({
         sourceId: chunk.sourceId,
         sourceTitle: source?.title ?? chunk.sourceTitle ?? 'Unknown',
-        sourceUrl: source?.url ?? chunk.sourceUrl,
+        ...(resolvedUrl !== undefined ? { sourceUrl: resolvedUrl } : {}),
         chunkIndex: chunk.chunkIndex,
         score: chunk.score,
         snippet: chunk.text.slice(0, 200),

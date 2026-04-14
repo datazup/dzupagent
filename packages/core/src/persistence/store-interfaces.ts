@@ -1,9 +1,9 @@
 /**
- * Abstract persistence interfaces for DzipAgent.
+ * Abstract persistence interfaces for DzupAgent.
  *
  * Core defines interfaces; implementations live in consumer packages:
  * - InMemoryRunStore / InMemoryAgentStore (core — for dev/test)
- * - PostgresRunStore / PostgresAgentStore (@dzipagent/server)
+ * - PostgresRunStore / PostgresAgentStore (@dzupagent/server)
  */
 
 // ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@
  * Each audit entry is linked to the previous via a SHA-256 hash chain,
  * allowing verification that no entries have been modified or removed.
  *
- * Subscribes to DzipEventBus and maps events to audit categories:
+ * Subscribes to DzupEventBus and maps events to audit categories:
  * - agent:started/completed/failed -> agent_lifecycle
  * - tool:called/result/error -> tool_execution
  * - memory:written -> memory_mutation
@@ -21,7 +21,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
 
 // ------------------------------------------------------------------ Types
 
@@ -39,8 +39,8 @@ export interface AuditEntry {
   seq: number
   timestamp: Date
   category: AuditCategory
-  agentId?: string
-  runId?: string
+  agentId?: string | undefined
+  runId?: string | undefined
   action: string
   details: Record<string, unknown>
   previousHash: string
@@ -138,11 +138,11 @@ export class InMemoryAuditStore implements AuditStore {
 interface EventMapping {
   category: AuditCategory
   action: string
-  extractDetails: (event: DzipEvent) => Record<string, unknown>
-  extractIds: (event: DzipEvent) => { agentId?: string; runId?: string }
+  extractDetails: (event: DzupEvent) => Record<string, unknown>
+  extractIds: (event: DzupEvent) => { agentId?: string; runId?: string }
 }
 
-function mapEvent(event: DzipEvent): EventMapping | undefined {
+function mapEvent(event: DzupEvent): EventMapping | undefined {
   switch (event.type) {
     case 'agent:started':
       return {
@@ -252,9 +252,9 @@ export class AuditTrail {
   // ------------------------------------------------------ Lifecycle
 
   /**
-   * Attach to a DzipEventBus. Maps events to audit entries.
+   * Attach to a DzupEventBus. Maps events to audit entries.
    */
-  attach(eventBus: DzipEventBus): void {
+  attach(eventBus: DzupEventBus): void {
     this.detach()
 
     this._unsubscribes.push(

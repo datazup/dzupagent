@@ -30,7 +30,8 @@ function extractEntities(text: string): Set<string> {
   }
 
   // PascalCase words (at least two uppercase letters to avoid common words)
-  const pascalMatches = text.matchAll(/\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b/g)
+  // eslint-disable-next-line security/detect-unsafe-regex
+  const pascalMatches = text.matchAll(/\b((?:[A-Z][a-z]{1,30}){2,10})\b/g)
   for (const m of pascalMatches) {
     if (m[1] !== undefined) entities.add(m[1].toLowerCase())
   }

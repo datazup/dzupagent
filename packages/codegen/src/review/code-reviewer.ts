@@ -76,16 +76,17 @@ function applyRulesToLines(
     for (const rule of rules) {
       if (SEVERITY_ORDER[rule.severity] > minSeverity) continue
       if (rule.pattern.test(line)) {
-        comments.push({
+        const comment: ReviewComment = {
           file: filePath,
           line: lineNum,
           severity: rule.severity,
           category: rule.category,
           ruleId: rule.id,
           message: rule.description,
-          suggestion: rule.suggestion,
           codeSnippet: line.trimStart(),
-        })
+        }
+        if (rule.suggestion !== undefined) comment.suggestion = rule.suggestion
+        comments.push(comment)
       }
     }
   }
@@ -145,7 +146,7 @@ export function reviewDiff(
   let currentLine = 0
 
   for (const raw of diffContent.split('\n')) {
-    const hunkMatch = raw.match(/^@@\s*-\d+(?:,\d+)?\s*\+(\d+)/)
+    const hunkMatch = raw.match(/^@@\s-[\d,]+\s\+(\d+)/)
     if (hunkMatch) {
       currentLine = parseInt(hunkMatch[1] as string, 10) - 1
       continue

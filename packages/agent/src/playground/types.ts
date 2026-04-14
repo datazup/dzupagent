@@ -1,9 +1,9 @@
 /**
  * Types for AgentPlayground — a multi-agent workspace for spawning,
- * coordinating, and observing teams of DzipAgent instances.
+ * coordinating, and observing teams of DzupAgent instances.
  */
-import type { DzipAgent } from '../agent/dzip-agent.js'
-import type { DzipAgentConfig } from '../agent/agent-types.js'
+import type { DzupAgent } from '../agent/dzip-agent.js'
+import type { DzupAgentConfig } from '../agent/agent-types.js'
 import type { MergeStrategyFn } from '../orchestration/merge-strategies.js'
 import type { BidEvaluationStrategy } from '../orchestration/contract-net/contract-net-types.js'
 
@@ -24,7 +24,7 @@ export type AgentRole =
   | 'custom'
 
 /** Configuration for spawning a single agent into the playground. */
-export interface AgentSpawnConfig extends Omit<DzipAgentConfig, 'id'> {
+export interface AgentSpawnConfig extends Omit<DzupAgentConfig, 'id'> {
   /** Optional explicit ID. Auto-generated if omitted. */
   id?: string
   /** Role this agent plays within the team. */
@@ -76,8 +76,8 @@ export type AgentStatus = 'idle' | 'running' | 'completed' | 'failed' | 'shutdow
 
 /** Runtime info for a spawned agent inside the playground. */
 export interface SpawnedAgent {
-  /** The underlying DzipAgent instance. */
-  agent: DzipAgent
+  /** The underlying DzupAgent instance. */
+  agent: DzupAgent
   /** Current lifecycle state. */
   status: AgentStatus
   /** Role assigned at spawn time. */

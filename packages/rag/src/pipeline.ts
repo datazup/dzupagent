@@ -13,7 +13,7 @@ import type {
   VectorStore,
   VectorEntry,
   MetadataFilter,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 
 import { SmartChunker } from './chunker.js'
 import { HybridRetriever } from './retriever.js'
@@ -67,9 +67,9 @@ export const DEFAULT_PIPELINE_CONFIG: RagPipelineConfig = {
 
 /** External dependencies injected into the pipeline */
 export interface RagPipelineDeps {
-  /** Embedding provider from @dzipagent/core */
+  /** Embedding provider from @dzupagent/core */
   embeddingProvider: EmbeddingProvider
-  /** Vector store adapter from @dzipagent/core */
+  /** Vector store adapter from @dzupagent/core */
   vectorStore: VectorStore
   /** Optional keyword search function for hybrid mode */
   keywordSearch?: (
@@ -286,8 +286,8 @@ export class RagPipeline {
         const results = await this.deps.vectorStore.search(collectionName, {
           vector: queryVector,
           limit,
-          filter: metadataFilter,
-          minScore,
+          ...(metadataFilter !== undefined ? { filter: metadataFilter } : {}),
+          ...(minScore !== undefined ? { minScore } : {}),
         })
         return results.map(r => ({
           id: r.id,
@@ -296,7 +296,7 @@ export class RagPipeline {
           metadata: r.metadata,
         }))
       },
-      keywordSearch: this.deps.keywordSearch,
+      ...(this.deps.keywordSearch !== undefined ? { keywordSearch: this.deps.keywordSearch } : {}),
     }
 
     const retriever = new HybridRetriever(retrieverConfig)
@@ -304,7 +304,7 @@ export class RagPipeline {
     return retriever
   }
 
-  /** Convert a flat filter record to the @dzipagent/core MetadataFilter format */
+  /** Convert a flat filter record to the @dzupagent/core MetadataFilter format */
   private buildMetadataFilter(filter: Record<string, unknown>): MetadataFilter | undefined {
     const conditions: MetadataFilter[] = []
 
@@ -328,7 +328,7 @@ export class RagPipeline {
         map.set(chunk.sourceId, {
           sourceId: chunk.sourceId,
           title: chunk.sourceTitle ?? 'Unknown',
-          url: chunk.sourceUrl,
+          ...(chunk.sourceUrl !== undefined ? { url: chunk.sourceUrl } : {}),
           contextMode: 'full',
         })
       }

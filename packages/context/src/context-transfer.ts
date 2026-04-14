@@ -76,7 +76,7 @@ const DECISION_PATTERNS: RegExp[] = [
   /\b(?:architecture|design choice|approach|strategy)\b.*:/i,
 ]
 
-const FILE_PATH_PATTERN = /(?:^|\s)((?:[\w.-]+\/)+[\w.-]+\.\w+)/gm
+const FILE_PATH_PATTERN = /(?:^|\s)([\w./-]+\/[\w.-]+\.\w+)/gm
 
 const DEFAULT_RULES: IntentRelevanceRule[] = [
   { from: /generate/, to: /edit/, transferScope: 'all', priority: 10 },

@@ -1,22 +1,22 @@
 /**
- * MCPToolSharingBridge — Bridges DzipAgent's MCP infrastructure with the
+ * MCPToolSharingBridge — Bridges DzupAgent's MCP infrastructure with the
  * adapter layer, enabling tools to be shared across all AI agent adapters.
  *
  * Two responsibilities:
- * 1. Expose DzipAgent tools TO adapters (Claude, Codex, Gemini, etc.)
+ * 1. Expose DzupAgent tools TO adapters (Claude, Codex, Gemini, etc.)
  * 2. Collect tools FROM adapters and register them for cross-adapter sharing
  *
  * Internally maintains a lightweight tool registry (Map<string, SharedTool>)
- * and delegates JSON-RPC handling to DzipAgentMCPServer from @dzipagent/core.
+ * and delegates JSON-RPC handling to DzupAgentMCPServer from @dzupagent/core.
  */
 
-import { DzipAgentMCPServer } from '@dzipagent/core'
+import { DzupAgentMCPServer } from '@dzupagent/core'
 import type {
-  DzipEventBus,
+  DzupEventBus,
   MCPToolDescriptor,
   MCPRequest,
   MCPResponse,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 
 import type { AdapterProviderId } from '../types.js'
 
@@ -25,12 +25,12 @@ import type { AdapterProviderId } from '../types.js'
 // ---------------------------------------------------------------------------
 
 export interface MCPToolSharingConfig {
-  /** Server name for the MCP server. Default: 'dzipagent-tools' */
+  /** Server name for the MCP server. Default: 'dzupagent-tools' */
   serverName?: string
   /** Server version. Default: '1.0.0' */
   serverVersion?: string
   /** Event bus for observability */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
 }
 
 export interface SharedTool {
@@ -82,15 +82,15 @@ interface CLIToolConfig {
 
 export class MCPToolSharingBridge {
   private readonly tools = new Map<string, SharedTool>()
-  private readonly mcpServer: DzipAgentMCPServer
+  private readonly mcpServer: DzupAgentMCPServer
   private readonly serverName: string
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
 
   constructor(config?: MCPToolSharingConfig) {
-    this.serverName = config?.serverName ?? 'dzipagent-tools'
+    this.serverName = config?.serverName ?? 'dzupagent-tools'
     this.eventBus = config?.eventBus
 
-    this.mcpServer = new DzipAgentMCPServer({
+    this.mcpServer = new DzupAgentMCPServer({
       name: this.serverName,
       version: config?.serverVersion ?? '1.0.0',
     })
@@ -113,8 +113,8 @@ export class MCPToolSharingBridge {
     })
 
     this.emitEvent('mcp:connected', {
-      toolName: tool.name,
-      sourceProvider: tool.sourceProvider,
+      serverName: this.serverName,
+      toolCount: this.tools.size,
     })
   }
 
@@ -168,12 +168,15 @@ export class MCPToolSharingBridge {
       case 'gemini':
       case 'qwen':
       case 'crush':
+      case 'gemini-sdk':
+      case 'goose':
+      case 'openrouter':
         return this.buildCLIConfig(toolList)
     }
   }
 
   /**
-   * Handle a JSON-RPC MCP request (delegates to internal DzipAgentMCPServer).
+   * Handle a JSON-RPC MCP request (delegates to internal DzupAgentMCPServer).
    * This allows the bridge to act as an MCP server for adapters that
    * support the MCP protocol natively.
    */
@@ -273,13 +276,14 @@ export class MCPToolSharingBridge {
     }
   }
 
-  private emitEvent(type: string, data: Record<string, unknown>): void {
+  private emitEvent(
+    type: 'mcp:connected',
+    data: { serverName: string; toolCount: number },
+  ): void {
     if (!this.eventBus) return
 
     try {
-      // Emit as a generic MCP event — the event bus will dispatch
-      // to any listeners registered for this type
-      this.eventBus.emit({ type, ...data } as Parameters<DzipEventBus['emit']>[0])
+      this.eventBus.emit({ type, ...data })
     } catch {
       // Event emission is non-fatal — swallow errors silently
     }

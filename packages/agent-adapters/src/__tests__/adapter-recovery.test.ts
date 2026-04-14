@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus, ForgeError } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { createEventBus, ForgeError } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import {
   ExecutionTraceCapture,
@@ -50,6 +50,43 @@ function createFailingAdapter(
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
       throw new Error(errorMsg)
+    },
+    async *resumeSession(_id: string, _input: AgentInput) {
+      /* noop */
+    },
+    interrupt() {},
+    async healthCheck() {
+      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
+    },
+    configure() {},
+  }
+}
+
+function createAbortingAdapter(
+  providerId: AdapterProviderId,
+  errorMsg = 'cancelled',
+): AgentCLIAdapter {
+  return {
+    providerId,
+    async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      yield {
+        type: 'adapter:started',
+        providerId,
+        sessionId: 'sess-abort',
+        timestamp: Date.now(),
+      }
+      yield {
+        type: 'adapter:failed',
+        providerId,
+        error: errorMsg,
+        code: 'AGENT_ABORTED',
+        timestamp: Date.now(),
+      }
+      throw new ForgeError({
+        code: 'AGENT_ABORTED',
+        message: errorMsg,
+        recoverable: true,
+      })
     },
     async *resumeSession(_id: string, _input: AgentInput) {
       /* noop */
@@ -126,8 +163,65 @@ function createRetryRegistry(
   } as unknown as AdapterRegistry
 }
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function createAbortThenSuccessRegistry(
+  providerId: AdapterProviderId = 'claude',
+): { registry: AdapterRegistry; getCallCount: () => number } {
+  let callCount = 0
+
+  const successAdapter = createMockAdapter(providerId, [
+    {
+      type: 'adapter:completed',
+      providerId,
+      sessionId: 'sess-success',
+      result: 'recovered',
+      durationMs: 50,
+      timestamp: Date.now(),
+    },
+  ])
+  const abortAdapter = createAbortingAdapter(providerId)
+
+  const registry = {
+    getForTask(_task: TaskDescriptor) {
+      callCount++
+      return {
+        adapter: callCount === 1 ? abortAdapter : successAdapter,
+        decision: {
+          provider: providerId,
+          reason: 'mock',
+          confidence: 1,
+        },
+      }
+    },
+    listAdapters() {
+      return [providerId]
+    },
+    recordSuccess(_id: AdapterProviderId) {},
+    recordFailure(_id: AdapterProviderId, _err: Error) {},
+  } as unknown as AdapterRegistry
+
+  return {
+    registry,
+    getCallCount: () => callCount,
+  }
+}
+
+function createRoutingFailureRegistry(
+  providers: AdapterProviderId[],
+): AdapterRegistry {
+  return {
+    getForTask() {
+      throw new Error('routing unavailable')
+    },
+    listAdapters() {
+      return providers
+    },
+    recordSuccess(_id: AdapterProviderId) {},
+    recordFailure(_id: AdapterProviderId, _err: Error) {},
+  } as unknown as AdapterRegistry
+}
+
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -141,6 +235,10 @@ describe('ExecutionTraceCapture', () => {
 
   beforeEach(() => {
     capture = new ExecutionTraceCapture()
+  })
+
+  afterEach(() => {
+    capture.dispose()
   })
 
   it('startTrace creates trace', () => {
@@ -447,6 +545,23 @@ describe('AdapterRecoveryCopilot', () => {
       const approvalEvents = emitted.filter((e) => e.type === 'approval:requested')
       expect(approvalEvents.length).toBeGreaterThanOrEqual(1)
     })
+
+    it('returns a cancelled result for AGENT_ABORTED without retrying', async () => {
+      const { registry, getCallCount } = createAbortThenSuccessRegistry('claude')
+      const copilot = new AdapterRecoveryCopilot(registry, {
+        maxAttempts: 3,
+      })
+
+      const result = await copilot.executeWithRecovery({ prompt: 'do it' })
+
+      // Intentional contract change: cancellation now resolves with an explicit result
+      // so callers can branch on `cancelled` instead of catching a rejected promise.
+      expect(result.success).toBe(false)
+      expect(result.cancelled).toBe(true)
+      expect(result.strategy).toBe('abort')
+      expect(result.error).toContain('cancelled')
+      expect(getCallCount()).toBe(1)
+    })
   })
 
   describe('traceCapture getter', () => {
@@ -534,6 +649,75 @@ describe('AdapterRecoveryCopilot', () => {
       expect(traces[0]!.decisions.length).toBeGreaterThanOrEqual(1)
       expect(traces[0]!.completedAt).toBeInstanceOf(Date)
     })
+
+    it('falls back to an observed provider when routing metadata is unavailable', async () => {
+      const registry = createRoutingFailureRegistry(['codex', 'gemini'])
+      const copilot = new AdapterRecoveryCopilot(registry, {
+        maxAttempts: 1,
+      })
+
+      const yielded: AgentEvent[] = []
+      try {
+        for await (const event of copilot.executeWithRecoveryStream({ prompt: 'do it' })) {
+          yielded.push(event)
+        }
+      } catch {
+        // Expected: the stream exhausts after yielding the synthesized failure event.
+      }
+
+      expect(yielded).toHaveLength(1)
+      expect(yielded[0]).toMatchObject({
+        type: 'adapter:failed',
+        providerId: 'codex',
+        code: 'RECOVERY_ATTEMPT_FAILED',
+      })
+      expect(
+        yielded.some((event) => event.type === 'adapter:failed' && event.providerId === 'claude'),
+      ).toBe(false)
+    })
+
+    it('stops on AGENT_ABORTED without retrying or synthesizing recovery failure', async () => {
+      const { registry, getCallCount } = createAbortThenSuccessRegistry('claude')
+      const copilot = new AdapterRecoveryCopilot(registry, {
+        maxAttempts: 3,
+      })
+
+      const yielded: AgentEvent[] = []
+      for await (const event of copilot.executeWithRecoveryStream({ prompt: 'do it' })) {
+        yielded.push(event)
+      }
+
+      expect(getCallCount()).toBe(1)
+      expect(yielded.map((e) => e.type)).toEqual([
+        'adapter:started',
+        'adapter:failed',
+        'recovery:cancelled',
+      ])
+      expect(yielded.some((e) => e.type === 'adapter:failed' && e.code === 'RECOVERY_ATTEMPT_FAILED')).toBe(false)
+    })
+
+    it('emits recovery:cancelled on the event bus for AGENT_ABORTED', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+
+      const { registry } = createAbortThenSuccessRegistry('claude')
+      const copilot = new AdapterRecoveryCopilot(registry, {
+        maxAttempts: 3,
+        eventBus: bus,
+      })
+
+      await collectEvents(copilot.executeWithRecoveryStream({ prompt: 'do it' }))
+
+      const cancelled = emitted.find((e) => e.type === 'recovery:cancelled')
+      expect(cancelled).toMatchObject({
+        type: 'recovery:cancelled',
+        agentId: 'claude',
+        runId: expect.any(String),
+        attempts: 1,
+        durationMs: expect.any(Number),
+        reason: 'cancelled',
+      })
+    })
   })
 
   describe('event bus integration', () => {
@@ -551,6 +735,160 @@ describe('AdapterRecoveryCopilot', () => {
 
       // Should have emitted at least started and succeeded events
       expect(emitted.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  describe('CrossProviderHandoff integration', () => {
+    it('enriches input with handoff context when retry-different-provider is selected', async () => {
+      // First call fails after yielding some events, second call succeeds
+      let callCount = 0
+      const capturedInputs: AgentInput[] = []
+
+      const registry = {
+        getForTask(_task: TaskDescriptor) {
+          callCount++
+
+          const adapter: AgentCLIAdapter = {
+            providerId: (callCount === 1 ? 'claude' : 'codex') as AdapterProviderId,
+            async *execute(input: AgentInput) {
+              capturedInputs.push(input)
+              if (callCount === 1) {
+                // Yield partial events before failure
+                yield {
+                  type: 'adapter:started' as const,
+                  providerId: 'claude' as AdapterProviderId,
+                  sessionId: 's1',
+                  timestamp: Date.now(),
+                  prompt: input.prompt,
+                }
+                yield {
+                  type: 'adapter:message' as const,
+                  providerId: 'claude' as AdapterProviderId,
+                  content: 'I started working on the task',
+                  role: 'assistant' as const,
+                  timestamp: Date.now(),
+                }
+                yield {
+                  type: 'adapter:tool_call' as const,
+                  providerId: 'claude' as AdapterProviderId,
+                  toolName: 'read_file',
+                  input: { path: 'src/main.ts' },
+                  timestamp: Date.now(),
+                }
+                throw new Error('provider crashed')
+              }
+              // Second attempt succeeds
+              yield {
+                type: 'adapter:completed' as const,
+                providerId: 'codex' as AdapterProviderId,
+                sessionId: 's2',
+                result: 'done',
+                durationMs: 10,
+                timestamp: Date.now(),
+              }
+            },
+            async *resumeSession() {},
+            interrupt() {},
+            async healthCheck() {
+              return { healthy: true, providerId: 'claude' as AdapterProviderId, sdkInstalled: true, cliAvailable: true }
+            },
+            configure() {},
+          }
+
+          return {
+            adapter,
+            decision: { provider: adapter.providerId, reason: 'mock', confidence: 1 },
+          }
+        },
+        listAdapters() {
+          return ['claude' as AdapterProviderId, 'codex' as AdapterProviderId]
+        },
+        recordSuccess() {},
+        recordFailure() {},
+      } as unknown as AdapterRegistry
+
+      const copilot = new AdapterRecoveryCopilot(registry, {
+        maxAttempts: 3,
+        strategyOrder: ['retry-different-provider', 'abort'],
+      })
+
+      const result = await copilot.executeWithRecovery({ prompt: 'Fix the bug' })
+
+      expect(result.success).toBe(true)
+      expect(result.totalAttempts).toBe(2)
+
+      // The second attempt's input should have handoff context in systemPrompt
+      const retryInput = capturedInputs[1]!
+      expect(retryInput.systemPrompt).toBeDefined()
+      expect(retryInput.systemPrompt).toContain('Partial progress from previous provider')
+      expect(retryInput.systemPrompt).toContain('I started working on the task')
+      expect(retryInput.systemPrompt).toContain('read_file')
+    })
+
+    it('does not enrich input when strategy is not retry-different-provider', async () => {
+      let callCount = 0
+      const capturedInputs: AgentInput[] = []
+
+      const registry = {
+        getForTask(_task: TaskDescriptor) {
+          callCount++
+
+          const adapter: AgentCLIAdapter = {
+            providerId: 'claude' as AdapterProviderId,
+            async *execute(input: AgentInput) {
+              capturedInputs.push(input)
+              if (callCount === 1) {
+                yield {
+                  type: 'adapter:message' as const,
+                  providerId: 'claude' as AdapterProviderId,
+                  content: 'partial work',
+                  role: 'assistant' as const,
+                  timestamp: Date.now(),
+                }
+                throw new Error('transient failure')
+              }
+              yield {
+                type: 'adapter:completed' as const,
+                providerId: 'claude' as AdapterProviderId,
+                sessionId: 's1',
+                result: 'done',
+                durationMs: 10,
+                timestamp: Date.now(),
+              }
+            },
+            async *resumeSession() {},
+            interrupt() {},
+            async healthCheck() {
+              return { healthy: true, providerId: 'claude' as AdapterProviderId, sdkInstalled: true, cliAvailable: true }
+            },
+            configure() {},
+          }
+
+          return {
+            adapter,
+            decision: { provider: 'claude' as AdapterProviderId, reason: 'mock', confidence: 1 },
+          }
+        },
+        listAdapters() {
+          return ['claude' as AdapterProviderId]
+        },
+        recordSuccess() {},
+        recordFailure() {},
+      } as unknown as AdapterRegistry
+
+      const copilot = new AdapterRecoveryCopilot(registry, {
+        maxAttempts: 3,
+        strategyOrder: ['retry-same-provider', 'abort'],
+      })
+
+      const result = await copilot.executeWithRecovery({ prompt: 'Fix the bug' })
+
+      expect(result.success).toBe(true)
+      expect(result.totalAttempts).toBe(2)
+
+      // The second attempt's input should NOT have handoff context
+      const retryInput = capturedInputs[1]!
+      expect(retryInput.systemPrompt).toBeUndefined()
     })
   })
 })

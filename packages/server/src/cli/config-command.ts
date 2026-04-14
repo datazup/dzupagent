@@ -1,5 +1,5 @@
 /**
- * Config CLI commands — validate and display DzipAgent server configuration.
+ * Config CLI commands — validate and display DzupAgent server configuration.
  */
 import { readFileSync } from 'node:fs'
 
@@ -14,7 +14,7 @@ interface ConfigSchema {
 }
 
 /**
- * Validate a DzipAgent config file at the given path.
+ * Validate a DzupAgent config file at the given path.
  * Returns { valid: true, errors: [] } if valid, or { valid: false, errors: [...] } otherwise.
  */
 export function configValidate(configPath: string): { valid: boolean; errors: string[] } {

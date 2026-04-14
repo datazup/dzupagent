@@ -7,8 +7,8 @@
  * falls back to alternative providers if retries are exhausted.
  */
 
-import { ForgeError } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import { ForgeError } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import type {
   AdapterProviderId,
@@ -39,20 +39,20 @@ export interface OutputSchema<T = unknown> {
 
 export interface StructuredOutputConfig {
   /** Max parse retries before fallback. Default 2 */
-  maxRetries?: number
+  maxRetries?: number | undefined
   /** Whether to inject format instructions into the prompt. Default true */
-  injectFormatInstructions?: boolean
+  injectFormatInstructions?: boolean | undefined
   /** Event bus for observability */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus | undefined
 }
 
 export interface ParseResult<T> {
   success: boolean
-  value?: T
+  value?: T | undefined
   raw: string
   providerId: AdapterProviderId
   parseAttempts: number
-  error?: string
+  error?: string | undefined
 }
 
 export interface StructuredRunResult<T> {
@@ -196,7 +196,7 @@ export class StructuredOutputAdapter {
   private readonly registry: AdapterRegistry
   private readonly maxRetries: number
   private readonly injectFormatInstructions: boolean
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
 
   constructor(
     registry: AdapterRegistry,
@@ -459,10 +459,9 @@ export class StructuredOutputAdapter {
   ): void {
     if (this.eventBus) {
       // These are adapter-level observability events; emit via the bus.
-      // The structured_output:* event types are not part of the core DzipEvent
+      // The structured_output:* event types are not part of the core DzupEvent
       // union, so we cast through unknown to satisfy the type checker.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this.eventBus.emit(event as unknown as Parameters<DzipEventBus['emit']>[0])
+      this.eventBus.emit(event as unknown as Parameters<DzupEventBus['emit']>[0])
     }
   }
 }

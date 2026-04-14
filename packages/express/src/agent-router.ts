@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { HumanMessage } from '@langchain/core/messages'
-import type { DzipAgent } from '@dzipagent/agent'
+import type { DzupAgent } from '@dzupagent/agent'
 import { SSEHandler } from './sse-handler.js'
 import type { AgentRouterConfig, ChatRequestBody, AgentResult } from './types.js'
 
@@ -11,9 +11,9 @@ import type { AgentRouterConfig, ChatRequestBody, AgentResult } from './types.js
  * specified or when the requested name is not found.
  */
 function resolveAgent(
-  agents: Record<string, DzipAgent>,
+  agents: Record<string, DzupAgent>,
   agentName?: string,
-): { agent: DzipAgent; name: string } | null {
+): { agent: DzupAgent; name: string } | null {
   if (agentName) {
     const agent = agents[agentName]
     if (agent) return { agent, name: agentName }
@@ -29,7 +29,7 @@ function resolveAgent(
 }
 
 /**
- * Create an Express router that exposes DzipAgent(s) as HTTP endpoints.
+ * Create an Express router that exposes DzupAgent(s) as HTTP endpoints.
  *
  * Routes created:
  * - `POST /chat`      — SSE streaming response

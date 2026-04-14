@@ -1,0 +1,11 @@
+# CODEOWNERS
+#
+# Default owner for repository paths not matched below.
+* @ninel
+
+# Connectors package and its CI enforcement workflow.
+/packages/connectors/** @ninel
+/.github/workflows/connectors-verified.yml @ninel
+
+# PR template governance.
+/.github/pull_request_template.md @ninel

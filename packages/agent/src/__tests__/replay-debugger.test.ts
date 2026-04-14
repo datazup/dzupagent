@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
 import { TraceCapture } from '../replay/trace-capture.js'
 import { ReplayEngine } from '../replay/replay-engine.js'
 import { ReplayController } from '../replay/replay-controller.js'
@@ -17,17 +17,17 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestBus(): DzipEventBus {
+function createTestBus(): DzupEventBus {
   return createEventBus()
 }
 
-function emitSequence(bus: DzipEventBus, events: DzipEvent[]): void {
+function emitSequence(bus: DzupEventBus, events: DzupEvent[]): void {
   for (const event of events) {
     bus.emit(event)
   }
 }
 
-function makeSampleEvents(): DzipEvent[] {
+function makeSampleEvents(): DzupEvent[] {
   return [
     { type: 'agent:started', agentId: 'test-agent', runId: 'run-1' },
     { type: 'tool:called', toolName: 'read_file', input: { path: '/src/index.ts' } },
@@ -67,7 +67,7 @@ function makeSampleTrace(): CapturedTrace {
 // ---------------------------------------------------------------------------
 
 describe('TraceCapture', () => {
-  let bus: DzipEventBus
+  let bus: DzupEventBus
 
   beforeEach(() => {
     bus = createTestBus()

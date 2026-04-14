@@ -29,8 +29,10 @@ export interface DatabaseConnectorConfig {
   user?: string
   /** Database password */
   password?: string
-  /** Enable SSL (default: false) */
-  ssl?: boolean
+  /** Enable SSL (default: false). Pass an object for fine-grained TLS options. */
+  ssl?: boolean | { rejectUnauthorized?: boolean; ca?: string }
+  /** When ssl=true (boolean), allow self-signed certificates (default: false) */
+  sslAllowSelfSigned?: boolean
   /** Maximum pool connections (default: 5) */
   maxConnections?: number
   /** Query timeout in ms (default: 30_000) */
@@ -147,7 +149,9 @@ async function createPool(config: DatabaseConnectorConfig): Promise<PgPool> {
   }
 
   if (config.ssl) {
-    poolConfig['ssl'] = { rejectUnauthorized: false }
+    poolConfig['ssl'] = typeof config.ssl === 'object'
+      ? config.ssl
+      : { rejectUnauthorized: config.sslAllowSelfSigned !== true }
   }
 
   return new PgPool(poolConfig)
@@ -287,13 +291,16 @@ export function createDatabaseOperations(
         [tableName, schema],
       )
 
-      return result.rows.map(row => ({
-        name: String(row['column_name']),
-        type: String(row['data_type']),
-        nullable: row['is_nullable'] === 'YES',
-        defaultValue: row['column_default'] != null ? String(row['column_default']) : undefined,
-        isPrimaryKey: row['is_primary_key'] === true || row['is_primary_key'] === 't',
-      }))
+      return result.rows.map(row => {
+        const defaultValue = row['column_default'] != null ? String(row['column_default']) : undefined
+        return {
+          name: String(row['column_name']),
+          type: String(row['data_type']),
+          nullable: row['is_nullable'] === 'YES',
+          ...(defaultValue !== undefined ? { defaultValue } : {}),
+          isPrimaryKey: row['is_primary_key'] === true || row['is_primary_key'] === 't',
+        }
+      })
     },
 
     async getTableInfo(tableName: string, schema = 'public'): Promise<TableInfo> {
@@ -314,7 +321,7 @@ export function createDatabaseOperations(
         // Non-critical — row count is optional
       }
 
-      return { name: tableName, schema, columns, rowCount }
+      return { name: tableName, schema, columns, ...(rowCount !== undefined ? { rowCount } : {}) }
     },
 
     async healthCheck(): Promise<boolean> {

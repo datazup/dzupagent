@@ -1,5 +1,5 @@
 /**
- * Signing and key management types for DzipAgent identity.
+ * Signing and key management types for DzupAgent identity.
  *
  * Used for Ed25519 agent card signing and document verification.
  */

@@ -1,4 +1,4 @@
-# @dzipagent/connectors
+# @dzupagent/connectors
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,39 +10,39 @@
 | Source Files | 10 |
 | Lines of Code | 1,174 |
 | Test Files | 4 |
-| Internal Dependencies | `@dzipagent/core` |
+| Internal Dependencies | `@dzupagent/core` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @dzipagent/connectors
+npm install @dzupagent/connectors
 ```
 <!-- AUTO-GENERATED-END -->
 
-Pre-built integrations for DzipAgent. Each connector produces LangChain `DynamicStructuredTool` instances that can be passed directly to `DzipAgent`'s `tools` config.
+Pre-built integrations for DzupAgent. Each connector produces LangChain `DynamicStructuredTool` instances that can be passed directly to `DzupAgent`'s `tools` config.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/connectors
+yarn add @dzupagent/connectors
 # or
-npm install @dzipagent/connectors
+npm install @dzupagent/connectors
 ```
 
 ## Quick Start
 
 ```ts
-import { DzipAgent } from '@dzipagent/agent'
-import { createGitHubConnector, createSlackConnector, filterTools } from '@dzipagent/connectors'
+import { DzupAgent } from '@dzupagent/agent'
+import { createGitHubConnector, createSlackConnector, filterTools } from '@dzupagent/connectors'
 
 // Create connectors
 const github = createGitHubConnector({ token: process.env.GITHUB_TOKEN! })
 const slack = createSlackConnector({ token: process.env.SLACK_TOKEN! })
 
 // Use all tools from a connector
-const agent = new DzipAgent({
+const agent = new DzupAgent({
   tools: [...github.tools, ...slack.tools],
 })
 
@@ -55,7 +55,7 @@ const readOnlyGH = filterTools(github.tools, ['get_file', 'list_issues'])
 ### GitHub
 
 ```ts
-import { createGitHubConnector } from '@dzipagent/connectors'
+import { createGitHubConnector } from '@dzupagent/connectors'
 
 const github = createGitHubConnector({
   token: 'ghp_...',
@@ -69,7 +69,7 @@ Tools: file operations, issue management, PR management, repository search.
 ### HTTP
 
 ```ts
-import { createHTTPConnector } from '@dzipagent/connectors'
+import { createHTTPConnector } from '@dzupagent/connectors'
 
 const http = createHTTPConnector({
   baseUrl: 'https://api.example.com',
@@ -82,7 +82,7 @@ Tools: generic HTTP GET/POST/PUT/DELETE requests.
 ### Slack
 
 ```ts
-import { createSlackConnector } from '@dzipagent/connectors'
+import { createSlackConnector } from '@dzupagent/connectors'
 
 const slack = createSlackConnector({
   token: 'xoxb-...',
@@ -94,7 +94,7 @@ Tools: send messages, list channels, reply to threads.
 ### Database
 
 ```ts
-import { createDatabaseConnector } from '@dzipagent/connectors'
+import { createDatabaseConnector } from '@dzupagent/connectors'
 
 const db = createDatabaseConnector({
   connectionString: process.env.DATABASE_URL!,
@@ -114,13 +114,13 @@ Tools: execute SQL queries, list tables, describe schema.
 
 ### Version
 
-- `dzipagent_CONNECTORS_VERSION: string` -- `'0.1.0'`
+- `dzupagent_CONNECTORS_VERSION: string` -- `'0.1.0'`
 
 ## Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@dzipagent/core` | `0.1.0` | Core infrastructure |
+| `@dzupagent/core` | `0.1.0` | Core infrastructure |
 
 ## Peer Dependencies
 

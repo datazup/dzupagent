@@ -1,11 +1,11 @@
-import type { AgentDefinition, ModelRegistry, RunStore, MetricsCollector } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
-import type { RunContextTransfer, PersistedIntentContext } from '@dzipagent/core'
-import { withForgeContext, type ForgeTraceContext } from '@dzipagent/otel'
+import type { AgentDefinition, ModelRegistry, RunStore, MetricsCollector } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
+import type { RunContextTransfer, PersistedIntentContext } from '@dzupagent/core'
+import { withForgeContext, type ForgeTraceContext } from '@dzupagent/otel'
 import type { RunQueue } from '../queue/run-queue.js'
 import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
-import { extractTraceContext } from '@dzipagent/core'
+import { extractTraceContext } from '@dzupagent/core'
 import { isStructuredResult } from './utils.js'
 import { reportRetrievalFeedback, type RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
 
@@ -16,7 +16,7 @@ export interface RunExecutionContext {
   metadata?: Record<string, unknown>
   agent: AgentDefinition
   runStore: RunStore
-  eventBus: DzipEventBus
+  eventBus: DzupEventBus
   modelRegistry: ModelRegistry
   signal: AbortSignal
 }
@@ -37,7 +37,7 @@ export interface RunExecutorResult {
 export type RunExecutor = (context: RunExecutionContext) => Promise<unknown | RunExecutorResult>
 
 // ---------------------------------------------------------------------------
-// Structural types for RunReflector (avoids hard dependency on @dzipagent/agent)
+// Structural types for RunReflector (avoids hard dependency on @dzupagent/agent)
 // ---------------------------------------------------------------------------
 
 /** Individual dimension scores, each in the range [0, 1]. */
@@ -72,7 +72,7 @@ export interface RunReflectorLike {
   score(input: ReflectionInput): ReflectionScore
 }
 
-/** Structural type for the escalation policy result (avoids importing @dzipagent/core). */
+/** Structural type for the escalation policy result (avoids importing @dzupagent/core). */
 export interface EscalationResultLike {
   shouldEscalate: boolean
   fromTier: string
@@ -93,7 +93,7 @@ export interface StartRunWorkerOptions {
     get(id: string): Promise<AgentDefinition | null>
     save?(agent: AgentDefinition): Promise<void>
   }
-  eventBus: DzipEventBus
+  eventBus: DzupEventBus
   modelRegistry: ModelRegistry
   runExecutor: RunExecutor
   shutdown?: GracefulShutdown
@@ -103,7 +103,7 @@ export interface StartRunWorkerOptions {
   /** Optional metrics collector for run-level observability */
   metrics?: MetricsCollector
   /** Optional run reflector — scores every completed run for quality tracking.
-   *  Uses structural typing to avoid a hard dependency on @dzipagent/agent. */
+   *  Uses structural typing to avoid a hard dependency on @dzupagent/agent. */
   reflector?: RunReflectorLike
   /** Optional retrieval feedback config. When provided alongside a reflector,
    *  maps reflection scores to AdaptiveRetriever feedback for weight learning. */
@@ -117,7 +117,7 @@ export interface StartRunWorkerOptions {
 }
 
 async function waitForApprovalDecision(
-  eventBus: DzipEventBus,
+  eventBus: DzupEventBus,
   runId: string,
   timeoutMs: number,
 ): Promise<{ approved: boolean; reason?: string }> {
@@ -151,6 +151,22 @@ function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) {
     throw new DOMException('Run cancelled', 'AbortError')
   }
+}
+
+function closeTraceWithTerminalStep(
+  traceStore: RunTraceStore | undefined,
+  runId: string,
+  status: 'failed' | 'cancelled' | 'rejected',
+  details?: Record<string, unknown>,
+): void {
+  if (!traceStore) return
+  traceStore.addStep(runId, {
+    timestamp: Date.now(),
+    type: 'system',
+    content: { status },
+    metadata: details,
+  })
+  traceStore.completeTrace(runId)
 }
 
 /**
@@ -259,6 +275,12 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
             errorCode: 'APPROVAL_REJECTED',
             message: decision.reason ?? 'Run rejected by approval policy',
           })
+          closeTraceWithTerminalStep(
+            options.traceStore,
+            job.runId,
+            'rejected',
+            { reason: decision.reason ?? 'Run rejected by approval policy' },
+          )
           return
         }
 
@@ -567,6 +589,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
             errorCode: 'AGENT_ABORTED',
             message: 'Cancelled by user',
           })
+          closeTraceWithTerminalStep(options.traceStore, job.runId, 'cancelled', { reason: 'Cancelled by user' })
         }
         return
       }
@@ -590,6 +613,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         errorCode: 'INTERNAL_ERROR',
         message,
       })
+      closeTraceWithTerminalStep(options.traceStore, job.runId, 'failed', { error: message })
     } finally {
       options.shutdown?.untrackRun(job.runId)
     }

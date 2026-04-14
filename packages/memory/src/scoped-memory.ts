@@ -24,9 +24,9 @@ export interface MemoryAccessPolicy {
   /** Namespace access rules: namespace name -> access level */
   namespaces: Record<string, NamespaceAccess>
   /** Default access for namespaces not explicitly listed (default: 'none') */
-  defaultAccess?: NamespaceAccess
+  defaultAccess?: NamespaceAccess | undefined
   /** Tags automatically added to all writes by this agent */
-  writeTags?: Record<string, string>
+  writeTags?: Record<string, string> | undefined
 }
 
 /** Access violation error info (not thrown -- returned for non-fatal handling) */

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { CostOptimizationEngine } from '../middleware/cost-optimization.js'
 import type {
@@ -16,8 +16,8 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -68,7 +68,7 @@ function seedEngine(
 
 describe('CostOptimizationEngine', () => {
   let engine: CostOptimizationEngine
-  let bus: DzipEventBus
+  let bus: DzupEventBus
 
   beforeEach(() => {
     bus = createEventBus()

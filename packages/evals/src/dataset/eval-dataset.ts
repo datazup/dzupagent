@@ -5,16 +5,16 @@
 export interface EvalEntry {
   id: string;
   input: string;
-  expectedOutput?: string;
-  tags?: string[];
-  metadata?: Record<string, unknown>;
+  expectedOutput?: string | undefined;
+  tags?: string[] | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 export interface DatasetMetadata {
   name: string;
-  description?: string;
-  version?: string;
-  createdAt?: string;
+  description?: string | undefined;
+  version?: string | undefined;
+  createdAt?: string | undefined;
   totalEntries: number;
   tags: string[];
 }

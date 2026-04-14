@@ -6,7 +6,7 @@ import type {
   PipelineEdge,
   ForkNode,
   JoinNode,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 import type {
   NodeExecutor,
   NodeResult,

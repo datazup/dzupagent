@@ -1,15 +1,15 @@
 /**
- * @dzipagent/agent — Top-level agent abstraction
+ * @dzupagent/agent — Top-level agent abstraction
  *
- * Provides: DzipAgent class (generate/stream/asTool), guardrails
+ * Provides: DzupAgent class (generate/stream/asTool), guardrails
  * with iteration budgets, generic tool factory, auto-compression,
  * and structured output support.
  */
 
 // --- Agent ---
-export { DzipAgent } from './agent/dzip-agent.js'
+export { DzupAgent } from './agent/dzip-agent.js'
 export type {
-  DzipAgentConfig,
+  DzupAgentConfig,
   ArrowMemoryConfig,
   GenerateOptions,
   GenerateResult,
@@ -127,6 +127,12 @@ export type {
   TopologyMetrics,
   TopologyExecutorConfig,
 } from './orchestration/topology/topology-types.js'
+
+// --- Provider Adapter Port ---
+export type {
+  ProviderExecutionPort,
+  ProviderExecutionResult,
+} from './orchestration/provider-adapter/index.js'
 
 // --- Context ---
 export { autoCompress, FrozenSnapshot } from './context/auto-compress.js'
@@ -500,11 +506,7 @@ export {
   buildConfigFromPreset,
   PresetRegistry,
   createDefaultPresetRegistry,
-  RAGChatPreset,
-  ResearchPreset,
-  SummarizerPreset,
-  QAPreset,
 } from './presets/index.js'
 
 // --- Version ---
-export const dzipagent_AGENT_VERSION = '0.1.0'
+export const dzupagent_AGENT_VERSION = '0.1.0'

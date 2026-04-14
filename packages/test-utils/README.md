@@ -1,4 +1,4 @@
-# @dzipagent/test-utils
+# @dzupagent/test-utils
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,25 +10,25 @@
 | Source Files | 4 |
 | Lines of Code | 466 |
 | Test Files | 1 |
-| Internal Dependencies | `@dzipagent/core` |
+| Internal Dependencies | `@dzupagent/core` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @dzipagent/test-utils
+npm install @dzupagent/test-utils
 ```
 <!-- AUTO-GENERATED-END -->
 
-Testing utilities for DzipAgent. Provides mock LLM models, an LLM recorder for deterministic test replay, and factory helpers for creating test agents, stores, and event buses. Zero network dependencies -- all tests run fully offline.
+Testing utilities for DzupAgent. Provides mock LLM models, an LLM recorder for deterministic test replay, and factory helpers for creating test agents, stores, and event buses. Zero network dependencies -- all tests run fully offline.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/test-utils --dev
+yarn add @dzupagent/test-utils --dev
 # or
-npm install @dzipagent/test-utils --save-dev
+npm install @dzupagent/test-utils --save-dev
 ```
 
 ## Quick Start
@@ -40,7 +40,7 @@ import {
   createTestAgent,
   createTestEventBus,
   waitForEvent,
-} from '@dzipagent/test-utils'
+} from '@dzupagent/test-utils'
 
 // Mock model with scripted responses
 const model = new MockChatModel([
@@ -64,7 +64,7 @@ const event = await eventPromise
 Record real LLM calls and replay them in tests for deterministic, offline testing:
 
 ```ts
-import { LLMRecorder } from '@dzipagent/test-utils'
+import { LLMRecorder } from '@dzupagent/test-utils'
 
 // Record mode: calls real LLM and saves fixtures
 const recorder = new LLMRecorder({
@@ -102,19 +102,19 @@ const replayer = new LLMRecorder({
 - `createTestEventBus()` -- in-memory event bus for testing
 - `createTestRunStore()` -- in-memory run store
 - `createTestAgentStore()` -- in-memory agent store
-- `createTestAgent(config)` -- create a DzipAgent with all test dependencies
-- `createTestConfig(overrides)` -- create a DzipAgentConfig with sensible defaults
+- `createTestAgent(config)` -- create a DzupAgent with all test dependencies
+- `createTestConfig(overrides)` -- create a DzupAgentConfig with sensible defaults
 - `waitForEvent(bus, type)` -- wait for a specific event with timeout
 
 ### Version
 
-- `dzipagent_TEST_UTILS_VERSION: string` -- `'0.1.0'`
+- `dzupagent_TEST_UTILS_VERSION: string` -- `'0.1.0'`
 
 ## Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@dzipagent/core` | `0.1.0` | Core infrastructure |
+| `@dzupagent/core` | `0.1.0` | Core infrastructure |
 
 ## Peer Dependencies
 

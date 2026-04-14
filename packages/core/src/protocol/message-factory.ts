@@ -110,7 +110,7 @@ export function createResponse(
     to: original.from,
     protocol: original.protocol,
     payload,
-    metadata,
+    ...(metadata !== undefined && { metadata }),
     correlationId: original.id,
   })
 }
@@ -131,7 +131,7 @@ export function createErrorResponse(
     from: original.to,
     to: original.from,
     protocol: original.protocol,
-    payload: { type: 'error', code, message, details },
+    payload: { type: 'error', code, message, ...(details !== undefined && { details }) },
     correlationId: original.id,
   })
 }

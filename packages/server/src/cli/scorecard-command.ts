@@ -1,7 +1,7 @@
 /**
  * CLI command: `forge scorecard`
  *
- * Generates and displays an integration scorecard for a DzipAgent server
+ * Generates and displays an integration scorecard for a DzupAgent server
  * configuration. Supports console, JSON, and markdown output formats.
  */
 import { writeFileSync } from 'node:fs'
@@ -16,6 +16,12 @@ export interface ScorecardCommandOptions {
   output?: string
   /** Extra probe inputs for deeper scoring */
   probe?: ScorecardProbeInput
+  /** Root directory used for automated scorecard probe collection */
+  probeRootDir?: string
+  /** Environment used for automated scorecard probe collection */
+  probeEnv?: NodeJS.ProcessEnv
+  /** Disable automated filesystem/environment probe collection */
+  autoCollectProbe?: boolean
 }
 
 export interface ScorecardCommandResult {
@@ -35,7 +41,11 @@ export function runScorecard(
   options?: ScorecardCommandOptions,
 ): ScorecardCommandResult {
   const format = options?.format ?? 'console'
-  const scorecard = new IntegrationScorecard(config, options?.probe)
+  const scorecard = new IntegrationScorecard(config, options?.probe, {
+    autoCollectProbe: options?.autoCollectProbe,
+    rootDir: options?.probeRootDir,
+    env: options?.probeEnv,
+  })
   const report = scorecard.generate()
   const reporter = new ScorecardReporter(report)
   const rendered = reporter.render(format)

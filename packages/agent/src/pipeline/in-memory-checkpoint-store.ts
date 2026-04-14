@@ -10,7 +10,7 @@ import type {
   PipelineCheckpointStore,
   PipelineCheckpoint,
   PipelineCheckpointSummary,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 
 /**
  * In-memory pipeline checkpoint store with versioned history.

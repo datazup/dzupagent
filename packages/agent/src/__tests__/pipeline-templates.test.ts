@@ -6,7 +6,7 @@ import {
   createTestGenerationPipeline,
   createRefactoringPipeline,
 } from '../pipeline/pipeline-templates.js'
-import type { PipelineDefinition } from '@dzipagent/core'
+import type { PipelineDefinition } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Helpers

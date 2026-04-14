@@ -6,7 +6,7 @@
  * queue -> worker -> agent execution pipeline.
  *
  * IMPORTANT: This module has ZERO dependency on @opentelemetry/api or
- * @dzipagent/otel. It deals only with opaque string IDs that any
+ * @dzupagent/otel. It deals only with opaque string IDs that any
  * OTel-compatible backend can later link together.
  */
 

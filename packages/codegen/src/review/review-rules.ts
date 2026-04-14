@@ -41,5 +41,5 @@ export const BUILTIN_RULES: ReviewRule[] = [
 
   // --- Best Practice ---
   { id: 'BP-001', name: 'any-type', category: 'best-practice', severity: 'warning', pattern: /:\s*any\b/, description: 'Usage of `any` type defeats TypeScript type safety.', suggestion: 'Use a specific type or `unknown` with type guards.' },
-  { id: 'BP-002', name: 'missing-return-type', category: 'best-practice', severity: 'suggestion', pattern: /export\s+(?:async\s+)?function\s+\w+\s*\([^)]*\)\s*\{/, description: 'Exported function is missing an explicit return type.', suggestion: 'Add a return type annotation for better API documentation.' },
+  { id: 'BP-002', name: 'missing-return-type', category: 'best-practice', severity: 'suggestion', pattern: /export\s+(?:async\s)?function\s+\w+\s*\([^)]*\)\s*\{/, description: 'Exported function is missing an explicit return type.', suggestion: 'Add a return type annotation for better API documentation.' },
 ]

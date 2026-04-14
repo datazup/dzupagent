@@ -97,7 +97,6 @@ const decoder = new TextDecoder()
  */
 async function tryImport(moduleName: string): Promise<unknown> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
     const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<unknown>
     return await dynamicImport(moduleName)
   } catch {

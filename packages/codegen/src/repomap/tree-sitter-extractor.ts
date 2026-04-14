@@ -357,7 +357,7 @@ function extractSignature(node: TSNode, content: string, kind: ExtractedSymbol['
   // Clean signature: strip trailing brace and 'export' prefix
   let sig = firstLine.trim()
     .replace(/\s*\{?\s*$/, '')
-    .replace(/^export\s+(default\s+)?/, '')
+    .replace(/^export\s+(?:default\s)?/, '')
     .trim()
 
   // For classes/interfaces/enums, don't include the body
@@ -454,7 +454,7 @@ function walkTree(
           const resolvedKind: ExtractedSymbol['kind'] = isFunction ? 'function' : 'const'
 
           if (valuableTypes.has(value.type) || resolvedKind === 'const') {
-            symbols.push({
+            const sym: ASTSymbol = {
               name,
               kind: resolvedKind,
               signature: extractSignature(node, content, resolvedKind),
@@ -463,17 +463,23 @@ function walkTree(
               endLine: node.endPosition.row + 1,
               column: node.startPosition.column,
               endColumn: node.endPosition.column,
-              parent: parentName,
               language,
               filePath,
-              docstring: extractDocstring(node),
-              parameters: isFunction ? extractParameters(value) : undefined,
-              returnType: isFunction ? extractReturnType(value) : undefined,
-            })
+            }
+            if (parentName !== undefined) sym.parent = parentName
+            const ds = extractDocstring(node)
+            if (ds !== undefined) sym.docstring = ds
+            if (isFunction) {
+              const params = extractParameters(value)
+              if (params !== undefined) sym.parameters = params
+              const rt = extractReturnType(value)
+              if (rt !== undefined) sym.returnType = rt
+            }
+            symbols.push(sym)
           }
         }
       } else {
-        symbols.push({
+        const sym: ASTSymbol = {
           name,
           kind,
           signature: extractSignature(node, content, kind),
@@ -482,13 +488,17 @@ function walkTree(
           endLine: node.endPosition.row + 1,
           column: node.startPosition.column,
           endColumn: node.endPosition.column,
-          parent: parentName,
           language,
           filePath,
-          docstring: extractDocstring(node),
-          parameters: extractParameters(node),
-          returnType: extractReturnType(node),
-        })
+        }
+        if (parentName !== undefined) sym.parent = parentName
+        const ds = extractDocstring(node)
+        if (ds !== undefined) sym.docstring = ds
+        const params = extractParameters(node)
+        if (params !== undefined) sym.parameters = params
+        const rt = extractReturnType(node)
+        if (rt !== undefined) sym.returnType = rt
+        symbols.push(sym)
       }
 
       // For classes, recurse into children with this name as parent

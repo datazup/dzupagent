@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import {
   ABTestRunner,
@@ -201,7 +201,7 @@ describe('ContainsKeywordsScorer', () => {
 // ---------------------------------------------------------------------------
 
 describe('ABTestRunner', () => {
-  let bus: DzipEventBus
+  let bus: DzupEventBus
   let registry: AdapterRegistry
 
   beforeEach(() => {
@@ -446,6 +446,35 @@ describe('ABTestRunner', () => {
 
       await runner.run(plan)
       expect(maxConcurrent).toBeLessThanOrEqual(2)
+    })
+
+    it.each([
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['-Infinity', Number.NEGATIVE_INFINITY],
+      ['NaN', Number.NaN],
+      ['zero', 0],
+      ['negative', -1],
+      ['non-integer', 1.5],
+    ])('rejects %s as maxConcurrency', async (_, maxConcurrency) => {
+      const adapter = createMockAdapter(
+        'claude',
+        completedEvents('claude', 'hello'),
+      )
+      registry.register(adapter)
+
+      const runner = new ABTestRunner({ registry, eventBus: bus })
+
+      const plan: ABTestPlan = {
+        name: 'invalid-concurrency',
+        variants: [makeVariant('control', 'claude')],
+        testCases: [makeTestCase('t1', 'prompt')],
+        scorers: [new LengthScorer()],
+        maxConcurrency,
+      }
+
+      await expect(runner.run(plan)).rejects.toThrow(
+        `ABTestRunner maxConcurrency must be a finite positive integer; received ${String(maxConcurrency)}`,
+      )
     })
   })
 })

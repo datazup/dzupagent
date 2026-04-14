@@ -1,5 +1,5 @@
 /**
- * Shared types for the DzipAgent Playground SPA.
+ * Shared types for the DzupAgent Playground SPA.
  */
 
 // ── Chat ─────────────────────────────────────────────────
@@ -185,6 +185,251 @@ export interface RunTrace {
     durationMs?: number
   }>
   usage?: TokenUsage
+}
+
+// ── Evals ───────────────────────────────────────────────
+
+export type EvalRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface EvalScorerResult {
+  score: number
+  pass: boolean
+  reasoning?: string
+}
+
+export interface EvalCaseResult {
+  caseId: string
+  scorerResults: Array<{
+    scorerName: string
+    result: EvalScorerResult
+  }>
+  aggregateScore: number
+  pass: boolean
+}
+
+export interface EvalRunResult {
+  suiteId: string
+  timestamp: string
+  results: EvalCaseResult[]
+  aggregateScore: number
+  passRate: number
+}
+
+export interface EvalSuiteSummary {
+  name: string
+  description?: string
+  cases?: Array<{ id: string }>
+  scorers?: Array<{ name: string }>
+}
+
+export interface EvalRunError {
+  code: string
+  message: string
+}
+
+export interface EvalRunRecovery {
+  previousStatus: 'running'
+  previousStartedAt?: string
+  recoveredAt: string
+  reason: 'process-restart'
+}
+
+export interface EvalRunAttemptRecord {
+  attempt: number
+  status: EvalRunStatus
+  queuedAt: string
+  startedAt?: string
+  completedAt?: string
+  result?: EvalRunResult
+  error?: EvalRunError
+  recovery?: EvalRunRecovery
+}
+
+export interface EvalRunRecord {
+  id: string
+  suiteId: string
+  suite: EvalSuiteSummary
+  status: EvalRunStatus
+  createdAt: string
+  queuedAt: string
+  startedAt?: string
+  completedAt?: string
+  result?: EvalRunResult
+  error?: EvalRunError
+  recovery?: EvalRunRecovery
+  attemptHistory?: EvalRunAttemptRecord[]
+  metadata?: Record<string, unknown>
+  attempts: number
+}
+
+export interface EvalRunListMeta {
+  service: string
+  mode: 'active' | 'read-only'
+  writable: boolean
+  filters: {
+    suiteId?: string
+    status?: EvalRunStatus
+    limit: number
+  }
+}
+
+export interface EvalRunListResponse {
+  success: boolean
+  data: EvalRunRecord[]
+  count: number
+  meta: EvalRunListMeta
+}
+
+export interface EvalRunResponse {
+  success: boolean
+  data: EvalRunRecord
+}
+
+export interface EvalHealth {
+  service: string
+  status: string
+  mode: 'active' | 'read-only'
+  writable: boolean
+  endpoints: string[]
+}
+
+export interface EvalHealthResponse {
+  success: boolean
+  data: EvalHealth
+}
+
+export interface EvalQueueStats {
+  pending: number
+  active: number
+  oldestPendingAgeMs: number | null
+  enqueued: number
+  started: number
+  completed: number
+  failed: number
+  cancelled: number
+  retried: number
+  recovered: number
+  requeued: number
+}
+
+export interface EvalQueueStatsResponse {
+  success: boolean
+  data: {
+    service: string
+    mode: 'active' | 'read-only'
+    writable: boolean
+    queue: EvalQueueStats
+  }
+}
+
+// ── Benchmarks ───────────────────────────────────────────
+
+export interface BenchmarkResult {
+  suiteId: string
+  timestamp: string
+  scores: Record<string, number>
+  passedBaseline: boolean
+  regressions: string[]
+}
+
+export interface BenchmarkRunArtifact {
+  suiteVersion?: string
+  datasetHash?: string
+  promptConfigVersion?: string
+  promptVersion?: string
+  configVersion?: string
+  buildSha?: string
+  modelProfile?: string
+}
+
+export interface BenchmarkRunRecord {
+  id: string
+  suiteId: string
+  targetId: string
+  result: BenchmarkResult
+  createdAt: string
+  strict: boolean
+  metadata?: Record<string, unknown>
+  artifact?: BenchmarkRunArtifact
+}
+
+export interface BenchmarkRunListQuery {
+  suiteId?: string
+  targetId?: string
+  limit?: number
+  cursor?: string
+}
+
+export interface BenchmarkRunListMeta {
+  filters: {
+    suiteId?: string
+    targetId?: string
+    limit: number
+    cursor?: string
+  }
+  pagination?: {
+    cursor?: string
+    hasMore: boolean
+    nextCursor: string | null
+  }
+  hasMore?: boolean
+  nextCursor?: string | null
+}
+
+export interface BenchmarkRunListResponse {
+  success: boolean
+  data: BenchmarkRunRecord[]
+  count: number
+  meta: BenchmarkRunListMeta
+}
+
+export interface BenchmarkBaselineRecord {
+  suiteId: string
+  targetId: string
+  runId: string
+  result: BenchmarkResult
+  updatedAt: string
+}
+
+export interface BenchmarkComparison {
+  improved: string[]
+  regressed: string[]
+  unchanged: string[]
+}
+
+export interface BenchmarkCompareRecord {
+  currentRun: BenchmarkRunRecord
+  previousRun: BenchmarkRunRecord
+  comparison: BenchmarkComparison
+}
+
+export interface BenchmarkRunCreateInput {
+  suiteId: string
+  targetId: string
+  strict?: boolean
+  metadata?: Record<string, unknown>
+  artifact?: BenchmarkRunArtifact
+}
+
+export interface BenchmarkRunResponse {
+  success: boolean
+  data: BenchmarkRunRecord
+}
+
+export interface BenchmarkCompareResponse {
+  success: boolean
+  data: BenchmarkCompareRecord
+}
+
+export interface BenchmarkBaselineListResponse {
+  success: boolean
+  data: BenchmarkBaselineRecord[]
+  count: number
+}
+
+export interface BenchmarkBaselineResponse {
+  success: boolean
+  data: BenchmarkBaselineRecord
 }
 
 // ── Health ───────────────────────────────────────────────

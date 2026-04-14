@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
-import { DzipAgent } from '../agent/dzip-agent.js'
+import { DzupAgent } from '../agent/dzip-agent.js'
 import { AgentOrchestrator } from '../orchestration/orchestrator.js'
 import { ContractNetManager } from '../orchestration/contract-net/contract-net-manager.js'
 import { OrchestrationError } from '../orchestration/orchestration-error.js'
@@ -43,8 +43,8 @@ function createMockModel(
   } as unknown as BaseChatModel
 }
 
-function createAgent(id: string, description: string, model: BaseChatModel): DzipAgent {
-  return new DzipAgent({
+function createAgent(id: string, description: string, model: BaseChatModel): DzupAgent {
+  return new DzupAgent({
     id,
     description,
     instructions: `You are ${id}.`,

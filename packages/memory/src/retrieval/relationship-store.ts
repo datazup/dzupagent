@@ -7,6 +7,10 @@
  *   [...baseNamespace, "__edges"]  → reverse key  "rev::${to}::${type}::${from}"
  */
 import type { BaseStore } from '@langchain/langgraph'
+import {
+  getMemoryStoreCapabilities,
+  type MemoryStoreCapabilities,
+} from '../store-capabilities.js'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -36,9 +40,9 @@ export type RelationshipType =
   | 'deprecated_by'
 
 export interface EdgeMetadata {
-  scope?: string
-  conditions?: string
-  evidence?: string
+  scope?: string | undefined
+  conditions?: string | undefined
+  evidence?: string | undefined
   confidence: number
 }
 
@@ -47,7 +51,7 @@ export interface RelationshipEdge {
   toKey: string
   type: RelationshipType
   createdAt: number
-  metadata?: EdgeMetadata
+  metadata?: EdgeMetadata | undefined
 }
 
 export interface TraversalResult {
@@ -113,13 +117,40 @@ const CAUSAL_TYPES: RelationshipType[] = ['causes', 'triggers', 'prevents']
 // ---------------------------------------------------------------------------
 
 export class RelationshipStore {
+  private readonly capabilities: MemoryStoreCapabilities
+
   constructor(
     private readonly store: BaseStore,
     private readonly baseNamespace: string[],
-  ) {}
+  ) {
+    this.capabilities = getMemoryStoreCapabilities(store)
+  }
 
   private get edgeNamespace(): string[] {
     return [...this.baseNamespace, '__edges']
+  }
+
+  private async searchEdges(
+    filter: Record<string, unknown>,
+    limit: number,
+  ): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
+    const searchOptions = this.capabilities.supportsSearchFilters
+      ? this.capabilities.supportsPagination
+        ? { filter, limit }
+        : { filter }
+      : undefined
+
+    const entries = await this.store.search(this.edgeNamespace, searchOptions)
+    return entries.filter((entry) => {
+      if (isTombstone(entry.value as Record<string, unknown>)) {
+        return false
+      }
+      if (this.capabilities.supportsSearchFilters) {
+        return true
+      }
+      return Object.entries(filter).every(([field, expected]) =>
+        (entry.value as Record<string, unknown>)[field] === expected)
+    }).slice(0, limit)
   }
 
   // -----------------------------------------------------------------------
@@ -141,8 +172,14 @@ export class RelationshipStore {
   /** Remove a specific edge (both forward and reverse). */
   async removeEdge(fromKey: string, type: RelationshipType, toKey: string): Promise<void> {
     try {
-      await this.store.delete(this.edgeNamespace, forwardKey(fromKey, type, toKey))
-      await this.store.delete(this.edgeNamespace, reverseKey(toKey, type, fromKey))
+      if (this.capabilities.supportsDelete) {
+        await this.store.delete(this.edgeNamespace, forwardKey(fromKey, type, toKey))
+        await this.store.delete(this.edgeNamespace, reverseKey(toKey, type, fromKey))
+        return
+      }
+
+      await this.store.put(this.edgeNamespace, forwardKey(fromKey, type, toKey), tombstoneValue())
+      await this.store.put(this.edgeNamespace, reverseKey(toKey, type, fromKey), tombstoneValue())
     } catch {
       // Non-fatal
     }
@@ -174,10 +211,7 @@ export class RelationshipStore {
       const results: RelationshipEdge[] = []
 
       if (direction === 'outgoing' || direction === 'both') {
-        const entries = await this.store.search(this.edgeNamespace, {
-          filter: { fromKey: key, _direction: 'outgoing' },
-          limit: 1000,
-        })
+        const entries = await this.searchEdges({ fromKey: key, _direction: 'outgoing' }, 1000)
         for (const entry of entries) {
           const edge = valueToEdge(entry.value as Record<string, unknown>)
           if (!edge) continue
@@ -187,10 +221,7 @@ export class RelationshipStore {
       }
 
       if (direction === 'incoming' || direction === 'both') {
-        const entries = await this.store.search(this.edgeNamespace, {
-          filter: { toKey: key, _direction: 'incoming' },
-          limit: 1000,
-        })
+        const entries = await this.searchEdges({ toKey: key, _direction: 'incoming' }, 1000)
         for (const entry of entries) {
           const edge = valueToEdge(entry.value as Record<string, unknown>)
           if (!edge) continue
@@ -316,10 +347,7 @@ export class RelationshipStore {
   /** Get all edges in the store (for stats/debugging). */
   async getAllEdges(limit: number = 1000): Promise<RelationshipEdge[]> {
     try {
-      const entries = await this.store.search(this.edgeNamespace, {
-        filter: { _direction: 'outgoing' },
-        limit,
-      })
+      const entries = await this.searchEdges({ _direction: 'outgoing' }, limit)
 
       const edges: RelationshipEdge[] = []
       for (const entry of entries) {
@@ -355,5 +383,16 @@ export class RelationshipStore {
     } catch {
       return new Map()
     }
+  }
+}
+
+function isTombstone(value: Record<string, unknown>): boolean {
+  return value['_tombstone'] === true
+}
+
+function tombstoneValue(): Record<string, unknown> {
+  return {
+    _tombstone: true,
+    _deletedAt: new Date().toISOString(),
   }
 }

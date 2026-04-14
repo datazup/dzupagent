@@ -5,8 +5,8 @@ import {
   InMemoryAgentStore,
   ModelRegistry,
   createEventBus,
-} from '@dzipagent/core'
-import type { MemoryServiceLike } from '@dzipagent/memory-ipc'
+} from '@dzupagent/core'
+import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
 
 /**
  * Minimal in-memory MemoryServiceLike implementation for testing.

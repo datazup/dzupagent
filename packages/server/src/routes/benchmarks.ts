@@ -1,14 +1,15 @@
 import { Hono } from 'hono'
-import type { BenchmarkSuite } from '@dzipagent/evals'
+import type { BenchmarkSuite } from '@dzupagent/evals'
 import {
   CODE_GEN_SUITE,
   QA_SUITE,
   TOOL_USE_SUITE,
   MULTI_TURN_SUITE,
   VECTOR_SEARCH_SUITE,
-} from '@dzipagent/evals'
+} from '@dzupagent/evals'
 import {
   InMemoryBenchmarkRunStore,
+  type BenchmarkRunArtifactRecord,
   type BenchmarkRunStore,
 } from '../persistence/benchmark-run-store.js'
 import { BenchmarkOrchestrator } from '../services/benchmark-orchestrator.js'
@@ -19,6 +20,8 @@ export interface BenchmarkRouteConfig {
     input: string,
     metadata?: Record<string, unknown>,
   ) => Promise<string>
+  /** Explicitly allow non-strict benchmark fallback behavior. */
+  allowNonStrictExecution?: boolean
   suites?: Record<string, BenchmarkSuite>
   store?: BenchmarkRunStore
 }
@@ -28,12 +31,150 @@ function defaultSuites(): Record<string, BenchmarkSuite> {
   return Object.fromEntries(suites.map((s) => [s.id, s]))
 }
 
+const DEFAULT_LIMIT = 50
+const MAX_LIMIT = 250
+
+function parseLimit(raw: string | undefined): { limit: number; invalid: boolean } {
+  if (raw === undefined) {
+    return { limit: DEFAULT_LIMIT, invalid: false }
+  }
+
+  const parsed = Number(raw)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return { limit: DEFAULT_LIMIT, invalid: true }
+  }
+
+  return {
+    limit: Math.min(MAX_LIMIT, parsed),
+    invalid: false,
+  }
+}
+
+interface BenchmarkRunCursor {
+  createdAt: string
+  id: string
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isPlainObject(value) && Object.values(value).every((entry) => typeof entry === 'string')
+}
+
+function parseArtifact(raw: unknown): { artifact?: BenchmarkRunArtifactRecord; invalid: boolean } {
+  if (raw === undefined) {
+    return { artifact: undefined, invalid: false }
+  }
+
+  if (!isStringRecord(raw)) {
+    return { artifact: undefined, invalid: true }
+  }
+
+  const artifact = raw as Record<string, string>
+  const requiredKeys: Array<keyof BenchmarkRunArtifactRecord> = [
+    'suiteVersion',
+    'datasetHash',
+    'promptConfigVersion',
+    'buildSha',
+    'modelProfile',
+  ]
+
+  if (!requiredKeys.every((key) => typeof artifact[key] === 'string' && artifact[key].trim().length > 0)) {
+    return { artifact: undefined, invalid: true }
+  }
+
+  const typedArtifact = artifact as unknown as BenchmarkRunArtifactRecord
+  return {
+    artifact: typedArtifact,
+    invalid: false,
+  }
+}
+
+function parseCursor(raw: string | undefined): { cursor: string | undefined; invalid: boolean } {
+  if (raw === undefined) {
+    return { cursor: undefined, invalid: false }
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown
+    if (!isPlainObject(parsed)) {
+      return { cursor: undefined, invalid: true }
+    }
+
+    const cursor = parsed as Partial<BenchmarkRunCursor>
+    if (typeof cursor.createdAt !== 'string' || typeof cursor.id !== 'string') {
+      return { cursor: undefined, invalid: true }
+    }
+
+    return { cursor: raw, invalid: false }
+  } catch {
+    return { cursor: undefined, invalid: true }
+  }
+}
+
+function buildValidationError(message: string) {
+  return { code: 'VALIDATION_ERROR', message }
+}
+
+function parseStrict(raw: unknown): { strict?: boolean; invalid: boolean } {
+  if (raw === undefined) {
+    return { strict: undefined, invalid: false }
+  }
+
+  if (typeof raw !== 'boolean') {
+    return { strict: undefined, invalid: true }
+  }
+
+  return { strict: raw, invalid: false }
+}
+
 export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono {
   const app = new Hono()
   const orchestrator = new BenchmarkOrchestrator({
     suites: config.suites ?? defaultSuites(),
     executeTarget: config.executeTarget,
+    allowNonStrictExecution: config.allowNonStrictExecution,
     store: config.store ?? new InMemoryBenchmarkRunStore(),
+  })
+
+  app.get('/runs', async (c) => {
+    const suiteId = c.req.query('suiteId') || undefined
+    const targetId = c.req.query('targetId') || undefined
+    const rawLimit = c.req.query('limit') || undefined
+    const rawCursor = c.req.query('cursor') || undefined
+    const { limit, invalid } = parseLimit(rawLimit)
+    const { cursor, invalid: invalidCursor } = parseCursor(rawCursor)
+
+    if (invalid || invalidCursor) {
+      return c.json({
+        success: false,
+        error: buildValidationError(
+          invalid ? 'limit must be a positive integer' : 'cursor must be a valid pagination cursor',
+        ),
+      }, 400)
+    }
+
+    const page = await orchestrator.listRuns({ suiteId, targetId, limit, cursor })
+    return c.json({
+      success: true,
+      data: page.data,
+      count: page.data.length,
+      meta: {
+        service: 'benchmarks',
+        filters: {
+          ...(suiteId ? { suiteId } : {}),
+          ...(targetId ? { targetId } : {}),
+          limit,
+        },
+        pagination: {
+          ...(cursor ? { cursor } : {}),
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+        },
+      },
+    })
   })
 
   app.post('/runs', async (c) => {
@@ -41,18 +182,35 @@ export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono {
       const body = await c.req.json<{
         suiteId: string
         targetId: string
-        strict?: boolean
+        strict?: unknown
         metadata?: Record<string, unknown>
+        artifact?: unknown
       }>()
       if (!body.suiteId || !body.targetId) {
         return c.json({ error: { code: 'VALIDATION_ERROR', message: 'suiteId and targetId are required' } }, 400)
       }
 
+      const { artifact, invalid } = parseArtifact(body.artifact)
+      if (invalid) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: 'artifact must include suiteVersion, datasetHash, promptConfigVersion, buildSha, and modelProfile' } }, 400)
+      }
+
+      const strict = parseStrict(body.strict)
+      if (strict.invalid) {
+        return c.json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'strict must be a boolean when provided',
+          },
+        }, 400)
+      }
+
       const run = await orchestrator.runSuite({
         suiteId: body.suiteId,
         targetId: body.targetId,
-        strict: body.strict,
+        strict: strict.strict,
         metadata: body.metadata,
+        ...(artifact ? { artifact } : {}),
       })
 
       return c.json({ data: run }, 201)
@@ -135,4 +293,3 @@ export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono {
 
   return app
 }
-

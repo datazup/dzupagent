@@ -1,5 +1,5 @@
 /**
- * Role-Based Access Control (RBAC) middleware for DzipAgent server.
+ * Role-Based Access Control (RBAC) middleware for DzupAgent server.
  *
  * Provides role-permission mapping and middleware guards that check
  * whether the current request's role has permission to access a resource.

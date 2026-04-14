@@ -1,6 +1,6 @@
 {
-  "name": "@dzipagent/testing",
-  "version": "0.1.0",
+  "name": "@dzupagent/testing",
+  "version": "0.2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,9 +19,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "vitest": "^1.6.0",
-    "typescript": "^5.4.0",
-    "tsup": "^8.0.0"
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "files": [
     "dist"

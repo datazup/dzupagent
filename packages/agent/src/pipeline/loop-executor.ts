@@ -5,7 +5,7 @@
  * @module pipeline/loop-executor
  */
 
-import type { LoopNode, PipelineNode } from '@dzipagent/core'
+import type { LoopNode, PipelineNode } from '@dzupagent/core'
 import type {
   NodeExecutor,
   NodeExecutionContext,

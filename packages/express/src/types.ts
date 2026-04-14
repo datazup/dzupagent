@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express'
-import type { DzipAgent, GenerateResult } from '@dzipagent/agent'
+import type { DzupAgent, GenerateResult } from '@dzupagent/agent'
 
 /**
  * A single SSE event to be written to the response stream.
@@ -14,15 +14,15 @@ export interface SSEEvent {
 }
 
 /**
- * Result collected from streaming a DzipAgent to completion.
+ * Result collected from streaming a DzupAgent to completion.
  */
 export interface AgentResult {
   /** Full accumulated text content */
   content: string
   /** Token usage if reported by the agent */
-  usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number } | undefined
   /** Estimated cost in USD if reported */
-  cost?: number
+  cost?: number | undefined
   /** Number of tool calls made during the stream */
   toolCalls: number
   /** Wall-clock duration in milliseconds */
@@ -67,8 +67,8 @@ export interface ChatRequestBody {
  * Configuration for the Express router factory.
  */
 export interface AgentRouterConfig {
-  /** Map of agent name to DzipAgent instance */
-  agents: Record<string, DzipAgent>
+  /** Map of agent name to DzupAgent instance */
+  agents: Record<string, DzupAgent>
   /** Express auth middleware to apply to all routes */
   auth?: (req: Request, res: Response, next: NextFunction) => void
   /** SSE streaming configuration */

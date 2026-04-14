@@ -21,14 +21,15 @@
  * ```
  */
 
-import type { DzipEventBus, PipelineDefinition, PipelineNode } from '@dzipagent/core'
-import { PipelineRuntime } from '@dzipagent/agent'
+import { ForgeError } from '@dzupagent/core'
+import type { DzupEventBus, PipelineDefinition, PipelineNode } from '@dzupagent/core'
+import { PipelineRuntime } from '@dzupagent/agent'
 import type {
   NodeExecutionContext,
   NodeExecutor,
   NodeResult,
   PipelineRuntimeEvent,
-} from '@dzipagent/agent'
+} from '@dzupagent/agent'
 
 import type { AdapterRegistry } from '../registry/adapter-registry.js'
 import type {
@@ -39,6 +40,9 @@ import type {
   AgentInput,
   TaskDescriptor,
 } from '../types.js'
+import { TemplateResolver } from './template-resolver.js'
+import type { TemplateContext } from './template-resolver.js'
+import { WorkflowValidator } from './workflow-validator.js'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -47,7 +51,10 @@ import type {
 /** Configuration for the adapter workflow. */
 export interface AdapterWorkflowConfig {
   id: string
-  description?: string
+  /** Semantic version of this workflow definition. Default: '1.0.0' */
+  version?: string | undefined
+  /** Human-readable description */
+  description?: string | undefined
 }
 
 /** Configuration for a single workflow step. */
@@ -57,21 +64,32 @@ export interface AdapterStepConfig {
   /** Prompt template. Can use {{prev}} for previous step result and {{state.key}} for state access */
   prompt: string
   /** Tags for routing */
-  tags?: string[]
+  tags?: string[] | undefined
   /** Preferred provider for this step */
-  preferredProvider?: AdapterProviderId
+  preferredProvider?: AdapterProviderId | undefined
   /** Whether this step requires reasoning */
-  requiresReasoning?: boolean
+  requiresReasoning?: boolean | undefined
   /** Whether this step requires execution */
-  requiresExecution?: boolean
+  requiresExecution?: boolean | undefined
   /** Max retries on failure. Default 0 */
-  maxRetries?: number
+  maxRetries?: number | undefined
   /** System prompt override for this step */
-  systemPrompt?: string
+  systemPrompt?: string | undefined
   /** Working directory override */
-  workingDirectory?: string
+  workingDirectory?: string | undefined
   /** Max turns for the adapter */
-  maxTurns?: number
+  maxTurns?: number | undefined
+  /** Per-step timeout in ms. Independent of adapter timeout. */
+  timeoutMs?: number | undefined
+  /** Skip this step if condition returns true */
+  skipIf?: (state: Record<string, unknown>) => boolean
+  /** Default value when step is skipped */
+  skipDefault?: string | undefined
+  /**
+   * Function-based prompt for type-safe state access.
+   * Takes precedence over `prompt` string if both provided.
+   */
+  promptFn?: (state: Record<string, unknown>) => string
 }
 
 /** Result of the entire workflow. */
@@ -81,6 +99,9 @@ export interface AdapterWorkflowResult {
   finalState: Record<string, unknown>
   stepResults: AdapterStepResult[]
   totalDurationMs: number
+  cancelled?: true | undefined
+  /** Semantic version of the workflow definition that produced this result */
+  version?: string | undefined
 }
 
 /** Result of a single step. */
@@ -91,7 +112,7 @@ export interface AdapterStepResult {
   success: boolean
   durationMs: number
   retries: number
-  error?: string
+  error?: string | undefined
 }
 
 /** Condition function for branching. Returns the branch key to follow. */
@@ -100,9 +121,23 @@ export type BranchCondition = (state: Record<string, unknown>) => string
 /** Merge strategy for parallel step results. */
 export type ParallelMergeStrategy = 'merge' | 'concat' | 'last-wins'
 
+/** Configuration for a loop construct in the workflow DSL. */
+export interface LoopConfig {
+  /** Unique identifier for this loop */
+  id: string
+  /** Maximum iterations before forced exit (safety bound) */
+  maxIterations: number
+  /** Continue looping while this returns true. Return false to exit. */
+  condition: (state: Record<string, unknown>) => boolean
+  /** Steps to execute each iteration */
+  steps: AdapterStepConfig[]
+  /** Action when maxIterations reached. Default: 'continue' */
+  onMaxIterations?: 'continue' | 'fail'
+}
+
 /** Events emitted during workflow execution. */
 export type AdapterWorkflowEvent =
-  | { type: 'workflow:started'; workflowId: string }
+  | { type: 'workflow:started'; workflowId: string; version?: string | undefined }
   | { type: 'step:started'; workflowId: string; stepId: string }
   | { type: 'step:completed'; workflowId: string; stepId: string; durationMs: number; providerId: string }
   | { type: 'step:failed'; workflowId: string; stepId: string; error: string; retryCount: number }
@@ -110,7 +145,8 @@ export type AdapterWorkflowEvent =
   | { type: 'parallel:started'; workflowId: string; stepIds: string[] }
   | { type: 'parallel:completed'; workflowId: string; stepIds: string[]; durationMs: number }
   | { type: 'branch:evaluated'; workflowId: string; selected: string }
-  | { type: 'workflow:completed'; workflowId: string; durationMs: number }
+  | { type: 'workflow:completed'; workflowId: string; durationMs: number; version?: string | undefined }
+  | { type: 'step:skipped'; workflowId: string; stepId: string }
   | { type: 'workflow:failed'; workflowId: string; error: string }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +158,7 @@ type AdapterWorkflowNode =
   | { type: 'parallel'; steps: AdapterStepConfig[]; mergeStrategy: ParallelMergeStrategy }
   | { type: 'branch'; condition: BranchCondition; branches: Record<string, AdapterStepConfig[]> }
   | { type: 'transform'; id: string; fn: (state: Record<string, unknown>) => Record<string, unknown> }
+  | { type: 'loop'; config: LoopConfig }
 
 interface AdapterWorkflowCompilation {
   definition: PipelineDefinition
@@ -137,52 +174,31 @@ interface AdapterWorkflowCompilation {
 
 const PREV_RESULT_STATE_KEY = '__adapter_workflow_internal_prev_result'
 
+function resolveFallbackProviderId(
+  registry: AdapterRegistry,
+  preferredProvider?: AdapterProviderId,
+): AdapterProviderId {
+  return preferredProvider ?? registry.listAdapters()[0] ?? ('unknown' as AdapterProviderId)
+}
+
 // ---------------------------------------------------------------------------
-// Template resolution
+// Template resolution (delegated to TemplateResolver)
 // ---------------------------------------------------------------------------
+
+/** Shared resolver instance used by the compilation and execution logic. */
+const sharedTemplateResolver = new TemplateResolver()
 
 /**
  * Resolve template variables in a prompt string.
- *
- * Supported patterns:
- * - `{{prev}}` -- replaced with the previous step's result
- * - `{{state.key}}` -- replaced with a value from accumulated state
+ * Thin wrapper around TemplateResolver for backward compatibility.
  */
 function resolveTemplate(
   template: string,
   state: Record<string, unknown>,
   prevResult?: string,
 ): string {
-  let resolved = template
-
-  // Replace {{prev}} with previous step result
-  resolved = resolved.replace(/\{\{prev\}\}/g, prevResult ?? '')
-
-  // Replace {{state.key}} with state values (supports dotted paths)
-  resolved = resolved.replace(/\{\{state\.([a-zA-Z0-9_.]+)\}\}/g, (_match, key: string) => {
-    const value = resolveStatePath(state, key)
-    if (value === undefined) return ''
-    return typeof value === 'string' ? value : JSON.stringify(value)
-  })
-
-  return resolved
-}
-
-/**
- * Resolve a dotted path against a state object.
- * E.g. "foo.bar" resolves state.foo.bar.
- */
-function resolveStatePath(state: Record<string, unknown>, path: string): unknown {
-  const parts = path.split('.')
-  let current: unknown = state
-
-  for (const part of parts) {
-    if (current === null || current === undefined) return undefined
-    if (typeof current !== 'object') return undefined
-    current = (current as Record<string, unknown>)[part]
-  }
-
-  return current
+  const context: TemplateContext = { prev: prevResult, state }
+  return sharedTemplateResolver.resolve(template, context)
 }
 
 // ---------------------------------------------------------------------------
@@ -203,9 +219,9 @@ function isFailedEvent(event: AgentEvent): event is AgentFailedEvent {
 
 /** Options for running a workflow. */
 export interface AdapterWorkflowRunOptions {
-  initialState?: Record<string, unknown>
-  signal?: AbortSignal
-  eventBus?: DzipEventBus
+  initialState?: Record<string, unknown> | undefined
+  signal?: AbortSignal | undefined
+  eventBus?: DzupEventBus | undefined
   onEvent?: (event: AdapterWorkflowEvent) => void
 }
 
@@ -253,7 +269,19 @@ export class AdapterWorkflow {
     const overallStart = Date.now()
     let failureEventEmitted = false
 
-    emit({ type: 'workflow:started', workflowId: this.workflowConfig.id })
+    emit({ type: 'workflow:started', workflowId: this.workflowConfig.id, ...(this.workflowConfig.version !== undefined ? { version: this.workflowConfig.version } : {}) })
+
+    if (options?.signal?.aborted) {
+      return {
+        workflowId: this.workflowConfig.id,
+        success: false,
+        finalState: this.publicStateFrom(latestObservedState),
+        stepResults,
+        totalDurationMs: Date.now() - overallStart,
+        cancelled: true,
+        version: this.workflowConfig.version,
+      }
+    }
 
     try {
       const runtime = new PipelineRuntime({
@@ -263,7 +291,7 @@ export class AdapterWorkflow {
         }),
         // Runtime accepts branch keys as strings, but config type narrows to boolean.
         predicates: this.compilation.predicates as Record<string, (state: Record<string, unknown>) => boolean>,
-        signal: options?.signal,
+        ...(options?.signal !== undefined ? { signal: options.signal } : {}),
         onEvent: (event) => this.handleRuntimeEvent(event, emit, () => {
           failureEventEmitted = true
         }),
@@ -282,9 +310,21 @@ export class AdapterWorkflow {
         finalState: this.publicStateFrom(latestObservedState),
         stepResults,
         totalDurationMs,
+        version: this.workflowConfig.version,
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      if (ForgeError.is(err) && err.code === 'AGENT_ABORTED') {
+        return {
+          workflowId: this.workflowConfig.id,
+          success: false,
+          finalState: this.publicStateFrom(latestObservedState),
+          stepResults,
+          totalDurationMs: Date.now() - overallStart,
+          cancelled: true,
+          version: this.workflowConfig.version,
+        }
+      }
       if (!failureEventEmitted) {
         emit({ type: 'workflow:failed', workflowId: this.workflowConfig.id, error: message })
       }
@@ -295,6 +335,7 @@ export class AdapterWorkflow {
         finalState: this.publicStateFrom(latestObservedState),
         stepResults,
         totalDurationMs: Date.now() - overallStart,
+        version: this.workflowConfig.version,
       }
     }
   }
@@ -310,6 +351,7 @@ export class AdapterWorkflow {
           type: 'workflow:completed',
           workflowId: this.workflowConfig.id,
           durationMs: event.totalDurationMs,
+          ...(this.workflowConfig.version !== undefined ? { version: this.workflowConfig.version } : {}),
         })
         break
       case 'pipeline:failed':
@@ -400,8 +442,22 @@ export class AdapterWorkflowBuilder {
     return this
   }
 
+  /** Add a loop construct that re-executes steps while a condition holds. */
+  loop(config: LoopConfig): this {
+    this.nodes.push({ type: 'loop', config })
+    return this
+  }
+
   /** Build into an executable workflow. */
   build(): AdapterWorkflow {
+    const validator = new WorkflowValidator(sharedTemplateResolver)
+    const result = validator.validate(this.nodes)
+    if (result.errors.length > 0) {
+      throw new ForgeError({
+        code: 'VALIDATION_FAILED',
+        message: `Workflow has validation errors:\n${result.errors.map((e) => `  ${e.stepId}: ${e.message}`).join('\n')}`,
+      })
+    }
     return new AdapterWorkflow(this.config, [...this.nodes])
   }
 }
@@ -412,7 +468,38 @@ export class AdapterWorkflowBuilder {
 
 /** Create a new adapter workflow builder with a fluent API. */
 export function defineWorkflow(config: AdapterWorkflowConfig): AdapterWorkflowBuilder {
-  return new AdapterWorkflowBuilder(config)
+  return new AdapterWorkflowBuilder({
+    ...config,
+    version: config.version ?? '1.0.0',
+  })
+}
+
+/**
+ * Create a step config with a typed prompt function.
+ * Provides type-safe state access via function instead of template strings.
+ *
+ * @example
+ * ```typescript
+ * interface MyState { research: string; plan: string }
+ *
+ * defineWorkflow({ id: 'pipeline' })
+ *   .step(typedStep<MyState>({
+ *     id: 'plan',
+ *     promptFn: (state) => `Create plan from: ${state.research}`,
+ *     tags: ['planning'],
+ *   }))
+ *   .build()
+ * ```
+ */
+export function typedStep<TState extends Record<string, unknown> = Record<string, unknown>>(
+  config: Omit<AdapterStepConfig, 'promptFn'> & {
+    promptFn: (state: TState) => string
+  },
+): AdapterStepConfig {
+  return {
+    ...config,
+    promptFn: config.promptFn as (state: Record<string, unknown>) => string,
+  }
 }
 
 function compileAdapterWorkflow(
@@ -530,7 +617,7 @@ function compileAdapterWorkflow(
           return {
             stepId: step.id,
             result: '',
-            providerId: step.preferredProvider ?? 'claude',
+            providerId: resolveFallbackProviderId(registry, step.preferredProvider),
             success: false,
             durationMs: 0,
             retries: 0,
@@ -639,6 +726,28 @@ function compileAdapterWorkflow(
         nextNodeIdInFlow = transformNodeId
         break
       }
+      case 'loop': {
+        const loopNodeId = addTransformNode(
+          'loop',
+          async (registry, state, signal, emit, stepResults) => {
+            const result = await executeLoop(
+              node.config,
+              config.id,
+              registry,
+              state,
+              emit,
+              stepResults,
+              signal,
+            )
+            Object.assign(state, result)
+            return { loopId: node.config.id, completed: true }
+          },
+          `loop:${node.config.id}`,
+        )
+        appendSequential(loopNodeId, nextNodeIdInFlow)
+        nextNodeIdInFlow = loopNodeId
+        break
+      }
       case 'branch': {
         const { nodeId, predicateName } = addBranchSelectorNode(node.condition, node.branches)
         const branchTargets: Record<string, string> = {}
@@ -671,9 +780,9 @@ function compileAdapterWorkflow(
   const definition: PipelineDefinition = {
     id: config.id,
     name: config.id,
-    version: '1.0.0',
+    version: config.version ?? '1.0.0',
     schemaVersion: '1.0.0',
-    description: config.description,
+    ...(config.description !== undefined ? { description: config.description } : {}),
     entryNodeId: nextNodeIdInFlow,
     nodes: pipelineNodes,
     edges,
@@ -744,6 +853,62 @@ function compileAdapterWorkflow(
   }
 }
 
+async function executeLoop(
+  loopConfig: LoopConfig,
+  workflowId: string,
+  registry: AdapterRegistry,
+  state: Record<string, unknown>,
+  emit: (event: AdapterWorkflowEvent) => void,
+  stepResults: AdapterStepResult[],
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const currentState = { ...state }
+  for (let i = 0; i < loopConfig.maxIterations; i++) {
+    if (signal?.aborted) {
+      throw new ForgeError({
+        code: 'AGENT_ABORTED',
+        message: 'Workflow execution was aborted',
+        recoverable: false,
+      })
+    }
+    if (!loopConfig.condition(currentState)) break
+
+    currentState[`${loopConfig.id}_iteration`] = i + 1
+
+    for (const step of loopConfig.steps) {
+      const prevResult = typeof currentState[PREV_RESULT_STATE_KEY] === 'string'
+        ? (currentState[PREV_RESULT_STATE_KEY] as string)
+        : undefined
+      const result = await executeAdapterStep(
+        registry,
+        workflowId,
+        step,
+        currentState,
+        prevResult,
+        emit,
+        signal,
+      )
+      stepResults.push(result)
+      currentState[step.id] = result.result
+      if (result.success) {
+        currentState[PREV_RESULT_STATE_KEY] = result.result
+      }
+      if (!result.success) {
+        throw new Error(`Loop step "${step.id}" failed: ${result.error ?? 'unknown error'}`)
+      }
+    }
+  }
+
+  if (loopConfig.condition(currentState) && loopConfig.onMaxIterations === 'fail') {
+    throw new ForgeError({
+      code: 'ITERATION_LIMIT_EXCEEDED',
+      message: `Loop ${loopConfig.id} exceeded ${loopConfig.maxIterations} iterations`,
+    })
+  }
+
+  return currentState
+}
+
 async function executeAdapterStep(
   registry: AdapterRegistry,
   workflowId: string,
@@ -753,13 +918,31 @@ async function executeAdapterStep(
   emit: (event: AdapterWorkflowEvent) => void,
   signal?: AbortSignal,
 ): Promise<AdapterStepResult> {
+  // Check skip condition before executing the step
+  if (config.skipIf?.(state)) {
+    const skipResult = config.skipDefault ?? ''
+    emit({ type: 'step:skipped', workflowId, stepId: config.id })
+    return {
+      stepId: config.id,
+      result: skipResult,
+      providerId: resolveFallbackProviderId(registry, config.preferredProvider),
+      success: true,
+      durationMs: 0,
+      retries: 0,
+    }
+  }
+
   const maxRetries = config.maxRetries ?? 0
   let lastError: string | undefined
   let attempt = 0
 
   while (attempt <= maxRetries) {
     if (signal?.aborted) {
-      throw new Error('Workflow execution was aborted')
+      throw new ForgeError({
+        code: 'AGENT_ABORTED',
+        message: 'Workflow execution was aborted',
+        recoverable: false,
+      })
     }
 
     if (attempt > 0) {
@@ -775,8 +958,22 @@ async function executeAdapterStep(
     emit({ type: 'step:started', workflowId, stepId: config.id })
     const stepStart = Date.now()
 
+    // Derive a combined signal that respects both caller abort and per-step timeout
+    let effectiveSignal = signal
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+    if (config.timeoutMs != null) {
+      const timeoutController = new AbortController()
+      timeoutHandle = setTimeout(() => timeoutController.abort(), config.timeoutMs)
+      if (typeof timeoutHandle.unref === 'function') timeoutHandle.unref()
+      effectiveSignal = signal
+        ? AbortSignal.any([signal, timeoutController.signal])
+        : timeoutController.signal
+    }
+
     try {
-      const resolvedPrompt = resolveTemplate(config.prompt, state, prevResult)
+      const resolvedPrompt = config.promptFn
+        ? config.promptFn(state)
+        : resolveTemplate(config.prompt, state, prevResult)
 
       const task: TaskDescriptor = {
         prompt: resolvedPrompt,
@@ -792,10 +989,10 @@ async function executeAdapterStep(
         systemPrompt: config.systemPrompt,
         workingDirectory: config.workingDirectory,
         maxTurns: config.maxTurns,
-        signal,
+        signal: effectiveSignal,
       }
 
-      const { resultText, providerId } = await consumeAdapterEvents(registry, input, task, signal)
+      const { resultText, providerId } = await consumeAdapterEvents(registry, input, task, effectiveSignal)
       const durationMs = Date.now() - stepStart
 
       emit({
@@ -816,6 +1013,9 @@ async function executeAdapterStep(
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
+      if (ForgeError.is(err) && err.code === 'AGENT_ABORTED') {
+        throw err
+      }
       lastError = errorMessage
       const durationMs = Date.now() - stepStart
 
@@ -835,19 +1035,21 @@ async function executeAdapterStep(
       return {
         stepId: config.id,
         result: '',
-        providerId: config.preferredProvider ?? 'claude',
+        providerId: resolveFallbackProviderId(registry, config.preferredProvider),
         success: false,
         durationMs,
         retries: attempt,
         error: lastError,
       }
+    } finally {
+      if (timeoutHandle != null) clearTimeout(timeoutHandle)
     }
   }
 
   return {
     stepId: config.id,
     result: '',
-    providerId: config.preferredProvider ?? 'claude',
+    providerId: resolveFallbackProviderId(registry, config.preferredProvider),
     success: false,
     durationMs: 0,
     retries: attempt,
@@ -900,13 +1102,17 @@ async function consumeAdapterEvents(
   const generator = registry.executeWithFallback(input, task)
 
   let resultText = ''
-  let resultProviderId: AdapterProviderId = 'claude'
+  let resultProviderId = resolveFallbackProviderId(registry, task.preferredProvider)
   let completed = false
   let lastError: string | undefined
 
   for await (const event of generator) {
     if (signal?.aborted) {
-      throw new Error('Workflow execution was aborted')
+      throw new ForgeError({
+        code: 'AGENT_ABORTED',
+        message: 'Workflow execution was aborted',
+        recoverable: false,
+      })
     }
 
     if (isCompletedEvent(event)) {

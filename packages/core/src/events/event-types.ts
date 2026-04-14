@@ -25,22 +25,23 @@ export interface ToolStatSummary {
 }
 
 /**
- * Discriminated union of all events emitted through DzipEventBus.
+ * Discriminated union of all events emitted through DzupEventBus.
  *
  * Each event has a `type` discriminator and type-specific payload fields.
- * Use `DzipEvent['type']` to enumerate all event types.
+ * Use `DzupEvent['type']` to enumerate all event types.
  */
-export type DzipEvent =
+export type DzupEvent =
   // --- Agent lifecycle ---
   | { type: 'agent:started'; agentId: string; runId: string }
   | { type: 'agent:completed'; agentId: string; runId: string; durationMs: number }
   | { type: 'agent:failed'; agentId: string; runId: string; errorCode: ForgeErrorCode; message: string }
   | { type: 'agent:stream_delta'; agentId: string; runId: string; content: string }
   | { type: 'agent:stream_done'; agentId: string; runId: string; finalContent: string }
+  | { type: 'recovery:cancelled'; agentId: string; runId: string; attempts: number; durationMs: number; reason: string }
   // --- Tool lifecycle ---
-  | { type: 'tool:called'; toolName: string; input: unknown }
-  | { type: 'tool:result'; toolName: string; durationMs: number }
-  | { type: 'tool:error'; toolName: string; errorCode: ForgeErrorCode; message: string }
+  | { type: 'tool:called'; toolName: string; input: unknown; executionRunId?: string }
+  | { type: 'tool:result'; toolName: string; durationMs: number; executionRunId?: string }
+  | { type: 'tool:error'; toolName: string; errorCode: ForgeErrorCode; message: string; executionRunId?: string }
   // --- Memory ---
   | { type: 'memory:written'; namespace: string; key: string }
   | { type: 'memory:searched'; namespace: string; query: string; resultCount: number }
@@ -60,6 +61,13 @@ export type DzipEvent =
   // --- MCP ---
   | { type: 'mcp:connected'; serverName: string; toolCount: number }
   | { type: 'mcp:disconnected'; serverName: string }
+  | { type: 'mcp:server_added'; serverId: string; transport: string }
+  | { type: 'mcp:server_updated'; serverId: string; fields: string[] }
+  | { type: 'mcp:server_removed'; serverId: string }
+  | { type: 'mcp:server_enabled'; serverId: string }
+  | { type: 'mcp:server_disabled'; serverId: string }
+  | { type: 'mcp:test_passed'; serverId: string; toolCount: number }
+  | { type: 'mcp:test_failed'; serverId: string; error: string }
   // --- Provider ---
   | { type: 'provider:failed'; tier: string; provider: string; message: string }
   | { type: 'provider:circuit_opened'; provider: string }
@@ -133,6 +141,79 @@ export type DzipEvent =
   | { type: 'correction:iteration'; nodeId: string; iteration: number; passed: boolean; qualityScore: number; durationMs: number }
   | { type: 'quality:degraded'; metric: string; value: number; threshold: number; recommendation: string; details: Record<string, unknown> }
   | { type: 'quality:adjusted'; adjustment: string; reason: string; previousValue: unknown; newValue: unknown; reversible: boolean }
+  // --- Degraded operation ---
+  | { type: 'system:degraded'; subsystem: string; reason: string; timestamp: number; recoverable: boolean }
+  | { type: 'system:consolidation_started' }
+  | { type: 'system:consolidation_completed'; durationMs: number; recordsProcessed: number; pruned: number; merged: number }
+  | { type: 'system:consolidation_failed'; error: string; durationMs: number }
+  | { type: 'cache:degraded'; operation: string; recoverable: boolean }
+  | { type: 'memory:index_failed'; namespace: string; recoverable: boolean }
+  | { type: 'context:transfer_partial'; recoverable: boolean }
+  // --- Agent progress ---
+  | { type: 'agent:progress'; agentId: string; phase: string; percentage: number; message: string; timestamp: number }
+  // --- Recovery extended ---
+  | { type: 'recovery:attempt_started'; agentId: string; runId: string; attempt: number; maxAttempts: number; strategy: string; timestamp: number }
+  | { type: 'recovery:succeeded'; agentId: string; runId: string; attempt: number; strategy: string; durationMs: number }
+  | { type: 'recovery:exhausted'; agentId: string; runId: string; attempts: number; strategies: string[]; durationMs: number; lastError?: string }
+  // --- Execution ledger ---
+  | { type: 'ledger:execution_recorded'; providerId: string }
+  | { type: 'ledger:prompt_recorded'; executionRunId: string }
+  | { type: 'ledger:tool_recorded'; toolName: string }
+  | { type: 'ledger:cost_recorded'; costCents: number }
+  | { type: 'ledger:artifact_recorded'; artifactType: string }
+  | { type: 'ledger:budget_warning'; workflowRunId: string; usedCents: number; limitCents: number }
+  | { type: 'ledger:budget_exceeded'; workflowRunId: string; usedCents: number; limitCents: number }
+  // --- Persona registry ---
+  | { type: 'persona:created' }
+  | { type: 'persona:version_created' }
+  | { type: 'persona:version_activated' }
+  | { type: 'persona:version_deprecated' }
+  | { type: 'persona:version_archived' }
+  | { type: 'persona:compiled' }
+  | { type: 'persona:matched' }
+  // --- Scheduler ---
+  | { type: 'scheduler:started'; pollIntervalMs: number }
+  | { type: 'scheduler:stopped' }
+  | { type: 'scheduler:triggered'; scheduleId: string }
+  | { type: 'scheduler:trigger_failed'; scheduleId: string }
+  | { type: 'scheduler:schedule_created'; scheduleType: string }
+  | { type: 'scheduler:schedule_enabled' }
+  | { type: 'scheduler:schedule_disabled' }
+  // --- Skill lifecycle ---
+  | { type: 'skill:created' }
+  | { type: 'skill:updated' }
+  | { type: 'skill:refactored' }
+  | { type: 'skill:review_requested' }
+  | { type: 'skill:review_completed' }
+  | { type: 'skill:activated' }
+  | { type: 'skill:deprecated' }
+  | { type: 'skill:archived' }
+  | { type: 'skill:used' }
+  | { type: 'skill:suggestion_created' }
+  // --- Workflow domain ---
+  | { type: 'workflow:brief_created' }
+  | { type: 'workflow:spec_created' }
+  | { type: 'workflow:spec_revised' }
+  | { type: 'workflow:template_created'; mode: string }
+  | { type: 'workflow:run_started' }
+  | { type: 'workflow:run_status_changed'; newStatus: string }
+  | { type: 'workflow:phase_entered' }
+  | { type: 'workflow:run_completed'; durationMs: number }
+  | { type: 'workflow:run_failed' }
+  | { type: 'workflow:task_created' }
+  | { type: 'workflow:task_assigned' }
+  | { type: 'workflow:task_status_changed'; newStatus: string }
+  | { type: 'workflow:task_completed'; durationMs: number }
+  | { type: 'workflow:execution_started'; providerId: string }
+  | { type: 'workflow:execution_completed'; durationMs: number }
+  | { type: 'workflow:execution_failed' }
+  | { type: 'workflow:prompt_recorded'; promptType: string }
+  | { type: 'workflow:cost_recorded'; budgetBucket: string; costCents: number }
+  | { type: 'workflow:cost_budget_warning' }
+  | { type: 'workflow:cost_budget_exceeded' }
+  | { type: 'workflow:artifact_saved'; artifactType: string }
+  | { type: 'workflow:suggestion_created'; category: string }
+  | { type: 'workflow:schedule_triggered'; scheduleId: string }
 
 /** Extract a specific event by its type discriminator */
-export type DzipEventOf<T extends DzipEvent['type']> = Extract<DzipEvent, { type: T }>
+export type DzupEventOf<T extends DzupEvent['type']> = Extract<DzupEvent, { type: T }>

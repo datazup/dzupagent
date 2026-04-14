@@ -1,11 +1,11 @@
-# @dzipagent/express
+# @dzupagent/express
 
-Express integration for DzipAgent. This package provides an Express router to expose agents as HTTP endpoints.
+Express integration for DzupAgent. This package provides an Express router to expose agents as HTTP endpoints.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/express @dzipagent/agent @dzipagent/core express zod
+yarn add @dzupagent/express @dzupagent/agent @dzupagent/core express zod
 ```
 
 ## Features
@@ -21,13 +21,13 @@ yarn add @dzipagent/express @dzipagent/agent @dzipagent/core express zod
 
 ```typescript
 import express from 'express';
-import { DzipAgent } from '@dzipagent/agent';
-import { createAgentRouter } from '@dzipagent/express';
+import { DzupAgent } from '@dzupagent/agent';
+import { createAgentRouter } from '@dzupagent/express';
 
 const app = express();
 app.use(express.json());
 
-const agent = new DzipAgent({
+const agent = new DzupAgent({
   id: 'my-agent',
   // ... configuration
 });
@@ -72,7 +72,7 @@ Creates an Express `Router`.
 
 #### Configuration Properties
 
-- `agents`: A map of agent IDs to `DzipAgent` instances.
+- `agents`: A map of agent IDs to `DzupAgent` instances.
 - `basePath`: Optional base path for the router (default: `''`).
 - `auth`: Optional Express middleware for authentication.
 - `hooks`: Optional lifecycle hooks:

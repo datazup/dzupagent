@@ -1,11 +1,11 @@
 /**
- * TraceCapture — subscribes to DzipEventBus to capture all events
+ * TraceCapture — subscribes to DzupEventBus to capture all events
  * during an agent run, with configurable snapshot intervals and filters.
  *
  * @module replay/trace-capture
  */
 
-import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
 import type {
   ReplayEvent,
   TraceCaptureConfig,
@@ -26,7 +26,7 @@ const DEFAULT_CONFIG: TraceCaptureConfig = {
 // ---------------------------------------------------------------------------
 
 /**
- * Captures events from a DzipEventBus into a replayable trace.
+ * Captures events from a DzupEventBus into a replayable trace.
  *
  * Usage:
  * ```ts
@@ -37,7 +37,7 @@ const DEFAULT_CONFIG: TraceCaptureConfig = {
  * ```
  */
 export class TraceCapture {
-  private readonly bus: DzipEventBus
+  private readonly bus: DzupEventBus
   private readonly config: TraceCaptureConfig
   private events: ReplayEvent[] = []
   private runId: string | undefined
@@ -47,7 +47,7 @@ export class TraceCapture {
   private stateProvider: (() => Record<string, unknown>) | undefined
   private capturing = false
 
-  constructor(bus: DzipEventBus, config?: Partial<TraceCaptureConfig>) {
+  constructor(bus: DzupEventBus, config?: Partial<TraceCaptureConfig>) {
     this.bus = bus
     this.config = { ...DEFAULT_CONFIG, ...config }
   }
@@ -77,7 +77,7 @@ export class TraceCapture {
     this.startedAt = Date.now()
     this.capturing = true
 
-    this.unsubscribe = this.bus.onAny((event: DzipEvent) => {
+    this.unsubscribe = this.bus.onAny((event: DzupEvent) => {
       this.handleEvent(event)
     })
   }
@@ -132,7 +132,7 @@ export class TraceCapture {
   // Private
   // ---------------------------------------------------------------------------
 
-  private handleEvent(event: DzipEvent): void {
+  private handleEvent(event: DzupEvent): void {
     if (!this.shouldCapture(event.type)) return
 
     const index = this.events.length

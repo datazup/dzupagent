@@ -5,7 +5,7 @@
  * and handle empty tables gracefully.
  */
 
-import { Table, tableFromArrays } from 'apache-arrow'
+import { type Table, tableFromArrays } from 'apache-arrow'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -458,7 +458,7 @@ export function rankByPageRank(
     const iterations = config?.iterations ?? 20
 
     // Entity extraction regex: backtick-code OR PascalCase words (2+ capital letters)
-    const entityRegex = /`([^`]+)`|(?<![a-zA-Z])([A-Z][a-z]+(?:[A-Z][a-z]*)+)(?![a-zA-Z])/g
+    const entityRegex = /`([^`]+)`|(?<![a-zA-Z])([A-Z][a-z]+[A-Z][\w]*)(?![a-zA-Z])/g
 
     function extractEntities(text: string): Set<string> {
       const entities = new Set<string>()

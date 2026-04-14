@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import { SafetyMonitor } from '../safety-monitor.js'
 
 describe('SafetyMonitor', () => {
-  let bus: DzipEventBus
+  let bus: DzupEventBus
   let monitor: SafetyMonitor
 
   beforeEach(() => {

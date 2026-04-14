@@ -1,18 +1,18 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import type { DzipEvent } from '@dzipagent/core'
+import type { DzupEvent } from '@dzupagent/core'
 import type { EventGateway, EventSubscriptionFilter } from '../events/event-gateway.js'
 
 export interface EventRouteConfig {
   eventGateway: EventGateway
 }
 
-function parseEventTypes(param: string | undefined): DzipEvent['type'][] | undefined {
+function parseEventTypes(param: string | undefined): DzupEvent['type'][] | undefined {
   if (!param) return undefined
   const parsed = param
     .split(',')
     .map((p) => p.trim())
-    .filter((p): p is DzipEvent['type'] => p.length > 0)
+    .filter((p): p is DzupEvent['type'] => p.length > 0)
   return parsed.length > 0 ? parsed : undefined
 }
 

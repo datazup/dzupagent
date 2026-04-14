@@ -11,7 +11,7 @@ import { generateCacheKey } from './key-generator.js'
  *
  * Wraps a CacheBackend with policy enforcement (temperature gating,
  * TTL defaults, namespace isolation) and optional hit/miss callbacks
- * for integration with DzipEventBus or observability systems.
+ * for integration with DzupEventBus or observability systems.
  *
  * @example
  * ```ts
@@ -75,7 +75,9 @@ export class CacheMiddleware {
       const entry = JSON.parse(raw) as CacheEntry
       this.config.onHit?.(key, request.model)
       return entry.response
-    } catch {
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      this.config.onDegraded?.('get', reason, key)
       this.config.onMiss?.(key, request.model)
       return null
     }
@@ -102,8 +104,10 @@ export class CacheMiddleware {
 
     try {
       await this.config.backend.set(key, JSON.stringify(entry), ttl)
-    } catch {
-      // Best-effort — silently ignore cache write failures
+    } catch (err) {
+      // Best-effort — emit degraded diagnostic instead of silently swallowing
+      const reason = err instanceof Error ? err.message : String(err)
+      this.config.onDegraded?.('set', reason, key)
     }
   }
 

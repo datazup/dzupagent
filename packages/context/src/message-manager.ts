@@ -13,7 +13,7 @@
 import {
   HumanMessage,
   SystemMessage,
-  AIMessage,
+  type AIMessage,
   ToolMessage,
   type BaseMessage,
 } from '@langchain/core/messages'
@@ -136,11 +136,14 @@ export function pruneToolResults(
       ? content.slice(0, maxChars) + '...[pruned]'
       : content
 
-    return new ToolMessage({
+    const fields: { content: string; tool_call_id: string; name?: string } = {
       content: `[Tool result pruned] ${preview}`,
       tool_call_id: m.tool_call_id,
-      name: m.name,
-    })
+    }
+    if (m.name !== undefined) {
+      fields.name = m.name
+    }
+    return new ToolMessage(fields)
   })
 }
 

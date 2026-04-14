@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto'
-import type { BenchmarkSuite, BenchmarkComparison } from '@dzipagent/evals'
-import { runBenchmark, compareBenchmarks } from '@dzipagent/evals'
+import type { BenchmarkSuite, BenchmarkComparison } from '@dzupagent/evals'
+import { runBenchmark, compareBenchmarks } from '@dzupagent/evals'
 import type {
+  BenchmarkRunArtifactRecord,
   BenchmarkRunStore,
   BenchmarkRunRecord,
   BenchmarkBaselineRecord,
+  BenchmarkRunListFilter,
+  BenchmarkRunListPage,
 } from '../persistence/benchmark-run-store.js'
 
 export interface BenchmarkOrchestratorConfig {
@@ -14,8 +17,11 @@ export interface BenchmarkOrchestratorConfig {
     input: string,
     metadata?: Record<string, unknown>,
   ) => Promise<string>
+  allowNonStrictExecution?: boolean
   store: BenchmarkRunStore
 }
+
+export interface BenchmarkRunArtifactInput extends BenchmarkRunArtifactRecord {}
 
 export class BenchmarkOrchestrator {
   constructor(private readonly config: BenchmarkOrchestratorConfig) {}
@@ -25,13 +31,21 @@ export class BenchmarkOrchestrator {
     targetId: string
     strict?: boolean
     metadata?: Record<string, unknown>
+    artifact?: BenchmarkRunArtifactInput
   }): Promise<BenchmarkRunRecord> {
     const suite = this.config.suites[input.suiteId]
     if (!suite) {
       throw new Error(`Benchmark suite "${input.suiteId}" not found`)
     }
 
-    const benchmarkConfig = input.strict === true
+    const strict = input.strict === false ? false : true
+    if (!strict && this.config.allowNonStrictExecution !== true) {
+      throw new Error(
+        'Benchmark non-strict execution is disabled. Set allowNonStrictExecution to true to opt out of strict mode.',
+      )
+    }
+
+    const benchmarkConfig = strict
       ? ({ strict: true } as unknown as Parameters<typeof runBenchmark>[2])
       : undefined
 
@@ -46,9 +60,10 @@ export class BenchmarkOrchestrator {
       suiteId: suite.id,
       targetId: input.targetId,
       result,
-      strict: input.strict === true,
+      strict,
       createdAt: new Date().toISOString(),
       ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(input.artifact ? { artifact: input.artifact } : {}),
     }
     await this.config.store.saveRun(record)
     return record
@@ -56,6 +71,10 @@ export class BenchmarkOrchestrator {
 
   async getRun(runId: string): Promise<BenchmarkRunRecord | null> {
     return this.config.store.getRun(runId)
+  }
+
+  async listRuns(filter?: BenchmarkRunListFilter): Promise<BenchmarkRunListPage> {
+    return this.config.store.listRuns(filter)
   }
 
   async compareRuns(currentRunId: string, previousRunId: string): Promise<{

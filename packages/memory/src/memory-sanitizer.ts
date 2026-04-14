@@ -18,8 +18,8 @@ export interface SanitizeResult {
  * Matches are case-insensitive.
  */
 const INJECTION_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /ignore\s+(all\s+)?previous\s+instructions/i, label: 'prompt-injection: ignore-previous' },
-  { pattern: /disregard\s+(all\s+)?prior\s+(instructions|context)/i, label: 'prompt-injection: disregard-prior' },
+  { pattern: /ignore\s+(?:all\s)?previous\s+instructions/i, label: 'prompt-injection: ignore-previous' },
+  { pattern: /disregard\s+(?:all\s)?prior\s+(?:instructions|context)/i, label: 'prompt-injection: disregard-prior' },
   { pattern: /system\s+prompt\s+override/i, label: 'prompt-injection: system-override' },
   { pattern: /you\s+are\s+now\s+(a|an)\s+/i, label: 'prompt-injection: persona-hijack' },
   { pattern: /new\s+instructions?\s*:/i, label: 'prompt-injection: new-instructions' },

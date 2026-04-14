@@ -9,7 +9,7 @@
  * available through the Node.js driver.
  */
 
-import duckdb from 'duckdb'
+import { createRequire } from 'node:module'
 import { BaseSQLConnector } from '../base-sql-connector.js'
 import type {
   SQLDialect,
@@ -23,25 +23,71 @@ import type {
   SchemaDiscoveryOptions,
 } from '../types.js'
 
+import type * as DuckDBPkg from 'duckdb'
+
+type DuckDBModule = typeof DuckDBPkg
+type DuckDBRuntimeModule = DuckDBModule | { default: DuckDBModule }
+
+const runtimeRequire = createRequire(import.meta.url)
+const DUCKDB_DRIVER_PACKAGE = 'duckdb'
+
+let duckdbModulePromise: Promise<DuckDBRuntimeModule> | null = null
+
+function isMissingModuleError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND'
+  )
+}
+
+function assertDuckDBDriverInstalled(): void {
+  try {
+    runtimeRequire.resolve(DUCKDB_DRIVER_PACKAGE)
+  } catch (error: unknown) {
+    if (isMissingModuleError(error)) {
+      throw new Error(
+        `DuckDBConnector requires the optional dependency "${DUCKDB_DRIVER_PACKAGE}". Install it with: yarn add ${DUCKDB_DRIVER_PACKAGE}`,
+      )
+    }
+    throw error
+  }
+}
+
+async function loadDuckDBModule(): Promise<DuckDBModule> {
+  if (!duckdbModulePromise) {
+    assertDuckDBDriverInstalled()
+    duckdbModulePromise = import('duckdb')
+      .then((module) => module as DuckDBRuntimeModule)
+      .catch((error: unknown) => {
+        if (isMissingModuleError(error)) {
+          throw new Error(
+            `DuckDBConnector requires the optional dependency "${DUCKDB_DRIVER_PACKAGE}". Install it with: yarn add ${DUCKDB_DRIVER_PACKAGE}`,
+          )
+        }
+        throw error
+      })
+  }
+
+  const duckdb = await duckdbModulePromise
+  return 'default' in duckdb ? duckdb.default : duckdb
+}
+
 // ---------------------------------------------------------------------------
 // Connector
 // ---------------------------------------------------------------------------
 
 export class DuckDBConnector extends BaseSQLConnector {
-  private readonly db: duckdb.Database
-  private readonly conn: duckdb.Connection
+  private readonly dbPath: string
+  private db: DuckDBPkg.Database | null = null
+  private conn: DuckDBPkg.Connection | null = null
 
   constructor(config: SQLConnectionConfig) {
     super(config)
+    assertDuckDBDriverInstalled()
 
-    const dbPath = config.duckdbPath ?? ':memory:'
-    this.db = new duckdb.Database(dbPath)
-    this.conn = new duckdb.Connection(this.db)
-
-    // Set read-only mode for file-based databases to prevent accidental writes
-    if (dbPath !== ':memory:') {
-      this.conn.run("SET access_mode = 'read_only'")
-    }
+    this.dbPath = config.duckdbPath ?? ':memory:'
   }
 
   getDialect(): SQLDialect {
@@ -79,12 +125,17 @@ export class DuckDBConnector extends BaseSQLConnector {
   }
 
   async destroy(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      this.db.close((err) => {
+    if (!this.db) return
+
+    await new Promise<void>((resolve, reject) => {
+      this.db!.close((err) => {
         if (err) reject(err)
         else resolve()
       })
     })
+
+    this.db = null
+    this.conn = null
   }
 
   // ---------------------------------------------------------------------------
@@ -219,12 +270,39 @@ export class DuckDBConnector extends BaseSQLConnector {
 
   /** Execute a SQL query via the DuckDB connection (callback-based, promisified). */
   private query(sql: string): Promise<unknown[]> {
-    return new Promise((resolve, reject) => {
-      this.conn.all(sql, (err: Error | null, rows: unknown[]) => {
-        if (err) reject(err)
-        else resolve(rows)
-      })
-    })
+    return this.withConnection((conn) =>
+      new Promise((resolve, reject) => {
+        conn.all(sql, (err: Error | null, rows: unknown[]) => {
+          if (err) reject(err)
+          else resolve(rows)
+        })
+      }),
+    )
+  }
+
+  private async withConnection<T>(run: (conn: DuckDBPkg.Connection) => Promise<T>): Promise<T> {
+    const conn = await this.getConnection()
+    return run(conn)
+  }
+
+  private async getConnection(): Promise<DuckDBPkg.Connection> {
+    if (this.conn) return this.conn
+
+    assertDuckDBDriverInstalled()
+    const duckdb = await loadDuckDBModule()
+
+    if (!this.db) {
+      this.db = new duckdb.Database(this.dbPath)
+    }
+
+    this.conn = new duckdb.Connection(this.db)
+
+    // Set read-only mode for file-based databases to prevent accidental writes.
+    if (this.dbPath !== ':memory:') {
+      this.conn.run("SET access_mode = 'read_only'")
+    }
+
+    return this.conn
   }
 
   /** Escape a string value for use in SQL (single-quote doubling). */

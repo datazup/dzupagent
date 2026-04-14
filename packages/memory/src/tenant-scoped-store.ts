@@ -11,6 +11,10 @@
  *   // stores under ['tenant-123', 'lessons'] in the underlying store
  */
 import type { BaseStore } from '@langchain/langgraph'
+import {
+  getMemoryStoreCapabilities,
+  type MemoryStoreCapabilities,
+} from './store-capabilities.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,7 +26,7 @@ export interface TenantScopedStoreConfig {
   /** Tenant identifier (prefixed to all namespaces) */
   tenantId: string
   /** Optional additional prefix (e.g., project ID) */
-  projectId?: string
+  projectId?: string | undefined
 }
 
 /** Result from a search operation, with namespace relative to the tenant scope */
@@ -40,6 +44,7 @@ export class TenantScopedStore {
   private readonly store: BaseStore
   private readonly _tenantId: string
   private readonly _namespacePrefix: string[]
+  private readonly capabilities: MemoryStoreCapabilities
 
   constructor(config: TenantScopedStoreConfig) {
     this.store = config.store
@@ -47,6 +52,7 @@ export class TenantScopedStore {
     this._namespacePrefix = config.projectId
       ? [config.tenantId, config.projectId]
       : [config.tenantId]
+    this.capabilities = getMemoryStoreCapabilities(config.store)
   }
 
   /** Get the tenant ID this store is scoped to */
@@ -77,13 +83,22 @@ export class TenantScopedStore {
     const prefixed = this.prefix(namespace)
     const item = await this.store.get(prefixed, key)
     if (!item) return undefined
-    return item.value as Record<string, unknown>
+    return isTombstoneRecord(item.value as Record<string, unknown>)
+      ? undefined
+      : (item.value as Record<string, unknown>)
   }
 
   /** Delete a value (auto-prefixed) */
   async delete(namespace: string[], key: string): Promise<void> {
     const prefixed = this.prefix(namespace)
-    await this.store.delete(prefixed, key)
+    if (this.capabilities.supportsDelete) {
+      await this.store.delete(prefixed, key)
+      return
+    }
+
+    // Soft-delete when the backing store cannot guarantee delete support.
+    // Consumers filter tombstones out of get/search/list results.
+    await this.store.put(prefixed, key, createTombstoneRecord())
   }
 
   /** Search (auto-prefixed) — delegates to underlying store.search() */
@@ -98,14 +113,45 @@ export class TenantScopedStore {
       return []
     }
 
-    const results = await this.store.search(prefixed, options)
+    const searchOptions: { query?: string; limit?: number; filter?: Record<string, unknown> } | undefined = (() => {
+      if (!options) return undefined
+
+      const searchOptions: {
+        query?: string
+        limit?: number
+        filter?: Record<string, unknown>
+      } = {}
+
+      if (options.query !== undefined) {
+        searchOptions.query = options.query
+      }
+
+      if (this.capabilities.supportsPagination && options.limit !== undefined) {
+        searchOptions.limit = options.limit
+      }
+
+      if (this.capabilities.supportsSearchFilters && options.filter !== undefined) {
+        searchOptions.filter = options.filter
+      }
+
+      return Object.keys(searchOptions).length > 0 ? searchOptions : undefined
+    })()
+
+    const results = await this.store.search(prefixed, searchOptions)
+    const filtered = this.capabilities.supportsSearchFilters || options?.filter === undefined
+      ? results
+      : results.filter((item: { value: Record<string, unknown> }) =>
+          matchesFilter(item.value, options.filter ?? {}))
 
     // Strip the prefix from result namespaces so consumers see local namespaces
-    return results.map((item: { key: string; value: Record<string, unknown>; namespace?: string[] }) => ({
+    return filtered
+      .filter((item: { value: Record<string, unknown> }) => !isTombstoneRecord(item.value))
+      .slice(0, options?.limit ?? Number.POSITIVE_INFINITY)
+      .map((item: { key: string; value: Record<string, unknown>; namespace?: string[] }) => ({
       key: item.key,
       value: item.value as Record<string, unknown>,
       namespace: this.stripPrefix(item.namespace ?? prefixed),
-    }))
+      }))
   }
 
   /** List all keys in a namespace (auto-prefixed) */
@@ -115,13 +161,20 @@ export class TenantScopedStore {
     // Graceful degradation: if underlying store lacks list, fall back to search
     const storeAny = this.store as unknown as Record<string, unknown>
     if (typeof storeAny['list'] === 'function') {
-      return (storeAny['list'] as (ns: string[]) => Promise<string[]>)(prefixed)
+      const keys = await (storeAny['list'] as (ns: string[]) => Promise<string[]>)(prefixed)
+      return this.filterVisibleKeys(prefixed, keys)
     }
 
     // Fallback: use search to get keys
     if (typeof this.store.search === 'function') {
-      const results = await this.store.search(prefixed, { limit: 1000 })
-      return results.map((item: { key: string }) => item.key)
+      const results = await this.store.search(
+        prefixed,
+        this.capabilities.supportsPagination ? { limit: 1000 } : undefined,
+      )
+      return this.filterVisibleKeys(
+        prefixed,
+        results.map((item: { key: string; value: Record<string, unknown> }) => item.key),
+      )
     }
 
     return []
@@ -169,4 +222,39 @@ export class TenantScopedStore {
     // If prefix doesn't match, return as-is (defensive)
     return namespace
   }
+
+  private async filterVisibleKeys(prefixed: string[], keys: string[]): Promise<string[]> {
+    const visible: string[] = []
+    for (const key of keys) {
+      const record = await this.store.get(prefixed, key)
+      if (!record || isTombstoneRecord(record.value as Record<string, unknown>)) {
+        continue
+      }
+      visible.push(key)
+    }
+    return visible
+  }
+}
+
+function isTombstoneRecord(value: Record<string, unknown> | undefined): boolean {
+  return value != null && value['_tombstone'] === true
+}
+
+function createTombstoneRecord(): Record<string, unknown> {
+  return {
+    _tombstone: true,
+    _deletedAt: new Date().toISOString(),
+  }
+}
+
+function matchesFilter(
+  value: Record<string, unknown>,
+  filter: Record<string, unknown>,
+): boolean {
+  for (const [key, expected] of Object.entries(filter)) {
+    if (value[key] !== expected) {
+      return false
+    }
+  }
+  return true
 }

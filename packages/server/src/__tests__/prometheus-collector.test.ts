@@ -64,6 +64,34 @@ describe('PrometheusMetricsCollector', () => {
       expect(output).toContain('forge_run_duration_ms_count{tier="chat"} 3')
     })
 
+    it('updates histogram buckets cumulatively across repeated observations', () => {
+      collector.observe('forge_latency_ms', 10)
+      collector.observe('forge_latency_ms', 60)
+
+      const firstRender = collector.render()
+      expect(firstRender).toContain('forge_latency_ms_bucket{le="50"} 1')
+      expect(firstRender).toContain('forge_latency_ms_bucket{le="100"} 2')
+      expect(firstRender).toContain('forge_latency_ms_bucket{le="+Inf"} 2')
+      expect(firstRender).toContain('forge_latency_ms_sum 70')
+      expect(firstRender).toContain('forge_latency_ms_count 2')
+
+      collector.observe('forge_latency_ms', 2600)
+      collector.observe('forge_latency_ms', 12000)
+
+      const secondRender = collector.render()
+      expect(secondRender).toContain('forge_latency_ms_bucket{le="50"} 1')
+      expect(secondRender).toContain('forge_latency_ms_bucket{le="100"} 2')
+      expect(secondRender).toContain('forge_latency_ms_bucket{le="250"} 2')
+      expect(secondRender).toContain('forge_latency_ms_bucket{le="500"} 2')
+      expect(secondRender).toContain('forge_latency_ms_bucket{le="1000"} 2')
+      expect(secondRender).toContain('forge_latency_ms_bucket{le="2500"} 2')
+      expect(secondRender).toContain('forge_latency_ms_bucket{le="5000"} 3')
+      expect(secondRender).toContain('forge_latency_ms_bucket{le="10000"} 3')
+      expect(secondRender).toContain('forge_latency_ms_bucket{le="+Inf"} 4')
+      expect(secondRender).toContain('forge_latency_ms_sum 14670')
+      expect(secondRender).toContain('forge_latency_ms_count 4')
+    })
+
     it('observes histogram without labels', () => {
       collector.observe('forge_latency_ms', 42)
 

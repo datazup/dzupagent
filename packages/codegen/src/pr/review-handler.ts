@@ -62,12 +62,15 @@ export function consolidateReviews(comments: ReviewComment[]): ReviewFeedback {
     return { summary: 'No review comments.', affectedFiles: [], issues: [] }
   }
 
-  const issues: ReviewIssue[] = comments.map((c) => ({
-    severity: classifyCommentSeverity(c.body),
-    description: c.body,
-    file: c.path,
-    line: c.line,
-  }))
+  const issues: ReviewIssue[] = comments.map((c) => {
+    const issue: ReviewIssue = {
+      severity: classifyCommentSeverity(c.body),
+      description: c.body,
+    }
+    if (c.path !== undefined) issue.file = c.path
+    if (c.line !== undefined) issue.line = c.line
+    return issue
+  })
 
   // Collect unique affected files
   const fileSet = new Set<string>()

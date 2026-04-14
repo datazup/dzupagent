@@ -15,7 +15,7 @@ import type {
 } from '../orchestration/delegating-supervisor.js'
 import type { DelegationResult } from '../orchestration/delegation.js'
 import type { StructuredLLM } from '../structured/structured-output-engine.js'
-import type { AgentDefinition } from '@dzipagent/core'
+import type { AgentDefinition, DzupEventBus } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Mock LLM factory
@@ -312,7 +312,7 @@ describe('DelegatingSupervisor.planAndDelegate with LLM', () => {
     const { DelegatingSupervisor: RealSupervisor } = await import(
       '../orchestration/delegating-supervisor.js'
     )
-    const { InMemoryRunStore, createEventBus } = await import('@dzipagent/core')
+    const { InMemoryRunStore, createEventBus } = await import('@dzupagent/core')
     const { SimpleDelegationTracker } = await import('../orchestration/delegation.js')
 
     const store = new InMemoryRunStore()
@@ -356,7 +356,7 @@ describe('DelegatingSupervisor.planAndDelegate with LLM', () => {
     const { DelegatingSupervisor: RealSupervisor } = await import(
       '../orchestration/delegating-supervisor.js'
     )
-    const { InMemoryRunStore } = await import('@dzipagent/core')
+    const { InMemoryRunStore } = await import('@dzupagent/core')
     const { SimpleDelegationTracker } = await import('../orchestration/delegation.js')
 
     const store = new InMemoryRunStore()
@@ -387,7 +387,7 @@ describe('DelegatingSupervisor.planAndDelegate with LLM', () => {
       emit: emitSpy,
       on: vi.fn(() => vi.fn()),
       off: vi.fn(),
-    } as unknown as import('@dzipagent/core').DzipEventBus
+    } as unknown as DzupEventBus
 
     const tracker = new SimpleDelegationTracker({
       runStore: store,

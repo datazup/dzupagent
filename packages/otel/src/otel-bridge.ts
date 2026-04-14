@@ -1,20 +1,20 @@
 /**
- * OTelBridge — translates DzipEventBus events into OTel operations.
+ * OTelBridge — translates DzupEventBus events into OTel operations.
  *
  * Subscribes to the event bus and for each event:
  * 1. Records metrics according to EVENT_METRIC_MAP
  * 2. Adds span events to active spans (if enableSpanEvents is true)
  *
- * This is the single wiring point between DzipAgent's event-driven
+ * This is the single wiring point between DzupAgent's event-driven
  * architecture and the OpenTelemetry SDK.
  *
  * @example
  * ```ts
- * import { createEventBus } from '@dzipagent/core'
- * import { DzipTracer, OTelBridge } from '@dzipagent/otel'
+ * import { createEventBus } from '@dzupagent/core'
+ * import { DzupTracer, OTelBridge } from '@dzupagent/otel'
  *
  * const bus = createEventBus()
- * const tracer = new DzipTracer()
+ * const tracer = new DzupTracer()
  * const bridge = new OTelBridge({ tracer })
  * bridge.attach(bus)
  *
@@ -23,8 +23,8 @@
  * ```
  */
 
-import type { DzipEventBus, DzipEvent } from '@dzipagent/core'
-import type { DzipTracer } from './tracer.js'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
+import type { DzupTracer } from './tracer.js'
 import { EVENT_METRIC_MAP } from './event-metric-map.js'
 import { SpanStatusCode } from './otel-types.js'
 import { ForgeSpanAttr } from './span-attributes.js'
@@ -103,8 +103,8 @@ export class InMemoryMetricSink implements MetricSink {
  * Configuration for OTelBridge.
  */
 export interface OTelBridgeConfig {
-  /** DzipTracer instance for span operations */
-  tracer: DzipTracer
+  /** DzupTracer instance for span operations */
+  tracer: DzupTracer
 
   /** Whether to record metrics from events (default: true) */
   enableMetrics?: boolean
@@ -121,19 +121,19 @@ export interface OTelBridgeConfig {
   /**
    * Event types to ignore (e.g., high-frequency events in production).
    */
-  ignoreEvents?: DzipEvent['type'][]
+  ignoreEvents?: DzupEvent['type'][]
 }
 
 /**
- * OTelBridge subscribes to DzipEventBus and translates events
+ * OTelBridge subscribes to DzupEventBus and translates events
  * into OTel metrics and span events.
  */
 export class OTelBridge {
-  private readonly _tracer: DzipTracer
+  private readonly _tracer: DzupTracer
   private readonly _enableMetrics: boolean
   private readonly _enableSpanEvents: boolean
   private readonly _metricSink: MetricSink
-  private readonly _ignoreEvents: Set<DzipEvent['type']>
+  private readonly _ignoreEvents: Set<DzupEvent['type']>
   private _unsubscribe: (() => void) | undefined
 
   constructor(config: OTelBridgeConfig) {
@@ -153,7 +153,7 @@ export class OTelBridge {
    * Attach the bridge to an event bus.
    * Subscribes to all events and records metrics + span events.
    */
-  attach(eventBus: DzipEventBus): void {
+  attach(eventBus: DzupEventBus): void {
     if (this._unsubscribe) {
       // Already attached; detach first
       this._unsubscribe()
@@ -184,7 +184,7 @@ export class OTelBridge {
     return this._unsubscribe !== undefined
   }
 
-  private _handleEvent(event: DzipEvent): void {
+  private _handleEvent(event: DzupEvent): void {
     if (this._ignoreEvents.has(event.type)) return
 
     // Record metrics
@@ -198,7 +198,7 @@ export class OTelBridge {
     }
   }
 
-  private _recordMetrics(event: DzipEvent): void {
+  private _recordMetrics(event: DzupEvent): void {
     const mappings = EVENT_METRIC_MAP[event.type]
     if (!mappings || mappings.length === 0) return
 
@@ -219,7 +219,7 @@ export class OTelBridge {
     }
   }
 
-  private _addSpanEvents(event: DzipEvent): void {
+  private _addSpanEvents(event: DzupEvent): void {
     // Only add span events for significant lifecycle events
     switch (event.type) {
       case 'agent:started': {

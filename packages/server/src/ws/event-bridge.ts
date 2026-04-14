@@ -1,5 +1,5 @@
 /**
- * WebSocket event bridge — forwards DzipEventBus events to connected WebSocket clients.
+ * WebSocket event bridge — forwards DzupEventBus events to connected WebSocket clients.
  *
  * Clients can subscribe to:
  * - All events (wildcard)
@@ -15,7 +15,7 @@
  * // Events for run-123 + wildcard events are pushed to ws
  * ```
  */
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import {
   InMemoryEventGateway,
   type EventEnvelope,
@@ -41,7 +41,7 @@ export interface EventBridgeConfig {
 
 const WS_OPEN = 1
 
-function isEventGateway(input: DzipEventBus | EventGateway): input is EventGateway {
+function isEventGateway(input: DzupEventBus | EventGateway): input is EventGateway {
   return 'subscribe' in input && typeof input.subscribe === 'function'
 }
 
@@ -51,7 +51,7 @@ export class EventBridge {
   private readonly ownsGateway: boolean
   private readonly maxQueueSize: number
 
-  constructor(input: DzipEventBus | EventGateway, config?: EventBridgeConfig) {
+  constructor(input: DzupEventBus | EventGateway, config?: EventBridgeConfig) {
     this.maxQueueSize = config?.maxQueueSize ?? 512
     if (isEventGateway(input)) {
       this.gateway = input

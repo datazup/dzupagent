@@ -22,8 +22,8 @@
     "noUnusedParameters": true,
     "types": ["node"],
     "paths": {
-      "@dzipagent/core": ["../dzipagent-core/dist"],
-      "@dzipagent/core/*": ["../dzipagent-core/dist/*"]
+      "@dzupagent/core": ["../dzupagent-core/dist"],
+      "@dzupagent/core/*": ["../dzupagent-core/dist/*"]
     }
   },
   "include": ["src/**/*.ts"],

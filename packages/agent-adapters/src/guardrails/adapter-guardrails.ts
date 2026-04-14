@@ -2,13 +2,13 @@
  * Adapter guardrails — stuck detection, iteration budgets, and safety
  * boundaries for the adapter execution layer.
  *
- * Adapts patterns from `@dzipagent/agent` guardrails for use with the
+ * Adapts patterns from `@dzupagent/agent` guardrails for use with the
  * unified AgentEvent stream produced by CLI/SDK adapters.
  */
 
 import { createHash } from 'node:crypto'
-import type { DzipEventBus } from '@dzipagent/core'
-import type { BudgetUsage } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
+import type { BudgetUsage } from '@dzupagent/core'
 import type { AgentEvent, TokenUsage } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ export interface AdapterGuardrailsConfig {
   /** Warning thresholds (0-1). Default [0.7, 0.9] */
   warningThresholds?: number[]
   /** Event bus for emitting guardrail events */
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus
   /** Content filter for output */
   outputFilter?: (output: string) => Promise<string | null>
 }

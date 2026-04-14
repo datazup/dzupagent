@@ -1,12 +1,12 @@
 /**
- * Composable for subscribing to live WebSocket event streams from a DzipAgent run.
+ * Composable for subscribing to live WebSocket event streams from a DzupAgent run.
  *
  * Provides a reactive event list that accumulates events from the WebSocket,
  * auto-reconnects on disconnect, and buffers events when the tab is not visible.
  *
  * @module useEventStream
  */
-import { ref, watch, onUnmounted, type Ref } from 'vue'
+import { ref, watch, onUnmounted, getCurrentInstance, type Ref } from 'vue'
 import { useWsStore } from '../stores/ws-store.js'
 import type { WsEvent } from '../types.js'
 
@@ -249,14 +249,20 @@ export function useEventStream(
 
   // ── Cleanup ──────────────────────────────────────────
 
-  onUnmounted(() => {
+  const cleanup = (): void => {
     stopWsWatch()
     stopStateWatch()
     stopRunIdWatch()
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  })
+  }
+
+  // Some tests call this composable outside a component setup scope.
+  // Only register lifecycle cleanup when a component instance is active.
+  if (getCurrentInstance()) {
+    onUnmounted(cleanup)
+  }
 
   return {
     events,

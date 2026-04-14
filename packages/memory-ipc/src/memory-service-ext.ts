@@ -2,7 +2,8 @@
  * Extension methods that add Arrow export/import to MemoryService.
  *
  * Uses a minimal MemoryServiceLike interface to avoid hard dependency
- * on @dzipagent/memory. Works with any object that has get/search/put methods.
+ * on @dzupagent/memory. Works with any object that has get/search/put methods,
+ * and supports delete-aware replace semantics when delete() is available.
  */
 
 import { type Table } from 'apache-arrow'
@@ -34,7 +35,7 @@ export type ImportStrategy = 'upsert' | 'append' | 'replace'
 
 /**
  * Minimal interface for MemoryService.
- * Avoids hard dependency on @dzipagent/memory.
+ * Avoids hard dependency on @dzupagent/memory.
  */
 export interface MemoryServiceLike {
   get(
@@ -54,6 +55,11 @@ export interface MemoryServiceLike {
     key: string,
     value: Record<string, unknown>,
   ): Promise<void>
+  delete?(
+    namespace: string,
+    scope: Record<string, string>,
+    key: string,
+  ): Promise<boolean | void>
 }
 
 /** The Arrow extension methods added to a MemoryService. */
@@ -95,6 +101,10 @@ function extractString(
 ): string | null {
   const val = record[field]
   return typeof val === 'string' ? val : null
+}
+
+function extractRecordKey(record: Record<string, unknown>): string | null {
+  return extractString(record, 'key') ?? extractString(record, 'id')
 }
 
 /**
@@ -218,9 +228,23 @@ export function extendMemoryServiceWithArrow(
       }
 
       if (strategy === 'replace') {
-        // For replace, we attempt to delete existing records first by fetching them.
-        // Since MemoryServiceLike has no delete(), we overwrite via put().
-        // This is effectively the same as upsert for this interface.
+        if (!memoryService.delete) {
+          throw new Error(
+            'replace strategy requires delete() support on MemoryServiceLike',
+          )
+        }
+
+        const existingRecords = await memoryService.get(namespace, scope)
+        for (const existingRecord of existingRecords) {
+          const existingKey = extractRecordKey(existingRecord)
+          if (!existingKey) {
+            throw new Error(
+              'replace strategy requires existing records to expose a key',
+            )
+          }
+
+          await memoryService.delete(namespace, scope, existingKey)
+        }
       }
 
       for (const frameRecord of frameRecords) {

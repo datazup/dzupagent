@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { CommunityDetector } from '../retrieval/community-detector.js'
 import type { CommunityDetectorConfig } from '../retrieval/community-detector.js'
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,14 +26,14 @@ function buildAdjacency(edges: [string, string][]): Map<string, string[]> {
 function stubModel(response = 'Test summary') {
   return {
     invoke: vi.fn().mockResolvedValue({ content: response }),
-  } as unknown as import('@langchain/core/language_models/chat_models').BaseChatModel
+  } as unknown as BaseChatModel
 }
 
 /** Stub LLM that throws on invoke. */
 function failingModel() {
   return {
     invoke: vi.fn().mockRejectedValue(new Error('LLM unavailable')),
-  } as unknown as import('@langchain/core/language_models/chat_models').BaseChatModel
+  } as unknown as BaseChatModel
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +291,7 @@ describe('CommunityDetector.detectAndSummarize', () => {
       invoke: vi.fn().mockResolvedValue({
         content: [{ type: 'text', text: 'Array format summary' }],
       }),
-    } as unknown as import('@langchain/core/language_models/chat_models').BaseChatModel
+    } as unknown as BaseChatModel
 
     const detector = new CommunityDetector()
     const result = await detector.detectAndSummarize(adj, records, model)

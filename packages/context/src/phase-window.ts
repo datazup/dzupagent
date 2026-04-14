@@ -133,7 +133,7 @@ function hasCodeBlocks(content: string): boolean {
 }
 
 function hasFilePaths(content: string): boolean {
-  return /(?:\/[\w.-]+){2,}|[\w.-]+\.[tj]sx?|[\w.-]+\.vue/.test(content)
+  return /\/[\w.-]+\/[\w.-]+|[\w-]+\.\w+\.[tj]sx?|[\w-]+\.vue/.test(content)
 }
 
 function hasErrorIndicators(content: string): boolean {

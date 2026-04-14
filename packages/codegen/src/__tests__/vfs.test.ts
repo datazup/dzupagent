@@ -266,18 +266,18 @@ describe('VFS Snapshot', () => {
   describe('saveSnapshot', () => {
     it('should call store.save with correct arguments', async () => {
       const data = { 'a.ts': 'content' }
-      await saveSnapshot(mockStore, 'gen-123', 'gen_backend', data)
+      const result = await saveSnapshot(mockStore, 'gen-123', 'gen_backend', data)
 
       expect(mockStore.save).toHaveBeenCalledWith('gen-123', 'gen_backend', data)
+      expect(result.success).toBe(true)
     })
 
-    it('should swallow errors silently (non-fatal)', async () => {
+    it('should return error result on failure (non-fatal)', async () => {
       vi.mocked(mockStore.save).mockRejectedValue(new Error('DB down'))
 
-      // Should not throw
-      await expect(
-        saveSnapshot(mockStore, 'id', 'phase', {}),
-      ).resolves.toBeUndefined()
+      const result = await saveSnapshot(mockStore, 'id', 'phase', {})
+      expect(result.success).toBe(false)
+      expect(result.error).toBe('DB down')
     })
   })
 
@@ -287,19 +287,28 @@ describe('VFS Snapshot', () => {
       vi.mocked(mockStore.load).mockResolvedValue(stored)
 
       const result = await loadSnapshot(mockStore, 'gen-123', 'gen_backend')
-      expect(result).toEqual(stored)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data).toEqual(stored)
+      }
     })
 
-    it('should return null when not found', async () => {
+    it('should return not_found when not found', async () => {
       vi.mocked(mockStore.load).mockResolvedValue(null)
       const result = await loadSnapshot(mockStore, 'id', 'phase')
-      expect(result).toBeNull()
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error).toBe('not_found')
+      }
     })
 
-    it('should return null on error (non-fatal)', async () => {
+    it('should return error on failure (non-fatal)', async () => {
       vi.mocked(mockStore.load).mockRejectedValue(new Error('DB down'))
       const result = await loadSnapshot(mockStore, 'id', 'phase')
-      expect(result).toBeNull()
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error).toBe('DB down')
+      }
     })
   })
 })

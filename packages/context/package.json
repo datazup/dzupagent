@@ -1,6 +1,6 @@
 {
-  "name": "@dzipagent/context",
-  "version": "0.1.0",
+  "name": "@dzupagent/context",
+  "version": "0.2.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,10 +22,10 @@
     "@langchain/core": ">=1.0.0"
   },
   "devDependencies": {
-    "@langchain/core": "^1.1.32",
-    "tsup": "^8.0.0",
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "@langchain/core": "^1.1.39",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "files": [
     "dist"

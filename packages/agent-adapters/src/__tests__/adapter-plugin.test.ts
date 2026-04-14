@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEvent, DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { createAdapterPlugin } from '../plugin/adapter-plugin.js'
 import type { AdapterPluginInstance } from '../plugin/adapter-plugin.js'
@@ -48,8 +48,8 @@ function createMockAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   }
 }
 
-function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
-  const events: DzipEvent[] = []
+function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
+  const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
 }
@@ -59,8 +59,8 @@ function collectBusEvents(bus: DzipEventBus): DzipEvent[] {
 // ---------------------------------------------------------------------------
 
 describe('AdapterPlugin (createAdapterPlugin)', () => {
-  let bus: DzipEventBus
-  let emitted: DzipEvent[]
+  let bus: DzupEventBus
+  let emitted: DzupEvent[]
 
   beforeEach(() => {
     bus = createEventBus()
@@ -224,6 +224,27 @@ describe('AdapterPlugin (createAdapterPlugin)', () => {
       expect(registry.listAdapters()).toContain('claude')
     })
 
+    it('agent:failed handler ignores AGENT_ABORTED cancellation events', () => {
+      const claudeAdapter = createMockAdapter('claude')
+      const plugin = createAdapterPlugin({
+        adapters: [claudeAdapter],
+      })
+      plugin.onRegister({ eventBus: bus })
+
+      const registry = plugin.getRegistry()
+      const recordFailureSpy = vi.spyOn(registry, 'recordFailure')
+
+      const handler = plugin.eventHandlers['agent:failed']!
+      handler({
+        type: 'agent:failed',
+        agentId: 'claude',
+        message: 'cancelled',
+        errorCode: 'AGENT_ABORTED',
+      })
+
+      expect(recordFailureSpy).not.toHaveBeenCalled()
+    })
+
     it('provider:circuit_opened handler fires without throwing', () => {
       const plugin = createAdapterPlugin()
       plugin.onRegister({ eventBus: bus })
@@ -243,10 +264,10 @@ describe('AdapterPlugin (createAdapterPlugin)', () => {
 
       const handler = plugin.eventHandlers['provider:circuit_closed']!
 
-      const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       handler({ type: 'provider:circuit_closed', provider: 'codex' })
-      expect(infoSpy).toHaveBeenCalled()
-      infoSpy.mockRestore()
+      expect(warnSpy).toHaveBeenCalled()
+      warnSpy.mockRestore()
     })
   })
 

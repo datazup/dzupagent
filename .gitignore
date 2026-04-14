@@ -6,6 +6,7 @@ jspm_packages/
 dist/
 build/
 *.tsbuildinfo
+.turbo/
 
 # Debug logs
 npm-debug.log*
@@ -28,6 +29,7 @@ lerna-debug.log*
 *.swp
 *.swo
 .DS_Store
+.claude/worktrees/
 
 # Testing
 coverage/
@@ -35,3 +37,5 @@ coverage/
 
 # Documentation
 docs/api/
+.serena
+.docs

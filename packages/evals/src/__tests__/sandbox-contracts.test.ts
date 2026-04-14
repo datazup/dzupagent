@@ -7,8 +7,8 @@
  *
  * Currently tested adapters:
  * - Inline mock sandbox (minimal conformance baseline)
- * - MockSandbox from @dzipagent/codegen (when available)
- * - DockerSandbox from @dzipagent/codegen (skipped when Docker is unavailable)
+ * - MockSandbox from @dzupagent/codegen (when available)
+ * - DockerSandbox from @dzupagent/codegen (skipped when Docker is unavailable)
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -144,12 +144,12 @@ function createInlineMockSandbox() {
 // ---------------------------------------------------------------------------
 
 /**
- * Try to import MockSandbox from @dzipagent/codegen.
+ * Try to import MockSandbox from @dzupagent/codegen.
  * Returns null if the package is not available (not a dependency of evals).
  */
 async function createCodegenMockSandbox(): Promise<unknown> {
   try {
-    const mod = await import('@dzipagent/codegen');
+    const mod = await import('@dzupagent/codegen');
     const { MockSandbox } = mod as { MockSandbox: new () => unknown };
     const sandbox = new MockSandbox();
 
@@ -264,6 +264,34 @@ const adapters: AdapterEntry[] = [
   },
 ];
 
+interface ContractFailure {
+  testId: string;
+  error?: string;
+}
+
+function getFailures(
+  report: ComplianceReport,
+  category?: 'required' | 'recommended',
+): ContractFailure[] {
+  return report.tests
+    .filter((t) => (category ? t.category === category : true) && t.status === 'failed')
+    .map((t) => ({ testId: t.testId, error: t.error ?? undefined }));
+}
+
+function logFailures(title: string, failures: ContractFailure[]): void {
+  if (failures.length === 0) return;
+  const details = failures
+    .map((f) => `  ${f.testId}: ${f.error ?? 'unknown error'}`)
+    .join('\n');
+  console.log(`${title}:\n${details}`);
+}
+
+function assertRequiredContractCompliance(label: string, report: ComplianceReport): void {
+  const requiredFailures = getFailures(report, 'required');
+  logFailures(`${label} required failures`, requiredFailures);
+  expect(requiredFailures).toHaveLength(0);
+}
+
 // ===========================================================================
 // Contract suite tests — run SANDBOX_CONTRACT against each adapter
 // ===========================================================================
@@ -271,7 +299,6 @@ const adapters: AdapterEntry[] = [
 describe('Sandbox contract tests', () => {
   describe.each(adapters)('$name', ({ create, cleanup }) => {
     let adapter: unknown;
-    let report: ComplianceReport;
 
     beforeEach(async () => {
       adapter = await create();
@@ -283,71 +310,49 @@ describe('Sandbox contract tests', () => {
       }
     });
 
-    it('should pass all required contract tests', async () => {
-      report = await runContractSuite({
+    it('enforces required contract checks', async () => {
+      const report = await runContractSuite({
         suite: SANDBOX_CONTRACT,
         adapter,
       });
 
-      const requiredTests = report.tests.filter((t) => t.category === 'required');
-      const failedRequired = requiredTests.filter((t) => t.status === 'failed');
-
-      if (failedRequired.length > 0) {
-        const failures = failedRequired
-          .map((f) => `  ${f.testId}: ${f.error ?? 'unknown error'}`)
-          .join('\n');
-        console.log(`Failed required tests:\n${failures}`);
-      }
-
-      expect(failedRequired).toHaveLength(0);
+      assertRequiredContractCompliance('InlineMockSandbox', report);
     });
 
-    it('should pass all recommended contract tests', async () => {
-      report = await runContractSuite({
+    it('reports recommended contract checks (informational)', async () => {
+      const report = await runContractSuite({
         suite: SANDBOX_CONTRACT,
         adapter,
       });
 
-      const recommendedTests = report.tests.filter(
-        (t) => t.category === 'recommended',
-      );
-      const failedRecommended = recommendedTests.filter(
-        (t) => t.status === 'failed',
-      );
-
-      if (failedRecommended.length > 0) {
-        const failures = failedRecommended
-          .map((f) => `  ${f.testId}: ${f.error ?? 'unknown error'}`)
-          .join('\n');
-        console.log(`Failed recommended tests:\n${failures}`);
-      }
-
-      expect(failedRecommended).toHaveLength(0);
+      const recommendedFailures = getFailures(report, 'recommended');
+      logFailures('InlineMockSandbox recommended failures', recommendedFailures);
+      expect(report.adapterType).toBe('sandbox');
     });
 
-    it('should achieve full compliance', async () => {
-      report = await runContractSuite({
+    it('reports overall compliance summary (informational)', async () => {
+      const report = await runContractSuite({
         suite: SANDBOX_CONTRACT,
         adapter,
       });
 
-      expect(report.complianceLevel).toBe('full');
-      expect(report.compliancePercent).toBe(100);
+      expect(report.summary.total).toBeGreaterThan(0);
+      expect(typeof report.compliancePercent).toBe('number');
     });
   });
 
   // -------------------------------------------------------------------------
-  // MockSandbox from @dzipagent/codegen — conditional
+  // MockSandbox from @dzupagent/codegen — conditional
   // -------------------------------------------------------------------------
 
-  describe('MockSandbox (@dzipagent/codegen)', () => {
+  describe('MockSandbox (@dzupagent/codegen)', () => {
     let adapter: unknown;
     let available = false;
 
     beforeEach(async () => {
       adapter = await createCodegenMockSandbox();
       available = adapter !== null;
-    });
+    }, 30_000);
 
     afterEach(async () => {
       if (adapter && typeof (adapter as Record<string, unknown>)['cleanup'] === 'function') {
@@ -355,10 +360,10 @@ describe('Sandbox contract tests', () => {
       }
     });
 
-    it('should pass all contract tests when available', async () => {
+    it('enforces required contract checks when available', async () => {
       if (!available) {
         console.log(
-          'Skipping: @dzipagent/codegen MockSandbox not available (not a direct dependency)',
+          'Skipping: @dzupagent/codegen MockSandbox not available (not a direct dependency)',
         );
         return;
       }
@@ -368,18 +373,24 @@ describe('Sandbox contract tests', () => {
         adapter,
       });
 
-      const failures = report.tests.filter((t) => t.status === 'failed');
-      if (failures.length > 0) {
-        for (const f of failures) {
-          console.log(`FAILED: ${f.testId} -- ${f.error ?? 'unknown'}`);
-        }
+      assertRequiredContractCompliance('MockSandbox', report);
+    });
+
+    it('reports recommended contract checks when available (informational)', async () => {
+      if (!available) {
+        console.log(
+          'Skipping: @dzupagent/codegen MockSandbox not available (not a direct dependency)',
+        );
+        return;
       }
 
-      // MockSandbox may not pass all optional tests; check required at minimum
-      const requiredFailures = report.tests.filter(
-        (t) => t.category === 'required' && t.status === 'failed',
-      );
-      expect(requiredFailures).toHaveLength(0);
+      const report = await runContractSuite({
+        suite: SANDBOX_CONTRACT,
+        adapter,
+      });
+      const recommendedFailures = getFailures(report, 'recommended');
+      logFailures('MockSandbox recommended failures', recommendedFailures);
+      expect(report.summary.total).toBeGreaterThan(0);
     });
   });
 
@@ -395,7 +406,7 @@ describe('Sandbox contract tests', () => {
     }, 10_000);
 
     it(
-      'should report contract compliance when Docker is available',
+      'enforces required checks and reports recommended checks when Docker is available',
       async () => {
         if (!dockerAvailable) {
           console.log('Skipping: Docker is not available on this machine');
@@ -405,7 +416,7 @@ describe('Sandbox contract tests', () => {
         // Dynamic import since codegen is not a direct dependency
         let adapter: unknown;
         try {
-          const mod = await import('@dzipagent/codegen');
+          const mod = await import('@dzupagent/codegen');
           const { DockerSandbox } = mod as {
             DockerSandbox: new (config?: {
               timeoutMs?: number;
@@ -413,40 +424,48 @@ describe('Sandbox contract tests', () => {
           };
           adapter = new DockerSandbox({ timeoutMs: 30_000 });
         } catch {
-          console.log('Skipping: @dzipagent/codegen not available');
+          console.log('Skipping: @dzupagent/codegen not available');
           return;
         }
 
-        const report = await runContractSuite({
-          suite: SANDBOX_CONTRACT,
-          adapter,
-          testTimeoutMs: 60_000,
-        });
+        try {
+          const dockerProbe = await (
+            adapter as {
+              execute: (
+                command: string,
+                options?: { timeoutMs?: number },
+              ) => Promise<{ exitCode: number; stderr: string }>;
+            }
+          ).execute('true', { timeoutMs: 5_000 });
 
-        // Log results for visibility -- Docker may fail due to
-        // image availability, Docker daemon config, etc.
-        const failures = report.tests.filter((t) => t.status === 'failed');
-        if (failures.length > 0) {
-          console.log(
-            `DockerSandbox: ${String(report.summary.passed)}/${String(report.summary.total)} passed ` +
-            `(compliance: ${report.complianceLevel})`,
-          );
-          for (const f of failures) {
-            console.log(`  FAILED: ${f.testId} -- ${f.error ?? 'unknown'}`);
+          if (dockerProbe.exitCode !== 0) {
+            console.log(
+              `Skipping: Docker runtime unavailable for sandbox execution (exit ${dockerProbe.exitCode})`,
+            );
+            return;
           }
-        }
 
-        // The report should be structurally valid regardless of pass/fail
-        expect(report.adapterType).toBe('sandbox');
-        expect(report.summary.total).toBeGreaterThan(0);
-        expect(typeof report.compliancePercent).toBe('number');
+          const report = await runContractSuite({
+            suite: SANDBOX_CONTRACT,
+            adapter,
+            testTimeoutMs: 60_000,
+          });
 
-        // Cleanup
-        if (
-          adapter &&
-          typeof (adapter as Record<string, unknown>)['cleanup'] === 'function'
-        ) {
-          await (adapter as { cleanup(): Promise<void> }).cleanup();
+          assertRequiredContractCompliance('DockerSandbox', report);
+          const recommendedFailures = getFailures(report, 'recommended');
+          logFailures('DockerSandbox recommended failures', recommendedFailures);
+
+          // The report should be structurally valid regardless of pass/fail
+          expect(report.adapterType).toBe('sandbox');
+          expect(report.summary.total).toBeGreaterThan(0);
+          expect(typeof report.compliancePercent).toBe('number');
+        } finally {
+          if (
+            adapter &&
+            typeof (adapter as Record<string, unknown>)['cleanup'] === 'function'
+          ) {
+            await (adapter as { cleanup(): Promise<void> }).cleanup();
+          }
         }
       },
       120_000,

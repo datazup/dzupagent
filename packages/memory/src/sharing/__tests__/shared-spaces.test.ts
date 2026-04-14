@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MemorySpaceManager } from '../memory-space-manager.js'
 import type { SharedMemoryEvent } from '../types.js'
 import type { MemoryService } from '../../memory-service.js'
+import type { MemoryStoreCapabilities } from '../../store-capabilities.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -14,15 +15,30 @@ interface PutCall {
   value: Record<string, unknown>
 }
 
+interface DeleteCall {
+  ns: string
+  scope: Record<string, string>
+  key: string
+}
+
 type RecordStore = Map<string, Map<string, Record<string, unknown>>>
 
-function createMockMemoryService(): {
+function createMockMemoryService(options?: { failingDeleteKeys?: string[] }): {
   service: MemoryService
   putCalls: PutCall[]
+  deleteCalls: DeleteCall[]
   records: RecordStore
+  capabilities: MemoryStoreCapabilities
 } {
   const putCalls: PutCall[] = []
+  const deleteCalls: DeleteCall[] = []
   const records: RecordStore = new Map()
+  const failingDeleteKeys = new Set(options?.failingDeleteKeys ?? [])
+  const capabilities: MemoryStoreCapabilities = {
+    supportsDelete: true,
+    supportsSearchFilters: true,
+    supportsPagination: true,
+  }
 
   const service = {
     put: vi.fn().mockImplementation(
@@ -32,6 +48,17 @@ function createMockMemoryService(): {
         if (!records.has(nsKey)) records.set(nsKey, new Map())
         records.get(nsKey)!.set(key, value)
         return Promise.resolve()
+      },
+    ),
+    delete: vi.fn().mockImplementation(
+      (ns: string, scope: Record<string, string>, key: string) => {
+        deleteCalls.push({ ns, scope, key })
+        if (failingDeleteKeys.has(key)) {
+          return Promise.resolve(false)
+        }
+        const nsKey = `${ns}:${JSON.stringify(scope)}`
+        records.get(nsKey)?.delete(key)
+        return Promise.resolve(true)
       },
     ),
     get: vi.fn().mockImplementation(
@@ -54,10 +81,11 @@ function createMockMemoryService(): {
         return Promise.resolve(Array.from(nsRecords.values()))
       },
     ),
+    getStoreCapabilities: vi.fn().mockImplementation(() => ({ ...capabilities })),
     formatForPrompt: vi.fn().mockReturnValue(''),
   } as unknown as MemoryService
 
-  return { service, putCalls, records }
+  return { service, putCalls, deleteCalls, records, capabilities }
 }
 
 const OWNER_URI = 'forge://acme/planner'
@@ -143,6 +171,24 @@ describe('MemorySpaceManager', () => {
       })
 
       expect(space.conflictResolution).toBe('manual')
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // share
+  // -----------------------------------------------------------------------
+
+  describe('share', () => {
+    it('rejects subscribe mode with a migration-safe error', async () => {
+      const space = await manager.create({ name: 'test', owner: OWNER_URI })
+
+      await expect(manager.share({
+        from: OWNER_URI,
+        spaceId: space.id,
+        key: 'k1',
+        value: { text: 'data' },
+        mode: 'subscribe' as never,
+      })).rejects.toThrow('MemorySpaceManager.subscribe()')
     })
   })
 
@@ -589,6 +635,118 @@ describe('MemorySpaceManager', () => {
       const space = await manager.create({ name: 'no-limit', owner: OWNER_URI })
       const result = await manager.enforceRetention(space.id)
       expect(result.pruned).toBe(0)
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // compactTombstones
+  // -----------------------------------------------------------------------
+
+  describe('compactTombstones', () => {
+    it('deletes tombstones and records metrics when delete is supported', async () => {
+      const space = await manager.create({
+        name: 'compactable',
+        owner: OWNER_URI,
+        retentionPolicy: { maxAgeMs: 1000 },
+      })
+
+      const nsKey = `space:${space.id}:${JSON.stringify({ _space: space.id })}`
+      const spaceRecords = new Map<string, Record<string, unknown>>()
+      spaceRecords.set('active', { text: 'active' })
+      spaceRecords.set('old-tombstone', {
+        _tombstone: true,
+        _deletedAt: new Date(Date.now() - 5000).toISOString(),
+      })
+      spaceRecords.set('fresh-tombstone', {
+        _tombstone: true,
+        _deletedAt: new Date().toISOString(),
+      })
+      mock.records.set(nsKey, spaceRecords)
+
+      const report = await manager.compactTombstones(space.id)
+
+      expect(report.tombstonesFound).toBe(2)
+      expect(report.tombstonesCompacted).toBe(1)
+      expect(report.tombstonesSkipped).toBe(0)
+      expect(report.durationMs).toBeGreaterThanOrEqual(0)
+      expect(mock.deleteCalls).toHaveLength(1)
+      expect(events.some(e => e.type === 'memory:space:tombstones_compacted')).toBe(true)
+
+      const metrics = manager.getTombstoneCompactionMetrics()
+      expect(metrics.runs).toBe(1)
+      expect(metrics.tombstonesFound).toBe(2)
+      expect(metrics.tombstonesCompacted).toBe(1)
+      expect(metrics.lastDurationMs).toBe(report.durationMs)
+    })
+
+    it('counts failed deletes as skipped and only confirmed deletes as compacted', async () => {
+      const localEvents: SharedMemoryEvent[] = []
+      const localMock = createMockMemoryService({
+        failingDeleteKeys: ['failed-tombstone'],
+      })
+      const localManager = new MemorySpaceManager({
+        memoryService: localMock.service,
+        onEvent: (e) => localEvents.push(e),
+      })
+
+      const space = await localManager.create({
+        name: 'partial-failure',
+        owner: OWNER_URI,
+      })
+
+      const nsKey = `space:${space.id}:${JSON.stringify({ _space: space.id })}`
+      const spaceRecords = new Map<string, Record<string, unknown>>()
+      spaceRecords.set('successful-tombstone', {
+        _key: 'successful-tombstone',
+        _tombstone: true,
+        _deletedAt: new Date(Date.now() - 5000).toISOString(),
+      })
+      spaceRecords.set('failed-tombstone', {
+        _key: 'failed-tombstone',
+        _tombstone: true,
+        _deletedAt: new Date(Date.now() - 10000).toISOString(),
+      })
+      localMock.records.set(nsKey, spaceRecords)
+
+      const report = await localManager.compactTombstones(space.id)
+
+      expect(report.tombstonesFound).toBe(2)
+      expect(report.tombstonesCompacted).toBe(1)
+      expect(report.tombstonesSkipped).toBe(1)
+      expect(report.durationMs).toBeGreaterThanOrEqual(0)
+      expect(localMock.deleteCalls).toHaveLength(2)
+      expect(localEvents.some(e => e.type === 'memory:space:tombstones_compacted')).toBe(true)
+
+      const metrics = localManager.getTombstoneCompactionMetrics()
+      expect(metrics.runs).toBe(1)
+      expect(metrics.tombstonesFound).toBe(2)
+      expect(metrics.tombstonesCompacted).toBe(1)
+      expect(metrics.tombstonesSkipped).toBe(1)
+    })
+
+    it('skips hard delete when the backing store reports no delete support', async () => {
+      mock.capabilities.supportsDelete = false
+
+      const space = await manager.create({
+        name: 'no-delete',
+        owner: OWNER_URI,
+      })
+
+      const nsKey = `space:${space.id}:${JSON.stringify({ _space: space.id })}`
+      const spaceRecords = new Map<string, Record<string, unknown>>()
+      spaceRecords.set('tombstone', {
+        _tombstone: true,
+        _deletedAt: new Date(Date.now() - 5000).toISOString(),
+      })
+      mock.records.set(nsKey, spaceRecords)
+
+      const report = await manager.compactTombstones(space.id)
+
+      expect(report.tombstonesFound).toBe(1)
+      expect(report.tombstonesCompacted).toBe(0)
+      expect(report.tombstonesSkipped).toBe(1)
+      expect(mock.deleteCalls).toHaveLength(0)
+      expect(manager.getTombstoneCompactionMetrics().tombstonesSkipped).toBe(1)
     })
   })
 

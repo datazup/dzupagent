@@ -5,7 +5,7 @@
  * for the vector store backing an agent deployment.
  */
 
-import type { VectorStore } from '@dzipagent/core'
+import type { VectorStore } from '@dzupagent/core'
 
 /**
  * Result of a vector DB status check.

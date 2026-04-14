@@ -26,11 +26,11 @@ interface ParsedClass {
   line: number
 }
 
-const INTERFACE_RE = /^\s*(?:export\s+)?interface\s+(\w+)(?:\s+extends\s+[^{]+)?\s*\{/
-const INTERFACE_METHOD_RE = /^\s+(\w+)\s*(?:<[^>]*>)?\s*\(/
-const INTERFACE_PROP_RE = /^\s+(?:readonly\s+)?(\w+)\s*[?:]/
-const CLASS_RE = /^\s*(?:export\s+)?(?:abstract\s+)?class\s+(\w+)(?:\s+extends\s+\w+)?(?:\s+implements\s+([^{]+))?\s*\{/
-const CLASS_MEMBER_RE = /^\s+(?:private\s+|protected\s+|public\s+|static\s+|readonly\s+|async\s+|abstract\s+|override\s+)*(\w+)\s*(?:[(<:=;])/
+const INTERFACE_RE = /^\s*(?:export\s)?interface\s+(\w+)[^{]*\{/
+const INTERFACE_METHOD_RE = /^\s+(\w+)\s*(?:<[^>]*>)?\s*\(/ // eslint-disable-line security/detect-unsafe-regex
+const INTERFACE_PROP_RE = /^\s+(?:readonly\s)?(\w+)\s*[?:]/
+const CLASS_RE = /^\s*(?:export\s)?(?:abstract\s)?class\s+(\w+)/
+const CLASS_MEMBER_RE = /^\s+(?:(?:private|protected|public|static|readonly|async|abstract|override)\s)*(\w+)\s*[(<:=;]/
 
 function extractInterfaces(files: GeneratedFile[]): Map<string, ParsedInterface> {
   const interfaces = new Map<string, ParsedInterface>()
@@ -128,9 +128,10 @@ function extractClasses(files: GeneratedFile[]): Array<ParsedClass & { file: str
       }
 
       const classMatch = CLASS_RE.exec(line)
-      if (classMatch) {
-        const implementsList = classMatch[2]
-          ? classMatch[2].split(',').map((s) => s.trim()).filter(Boolean)
+      if (classMatch && line.includes('{')) {
+        const implMatch = /implements\s+([^{]+)/.exec(line)
+        const implementsList = implMatch
+          ? implMatch[1]!.split(',').map((s) => s.trim()).filter(Boolean)
           : []
 
         currentClass = {

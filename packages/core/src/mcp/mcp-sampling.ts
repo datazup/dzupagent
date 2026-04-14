@@ -114,20 +114,24 @@ export function createSamplingHandler(
     }
 
     // 5. Invoke the LLM
-    const result = await llmInvoke(messages, {
-      model,
-      temperature: request.temperature,
+    const invokeOpts: LLMInvokeOptions = {
       maxTokens: clampedMaxTokens,
-      stopSequences: request.stopSequences,
-    })
+    }
+    if (model !== undefined) invokeOpts.model = model
+    if (request.temperature !== undefined) invokeOpts.temperature = request.temperature
+    if (request.stopSequences !== undefined) invokeOpts.stopSequences = request.stopSequences
+
+    const result = await llmInvoke(messages, invokeOpts)
 
     // 6. Map the result to MCPSamplingResponse
-    return {
+    const response: MCPSamplingResponse = {
       role: 'assistant',
       content: { type: 'text', text: result.content },
       model: result.model,
-      stopReason: mapStopReason(result.stopReason),
     }
+    const mappedStopReason = mapStopReason(result.stopReason)
+    if (mappedStopReason !== undefined) response.stopReason = mappedStopReason
+    return response
   }
 }
 

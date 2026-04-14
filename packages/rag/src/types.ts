@@ -1,5 +1,5 @@
 /**
- * @dzipagent/rag — Type definitions for the RAG pipeline.
+ * @dzupagent/rag — Type definitions for the RAG pipeline.
  *
  * All interfaces used across chunking, retrieval, assembly, and the
  * top-level pipeline orchestrator.

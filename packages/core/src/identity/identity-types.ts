@@ -1,7 +1,7 @@
 /**
- * DzipAgent identity types.
+ * DzupAgent identity types.
  *
- * Defines the core identity primitives used across the DzipAgent ecosystem:
+ * Defines the core identity primitives used across the DzupAgent ecosystem:
  * agents, credentials, capabilities, and lightweight identity references.
  */
 

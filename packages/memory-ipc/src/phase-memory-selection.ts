@@ -6,7 +6,7 @@
  * boosts or dampens records by namespace and category.
  */
 
-import { Table } from 'apache-arrow'
+import { type Table } from 'apache-arrow'
 import {
   batchTokenEstimate,
   computeCompositeScore,

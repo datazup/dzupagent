@@ -42,11 +42,11 @@ export function runGuardrailGate(
     ? report.errorCount === 0 && report.warningCount === 0
     : report.errorCount === 0
 
-  const formattedReport = config.reporter
-    ? config.reporter.format(report)
-    : undefined
-
-  return { passed, report, formattedReport }
+  const result: GuardrailGateResult = { passed, report }
+  if (config.reporter) {
+    result.formattedReport = config.reporter.format(report)
+  }
+  return result
 }
 
 /**

@@ -239,7 +239,7 @@ export const hasJsDoc: QualityDimension = {
     let totalExports = 0
     let documented = 0
 
-    const exportPattern = /^export\s+(?:async\s+)?(?:function|class|const)\s+(\w+)/gm
+    const exportPattern = /^export\s+(?:async\s)?(?:function|class|const)\s+(\w+)/gm
 
     for (const [path, content] of Object.entries(vfs)) {
       if (!isSourceFile(path)) continue

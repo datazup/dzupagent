@@ -24,19 +24,19 @@ export interface MemoryEntry {
   /** Primary text content */
   text: string
   /** Decay metadata (from `_decay` field), when present */
-  decay?: DecayMetadata
+  decay?: DecayMetadata | undefined
   /** Whether the entry is pinned (immune to pruning) */
-  pinned?: boolean
+  pinned?: boolean | undefined
   /** Importance score 0-1, if assigned */
-  importance?: number
+  importance?: number | undefined
   /** Epoch-ms timestamp of creation */
-  createdAt?: number
+  createdAt?: number | undefined
   /** Epoch-ms timestamp of last access */
-  lastAccessedAt?: number
+  lastAccessedAt?: number | undefined
   /** Number of times the entry was accessed */
-  accessCount?: number
+  accessCount?: number | undefined
   /** Original raw value from the store, preserved for pass-through */
-  raw?: Record<string, unknown>
+  raw?: Record<string, unknown> | undefined
 }
 
 /**

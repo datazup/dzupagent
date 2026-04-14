@@ -24,11 +24,11 @@ export interface AgentFile {
   /** Memory records organized by namespace */
   memory: AgentFileMemorySection
   /** Optional prompt templates */
-  prompts?: AgentFilePromptsSection
+  prompts?: AgentFilePromptsSection | undefined
   /** Optional working memory / metadata state */
-  state?: AgentFileStateSection
+  state?: AgentFileStateSection | undefined
   /** SHA-256 hex digest over content sections (memory + prompts + state) */
-  signature?: string
+  signature?: string | undefined
 }
 
 /**
@@ -38,11 +38,11 @@ export interface AgentFileAgentSection {
   /** Human-readable agent name */
   name: string
   /** Optional description of the agent's purpose */
-  description?: string
+  description?: string | undefined
   /** Capabilities this agent advertises */
-  capabilities?: string[]
+  capabilities?: string[] | undefined
   /** Arbitrary metadata */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown> | undefined
 }
 
 /**
@@ -61,9 +61,9 @@ export interface AgentFileMemoryRecord {
   /** Record value (the stored data) */
   value: Record<string, unknown>
   /** Provenance metadata, if the record was written with provenance */
-  provenance?: MemoryProvenance
+  provenance?: MemoryProvenance | undefined
   /** ISO-8601 timestamp of when this record was created */
-  createdAt?: string
+  createdAt?: string | undefined
 }
 
 /**
@@ -74,15 +74,15 @@ export interface AgentFilePromptsSection {
     name: string
     content: string
     variables?: string[]
-  }>
+  }> | undefined
 }
 
 /**
  * State section — ephemeral working memory and metadata.
  */
 export interface AgentFileStateSection {
-  workingMemory?: Record<string, unknown>
-  metadata?: Record<string, unknown>
+  workingMemory?: Record<string, unknown> | undefined
+  metadata?: Record<string, unknown> | undefined
 }
 
 /**
@@ -92,9 +92,9 @@ export interface ImportOptions {
   /** How to handle key conflicts */
   conflictStrategy: 'skip' | 'overwrite' | 'merge'
   /** Namespaces to import (if not specified, all) */
-  namespaces?: string[]
+  namespaces?: string[] | undefined
   /** Verify signature before importing */
-  verifySignature?: boolean
+  verifySignature?: boolean | undefined
 }
 
 /**
@@ -112,7 +112,7 @@ export interface ImportResult {
 }
 
 /** The current AgentFile schema URI */
-export const AGENT_FILE_SCHEMA = 'https://dzipagent.dev/schemas/agent-file-v1.json' as const
+export const AGENT_FILE_SCHEMA = 'https://dzupagent.dev/schemas/agent-file-v1.json' as const
 
 /** The current AgentFile format version */
 export const AGENT_FILE_VERSION = '1.0.0' as const

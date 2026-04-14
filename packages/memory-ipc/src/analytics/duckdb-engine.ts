@@ -83,7 +83,7 @@ class DuckDBUnavailableError extends Error {
 async function loadDuckDB(): Promise<DuckDBModule> {
   try {
     // Dynamic import -- @duckdb/duckdb-wasm is an optional peer dep
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+     
     const mod: DuckDBModule = await (Function('return import("@duckdb/duckdb-wasm")')() as Promise<DuckDBModule>)
     return mod
   } catch {

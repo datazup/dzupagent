@@ -1,7 +1,7 @@
 /**
  * AgentIntegrationBridge — bridges the adapter layer with tool-based workflows.
  *
- * Enables adapters to be used as tools in DzipAgent workflows and vice versa.
+ * Enables adapters to be used as tools in DzupAgent workflows and vice versa.
  * Each adapter can be wrapped as a tool with an MCP-compatible schema, allowing
  * any orchestration layer (LangChain, MCP, custom) to invoke adapters uniformly.
  *
@@ -9,7 +9,7 @@
  * so any framework can consume these wrappers.
  */
 
-import { ForgeError } from '@dzipagent/core'
+import { ForgeError } from '@dzupagent/core'
 
 import type {
   AdapterProviderId,
@@ -30,17 +30,17 @@ export interface AdapterToolConfig {
   /** The adapter or provider to wrap as a tool */
   providerId: AdapterProviderId
   /** Tool name. Default: `adapter_${providerId}` */
-  name?: string
+  name?: string | undefined
   /** Tool description */
-  description?: string
+  description?: string | undefined
   /** Default working directory */
-  workingDirectory?: string
+  workingDirectory?: string | undefined
   /** Default system prompt */
-  systemPrompt?: string
+  systemPrompt?: string | undefined
   /** Max turns per invocation */
-  maxTurns?: number
+  maxTurns?: number | undefined
   /** Budget limit per invocation in USD */
-  maxBudgetUsd?: number
+  maxBudgetUsd?: number | undefined
 }
 
 export interface ToolInvocationResult {
@@ -48,8 +48,8 @@ export interface ToolInvocationResult {
   providerId: AdapterProviderId
   durationMs: number
   success: boolean
-  usage?: TokenUsage
-  error?: string
+  usage?: TokenUsage | undefined
+  error?: string | undefined
 }
 
 export interface AdapterToolSchema {
@@ -64,8 +64,12 @@ export interface AdapterToolSchema {
 
 export interface ToolInvocationArgs {
   prompt: string
-  workingDirectory?: string
-  systemPrompt?: string
+  workingDirectory?: string | undefined
+  systemPrompt?: string | undefined
+}
+
+function resolveRegistryProviderId(registry: AdapterRegistry): AdapterProviderId {
+  return registry.listAdapters()[0] ?? ('unknown' as AdapterProviderId)
 }
 
 // ---------------------------------------------------------------------------
@@ -221,9 +225,9 @@ class RoutedToolWrapper extends AdapterAsToolWrapper {
   constructor(
     private readonly routedRegistry: AdapterRegistry,
     config: {
-      name?: string
-      description?: string
-      tags?: string[]
+      name?: string | undefined
+      description?: string | undefined
+      tags?: string[] | undefined
     },
   ) {
     // We pass a dummy providerId since routing is dynamic.
@@ -295,7 +299,7 @@ class RoutedToolWrapper extends AdapterAsToolWrapper {
         this.routedRegistry.executeWithFallback(input, task)
 
       let resultText = ''
-      let resultProviderId: AdapterProviderId = this.routedRegistry.listAdapters()[0] ?? 'claude'
+      let resultProviderId = resolveRegistryProviderId(this.routedRegistry)
       let resultUsage: TokenUsage | undefined
 
       for await (const event of eventStream) {
@@ -318,8 +322,7 @@ class RoutedToolWrapper extends AdapterAsToolWrapper {
       const error = err instanceof Error ? err : new Error(String(err))
 
       // Determine which provider was attempted (best effort)
-      const adapters = this.routedRegistry.listAdapters()
-      const providerId: AdapterProviderId = adapters[0] ?? 'claude'
+      const providerId = resolveRegistryProviderId(this.routedRegistry)
 
       return {
         result: '',
@@ -408,9 +411,9 @@ export class AgentIntegrationBridge {
    * content and the registry's configured routing strategy.
    */
   createRoutedTool(config?: {
-    name?: string
-    description?: string
-    tags?: string[]
+    name?: string | undefined
+    description?: string | undefined
+    tags?: string[] | undefined
   }): AdapterAsToolWrapper {
     return new RoutedToolWrapper(this.registry, config ?? {})
   }

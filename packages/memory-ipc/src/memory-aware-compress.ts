@@ -6,7 +6,7 @@
  * storing redundant information and enables smarter context compression.
  */
 
-import { Table } from 'apache-arrow'
+import { type Table } from 'apache-arrow'
 
 // ---------------------------------------------------------------------------
 // Types

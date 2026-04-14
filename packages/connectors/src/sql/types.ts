@@ -1,6 +1,6 @@
 /**
  * Unified SQL connector types — combines query execution + schema discovery
- * into a single per-dialect connector for @dzipagent/connectors.
+ * into a single per-dialect connector for @dzupagent/connectors.
  *
  * Migrated from @nl2sql/core, @nl2sql/db-connectors, @nl2sql/schema-discovery.
  */
@@ -20,6 +20,13 @@ export type SQLDialect =
 /** Database type (excludes 'generic' — used for config) */
 export type DatabaseType = Exclude<SQLDialect, 'generic'>
 
+/** TLS connection options for SSL-enabled databases */
+export interface TlsOptions {
+  rejectUnauthorized?: boolean
+  ca?: string
+  [key: string]: unknown
+}
+
 /** Connection configuration for any supported database */
 export interface SQLConnectionConfig {
   host: string
@@ -27,7 +34,9 @@ export interface SQLConnectionConfig {
   database: string
   username: string
   password: string
-  ssl: boolean
+  ssl: boolean | TlsOptions
+  /** When ssl=true (boolean), allow self-signed certificates (default: false) */
+  sslAllowSelfSigned?: boolean
   /** PostgreSQL schema name (default: 'public') */
   schema?: string
   /** Snowflake account identifier */

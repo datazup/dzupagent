@@ -1,4 +1,4 @@
-# @dzipagent/core
+# @dzupagent/core
 
 <!-- AUTO-GENERATED-START -->
 ## Package Overview
@@ -10,29 +10,27 @@
 | Source Files | 174 |
 | Lines of Code | 39,592 |
 | Test Files | 55 |
-| Internal Dependencies | `@dzipagent/context`, `@dzipagent/memory`, `@dzipagent/memory-ipc` |
+| Internal Dependencies | `@dzupagent/context`, `@dzupagent/memory`, `@dzupagent/memory-ipc` |
 
 ### Quality Gates
 ✓ Build | ✓ Typecheck | ✓ Lint | ✓ Test | ✓ Coverage
 
 ### Install
 ```bash
-npm install @dzipagent/core
+npm install @dzupagent/core
 ```
 <!-- AUTO-GENERATED-END -->
 
-[![Maturity: Stable](https://img.shields.io/badge/maturity-stable-brightgreen)](/docs/CAPABILITY_MATRIX.md)
-
-> See the full [Capability Matrix](/docs/CAPABILITY_MATRIX.md) for per-package maturity levels, test coverage, and API surface area. The matrix is regenerated on every CI run.
+![Maturity: Beta](https://img.shields.io/badge/maturity-beta-yellow)
 
 Base agent infrastructure library providing reusable LLM agent building blocks: model registry, prompt management, memory, context engineering, middleware, persistence, routing, streaming, sub-agents, and skills. Built on LangChain and LangGraph.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/core
+yarn add @dzupagent/core
 # or
-npm install @dzipagent/core
+npm install @dzupagent/core
 ```
 
 ## Quick Start
@@ -41,21 +39,21 @@ Import only what you need via curated facades:
 
 ```typescript
 // Get started fast
-import { createQuickAgent } from '@dzipagent/core/quick-start';
+import { createQuickAgent } from '@dzupagent/core/quick-start';
 
 // Memory-focused work
-import { MemoryService, StoreFactory } from '@dzipagent/core/memory';
+import { MemoryService, StoreFactory } from '@dzupagent/core/memory';
 
 // Orchestration
-import { DzipEventBus } from '@dzipagent/core/orchestration';
+import { DzupEventBus } from '@dzupagent/core/orchestration';
 
 // Security
-import { PolicyEngine, AuditTrail } from '@dzipagent/core/security';
+import { PolicyEngine, AuditTrail } from '@dzupagent/core/security';
 ```
 
 Or import everything from the main entry point:
 ```typescript
-import { MemoryService, DzipEventBus, PolicyEngine } from '@dzipagent/core';
+import { MemoryService, DzupEventBus, PolicyEngine } from '@dzupagent/core';
 ```
 
 ### Classic Usage
@@ -67,7 +65,7 @@ import {
   MemoryService,
   IntentRouter,
   createCheckpointer,
-} from '@dzipagent/core'
+} from '@dzupagent/core'
 
 // 1. Set up the model registry
 const models = new ModelRegistry()
@@ -79,7 +77,7 @@ const resolver = new PromptResolver(promptStore)
 const prompt = await resolver.resolve({ key: 'feature-planner', level: 'tenant', tenantId })
 
 // 3. Invoke with retry and timeout
-import { invokeWithTimeout } from '@dzipagent/core'
+import { invokeWithTimeout } from '@dzupagent/core'
 const result = await invokeWithTimeout(model, messages, { timeoutMs: 30_000 })
 ```
 
@@ -168,18 +166,18 @@ const result = await invokeWithTimeout(model, messages, { timeoutMs: 30_000 })
 
 ### Version
 
-- `dzipagent_CORE_VERSION: string` -- current package version (`'0.1.0'`)
+- `dzupagent_CORE_VERSION: string` -- current package version (`'0.1.0'`)
 
 ## Facade Imports
 
-`@dzipagent/core` exposes **curated facade entry points** that give you only the APIs relevant to your use case, reducing import surface and bundle size.
+`@dzupagent/core` exposes **curated facade entry points** that give you only the APIs relevant to your use case, reducing import surface and bundle size.
 
-### Quick Start — `@dzipagent/core/quick-start`
+### Quick Start — `@dzupagent/core/quick-start`
 
 Minimal bootstrap: DI container, event bus, model registry, memory, context management.
 
 ```ts
-import { createQuickAgent, ModelRegistry, invokeWithTimeout } from '@dzipagent/core/quick-start'
+import { createQuickAgent, ModelRegistry, invokeWithTimeout } from '@dzupagent/core/quick-start'
 
 // One-line agent bootstrap — wires container, event bus, and model registry
 const { registry, eventBus, container } = createQuickAgent({
@@ -194,12 +192,12 @@ registry.register('fast', { provider: 'anthropic', model: 'claude-haiku-4-5-2025
 
 **Key exports:** `createQuickAgent`, `ForgeContainer`, `createContainer`, `createEventBus`, `ModelRegistry`, `invokeWithTimeout`, `MemoryService`, `createStore`, `shouldSummarize`, `summarizeAndTrim`, `evictIfNeeded`, `resolveConfig`
 
-### Memory — `@dzipagent/core/memory`
+### Memory — `@dzupagent/core/memory`
 
 Full memory subsystem: stores, retrieval, consolidation, decay, provenance, CRDT sync.
 
 ```ts
-import { MemoryService, createStore, fusionSearch, SemanticConsolidator } from '@dzipagent/core/memory'
+import { MemoryService, createStore, fusionSearch, SemanticConsolidator } from '@dzupagent/core/memory'
 
 const store = createStore({ backend: 'postgres', connectionString: process.env.DATABASE_URL })
 const memory = new MemoryService({ store, namespace: { tenant: 'acme', project: 'web-app' } })
@@ -207,12 +205,12 @@ const memory = new MemoryService({ store, namespace: { tenant: 'acme', project: 
 
 **Key exports:** `MemoryService`, `createStore`, `WorkingMemory`, `VersionedWorkingMemory`, `ScopedMemoryService`, `DualStreamWriter`, `SleepConsolidator`, `ProvenanceWriter`, `StoreVectorSearch`, `KeywordFTSSearch`, `EntityGraphSearch`, `AdaptiveRetriever`, `SemanticConsolidator`
 
-### Orchestration — `@dzipagent/core/orchestration`
+### Orchestration — `@dzupagent/core/orchestration`
 
 Multi-agent routing, pipelines, sub-agents, skills, protocols, persistence.
 
 ```ts
-import { IntentRouter, createEventBus, SubAgentSpawner } from '@dzipagent/core/orchestration'
+import { IntentRouter, createEventBus, SubAgentSpawner } from '@dzupagent/core/orchestration'
 
 const router = new IntentRouter({ routes: [...] })
 const result = router.classify('Build a login page')
@@ -220,12 +218,12 @@ const result = router.classify('Build a login page')
 
 **Key exports:** `IntentRouter`, `KeywordMatcher`, `LLMClassifier`, `CostAwareRouter`, `SubAgentSpawner`, `SkillLoader`, `SkillManager`, `PipelineDefinitionSchema`, `serializePipeline`, `deserializePipeline`, `ProtocolRouter`, `createForgeMessage`, `InMemoryRunStore`, `MetricsCollector`, `Semaphore`, `ConcurrencyPool`
 
-### Security — `@dzipagent/core/security`
+### Security — `@dzupagent/core/security`
 
 Risk classification, secrets/PII detection, policy engine, audit trail, safety monitoring.
 
 ```ts
-import { createRiskClassifier, scanForSecrets, PolicyEvaluator } from '@dzipagent/core/security'
+import { createRiskClassifier, scanForSecrets, PolicyEvaluator } from '@dzupagent/core/security'
 
 const classifier = createRiskClassifier()
 const risk = classifier.classify('DROP TABLE users')
@@ -233,12 +231,12 @@ const risk = classifier.classify('DROP TABLE users')
 
 **Key exports:** `createRiskClassifier`, `scanForSecrets`, `redactSecrets`, `detectPII`, `redactPII`, `PolicyEvaluator`, `InMemoryPolicyStore`, `ComplianceAuditLogger`, `createSafetyMonitor`, `createMemoryDefense`, `OutputPipeline`, `DataClassifier`
 
-### All Facades — `@dzipagent/core/facades`
+### All Facades — `@dzupagent/core/facades`
 
 Import all facades as namespaces when you need cross-cutting access:
 
 ```ts
-import { quickStart, memory, orchestration, security } from '@dzipagent/core/facades'
+import { quickStart, memory, orchestration, security } from '@dzupagent/core/facades'
 
 const agent = quickStart.createQuickAgent({ provider: 'anthropic', apiKey: '...' })
 const risk = security.createRiskClassifier()

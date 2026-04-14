@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { InMemoryRunStore, createEventBus } from '@dzipagent/core'
-import type { DzipEventBus, DzipEvent, AgentDefinition } from '@dzipagent/core'
+import { InMemoryRunStore, createEventBus } from '@dzupagent/core'
+import type { DzupEventBus, DzupEvent, AgentDefinition } from '@dzupagent/core'
 import {
   SimpleDelegationTracker,
   type DelegationExecutor,
@@ -85,8 +85,8 @@ function makeSpecialist(
 
 describe('DelegatingSupervisor', () => {
   let store: InMemoryRunStore
-  let eventBus: DzipEventBus
-  let events: DzipEvent[]
+  let eventBus: DzupEventBus
+  let events: DzupEvent[]
 
   beforeEach(() => {
     store = new InMemoryRunStore()
@@ -527,6 +527,136 @@ describe('DelegatingSupervisor', () => {
 
       expect(supervisor.getSpecialist('agent-db')).toBe(dbDef)
       expect(supervisor.getSpecialist('nonexistent')).toBeUndefined()
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // delegateTask with providerPort
+  // -----------------------------------------------------------------------
+  describe('delegateTask with providerPort', () => {
+    it('delegates via providerPort.run() when providerPort is set', async () => {
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        eventBus,
+        executor: withStoreUpdate(store, 'tracker result'),
+      })
+
+      const mockProviderPort = {
+        run: vi.fn(async () => ({
+          content: 'provider-port result',
+          providerId: 'claude' as const,
+          attemptedProviders: ['claude' as const],
+          fallbackAttempts: 0,
+        })),
+        stream: vi.fn(),
+      }
+
+      const specialists = new Map<string, AgentDefinition>([
+        ['db-specialist', makeSpecialist('db-specialist', {
+          metadata: { tags: ['database', 'sql'] },
+        })],
+      ])
+
+      const supervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+        providerPort: mockProviderPort,
+      })
+
+      const result = await supervisor.delegateTask(
+        'Create users table',
+        'db-specialist',
+        { tables: ['users'] },
+      )
+
+      expect(result.success).toBe(true)
+      expect(result.output).toBe('provider-port result')
+      expect(mockProviderPort.run).toHaveBeenCalledTimes(1)
+    })
+
+    it('builds TaskDescriptor from TaskAssignment metadata', async () => {
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        executor: withStoreUpdate(store),
+      })
+
+      const capturedTasks: unknown[] = []
+      const mockProviderPort = {
+        run: vi.fn(async (_input: unknown, task: unknown) => {
+          capturedTasks.push(task)
+          return {
+            content: 'result',
+            providerId: 'claude' as const,
+            attemptedProviders: ['claude' as const],
+            fallbackAttempts: 0,
+          }
+        }),
+        stream: vi.fn(),
+      }
+
+      const specialists = new Map<string, AgentDefinition>([
+        ['api-specialist', makeSpecialist('api-specialist', {
+          metadata: { tags: ['api', 'backend'] },
+        })],
+      ])
+
+      const supervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+        providerPort: mockProviderPort,
+      })
+
+      await supervisor.delegateTask('Build REST endpoints', 'api-specialist', {})
+
+      expect(capturedTasks).toHaveLength(1)
+      const task = capturedTasks[0] as { prompt: string; tags: string[] }
+      expect(task.prompt).toBe('Build REST endpoints')
+      expect(task.tags).toEqual(['api', 'backend'])
+    })
+
+    it('emits supervisor events even when using providerPort', async () => {
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        eventBus,
+        executor: withStoreUpdate(store),
+      })
+
+      const mockProviderPort = {
+        run: vi.fn(async () => ({
+          content: 'port result',
+          providerId: 'gemini' as const,
+          attemptedProviders: ['gemini' as const],
+          fallbackAttempts: 0,
+        })),
+        stream: vi.fn(),
+      }
+
+      const specialists = new Map<string, AgentDefinition>([
+        ['ui-specialist', makeSpecialist('ui-specialist', {
+          metadata: { tags: ['ui'] },
+        })],
+      ])
+
+      const supervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+        providerPort: mockProviderPort,
+      })
+
+      await supervisor.delegateTask('Build login page', 'ui-specialist', {})
+
+      const delegating = events.find((e) => e.type === 'supervisor:delegating')
+      const complete = events.find((e) => e.type === 'supervisor:delegation_complete')
+
+      expect(delegating).toBeDefined()
+      expect((delegating as Record<string, unknown>).specialistId).toBe('ui-specialist')
+      expect((delegating as Record<string, unknown>).task).toBe('Build login page')
+
+      expect(complete).toBeDefined()
+      expect((complete as Record<string, unknown>).success).toBe(true)
     })
   })
 })

@@ -83,7 +83,7 @@ export class PromptOptimizer {
   private readonly maxCandidates: number;
   private readonly maxRounds: number;
   private readonly minImprovement: number;
-  private readonly signal?: AbortSignal;
+  private readonly signal?: AbortSignal | undefined;
 
   constructor(config: OptimizerConfig) {
     this.metaModel = config.metaModel;

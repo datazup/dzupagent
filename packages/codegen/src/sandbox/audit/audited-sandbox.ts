@@ -129,13 +129,14 @@ export class AuditedSandbox implements SandboxProtocol {
     action: SandboxAuditEntry['action'],
     details: Record<string, unknown>,
   ): Promise<void> {
-    await this.store.append({
+    const entry: Omit<SandboxAuditEntry, 'seq' | 'previousHash' | 'hash'> = {
       id: `${this.sandboxId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       sandboxId: this.sandboxId,
-      runId: this.runId,
       action,
       details,
       timestamp: new Date(),
-    })
+    }
+    if (this.runId !== undefined) entry.runId = this.runId
+    await this.store.append(entry)
   }
 }

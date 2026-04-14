@@ -1,0 +1,5 @@
+{
+  "name": "node",
+  "template": "minimal",
+  "version": "0.1.0"
+}

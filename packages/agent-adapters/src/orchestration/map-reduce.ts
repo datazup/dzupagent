@@ -9,7 +9,9 @@
  * Concurrency is bounded by a simple counting semaphore.
  */
 
-import type { DzipEventBus } from '@dzipagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core'
+import { Semaphore } from '@dzupagent/core/orchestration'
 
 import type {
   AdapterProviderId,
@@ -49,7 +51,8 @@ export interface MapChunkResult<TMapResult> {
   rawResult: string
   success: boolean
   durationMs: number
-  error?: string
+  error?: string | undefined
+  cancelled?: true | undefined
 }
 
 /** The final result of a complete map-reduce execution. */
@@ -59,12 +62,29 @@ export interface MapReduceResult<TReduceResult> {
   successfulChunks: number
   failedChunks: number
   totalDurationMs: number
+  cancelled?: true | undefined
   perChunkStats: Array<{
     index: number
     providerId: AdapterProviderId | null
     durationMs: number
     success: boolean
+    cancelled?: true | undefined
   }>
+}
+
+function buildCancellationError(message: string): ForgeError {
+  return new ForgeError({
+    code: 'AGENT_ABORTED',
+    message,
+    recoverable: false,
+  })
+}
+
+function isCancellationError(err: unknown): boolean {
+  return (
+    (ForgeError.is(err) && err.code === 'AGENT_ABORTED') ||
+    (err instanceof DOMException && err.name === 'AbortError')
+  )
 }
 
 /** Options passed to `MapReduceOrchestrator.execute`. */
@@ -78,65 +98,57 @@ export interface MapReduceOptions<TChunk, TMapResult, TReduceResult> {
   /** Reduce all map results into a final result */
   reducer: ReducerFn<TMapResult, TReduceResult>
   /** Optional abort signal */
-  signal?: AbortSignal
+  signal?: AbortSignal | undefined
 }
 
 /** Configuration for the MapReduceOrchestrator. */
 export interface MapReduceConfig {
   registry: AdapterRegistry
-  eventBus?: DzipEventBus
+  eventBus?: DzupEventBus | undefined
   /** Maximum number of concurrent map operations. Default: 4 */
-  maxConcurrency?: number
-}
-
-// ---------------------------------------------------------------------------
-// Semaphore — simple counting semaphore for bounding concurrency
-// ---------------------------------------------------------------------------
-
-class Semaphore {
-  private current = 0
-  private readonly waiters: Array<() => void> = []
-
-  constructor(private readonly max: number) {}
-
-  async acquire(signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) {
-      throw new DOMException('The operation was aborted.', 'AbortError')
-    }
-
-    if (this.current < this.max) {
-      this.current++
-      return
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      const onAbort = (): void => {
-        const idx = this.waiters.indexOf(waiter)
-        if (idx !== -1) this.waiters.splice(idx, 1)
-        reject(new DOMException('The operation was aborted.', 'AbortError'))
-      }
-
-      const waiter = (): void => {
-        signal?.removeEventListener('abort', onAbort)
-        this.current++
-        resolve()
-      }
-
-      signal?.addEventListener('abort', onAbort, { once: true })
-      this.waiters.push(waiter)
-    })
-  }
-
-  release(): void {
-    this.current--
-    const next = this.waiters.shift()
-    if (next) next()
-  }
+  maxConcurrency?: number | undefined
 }
 
 // ---------------------------------------------------------------------------
 // Built-in chunkers
 // ---------------------------------------------------------------------------
+
+function normalizeConcurrency(value: number | undefined, defaultValue = 4): number {
+  const concurrency = value ?? defaultValue
+  if (!Number.isFinite(concurrency) || !Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error(
+      `MapReduceOrchestrator maxConcurrency must be a finite positive integer; received ${String(concurrency)}`,
+    )
+  }
+  return concurrency
+}
+
+async function acquireSemaphore(semaphore: Semaphore, signal?: AbortSignal): Promise<boolean> {
+  if (!signal) {
+    await semaphore.acquire()
+    return true
+  }
+
+  if (signal.aborted) {
+    return false
+  }
+
+  const acquirePromise = semaphore.acquire().then(() => {
+    if (signal.aborted) {
+      semaphore.release()
+      return false
+    }
+    return true
+  })
+
+  const abortPromise = new Promise<boolean>((resolve) => {
+    const onAbort = (): void => resolve(false)
+    signal.addEventListener('abort', onAbort, { once: true })
+    acquirePromise.finally(() => signal.removeEventListener('abort', onAbort))
+  })
+
+  return await Promise.race([acquirePromise, abortPromise])
+}
 
 /**
  * Splits text by newlines into groups of `linesPerChunk` lines.
@@ -186,13 +198,13 @@ export class DirectoryChunker implements Chunker<string[]> {
 
 export class MapReduceOrchestrator {
   private readonly registry: AdapterRegistry
-  private readonly eventBus: DzipEventBus | undefined
+  private readonly eventBus: DzupEventBus | undefined
   private readonly maxConcurrency: number
 
   constructor(config: MapReduceConfig) {
     this.registry = config.registry
     this.eventBus = config.eventBus
-    this.maxConcurrency = config.maxConcurrency ?? 4
+    this.maxConcurrency = normalizeConcurrency(config.maxConcurrency)
   }
 
   /**
@@ -236,6 +248,7 @@ export class MapReduceOrchestrator {
         const error = outcome.reason instanceof Error
           ? outcome.reason
           : new Error(String(outcome.reason))
+        const cancelled = isCancellationError(outcome.reason)
         mapResults.push({
           chunkIndex: index,
           providerId: null,
@@ -244,6 +257,7 @@ export class MapReduceOrchestrator {
           success: false,
           durationMs: 0,
           error: error.message,
+          ...(cancelled ? { cancelled: true as const } : {}),
         })
       }
     }
@@ -253,6 +267,7 @@ export class MapReduceOrchestrator {
 
     const successCount = mapResults.filter((r) => r.success).length
     const failCount = mapResults.length - successCount
+    const cancelled = mapResults.some((r) => r.cancelled)
 
     this.emitEvent({
       type: 'mapreduce:map_completed',
@@ -283,11 +298,13 @@ export class MapReduceOrchestrator {
       successfulChunks: successCount,
       failedChunks: failCount,
       totalDurationMs,
+      ...(cancelled ? { cancelled: true as const } : {}),
       perChunkStats: mapResults.map((r) => ({
         index: r.chunkIndex,
         providerId: r.providerId,
         durationMs: r.durationMs,
         success: r.success,
+        ...(r.cancelled ? { cancelled: true as const } : {}),
       })),
     }
   }
@@ -304,12 +321,16 @@ export class MapReduceOrchestrator {
     semaphore: Semaphore,
     signal?: AbortSignal,
   ): Promise<MapChunkResult<TMapResult>> {
-    await semaphore.acquire(signal)
+    const acquired = await acquireSemaphore(semaphore, signal)
     const chunkStart = Date.now()
 
     try {
+      if (!acquired) {
+        throw buildCancellationError('Map-reduce execution was cancelled')
+      }
+
       if (signal?.aborted) {
-        throw new DOMException('The operation was aborted.', 'AbortError')
+        throw buildCancellationError('Map-reduce execution was cancelled')
       }
 
       const { input, task } = mapper(chunk, index)
@@ -329,6 +350,19 @@ export class MapReduceOrchestrator {
       }
 
       if (!completedEvent) {
+        if (signal?.aborted) {
+          return {
+            chunkIndex: index,
+            providerId: lastProviderId,
+            result: undefined as TMapResult,
+            rawResult: '',
+            success: false,
+            durationMs: Date.now() - chunkStart,
+            error: 'Map-reduce execution was cancelled',
+            cancelled: true,
+          }
+        }
+
         return {
           chunkIndex: index,
           providerId: lastProviderId,
@@ -362,6 +396,7 @@ export class MapReduceOrchestrator {
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err))
       const durationMs = Date.now() - chunkStart
+      const cancelled = isCancellationError(err) || signal?.aborted === true
 
       this.emitEvent({
         type: 'mapreduce:chunk_failed',
@@ -378,9 +413,12 @@ export class MapReduceOrchestrator {
         success: false,
         durationMs,
         error: error.message,
+        ...(cancelled ? { cancelled: true as const } : {}),
       }
     } finally {
-      semaphore.release()
+      if (acquired) {
+        semaphore.release()
+      }
     }
   }
 
@@ -419,8 +457,7 @@ export class MapReduceOrchestrator {
   ): void {
     if (this.eventBus) {
       // Map-reduce events are domain-specific extensions; cast through unknown.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this.eventBus.emit(event as unknown as Parameters<DzipEventBus['emit']>[0])
+      this.eventBus.emit(event as unknown as Parameters<DzupEventBus['emit']>[0])
     }
   }
 }

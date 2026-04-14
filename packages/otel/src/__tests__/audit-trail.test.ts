@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createEventBus } from '@dzipagent/core'
-import type { DzipEventBus } from '@dzipagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import { AuditTrail, InMemoryAuditStore } from '../audit-trail.js'
 import type { AuditEntry } from '../audit-trail.js'
 
@@ -12,7 +12,7 @@ async function tick(): Promise<void> {
 }
 
 describe('AuditTrail', () => {
-  let bus: DzipEventBus
+  let bus: DzupEventBus
   let store: InMemoryAuditStore
   let trail: AuditTrail
 

@@ -20,8 +20,8 @@ import type { BaseStore } from '@langchain/langgraph'
 export interface SkillPackEntry {
   type: 'skill' | 'convention' | 'rule'
   content: string
-  category?: string
-  scope?: string[]
+  category?: string | undefined
+  scope?: string[] | undefined
   confidence: number
 }
 

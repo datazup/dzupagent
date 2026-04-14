@@ -79,8 +79,8 @@ export class MCPResourceClient {
     return response.resources.map((r) => ({
       uri: r.uri,
       name: r.name,
-      description: r.description,
-      mimeType: r.mimeType,
+      ...(r.description !== undefined && { description: r.description }),
+      ...(r.mimeType !== undefined && { mimeType: r.mimeType }),
     }))
   }
 
@@ -99,8 +99,8 @@ export class MCPResourceClient {
     return response.resourceTemplates.map((t) => ({
       uriTemplate: t.uriTemplate,
       name: t.name,
-      description: t.description,
-      mimeType: t.mimeType,
+      ...(t.description !== undefined && { description: t.description }),
+      ...(t.mimeType !== undefined && { mimeType: t.mimeType }),
     }))
   }
 
@@ -123,9 +123,9 @@ export class MCPResourceClient {
 
     return {
       uri: content.uri ?? uri,
-      mimeType: content.mimeType,
-      text: content.text,
-      blob: content.blob,
+      ...(content.mimeType !== undefined && { mimeType: content.mimeType }),
+      ...(content.text !== undefined && { text: content.text }),
+      ...(content.blob !== undefined && { blob: content.blob }),
     }
   }
 

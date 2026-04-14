@@ -1,6 +1,6 @@
 {
-  "name": "@dzipagent/server",
-  "version": "0.1.0",
+  "name": "@dzupagent/server",
+  "version": "0.2.0",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,7 +13,7 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --testTimeout=30000 --hookTimeout=30000",
     "test:watch": "vitest",
     "lint": "eslint src/",
     "db:generate": "drizzle-kit generate",
@@ -21,18 +21,19 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@dzipagent/agent": "0.1.0",
-    "@dzipagent/core": "0.1.0",
-    "@dzipagent/evals": "0.1.0",
-    "@dzipagent/memory-ipc": "0.1.0",
-    "@dzipagent/otel": "0.1.0",
-    "@langchain/core": "^1.1.32",
-    "drizzle-orm": "^0.40.1",
+    "@dzupagent/agent": "0.2.0",
+    "@dzupagent/agent-adapters": "0.2.0",
+    "@dzupagent/core": "0.2.0",
+    "@dzupagent/evals": "0.2.0",
+    "@dzupagent/memory-ipc": "0.2.0",
+    "@dzupagent/otel": "0.2.0",
+    "@langchain/core": "^1.1.39",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.12.9"
   },
   "peerDependencies": {
-    "postgres": "^3.4.0",
-    "bullmq": "^5.0.0"
+    "bullmq": "^5.0.0",
+    "postgres": "^3.4.0"
   },
   "peerDependenciesMeta": {
     "bullmq": {
@@ -40,12 +41,13 @@
     }
   },
   "devDependencies": {
-    "bullmq": "^5.0.0",
+    "@dzupagent/test-utils": "0.2.0",
+    "bullmq": "^5.71.0",
     "drizzle-kit": "^0.30.0",
     "testcontainers": "^10.0.0",
-    "tsup": "^8.0.0",
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "files": [
     "dist"

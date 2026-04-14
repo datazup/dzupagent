@@ -22,8 +22,8 @@ export interface MemoryProvenance {
   /**
    * Agent URI that originally created this record.
    * MUST follow the `forge://org/agent-name` two-segment format
-   * from the DzipAgent identity spec (Doc 01).
-   * When `@dzipagent/core` identity module is available, this
+   * from the DzupAgent identity spec (Doc 01).
+   * When `@dzupagent/core` identity module is available, this
    * will be tightened to a branded `ForgeUri` type.
    */
   createdBy: string
@@ -42,7 +42,7 @@ export interface MemoryProvenance {
    */
   lineage: string[]
   /** Optional: keys of source records this was derived from */
-  derivedFrom?: string[]
+  derivedFrom?: string[] | undefined
 }
 
 /**
@@ -55,11 +55,11 @@ export interface ProvenanceWriteOptions {
    */
   agentUri: string
   /** How the record is being produced (default: 'direct') */
-  source?: ProvenanceSource
+  source?: ProvenanceSource | undefined
   /** Confidence 0.0-1.0 (default: 1.0) */
-  confidence?: number
+  confidence?: number | undefined
   /** Keys of source records (for 'derived' source) */
-  derivedFrom?: string[]
+  derivedFrom?: string[] | undefined
 }
 
 /**
@@ -67,11 +67,11 @@ export interface ProvenanceWriteOptions {
  */
 export interface ProvenanceQuery {
   /** Filter by creator URI */
-  createdBy?: string
+  createdBy?: string | undefined
   /** Filter by source type */
-  source?: ProvenanceSource
+  source?: ProvenanceSource | undefined
   /** Minimum confidence threshold */
-  minConfidence?: number
+  minConfidence?: number | undefined
   /** Filter records touched by this agent (appears in lineage) */
-  touchedBy?: string
+  touchedBy?: string | undefined
 }

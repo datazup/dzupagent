@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { vectordbStatus, formatVectorDBStatus } from '../cli/vectordb-command.js'
 import type { VectorDBStatusResult } from '../cli/vectordb-command.js'
-import type { VectorStore, VectorStoreHealth, CollectionConfig, VectorEntry, VectorQuery, VectorSearchResult, VectorDeleteFilter } from '@dzipagent/core'
+import type { VectorStore, VectorStoreHealth, CollectionConfig, VectorEntry, VectorQuery, VectorSearchResult, VectorDeleteFilter } from '@dzupagent/core'
 
 /**
  * Minimal mock VectorStore for testing.

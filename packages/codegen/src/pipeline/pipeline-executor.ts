@@ -3,12 +3,16 @@
  * retry strategies, per-phase timeouts, and checkpoint support.
  */
 
-import type { PipelineDefinition, PipelineNode } from '@dzipagent/core'
-import { PipelineRuntime } from '@dzipagent/agent'
-import type { NodeExecutionContext, NodeResult } from '@dzipagent/agent'
+import type { PipelineDefinition, PipelineNode, SkillResolutionContext } from '@dzupagent/core'
+import { PipelineRuntime } from '@dzupagent/agent'
+import type { NodeExecutionContext, NodeResult } from '@dzupagent/agent'
 import type { GuardrailGateConfig } from './guardrail-gate.js'
 import { runGuardrailGate, summarizeGateResult } from './guardrail-gate.js'
 import type { GuardrailContext } from '../guardrails/guardrail-types.js'
+import type { SkillResolverConfig } from './skill-resolver.js'
+import { resolveAndInjectSkills } from './skill-resolver.js'
+import type { BudgetGateConfig } from './budget-gate.js'
+import { runBudgetGate } from './budget-gate.js'
 
 export interface ExecutorConfig {
   /** Default timeout per phase in ms (default: 120_000) */
@@ -32,6 +36,22 @@ export interface ExecutorConfig {
     phaseId: string,
     state: Record<string, unknown>,
   ) => GuardrailContext | undefined
+  /**
+   * Optional skill resolver. When set, skills declared in PhaseConfig.skills[]
+   * are resolved and injected into state before each phase executes.
+   * Resolved content is placed at state.__skills_<name> and state.__skills_prompt_<name>.
+   */
+  skillResolver?: SkillResolverConfig | undefined
+  /**
+   * Optional base context for skill resolution (observability / usage tracking).
+   * The `phase` field is overridden per phase automatically.
+   */
+  skillResolutionContext?: Omit<SkillResolutionContext, 'phase'> | undefined
+  /**
+   * Optional budget gate that checks remaining budget before each phase.
+   * If budget is exceeded, subsequent phases are skipped with a budget error.
+   */
+  budgetGate?: BudgetGateConfig | undefined
 }
 
 export interface PhaseConfig {
@@ -49,6 +69,11 @@ export interface PhaseConfig {
   timeoutMs?: number
   /** Retry strategy */
   retryStrategy?: 'immediate' | 'backoff'
+  /**
+   * Skill names/IDs to resolve and inject into state before this phase executes.
+   * Requires ExecutorConfig.skillResolver to be set.
+   */
+  skills?: string[] | undefined
 }
 
 export interface PhaseResult {
@@ -247,6 +272,44 @@ export class PipelineExecutor {
         }
       }
 
+      // Check budget gate before execution
+      if (this.config.budgetGate) {
+        const budgetResult = await runBudgetGate(this.config.budgetGate)
+        context.state[`__phase_${phase.id}_budget`] = {
+          passed: budgetResult.passed,
+          usedCents: budgetResult.usedCents,
+          remainingCents: budgetResult.remainingCents,
+        }
+        if (!budgetResult.passed) {
+          const durationMs = Date.now() - phaseStart
+          const error = `Budget exceeded: used ${budgetResult.usedCents} cents, remaining ${budgetResult.remainingCents} cents`
+          results.push({
+            phaseId: phase.id,
+            status: 'failed',
+            durationMs,
+            retries: 0,
+            error,
+          })
+          return {
+            nodeId,
+            output: null,
+            durationMs,
+            error,
+          }
+        }
+      }
+
+      // Resolve and inject skills declared for this phase
+      if (phase.skills && phase.skills.length > 0 && this.config.skillResolver) {
+        await resolveAndInjectSkills(
+          phase.skills,
+          phase.name,
+          context.state,
+          this.config.skillResolver,
+          { ...(this.config.skillResolutionContext ?? {}), phase: phase.name },
+        )
+      }
+
       const maxRetries = phase.maxRetries ?? this.config.defaultMaxRetries
       const timeoutMs = phase.timeoutMs ?? this.config.defaultTimeoutMs
       let lastError: string | undefined
@@ -332,13 +395,14 @@ export class PipelineExecutor {
 
       const durationMs = Date.now() - phaseStart
       const isTimeout = lastError?.includes('timed out')
-      results.push({
+      const phaseResult: PhaseResult = {
         phaseId: phase.id,
         status: isTimeout ? 'timeout' : 'failed',
         durationMs,
         retries,
-        error: lastError,
-      })
+      }
+      if (lastError !== undefined) phaseResult.error = lastError
+      results.push(phaseResult)
       return {
         nodeId,
         output: null,

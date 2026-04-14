@@ -198,15 +198,16 @@ export class FlySandbox implements SandboxProtocol {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), opts.timeoutMs)
     try {
-      return await fetch(`${this.baseUrl}${path}`, {
+      const fetchInit: RequestInit = {
         method: opts.method,
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.apiToken}`,
         },
-        body: opts.body,
         signal: controller.signal,
-      })
+      }
+      if (opts.body !== undefined) fetchInit.body = opts.body
+      return await fetch(`${this.baseUrl}${path}`, fetchInit)
     } finally {
       clearTimeout(timer)
     }

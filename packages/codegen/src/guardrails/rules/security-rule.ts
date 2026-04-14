@@ -29,7 +29,7 @@ const SECRET_PATTERNS: SecretPattern[] = [
   },
   {
     name: 'private-key',
-    pattern: /-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----/,
+    pattern: /-----BEGIN\s+(?:RSA\s)?PRIVATE\s+KEY-----/,
     message: 'Private key embedded in source code',
   },
   {

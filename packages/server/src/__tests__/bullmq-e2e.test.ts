@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import type { RunJob, JobProcessor } from '../queue/run-queue.js'
+import { waitForCondition } from '@dzupagent/test-utils'
 
 // ---------------------------------------------------------------------------
 // Conditional imports — skip the entire suite when deps are missing
@@ -31,7 +32,9 @@ interface GenericContainerCtor {
 }
 
 let GenericContainer: GenericContainerCtor | undefined
-let BullMQRunQueueClass: typeof import('../queue/bullmq-run-queue.js').BullMQRunQueue | undefined
+import type { BullMQRunQueue as BullMQRunQueueType } from '../queue/bullmq-run-queue.js'
+let BullMQRunQueueClass: typeof BullMQRunQueueType | undefined
+let containerRuntimeAvailable = false
 
 try {
   const tc = await import('testcontainers')
@@ -47,7 +50,20 @@ try {
   // bullmq not installed — BullMQRunQueue will fail to create workers
 }
 
-const canRun = GenericContainer !== undefined && BullMQRunQueueClass !== undefined
+try {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const exec = promisify(execFile)
+  await exec('docker', ['info'], { timeout: 5000 })
+  containerRuntimeAvailable = true
+} catch {
+  // No container runtime available in this environment.
+}
+
+const canRun =
+  GenericContainer !== undefined
+  && BullMQRunQueueClass !== undefined
+  && containerRuntimeAvailable
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -178,8 +194,10 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
 
     await queue.enqueue(jobInput())
     await done.promise
-    // BullMQ worker events fire asynchronously; give a brief window.
-    await new Promise((r) => setTimeout(r, 300))
+    await waitForCondition(
+      () => queue.stats().completed >= 1,
+      { description: 'completed counter did not increment' },
+    )
 
     const s = queue.stats()
     expect(s.completed).toBeGreaterThanOrEqual(1)
@@ -202,8 +220,13 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
     await queue.enqueue(jobInput({ runId: 'stats-1' }))
     await queue.enqueue(jobInput({ runId: 'stats-2' }))
 
-    // Wait until the first job is picked up.
-    await new Promise((r) => setTimeout(r, 500))
+    await waitForCondition(
+      async () => {
+        const stats = await queue.statsFromRedis()
+        return stats.active >= 1
+      },
+      { description: 'expected an active job before stats assertion' },
+    )
 
     const stats = await queue.statsFromRedis()
     // At least one waiting, exactly one active.
@@ -213,7 +236,10 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
 
     // Release the gate so cleanup completes.
     gate.resolve()
-    await new Promise((r) => setTimeout(r, 500))
+    await waitForCondition(
+      async () => jobsProcessed >= 2,
+      { description: 'queued jobs did not finish after releasing gate' },
+    )
   }, 15_000)
 
   it('processes higher-priority jobs first', async () => {
@@ -221,6 +247,7 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
     const order: string[] = []
     const gate = deferred()
     let callCount = 0
+    const allDone = deferred()
 
     // Start the worker but hold the first job so the other two queue up.
     queue.start(async (job) => {
@@ -230,12 +257,17 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
         await gate.promise
       }
       order.push(job.runId)
+      if (order.length === 3) {
+        allDone.resolve()
+      }
     })
 
     // Enqueue a blocker job.
     await queue.enqueue(jobInput({ runId: 'blocker', priority: 0 }))
-    // Wait for it to be picked up.
-    await new Promise((r) => setTimeout(r, 300))
+    await waitForCondition(
+      async () => callCount >= 1,
+      { description: 'blocker job was not picked up in time' },
+    )
 
     // Now enqueue two jobs: low priority (10) first, then high priority (1).
     // BullMQ lower priority number = higher priority.
@@ -245,8 +277,7 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
     // Release the blocker so the queued jobs get processed.
     gate.resolve()
 
-    // Wait for all three to complete.
-    await new Promise((r) => setTimeout(r, 2000))
+    await allDone.promise
 
     // The blocker was first. After it, high-prio (1) should precede low-prio (10).
     expect(order[0]).toBe('blocker')
@@ -265,8 +296,10 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
 
     await queue.enqueue(jobInput({ runId: 'fail-job' }))
 
-    // Wait for the worker failed event to fire and populate dead-letter.
-    await new Promise((r) => setTimeout(r, 1500))
+    await waitForCondition(
+      () => queue.getDeadLetter().length >= 1,
+      { description: 'dead-letter entry was not created after failure' },
+    )
     failDone.resolve()
 
     const dl = queue.getDeadLetter()
@@ -291,8 +324,10 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
 
     await queue.enqueue(jobInput())
 
-    // Wait for failure processing.
-    await new Promise((r) => setTimeout(r, 1500))
+    await waitForCondition(
+      () => queue.stats().failed >= 1 && queue.stats().deadLetter >= 1,
+      { description: 'failed/dead-letter counters did not update' },
+    )
 
     const s = queue.stats()
     expect(s.failed).toBeGreaterThanOrEqual(1)

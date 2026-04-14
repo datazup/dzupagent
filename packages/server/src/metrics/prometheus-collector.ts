@@ -12,7 +12,7 @@
  * console.log(collector.render())
  * ```
  */
-import { MetricsCollector } from '@dzipagent/core'
+import { MetricsCollector } from '@dzupagent/core'
 
 /** Default histogram bucket boundaries (in ms). */
 const DEFAULT_BUCKETS = [50, 100, 250, 500, 1000, 2500, 5000, 10000] as const
@@ -33,10 +33,11 @@ interface GaugeSeries {
 
 /**
  * Internal representation of a single label-set for a histogram metric.
- * Stores all raw observations so buckets can be computed at render time.
+ * Stores cumulative bucket counts plus sum/count so render stays O(buckets)
+ * without retaining raw observations.
  */
 interface HistogramSeries {
-  observations: number[]
+  bucketCounts: number[]
   sum: number
   count: number
 }
@@ -121,11 +122,11 @@ export class PrometheusMetricsCollector extends MetricsCollector {
     const key = labelsKey(labels)
     const existing = series.get(key)
     if (existing) {
-      existing.observations.push(value)
-      existing.sum += value
-      existing.count += 1
+      this.recordHistogramObservation(existing, value)
     } else {
-      series.set(key, { observations: [value], sum: value, count: 1 })
+      const histogram = this.createHistogramSeries()
+      this.recordHistogramObservation(histogram, value)
+      series.set(key, histogram)
     }
   }
 
@@ -187,9 +188,8 @@ export class PrometheusMetricsCollector extends MetricsCollector {
         const labelPrefix = key ? `${key},` : ''
 
         // Bucket lines
-        for (const boundary of DEFAULT_BUCKETS) {
-          const count = s.observations.filter(v => v <= boundary).length
-          lines.push(`${name}_bucket{${labelPrefix}le="${boundary}"} ${count}`)
+        for (let i = 0; i < DEFAULT_BUCKETS.length; i++) {
+          lines.push(`${name}_bucket{${labelPrefix}le="${DEFAULT_BUCKETS[i]}"} ${s.bucketCounts[i] ?? 0}`)
         }
         // +Inf bucket (always equals count)
         lines.push(`${name}_bucket{${labelPrefix}le="+Inf"} ${s.count}`)
@@ -230,5 +230,24 @@ export class PrometheusMetricsCollector extends MetricsCollector {
     this.histograms.clear()
     this.gauges.clear()
     this.meta.clear()
+  }
+
+  private createHistogramSeries(): HistogramSeries {
+    return {
+      bucketCounts: Array.from({ length: DEFAULT_BUCKETS.length }, () => 0),
+      sum: 0,
+      count: 0,
+    }
+  }
+
+  private recordHistogramObservation(series: HistogramSeries, value: number): void {
+    for (let i = 0; i < DEFAULT_BUCKETS.length; i++) {
+      const boundary = DEFAULT_BUCKETS[i]
+      if (boundary !== undefined && value <= boundary) {
+        series.bucketCounts[i] = (series.bucketCounts[i] ?? 0) + 1
+      }
+    }
+    series.sum += value
+    series.count += 1
   }
 }

@@ -25,11 +25,11 @@ export interface MemoryCommunity {
 
 export interface CommunityDetectorConfig {
   /** Minimum community size to keep (default: 2) */
-  minCommunitySize?: number
+  minCommunitySize?: number | undefined
   /** Max iterations for label propagation (default: 10) */
-  maxIterations?: number
+  maxIterations?: number | undefined
   /** Max communities to generate summaries for (default: 20) */
-  maxCommunities?: number
+  maxCommunities?: number | undefined
 }
 
 export interface CommunityDetectionResult {
@@ -73,7 +73,8 @@ function extractEntities(text: string): Set<string> {
   }
 
   // PascalCase words (at least two uppercase-led segments)
-  const pascalMatches = text.matchAll(/\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b/g)
+  // eslint-disable-next-line security/detect-unsafe-regex
+  const pascalMatches = text.matchAll(/\b((?:[A-Z][a-z]{1,30}){2,10})\b/g)
   for (const m of pascalMatches) {
     if (m[1] !== undefined) entities.add(m[1].toLowerCase())
   }

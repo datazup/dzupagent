@@ -3,10 +3,10 @@ import type { ExtractionConfig } from './types.js'
 /** Metadata extracted from HTML */
 export interface ExtractedContent {
   text: string
-  title?: string
-  description?: string
-  author?: string
-  publishedDate?: string
+  title?: string | undefined
+  description?: string | undefined
+  author?: string | undefined
+  publishedDate?: string | undefined
 }
 
 const DEFAULT_CONFIG: ExtractionConfig = {

@@ -9,14 +9,14 @@ import { writeFile, rename, mkdir, readFile, unlink } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { SkillDefinition } from './skill-types.js'
-import { sanitizeMemoryContent } from '@dzipagent/memory'
+import { sanitizeMemoryContent } from '@dzupagent/memory'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface SkillManagerConfig {
-  /** Directory where skills are stored (e.g. ~/.dzipagent/skills) */
+  /** Directory where skills are stored (e.g. ~/.dzupagent/skills) */
   skillsDir: string
   /** Maximum SKILL.md file size in characters (default 50 000) */
   maxContentLength?: number

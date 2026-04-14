@@ -9,8 +9,7 @@
  * to inject `SELECT TOP N` syntax.
  */
 
-// @ts-expect-error — mssql lacks bundled type declarations in this env
-import mssql from 'mssql'
+import { createRequire } from 'node:module'
 import { BaseSQLConnector } from '../base-sql-connector.js'
 import type {
   SQLDialect,
@@ -24,36 +23,64 @@ import type {
   SchemaDiscoveryOptions,
 } from '../types.js'
 
+import type * as MSSQLPkg from 'mssql'
+
+type MSSQLModule = typeof MSSQLPkg
+
+const runtimeRequire = createRequire(import.meta.url)
+const SQLSERVER_DRIVER_PACKAGE = 'mssql'
+
+let mssqlModulePromise: Promise<MSSQLModule> | null = null
+
+function isMissingModuleError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND'
+  )
+}
+
+function assertSqlServerDriverInstalled(): void {
+  try {
+    runtimeRequire.resolve(SQLSERVER_DRIVER_PACKAGE)
+  } catch (error: unknown) {
+    if (isMissingModuleError(error)) {
+      throw new Error(
+        `SQLServerConnector requires the optional dependency "${SQLSERVER_DRIVER_PACKAGE}". Install it with: yarn add ${SQLSERVER_DRIVER_PACKAGE}`,
+      )
+    }
+    throw error
+  }
+}
+
+async function loadMSSQLModule(): Promise<MSSQLModule> {
+  if (!mssqlModulePromise) {
+    assertSqlServerDriverInstalled()
+    mssqlModulePromise = import('mssql').catch((error: unknown) => {
+      if (isMissingModuleError(error)) {
+        throw new Error(
+          `SQLServerConnector requires the optional dependency "${SQLSERVER_DRIVER_PACKAGE}". Install it with: yarn add ${SQLSERVER_DRIVER_PACKAGE}`,
+        )
+      }
+      throw error
+    })
+  }
+
+  return mssqlModulePromise
+}
+
 // ---------------------------------------------------------------------------
 // Connector
 // ---------------------------------------------------------------------------
 
 export class SQLServerConnector extends BaseSQLConnector {
-  private readonly pool: mssql.ConnectionPool
-  private poolConnected: Promise<mssql.ConnectionPool>
+  private pool: MSSQLPkg.ConnectionPool | null = null
+  private poolConnected: Promise<MSSQLPkg.ConnectionPool> | null = null
 
   constructor(config: SQLConnectionConfig) {
     super(config)
-
-    const mssqlConfig: mssql.config = {
-      server: config.host,
-      port: config.port || 1433,
-      database: config.database,
-      user: config.username,
-      password: config.password,
-      pool: {
-        max: 5,
-        min: 0,
-        idleTimeoutMillis: 30_000,
-      },
-      options: {
-        encrypt: config.ssl,
-        trustServerCertificate: true,
-      },
-    }
-
-    this.pool = new mssql.ConnectionPool(mssqlConfig)
-    this.poolConnected = this.pool.connect()
+    assertSqlServerDriverInstalled()
   }
 
   getDialect(): SQLDialect {
@@ -63,8 +90,8 @@ export class SQLServerConnector extends BaseSQLConnector {
   async testConnection(): Promise<ConnectionTestResult> {
     const start = performance.now()
     try {
-      await this.poolConnected
-      await this.pool.request().query('SELECT 1 AS ok')
+      const pool = await this.getPool()
+      await pool.request().query('SELECT 1 AS ok')
       return { ok: true, latencyMs: Math.round(performance.now() - start) }
     } catch (err: unknown) {
       return {
@@ -81,8 +108,8 @@ export class SQLServerConnector extends BaseSQLConnector {
 
     const limitedSQL = this.wrapWithLimit(sql, maxRows)
 
-    await this.poolConnected
-    const request = this.pool.request()
+    const pool = await this.getPool()
+    const request = pool.request()
     request.timeout = timeoutMs
 
     // Set read-only isolation level to prevent accidental writes
@@ -101,7 +128,11 @@ export class SQLServerConnector extends BaseSQLConnector {
   }
 
   async destroy(): Promise<void> {
-    await this.pool.close()
+    if (this.pool) {
+      await this.pool.close()
+      this.pool = null
+      this.poolConnected = null
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -119,10 +150,12 @@ export class SQLServerConnector extends BaseSQLConnector {
       return trimmed
     }
     // Inject TOP after SELECT (handles SELECT DISTINCT too)
+    /* eslint-disable security/detect-unsafe-regex -- bounded alternation, not subject to ReDoS */
     return trimmed.replace(
       /^(SELECT\s+(?:DISTINCT\s+)?)/i,
       `$1TOP ${String(maxRows + 1)} `,
     )
+    /* eslint-enable security/detect-unsafe-regex */
   }
 
   // ---------------------------------------------------------------------------
@@ -137,8 +170,9 @@ export class SQLServerConnector extends BaseSQLConnector {
     schemaName: string,
     _options?: SchemaDiscoveryOptions,
   ): Promise<TableSchema[]> {
-    await this.poolConnected
-    const result = await this.pool
+    const mssql = await loadMSSQLModule()
+    const pool = await this.getPool()
+    const result = await pool
       .request()
       .input('schemaName', mssql.VarChar, schemaName)
       .query(
@@ -161,8 +195,9 @@ export class SQLServerConnector extends BaseSQLConnector {
   }
 
   protected async discoverColumns(tableName: string, schemaName: string): Promise<ColumnInfo[]> {
-    await this.poolConnected
-    const result = await this.pool
+    const mssql = await loadMSSQLModule()
+    const pool = await this.getPool()
+    const result = await pool
       .request()
       .input('schemaName', mssql.VarChar, schemaName)
       .input('tableName', mssql.VarChar, tableName)
@@ -205,8 +240,9 @@ export class SQLServerConnector extends BaseSQLConnector {
     tableName: string,
     schemaName: string,
   ): Promise<ForeignKey[]> {
-    await this.poolConnected
-    const result = await this.pool
+    const mssql = await loadMSSQLModule()
+    const pool = await this.getPool()
+    const result = await pool
       .request()
       .input('schemaName', mssql.VarChar, schemaName)
       .input('tableName', mssql.VarChar, tableName)
@@ -237,8 +273,9 @@ export class SQLServerConnector extends BaseSQLConnector {
   }
 
   protected async discoverRowCount(tableName: string, schemaName: string): Promise<number> {
-    await this.poolConnected
-    const result = await this.pool
+    const mssql = await loadMSSQLModule()
+    const pool = await this.getPool()
+    const result = await pool
       .request()
       .input('schemaName', mssql.VarChar, schemaName)
       .input('tableName', mssql.VarChar, tableName)
@@ -261,11 +298,11 @@ export class SQLServerConnector extends BaseSQLConnector {
     columnName: string,
     limit: number,
   ): Promise<unknown[]> {
-    await this.poolConnected
+    const pool = await this.getPool()
     const escapedTable = this.escapeIdentifier(tableName)
     const escapedColumn = this.escapeIdentifier(columnName)
 
-    const result = await this.pool.request().query(
+    const result = await pool.request().query(
       `SELECT DISTINCT TOP ${String(limit)} ${escapedColumn} AS val
        FROM ${escapedTable}
        WHERE ${escapedColumn} IS NOT NULL`,
@@ -281,5 +318,37 @@ export class SQLServerConnector extends BaseSQLConnector {
   /** Escape a SQL Server identifier with bracket quoting. */
   private escapeIdentifier(identifier: string): string {
     return '[' + identifier.replace(/\]/g, ']]') + ']'
+  }
+
+  private async getPool(): Promise<MSSQLPkg.ConnectionPool> {
+    if (this.pool) return this.pool
+    if (this.poolConnected) return this.poolConnected
+
+    const mssql = await loadMSSQLModule()
+    const mssqlConfig: MSSQLPkg.config = {
+      server: this.config.host,
+      port: this.config.port || 1433,
+      database: this.config.database,
+      user: this.config.username,
+      password: this.config.password,
+      pool: {
+        max: 5,
+        min: 0,
+        idleTimeoutMillis: 30_000,
+      },
+      options: {
+        encrypt: !!this.config.ssl,
+        trustServerCertificate: true,
+      },
+    }
+
+    this.pool = new mssql.ConnectionPool(mssqlConfig)
+    this.poolConnected = this.pool.connect().catch((err: unknown) => {
+      this.pool = null
+      this.poolConnected = null
+      throw err
+    })
+
+    return this.poolConnected
   }
 }

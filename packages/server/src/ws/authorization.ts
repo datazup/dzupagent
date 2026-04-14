@@ -1,4 +1,4 @@
-import type { DzipEvent } from '@dzipagent/core'
+import type { DzupEvent } from '@dzupagent/core'
 import type { ClientFilter, WSClient } from './event-bridge.js'
 import type { WSControlAuthorizeFilter } from './control-protocol.js'
 
@@ -9,7 +9,7 @@ export interface WSClientScope {
   /** Allowed agent IDs for this client. */
   agentIds?: string[]
   /** Event types the client is allowed to subscribe to. */
-  eventTypes?: DzipEvent['type'][]
+  eventTypes?: DzupEvent['type'][]
   /** If true, bypass scope checks. Intended for trusted operators. */
   canSubscribeAll?: boolean
 }
@@ -89,7 +89,7 @@ export function createScopedAuthorizeFilter(
     if (filter.eventTypes && filter.eventTypes.length > 0) {
       if (!scope.eventTypes || scope.eventTypes.length === 0) return false
       const allowed = filter.eventTypes.every((eventType) =>
-        scope.eventTypes!.includes(eventType as DzipEvent['type']),
+        scope.eventTypes!.includes(eventType as DzupEvent['type']),
       )
       if (!allowed) return false
     }

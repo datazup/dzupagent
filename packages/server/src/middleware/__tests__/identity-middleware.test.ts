@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Hono } from 'hono'
-import type { IdentityResolver, ForgeIdentity } from '@dzipagent/core'
+import type { IdentityResolver, ForgeIdentity } from '@dzupagent/core'
 import { identityMiddleware, getForgeIdentity, getForgeCapabilities } from '../identity.js'
 import { capabilityGuard } from '../capability-guard.js'
 

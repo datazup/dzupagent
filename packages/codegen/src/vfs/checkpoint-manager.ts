@@ -21,7 +21,7 @@ const execFileAsync = promisify(execFile)
 // ---------------------------------------------------------------------------
 
 export interface CheckpointManagerConfig {
-  /** Base directory for shadow repos (default ~/.dzipagent/checkpoints) */
+  /** Base directory for shadow repos (default ~/.dzupagent/checkpoints) */
   baseDir?: string
   /** Maximum number of snapshots to keep per directory (default 50) */
   maxSnapshots?: number
@@ -30,6 +30,12 @@ export interface CheckpointManagerConfig {
   /** Maximum files in a directory before skipping (default 50_000) */
   maxFiles?: number
 }
+
+export type CheckpointResult =
+  | { status: 'created'; checkpointId: string }
+  | { status: 'deduplicated'; checkpointId: string }
+  | { status: 'skipped'; reason: string }
+  | { status: 'failed'; error: string }
 
 export interface CheckpointEntry {
   hash: string
@@ -50,7 +56,7 @@ export interface CheckpointDiff {
 // ---------------------------------------------------------------------------
 
 const DEFAULTS = {
-  baseDir: join(process.env['HOME'] ?? '/tmp', '.dzipagent', 'checkpoints'),
+  baseDir: join(process.env['HOME'] ?? '/tmp', '.dzupagent', 'checkpoints'),
   maxSnapshots: 50,
   timeoutMs: 30_000,
   maxFiles: 50_000,
@@ -121,23 +127,29 @@ export class CheckpointManager {
    * No-op if already snapshotted this turn. Safe to call before every
    * file-mutating operation — at most one snapshot per dir per turn.
    *
-   * Non-fatal: never throws. Returns the commit hash on success, null on failure.
+   * Non-fatal: never throws. Returns a discriminated result.
    */
-  async ensureCheckpoint(workDir: string, reason: string): Promise<string | null> {
+  async ensureCheckpoint(workDir: string, reason: string): Promise<CheckpointResult> {
     const absDir = resolve(workDir)
 
     // Per-turn dedup
-    if (this.turnSnapshots.has(absDir)) return null
+    if (this.turnSnapshots.has(absDir)) {
+      return { status: 'deduplicated', checkpointId: absDir }
+    }
 
     // Safety: skip dangerous directories
-    if (absDir === '/' || absDir === (process.env['HOME'] ?? '')) return null
+    if (absDir === '/' || absDir === (process.env['HOME'] ?? '')) {
+      return { status: 'skipped', reason: `unsafe directory: ${absDir}` }
+    }
 
     // Check directory exists and isn't too large
     try {
       const entries = await readdir(absDir)
-      if (entries.length > this.maxFiles) return null
-    } catch {
-      return null
+      if (entries.length > this.maxFiles) {
+        return { status: 'skipped', reason: `directory exceeds maxFiles (${entries.length} > ${this.maxFiles})` }
+      }
+    } catch (err: unknown) {
+      return { status: 'failed', error: err instanceof Error ? err.message : String(err) }
     }
 
     this.turnSnapshots.add(absDir)
@@ -149,10 +161,11 @@ export class CheckpointManager {
       const hash = await this.createSnapshot(shadowDir, absDir, reason)
       if (hash) {
         await this.pruneOldSnapshots(shadowDir, absDir)
+        return { status: 'created', checkpointId: hash }
       }
-      return hash
-    } catch {
-      return null
+      return { status: 'deduplicated', checkpointId: absDir }
+    } catch (err: unknown) {
+      return { status: 'failed', error: err instanceof Error ? err.message : String(err) }
     }
   }
 
@@ -273,8 +286,8 @@ export class CheckpointManager {
       await this.git(shadowDir, workDir, ['init'])
 
       // Configure for checkpoint use
-      await this.git(shadowDir, workDir, ['config', 'user.email', 'checkpoint@dzipagent'])
-      await this.git(shadowDir, workDir, ['config', 'user.name', 'DzipAgent Checkpoint'])
+      await this.git(shadowDir, workDir, ['config', 'user.email', 'checkpoint@dzupagent'])
+      await this.git(shadowDir, workDir, ['config', 'user.name', 'DzupAgent Checkpoint'])
     }
   }
 

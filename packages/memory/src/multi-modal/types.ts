@@ -19,11 +19,11 @@ export interface MemoryAttachment {
   /** MIME type of the attachment. */
   mimeType: string
   /** Human-readable description. */
-  description?: string
+  description?: string | undefined
   /** Size in bytes. */
-  sizeBytes?: number
+  sizeBytes?: number | undefined
   /** When the attachment was created. */
-  createdAt?: Date
+  createdAt?: Date | undefined
 }
 
 /**

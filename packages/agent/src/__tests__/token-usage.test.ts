@@ -1,5 +1,5 @@
 /**
- * Tests for token usage extraction in the DzipAgent streaming path.
+ * Tests for token usage extraction in the DzupAgent streaming path.
  *
  * Validates that the stream() method correctly extracts real token usage
  * from provider metadata and only falls back to estimation when no
@@ -8,7 +8,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import { DzipAgent } from '../agent/dzip-agent.js'
+import type { BaseMessage } from '@langchain/core/messages'
+import { DzupAgent } from '../agent/dzip-agent.js'
+import type { GenerateOptions } from '../agent/agent-types.js'
 
 /**
  * Create a mock model that supports streaming and returns chunks with
@@ -44,9 +46,9 @@ function createMockStreamingModel(
 
 /** Collect all events from the stream. */
 async function collectStreamEvents(
-  agent: DzipAgent,
-  messages: import('@langchain/core/messages').BaseMessage[],
-  options?: import('../agent/agent-types.js').GenerateOptions,
+  agent: DzupAgent,
+  messages: BaseMessage[],
+  options?: GenerateOptions,
 ) {
   const events = []
   for await (const event of agent.stream(messages, options)) {
@@ -55,13 +57,13 @@ async function collectStreamEvents(
   return events
 }
 
-describe('DzipAgent stream() token usage', () => {
+describe('DzupAgent stream() token usage', () => {
   it('uses real token counts from Anthropic usage_metadata', async () => {
     const model = createMockStreamingModel('Hello world', {
       usage_metadata: { input_tokens: 100, output_tokens: 25, total_tokens: 125 },
     })
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'test-agent',
       instructions: 'You are a test agent.',
       model,
@@ -85,7 +87,7 @@ describe('DzipAgent stream() token usage', () => {
       },
     })
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'test-agent',
       instructions: 'You are a test agent.',
       model,
@@ -101,7 +103,7 @@ describe('DzipAgent stream() token usage', () => {
     // Model returns no usage metadata at all
     const model = createMockStreamingModel('Short response')
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'test-agent',
       instructions: 'You are a test agent.',
       model,
@@ -122,7 +124,7 @@ describe('DzipAgent stream() token usage', () => {
       usage_metadata: { input_tokens: 800, output_tokens: 200, total_tokens: 1000 },
     })
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'test-agent',
       instructions: 'You are a test agent.',
       model,
@@ -146,7 +148,7 @@ describe('DzipAgent stream() token usage', () => {
       usage_metadata: { input_tokens: 50, output_tokens: 0, total_tokens: 50 },
     })
 
-    const agent = new DzipAgent({
+    const agent = new DzupAgent({
       id: 'test-agent',
       instructions: 'You are a test agent.',
       model,

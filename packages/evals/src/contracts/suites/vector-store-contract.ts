@@ -1,7 +1,7 @@
 /**
  * VectorStore Contract Suite — conformance tests for VectorStore adapters.
  *
- * Tests verify the VectorStore interface contract defined in @dzipagent/core.
+ * Tests verify the VectorStore interface contract defined in @dzupagent/core.
  * Adapters must pass all 'required' tests to be considered conformant.
  */
 

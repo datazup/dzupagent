@@ -1,18 +1,18 @@
-# @dzipagent/connectors-documents
+# @dzupagent/connectors-documents
 
-Document connector for DzipAgent. This package provides tools to parse various document formats and split them into semantic chunks for LLM processing.
+Document connector for DzupAgent. This package provides tools to parse various document formats and split them into semantic chunks for LLM processing.
 
 ## Installation
 
 ```bash
-yarn add @dzipagent/connectors-documents @dzipagent/agent zod
+yarn add @dzupagent/connectors-documents @dzupagent/agent zod
 ```
 
 ## Features
 
 - **Document Parsing**: Extract text from PDF, DOCX, Markdown, and plain text files.
 - **Semantic Chunking**: Split text into chunks while respecting paragraph and heading boundaries.
-- **Forge Tools**: Easily integrate with DzipAgent using `createDocumentConnector`.
+- **Forge Tools**: Easily integrate with DzupAgent using `createDocumentConnector`.
 
 ## Supported MIME Types
 
@@ -23,20 +23,20 @@ yarn add @dzipagent/connectors-documents @dzipagent/agent zod
 
 ## Usage
 
-### Using as DzipAgent Tools
+### Using as DzupAgent Tools
 
-The `createDocumentConnector` function returns an array of LangChain-compatible tools that can be passed to a DzipAgent.
+The `createDocumentConnector` function returns an array of LangChain-compatible tools that can be passed to a DzupAgent.
 
 ```typescript
-import { DzipAgent } from '@dzipagent/agent';
-import { createDocumentConnector } from '@dzipagent/connectors-documents';
+import { DzupAgent } from '@dzupagent/agent';
+import { createDocumentConnector } from '@dzupagent/connectors-documents';
 
 const documentTools = createDocumentConnector({
   maxChunkSize: 4000,
   overlap: 200
 });
 
-const agent = new DzipAgent({
+const agent = new DzupAgent({
   model: 'gpt-4o',
   tools: [...documentTools],
   // ... other config
@@ -52,7 +52,7 @@ The connector provides two tools to the agent:
 You can also use the parsing and chunking utilities directly:
 
 ```typescript
-import { parseDocument, splitIntoChunks } from '@dzipagent/connectors-documents';
+import { parseDocument, splitIntoChunks } from '@dzupagent/connectors-documents';
 
 // Parse a PDF buffer
 const buffer = Buffer.from('...'); // PDF content
@@ -66,7 +66,7 @@ const chunks = splitIntoChunks(text, 4000, 200);
 
 ### `createDocumentConnector(config?: DocumentConnectorConfig)`
 
-Creates the document tools for DzipAgent.
+Creates the document tools for DzupAgent.
 
 - `config.maxChunkSize`: Maximum characters per chunk (default: 4000).
 - `config.overlap`: Character overlap between chunks (default: 200).

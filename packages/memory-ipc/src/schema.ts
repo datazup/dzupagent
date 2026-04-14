@@ -1,5 +1,5 @@
 /**
- * Canonical Arrow schema for DzipAgent memory frames.
+ * Canonical Arrow schema for DzupAgent memory frames.
  *
  * Defines the 21-column schema used for zero-copy IPC between agents.
  * Dictionary-encoded columns (namespace, agent_id, category, provenance_source)

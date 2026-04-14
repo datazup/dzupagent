@@ -10,7 +10,7 @@
  *   - maximumBytesBilled cap (1 GB) prevents runaway cost
  */
 
-import { BigQuery } from '@google-cloud/bigquery'
+import { createRequire } from 'node:module'
 import { BaseSQLConnector } from '../base-sql-connector.js'
 import type {
   SQLDialect,
@@ -23,6 +23,41 @@ import type {
   ForeignKey,
   SchemaDiscoveryOptions,
 } from '../types.js'
+
+import type * as BigQueryPkg from '@google-cloud/bigquery'
+
+type BigQueryModule = typeof BigQueryPkg
+type BigQueryClient = BigQueryPkg.BigQuery
+
+const runtimeRequire = createRequire(import.meta.url)
+const BIGQUERY_DRIVER_PACKAGE = '@google-cloud/bigquery'
+
+let bigQueryModule: BigQueryModule | undefined
+
+function isMissingModuleError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND'
+  )
+}
+
+function loadBigQueryModule(): BigQueryModule {
+  if (bigQueryModule) return bigQueryModule
+
+  try {
+    bigQueryModule = runtimeRequire(BIGQUERY_DRIVER_PACKAGE) as BigQueryModule
+    return bigQueryModule
+  } catch (error: unknown) {
+    if (isMissingModuleError(error)) {
+      throw new Error(
+        `BigQueryConnector requires the optional dependency "${BIGQUERY_DRIVER_PACKAGE}". Install it with: yarn add ${BIGQUERY_DRIVER_PACKAGE}`,
+      )
+    }
+    throw error
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Row shapes for INFORMATION_SCHEMA queries
@@ -55,12 +90,13 @@ interface ForeignKeyRow {
 // ---------------------------------------------------------------------------
 
 export class BigQueryConnector extends BaseSQLConnector {
-  private readonly client: BigQuery
+  private readonly client: BigQueryClient
   private readonly projectId: string
   private readonly dataset: string
 
   constructor(config: SQLConnectionConfig) {
     super(config)
+    const { BigQuery } = loadBigQueryModule()
 
     this.projectId = config.projectId ?? config.database
     this.dataset = config.dataset ?? config.schema ?? 'default'
