@@ -30,6 +30,8 @@ lerna-debug.log*
 *.swo
 .DS_Store
 .claude/worktrees/
+.codex
+.codex/
 
 # Testing
 coverage/
@@ -37,5 +39,13 @@ coverage/
 
 # Documentation
 docs/api/
-.serena
-.docs
+.serena/
+.docs/
+
+# Package manager lockfiles not used in this repo
+package-lock.json
+pnpm-lock.yaml
+bun.lockb
+
+# Generic local logs
+*.log
