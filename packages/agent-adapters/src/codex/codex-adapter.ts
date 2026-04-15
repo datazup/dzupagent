@@ -409,8 +409,15 @@ export class CodexAdapter implements AgentCLIAdapter {
     let sessionId = this.currentSessionId ?? `codex-${Date.now()}`
     let lastUsage: TokenUsage | undefined
     let finalResponse = ''
-    const timeoutMs = (this.config as Record<string, unknown>).timeoutMs as number | undefined
-      ?? CodexAdapter.DEFAULT_TIMEOUT_MS
+    const inputTimeoutMs =
+      typeof input.options?.['timeoutMs'] === 'number'
+        ? input.options['timeoutMs']
+        : undefined
+    const configuredTimeoutMs = (this.config as Record<string, unknown>).timeoutMs as number | undefined
+    const timeoutMs = inputTimeoutMs ?? configuredTimeoutMs ?? CodexAdapter.DEFAULT_TIMEOUT_MS
+    let eventCount = 0
+    let lastEventAt = startTime
+    let lastEventType = 'none'
 
     // Auto-abort after timeout so we never hang
     let didTimeout = false
@@ -425,6 +432,7 @@ export class CodexAdapter implements AgentCLIAdapter {
 
     console.debug('[codex-adapter.ts:runStreamedThread] starting', {
       sessionId, promptLength: input.prompt.length, timeoutMs,
+      timeoutSource: inputTimeoutMs != null ? 'input.options.timeoutMs' : configuredTimeoutMs != null ? 'adapter.config.timeoutMs' : 'default',
     })
 
     let streamedTurn: { events: AsyncIterable<CodexStreamEvent> }
@@ -435,6 +443,27 @@ export class CodexAdapter implements AgentCLIAdapter {
     } catch (err: unknown) {
       clearTimeout(timeoutHandle)
       const errMsg = err instanceof Error ? err.message : String(err)
+      if (didTimeout || signal.aborted) {
+        const reason = didTimeout ? 'timeout_before_stream_start' : 'caller_abort_before_stream_start'
+        const durationMs = now() - startTime
+        console.warn('[codex-adapter.ts:runStreamedThread] runStreamed() aborted before stream events', {
+          sessionId,
+          reason,
+          durationMs,
+          error: errMsg,
+        })
+        yield {
+          type: 'adapter:failed',
+          providerId: this.providerId,
+          sessionId,
+          error: didTimeout ? `Codex adapter timed out after ${durationMs}ms` : errMsg,
+          code: didTimeout ? 'ADAPTER_TIMEOUT' : 'ADAPTER_EXECUTION_FAILED',
+          timestamp: now(),
+          ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+        }
+        return
+      }
+
       console.error('[codex-adapter.ts:runStreamedThread] runStreamed() threw', { sessionId, error: errMsg })
       yield {
         type: 'adapter:failed',
@@ -450,6 +479,20 @@ export class CodexAdapter implements AgentCLIAdapter {
 
     try {
       for await (const event of streamedTurn.events) {
+        const eventNow = now()
+        const gapMs = eventNow - lastEventAt
+        eventCount += 1
+        lastEventAt = eventNow
+        lastEventType = event.type
+        if (gapMs > 15_000) {
+          console.debug('[codex-adapter.ts:runStreamedThread] slow stream gap observed', {
+            sessionId,
+            eventType: event.type,
+            eventCount,
+            gapMs,
+          })
+        }
+
         const mapped = this.mapEvent(event, sessionId, startTime)
 
         if (event.type === 'thread.started' && event.thread_id) {
@@ -482,6 +525,7 @@ export class CodexAdapter implements AgentCLIAdapter {
         const reason = didTimeout ? 'timeout' : 'caller_abort'
         console.warn('[codex-adapter.ts:runStreamedThread] aborted', {
           sessionId, reason, durationMs: now() - startTime, finalResponseLength: finalResponse.length,
+          eventCount, lastEventType, lastEventAgeMs: now() - lastEventAt,
         })
         yield {
           type: didTimeout ? 'adapter:failed' : 'adapter:completed',
@@ -517,7 +561,7 @@ export class CodexAdapter implements AgentCLIAdapter {
 
     console.debug('[codex-adapter.ts:runStreamedThread] completed normally', {
       sessionId, durationMs: now() - startTime, responseLength: finalResponse.length,
-      usage: lastUsage,
+      usage: lastUsage, eventCount, lastEventType,
     })
 
     // Always emit a single adapter:completed with the accumulated response

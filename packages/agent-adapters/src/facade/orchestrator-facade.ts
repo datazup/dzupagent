@@ -197,6 +197,8 @@ export interface ChatOptions {
   maxTokens?: number | undefined
   /** Top-p nucleus sampling */
   topP?: number | undefined
+  /** Per-turn adapter timeout override (milliseconds) */
+  timeoutMs?: number | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -624,6 +626,7 @@ export class OrchestratorFacade {
     if (options?.temperature != null) adapterOptions.temperature = options.temperature
     if (options?.maxTokens != null) adapterOptions.maxTokens = options.maxTokens
     if (options?.topP != null) adapterOptions.topP = options.topP
+    if (options?.timeoutMs != null) adapterOptions.timeoutMs = options.timeoutMs
 
     const input: AgentInput = {
       prompt,

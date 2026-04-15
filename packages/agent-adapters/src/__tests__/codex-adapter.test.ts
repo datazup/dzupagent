@@ -373,6 +373,36 @@ describe('CodexAdapter', () => {
       }
     })
 
+    it('emits ADAPTER_TIMEOUT when runStreamed aborts before stream start due timeout', async () => {
+      const thread = {
+        runStreamed: vi.fn().mockImplementation((_prompt: string, opts?: { signal?: AbortSignal }) => (
+          new Promise((_resolve, reject) => {
+            const signal = opts?.signal
+            if (signal?.aborted) {
+              reject(new DOMException('Aborted', 'AbortError'))
+              return
+            }
+            signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true },
+            )
+          })
+        )),
+      }
+      mockStartThread.mockReturnValue(thread)
+
+      const events = await collectEvents(
+        adapter.execute(makeInput({ options: { timeoutMs: 5 } })),
+      )
+      const failed = events.find((e) => e.type === 'adapter:failed')
+      expect(failed).toBeDefined()
+      if (failed?.type === 'adapter:failed') {
+        expect(failed.code).toBe('ADAPTER_TIMEOUT')
+        expect(failed.error).toContain('timed out')
+      }
+    })
+
     it('emits failed on turn.failed event', async () => {
       const thread = createMockThread([
         threadStartedEvent(),
@@ -676,6 +706,26 @@ describe('CodexAdapter', () => {
       expect(mockStartThread).toHaveBeenCalledWith(
         expect.objectContaining({ model: 'gpt-4o' }),
       )
+    })
+
+    it('prefers input.options.timeoutMs over adapter config timeout', async () => {
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+      try {
+        const thread = createMockThread([
+          threadStartedEvent(),
+          turnCompletedEvent(),
+        ])
+        mockStartThread.mockReturnValue(thread)
+
+        const customAdapter = new CodexAdapter({ timeoutMs: 60_000 })
+        await collectEvents(
+          customAdapter.execute(makeInput({ options: { timeoutMs: 25 } })),
+        )
+
+        expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 25)
+      } finally {
+        setTimeoutSpy.mockRestore()
+      }
     })
 
     it('emits completed with result from agent_message when no turn.completed usage', async () => {
