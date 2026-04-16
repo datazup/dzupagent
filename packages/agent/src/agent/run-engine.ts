@@ -11,6 +11,8 @@ import { StuckDetector } from '../guardrails/stuck-detector.js'
 import { createToolLoopLearningHook } from './tool-loop-learning.js'
 import { extractFinalAiMessageContent } from './message-utils.js'
 import { runToolLoop, type StopReason, type ToolStat } from './tool-loop.js'
+import { ReflectionAnalyzer } from '../reflection/reflection-analyzer.js'
+import { buildWorkflowEventsFromToolStats } from '../reflection/learning-bridge.js'
 
 export interface PreparedRunState {
   maxIterations: number
@@ -174,6 +176,21 @@ export async function executeGenerateRun(
   }
 
   await params.maybeUpdateSummary(result.messages)
+
+  // --- Post-run reflection analysis (best-effort, non-fatal) ---
+  if (params.config.onReflectionComplete) {
+    try {
+      const analyzer = new ReflectionAnalyzer(params.config.reflectionAnalyzerConfig)
+      const events = buildWorkflowEventsFromToolStats(result.toolStats, result.stopReason)
+      const summary = analyzer.analyze(
+        params.agentId + ':' + Date.now().toString(36),
+        events,
+      )
+      await params.config.onReflectionComplete(summary)
+    } catch {
+      // Reflection callback errors must NEVER affect the run result.
+    }
+  }
 
   return {
     content,

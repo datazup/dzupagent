@@ -11,6 +11,7 @@
  *
  * Designed to run as part of the sleep consolidation cycle.
  */
+import type { CausalGraph } from './causal/causal-graph.js'
 import type { MemoryEntry, StalenessPruneResult } from './consolidation-types.js'
 
 // ---------------------------------------------------------------------------
@@ -91,6 +92,16 @@ export interface StalenessPrunerOptions {
   maxPruneCount?: number | undefined
   /** Override for "now" timestamp (ms). Useful in tests. */
   now?: number | undefined
+  /**
+   * Optional causal graph. When provided, pruned entries will have their
+   * nodes removed from the causal graph (tombstoning all edges).
+   */
+  causalGraph?: CausalGraph | undefined
+  /**
+   * Namespace to use when removing nodes from the causal graph.
+   * Required when `causalGraph` is provided.
+   */
+  causalNamespace?: string | undefined
 }
 
 /**
@@ -150,5 +161,111 @@ export function pruneStaleMemories(
     pruned,
     kept,
     prunedCount: pruned.length,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Causal-graph-aware pruning (async)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extended result that includes the number of causal relations removed.
+ */
+export interface StalenessPruneResultWithCausal extends StalenessPruneResult {
+  /** Number of causal relations tombstoned as a side effect of pruning. */
+  causalRelationsRemoved: number
+}
+
+/**
+ * Prune stale memories and, when a CausalGraph is provided, remove the
+ * pruned entries from the graph so no dangling edges remain.
+ *
+ * This is the async counterpart of `pruneStaleMemories`. When no
+ * `causalGraph` is provided in options, it behaves identically to the
+ * synchronous version (but returns a Promise).
+ */
+export async function pruneStaleMemoriesWithGraph(
+  memories: MemoryEntry[],
+  options: StalenessPrunerOptions = {},
+): Promise<StalenessPruneResultWithCausal> {
+  const result = pruneStaleMemories(memories, options)
+  let causalRelationsRemoved = 0
+
+  if (options.causalGraph && result.pruned.length > 0) {
+    const namespace = options.causalNamespace ?? ''
+    for (const entry of result.pruned) {
+      const removed = await options.causalGraph.removeNode(entry.key, namespace)
+      causalRelationsRemoved += removed
+    }
+  }
+
+  return {
+    ...result,
+    causalRelationsRemoved,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// StalenessPruner class — stateful wrapper with optional causal graph wiring
+// ---------------------------------------------------------------------------
+
+/**
+ * Configuration for the StalenessPruner class.
+ */
+export interface StalenessPrunerConfig {
+  /** Staleness score above which entries are pruned (default: 30) */
+  maxStaleness?: number | undefined
+  /** Absolute maximum age in days (default: 90) */
+  maxAgeDays?: number | undefined
+  /** Minimum importance score that protects from pruning (default: 0.8) */
+  importanceThreshold?: number | undefined
+  /** Maximum entries to prune per pass (default: Infinity) */
+  maxPruneCount?: number | undefined
+  /**
+   * Optional causal graph. When provided, pruned entries will have their
+   * nodes removed from the causal graph to prevent dangling edges.
+   */
+  causalGraph?: CausalGraph | undefined
+  /**
+   * Namespace to use when removing nodes from the causal graph.
+   * Required when `causalGraph` is provided.
+   */
+  causalNamespace?: string | undefined
+}
+
+/**
+ * Stateful staleness pruner with optional causal graph integration.
+ *
+ * When a CausalGraph is provided at construction time, each `prune()` call
+ * will automatically remove pruned nodes from the graph, preventing
+ * dangling references.
+ */
+export class StalenessPruner {
+  private readonly config: StalenessPrunerConfig
+
+  constructor(config: StalenessPrunerConfig = {}) {
+    this.config = config
+  }
+
+  /**
+   * Prune stale memories and optionally clean up the causal graph.
+   *
+   * @param memories - Array of MemoryEntry objects to evaluate
+   * @param now      - Override for "now" timestamp (ms). Useful in tests.
+   * @returns Extended result including causal cleanup count
+   */
+  async prune(
+    memories: MemoryEntry[],
+    now?: number,
+  ): Promise<StalenessPruneResultWithCausal> {
+    return pruneStaleMemoriesWithGraph(memories, {
+      maxStaleness: this.config.maxStaleness,
+      maxAgeDays: this.config.maxAgeDays,
+      importanceThreshold: this.config.importanceThreshold,
+      maxPruneCount: this.config.maxPruneCount,
+      causalGraph: this.config.causalGraph,
+      causalNamespace: this.config.causalNamespace,
+      now,
+    })
   }
 }

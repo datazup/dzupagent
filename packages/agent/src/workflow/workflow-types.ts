@@ -37,5 +37,7 @@ export type WorkflowEvent =
   | { type: 'parallel:completed'; stepIds: string[]; durationMs: number }
   | { type: 'branch:evaluated'; condition: string; selected: string }
   | { type: 'suspended'; reason: string }
+  | { type: 'step:skipped'; stepId: string; reason: string }
+  | { type: 'step:retrying'; stepId: string; attempt: number; maxAttempts: number; backoffMs: number }
   | { type: 'workflow:completed'; durationMs: number }
   | { type: 'workflow:failed'; error: string }

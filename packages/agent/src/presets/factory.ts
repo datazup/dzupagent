@@ -1,4 +1,31 @@
 import type { AgentPreset, PresetRuntimeDeps } from './types.js'
+import { BUILT_IN_PRESETS } from './built-in.js'
+
+/**
+ * Typed return value from `buildConfigFromPreset`.
+ *
+ * Covers all fields the factory populates --- callers can cast or narrow
+ * further before passing to `new DzupAgent(...)`.
+ */
+export interface PresetConfig {
+  id: string
+  name: string
+  instructions: string
+  model: unknown
+  tools: unknown[] | undefined
+  memory: unknown | undefined
+  memoryProfile: 'minimal' | 'balanced' | 'memory-heavy' | undefined
+  eventBus: unknown | undefined
+  guardrails: {
+    maxIterations: number
+    maxTokens: number | undefined
+    maxCostCents: number | undefined
+  }
+  /** Self-learning config derived from preset.selfCorrection */
+  selfLearning: { enabled: boolean; maxIterations: number | undefined } | undefined
+  /** Hint for downstream model selection */
+  defaultModelTier: string | undefined
+}
 
 /**
  * Create a DzupAgent configuration object from a preset and runtime dependencies.
@@ -7,7 +34,7 @@ import type { AgentPreset, PresetRuntimeDeps } from './types.js'
 export function buildConfigFromPreset(
   preset: AgentPreset,
   deps: PresetRuntimeDeps,
-): Record<string, unknown> {
+): PresetConfig {
   const instructions = deps.overrides?.instructions ?? preset.instructions
   const guardrails = { ...preset.guardrails, ...deps.overrides?.guardrails }
   const memoryProfile = deps.overrides?.memoryProfile ?? preset.memoryProfile
@@ -19,6 +46,20 @@ export function buildConfigFromPreset(
       const tool = t as { name?: string }
       return tool.name ? preset.toolNames.includes(tool.name) : true
     })
+  }
+
+  // Map selfCorrection → selfLearning (overrides take precedence)
+  let selfLearning: PresetConfig['selfLearning']
+  if (deps.overrides?.selfLearning) {
+    selfLearning = {
+      enabled: deps.overrides.selfLearning.enabled ?? false,
+      maxIterations: deps.overrides.selfLearning.maxIterations,
+    }
+  } else if (preset.selfCorrection?.enabled) {
+    selfLearning = {
+      enabled: true,
+      maxIterations: preset.selfCorrection.maxReflectionIterations,
+    }
   }
 
   return {
@@ -35,6 +76,8 @@ export function buildConfigFromPreset(
       maxTokens: guardrails.maxTokens,
       maxCostCents: guardrails.maxCostCents,
     },
+    selfLearning,
+    defaultModelTier: preset.defaultModelTier,
   }
 }
 
@@ -59,8 +102,11 @@ export class PresetRegistry {
   }
 }
 
-/** Global preset registry with built-in presets */
+/** Global preset registry with built-in presets auto-registered */
 export function createDefaultPresetRegistry(): PresetRegistry {
   const registry = new PresetRegistry()
+  for (const preset of BUILT_IN_PRESETS) {
+    registry.register(preset)
+  }
   return registry
 }

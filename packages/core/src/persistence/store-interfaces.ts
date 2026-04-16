@@ -11,14 +11,18 @@
 // ---------------------------------------------------------------------------
 
 export type RunStatus =
-  | 'queued'
-  | 'running'
-  | 'awaiting_approval'
-  | 'approved'
-  | 'completed'
-  | 'failed'
-  | 'rejected'
-  | 'cancelled'
+  | 'pending'            // initial state before queuing
+  | 'queued'             // queued for execution
+  | 'running'            // actively running
+  | 'executing'          // adapter-level active execution
+  | 'awaiting_approval'  // paused, waiting for human approval
+  | 'approved'           // approval given, ready to resume
+  | 'paused'             // Wave 9: cooperative pause via RunHandle
+  | 'suspended'          // Wave 9: workflow-level suspension
+  | 'completed'          // terminal: success
+  | 'failed'             // terminal: error
+  | 'rejected'           // terminal: approval rejected
+  | 'cancelled'          // terminal: user-cancelled
 
 export interface Run {
   id: string
@@ -56,6 +60,17 @@ export interface LogEntry {
   timestamp?: Date
 }
 
+/**
+ * Canonical run persistence interface for DzupAgent.
+ *
+ * This is THE single RunStore definition. Server routes, test-utils, and all
+ * new code should use this interface. Implementations:
+ * - `InMemoryRunStore`  (core — dev/test, in `in-memory-store.ts`)
+ * - `PostgresRunStore`  (@dzupagent/server)
+ *
+ * Note: The legacy `RunRecordStore` in `run-store.ts` tracks low-level LLM
+ * execution records and is a separate concern.
+ */
 export interface RunStore {
   create(input: CreateRunInput): Promise<Run>
   update(id: string, update: Partial<Run>): Promise<void>

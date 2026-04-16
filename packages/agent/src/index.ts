@@ -10,6 +10,7 @@
 export { DzupAgent } from './agent/dzip-agent.js'
 export type {
   DzupAgentConfig,
+  AgentMailboxConfig,
   ArrowMemoryConfig,
   GenerateOptions,
   GenerateResult,
@@ -19,6 +20,22 @@ export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory
 export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
 export { runToolLoop } from './agent/tool-loop.js'
 export type { ToolLoopConfig, ToolLoopResult, ToolStat, StopReason } from './agent/tool-loop.js'
+
+// --- RunHandle ---
+export type {
+  RunHandle,
+  RunResult,
+  LaunchOptions,
+  Unsubscribe,
+  CheckpointInfo,
+} from './agent/run-handle-types.js'
+export {
+  InvalidRunStateError,
+  CheckpointExpiredError,
+  ForkLimitExceededError,
+  RunNotFoundError,
+} from './agent/run-handle-types.js'
+export { ConcreteRunHandle } from './agent/run-handle.js'
 
 // --- Parallel Executor ---
 export { executeToolsParallel } from './agent/parallel-executor.js'
@@ -128,6 +145,39 @@ export type {
   TopologyExecutorConfig,
 } from './orchestration/topology/topology-types.js'
 
+// --- Routing Policy ---
+export type {
+  AgentSpec,
+  AgentTask,
+  RoutingDecision,
+  RoutingPolicy,
+  RuleBasedRoutingConfig,
+  HashRoutingConfig,
+} from './orchestration/routing-policy-types.js'
+
+// --- Orchestration Merge Strategy ---
+export type {
+  AgentResult,
+  MergedResult,
+  OrchestrationMergeStrategy,
+  BuiltInMergeStrategyName,
+} from './orchestration/orchestration-merge-strategy-types.js'
+
+// --- Routing Policies ---
+export { RuleBasedRouting } from './orchestration/routing/rule-based-routing.js'
+export { HashRouting } from './orchestration/routing/hash-routing.js'
+export { LLMRouting } from './orchestration/routing/llm-routing.js'
+export { RoundRobinRouting } from './orchestration/routing/round-robin-routing.js'
+
+// --- Orchestration Merge Strategies ---
+export { AllRequiredMergeStrategy } from './orchestration/merge/all-required.js'
+export { UsePartialMergeStrategy } from './orchestration/merge/use-partial.js'
+export { FirstWinsMergeStrategy } from './orchestration/merge/first-wins.js'
+
+// --- Circuit Breaker ---
+export { AgentCircuitBreaker } from './orchestration/circuit-breaker.js'
+export type { CircuitState, CircuitBreakerConfig } from './orchestration/circuit-breaker.js'
+
 // --- Provider Adapter Port ---
 export type {
   ProviderExecutionPort,
@@ -149,6 +199,8 @@ export type { ToolRegistryEvent } from './agent/tool-registry.js'
 // --- Tools ---
 export { createForgeTool } from './tools/create-tool.js'
 export type { ForgeToolConfig } from './tools/create-tool.js'
+export { createHumanContactTool, InMemoryPendingContactStore } from './tools/human-contact-tool.js'
+export type { HumanContactInput, HumanContactToolConfig, PendingContactStore } from './tools/human-contact-tool.js'
 
 // --- State (legacy) ---
 export { serializeMessages, deserializeMessages } from './agent/agent-state.js'
@@ -206,6 +258,17 @@ export type {
   StreamActionEvent,
   StreamActionParserConfig,
 } from './streaming/stream-action-parser.js'
+export type {
+  StreamEvent,
+  TextDeltaEvent,
+  ToolCallStartEvent,
+  ToolCallEndEvent,
+  DoneEvent,
+  ErrorEvent,
+} from './streaming/streaming-types.js'
+export { TextDeltaBuffer } from './streaming/text-delta-buffer.js'
+export { StreamingRunHandle } from './streaming/streaming-run-handle.js'
+export type { StreamingStatus, StreamingRunHandleOptions } from './streaming/streaming-run-handle.js'
 
 // --- Templates ---
 export { AGENT_TEMPLATES, ALL_AGENT_TEMPLATES, getAgentTemplate, listAgentTemplates } from './templates/agent-templates.js'
@@ -231,6 +294,10 @@ export type {
   OTelSpanLike,
   PipelineTracer,
 } from './pipeline/pipeline-runtime-types.js'
+
+// --- Step Type Registry ---
+export { StepTypeRegistry, defaultStepTypeRegistry } from './pipeline/step-type-registry.js'
+export type { StepContext, StepTypeDescriptor } from './pipeline/step-type-registry.js'
 
 // --- Pipeline Retry ---
 export {
@@ -296,6 +363,16 @@ export type {
   ReflectionInput,
   ReflectorConfig,
 } from './reflection/run-reflector.js'
+export { ReflectionAnalyzer } from './reflection/reflection-analyzer.js'
+export type { ReflectionAnalyzerConfig } from './reflection/reflection-analyzer.js'
+export { InMemoryReflectionStore } from './reflection/in-memory-reflection-store.js'
+export type {
+  ReflectionPattern,
+  ReflectionSummary,
+  RunReflectionStore,
+} from './reflection/reflection-types.js'
+export { createReflectionLearningBridge, buildWorkflowEventsFromToolStats } from './reflection/learning-bridge.js'
+export type { ReflectionLearningBridgeConfig } from './reflection/learning-bridge.js'
 
 // --- Recovery ---
 export { RecoveryCopilot } from './recovery/recovery-copilot.js'
@@ -503,10 +580,58 @@ export type {
 export {
   type AgentPreset,
   type PresetRuntimeDeps,
+  type PresetConfig,
   buildConfigFromPreset,
   PresetRegistry,
   createDefaultPresetRegistry,
+  RAGChatPreset,
+  ResearchPreset,
+  SummarizerPreset,
+  QAPreset,
+  BUILT_IN_PRESETS,
 } from './presets/index.js'
+
+// --- Skill Chain Executor ---
+export { executeTextualWorkflow, streamTextualWorkflow, createSkillChainWorkflow } from './skill-chain-executor/index.js'
+export type { TextualWorkflowOptions } from './skill-chain-executor/index.js'
+export { SharedAgentSkillResolver, SkillChainExecutor } from './skill-chain-executor/index.js'
+export type {
+  SkillStepResolver,
+  SharedAgentSkillResolverConfig,
+  SkillChainExecutorConfig,
+  ExecuteOptions,
+  DryRunStepInfo,
+  DryRunResult,
+  ChainStepInput,
+  ChainStepOutput,
+  ChainFinalState,
+  StateTransformer,
+  CandidateInterpretation,
+} from './skill-chain-executor/index.js'
+export {
+  SkillNotFoundError,
+  ChainValidationError,
+  StepExecutionError,
+  WorkflowParseError,
+} from './skill-chain-executor/index.js'
+
+// --- Cluster Workspaces ---
+export type { ClusterRole, AgentCluster } from './cluster/index.js'
+export { InMemoryAgentCluster } from './cluster/index.js'
+export type { InMemoryAgentClusterConfig } from './cluster/index.js'
+
+// --- Mailbox ---
+export type {
+  MailMessage,
+  MailboxQuery,
+  MailboxStore,
+  AgentMailbox,
+} from './mailbox/index.js'
+
+export { InMemoryMailboxStore } from './mailbox/index.js'
+export { AgentMailboxImpl } from './mailbox/index.js'
+export { createSendMailTool, createCheckMailTool } from './mailbox/index.js'
+export type { MailToolConfig } from './mailbox/index.js'
 
 // --- Version ---
 export const dzupagent_AGENT_VERSION = '0.1.0'

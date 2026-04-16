@@ -17,6 +17,9 @@ import type { StuckError } from './stuck-error.js'
 import type { GuardrailConfig } from '../guardrails/guardrail-types.js'
 import type { MemoryProfile } from './memory-profiles.js'
 import type { ToolLoopLearningConfig, RunLearnings } from './tool-loop-learning.js'
+import type { ReflectionSummary } from '../reflection/reflection-types.js'
+import type { ReflectionAnalyzerConfig } from '../reflection/reflection-analyzer.js'
+import type { MailboxStore } from '../mailbox/types.js'
 
 /** Configuration for creating a DzupAgent */
 export interface DzupAgentConfig {
@@ -108,6 +111,46 @@ export interface DzupAgentConfig {
    * Default: disabled (opt-in).
    */
   selfLearning?: ToolLoopLearningConfig
+
+  /**
+   * Called after each run completes with the reflection summary.
+   *
+   * Wire this to LearningMiddleware, ReflectionStore, or any custom handler
+   * to close the feedback loop between ReflectionAnalyzer and the learning
+   * system.
+   *
+   * Errors thrown by this callback are caught and never propagated --- the
+   * run result is always returned regardless of callback success.
+   */
+  onReflectionComplete?: (summary: ReflectionSummary) => Promise<void>
+
+  /**
+   * Configuration for the ReflectionAnalyzer used in post-run analysis.
+   *
+   * Controls thresholds for pattern detection (slow steps, repeated tools,
+   * error loops). When `onReflectionComplete` is set, the analyzer runs
+   * automatically after each generate() call.
+   */
+  reflectionAnalyzerConfig?: ReflectionAnalyzerConfig
+
+  /**
+   * Inter-agent mailbox configuration.
+   *
+   * When set, the agent creates an {@link AgentMailbox} scoped to its ID and
+   * auto-registers `send_mail` and `check_mail` tools so the LLM can
+   * communicate with other agents asynchronously.
+   *
+   * The mailbox instance is also exposed as `agent.mailbox` for external access.
+   */
+  mailbox?: AgentMailboxConfig
+}
+
+/** Configuration for enabling the inter-agent mailbox on a DzupAgent. */
+export interface AgentMailboxConfig {
+  /** Backing store for mail messages. Defaults to InMemoryMailboxStore. */
+  store?: MailboxStore
+  /** Event bus for real-time mail notifications. Falls back to the agent's own eventBus. */
+  eventBus?: DzupEventBus
 }
 
 /** Configuration for Arrow-based token-budgeted memory selection. */

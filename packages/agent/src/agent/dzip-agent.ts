@@ -18,6 +18,7 @@
  * const result = await agent.generate([new HumanMessage('Review this PR')])
  * ```
  */
+import { randomUUID } from 'node:crypto'
 import type { ZodType } from 'zod'
 import type {
   AIMessage,
@@ -29,6 +30,7 @@ import {
   type ModelTier,
   shouldSummarize,
   summarizeAndTrim,
+  InMemoryRunJournal,
 } from '@dzupagent/core'
 import { extractTokenUsage, estimateTokens, type TokenUsage } from '@dzupagent/core'
 import type {
@@ -37,6 +39,10 @@ import type {
   GenerateResult,
   AgentStreamEvent,
 } from './agent-types.js'
+import type { AgentMailbox } from '../mailbox/types.js'
+import { AgentMailboxImpl } from '../mailbox/agent-mailbox.js'
+import { InMemoryMailboxStore } from '../mailbox/in-memory-mailbox-store.js'
+import { createSendMailTool, createCheckMailTool } from '../mailbox/mail-tools.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
 import {
   buildPreparedMessages,
@@ -52,6 +58,8 @@ import {
   executeStreamingToolCall,
   prepareRunState,
 } from './run-engine.js'
+import type { RunHandle, LaunchOptions } from './run-handle-types.js'
+import { ConcreteRunHandle } from './run-handle.js'
 
 const MODEL_TIERS: Set<string> = new Set(['chat', 'reasoning', 'codegen', 'embedding'])
 
@@ -59,11 +67,14 @@ export class DzupAgent {
   readonly id: string
   readonly name: string
   readonly description: string
+  /** Per-agent mailbox for inter-agent messaging. Only set when `config.mailbox` is provided. */
+  readonly mailbox?: AgentMailbox
   private readonly config: DzupAgentConfig
   private readonly resolvedModel: BaseChatModel
   private readonly instructionResolver: AgentInstructionResolver
   private readonly memoryContextLoader: AgentMemoryContextLoader
   private readonly middlewareRuntime: AgentMiddlewareRuntime
+  private readonly mailboxTools: StructuredToolInterface[] = []
   private conversationSummary: string | null = null
 
   constructor(config: DzupAgentConfig) {
@@ -72,6 +83,18 @@ export class DzupAgent {
     this.description = config.description ?? `Agent: ${this.name}`
     this.config = config
     this.resolvedModel = this.resolveModel(config)
+
+    // Initialize mailbox when configured
+    if (config.mailbox) {
+      const store = config.mailbox.store ?? new InMemoryMailboxStore()
+      const eventBus = config.mailbox.eventBus ?? config.eventBus
+      const mailboxImpl = new AgentMailboxImpl(this.id, store, eventBus)
+      this.mailbox = mailboxImpl
+      this.mailboxTools = [
+        createSendMailTool({ mailbox: mailboxImpl }),
+        createCheckMailTool({ mailbox: mailboxImpl }),
+      ]
+    }
     this.instructionResolver = new AgentInstructionResolver({
       agentId: this.id,
       instructions: config.instructions,
@@ -431,6 +454,48 @@ export class DzupAgent {
   }
 
   /**
+   * Launch an agent run in the background and return a RunHandle immediately.
+   *
+   * The returned handle provides cooperative pause/resume, cancellation,
+   * and result awaiting. The actual agent execution happens asynchronously.
+   *
+   * @param messages — input messages to generate from
+   * @param options — optional launch configuration (runId, metadata, etc.)
+   * @returns a RunHandle that resolves within milliseconds, before the run completes
+   *
+   * @example
+   * ```ts
+   * const handle = await agent.launch([new HumanMessage('Build the feature')])
+   * console.log(handle.runId) // available immediately
+   * const result = await handle.result() // awaits completion
+   * ```
+   */
+  async launch(
+    messages: BaseMessage[],
+    options?: LaunchOptions & { generateOptions?: GenerateOptions },
+  ): Promise<RunHandle> {
+    const runId = options?.runId ?? randomUUID()
+    const journal = new InMemoryRunJournal()
+    const handle = new ConcreteRunHandle(runId, 'running', journal, options)
+
+    // Write run_started entry
+    void journal.append(runId, {
+      type: 'run_started',
+      data: { input: null, agentId: this.id, metadata: options?.metadata },
+    })
+
+    // Start execution asynchronously — do NOT await
+    this.runInBackground(messages, handle, options?.generateOptions).catch(
+      (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        handle._fail(message)
+      },
+    )
+
+    return handle
+  }
+
+  /**
    * Fork this agent's budget for a child agent (shared state).
    */
   createChildBudget(): IterationBudget | undefined {
@@ -440,6 +505,22 @@ export class DzupAgent {
   }
 
   // ---------- Internal helpers --------------------------------------------------
+
+  /**
+   * Execute the agent generate loop in the background, completing the handle
+   * when done. This method is called by `launch()` without awaiting.
+   */
+  private async runInBackground(
+    messages: BaseMessage[],
+    handle: ConcreteRunHandle,
+    generateOptions?: GenerateOptions,
+  ): Promise<void> {
+    const result = await this.generate(messages, generateOptions)
+    handle._complete(result.content, {
+      durationMs: undefined,
+      totalTokens: result.usage.totalInputTokens + result.usage.totalOutputTokens,
+    })
+  }
 
   private resolveModel(config: DzupAgentConfig): BaseChatModel {
     if (typeof config.model !== 'string') {
@@ -460,7 +541,9 @@ export class DzupAgent {
   }
 
   private getTools(): StructuredToolInterface[] {
-    return this.middlewareRuntime.resolveTools(this.config.tools ?? [])
+    const configTools = this.config.tools ?? []
+    const allTools = [...configTools, ...this.mailboxTools]
+    return this.middlewareRuntime.resolveTools(allTools)
   }
 
   private bindTools(

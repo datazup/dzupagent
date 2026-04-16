@@ -38,6 +38,10 @@ function summarizeAdapterEvents(events: AgentEvent[]): string {
           return `stream_delta:${event.content}`
         case 'adapter:progress':
           return `progress:${event.phase}:${event.percentage ?? 'na'}`
+        case 'adapter:memory_recalled':
+          return `memory_recalled:${event.totalTokens}`
+        case 'adapter:skills_compiled':
+          return `skills_compiled:${event.skills.length}`
         default:
           return assertNever(event)
       }

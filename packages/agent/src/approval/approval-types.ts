@@ -1,4 +1,4 @@
-import type { HookContext } from '@dzupagent/core'
+import type { HookContext, ContactChannel } from '@dzupagent/core'
 
 /** Approval mode for agent execution */
 export type ApprovalMode = 'auto' | 'required' | 'conditional'
@@ -12,6 +12,12 @@ export interface ApprovalConfig {
   timeoutMs?: number
   /** Webhook URL to notify when approval is needed */
   webhookUrl?: string
+  /**
+   * Delivery channel for human contact requests.
+   * Used when the approval gate delegates to the HumanContactTool internally.
+   * @default 'in-app'
+   */
+  channel?: ContactChannel
 }
 
 /** Result of an approval check */

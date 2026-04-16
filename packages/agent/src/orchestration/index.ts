@@ -52,8 +52,52 @@ export type {
   TopologyExecutorConfig,
 } from './topology/topology-types.js'
 
+// --- Routing Policy ---
+export type {
+  AgentSpec,
+  AgentTask,
+  RoutingDecision,
+  RoutingPolicy,
+  RuleBasedRoutingConfig,
+  HashRoutingConfig,
+} from './routing-policy-types.js'
+
+// --- Orchestration Merge Strategy ---
+export type {
+  AgentResult,
+  MergedResult,
+  OrchestrationMergeStrategy,
+  BuiltInMergeStrategyName,
+} from './orchestration-merge-strategy-types.js'
+
 // --- Provider Adapter Port ---
 export type {
   ProviderExecutionPort,
   ProviderExecutionResult,
 } from './provider-adapter/index.js'
+
+// --- Routing Policies ---
+export { RuleBasedRouting } from './routing/rule-based-routing.js'
+export { HashRouting } from './routing/hash-routing.js'
+export { LLMRouting } from './routing/llm-routing.js'
+export { RoundRobinRouting } from './routing/round-robin-routing.js'
+
+// --- Orchestration Merge Strategies ---
+export { AllRequiredMergeStrategy } from './merge/all-required.js'
+export { UsePartialMergeStrategy } from './merge/use-partial.js'
+export { FirstWinsMergeStrategy } from './merge/first-wins.js'
+
+// --- Circuit Breaker ---
+export { AgentCircuitBreaker } from './circuit-breaker.js'
+export type { CircuitState, CircuitBreakerConfig } from './circuit-breaker.js'
+
+// --- Orchestration Telemetry ---
+export {
+  recordRoutingDecision,
+  recordMergeOperation,
+  recordCircuitBreakerEvent,
+} from './orchestration-telemetry.js'
+export type {
+  RoutingSpanData,
+  MergeSpanData,
+} from './orchestration-telemetry.js'

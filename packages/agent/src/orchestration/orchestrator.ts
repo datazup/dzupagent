@@ -13,6 +13,9 @@ import { OrchestrationError } from './orchestration-error.js'
 import { ContractNetManager } from './contract-net/contract-net-manager.js'
 import type { ContractNetConfig, ContractResult } from './contract-net/contract-net-types.js'
 import type { ProviderExecutionPort } from './provider-adapter/provider-execution-port.js'
+import type { RoutingPolicy, AgentSpec, AgentTask } from './routing-policy-types.js'
+import type { OrchestrationMergeStrategy, AgentResult } from './orchestration-merge-strategy-types.js'
+import type { AgentCircuitBreaker } from './circuit-breaker.js'
 
 export interface SupervisorConfig {
   /** The manager agent that coordinates specialists */
@@ -37,6 +40,21 @@ export interface SupervisorConfig {
    * Ignored when `executionMode` is `'agent'` or unset.
    */
   providerPort?: ProviderExecutionPort
+  /**
+   * Pluggable routing policy for specialist selection.
+   * When set, filters/selects specialists before exposing them to the manager.
+   */
+  routingPolicy?: RoutingPolicy
+  /**
+   * Pluggable merge strategy for combining parallel agent results.
+   * Used by the `parallel` method when provided.
+   */
+  mergeStrategy?: OrchestrationMergeStrategy
+  /**
+   * Circuit breaker for excluding unhealthy specialists.
+   * When set, specialists with tripped circuits are filtered out.
+   */
+  circuitBreaker?: AgentCircuitBreaker
 }
 
 export interface SupervisorResult {
@@ -71,14 +89,101 @@ export class AgentOrchestrator {
 
   /**
    * Run agents in parallel -- all receive the same input, results merged.
+   *
+   * When `options.circuitBreaker` is provided, agents with tripped circuits
+   * are excluded and success/timeout is recorded after each agent completes.
+   * When `options.mergeStrategy` is provided, it is used instead of the
+   * legacy `merge` function for combining results.
    */
   static async parallel(
     agents: DzupAgent[],
     input: string,
     merge?: MergeFn,
+    options?: {
+      circuitBreaker?: AgentCircuitBreaker
+      mergeStrategy?: OrchestrationMergeStrategy<string>
+    },
   ): Promise<string> {
+    let effectiveAgents = agents
+
+    // Filter through circuit breaker if configured
+    if (options?.circuitBreaker) {
+      effectiveAgents = options.circuitBreaker.filterAvailable(agents)
+      if (effectiveAgents.length === 0) {
+        throw new OrchestrationError(
+          'All agents filtered by circuit breaker in parallel execution',
+          'parallel',
+        )
+      }
+    }
+
+    // When merge strategy or circuit breaker is active, use allSettled for resilience
+    if (options?.mergeStrategy || options?.circuitBreaker) {
+      const settled = await Promise.allSettled(
+        effectiveAgents.map(agent => agent.generate([new HumanMessage(input)])),
+      )
+
+      // Record circuit breaker outcomes
+      if (options.circuitBreaker) {
+        for (const [i, outcome] of settled.entries()) {
+          const agentId = effectiveAgents[i]!.id
+          if (outcome.status === 'fulfilled') {
+            options.circuitBreaker.recordSuccess(agentId)
+          } else {
+            const msg = outcome.reason instanceof Error
+              ? outcome.reason.message
+              : String(outcome.reason)
+            if (msg.toLowerCase().includes('timeout')) {
+              options.circuitBreaker.recordTimeout(agentId)
+            }
+          }
+        }
+      }
+
+      // Use OrchestrationMergeStrategy if provided
+      if (options.mergeStrategy) {
+        const agentResults: AgentResult<string>[] = settled.map((outcome, i) => {
+          const agentId = effectiveAgents[i]!.id
+          if (outcome.status === 'fulfilled') {
+            return {
+              agentId,
+              status: 'success' as const,
+              output: outcome.value.content,
+            }
+          }
+          const errMsg = outcome.reason instanceof Error
+            ? outcome.reason.message
+            : String(outcome.reason)
+          return {
+            agentId,
+            status: errMsg.toLowerCase().includes('timeout')
+              ? ('timeout' as const)
+              : ('error' as const),
+            error: errMsg,
+          }
+        })
+        const merged = options.mergeStrategy.merge(agentResults)
+        if (merged.output !== undefined) {
+          return typeof merged.output === 'string'
+            ? merged.output
+            : JSON.stringify(merged.output)
+        }
+        return `Merge status: ${merged.status} (no output)`
+      }
+
+      // Fallback: collect fulfilled results for legacy merge
+      const contents: string[] = []
+      for (const outcome of settled) {
+        if (outcome.status === 'fulfilled') {
+          contents.push(outcome.value.content)
+        }
+      }
+      return (merge ?? defaultMerge)(contents)
+    }
+
+    // Default path: preserve original Promise.all behavior (rejects on failure)
     const results = await Promise.all(
-      agents.map(agent => agent.generate([new HumanMessage(input)])),
+      effectiveAgents.map(agent => agent.generate([new HumanMessage(input)])),
     )
     const contents = results.map(r => r.content)
     return (merge ?? defaultMerge)(contents)
@@ -116,7 +221,7 @@ export class AgentOrchestrator {
       config = configOrManager
     }
 
-    const { manager, task, signal, executionMode, providerPort } = config
+    const { manager, task, signal, executionMode, providerPort, routingPolicy, circuitBreaker } = config
     let { specialists } = config
 
     // Provider-adapter execution mode: route through the injected port
@@ -152,6 +257,48 @@ export class AgentOrchestrator {
         'supervisor',
         { managerId: manager.id },
       )
+    }
+
+    // Filter specialists through circuit breaker if configured
+    if (circuitBreaker) {
+      const before = specialists.length
+      specialists = circuitBreaker.filterAvailable(specialists)
+      if (specialists.length < before) {
+        const removedIds = config.specialists
+          .filter((s) => !specialists.includes(s))
+          .map((s) => s.id)
+        // Log filtered agents for observability
+        console.debug('[AgentOrchestrator] Circuit breaker filtered agents:', removedIds)
+      }
+
+      if (specialists.length === 0) {
+        throw new OrchestrationError(
+          'All specialists filtered by circuit breaker',
+          'supervisor',
+          { managerId: manager.id },
+        )
+      }
+    }
+
+    // Apply routing policy if configured to narrow specialist selection
+    if (routingPolicy) {
+      const candidates: AgentSpec[] = specialists.map((s) => ({
+        id: s.id,
+        name: s.id,
+        tags: [],
+      }))
+      const agentTask: AgentTask = {
+        taskId: `supervisor-${Date.now()}`,
+        content: task,
+      }
+      const decision = routingPolicy.select(agentTask, candidates)
+      const selectedIds = new Set(decision.selected.map((a) => a.id))
+      specialists = specialists.filter((s) => selectedIds.has(s.id))
+      console.debug('[AgentOrchestrator] Routing decision:', {
+        selected: decision.selected.map((a) => a.id),
+        strategy: decision.strategy,
+        reason: decision.reason,
+      })
     }
 
     // Optional health check: filter out unresponsive specialists
@@ -201,19 +348,39 @@ export class AgentOrchestrator {
 
     // Run the manager with the task -- the LLM will invoke specialist tools
     // via function calling, and the tool loop handles ToolMessage flow.
-    const result = await managerWithTools.generate(
-      [new HumanMessage(task)],
-      { signal },
-    )
+    try {
+      const result = await managerWithTools.generate(
+        [new HumanMessage(task)],
+        { signal },
+      )
 
-    if (returnLegacy) {
-      return result.content
-    }
+      // Record success for all available specialists on successful completion
+      if (circuitBreaker) {
+        for (const id of availableSpecialists) {
+          circuitBreaker.recordSuccess(id)
+        }
+      }
 
-    return {
-      content: result.content,
-      availableSpecialists,
-      filteredSpecialists,
+      if (returnLegacy) {
+        return result.content
+      }
+
+      return {
+        content: result.content,
+        availableSpecialists,
+        filteredSpecialists,
+      }
+    } catch (err: unknown) {
+      // Record timeout for specialists if the error looks like a timeout
+      if (circuitBreaker) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (msg.toLowerCase().includes('timeout')) {
+          for (const id of availableSpecialists) {
+            circuitBreaker.recordTimeout(id)
+          }
+        }
+      }
+      throw err
     }
   }
 

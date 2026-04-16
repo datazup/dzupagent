@@ -1,10 +1,14 @@
 /**
- * Approval gate — pauses agent execution until human approval.
+ * Approval gate -- pauses agent execution until human approval.
  *
  * Used in production pipelines where actions have real-world consequences
  * (deployments, database migrations, API calls). The gate emits an
  * `approval:requested` event and waits for an `approval:granted` or
  * `approval:rejected` event before proceeding.
+ *
+ * Internally delegates to `HumanContactTool` types for the approval request,
+ * ensuring shared type definitions between the approval gate and the
+ * general-purpose human-contact tool.
  *
  * @example
  * ```ts
@@ -16,8 +20,8 @@
  * if (result === 'rejected') throw new Error('Run rejected')
  * ```
  */
-import type { DzupEventBus } from '@dzupagent/core'
-import type { HookContext } from '@dzupagent/core'
+import { randomUUID } from 'node:crypto'
+import type { DzupEventBus, HookContext, ApprovalRequest, ContactChannel } from '@dzupagent/core'
 import type { ApprovalConfig, ApprovalResult } from './approval-types.js'
 
 export class ApprovalGate {
@@ -43,13 +47,39 @@ export class ApprovalGate {
       if (!needsApproval) return 'approved'
     }
 
-    // Emit approval request
-    this.eventBus.emit({ type: 'approval:requested', runId, plan })
+    // Build a HumanContactRequest (approval mode) for structured tracing
+    const contactId = randomUUID()
+    const channel: ContactChannel = this.config.channel ?? 'in-app'
+    const approvalRequest: ApprovalRequest = {
+      contactId,
+      runId,
+      type: 'approval',
+      channel,
+      timeoutAt: this.config.timeoutMs
+        ? new Date(Date.now() + this.config.timeoutMs).toISOString()
+        : undefined,
+      data: {
+        question: typeof plan === 'string' ? plan : 'Approve this action?',
+        context: typeof plan === 'object' && plan !== null
+          ? JSON.stringify(plan)
+          : undefined,
+      },
+    }
+
+    // Emit approval request (includes the structured request for tracing)
+    this.eventBus.emit({
+      type: 'approval:requested',
+      runId,
+      plan,
+      contactId,
+      channel,
+      request: approvalRequest,
+    })
 
     // Notify webhook if configured
     if (this.config.webhookUrl) {
-      this.notifyWebhook(runId, plan).catch(() => {
-        // Non-critical — webhook failure should not block approval
+      this.notifyWebhook(runId, plan, approvalRequest).catch(() => {
+        // Non-critical -- webhook failure should not block approval
       })
     }
 
@@ -96,12 +126,22 @@ export class ApprovalGate {
     })
   }
 
-  private async notifyWebhook(runId: string, plan: unknown): Promise<void> {
+  private async notifyWebhook(
+    runId: string,
+    plan: unknown,
+    request: ApprovalRequest,
+  ): Promise<void> {
     if (!this.config.webhookUrl) return
     await fetch(this.config.webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'approval_requested', runId, plan }),
+      body: JSON.stringify({
+        type: 'approval_requested',
+        runId,
+        plan,
+        contactId: request.contactId,
+        channel: request.channel,
+      }),
     })
   }
 }

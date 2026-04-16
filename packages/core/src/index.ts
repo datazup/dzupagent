@@ -307,11 +307,37 @@ export type {
 } from './persistence/store-interfaces.js'
 export { InMemoryEventLog, EventLogSink } from './persistence/event-log.js'
 export type { RunEvent, EventLogStore } from './persistence/event-log.js'
-
-// --- Run Persistence ---
-export { InMemoryRunStore as InMemoryRunRecordStore } from './persistence/in-memory-run-store.js'
+// --- Run Journal ---
+export { InMemoryRunJournal } from './persistence/in-memory-run-journal.js'
+export { RunJournalBridgeRunStore } from './persistence/run-journal-bridge.js'
+export { createEntryBase, isTerminalEntry, deserializeEntry } from './persistence/run-journal.js'
 export type {
-  RunStore as RunRecordStore,
+  RunJournalEntryType,
+  RunJournalEntryBase,
+  RunJournalEntry,
+  RunStartedEntry,
+  StepStartedEntry,
+  StepCompletedEntry,
+  StepFailedEntry,
+  StateUpdatedEntry,
+  RunCompletedEntry,
+  RunFailedEntry,
+  RunPausedEntry,
+  RunResumedEntry,
+  RunSuspendedEntry,
+  RunCancelledEntry,
+  SnapshotEntry,
+  UnknownEntry,
+  RunJournalQuery,
+  RunJournalPage,
+  RunJournal,
+  RunJournalConfig,
+} from './persistence/run-journal-types.js'
+
+// --- Run Record Persistence (legacy low-level LLM execution records) ---
+export { InMemoryRunRecordStore } from './persistence/in-memory-run-store.js'
+export type {
+  RunRecordStore,
   RunRecord,
   StoredRunEvent,
   RunFilters,
@@ -357,12 +383,33 @@ export { SkillLearner } from './skills/skill-learner.js'
 export type { SkillMetrics, SkillExecutionResult, SkillLearnerConfig } from './skills/skill-learner.js'
 export type { SkillResolutionContext, FeatureBrief, WorkItem, PersonaProfile, PersonaRoleType, SkillLifecycleStatus, SkillScope, SkillReviewPolicy, SkillDefinitionV2, SkillUsageRecord, SkillReviewRecord } from './skills/skill-model-v2.js'
 export { SKILL_LIFECYCLE_TRANSITIONS, isValidSkillTransition } from './skills/skill-model-v2.js'
-export { createSkillChain, validateChain } from './skills/skill-chain.js'
-export type { SkillChainStep, SkillChain, ChainValidationResult } from './skills/skill-chain.js'
+export { createSkillChain, validateChain, SkillChainBuilder } from './skills/skill-chain.js'
+export type { SkillChainStep, SkillChain, ChainValidationResult, RetryPolicy } from './skills/skill-chain.js'
 export { parseAgentsMd, mergeAgentsMdConfigs } from './skills/agents-md-parser.js'
 export type { AgentsMdConfig } from './skills/agents-md-parser.js'
 export { discoverAgentConfigs } from './skills/hierarchical-walker.js'
 export type { HierarchyLevel } from './skills/hierarchical-walker.js'
+export { WorkflowCommandParser } from './skills/workflow-command-parser.js'
+export type {
+  WorkflowCommandParserConfig,
+  WorkflowCommandParseResult,
+  WorkflowCommandParseSuccess,
+  WorkflowCommandParseFailure,
+  WorkflowSeparatorStyle,
+  ParsedStepToken,
+  ParseConfidenceTier,
+  CandidateInterpretation,
+  WorkflowKeywordPattern,
+  WorkflowAliasEntry,
+} from './skills/workflow-command-parser.js'
+export { WorkflowRegistry } from './skills/workflow-registry.js'
+export type {
+  WorkflowRegistryEntry,
+  WorkflowRegistrySnapshot,
+  WorkflowRegistrationOptions,
+  WorkflowFindResult,
+  WorkflowListEntry,
+} from './skills/workflow-registry.js'
 
 // --- MCP ---
 export { MCPClient } from './mcp/mcp-client.js'
@@ -861,6 +908,27 @@ export type {
   ToolResultAuditEntry,
   ToolAccessResult,
 } from './tools/tool-governance.js'
+
+// --- Human Contact (human-in-the-loop) ---
+export type {
+  ContactType,
+  ContactChannel,
+  ApprovalRequest,
+  ClarificationRequest,
+  InputRequest,
+  EscalationRequest,
+  GenericContactRequest,
+  HumanContactRequest,
+  ApprovalResponse,
+  ClarificationResponse,
+  InputResponse,
+  EscalationResponse,
+  TimeoutResponse,
+  LateResponse,
+  GenericContactResponse,
+  HumanContactResponse,
+  PendingHumanContact,
+} from './tools/human-contact-types.js'
 
 // --- Telemetry (lightweight trace propagation — no OTel SDK dependency) ---
 export { injectTraceContext, extractTraceContext, formatTraceparent, parseTraceparent } from './telemetry/trace-propagation.js'

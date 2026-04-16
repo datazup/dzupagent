@@ -1,10 +1,13 @@
-import type { RunStore, RunRecord, StoredRunEvent, RunFilters } from './run-store.js'
+import type { RunRecordStore, RunRecord, StoredRunEvent, RunFilters } from './run-store.js'
 
 /**
- * In-memory run store for development and testing.
+ * In-memory run-record store for development and testing.
  * Data is lost on process restart.
+ *
+ * @deprecated Prefer `InMemoryRunStore` from `in-memory-store.ts` — the canonical
+ * implementation that backs the `RunStore` interface used by server routes.
  */
-export class InMemoryRunStore implements RunStore {
+export class InMemoryRunRecordStore implements RunRecordStore {
   private readonly runs = new Map<string, RunRecord>()
   private readonly events = new Map<string, StoredRunEvent[]>()
 

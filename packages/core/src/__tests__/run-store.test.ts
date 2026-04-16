@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { InMemoryRunStore } from '../persistence/in-memory-run-store.js'
+import { InMemoryRunRecordStore } from '../persistence/in-memory-run-store.js'
 import type { RunRecord } from '../persistence/run-store.js'
 
 function makeRun(overrides?: Partial<RunRecord>): RunRecord {
@@ -13,9 +13,9 @@ function makeRun(overrides?: Partial<RunRecord>): RunRecord {
   }
 }
 
-describe('InMemoryRunStore', () => {
+describe('InMemoryRunRecordStore', () => {
   it('creates and retrieves a run', async () => {
-    const store = new InMemoryRunStore()
+    const store = new InMemoryRunRecordStore()
     const run = makeRun()
     await store.createRun(run)
     const retrieved = await store.getRun(run.id)
@@ -23,7 +23,7 @@ describe('InMemoryRunStore', () => {
   })
 
   it('updates a run', async () => {
-    const store = new InMemoryRunStore()
+    const store = new InMemoryRunRecordStore()
     const run = makeRun()
     await store.createRun(run)
     await store.updateRun(run.id, { status: 'completed', result: 'done' })
@@ -33,7 +33,7 @@ describe('InMemoryRunStore', () => {
   })
 
   it('lists runs with filters', async () => {
-    const store = new InMemoryRunStore()
+    const store = new InMemoryRunRecordStore()
     await store.createRun(makeRun({ id: 'a', status: 'completed', providerId: 'claude', createdAt: 100 }))
     await store.createRun(makeRun({ id: 'b', status: 'failed', providerId: 'codex', createdAt: 200 }))
     await store.createRun(makeRun({ id: 'c', status: 'completed', providerId: 'claude', createdAt: 300 }))
@@ -49,7 +49,7 @@ describe('InMemoryRunStore', () => {
   })
 
   it('stores and retrieves events', async () => {
-    const store = new InMemoryRunStore()
+    const store = new InMemoryRunRecordStore()
     await store.createRun(makeRun({ id: 'run-1' }))
     await store.storeEvent('run-1', { id: 'e1', runId: 'run-1', type: 'started', data: {}, timestamp: 1 })
     await store.storeEvent('run-1', { id: 'e2', runId: 'run-1', type: 'completed', data: {}, timestamp: 2 })
@@ -62,7 +62,7 @@ describe('InMemoryRunStore', () => {
   })
 
   it('deletes a run and its events', async () => {
-    const store = new InMemoryRunStore()
+    const store = new InMemoryRunRecordStore()
     await store.createRun(makeRun({ id: 'run-1' }))
     await store.storeEvent('run-1', { id: 'e1', runId: 'run-1', type: 'x', data: {}, timestamp: 1 })
 
@@ -73,7 +73,7 @@ describe('InMemoryRunStore', () => {
   })
 
   it('filters by time range', async () => {
-    const store = new InMemoryRunStore()
+    const store = new InMemoryRunRecordStore()
     await store.createRun(makeRun({ id: 'a', createdAt: 100 }))
     await store.createRun(makeRun({ id: 'b', createdAt: 200 }))
     await store.createRun(makeRun({ id: 'c', createdAt: 300 }))
@@ -84,7 +84,7 @@ describe('InMemoryRunStore', () => {
   })
 
   it('filters by tags', async () => {
-    const store = new InMemoryRunStore()
+    const store = new InMemoryRunRecordStore()
     await store.createRun(makeRun({ id: 'a', tags: ['code', 'review'] }))
     await store.createRun(makeRun({ id: 'b', tags: ['research'] }))
 
@@ -93,7 +93,7 @@ describe('InMemoryRunStore', () => {
   })
 
   it('filters by correlationId', async () => {
-    const store = new InMemoryRunStore()
+    const store = new InMemoryRunRecordStore()
     await store.createRun(makeRun({ id: 'a', correlationId: 'req-123' }))
     await store.createRun(makeRun({ id: 'b', correlationId: 'req-456' }))
 
@@ -102,7 +102,7 @@ describe('InMemoryRunStore', () => {
   })
 
   it('sorts by createdAt descending', async () => {
-    const store = new InMemoryRunStore()
+    const store = new InMemoryRunRecordStore()
     await store.createRun(makeRun({ id: 'old', createdAt: 100 }))
     await store.createRun(makeRun({ id: 'new', createdAt: 300 }))
     await store.createRun(makeRun({ id: 'mid', createdAt: 200 }))

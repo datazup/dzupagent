@@ -23,7 +23,7 @@
  * const result = await workflow.run({ spec: '...' })
  * ```
  */
-import type { PipelineDefinition, PipelineNode } from '@dzupagent/core'
+import type { PipelineDefinition, PipelineNode, RunJournal, RunStore } from '@dzupagent/core'
 import type {
   WorkflowStep,
   WorkflowNode,
@@ -31,8 +31,12 @@ import type {
   WorkflowContext,
   WorkflowEvent,
 } from './workflow-types.js'
+import type { RunHandle } from '../agent/run-handle-types.js'
+import { RunNotFoundError } from '../agent/run-handle-types.js'
+import { ConcreteRunHandle } from '../agent/run-handle.js'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import type { NodeExecutor, NodeExecutionContext, PipelineRuntimeEvent } from '../pipeline/pipeline-runtime-types.js'
+import { randomUUID } from 'node:crypto'
 
 export interface WorkflowConfig {
   id: string
@@ -98,6 +102,9 @@ export class WorkflowBuilder {
  */
 export class CompiledWorkflow {
   private readonly compilation: WorkflowCompilation
+  private journal?: RunJournal
+  private store?: RunStore
+  private readonly activeRuns = new Map<string, { store?: RunStore; journal?: RunJournal }>()
 
   constructor(
     readonly config: WorkflowConfig,
@@ -106,30 +113,113 @@ export class CompiledWorkflow {
     this.compilation = compileWorkflow(config, nodes)
   }
 
+  /** Attach a RunJournal for recording execution history. Returns `this` for fluent chaining. */
+  withJournal(journal: RunJournal): this {
+    this.journal = journal
+    return this
+  }
+
+  /** Attach a RunStore for run persistence and lookup. Returns `this` for fluent chaining. */
+  withStore(store: RunStore): this {
+    this.store = store
+    return this
+  }
+
   /** Inspect the compiled canonical pipeline definition. */
   toPipelineDefinition(): PipelineDefinition {
     return structuredClone(this.compilation.definition)
   }
 
+  /**
+   * Retrieve a RunHandle for an active or previously-completed run.
+   *
+   * Checks in-memory active runs first, then falls back to the configured
+   * RunStore (if any) to verify the run exists, then reconstructs a handle
+   * from the journal.
+   *
+   * @throws {RunNotFoundError} if the runId is not found in active runs or the store
+   * @throws {Error} if neither a store nor a journal is configured
+   */
+  async getHandle<TOutput = unknown, TState = Record<string, unknown>>(
+    runId: string,
+  ): Promise<RunHandle<TOutput, TState>> {
+    // Check active runs first
+    const active = this.activeRuns.get(runId)
+    if (active) {
+      const journal = active.journal ?? this.journal
+      if (!journal) {
+        throw new Error(
+          `Cannot create RunHandle for run '${runId}': no journal configured`,
+        )
+      }
+      return ConcreteRunHandle.fromRunId<TOutput, TState>(runId, journal as RunJournal<TState>)
+    }
+
+    // Fall back to RunStore to verify the run exists
+    const store = this.store
+    if (store) {
+      const run = await store.get(runId)
+      if (!run) {
+        throw new RunNotFoundError(runId)
+      }
+    }
+
+    // Reconstruct from journal
+    const journal = this.journal
+    if (!journal) {
+      throw new Error(
+        `Cannot create RunHandle for run '${runId}': no journal configured. Use withJournal() and/or withStore().`,
+      )
+    }
+
+    try {
+      return await ConcreteRunHandle.fromRunId<TOutput, TState>(runId, journal as RunJournal<TState>)
+    } catch {
+      throw new RunNotFoundError(runId)
+    }
+  }
+
   /** Execute the workflow with initial state */
   async run(
     initialState: Record<string, unknown>,
-    options?: { signal?: AbortSignal; onEvent?: (event: WorkflowEvent) => void },
+    options?: { signal?: AbortSignal; runId?: string; onEvent?: (event: WorkflowEvent) => void },
   ): Promise<Record<string, unknown>> {
+    const journal = this.journal
+    const runId = options?.runId ?? randomUUID()
     const emit = options?.onEvent ?? (() => {})
+
+    // Track active run
+    this.activeRuns.set(runId, { store: this.store, journal })
+
+    // Wrap the caller's emit to also write journal entries
+    const journalEmit: (event: WorkflowEvent) => void = journal
+      ? (event) => {
+          emit(event)
+          void this.journalWrite(journal, runId, event)
+        }
+      : emit
+
     let latestObservedState: Record<string, unknown> = { ...initialState }
     let pipelineFailure: string | null = null
 
+    // Journal: run_started
+    if (journal) {
+      await journal.append(runId, {
+        type: 'run_started',
+        data: { input: initialState, agentId: `workflow:${this.config.id}` },
+      })
+    }
+
     const runtime = new PipelineRuntime({
       definition: this.compilation.definition,
-      nodeExecutor: this.compilation.createNodeExecutor(emit, (state) => {
+      nodeExecutor: this.compilation.createNodeExecutor(journalEmit, (state) => {
         latestObservedState = state
       }),
       // Runtime implementation supports non-boolean branch keys, but the public
       // config type currently narrows predicates to boolean.
       predicates: this.compilation.predicates as Record<string, (state: Record<string, unknown>) => boolean>,
       signal: options?.signal,
-      onEvent: (event) => this.handleRuntimeEvent(event, emit, (err) => {
+      onEvent: (event) => this.handleRuntimeEvent(event, journalEmit, (err) => {
         pipelineFailure = err
       }),
     })
@@ -137,15 +227,32 @@ export class CompiledWorkflow {
     try {
       const result = await runtime.execute(initialState)
       if (result.state === 'failed') {
-        throw new Error(pipelineFailure ?? this.extractFailure(result.nodeResults) ?? 'Workflow execution failed')
+        const errorMsg = pipelineFailure ?? this.extractFailure(result.nodeResults) ?? 'Workflow execution failed'
+        // Journal: run_failed (pipeline-level failure that didn't throw)
+        if (journal) {
+          await journal.append(runId, {
+            type: 'run_failed',
+            data: { error: errorMsg },
+          })
+        }
+        throw new Error(errorMsg)
+      }
+      // Journal: run_completed
+      if (journal) {
+        await journal.append(runId, {
+          type: 'run_completed',
+          data: { output: latestObservedState },
+        })
       }
       return { ...latestObservedState }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       if (!pipelineFailure) {
-        emit({ type: 'workflow:failed', error: message })
+        journalEmit({ type: 'workflow:failed', error: message })
       }
       throw err
+    } finally {
+      this.activeRuns.delete(runId)
     }
   }
 
@@ -185,6 +292,52 @@ export class CompiledWorkflow {
     }
 
     await runPromise
+  }
+
+  /**
+   * Map a WorkflowEvent to a RunJournal entry append.
+   * Fires asynchronously — errors are silently swallowed to avoid
+   * disrupting the workflow execution itself.
+   */
+  private async journalWrite(
+    journal: RunJournal,
+    runId: string,
+    event: WorkflowEvent,
+  ): Promise<void> {
+    try {
+      switch (event.type) {
+        case 'step:started':
+          await journal.append(runId, {
+            type: 'step_started',
+            data: { stepId: event.stepId },
+          })
+          break
+        case 'step:completed':
+          await journal.append(runId, {
+            type: 'step_completed',
+            data: { stepId: event.stepId, durationMs: event.durationMs },
+          })
+          break
+        case 'step:failed':
+          await journal.append(runId, {
+            type: 'step_failed',
+            data: { stepId: event.stepId, error: event.error },
+          })
+          break
+        case 'suspended':
+          await journal.append(runId, {
+            type: 'run_suspended',
+            data: { stepId: 'suspend', reason: event.reason },
+          })
+          break
+        // run_started, run_completed, run_failed are written directly in run()
+        // to ensure correct ordering — skip them here.
+        default:
+          break
+      }
+    } catch {
+      // Journal writes must not break the workflow
+    }
   }
 
   private handleRuntimeEvent(

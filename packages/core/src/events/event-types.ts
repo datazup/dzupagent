@@ -55,9 +55,13 @@ export type DzupEvent =
   | { type: 'pipeline:phase_changed'; phase: string; previousPhase: string }
   | { type: 'pipeline:validation_failed'; phase: string; errors: string[] }
   // --- Approval ---
-  | { type: 'approval:requested'; runId: string; plan: unknown }
+  | { type: 'approval:requested'; runId: string; plan: unknown; contactId?: string; channel?: string; request?: unknown }
   | { type: 'approval:granted'; runId: string; approvedBy?: string }
   | { type: 'approval:rejected'; runId: string; reason?: string }
+  // --- Human Contact ---
+  | { type: 'human_contact:requested'; runId: string; contactId: string; contactType: string; channel: string }
+  | { type: 'human_contact:responded'; runId: string; contactId: string; response: unknown }
+  | { type: 'human_contact:timed_out'; runId: string; contactId: string; fallback?: unknown }
   // --- MCP ---
   | { type: 'mcp:connected'; serverName: string; toolCount: number }
   | { type: 'mcp:disconnected'; serverName: string }
@@ -134,6 +138,9 @@ export type DzupEvent =
   | { type: 'supervisor:delegation_complete'; specialistId: string; task: string; success: boolean }
   | { type: 'supervisor:plan_created'; goal: string; assignments: Array<{ task: string; specialistId: string }>; source?: 'llm' | 'keyword' }
   | { type: 'supervisor:llm_decompose_fallback'; goal: string; error: string }
+  | { type: 'supervisor:circuit_breaker_filtered'; skipped: string[] }
+  | { type: 'supervisor:merge_complete'; mergeStatus: string; successCount: number; errorCount: number }
+  | { type: 'supervisor:routing_decision'; agentId: string; strategy: string; reason: string }
   // --- Hooks / plugins ---
   | { type: 'hook:error'; hookName: string; message: string }
   | { type: 'plugin:registered'; pluginName: string }
@@ -214,6 +221,12 @@ export type DzupEvent =
   | { type: 'workflow:artifact_saved'; artifactType: string }
   | { type: 'workflow:suggestion_created'; category: string }
   | { type: 'workflow:schedule_triggered'; scheduleId: string }
+  // --- Run lifecycle (RunHandle) ---
+  | { type: 'run:paused'; runId: string; agentId: string }
+  | { type: 'run:resumed'; runId: string; agentId: string; resumeToken?: string; input?: unknown }
+  | { type: 'run:cancelled'; runId: string; agentId: string; reason?: string }
+  // --- Mailbox ---
+  | { type: 'mail:received'; message: { id: string; from: string; to: string; subject: string; body: Record<string, unknown>; createdAt: number } }
 
 /** Extract a specific event by its type discriminator */
 export type DzupEventOf<T extends DzupEvent['type']> = Extract<DzupEvent, { type: T }>

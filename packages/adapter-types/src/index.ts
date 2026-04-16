@@ -59,6 +59,8 @@ export type AgentEvent =
   | AgentRecoveryCancelledEvent
   | AgentStreamDeltaEvent
   | AgentProgressEvent
+  | AgentMemoryRecalledEvent
+  | AgentSkillsCompiledEvent
 
 export interface AgentStartedEvent {
   type: 'adapter:started'
@@ -297,4 +299,104 @@ export interface RoutingDecision {
 export interface TaskRoutingStrategy {
   readonly name: string
   route(task: TaskDescriptor, availableProviders: AdapterProviderId[]): RoutingDecision
+}
+
+// ---------------------------------------------------------------------------
+// Unified Capability Layer — new event types
+// ---------------------------------------------------------------------------
+
+/** Emitted after memory injection completes (withHierarchicalMemoryEnrichment) */
+export interface AgentMemoryRecalledEvent {
+  type: 'adapter:memory_recalled'
+  providerId: AdapterProviderId
+  timestamp: number
+  entries: Array<{
+    level: 'global' | 'workspace' | 'project' | 'agent'
+    name: string
+    /** Rough token estimate (chars / 4) */
+    tokenEstimate: number
+  }>
+  /** Total tokens injected across all entries */
+  totalTokens: number
+  correlationId?: string | undefined
+}
+
+/** Emitted after skills are compiled for a run (DzupAgentFileLoader) */
+export interface AgentSkillsCompiledEvent {
+  type: 'adapter:skills_compiled'
+  providerId: AdapterProviderId
+  timestamp: number
+  skills: Array<{
+    skillId: string
+    /** Features that compiled at reduced capacity */
+    degraded: string[]
+    /** Features that were silently dropped (unsupported by provider) */
+    dropped: string[]
+  }>
+  correlationId?: string | undefined
+}
+
+// ---------------------------------------------------------------------------
+// Unified Capability Layer — skill capability matrix types
+// ---------------------------------------------------------------------------
+
+export type CapabilityStatus = 'active' | 'degraded' | 'dropped' | 'unsupported'
+
+export interface ProviderCapabilityRow {
+  systemPrompt: CapabilityStatus
+  toolBindings: CapabilityStatus
+  approvalMode: CapabilityStatus
+  networkPolicy: CapabilityStatus
+  budgetLimit: CapabilityStatus
+  warnings: string[]
+}
+
+export interface SkillCapabilityMatrix {
+  skillId: string
+  skillName: string
+  providers: Partial<Record<AdapterProviderId, ProviderCapabilityRow>>
+}
+
+// ---------------------------------------------------------------------------
+// Unified Capability Layer — config + path types
+// ---------------------------------------------------------------------------
+
+/** Strategy for injecting project memory into Codex runs */
+export type CodexMemoryStrategy =
+  | 'inject-always'
+  | 'inject-on-new-thread'
+  | 'trust-thread-history'
+
+/** Global/project DzupAgent configuration (config.json) */
+export interface DzupAgentConfig {
+  codex?: {
+    /** How to handle memory injection for Codex. Default: 'inject-on-new-thread' */
+    memoryStrategy?: CodexMemoryStrategy | undefined
+  }
+  memory?: {
+    /** Max tokens to inject per run. Default: 2000 */
+    maxTokens?: number | undefined
+    /** Include global (~/.dzupagent/memory/) entries. Default: true */
+    includeGlobal?: boolean | undefined
+    /** Include workspace-level entries. Default: true */
+    includeWorkspace?: boolean | undefined
+  }
+  sync?: {
+    /** Auto-sync to native files on project open. Default: false */
+    onProjectOpen?: boolean | undefined
+  }
+}
+
+/** Resolved filesystem paths for a project's .dzupagent/ context */
+export interface DzupAgentPaths {
+  /** ~/.dzupagent/ */
+  globalDir: string
+  /** <git-root>/.dzupagent/ — workspace level, undefined if same as project */
+  workspaceDir: string | undefined
+  /** <project>/.dzupagent/ */
+  projectDir: string
+  /** <project>/.dzupagent/state.json */
+  stateFile: string
+  /** <project>/.dzupagent/config.json */
+  projectConfig: string
 }

@@ -3,8 +3,9 @@
  * Both @dzupagent/agent-adapters and @dzupagent/server can implement this.
  */
 
-/** Status of a run */
-export type RunStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+import type { RunStatus } from './store-interfaces.js'
+
+export type { RunStatus }
 
 /** A single execution run record */
 export interface RunRecord {
@@ -48,8 +49,15 @@ export interface RunFilters {
   offset?: number
 }
 
-/** Persistent storage backend for execution runs */
-export interface RunStore {
+/**
+ * Legacy run-record persistence backend.
+ *
+ * @deprecated Prefer `RunStore` from `store-interfaces.ts` — the canonical
+ * agent-level run interface used by server routes, test-utils, and all new code.
+ * This interface is retained for backward compatibility with code that tracks
+ * low-level LLM execution records (provider, tokens, cost).
+ */
+export interface RunRecordStore {
   createRun(run: RunRecord): Promise<string>
   updateRun(runId: string, update: Partial<RunRecord>): Promise<void>
   getRun(runId: string): Promise<RunRecord | undefined>

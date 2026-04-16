@@ -18,6 +18,9 @@ import type {
 } from './delegation.js'
 import type { StructuredLLM } from '../structured/structured-output-engine.js'
 import type { ProviderExecutionPort } from './provider-adapter/provider-execution-port.js'
+import type { RoutingPolicy, AgentSpec, AgentTask } from './routing-policy-types.js'
+import type { OrchestrationMergeStrategy, AgentResult } from './orchestration-merge-strategy-types.js'
+import type { AgentCircuitBreaker } from './circuit-breaker.js'
 
 /** Options for LLM-powered planAndDelegate. */
 export interface PlanAndDelegateOptions {
@@ -69,6 +72,21 @@ export interface DelegatingSupervisorConfig {
    * instead of the delegation tracker.
    */
   providerPort?: ProviderExecutionPort
+  /**
+   * Pluggable routing policy for agent selection.
+   * When not set, the existing keyword/LLM-based selection is used.
+   */
+  routingPolicy?: RoutingPolicy
+  /**
+   * Pluggable merge strategy for combining parallel delegation results.
+   * Defaults to UsePartialMergeStrategy behavior when not set.
+   */
+  mergeStrategy?: OrchestrationMergeStrategy
+  /**
+   * Circuit breaker for excluding unhealthy agents from routing.
+   * When set, agents with tripped circuits are filtered out before selection.
+   */
+  circuitBreaker?: AgentCircuitBreaker
   // ── Hierarchy (ORCHESTRATION_V2) ──
   /** ID of the parent run when this supervisor is itself a sub-orchestrator. */
   parentRunId?: string
@@ -133,6 +151,9 @@ export class DelegatingSupervisor {
   private readonly parentContext: DelegationContext | undefined
   private readonly eventBus: DzupEventBus | undefined
   private readonly providerPort: ProviderExecutionPort | undefined
+  private readonly routingPolicy: RoutingPolicy | undefined
+  private readonly mergeStrategy: OrchestrationMergeStrategy | undefined
+  private readonly circuitBreaker: AgentCircuitBreaker | undefined
 
   constructor(config: DelegatingSupervisorConfig) {
     this.specialists = config.specialists
@@ -140,6 +161,9 @@ export class DelegatingSupervisor {
     this.parentContext = config.parentContext
     this.eventBus = config.eventBus
     this.providerPort = config.providerPort
+    this.routingPolicy = config.routingPolicy
+    this.mergeStrategy = config.mergeStrategy
+    this.circuitBreaker = config.circuitBreaker
   }
 
   /**
@@ -187,6 +211,8 @@ export class DelegatingSupervisor {
         },
       }
 
+      this.circuitBreaker?.recordSuccess(specialistId)
+
       this.eventBus?.emit({
         type: 'supervisor:delegation_complete',
         specialistId,
@@ -205,6 +231,15 @@ export class DelegatingSupervisor {
     }
 
     const result = await this.tracker.delegate(request)
+
+    // Record circuit breaker outcome
+    if (this.circuitBreaker) {
+      if (result.success) {
+        this.circuitBreaker.recordSuccess(specialistId)
+      } else if (result.error?.toLowerCase().includes('timeout')) {
+        this.circuitBreaker.recordTimeout(specialistId)
+      }
+    }
 
     this.eventBus?.emit({
       type: 'supervisor:delegation_complete',
@@ -226,8 +261,29 @@ export class DelegatingSupervisor {
   ): Promise<AggregatedDelegationResult> {
     const start = Date.now()
 
+    // Filter tasks through circuit breaker if configured
+    let effectiveTasks = tasks
+    if (this.circuitBreaker) {
+      const availableIds = new Set(
+        this.circuitBreaker
+          .filterAvailable([...this.specialists.entries()].map(([id]) => ({ id })))
+          .map((a) => a.id),
+      )
+      const filtered = tasks.filter((t) => availableIds.has(t.specialistId))
+      if (filtered.length < tasks.length) {
+        const skipped = tasks
+          .filter((t) => !availableIds.has(t.specialistId))
+          .map((t) => t.specialistId)
+        this.eventBus?.emit({
+          type: 'supervisor:circuit_breaker_filtered',
+          skipped,
+        })
+      }
+      effectiveTasks = filtered
+    }
+
     // Validate all specialists exist before starting any work
-    for (const assignment of tasks) {
+    for (const assignment of effectiveTasks) {
       if (!this.specialists.has(assignment.specialistId)) {
         throw new OrchestrationError(
           `Specialist "${assignment.specialistId}" not found. Available: ${[...this.specialists.keys()].join(', ')}`,
@@ -238,7 +294,7 @@ export class DelegatingSupervisor {
     }
 
     const settled = await Promise.allSettled(
-      tasks.map((t) => this.delegateTask(t.task, t.specialistId, t.input)),
+      effectiveTasks.map((t) => this.delegateTask(t.task, t.specialistId, t.input)),
     )
 
     const results = new Map<string, DelegationResult>()
@@ -246,7 +302,7 @@ export class DelegatingSupervisor {
     const failed: string[] = []
 
     for (const [i, outcome] of settled.entries()) {
-      const assignment = tasks[i]!
+      const assignment = effectiveTasks[i]!
       if (outcome.status === 'fulfilled') {
         results.set(assignment.specialistId, outcome.value)
         if (outcome.value.success) {
@@ -265,6 +321,30 @@ export class DelegatingSupervisor {
         })
         failed.push(assignment.specialistId)
       }
+    }
+
+    // Apply merge strategy if configured
+    if (this.mergeStrategy && results.size > 0) {
+      const agentResults: AgentResult[] = [...results.entries()].map(
+        ([agentId, dr]) => ({
+          agentId,
+          status: dr.success
+            ? ('success' as const)
+            : dr.error?.toLowerCase().includes('timeout')
+              ? ('timeout' as const)
+              : ('error' as const),
+          output: dr.output,
+          error: dr.error,
+          durationMs: dr.metadata?.durationMs,
+        }),
+      )
+      const merged = this.mergeStrategy.merge(agentResults)
+      this.eventBus?.emit({
+        type: 'supervisor:merge_complete',
+        mergeStatus: merged.status,
+        successCount: merged.successCount,
+        errorCount: merged.errorCount,
+      })
     }
 
     return {
@@ -338,9 +418,11 @@ export class DelegatingSupervisor {
       }
     }
 
-    // Keyword-based fallback
+    // Use routing policy if configured, otherwise fall back to keyword matching
     const subtasks = this.decomposeGoal(goal)
-    const assignments = this.matchSubtasksToSpecialists(subtasks)
+    const assignments = this.routingPolicy
+      ? this.routeSubtasksViaPolicy(subtasks)
+      : this.matchSubtasksToSpecialists(subtasks)
 
     if (assignments.length === 0) {
       throw new OrchestrationError(
@@ -380,6 +462,66 @@ export class DelegatingSupervisor {
   // -------------------------------------------------------------------------
   // Private helpers
   // -------------------------------------------------------------------------
+
+  /**
+   * Convert specialists to AgentSpec format for routing policy consumption.
+   */
+  private toAgentSpecs(): AgentSpec[] {
+    let specs = [...this.specialists.entries()].map(([id, def]) => ({
+      id,
+      name: def.name,
+      tags: (def.metadata?.tags ?? []) as string[],
+      metadata: def.metadata as Record<string, unknown> | undefined,
+    }))
+
+    // Filter through circuit breaker if configured
+    if (this.circuitBreaker) {
+      specs = this.circuitBreaker.filterAvailable(specs)
+    }
+
+    return specs
+  }
+
+  /**
+   * Route subtasks to specialists using the configured RoutingPolicy.
+   * Logs each routing decision via the event bus.
+   */
+  private routeSubtasksViaPolicy(subtasks: string[]): TaskAssignment[] {
+    const candidates = this.toAgentSpecs()
+    if (candidates.length === 0) return []
+
+    const assignments: TaskAssignment[] = []
+
+    for (const subtask of subtasks) {
+      const task: AgentTask = {
+        taskId: `subtask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        content: subtask,
+      }
+
+      const decision = this.routingPolicy!.select(task, candidates)
+
+      // Log routing decision
+      for (const selected of decision.selected) {
+        this.eventBus?.emit({
+          type: 'supervisor:routing_decision',
+          agentId: selected.id,
+          strategy: decision.strategy,
+          reason: decision.reason,
+        })
+      }
+
+      // Create assignments from the routing decision
+      for (const agent of decision.selected) {
+        assignments.push({
+          task: subtask,
+          specialistId: agent.id,
+          input: { subtask },
+        })
+      }
+    }
+
+    return assignments
+  }
 
   /**
    * Split a goal string into sub-task fragments.

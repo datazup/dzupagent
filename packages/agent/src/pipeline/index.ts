@@ -35,3 +35,7 @@ export type {
   TestGenerationPipelineOptions,
   RefactoringPipelineOptions,
 } from './pipeline-templates.js'
+
+// --- Step Type Registry ---
+export { StepTypeRegistry, defaultStepTypeRegistry } from './step-type-registry.js'
+export type { StepContext, StepTypeDescriptor } from './step-type-registry.js'

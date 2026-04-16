@@ -256,8 +256,8 @@ export { dedupLessons } from './lesson-dedup.js'
 export { extractConventions } from './convention/convention-extractor-m4.js'
 
 // --- M4 Staleness Pruner ---
-export { pruneStaleMemories, computeStaleness } from './staleness-pruner.js'
-export type { StalenessPrunerOptions } from './staleness-pruner.js'
+export { pruneStaleMemories, pruneStaleMemoriesWithGraph, computeStaleness, StalenessPruner } from './staleness-pruner.js'
+export type { StalenessPrunerOptions, StalenessPrunerConfig, StalenessPruneResultWithCausal } from './staleness-pruner.js'
 
 // --- Shared Memory Namespace (Multi-Agent Collaboration) ---
 export { SharedMemoryNamespace } from './shared-namespace.js'

@@ -86,6 +86,43 @@ export class CausalGraph {
   }
 
   /**
+   * Remove all causal relations involving a node (both as cause and as effect).
+   *
+   * This is a convenience method that fetches all relations for the given node
+   * and tombstones each one. Useful when a memory record is deleted and its
+   * edges should not dangle.
+   *
+   * @returns The number of relations removed.
+   */
+  async removeNode(key: string, namespace: string): Promise<number> {
+    const node = await this.getRelations(key, namespace)
+    const toRemove: Array<{ cause: string; causeNs: string; effect: string; effectNs: string }> = []
+
+    for (const rel of node.causes) {
+      toRemove.push({
+        cause: rel.cause,
+        causeNs: rel.causeNamespace,
+        effect: rel.effect,
+        effectNs: rel.effectNamespace,
+      })
+    }
+    for (const rel of node.effects) {
+      toRemove.push({
+        cause: rel.cause,
+        causeNs: rel.causeNamespace,
+        effect: rel.effect,
+        effectNs: rel.effectNamespace,
+      })
+    }
+
+    for (const r of toRemove) {
+      await this.removeRelation(r.cause, r.causeNs, r.effect, r.effectNs)
+    }
+
+    return toRemove.length
+  }
+
+  /**
    * Get all causal relations for a record (both as cause and as effect).
    */
   async getRelations(key: string, namespace: string): Promise<CausalNode> {
