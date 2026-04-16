@@ -26,7 +26,11 @@ export { ScaffoldEngine } from './scaffold-engine.js'
 
 // --- Generator (new) ---
 export { generateProject } from './generator.js'
-export type { GenerateCallbacks } from './generator.js'
+export type { GenerateCallbacks, GenerateOptions } from './generator.js'
+
+// --- Bridge (agent-adapters wiring) ---
+export { wireProject } from './bridge.js'
+export type { WireBridgeOptions, WireBridgeResult } from './bridge.js'
 
 // --- Renderer ---
 export { renderTemplate } from './template-renderer.js'
@@ -41,6 +45,7 @@ export {
   codegenTemplate,
   multiAgentTemplate,
   serverTemplate,
+  researchTemplate,
 } from './templates/index.js'
 
 // --- Presets ---

@@ -14,6 +14,7 @@ import {
   productionSaasAgentTemplate,
   secureInternalAssistantTemplate,
   costConstrainedWorkerTemplate,
+  researchTemplate,
   getTemplate,
   listTemplates,
 } from '../templates/index.js'
@@ -52,10 +53,10 @@ describe('renderTemplate', () => {
 })
 
 describe('Template Manifests', () => {
-  const templateTypes: TemplateType[] = ['minimal', 'full-stack', 'codegen', 'multi-agent', 'server', 'production-saas-agent', 'secure-internal-assistant', 'cost-constrained-worker']
+  const templateTypes: TemplateType[] = ['minimal', 'full-stack', 'codegen', 'multi-agent', 'server', 'production-saas-agent', 'secure-internal-assistant', 'cost-constrained-worker', 'research']
 
-  it('all 8 templates exist in the registry', () => {
-    expect(Object.keys(templateRegistry)).toHaveLength(8)
+  it('all 9 templates exist in the registry', () => {
+    expect(Object.keys(templateRegistry)).toHaveLength(9)
     for (const t of templateTypes) {
       expect(templateRegistry[t]).toBeDefined()
     }
@@ -94,7 +95,7 @@ describe('Template Manifests', () => {
 
   it('listTemplates returns all templates', () => {
     const all = listTemplates()
-    expect(all).toHaveLength(8)
+    expect(all).toHaveLength(9)
   })
 
   it('specific templates are correctly imported', () => {
@@ -106,6 +107,7 @@ describe('Template Manifests', () => {
     expect(productionSaasAgentTemplate.id).toBe('production-saas-agent')
     expect(secureInternalAssistantTemplate.id).toBe('secure-internal-assistant')
     expect(costConstrainedWorkerTemplate.id).toBe('cost-constrained-worker')
+    expect(researchTemplate.id).toBe('research')
   })
 })
 
@@ -271,7 +273,7 @@ describe('E2E scaffold', () => {
 // Task 3: Parameterized — every template produces required files
 // ---------------------------------------------------------------------------
 describe('All templates produce required files', () => {
-  const allTemplates: TemplateType[] = ['minimal', 'full-stack', 'codegen', 'multi-agent', 'server', 'production-saas-agent', 'secure-internal-assistant', 'cost-constrained-worker']
+  const allTemplates: TemplateType[] = ['minimal', 'full-stack', 'codegen', 'multi-agent', 'server', 'production-saas-agent', 'secure-internal-assistant', 'cost-constrained-worker', 'research']
   let tempDir: string
   let engine: ScaffoldEngine
 

@@ -51,6 +51,15 @@ export const presets: Record<PresetName, PresetConfig> = {
     database: 'postgres',
     auth: 'api-key',
   },
+  research: {
+    name: 'research',
+    label: 'Research',
+    description: 'Research agent with web search, RAG, and report synthesis',
+    template: 'research',
+    features: [],
+    database: 'none',
+    auth: 'none',
+  },
 }
 
 export const PRESET_NAMES: readonly PresetName[] = [
@@ -58,6 +67,7 @@ export const PRESET_NAMES: readonly PresetName[] = [
   'starter',
   'full',
   'api-only',
+  'research',
 ] as const
 
 /**

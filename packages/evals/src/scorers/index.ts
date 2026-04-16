@@ -42,3 +42,13 @@ export type { JudgeCriterion } from './criteria.js'
 // Scorer Registry
 export { ScorerRegistry, defaultScorerRegistry } from './scorer-registry.js'
 export type { ScorerFactory, ScorerFactoryDeps } from './scorer-registry.js'
+
+// Evidence Quality Scorer
+export { EvidenceQualityScorer, computeEvidenceQuality } from './evidence-quality-scorer.js'
+export type {
+  EvidenceQualityInput,
+  EvidenceQualityResult,
+  EvidenceSource,
+  ClaimSourceMapping,
+  SourceReliability,
+} from './evidence-quality-scorer.js'

@@ -3,9 +3,9 @@ import { presets, getPreset, listPresets, PRESET_NAMES } from '../presets.js'
 import { templateRegistry } from '../templates/index.js'
 
 describe('presets', () => {
-  it('has 4 built-in presets', () => {
-    expect(PRESET_NAMES).toHaveLength(4)
-    expect(Object.keys(presets)).toHaveLength(4)
+  it('has 5 built-in presets', () => {
+    expect(PRESET_NAMES).toHaveLength(5)
+    expect(Object.keys(presets)).toHaveLength(5)
   })
 
   it('each preset references a valid template', () => {
@@ -60,10 +60,11 @@ describe('presets', () => {
 
   it('listPresets returns all presets in order', () => {
     const list = listPresets()
-    expect(list).toHaveLength(4)
+    expect(list).toHaveLength(5)
     expect(list[0]?.name).toBe('minimal')
     expect(list[1]?.name).toBe('starter')
     expect(list[2]?.name).toBe('full')
     expect(list[3]?.name).toBe('api-only')
+    expect(list[4]?.name).toBe('research')
   })
 })

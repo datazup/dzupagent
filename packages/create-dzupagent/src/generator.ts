@@ -9,6 +9,7 @@ import { generateReadme } from './templates/readme.js'
 import { generatePackageJson } from './templates/package-json.js'
 import { installDependencies, initGitRepo, applyOverlay } from './utils.js'
 import { getFeatureOverlay } from './features.js'
+import { wireProject } from './bridge.js'
 
 export interface GenerateCallbacks {
   onStep?: (step: string) => void
@@ -21,10 +22,16 @@ export interface GenerateCallbacks {
  * This orchestrates the full pipeline: create directory, render template,
  * apply feature overlays, generate config files, init git, install deps.
  */
+export interface GenerateOptions {
+  /** Wire the scaffolded project into the agent-adapters runtime (default: false). */
+  wire?: boolean
+}
+
 export async function generateProject(
   config: ProjectConfig,
   outputDir: string,
   callbacks?: GenerateCallbacks,
+  options?: GenerateOptions,
 ): Promise<GenerationResult> {
   const { onStep, onFileCreated } = callbacks ?? {}
   const projectDir = join(outputDir, config.projectName)
@@ -154,6 +161,23 @@ export async function generateProject(
     }
   }
 
+  // Step 10: Wire into agent-adapters runtime (opt-in)
+  let wired = false
+  if (options?.wire) {
+    onStep?.('Wiring project into agent-adapters runtime...')
+    try {
+      const wireResult = await wireProject({ projectDir })
+      wired = wireResult.success
+      if (!wireResult.success && wireResult.error) {
+        // Non-fatal — log but don't throw
+        onStep?.(`Wire warning: ${wireResult.error}`)
+      }
+    } catch {
+      // Wire failure is non-fatal
+      wired = false
+    }
+  }
+
   return {
     projectDir,
     filesCreated,
@@ -162,5 +186,6 @@ export async function generateProject(
     packageManager: config.packageManager,
     gitInitialized,
     depsInstalled,
+    wired,
   }
 }

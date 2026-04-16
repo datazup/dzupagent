@@ -2,7 +2,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { EvalInput, Scorer, ScorerConfig, ScorerResult } from '../../types.js';
 
 /** Supported evaluation domains. */
-export type EvalDomain = 'sql' | 'code' | 'analysis' | 'ops' | 'general';
+export type EvalDomain = 'sql' | 'code' | 'analysis' | 'ops' | 'general' | 'research';
 
 /** A single quality criterion within a domain. */
 export interface DomainCriterion {

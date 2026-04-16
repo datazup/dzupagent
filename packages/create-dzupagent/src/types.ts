@@ -10,6 +10,7 @@ export type TemplateType =
   | 'production-saas-agent'
   | 'secure-internal-assistant'
   | 'cost-constrained-worker'
+  | 'research'
 
 /**
  * Options passed to the scaffold engine.
@@ -95,7 +96,7 @@ export type PackageManagerType = 'npm' | 'yarn' | 'pnpm'
 /**
  * Built-in preset names.
  */
-export type PresetName = 'minimal' | 'starter' | 'full' | 'api-only'
+export type PresetName = 'minimal' | 'starter' | 'full' | 'api-only' | 'research'
 
 /**
  * Template metadata from the marketplace API.
@@ -118,4 +119,6 @@ export interface GenerationResult {
   packageManager: PackageManagerType
   gitInitialized: boolean
   depsInstalled: boolean
+  /** Whether the project was wired into the agent-adapters runtime. */
+  wired: boolean
 }

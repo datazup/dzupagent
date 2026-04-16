@@ -180,6 +180,59 @@ const OPS_CONFIG: DomainConfig = {
   ],
 };
 
+const RESEARCH_CONFIG: DomainConfig = {
+  domain: 'research',
+  name: 'Research Quality',
+  description: 'Evaluates research output quality across evidence coverage, source reliability, corroboration, methodology, and clarity.',
+  criteria: [
+    {
+      name: 'evidenceCoverage',
+      description: 'Are claims backed by sources?',
+      weight: 0.30,
+      deterministicCheck: (input) => {
+        // Simple heuristic: count citation-like patterns
+        const output = input.output
+        const citationPatterns = [/\[\d+\]/g, /\bhttps?:\/\//g, /\(source[:\s]/gi, /according to/gi]
+        let citationCount = 0
+        for (const pattern of citationPatterns) {
+          const matches = output.match(pattern)
+          if (matches) citationCount += matches.length
+        }
+        const score = Math.min(1, citationCount / 5)
+        return {
+          score: score * 10,
+          reasoning: `Found ${citationCount} citation-like patterns in the output`,
+        }
+      },
+      llmRubric: 'Evaluate whether the claims in this research output are backed by cited sources. Check for source attribution, citation density, and unsupported assertions. Score 0-10.',
+    },
+    {
+      name: 'sourceReliability',
+      description: 'Are sources credible and diverse?',
+      weight: 0.25,
+      llmRubric: 'Evaluate the quality and reliability of sources cited. Are they authoritative, recent, peer-reviewed, or from reputable outlets? Is there source diversity? Score 0-10.',
+    },
+    {
+      name: 'corroboration',
+      description: 'Are key claims supported by multiple sources?',
+      weight: 0.20,
+      llmRubric: 'Evaluate whether key claims are corroborated by multiple independent sources. Single-source claims should score lower. Score 0-10.',
+    },
+    {
+      name: 'methodology',
+      description: 'Sound research approach?',
+      weight: 0.15,
+      llmRubric: 'Evaluate the research methodology. Is the approach systematic? Are limitations acknowledged? Is the scope appropriate? Score 0-10.',
+    },
+    {
+      name: 'clarity',
+      description: 'Clear presentation of findings?',
+      weight: 0.10,
+      llmRubric: 'Evaluate the clarity and structure of the research output. Is it well-organized, logically presented, and accessible to the target audience? Score 0-10.',
+    },
+  ],
+};
+
 const GENERAL_CONFIG: DomainConfig = {
   domain: 'general',
   name: 'General Quality',
@@ -224,6 +277,7 @@ export const DOMAIN_CONFIGS: Record<EvalDomain, DomainConfig> = {
   code: CODE_CONFIG,
   analysis: ANALYSIS_CONFIG,
   ops: OPS_CONFIG,
+  research: RESEARCH_CONFIG,
   general: GENERAL_CONFIG,
 };
 
@@ -238,6 +292,19 @@ export const DOMAIN_DETECTION_PATTERNS: Array<{ domain: EvalDomain; patterns: Re
       /\bDELETE\s+FROM\b/i,
       /\bCREATE\s+TABLE\b/i,
       /\bALTER\s+TABLE\b/i,
+    ],
+  },
+  {
+    domain: 'research',
+    patterns: [
+      /\bresearch\b/i,
+      /\bevidence\b/i,
+      /\bcorroborat/i,
+      /\bcitation/i,
+      /\bsource.*reliab/i,
+      /\bpeer.?review/i,
+      /\bliterature\s+review/i,
+      /\bfindings\s+suggest/i,
     ],
   },
   {

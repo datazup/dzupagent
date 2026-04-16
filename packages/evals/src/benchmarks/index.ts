@@ -23,6 +23,10 @@ export {
 } from './suites/self-correction.js';
 export type { CorrectionScenario, CorrectionCategory } from './suites/self-correction.js';
 
+// Benchmark trend detection
+export { BenchmarkTrendStore, InMemoryBenchmarkRunStore } from './benchmark-trend.js';
+export type { BenchmarkRunRecord, BenchmarkRunStore, BenchmarkTrendResult } from './benchmark-trend.js';
+
 // Learning curve benchmark
 export {
   runLearningCurveBenchmark,

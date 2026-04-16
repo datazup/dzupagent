@@ -37,6 +37,7 @@ export interface CLIOptions {
   preset?: string
   git: boolean
   install: boolean
+  wire: boolean
   packageManager?: string
   list?: boolean
   listPresets?: boolean
@@ -52,9 +53,10 @@ export function createProgram(): Command {
     .argument('[project-name]', 'Name of the project directory to create')
     .option('-t, --template <type>', 'Template to use (default: minimal)')
     .option('-f, --features <list>', 'Comma-separated feature list (e.g. auth,billing,teams)')
-    .option('-p, --preset <name>', 'Use a built-in preset (minimal, starter, full, api-only)')
+    .option('-p, --preset <name>', 'Use a built-in preset (minimal, starter, full, api-only, research)')
     .option('--no-git', 'Skip git initialization')
     .option('--no-install', 'Skip dependency installation')
+    .option('--wire', 'Wire scaffolded project into agent-adapters runtime', false)
     .option('--package-manager <pm>', 'Package manager: npm, yarn, or pnpm')
     .option('--list', 'List all available templates')
     .option('--list-presets', 'List all available presets')
@@ -94,7 +96,7 @@ export async function run(projectName: string | undefined, options: CLIOptions):
   // No project name and no other flags = interactive wizard
   if (!projectName && !options.template && !options.preset) {
     const config = await runWizard()
-    await executeGeneration(config)
+    await executeGeneration(config, options.wire)
     return
   }
 
@@ -168,10 +170,10 @@ export async function run(projectName: string | undefined, options: CLIOptions):
     installDeps: options.install,
   }
 
-  await executeGeneration(config)
+  await executeGeneration(config, options.wire)
 }
 
-async function executeGeneration(config: ProjectConfig): Promise<void> {
+async function executeGeneration(config: ProjectConfig, wire = false): Promise<void> {
   const outputDir = resolve(process.cwd())
   const spinner = new Spinner()
 
@@ -186,7 +188,7 @@ async function executeGeneration(config: ProjectConfig): Promise<void> {
     onStep: (step) => {
       spinner.start(step)
     },
-  })
+  }, { wire })
 
   spinner.succeed('Project created!')
   console.log('')
@@ -202,6 +204,9 @@ async function executeGeneration(config: ProjectConfig): Promise<void> {
   }
   if (result.depsInstalled) {
     console.log(colors.green('  Dependencies installed'))
+  }
+  if (result.wired) {
+    console.log(colors.green('  Wired into agent-adapters runtime'))
   }
 
   console.log('')

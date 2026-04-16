@@ -95,6 +95,10 @@ export {
 } from './benchmarks/suites/self-correction.js';
 export type { CorrectionScenario, CorrectionCategory } from './benchmarks/suites/self-correction.js';
 
+// Benchmark Trend Detection
+export { BenchmarkTrendStore, InMemoryBenchmarkRunStore } from './benchmarks/benchmark-trend.js';
+export type { BenchmarkRunRecord, BenchmarkRunStore, BenchmarkTrendResult } from './benchmarks/benchmark-trend.js';
+
 // Learning Curve Benchmark
 export {
   runLearningCurveBenchmark,

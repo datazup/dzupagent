@@ -8,6 +8,7 @@
 
 import type { EvalInput, Scorer, ScorerConfig, ScorerResult } from '../types.js';
 import { LlmJudgeScorer } from './llm-judge-scorer.js';
+import { EvidenceQualityScorer } from './evidence-quality-scorer.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,6 +135,10 @@ function createLlmJudgeScorerFromRegistry(deps: ScorerFactoryDeps): Scorer<EvalI
   return new LlmJudgeScorer({ llm: deps.llm });
 }
 
+function createEvidenceQualityScorerFromRegistry(_deps: ScorerFactoryDeps): Scorer<EvalInput> {
+  return new EvidenceQualityScorer();
+}
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -162,6 +167,7 @@ export class ScorerRegistry {
     this.register('exact-match', 'Exact string match against reference', createExactMatchScorer);
     this.register('contains', 'Substring containment check against reference', createContainsScorer);
     this.register('llm-judge', '5-dimension LLM judge with Zod-validated structured output', createLlmJudgeScorerFromRegistry);
+    this.register('evidence_quality', 'Evidence quality scorer for research output: coverage, corroboration, and source reliability', createEvidenceQualityScorerFromRegistry);
   }
 
   /**
