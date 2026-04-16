@@ -9,7 +9,7 @@
 
 import crypto from 'node:crypto'
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus, RunStatus } from '@dzupagent/core'
 
 import type {
   AdapterProviderId,
@@ -26,7 +26,7 @@ import type {
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunStatus = 'pending' | 'queued' | 'executing' | 'completed' | 'failed' | 'cancelled'
+export type { RunStatus }
 
 export interface AdapterRun {
   runId: string
@@ -47,7 +47,7 @@ export interface AdapterRun {
 
 export interface RunStats {
   totalRuns: number
-  byStatus: Record<RunStatus, number>
+  byStatus: Partial<Record<RunStatus, number>>
   avgDurationMs: number
   successRate: number
   byProvider: Record<string, { runs: number; avgDurationMs: number; successRate: number }>
@@ -177,14 +177,7 @@ export class RunManager {
 
   /** Compute aggregate statistics across all tracked runs. */
   getStats(): RunStats {
-    const byStatus: Record<RunStatus, number> = {
-      pending: 0,
-      queued: 0,
-      executing: 0,
-      completed: 0,
-      failed: 0,
-      cancelled: 0,
-    }
+    const byStatus: Partial<Record<RunStatus, number>> = {}
 
     const providerMap = new Map<
       string,
@@ -199,7 +192,7 @@ export class RunManager {
 
     for (const run of this.runs.values()) {
       totalRuns++
-      byStatus[run.status]++
+      byStatus[run.status] = (byStatus[run.status] ?? 0) + 1
 
       if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
         terminalCount++

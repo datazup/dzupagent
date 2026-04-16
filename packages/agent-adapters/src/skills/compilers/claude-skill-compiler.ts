@@ -48,7 +48,7 @@ export class ClaudeSkillCompiler implements AdapterSkillCompiler {
       runtimeConfig['maxBudgetTokens'] = Math.round(bundle.constraints.maxBudgetUsd * TOKENS_PER_USD)
     }
 
-    const hashInput = `${bundle.bundleId}:${bundle.skillSetVersion}:${this.providerId}`
+    const hashInput = `${bundle.bundleId}:${bundle.skillSetVersion}:${this.providerId}:${buildSystemPrompt(bundle)}`
     const hash = deterministicHash(hashInput)
 
     return {

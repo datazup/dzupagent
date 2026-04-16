@@ -2,6 +2,21 @@ import type { DynamicStructuredTool, StructuredToolInterface } from '@langchain/
 import type { BaseConnectorTool } from '@dzupagent/core'
 import { isBaseConnectorTool, normalizeBaseConnectorTool } from '@dzupagent/core'
 
+/**
+ * Unified connector toolkit — a named set of tools produced by a connector.
+ */
+export interface ConnectorToolkit {
+  /** Human-readable connector name */
+  readonly name: string
+  /** All tools provided by this connector */
+  readonly tools: DynamicStructuredTool[]
+  /** Subset of tool names enabled (undefined = all) */
+  readonly enabledTools?: string[]
+}
+
+/** Factory function signature for connectors that return toolkits */
+export type ConnectorFactory<TConfig> = (config: TConfig) => ConnectorToolkit
+
 /** Connector tool — domain alias of BaseConnectorTool */
 export type ConnectorTool<Input = unknown, Output = unknown> = BaseConnectorTool<Input, Output>
 

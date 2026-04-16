@@ -1,4 +1,4 @@
-export { createGitHubConnector } from './github-connector.js'
+export { createGitHubConnector, createGitHubConnectorToolkit } from './github-connector.js'
 export type { GitHubConnectorConfig } from './github-connector.js'
 
 export { GitHubClient, GitHubApiError } from './github-client.js'

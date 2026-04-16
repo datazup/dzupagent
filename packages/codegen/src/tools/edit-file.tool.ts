@@ -14,6 +14,7 @@
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import type { VirtualFS } from '../vfs/virtual-fs.js'
+import type { CodegenToolContext } from './tool-context.js'
 
 const editEntrySchema = z.object({
   oldText: z.string().describe('Exact text to find (must match precisely including whitespace)'),
@@ -26,7 +27,19 @@ const inputSchema = z.object({
   edits: z.array(editEntrySchema).min(1).describe('One or more search/replace edits to apply sequentially'),
 })
 
-export function createEditFileTool(vfs: VirtualFS) {
+/**
+ * Create the edit_file tool.
+ *
+ * Accepts either a VirtualFS (legacy) or a CodegenToolContext. When
+ * `context.workspace` is available the tool reads/writes through the
+ * Workspace abstraction; otherwise it falls back to the VirtualFS path.
+ */
+export function createEditFileTool(vfsOrContext: VirtualFS | CodegenToolContext) {
+  // Resolve dependencies — VirtualFS has a `read` method; CodegenToolContext does not.
+  const isVfs = typeof (vfsOrContext as VirtualFS).read === 'function'
+  const vfs = isVfs ? (vfsOrContext as VirtualFS) : (vfsOrContext as CodegenToolContext).vfs
+  const workspace = isVfs ? undefined : (vfsOrContext as CodegenToolContext).workspace
+
   return new DynamicStructuredTool({
     name: 'edit_file',
     description:
@@ -36,7 +49,19 @@ export function createEditFileTool(vfs: VirtualFS) {
     schema: inputSchema,
     func: async (input) => {
       const { filePath, edits } = input
-      const content = vfs.read(filePath)
+
+      // Read the file content — prefer workspace, fall back to VFS
+      let content: string | null = null
+      if (workspace) {
+        try {
+          content = await workspace.readFile(filePath)
+        } catch {
+          content = null
+        }
+      } else if (vfs) {
+        content = vfs.read(filePath)
+      }
+
       if (content === null) {
         return `Error: File not found: ${filePath}`
       }
@@ -67,7 +92,12 @@ export function createEditFileTool(vfs: VirtualFS) {
         return `All ${edits.length} edits failed:\n${failed.join('\n')}`
       }
 
-      vfs.write(filePath, current)
+      // Write the modified content — prefer workspace, fall back to VFS
+      if (workspace) {
+        await workspace.writeFile(filePath, current)
+      } else if (vfs) {
+        vfs.write(filePath, current)
+      }
 
       if (failed.length > 0) {
         return `Applied ${applied.length}/${edits.length} edits to ${filePath}.\nFailed:\n${failed.join('\n')}`

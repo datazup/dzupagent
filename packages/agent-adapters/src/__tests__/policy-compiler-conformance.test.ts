@@ -19,6 +19,7 @@ const ALL_PROVIDERS: AdapterProviderId[] = [
   'codex',
   'claude',
   'gemini',
+  'gemini-sdk',
   'qwen',
   'crush',
   'goose',
@@ -293,9 +294,9 @@ describe('compilePolicyForProvider', () => {
 // ---------------------------------------------------------------------------
 
 describe('compilePolicyForAll', () => {
-  it('should return entries for all 7 providers', () => {
+  it('should return entries for all 8 providers', () => {
     const results = compilePolicyForAll({})
-    expect(results.size).toBe(7)
+    expect(results.size).toBe(8)
     for (const provider of ALL_PROVIDERS) {
       expect(results.has(provider)).toBe(true)
     }
@@ -451,7 +452,7 @@ describe('PolicyConformanceChecker', () => {
 
   describe('approvalRequired', () => {
     it('should produce a warning for providers without approval support', () => {
-      const noApproval: AdapterProviderId[] = ['gemini', 'qwen', 'crush', 'goose', 'openrouter']
+      const noApproval: AdapterProviderId[] = ['gemini', 'gemini-sdk', 'qwen', 'crush', 'goose', 'openrouter']
       for (const provider of noApproval) {
         const result = compileAndCheck(provider, { approvalRequired: true })
         const violation = result.violations.find((v) => v.field === 'approvalRequired')
@@ -518,7 +519,7 @@ describe('PolicyConformanceChecker', () => {
 
   describe('maxBudgetUsd', () => {
     it('should produce a warning for providers without budget support', () => {
-      const noBudget: AdapterProviderId[] = ['codex', 'gemini', 'qwen', 'crush', 'goose', 'openrouter']
+      const noBudget: AdapterProviderId[] = ['codex', 'gemini', 'gemini-sdk', 'qwen', 'crush', 'goose', 'openrouter']
       for (const provider of noBudget) {
         const result = compileAndCheck(provider, { maxBudgetUsd: 1.0 })
         const violation = result.violations.find((v) => v.field === 'maxBudgetUsd')
@@ -660,16 +661,26 @@ describe('PolicyConformanceChecker', () => {
   })
 
   // -------------------------------------------------------------------------
-  // maxTurns (all providers support it)
+  // maxTurns (most providers support it)
   // -------------------------------------------------------------------------
 
   describe('maxTurns', () => {
-    it('should not produce a violation for any current provider', () => {
-      for (const provider of ALL_PROVIDERS) {
+    const supportsMaxTurns: AdapterProviderId[] = ALL_PROVIDERS.filter(
+      (p) => p !== 'gemini-sdk',
+    )
+
+    it('should not produce a violation for providers that support maxTurns', () => {
+      for (const provider of supportsMaxTurns) {
         const result = compileAndCheck(provider, { maxTurns: 50 })
         const violation = result.violations.find((v) => v.field === 'maxTurns')
         expect(violation).toBeUndefined()
       }
+    })
+
+    it('should produce a warning for gemini-sdk (no maxTurns support)', () => {
+      const result = compileAndCheck('gemini-sdk', { maxTurns: 50 })
+      const violation = result.violations.find((v) => v.field === 'maxTurns')
+      expect(violation).toBeDefined()
     })
   })
 })

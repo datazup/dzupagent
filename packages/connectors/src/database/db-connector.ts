@@ -11,6 +11,7 @@
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { filterTools } from '../connector-types.js'
+import type { ConnectorToolkit } from '../connector-contract.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -465,4 +466,16 @@ export function createDatabaseConnector(config: DatabaseConnectorConfig): Dynami
   ]
 
   return filterTools(all, config.enabledTools)
+}
+
+/**
+ * Create a ConnectorToolkit for database operations.
+ * Wraps `createDatabaseConnector` in the unified toolkit pattern.
+ */
+export function createDatabaseConnectorToolkit(config: DatabaseConnectorConfig): ConnectorToolkit {
+  return {
+    name: 'database',
+    tools: createDatabaseConnector(config),
+    enabledTools: config.enabledTools,
+  }
 }

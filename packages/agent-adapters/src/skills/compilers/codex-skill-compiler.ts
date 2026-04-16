@@ -24,7 +24,7 @@ export class CodexSkillCompiler implements AdapterSkillCompiler {
       blockedTools,
     }
 
-    const hashInput = `${bundle.bundleId}:${bundle.skillSetVersion}:${this.providerId}`
+    const hashInput = `${bundle.bundleId}:${bundle.skillSetVersion}:${this.providerId}:${buildSystemPrompt(bundle)}`
     const hash = deterministicHash(hashInput)
 
     return {

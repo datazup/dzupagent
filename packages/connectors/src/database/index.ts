@@ -1,4 +1,4 @@
-export { createDatabaseConnector, createDatabaseOperations } from './db-connector.js'
+export { createDatabaseConnector, createDatabaseOperations, createDatabaseConnectorToolkit } from './db-connector.js'
 export type {
   DatabaseConnectorConfig,
   DatabaseOperations,

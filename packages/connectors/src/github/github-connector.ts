@@ -13,6 +13,7 @@
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { filterTools } from '../connector-types.js'
+import type { ConnectorToolkit } from '../connector-contract.js'
 import { GitHubClient, GitHubApiError } from './github-client.js'
 import type { GitHubContent } from './github-client.js'
 
@@ -367,4 +368,16 @@ export function createGitHubConnector(config: GitHubConnectorConfig): DynamicStr
   ]
 
   return filterTools(all, config.enabledTools)
+}
+
+/**
+ * Create a ConnectorToolkit for GitHub API operations.
+ * Wraps `createGitHubConnector` in the unified toolkit pattern.
+ */
+export function createGitHubConnectorToolkit(config: GitHubConnectorConfig): ConnectorToolkit {
+  return {
+    name: 'github',
+    tools: createGitHubConnector(config),
+    enabledTools: config.enabledTools,
+  }
 }

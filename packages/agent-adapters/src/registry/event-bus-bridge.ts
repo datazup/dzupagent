@@ -168,6 +168,16 @@ export class EventBusBridge {
           timestamp: event.timestamp,
         }
 
+      // adapter:skills_compiled is emitted directly on the bus from orchestrator-facade.ts,
+      // not via the bridge. Return null here to document the explicit no-op.
+      case 'adapter:skills_compiled':
+        return null
+
+      // adapter:memory_recalled is emitted directly on the bus from memory enrichment,
+      // not via the bridge. Return null here to document the explicit no-op.
+      case 'adapter:memory_recalled':
+        return null
+
       default:
         return null
     }

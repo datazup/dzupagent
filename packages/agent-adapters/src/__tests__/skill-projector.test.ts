@@ -4,6 +4,7 @@ import type { SkillRegistryEntry } from '@dzupagent/core'
 import { SkillProjector } from '../skills/skill-projector.js'
 import type { SkillProjection, ProjectionOptions } from '../skills/skill-projector.js'
 import type { AdapterProviderId, AgentInput } from '../types.js'
+import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -433,6 +434,169 @@ describe('SkillProjector', () => {
 
       expect(result.systemPromptSection).toBe(detailedResult.systemPromptSection)
       expect(result.systemPromptSection).not.toContain('...')
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // projectBundles
+  // -----------------------------------------------------------------------
+
+  describe('projectBundles', () => {
+    function makeBundle(overrides: Partial<AdapterSkillBundle> = {}): AdapterSkillBundle {
+      return {
+        bundleId: 'bundle-001',
+        skillSetId: 'skillset-alpha',
+        skillSetVersion: '2.1.0',
+        personaId: 'code-reviewer',
+        constraints: {
+          maxBudgetUsd: 5,
+          approvalMode: 'conditional',
+          networkPolicy: 'restricted',
+          toolPolicy: 'balanced',
+        },
+        promptSections: [
+          { id: 'safety', purpose: 'safety', content: 'Never execute destructive commands.', priority: 1 },
+          { id: 'task', purpose: 'task', content: 'Review the pull request for correctness.', priority: 10 },
+          { id: 'persona', purpose: 'persona', content: 'You are a senior code reviewer.', priority: 5 },
+        ],
+        toolBindings: [
+          { toolName: 'read_file', mode: 'required' },
+          { toolName: 'write_file', mode: 'optional' },
+          { toolName: 'exec_command', mode: 'blocked' },
+          { toolName: 'search_code', mode: 'required' },
+        ],
+        metadata: {
+          owner: 'platform-team',
+          reviewedBy: 'security-lead',
+          createdAt: '2026-03-01T00:00:00Z',
+          updatedAt: '2026-04-01T00:00:00Z',
+        },
+        ...overrides,
+      }
+    }
+
+    it('returns valid empty projection for empty bundles array', () => {
+      const result = projector.projectBundles([], 'claude')
+      expect(result).toEqual({
+        systemPromptSection: '',
+        requiredTools: [],
+        skillCount: 0,
+      })
+    })
+
+    it('returns valid empty projection for all providers', () => {
+      const providers: AdapterProviderId[] = ['claude', 'codex', 'gemini', 'qwen', 'crush', 'goose', 'openrouter']
+      for (const pid of providers) {
+        const result = projector.projectBundles([], pid)
+        expect(result.systemPromptSection).toBe('')
+        expect(result.skillCount).toBe(0)
+        expect(result.requiredTools).toEqual([])
+      }
+    })
+
+    it('single bundle for claude produces markdown-style output', () => {
+      const bundle = makeBundle()
+      const result = projector.projectBundles([bundle], 'claude')
+
+      expect(result.skillCount).toBe(1)
+      expect(result.systemPromptSection).toContain('# Active Skills')
+      // Prompt sections are included in priority order
+      expect(result.systemPromptSection).toContain('Never execute destructive commands.')
+      expect(result.systemPromptSection).toContain('You are a senior code reviewer.')
+      expect(result.systemPromptSection).toContain('Review the pull request for correctness.')
+    })
+
+    it('single bundle for codex produces === delimited block', () => {
+      const bundle = makeBundle()
+      const result = projector.projectBundles([bundle], 'codex')
+
+      expect(result.skillCount).toBe(1)
+      expect(result.systemPromptSection).toContain('Active capabilities:')
+      expect(result.systemPromptSection).toContain(`=== ${bundle.bundleId} ===`)
+      expect(result.systemPromptSection).toContain('Never execute destructive commands.')
+    })
+
+    it('single bundle for gemini produces XML tags', () => {
+      const bundle = makeBundle()
+      const result = projector.projectBundles([bundle], 'gemini')
+
+      expect(result.skillCount).toBe(1)
+      expect(result.systemPromptSection).toContain('<skills>')
+      expect(result.systemPromptSection).toContain(`<skill name="${bundle.bundleId}">`)
+      expect(result.systemPromptSection).toContain('</skills>')
+    })
+
+    it('extracts only required tools from toolBindings', () => {
+      const bundle = makeBundle()
+      const result = projector.projectBundles([bundle], 'claude')
+
+      expect(result.requiredTools).toContain('read_file')
+      expect(result.requiredTools).toContain('search_code')
+      expect(result.requiredTools).not.toContain('write_file')
+      expect(result.requiredTools).not.toContain('exec_command')
+    })
+
+    it('sorts prompt sections by priority (ascending)', () => {
+      const bundle = makeBundle()
+      const result = projector.projectBundles([bundle], 'claude')
+
+      const safety = result.systemPromptSection.indexOf('Never execute destructive commands.')
+      const persona = result.systemPromptSection.indexOf('You are a senior code reviewer.')
+      const task = result.systemPromptSection.indexOf('Review the pull request for correctness.')
+
+      expect(safety).toBeLessThan(persona)
+      expect(persona).toBeLessThan(task)
+    })
+
+    it('handles multiple bundles', () => {
+      const b1 = makeBundle({ bundleId: 'b1', toolBindings: [{ toolName: 'tool_a', mode: 'required' }] })
+      const b2 = makeBundle({ bundleId: 'b2', toolBindings: [{ toolName: 'tool_b', mode: 'required' }] })
+      const result = projector.projectBundles([b1, b2], 'claude')
+
+      expect(result.skillCount).toBe(2)
+      expect(result.requiredTools).toContain('tool_a')
+      expect(result.requiredTools).toContain('tool_b')
+    })
+
+    it('handles bundle with no tool bindings', () => {
+      const bundle = makeBundle({ toolBindings: [] })
+      const result = projector.projectBundles([bundle], 'claude')
+
+      expect(result.requiredTools).toEqual([])
+      expect(result.skillCount).toBe(1)
+    })
+
+    it('handles bundle with no prompt sections', () => {
+      const bundle = makeBundle({ promptSections: [] })
+      const result = projector.projectBundles([bundle], 'codex')
+
+      expect(result.skillCount).toBe(1)
+      // Still produces output with the bundle name
+      expect(result.systemPromptSection).toContain(bundle.bundleId)
+    })
+
+    it('respects projection options', () => {
+      const bundle = makeBundle()
+      const result = projector.projectBundles([bundle], 'claude', { format: 'minimal' })
+
+      expect(result.systemPromptSection).toContain('# Active Skills')
+      // Minimal format uses bullet points
+      expect(result.systemPromptSection).toContain(`- **${bundle.bundleId}**`)
+    })
+
+    it('respects maxInstructionLength option', () => {
+      const bundle = makeBundle()
+      const result = projector.projectBundles([bundle], 'claude', { maxInstructionLength: 50 })
+
+      expect(result.systemPromptSection.length).toBe(50)
+      expect(result.systemPromptSection).toMatch(/\.\.\.$/u)
+    })
+
+    it('omits tools when includeTools is false', () => {
+      const bundle = makeBundle()
+      const result = projector.projectBundles([bundle], 'claude', { includeTools: false })
+
+      expect(result.requiredTools).toEqual([])
     })
   })
 })

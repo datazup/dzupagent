@@ -24,7 +24,7 @@
  */
 
 import { createEventBus, ForgeError } from '@dzupagent/core'
-import type { CircuitBreakerConfig, DzupEventBus } from '@dzupagent/core'
+import type { CircuitBreakerConfig, DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { AdapterRegistry } from '../registry/adapter-registry.js'
 import { EventBusBridge } from '../registry/event-bus-bridge.js'
@@ -68,12 +68,20 @@ import type { AdapterPolicy, CompiledPolicyOverrides } from '../policy/policy-co
 import { PolicyConformanceChecker } from '../policy/policy-conformance.js'
 import type { AdapterApprovalGate, ApprovalContext } from '../approval/adapter-approval.js'
 import type { AdapterGuardrails } from '../guardrails/adapter-guardrails.js'
+import { WorkspaceResolver } from '../dzupagent/workspace-resolver.js'
+import { loadDzupAgentConfig, getMaxMemoryTokens, getCodexMemoryStrategy } from '../dzupagent/config.js'
+import { DzupAgentFileLoader } from '../dzupagent/file-loader.js'
+import { DzupAgentMemoryLoader } from '../dzupagent/memory-loader.js'
+import { buildSystemPrompt } from '../skills/compilers/compiler-utils.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
   AgentCompletedEvent,
   AgentEvent,
   AgentInput,
+  AgentMemoryRecalledEvent,
+  AgentSkillsCompiledEvent,
+  DzupAgentPaths,
   TaskDescriptor,
   TaskRoutingStrategy,
   TokenUsage,
@@ -116,6 +124,19 @@ export interface OrchestratorConfig {
   defaultPolicy?: AdapterPolicy | undefined
   /** When provided, all adapters are auto-wrapped with withMemoryEnrichment */
   memoryEnrichment?: MemoryEnrichmentOptions | undefined
+  /**
+   * Unified Capability Layer — when provided, skills and memory from the
+   * `.dzupagent/` directory tree are automatically loaded and injected into
+   * every `run()` call.
+   */
+  dzupagent?: {
+    /** Project root for .dzupagent/ resolution. Defaults to process.cwd() */
+    projectRoot?: string | undefined
+    /** Skip memory injection entirely */
+    skipMemory?: boolean | undefined
+    /** Skip skill injection entirely */
+    skipSkills?: boolean | undefined
+  } | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +242,9 @@ export class OrchestratorFacade {
   private readonly _conformanceChecker: PolicyConformanceChecker
   private readonly _defaultPolicy: AdapterPolicy | undefined
   private readonly _sessions: SessionRegistry
+  private readonly _dzupagentConfig: NonNullable<OrchestratorConfig['dzupagent']> | undefined
+  /** Cached resolved paths — lazily populated on first run() when dzupagent is configured. */
+  private _resolvedPaths: DzupAgentPaths | undefined
   private _isShutdown = false
 
   constructor(config: OrchestratorConfig) {
@@ -273,6 +297,9 @@ export class OrchestratorFacade {
 
     // Session registry
     this._sessions = new SessionRegistry({ eventBus })
+
+    // Unified Capability Layer config (optional)
+    this._dzupagentConfig = config.dzupagent ?? undefined
   }
 
   // -------------------------------------------------------------------------
@@ -345,6 +372,11 @@ export class OrchestratorFacade {
       systemPrompt: options?.systemPrompt,
       maxTurns: options?.maxTurns,
       signal: effectiveSignal,
+    }
+
+    // Unified Capability Layer: inject skills + memory from .dzupagent/
+    if (this._dzupagentConfig) {
+      await this.applyDzupAgentEnrichment(input)
     }
 
     const task: TaskDescriptor = {
@@ -716,6 +748,102 @@ export class OrchestratorFacade {
     }
 
     return compiled
+  }
+
+  // -------------------------------------------------------------------------
+  // Unified Capability Layer — .dzupagent/ enrichment
+  // -------------------------------------------------------------------------
+
+  /**
+   * @internal Resolve .dzupagent/ paths once and cache.
+   */
+  private async resolveDzupAgentPaths(): Promise<DzupAgentPaths> {
+    if (this._resolvedPaths) return this._resolvedPaths
+    const projectRoot = this._dzupagentConfig?.projectRoot ?? process.cwd()
+    const resolver = new WorkspaceResolver()
+    this._resolvedPaths = await resolver.resolve(projectRoot)
+    return this._resolvedPaths
+  }
+
+  /**
+   * @internal Apply Unified Capability Layer enrichment to an AgentInput.
+   * Loads skills and memory from .dzupagent/ and injects them into the
+   * system prompt / adapter wrapping. Failures are best-effort: a broken
+   * skill file never blocks the run.
+   */
+  private async applyDzupAgentEnrichment(input: AgentInput): Promise<void> {
+    const cfg = this._dzupagentConfig
+    if (!cfg) return
+
+    const paths = await this.resolveDzupAgentPaths()
+    const dzupConfig = await loadDzupAgentConfig(paths)
+
+    // --- Skills injection ---
+    if (!cfg.skipSkills) {
+      try {
+        const fileLoader = new DzupAgentFileLoader({ paths })
+        const bundles = await fileLoader.loadSkills()
+        if (bundles.length > 0) {
+          const skillPromptParts = bundles.map((bundle) => {
+            const content = buildSystemPrompt(bundle)
+            return `## Skill: ${bundle.bundleId}\n${content}`
+          })
+          const skillBlock = skillPromptParts.join('\n\n')
+          const existing = input.systemPrompt ?? ''
+          input.systemPrompt = existing
+            ? `${skillBlock}\n\n${existing}`
+            : skillBlock
+          const providerId = this._registry.listAdapters()[0] ?? ('claude' as AdapterProviderId)
+          const skillsCompiledEvent: AgentSkillsCompiledEvent = {
+            type: 'adapter:skills_compiled',
+            providerId,
+            timestamp: Date.now(),
+            skills: bundles.map(b => ({ skillId: b.bundleId, degraded: [], dropped: [] })),
+          }
+          // Adapter-layer event emitted directly on the bus (not via the bridge).
+          // Cast required because AgentSkillsCompiledEvent is not part of the core DzupEvent union.
+          this._eventBus.emit(skillsCompiledEvent as unknown as DzupEvent)
+        }
+      } catch {
+        // Best-effort — skill loading failure must not block the run
+      }
+    }
+
+    // --- Memory injection ---
+    if (!cfg.skipMemory) {
+      try {
+        // Determine which provider we are targeting for strategy selection
+        const providerId = this._registry.listAdapters()[0] ?? ('claude' as AdapterProviderId)
+        const memoryLoader = new DzupAgentMemoryLoader({
+          paths,
+          providerId,
+          maxTotalTokens: getMaxMemoryTokens(dzupConfig),
+          codexMemoryStrategy: getCodexMemoryStrategy(dzupConfig),
+          onRecalled: (entries, totalTokens) => {
+            const event: AgentMemoryRecalledEvent = {
+              type: 'adapter:memory_recalled',
+              providerId,
+              timestamp: Date.now(),
+              entries,
+              totalTokens,
+            }
+            this._eventBus.emit(event as unknown as DzupEvent)
+          },
+        })
+
+        const entries = await memoryLoader.loadEntries()
+        if (entries.length > 0) {
+          const snippets = entries.map((e) => e.content.trim()).join('\n\n')
+          const memoryBlock = `## Project Context\n\n${snippets}\n`
+          const existing = input.systemPrompt ?? ''
+          input.systemPrompt = existing
+            ? `${existing}\n\n${memoryBlock}`
+            : memoryBlock
+        }
+      } catch {
+        // Best-effort — memory loading failure must not block the run
+      }
+    }
   }
 
   /** @internal Throws if the orchestrator has been shut down */

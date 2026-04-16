@@ -77,8 +77,8 @@ export type { LearningRouterConfig } from './registry/learning-router.js'
 export { EventBusBridge } from './registry/event-bus-bridge.js'
 
 // --- Middleware ---
-export { withMemoryEnrichment } from './middleware/memory-enrichment.js'
-export type { MemoryServiceLike, MemoryEnrichmentOptions } from './middleware/memory-enrichment.js'
+export { withMemoryEnrichment, withHierarchicalMemoryEnrichment } from './middleware/memory-enrichment.js'
+export type { MemoryServiceLike, MemoryEnrichmentOptions, HierarchicalMemoryEnrichmentOptions, HierarchicalMemorySource, MemoryLevel } from './middleware/memory-enrichment.js'
 export { CostTrackingMiddleware } from './middleware/cost-tracking.js'
 export type { CostTrackingConfig, CostReport } from './middleware/cost-tracking.js'
 export { MiddlewarePipeline } from './middleware/middleware-pipeline.js'
@@ -434,13 +434,15 @@ export type {
 } from './skills/adapter-skill-types.js'
 export { AdapterSkillRegistry, createDefaultSkillRegistry } from './skills/adapter-skill-registry.js'
 export type { VersionedProjection, AdapterSkillVersionStore } from './skills/adapter-skill-version-store.js'
-export { InMemoryAdapterSkillVersionStore } from './skills/adapter-skill-version-store.js'
+export { InMemoryAdapterSkillVersionStore, FileAdapterSkillVersionStore } from './skills/adapter-skill-version-store.js'
 export type {
   ProjectionTelemetryRecord,
   ProjectionUsageStats,
   AdapterSkillTelemetry,
 } from './skills/adapter-skill-telemetry.js'
 export { InMemoryAdapterSkillTelemetry } from './skills/adapter-skill-telemetry.js'
+export { SkillCapabilityMatrixBuilder } from './skills/skill-capability-matrix.js'
+export type { SkillCapabilityMatrix, ProviderCapabilityRow, CapabilityStatus } from '@dzupagent/adapter-types'
 export { CodexSkillCompiler } from './skills/compilers/codex-skill-compiler.js'
 export { ClaudeSkillCompiler } from './skills/compilers/claude-skill-compiler.js'
 export { CliSkillCompiler, isCliProviderId } from './skills/compilers/cli-skill-compiler.js'
@@ -454,3 +456,43 @@ export type { PolicyViolation, PolicyViolationSeverity, PolicyConformanceResult 
 // --- Batched Event Emitter ---
 export { BatchedEventEmitter } from './utils/batched-event-emitter.js'
 export type { BatchConfig } from './utils/batched-event-emitter.js'
+
+// --- DzupAgent Unified Capability Layer ---
+export {
+  WorkspaceResolver,
+  loadDzupAgentConfig,
+  getCodexMemoryStrategy,
+  getMaxMemoryTokens,
+  parseMarkdownFile,
+  DzupAgentFileLoader,
+  DzupAgentMemoryLoader,
+  DzupAgentImporter,
+  DzupAgentAgentLoader,
+  agentDefinitionsToSupervisorConfig,
+  DzupAgentSyncer,
+} from './dzupagent/index.js'
+export type {
+  ParsedFrontmatter,
+  ParsedSection,
+  ParsedMarkdownFile,
+  FrontmatterValue,
+  FileLoaderOptions,
+  ParsedSkillFile,
+  MemoryEntry,
+  DzupAgentMemoryLoaderOptions,
+  ImportPlan,
+  ImportResult,
+  ImportSource,
+  DzupAgentImporterOptions,
+  AgentDefinition,
+  DzupAgentAgentLoaderOptions,
+  SyncPlan,
+  SyncPlanEntry,
+  SyncDivergedEntry,
+  SyncResult,
+  SyncResultWritten,
+  SyncResultSkipped,
+  SyncResultDiverged,
+  SyncTarget,
+  DzupAgentSyncerOptions,
+} from './dzupagent/index.js'

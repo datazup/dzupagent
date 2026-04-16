@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import { ForgeError } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   OrchestratorFacade,
@@ -612,6 +615,401 @@ describe('OrchestratorFacade', () => {
 
       // Should not throw
       expect(facade.registry).toBeDefined()
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// OrchestratorFacade with dzupagent config
+// ---------------------------------------------------------------------------
+
+describe('OrchestratorFacade with dzupagent config', () => {
+  let bus: DzupEventBus
+  let tempDir: string
+
+  /** Create a mock adapter that captures the systemPrompt it receives. */
+  function createCapturingAdapter(): {
+    adapter: AgentCLIAdapter
+    getCapturedSystemPrompt: () => string | undefined
+  } {
+    let capturedSystemPrompt: string | undefined
+    const adapter: AgentCLIAdapter = {
+      providerId: 'claude' as AdapterProviderId,
+      async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+        capturedSystemPrompt = input.systemPrompt
+        yield {
+          type: 'adapter:started',
+          providerId: 'claude',
+          sessionId: 'sess-ucl',
+          timestamp: Date.now(),
+        }
+        yield {
+          type: 'adapter:completed',
+          providerId: 'claude',
+          sessionId: 'sess-ucl',
+          result: 'done',
+          usage: { inputTokens: 10, outputTokens: 5 },
+          durationMs: 10,
+          timestamp: Date.now(),
+        }
+      },
+      async *resumeSession() {
+        // no-op
+      },
+      interrupt() {},
+      async healthCheck() {
+        return {
+          healthy: true,
+          providerId: 'claude' as AdapterProviderId,
+          sdkInstalled: true,
+          cliAvailable: true,
+        }
+      },
+      configure() {},
+    }
+    return { adapter, getCapturedSystemPrompt: () => capturedSystemPrompt }
+  }
+
+  beforeEach(async () => {
+    bus = createEventBus()
+    tempDir = await mkdtemp(join(tmpdir(), 'ucl-facade-'))
+  })
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true })
+  })
+
+  it('without dzupagent config: existing behavior unchanged', async () => {
+    const { adapter, getCapturedSystemPrompt } = createCapturingAdapter()
+    const facade = createOrchestrator({
+      adapters: [adapter],
+      eventBus: bus,
+    })
+
+    const result = await facade.run('Hello')
+
+    expect(result.result).toBe('done')
+    // No UCL injection — systemPrompt should be undefined (no enrichment)
+    expect(getCapturedSystemPrompt()).toBeUndefined()
+  })
+
+  it('with dzupagent config and skill files: system prompt contains skill content', async () => {
+    // Create .dzupagent/skills/ with a skill file
+    const skillsDir = join(tempDir, '.dzupagent', 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    await writeFile(
+      join(skillsDir, 'code-review.md'),
+      `---
+name: code-review
+version: "1"
+---
+
+## Persona
+You are an expert code reviewer.
+
+## Task
+Review code for correctness and style.
+`,
+    )
+
+    const { adapter, getCapturedSystemPrompt } = createCapturingAdapter()
+    const facade = createOrchestrator({
+      adapters: [adapter],
+      eventBus: bus,
+      dzupagent: { projectRoot: tempDir },
+    })
+
+    await facade.run('Review my code')
+
+    const prompt = getCapturedSystemPrompt()
+    expect(prompt).toBeDefined()
+    expect(prompt).toContain('code-review')
+    expect(prompt).toContain('expert code reviewer')
+    expect(prompt).toContain('Review code for correctness')
+  })
+
+  it('with dzupagent: { skipMemory: true }: memory NOT injected', async () => {
+    // Create both skills and memory files — only skills should appear
+    const skillsDir = join(tempDir, '.dzupagent', 'skills')
+    const memoryDir = join(tempDir, '.dzupagent', 'memory')
+    await mkdir(skillsDir, { recursive: true })
+    await mkdir(memoryDir, { recursive: true })
+
+    await writeFile(
+      join(skillsDir, 'my-skill.md'),
+      `---
+name: my-skill
+---
+
+## Task
+Do the task.
+`,
+    )
+    await writeFile(
+      join(memoryDir, 'project-facts.md'),
+      `---
+name: project-facts
+---
+
+This project uses PostgreSQL and Redis.
+`,
+    )
+
+    const { adapter, getCapturedSystemPrompt } = createCapturingAdapter()
+    const facade = createOrchestrator({
+      adapters: [adapter],
+      eventBus: bus,
+      dzupagent: { projectRoot: tempDir, skipMemory: true },
+    })
+
+    await facade.run('Do something')
+
+    const prompt = getCapturedSystemPrompt()
+    expect(prompt).toBeDefined()
+    // Skills should be present
+    expect(prompt).toContain('my-skill')
+    expect(prompt).toContain('Do the task')
+    // Memory should NOT be present
+    expect(prompt).not.toContain('PostgreSQL')
+    expect(prompt).not.toContain('Redis')
+  })
+
+  it('with dzupagent: { skipSkills: true }: skills NOT injected', async () => {
+    // Create both skills and memory files — only memory should appear
+    const skillsDir = join(tempDir, '.dzupagent', 'skills')
+    const memoryDir = join(tempDir, '.dzupagent', 'memory')
+    await mkdir(skillsDir, { recursive: true })
+    await mkdir(memoryDir, { recursive: true })
+
+    await writeFile(
+      join(skillsDir, 'my-skill.md'),
+      `---
+name: my-skill
+---
+
+## Task
+Do the task.
+`,
+    )
+    await writeFile(
+      join(memoryDir, 'project-facts.md'),
+      `---
+name: project-facts
+---
+
+This project uses PostgreSQL and Redis.
+`,
+    )
+
+    const { adapter, getCapturedSystemPrompt } = createCapturingAdapter()
+    const facade = createOrchestrator({
+      adapters: [adapter],
+      eventBus: bus,
+      dzupagent: { projectRoot: tempDir, skipSkills: true },
+    })
+
+    await facade.run('Do something')
+
+    const prompt = getCapturedSystemPrompt()
+    expect(prompt).toBeDefined()
+    // Skills should NOT be present
+    expect(prompt).not.toContain('my-skill')
+    expect(prompt).not.toContain('Do the task')
+    // Memory should be present
+    expect(prompt).toContain('PostgreSQL')
+    expect(prompt).toContain('Redis')
+  })
+
+  it('with both skills and memory: both injected in correct order', async () => {
+    const skillsDir = join(tempDir, '.dzupagent', 'skills')
+    const memoryDir = join(tempDir, '.dzupagent', 'memory')
+    await mkdir(skillsDir, { recursive: true })
+    await mkdir(memoryDir, { recursive: true })
+
+    await writeFile(
+      join(skillsDir, 'test-skill.md'),
+      `---
+name: test-skill
+---
+
+## Task
+Run the tests first.
+`,
+    )
+    await writeFile(
+      join(memoryDir, 'tech-stack.md'),
+      `---
+name: tech-stack
+---
+
+We use Vitest for testing.
+`,
+    )
+
+    const { adapter, getCapturedSystemPrompt } = createCapturingAdapter()
+    const facade = createOrchestrator({
+      adapters: [adapter],
+      eventBus: bus,
+      dzupagent: { projectRoot: tempDir },
+    })
+
+    await facade.run('Fix the test')
+
+    const prompt = getCapturedSystemPrompt()
+    expect(prompt).toBeDefined()
+    // Skills come first (prepended), memory comes after
+    expect(prompt).toContain('test-skill')
+    expect(prompt).toContain('Run the tests first')
+    expect(prompt).toContain('Vitest for testing')
+    // Skills should appear before memory in the combined prompt
+    const skillIdx = prompt!.indexOf('test-skill')
+    const memoryIdx = prompt!.indexOf('Vitest for testing')
+    expect(skillIdx).toBeLessThan(memoryIdx)
+  })
+
+  it('with empty .dzupagent directory: no enrichment applied', async () => {
+    // Create the directory structure but no files
+    await mkdir(join(tempDir, '.dzupagent'), { recursive: true })
+
+    const { adapter, getCapturedSystemPrompt } = createCapturingAdapter()
+    const facade = createOrchestrator({
+      adapters: [adapter],
+      eventBus: bus,
+      dzupagent: { projectRoot: tempDir },
+    })
+
+    await facade.run('Hello')
+
+    // No skills or memory files — systemPrompt should remain undefined
+    expect(getCapturedSystemPrompt()).toBeUndefined()
+  })
+
+  describe('adapter:skills_compiled event', () => {
+    it('emits adapter:skills_compiled when skills compile successfully', async () => {
+      const skillsDir = join(tempDir, '.dzupagent', 'skills')
+      await mkdir(skillsDir, { recursive: true })
+      await writeFile(
+        join(skillsDir, 'my-skill.md'),
+        `---
+name: my-skill
+---
+
+## Task
+Do the task.
+`,
+      )
+
+      const emitted: DzupEvent[] = []
+      bus.onAny((e) => emitted.push(e))
+
+      const { adapter } = createCapturingAdapter()
+      const facade = createOrchestrator({
+        adapters: [adapter],
+        eventBus: bus,
+        dzupagent: { projectRoot: tempDir },
+      })
+
+      await facade.run('Do something')
+
+      const skillsEvent = emitted.find(
+        (e) => (e as { type: string }).type === 'adapter:skills_compiled',
+      ) as unknown as { type: string; providerId: string; skills: Array<{ skillId: string }> } | undefined
+      expect(skillsEvent).toBeDefined()
+      expect(skillsEvent!.type).toBe('adapter:skills_compiled')
+      expect(skillsEvent!.providerId).toBe('claude')
+      expect(skillsEvent!.skills).toHaveLength(1)
+      expect(skillsEvent!.skills[0]!.skillId).toBe('my-skill')
+    })
+
+    it('does NOT emit adapter:skills_compiled when bundles array is empty', async () => {
+      // Create .dzupagent but no skill files
+      await mkdir(join(tempDir, '.dzupagent'), { recursive: true })
+
+      const emitted: DzupEvent[] = []
+      bus.onAny((e) => emitted.push(e))
+
+      const { adapter } = createCapturingAdapter()
+      const facade = createOrchestrator({
+        adapters: [adapter],
+        eventBus: bus,
+        dzupagent: { projectRoot: tempDir },
+      })
+
+      await facade.run('Hello')
+
+      const skillsEvents = emitted.filter(
+        (e) => (e as { type: string }).type === 'adapter:skills_compiled',
+      )
+      expect(skillsEvents).toHaveLength(0)
+    })
+
+    it('does NOT emit adapter:skills_compiled when eventBus is the default (no dzupagent config)', async () => {
+      // No dzupagent config — skills compilation is skipped entirely
+      const emitted: DzupEvent[] = []
+      bus.onAny((e) => emitted.push(e))
+
+      const { adapter } = createCapturingAdapter()
+      const facade = createOrchestrator({
+        adapters: [adapter],
+        eventBus: bus,
+      })
+
+      await facade.run('Hello')
+
+      const skillsEvents = emitted.filter(
+        (e) => (e as { type: string }).type === 'adapter:skills_compiled',
+      )
+      expect(skillsEvents).toHaveLength(0)
+    })
+
+    it('emits adapter:skills_compiled with multiple skills', async () => {
+      const skillsDir = join(tempDir, '.dzupagent', 'skills')
+      await mkdir(skillsDir, { recursive: true })
+      await writeFile(
+        join(skillsDir, 'skill-a.md'),
+        `---
+name: skill-a
+---
+
+## Task
+Task A.
+`,
+      )
+      await writeFile(
+        join(skillsDir, 'skill-b.md'),
+        `---
+name: skill-b
+---
+
+## Task
+Task B.
+`,
+      )
+
+      const emitted: DzupEvent[] = []
+      bus.onAny((e) => emitted.push(e))
+
+      const { adapter } = createCapturingAdapter()
+      const facade = createOrchestrator({
+        adapters: [adapter],
+        eventBus: bus,
+        dzupagent: { projectRoot: tempDir },
+      })
+
+      await facade.run('Do it')
+
+      const skillsEvent = emitted.find(
+        (e) => (e as { type: string }).type === 'adapter:skills_compiled',
+      ) as unknown as { type: string; skills: Array<{ skillId: string; degraded: string[]; dropped: string[] }> } | undefined
+      expect(skillsEvent).toBeDefined()
+      expect(skillsEvent!.skills).toHaveLength(2)
+      const skillIds = skillsEvent!.skills.map((s) => s.skillId).sort()
+      expect(skillIds).toEqual(['skill-a', 'skill-b'])
+      // degraded and dropped should be empty arrays
+      for (const skill of skillsEvent!.skills) {
+        expect(skill.degraded).toEqual([])
+        expect(skill.dropped).toEqual([])
+      }
     })
   })
 })

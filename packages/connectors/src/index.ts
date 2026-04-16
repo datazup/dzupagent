@@ -11,6 +11,8 @@ export { filterTools } from './connector-types.js'
 export type {
   ConnectorTool,
   ConnectorToolLike,
+  ConnectorToolkit,
+  ConnectorFactory,
 } from './connector-contract.js'
 export {
   isConnectorTool,
@@ -19,7 +21,7 @@ export {
 } from './connector-contract.js'
 
 // --- GitHub ---
-export { createGitHubConnector } from './github/index.js'
+export { createGitHubConnector, createGitHubConnectorToolkit } from './github/index.js'
 export { GitHubClient, GitHubApiError } from './github/index.js'
 export type {
   GitHubConnectorConfig,
@@ -41,15 +43,15 @@ export type {
 } from './github/index.js'
 
 // --- HTTP ---
-export { createHTTPConnector } from './http/index.js'
+export { createHTTPConnector, createHttpConnectorToolkit } from './http/index.js'
 export type { HTTPConnectorConfig } from './http/index.js'
 
 // --- Slack ---
-export { createSlackConnector } from './slack/index.js'
+export { createSlackConnector, createSlackConnectorToolkit } from './slack/index.js'
 export type { SlackConnectorConfig } from './slack/index.js'
 
 // --- Database ---
-export { createDatabaseConnector, createDatabaseOperations } from './database/index.js'
+export { createDatabaseConnector, createDatabaseOperations, createDatabaseConnectorToolkit } from './database/index.js'
 export type {
   DatabaseConnectorConfig,
   DatabaseOperations,

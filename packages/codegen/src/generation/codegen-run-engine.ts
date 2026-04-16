@@ -269,7 +269,7 @@ export class CodegenRunEngine {
         this.eventBus.emit({
           type: 'agent:stream_delta',
           agentId: `codegen:${event.providerId}`,
-          runId: 'codegen',
+          runId: fallbackExecutionRunId ?? 'codegen',
           content: event.content,
         })
         break

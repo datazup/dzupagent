@@ -6,6 +6,7 @@
  */
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
+import type { ConnectorToolkit } from '../connector-contract.js'
 
 export interface HTTPConnectorConfig {
   /** Base URL for all requests */
@@ -72,4 +73,15 @@ export function createHTTPConnector(config: HTTPConnectorConfig): DynamicStructu
       },
     }),
   ]
+}
+
+/**
+ * Create a ConnectorToolkit for generic HTTP operations.
+ * Wraps `createHTTPConnector` in the unified toolkit pattern.
+ */
+export function createHttpConnectorToolkit(config: HTTPConnectorConfig): ConnectorToolkit {
+  return {
+    name: 'http',
+    tools: createHTTPConnector(config),
+  }
 }

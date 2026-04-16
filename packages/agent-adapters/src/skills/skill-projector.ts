@@ -1,5 +1,6 @@
 import type { SkillRegistryEntry } from '@dzupagent/core'
 import type { AdapterProviderId, AgentInput } from '../types.js'
+import type { AdapterSkillBundle } from './adapter-skill-types.js'
 
 /** Result of projecting skills for a provider */
 export interface SkillProjection {
@@ -63,6 +64,47 @@ export class SkillProjector {
       requiredTools,
       skillCount: skills.length,
     }
+  }
+
+  /**
+   * Project adapter skill bundles for a specific provider.
+   *
+   * Converts each {@link AdapterSkillBundle} into the internal
+   * {@link SkillRegistryEntry} format and delegates to the existing
+   * provider-specific formatting logic.
+   *
+   * Prompt sections are concatenated in priority order (ascending).
+   * Only tool bindings with `mode === 'required'` are included.
+   */
+  projectBundles(
+    bundles: readonly AdapterSkillBundle[],
+    providerId: AdapterProviderId,
+    options?: ProjectionOptions,
+  ): SkillProjection {
+    if (bundles.length === 0) {
+      return { systemPromptSection: '', requiredTools: [], skillCount: 0 }
+    }
+
+    const entries: SkillRegistryEntry[] = bundles.map((bundle) => {
+      const sortedSections = [...bundle.promptSections].sort(
+        (a, b) => a.priority - b.priority,
+      )
+      const instructions = sortedSections.map((s) => s.content).join('\n\n')
+
+      const requiredTools = bundle.toolBindings
+        .filter((b) => b.mode === 'required')
+        .map((b) => b.toolName)
+
+      return {
+        id: bundle.bundleId,
+        name: bundle.bundleId,
+        description: instructions.slice(0, 120) || bundle.bundleId,
+        instructions,
+        requiredTools,
+      }
+    })
+
+    return this.project(entries, providerId, options)
   }
 
   /**

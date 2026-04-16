@@ -14,6 +14,8 @@ import type {
   AgentStreamDeltaEvent,
   AgentMessageEvent,
   AgentProgressEvent,
+  AgentSkillsCompiledEvent,
+  AgentMemoryRecalledEvent,
 } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -422,6 +424,50 @@ describe('EventBusBridge', () => {
       const unknownEvent = { type: 'adapter:unknown', providerId: 'claude', timestamp: 1 } as unknown as AgentEvent
       const result = EventBusBridge.mapToDzupEvent(unknownEvent, RUN_ID)
       expect(result).toBeNull()
+    })
+
+    it('returns null for adapter:skills_compiled (explicit no-op)', () => {
+      const event: AgentSkillsCompiledEvent = {
+        type: 'adapter:skills_compiled',
+        providerId: 'claude',
+        timestamp: Date.now(),
+        skills: [{ skillId: 'code-review', degraded: [], dropped: [] }],
+      }
+      const result = EventBusBridge.mapToDzupEvent(event, RUN_ID)
+      expect(result).toBeNull()
+    })
+
+    it('returns null for adapter:memory_recalled (explicit no-op)', () => {
+      const event: AgentMemoryRecalledEvent = {
+        type: 'adapter:memory_recalled',
+        providerId: 'claude',
+        timestamp: Date.now(),
+        entries: [{ level: 'project', name: 'tech-stack', tokenEstimate: 100 }],
+        totalTokens: 100,
+      }
+      const result = EventBusBridge.mapToDzupEvent(event, RUN_ID)
+      expect(result).toBeNull()
+    })
+
+    it('adapter:skills_compiled is yielded as pass-through but not emitted on bus', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const skillsEvent: AgentSkillsCompiledEvent = {
+        type: 'adapter:skills_compiled',
+        providerId: 'claude',
+        timestamp: Date.now(),
+        skills: [{ skillId: 'my-skill', degraded: [], dropped: [] }],
+      }
+
+      const yielded = await collectAll(bridge.bridge(yieldEvents([skillsEvent]), RUN_ID))
+
+      // The original event is still yielded (pass-through)
+      expect(yielded).toHaveLength(1)
+      expect(yielded[0]).toBe(skillsEvent)
+      // But no DzupEvent is emitted on the bus (mapToDzupEvent returns null)
+      expect(emitted).toHaveLength(0)
     })
 
     it('maps adapter:progress to agent:progress on the core bus', () => {

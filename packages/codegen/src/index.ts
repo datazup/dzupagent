@@ -70,6 +70,7 @@ export type { SandboxProtocolV2, SessionOptions, ExecEvent } from './sandbox/san
 export { DockerSandbox } from './sandbox/docker-sandbox.js'
 export type { DockerSandboxConfig } from './sandbox/docker-sandbox.js'
 export { MockSandbox } from './sandbox/mock-sandbox.js'
+export { MockSandboxV2 } from './sandbox/mock-sandbox-v2.js'
 export { E2BSandbox } from './sandbox/e2b-sandbox.js'
 export type { E2BSandboxConfig } from './sandbox/e2b-sandbox.js'
 export { FlySandbox } from './sandbox/fly-sandbox.js'
@@ -257,6 +258,7 @@ export {
 } from './pipeline/phase-conditions.js'
 
 // --- Tools ---
+export type { CodegenToolContext } from './tools/tool-context.js'
 export { createWriteFileTool } from './tools/write-file.tool.js'
 export { createEditFileTool } from './tools/edit-file.tool.js'
 export { createMultiEditTool } from './tools/multi-edit.tool.js'
@@ -407,6 +409,14 @@ export type {
   GuardrailRule,
   GuardrailReport,
 } from './guardrails/guardrail-types.js'
+
+// --- Streaming ---
+export type { CodegenStreamEvent } from './streaming/index.js'
+export { mergeCodegenStreams } from './streaming/index.js'
+
+// --- Workspace ---
+export type { SearchResult, CommandResult, WorkspaceOptions, Workspace } from './workspace/index.js'
+export { LocalWorkspace, SandboxedWorkspace, WorkspaceFactory } from './workspace/index.js'
 
 // Placeholder export to make the package valid
 export const dzupagent_CODEGEN_VERSION = '0.1.0'

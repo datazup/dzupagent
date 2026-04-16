@@ -4,6 +4,7 @@
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { filterTools } from '../connector-types.js'
+import type { ConnectorToolkit } from '../connector-contract.js'
 
 export interface SlackConnectorConfig {
   token: string
@@ -71,4 +72,16 @@ export function createSlackConnector(config: SlackConnectorConfig): DynamicStruc
   ]
 
   return filterTools(all, config.enabledTools)
+}
+
+/**
+ * Create a ConnectorToolkit for Slack API operations.
+ * Wraps `createSlackConnector` in the unified toolkit pattern.
+ */
+export function createSlackConnectorToolkit(config: SlackConnectorConfig): ConnectorToolkit {
+  return {
+    name: 'slack',
+    tools: createSlackConnector(config),
+    enabledTools: config.enabledTools,
+  }
 }
