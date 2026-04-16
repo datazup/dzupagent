@@ -131,15 +131,20 @@ export type AgentUpdateInput = Partial<AgentCreateInput> & { active?: boolean }
 
 // ── Runs ─────────────────────────────────────────────────
 
-/** Run status */
+/** Run status — mirrors @dzupagent/core RunStatus (canonical source) */
 export type RunStatus =
-  | 'pending'
-  | 'running'
-  | 'awaiting_approval'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
-  | 'rejected'
+  | 'pending'            // initial state before queuing
+  | 'queued'             // queued for execution
+  | 'running'            // actively running
+  | 'executing'          // adapter-level active execution
+  | 'awaiting_approval'  // paused, waiting for human approval
+  | 'approved'           // approval given, ready to resume
+  | 'paused'             // Wave 9: cooperative pause via RunHandle
+  | 'suspended'          // Wave 9: workflow-level suspension
+  | 'completed'          // terminal: success
+  | 'failed'             // terminal: error
+  | 'rejected'           // terminal: approval rejected
+  | 'cancelled'          // terminal: user-cancelled
 
 /** Run history entry */
 export interface RunHistoryEntry {
@@ -475,6 +480,61 @@ export interface MarketplaceAgent {
   downloadCount?: number
   rating?: number
   repository?: string
+}
+
+// ── A2A Tasks ──────────────────────────────────────────
+
+/** A2A task states */
+export type A2ATaskState = 'submitted' | 'working' | 'completed' | 'failed' | 'cancelled'
+
+/** A2A message part */
+export interface A2AMessagePart {
+  type: string
+  text?: string
+  [key: string]: unknown
+}
+
+/** A2A message */
+export interface A2AMessage {
+  role: 'user' | 'agent'
+  parts: A2AMessagePart[]
+}
+
+/** A2A artifact */
+export interface A2AArtifact {
+  name: string
+  parts: A2AMessagePart[]
+}
+
+/** A2A push notification config */
+export interface A2APushNotificationConfig {
+  url: string
+  events?: string[]
+}
+
+/** A2A task record */
+export interface A2ATask {
+  id: string
+  agentName: string
+  state: A2ATaskState
+  messages: A2AMessage[]
+  artifacts: A2AArtifact[]
+  pushNotification?: A2APushNotificationConfig
+  createdAt: string
+  updatedAt: string
+}
+
+/** A2A task list response */
+export interface A2ATaskListResponse {
+  success: boolean
+  data: A2ATask[]
+  count: number
+}
+
+/** A2A task detail response */
+export interface A2ATaskResponse {
+  success: boolean
+  data: A2ATask
 }
 
 // ── API ──────────────────────────────────────────────────

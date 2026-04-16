@@ -294,4 +294,16 @@ export const emptyEventMetricMap = {
       },
     ),
   ],
+  // --- Mailbox ---
+  'mail:received': [
+    counter(
+      'dzip_mail_received_total',
+      'Total mail messages received by agents',
+      ['to'],
+      (e) => {
+        const ev = asEvent<'mail:received'>(e)
+        return { value: 1, labels: { to: ev.message.to } }
+      },
+    ),
+  ],
 } satisfies MetricMapFragment

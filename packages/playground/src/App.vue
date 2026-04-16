@@ -213,10 +213,13 @@ const healthLabel = computed(() => {
 
 const navLinks = [
   { to: '/', label: 'Agent Chat', icon: '>' },
-  { to: '/benchmarks', label: 'Benchmarks', icon: '~' },
-  { to: '/evals', label: 'Evals', icon: '=' },
   { to: '/agents', label: 'Agents', icon: '#' },
+  { to: '/runs', label: 'Run History', icon: '%' },
+  { to: '/eval-dashboard', label: 'Eval Dashboard', icon: '*' },
+  { to: '/evals', label: 'Evals', icon: '=' },
+  { to: '/benchmarks', label: 'Benchmarks', icon: '~' },
   { to: '/marketplace', label: 'Marketplace', icon: '@' },
+  { to: '/a2a', label: 'A2A Tasks', icon: '&' },
 ]
 </script>
 

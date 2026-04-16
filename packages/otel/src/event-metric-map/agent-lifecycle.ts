@@ -52,4 +52,45 @@ export const agentLifecycleMetricMap = {
     },
   ],
 
+
+  // --- Run lifecycle (pause / resume / cancel) ---
+  'run:paused': [
+    {
+      metricName: 'dzip_run_paused_total',
+      type: 'counter',
+      description: 'Total runs paused',
+      labelKeys: ['agent_id'],
+      extract: (e) => {
+        const ev = asEvent<'run:paused'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId } }
+      },
+    },
+  ],
+
+  'run:resumed': [
+    {
+      metricName: 'dzip_run_resumed_total',
+      type: 'counter',
+      description: 'Total runs resumed',
+      labelKeys: ['agent_id'],
+      extract: (e) => {
+        const ev = asEvent<'run:resumed'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId } }
+      },
+    },
+  ],
+
+  'run:cancelled': [
+    {
+      metricName: 'dzip_run_cancelled_total',
+      type: 'counter',
+      description: 'Total runs cancelled',
+      labelKeys: ['agent_id'],
+      extract: (e) => {
+        const ev = asEvent<'run:cancelled'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId } }
+      },
+    },
+  ],
+
 } satisfies MetricMapFragment

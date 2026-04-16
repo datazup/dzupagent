@@ -8,6 +8,7 @@ import type { RunTraceStore } from '../persistence/run-trace-store.js'
 import { extractTraceContext } from '@dzupagent/core'
 import { isStructuredResult } from './utils.js'
 import { reportRetrievalFeedback, type RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
+import type { RunReflectionStore, ReflectionSummary } from '@dzupagent/agent'
 
 export interface RunExecutionContext {
   runId: string
@@ -114,6 +115,9 @@ export interface StartRunWorkerOptions {
   /** Optional model tier escalation policy. When provided alongside a reflector,
    *  auto-escalates the agent's model tier after consecutive low reflection scores. */
   escalationPolicy?: EscalationPolicyLike
+  /** Optional reflection store — persists a ReflectionSummary after each completed run
+   *  when a reflector is configured. Failure to save is non-fatal. */
+  reflectionStore?: RunReflectionStore
 }
 
 async function waitForApprovalDecision(
@@ -434,6 +438,34 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
               flags: reflectionScore.flags,
             },
           })
+
+          // --- Persist reflection summary (optional) ---
+          if (options.reflectionStore) {
+            try {
+              const toolCallLogs = additionalLogs.filter(
+                l => l.phase === 'tool_call' && l.data && typeof l.data === 'object',
+              )
+              const summary: ReflectionSummary = {
+                runId: job.runId,
+                completedAt: new Date(),
+                durationMs,
+                totalSteps: additionalLogs.length,
+                toolCallCount: toolCallLogs.length,
+                errorCount,
+                patterns: [],
+                qualityScore: reflectionScore.overall,
+              }
+              await options.reflectionStore.save(summary)
+            } catch (_saveErr) {
+              // Reflection store persistence is non-fatal — never block completion
+              await options.runStore.addLog(job.runId, {
+                level: 'warn',
+                phase: 'reflection',
+                message: 'Failed to persist reflection summary',
+                data: { error: _saveErr instanceof Error ? _saveErr.message : String(_saveErr) },
+              }).catch(() => { /* swallow nested failure */ })
+            }
+          }
 
           // --- Retrieval feedback: closed loop from reflection → weight learning ---
           if (options.retrievalFeedback) {

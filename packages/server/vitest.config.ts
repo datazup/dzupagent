@@ -12,7 +12,6 @@ export default defineConfig({
       'src/__tests__/ledger-routes.test.ts',
       'src/__tests__/persona-routes.test.ts',
       'src/__tests__/scheduler-routes.test.ts',
-      'src/__tests__/workflow-routes.test.ts',
     ],
     coverage: {
       provider: 'v8',

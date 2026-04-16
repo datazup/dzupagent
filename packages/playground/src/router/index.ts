@@ -10,6 +10,26 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../views/PlaygroundView.vue'),
   },
   {
+    path: '/agents',
+    name: 'agents',
+    component: () => import('../views/AgentsView.vue'),
+  },
+  {
+    path: '/runs',
+    name: 'runs',
+    component: () => import('../views/RunHistoryBrowser.vue'),
+  },
+  {
+    path: '/runs/:id',
+    name: 'run-detail',
+    component: () => import('../views/RunDetailView.vue'),
+  },
+  {
+    path: '/eval-dashboard',
+    name: 'eval-dashboard',
+    component: () => import('../views/EvalDashboard.vue'),
+  },
+  {
     path: '/evals',
     name: 'evals',
     component: () => import('../views/EvalsView.vue'),
@@ -30,19 +50,19 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../views/BenchmarkRunDetailView.vue'),
   },
   {
-    path: '/agents',
-    name: 'agents',
-    component: () => import('../views/AgentsView.vue'),
-  },
-  {
     path: '/marketplace',
     name: 'marketplace',
     component: () => import('../views/MarketplaceView.vue'),
   },
   {
-    path: '/runs/:id',
-    name: 'run-detail',
-    component: () => import('../views/RunDetailView.vue'),
+    path: '/a2a',
+    name: 'A2ATasks',
+    component: () => import('../views/A2ATasksView.vue'),
+  },
+  {
+    path: '/a2a/tasks/:id',
+    name: 'A2ATaskDetail',
+    component: () => import('../views/A2ATaskDetailView.vue'),
   },
 ]
 

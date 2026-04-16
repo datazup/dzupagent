@@ -1,8 +1,21 @@
 import { Router } from 'express'
+import type { Request, Response, NextFunction } from 'express'
 import { HumanMessage } from '@langchain/core/messages'
 import type { DzupAgent } from '@dzupagent/agent'
 import { SSEHandler } from './sse-handler.js'
 import type { AgentRouterConfig, ChatRequestBody, AgentResult } from './types.js'
+
+/**
+ * Wraps an async Express route handler so it returns void and forwards
+ * any rejected promise to the next error-handling middleware.
+ */
+function asyncHandler(
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>,
+): (req: Request, res: Response, next: NextFunction) => void {
+  return (req, res, next): void => {
+    fn(req, res, next).catch(next)
+  }
+}
 
 /**
  * Resolve the target agent from the request body.
@@ -49,7 +62,7 @@ export function createAgentRouter(config: AgentRouterConfig): Router {
   }
 
   // ---------- POST /chat — SSE streaming ----------
-  router.post(`${basePath}/chat`, async (req, res) => {
+  router.post(`${basePath}/chat`, asyncHandler(async (req, res) => {
     const body = req.body as ChatRequestBody
 
     if (!body.message || typeof body.message !== 'string') {
@@ -100,10 +113,10 @@ export function createAgentRouter(config: AgentRouterConfig): Router {
         })
       }
     }
-  })
+  }))
 
   // ---------- POST /chat/sync — JSON response ----------
-  router.post(`${basePath}/chat/sync`, async (req, res) => {
+  router.post(`${basePath}/chat/sync`, asyncHandler(async (req, res) => {
     const body = req.body as ChatRequestBody
 
     if (!body.message || typeof body.message !== 'string') {
@@ -156,7 +169,7 @@ export function createAgentRouter(config: AgentRouterConfig): Router {
         message: error.message,
       })
     }
-  })
+  }))
 
   // ---------- GET /health ----------
   router.get(`${basePath}/health`, (_req, res) => {

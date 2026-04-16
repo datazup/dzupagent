@@ -119,6 +119,98 @@ export const deploymentHistory = pgTable(
  * nearest-neighbor searches. A unique constraint on (collection, key)
  * enables upsert-on-conflict.
  */
+// ---------------------------------------------------------------------------
+// A2A Tasks
+// ---------------------------------------------------------------------------
+
+export const a2aTasks = pgTable('a2a_tasks', {
+  id: text('id').primaryKey(),
+  agentName: varchar('agent_name', { length: 255 }).notNull(),
+  state: varchar('state', { length: 30 }).notNull().default('submitted'),
+  input: jsonb('input'),
+  output: jsonb('output'),
+  error: text('error'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  pushNotificationConfig: jsonb('push_notification_config').$type<{
+    url: string
+    token?: string
+    events?: string[]
+  }>(),
+  artifacts: jsonb('artifacts').$type<Array<{ parts: Array<{ type: string; text?: string; data?: Record<string, unknown> }>; name?: string; index?: number }>>().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
+// ---------------------------------------------------------------------------
+// A2A Task Messages
+// ---------------------------------------------------------------------------
+
+export const a2aTaskMessages = pgTable(
+  'a2a_task_messages',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    taskId: text('task_id').references(() => a2aTasks.id, { onDelete: 'cascade' }).notNull(),
+    role: varchar('role', { length: 20 }).notNull(),
+    parts: jsonb('parts').$type<Array<{ type: string; text?: string; data?: Record<string, unknown> }>>().notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('a2a_task_messages_task_id_idx').on(table.taskId),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Trigger Configs
+// ---------------------------------------------------------------------------
+
+export const triggerConfigs = pgTable('trigger_configs', {
+  id: text('id').primaryKey(),
+  type: varchar('type', { length: 20 }).notNull(),
+  agentId: text('agent_id').notNull(),
+  schedule: text('schedule'),
+  webhookSecret: text('webhook_secret'),
+  afterAgentId: text('after_agent_id'),
+  enabled: boolean('enabled').default(true).notNull(),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
+// ---------------------------------------------------------------------------
+// Schedule Configs
+// ---------------------------------------------------------------------------
+
+export const scheduleConfigs = pgTable('schedule_configs', {
+  id: text('id').primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  cronExpression: text('cron_expression').notNull(),
+  workflowText: text('workflow_text').notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
+// ---------------------------------------------------------------------------
+// Run Reflections
+// ---------------------------------------------------------------------------
+
+export const runReflections = pgTable('run_reflections', {
+  runId: varchar('run_id', { length: 255 }).primaryKey(),
+  completedAt: timestamp('completed_at').notNull(),
+  durationMs: integer('duration_ms').notNull(),
+  totalSteps: integer('total_steps').notNull(),
+  toolCallCount: integer('tool_call_count').notNull(),
+  errorCount: integer('error_count').notNull(),
+  patterns: jsonb('patterns').$type<import('@dzupagent/agent').ReflectionPattern[]>().notNull().default([]),
+  qualityScore: real('quality_score').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})
+
+// ---------------------------------------------------------------------------
+// General-Purpose Vector Storage
+// ---------------------------------------------------------------------------
+
 export const forgeVectors = pgTable(
   'forge_vectors',
   {
@@ -139,5 +231,81 @@ export const forgeVectors = pgTable(
   (table) => [
     uniqueIndex('forge_vectors_collection_key_idx').on(table.collection, table.key),
     index('forge_vectors_collection_idx').on(table.collection),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Agent Catalog (Marketplace)
+// ---------------------------------------------------------------------------
+
+export const agentCatalog = pgTable(
+  'agent_catalog',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    version: text('version').notNull(),
+    tags: text('tags').array().default([]).notNull(),
+    author: text('author'),
+    readme: text('readme'),
+    publishedAt: timestamp('published_at'),
+    isPublic: boolean('is_public').default(true).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('agent_catalog_slug_idx').on(table.slug),
+    index('agent_catalog_author_idx').on(table.author),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Agent Clusters
+// ---------------------------------------------------------------------------
+
+export const agentClusters = pgTable('agent_clusters', {
+  id: text('id').primaryKey(),
+  workspaceType: varchar('workspace_type', { length: 50 }).notNull().default('local'),
+  workspaceOptions: jsonb('workspace_options').$type<Record<string, unknown>>().default({}),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+})
+
+export const clusterRoles = pgTable(
+  'cluster_roles',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    clusterId: text('cluster_id').references(() => agentClusters.id, { onDelete: 'cascade' }).notNull(),
+    roleId: varchar('role_id', { length: 255 }).notNull(),
+    agentId: text('agent_id').notNull(),
+    capabilities: jsonb('capabilities').$type<string[]>().default([]),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('cluster_roles_cluster_role_idx').on(table.clusterId, table.roleId),
+    index('cluster_roles_cluster_id_idx').on(table.clusterId),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Agent Mailbox
+// ---------------------------------------------------------------------------
+
+export const agentMailbox = pgTable(
+  'agent_mailbox',
+  {
+    id: text('id').primaryKey(),
+    fromAgent: text('from_agent').notNull(),
+    toAgent: text('to_agent').notNull(),
+    subject: text('subject').notNull(),
+    body: jsonb('body').$type<Record<string, unknown>>().notNull(),
+    createdAt: integer('created_at').notNull(),
+    readAt: integer('read_at'),
+    ttlSeconds: integer('ttl_seconds'),
+  },
+  (table) => [
+    index('agent_mailbox_to_agent_created_at_idx').on(table.toAgent, table.createdAt),
   ],
 )

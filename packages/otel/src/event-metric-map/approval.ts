@@ -32,4 +32,36 @@ export const approvalMetricMap = {
     },
   ],
 
+
+  // --- Human Contact ---
+  'human_contact:requested': [
+    {
+      metricName: 'dzip_human_contact_requests_total',
+      type: 'counter',
+      description: 'Total human contact requests',
+      labelKeys: ['contact_type', 'channel'],
+      extract: () => ({ value: 1, labels: { contact_type: 'unknown', channel: 'unknown' } }),
+    },
+  ],
+
+  'human_contact:responded': [
+    {
+      metricName: 'dzip_human_contact_responses_total',
+      type: 'counter',
+      description: 'Total human contact responses received',
+      labelKeys: [],
+      extract: () => ({ value: 1, labels: {} }),
+    },
+  ],
+
+  'human_contact:timed_out': [
+    {
+      metricName: 'dzip_human_contact_timeouts_total',
+      type: 'counter',
+      description: 'Total human contact requests that timed out',
+      labelKeys: [],
+      extract: () => ({ value: 1, labels: {} }),
+    },
+  ],
+
 } satisfies MetricMapFragment

@@ -8,6 +8,7 @@ export { buildAgentCard } from './agent-card.js'
 export type { AgentCard, AgentCapability, AgentCardConfig } from './agent-card.js'
 
 export { InMemoryA2ATaskStore } from './task-handler.js'
+export { DrizzleA2ATaskStore } from './drizzle-a2a-task-store.js'
 export type {
   A2ATask,
   A2ATaskState,

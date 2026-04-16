@@ -16,6 +16,7 @@ export type { ServerRoutePlugin } from './route-plugin.js'
 export { createRunRoutes } from './routes/runs.js'
 export { createAgentRoutes } from './routes/agents.js'
 export { createApprovalRoutes } from './routes/approval.js'
+export { createHumanContactRoutes } from './routes/human-contact.js'
 export { createHealthRoutes } from './routes/health.js'
 export { createMemoryRoutes } from './routes/memory.js'
 export type { MemoryRouteConfig } from './routes/memory.js'
@@ -35,6 +36,8 @@ export { createPlaygroundRoutes } from './routes/playground.js'
 export type { PlaygroundRouteConfig } from './routes/playground.js'
 export { createEventRoutes } from './routes/events.js'
 export type { EventRouteConfig } from './routes/events.js'
+export { createWorkflowRoutes } from './routes/workflows.js'
+export type { WorkflowRouteConfig } from './routes/workflows.js'
 export { createMetricsRoute } from './routes/metrics.js'
 export type { MetricsRouteConfig } from './routes/metrics.js'
 
@@ -49,7 +52,7 @@ export type {
   VectorSearchResult as DrizzleVectorSearchResult,
   VectorSearchOptions as DrizzleVectorSearchOptions,
 } from './persistence/postgres-stores.js'
-export { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors, deploymentHistory } from './persistence/drizzle-schema.js'
+export { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors, deploymentHistory, a2aTasks, a2aTaskMessages, triggerConfigs, scheduleConfigs, runReflections, agentMailbox, agentCatalog } from './persistence/drizzle-schema.js'
 
 // --- Vector (pgvector) ---
 export { vectorColumn } from './persistence/vector-column.js'
@@ -110,6 +113,8 @@ export type { RunQueue, RunJob, RunQueueConfig, QueueStats, JobProcessor, DeadLe
 // --- Lifecycle ---
 export { GracefulShutdown } from './lifecycle/graceful-shutdown.js'
 export type { ShutdownConfig, ShutdownState } from './lifecycle/graceful-shutdown.js'
+export { HumanContactTimeoutScheduler } from './lifecycle/human-contact-timeout.js'
+export type { HumanContactTimeoutConfig } from './lifecycle/human-contact-timeout.js'
 
 // --- Eval Orchestration ---
 export { EvalOrchestrator, EvalExecutionUnavailableError, EvalRunInvalidStateError } from './services/eval-orchestrator.js'
@@ -163,9 +168,13 @@ export type {
 export { WebhookChannel } from './notifications/channels/webhook-channel.js'
 export type { WebhookChannelConfig } from './notifications/channels/webhook-channel.js'
 export { ConsoleChannel } from './notifications/channels/console-channel.js'
+export { SlackNotificationChannel } from './notifications/channels/slack-channel.js'
+export type { SlackNotificationChannelConfig } from './notifications/channels/slack-channel.js'
+export { EmailWebhookNotificationChannel } from './notifications/channels/email-webhook-channel.js'
+export type { EmailWebhookNotificationChannelConfig } from './notifications/channels/email-webhook-channel.js'
 
 // --- A2A (Agent-to-Agent) Protocol ---
-export { buildAgentCard, InMemoryA2ATaskStore, createA2ARoutes } from './a2a/index.js'
+export { buildAgentCard, InMemoryA2ATaskStore, DrizzleA2ATaskStore, createA2ARoutes } from './a2a/index.js'
 export type {
   AgentCard,
   AgentCapability,
@@ -179,6 +188,24 @@ export type {
   A2ATaskArtifact,
   A2ATaskPushConfig,
 } from './a2a/index.js'
+
+// --- Marketplace ---
+export { createMarketplaceRoutes } from './routes/marketplace.js'
+export type { MarketplaceRouteConfig } from './routes/marketplace.js'
+export {
+  InMemoryCatalogStore,
+  DrizzleCatalogStore,
+  CatalogNotFoundError,
+  CatalogSlugConflictError,
+} from './marketplace/index.js'
+export type {
+  CatalogEntry,
+  CatalogEntryCreate,
+  CatalogEntryPatch,
+  CatalogSearchQuery,
+  CatalogSearchResult,
+  CatalogStore,
+} from './marketplace/index.js'
 
 // --- Memory CRDT Sync ---
 export { createMemorySyncRoutes, createMemorySyncHandler } from './routes/memory-sync.js'
@@ -197,6 +224,47 @@ export type {
   WebhookTriggerConfig,
   ChainTriggerConfig,
 } from './triggers/index.js'
+export { InMemoryTriggerStore, DrizzleTriggerStore } from './triggers/trigger-store.js'
+export type { TriggerStore, TriggerConfigRecord } from './triggers/trigger-store.js'
+export { createTriggerRoutes } from './routes/triggers.js'
+export type { TriggerRouteConfig } from './routes/triggers.js'
+export { createScheduleRoutes } from './routes/schedules.js'
+export type { ScheduleRouteConfig } from './routes/schedules.js'
+export { InMemoryScheduleStore, DrizzleScheduleStore } from './schedules/schedule-store.js'
+export type { ScheduleStore, ScheduleRecord } from './schedules/schedule-store.js'
+export { createPersonaRoutes } from './routes/personas.js'
+export type { PersonaRouteConfig } from './routes/personas.js'
+export { InMemoryPersonaStore } from './personas/persona-store.js'
+export type { PersonaStore, PersonaRecord } from './personas/persona-store.js'
+export { createPresetRoutes } from './routes/presets.js'
+export type { PresetRouteConfig } from './routes/presets.js'
+export { createReflectionRoutes } from './routes/reflections.js'
+export type { ReflectionRouteConfig } from './routes/reflections.js'
+export { DrizzleReflectionStore } from './persistence/drizzle-reflection-store.js'
+export { DrizzleMailboxStore } from './persistence/drizzle-mailbox-store.js'
+export { createMailboxRoutes } from './routes/mailbox.js'
+export type { MailboxRouteConfig } from './routes/mailbox.js'
+
+// --- OpenAI-compatible API ---
+export {
+  OpenAICompletionMapper,
+  createCompletionsRoute,
+  createModelsRoute,
+  openaiAuthMiddleware,
+} from './openai/index.js'
+export type {
+  ChatCompletionRequest,
+  ChatCompletionResponse,
+  ChatCompletionChunk,
+  ModelObject,
+  ModelListResponse,
+  OpenAIErrorResponse,
+  GenerateOptions,
+  MappedRequest,
+  CompletionsRouteConfig,
+  ModelsRouteConfig,
+  OpenAIAuthConfig,
+} from './openai/index.js'
 
 // --- Platform Adapters ---
 export { toLambdaHandler } from './platforms/lambda.js'
@@ -377,6 +445,10 @@ export type { HealthMonitorConfig, ProbeResult } from './registry/health-monitor
 // --- Registry Routes (ECO-052) ---
 export { createRegistryRoutes } from './routes/registry.js'
 export type { RegistryRouteConfig } from './routes/registry.js'
+
+// --- Streaming ---
+export { streamRunHandleToSSE } from './streaming/sse-streaming-adapter.js'
+export type { SSEStreamLike, StreamRunHandleToSSEOptions } from './streaming/sse-streaming-adapter.js'
 
 // --- Version ---
 export const dzupagent_SERVER_VERSION = '0.1.0'

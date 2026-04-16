@@ -25,11 +25,15 @@ import type { DzupEventBus } from '@dzupagent/core'
 import type { MetricsCollector } from '@dzupagent/core'
 import type { CostAwareRouter } from '@dzupagent/core'
 import type { McpManager } from '@dzupagent/core'
+import type { RunJournal } from '@dzupagent/core'
+import type { SkillRegistry, WorkflowRegistry } from '@dzupagent/core'
+import type { SkillStepResolver } from '@dzupagent/agent'
 import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters'
 import { createHealthRoutes } from './routes/health.js'
 import { createRunRoutes } from './routes/runs.js'
 import { createAgentRoutes } from './routes/agents.js'
 import { createApprovalRoutes } from './routes/approval.js'
+import { createHumanContactRoutes } from './routes/human-contact.js'
 import { createMemoryRoutes } from './routes/memory.js'
 import { createMemoryBrowseRoutes } from './routes/memory-browse.js'
 import { createPlaygroundRoutes, type PlaygroundRouteConfig } from './routes/playground.js'
@@ -60,6 +64,33 @@ import { PrometheusMetricsCollector } from './metrics/prometheus-collector.js'
 import type { ServerRoutePlugin } from './route-plugin.js'
 import { createMcpRoutes } from './routes/mcp.js'
 import { createSkillRoutes } from './routes/skills.js'
+import { createWorkflowRoutes } from './routes/workflows.js'
+import { createA2ARoutes, type A2ARoutesConfig } from './routes/a2a.js'
+import { buildAgentCard, type AgentCardConfig } from './a2a/agent-card.js'
+import { InMemoryA2ATaskStore } from './a2a/task-handler.js'
+import type { A2ATaskStore } from './a2a/task-handler.js'
+import { createTriggerRoutes } from './routes/triggers.js'
+import type { TriggerStore } from './triggers/trigger-store.js'
+import { createScheduleRoutes } from './routes/schedules.js'
+import type { ScheduleStore } from './schedules/schedule-store.js'
+import type { ScheduleRouteConfig } from './routes/schedules.js'
+import { createPersonaRoutes } from './routes/personas.js'
+import type { PersonaStore } from './personas/persona-store.js'
+import { createPresetRoutes } from './routes/presets.js'
+import { createMarketplaceRoutes } from './routes/marketplace.js'
+import type { CatalogStore } from './marketplace/catalog-store.js'
+import type { PresetRegistry } from '@dzupagent/agent'
+import type { RunReflectionStore } from '@dzupagent/agent'
+import type { MailboxStore } from '@dzupagent/agent'
+import { InMemoryMailboxStore } from '@dzupagent/agent'
+import { createReflectionRoutes } from './routes/reflections.js'
+import { createMailboxRoutes } from './routes/mailbox.js'
+import { openaiAuthMiddleware, type OpenAIAuthConfig } from './openai/auth-middleware.js'
+import { createCompletionsRoute } from './openai/completions-route.js'
+import { createModelsRoute } from './openai/models-route.js'
+import { SlackNotificationChannel } from './notifications/channels/slack-channel.js'
+import { EmailWebhookNotificationChannel } from './notifications/channels/email-webhook-channel.js'
+import type { Notifier } from './notifications/notifier.js'
 
 /**
  * Shared scheduling options for consolidation (everything except the task itself
@@ -138,8 +169,47 @@ export interface ForgeServerConfig {
   mcpManager?: McpManager
   /** Optional adapter skill registry — enables /api/skills routes for skill preview */
   skillRegistry?: AdapterSkillRegistry
+  /** Optional RunJournal for durability features (fork, checkpoints, resumeFromStep) */
+  journal?: RunJournal
+  /** Optional core SkillRegistry — enables /api/workflows routes for workflow execution */
+  coreSkillRegistry?: SkillRegistry
+  /** Optional WorkflowRegistry — provides named workflow lookup for /api/workflows */
+  workflowRegistry?: WorkflowRegistry
+  /** Optional skill step resolver — required alongside coreSkillRegistry for workflow execution */
+  skillStepResolver?: SkillStepResolver
   /** Optional domain route plugins mounted after built-in core routes */
   routePlugins?: ServerRoutePlugin[]
+  /** Optional A2A (Agent-to-Agent) protocol config.
+   *  When provided, mounts A2A routes at `/a2a` and `/.well-known/agent.json`. */
+  a2a?: {
+    agentCardConfig: AgentCardConfig
+    taskStore?: A2ATaskStore
+    onTaskSubmitted?: A2ARoutesConfig['onTaskSubmitted']
+    onTaskContinued?: A2ARoutesConfig['onTaskContinued']
+  }
+  /** Optional trigger store for persistent trigger configuration */
+  triggerStore?: TriggerStore
+  /** Optional schedule store for cron-based schedule management */
+  scheduleStore?: ScheduleStore
+  /** Optional callback invoked when a schedule is manually triggered */
+  onScheduleTrigger?: ScheduleRouteConfig['onManualTrigger']
+  /** Optional persona store for persona management */
+  personaStore?: PersonaStore
+  /** Optional notifier for escalation notifications */
+  notifier?: Notifier
+  /** Optional preset registry for preset HTTP API */
+  presetRegistry?: PresetRegistry
+  /** Optional reflection store for run reflection HTTP API */
+  reflectionStore?: RunReflectionStore
+  /** Optional mailbox store for inter-agent messaging. Defaults to InMemoryMailboxStore if not provided. */
+  mailboxStore?: MailboxStore
+  /** Optional marketplace catalog store. When provided, mounts /api/marketplace routes. */
+  catalogStore?: CatalogStore
+  /** Optional OpenAI-compatible API config. When provided, mounts /v1/chat/completions and /v1/models routes. */
+  openai?: {
+    /** Auth config for /v1/* routes (independent from /api/* auth). */
+    auth?: OpenAIAuthConfig
+  }
 }
 
 const startedRunQueues = new WeakSet<RunQueue>()
@@ -247,6 +317,18 @@ function createBuiltInRoutePlugins(config: ForgeServerConfig): ServerRoutePlugin
     })
   }
 
+  if (config.coreSkillRegistry || config.skillStepResolver) {
+    plugins.push({
+      prefix: '/api/workflows',
+      createRoutes: () => createWorkflowRoutes({
+        skillRegistry: config.coreSkillRegistry,
+        workflowRegistry: config.workflowRegistry,
+        resolver: config.skillStepResolver,
+        eventBus: config.eventBus,
+      }),
+    })
+  }
+
   return plugins
 }
 
@@ -276,6 +358,7 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
       reflector: runtimeConfig.reflector,
       retrievalFeedback: runtimeConfig.retrievalFeedback,
       traceStore: runtimeConfig.traceStore,
+      reflectionStore: runtimeConfig.reflectionStore,
     })
     startedRunQueues.add(runtimeConfig.runQueue)
   }
@@ -344,6 +427,7 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   app.route('/api/runs', createRunRoutes(runtimeConfig))
   app.route('/api/agents', createAgentRoutes(runtimeConfig))
   app.route('/api/runs', createApprovalRoutes(runtimeConfig))
+  app.route('/api/runs', createHumanContactRoutes(runtimeConfig))
 
   if (runtimeConfig.traceStore) {
     app.route('/api/runs', createRunTraceRoutes({
@@ -384,6 +468,105 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
 
   if (runtimeConfig.playground) {
     app.route('/playground', createPlaygroundRoutes(runtimeConfig.playground))
+  }
+
+  // --- A2A Protocol ---
+  if (runtimeConfig.a2a) {
+    const a2aConfig = runtimeConfig.a2a
+    const agentCard = buildAgentCard(a2aConfig.agentCardConfig)
+
+    // Select task store: Drizzle if env flag set, otherwise provided or in-memory
+    let taskStore: A2ATaskStore
+    if (a2aConfig.taskStore) {
+      taskStore = a2aConfig.taskStore
+    } else if (process.env['USE_DRIZZLE_A2A'] === 'true') {
+      // DrizzleA2ATaskStore requires a db instance passed via taskStore config
+      // Fall back to in-memory if no store was explicitly provided
+      taskStore = new InMemoryA2ATaskStore()
+    } else {
+      taskStore = new InMemoryA2ATaskStore()
+    }
+
+    const a2aRoutes = createA2ARoutes({
+      agentCard,
+      taskStore,
+      onTaskSubmitted: a2aConfig.onTaskSubmitted,
+      onTaskContinued: a2aConfig.onTaskContinued,
+    })
+    app.route('', a2aRoutes)
+  }
+
+  // --- Trigger Routes ---
+  if (runtimeConfig.triggerStore) {
+    app.route('/api/triggers', createTriggerRoutes({ triggerStore: runtimeConfig.triggerStore }))
+  }
+
+  // --- Schedule Routes ---
+  if (runtimeConfig.scheduleStore) {
+    app.route('/api/schedules', createScheduleRoutes({
+      scheduleStore: runtimeConfig.scheduleStore,
+      onManualTrigger: runtimeConfig.onScheduleTrigger,
+    }))
+  }
+
+  // --- Persona Routes ---
+  if (runtimeConfig.personaStore) {
+    app.route('/api/personas', createPersonaRoutes({ personaStore: runtimeConfig.personaStore }))
+  }
+
+  // --- Preset Routes ---
+  if (runtimeConfig.presetRegistry) {
+    app.route('/api/presets', createPresetRoutes({ presetRegistry: runtimeConfig.presetRegistry }))
+  }
+
+  // --- Marketplace Routes ---
+  if (runtimeConfig.catalogStore) {
+    app.route('/api/marketplace', createMarketplaceRoutes({ catalogStore: runtimeConfig.catalogStore }))
+  }
+
+  // --- Reflection Routes ---
+  if (runtimeConfig.reflectionStore) {
+    app.route('/api/reflections', createReflectionRoutes({ reflectionStore: runtimeConfig.reflectionStore }))
+  }
+
+  // --- Mailbox Routes ---
+  {
+    const mailboxStore = runtimeConfig.mailboxStore ?? new InMemoryMailboxStore()
+    app.route('/api/mailbox', createMailboxRoutes({ mailboxStore }))
+  }
+
+  // --- OpenAI-compatible Routes (/v1/*) ---
+  {
+    // Apply OpenAI auth middleware to all /v1/* routes (separate from /api/* auth)
+    app.use('/v1/*', openaiAuthMiddleware(runtimeConfig.openai?.auth))
+
+    app.route('/v1/chat/completions', createCompletionsRoute({
+      agentStore: runtimeConfig.agentStore,
+      modelRegistry: runtimeConfig.modelRegistry,
+      eventBus: runtimeConfig.eventBus,
+    }))
+
+    app.route('/v1/models', createModelsRoute({
+      agentStore: runtimeConfig.agentStore,
+    }))
+  }
+
+  // --- Auto-register notification channels from env vars ---
+  if (runtimeConfig.notifier) {
+    const slackUrl = process.env['SLACK_NOTIFICATION_WEBHOOK_URL']
+    if (slackUrl) {
+      runtimeConfig.notifier.addChannel(new SlackNotificationChannel({ webhookUrl: slackUrl }))
+    }
+
+    const emailUrl = process.env['EMAIL_NOTIFICATION_WEBHOOK_URL']
+    if (emailUrl) {
+      runtimeConfig.notifier.addChannel(
+        new EmailWebhookNotificationChannel({
+          webhookUrl: emailUrl,
+          secret: process.env['EMAIL_NOTIFICATION_WEBHOOK_SECRET'],
+        }),
+      )
+    }
   }
 
   const allRoutePlugins = [

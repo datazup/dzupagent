@@ -52,4 +52,41 @@ export const supervisorMetricMap = {
     },
   ],
 
+
+  'supervisor:circuit_breaker_filtered': [
+    {
+      metricName: 'dzip_supervisor_circuit_breaker_filtered_total',
+      type: 'counter',
+      description: 'Total agents filtered by circuit breaker',
+      labelKeys: [],
+      extract: () => ({ value: 1, labels: {} }),
+    },
+  ],
+
+  'supervisor:routing_decision': [
+    {
+      metricName: 'dzip_supervisor_routing_decisions_total',
+      type: 'counter',
+      description: 'Total routing decisions made by supervisor',
+      labelKeys: ['strategy'],
+      extract: (e) => {
+        const ev = asEvent<'supervisor:routing_decision'>(e)
+        return { value: 1, labels: { strategy: ev.strategy } }
+      },
+    },
+  ],
+
+  'supervisor:merge_complete': [
+    {
+      metricName: 'dzip_supervisor_merge_completions_total',
+      type: 'counter',
+      description: 'Total merge operations completed by supervisor',
+      labelKeys: ['merge_status'],
+      extract: (e) => {
+        const ev = asEvent<'supervisor:merge_complete'>(e)
+        return { value: 1, labels: { merge_status: ev.mergeStatus } }
+      },
+    },
+  ],
+
 } satisfies MetricMapFragment

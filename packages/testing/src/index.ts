@@ -1,3 +1,7 @@
+// Mock skill step resolver for skill-chain testing
+export { MockSkillStepResolver } from './mock-skill-step-resolver.js';
+export type { MockCall } from './mock-skill-step-resolver.js';
+
 // Security testing framework (ECO-183)
 export type {
   SecurityCategory,

@@ -677,5 +677,1131 @@ describe('Learning routes', () => {
       const res = await failApp.request('/api/learning/nodes')
       expect(res.status).toBe(500)
     })
+
+    it('returns 500 when store fails on trends/cost', async () => {
+      const failApp = createTestApp(createFailingMemoryService())
+
+      const res = await failApp.request('/api/learning/trends/cost')
+      expect(res.status).toBe(500)
+      const body = (await res.json()) as { success: boolean; error: string }
+      expect(body.success).toBe(false)
+      expect(body.error).toContain('Store connection failed')
+    })
+
+    it('returns 500 when store fails on feedback/stats', async () => {
+      const failApp = createTestApp(createFailingMemoryService())
+
+      const res = await failApp.request('/api/learning/feedback/stats')
+      expect(res.status).toBe(500)
+      const body = (await res.json()) as { success: boolean; error: string }
+      expect(body.success).toBe(false)
+    })
+
+    it('returns 500 when store fails on skill-packs/load', async () => {
+      const failApp = createTestApp(createFailingMemoryService())
+
+      const res = await failApp.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: ['pack-a'] }),
+      })
+      expect(res.status).toBe(500)
+      const body = (await res.json()) as { success: boolean; error: string }
+      expect(body.success).toBe(false)
+    })
+
+    it('returns 500 when store fails on GET skill-packs', async () => {
+      const failApp = createTestApp(createFailingMemoryService())
+
+      const res = await failApp.request('/api/learning/skill-packs')
+      expect(res.status).toBe(500)
+      const body = (await res.json()) as { success: boolean; error: string }
+      expect(body.success).toBe(false)
+    })
+
+    it('returns 500 with non-Error thrown values', async () => {
+      const throwStringService: MemoryServiceLike = {
+        get: (() => { throw 'string error' }) as MemoryServiceLike['get'],
+        search: (() => { throw 'string error' }) as MemoryServiceLike['search'],
+        put: (() => { throw 'string error' }) as MemoryServiceLike['put'],
+      }
+      const stringFailApp = createTestApp(throwStringService)
+
+      const res = await stringFailApp.request('/api/learning/dashboard')
+      expect(res.status).toBe(500)
+      const body = (await res.json()) as { success: boolean; error: string }
+      expect(body.success).toBe(false)
+      expect(body.error).toBe('string error')
+    })
+  })
+
+  // ── Dashboard deep tests ──────────────────────────────────────
+
+  describe('GET /api/learning/dashboard — deep', () => {
+    it('quality trend is sorted by timestamp ascending', async () => {
+      // Seed out-of-order timestamps
+      await memoryService.put('trajectories', scope, 'traj-late', {
+        qualityScore: 5.0,
+        timestamp: '2026-03-01T00:00:00Z',
+        nodeId: 'a',
+      })
+      await memoryService.put('trajectories', scope, 'traj-early', {
+        qualityScore: 9.0,
+        timestamp: '2026-01-01T00:00:00Z',
+        nodeId: 'b',
+      })
+
+      const res = await app.request('/api/learning/dashboard')
+      const body = (await res.json()) as {
+        data: { qualityTrend: Array<{ timestamp: string; score: number }> }
+      }
+      expect(body.data.qualityTrend[0]!.timestamp).toBe('2026-01-01T00:00:00Z')
+      expect(body.data.qualityTrend[1]!.timestamp).toBe('2026-03-01T00:00:00Z')
+    })
+
+    it('cost trend is sorted by timestamp ascending', async () => {
+      await memoryService.put('trajectories', scope, 'traj-late', {
+        costCents: 10,
+        timestamp: '2026-03-01T00:00:00Z',
+        nodeId: 'a',
+      })
+      await memoryService.put('trajectories', scope, 'traj-early', {
+        costCents: 1,
+        timestamp: '2026-01-01T00:00:00Z',
+        nodeId: 'b',
+      })
+
+      const res = await app.request('/api/learning/dashboard')
+      const body = (await res.json()) as {
+        data: { costTrend: Array<{ timestamp: string; costCents: number }> }
+      }
+      expect(body.data.costTrend[0]!.timestamp).toBe('2026-01-01T00:00:00Z')
+      expect(body.data.costTrend[1]!.timestamp).toBe('2026-03-01T00:00:00Z')
+    })
+
+    it('dashboard truncates lessons, rules, skills to 20 items', async () => {
+      for (let i = 0; i < 25; i++) {
+        await memoryService.put('lessons', scope, `lesson-${i}`, { text: `lesson ${i}` })
+        await memoryService.put('rules', scope, `rule-${i}`, { text: `rule ${i}` })
+        await memoryService.put('skills', scope, `skill-${i}`, { name: `skill-${i}` })
+      }
+
+      const res = await app.request('/api/learning/dashboard')
+      const body = (await res.json()) as {
+        data: {
+          lessonCount: number
+          ruleCount: number
+          skillCount: number
+          lessons: unknown[]
+          rules: unknown[]
+          skills: unknown[]
+        }
+      }
+      expect(body.data.lessonCount).toBe(25)
+      expect(body.data.ruleCount).toBe(25)
+      expect(body.data.skillCount).toBe(25)
+      expect(body.data.lessons).toHaveLength(20)
+      expect(body.data.rules).toHaveLength(20)
+      expect(body.data.skills).toHaveLength(20)
+    })
+
+    it('quality trend truncates to last 20 items', async () => {
+      for (let i = 0; i < 25; i++) {
+        await memoryService.put('trajectories', scope, `traj-${String(i).padStart(3, '0')}`, {
+          qualityScore: i,
+          timestamp: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+          nodeId: 'n',
+        })
+      }
+
+      const res = await app.request('/api/learning/dashboard')
+      const body = (await res.json()) as {
+        data: { qualityTrend: Array<{ score: number }> }
+      }
+      expect(body.data.qualityTrend).toHaveLength(20)
+      // Should be the last 20 (scores 5..24)
+      expect(body.data.qualityTrend[0]!.score).toBe(5)
+      expect(body.data.qualityTrend[19]!.score).toBe(24)
+    })
+
+    it('cost trend truncates to last 20 items', async () => {
+      for (let i = 0; i < 25; i++) {
+        await memoryService.put('trajectories', scope, `traj-${String(i).padStart(3, '0')}`, {
+          costCents: i * 0.5,
+          timestamp: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+          nodeId: 'n',
+        })
+      }
+
+      const res = await app.request('/api/learning/dashboard')
+      const body = (await res.json()) as {
+        data: { costTrend: Array<{ costCents: number }> }
+      }
+      expect(body.data.costTrend).toHaveLength(20)
+    })
+
+    it('trajectories without qualityScore are excluded from quality trend', async () => {
+      await memoryService.put('trajectories', scope, 'traj-no-score', {
+        costCents: 5,
+        timestamp: '2026-01-01T00:00:00Z',
+        nodeId: 'a',
+      })
+      await memoryService.put('trajectories', scope, 'traj-with-score', {
+        qualityScore: 8.0,
+        timestamp: '2026-01-02T00:00:00Z',
+        nodeId: 'a',
+      })
+
+      const res = await app.request('/api/learning/dashboard')
+      const body = (await res.json()) as {
+        data: { qualityTrend: Array<{ score: number }> }
+      }
+      expect(body.data.qualityTrend).toHaveLength(1)
+      expect(body.data.qualityTrend[0]!.score).toBe(8.0)
+    })
+
+    it('trajectories without costCents are excluded from cost trend', async () => {
+      await memoryService.put('trajectories', scope, 'traj-no-cost', {
+        qualityScore: 9,
+        timestamp: '2026-01-01T00:00:00Z',
+        nodeId: 'a',
+      })
+
+      const res = await app.request('/api/learning/dashboard')
+      const body = (await res.json()) as {
+        data: { costTrend: unknown[] }
+      }
+      expect(body.data.costTrend).toHaveLength(0)
+    })
+
+    it('feedbackStats includes total, approved, rejected in dashboard', async () => {
+      await memoryService.put('feedback', scope, 'fb-a', { approved: true })
+      await memoryService.put('feedback', scope, 'fb-b', { approved: true })
+      await memoryService.put('feedback', scope, 'fb-c', { approved: false })
+
+      const res = await app.request('/api/learning/dashboard')
+      const body = (await res.json()) as {
+        data: { feedbackStats: { total: number; approved: number; rejected: number } }
+      }
+      expect(body.data.feedbackStats.total).toBe(3)
+      expect(body.data.feedbackStats.approved).toBe(2)
+      expect(body.data.feedbackStats.rejected).toBe(1)
+    })
+
+    it('dashboard handles trajectories with missing timestamp gracefully', async () => {
+      await memoryService.put('trajectories', scope, 'traj-no-ts', {
+        qualityScore: 7.0,
+        nodeId: 'x',
+      })
+
+      const res = await app.request('/api/learning/dashboard')
+      const body = (await res.json()) as {
+        data: { qualityTrend: Array<{ timestamp: unknown; score: number }> }
+      }
+      expect(body.data.qualityTrend).toHaveLength(1)
+      expect(body.data.qualityTrend[0]!.score).toBe(7.0)
+    })
+  })
+
+  // ── Trends deep tests ─────────────────────────────────────────
+
+  describe('GET /api/learning/trends/quality — deep', () => {
+    it('returns empty for no trajectories', async () => {
+      const res = await app.request('/api/learning/trends/quality')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(0)
+    })
+
+    it('excludes trajectories without qualityScore', async () => {
+      await memoryService.put('trajectories', scope, 'traj-no-score', {
+        costCents: 1.5,
+        timestamp: '2026-01-01T00:00:00Z',
+      })
+
+      const res = await app.request('/api/learning/trends/quality')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(0)
+    })
+
+    it('includes runId in quality trend output', async () => {
+      await memoryService.put('trajectories', scope, 'traj-r', {
+        qualityScore: 9,
+        timestamp: '2026-01-01T00:00:00Z',
+        nodeId: 'n1',
+        runId: 'run-abc',
+      })
+
+      const res = await app.request('/api/learning/trends/quality')
+      const body = (await res.json()) as {
+        data: Array<{ runId: string | null }>
+      }
+      expect(body.data[0]!.runId).toBe('run-abc')
+    })
+
+    it('returns null for missing runId', async () => {
+      await memoryService.put('trajectories', scope, 'traj-no-run', {
+        qualityScore: 5,
+        timestamp: '2026-01-01T00:00:00Z',
+      })
+
+      const res = await app.request('/api/learning/trends/quality')
+      const body = (await res.json()) as {
+        data: Array<{ runId: string | null; nodeId: string | null }>
+      }
+      expect(body.data[0]!.runId).toBeNull()
+      expect(body.data[0]!.nodeId).toBeNull()
+    })
+
+    it('falls back to default limit (20) for invalid limit value', async () => {
+      for (let i = 0; i < 25; i++) {
+        await memoryService.put('trajectories', scope, `traj-${i}`, {
+          qualityScore: i,
+          timestamp: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+        })
+      }
+
+      const res = await app.request('/api/learning/trends/quality?limit=-5')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(20)
+    })
+
+    it('falls back to default limit for non-numeric limit', async () => {
+      for (let i = 0; i < 25; i++) {
+        await memoryService.put('trajectories', scope, `traj-${i}`, {
+          qualityScore: i,
+          timestamp: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+        })
+      }
+
+      const res = await app.request('/api/learning/trends/quality?limit=abc')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(20)
+    })
+
+    it('falls back to default limit for zero limit', async () => {
+      for (let i = 0; i < 25; i++) {
+        await memoryService.put('trajectories', scope, `traj-${i}`, {
+          qualityScore: i,
+          timestamp: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+        })
+      }
+
+      const res = await app.request('/api/learning/trends/quality?limit=0')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(20)
+    })
+
+    it('returns fewer items than limit when not enough data', async () => {
+      await memoryService.put('trajectories', scope, 'traj-only', {
+        qualityScore: 5,
+        timestamp: '2026-01-01T00:00:00Z',
+      })
+
+      const res = await app.request('/api/learning/trends/quality?limit=50')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(1)
+    })
+  })
+
+  describe('GET /api/learning/trends/cost — deep', () => {
+    it('returns empty array for no trajectories', async () => {
+      const res = await app.request('/api/learning/trends/cost')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(0)
+    })
+
+    it('excludes trajectories without costCents', async () => {
+      await memoryService.put('trajectories', scope, 'traj-no-cost', {
+        qualityScore: 9,
+        timestamp: '2026-01-01T00:00:00Z',
+      })
+
+      const res = await app.request('/api/learning/trends/cost')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(0)
+    })
+
+    it('includes runId in cost trend output', async () => {
+      await memoryService.put('trajectories', scope, 'traj-c', {
+        costCents: 2.5,
+        timestamp: '2026-01-01T00:00:00Z',
+        nodeId: 'n1',
+        runId: 'run-xyz',
+      })
+
+      const res = await app.request('/api/learning/trends/cost')
+      const body = (await res.json()) as {
+        data: Array<{ runId: string | null }>
+      }
+      expect(body.data[0]!.runId).toBe('run-xyz')
+    })
+
+    it('returns null for missing fields in cost trend', async () => {
+      await memoryService.put('trajectories', scope, 'traj-minimal', {
+        costCents: 0.1,
+      })
+
+      const res = await app.request('/api/learning/trends/cost')
+      const body = (await res.json()) as {
+        data: Array<{ timestamp: unknown; nodeId: unknown; runId: unknown }>
+      }
+      expect(body.data[0]!.timestamp).toBeNull()
+      expect(body.data[0]!.nodeId).toBeNull()
+      expect(body.data[0]!.runId).toBeNull()
+    })
+
+    it('falls back to default limit for invalid limit', async () => {
+      for (let i = 0; i < 25; i++) {
+        await memoryService.put('trajectories', scope, `traj-${i}`, {
+          costCents: i * 0.1,
+          timestamp: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+        })
+      }
+
+      const res = await app.request('/api/learning/trends/cost?limit=-1')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(20)
+    })
+  })
+
+  // ── Nodes deep tests ──────────────────────────────────────────
+
+  describe('GET /api/learning/nodes — deep', () => {
+    it('groups trajectories without nodeId under "unknown"', async () => {
+      await memoryService.put('trajectories', scope, 'traj-no-node', {
+        qualityScore: 5.0,
+        costCents: 1.0,
+        timestamp: '2026-01-01T00:00:00Z',
+      })
+
+      const res = await app.request('/api/learning/nodes')
+      const body = (await res.json()) as {
+        data: Array<{ nodeId: string; runCount: number }>
+      }
+      expect(body.data).toHaveLength(1)
+      expect(body.data[0]!.nodeId).toBe('unknown')
+      expect(body.data[0]!.runCount).toBe(1)
+    })
+
+    it('handles trajectories without qualityScore (avgQualityScore is null)', async () => {
+      await memoryService.put('trajectories', scope, 'traj-no-score', {
+        nodeId: 'nodeA',
+        costCents: 2.0,
+        timestamp: '2026-01-01T00:00:00Z',
+      })
+
+      const res = await app.request('/api/learning/nodes')
+      const body = (await res.json()) as {
+        data: Array<{ nodeId: string; avgQualityScore: number | null; totalCostCents: number }>
+      }
+      const node = body.data.find((n) => n.nodeId === 'nodeA')
+      expect(node!.avgQualityScore).toBeNull()
+      expect(node!.totalCostCents).toBe(2.0)
+    })
+
+    it('handles trajectories without costCents (totalCostCents is 0)', async () => {
+      await memoryService.put('trajectories', scope, 'traj-no-cost', {
+        nodeId: 'nodeB',
+        qualityScore: 8.0,
+        timestamp: '2026-01-01T00:00:00Z',
+      })
+
+      const res = await app.request('/api/learning/nodes')
+      const body = (await res.json()) as {
+        data: Array<{ nodeId: string; avgQualityScore: number | null; totalCostCents: number }>
+      }
+      const node = body.data.find((n) => n.nodeId === 'nodeB')
+      expect(node!.avgQualityScore).toBe(8.0)
+      expect(node!.totalCostCents).toBe(0)
+    })
+
+    it('rounds avgQualityScore to 2 decimal places', async () => {
+      await memoryService.put('trajectories', scope, 'traj-1', {
+        nodeId: 'nodeC',
+        qualityScore: 7.333,
+      })
+      await memoryService.put('trajectories', scope, 'traj-2', {
+        nodeId: 'nodeC',
+        qualityScore: 7.333,
+      })
+      await memoryService.put('trajectories', scope, 'traj-3', {
+        nodeId: 'nodeC',
+        qualityScore: 7.334,
+      })
+
+      const res = await app.request('/api/learning/nodes')
+      const body = (await res.json()) as {
+        data: Array<{ nodeId: string; avgQualityScore: number }>
+      }
+      const node = body.data.find((n) => n.nodeId === 'nodeC')
+      // (7.333 + 7.333 + 7.334) / 3 = 7.333333...  rounded to 7.33
+      expect(node!.avgQualityScore).toBe(7.33)
+    })
+
+    it('rounds totalCostCents to 2 decimal places', async () => {
+      await memoryService.put('trajectories', scope, 'traj-1', {
+        nodeId: 'nodeD',
+        costCents: 0.1,
+      })
+      await memoryService.put('trajectories', scope, 'traj-2', {
+        nodeId: 'nodeD',
+        costCents: 0.2,
+      })
+
+      const res = await app.request('/api/learning/nodes')
+      const body = (await res.json()) as {
+        data: Array<{ nodeId: string; totalCostCents: number }>
+      }
+      const node = body.data.find((n) => n.nodeId === 'nodeD')
+      expect(node!.totalCostCents).toBe(0.3)
+    })
+
+    it('handles multiple nodes with varying data completeness', async () => {
+      await memoryService.put('trajectories', scope, 'traj-a1', {
+        nodeId: 'alpha',
+        qualityScore: 9,
+        costCents: 5,
+      })
+      await memoryService.put('trajectories', scope, 'traj-b1', {
+        nodeId: 'beta',
+        costCents: 3,
+      })
+      await memoryService.put('trajectories', scope, 'traj-b2', {
+        nodeId: 'beta',
+        qualityScore: 6,
+      })
+
+      const res = await app.request('/api/learning/nodes')
+      const body = (await res.json()) as {
+        data: Array<{
+          nodeId: string
+          runCount: number
+          avgQualityScore: number | null
+          totalCostCents: number
+        }>
+      }
+      expect(body.data).toHaveLength(2)
+
+      const alpha = body.data.find((n) => n.nodeId === 'alpha')
+      expect(alpha!.runCount).toBe(1)
+      expect(alpha!.avgQualityScore).toBe(9)
+      expect(alpha!.totalCostCents).toBe(5)
+
+      const beta = body.data.find((n) => n.nodeId === 'beta')
+      expect(beta!.runCount).toBe(2)
+      expect(beta!.avgQualityScore).toBe(6)
+      expect(beta!.totalCostCents).toBe(3)
+    })
+  })
+
+  // ── Feedback POST deep tests ──────────────────────────────────
+
+  describe('POST /api/learning/feedback — deep', () => {
+    it('returns 400 for empty string runId', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: '', approved: true }),
+      })
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { success: boolean; error: string }
+      expect(body.success).toBe(false)
+      expect(body.error).toContain('runId')
+    })
+
+    it('returns 400 when approved is a string instead of boolean', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-1', approved: 'true' }),
+      })
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { success: boolean; error: string }
+      expect(body.success).toBe(false)
+      expect(body.error).toContain('approved')
+    })
+
+    it('returns 400 when approved is a number', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-1', approved: 1 }),
+      })
+      expect(res.status).toBe(400)
+    })
+
+    it('returns 400 when runId is a number', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 123, approved: true }),
+      })
+      expect(res.status).toBe(400)
+    })
+
+    it('defaults type to "general" when not provided', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-type-test', approved: false }),
+      })
+      expect(res.status).toBe(200)
+
+      // Verify stored feedback has type=general
+      const stored = await memoryService.search('feedback', scope, '', 100)
+      const entry = stored.find((f) => f['runId'] === 'run-type-test')
+      expect(entry).toBeDefined()
+      expect(entry!['type']).toBe('general')
+    })
+
+    it('defaults type to "general" when type is a number', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-num-type', approved: true, type: 42 }),
+      })
+      expect(res.status).toBe(200)
+
+      const stored = await memoryService.search('feedback', scope, '', 100)
+      const entry = stored.find((f) => f['runId'] === 'run-num-type')
+      expect(entry!['type']).toBe('general')
+    })
+
+    it('stores optional feedback string', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runId: 'run-with-text',
+          approved: true,
+          feedback: 'Great output!',
+        }),
+      })
+      expect(res.status).toBe(200)
+
+      const stored = await memoryService.search('feedback', scope, '', 100)
+      const entry = stored.find((f) => f['runId'] === 'run-with-text')
+      expect(entry!['feedback']).toBe('Great output!')
+    })
+
+    it('ignores non-string feedback field', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runId: 'run-bad-feedback',
+          approved: true,
+          feedback: 123,
+        }),
+      })
+      expect(res.status).toBe(200)
+
+      const stored = await memoryService.search('feedback', scope, '', 100)
+      const entry = stored.find((f) => f['runId'] === 'run-bad-feedback')
+      expect(entry!['feedback']).toBeUndefined()
+    })
+
+    it('stores optional featureCategory string', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runId: 'run-cat',
+          approved: false,
+          featureCategory: 'authentication',
+        }),
+      })
+      expect(res.status).toBe(200)
+
+      const stored = await memoryService.search('feedback', scope, '', 100)
+      const entry = stored.find((f) => f['runId'] === 'run-cat')
+      expect(entry!['featureCategory']).toBe('authentication')
+    })
+
+    it('ignores non-string featureCategory', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runId: 'run-bad-cat',
+          approved: true,
+          featureCategory: { nested: true },
+        }),
+      })
+      expect(res.status).toBe(200)
+
+      const stored = await memoryService.search('feedback', scope, '', 100)
+      const entry = stored.find((f) => f['runId'] === 'run-bad-cat')
+      expect(entry!['featureCategory']).toBeUndefined()
+    })
+
+    it('stores feedback with approved=false', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-rejected', approved: false }),
+      })
+      expect(res.status).toBe(200)
+
+      const stored = await memoryService.search('feedback', scope, '', 100)
+      const entry = stored.find((f) => f['runId'] === 'run-rejected')
+      expect(entry!['approved']).toBe(false)
+    })
+
+    it('feedback key contains runId', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-key-test', approved: true }),
+      })
+
+      const body = (await res.json()) as { result: { key: string } }
+      expect(body.result.key).toMatch(/^feedback-run-key-test-\d+$/)
+    })
+
+    it('stores timestamp in ISO format', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-ts', approved: true }),
+      })
+      expect(res.status).toBe(200)
+
+      const stored = await memoryService.search('feedback', scope, '', 100)
+      const entry = stored.find((f) => f['runId'] === 'run-ts')
+      expect(typeof entry!['timestamp']).toBe('string')
+      // Should be a valid ISO string
+      expect(new Date(entry!['timestamp'] as string).toISOString()).toBe(entry!['timestamp'])
+    })
+  })
+
+  // ── Feedback stats deep tests ─────────────────────────────────
+
+  describe('GET /api/learning/feedback/stats — deep', () => {
+    it('computes approvalRate correctly', async () => {
+      // 3 approved, 1 rejected => 75%
+      await memoryService.put('feedback', scope, 'fb-a', { approved: true, type: 'q' })
+      await memoryService.put('feedback', scope, 'fb-b', { approved: true, type: 'q' })
+      await memoryService.put('feedback', scope, 'fb-c', { approved: true, type: 'q' })
+      await memoryService.put('feedback', scope, 'fb-d', { approved: false, type: 'q' })
+
+      const res = await app.request('/api/learning/feedback/stats')
+      const body = (await res.json()) as {
+        data: { total: number; approved: number; rejected: number; approvalRate: number }
+      }
+      expect(body.data.total).toBe(4)
+      expect(body.data.approved).toBe(3)
+      expect(body.data.rejected).toBe(1)
+      expect(body.data.approvalRate).toBe(75)
+    })
+
+    it('returns 100% approvalRate when all approved', async () => {
+      await memoryService.put('feedback', scope, 'fb-1', { approved: true, type: 'x' })
+      await memoryService.put('feedback', scope, 'fb-2', { approved: true, type: 'x' })
+
+      const res = await app.request('/api/learning/feedback/stats')
+      const body = (await res.json()) as { data: { approvalRate: number } }
+      expect(body.data.approvalRate).toBe(100)
+    })
+
+    it('returns 0% approvalRate when all rejected', async () => {
+      await memoryService.put('feedback', scope, 'fb-1', { approved: false, type: 'x' })
+      await memoryService.put('feedback', scope, 'fb-2', { approved: false, type: 'x' })
+
+      const res = await app.request('/api/learning/feedback/stats')
+      const body = (await res.json()) as { data: { approvalRate: number } }
+      expect(body.data.approvalRate).toBe(0)
+    })
+
+    it('groups feedback by type correctly with multiple types', async () => {
+      await memoryService.put('feedback', scope, 'fb-a', { approved: true, type: 'quality' })
+      await memoryService.put('feedback', scope, 'fb-b', { approved: false, type: 'quality' })
+      await memoryService.put('feedback', scope, 'fb-c', { approved: true, type: 'accuracy' })
+      await memoryService.put('feedback', scope, 'fb-d', { approved: true, type: 'accuracy' })
+      await memoryService.put('feedback', scope, 'fb-e', { approved: false, type: 'style' })
+
+      const res = await app.request('/api/learning/feedback/stats')
+      const body = (await res.json()) as {
+        data: { byType: Record<string, { approved: number; rejected: number }> }
+      }
+      expect(body.data.byType['quality']).toEqual({ approved: 1, rejected: 1 })
+      expect(body.data.byType['accuracy']).toEqual({ approved: 2, rejected: 0 })
+      expect(body.data.byType['style']).toEqual({ approved: 0, rejected: 1 })
+    })
+
+    it('defaults type to "general" for feedback without type field', async () => {
+      await memoryService.put('feedback', scope, 'fb-no-type', { approved: true })
+
+      const res = await app.request('/api/learning/feedback/stats')
+      const body = (await res.json()) as {
+        data: { byType: Record<string, { approved: number; rejected: number }> }
+      }
+      expect(body.data.byType['general']).toEqual({ approved: 1, rejected: 0 })
+    })
+  })
+
+  // ── Skill packs deep tests ────────────────────────────────────
+
+  describe('POST /api/learning/skill-packs/load — deep', () => {
+    it('returns 400 when packIds is a string instead of array', async () => {
+      const res = await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: 'pack-typescript' }),
+      })
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { success: boolean; error: string }
+      expect(body.success).toBe(false)
+      expect(body.error).toContain('packIds')
+    })
+
+    it('returns 400 when packIds is a number', async () => {
+      const res = await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: 42 }),
+      })
+      expect(res.status).toBe(400)
+    })
+
+    it('skips non-string items in packIds array', async () => {
+      const res = await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: ['pack-valid', 123, null, 'pack-also-valid'] }),
+      })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { result: { loaded: string[] } }
+      expect(body.result.loaded).toEqual(['pack-valid', 'pack-also-valid'])
+    })
+
+    it('loads a single pack', async () => {
+      const res = await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: ['pack-only-one'] }),
+      })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { result: { loaded: string[] } }
+      expect(body.result.loaded).toEqual(['pack-only-one'])
+    })
+
+    it('overwrites previously loaded pack with same ID', async () => {
+      // Load once
+      await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: ['pack-dup'] }),
+      })
+
+      // Load again
+      await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: ['pack-dup'] }),
+      })
+
+      // Should still only appear once
+      const listRes = await app.request('/api/learning/skill-packs')
+      const listBody = (await listRes.json()) as { data: string[] }
+      const count = listBody.data.filter((id) => id === 'pack-dup').length
+      expect(count).toBe(1)
+    })
+
+    it('returns empty loaded array when all packIds are non-string', async () => {
+      const res = await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: [123, null, true] }),
+      })
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { result: { loaded: string[] } }
+      expect(body.result.loaded).toEqual([])
+    })
+  })
+
+  // ── Skill packs GET deep tests ────────────────────────────────
+
+  describe('GET /api/learning/skill-packs — deep', () => {
+    it('filters out packs without packId string field', async () => {
+      // Directly put a record with non-string packId
+      await memoryService.put('packs_loaded', scope, 'bad-pack', {
+        packId: 42,
+        loadedAt: '2026-01-01T00:00:00Z',
+      })
+      await memoryService.put('packs_loaded', scope, 'good-pack', {
+        packId: 'good-pack',
+        loadedAt: '2026-01-01T00:00:00Z',
+      })
+
+      const res = await app.request('/api/learning/skill-packs')
+      const body = (await res.json()) as { data: string[] }
+      expect(body.data).toEqual(['good-pack'])
+    })
+  })
+
+  // ── Lessons deep tests ────────────────────────────────────────
+
+  describe('GET /api/learning/lessons — deep', () => {
+    it('filters by both nodeId and taskType simultaneously', async () => {
+      await seedLessons()
+
+      const res = await app.request('/api/learning/lessons?nodeId=generate&taskType=backend')
+      const body = (await res.json()) as {
+        data: Array<{ nodeId: string; taskType: string }>
+      }
+      expect(body.data).toHaveLength(1)
+      expect(body.data[0]!.nodeId).toBe('generate')
+      expect(body.data[0]!.taskType).toBe('backend')
+    })
+
+    it('returns empty when nodeId filter matches nothing', async () => {
+      await seedLessons()
+
+      const res = await app.request('/api/learning/lessons?nodeId=nonexistent')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(0)
+    })
+
+    it('returns empty when taskType filter matches nothing', async () => {
+      await seedLessons()
+
+      const res = await app.request('/api/learning/lessons?taskType=nonexistent')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(0)
+    })
+
+    it('returns empty when combined filters match nothing', async () => {
+      await seedLessons()
+
+      // generate + security doesn't exist (generate has backend and frontend)
+      const res = await app.request('/api/learning/lessons?nodeId=generate&taskType=security')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(0)
+    })
+
+    it('handles lessons without importance field (treated as 0)', async () => {
+      await memoryService.put('lessons', scope, 'lesson-no-imp', {
+        text: 'No importance',
+        nodeId: 'x',
+      })
+      await memoryService.put('lessons', scope, 'lesson-with-imp', {
+        text: 'Has importance',
+        importance: 5,
+        nodeId: 'x',
+      })
+
+      const res = await app.request('/api/learning/lessons')
+      const body = (await res.json()) as {
+        data: Array<{ text: string; importance?: number }>
+      }
+      expect(body.data).toHaveLength(2)
+      // lesson with importance=5 should come first
+      expect(body.data[0]!.text).toBe('Has importance')
+      expect(body.data[1]!.text).toBe('No importance')
+    })
+
+    it('falls back to default limit (10) for invalid limit', async () => {
+      for (let i = 0; i < 15; i++) {
+        await memoryService.put('lessons', scope, `lesson-${i}`, {
+          text: `lesson ${i}`,
+          importance: i,
+        })
+      }
+
+      const res = await app.request('/api/learning/lessons?limit=-1')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(10)
+    })
+
+    it('falls back to default limit for non-numeric limit', async () => {
+      for (let i = 0; i < 15; i++) {
+        await memoryService.put('lessons', scope, `lesson-${i}`, {
+          text: `lesson ${i}`,
+          importance: i,
+        })
+      }
+
+      const res = await app.request('/api/learning/lessons?limit=abc')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(10)
+    })
+
+    it('applies limit after filtering', async () => {
+      await seedLessons()
+      // 2 lessons have nodeId=generate, limit=1 should return 1
+      const res = await app.request('/api/learning/lessons?nodeId=generate&limit=1')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(1)
+    })
+  })
+
+  // ── Rules deep tests ──────────────────────────────────────────
+
+  describe('GET /api/learning/rules — deep', () => {
+    it('handles rules without priority field (treated as 0)', async () => {
+      await memoryService.put('rules', scope, 'rule-no-prio', {
+        text: 'No priority',
+      })
+      await memoryService.put('rules', scope, 'rule-with-prio', {
+        text: 'Has priority',
+        priority: 3,
+      })
+
+      const res = await app.request('/api/learning/rules')
+      const body = (await res.json()) as {
+        data: Array<{ text: string; priority?: number }>
+      }
+      expect(body.data).toHaveLength(2)
+      expect(body.data[0]!.text).toBe('Has priority')
+      expect(body.data[1]!.text).toBe('No priority')
+    })
+
+    it('falls back to default limit (10) for invalid limit', async () => {
+      for (let i = 0; i < 15; i++) {
+        await memoryService.put('rules', scope, `rule-${i}`, {
+          text: `rule ${i}`,
+          priority: i,
+        })
+      }
+
+      const res = await app.request('/api/learning/rules?limit=-5')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(10)
+    })
+
+    it('falls back to default limit for zero limit', async () => {
+      for (let i = 0; i < 15; i++) {
+        await memoryService.put('rules', scope, `rule-${i}`, {
+          text: `rule ${i}`,
+          priority: i,
+        })
+      }
+
+      const res = await app.request('/api/learning/rules?limit=0')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(10)
+    })
+
+    it('falls back to default limit for non-numeric limit', async () => {
+      for (let i = 0; i < 15; i++) {
+        await memoryService.put('rules', scope, `rule-${i}`, {
+          text: `rule ${i}`,
+          priority: i,
+        })
+      }
+
+      const res = await app.request('/api/learning/rules?limit=xyz')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(10)
+    })
+
+    it('returns all rules when limit exceeds count', async () => {
+      await seedRules()
+
+      const res = await app.request('/api/learning/rules?limit=100')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(2)
+    })
+  })
+
+  // ── Tenant ID handling ────────────────────────────────────────
+
+  describe('Tenant ID isolation', () => {
+    it('uses defaultTenantId when no context tenantId', async () => {
+      // Seed data under the default tenant scope
+      await memoryService.put('lessons', scope, 'lesson-t', { text: 'tenant lesson' })
+
+      const res = await app.request('/api/learning/lessons')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(1)
+    })
+
+    it('different tenant sees no data from default tenant', async () => {
+      // Seed under default scope
+      await memoryService.put('lessons', scope, 'lesson-default', { text: 'default' })
+
+      // Create app with different tenant
+      const otherApp = new Hono()
+      otherApp.route(
+        '/api/learning',
+        createLearningRoutes({ memoryService, defaultTenantId: 'other-tenant' }),
+      )
+
+      const res = await otherApp.request('/api/learning/lessons')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(0)
+    })
+  })
+
+  // ── Response structure tests ──────────────────────────────────
+
+  describe('Response structure consistency', () => {
+    it('all GET endpoints return success: true on success', async () => {
+      const endpoints = [
+        '/api/learning/dashboard',
+        '/api/learning/overview',
+        '/api/learning/trends/quality',
+        '/api/learning/trends/cost',
+        '/api/learning/nodes',
+        '/api/learning/feedback/stats',
+        '/api/learning/skill-packs',
+        '/api/learning/lessons',
+        '/api/learning/rules',
+      ]
+
+      for (const endpoint of endpoints) {
+        const res = await app.request(endpoint)
+        const body = (await res.json()) as { success: boolean }
+        expect(body.success).toBe(true)
+      }
+    })
+
+    it('all error responses include success: false and error string', async () => {
+      const failApp = createTestApp(createFailingMemoryService())
+
+      const endpoints = [
+        '/api/learning/dashboard',
+        '/api/learning/overview',
+        '/api/learning/trends/quality',
+        '/api/learning/trends/cost',
+        '/api/learning/nodes',
+        '/api/learning/feedback/stats',
+        '/api/learning/skill-packs',
+        '/api/learning/lessons',
+        '/api/learning/rules',
+      ]
+
+      for (const endpoint of endpoints) {
+        const res = await failApp.request(endpoint)
+        expect(res.status).toBe(500)
+        const body = (await res.json()) as { success: boolean; error: string }
+        expect(body.success).toBe(false)
+        expect(typeof body.error).toBe('string')
+        expect(body.error.length).toBeGreaterThan(0)
+      }
+    })
+
+    it('POST /feedback returns result with key on success', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-struct', approved: true }),
+      })
+      const body = (await res.json()) as { success: boolean; result: { key: string } }
+      expect(body.success).toBe(true)
+      expect(typeof body.result.key).toBe('string')
+    })
+
+    it('POST /skill-packs/load returns result with loaded array on success', async () => {
+      const res = await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: ['p1'] }),
+      })
+      const body = (await res.json()) as { success: boolean; result: { loaded: string[] } }
+      expect(body.success).toBe(true)
+      expect(Array.isArray(body.result.loaded)).toBe(true)
+    })
   })
 })

@@ -16,4 +16,19 @@ describe('playground router', () => {
     expect(names).toContain('evals')
     expect(names).toContain('eval-detail')
   })
+
+  it('registers the agents, runs, and eval-dashboard routes', () => {
+    const routes = router.getRoutes()
+    const paths = routes.map((route) => route.path)
+    const names = routes.map((route) => route.name)
+
+    expect(paths).toContain('/agents')
+    expect(names).toContain('agents')
+    expect(paths).toContain('/runs')
+    expect(names).toContain('runs')
+    expect(paths).toContain('/runs/:id')
+    expect(names).toContain('run-detail')
+    expect(paths).toContain('/eval-dashboard')
+    expect(names).toContain('eval-dashboard')
+  })
 })

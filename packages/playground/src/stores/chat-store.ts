@@ -334,6 +334,77 @@ export const useChatStore = defineStore('chat', () => {
     error.value = null
   }
 
+  /**
+   * Connect to the SSE streaming endpoint for a given run.
+   *
+   * Opens an EventSource to `/api/runs/:id/stream` and processes
+   * StreamEvent types: text_delta, tool_call_start, tool_call_end, done, error, ping.
+   *
+   * This is additive -- it does NOT replace the existing WebSocket streaming path.
+   *
+   * @returns A cleanup function that closes the EventSource.
+   */
+  function connectStreamingRun(runId: string): () => void {
+    const url = `/api/runs/${runId}/stream`
+    const source = new EventSource(url)
+
+    source.addEventListener('text_delta', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data as string) as { delta?: string }
+        const delta = data.delta ?? ''
+        if (delta) {
+          upsertStreamingAssistant(runId, delta)
+        }
+      } catch {
+        // Malformed JSON -- ignore
+      }
+    })
+
+    source.addEventListener('tool_call_start', () => {
+      // Handled by trace/tool UI; no chat message action needed
+    })
+
+    source.addEventListener('tool_call_end', () => {
+      // Handled by trace/tool UI; no chat message action needed
+    })
+
+    source.addEventListener('done', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data as string) as { finalContent?: string }
+        const finalContent = data.finalContent ?? ''
+        if (finalContent) {
+          finalizeStreamingAssistant(runId, finalContent)
+        }
+        streamingMessageIds.delete(runId)
+      } catch {
+        streamingMessageIds.delete(runId)
+      }
+      source.close()
+    })
+
+    source.addEventListener('error', (e: Event) => {
+      // SSE error events may or may not carry data (MessageEvent vs Event)
+      const me = e as MessageEvent
+      if (me.data) {
+        try {
+          const data = JSON.parse(me.data as string) as { message?: string }
+          error.value = data.message ?? 'SSE stream error'
+        } catch {
+          error.value = 'SSE stream error'
+        }
+      } else {
+        error.value = 'SSE stream error'
+      }
+      source.close()
+    })
+
+    source.addEventListener('ping', () => {
+      // Transport heartbeat -- ignore
+    })
+
+    return () => source.close()
+  }
+
   return {
     // State
     messages,
@@ -352,6 +423,7 @@ export const useChatStore = defineStore('chat', () => {
     selectAgent,
     sendMessage,
     handleRealtimeEvent,
+    connectStreamingRun,
     clearMessages,
     clearError,
   }

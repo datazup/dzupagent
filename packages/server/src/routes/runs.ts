@@ -1,18 +1,30 @@
 /**
  * Run management routes.
  *
- * POST /api/runs           — Trigger a new run
- * GET  /api/runs           — List runs (filter by agent, status)
- * GET  /api/runs/:id       — Get run details
- * POST /api/runs/:id/cancel — Cancel a running execution
- * GET  /api/runs/:id/logs  — Get run logs
- * GET  /api/runs/:id/stream — SSE stream of run events
+ * POST /api/runs                — Trigger a new run
+ * GET  /api/runs                — List runs (filter by agent, status)
+ * GET  /api/runs/:id            — Get run details
+ * POST /api/runs/:id/cancel     — Cancel a running execution
+ * POST /api/runs/:id/pause      — Cooperatively pause a running execution
+ * POST /api/runs/:id/resume     — Resume a paused/suspended execution
+ * POST /api/runs/:id/fork       — Fork a run from a checkpoint step
+ * GET  /api/runs/:id/checkpoints — List available checkpoints for a run
+ * GET  /api/runs/:id/logs       — Get run logs
+ * GET  /api/runs/:id/trace      — Execution trace with events + usage summary
+ * GET  /api/runs/:id/stream     — SSE stream of run events
  */
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { ForgeServerConfig } from '../app.js'
 import type { RunStatus, LogEntry } from '@dzupagent/core'
 import { injectTraceContext } from '@dzupagent/core'
+import {
+  ConcreteRunHandle,
+  ForkLimitExceededError,
+  CheckpointExpiredError,
+  StreamingRunHandle,
+} from '@dzupagent/agent'
+import { streamRunHandleToSSE } from '../streaming/sse-streaming-adapter.js'
 
 export function createRunRoutes(config: ForgeServerConfig): Hono {
   const app = new Hono()
@@ -163,6 +175,128 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
     return c.json({ data: { ...run, status: 'cancelled' } })
   })
 
+  // POST /api/runs/:id/pause — Cooperatively pause a run
+  app.post('/:id/pause', async (c) => {
+    const run = await runStore.get(c.req.param('id'))
+    if (!run) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Run not found' } }, 404)
+    }
+    if (run.status !== 'running' && run.status !== 'executing') {
+      return c.json({
+        error: { code: 'INVALID_STATE', message: `Cannot pause run in '${run.status}' state` },
+      }, 400)
+    }
+
+    await runStore.update(run.id, { status: 'paused' })
+    eventBus.emit({ type: 'run:paused', runId: run.id, agentId: run.agentId })
+
+    return c.json({ data: { runId: run.id, status: 'paused' as const } })
+  })
+
+  // POST /api/runs/:id/resume — Resume a paused or suspended run
+  app.post('/:id/resume', async (c) => {
+    const run = await runStore.get(c.req.param('id'))
+    if (!run) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Run not found' } }, 404)
+    }
+    if (run.status !== 'paused' && run.status !== 'suspended') {
+      return c.json({
+        error: { code: 'INVALID_STATE', message: `Cannot resume run in '${run.status}' state` },
+      }, 400)
+    }
+
+    // Accept optional resumeToken and input from request body
+    let resumeToken: string | undefined
+    let input: unknown
+    try {
+      const body = await c.req.json<{ resumeToken?: string; input?: unknown }>()
+      resumeToken = body.resumeToken
+      input = body.input
+    } catch {
+      // Empty body is acceptable for resume
+    }
+
+    await runStore.update(run.id, { status: 'running' })
+    eventBus.emit({
+      type: 'run:resumed',
+      runId: run.id,
+      agentId: run.agentId,
+      ...(resumeToken !== undefined ? { resumeToken } : {}),
+      ...(input !== undefined ? { input } : {}),
+    })
+
+    return c.json({ data: { runId: run.id, status: 'running' as const } })
+  })
+
+  // POST /api/runs/:id/fork — Fork a run from a checkpoint step
+  app.post('/:id/fork', async (c) => {
+    const id = c.req.param('id')
+
+    if (!config.journal) {
+      return c.json({
+        error: { code: 'NOT_CONFIGURED', message: 'Journal is not configured; fork is unavailable' },
+      }, 501)
+    }
+
+    const run = await runStore.get(id)
+    if (!run) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Run not found' } }, 404)
+    }
+
+    let targetStepId: string | undefined
+    try {
+      const body = await c.req.json<{ targetStepId?: string }>()
+      targetStepId = body.targetStepId
+    } catch {
+      // Empty body is acceptable — fork from latest checkpoint
+    }
+
+    try {
+      const handle = await ConcreteRunHandle.fromRunId(id, config.journal)
+      const forked = await handle.fork(targetStepId!)
+      return c.json({
+        data: {
+          originalRunId: id,
+          forkedRunId: forked.runId,
+          targetStepId: targetStepId ?? null,
+        },
+      }, 201)
+    } catch (err) {
+      if (err instanceof ForkLimitExceededError) {
+        return c.json({ error: { code: 'FORK_LIMIT_EXCEEDED', message: (err as Error).message } }, 409)
+      }
+      if (err instanceof CheckpointExpiredError) {
+        return c.json({ error: { code: 'CHECKPOINT_EXPIRED', message: (err as Error).message } }, 409)
+      }
+      throw err
+    }
+  })
+
+  // GET /api/runs/:id/checkpoints — List available checkpoints for a run
+  app.get('/:id/checkpoints', async (c) => {
+    const id = c.req.param('id')
+
+    if (!config.journal) {
+      return c.json({
+        error: { code: 'NOT_CONFIGURED', message: 'Journal is not configured; checkpoints are unavailable' },
+      }, 501)
+    }
+
+    const run = await runStore.get(id)
+    if (!run) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Run not found' } }, 404)
+    }
+
+    try {
+      const handle = await ConcreteRunHandle.fromRunId(id, config.journal)
+      const checkpoints = await handle.getCheckpoints()
+      return c.json({ data: { runId: id, checkpoints } })
+    } catch {
+      // fromRunId may throw if journal has no entries — treat as empty checkpoints
+      return c.json({ data: { runId: id, checkpoints: [] } })
+    }
+  })
+
   // GET /api/runs/:id/logs — Get run logs
   app.get('/:id/logs', async (c) => {
     const run = await runStore.get(c.req.param('id'))
@@ -222,6 +356,12 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
   })
 
   // GET /api/runs/:id/stream — SSE event stream
+  //
+  // Uses StreamingRunHandle as the bridge between DzupEventBus events
+  // and Hono SSE transport. Bus events for this run are mapped to
+  // StreamEvent objects and pushed into the handle; the adapter pipes
+  // them to the SSE response. On client disconnect the handle is
+  // cancelled, which stops the bus subscription.
   app.get('/:id/stream', async (c) => {
     const runId = c.req.param('id')
     const run = await runStore.get(runId)
@@ -230,46 +370,97 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
     }
 
     return streamSSE(c, async (stream) => {
-      let closed = false
+      const handle = new StreamingRunHandle({ maxBufferSize: 100 })
 
-      // Subscribe to events for this run
+      // Subscribe to bus events for this run and push into the handle
       const unsub = eventBus.onAny((event) => {
-        if (closed) return
-        // Only forward events that have a runId matching this run
+        if (handle.status !== 'running') return
+
         const eventRunId = 'runId' in event ? (event as { runId: string }).runId : undefined
-        if (eventRunId === runId) {
-          stream.writeSSE({ data: JSON.stringify(event), event: event.type }).catch(() => {
-            closed = true
-          })
+        if (eventRunId !== runId) return
+
+        // Map bus event types to StreamEvent types
+        switch (event.type) {
+          case 'agent:stream_delta': {
+            handle.push({ type: 'text_delta', content: event.content })
+            break
+          }
+          case 'tool:called': {
+            const toolEvent = event as { toolName: string; callId?: string }
+            handle.push({
+              type: 'tool_call_start',
+              toolName: toolEvent.toolName,
+              callId: toolEvent.callId ?? '',
+            })
+            break
+          }
+          case 'tool:result': {
+            const resultEvent = event as { callId?: string; result?: unknown }
+            handle.push({
+              type: 'tool_call_end',
+              callId: resultEvent.callId ?? '',
+              result: resultEvent.result,
+            })
+            break
+          }
+          case 'agent:stream_done': {
+            handle.push({
+              type: 'done',
+              finalOutput: event.finalContent,
+            })
+            handle.complete()
+            break
+          }
+          case 'agent:completed': {
+            const completedEvent = event as { output?: string }
+            handle.push({
+              type: 'done',
+              finalOutput: typeof completedEvent.output === 'string' ? completedEvent.output : '',
+            })
+            handle.complete()
+            break
+          }
+          case 'agent:failed': {
+            handle.fail(new Error(event.message ?? event.errorCode ?? 'Run failed'))
+            break
+          }
+          default:
+            // Other run events (paused, resumed, cancelled) do not map
+            // to StreamEvent types — they are handled by the polling check.
+            break
         }
       })
 
-      // Send initial state
+      // Send initial state before piping the handle
       await stream.writeSSE({ data: JSON.stringify({ status: run.status }), event: 'init' })
 
-      // Keep alive until client disconnects or run completes
+      // Poll for completion of runs that may have finished before we subscribed
       const checkInterval = setInterval(() => { void (async () => {
-        if (closed) { clearInterval(checkInterval); unsub(); return }
+        if (handle.status !== 'running') { clearInterval(checkInterval); return }
         const current = await runStore.get(runId)
         if (!current || ['completed', 'failed', 'cancelled', 'rejected'].includes(current.status)) {
-          await stream.writeSSE({ data: JSON.stringify({ status: current?.status ?? 'unknown' }), event: 'done' })
-          closed = true
+          if (handle.status === 'running') {
+            handle.push({ type: 'done', finalOutput: '' })
+            handle.complete()
+          }
           clearInterval(checkInterval)
-          unsub()
         }
       })() }, 2000)
 
-      // Wait for stream to close
-      stream.onAbort(() => {
-        closed = true
-        clearInterval(checkInterval)
-        unsub()
+      // Pipe handle events to SSE; adapter handles onAbort → handle.cancel()
+      await streamRunHandleToSSE(handle, stream, {
+        keepAliveIntervalMs: Number(process.env['SSE_KEEPALIVE_INTERVAL_MS'] ?? 30_000),
+        runTimeoutMs: Number(process.env['RUN_TIMEOUT_MS'] ?? 0),
+        onError: (e) => {
+          console.error('SSE write error', e)
+          clearInterval(checkInterval)
+          unsub()
+        },
       })
 
-      // Keep stream alive
-      while (!closed) {
-        await new Promise(resolve => setTimeout(resolve, 1000))
-      }
+      // Cleanup when the stream ends (normal completion or abort)
+      clearInterval(checkInterval)
+      unsub()
     })
   })
 
