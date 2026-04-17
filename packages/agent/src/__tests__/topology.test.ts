@@ -8,7 +8,7 @@ import type { BaseMessage } from '@langchain/core/messages'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { TopologyAnalyzer } from '../orchestration/topology/topology-analyzer.js'
 import { TopologyExecutor } from '../orchestration/topology/topology-executor.js'
-import type { TaskCharacteristics } from '../orchestration/topology/topology-types.js'
+import type { TaskCharacteristics, TopologyMetrics } from '../orchestration/topology/topology-types.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -492,7 +492,7 @@ describe('TopologyExecutor', () => {
     it('captures provider telemetry in metrics when available', () => {
       // TopologyMetrics now supports optional provider telemetry fields.
       // Verify the type allows setting them and reading them back.
-      const metrics: import('../orchestration/topology/topology-types.js').TopologyMetrics = {
+      const metrics: TopologyMetrics = {
         topology: 'mesh',
         totalDurationMs: 150,
         agentCount: 2,

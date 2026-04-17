@@ -25,9 +25,9 @@ describe('filterTools', () => {
 })
 
 describe('GitHub connector', () => {
-  it('creates 17 tools by default', () => {
+  it('creates 22 tools by default', () => {
     const tools = createGitHubConnector({ token: 'fake-token' })
-    expect(tools.length).toBe(17)
+    expect(tools.length).toBe(22)
     const names = tools.map(t => t.name)
     expect(names).toContain('github_get_file')
     expect(names).toContain('github_list_issues')
@@ -46,6 +46,12 @@ describe('GitHub connector', () => {
     expect(names).toContain('github_get_commit')
     expect(names).toContain('github_compare_commits')
     expect(names).toContain('github_search_code')
+    // Wave 19 additions
+    expect(names).toContain('github_get_pr_checks')
+    expect(names).toContain('github_add_labels')
+    expect(names).toContain('github_remove_label')
+    expect(names).toContain('github_create_review_comment')
+    expect(names).toContain('github_get_workflow_runs')
   })
 
   it('filters tools by enabledTools', () => {

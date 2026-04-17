@@ -386,6 +386,75 @@ describe('RegistryExecutionPort', () => {
     expect(emitted.some((e: any) => e.type === 'agent:completed')).toBe(true)
   })
 
+  it('propagates adapter token usage onto agent:completed via executeWithFallback', async () => {
+    const adapter = makeMockAdapter('claude', [
+      {
+        type: 'adapter:started',
+        providerId: 'claude',
+        sessionId: 's-usage',
+        timestamp: Date.now(),
+      },
+      {
+        type: 'adapter:completed',
+        providerId: 'claude',
+        sessionId: 's-usage',
+        result: 'done',
+        usage: { inputTokens: 250, outputTokens: 75, costCents: 2 },
+        durationMs: 90,
+        timestamp: Date.now(),
+      },
+    ])
+
+    const registry = new AdapterRegistry().setRouter(router)
+    registry.register(adapter)
+
+    const eventBus = createEventBus()
+    const emitted: any[] = []
+    eventBus.onAny((event) => emitted.push(event))
+    registry.setEventBus(eventBus)
+
+    await collectEvents(registry.executeWithFallback(input, task))
+
+    const completedEvent = emitted.find((e) => e.type === 'agent:completed')
+    expect(completedEvent).toBeDefined()
+    expect(completedEvent.agentId).toBe('claude')
+    expect(completedEvent.usage).toEqual({ inputTokens: 250, outputTokens: 75, costCents: 2 })
+  })
+
+  it('omits usage on agent:completed when the adapter did not surface token counts', async () => {
+    const adapter = makeMockAdapter('claude', [
+      {
+        type: 'adapter:started',
+        providerId: 'claude',
+        sessionId: 's-no-usage',
+        timestamp: Date.now(),
+      },
+      {
+        type: 'adapter:completed',
+        providerId: 'claude',
+        sessionId: 's-no-usage',
+        result: 'done',
+        durationMs: 30,
+        timestamp: Date.now(),
+      },
+    ])
+
+    const registry = new AdapterRegistry().setRouter(router)
+    registry.register(adapter)
+
+    const eventBus = createEventBus()
+    const emitted: any[] = []
+    eventBus.onAny((event) => emitted.push(event))
+    registry.setEventBus(eventBus)
+
+    await collectEvents(registry.executeWithFallback(input, task))
+
+    const completedEvent = emitted.find((e) => e.type === 'agent:completed')
+    expect(completedEvent).toBeDefined()
+    expect(completedEvent.agentId).toBe('claude')
+    expect(completedEvent).not.toHaveProperty('usage')
+  })
+
   it('collects attempted providers across fallback chain', async () => {
     const failClaude = makeMockAdapter('claude', [
       {

@@ -431,4 +431,466 @@ describe('DrizzleReflectionStore', () => {
     const result = await store.getPatterns('repeated_tool')
     expect(result).toEqual([])
   })
+
+  // ---------------------------------------------------------------------------
+  // W17-B2: Additional coverage (25+ new tests)
+  // ---------------------------------------------------------------------------
+
+  // --- Concurrent saves ---
+
+  describe('concurrent saves', () => {
+    it('10 parallel saves with distinct runIds — no data loss', async () => {
+      const saves = Array.from({ length: 10 }, (_, i) =>
+        store.save(makeSummary({ runId: `concurrent-${i}`, qualityScore: i * 0.1 })),
+      )
+      await Promise.all(saves)
+      expect(Object.keys(db._storage)).toHaveLength(10)
+      for (let i = 0; i < 10; i++) {
+        expect(db._storage[`concurrent-${i}`]).toBeDefined()
+      }
+    })
+
+    it('concurrent saves of the same runId — only first is stored (idempotent)', async () => {
+      const saves = Array.from({ length: 5 }, (_, i) =>
+        store.save(makeSummary({ runId: 'same-run', qualityScore: i * 0.2 })),
+      )
+      await Promise.all(saves)
+      expect(Object.keys(db._storage)).toHaveLength(1)
+    })
+
+    it('mixed concurrent save and get — get returns stored data or undefined', async () => {
+      await store.save(makeSummary({ runId: 'preexisting' }))
+      const [, result] = await Promise.all([
+        store.save(makeSummary({ runId: 'new-run' })),
+        store.get('preexisting'),
+      ])
+      expect(result).toBeDefined()
+      expect(result!.runId).toBe('preexisting')
+    })
+  })
+
+  // --- Large dataset and pagination ---
+
+  describe('large dataset and list behavior', () => {
+    it('seed 100 reflections — list() returns all 100', async () => {
+      for (let i = 0; i < 100; i++) {
+        db._seed(`run-${String(i).padStart(3, '0')}`, {
+          completedAt: new Date(`2026-01-${String((i % 28) + 1).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}:00:00.000Z`),
+          durationMs: i * 100,
+          totalSteps: i,
+          toolCallCount: i % 10,
+          errorCount: i % 3,
+          patterns: [],
+          qualityScore: (i % 100) / 100,
+        })
+      }
+      const results = await store.list()
+      expect(results).toHaveLength(100)
+    })
+
+    it('seed 100 reflections — list(10) returns exactly 10', async () => {
+      for (let i = 0; i < 100; i++) {
+        db._seed(`run-${String(i).padStart(3, '0')}`, {
+          completedAt: new Date(`2026-04-16T${String(i % 24).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}:00.000Z`),
+          durationMs: 1000, totalSteps: 1, toolCallCount: 0, errorCount: 0,
+          patterns: [], qualityScore: 0.5,
+        })
+      }
+      const results = await store.list(10)
+      expect(results).toHaveLength(10)
+    })
+
+    it('list with limit larger than dataset — returns all items', async () => {
+      db._seed('run-a', { completedAt: new Date('2026-01-01'), durationMs: 1, totalSteps: 1, toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.5 })
+      db._seed('run-b', { completedAt: new Date('2026-01-02'), durationMs: 1, totalSteps: 1, toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.5 })
+      const results = await store.list(500)
+      expect(results).toHaveLength(2)
+    })
+
+    it('list with limit=1 returns the most recent by completedAt', async () => {
+      db._seed('run-old', {
+        completedAt: new Date('2026-01-01T00:00:00.000Z'),
+        durationMs: 100, totalSteps: 1, toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.1,
+      })
+      db._seed('run-new', {
+        completedAt: new Date('2026-04-16T23:59:59.000Z'),
+        durationMs: 200, totalSteps: 2, toolCallCount: 1, errorCount: 0, patterns: [], qualityScore: 0.9,
+      })
+      const results = await store.list(1)
+      expect(results).toHaveLength(1)
+      expect(results[0]!.runId).toBe('run-new')
+    })
+  })
+
+  // --- Quality score filtering (via list + manual filter, since store has no filter method) ---
+
+  describe('quality score thresholds', () => {
+    it('high quality reflections can be filtered from list results', async () => {
+      db._seed('run-low', {
+        completedAt: new Date('2026-01-01'), durationMs: 100, totalSteps: 1,
+        toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.3,
+      })
+      db._seed('run-mid', {
+        completedAt: new Date('2026-01-02'), durationMs: 100, totalSteps: 1,
+        toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.7,
+      })
+      db._seed('run-high', {
+        completedAt: new Date('2026-01-03'), durationMs: 100, totalSteps: 1,
+        toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.95,
+      })
+
+      const all = await store.list()
+      const highQuality = all.filter((s) => s.qualityScore >= 0.8)
+      expect(highQuality).toHaveLength(1)
+      expect(highQuality[0]!.runId).toBe('run-high')
+    })
+
+    it('quality score boundary: 0.8 is included in >= 0.8 filter', async () => {
+      db._seed('run-exact', {
+        completedAt: new Date('2026-01-01'), durationMs: 100, totalSteps: 1,
+        toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.8,
+      })
+      const all = await store.list()
+      const atThreshold = all.filter((s) => s.qualityScore >= 0.8)
+      expect(atThreshold).toHaveLength(1)
+    })
+  })
+
+  // --- Pattern type filtering ---
+
+  describe('pattern type filtering', () => {
+    it('getPatterns("slow_step") returns only slow_step patterns when mixed types exist', async () => {
+      db._seed('run-mixed', {
+        durationMs: 5000, totalSteps: 10, toolCallCount: 5, errorCount: 2,
+        patterns: [
+          { type: 'slow_step', description: 'step 3 took 10s', occurrences: 1, stepIndices: [3] },
+          { type: 'repeated_tool', description: 'search x4', occurrences: 4, stepIndices: [0, 1, 2, 3] },
+          { type: 'slow_step', description: 'step 7 took 15s', occurrences: 1, stepIndices: [7] },
+          { type: 'error_loop', description: 'retries', occurrences: 2, stepIndices: [8, 9] },
+        ],
+        qualityScore: 0.4,
+      })
+
+      const slowPatterns = await store.getPatterns('slow_step')
+      expect(slowPatterns).toHaveLength(2)
+      expect(slowPatterns.every((p) => p.type === 'slow_step')).toBe(true)
+    })
+
+    it('getPatterns aggregates patterns from multiple runs', async () => {
+      db._seed('run-1', {
+        durationMs: 1000, totalSteps: 3, toolCallCount: 1, errorCount: 0,
+        patterns: [{ type: 'successful_strategy', description: 'strat-a', occurrences: 1, stepIndices: [0] }],
+        qualityScore: 0.9,
+      })
+      db._seed('run-2', {
+        durationMs: 2000, totalSteps: 5, toolCallCount: 2, errorCount: 0,
+        patterns: [{ type: 'successful_strategy', description: 'strat-b', occurrences: 1, stepIndices: [1] }],
+        qualityScore: 0.85,
+      })
+
+      const strategies = await store.getPatterns('successful_strategy')
+      expect(strategies).toHaveLength(2)
+      expect(strategies.map((p) => p.description)).toContain('strat-a')
+      expect(strategies.map((p) => p.description)).toContain('strat-b')
+    })
+  })
+
+  // --- TTL/cleanup simulation ---
+
+  describe('TTL/cleanup simulation', () => {
+    it('old reflections can be excluded by completedAt date filter', async () => {
+      const now = new Date('2026-04-16T12:00:00.000Z')
+      const ttlMs = 7 * 24 * 60 * 60 * 1000 // 7 days
+      const cutoff = new Date(now.getTime() - ttlMs)
+
+      db._seed('run-old', {
+        completedAt: new Date('2026-04-01T00:00:00.000Z'),
+        durationMs: 100, totalSteps: 1, toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.5,
+      })
+      db._seed('run-recent', {
+        completedAt: new Date('2026-04-15T00:00:00.000Z'),
+        durationMs: 200, totalSteps: 2, toolCallCount: 1, errorCount: 0, patterns: [], qualityScore: 0.8,
+      })
+
+      const all = await store.list()
+      const withinTTL = all.filter((s) => s.completedAt >= cutoff)
+      expect(withinTTL).toHaveLength(1)
+      expect(withinTTL[0]!.runId).toBe('run-recent')
+    })
+
+    it('all reflections within TTL are preserved', async () => {
+      const now = new Date('2026-04-16T12:00:00.000Z')
+      const ttlMs = 30 * 24 * 60 * 60 * 1000 // 30 days
+      const cutoff = new Date(now.getTime() - ttlMs)
+
+      db._seed('run-1', {
+        completedAt: new Date('2026-04-01T00:00:00.000Z'),
+        durationMs: 100, totalSteps: 1, toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.5,
+      })
+      db._seed('run-2', {
+        completedAt: new Date('2026-04-10T00:00:00.000Z'),
+        durationMs: 200, totalSteps: 2, toolCallCount: 1, errorCount: 0, patterns: [], qualityScore: 0.7,
+      })
+
+      const all = await store.list()
+      const withinTTL = all.filter((s) => s.completedAt >= cutoff)
+      expect(withinTTL).toHaveLength(2)
+    })
+  })
+
+  // --- Empty store queries ---
+
+  describe('empty store queries', () => {
+    it('get returns undefined on empty store', async () => {
+      const result = await store.get('any-id')
+      expect(result).toBeUndefined()
+    })
+
+    it('list returns empty array on empty store', async () => {
+      const results = await store.list()
+      expect(results).toEqual([])
+    })
+
+    it('list with limit returns empty array on empty store', async () => {
+      const results = await store.list(5)
+      expect(results).toEqual([])
+    })
+
+    it('getPatterns returns empty array on empty store for any type', async () => {
+      const types = ['repeated_tool', 'error_loop', 'slow_step', 'successful_strategy'] as const
+      for (const type of types) {
+        const result = await store.getPatterns(type)
+        expect(result).toEqual([])
+      }
+    })
+  })
+
+  // --- Update existing (idempotency behavior) ---
+
+  describe('update existing (ON CONFLICT DO NOTHING)', () => {
+    it('saving same runId twice does not duplicate — first value wins', async () => {
+      await store.save(makeSummary({ runId: 'dup', qualityScore: 0.1, durationMs: 100 }))
+      await store.save(makeSummary({ runId: 'dup', qualityScore: 0.9, durationMs: 999 }))
+
+      const result = await store.get('dup')
+      expect(result).toBeDefined()
+      expect(result!.qualityScore).toBe(0.1)
+      expect(result!.durationMs).toBe(100)
+      expect(Object.keys(db._storage)).toHaveLength(1)
+    })
+
+    it('saving same runId 5 times — storage has exactly 1 entry', async () => {
+      for (let i = 0; i < 5; i++) {
+        await store.save(makeSummary({ runId: 'multi-dup', qualityScore: i * 0.2 }))
+      }
+      expect(Object.keys(db._storage)).toHaveLength(1)
+      const result = await store.get('multi-dup')
+      expect(result!.qualityScore).toBe(0)
+    })
+  })
+
+  // --- Schema boundary ---
+
+  describe('schema boundary', () => {
+    it('extra fields in summary are not stored in the row', async () => {
+      const summary = makeSummary({ runId: 'extra-fields' }) as ReflectionSummary & { extraField: string }
+      ;(summary as Record<string, unknown>)['extraField'] = 'should-be-ignored'
+      await store.save(summary)
+
+      const row = db._storage['extra-fields']!
+      // The store only maps known fields, so extraField should not appear
+      expect(row).not.toHaveProperty('extraField')
+    })
+
+    it('saving with minimal fields does not throw', async () => {
+      await expect(
+        store.save(makeSummary({ runId: 'minimal', patterns: [], qualityScore: 0 })),
+      ).resolves.not.toThrow()
+    })
+  })
+
+  // --- Stats aggregation (via list) ---
+
+  describe('stats aggregation via list', () => {
+    it('average qualityScore can be computed from list results', async () => {
+      db._seed('run-a', {
+        completedAt: new Date('2026-01-01'), durationMs: 100, totalSteps: 1,
+        toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.6,
+      })
+      db._seed('run-b', {
+        completedAt: new Date('2026-01-02'), durationMs: 200, totalSteps: 2,
+        toolCallCount: 1, errorCount: 0, patterns: [], qualityScore: 0.8,
+      })
+      db._seed('run-c', {
+        completedAt: new Date('2026-01-03'), durationMs: 300, totalSteps: 3,
+        toolCallCount: 2, errorCount: 1, patterns: [], qualityScore: 1.0,
+      })
+
+      const all = await store.list()
+      const avg = all.reduce((sum, s) => sum + s.qualityScore, 0) / all.length
+      expect(avg).toBeCloseTo(0.8, 5)
+    })
+
+    it('total error count can be computed from list results', async () => {
+      db._seed('run-a', {
+        completedAt: new Date('2026-01-01'), durationMs: 100, totalSteps: 1,
+        toolCallCount: 0, errorCount: 3, patterns: [], qualityScore: 0.5,
+      })
+      db._seed('run-b', {
+        completedAt: new Date('2026-01-02'), durationMs: 200, totalSteps: 2,
+        toolCallCount: 1, errorCount: 7, patterns: [], qualityScore: 0.3,
+      })
+
+      const all = await store.list()
+      const totalErrors = all.reduce((sum, s) => sum + s.errorCount, 0)
+      expect(totalErrors).toBe(10)
+    })
+  })
+
+  // --- Zero-length patterns array ---
+
+  describe('zero-length patterns array', () => {
+    it('runs with patterns: [] do not contribute to any pattern query', async () => {
+      db._seed('run-empty-patterns', {
+        durationMs: 1000, totalSteps: 5, toolCallCount: 2, errorCount: 0,
+        patterns: [],
+        qualityScore: 0.9,
+      })
+      db._seed('run-with-patterns', {
+        durationMs: 2000, totalSteps: 8, toolCallCount: 4, errorCount: 1,
+        patterns: [{ type: 'repeated_tool', description: 'search x2', occurrences: 2, stepIndices: [0, 1] }],
+        qualityScore: 0.7,
+      })
+
+      const repeated = await store.getPatterns('repeated_tool')
+      expect(repeated).toHaveLength(1)
+      expect(repeated[0]!.description).toBe('search x2')
+    })
+
+    it('all runs with empty patterns — getPatterns returns empty for every type', async () => {
+      for (let i = 0; i < 5; i++) {
+        db._seed(`run-no-patterns-${i}`, {
+          durationMs: 100, totalSteps: 1, toolCallCount: 0, errorCount: 0,
+          patterns: [],
+          qualityScore: 0.5 + i * 0.1,
+        })
+      }
+
+      expect(await store.getPatterns('repeated_tool')).toEqual([])
+      expect(await store.getPatterns('error_loop')).toEqual([])
+      expect(await store.getPatterns('slow_step')).toEqual([])
+      expect(await store.getPatterns('successful_strategy')).toEqual([])
+    })
+  })
+
+  // --- rowToSummary edge cases ---
+
+  describe('rowToSummary edge cases', () => {
+    it('completedAt stored as string is converted to Date', async () => {
+      // Simulate a row where completedAt is a string (e.g., from JSON serialization)
+      db._storage['run-string-date'] = {
+        runId: 'run-string-date',
+        completedAt: '2026-04-16T15:30:00.000Z' as unknown as Date,
+        durationMs: 500,
+        totalSteps: 3,
+        toolCallCount: 1,
+        errorCount: 0,
+        patterns: [],
+        qualityScore: 0.75,
+        createdAt: new Date(),
+      }
+
+      const result = await store.get('run-string-date')
+      expect(result).toBeDefined()
+      expect(result!.completedAt).toBeInstanceOf(Date)
+      expect(result!.completedAt.toISOString()).toBe('2026-04-16T15:30:00.000Z')
+    })
+
+    it('null patterns in row are normalized to empty array', async () => {
+      db._storage['run-null-patterns'] = {
+        runId: 'run-null-patterns',
+        completedAt: new Date('2026-04-16T12:00:00.000Z'),
+        durationMs: 100,
+        totalSteps: 1,
+        toolCallCount: 0,
+        errorCount: 0,
+        patterns: null as unknown as [],
+        qualityScore: 0.5,
+        createdAt: new Date(),
+      }
+
+      const result = await store.get('run-null-patterns')
+      expect(result).toBeDefined()
+      expect(result!.patterns).toEqual([])
+    })
+
+    it('get after save returns same data fields', async () => {
+      const original = makeSummary({
+        runId: 'roundtrip',
+        durationMs: 7777,
+        totalSteps: 42,
+        toolCallCount: 15,
+        errorCount: 3,
+        qualityScore: 0.88,
+        patterns: [
+          { type: 'error_loop', description: 'loop-desc', occurrences: 2, stepIndices: [5, 6] },
+        ],
+      })
+      await store.save(original)
+      const retrieved = await store.get('roundtrip')
+
+      expect(retrieved).toBeDefined()
+      expect(retrieved!.runId).toBe(original.runId)
+      expect(retrieved!.durationMs).toBe(original.durationMs)
+      expect(retrieved!.totalSteps).toBe(original.totalSteps)
+      expect(retrieved!.toolCallCount).toBe(original.toolCallCount)
+      expect(retrieved!.errorCount).toBe(original.errorCount)
+      expect(retrieved!.qualityScore).toBe(original.qualityScore)
+      expect(retrieved!.patterns).toEqual(original.patterns)
+    })
+  })
+
+  // --- list ordering ---
+
+  describe('list ordering', () => {
+    it('list orders by completedAt descending across many entries', async () => {
+      const dates = [
+        '2026-01-15', '2026-03-01', '2026-02-10', '2026-04-01', '2026-01-01',
+      ]
+      for (let i = 0; i < dates.length; i++) {
+        db._seed(`run-order-${i}`, {
+          completedAt: new Date(`${dates[i]}T00:00:00.000Z`),
+          durationMs: 100, totalSteps: 1, toolCallCount: 0, errorCount: 0,
+          patterns: [], qualityScore: 0.5,
+        })
+      }
+
+      const results = await store.list()
+      for (let i = 1; i < results.length; i++) {
+        expect(results[i - 1]!.completedAt.getTime()).toBeGreaterThanOrEqual(
+          results[i]!.completedAt.getTime(),
+        )
+      }
+    })
+
+    it('list with limit returns the most recent N entries', async () => {
+      db._seed('run-jan', {
+        completedAt: new Date('2026-01-01T00:00:00.000Z'),
+        durationMs: 100, totalSteps: 1, toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.1,
+      })
+      db._seed('run-feb', {
+        completedAt: new Date('2026-02-01T00:00:00.000Z'),
+        durationMs: 100, totalSteps: 1, toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.5,
+      })
+      db._seed('run-mar', {
+        completedAt: new Date('2026-03-01T00:00:00.000Z'),
+        durationMs: 100, totalSteps: 1, toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.9,
+      })
+
+      const results = await store.list(2)
+      expect(results).toHaveLength(2)
+      expect(results[0]!.runId).toBe('run-mar')
+      expect(results[1]!.runId).toBe('run-feb')
+    })
+  })
 })

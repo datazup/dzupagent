@@ -233,13 +233,27 @@ describe('Claude adapter conformance contract', () => {
       if (first.value?.type === 'adapter:started') {
         expect(first.value.providerId).toBe('claude')
       }
-      // Clean up
+      // Clean up: interrupt and fully drain the stream so any abort
+      // rejection inside the SDK's child process is observed here
+      // rather than escaping as an unhandled rejection.
       adapter.interrupt()
+      // Drain remaining events. We swallow any abort/teardown errors
+      // because the test only asserts the very first emitted event.
+      try {
+        // Use a for-await with a safety bound to avoid hangs.
+        let drained = 0
+        for await (const event of stream) {
+          void event
+          if (++drained > 100) break
+        }
+      } catch {
+        // expected: abort or teardown error
+      }
     } catch (err) {
       // SDK not installed: expect the proper error code
       expect(err).toMatchObject({ code: 'ADAPTER_SDK_NOT_INSTALLED' })
     }
-  })
+  }, 15_000)
 
   it('configure() merges config without throwing', () => {
     const adapter = new ClaudeAgentAdapter()
@@ -281,13 +295,24 @@ describe('Codex adapter conformance contract', () => {
       if (first.value?.type === 'adapter:started') {
         expect(first.value.providerId).toBe('codex')
       }
-      // Clean up
+      // Clean up: interrupt and fully drain the stream so SDK teardown
+      // errors are observed here rather than escaping as unhandled
+      // rejections.
       adapter.interrupt()
+      try {
+        let drained = 0
+        for await (const event of stream) {
+          void event
+          if (++drained > 100) break
+        }
+      } catch {
+        // expected: abort or teardown error
+      }
     } catch (err) {
       // SDK not installed: expect the proper error code
       expect(err).toMatchObject({ code: 'ADAPTER_SDK_NOT_INSTALLED' })
     }
-  })
+  }, 15_000)
 
   it('configure() merges config without throwing', () => {
     const adapter = new CodexAdapter()

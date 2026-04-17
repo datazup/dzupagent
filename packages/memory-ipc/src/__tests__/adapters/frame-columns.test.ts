@@ -236,4 +236,57 @@ describe('pushDefaults', () => {
     expect(cols.provenance_source[0]).toBe('imported')
     expect(cols.is_active[0]).toBe(true)
   })
+
+  it('accepts overrides with scopeProject and category defined', () => {
+    const cols = createEmptyColumns()
+
+    cols.id.push('r2')
+    cols.namespace.push('ns')
+    cols.key.push('k2')
+    cols.scope_tenant.push(null)
+    cols.scope_project.push('proj-1')
+    cols.scope_agent.push(null)
+    cols.scope_session.push(null)
+    cols.text.push('text')
+    cols.payload_json.push(null)
+    cols.system_created_at.push(BigInt(Date.now()))
+    cols.valid_from.push(BigInt(Date.now()))
+    cols.agent_id.push(null)
+    cols.category.push('lesson')
+    cols.importance.push(0.8)
+
+    // Passing overrides covers the if(overrides) branch and the
+    // scopeProject/category sub-branches inside pushDefaults
+    pushDefaults(cols, { scopeProject: 'proj-1', category: 'lesson' })
+
+    expect(cols.system_expired_at[0]).toBeNull()
+    expect(cols.provenance_source[0]).toBe('imported')
+    expect(cols.is_active[0]).toBe(true)
+  })
+
+  it('accepts overrides with undefined scopeProject and category', () => {
+    const cols = createEmptyColumns()
+
+    cols.id.push('r3')
+    cols.namespace.push('ns')
+    cols.key.push('k3')
+    cols.scope_tenant.push(null)
+    cols.scope_project.push(null)
+    cols.scope_agent.push(null)
+    cols.scope_session.push(null)
+    cols.text.push('text')
+    cols.payload_json.push(null)
+    cols.system_created_at.push(BigInt(Date.now()))
+    cols.valid_from.push(BigInt(Date.now()))
+    cols.agent_id.push(null)
+    cols.category.push(null)
+    cols.importance.push(null)
+
+    // overrides present but without scopeProject or category — hits the outer
+    // if(overrides) branch but not the inner sub-branches
+    pushDefaults(cols, { scopeSession: 'sess-1' })
+
+    expect(cols.provenance_source[0]).toBe('imported')
+    expect(cols.is_active[0]).toBe(true)
+  })
 })

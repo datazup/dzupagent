@@ -10,12 +10,12 @@ import {
   DEFAULT_CONFIG,
   resolveConfig,
   mergeConfigs,
-  ForgeContainer,
 } from '../facades/quick-start.js'
 import type {
   QuickAgentOptions,
   QuickAgentResult,
   DzupEventBus,
+  ForgeContainer,
 } from '../facades/quick-start.js'
 
 // ---------------------------------------------------------------------------

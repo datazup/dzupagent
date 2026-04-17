@@ -113,6 +113,7 @@ describe('FileAdapterSkillVersionStore', () => {
     await store.flush()
 
     const rolled = store.rollback('bundle-c', 'claude', 1)
+    await store.flush()
     expect(rolled.version).toBe(3)
     expect(rolled.hash).toBe('hash-1') // rolled back to v1's hash
     expect(rolled.compiled).toEqual(v1.compiled)

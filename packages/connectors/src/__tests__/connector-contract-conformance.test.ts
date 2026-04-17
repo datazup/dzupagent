@@ -231,4 +231,116 @@ describe('Connector contract conformance', () => {
       })
     }
   })
+
+  // ---------------------------------------------------------------------------
+  // W18-B3 — additional conformance for Slack + Database
+  // ---------------------------------------------------------------------------
+
+  describe('Slack connector — extended conformance', () => {
+    it('produces stable tool list across multiple factory invocations', () => {
+      const tk1 = createSlackConnectorToolkit({ token: 'xoxb-test' })
+      const tk2 = createSlackConnectorToolkit({ token: 'xoxb-test' })
+
+      const names1 = tk1.tools.map(t => t.name).sort()
+      const names2 = tk2.tools.map(t => t.name).sort()
+      expect(names1).toEqual(names2)
+    })
+
+    it('every Slack tool has a Zod schema with parse method', () => {
+      const tk = createSlackConnectorToolkit({ token: 'xoxb-test' })
+      for (const t of tk.tools) {
+        expect(t.schema).toBeDefined()
+        // DynamicStructuredTool wraps the schema so it should expose parse
+        const schema = t.schema as { parse?: unknown; safeParse?: unknown }
+        expect(typeof schema.parse === 'function' || typeof schema.safeParse === 'function').toBe(true)
+      }
+    })
+
+    it('Slack toolkit exposes only the requested tools when filtered', () => {
+      const tk = createSlackConnectorToolkit({
+        token: 'xoxb-test',
+        enabledTools: ['slack_send_message', 'slack_list_channels'],
+      })
+      const names = tk.tools.map(t => t.name)
+      expect(names).toContain('slack_send_message')
+      expect(names).toContain('slack_list_channels')
+      expect(names).not.toContain('slack_search_messages')
+    })
+
+    it('Slack tools all have unique names within the toolkit', () => {
+      const tk = createSlackConnectorToolkit({ token: 'xoxb-test' })
+      const names = tk.tools.map(t => t.name)
+      expect(new Set(names).size).toBe(names.length)
+    })
+  })
+
+  describe('Database connector — extended conformance', () => {
+    const dbConfig = {
+      query: async () => ({ rows: [] as Record<string, unknown>[], rowCount: 0 }),
+    }
+
+    it('produces stable tool list across multiple factory invocations', () => {
+      const tk1 = createDatabaseConnectorToolkit(dbConfig)
+      const tk2 = createDatabaseConnectorToolkit(dbConfig)
+
+      const names1 = tk1.tools.map(t => t.name).sort()
+      const names2 = tk2.tools.map(t => t.name).sort()
+      expect(names1).toEqual(names2)
+    })
+
+    it('every Database tool has a Zod schema with parse method', () => {
+      const tk = createDatabaseConnectorToolkit(dbConfig)
+      for (const t of tk.tools) {
+        expect(t.schema).toBeDefined()
+        const schema = t.schema as { parse?: unknown; safeParse?: unknown }
+        expect(typeof schema.parse === 'function' || typeof schema.safeParse === 'function').toBe(true)
+      }
+    })
+
+    it('Database toolkit exposes only the requested tools when filtered', () => {
+      const tk = createDatabaseConnectorToolkit({
+        ...dbConfig,
+        enabledTools: ['db-query', 'db-list-tables'],
+      })
+      const names = tk.tools.map(t => t.name)
+      expect(names).toContain('db-query')
+      expect(names).toContain('db-list-tables')
+      expect(names).not.toContain('db-describe-table')
+    })
+
+    it('Database tools all have unique names within the toolkit', () => {
+      const tk = createDatabaseConnectorToolkit(dbConfig)
+      const names = tk.tools.map(t => t.name)
+      expect(new Set(names).size).toBe(names.length)
+    })
+
+    it('Database tools can be invoked through the toolkit interface', async () => {
+      const tk = createDatabaseConnectorToolkit({
+        query: async () => ({ rows: [{ id: 1 }], rowCount: 1 }),
+      })
+      const dbQuery = tk.tools.find(t => t.name === 'db-query')!
+      const result = await dbQuery.invoke({ sql: 'SELECT 1 AS id' })
+      expect(result).toContain('id')
+      expect(result).toContain('1 rows')
+    })
+  })
+
+  describe('extended cross-connector invariants', () => {
+    it('all connectors satisfy contract regardless of credentials provided', () => {
+      const slackTk = createSlackConnectorToolkit({ token: 'placeholder' })
+      const dbTk = createDatabaseConnectorToolkit({
+        query: async () => ({ rows: [], rowCount: 0 }),
+      })
+
+      // Both should have non-empty tool lists with proper structure
+      expect(slackTk.tools.length).toBeGreaterThan(0)
+      expect(dbTk.tools.length).toBeGreaterThan(0)
+
+      for (const t of [...slackTk.tools, ...dbTk.tools]) {
+        expect(t.name).toBeTruthy()
+        expect(t.description).toBeTruthy()
+        expect(typeof t.invoke).toBe('function')
+      }
+    })
+  })
 })

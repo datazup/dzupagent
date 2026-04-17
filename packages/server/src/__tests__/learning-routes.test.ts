@@ -1804,4 +1804,516 @@ describe('Learning routes', () => {
       expect(Array.isArray(body.result.loaded)).toBe(true)
     })
   })
+
+  // =========================================================================
+  // W17-B3: Additional edge-case tests (30+ new tests)
+  // =========================================================================
+
+  describe('Trend endpoints with no data', () => {
+    it('GET /trends/quality with empty store returns empty array, not error', async () => {
+      const res = await app.request('/api/learning/trends/quality')
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { success: boolean; data: unknown[] }
+      expect(body.success).toBe(true)
+      expect(body.data).toEqual([])
+    })
+
+    it('GET /trends/cost with empty store returns empty array, not error', async () => {
+      const res = await app.request('/api/learning/trends/cost')
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { success: boolean; data: unknown[] }
+      expect(body.success).toBe(true)
+      expect(body.data).toEqual([])
+    })
+
+    it('GET /trends/quality with trajectories lacking qualityScore returns empty', async () => {
+      await memoryService.put('trajectories', scope, 'traj-only-cost', {
+        costCents: 5,
+        timestamp: '2026-01-01T00:00:00Z',
+        nodeId: 'n1',
+      })
+      const res = await app.request('/api/learning/trends/quality')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toEqual([])
+    })
+
+    it('GET /trends/cost with trajectories lacking costCents returns empty', async () => {
+      await memoryService.put('trajectories', scope, 'traj-only-quality', {
+        qualityScore: 9,
+        timestamp: '2026-01-01T00:00:00Z',
+        nodeId: 'n1',
+      })
+      const res = await app.request('/api/learning/trends/cost')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toEqual([])
+    })
+  })
+
+  describe('Limit parsing edge cases across endpoints', () => {
+    it('GET /trends/quality?limit=0 uses fallback 20', async () => {
+      for (let i = 0; i < 25; i++) {
+        await memoryService.put('trajectories', scope, `traj-lim0-${i}`, {
+          qualityScore: i,
+          timestamp: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+        })
+      }
+      const res = await app.request('/api/learning/trends/quality?limit=0')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(20)
+    })
+
+    it('GET /trends/cost?limit=0 uses fallback 20', async () => {
+      for (let i = 0; i < 25; i++) {
+        await memoryService.put('trajectories', scope, `traj-clim0-${i}`, {
+          costCents: i * 0.1,
+          timestamp: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+        })
+      }
+      const res = await app.request('/api/learning/trends/cost?limit=0')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(20)
+    })
+
+    it('GET /trends/cost?limit=abc uses fallback 20', async () => {
+      for (let i = 0; i < 25; i++) {
+        await memoryService.put('trajectories', scope, `traj-cabc-${i}`, {
+          costCents: i * 0.1,
+          timestamp: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
+        })
+      }
+      const res = await app.request('/api/learning/trends/cost?limit=abc')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(20)
+    })
+
+    it('GET /lessons?limit=0 uses fallback 10', async () => {
+      for (let i = 0; i < 15; i++) {
+        await memoryService.put('lessons', scope, `lesson-lim0-${i}`, {
+          text: `lesson ${i}`, importance: i,
+        })
+      }
+      const res = await app.request('/api/learning/lessons?limit=0')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(10)
+    })
+
+    it('GET /rules?limit=abc uses fallback 10', async () => {
+      for (let i = 0; i < 15; i++) {
+        await memoryService.put('rules', scope, `rule-abc-${i}`, {
+          text: `rule ${i}`, priority: i,
+        })
+      }
+      const res = await app.request('/api/learning/rules?limit=abc')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(10)
+    })
+  })
+
+  describe('Node performance edge cases', () => {
+    it('GET /nodes when no trajectories returns empty array', async () => {
+      const res = await app.request('/api/learning/nodes')
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { success: boolean; data: unknown[] }
+      expect(body.success).toBe(true)
+      expect(body.data).toEqual([])
+    })
+
+    it('GET /nodes with single trajectory per node', async () => {
+      await memoryService.put('trajectories', scope, 'traj-single', {
+        nodeId: 'solo-node',
+        qualityScore: 7.5,
+        costCents: 2.0,
+        timestamp: '2026-01-01T00:00:00Z',
+      })
+      const res = await app.request('/api/learning/nodes')
+      const body = (await res.json()) as {
+        data: Array<{ nodeId: string; runCount: number; avgQualityScore: number; totalCostCents: number }>
+      }
+      expect(body.data).toHaveLength(1)
+      expect(body.data[0]!.nodeId).toBe('solo-node')
+      expect(body.data[0]!.runCount).toBe(1)
+      expect(body.data[0]!.avgQualityScore).toBe(7.5)
+      expect(body.data[0]!.totalCostCents).toBe(2.0)
+    })
+
+    it('GET /nodes with many nodes correctly separates them', async () => {
+      for (let i = 0; i < 5; i++) {
+        await memoryService.put('trajectories', scope, `traj-n${i}`, {
+          nodeId: `node-${i}`,
+          qualityScore: i + 1,
+          costCents: i * 0.5,
+        })
+      }
+      const res = await app.request('/api/learning/nodes')
+      const body = (await res.json()) as { data: Array<{ nodeId: string }> }
+      expect(body.data).toHaveLength(5)
+      const nodeIds = body.data.map((n) => n.nodeId).sort()
+      expect(nodeIds).toEqual(['node-0', 'node-1', 'node-2', 'node-3', 'node-4'])
+    })
+  })
+
+  describe('Feedback validation edge cases', () => {
+    it('POST /feedback with empty object returns 400', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { success: boolean; error: string }
+      expect(body.success).toBe(false)
+      expect(body.error).toBeTruthy()
+    })
+
+    it('POST /feedback with runId but approved=null returns 400', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-1', approved: null }),
+      })
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { error: string }
+      expect(body.error).toContain('approved')
+    })
+
+    it('POST /feedback with runId=null returns 400', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: null, approved: true }),
+      })
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as { error: string }
+      expect(body.error).toContain('runId')
+    })
+
+    it('POST /feedback with approved=undefined returns 400', async () => {
+      const res = await app.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-1' }),
+      })
+      expect(res.status).toBe(400)
+    })
+  })
+
+  describe('Feedback stats with no feedback', () => {
+    it('GET /feedback/stats when no feedback stored returns zero counts', async () => {
+      const res = await app.request('/api/learning/feedback/stats')
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as {
+        success: boolean
+        data: { total: number; approved: number; rejected: number; approvalRate: number }
+      }
+      expect(body.success).toBe(true)
+      expect(body.data.total).toBe(0)
+      expect(body.data.approved).toBe(0)
+      expect(body.data.rejected).toBe(0)
+      expect(body.data.approvalRate).toBe(0)
+    })
+
+    it('GET /feedback/stats with empty byType map', async () => {
+      const res = await app.request('/api/learning/feedback/stats')
+      const body = (await res.json()) as { data: { byType: Record<string, unknown> } }
+      expect(body.data.byType).toEqual({})
+    })
+  })
+
+  describe('Skill-pack reload idempotency', () => {
+    it('POST /skill-packs/load twice with same packIds — no duplicate entries', async () => {
+      const payload = { packIds: ['pack-alpha', 'pack-beta'] }
+
+      await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      const listRes = await app.request('/api/learning/skill-packs')
+      const listBody = (await listRes.json()) as { data: string[] }
+      expect(listBody.data).toHaveLength(2)
+      expect(listBody.data).toContain('pack-alpha')
+      expect(listBody.data).toContain('pack-beta')
+    })
+
+    it('POST /skill-packs/load with overlapping packs — no dups in list', async () => {
+      await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: ['pack-x', 'pack-y'] }),
+      })
+      await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: ['pack-y', 'pack-z'] }),
+      })
+
+      const listRes = await app.request('/api/learning/skill-packs')
+      const listBody = (await listRes.json()) as { data: string[] }
+      expect(listBody.data).toHaveLength(3)
+      const yCounts = listBody.data.filter((id) => id === 'pack-y').length
+      expect(yCounts).toBe(1)
+    })
+  })
+
+  describe('Skill-packs list after loading', () => {
+    it('GET /skill-packs after loading 3 packs returns correct IDs', async () => {
+      await app.request('/api/learning/skill-packs/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packIds: ['pack-ts', 'pack-react', 'pack-node'] }),
+      })
+
+      const res = await app.request('/api/learning/skill-packs')
+      const body = (await res.json()) as { success: boolean; data: string[] }
+      expect(body.success).toBe(true)
+      expect(body.data.sort()).toEqual(['pack-node', 'pack-react', 'pack-ts'])
+    })
+  })
+
+  describe('Lessons with nodeId filter', () => {
+    it('GET /lessons?nodeId=agent-1 returns only that node lessons', async () => {
+      await memoryService.put('lessons', scope, 'l-a1', {
+        text: 'Agent-1 lesson A', importance: 5, nodeId: 'agent-1', taskType: 'gen',
+      })
+      await memoryService.put('lessons', scope, 'l-a2', {
+        text: 'Agent-1 lesson B', importance: 3, nodeId: 'agent-1', taskType: 'gen',
+      })
+      await memoryService.put('lessons', scope, 'l-b1', {
+        text: 'Agent-2 lesson', importance: 8, nodeId: 'agent-2', taskType: 'gen',
+      })
+
+      const res = await app.request('/api/learning/lessons?nodeId=agent-1')
+      const body = (await res.json()) as { data: Array<{ nodeId: string }> }
+      expect(body.data).toHaveLength(2)
+      expect(body.data.every((l) => l.nodeId === 'agent-1')).toBe(true)
+    })
+  })
+
+  describe('Lessons with taskType filter', () => {
+    it('GET /lessons?taskType=code-gen returns only matching lessons', async () => {
+      await memoryService.put('lessons', scope, 'l-cg1', {
+        text: 'Code gen tip', importance: 5, nodeId: 'n1', taskType: 'code-gen',
+      })
+      await memoryService.put('lessons', scope, 'l-cg2', {
+        text: 'Another code gen tip', importance: 7, nodeId: 'n2', taskType: 'code-gen',
+      })
+      await memoryService.put('lessons', scope, 'l-review', {
+        text: 'Review tip', importance: 9, nodeId: 'n1', taskType: 'review',
+      })
+
+      const res = await app.request('/api/learning/lessons?taskType=code-gen')
+      const body = (await res.json()) as { data: Array<{ taskType: string }> }
+      expect(body.data).toHaveLength(2)
+      expect(body.data.every((l) => l.taskType === 'code-gen')).toBe(true)
+    })
+  })
+
+  describe('Rules with specific limit', () => {
+    it('GET /rules?limit=3 returns at most 3 rules', async () => {
+      for (let i = 0; i < 10; i++) {
+        await memoryService.put('rules', scope, `rule-lim3-${i}`, {
+          text: `Rule ${i}`, priority: i,
+        })
+      }
+
+      const res = await app.request('/api/learning/rules?limit=3')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(3)
+    })
+
+    it('GET /rules?limit=3 returns highest priority rules', async () => {
+      for (let i = 0; i < 10; i++) {
+        await memoryService.put('rules', scope, `rule-prio-${i}`, {
+          text: `Rule prio ${i}`, priority: i,
+        })
+      }
+
+      const res = await app.request('/api/learning/rules?limit=3')
+      const body = (await res.json()) as { data: Array<{ priority: number }> }
+      expect(body.data).toHaveLength(3)
+      // Should be the top 3 by priority: 9, 8, 7
+      expect(body.data[0]!.priority).toBe(9)
+      expect(body.data[1]!.priority).toBe(8)
+      expect(body.data[2]!.priority).toBe(7)
+    })
+  })
+
+  describe('Dashboard with partial data', () => {
+    it('some namespaces empty, others populated — no 500', async () => {
+      // Only seed lessons and trajectories, leave rules/skills/feedback/packs/errors empty
+      await memoryService.put('lessons', scope, 'l-partial', { text: 'partial', importance: 1 })
+      await memoryService.put('trajectories', scope, 't-partial', {
+        qualityScore: 8, costCents: 1, timestamp: '2026-01-01T00:00:00Z', nodeId: 'n',
+      })
+
+      const res = await app.request('/api/learning/dashboard')
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as {
+        success: boolean
+        data: {
+          lessonCount: number; ruleCount: number; skillCount: number
+          feedbackCount: number; packCount: number; errorCount: number
+        }
+      }
+      expect(body.success).toBe(true)
+      expect(body.data.lessonCount).toBe(1)
+      expect(body.data.ruleCount).toBe(0)
+      expect(body.data.skillCount).toBe(0)
+      expect(body.data.feedbackCount).toBe(0)
+      expect(body.data.packCount).toBe(0)
+      expect(body.data.errorCount).toBe(0)
+    })
+
+    it('only errors namespace populated — dashboard still succeeds', async () => {
+      await memoryService.put('errors', scope, 'err-1', { message: 'boom', timestamp: '2026-01-01' })
+
+      const res = await app.request('/api/learning/dashboard')
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { success: boolean; data: { errorCount: number; lessonCount: number } }
+      expect(body.success).toBe(true)
+      expect(body.data.errorCount).toBe(1)
+      expect(body.data.lessonCount).toBe(0)
+    })
+  })
+
+  describe('Concurrent requests', () => {
+    it('5 simultaneous GET /dashboard requests — all succeed', async () => {
+      await seedLessons()
+      await seedRules()
+
+      const requests = Array.from({ length: 5 }, () =>
+        app.request('/api/learning/dashboard'),
+      )
+      const responses = await Promise.all(requests)
+
+      for (const res of responses) {
+        expect(res.status).toBe(200)
+        const body = (await res.json()) as { success: boolean }
+        expect(body.success).toBe(true)
+      }
+    })
+
+    it('concurrent GET on different endpoints — all succeed', async () => {
+      await seedLessons()
+      await seedRules()
+      await seedTrajectories()
+
+      const endpoints = [
+        '/api/learning/dashboard',
+        '/api/learning/overview',
+        '/api/learning/trends/quality',
+        '/api/learning/trends/cost',
+        '/api/learning/nodes',
+        '/api/learning/lessons',
+        '/api/learning/rules',
+        '/api/learning/feedback/stats',
+        '/api/learning/skill-packs',
+      ]
+      const responses = await Promise.all(
+        endpoints.map((ep) => app.request(ep)),
+      )
+      for (const res of responses) {
+        expect(res.status).toBe(200)
+        const body = (await res.json()) as { success: boolean }
+        expect(body.success).toBe(true)
+      }
+    })
+  })
+
+  describe('TenantId from context', () => {
+    it('when context has tenantId, routes use it instead of defaultTenantId', async () => {
+      const ctxTenantId = 'ctx-tenant-42'
+      const ctxScope = { tenantId: ctxTenantId }
+
+      // Seed data under the context tenant
+      await memoryService.put('lessons', ctxScope, 'lesson-ctx', {
+        text: 'Context tenant lesson', importance: 5,
+      })
+
+      // Seed data under the default tenant too
+      await memoryService.put('lessons', scope, 'lesson-default', {
+        text: 'Default tenant lesson', importance: 3,
+      })
+
+      // Create an app that injects tenantId via middleware
+      const ctxApp = new Hono()
+      ctxApp.use('*', async (c, next) => {
+        c.set('tenantId', ctxTenantId)
+        await next()
+      })
+      ctxApp.route('/api/learning', createLearningRoutes({ memoryService, defaultTenantId: 'test-tenant' }))
+
+      const res = await ctxApp.request('/api/learning/lessons')
+      const body = (await res.json()) as { data: Array<{ text: string }> }
+      expect(body.data).toHaveLength(1)
+      expect(body.data[0]!.text).toBe('Context tenant lesson')
+    })
+
+    it('empty string tenantId in context falls back to defaultTenantId', async () => {
+      await memoryService.put('lessons', scope, 'lesson-fallback', {
+        text: 'Default', importance: 1,
+      })
+
+      const ctxApp = new Hono()
+      ctxApp.use('*', async (c, next) => {
+        c.set('tenantId', '')
+        await next()
+      })
+      ctxApp.route('/api/learning', createLearningRoutes({ memoryService, defaultTenantId: 'test-tenant' }))
+
+      const res = await ctxApp.request('/api/learning/lessons')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(1)
+    })
+
+    it('non-string tenantId in context falls back to defaultTenantId', async () => {
+      await memoryService.put('rules', scope, 'rule-fallback', {
+        text: 'Default rule', priority: 1,
+      })
+
+      const ctxApp = new Hono()
+      ctxApp.use('*', async (c, next) => {
+        c.set('tenantId', 12345)
+        await next()
+      })
+      ctxApp.route('/api/learning', createLearningRoutes({ memoryService, defaultTenantId: 'test-tenant' }))
+
+      const res = await ctxApp.request('/api/learning/rules')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(1)
+    })
+  })
+
+  describe('Quality trend with valid limit values', () => {
+    it('GET /trends/quality?limit=1 returns exactly 1 most recent', async () => {
+      await seedTrajectories()
+      const res = await app.request('/api/learning/trends/quality?limit=1')
+      const body = (await res.json()) as { data: Array<{ timestamp: string }> }
+      expect(body.data).toHaveLength(1)
+      // Should be the last (most recent) item
+      expect(body.data[0]!.timestamp).toBe('2026-01-03T00:00:00Z')
+    })
+  })
+
+  describe('Cost trend with valid limit values', () => {
+    it('GET /trends/cost?limit=2 returns exactly 2 most recent', async () => {
+      await seedTrajectories()
+      const res = await app.request('/api/learning/trends/cost?limit=2')
+      const body = (await res.json()) as { data: Array<{ costCents: number }> }
+      expect(body.data).toHaveLength(2)
+    })
+
+    it('GET /trends/cost?limit=100 with 3 items returns all 3', async () => {
+      await seedTrajectories()
+      const res = await app.request('/api/learning/trends/cost?limit=100')
+      const body = (await res.json()) as { data: unknown[] }
+      expect(body.data).toHaveLength(3)
+    })
+  })
 })

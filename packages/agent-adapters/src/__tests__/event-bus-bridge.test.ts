@@ -93,6 +93,63 @@ describe('EventBusBridge', () => {
       })
     })
 
+    it('forwards adapter:completed usage onto agent:completed when present', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const completedEvent: AgentCompletedEvent = {
+        type: 'adapter:completed',
+        providerId: 'claude',
+        sessionId: 'sess-usage',
+        result: 'ok',
+        usage: { inputTokens: 120, outputTokens: 42, cachedInputTokens: 8, costCents: 3 },
+        durationMs: 700,
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([completedEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      const event = emitted[0] as unknown as {
+        type: string
+        agentId: string
+        runId: string
+        durationMs: number
+        usage?: { inputTokens: number; outputTokens: number; cachedInputTokens?: number; costCents?: number }
+      }
+      expect(event.type).toBe('agent:completed')
+      expect(event.agentId).toBe('claude')
+      expect(event.runId).toBe(RUN_ID)
+      expect(event.durationMs).toBe(700)
+      expect(event.usage).toEqual({
+        inputTokens: 120,
+        outputTokens: 42,
+        cachedInputTokens: 8,
+        costCents: 3,
+      })
+    })
+
+    it('omits usage on agent:completed when adapter does not report token counts', async () => {
+      const bus = createEventBus()
+      const emitted = collectBusEvents(bus)
+      const bridge = new EventBusBridge(bus)
+
+      const completedEvent: AgentCompletedEvent = {
+        type: 'adapter:completed',
+        providerId: 'codex',
+        sessionId: 'sess-no-usage',
+        result: 'ok',
+        durationMs: 250,
+        timestamp: Date.now(),
+      }
+
+      await collectAll(bridge.bridge(yieldEvents([completedEvent]), RUN_ID))
+
+      expect(emitted).toHaveLength(1)
+      expect(emitted[0]).not.toHaveProperty('usage')
+    })
+
     it('bridges adapter:failed to agent:failed', async () => {
       const bus = createEventBus()
       const emitted = collectBusEvents(bus)
