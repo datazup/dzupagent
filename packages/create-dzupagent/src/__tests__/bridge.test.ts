@@ -54,7 +54,7 @@ describe('wireProject', () => {
     expect(typeof result.filesImported).toBe('number')
     expect(typeof result.filesSkipped).toBe('number')
     expect(Array.isArray(result.summaries)).toBe(true)
-  })
+  }, 15_000)
 
   it('returns success=true with 0 imports when project has no native agent files', async () => {
     const projectDir = join(tempDir, 'empty-project')

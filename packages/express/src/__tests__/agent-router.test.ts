@@ -15,6 +15,9 @@ function createMockAgent(overrides?: Partial<DzupAgent>): DzupAgent {
 /**
  * Simulate calling a route handler registered on the Express router.
  * Finds the route matching the given method + path and invokes it.
+ *
+ * asyncHandler wraps the inner fn as `(req, res, next) => void` (synchronous),
+ * so we must pass a real `next` and wait for the inner Promise to settle.
  */
 function findRouteHandler(
   router: ReturnType<typeof createAgentRouter>,
@@ -25,9 +28,22 @@ function findRouteHandler(
     (l: { route?: { path?: string; methods?: Record<string, boolean> } }) =>
       l.route?.path === path && l.route?.methods?.[method],
   )
-  return layer?.route?.stack?.[0]?.handle as
-    | ((req: Request, res: Response) => Promise<void>)
+  const handle = layer?.route?.stack?.[0]?.handle as
+    | ((req: Request, res: Response, next: (err?: unknown) => void) => void)
     | undefined
+
+  if (!handle) return undefined
+
+  return async (req: Request, res: Response): Promise<void> => {
+    await new Promise<void>((resolve) => {
+      // next is called if asyncHandler's .catch(next) fires (unhandled rejection)
+      // or if the route calls next() directly. Routes that handle errors internally
+      // (try/catch + res.status) never call next, so we also flush the event loop
+      // via setImmediate to let the inner async fn complete.
+      handle(req, res, () => resolve())
+      setImmediate(resolve)
+    })
+  }
 }
 
 interface MockResponseState {
