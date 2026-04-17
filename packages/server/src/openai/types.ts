@@ -83,6 +83,37 @@ export interface ModelListResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Streaming Tool Call Deltas (OpenAI wire format for tool_calls in chunks)
+// ---------------------------------------------------------------------------
+
+export interface StreamingToolCallFunction {
+  name?: string
+  arguments?: string
+}
+
+export interface StreamingToolCallDelta {
+  index: number
+  id?: string
+  type?: 'function'
+  function?: StreamingToolCallFunction
+}
+
+export interface ChatCompletionChunkWithTools {
+  id: string
+  object: 'chat.completion.chunk'
+  created: number
+  model: string
+  choices: Array<{
+    index: number
+    delta: {
+      content?: string
+      tool_calls?: StreamingToolCallDelta[]
+    }
+    finish_reason: string | null
+  }>
+}
+
+// ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
 

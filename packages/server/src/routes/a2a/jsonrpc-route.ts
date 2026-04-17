@@ -1,7 +1,7 @@
 /**
  * JSON-RPC 2.0 endpoint: POST /a2a
  */
-import { Hono } from 'hono'
+import type { Hono } from 'hono'
 import {
   JSON_RPC_ERRORS,
   createJsonRpcError,

@@ -85,6 +85,8 @@ import type { MailboxStore } from '@dzupagent/agent'
 import { InMemoryMailboxStore } from '@dzupagent/agent'
 import { createReflectionRoutes } from './routes/reflections.js'
 import { createMailboxRoutes } from './routes/mailbox.js'
+import { createClusterRoutes } from './routes/clusters.js'
+import type { ClusterStore } from './persistence/drizzle-cluster-store.js'
 import { openaiAuthMiddleware, type OpenAIAuthConfig } from './openai/auth-middleware.js'
 import { createCompletionsRoute } from './openai/completions-route.js'
 import { createModelsRoute } from './openai/models-route.js'
@@ -203,6 +205,8 @@ export interface ForgeServerConfig {
   reflectionStore?: RunReflectionStore
   /** Optional mailbox store for inter-agent messaging. Defaults to InMemoryMailboxStore if not provided. */
   mailboxStore?: MailboxStore
+  /** Optional cluster store for multi-role agent teams. When provided, mounts /api/clusters routes. */
+  clusterStore?: ClusterStore
   /** Optional marketplace catalog store. When provided, mounts /api/marketplace routes. */
   catalogStore?: CatalogStore
   /** Optional OpenAI-compatible API config. When provided, mounts /v1/chat/completions and /v1/models routes. */
@@ -533,6 +537,14 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   {
     const mailboxStore = runtimeConfig.mailboxStore ?? new InMemoryMailboxStore()
     app.route('/api/mailbox', createMailboxRoutes({ mailboxStore }))
+
+    // --- Cluster Routes ---
+    if (runtimeConfig.clusterStore) {
+      app.route('/api/clusters', createClusterRoutes({
+        clusterStore: runtimeConfig.clusterStore,
+        mailboxStore,
+      }))
+    }
   }
 
   // --- OpenAI-compatible Routes (/v1/*) ---

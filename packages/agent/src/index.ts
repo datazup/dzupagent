@@ -424,7 +424,7 @@ export type {
 } from './replay/index.js'
 
 // --- Instructions (AGENTS.md) ---
-export { parseAgentsMd } from './instructions/agents-md-parser.js'
+export { parseAgentsMd, mergeAgentsMd, discoverAgentsMdHierarchy } from './instructions/agents-md-parser.js'
 export type { AgentsMdSection } from './instructions/agents-md-parser.js'
 export { mergeInstructions } from './instructions/instruction-merger.js'
 export type { MergedInstructions } from './instructions/instruction-merger.js'

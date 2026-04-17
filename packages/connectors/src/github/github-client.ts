@@ -117,6 +117,36 @@ export interface GitHubContent {
   html_url: string
 }
 
+export interface GitHubCheckRun {
+  name: string
+  status: string
+  conclusion: string | null
+}
+
+export interface GitHubCheckRunsResponse {
+  check_runs: GitHubCheckRun[]
+}
+
+export interface GitHubLabel {
+  name: string
+}
+
+export interface GitHubReviewComment {
+  id: number
+  body: string
+}
+
+export interface GitHubWorkflowRun {
+  id: number
+  status: string
+  conclusion: string | null
+  name: string
+}
+
+export interface GitHubWorkflowRunsResponse {
+  workflow_runs: GitHubWorkflowRun[]
+}
+
 export interface ListIssuesOptions {
   state?: 'open' | 'closed' | 'all'
   labels?: string
@@ -216,6 +246,10 @@ export class GitHubClient {
       headers: { 'Content-Type': 'application/json' },
       ...(serialized !== undefined ? { body: serialized } : {}),
     })
+  }
+
+  private delete<T>(path: string): Promise<T> {
+    return this.request<T>(path, { method: 'DELETE' })
   }
 
   // ── Issues ─────────────────────────────────────────
@@ -366,5 +400,79 @@ export class GitHubClient {
     return this.request<GitHubContent | GitHubContent[]>(
       `/repos/${owner}/${repo}/contents/${path}${query}`,
     )
+  }
+
+  // ── Status Checks ──────────────────────────────────
+
+  /** Get status check runs for a commit ref (used for PR checks). */
+  async getPRChecks(
+    owner: string,
+    repo: string,
+    ref: string,
+  ): Promise<GitHubCheckRunsResponse> {
+    return this.request<GitHubCheckRunsResponse>(
+      `/repos/${owner}/${repo}/commits/${encodeURIComponent(ref)}/check-runs`,
+    )
+  }
+
+  // ── Labels ─────────────────────────────────────────
+
+  /** Add labels to an issue or PR. */
+  async addLabels(
+    owner: string,
+    repo: string,
+    issue_number: number,
+    labels: string[],
+  ): Promise<GitHubLabel[]> {
+    return this.post<GitHubLabel[]>(
+      `/repos/${owner}/${repo}/issues/${issue_number}/labels`,
+      { labels },
+    )
+  }
+
+  /** Remove a label from an issue or PR. */
+  async removeLabel(
+    owner: string,
+    repo: string,
+    issue_number: number,
+    label: string,
+  ): Promise<void> {
+    await this.delete<void>(
+      `/repos/${owner}/${repo}/issues/${issue_number}/labels/${encodeURIComponent(label)}`,
+    )
+  }
+
+  // ── Review Comments ────────────────────────────────
+
+  /** Create a file-level review comment on a pull request. */
+  async createReviewComment(
+    owner: string,
+    repo: string,
+    pr_number: number,
+    body: string,
+    path: string,
+    line: number,
+    commit_id?: string,
+  ): Promise<GitHubReviewComment> {
+    const payload: Record<string, unknown> = { body, path, line }
+    if (commit_id !== undefined) payload['commit_id'] = commit_id
+    return this.post<GitHubReviewComment>(
+      `/repos/${owner}/${repo}/pulls/${pr_number}/comments`,
+      payload,
+    )
+  }
+
+  // ── Workflow Runs ──────────────────────────────────
+
+  /** List workflow runs for a repository. If `workflow_id` is provided, restricts to that workflow. */
+  async getWorkflowRuns(
+    owner: string,
+    repo: string,
+    workflow_id?: string | number,
+  ): Promise<GitHubWorkflowRunsResponse> {
+    const path = workflow_id !== undefined
+      ? `/repos/${owner}/${repo}/actions/workflows/${encodeURIComponent(String(workflow_id))}/runs`
+      : `/repos/${owner}/${repo}/actions/runs`
+    return this.request<GitHubWorkflowRunsResponse>(path)
   }
 }

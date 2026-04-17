@@ -5,7 +5,7 @@
  * for hierarchical agent configuration.
  */
 
-export { parseAgentsMd } from './agents-md-parser.js'
+export { parseAgentsMd, mergeAgentsMd, discoverAgentsMdHierarchy } from './agents-md-parser.js'
 export type { AgentsMdSection } from './agents-md-parser.js'
 
 export { mergeInstructions } from './instruction-merger.js'

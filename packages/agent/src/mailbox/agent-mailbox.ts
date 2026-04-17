@@ -63,7 +63,7 @@ export class AgentMailboxImpl implements AgentMailbox {
 
     return this.eventBus.on('mail:received', (event) => {
       if (event.message.to === this.agentId) {
-        handler(event.message as MailMessage)
+        void handler(event.message as MailMessage)
       }
     })
   }

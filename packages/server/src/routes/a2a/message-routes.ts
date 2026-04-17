@@ -1,7 +1,7 @@
 /**
  * Multi-turn message route: POST /a2a/tasks/:id/messages
  */
-import { Hono } from 'hono'
+import type { Hono } from 'hono'
 import type { A2ARoutesConfig } from './helpers.js'
 
 export function registerMessageRoutes(app: Hono, config: A2ARoutesConfig): void {

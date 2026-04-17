@@ -5,6 +5,10 @@
  * and specific fields (Role, Instructions, Tools, Constraints) provide
  * structured configuration.
  *
+ * Also provides:
+ * - `mergeAgentsMd(layers)` — merge multiple parse results with precedence
+ * - `discoverAgentsMdHierarchy(cwd, globalDir)` — walk filesystem for AGENTS.md files
+ *
  * Example:
  * ```markdown
  * # CodeReviewer
@@ -18,6 +22,9 @@
  * Instructions: Check naming conventions and formatting.
  * ```
  */
+
+import { readFile } from 'node:fs/promises'
+import { join, dirname, resolve } from 'node:path'
 
 /** A parsed section from an AGENTS.md file. */
 export interface AgentsMdSection {
@@ -178,4 +185,175 @@ function normalizeAgentId(heading: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
+}
+
+// ---------------------------------------------------------------------------
+// Merge
+// ---------------------------------------------------------------------------
+
+/**
+ * Merge multiple AGENTS.md parse results (ordered global → project → directory).
+ *
+ * Later layers override earlier layers for conflicting agent IDs.
+ * Array fields (tools, constraints) are merged with deduplication.
+ * Scalar fields (role, instructions) from later layers replace earlier ones
+ * when non-empty.
+ */
+export function mergeAgentsMd(layers: AgentsMdSection[][]): AgentsMdSection[] {
+  if (layers.length === 0) return []
+  if (layers.length === 1) return layers[0] ?? []
+
+  // Build a map keyed by agentId; later layers override
+  const merged = new Map<string, AgentsMdSection>()
+
+  for (const layer of layers) {
+    for (const section of layer) {
+      const existing = merged.get(section.agentId)
+      if (!existing) {
+        merged.set(section.agentId, deepCloneSection(section))
+      } else {
+        mergeSectionInto(existing, section)
+      }
+    }
+  }
+
+  return Array.from(merged.values())
+}
+
+function deepCloneSection(section: AgentsMdSection): AgentsMdSection {
+  const clone: AgentsMdSection = {
+    agentId: section.agentId,
+    instructions: section.instructions,
+  }
+  if (section.role !== undefined) clone.role = section.role
+  if (section.tools) clone.tools = [...section.tools]
+  if (section.constraints) clone.constraints = [...section.constraints]
+  if (section.childSections) {
+    clone.childSections = section.childSections.map(deepCloneSection)
+  }
+  return clone
+}
+
+/**
+ * Merge `source` into `target` in-place. Source (later layer) wins for scalars.
+ * Arrays are unioned with deduplication.
+ */
+function mergeSectionInto(target: AgentsMdSection, source: AgentsMdSection): void {
+  // Scalars: later layer wins when non-empty
+  if (source.role !== undefined) target.role = source.role
+  if (source.instructions) target.instructions = source.instructions
+
+  // Arrays: merge + dedupe
+  if (source.tools) {
+    target.tools = dedupeStrings([...(target.tools ?? []), ...source.tools])
+  }
+  if (source.constraints) {
+    target.constraints = dedupeStrings([...(target.constraints ?? []), ...source.constraints])
+  }
+
+  // Children: recursive merge
+  if (source.childSections) {
+    if (!target.childSections) {
+      target.childSections = source.childSections.map(deepCloneSection)
+    } else {
+      const childMap = new Map<string, AgentsMdSection>()
+      for (const child of target.childSections) {
+        childMap.set(child.agentId, child)
+      }
+      for (const sourceChild of source.childSections) {
+        const existingChild = childMap.get(sourceChild.agentId)
+        if (existingChild) {
+          mergeSectionInto(existingChild, sourceChild)
+        } else {
+          const cloned = deepCloneSection(sourceChild)
+          target.childSections.push(cloned)
+          childMap.set(cloned.agentId, cloned)
+        }
+      }
+    }
+  }
+}
+
+function dedupeStrings(arr: string[]): string[] {
+  return [...new Set(arr)]
+}
+
+// ---------------------------------------------------------------------------
+// Hierarchy discovery
+// ---------------------------------------------------------------------------
+
+const AGENTS_MD_FILENAME = 'AGENTS.md'
+
+/**
+ * Discover AGENTS.md files from global directory → project root → cwd.
+ *
+ * Walks upward from `cwd` to the filesystem root to find all intermediate
+ * AGENTS.md files. If `globalDir` is specified, its AGENTS.md is checked first.
+ *
+ * Returns an ordered array of parsed results suitable for `mergeAgentsMd()`.
+ * Missing files are silently skipped.
+ */
+export async function discoverAgentsMdHierarchy(
+  cwd: string,
+  globalDir?: string,
+): Promise<AgentsMdSection[][]> {
+  const layers: AgentsMdSection[][] = []
+  const resolvedCwd = resolve(cwd)
+
+  // 1. Global config dir (e.g. ~/.config/dzupagent/)
+  if (globalDir) {
+    const globalResult = await tryParseAgentsMdAt(resolve(globalDir))
+    if (globalResult) layers.push(globalResult)
+  }
+
+  // 2. Walk from filesystem root down to cwd (collect intermediate AGENTS.md)
+  const ancestors = getAncestorDirs(resolvedCwd)
+  // ancestors is ordered from root → cwd, so earlier = higher level
+  for (const dir of ancestors) {
+    // Skip globalDir if it was already processed
+    if (globalDir && resolve(globalDir) === dir) continue
+    const result = await tryParseAgentsMdAt(dir)
+    if (result) layers.push(result)
+  }
+
+  return layers
+}
+
+/**
+ * Get ancestor directories from root down to (and including) the target dir.
+ * Returns them in root-first order.
+ */
+function getAncestorDirs(dir: string): string[] {
+  const dirs: string[] = []
+  let current = dir
+  const seen = new Set<string>()
+
+  while (!seen.has(current)) {
+    seen.add(current)
+    dirs.push(current)
+    const parent = dirname(current)
+    if (parent === current) break // reached root
+    current = parent
+  }
+
+  // Reverse so root is first, cwd is last
+  dirs.reverse()
+  return dirs
+}
+
+/**
+ * Try to read and parse AGENTS.md in the given directory.
+ * Returns null if the file doesn't exist or can't be parsed.
+ */
+async function tryParseAgentsMdAt(dir: string): Promise<AgentsMdSection[] | null> {
+  try {
+    const filePath = join(dir, AGENTS_MD_FILENAME)
+    const content = await readFile(filePath, 'utf-8')
+    const sections = parseAgentsMd(content)
+    // Return null for empty results so they are skipped
+    return sections.length > 0 ? sections : null
+  } catch {
+    // File doesn't exist or isn't readable — silently skip
+    return null
+  }
 }

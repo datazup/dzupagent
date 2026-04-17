@@ -18,6 +18,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import { vectorColumn } from './vector-column.js'
+import type { ReflectionPattern } from '@dzupagent/agent'
 
 // ---------------------------------------------------------------------------
 // Agent Definitions
@@ -202,7 +203,7 @@ export const runReflections = pgTable('run_reflections', {
   totalSteps: integer('total_steps').notNull(),
   toolCallCount: integer('tool_call_count').notNull(),
   errorCount: integer('error_count').notNull(),
-  patterns: jsonb('patterns').$type<import('@dzupagent/agent').ReflectionPattern[]>().notNull().default([]),
+  patterns: jsonb('patterns').$type<ReflectionPattern[]>().notNull().default([]),
   qualityScore: real('quality_score').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 })

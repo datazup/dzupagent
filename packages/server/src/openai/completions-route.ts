@@ -206,7 +206,42 @@ export function createCompletionsRoute(config: CompletionsRouteConfig): Hono {
               break
             }
 
-            // tool_call, tool_result, budget_warning, stuck — skip in OpenAI compat mode
+            if (event.type === 'tool_call') {
+              const toolCall = event.data as { name?: string; args?: Record<string, unknown>; id?: string; index?: number }
+              const toolIndex = typeof toolCall.index === 'number' ? toolCall.index : 0
+              const toolId = typeof toolCall.id === 'string' ? toolCall.id : mapper.generateId()
+              const toolName = typeof toolCall.name === 'string' ? toolCall.name : 'unknown'
+              const toolArgs = typeof toolCall.args === 'object' && toolCall.args !== null
+                ? JSON.stringify(toolCall.args)
+                : ''
+
+              // Emit initiation chunk
+              const initChunk = mapper.mapToolCallInitChunk(toolId, toolName, toolIndex, request.model, completionId)
+              await stream.writeSSE({ data: JSON.stringify(initChunk) })
+
+              // Stream arguments (split into ~20-char fragments for realistic streaming)
+              if (toolArgs) {
+                const fragmentSize = 20
+                for (let i = 0; i < toolArgs.length; i += fragmentSize) {
+                  const fragment = toolArgs.slice(i, i + fragmentSize)
+                  const argChunk = mapper.mapToolCallArgumentsChunk(fragment, toolIndex, request.model, completionId)
+                  await stream.writeSSE({ data: JSON.stringify(argChunk) })
+                }
+              }
+
+              // Emit finish_reason: tool_calls
+              const finishChunk = mapper.mapToolCallsFinishChunk(request.model, completionId)
+              await stream.writeSSE({ data: JSON.stringify(finishChunk) })
+              continue
+            }
+
+            if (event.type === 'tool_result') {
+              // Tool result is internal — agent will continue generating text after this
+              // No chunk emitted; just continue the loop
+              continue
+            }
+
+            // budget_warning, stuck — skip in OpenAI compat mode
           }
         } catch (err: unknown) {
           if (!abortController.signal.aborted) {

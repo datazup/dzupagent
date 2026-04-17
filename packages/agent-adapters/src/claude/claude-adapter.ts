@@ -386,11 +386,45 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
   // -----------------------------------------------------------------------
 
   interrupt(): void {
-    if (this.activeConversation) {
-      this.activeConversation.interrupt()
+    // The Claude SDK installs an abort listener that emits a synchronous
+    // error on its underlying child_process when the AbortController is
+    // aborted. That error reaches our generator's catch block, but the SDK
+    // also schedules an internal Promise rejection ("Claude Code process
+    // aborted by user") that is not consumed by the iterator we return.
+    //
+    // To prevent that benign abort signal from surfacing as an unhandled
+    // rejection in test runners, install a short-lived process-level
+    // handler that swallows exactly that message before triggering the
+    // abort.
+    const swallowAbort = (reason: unknown): void => {
+      const message = reason instanceof Error ? reason.message : String(reason)
+      if (message.includes('Claude Code process aborted by user')) {
+        // expected — this is the SDK's own abort signal, already handled
+        // via our generator's catch block
+        return
+      }
+      // Re-emit to preserve normal unhandled-rejection behavior for any
+      // unrelated errors that happen to arrive in this tick.
+      process.emit('unhandledRejection', reason as Error, Promise.reject(reason))
     }
-    if (this.abortController) {
-      this.abortController.abort()
+    process.once('unhandledRejection', swallowAbort)
+    // Remove the listener shortly after — abort propagation is synchronous
+    // plus one microtask, so a brief delay is sufficient.
+    setTimeout(() => process.removeListener('unhandledRejection', swallowAbort), 100).unref()
+
+    try {
+      if (this.activeConversation) {
+        this.activeConversation.interrupt()
+      }
+    } catch {
+      // SDK interrupt may throw — already covered by abort below
+    }
+    try {
+      if (this.abortController) {
+        this.abortController.abort()
+      }
+    } catch {
+      // Ignore synchronous throws raised by abort listeners
     }
   }
 

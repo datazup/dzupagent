@@ -52,7 +52,7 @@ export type {
   VectorSearchResult as DrizzleVectorSearchResult,
   VectorSearchOptions as DrizzleVectorSearchOptions,
 } from './persistence/postgres-stores.js'
-export { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors, deploymentHistory, a2aTasks, a2aTaskMessages, triggerConfigs, scheduleConfigs, runReflections, agentMailbox, agentCatalog } from './persistence/drizzle-schema.js'
+export { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors, deploymentHistory, a2aTasks, a2aTaskMessages, triggerConfigs, scheduleConfigs, runReflections, agentMailbox, agentClusters, clusterRoles, agentCatalog } from './persistence/drizzle-schema.js'
 
 // --- Vector (pgvector) ---
 export { vectorColumn } from './persistence/vector-column.js'
@@ -244,6 +244,12 @@ export { DrizzleReflectionStore } from './persistence/drizzle-reflection-store.j
 export { DrizzleMailboxStore } from './persistence/drizzle-mailbox-store.js'
 export { createMailboxRoutes } from './routes/mailbox.js'
 export type { MailboxRouteConfig } from './routes/mailbox.js'
+
+// --- Cluster Workspaces ---
+export { InMemoryClusterStore, DrizzleClusterStore } from './persistence/drizzle-cluster-store.js'
+export type { ClusterStore, ClusterRecord, CreateClusterInput } from './persistence/drizzle-cluster-store.js'
+export { createClusterRoutes } from './routes/clusters.js'
+export type { ClusterRouteConfig } from './routes/clusters.js'
 
 // --- OpenAI-compatible API ---
 export {

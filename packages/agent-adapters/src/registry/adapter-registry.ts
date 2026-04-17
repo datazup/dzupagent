@@ -19,6 +19,7 @@ import type {
   RoutingDecision,
   TaskDescriptor,
   TaskRoutingStrategy,
+  TokenUsage,
 } from '../types.js'
 
 import { TagBasedRouter } from './task-router.js'
@@ -193,6 +194,7 @@ export class AdapterRegistry {
         let sawCompleted = false
         let sawFailed = false
         let lastFailedEvent: Extract<AgentEvent, { type: 'adapter:failed' }> | undefined
+        let completedUsage: TokenUsage | undefined
 
         this.emitEvent({
           type: 'agent:started',
@@ -206,6 +208,10 @@ export class AdapterRegistry {
         for await (const event of gen) {
           if (event.type === 'adapter:completed') {
             sawCompleted = true
+            // Preserve token usage surfaced by the adapter so downstream
+            // bus listeners (metrics, cost attribution, relay aggregators)
+            // can observe real token counts instead of falling back to zero.
+            if (event.usage) completedUsage = event.usage
           } else if (event.type === 'adapter:failed') {
             sawFailed = true
             lastFailedEvent = event
@@ -221,6 +227,9 @@ export class AdapterRegistry {
             agentId: providerId,
             runId: `${providerId}-${startMs}`,
             durationMs: Date.now() - startMs,
+            // `usage` is optional — omit when the adapter didn't surface
+            // token counts so the wire shape stays clean.
+            ...(completedUsage ? { usage: completedUsage } : {}),
           })
           return // successfully completed
         }
@@ -498,7 +507,19 @@ export class AdapterRegistry {
   private emitEvent(
     event:
       | { type: 'agent:started'; agentId: string; runId: string }
-      | { type: 'agent:completed'; agentId: string; runId: string; durationMs: number }
+      | {
+          type: 'agent:completed'
+          agentId: string
+          runId: string
+          durationMs: number
+          /**
+           * Optional token usage surfaced by the underlying adapter.
+           * Forwarded verbatim to the event bus so downstream consumers
+           * (cost attribution, relay aggregators) can reason about real
+           * token counts. Omitted when the adapter didn't return usage.
+           */
+          usage?: TokenUsage
+        }
       | { type: 'agent:failed'; agentId: string; runId: string; errorCode: string; message: string }
       | { type: 'provider:failed'; tier: string; provider: string; message: string }
       | { type: 'provider:circuit_opened'; provider: string }
@@ -507,7 +528,11 @@ export class AdapterRegistry {
       | { type: 'registry:agent_deregistered'; agentId: string; reason: string },
   ): void {
     if (this.eventBus) {
-      // The event types are a subset of DzupEvent, safe to emit
+      // The event types are a subset of DzupEvent. `usage` on agent:completed
+      // is an additive extension not yet declared on the core DzupEvent
+      // union — receivers read JSON, not the compile-time type, so the
+      // extra field is safe on the wire (same pattern used by
+      // `pipeline:run_completed` in relay-orchestrator).
       this.eventBus.emit(event as Parameters<DzupEventBus['emit']>[0])
     }
   }

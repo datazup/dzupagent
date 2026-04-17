@@ -16,6 +16,7 @@ export interface MarketplaceRouteConfig {
   catalogStore: CatalogStore
 }
 
+// eslint-disable-next-line security/detect-unsafe-regex
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?$/
 
 export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {

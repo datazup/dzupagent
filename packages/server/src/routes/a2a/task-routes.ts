@@ -1,7 +1,7 @@
 /**
  * REST task lifecycle routes: create, get, list, cancel.
  */
-import { Hono } from 'hono'
+import type { Hono } from 'hono'
 import type { A2ATaskState } from '../../a2a/task-handler.js'
 import type { A2ARoutesConfig } from './helpers.js'
 

@@ -11,6 +11,7 @@ import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
   ChatCompletionChunk,
+  ChatCompletionChunkWithTools,
 } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -160,6 +161,94 @@ export class OpenAICompletionMapper {
    */
   generateId(): string {
     return `chatcmpl-${randomId()}`
+  }
+
+  /**
+   * Map a tool_call event to an OpenAI streaming delta chunk.
+   * Emits the tool call initiation chunk (name + empty arguments).
+   */
+  mapToolCallInitChunk(
+    toolCallId: string,
+    toolName: string,
+    toolIndex: number,
+    model: string,
+    completionId: string,
+  ): ChatCompletionChunkWithTools {
+    return {
+      id: completionId,
+      object: 'chat.completion.chunk',
+      created: Math.floor(Date.now() / 1000),
+      model,
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              {
+                index: toolIndex,
+                id: toolCallId,
+                type: 'function',
+                function: { name: toolName, arguments: '' },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    }
+  }
+
+  /**
+   * Map tool call argument fragment to a streaming delta chunk.
+   */
+  mapToolCallArgumentsChunk(
+    argumentFragment: string,
+    toolIndex: number,
+    model: string,
+    completionId: string,
+  ): ChatCompletionChunkWithTools {
+    return {
+      id: completionId,
+      object: 'chat.completion.chunk',
+      created: Math.floor(Date.now() / 1000),
+      model,
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              {
+                index: toolIndex,
+                function: { arguments: argumentFragment },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    }
+  }
+
+  /**
+   * Emit the final chunk with finish_reason: 'tool_calls'.
+   */
+  mapToolCallsFinishChunk(
+    model: string,
+    completionId: string,
+  ): ChatCompletionChunkWithTools {
+    return {
+      id: completionId,
+      object: 'chat.completion.chunk',
+      created: Math.floor(Date.now() / 1000),
+      model,
+      choices: [
+        {
+          index: 0,
+          delta: {},
+          finish_reason: 'tool_calls',
+        },
+      ],
+    }
   }
 
   // -------------------------------------------------------------------------

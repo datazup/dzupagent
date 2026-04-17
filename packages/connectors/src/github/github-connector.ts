@@ -343,6 +343,112 @@ export function createGitHubConnector(config: GitHubConnectorConfig): DynamicStr
       },
     }),
 
+    // ── Status Checks ──────────────────────────────────
+
+    new DynamicStructuredTool({
+      name: 'github_get_pr_checks',
+      description: 'Get status checks for a pull request',
+      schema: z.object({
+        owner: z.string(),
+        repo: z.string(),
+        pr_number: z.number().describe('Pull request number'),
+      }),
+      func: async ({ owner, repo, pr_number }) => {
+        const data = await safe(() => client.getPRChecks(owner, repo, `${pr_number}/head`))
+        if (typeof data === 'string') return data
+        if (data.check_runs.length === 0) return 'No check runs found'
+        return data.check_runs.map(r => {
+          const conclusion = r.conclusion ?? 'pending'
+          return `${r.name}: ${r.status} (${conclusion})`
+        }).join('\n')
+      },
+    }),
+
+    // ── Labels ─────────────────────────────────────────
+
+    new DynamicStructuredTool({
+      name: 'github_add_labels',
+      description: 'Add labels to an issue or pull request',
+      schema: z.object({
+        owner: z.string(),
+        repo: z.string(),
+        issue_number: z.number().describe('Issue or PR number'),
+        labels: z.array(z.string()).describe('Label names to add'),
+      }),
+      func: async ({ owner, repo, issue_number, labels }) => {
+        const data = await safe(() => client.addLabels(owner, repo, issue_number, labels))
+        if (typeof data === 'string') return data
+        const names = data.map(l => l.name).join(', ')
+        return `Labels on #${issue_number}: ${names}`
+      },
+    }),
+
+    new DynamicStructuredTool({
+      name: 'github_remove_label',
+      description: 'Remove a label from an issue or pull request',
+      schema: z.object({
+        owner: z.string(),
+        repo: z.string(),
+        issue_number: z.number().describe('Issue or PR number'),
+        label: z.string().describe('Label name to remove'),
+      }),
+      func: async ({ owner, repo, issue_number, label }) => {
+        try {
+          await client.removeLabel(owner, repo, issue_number, label)
+          return `Removed label "${label}" from #${issue_number}`
+        } catch (err) {
+          if (err instanceof GitHubApiError && err.status === 404) {
+            return `Label "${label}" not found on #${issue_number}`
+          }
+          if (err instanceof GitHubApiError) {
+            return `GitHub API error ${err.status}: ${err.body.slice(0, 200)}`
+          }
+          return `Error: ${err instanceof Error ? err.message : String(err)}`
+        }
+      },
+    }),
+
+    // ── Review Comments ────────────────────────────────
+
+    new DynamicStructuredTool({
+      name: 'github_create_review_comment',
+      description: 'Create a file-level review comment on a pull request',
+      schema: z.object({
+        owner: z.string(),
+        repo: z.string(),
+        pr_number: z.number().describe('Pull request number'),
+        body: z.string().describe('Comment body (markdown)'),
+        path: z.string().describe('File path being commented on'),
+        line: z.number().describe('Line number in the file'),
+      }),
+      func: async ({ owner, repo, pr_number, body, path, line }) => {
+        const data = await safe(() => client.createReviewComment(owner, repo, pr_number, body, path, line))
+        if (typeof data === 'string') return data
+        return `Review comment created (id=${data.id}): ${data.body.slice(0, 100)}`
+      },
+    }),
+
+    // ── Workflow Runs ──────────────────────────────────
+
+    new DynamicStructuredTool({
+      name: 'github_get_workflow_runs',
+      description: 'Get CI workflow runs for a repository',
+      schema: z.object({
+        owner: z.string(),
+        repo: z.string(),
+        workflow_id: z.string().optional().describe('Workflow file name or ID (optional)'),
+      }),
+      func: async ({ owner, repo, workflow_id }) => {
+        const data = await safe(() => client.getWorkflowRuns(owner, repo, workflow_id))
+        if (typeof data === 'string') return data
+        if (data.workflow_runs.length === 0) return 'No workflow runs found'
+        return data.workflow_runs.map(r => {
+          const conclusion = r.conclusion ?? 'pending'
+          return `[${r.id}] ${r.name}: ${r.status} (${conclusion})`
+        }).join('\n')
+      },
+    }),
+
     // ── Search ─────────────────────────────────────────
 
     new DynamicStructuredTool({

@@ -1,7 +1,7 @@
 /**
  * Agent card discovery route: GET /.well-known/agent.json
  */
-import { Hono } from 'hono'
+import type { Hono } from 'hono'
 import type { A2ARoutesConfig } from './helpers.js'
 
 export function registerWellKnownRoutes(app: Hono, config: A2ARoutesConfig): void {
