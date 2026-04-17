@@ -22,6 +22,22 @@
         "lines": 80
       }
     },
+    "agent-adapters": {
+      "thresholds": {
+        "statements": 85,
+        "branches": 80,
+        "functions": 85,
+        "lines": 85
+      }
+    },
+    "memory": {
+      "thresholds": {
+        "statements": 85,
+        "branches": 80,
+        "functions": 90,
+        "lines": 85
+      }
+    },
     "core": {
       "thresholds": {
         "statements": 80,

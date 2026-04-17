@@ -77,8 +77,23 @@ export { FlySandbox } from './sandbox/fly-sandbox.js'
 export type { FlySandboxConfig } from './sandbox/fly-sandbox.js'
 export { createSandbox } from './sandbox/sandbox-factory.js'
 export type { SandboxProvider, SandboxFactoryConfig } from './sandbox/sandbox-factory.js'
-export { TIER_DEFAULTS, tierToDockerFlags } from './sandbox/permission-tiers.js'
-export type { PermissionTier, TierConfig } from './sandbox/permission-tiers.js'
+export {
+  TIER_DEFAULTS,
+  MIN_MEMORY_MB,
+  MIN_CPUS,
+  MIN_TIMEOUT_MS,
+  tierToDockerFlags,
+  validateTierConfig,
+  mergeTierConfig,
+  tierToE2bConfig,
+  compareTiers,
+  mostRestrictiveTier,
+} from './sandbox/permission-tiers.js'
+export type {
+  PermissionTier,
+  TierConfig,
+  ValidationResult as TierValidationResult,
+} from './sandbox/permission-tiers.js'
 export { SECURITY_PROFILES, getSecurityProfile, customizeProfile, toDockerFlags } from './sandbox/security-profile.js'
 export type {
   SecurityLevel,

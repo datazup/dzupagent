@@ -38,7 +38,8 @@
     "check:waiver-expiry": "node scripts/check-waiver-expiry.mjs",
     "release:version": "changeset version",
     "release:publish": "changeset publish",
-    "release:status": "changeset status"
+    "release:status": "changeset status",
+    "bench": "vitest bench --config scripts/bench/vitest.bench.config.ts"
   },
   "engines": {
     "node": ">=20.0.0"

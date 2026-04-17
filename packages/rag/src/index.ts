@@ -19,3 +19,14 @@ export { CitationTracker } from './citation-tracker.js'
 export type { CitationSourceMeta } from './citation-tracker.js'
 export { RagMemoryNamespace } from './memory-namespace.js'
 export type { RagMemoryConfig, MemoryServiceLike } from './memory-namespace.js'
+export { CorpusManager } from './corpus-manager.js'
+export type { CorpusManagerConfig } from './corpus-manager.js'
+export type {
+  Corpus,
+  CorpusConfig,
+  CorpusSource,
+  IngestJobResult,
+  CorpusStats,
+  CorpusScoredDocument,
+} from './corpus-types.js'
+export { CorpusNotFoundError, SourceNotFoundError } from './corpus-types.js'

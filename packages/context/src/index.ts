@@ -62,3 +62,13 @@ export type {
   IntentRelevanceRule,
   TransferScope,
 } from './context-transfer.js'
+
+// --- Token Lifecycle ---
+export { TokenLifecycleManager, createTokenBudget } from './token-lifecycle.js'
+export type {
+  TokenBudget,
+  TokenPhaseUsage,
+  TokenLifecycleConfig,
+  TokenLifecycleStatus,
+  TokenLifecycleReport,
+} from './token-lifecycle.js'

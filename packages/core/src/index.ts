@@ -92,8 +92,10 @@ export {
   SemanticConsolidator, consolidateWithLLM,
   // Healer
   findDuplicates, findContradictions, findStaleRecords, healMemory,
-  // Working Memory
-  WorkingMemory,
+  // Working Memory (Zod-schema, persistence-backed — re-exported from @dzupagent/memory).
+  // Aliased to SchemaWorkingMemory so the in-process key-value WorkingMemory exported
+  // from `core/persistence/working-memory.ts` keeps the canonical name.
+  WorkingMemory as SchemaWorkingMemory,
   VersionedWorkingMemory,
   // Observation Extractors
   ObservationExtractor,
@@ -169,8 +171,9 @@ export type {
   SemanticConsolidationConfig, SemanticConsolidationResult, ConsolidationAction, ConsolidationDecision,
   // Healer types
   HealingIssue, HealingReport, MemoryHealerConfig,
-  // Working memory types
-  WorkingMemoryConfig,
+  // Working memory types — Zod-schema variant aliased to SchemaWorkingMemoryConfig
+  // to leave WorkingMemoryConfig free for the core persistence module.
+  WorkingMemoryConfig as SchemaWorkingMemoryConfig,
   VersionedWorkingMemoryConfig, WorkingMemoryDiff,
   // Observation types
   ObservationExtractorConfig, Observation, ObservationCategory,
@@ -300,6 +303,8 @@ export type { CostAttribution, CostReport, CostBucket, CostAttributionConfig } f
 export { createCheckpointer } from './persistence/checkpointer.js'
 export type { CheckpointerConfig } from './persistence/checkpointer.js'
 export { SessionManager } from './persistence/session.js'
+export { WorkingMemory, createWorkingMemory } from './persistence/working-memory.js'
+export type { WorkingMemoryConfig, WorkingMemorySnapshot } from './persistence/working-memory-types.js'
 export { InMemoryRunStore, InMemoryAgentStore } from './persistence/in-memory-store.js'
 export type {
   RunStore, Run, CreateRunInput, RunFilter, RunStatus, LogEntry,

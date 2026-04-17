@@ -56,6 +56,15 @@ export type { MemoryAwareExtractorConfig, ExtractionResult } from './memory-awar
 // --- Frozen Snapshot ---
 export { FrozenMemorySnapshot } from './frozen-snapshot.js'
 
+// --- Session Search (in-memory FTS) ---
+export { SessionSearch } from './session-search.js'
+export type {
+  SearchQuery,
+  SearchResult,
+  SessionSearchConfig,
+  SessionSearchStore,
+} from './session-search.js'
+
 // --- Staged Writer ---
 export { StagedWriter } from './staged-writer.js'
 export type { StagedRecord, MemoryStage, StagedWriterConfig } from './staged-writer.js'
