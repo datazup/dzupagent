@@ -1,452 +1,242 @@
 # Core Security Architecture
 
-Path: `packages/core/src/security`
-
-This document describes the architecture of the core security subsystem in `@dzupagent/core`, including features, data flow, usage patterns, cross-package integrations, and test coverage.
-
 ## Scope
+This document covers the security subsystem implemented under `packages/core/src/security` and its published surfaces through:
+
+- Root exports in `packages/core/src/index.ts`
+- Curated facade exports in `packages/core/src/facades/security.ts`
+- Package subpath export `@dzupagent/core/security` from `packages/core/package.json`
 
 In scope:
-- `packages/core/src/security/**`
-- Public surface exported through `packages/core/src/facades/security.ts`
-- Event-level integrations in other packages that consume security events
+
+- `risk-classifier.ts` and `tool-permission-tiers.ts`
+- `secrets-scanner.ts` and `pii-detector.ts`
+- `output-pipeline.ts`
+- `policy/*`
+- `audit/*`
+- `monitor/*`
+- `memory/*`
+- `output/*`
+- `classification/*`
 
 Out of scope:
-- Security modules implemented independently in other packages (for example `packages/otel/src/safety-monitor.ts`)
-- Non-security core internals unless needed for integration context
 
-## Export And Packaging Model
+- Security behavior implemented in other packages
+- Non-security runtime internals except where they are direct integration points (event bus, exports)
 
-Security functionality is exposed through two primary entry points:
+## Responsibilities
+The security subsystem provides reusable, composable building blocks for:
 
-1. Direct core exports in `packages/core/src/index.ts`
-- Re-exports security APIs so consumers importing `@dzupagent/core` can use them.
+- Tool risk tiering (`auto`, `log`, `require-approval`)
+- Secret detection and redaction
+- PII detection and redaction
+- Ordered output sanitization pipelines
+- Policy authoring/evaluation primitives (zero-trust style, deny-overrides)
+- Compliance audit storage and event-driven audit logging
+- Runtime safety monitoring with built-in rules
+- Memory poisoning heuristics before memory writes
+- Data sensitivity classification and classification-aware filtering
 
-2. Curated facade `@dzupagent/core/security`
-- Source facade: `packages/core/src/facades/security.ts`
-- Package export mapping: `packages/core/package.json` -> `"./security": "./dist/facades/security.js"`
-- Intended as the focused, stable security surface.
+The module is mostly policy/scan/evaluation logic. It does not enforce a single global workflow by itself; consumers compose these pieces in their own runtime path.
 
-## Module Map
+## Structure
+Current file layout:
 
-`packages/core/src/security` currently contains these module groups:
-
-- `audit/`
-- Tamper-evident audit log types, store interfaces, in-memory store, and event-bus logger.
-
+- `index.ts`
+- `risk-classifier.ts`
+- `tool-permission-tiers.ts`
+- `secrets-scanner.ts`
+- `pii-detector.ts`
+- `output-pipeline.ts`
 - `policy/`
-- Zero-trust policy model, synchronous evaluator, in-memory policy store, and LLM-based policy translator.
-
-- `monitor/`
-- Runtime safety monitor with built-in rules for prompt injection, PII leaks, secret leaks, tool abuse, and escalation.
-
-- `memory/`
-- Memory poisoning defense (homoglyph normalization, encoded payload detection, bulk-write throttling).
-
-- `output/`
-- Enhanced output filtering (harmful-content filter and classification-aware redactor).
-
-- `classification/`
-- Content sensitivity tagging via pattern-driven data classification.
-
-Top-level support modules:
-- `risk-classifier.ts`
-- `tool-permission-tiers.ts`
-- `secrets-scanner.ts`
-- `pii-detector.ts`
-- `output-pipeline.ts`
-- `index.ts` (barrel)
-
-Approximate code size: 2,686 lines of TypeScript under `packages/core/src/security`.
-
-## Feature Inventory
-
-## 1) Tool Risk Classification
-Files:
-- `risk-classifier.ts`
-- `tool-permission-tiers.ts`
-
-Capabilities:
-- Classifies tool calls into `auto`, `log`, or `require-approval`.
-- Uses ordered decision logic:
-  1. Static tier lists
-  2. Optional custom classifier callback
-  3. Default fallback tier
-
-Default behavior:
-- Unclassified tool defaults to `log` unless overridden.
-
-Typical use:
-- Gate tool execution in orchestrators or approval middleware.
-
-## 2) Secrets Scanning And Redaction
-File:
-- `secrets-scanner.ts`
-
-Capabilities:
-- Detects common secret forms (AWS, GitHub, GitLab, Slack, JWT, private keys, connection strings, generic key/password assignments).
-- Adds entropy-based detection for high-entropy assigned string values.
-- Returns structured matches with confidence and optional line numbers.
-- Produces redacted output with typed placeholders.
-
-Typical use:
-- Pre-log sanitization
-- Output sanitization
-- Secret leak prevention in traces and telemetry
-
-## 3) PII Detection And Redaction
-File:
-- `pii-detector.ts`
-
-Capabilities:
-- Detects `email`, `phone`, `ssn`, `credit-card`, and `ip-address`.
-- Handles overlap avoidance by prioritizing earlier pattern classes.
-- Returns positional metadata and redacted text.
-
-Typical use:
-- Data-loss prevention in model responses, logs, and exports.
-
-## 4) Multi-Stage Output Sanitization Pipeline
-File:
-- `output-pipeline.ts`
-
-Capabilities:
-- Executes ordered sanitization stages (sync or async).
-- Tracks which stages changed content.
-- Supports stage enable/disable and dynamic stage insertion.
-- Enforces max output length with truncation marker.
-- Includes a default constructor (`createDefaultPipeline`) with PII + secrets stages and optional deny-list replacement.
-
-Typical use:
-- Final output guard before returning content to users or downstream systems.
-
-## 5) Zero-Trust Policy Engine
-Files:
 - `policy/policy-types.ts`
 - `policy/policy-evaluator.ts`
 - `policy/policy-translator.ts`
-
-Capabilities:
-- Rich rule model with principals, action/resource globs, and condition operators.
-- Evaluator semantics:
-  - Priority sorting
-  - Deny-overrides
-  - Default-deny
-- Policy validation utilities (duplicate IDs, invalid fields, expiry validation).
-- In-memory versioned policy store.
-- Translator for natural language -> `PolicyRule` via injected LLM function.
-
-Important separation:
-- `PolicyEvaluator` is deterministic and synchronous (enforcement path).
-- `PolicyTranslator` is LLM-based (authoring path only).
-
-## 6) Compliance Audit Trail
-Files:
+- `policy/index.ts`
+- `audit/`
 - `audit/audit-types.ts`
 - `audit/audit-store.ts`
 - `audit/in-memory-audit-store.ts`
 - `audit/audit-logger.ts`
-
-Capabilities:
-- Hash-chained audit entries for tamper evidence.
-- Filtered search, count, retention handling, integrity verification, NDJSON export.
-- Event-bus integration to auto-record policy/safety/memory/tool/agent events.
-
-Notes:
-- In-memory store hash implementation is intentionally lightweight and documented as non-crypto-strength.
-
-## 7) Runtime Safety Monitor
-Files:
+- `audit/index.ts`
+- `monitor/`
 - `monitor/built-in-rules.ts`
 - `monitor/safety-monitor.ts`
-
-Capabilities:
-- Built-in rules for:
-  - Prompt injection
-  - PII leak
-  - Secret leak
-  - Tool abuse (consecutive `tool:error` threshold)
-  - Privilege escalation attempts
-- Can attach to `DzupEventBus` and emit derived safety events:
-  - `safety:violation`
-  - `safety:blocked`
-  - `safety:kill_requested`
-- Supports custom rules and rule replacement.
-- Non-fatal rule failures by design.
-
-## 8) Memory Poisoning Defense
-Files:
+- `monitor/index.ts`
+- `memory/`
 - `memory/memory-defense.ts`
-
-Capabilities:
-- Homoglyph normalization and mixed-script detection.
-- Encoded payload detection for Base64/hex blocks with printable-content heuristic.
-- Bulk write protection via fact-count threshold.
-- Returns threat list with action (`allow`/`quarantine`/`reject`) and confidence.
-
-## 9) Enhanced Output Filters
-Files:
+- `memory/index.ts`
+- `output/`
 - `output/output-filter-enhanced.ts`
-
-Capabilities:
-- Harmful content category filtering (violence, malware, illegal activity by default).
-- Classification-aware redaction that tightens masking by sensitivity level.
-- Non-fatal error handling (fallback to original content).
-
-## 10) Data Classification
-Files:
+- `output/index.ts`
+- `classification/`
 - `classification/data-classification.ts`
+- `classification/index.ts`
 
-Capabilities:
-- Auto-tags content into `public | internal | confidential | restricted`.
-- Pattern-based reason extraction.
-- Utility methods for level comparison and namespace tagging.
-
-## End-To-End Flows
-
-## Flow A: Tool Action Governance
-
-1. Classify tool call risk using `createRiskClassifier()`.
-2. Optionally evaluate policy (`PolicyEvaluator.evaluate`) for principal/action/resource context.
-3. Emit policy events to bus (`policy:evaluated`, `policy:denied`) from integration layer.
-4. `ComplianceAuditLogger` listens on bus and persists audit entries.
-5. `createSafetyMonitor()` listens for violations and emits `safety:*` events.
-6. Higher-level systems react (for example, incident playbooks in server package).
-
-## Flow B: Output Sanitization
-
-1. Generate raw agent output.
-2. Run through `OutputPipeline` stages.
-3. Typical default order:
-- PII redaction
-- Secret redaction
-- Optional deny-list policy
-- Output truncation
-4. Optionally append enhanced filters:
-- Harmful-content filter
-- Classification-aware redactor
-
-## Flow C: Memory Write Defense
-
-1. Before writing memory content, call `createMemoryDefense().scan(content)`.
-2. If threats detected:
-- `reject` -> block write
-- `quarantine` -> divert for review
-- `allow` -> proceed
-3. Optionally emit memory threat events (`memory:threat_detected`, `memory:quarantined`) for observability and incident handling.
-
-## Usage Examples
-
-## Example 1: Risk Classifier
-
-```ts
-import { createRiskClassifier } from '@dzupagent/core/security'
-
-const classifier = createRiskClassifier({
-  defaultTier: 'log',
-  customClassifier(tool, args) {
-    if (tool === 'run_shell' && args['dryRun'] === true) return 'log'
-    return undefined
-  },
-})
-
-const decision = classifier.classify('delete_file', { path: '/tmp/x' })
-// decision.tier === 'require-approval'
-```
-
-## Example 2: Policy Evaluation
-
-```ts
-import { PolicyEvaluator, InMemoryPolicyStore } from '@dzupagent/core/security'
-
-const evaluator = new PolicyEvaluator()
-const store = new InMemoryPolicyStore()
-
-await store.save({
-  id: 'tool-policy',
-  name: 'Tool policy',
-  version: 1,
-  active: true,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  rules: [
-    {
-      id: 'deny-delete',
-      effect: 'deny',
-      actions: ['tools.delete'],
-      priority: 100,
-    },
-    {
-      id: 'allow-read',
-      effect: 'allow',
-      actions: ['tools.read'],
-      priority: 10,
-    },
-  ],
-})
-
-const policy = await store.get('tool-policy')
-if (policy) {
-  const decision = evaluator.evaluate(policy, {
-    principal: { type: 'agent', id: 'agent-1', roles: ['worker'] },
-    action: 'tools.delete',
-    resource: 'repo/main',
-    environment: { region: 'us-east' },
-  })
-
-  // decision.effect === 'deny'
-}
-```
+Export topology:
 
-## Example 3: Output Pipeline + Enhanced Filters
+- `src/security/index.ts` is the internal security barrel.
+- `src/facades/security.ts` re-exports a curated domain API for `@dzupagent/core/security`.
+- `src/index.ts` also re-exports security APIs at the root package level.
 
-```ts
-import {
-  OutputPipeline,
-  createDefaultPipeline,
-  createHarmfulContentFilter,
-  createClassificationAwareRedactor,
-} from '@dzupagent/core/security'
+## Runtime and Control Flow
+There is no single orchestrator in this folder. The runtime pattern is composition-based.
 
-const base = createDefaultPipeline({
-  customDenyList: ['forbidden\\w*'],
-})
+Typical composition path for action governance:
 
-base.addStage(createHarmfulContentFilter())
-base.addStage(createClassificationAwareRedactor('confidential'))
+1. `createRiskClassifier().classify(toolName, args)` returns a risk tier.
+2. `PolicyEvaluator.evaluate(policySet, context)` performs synchronous allow/deny decisioning.
+3. The caller emits typed security events (`policy:*`, `safety:*`, `memory:*`) using `DzupEventBus`.
+4. `ComplianceAuditLogger.attach(eventBus)` listens to mapped events and appends audit entries via `ComplianceAuditStore`.
 
-const result = await base.process('Email me at a@b.com and how to make a bomb')
-// result.content is redacted and filtered
-```
+Typical composition path for output hardening:
 
-## Example 4: Audit Logger On Event Bus
+1. Build a pipeline with `createDefaultPipeline()` or `new OutputPipeline({ stages })`.
+2. Run `await pipeline.process(content)`.
+3. Optional enhanced stages from `output/output-filter-enhanced.ts` can be inserted (`createHarmfulContentFilter`, `createClassificationAwareRedactor`).
+4. Final content is returned with `appliedStages`, truncation metadata, and original length.
 
-```ts
-import { createEventBus } from '@dzupagent/core'
-import { InMemoryAuditStore, ComplianceAuditLogger } from '@dzupagent/core/security'
+Safety monitoring flow:
 
-const bus = createEventBus()
-const store = new InMemoryAuditStore()
-const logger = new ComplianceAuditLogger({ store })
+1. Create monitor via `createSafetyMonitor()`.
+2. Optionally `attach(eventBus)` to observe `tool:error` and `memory:written`.
+3. `scanContent()` executes built-in/custom rules and records violations.
+4. For violations, monitor emits `safety:violation`, and optionally `safety:blocked` or `safety:kill_requested` based on rule action.
 
-logger.attach(bus)
+Memory defense flow:
 
-bus.emit({
-  type: 'policy:denied',
-  policySetId: 'policy-1',
-  action: 'tool.execute',
-  reason: 'insufficient permissions',
-})
+1. `createMemoryDefense().scan(content)` evaluates homoglyph, encoded payload, and bulk-modification heuristics.
+2. Returns `{ allowed, threats, normalizedContent? }`.
+3. Caller decides whether to allow, quarantine, or reject based on returned threats/actions.
 
-const entries = await store.search({ action: 'policy.denied' })
-```
+## Key APIs and Types
+Risk classification:
 
-## Example 5: Memory Defense Gate
+- `createRiskClassifier(config?)`
+- `RiskTier = 'auto' | 'log' | 'require-approval'`
+- `RiskClassification`, `RiskClassifierConfig`, `RiskClassifier`
+- Default tool lists from `DEFAULT_AUTO_APPROVE_TOOLS`, `DEFAULT_LOG_TOOLS`, `DEFAULT_REQUIRE_APPROVAL_TOOLS`
 
-```ts
-import { createMemoryDefense } from '@dzupagent/core/security'
+Secrets and PII:
 
-const defense = createMemoryDefense({ maxFactsPerWrite: 5 })
-const scan = defense.scan(inputText)
+- `scanForSecrets(content)`, `redactSecrets(content)`
+- `detectPII(content)`, `redactPII(content)`
+- `SecretMatch`, `ScanResult`, `PIIMatch`, `PIIDetectionResult`
 
-if (!scan.allowed) {
-  // quarantine or reject based on scan.threats
-} else {
-  // persist scan.normalizedContent or original
-}
-```
+Output sanitization:
 
-## Cross-Package References And Usage
+- `class OutputPipeline`
+- `createDefaultPipeline(config?)`
+- `SanitizationStage`, `OutputPipelineConfig`, `PipelineResult`
 
-As of 2026-04-03, repository-wide usage shows:
+Policy engine:
 
-1. Direct facade import usage (`@dzupagent/core/security`) outside `packages/core`
-- No runtime code imports found.
-- Existing references are currently in core docs/examples and facade source comments.
+- `class PolicyEvaluator` (sync evaluate + validate)
+- `class PolicyTranslator` (LLM-backed authoring/explanation)
+- `class InMemoryPolicyStore`
+- `PolicyRule`, `PolicySet`, `PolicyContext`, `PolicyDecision`, condition/operator types
 
-2. Event-level integration in other packages is active
-- `packages/otel/src/event-metric-map/governance.ts`
-- Maps `policy:*`, `safety:*`, and `memory:*` security events into governance metrics.
+Audit trail:
 
-- `packages/server/src/security/incident-response.ts`
-- Incident playbooks consume security events (for example `safety:violation`, `memory:threat_detected`) to trigger automated actions.
+- `interface ComplianceAuditStore`
+- `class InMemoryAuditStore`
+- `class ComplianceAuditLogger`
+- `ComplianceAuditEntry`, `AuditFilter`, `IntegrityCheckResult`, `AuditRetentionPolicy`
 
-3. Related validation in other package tests
-- OTel tests assert governance metric extraction for security events.
-- Server incident-response tests use security event triggers to validate playbook execution.
+Safety monitor:
 
-Interpretation:
-- The security module is currently integrated primarily through event contracts, not direct facade imports by sibling packages.
+- `createSafetyMonitor(config?)`
+- `getBuiltInRules()` (5 built-in rules)
+- `SafetyMonitor`, `SafetyRule`, `SafetyViolation`, `SafetyCategory`, `SafetySeverity`, `SafetyAction`
 
-## Test Coverage Summary
+Memory defense:
 
-Security-relevant tests in `packages/core/src/__tests__`:
+- `createMemoryDefense(config?)`
+- `MemoryDefense`, `MemoryDefenseResult`, `MemoryThreat`, `EncodedContentMatch`
 
-- `secrets-scanner.test.ts` (18 test cases)
-- Covers token patterns, entropy detection, line numbers, redaction, multi-secret handling.
+Enhanced output and classification:
 
-- `pii-detector.test.ts` (15)
-- Covers all supported PII types, positional metadata, overlap-safe behavior, clean pass-through.
+- `createHarmfulContentFilter(categories?)`
+- `createClassificationAwareRedactor(classificationLevel?)`
+- `DataClassifier`, `DEFAULT_CLASSIFICATION_PATTERNS`
+- `ClassificationLevel`, `DataClassificationTag`, `ClassificationConfig`
 
-- `output-pipeline.test.ts` (15)
-- Covers stage ordering, enable/disable, async stage support, truncation, default pipeline options.
+## Dependencies
+Direct code-level dependencies inside `src/security` are intentionally lightweight:
 
-- `policy-engine.test.ts` (48)
-- Covers deny-overrides/default-deny semantics, condition operators, validation, store behavior, translator parsing/error paths.
+- Internal core modules:
+- `../../events/event-bus.js` (`DzupEventBus` integration for audit/monitor)
+- `../../errors/forge-error.js` (`PolicyTranslator` error signaling)
+- Local sibling security modules (PII/secrets pipeline composition)
 
-- `compliance-audit.test.ts` (28)
-- Covers hash chaining, search/count/filtering, integrity checks, retention, export, event-bus logging.
-
-- `security-monitor.test.ts` (39)
-- Covers built-in monitor rules, event bus attach/detach/dispose behavior, custom rules, memory defense, enhanced filters.
-
-- `data-classification.test.ts` (23)
-- Covers default patterns, level ordering, custom config, namespace tagging.
-
-- `facades.test.ts` (31 total; includes security export smoke checks)
-- Verifies security facade symbol availability.
-
-Adjacent security test (outside `src/security`):
-- `mcp-security.test.ts` (10)
-- Covers executable path validation and environment sanitization in `src/mcp/mcp-security.ts`.
-
-## Coverage Gaps And Risks
-
-1. `risk-classifier.ts` lacks dedicated behavioral unit tests
-- Current coverage is indirect via facade export checks.
-- Missing explicit tests for precedence and custom classifier override behavior.
-
-2. `tool-permission-tiers.ts` has no semantic tests
-- Arrays are smoke-checked for existence, not policy correctness.
-
-3. Limited full-stack integration tests between security submodules
-- No direct tests that combine policy + risk + monitor + audit + output pipeline as one runtime chain.
-
-4. `InMemoryAuditStore` hash chain is tamper-evident but not cryptographically strong
-- Acceptable for development/testing, but not a compliance-grade persistent implementation.
-
-5. Classification taxonomy mismatch potential
-- `createClassificationAwareRedactor` supports `top_secret`, while `DataClassifier` levels stop at `restricted`.
-- This is extensible by design, but worth documenting at integration points.
-
-## Recommended Next Steps
-
-1. Add unit tests for `risk-classifier.ts`
-- Static list precedence
-- `customClassifier` override
-- default tier fallback behavior
-
-2. Add semantic tests for `tool-permission-tiers.ts`
-- Assert expected tool names and intended tier placement for governance-critical actions.
-
-3. Add one integration test suite that composes:
-- risk classification
-- policy evaluation
-- safety monitor emission
-- audit logger persistence
-- output pipeline sanitization
-
-4. Consider a production audit store implementation
-- Crypto-backed hash/signature strategy
-- Persistent backend and immutable append guarantees
-
+- Platform/runtime primitives:
+- `performance.now()` in `PolicyEvaluator`
+- `Buffer` usage in memory-defense encoded content detection
+
+Package-level `dependencies` in `packages/core/package.json` are workspace packages (`@dzupagent/context`, `@dzupagent/memory`, `@dzupagent/runtime-contracts`), but the security subtree itself does not directly import them.
+
+No third-party runtime library is directly imported by files under `src/security` in the current code snapshot.
+
+## Integration Points
+Published API entry points:
+
+- `@dzupagent/core/security` -> `dist/facades/security.js`
+- `@dzupagent/core` root exports include the same security primitives
+- `@dzupagent/core/facades` includes `security` namespace via `facades/index.ts`
+
+Event system integration:
+
+- `ComplianceAuditLogger` consumes `DzupEventBus.onAny(...)` and maps selected event types:
+- `policy:evaluated`, `policy:denied`, `policy:set_updated`
+- `safety:violation`, `safety:blocked`, `safety:kill_requested`
+- `memory:threat_detected`, `memory:quarantined`
+- `agent:started`, `agent:completed`, `agent:failed`
+- `tool:called`, `tool:error`
+
+- `SafetyMonitor` can emit:
+- `safety:violation`
+- `safety:blocked`
+- `safety:kill_requested`
+
+Cross-subsystem composition points within core:
+
+- Output filters from `security/output/*` are `SanitizationStage` providers for `OutputPipeline`.
+- Classification output from `DataClassifier` can drive `createClassificationAwareRedactor(...)` level selection by callers.
+- Policy decisions and safety signals are intended to be correlated through the event bus and audit store, not through a hardwired in-folder orchestrator.
+
+## Testing and Observability
+Security subsystem test coverage is broad at unit level in `packages/core/src/__tests__`, including:
+
+- Risk tiering: `risk-classifier.test.ts`, `security-risk-classifier.test.ts`
+- Secrets scanner: `secrets-scanner.test.ts`
+- PII detector: `pii-detector.test.ts`, `security-pii-detector.test.ts`
+- Output pipeline: `output-pipeline.test.ts`
+- Policy engine/store/translator: `policy-engine.test.ts`, `security-policy-engine.test.ts`
+- Audit store/logger: `compliance-audit.test.ts`
+- Safety monitor + memory defense + enhanced output filters: `security-monitor.test.ts`
+- Classification: `data-classification.test.ts`
+- Facade export/behavior coverage: `facade-security.test.ts`
+- Broader regression bundle coverage: `w15-b2-security.test.ts`
+
+Observability in this subsystem is event-centric:
+
+- Safety monitor emits security events.
+- Audit logger converts events into append-only audit entries.
+- Audit store supports integrity checks and NDJSON export for downstream pipelines.
+
+No dedicated metrics collector is implemented directly in `src/security`; metrics are expected to be layered by consuming runtimes.
+
+## Risks and TODOs
+Current code-level risks and improvement targets:
+
+- `InMemoryAuditStore` uses a non-cryptographic hash (`djb2`-style variant). Commented in code as a development/testing implementation; production-grade stores should use cryptographic hashing/signing.
+- `InMemoryPolicyStore.get()` returns the last saved version, not strictly the numerically highest `version` field if versions are inserted out of order.
+- `PolicyTranslator` validates only parseability and presence of `rule`; it does not schema-validate translated rules before returning.
+- `SafetyMonitor.attach()` only subscribes to `tool:error` and `memory:written`; broader stream coverage must be wired by the caller through explicit `scanContent(...)` usage.
+- `createDefaultPipeline({ customDenyList })` compiles regex patterns directly with `new RegExp(...)`; invalid patterns throw at pipeline creation time.
+- Classification level sets are not fully unified:
+- `DataClassifier` supports `public|internal|confidential|restricted`
+- `createClassificationAwareRedactor` also recognizes `top_secret`
+
+## Changelog
+- 2026-04-16: automated refresh via scripts/refresh-architecture-docs.js

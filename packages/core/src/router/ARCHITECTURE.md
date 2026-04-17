@@ -1,435 +1,150 @@
 # Router Module Architecture (`packages/core/src/router`)
 
-## 1) Purpose and Scope
+## Scope
+This document covers the routing subsystem implemented under `packages/core/src/router`:
+- `intent-router.ts`
+- `keyword-matcher.ts`
+- `llm-classifier.ts`
+- `cost-aware-router.ts`
+- `escalation-policy.ts`
 
-This module provides a composable routing stack for:
+It also references in-package integration points in `packages/core/src` (exports, facades, and direct consumers), plus package metadata from `package.json` and `README.md` where relevant.
 
-- intent classification (`IntentRouter`)
-- deterministic fast matching (`KeywordMatcher`)
-- LLM fallback classification (`LLMClassifier`)
-- model-tier selection (`CostAwareRouter`)
-- post-run quality-based tier escalation (`ModelTierEscalationPolicy`)
+## Responsibilities
+The router module provides two related capabilities:
+- Intent classification with a staged fallback pipeline: heuristic, keyword rules, LLM classification, then default intent.
+- Model-tier recommendation and quality-driven escalation policy for runtime routing economics.
 
-In practice, this module is the bridge between user input semantics ("what is this request?") and execution economics ("which model tier should handle it now, and should future runs escalate?").
+Concretely, it owns:
+- Deterministic regex intent matching (`KeywordMatcher`).
+- LLM fallback classification constrained to an allowed intent set (`LLMClassifier`).
+- Composition of classifier stages and confidence tagging (`IntentRouter`).
+- Complexity scoring + model tier mapping (`CostAwareRouter`, `isSimpleTurn`, `scoreComplexity`).
+- Consecutive-low-score tracking and tier upgrade recommendation (`ModelTierEscalationPolicy`).
 
-## 2) Files and Responsibilities
-
-| File | Primary Responsibility | Main Exports |
+## Structure
+| File | Purpose | Main exports |
 | --- | --- | --- |
-| `intent-router.ts` | Multi-stage intent classification pipeline | `IntentRouter`, `IntentRouterConfig`, `ClassificationResult` |
-| `keyword-matcher.ts` | Fast regex-to-intent matching | `KeywordMatcher` |
-| `llm-classifier.ts` | LLM-based intent fallback with intent validation | `LLMClassifier` |
-| `cost-aware-router.ts` | Intent + complexity-based model-tier routing | `CostAwareRouter`, `isSimpleTurn`, `scoreComplexity` |
-| `escalation-policy.ts` | Consecutive-low-score escalation policy | `ModelTierEscalationPolicy` |
+| `intent-router.ts` | Orchestrates multi-stage classification and confidence origin | `IntentRouter`, `IntentRouterConfig`, `ClassificationResult` |
+| `keyword-matcher.ts` | Ordered regex-to-intent matcher | `KeywordMatcher` |
+| `llm-classifier.ts` | Prompted LLM classifier with allowlist validation | `LLMClassifier` |
+| `cost-aware-router.ts` | Wraps `IntentRouter` with complexity-based `ModelTier` routing and forced-intent overrides | `CostAwareRouter`, `CostAwareResult`, `CostAwareRouterConfig`, `ComplexityLevel`, `isSimpleTurn`, `scoreComplexity` |
+| `escalation-policy.ts` | Tracks repeated low scores and suggests next tier with cooldown rules | `ModelTierEscalationPolicy`, `EscalationPolicyConfig`, `EscalationResult` |
 
-## 3) Core Contracts
+## Runtime and Control Flow
+1. `IntentRouter.classify(text, context?)` runs pipeline stages in strict order.
+2. If `heuristic` returns a non-null intent, it returns immediately with `confidence: 'heuristic'`.
+3. Otherwise `keywordMatcher.match(text)` is attempted; first match returns `confidence: 'keyword'`.
+4. Otherwise `llmClassifier.classify(text)` is attempted (if configured); non-null returns `confidence: 'llm'`.
+5. Otherwise `defaultIntent` is returned with `confidence: 'default'`.
 
-### `ClassificationResult` (`intent-router.ts`)
+`CostAwareRouter.classify(text, context?)` adds model-tier routing on top of that result:
+1. Calls wrapped `intentRouter.classify(...)`.
+2. If classified intent is in `forceReasoningIntents`, returns `reasoningTier`, `routingReason: 'forced'`, `complexity: 'complex'`.
+3. Else if intent is in `forceExpensiveIntents`, returns `expensiveTier`, `routingReason: 'forced'`, `complexity: 'moderate'`.
+4. Else computes `complexity = scoreComplexity(...)` and maps:
+- `simple -> cheapTier` with `routingReason: 'simple_turn'`
+- `moderate -> expensiveTier` with `routingReason: 'complex_turn'`
+- `complex -> reasoningTier` with `routingReason: 'reasoning_turn'`
 
-```ts
-{
-  intent: string
-  confidence: 'heuristic' | 'keyword' | 'llm' | 'default'
-}
-```
+`scoreComplexity(...)` behavior:
+- Returns `simple` when `isSimpleTurn(...)` passes.
+- Returns `complex` when reasoning signals are strong (keyword count/long multiline heuristics).
+- Returns `moderate` otherwise.
 
-`confidence` indicates which tier of the intent pipeline produced the decision.
+`ModelTierEscalationPolicy.recordScore(key, score, currentTier)` flow:
+1. Initializes in-memory key state if missing.
+2. If `score >= lowScoreThreshold`, clears streak and does not escalate.
+3. Otherwise appends low score and keeps last `consecutiveCount` values.
+4. If low-score streak is below threshold count, does not escalate.
+5. If current tier is highest in `tierChain`, does not escalate.
+6. If cooldown is active (`now - lastEscalatedAt < cooldownMs`), does not escalate.
+7. Otherwise recommends next tier and resets streak.
 
-### `CostAwareResult` (`cost-aware-router.ts`)
+## Key APIs and Types
+`ClassificationResult`:
+- `intent: string`
+- `confidence: 'heuristic' | 'keyword' | 'llm' | 'default'`
 
-Extends `ClassificationResult` with:
+`IntentRouterConfig`:
+- `keywordMatcher: KeywordMatcher` (required)
+- `llmClassifier?: LLMClassifier`
+- `heuristic?: (text, context?) => Promise<string | null>`
+- `defaultIntent: string` (required)
 
-- `modelTier: ModelTier` (`chat | codegen | reasoning | embedding`)
+`CostAwareResult` extends `ClassificationResult` with:
+- `modelTier: ModelTier`
 - `routingReason: 'simple_turn' | 'complex_turn' | 'reasoning_turn' | 'forced'`
 - `complexity: 'simple' | 'moderate' | 'complex'`
 
-### `EscalationResult` (`escalation-policy.ts`)
-
-```ts
-{
-  shouldEscalate: boolean
-  fromTier: ModelTier
-  toTier: ModelTier
-  reason: string
-  consecutiveLowScores: number
-}
-```
-
-## 4) End-to-End Routing Flow
-
-```text
-user input
-  -> IntentRouter.classify()
-       1) heuristic(text, context)?         -> confidence: heuristic
-       2) keywordMatcher.match(text)?       -> confidence: keyword
-       3) llmClassifier.classify(text)?     -> confidence: llm
-       4) defaultIntent                     -> confidence: default
-  -> CostAwareRouter.classify()
-       a) forceReasoningIntents hit?        -> reasoning tier (forced)
-       b) forceExpensiveIntents hit?        -> codegen tier (forced)
-       c) scoreComplexity(text):
-          simple   -> cheapTier (default chat)
-          moderate -> expensiveTier (default codegen)
-          complex  -> reasoningTier (default reasoning)
-  -> run metadata gets { modelTier, routingReason, complexity }
-  -> executor uses metadata.modelTier when present
-  -> (optional) reflection score produced after run
-  -> ModelTierEscalationPolicy.recordScore(key, score, currentTier)
-       if consecutive lows + cooldown passed + tier not max:
-         recommend next tier
-```
-
-## 5) Feature-by-Feature Breakdown
-
-### 5.1 `KeywordMatcher`
-
-What it does:
-
-- Stores ordered regex patterns.
-- Returns first matching intent (`match`) or all matches (`matchAll`).
-- Supports fluent pattern registration via `.addPattern(...).addPattern(...)`.
-
-Why it exists:
-
-- Provides deterministic, cheap, low-latency routing before any LLM call.
-
-Behavior notes:
-
-- Order matters for `match`; first match wins.
-- `matchAll` preserves registration order.
-
-### 5.2 `IntentRouter`
-
-What it does:
-
-- Orchestrates 4-tier classification:
-  - `heuristic` (optional async callback)
-  - `keywordMatcher`
-  - `llmClassifier` (optional)
-  - `defaultIntent`
-
-Why it exists:
-
-- Separates "intent selection strategy" from model-tier economics.
-- Allows domain-specific deterministic short-circuiting via heuristic.
-
-Behavior notes:
-
-- `context` is passed only to `heuristic`; keyword/LLM steps only see text.
-- Failure at one stage does not throw by default (LLM classifier itself catches internally and returns `null`).
-
-### 5.3 `LLMClassifier`
-
-What it does:
-
-- Formats a prompt using placeholders:
-  - `{message}`
-  - `{intents}`
-- Invokes a `BaseChatModel`.
-- Normalizes model output to lowercase and validates it against `validIntents`.
-- Falls back to partial includes matching if exact match fails.
-
-Why it exists:
-
-- Handles ambiguous inputs that deterministic routes miss.
-
-Behavior notes:
-
-- Any model error is swallowed and returned as `null` to keep router non-fatal.
-- Because response text is lowercased, `validIntents` should be lowercase for best reliability.
-
-### 5.4 `CostAwareRouter`
-
-What it does:
-
-- Wraps `IntentRouter`.
-- Applies explicit intent-level overrides (`forceReasoningIntents`, `forceExpensiveIntents`).
-- Otherwise scores text complexity and maps to model tier.
-
-Complexity stages:
-
-- `isSimpleTurn` rejects simple classification when text is too long, multiline, contains code fences, URLs, or complexity keywords.
-- `scoreComplexity` returns:
-  - `simple` when `isSimpleTurn` passes
-  - `complex` when reasoning signals are high (keywords + multiline/long)
-  - `moderate` otherwise
-
-Defaults:
-
+`CostAwareRouterConfig` defaults:
 - `maxSimpleChars = 200`
 - `maxSimpleWords = 30`
 - `cheapTier = 'chat'`
 - `expensiveTier = 'codegen'`
 - `reasoningTier = 'reasoning'`
 
-Priority rules:
-
-- `forceReasoningIntents` takes precedence over `forceExpensiveIntents`.
-
-### 5.5 `ModelTierEscalationPolicy`
-
-What it does:
-
-- Tracks score streaks per key (example key: `agentId:intent`).
-- Escalates to next tier when:
-  - score is below threshold,
-  - low-score streak reaches `consecutiveCount`,
-  - current tier is not already highest,
-  - cooldown period has elapsed.
-
-Defaults:
-
+`EscalationPolicyConfig` defaults:
 - `lowScoreThreshold = 0.5`
 - `consecutiveCount = 3`
 - `cooldownMs = 300_000`
 - `tierChain = ['chat', 'codegen', 'reasoning']`
 
-Behavior notes:
+`EscalationResult`:
+- `shouldEscalate: boolean`
+- `fromTier: ModelTier`
+- `toTier: ModelTier`
+- `reason: string`
+- `consecutiveLowScores: number`
 
-- Scores at/above threshold reset streak.
-- Streak is reset after escalation.
-- Streak is not reset by cooldown-blocked attempts (buffered lows can trigger right after cooldown).
+## Dependencies
+Internal dependencies used directly by router files:
+- `../llm/model-config.js` (`ModelTier` type).
+- Intra-router imports (`IntentRouter`, `KeywordMatcher`, `LLMClassifier`).
 
-## 6) Runtime Integration Flow (Current Monorepo)
+External dependencies used directly by router files:
+- `@langchain/core/messages` (`HumanMessage`, `SystemMessage`) in `llm-classifier.ts`.
+- `@langchain/core/language_models/chat_models` (`BaseChatModel`) in `llm-classifier.ts`.
 
-### 6.1 Where routing happens
+Package-level context from `package.json`:
+- `@langchain/core` is a peer dependency (`>=1.0.0`) and a dev dependency for local tests/build.
 
-In `packages/server/src/routes/runs.ts`, during `POST /api/runs`:
+## Integration Points
+Within `packages/core/src`, router components are integrated through:
+- Root exports in `src/index.ts` (all router classes/types/functions are part of the main public API).
+- Orchestration facade exports in `src/facades/orchestration.ts`.
+- Stable facade path via `src/stable.ts` -> `src/facades/index.ts` -> orchestration namespace.
+- `src/skills/workflow-command-parser.ts`, which accepts an optional `IntentRouter` and uses it as async fallback in `parseAsync`.
 
-- input is normalized to text (`message`/`content`/`prompt`/JSON)
-- `config.router.classify(text)` is called when router is configured
-- run metadata is enriched with:
-  - `modelTier`
-  - `routingReason`
-  - `complexity`
-- metric `forge_routing_total` is incremented with tier/reason/complexity labels
+Related documentation state:
+- `README.md` and `src/facades/ARCHITECTURE.md` mention router usage and exports, but some examples are stale relative to current constructor signatures (for example, `IntentRouter({ routes: [...] })` does not match current `IntentRouterConfig`).
 
-Router failures are intentionally non-fatal; run creation continues without routing metadata.
+## Testing and Observability
+Direct router tests in `src/__tests__`:
+- `cost-aware-router.test.ts` covers `isSimpleTurn`, `scoreComplexity`, forced-intent precedence, and configurable tier mapping.
+- `escalation-policy.test.ts` covers threshold behavior, streak reset, cooldown behavior, custom chain config, key isolation, and reset semantics.
 
-### 6.2 Where selected tier is consumed
+Additional in-package coverage touching router interfaces:
+- `workflow-command-parser.test.ts` validates fallback behavior when an `IntentRouter` is provided.
+- Facade tests (`facade-orchestration.test.ts`, `facades.test.ts`, `w15-b1-facades.test.ts`) verify router export surface wiring.
 
-In `packages/server/src/runtime/dzip-agent-run-executor.ts`:
+Current gaps:
+- No dedicated unit tests for `IntentRouter` stage precedence and confidence labeling.
+- No dedicated unit tests for `KeywordMatcher.match`/`matchAll` ordering behavior.
+- No dedicated unit tests for `LLMClassifier` output normalization/partial matching/error swallowing behavior.
 
-- executor chooses model tier from run metadata first
-- fallback is the agent definition's `modelTier`
+Observability in this module:
+- Router files do not emit metrics or logs directly.
+- Runtime observability is expected to be handled by calling layers (event bus, metrics collector, middleware, server/runtime packages).
 
-This makes routing decisions directly influence model selection.
+## Risks and TODOs
+- `KeywordMatcher` uses `RegExp.test` directly; patterns with stateful flags (`g`/`y`) can produce non-deterministic behavior across repeated calls because `lastIndex` is mutable.
+- `LLMClassifier` lowercases model output but does not normalize `validIntents`; mixed-case `validIntents` can reduce exact-match reliability.
+- `LLMClassifier` only performs lightweight text validation and partial-contains fallback, so prompt/output drift can cause false intent matches.
+- `IntentRouter` does not isolate heuristic errors; exceptions from `heuristic` propagate, while `LLMClassifier` errors are swallowed and treated as no-match.
+- `ModelTierEscalationPolicy` state is in-memory only; escalation history is lost on process restart.
+- `README.md` router examples should be updated to match the current `IntentRouterConfig` and `CostAwareRouterConfig` APIs.
+- Add focused unit tests for `intent-router.ts`, `keyword-matcher.ts`, and `llm-classifier.ts`.
 
-### 6.3 Where escalation is consumed
-
-In `packages/server/src/runtime/run-worker.ts`:
-
-- reflection score is computed (if reflector is configured)
-- escalation key uses `agentId:intent`
-- `escalationPolicy.recordScore(...)` is called
-- if escalation is recommended, worker updates `agent.metadata.modelTier` and emits `registry:agent_updated`
-
-`run-worker` uses structural typing for escalation policy, so `ModelTierEscalationPolicy` from `@dzupagent/core` is wire-compatible but not hard-imported.
-
-## 7) References in Other Packages
-
-Based on repository search outside `packages/core`:
-
-- `packages/server/src/app.ts`
-  - imports type `CostAwareRouter`
-  - exposes optional `router?: CostAwareRouter` in server config
-- `packages/server/src/routes/runs.ts`
-  - executes router classification and writes routing metadata
-- `packages/server/src/runtime/dzip-agent-run-executor.ts`
-  - consumes `metadata.modelTier` to pick effective runtime model
-- `packages/server/src/routes/routing-stats.ts`
-  - aggregates `modelTier`, `routingReason`, `complexity` for operations visibility
-- `packages/server/src/__tests__/e2e-run-pipeline.test.ts`
-  - concrete construction of `KeywordMatcher -> IntentRouter -> CostAwareRouter`
-  - validates run metadata routing outcomes end to end
-- `packages/adapter-types/ARCHITECTURE.md`
-  - conceptual mention of cost-aware router pattern (documentation only)
-
-Current state summary:
-
-- cross-package runtime dependency is primarily on `CostAwareRouter` behavior through server run creation
-- `IntentRouter`, `KeywordMatcher`, `LLMClassifier`, and `ModelTierEscalationPolicy` are mostly consumed in-core or by tests/docs today
-
-## 8) Usage Examples
-
-### 8.1 Basic deterministic intent routing
-
-```ts
-import { IntentRouter, KeywordMatcher } from '@dzupagent/core'
-
-const keywordMatcher = new KeywordMatcher()
-  .addPattern(/generate|implement|build/i, 'generate_feature')
-  .addPattern(/edit|update|modify/i, 'edit_feature')
-
-const intentRouter = new IntentRouter({
-  keywordMatcher,
-  defaultIntent: 'chat',
-})
-
-const result = await intentRouter.classify('Please implement login with JWT')
-// { intent: 'generate_feature', confidence: 'keyword' }
-```
-
-### 8.2 Add heuristic and LLM fallback
-
-```ts
-import { IntentRouter, KeywordMatcher, LLMClassifier } from '@dzupagent/core'
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-
-const model: BaseChatModel = /* your LangChain chat model */
-
-const llmClassifier = new LLMClassifier(
-  model,
-  'Classify this message: "{message}". Valid intents: {intents}.',
-  ['chat', 'generate_feature', 'edit_feature'],
-)
-
-const intentRouter = new IntentRouter({
-  keywordMatcher: new KeywordMatcher().addPattern(/help|question/i, 'chat'),
-  llmClassifier,
-  heuristic: async (text, context) => {
-    if (context?.['forceIntent'] && typeof context['forceIntent'] === 'string') {
-      return context['forceIntent']
-    }
-    return null
-  },
-  defaultIntent: 'chat',
-})
-```
-
-### 8.3 Cost-aware routing with forced intents
-
-```ts
-import { CostAwareRouter } from '@dzupagent/core'
-
-const router = new CostAwareRouter({
-  intentRouter,
-  forceExpensiveIntents: ['generate_feature'],
-  forceReasoningIntents: ['review_architecture'],
-  maxSimpleChars: 180,
-  maxSimpleWords: 25,
-})
-
-const routed = await router.classify('Architect a multi-service scaling strategy')
-// {
-//   intent: 'review_architecture' | ...,
-//   confidence: ...,
-//   modelTier: 'reasoning',
-//   routingReason: 'forced' | 'reasoning_turn',
-//   complexity: 'complex'
-// }
-```
-
-### 8.4 Server wiring (`@dzupagent/server`)
-
-```ts
-import { createForgeApp } from '@dzupagent/server'
-import { CostAwareRouter, IntentRouter, KeywordMatcher } from '@dzupagent/core'
-
-const keywordMatcher = new KeywordMatcher().addPattern(/generate|implement/i, 'generate_feature')
-const intentRouter = new IntentRouter({ keywordMatcher, defaultIntent: 'chat' })
-const router = new CostAwareRouter({ intentRouter, forceExpensiveIntents: ['generate_feature'] })
-
-const app = createForgeApp({
-  runStore,
-  agentStore,
-  eventBus,
-  modelRegistry,
-  router, // enables metadata.modelTier/routingReason/complexity enrichment
-})
-```
-
-### 8.5 Escalation policy wiring in worker
-
-```ts
-import { ModelTierEscalationPolicy } from '@dzupagent/core'
-import { startRunWorker } from '@dzupagent/server'
-
-const escalationPolicy = new ModelTierEscalationPolicy({
-  lowScoreThreshold: 0.5,
-  consecutiveCount: 3,
-  cooldownMs: 5 * 60 * 1000,
-})
-
-startRunWorker({
-  runQueue,
-  runStore,
-  agentStore,
-  eventBus,
-  modelRegistry,
-  runExecutor,
-  reflector,
-  escalationPolicy, // structural compatibility with EscalationPolicyLike
-})
-```
-
-## 9) Test Coverage and Gaps
-
-Generated on 2026-04-03 from:
-
-- `yarn workspace @dzupagent/core test src/__tests__/cost-aware-router.test.ts src/__tests__/escalation-policy.test.ts`
-- `yarn workspace @dzupagent/core test:coverage`
-
-### 9.1 Router-folder coverage (from `packages/core/coverage/coverage-summary.json`)
-
-| File | Lines | Statements | Functions | Branches |
-| --- | --- | --- | --- | --- |
-| `src/router/cost-aware-router.ts` | 100% | 100% | 100% | 97.5% |
-| `src/router/escalation-policy.ts` | 100% | 100% | 100% | 100% |
-| `src/router/intent-router.ts` | 59.25% | 59.25% | 0% | 100% |
-| `src/router/keyword-matcher.ts` | 28.57% | 28.57% | 0% | 100% |
-| `src/router/llm-classifier.ts` | 30% | 30% | 0% | 100% |
-| `src/router` aggregate | 83.36% | 83.36% | 66.66% | 98.48% |
-
-### 9.2 Existing tests
-
-- `src/__tests__/cost-aware-router.test.ts` (19 tests)
-  - `isSimpleTurn` edge cases
-  - `scoreComplexity` tiering behavior
-  - forced intent precedence and custom tier mapping
-- `src/__tests__/escalation-policy.test.ts` (12 tests)
-  - threshold behavior
-  - streak reset
-  - cooldown handling
-  - tier-chain progression
-  - key isolation and reset semantics
-
-Also relevant integration coverage:
-
-- `packages/server/src/__tests__/e2e-run-pipeline.test.ts`
-  - verifies routing metadata is written and affects run behavior
-- `packages/server/src/__tests__/escalation-wiring.test.ts`
-  - verifies worker-side escalation wiring (via policy interface)
-
-### 9.3 Coverage gaps (important)
-
-- no direct unit tests for `IntentRouter` pipeline ordering and confidence labels
-- no direct unit tests for `KeywordMatcher` `match`/`matchAll` behavior and pattern order semantics
-- no direct unit tests for `LLMClassifier` exact/partial-match validation and error handling
-
-Recommended additions:
-
-- add `intent-router.test.ts` covering heuristic/keyword/llm/default precedence
-- add `keyword-matcher.test.ts` with ordered overlap and `matchAll` determinism
-- add `llm-classifier.test.ts` with mocked `BaseChatModel` for:
-  - exact valid intent
-  - partial valid intent
-  - invalid output
-  - thrown model error
-
-## 10) Architecture Risks and Tradeoffs
-
-- deterministic-first strategy reduces cost and latency, but keyword quality directly drives intent quality
-- LLM fallback improves recall, but currently has minimal output-shape hardening beyond string checks
-- complexity scoring uses static keyword heuristics; tuning is domain-sensitive and may drift with real traffic
-- routing failures are intentionally non-fatal, which improves availability but can silently degrade optimization
-- escalation writes selected tier into `agent.metadata.modelTier` (worker path), while executor primarily reads run metadata first; teams should define how persistent agent metadata is reconciled with per-run overrides
-
-## 11) Export Surface
-
-Router exports are exposed through:
-
-- root package exports (`packages/core/src/index.ts`)
-- orchestration facade (`packages/core/src/facades/orchestration.ts`)
-
-This makes the router stack available to both broad consumers (`@dzupagent/core`) and curated orchestration consumers (`@dzupagent/core/orchestration`).
+## Changelog
+- 2026-04-16: automated refresh via scripts/refresh-architecture-docs.js

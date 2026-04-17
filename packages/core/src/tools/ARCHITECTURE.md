@@ -1,422 +1,144 @@
-# Tools Subsystem Architecture (`packages/core/src/tools`)
+# Tools Module Architecture (`packages/core/src/tools`)
 
 ## Scope
-This folder contains two reusable framework utilities:
+This document covers the tools module implemented in `packages/core/src/tools`:
+- `connector-contract.ts`
+- `tool-stats-tracker.ts`
+- `tool-governance.ts`
+- `human-contact-types.ts`
 
-1. `ToolGovernance` (`tool-governance.ts`)
-2. `ToolStatsTracker` (`tool-stats-tracker.ts`)
+The scope is limited to code in `packages/core` and its public exports from `src/index.ts`.
 
-Both are exported from `@dzupagent/core` and intended for use by higher-level runtime packages.
+## Responsibilities
+The module provides shared tool-layer primitives, not a full tool runtime:
+- Define a canonical connector tool contract (`BaseConnectorTool`) plus normalization/type-guard helpers.
+- Provide in-memory tool performance tracking and ranking (`ToolStatsTracker`).
+- Provide policy gating and audit hooks around tool invocation decisions (`ToolGovernance`).
+- Define typed request/response contracts for human-in-the-loop contact workflows (`human-contact-types`).
 
----
+## Structure
+| File | Purpose | Main exports |
+| --- | --- | --- |
+| `connector-contract.ts` | Canonical shape for connector tools and normalization helpers | `BaseConnectorTool`, `isBaseConnectorTool`, `normalizeBaseConnectorTool`, `normalizeBaseConnectorTools` |
+| `tool-stats-tracker.ts` | In-memory tool outcome tracker with ranking and prompt-hint formatting | `ToolStatsTracker`, `ToolCallRecord`, `ToolStats`, `ToolRanking`, `ToolStatsTrackerConfig` |
+| `tool-governance.ts` | Synchronous governance checks (blocklist, rate limit, validator, approval flag) and audit callbacks | `ToolGovernance`, `ToolGovernanceConfig`, `ToolValidationResult`, `ToolAuditHandler`, `ToolAuditEntry`, `ToolResultAuditEntry`, `ToolAccessResult` |
+| `human-contact-types.ts` | Shared type contracts for approval/clarification/input/escalation flows | `ContactType`, `ContactChannel`, request/response unions, `PendingHumanContact` |
 
-## Public API Surface
+## Runtime and Control Flow
+`ToolGovernance.checkAccess(toolName, input)` executes checks in fixed order:
+1. Blocked tool check (`blockedTools`).
+2. Per-tool rate limit check (`rateLimits`) using a 60-second window in `rateCounts`.
+3. Custom validator check (`validator`).
+4. Approval-required tagging (`approvalRequired`) with `requiresApproval: true`.
+5. Default allow.
 
-### `ToolGovernance`
-Exported symbols:
+Audit flow is explicit and opt-in by caller:
+1. Caller invokes `audit(entry)` before/around execution.
+2. Caller invokes `auditResult(entry)` after execution.
+3. Exceptions thrown by audit handlers are swallowed to keep auditing non-fatal.
 
-- `ToolGovernance`
-- `ToolGovernanceConfig`
-- `ToolValidationResult`
-- `ToolAuditHandler`
-- `ToolAuditEntry`
-- `ToolResultAuditEntry`
-- `ToolAccessResult`
+`ToolStatsTracker` flow:
+1. `recordCall(record)` appends to per-tool history.
+2. Sliding window eviction trims oldest records beyond `windowSize` (default `200`).
+3. `getStats(toolName)` computes aggregate metrics from retained history.
+4. `getTopTools(limit?, intent?)` computes weighted ranking:
+   - `score = successRate * successWeight + normalizedSpeed * latencyWeight`
+   - `normalizedSpeed = clamp(1 - avgLatency / maxAvgLatency, 0..1)`
+5. `formatAsPromptHint(limit?, intent?)` returns either `''` or a numbered list headed by `Preferred tools for this task:`.
 
-### `ToolStatsTracker`
-Exported symbols:
+`connector-contract` flow:
+1. `isBaseConnectorTool(value)` validates shape (`id/name/description/schema/invoke`).
+2. `normalizeBaseConnectorTool(tool)` fills `id` from `name` when missing/blank and preserves `toModelOutput` when provided.
+3. `normalizeBaseConnectorTools(tools)` maps array normalization over all entries.
 
-- `ToolStatsTracker`
-- `ToolCallRecord`
-- `ToolStats`
-- `ToolRanking`
-- `ToolStatsTrackerConfig`
+`human-contact-types` is type-only (no runtime implementation):
+- Models request lifecycle (`HumanContactRequest`) and response lifecycle (`HumanContactResponse`) for contact modes such as `approval`, `clarification`, `input_request`, and `escalation`.
 
-### Re-export location
-These are re-exported in:
+## Key APIs and Types
+`BaseConnectorTool<Input, Output>`:
+- Required: `id`, `name`, `description`, `schema`, `invoke(input)`.
+- Optional: `toModelOutput(output)`.
 
-- `packages/core/src/index.ts` (lines 834-851)
-
----
-
-## Design Intent
-
-### 1) Governance plane (`ToolGovernance`)
-`ToolGovernance` is a synchronous policy gate around tool invocation decisions:
-
-- Blocklist enforcement
-- Approval requirement tagging
-- Per-tool rate limiting
-- Custom validation hook
-- Audit callbacks for call/result logging
-
-It is intentionally lightweight and framework-agnostic.
-
-### 2) Feedback plane (`ToolStatsTracker`)
-`ToolStatsTracker` is an in-memory analytics component for adaptive tool preference:
-
-- Tracks per-tool outcomes (success/failure, latency, optional intent)
-- Produces aggregate stats (success rate, avg latency, p95, top errors)
-- Ranks tools with a weighted success/speed score
-- Formats rankings into a prompt hint string for LLM guidance
-
----
-
-## Component Deep Dive
-
-## A) `ToolGovernance`
-
-Source: `packages/core/src/tools/tool-governance.ts`
-
-### Configuration contract
-
+`ToolGovernanceConfig`:
 - `blockedTools?: string[]`
 - `approvalRequired?: string[]`
-- `rateLimits?: Record<string, number>` (max calls/minute per tool)
-- `maxExecutionMs?: number`
+- `rateLimits?: Record<string, number>`
+- `maxExecutionMs?: number` (declared in config, not enforced by current class)
 - `validator?: (toolName, input) => ToolValidationResult`
 - `auditHandler?: ToolAuditHandler`
 
-### Access-check order
-`checkAccess(toolName, input)` evaluates in strict order:
+`ToolAccessResult`:
+- `allowed: boolean`
+- `reason?: string`
+- `requiresApproval?: boolean`
 
-1. Blocklist (`blockedTools`)
-2. Rate limit (`rateLimits`)
-3. Custom validator (`validator`)
-4. Approval tagging (`approvalRequired`)
-5. Allow
+`ToolCallRecord`:
+- `toolName`, `success`, `durationMs`, `timestamp`
+- Optional: `intent`, `errorType`
 
-The first rejecting condition returns immediately.
+`ToolStats`:
+- `totalCalls`, `successCount`, `failureCount`, `successRate`
+- `avgDurationMs`, `p95DurationMs`, `lastUsed`
+- `topErrors` grouped by `errorType`
 
-### Runtime state
-
-- Maintains `rateCounts: Map<string, { count: number; windowStart: number }>`
-- Window length is fixed at 60 seconds
-- Rate limits are isolated per tool key
-- `resetRateLimits()` clears all counters
-
-### Audit semantics
-
-- `audit(entry)` calls `auditHandler.onToolCall(entry)`
-- `auditResult(entry)` calls `auditHandler.onToolResult?.(entry)`
-- Any audit-handler exception is swallowed intentionally (non-fatal telemetry path)
-
-### Current limitation
-
-- `maxExecutionMs` exists in `ToolGovernanceConfig` but is not enforced by this class.
-- Callers that need timeout enforcement must implement it around actual tool execution.
-
-### Call flow
-
-```text
-Caller -> checkAccess(toolName, input)
-  -> blockedTools?            yes => deny
-  -> rateLimits exceeded?     yes => deny
-  -> validator returns invalid? yes => deny
-  -> approvalRequired match?  yes => allow + requiresApproval=true
-  -> allow
-Caller (optional) -> audit(...)
-Caller (optional) -> auditResult(...)
-```
-
-### Example usage
-
-```ts
-import { ToolGovernance } from '@dzupagent/core'
-
-const governance = new ToolGovernance({
-  blockedTools: ['rm_rf'],
-  approvalRequired: ['deploy_prod'],
-  rateLimits: { search_web: 30 },
-  validator: (toolName, input) => {
-    if (toolName === 'shell_exec' && typeof input === 'object' && input !== null) {
-      const cmd = String((input as { cmd?: unknown }).cmd ?? '')
-      if (cmd.includes('sudo')) return { valid: false, reason: 'sudo is not allowed' }
-    }
-    return { valid: true }
-  },
-})
-
-const access = governance.checkAccess('deploy_prod', { env: 'prod' })
-if (!access.allowed) throw new Error(access.reason)
-if (access.requiresApproval) {
-  // trigger human approval workflow here
-}
-```
-
----
-
-## B) `ToolStatsTracker`
-
-Source: `packages/core/src/tools/tool-stats-tracker.ts`
-
-### Data model
-
-Each record (`ToolCallRecord`) captures:
-
-- `toolName`
-- `intent?` (optional scenario label such as `debug`, `codegen`, `deploy`)
-- `success`
-- `durationMs`
-- `timestamp`
-- `errorType?`
-
-Per-tool history is stored in a map:
-
-- `Map<string, ToolCallRecord[]>`
-
-### Sliding-window behavior
-
-- Default max records per tool: `200`
-- Configurable via `windowSize`
-- On overflow, oldest records are removed first
-
-### Aggregate metrics (`getStats`)
-
-For a tool, returns:
-
-- `totalCalls`, `successCount`, `failureCount`
-- `successRate`
-- `avgDurationMs`
-- `p95DurationMs`
-- `lastUsed`
-- `topErrors` sorted by frequency descending
-
-### Ranking algorithm (`getTopTools`)
-
-For each tool (optionally filtered by `intent`):
-
-1. Compute success rate
-2. Compute average latency
-3. Normalize speed as `1 - avgLatency / maxAvgLatency` (clamped to `[0,1]`)
-4. Combine:
-
-```text
-score = successRate * successWeight + normalizedSpeed * latencyWeight
-```
-
-Defaults:
-
+`ToolStatsTrackerConfig` defaults:
+- `windowSize = 200`
 - `successWeight = 0.7`
 - `latencyWeight = 0.3`
 
-Output is sorted descending by score.
-
-### Prompt-hint generation
-`formatAsPromptHint(limit?, intent?)` returns:
-
-- `''` when no ranking data exists
-- Otherwise:
-  - Header: `Preferred tools for this task:`
-  - Numbered list with `toolName` and rounded success %
-
-### Call flow
-
-```text
-Tool execution completed
-  -> recordCall(...)
-  -> (later) getTopTools(limit, intent)
-  -> (optional) formatAsPromptHint(limit, intent)
-  -> inject into system prompt
-```
-
-### Example usage
-
-```ts
-import { ToolStatsTracker } from '@dzupagent/core'
-
-const tracker = new ToolStatsTracker({
-  windowSize: 300,
-  successWeight: 0.8,
-  latencyWeight: 0.2,
-})
-
-tracker.recordCall({
-  toolName: 'read_file',
-  intent: 'debug',
-  success: true,
-  durationMs: 42,
-  timestamp: Date.now(),
-})
-
-tracker.recordCall({
-  toolName: 'run_tests',
-  intent: 'debug',
-  success: false,
-  durationMs: 2500,
-  timestamp: Date.now(),
-  errorType: 'TIMEOUT',
-})
-
-const hint = tracker.formatAsPromptHint(5, 'debug')
-// "Preferred tools for this task:\n1. read_file (100% success)\n..."
-```
-
----
-
-## Cross-Package References and Usage
-
-## Where this tools subsystem is consumed
-
-### 1) `@dzupagent/agent` tool-loop hint injection path (active runtime integration)
-
-Relevant files:
-
-- `packages/agent/src/agent/agent-types.ts`
-- `packages/agent/src/agent/run-engine.ts`
-- `packages/agent/src/agent/tool-loop.ts`
-
-How it works:
-
-1. `DzupAgentConfig` accepts:
-   - `toolStatsTracker?: { formatAsPromptHint(limit?, intent?) => string }`
-2. `run-engine.ts` forwards `config.toolStatsTracker` and call-level `intent` into `runToolLoop`.
-3. `tool-loop.ts` invokes `formatAsPromptHint(5, intent)` on each iteration.
-4. If non-empty, it inserts a system message prefixed by `Tool performance hint:`.
-5. Before each new iteration, previous hint is removed and replaced (no accumulation).
-
-Key point:
-
-- Agent package uses structural typing and does not import `ToolStatsTracker` directly.
-- Any compatible object can be supplied, including `new ToolStatsTracker()`.
-
-### 2) `ToolGovernance` runtime adoption status
-
-Search results show:
-
-- Exported by core
-- Directly tested in `packages/core`
-- No current integration in other package runtime paths in this repo snapshot
-
-This means governance is currently an available building block, not a default-enforced runtime layer.
-
-### 3) `recordCall` producer status for `ToolStatsTracker`
-
-Current repo state:
-
-- `ToolStatsTracker.recordCall(...)` is exercised in core tests
-- No runtime caller found in non-test package code
-
-Practical implication:
-
-- If you pass a fresh tracker to `DzupAgentConfig.toolStatsTracker` without externally recording calls, hints remain empty.
-- To realize adaptive ranking, callers must feed records into tracker from tool execution telemetry.
-
----
-
-## Usage Patterns
-
-## Pattern A: Governance wrapper around tool execution
-
-Use `ToolGovernance` before invoking a tool:
-
-```ts
-const access = governance.checkAccess(toolName, input)
-await governance.audit({
-  toolName,
-  input,
-  callerAgent: agentId,
-  timestamp: Date.now(),
-  allowed: access.allowed,
-  blockedReason: access.reason,
-})
-if (!access.allowed) throw new Error(access.reason)
-```
-
-Then audit result:
-
-```ts
-await governance.auditResult({
-  toolName,
-  output,
-  callerAgent: agentId,
-  durationMs,
-  success,
-  timestamp: Date.now(),
-})
-```
-
-## Pattern B: Adaptive prompt hints in agent runs
-
-```ts
-import { DzupAgent } from '@dzupagent/agent'
-import { ToolStatsTracker } from '@dzupagent/core'
-
-const tracker = new ToolStatsTracker()
-
-const agent = new DzupAgent({
-  id: 'assistant',
-  instructions: '...',
-  model,
-  tools,
-  toolStatsTracker: tracker,
-})
-
-// IMPORTANT: ensure tracker.recordCall(...) is fed by your runtime telemetry
-```
-
----
-
-## Test Coverage
-
-## Test files directly covering this folder
-
-- `packages/core/src/__tests__/tool-governance.test.ts` (9 tests)
-- `packages/core/src/__tests__/tool-stats-tracker.test.ts` (20 tests)
-
-Validated via focused run:
-
-- Core tool tests: 29/29 passing
-
-Command:
-
-- `yarn workspace @dzupagent/core test -- src/__tests__/tool-governance.test.ts src/__tests__/tool-stats-tracker.test.ts`
-
-## Cross-package integration tests for tool hint wiring
-
-- `packages/agent/src/__tests__/tool-stats-wiring.test.ts` (8 tests)
-
-Validated via focused run:
-
-- Agent wiring tests: 8/8 passing
-
-Command:
-
-- `yarn workspace @dzupagent/agent test -- src/__tests__/tool-stats-wiring.test.ts`
-
-## Focused per-module coverage metrics
-
-A focused `--coverage` run for the two core tool tests produced:
-
-- `src/tools/tool-governance.ts`
-  - Statements: `95.77%`
-  - Branches: `96.00%`
-  - Functions: `85.71%`
-  - Lines: `95.77%`
-  - Uncovered lines: `114-119` (`auditResult` exception-swallow path detail)
-
-- `src/tools/tool-stats-tracker.ts`
-  - Statements: `99.54%`
-  - Branches: `93.10%`
-  - Functions: `100%`
-  - Lines: `99.54%`
-  - Uncovered line: `137` (one normalization branch path)
-
-Note on command exit:
-
-- The focused coverage command exits non-zero due to global package thresholds being evaluated across all `core` files, not just `src/tools`.
-- The per-file metrics above are still valid and extracted from that run output.
-
-Command used:
-
-- `yarn workspace @dzupagent/core test:coverage -- src/__tests__/tool-governance.test.ts src/__tests__/tool-stats-tracker.test.ts`
-
----
-
-## Risk and Gap Summary
-
-1. `ToolGovernanceConfig.maxExecutionMs` is declared but not implemented in governance logic.
-2. `ToolGovernance` is not yet wired into non-test runtime flows across other packages.
-3. `ToolStatsTracker` hint consumer exists in `@dzupagent/agent`, but no built-in runtime producer currently records tool calls into tracker.
-
-If these gaps are intentional (opt-in architecture), current behavior is consistent. If not, they are the highest-value integration opportunities.
+`human-contact-types` contracts:
+- Extensible unions via `(string & {})` for `ContactType` and `ContactChannel`.
+- Request union: `ApprovalRequest | ClarificationRequest | InputRequest | EscalationRequest | GenericContactRequest`.
+- Response union: `ApprovalResponse | ClarificationResponse | InputResponse | EscalationResponse | TimeoutResponse | LateResponse | GenericContactResponse`.
+- `PendingHumanContact` captures stored pending state plus delivery status.
+
+## Dependencies
+Direct dependencies in `src/tools/*.ts`:
+- No runtime external package imports.
+- Uses built-in JS/TS primitives (`Map`, arrays, `Date.now`, object checks, string checks).
+
+Package-level context from `package.json`:
+- Build/test toolchain includes `typescript`, `tsup`, `vitest`.
+- Public shipping surface is generated from entrypoints in `tsup.config.ts`; tools are surfaced through `src/index.ts` and therefore available in root and `advanced` entrypoints.
+
+## Integration Points
+In-package integration points:
+- Root export barrel re-exports all tools symbols from `src/index.ts`.
+- `src/advanced.ts` re-exports `src/index.ts`, so tools are also available via `@dzupagent/core/advanced`.
+- `src/stable.ts` exports only facades; tools symbols are not exposed through the stable facade-only entrypoint.
+
+Observed usage in `packages/core`:
+- Runtime usage outside `src/tools` is not present in non-test code.
+- Primary in-repo consumption is through direct unit tests.
+
+Documentation linkage:
+- `packages/core/docs/ARCHITECTURE.md` references `ToolGovernance` as an extensibility point.
+
+## Testing and Observability
+Direct tests for this module:
+- `src/__tests__/tool-governance.test.ts`
+- `src/__tests__/tool-stats-tracker.test.ts`
+
+What is covered:
+- Governance default allow path, blocklist, approval flagging, per-tool rate limits, validator behavior, audit callback invocation, non-fatal audit errors, and rate-limit reset behavior.
+- Stats tracker empty-state behavior, aggregate metrics, ranking, intent filtering, window eviction, prompt formatting, error aggregation, and reset/config behavior.
+
+Current gaps:
+- No dedicated tests in `packages/core/src/__tests__` for `connector-contract.ts`.
+- No dedicated tests in `packages/core/src/__tests__` for `human-contact-types.ts` (type-only declarations).
+
+Observability characteristics:
+- `ToolGovernance` provides callback hooks (`auditHandler`) for external audit/telemetry sinks.
+- `ToolStatsTracker` provides pull-based analytics (`getStats`, `getTopTools`, `formatAsPromptHint`) but does not emit events or metrics itself.
+
+## Risks and TODOs
+- `ToolGovernanceConfig.maxExecutionMs` is currently declarative only; execution timeout enforcement must be implemented by callers.
+- Rate-limit counters are in-memory process state and reset on restart.
+- `checkAccess` applies rate-limit checks before custom validation, so denied validations still consume rate-limit budget.
+- `ToolStatsTracker` is in-memory only and has no built-in persistence/export mechanism.
+- Ranking does not enforce weight normalization; unusual `successWeight`/`latencyWeight` values can produce non-intuitive scores.
+- `connector-contract` uses structural checks only; `schema` is accepted as `unknown` and not validated.
+- `human-contact-types` defines contracts but no runtime resolver/transport implementation in this folder.
+
+## Changelog
+- 2026-04-16: automated refresh via scripts/refresh-architecture-docs.js

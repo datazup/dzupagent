@@ -1,44 +1,95 @@
 # Streaming Architecture (`packages/core/src/streaming`)
 
-Last updated: 2026-04-03
-
 ## Scope
 
-This document covers the streaming normalization module in `@dzupagent/core`:
+This document covers only the streaming normalization module in `packages/core/src/streaming`:
 
-- `packages/core/src/streaming/sse-transformer.ts`
-- `packages/core/src/streaming/event-types.ts`
-- `packages/core/src/streaming/index.ts`
+- `event-types.ts`
+- `sse-transformer.ts`
+- `index.ts`
 
-It also maps:
+It also documents how this module is exported and tested within `packages/core`.
 
-- package export surfaces that expose this module
-- references/usages in other packages
-- test coverage status for this module and adjacent streaming layers
+Out of scope:
 
-## Design Intent
+- protocol SSE parsing/client code in `src/protocol/a2a-sse-stream.ts`
+- HTTP transport details (SSE frame writing, headers, reconnection policy)
 
-`packages/core/src/streaming` is a small compatibility layer that converts LangGraph `StreamEvent` objects into a simple, UI-friendly SSE payload contract.
+## Responsibilities
 
-Core goals:
+The streaming module has three concrete responsibilities:
 
-1. Normalize provider/framework-specific events into stable event shapes.
-2. Keep frontend and transport layers independent from LangGraph internals.
-3. Allow consumers to override built-in mappings with custom transformers.
+1. Define a stable, package-level SSE event contract (`StandardSSEEvent` + event name union).
+2. Transform LangGraph `StreamEvent` records into that contract through `SSETransformer`.
+3. Allow call sites to override built-in mappings through exact event-name custom transformers.
 
-## Module Map
+The module does not open network streams, serialize SSE frames, or manage backpressure.
 
-| File | Responsibility | Key Exports |
+## Structure
+
+| File | Role | Key Exports |
 | --- | --- | --- |
-| `event-types.ts` | Defines normalized event type union and payload interfaces | `StandardEventType`, `StandardSSEEvent`, `FileStreamStartPayload`, `FileStreamChunkPayload`, `FileStreamEndPayload` |
-| `sse-transformer.ts` | Maps LangGraph `StreamEvent` -> `StandardSSEEvent \| null` with custom override support | `SSETransformer`, `EventTransformer` |
-| `index.ts` | Folder barrel | Re-exports all streaming types + `SSETransformer` |
+| `src/streaming/event-types.ts` | Type contract for normalized events and optional file-stream payload shapes | `StandardEventType`, `StandardSSEEvent`, `FileStreamStartPayload`, `FileStreamChunkPayload`, `FileStreamEndPayload` |
+| `src/streaming/sse-transformer.ts` | Synchronous mapping from LangGraph `StreamEvent` to `StandardSSEEvent \| null` | `SSETransformer`, `EventTransformer` |
+| `src/streaming/index.ts` | Local barrel | Re-exports all streaming types + transformer |
 
-## Public Contract
+## Runtime and Control Flow
+
+Normalization flow:
+
+```text
+LangGraph emits StreamEvent
+  -> SSETransformer.transform(event)
+    -> custom transformer lookup by event.event (exact match)
+    -> otherwise built-in switch mapping
+    -> StandardSSEEvent or null
+  -> caller decides how to serialize/send (e.g., SSE "event:"/"data:" frames)
+```
+
+Built-in mappings currently implemented in `SSETransformer.transform()`:
+
+| Incoming `event.event` | Output `type` | Output `data` | Returns `null` when |
+| --- | --- | --- | --- |
+| `on_chat_model_stream` | `message` | `{ content }` from `event.data?.chunk?.content` | content is not a non-empty string |
+| `on_chat_model_end` | `tool_call` | `{ tools: [{ name, args }] }` from `event.data?.output?.tool_calls` | `tool_calls` is missing/empty |
+| `on_tool_start` | `progress` | `{ status: 'running', tool: event.name ?? 'unknown' }` | never |
+| `on_tool_end` | `tool_result` | `{ content }` from string output, `output.content`, or `JSON.stringify(output)` | never |
+| `on_chain_end` | `phase_change` | `{ phase: event.name }` | `event.name` is missing or starts with `__` |
+| any other event | n/a | n/a | always |
+
+## Key APIs and Types
+
+### `SSETransformer`
+
+```ts
+export type EventTransformer = (event: StreamEvent) => StandardSSEEvent | null
+
+export class SSETransformer {
+  addTransformer(eventName: string, transformer: EventTransformer): this
+  transform(event: StreamEvent): StandardSSEEvent | null
+}
+```
+
+Behavior notes:
+
+- `addTransformer()` stores the transformer in an internal `Map<string, EventTransformer>`.
+- Custom transformers run before built-in logic.
+- `transform()` is synchronous and side-effect free except for reading the custom transformer map.
+
+### `StandardSSEEvent`
+
+```ts
+export interface StandardSSEEvent {
+  type: StandardEventType | string
+  data: Record<string, unknown>
+}
+```
+
+`type` accepts arbitrary strings in addition to `StandardEventType`, which allows extension events without changing the core union first.
 
 ### `StandardEventType`
 
-Current built-in event union:
+Declared union in `event-types.ts`:
 
 - `message`
 - `tool_call`
@@ -53,243 +104,78 @@ Current built-in event union:
 - `file_stream_chunk`
 - `file_stream_end`
 
-### `StandardSSEEvent`
+Note: the built-in transformer currently emits only `message`, `tool_call`, `tool_result`, `phase_change`, and `progress`.
 
-Canonical normalized envelope:
-
-```ts
-interface StandardSSEEvent {
-  type: StandardEventType | string
-  data: Record<string, unknown>
-}
-```
-
-Notes:
-
-1. `type` allows `string`, so consumers can safely emit custom event names.
-2. `data` is intentionally generic to avoid hard coupling to one runtime shape.
-
-### File stream payload types
-
-`event-types.ts` includes payload interfaces for incremental file content transport:
+### File stream payload interfaces
 
 - `FileStreamStartPayload`
 - `FileStreamChunkPayload`
 - `FileStreamEndPayload`
 
-These are part of the public typing contract but are not emitted by built-in `SSETransformer` rules.
+These are type-level contracts only in this module. No built-in `SSETransformer` branch emits these events today.
 
-## `SSETransformer` Behavior
+## Dependencies
 
-### Custom transformer precedence
+Module-level dependencies:
 
-`SSETransformer.addTransformer(eventName, fn)` registers an exact-match override by `event.event`.
+- `sse-transformer.ts` imports `StreamEvent` from `@langchain/core/tracers/log_stream` (type import).
+- `event-types.ts` and `index.ts` have no external imports.
 
-Flow:
+Package-level context from `packages/core/package.json`:
 
-```text
-transform(event)
-  -> if custom transformer exists for event.event: use it
-  -> else apply built-in switch mapping
-  -> return StandardSSEEvent or null (skip)
-```
+- `@langchain/core` is a peer dependency (`>=1.0.0`) and a dev dependency.
+- No dedicated `@dzupagent/core/streaming` export subpath is defined in package `exports`.
+- Build output is generated by `tsup`; streaming files are bundled through root/facade entrypoints.
 
-### Built-in event mappings
+## Integration Points
 
-| LangGraph `event.event` | Output `type` | Output shape | Skip conditions |
-| --- | --- | --- | --- |
-| `on_chat_model_stream` | `message` | `{ content }` from `event.data.chunk.content` | non-string or empty `content` |
-| `on_chat_model_end` | `tool_call` | `{ tools: [{ name, args }] }` from `event.data.output.tool_calls` | no tool calls present |
-| `on_tool_start` | `progress` | `{ status: 'running', tool: event.name ?? 'unknown' }` | none |
-| `on_tool_end` | `tool_result` | `{ content }` from string output, `output.content`, or `JSON.stringify(output)` | none |
-| `on_chain_end` | `phase_change` | `{ phase: event.name }` | missing `name` or internal name starting with `__` |
-| default | `null` | n/a | all unsupported events |
+Current export and usage surfaces inside `packages/core`:
 
-## End-to-End Runtime Flow
+1. Root exports (`src/index.ts`) expose `SSETransformer`.
+2. Root exports (`src/index.ts`) expose `StandardSSEEvent` and `StandardEventType`.
+3. Root exports (`src/index.ts`) expose `FileStreamStartPayload`, `FileStreamChunkPayload`, and `FileStreamEndPayload`.
+4. Quick-start facade (`src/facades/quick-start.ts`) exposes `SSETransformer`.
+5. Quick-start facade (`src/facades/quick-start.ts`) exposes `StandardSSEEvent` as a type export.
+6. Local barrel (`src/streaming/index.ts`) supports internal direct imports.
 
-Typical usage path:
+Current package entrypoint behavior:
 
-```text
-LangGraph stream emits StreamEvent
-  -> SSETransformer.transform(event)
-    -> StandardSSEEvent or null
-  -> transport layer serializes as SSE frame
-  -> client consumes stable { type, data } payloads
-```
+- Consumers can reach streaming APIs via `@dzupagent/core` and `@dzupagent/core/quick-start`.
+- Consumers cannot import a dedicated `@dzupagent/core/streaming` subpath because it is not defined in `package.json`.
 
-Transport formatting (`data: <json>\n\n`) is outside this module.
+Adjacent but separate streaming concern in this package:
 
-## Usage Examples
+- `src/protocol/a2a-sse-stream.ts` implements SSE parsing/client behavior (`parseSSEEvents`, `streamA2ATask`) for A2A protocol flows.
+- It does not use `SSETransformer` or `StandardSSEEvent`.
 
-### 1) Basic normalization loop
+## Testing and Observability
 
-```ts
-import { SSETransformer } from '@dzupagent/core'
-import type { StreamEvent } from '@langchain/core/tracers/log_stream'
+Current test coverage for this module:
 
-const transformer = new SSETransformer()
+- No dedicated unit tests exist under `src/streaming` for `SSETransformer` behavior or event-type contracts.
+- Existing signal is indirect via facade/root export tests in these files.
+- `src/__tests__/facades.test.ts` asserts quick-start facade exposes `SSETransformer`.
+- `src/__tests__/facade-quick-start.test.ts` imports `SSETransformer`.
+- `src/__tests__/w15-b1-facades.test.ts` imports `SSETransformer`.
 
-for await (const event of stream as AsyncIterable<StreamEvent>) {
-  const normalized = transformer.transform(event)
-  if (!normalized) continue
+Observability status:
 
-  // Write to SSE transport
-  res.write(`event: ${normalized.type}\n`)
-  res.write(`data: ${JSON.stringify(normalized.data)}\n\n`)
-}
-```
+- This module emits no metrics, logs, traces, or events by itself.
+- Observability is expected to be handled by upstream stream producers or downstream transport layers.
 
-### 2) Custom event override
+Coverage configuration context:
 
-```ts
-import { SSETransformer } from '@dzupagent/core'
+- `packages/core/vitest.config.ts` includes `src/**/*.ts` in coverage and excludes test files, fixtures, and `index.ts` barrels.
+- Package coverage thresholds are managed centrally in `dzupagent/coverage-thresholds.json` (`core` target: 80/75/80/80 for statements/branches/functions/lines).
 
-const transformer = new SSETransformer()
-  .addTransformer('on_chain_start', (event) => ({
-    type: 'phase_change',
-    data: { phase: event.name ?? 'unknown', status: 'started' },
-  }))
-```
+## Risks and TODOs
 
-Because custom rules run first, this can replace or extend built-in behavior for specific event names.
+1. Event-shape fragility: mapping logic depends on loosely typed nested fields (`event.data.chunk`, `event.data.output.tool_calls`), so upstream schema drift can silently increase `null` outputs.
+2. `on_tool_end` fallback can set `content` to `undefined` when output is `undefined` (`JSON.stringify(undefined)`), which may surprise consumers expecting a string.
+3. Contract drift risk: `StandardEventType` includes events (`done`, `error`, `parallel_*`, `file_stream_*`) that are not emitted by built-in logic.
+4. Test gap: no direct behavior tests for built-in mappings, skip conditions, or custom-transform precedence.
+5. Discoverability gap: no dedicated package subpath export for streaming APIs.
 
-### 3) Emitting file-stream event types
+## Changelog
 
-```ts
-import type { StandardSSEEvent, FileStreamChunkPayload } from '@dzupagent/core'
-
-const payload: FileStreamChunkPayload = {
-  filePath: 'src/service.ts',
-  chunk: 'export function run() {}',
-  chunkIndex: 0,
-}
-
-const evt: StandardSSEEvent = {
-  type: 'file_stream_chunk',
-  data: payload as unknown as Record<string, unknown>,
-}
-```
-
-## Export Surfaces
-
-This module is exposed through:
-
-1. Root package export (`@dzupagent/core`) via `packages/core/src/index.ts`.
-2. Quick-start facade (`@dzupagent/core/quick-start`) via `packages/core/src/facades/quick-start.ts`.
-3. Local folder barrel (`packages/core/src/streaming/index.ts`) for internal imports.
-
-There is currently no dedicated package subpath export like `@dzupagent/core/streaming` in `packages/core/package.json`.
-
-## Cross-Package References and Usage
-
-### Direct references to core streaming types/classes
-
-Static search (`rg`) shows direct references to `SSETransformer` / `StandardSSEEvent` only in `@dzupagent/core` source/docs:
-
-- `packages/core/src/index.ts`
-- `packages/core/src/facades/quick-start.ts`
-- `packages/core/src/__tests__/facades.test.ts`
-- `packages/core/README.md`
-- local streaming files
-
-No direct imports from non-core packages were found for:
-
-- `SSETransformer`
-- `StandardSSEEvent`
-- `StandardEventType`
-- file-stream payload interfaces
-
-### Semantically related streaming implementations
-
-Even without direct import reuse, other packages implement compatible streaming layers with similar event vocabularies.
-
-### `@dzupagent/agent-adapters`
-
-1. `src/streaming/streaming-handler.ts`
-   - Maps adapter events into `tool_call`, `tool_result`, `progress`, `done`, `error`.
-   - Serializes to SSE/JSONL/NDJSON.
-2. `src/http/adapter-http-handler.ts`
-   - Wraps adapter events in SSE via `StreamingHandler` and returns `text/event-stream`.
-
-This is the closest functional neighbor to `SSETransformer` in the monorepo.
-
-### `@dzupagent/agent`
-
-`src/agent/dzip-agent.ts` emits streaming events (`text`, `tool_call`, `tool_result`, `error`, `done`) that can be adapted into SSE contracts by downstream layers.
-
-### `@dzupagent/server`
-
-1. `src/routes/events.ts` streams event-gateway envelopes over SSE.
-2. `src/routes/runs.ts` streams run-scoped events over SSE (`init`, event-type frames, terminal `done`).
-
-### Core protocol SSE (adjacent but separate concern)
-
-`packages/core/src/protocol/a2a-sse-stream.ts` is an SSE transport parser/client for A2A protocol streams. It does not consume `SSETransformer`, but it validates and operationalizes SSE framing in another core subsystem.
-
-## Test Coverage Status
-
-### Direct coverage for `packages/core/src/streaming`
-
-Current status:
-
-1. No dedicated unit tests for:
-   - `sse-transformer.ts` built-in mappings
-   - custom transformer precedence/override
-   - `event-types.ts` typing contract behavior via compile-time tests
-2. Existing direct test signal is only export smoke coverage:
-   - `packages/core/src/__tests__/facades.test.ts` checks `quick-start` exports include `SSETransformer`.
-
-Targeted runs executed on 2026-04-03:
-
-- `yarn workspace @dzupagent/core test src/__tests__/facades.test.ts` -> pass (31 tests)
-- `yarn workspace @dzupagent/core test src/__tests__/facades.test.ts --coverage` -> tests pass, command fails global thresholds (expected for a single-file run)
-
-From that focused coverage run:
-
-- `src/streaming/sse-transformer.ts` lines covered: `16.48%`
-- Branch/function coverage for this file: `0%`
-
-Interpretation: module behavior is effectively untested today.
-
-### Adjacent streaming-layer test coverage (outside this module)
-
-Validated on 2026-04-03:
-
-1. `yarn workspace @dzupagent/core test src/protocol/__tests__/a2a-sse.test.ts`
-   - pass (21 tests)
-   - covers SSE parsing, reconnection, status/event conversion for A2A protocol.
-2. `yarn workspace @dzupagent/agent-adapters test src/__tests__/streaming-handler.test.ts`
-   - pass (22 tests)
-   - covers event mapping, progress tracking, SSE/JSONL/NDJSON formatting, readable stream output.
-3. `yarn workspace @dzupagent/agent-adapters test src/__tests__/adapter-http-handler.test.ts`
-   - pass (44 tests)
-   - includes streaming endpoint behavior and SSE response handling.
-4. `yarn workspace @dzupagent/server test src/__tests__/event-gateway.test.ts`
-   - pass (4 tests)
-   - covers filtered event fan-out used by server-side SSE routes.
-
-These tests improve confidence in the ecosystem streaming path, but they do not replace direct tests for `SSETransformer`.
-
-## Current Gaps and Recommendations
-
-### Gaps
-
-1. `SSETransformer` mapping logic lacks behavior tests.
-2. `on_tool_end` can emit non-string `content` fallback (`JSON.stringify(undefined)` path).
-3. File-stream event payload interfaces exist but no default emitter path in transformer.
-4. No explicit contract tests asserting event schema compatibility between:
-   - `core` streaming normalization
-   - `agent-adapters` streaming handler
-   - `server` SSE transport routes
-
-### Recommended additions
-
-1. Add `packages/core/src/streaming/__tests__/sse-transformer.test.ts`:
-   - one test per built-in mapping
-   - custom transformer precedence test
-   - skip/null behavior tests
-2. Add contract tests for shared event names and payload expectations across packages.
-3. Decide whether `file_stream_*` should be:
-   - emitted by built-in transformer rules, or
-   - documented as extension-only types.
-4. Consider adding `@dzupagent/core/streaming` subpath export for explicit consumer discoverability.
+- 2026-04-16: automated refresh via scripts/refresh-architecture-docs.js
