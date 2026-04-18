@@ -4,6 +4,7 @@
  * Wraps `@anthropic-ai/claude-agent-sdk` query() and normalizes
  * its events into the unified AgentEvent stream.
  */
+import { randomUUID } from 'node:crypto'
 import { ForgeError } from '@dzupagent/core'
 import { SystemPromptBuilder } from '../prompts/system-prompt-builder.js'
 import type {
@@ -13,9 +14,12 @@ import type {
   AgentEvent,
   AgentInput,
   HealthStatus,
+  InteractionPolicy,
   SessionInfo,
   TokenUsage,
 } from '../types.js'
+import { InteractionResolver } from '../interaction/interaction-resolver.js'
+import { classifyInteractionText } from '../interaction/interaction-detector.js'
 
 // ---------------------------------------------------------------------------
 // SDK type declarations (optional peer dep — cannot import statically)
@@ -151,6 +155,35 @@ function extractTokenUsage(usage: Record<string, unknown> | undefined): TokenUsa
 }
 
 // ---------------------------------------------------------------------------
+// Interaction tool helpers
+// ---------------------------------------------------------------------------
+
+/** Tool names the Claude SDK uses when it needs to ask the user something. */
+const INTERACTION_TOOL_NAMES = new Set([
+  'user_confirmation',
+  'request_permission',
+  'ask_user',
+  'clarification',
+  'confirm',
+])
+
+function isInteractionToolName(name: string): boolean {
+  return INTERACTION_TOOL_NAMES.has(name)
+}
+
+/** Extract question text from the tool input object. */
+function extractQuestionFromToolInput(input: unknown): string {
+  if (input === null || typeof input !== 'object') return String(input ?? '')
+  const obj = input as Record<string, unknown>
+  for (const key of ['question', 'message', 'prompt', 'text', 'description', 'reason']) {
+    if (typeof obj[key] === 'string' && (obj[key] as string).length > 0) {
+      return obj[key] as string
+    }
+  }
+  return JSON.stringify(input)
+}
+
+// ---------------------------------------------------------------------------
 // ClaudeAgentAdapter
 // ---------------------------------------------------------------------------
 
@@ -161,6 +194,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
   private sdk: ClaudeSDKModule | null = null
   private activeConversation: ClaudeConversation | null = null
   private abortController: AbortController | null = null
+  private resolver: InteractionResolver | null = null
 
   constructor(config: AdapterConfig = {}) {
     this.config = { ...config }
@@ -201,6 +235,10 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
       // Forward external abort to our controller
       input.signal.addEventListener('abort', () => this.abortController?.abort(), { once: true })
     }
+
+    // Set up interaction resolver for this execution
+    const policy = this.resolveInteractionPolicy(input)
+    this.resolver = policy.mode !== 'auto-approve' ? new InteractionResolver(policy) : null
 
     const queryOptions = this.buildQueryOptions(input)
     let sessionId = ''
@@ -267,6 +305,41 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
           if (message.status === 'started') {
             lastToolStartTime = Date.now()
             lastToolName = message.tool_name
+
+            // Detect interaction-requesting tools (e.g. user_confirmation, ask_user)
+            if (this.resolver && isInteractionToolName(message.tool_name)) {
+              const questionText = extractQuestionFromToolInput(message.input)
+              const interactionId = randomUUID()
+              const kind = classifyInteractionText(questionText)
+              const nowMs = Date.now()
+
+              if (policy.mode === 'ask-caller') {
+                yield {
+                  type: 'adapter:interaction_required',
+                  providerId: 'claude',
+                  interactionId,
+                  question: questionText,
+                  kind,
+                  timestamp: nowMs,
+                  expiresAt: nowMs + (policy.askCaller?.timeoutMs ?? 60_000),
+                  ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+                } as AgentEvent
+              }
+
+              const result = await this.resolver.resolve({ interactionId, question: questionText, kind })
+              yield {
+                type: 'adapter:interaction_resolved',
+                providerId: 'claude',
+                interactionId,
+                question: questionText,
+                answer: result.answer,
+                resolvedBy: result.resolvedBy,
+                timestamp: Date.now(),
+                ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+              } as AgentEvent
+              continue
+            }
+
             yield {
               type: 'adapter:tool_call',
               providerId: 'claude',
@@ -276,7 +349,10 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
               ...(input.correlationId ? { correlationId: input.correlationId } : {}),
             }
           } else {
-            // completed or failed
+            // completed or failed — skip result for interaction tools (already handled above)
+            if (isInteractionToolName(message.tool_name) && this.resolver) {
+              continue
+            }
             const durationMs = typeof message.duration_ms === 'number'
               ? message.duration_ms
               : (lastToolName === message.tool_name ? Date.now() - lastToolStartTime : 0)
@@ -359,6 +435,8 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
     } finally {
       this.activeConversation = null
       this.abortController = null
+      this.resolver?.dispose()
+      this.resolver = null
     }
   }
 
@@ -598,8 +676,14 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
     if (input.workingDirectory ?? this.config.workingDirectory) {
       options['cwd'] = input.workingDirectory ?? this.config.workingDirectory
     }
+    // Determine permissionMode:
+    // - sandboxMode takes priority for explicit permission control
+    // - interaction policy 'auto-approve' bypasses permissions only when no sandboxMode is set
+    const interactionPolicy = this.resolveInteractionPolicy(input)
     if (this.config.sandboxMode) {
       options['permissionMode'] = mapSandboxMode(this.config.sandboxMode)
+    } else if (interactionPolicy.mode === 'auto-approve') {
+      options['permissionMode'] = 'bypassPermissions'
     }
     if (this.abortController) {
       options['abortController'] = this.abortController
@@ -628,6 +712,19 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
       prompt: input.prompt,
       options,
     }
+  }
+
+  /** Resolve the effective interaction policy (per-call → config → default). */
+  private resolveInteractionPolicy(input: AgentInput): InteractionPolicy {
+    const perCall = input.options?.['interactionPolicy']
+    if (
+      perCall !== null &&
+      typeof perCall === 'object' &&
+      'mode' in (perCall as object)
+    ) {
+      return perCall as InteractionPolicy
+    }
+    return this.config.interactionPolicy ?? { mode: 'auto-approve' }
   }
 
   private toSessionInfo(raw: unknown): SessionInfo {

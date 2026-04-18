@@ -5,6 +5,7 @@
  * The SDK is an optional peer dependency, loaded lazily via dynamic import.
  */
 
+import { randomUUID } from 'node:crypto'
 import { ForgeError } from '@dzupagent/core'
 import { SystemPromptBuilder } from '../prompts/system-prompt-builder.js'
 import type { CodexPromptPayload } from '../prompts/system-prompt-builder.js'
@@ -16,8 +17,10 @@ import type {
   AgentEvent,
   AgentInput,
   HealthStatus,
+  InteractionPolicy,
   TokenUsage,
 } from '../types.js'
+import { InteractionResolver } from '../interaction/interaction-resolver.js'
 
 // ---------------------------------------------------------------------------
 // SDK type declarations (mirrors the shapes we consume from @openai/codex-sdk)
@@ -82,6 +85,14 @@ interface CodexErrorItem {
   message: string
 }
 
+/** Forward-compatible: emitted by Codex SDK when it needs user approval mid-execution */
+interface CodexApprovalRequestItem {
+  type: 'approval_request'
+  id: string
+  message: string
+  kind: 'permission' | 'clarification' | 'confirmation'
+}
+
 type CodexThreadItem =
   | CodexAgentMessageItem
   | CodexCommandExecutionItem
@@ -91,6 +102,7 @@ type CodexThreadItem =
   | CodexReasoningItem
   | CodexTodoListItem
   | CodexErrorItem
+  | CodexApprovalRequestItem
 
 /** Streaming event emitted by codex.runStreamed() — mirrors @openai/codex-sdk ThreadEvent */
 interface CodexStreamEvent {
@@ -194,6 +206,7 @@ export class CodexAdapter implements AgentCLIAdapter {
   private sdkModule: { Codex: CodexClass } | null = null
   private currentInput: AgentInput | null = null
   private currentIsResume = false
+  private resolver: InteractionResolver | null = null
 
   constructor(config: AdapterConfig = {}) {
     this.config = { ...config }
@@ -210,7 +223,7 @@ export class CodexAdapter implements AgentCLIAdapter {
 
     this.currentInput = input
     this.currentIsResume = false
-    yield* this.runStreamedThread(thread, input)
+    yield* this.runStreamedThread(thread, input, codex)
   }
 
   async *resumeSession(
@@ -225,7 +238,7 @@ export class CodexAdapter implements AgentCLIAdapter {
 
     this.currentInput = input
     this.currentIsResume = true
-    yield* this.runStreamedThread(thread, input)
+    yield* this.runStreamedThread(thread, input, codex)
   }
 
   interrupt(): void {
@@ -361,7 +374,7 @@ export class CodexAdapter implements AgentCLIAdapter {
     const opts: CodexThreadOptions = {
       model: this.config.model ?? 'gpt-5.4',
       sandboxMode: toCodexSandboxMode(this.config.sandboxMode),
-      approvalPolicy: 'never',
+      approvalPolicy: this.resolveCodexApprovalPolicy(input),
       networkAccessEnabled: true,
     }
 
@@ -378,14 +391,56 @@ export class CodexAdapter implements AgentCLIAdapter {
     if (typeof inputOpts['sandboxMode'] === 'string') {
       opts.sandboxMode = inputOpts['sandboxMode']
     }
+    // Direct approvalPolicy override still respected (already applied above, but per-call wins)
     if (typeof inputOpts['approvalPolicy'] === 'string') {
       opts.approvalPolicy = inputOpts['approvalPolicy']
     }
     if (typeof inputOpts['networkAccessEnabled'] === 'boolean') {
       opts.networkAccessEnabled = inputOpts['networkAccessEnabled']
     }
+    if (typeof inputOpts['skipGitRepoCheck'] === 'boolean') {
+      opts.skipGitRepoCheck = inputOpts['skipGitRepoCheck']
+    } else if (typeof this.config.skipGitRepoCheck === 'boolean') {
+      opts.skipGitRepoCheck = this.config.skipGitRepoCheck
+    }
 
     return opts
+  }
+
+  /**
+   * Map the InteractionPolicy to the Codex SDK approvalPolicy string.
+   * 'auto-approve' → 'never' (Codex auto-proceeds, never pauses).
+   * All other modes → 'on-failure' so Codex pauses on permission boundaries,
+   * allowing the InteractionResolver to intercept via turn.failed detection.
+   */
+  private resolveCodexApprovalPolicy(input: AgentInput): string {
+    // Explicit per-call override takes priority (checked again in buildThreadOptions)
+    if (typeof input.options?.['approvalPolicy'] === 'string') {
+      return input.options['approvalPolicy']
+    }
+    const policy = this.resolveInteractionPolicy(input)
+    return policy.mode === 'auto-approve' ? 'never' : 'on-failure'
+  }
+
+  /** Resolve the effective InteractionPolicy (per-call → config → default). */
+  private resolveInteractionPolicy(input: AgentInput): InteractionPolicy {
+    const perCall = input.options?.['interactionPolicy']
+    if (
+      perCall !== null &&
+      typeof perCall === 'object' &&
+      'mode' in (perCall as object)
+    ) {
+      return perCall as InteractionPolicy
+    }
+    return this.config.interactionPolicy ?? { mode: 'auto-approve' }
+  }
+
+  /** Get or create the InteractionResolver for the current execution. */
+  private getOrCreateResolver(input: AgentInput): InteractionResolver {
+    if (!this.resolver) {
+      this.resolver = new InteractionResolver(this.resolveInteractionPolicy(input))
+    }
+    return this.resolver
   }
 
   /** Default timeout for a single adapter call (2 minutes) */
@@ -403,6 +458,7 @@ export class CodexAdapter implements AgentCLIAdapter {
   private async *runStreamedThread(
     thread: CodexThread,
     input: AgentInput,
+    codex: CodexInstance,
   ): AsyncGenerator<AgentEvent, void, undefined> {
     this.abortController = new AbortController()
     const startTime = now()
@@ -506,6 +562,108 @@ export class CodexAdapter implements AgentCLIAdapter {
           console.debug('[codex-adapter.ts:runStreamedThread] turn.completed — usage captured', { sessionId, usage: lastUsage })
         }
 
+        // Handle approval_request items (SDK forward-compat) and turn.failed with approval text
+        if (event.type === 'item.completed' && event.item?.type === 'approval_request') {
+          const item = event.item as CodexApprovalRequestItem
+          const resolver = this.getOrCreateResolver(input)
+          const interactionId = randomUUID()
+          const policy = this.resolveInteractionPolicy(input)
+          const now2 = now()
+
+          if (policy.mode === 'ask-caller') {
+            const interactionEvent: AgentEvent = {
+              type: 'adapter:interaction_required',
+              providerId: this.providerId,
+              interactionId,
+              question: item.message,
+              kind: item.kind,
+              timestamp: now2,
+              expiresAt: now2 + (policy.askCaller?.timeoutMs ?? 60_000),
+              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+            }
+            yield interactionEvent
+          }
+
+          const result = await resolver.resolve({ interactionId, question: item.message, kind: item.kind })
+          const resolvedEvent: AgentEvent = {
+            type: 'adapter:interaction_resolved',
+            providerId: this.providerId,
+            interactionId,
+            question: item.message,
+            answer: result.answer,
+            resolvedBy: result.resolvedBy,
+            timestamp: now(),
+            ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+          }
+          yield resolvedEvent
+          continue
+        }
+
+        // Detect turn.failed caused by Codex approval-pause when using 'on-failure' policy
+        if (event.type === 'turn.failed') {
+          const errObj = event.error
+          const errMsg =
+            typeof errObj === 'object' && errObj !== null && 'message' in errObj
+              ? (errObj as { message: string }).message
+              : typeof errObj === 'string'
+                ? errObj
+                : ''
+
+          const isApprovalPause =
+            this.resolveInteractionPolicy(input).mode !== 'auto-approve' &&
+            /requires approval|user confirmation|permission denied|approval required/i.test(errMsg)
+
+          if (isApprovalPause) {
+            const resolver = this.getOrCreateResolver(input)
+            const interactionId = randomUUID()
+            const policy = this.resolveInteractionPolicy(input)
+            const now2 = now()
+
+            if (policy.mode === 'ask-caller') {
+              const interactionEvent: AgentEvent = {
+                type: 'adapter:interaction_required',
+                providerId: this.providerId,
+                interactionId,
+                question: errMsg,
+                kind: 'permission',
+                timestamp: now2,
+                expiresAt: now2 + (policy.askCaller?.timeoutMs ?? 60_000),
+                ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+              }
+              yield interactionEvent
+            }
+
+            const result = await resolver.resolve({ interactionId, question: errMsg, kind: 'permission' })
+            yield {
+              type: 'adapter:interaction_resolved',
+              providerId: this.providerId,
+              interactionId,
+              question: errMsg,
+              answer: result.answer,
+              resolvedBy: result.resolvedBy,
+              timestamp: now(),
+              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+            } as AgentEvent
+
+            if (result.answer === 'yes' || result.answer === 'approve') {
+              // Resume the thread with an approval message
+              const approvalThread = codex.resumeThread(sessionId, this.buildThreadOptions(input))
+              yield* this.runStreamedThread(approvalThread, input, codex)
+            } else {
+              yield {
+                type: 'adapter:failed',
+                providerId: this.providerId,
+                sessionId,
+                error: `Interaction denied by policy: ${errMsg}`,
+                code: 'INTERACTION_DENIED',
+                timestamp: now(),
+                ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+              }
+            }
+            return
+          }
+        }
+
         for (const agentEvent of mapped) {
           if (input.correlationId) {
             ;(agentEvent as unknown as Record<string, unknown>).correlationId = input.correlationId
@@ -557,6 +715,8 @@ export class CodexAdapter implements AgentCLIAdapter {
     } finally {
       clearTimeout(timeoutHandle)
       this.abortController = null
+      this.resolver?.dispose()
+      this.resolver = null
     }
 
     console.debug('[codex-adapter.ts:runStreamedThread] completed normally', {
@@ -774,6 +934,11 @@ export class CodexAdapter implements AgentCLIAdapter {
           timestamp: ts,
         },
       ]
+    }
+
+    // approval_request — handled by runStreamedThread via resolver; emit no events here
+    if (isCodexItemOfType(item, 'approval_request')) {
+      return []
     }
 
     // todo_list and any future item types — silently skip

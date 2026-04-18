@@ -496,3 +496,9 @@ export type {
   SyncTarget,
   DzupAgentSyncerOptions,
 } from './dzupagent/index.js'
+
+// --- Interaction Policy ---
+export { InteractionResolver } from './interaction/interaction-resolver.js'
+export { classifyInteractionText, detectCliInteraction } from './interaction/interaction-detector.js'
+export type { InteractionKind } from './interaction/interaction-detector.js'
+export type { InteractionRequest, InteractionResult } from './interaction/interaction-resolver.js'

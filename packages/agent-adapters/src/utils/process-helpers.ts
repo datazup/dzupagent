@@ -9,6 +9,8 @@ import { spawn, type SpawnOptions } from 'node:child_process'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { ForgeError } from '@dzupagent/core'
+import { detectCliInteraction } from '../interaction/interaction-detector.js'
+import type { InteractionKind } from '../interaction/interaction-detector.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -35,6 +37,20 @@ export interface SpawnJsonlOptions extends SpawnOptions {
   timeoutMs?: number | undefined
   /** Enable backpressure — pause stdout when consumer is processing. Default: false */
   backpressure?: boolean | undefined
+  /**
+   * Optional callback invoked when a JSONL record is detected as a mid-execution
+   * interaction request (question, permission prompt, confirmation, etc.).
+   *
+   * The callback must return the answer string to write to stdin, or null to skip
+   * (the record is still yielded). The callback is awaited before yielding.
+   *
+   * Only wire this when interactionPolicy.mode !== 'auto-approve' to avoid overhead.
+   */
+  stdinResponder?: ((
+    record: Record<string, unknown>,
+    question: string,
+    kind: InteractionKind,
+  ) => Promise<string | null>) | undefined
 }
 
 /**
@@ -56,7 +72,7 @@ export async function* spawnAndStreamJsonl(
   args: string[],
   options: SpawnJsonlOptions = {},
 ): AsyncGenerator<Record<string, unknown>> {
-  const { signal, timeoutMs, backpressure, ...spawnOpts } = options
+  const { signal, timeoutMs, backpressure, stdinResponder, ...spawnOpts } = options
 
   const child = spawn(command, args, {
     ...spawnOpts,
@@ -156,10 +172,23 @@ export async function* spawnAndStreamJsonl(
         try {
           const parsed: unknown = JSON.parse(trimmed)
           if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const record = parsed as Record<string, unknown>
+
+            // Handle mid-execution interaction requests when a responder is wired
+            if (stdinResponder) {
+              const detected = detectCliInteraction(record)
+              if (detected) {
+                const answer = await stdinResponder(record, detected.question, detected.kind)
+                if (answer !== null && child.stdin && !child.stdin.destroyed) {
+                  child.stdin.write(answer + '\n')
+                }
+              }
+            }
+
             if (backpressure && stdout && !stdout.destroyed) {
               stdout.pause()
             }
-            yield parsed as Record<string, unknown>
+            yield record
             if (backpressure && stdout && !stdout.destroyed) {
               stdout.resume()
             }
