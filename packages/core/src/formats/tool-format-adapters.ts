@@ -40,6 +40,62 @@ export function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
   return convertZodNode(schema)
 }
 
+/**
+ * Strip Zod constraints that OpenAI's structured outputs strict mode rejects.
+ *
+ * OpenAI's response_format JSON Schema does not support: minLength, maxLength,
+ * minItems, maxItems, minimum, maximum, multipleOf, pattern.
+ * LangChain's withStructuredOutput passes the Zod schema through zod-to-json-schema,
+ * which emits these constraints — OpenAI rejects the call entirely.
+ *
+ * This wrapper unwraps constraint decorators from Zod nodes so the schema sent
+ * to OpenAI only contains type information, while Zod still validates the response
+ * after parsing (constraints remain in the caller's original schema).
+ */
+export function toOpenAISafeSchema<T extends z.ZodType>(schema: T): T {
+  return stripZodConstraints(schema) as T
+}
+
+function stripZodConstraints(node: z.ZodType): z.ZodType {
+  // ZodOptional — unwrap, strip inner, re-wrap
+  if (node instanceof z.ZodOptional) {
+    return stripZodConstraints(node.unwrap() as z.ZodType).optional()
+  }
+
+  // ZodNullable — unwrap, strip inner, re-wrap
+  if (node instanceof z.ZodNullable) {
+    return stripZodConstraints(node.unwrap() as z.ZodType).nullable()
+  }
+
+  // ZodObject — recurse into each property
+  if (node instanceof z.ZodObject) {
+    const shape = node.shape as Record<string, z.ZodType>
+    const strippedShape: Record<string, z.ZodType> = {}
+    for (const [key, value] of Object.entries(shape)) {
+      strippedShape[key] = stripZodConstraints(value)
+    }
+    return z.object(strippedShape)
+  }
+
+  // ZodArray — recurse into element, drop min/max item constraints
+  if (node instanceof z.ZodArray) {
+    return z.array(stripZodConstraints(node.element as z.ZodType))
+  }
+
+  // ZodString — return plain string, drop minLength/maxLength/regex constraints
+  if (node instanceof z.ZodString) {
+    return z.string()
+  }
+
+  // ZodNumber — return plain number, drop min/max/int/positive constraints
+  if (node instanceof z.ZodNumber) {
+    return z.number()
+  }
+
+  // ZodBoolean, ZodEnum, ZodLiteral, ZodUnknown — pass through unchanged
+  return node
+}
+
 function convertZodNode(node: z.ZodType): Record<string, unknown> {
   // Unwrap ZodOptional
   if (node instanceof z.ZodOptional) {

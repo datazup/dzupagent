@@ -62,6 +62,9 @@ export type DzupEvent =
   | { type: 'human_contact:requested'; runId: string; contactId: string; contactType: string; channel: string }
   | { type: 'human_contact:responded'; runId: string; contactId: string; response: unknown }
   | { type: 'human_contact:timed_out'; runId: string; contactId: string; fallback?: unknown }
+  // --- Adapter Interactions (mid-execution questions/permissions) ---
+  | { type: 'adapter:interaction_required'; interactionId: string; providerId: string; question: string; kind: string; correlationId?: string }
+  | { type: 'adapter:interaction_resolved'; interactionId: string; providerId: string; question: string; answer: string; resolvedBy: string; correlationId?: string }
   // --- MCP ---
   | { type: 'mcp:connected'; serverName: string; toolCount: number }
   | { type: 'mcp:disconnected'; serverName: string }

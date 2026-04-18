@@ -29,6 +29,7 @@ export type {
 export {
   zodToJsonSchema,
   jsonSchemaToZod,
+  toOpenAISafeSchema,
   toOpenAIFunction,
   toOpenAITool,
   fromOpenAIFunction,

@@ -7,6 +7,7 @@ import {
 import {
   zodToJsonSchema,
   jsonSchemaToZod,
+  toOpenAISafeSchema,
   toOpenAIFunction,
   toOpenAITool,
   fromOpenAIFunction,
@@ -187,6 +188,89 @@ describe('zodToJsonSchema', () => {
       properties: { value: { type: 'number' } },
       required: ['value'],
     })
+  })
+})
+
+// =========================================================================
+// toOpenAISafeSchema
+// =========================================================================
+
+describe('toOpenAISafeSchema', () => {
+  it('strips string length constraints', () => {
+    const schema = z.object({ title: z.string().min(1).max(500) })
+    const safe = toOpenAISafeSchema(schema)
+    // Should accept any string, not just length 1-500
+    expect(safe.safeParse({ title: '' }).success).toBe(true)
+    expect(safe.safeParse({ title: 'a'.repeat(1000) }).success).toBe(true)
+  })
+
+  it('strips array item constraints', () => {
+    const schema = z.object({ tags: z.array(z.string()).min(1).max(20) })
+    const safe = toOpenAISafeSchema(schema)
+    expect(safe.safeParse({ tags: [] }).success).toBe(true)
+    expect(safe.safeParse({ tags: Array(50).fill('x') }).success).toBe(true)
+  })
+
+  it('strips number range constraints', () => {
+    const schema = z.object({ score: z.number().min(0).max(1) })
+    const safe = toOpenAISafeSchema(schema)
+    expect(safe.safeParse({ score: -1 }).success).toBe(true)
+    expect(safe.safeParse({ score: 99 }).success).toBe(true)
+  })
+
+  it('strips .int().positive() from number', () => {
+    const schema = z.object({ count: z.number().int().positive() })
+    const safe = toOpenAISafeSchema(schema)
+    expect(safe.safeParse({ count: -5 }).success).toBe(true)
+    expect(safe.safeParse({ count: 1.5 }).success).toBe(true)
+  })
+
+  it('preserves nullable fields', () => {
+    const schema = z.object({ notes: z.string().nullable() })
+    const safe = toOpenAISafeSchema(schema)
+    expect(safe.safeParse({ notes: null }).success).toBe(true)
+    expect(safe.safeParse({ notes: 'hi' }).success).toBe(true)
+  })
+
+  it('preserves optional fields', () => {
+    const schema = z.object({ label: z.string().max(100).optional() })
+    const safe = toOpenAISafeSchema(schema)
+    expect(safe.safeParse({}).success).toBe(true)
+    expect(safe.safeParse({ label: 'x'.repeat(500) }).success).toBe(true)
+  })
+
+  it('preserves enum values', () => {
+    const schema = z.object({ priority: z.enum(['LOW', 'HIGH']) })
+    const safe = toOpenAISafeSchema(schema)
+    expect(safe.safeParse({ priority: 'LOW' }).success).toBe(true)
+    expect(safe.safeParse({ priority: 'INVALID' }).success).toBe(false)
+  })
+
+  it('handles nested objects', () => {
+    const schema = z.object({
+      step: z.object({
+        description: z.string().min(1).max(10000),
+        result: z.string().max(10000).nullable(),
+      }),
+    })
+    const safe = toOpenAISafeSchema(schema)
+    expect(safe.safeParse({ step: { description: '', result: null } }).success).toBe(true)
+  })
+
+  it('handles arrays of objects', () => {
+    const schema = z.array(z.object({ name: z.string().max(200) }))
+    const safe = toOpenAISafeSchema(schema)
+    expect(safe.safeParse([{ name: 'x'.repeat(500) }]).success).toBe(true)
+    expect(safe.safeParse([]).success).toBe(true)
+  })
+
+  it('original schema still enforces constraints', () => {
+    const schema = z.object({ title: z.string().min(1).max(5) })
+    const safe = toOpenAISafeSchema(schema)
+    // Safe schema accepts anything
+    expect(safe.safeParse({ title: 'toolong' }).success).toBe(true)
+    // Original still rejects
+    expect(schema.safeParse({ title: 'toolong' }).success).toBe(false)
   })
 })
 

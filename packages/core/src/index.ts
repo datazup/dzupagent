@@ -815,7 +815,7 @@ export {
   // Agent Card V2
   AgentCardV2Schema, validateAgentCard,
   // Tool Format Adapters
-  zodToJsonSchema, jsonSchemaToZod,
+  zodToJsonSchema, jsonSchemaToZod, toOpenAISafeSchema,
   toOpenAIFunction, toOpenAITool, fromOpenAIFunction,
   toMCPToolDescriptor, fromMCPToolDescriptor,
   // AGENTS.md V2 Parser
