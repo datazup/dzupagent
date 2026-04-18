@@ -9,6 +9,44 @@
 /** Supported adapter provider IDs */
 export type AdapterProviderId = 'claude' | 'codex' | 'gemini' | 'gemini-sdk' | 'qwen' | 'crush' | 'goose' | 'openrouter'
 
+// ---------------------------------------------------------------------------
+// Interaction Policy — mid-execution question/permission handling
+// ---------------------------------------------------------------------------
+
+/**
+ * How the adapter should handle mid-execution questions, clarification
+ * requests, and permission prompts from a sub-agent.
+ */
+export type InteractionPolicyMode =
+  | 'auto-approve'    // always answer yes/grant (backward-compatible default)
+  | 'auto-deny'       // always answer no/deny (safe for untrusted runs)
+  | 'default-answers' // match question text against a regex → answer map
+  | 'ai-autonomous'   // use a secondary LLM call to decide
+  | 'ask-caller'      // emit adapter:interaction_required and wait for caller
+
+export interface InteractionPolicy {
+  mode: InteractionPolicyMode
+  /** Used when mode === 'default-answers' */
+  defaultAnswers?: {
+    /** Each pattern string is compiled to RegExp and tested against the question text. */
+    patterns: Array<{ pattern: string; answer: string }>
+  } | undefined
+  /** Used when mode === 'ai-autonomous' */
+  aiAutonomous?: {
+    /** Context injected into the LLM reasoning prompt (e.g. task constraints). */
+    context?: string | undefined
+    /** Model hint for the secondary LLM call. Adapters may ignore this. */
+    model?: string | undefined
+  } | undefined
+  /** Used when mode === 'ask-caller' */
+  askCaller?: {
+    /** Timeout in ms to wait for caller response. Default: 60_000. */
+    timeoutMs?: number | undefined
+    /** Policy applied on timeout. Default: 'auto-deny'. */
+    timeoutFallback?: 'auto-approve' | 'auto-deny' | undefined
+  } | undefined
+}
+
 /** Runtime capability declaration for adapter behavior. */
 export interface AdapterCapabilityProfile {
   supportsResume: boolean
@@ -61,6 +99,8 @@ export type AgentEvent =
   | AgentProgressEvent
   | AgentMemoryRecalledEvent
   | AgentSkillsCompiledEvent
+  | AgentInteractionRequiredEvent
+  | AgentInteractionResolvedEvent
 
 export interface AgentStartedEvent {
   type: 'adapter:started'
@@ -230,6 +270,8 @@ export interface AdapterConfig {
   envFilter?: EnvFilterConfig | undefined
   /** Additional provider-specific options */
   providerOptions?: Record<string, unknown> | undefined
+  /** Mid-execution interaction handling policy. Default behavior: auto-approve. */
+  interactionPolicy?: InteractionPolicy | undefined
 }
 
 /**
@@ -333,6 +375,46 @@ export interface AgentSkillsCompiledEvent {
     /** Features that were silently dropped (unsupported by provider) */
     dropped: string[]
   }>
+  correlationId?: string | undefined
+}
+
+// ---------------------------------------------------------------------------
+// Interaction events — mid-execution question/permission handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Emitted when the adapter detects a mid-execution question, clarification
+ * request, or permission prompt from the sub-agent.
+ * Only emitted when interactionPolicy.mode === 'ask-caller'.
+ */
+export interface AgentInteractionRequiredEvent {
+  type: 'adapter:interaction_required'
+  providerId: AdapterProviderId
+  /** Unique ID — pass back to InteractionResolver.respond(interactionId, answer) */
+  interactionId: string
+  /** The raw question/prompt text from the sub-agent */
+  question: string
+  /** Classified kind of interaction */
+  kind: 'permission' | 'clarification' | 'confirmation' | 'unknown'
+  timestamp: number
+  /** Epoch ms deadline — caller must respond before this or the timeout fires */
+  expiresAt: number
+  correlationId?: string | undefined
+}
+
+/**
+ * Emitted when a mid-execution interaction is resolved (auto or manual).
+ * Always emitted regardless of policy mode, for observability.
+ */
+export interface AgentInteractionResolvedEvent {
+  type: 'adapter:interaction_resolved'
+  providerId: AdapterProviderId
+  interactionId: string
+  question: string
+  answer: string
+  /** How the answer was determined */
+  resolvedBy: 'auto-approve' | 'auto-deny' | 'default-answers' | 'ai-autonomous' | 'caller' | 'timeout-fallback'
+  timestamp: number
   correlationId?: string | undefined
 }
 

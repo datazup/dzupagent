@@ -42,6 +42,10 @@ function summarizeAdapterEvents(events: AgentEvent[]): string {
           return `memory_recalled:${event.totalTokens}`
         case 'adapter:skills_compiled':
           return `skills_compiled:${event.skills.length}`
+        case 'adapter:interaction_required':
+          return `interaction_required:${event.interactionId}:${event.kind}`
+        case 'adapter:interaction_resolved':
+          return `interaction_resolved:${event.interactionId}:${event.resolvedBy}`
         default:
           return assertNever(event)
       }
