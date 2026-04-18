@@ -31,6 +31,7 @@ import {
   shouldSummarize,
   summarizeAndTrim,
   InMemoryRunJournal,
+  toOpenAISafeSchema,
 } from '@dzupagent/core'
 import { extractTokenUsage, estimateTokens, type TokenUsage } from '@dzupagent/core'
 import type {
@@ -169,17 +170,21 @@ export class DzupAgent {
     schema: ZodType<T>,
     options?: GenerateOptions,
   ): Promise<{ data: T; usage: GenerateResult['usage'] }> {
+    // Strip unsupported constraints (minLength, maxLength, minItems, maxItems, etc.)
+    // before passing to withStructuredOutput — OpenAI strict mode rejects them.
+    const safeSchema = toOpenAISafeSchema(schema)
+
     // Try withStructuredOutput first (Anthropic/OpenAI support this natively)
     const model = this.resolvedModel
     if ('withStructuredOutput' in model && typeof model.withStructuredOutput === 'function') {
       const structuredModel = (model as BaseChatModel & {
         withStructuredOutput: (s: ZodType<T>) => BaseChatModel
-      }).withStructuredOutput(schema)
+      }).withStructuredOutput(safeSchema as ZodType<T>)
 
       const prepared = await this.prepareMessages(messages)
       const response = await structuredModel.invoke(prepared)
 
-      // The response content is the structured data when using withStructuredOutput
+      // Validate the response against the original schema (with constraints)
       const parsed = schema.parse(response)
 
       return {
@@ -188,12 +193,10 @@ export class DzupAgent {
       }
     }
 
-    // Fallback: generate text and parse as JSON
+    // Fallback: generate text, extract JSON from anywhere in the response
     const result = await this.generate(messages, options)
-    const jsonMatch = result.content.match(/```(?:json)?\s*([\s\S]*?)```/)
-    const jsonStr = jsonMatch ? jsonMatch[1]! : result.content
-
-    const parsed = schema.parse(JSON.parse(jsonStr.trim()))
+    const jsonStr = extractJsonFromText(result.content)
+    const parsed = schema.parse(JSON.parse(jsonStr))
     return { data: parsed, usage: result.usage }
   }
 
@@ -649,4 +652,48 @@ export class DzupAgent {
   ): Promise<string> {
     return this.middlewareRuntime.transformToolResult(toolName, input, result)
   }
+}
+
+/**
+ * Extract the first valid JSON value from an LLM text response.
+ * Handles code-fenced JSON blocks, bare JSON objects, and bare JSON arrays.
+ * Throws SyntaxError if no valid JSON is found.
+ */
+export function extractJsonFromText(text: string): string {
+  const trimmed = text.trim()
+
+  // 1. Try fenced block: ```json ... ``` or ``` ... ```
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenced?.[1]) {
+    return fenced[1].trim()
+  }
+
+  // 2. Try to find the first { or [ and extract a balanced JSON value
+  const firstBrace = trimmed.indexOf('{')
+  const firstBracket = trimmed.indexOf('[')
+  const start =
+    firstBrace === -1 ? firstBracket
+    : firstBracket === -1 ? firstBrace
+    : Math.min(firstBrace, firstBracket)
+
+  if (start !== -1) {
+    // Walk forward to find the matching close, trying progressively longer slices
+    const slice = trimmed.slice(start)
+    // Try the full slice first (common case: response is pure JSON after preamble)
+    try {
+      JSON.parse(slice)
+      return slice
+    } catch {
+      // Find the last } or ] and try that boundary
+      const lastClose = Math.max(slice.lastIndexOf('}'), slice.lastIndexOf(']'))
+      if (lastClose > 0) {
+        const candidate = slice.slice(0, lastClose + 1)
+        JSON.parse(candidate) // let it throw if still invalid
+        return candidate
+      }
+    }
+  }
+
+  // 3. Last resort — return the trimmed text and let JSON.parse throw
+  return trimmed
 }
