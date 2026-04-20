@@ -3,9 +3,7 @@
  * retry strategies, per-phase timeouts, and checkpoint support.
  */
 
-import type { PipelineDefinition, PipelineNode, SkillResolutionContext } from '@dzupagent/core'
-import { PipelineRuntime } from '@dzupagent/agent'
-import type { NodeExecutionContext, NodeResult } from '@dzupagent/agent'
+import type { SkillResolutionContext } from '@dzupagent/core'
 import type { GuardrailGateConfig } from './guardrail-gate.js'
 import { runGuardrailGate, summarizeGateResult } from './guardrail-gate.js'
 import type { GuardrailContext } from '../guardrails/guardrail-types.js'
@@ -171,69 +169,10 @@ export class PipelineExecutor {
     const sorted = topoSort(phases)
     const results: PhaseResult[] = []
     const completed = new Set<string>()
-    const state = { ...initialState }
-    let latestState: Record<string, unknown> = state
+    const state: Record<string, unknown> = { ...initialState }
+    let overallFailed = false
 
-    const nodeMap = new Map<string, PhaseConfig>()
-    const pipelineNodes: PipelineNode[] = sorted.map((phase, idx) => {
-      const nodeId = `phase_${idx}_${phase.id}`
-      nodeMap.set(nodeId, phase)
-      return {
-        id: nodeId,
-        type: 'transform',
-        transformName: `phase:${phase.id}`,
-        name: phase.name,
-        timeoutMs: phase.timeoutMs ?? this.config.defaultTimeoutMs,
-      }
-    })
-
-    const edges: PipelineDefinition['edges'] = []
-    for (let i = 0; i < pipelineNodes.length - 1; i++) {
-      const source = pipelineNodes[i]
-      const target = pipelineNodes[i + 1]
-      if (source && target) {
-        edges.push({
-          type: 'sequential',
-          sourceNodeId: source.id,
-          targetNodeId: target.id,
-        })
-      }
-    }
-
-    const definition: PipelineDefinition = {
-      id: 'codegen.pipeline-executor',
-      name: 'Codegen PipelineExecutor Compatibility Runtime',
-      version: '1.0.0',
-      schemaVersion: '1.0.0',
-      entryNodeId: pipelineNodes[0]?.id ?? 'noop_0',
-      nodes: pipelineNodes.length > 0
-        ? pipelineNodes
-        : [{ id: 'noop_0', type: 'transform', transformName: 'noop', name: 'noop', timeoutMs: 1000 }],
-      edges,
-      checkpointStrategy: 'none',
-      metadata: {
-        source: 'PipelineExecutor',
-        runtime: 'PipelineRuntime',
-      },
-      tags: ['codegen', 'compat'],
-    }
-
-    const nodeExecutor = async (
-      nodeId: string,
-      _node: PipelineNode,
-      context: NodeExecutionContext,
-    ): Promise<NodeResult> => {
-      latestState = context.state
-      const phase = nodeMap.get(nodeId)
-      if (!phase) {
-        return {
-          nodeId,
-          output: null,
-          durationMs: 0,
-          error: `Unknown phase node "${nodeId}"`,
-        }
-      }
-
+    for (const phase of sorted) {
       const phaseStart = Date.now()
 
       // Check dependencies all completed
@@ -246,15 +185,12 @@ export class PipelineExecutor {
           retries: 0,
           error: `Unmet dependencies: ${unmetDeps.join(', ')}`,
         })
-        return {
-          nodeId,
-          output: null,
-          durationMs: 0,
-        }
+        overallFailed = true
+        continue
       }
 
       // Check condition
-      if (phase.condition && !phase.condition(context.state)) {
+      if (phase.condition && !phase.condition(state)) {
         const durationMs = Date.now() - phaseStart
         results.push({
           phaseId: phase.id,
@@ -263,19 +199,15 @@ export class PipelineExecutor {
           retries: 0,
         })
         completed.add(phase.id)
-        context.state[`__phase_${phase.id}_skipped`] = true
+        state[`__phase_${phase.id}_skipped`] = true
         this.config.onProgress?.(phase.id, 1)
-        return {
-          nodeId,
-          output: { skipped: true },
-          durationMs,
-        }
+        continue
       }
 
       // Check budget gate before execution
       if (this.config.budgetGate) {
         const budgetResult = await runBudgetGate(this.config.budgetGate)
-        context.state[`__phase_${phase.id}_budget`] = {
+        state[`__phase_${phase.id}_budget`] = {
           passed: budgetResult.passed,
           usedCents: budgetResult.usedCents,
           remainingCents: budgetResult.remainingCents,
@@ -290,12 +222,8 @@ export class PipelineExecutor {
             retries: 0,
             error,
           })
-          return {
-            nodeId,
-            output: null,
-            durationMs,
-            error,
-          }
+          overallFailed = true
+          break
         }
       }
 
@@ -304,7 +232,7 @@ export class PipelineExecutor {
         await resolveAndInjectSkills(
           phase.skills,
           phase.name,
-          context.state,
+          state,
           this.config.skillResolver,
           { ...(this.config.skillResolutionContext ?? {}), phase: phase.name },
         )
@@ -315,6 +243,7 @@ export class PipelineExecutor {
       let lastError: string | undefined
       let retries = 0
       let output: Record<string, unknown> | undefined
+      let phaseSucceeded = false
 
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         if (attempt > 0) {
@@ -327,22 +256,22 @@ export class PipelineExecutor {
         this.config.onProgress?.(phase.id, attempt / (maxRetries + 1))
 
         try {
-          const result = await withTimeout(() => phase.execute(context.state), timeoutMs)
+          const result = await withTimeout(() => phase.execute(state), timeoutMs)
           if (result.timedOut) {
             lastError = `Phase "${phase.name}" timed out after ${timeoutMs}ms`
             continue
           }
 
           output = result.result
-          Object.assign(context.state, output)
-          context.state[`__phase_${phase.id}_completed`] = true
+          Object.assign(state, output)
+          state[`__phase_${phase.id}_completed`] = true
 
           // Run guardrail gate if configured and a context builder is provided
           if (this.config.guardrailGate && this.config.buildGuardrailContext) {
-            const guardrailCtx = this.config.buildGuardrailContext(phase.id, context.state)
+            const guardrailCtx = this.config.buildGuardrailContext(phase.id, state)
             if (guardrailCtx) {
               const gateResult = runGuardrailGate(this.config.guardrailGate, guardrailCtx)
-              context.state[`__phase_${phase.id}_guardrail`] = {
+              state[`__phase_${phase.id}_guardrail`] = {
                 passed: gateResult.passed,
                 errorCount: gateResult.report.errorCount,
                 warningCount: gateResult.report.warningCount,
@@ -358,12 +287,10 @@ export class PipelineExecutor {
                   error,
                   output,
                 })
-                return {
-                  nodeId,
-                  output: null,
-                  durationMs,
-                  error,
-                }
+                overallFailed = true
+                phaseSucceeded = false
+                lastError = error
+                break
               }
             }
           }
@@ -380,49 +307,41 @@ export class PipelineExecutor {
           this.config.onProgress?.(phase.id, 1)
 
           if (this.config.onCheckpoint) {
-            await this.config.onCheckpoint(phase.id, context.state)
+            await this.config.onCheckpoint(phase.id, state)
           }
 
-          return {
-            nodeId,
-            output,
-            durationMs,
-          }
+          phaseSucceeded = true
+          break
         } catch (err: unknown) {
           lastError = err instanceof Error ? err.message : String(err)
         }
       }
 
-      const durationMs = Date.now() - phaseStart
-      const isTimeout = lastError?.includes('timed out')
-      const phaseResult: PhaseResult = {
-        phaseId: phase.id,
-        status: isTimeout ? 'timeout' : 'failed',
-        durationMs,
-        retries,
-      }
-      if (lastError !== undefined) phaseResult.error = lastError
-      results.push(phaseResult)
-      return {
-        nodeId,
-        output: null,
-        durationMs,
-        error: lastError ?? `Phase "${phase.name}" failed`,
+      if (!phaseSucceeded && !results.some(r => r.phaseId === phase.id && r.status === 'failed')) {
+        const durationMs = Date.now() - phaseStart
+        const isTimeout = lastError?.includes('timed out')
+        const phaseResult: PhaseResult = {
+          phaseId: phase.id,
+          status: isTimeout ? 'timeout' : 'failed',
+          durationMs,
+          retries,
+        }
+        if (lastError !== undefined) phaseResult.error = lastError
+        results.push(phaseResult)
+        overallFailed = true
+        // Stop executing subsequent phases once a phase fails.
+        break
+      } else if (overallFailed && results.some(r => r.phaseId === phase.id && r.status === 'failed')) {
+        // Guardrail gate failure already recorded — stop.
+        break
       }
     }
 
-    const runtime = new PipelineRuntime({
-      definition,
-      nodeExecutor,
-    })
-
-    const runtimeResult = await runtime.execute(state)
-
     return {
-      status: runtimeResult.state === 'completed' ? 'completed' : 'failed',
+      status: overallFailed ? 'failed' : 'completed',
       phases: results,
       totalDurationMs: Date.now() - pipelineStart,
-      state: { ...latestState },
+      state: { ...state },
     }
   }
 }

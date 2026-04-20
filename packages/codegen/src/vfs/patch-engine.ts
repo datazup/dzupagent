@@ -118,23 +118,42 @@ export function parseUnifiedDiff(diff: string): FilePatch[] {
         i++
 
         const hunkLines: PatchLine[] = []
-        // Read hunk body: lines starting with ' ', '+', '-', or '\' (no newline marker)
-        while (i < lines.length) {
+        // Determine how many old/new lines this hunk should consume.
+        // Using explicit counts from the hunk header prevents the loop
+        // from greedily swallowing the next file's `--- a/...` / `+++ b/...`
+        // headers as remove/add lines in multi-file diffs.
+        let oldRemaining = header.oldCount
+        let newRemaining = header.newCount
+        while (i < lines.length && (oldRemaining > 0 || newRemaining > 0)) {
           const hLine = lines[i]!
+          // Guard: if we see a new file-header or diff-git boundary before
+          // the expected line counts are exhausted, stop consuming this hunk.
+          if (
+            hLine.startsWith('--- ') ||
+            hLine.startsWith('+++ ') ||
+            hLine.startsWith('diff --git') ||
+            hLine.startsWith('@@')
+          ) {
+            break
+          }
           if (hLine.startsWith(' ')) {
             hunkLines.push({ type: 'context', content: hLine.slice(1) })
+            oldRemaining--
+            newRemaining--
             i++
           } else if (hLine.startsWith('+')) {
             hunkLines.push({ type: 'add', content: hLine.slice(1) })
+            newRemaining--
             i++
           } else if (hLine.startsWith('-')) {
             hunkLines.push({ type: 'remove', content: hLine.slice(1) })
+            oldRemaining--
             i++
           } else if (hLine.startsWith('\\')) {
             // "\ No newline at end of file" — skip
             i++
           } else {
-            // End of hunk body
+            // Unknown line type — end of hunk body
             break
           }
         }

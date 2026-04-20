@@ -6,6 +6,8 @@ import {
   PatchParseError,
   type FilePatch,
 } from '../vfs/patch-engine.js'
+import { InMemoryWorkspaceFS } from '../vfs/workspace-fs.js'
+import { VirtualFS } from '../vfs/virtual-fs.js'
 
 // ---------------------------------------------------------------------------
 // parseUnifiedDiff
@@ -180,6 +182,188 @@ describe('parseUnifiedDiff', () => {
     expect(hunk.oldCount).toBe(1)
     expect(hunk.newStart).toBe(5)
     expect(hunk.newCount).toBe(1)
+  })
+
+  // -------------------------------------------------------------------------
+  // Multi-file regression tests (parseUnifiedDiff greedy-consumption bug)
+  // -------------------------------------------------------------------------
+
+  it('regression: single-file diff still works after multi-file fix', () => {
+    // Ensures the hunk-count-based body parser does not regress the
+    // original single-file path.
+    const diff = [
+      '--- a/src/only.ts',
+      '+++ b/src/only.ts',
+      '@@ -1,3 +1,3 @@',
+      ' first',
+      '-second',
+      '+SECOND',
+      ' third',
+    ].join('\n')
+
+    const patches = parseUnifiedDiff(diff)
+    expect(patches).toHaveLength(1)
+    expect(patches[0]!.oldPath).toBe('src/only.ts')
+    expect(patches[0]!.hunks).toHaveLength(1)
+    expect(patches[0]!.hunks[0]!.lines).toEqual([
+      { type: 'context', content: 'first' },
+      { type: 'remove', content: 'second' },
+      { type: 'add', content: 'SECOND' },
+      { type: 'context', content: 'third' },
+    ])
+  })
+
+  it('parses two-file diff WITHOUT diff --git separator', () => {
+    // This is the exact bug scenario: two `--- a/...` file headers
+    // back-to-back with no `diff --git` marker. Prior to the fix, the
+    // hunk body loop would swallow `--- a/second.ts` and `+++ b/second.ts`
+    // as remove/add lines, collapsing the diff into a single file.
+    const diff = [
+      '--- a/first.ts',
+      '+++ b/first.ts',
+      '@@ -1,2 +1,2 @@',
+      '-first_old',
+      '+first_new',
+      ' keep',
+      '--- a/second.ts',
+      '+++ b/second.ts',
+      '@@ -1,2 +1,2 @@',
+      '-second_old',
+      '+second_new',
+      ' keep',
+    ].join('\n')
+
+    const patches = parseUnifiedDiff(diff)
+    expect(patches).toHaveLength(2)
+
+    expect(patches[0]!.oldPath).toBe('first.ts')
+    expect(patches[0]!.newPath).toBe('first.ts')
+    expect(patches[0]!.hunks).toHaveLength(1)
+    expect(patches[0]!.hunks[0]!.lines).toEqual([
+      { type: 'remove', content: 'first_old' },
+      { type: 'add', content: 'first_new' },
+      { type: 'context', content: 'keep' },
+    ])
+
+    expect(patches[1]!.oldPath).toBe('second.ts')
+    expect(patches[1]!.newPath).toBe('second.ts')
+    expect(patches[1]!.hunks).toHaveLength(1)
+    expect(patches[1]!.hunks[0]!.lines).toEqual([
+      { type: 'remove', content: 'second_old' },
+      { type: 'add', content: 'second_new' },
+      { type: 'context', content: 'keep' },
+    ])
+  })
+
+  it('parses three-file diff with mixed add/modify/delete', () => {
+    const diff = [
+      // File 1: modify
+      '--- a/modify.ts',
+      '+++ b/modify.ts',
+      '@@ -1,3 +1,3 @@',
+      ' alpha',
+      '-beta',
+      '+BETA',
+      ' gamma',
+      // File 2: add (new file)
+      '--- /dev/null',
+      '+++ b/created.ts',
+      '@@ -0,0 +1,2 @@',
+      '+brand_new_1',
+      '+brand_new_2',
+      // File 3: delete
+      '--- a/removed.ts',
+      '+++ /dev/null',
+      '@@ -1,2 +0,0 @@',
+      '-gone_1',
+      '-gone_2',
+    ].join('\n')
+
+    const patches = parseUnifiedDiff(diff)
+    expect(patches).toHaveLength(3)
+
+    // File 1: modify
+    expect(patches[0]!.oldPath).toBe('modify.ts')
+    expect(patches[0]!.newPath).toBe('modify.ts')
+    expect(patches[0]!.hunks).toHaveLength(1)
+    expect(patches[0]!.hunks[0]!.lines).toEqual([
+      { type: 'context', content: 'alpha' },
+      { type: 'remove', content: 'beta' },
+      { type: 'add', content: 'BETA' },
+      { type: 'context', content: 'gamma' },
+    ])
+
+    // File 2: add
+    expect(patches[1]!.oldPath).toBe('/dev/null')
+    expect(patches[1]!.newPath).toBe('created.ts')
+    expect(patches[1]!.hunks).toHaveLength(1)
+    expect(patches[1]!.hunks[0]!.oldCount).toBe(0)
+    expect(patches[1]!.hunks[0]!.newCount).toBe(2)
+    expect(patches[1]!.hunks[0]!.lines).toEqual([
+      { type: 'add', content: 'brand_new_1' },
+      { type: 'add', content: 'brand_new_2' },
+    ])
+
+    // File 3: delete
+    expect(patches[2]!.oldPath).toBe('removed.ts')
+    expect(patches[2]!.newPath).toBe('/dev/null')
+    expect(patches[2]!.hunks).toHaveLength(1)
+    expect(patches[2]!.hunks[0]!.oldCount).toBe(2)
+    expect(patches[2]!.hunks[0]!.newCount).toBe(0)
+    expect(patches[2]!.hunks[0]!.lines).toEqual([
+      { type: 'remove', content: 'gone_1' },
+      { type: 'remove', content: 'gone_2' },
+    ])
+  })
+
+  it('empty diff edge case returns an empty array (no throw)', () => {
+    expect(parseUnifiedDiff('')).toEqual([])
+    expect(parseUnifiedDiff('\n')).toEqual([])
+    expect(parseUnifiedDiff('   \n  \n')).toEqual([])
+  })
+
+  it('parses two-file diff with multiple hunks per file (boundary stress test)', () => {
+    // Each file has two hunks; the bug class manifests at the boundary
+    // between the last hunk of file 1 and the `--- a/second.ts` of file 2.
+    const diff = [
+      '--- a/first.ts',
+      '+++ b/first.ts',
+      '@@ -1,2 +1,2 @@',
+      '-a1',
+      '+A1',
+      ' a2',
+      '@@ -10,2 +10,2 @@',
+      '-a10',
+      '+A10',
+      ' a11',
+      '--- a/second.ts',
+      '+++ b/second.ts',
+      '@@ -1,2 +1,2 @@',
+      '-b1',
+      '+B1',
+      ' b2',
+      '@@ -20,2 +20,2 @@',
+      '-b20',
+      '+B20',
+      ' b21',
+    ].join('\n')
+
+    const patches = parseUnifiedDiff(diff)
+    expect(patches).toHaveLength(2)
+    expect(patches[0]!.oldPath).toBe('first.ts')
+    expect(patches[0]!.hunks).toHaveLength(2)
+    expect(patches[1]!.oldPath).toBe('second.ts')
+    expect(patches[1]!.hunks).toHaveLength(2)
+
+    // Sanity-check that no header line was swallowed into a hunk body.
+    for (const p of patches) {
+      for (const h of p.hunks) {
+        for (const l of h.lines) {
+          expect(l.content.startsWith('-- a/')).toBe(false)
+          expect(l.content.startsWith('++ b/')).toBe(false)
+        }
+      }
+    }
   })
 })
 
@@ -737,5 +921,194 @@ describe('parseUnifiedDiff + applyPatch integration', () => {
     ].join('\n')
 
     expect(result.content).toBe(expected)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Integration: InMemoryWorkspaceFS — 3-file patch end-to-end
+//
+// These tests exercise the full pipeline:
+//   parseUnifiedDiff  →  InMemoryWorkspaceFS.applyPatch  →  ws.read
+//
+// The workspace is purely in-memory (VirtualFS), so no disk I/O or Docker
+// dependencies are introduced.
+// ---------------------------------------------------------------------------
+
+describe('InMemoryWorkspaceFS — 3-file unified diff integration', () => {
+  // Shared initial file contents.  Each file has multiple lines so hunks
+  // carry real context lines, exercising the context-matching path of
+  // applyPatch as well as the multi-file boundary logic of parseUnifiedDiff.
+  const srcA = [
+    'export const VERSION = "1.0.0"',
+    'export const NAME = "alpha"',
+    'export const DEBUG = false',
+  ].join('\n') + '\n'
+
+  const srcB = [
+    'import { VERSION } from "./a"',
+    '',
+    'export function greet(name: string): string {',
+    '  return `Hello, ${name}! v${VERSION}`',
+    '}',
+  ].join('\n') + '\n'
+
+  const srcC = [
+    '# Changelog',
+    '',
+    '## Unreleased',
+    '',
+    'Initial release',
+  ].join('\n') + '\n'
+
+  function makeWorkspace(): InMemoryWorkspaceFS {
+    const vfs = new VirtualFS({
+      'src/a.ts': srcA,
+      'src/b.ts': srcB,
+      'src/c.md': srcC,
+    })
+    return new InMemoryWorkspaceFS(vfs)
+  }
+
+  // -------------------------------------------------------------------------
+  // Happy path: all 3 files patched successfully
+  // -------------------------------------------------------------------------
+
+  // The same 3-file diff string is reused across all tests in this block.
+  // srcC line 5 is "Initial release" (no leading punctuation) so the diff
+  // remove line is simply "-Initial release".
+  const THREE_FILE_PATCH = [
+    '--- a/src/a.ts',
+    '+++ b/src/a.ts',
+    '@@ -1,3 +1,3 @@',
+    ' export const VERSION = "1.0.0"',
+    '-export const NAME = "alpha"',
+    '+export const NAME = "beta"',
+    ' export const DEBUG = false',
+    '--- a/src/b.ts',
+    '+++ b/src/b.ts',
+    '@@ -3,3 +3,3 @@',
+    ' export function greet(name: string): string {',
+    '-  return `Hello, ${name}! v${VERSION}`',
+    '+  return `Hi, ${name}! v${VERSION}`',
+    ' }',
+    '--- a/src/c.md',
+    '+++ b/src/c.md',
+    '@@ -4,2 +4,2 @@',
+    ' ',
+    '-Initial release',
+    '+Rename alpha to beta',
+  ].join('\n')
+
+  it('parseUnifiedDiff returns exactly 3 FilePatch objects for a 3-file diff', () => {
+    const patches = parseUnifiedDiff(THREE_FILE_PATCH)
+
+    expect(patches).toHaveLength(3)
+
+    expect(patches[0]!.oldPath).toBe('src/a.ts')
+    expect(patches[0]!.newPath).toBe('src/a.ts')
+    expect(patches[0]!.hunks).toHaveLength(1)
+
+    expect(patches[1]!.oldPath).toBe('src/b.ts')
+    expect(patches[1]!.newPath).toBe('src/b.ts')
+    expect(patches[1]!.hunks).toHaveLength(1)
+
+    expect(patches[2]!.oldPath).toBe('src/c.md')
+    expect(patches[2]!.newPath).toBe('src/c.md')
+    expect(patches[2]!.hunks).toHaveLength(1)
+  })
+
+  it('applies a 3-file patch end-to-end and reads back the modified content', async () => {
+    const ws = makeWorkspace()
+
+    const result = await ws.applyPatch(THREE_FILE_PATCH, { rollbackOnFailure: true })
+
+    // Overall result
+    expect(result.rolledBack).toBe(false)
+    expect(result.results).toHaveLength(3)
+    for (const fileResult of result.results) {
+      expect(fileResult.success).toBe(true)
+    }
+
+    // Read back each file and verify the post-patch state exactly.
+    const afterA = await ws.read('src/a.ts')
+    expect(afterA).toContain('export const NAME = "beta"')
+    expect(afterA).not.toContain('export const NAME = "alpha"')
+    // Lines not touched by the hunk must remain unchanged.
+    expect(afterA).toContain('export const VERSION = "1.0.0"')
+    expect(afterA).toContain('export const DEBUG = false')
+
+    const afterB = await ws.read('src/b.ts')
+    expect(afterB).toContain('return `Hi, ${name}! v${VERSION}`')
+    expect(afterB).not.toContain('return `Hello, ${name}! v${VERSION}`')
+    // Unmodified lines are preserved.
+    expect(afterB).toContain('import { VERSION } from "./a"')
+    expect(afterB).toContain('export function greet(name: string): string {')
+
+    const afterC = await ws.read('src/c.md')
+    expect(afterC).toContain('Rename alpha to beta')
+    expect(afterC).not.toContain('Initial release')
+    // Unmodified markdown lines are preserved.
+    expect(afterC).toContain('# Changelog')
+    expect(afterC).toContain('## Unreleased')
+  })
+
+  // -------------------------------------------------------------------------
+  // Negative path: bad hunk for file 2 → atomic rollback of all 3 files
+  // -------------------------------------------------------------------------
+
+  it('rolls back all 3 files atomically when the second file patch has a context mismatch', async () => {
+    const ws = makeWorkspace()
+
+    // src/a.ts: valid hunk — will be written then rolled back on failure.
+    // src/b.ts: bad remove line → E_CONTEXT_MISMATCH → triggers rollback.
+    // src/c.md: would be valid, but is never reached (rollbackOnFailure
+    //           aborts processing after the first failure).
+    const patch = [
+      '--- a/src/a.ts',
+      '+++ b/src/a.ts',
+      '@@ -1,3 +1,3 @@',
+      ' export const VERSION = "1.0.0"',
+      '-export const NAME = "alpha"',
+      '+export const NAME = "beta"',
+      ' export const DEBUG = false',
+      '--- a/src/b.ts',
+      '+++ b/src/b.ts',
+      '@@ -3,3 +3,3 @@',
+      ' export function greet(name: string): string {',
+      '-  return `WRONG CONTENT THAT DOES NOT EXIST`',
+      '+  return `Hi, ${name}! v${VERSION}`',
+      ' }',
+      '--- a/src/c.md',
+      '+++ b/src/c.md',
+      '@@ -4,2 +4,2 @@',
+      ' ',
+      '-Initial release',
+      '+Rename alpha to beta',
+    ].join('\n')
+
+    const result = await ws.applyPatch(patch, { rollbackOnFailure: true })
+
+    // The rollback must have fired.
+    expect(result.rolledBack).toBe(true)
+
+    // The first file's result is reported (applyPatchSet stops at first failure
+    // when rollbackOnFailure is true, so results length may be 1 or 2
+    // depending on whether the failed file's result is included; assert
+    // at least the failed file was detected).
+    const failedResult = result.results.find((r) => !r.success)
+    expect(failedResult).toBeDefined()
+    expect(failedResult!.filePath).toBe('src/b.ts')
+
+    const failingHunk = failedResult!.hunkResults.find(
+      (h) => !h.applied && h.error !== 'E_ALREADY_APPLIED',
+    )
+    expect(failingHunk).toBeDefined()
+    expect(failingHunk!.error).toBe('E_CONTEXT_MISMATCH')
+
+    // All 3 files must contain exactly their original content — no partial
+    // writes should survive the rollback.
+    expect(await ws.read('src/a.ts')).toBe(srcA)
+    expect(await ws.read('src/b.ts')).toBe(srcB)
+    expect(await ws.read('src/c.md')).toBe(srcC)
   })
 })
