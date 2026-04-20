@@ -65,6 +65,7 @@ import type { ServerRoutePlugin } from './route-plugin.js'
 import { createMcpRoutes } from './routes/mcp.js'
 import { createSkillRoutes } from './routes/skills.js'
 import { createWorkflowRoutes } from './routes/workflows.js'
+import { createCompileRoutes, type CompileRouteConfig } from './routes/compile.js'
 import { createA2ARoutes, type A2ARoutesConfig } from './routes/a2a.js'
 import { buildAgentCard, type AgentCardConfig } from './a2a/agent-card.js'
 import { InMemoryA2ATaskStore } from './a2a/task-handler.js'
@@ -213,6 +214,9 @@ export interface ForgeServerConfig {
   workflowRegistry?: WorkflowRegistry
   /** Optional skill step resolver — required alongside coreSkillRegistry for workflow execution */
   skillStepResolver?: SkillStepResolver
+  /** Optional flow compiler route config. Defaults to mounting `POST /api/workflows/compile`
+   *  with a no-op tool resolver when omitted; provide a resolver to wire the domain catalog. */
+  compile?: CompileRouteConfig
   /** Optional domain route plugins mounted after built-in core routes */
   routePlugins?: ServerRoutePlugin[]
   /** Optional A2A (Agent-to-Agent) protocol config.
@@ -373,6 +377,14 @@ function createBuiltInRoutePlugins(config: ForgeServerConfig): ServerRoutePlugin
       }),
     })
   }
+
+  // Flow compiler route is always available — it has no hard dependencies.
+  // A no-op tool resolver is used when `config.compile` is omitted; callers
+  // can wire a domain catalog via `config.compile.toolResolver`.
+  plugins.push({
+    prefix: '/api/workflows',
+    createRoutes: () => createCompileRoutes(config.compile ?? {}),
+  })
 
   return plugins
 }

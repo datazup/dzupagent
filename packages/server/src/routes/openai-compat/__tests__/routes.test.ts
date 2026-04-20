@@ -129,6 +129,78 @@ describe('OpenAI-compatible routes', () => {
       expect(usage['completion_tokens']).toBe(5)
       expect(usage['total_tokens']).toBe(15)
     })
+
+    it('should accept and process temperature parameter', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ temperature: 0.7 })),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['object']).toBe('chat.completion')
+    })
+
+    it('should accept and process max_tokens parameter', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ max_tokens: 100 })),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['object']).toBe('chat.completion')
+    })
+
+    it('should accept and process top_p parameter', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ top_p: 0.9 })),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['object']).toBe('chat.completion')
+    })
+
+    it('should accept and process presence_penalty parameter', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ presence_penalty: 0.5 })),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['object']).toBe('chat.completion')
+    })
+
+    it('should accept and process frequency_penalty parameter', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ frequency_penalty: 0.3 })),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['object']).toBe('chat.completion')
+    })
+
+    it('should accept and process seed parameter', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ seed: 12345 })),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['object']).toBe('chat.completion')
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -200,6 +272,42 @@ describe('OpenAI-compatible routes', () => {
       expect(Array.isArray(data)).toBe(true)
       expect(data.length).toBeGreaterThanOrEqual(1)
       expect(data.some((m) => m['id'] === 'echo')).toBe(true)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Model detail retrieval
+  // -------------------------------------------------------------------------
+
+  describe('GET /v1/models/:id', () => {
+    it('should return 200 with model details for a valid model id', async () => {
+      const res = await app.request('/v1/models/echo', {
+        method: 'GET',
+      })
+
+      expect(res.status).toBe(200)
+
+      const body = await res.json() as Record<string, unknown>
+      expect(body['id']).toBe('echo')
+      expect(body['object']).toBe('model')
+      expect(typeof body['created']).toBe('number')
+      expect(body['owned_by']).toBe('dzupagent')
+    })
+
+    it('should return 404 in OpenAI error format for non-existent model id', async () => {
+      const res = await app.request('/v1/models/non-existent-model-xyz', {
+        method: 'GET',
+      })
+
+      expect(res.status).toBe(404)
+
+      const body = await res.json() as Record<string, unknown>
+      const error = body['error'] as Record<string, unknown>
+      expect(error).toBeDefined()
+      expect(error['code']).toBe('model_not_found')
+      expect(typeof error['message']).toBe('string')
+      expect(error['message']).toContain('non-existent-model-xyz')
+      expect(error['type']).toBe('invalid_request_error')
     })
   })
 
