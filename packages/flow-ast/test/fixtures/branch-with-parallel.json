@@ -1,0 +1,14 @@
+{
+  "type": "branch",
+  "condition": "${ctx.flag}",
+  "then": [
+    {
+      "type": "parallel",
+      "branches": [
+        [{ "type": "action", "toolRef": "svc.a", "input": {} }],
+        [{ "type": "action", "toolRef": "svc.b", "input": {} }]
+      ]
+    }
+  ],
+  "else": [{ "type": "complete", "result": "skipped" }]
+}

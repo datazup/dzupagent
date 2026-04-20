@@ -1,0 +1,8 @@
+{
+  "type": "for_each",
+  "source": "items",
+  "as": "item",
+  "body": [
+    { "type": "action", "toolRef": "process.one", "input": { "value": "${item}" } }
+  ]
+}

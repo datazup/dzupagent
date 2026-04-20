@@ -1,0 +1,8 @@
+{
+  "type": "sequence",
+  "nodes": [
+    { "type": "action", "toolRef": "good.first", "input": {} },
+    { "type": "loop", "while": "x", "body": [] },
+    { "type": "action", "toolRef": "good.last", "input": {} }
+  ]
+}

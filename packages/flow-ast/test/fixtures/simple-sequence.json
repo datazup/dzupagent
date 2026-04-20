@@ -1,0 +1,7 @@
+{
+  "type": "sequence",
+  "nodes": [
+    { "type": "action", "toolRef": "fs.read", "input": { "path": "/tmp/a" } },
+    { "type": "action", "toolRef": "fs.write", "input": { "path": "/tmp/b", "data": "hello" } }
+  ]
+}
