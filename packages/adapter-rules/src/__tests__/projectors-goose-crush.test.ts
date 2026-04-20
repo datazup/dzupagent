@@ -19,6 +19,7 @@ function emptyPlan(overrides: Partial<RuntimePlan> = {}): RuntimePlan {
     auditFlags: [],
     deniedPaths: [],
     alerts: [],
+    watcherRegistrations: [],
     ...overrides,
   }
 }

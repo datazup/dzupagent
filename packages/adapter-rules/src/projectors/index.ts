@@ -18,6 +18,7 @@ import { projectCrushConfig } from './crush.js'
 import { projectGeminiConfig } from './gemini.js'
 import { projectGooseConfig } from './goose.js'
 import { projectQwenConfig } from './qwen.js'
+import { buildWatcherRegistrations } from './watchers.js'
 
 export type ProjectorFn = (
   plan: RuntimePlan,
@@ -44,6 +45,7 @@ export function projectProviderConfig(
 }
 
 export {
+  buildWatcherRegistrations,
   projectClaudeConfig,
   projectCodexConfig,
   projectCrushConfig,

@@ -62,6 +62,13 @@ export interface RuntimePlanAlert {
   severity: AlertSeverity
 }
 
+export type WatcherRegistration = {
+  path: string
+  provider: string
+  watchClass: 'project' | 'home' | 'artifact' | 'dzupagent'
+  description?: string
+}
+
 export interface RuntimePlan {
   providerId: AdapterProviderId
   promptSections: string[]
@@ -73,6 +80,7 @@ export interface RuntimePlan {
   auditFlags: string[]
   deniedPaths: string[]
   alerts: RuntimePlanAlert[]
+  watcherRegistrations: WatcherRegistration[]
 }
 
 /**
@@ -93,4 +101,10 @@ export interface CompileContext {
   apiKey?: string | undefined
   providerName?: string | undefined
   maxTokens?: number | undefined
+  /**
+   * Workspace root used as the base for relative filesystem paths emitted by
+   * watcher-registration projectors. When omitted, relative paths are emitted
+   * as-is (relative to the runtime's current working directory).
+   */
+  workspaceDir?: string | undefined
 }

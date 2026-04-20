@@ -13,7 +13,7 @@
 
 import type { AdapterProviderId } from '@dzupagent/adapter-types'
 
-import { projectProviderConfig } from './projectors/index.js'
+import { buildWatcherRegistrations, projectProviderConfig } from './projectors/index.js'
 import type {
   AdapterRule,
   AlertSeverity,
@@ -26,17 +26,20 @@ import type {
 export class RuleCompiler {
   compile(rules: AdapterRule[], context: CompileContext): RuntimePlan {
     const plan = this.emptyPlan(context.providerId)
+    const activeRules: AdapterRule[] = []
 
     for (const rule of rules) {
       if (!this.providerMatches(rule, context.providerId)) continue
       if (!this.matchPasses(rule.match, context)) continue
 
+      activeRules.push(rule)
       for (const effect of rule.effects) {
         this.projectEffect(effect, plan)
       }
     }
 
     plan.providerConfigPatch = this.buildProviderConfigPatch(plan, context)
+    plan.watcherRegistrations = buildWatcherRegistrations(activeRules, context)
     return plan
   }
 
@@ -142,6 +145,7 @@ export class RuleCompiler {
       auditFlags: [],
       deniedPaths: [],
       alerts: [],
+      watcherRegistrations: [],
     }
   }
 }

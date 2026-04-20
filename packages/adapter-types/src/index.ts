@@ -535,6 +535,73 @@ export interface AgentArtifactEvent {
   correlationId?: string | undefined
 }
 
+// ---------------------------------------------------------------------------
+// Governance event plane — approvals, hooks, rule violations, dangerous cmds
+// ---------------------------------------------------------------------------
+
+/** Kinds of governance-plane events emitted alongside the unified AgentEvent stream. */
+export type GovernanceEventKind =
+  | 'governance:approval_requested'
+  | 'governance:approval_resolved'
+  | 'governance:hook_executed'
+  | 'governance:rule_violation'
+  | 'governance:dangerous_command'
+
+/**
+ * Governance events are emitted on a side-channel parallel to `AgentEvent`.
+ * They surface approval/authorization decisions, hook executions, rule
+ * violations, and dangerous-command detections so the host can audit, alert,
+ * or replay governance decisions independently of normal adapter output.
+ */
+export type GovernanceEvent =
+  | {
+      type: 'governance:approval_requested'
+      runId: string
+      sessionId?: string
+      interactionId: string
+      providerId: string
+      timestamp: number
+      prompt: string
+      commandPreview?: string
+    }
+  | {
+      type: 'governance:approval_resolved'
+      runId: string
+      sessionId?: string
+      interactionId: string
+      providerId: string
+      timestamp: number
+      resolution: 'approved' | 'denied' | 'auto'
+    }
+  | {
+      type: 'governance:hook_executed'
+      runId: string
+      sessionId?: string
+      providerId: string
+      timestamp: number
+      hookName: string
+      exitCode?: number
+    }
+  | {
+      type: 'governance:rule_violation'
+      runId: string
+      sessionId?: string
+      providerId: string
+      timestamp: number
+      ruleId: string
+      severity: 'warn' | 'block'
+      detail: string
+    }
+  | {
+      type: 'governance:dangerous_command'
+      runId: string
+      sessionId?: string
+      providerId: string
+      timestamp: number
+      command: string
+      blocked: boolean
+    }
+
 /** Terminal status for a completed run */
 export type RunStatus = 'completed' | 'failed' | 'cancelled'
 

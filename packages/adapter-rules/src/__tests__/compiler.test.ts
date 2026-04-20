@@ -34,6 +34,16 @@ describe('RuleCompiler', () => {
       auditFlags: [],
       deniedPaths: [],
       alerts: [],
+      // .dzupagent/ is always registered as a dzupagent-class watcher, even
+      // when no rules are active.
+      watcherRegistrations: [
+        {
+          path: '.dzupagent/',
+          provider: 'dzupagent',
+          watchClass: 'dzupagent',
+          description: 'DzupAgent workspace metadata (capabilities, memories, skills)',
+        },
+      ],
     })
   })
 
