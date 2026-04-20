@@ -470,8 +470,13 @@ export {
   DzupAgentAgentLoader,
   agentDefinitionsToSupervisorConfig,
   DzupAgentSyncer,
+  DryRunReporter,
 } from './dzupagent/index.js'
 export type {
+  DryRunReporterMode,
+  DryRunReporterOptions,
+  DryRunEntry,
+  DryRunEntryType,
   ParsedFrontmatter,
   ParsedSection,
   ParsedMarkdownFile,
@@ -502,3 +507,7 @@ export { InteractionResolver } from './interaction/interaction-resolver.js'
 export { classifyInteractionText, detectCliInteraction } from './interaction/interaction-detector.js'
 export type { InteractionKind } from './interaction/interaction-detector.js'
 export type { InteractionRequest, InteractionResult } from './interaction/interaction-resolver.js'
+
+// --- Run Event Store ---
+export { RunEventStore } from './runs/run-event-store.js'
+export type { RawAgentEvent, AgentArtifactEvent, RunSummary } from '@dzupagent/adapter-types'

@@ -17,7 +17,19 @@ import { parseMarkdownFile } from './md-frontmatter-parser.js'
 // ---------------------------------------------------------------------------
 
 export interface ImportSource {
-  type: 'claude-md' | 'claude-commands' | 'claude-agents' | 'claude-memory' | 'codex-agents-md'
+  type:
+    | 'claude-md'
+    | 'claude-commands'
+    | 'claude-agents'
+    | 'claude-memory'
+    | 'codex-agents-md'
+    | 'gemini-md'
+    | 'gemini-settings'
+    | 'qwen-md'
+    | 'qwen-skills'
+    | 'qwen-agents'
+    | 'goose-hints'
+    | 'crush-skills'
   sourcePath: string
 }
 
@@ -243,6 +255,75 @@ export class DzupAgentImporter {
       })
     }
 
+    // GEMINI.md
+    const geminiMd = join(this.projectRoot, 'GEMINI.md')
+    if (await fileExists(geminiMd)) {
+      candidates.push({
+        source: { type: 'gemini-md', sourcePath: geminiMd },
+        targetPath: join(projectDir, 'memory', 'gemini-project-context.md'),
+      })
+    }
+
+    // .gemini/settings.json
+    const geminiSettings = join(this.projectRoot, '.gemini', 'settings.json')
+    if (await fileExists(geminiSettings)) {
+      candidates.push({
+        source: { type: 'gemini-settings', sourcePath: geminiSettings },
+        targetPath: join(projectDir, 'memory', 'gemini-settings.json'),
+      })
+    }
+
+    // QWEN.md
+    const qwenMd = join(this.projectRoot, 'QWEN.md')
+    if (await fileExists(qwenMd)) {
+      candidates.push({
+        source: { type: 'qwen-md', sourcePath: qwenMd },
+        targetPath: join(projectDir, 'memory', 'qwen-project-context.md'),
+      })
+    }
+
+    // .qwen/skills/*.md
+    const qwenSkillsDir = join(this.projectRoot, '.qwen', 'skills')
+    const qwenSkillFiles = await globMdFiles(qwenSkillsDir)
+    for (const file of qwenSkillFiles) {
+      const name = basename(file, '.md')
+      candidates.push({
+        source: { type: 'qwen-skills', sourcePath: join(qwenSkillsDir, file) },
+        targetPath: join(projectDir, 'skills', `${name}.md`),
+      })
+    }
+
+    // .qwen/agents/*.md
+    const qwenAgentsDir = join(this.projectRoot, '.qwen', 'agents')
+    const qwenAgentFiles = await globMdFiles(qwenAgentsDir)
+    for (const file of qwenAgentFiles) {
+      const name = basename(file, '.md')
+      candidates.push({
+        source: { type: 'qwen-agents', sourcePath: join(qwenAgentsDir, file) },
+        targetPath: join(projectDir, 'agents', `${name}.md`),
+      })
+    }
+
+    // .goosehints
+    const gooseHints = join(this.projectRoot, '.goosehints')
+    if (await fileExists(gooseHints)) {
+      candidates.push({
+        source: { type: 'goose-hints', sourcePath: gooseHints },
+        targetPath: join(projectDir, 'memory', 'goose-hints.md'),
+      })
+    }
+
+    // .crush/skills/*.md
+    const crushSkillsDir = join(this.projectRoot, '.crush', 'skills')
+    const crushSkillFiles = await globMdFiles(crushSkillsDir)
+    for (const file of crushSkillFiles) {
+      const name = basename(file, '.md')
+      candidates.push({
+        source: { type: 'crush-skills', sourcePath: join(crushSkillsDir, file) },
+        targetPath: join(projectDir, 'skills', `${name}.md`),
+      })
+    }
+
     return candidates
   }
 
@@ -295,6 +376,70 @@ export class DzupAgentImporter {
           name,
           description: 'Claude agent-specific memory',
           type: 'agent',
+          importedFrom: relativePath,
+        })
+      }
+
+      case 'gemini-md':
+        return this.wrapWithFrontmatter(rawContent, {
+          name: 'gemini-project-context',
+          description: 'Gemini project context imported from GEMINI.md',
+          type: 'project',
+          importedFrom: 'GEMINI.md',
+        })
+
+      case 'gemini-settings': {
+        const wrapped = `\`\`\`json\n${rawContent}\n\`\`\``
+        return this.wrapWithFrontmatter(wrapped, {
+          name: 'gemini-settings',
+          description: 'Gemini settings imported from .gemini/settings.json',
+          type: 'config',
+          importedFrom: '.gemini/settings.json',
+        })
+      }
+
+      case 'qwen-md':
+        return this.wrapWithFrontmatter(rawContent, {
+          name: 'qwen-project-context',
+          description: 'Qwen project context imported from QWEN.md',
+          type: 'project',
+          importedFrom: 'QWEN.md',
+        })
+
+      case 'qwen-skills': {
+        const name = basename(source.sourcePath, '.md')
+        const relativePath = `.qwen/skills/${basename(source.sourcePath)}`
+        return this.addOrCreateFrontmatter(rawContent, {
+          name,
+          description: `Imported from ${relativePath}`,
+          importedFrom: relativePath,
+        })
+      }
+
+      case 'qwen-agents': {
+        const name = basename(source.sourcePath, '.md')
+        const relativePath = `.qwen/agents/${basename(source.sourcePath)}`
+        return this.addOrCreateFrontmatter(rawContent, {
+          name,
+          description: `Imported from ${relativePath}`,
+          importedFrom: relativePath,
+        })
+      }
+
+      case 'goose-hints':
+        return this.wrapWithFrontmatter(rawContent, {
+          name: 'goose-hints',
+          description: 'Goose hints imported from .goosehints',
+          type: 'project',
+          importedFrom: '.goosehints',
+        })
+
+      case 'crush-skills': {
+        const name = basename(source.sourcePath, '.md')
+        const relativePath = `.crush/skills/${basename(source.sourcePath)}`
+        return this.addOrCreateFrontmatter(rawContent, {
+          name,
+          description: `Imported from ${relativePath}`,
           importedFrom: relativePath,
         })
       }
@@ -460,6 +605,27 @@ export class DzupAgentImporter {
     }
     if (sourcePath.includes('.claude/memory/')) {
       return { type: 'claude-memory', sourcePath }
+    }
+    if (sourcePath.endsWith('GEMINI.md')) {
+      return { type: 'gemini-md', sourcePath }
+    }
+    if (sourcePath.includes('.gemini/settings.json')) {
+      return { type: 'gemini-settings', sourcePath }
+    }
+    if (sourcePath.endsWith('QWEN.md')) {
+      return { type: 'qwen-md', sourcePath }
+    }
+    if (sourcePath.includes('.qwen/skills/')) {
+      return { type: 'qwen-skills', sourcePath }
+    }
+    if (sourcePath.includes('.qwen/agents/')) {
+      return { type: 'qwen-agents', sourcePath }
+    }
+    if (sourcePath.endsWith('.goosehints')) {
+      return { type: 'goose-hints', sourcePath }
+    }
+    if (sourcePath.includes('.crush/skills/')) {
+      return { type: 'crush-skills', sourcePath }
     }
     return undefined
   }

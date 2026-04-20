@@ -30,3 +30,5 @@ export type {
   SyncTarget,
   DzupAgentSyncerOptions,
 } from './syncer.js'
+export { DryRunReporter } from './dry-run-reporter.js'
+export type { DryRunReporterMode, DryRunReporterOptions, DryRunEntry, DryRunEntryType } from './dry-run-reporter.js'

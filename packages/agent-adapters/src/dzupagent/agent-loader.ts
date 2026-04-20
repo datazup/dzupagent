@@ -13,8 +13,9 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, basename, extname } from 'node:path'
 import type { AdapterProviderId, DzupAgentPaths } from '../types.js'
 import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
-import type { AdapterSkillRegistry } from '../skills/adapter-skill-registry.js'
-import type { DzupAgentFileLoader } from './file-loader.js'
+import { AdapterSkillRegistry } from '../skills/adapter-skill-registry.js'
+import { DzupAgentFileLoader } from './file-loader.js'
+import { derivePathsFromProjectDir } from './derive-paths.js'
 import { parseMarkdownFile } from './md-frontmatter-parser.js'
 
 // ---------------------------------------------------------------------------
@@ -35,9 +36,14 @@ export interface AgentDefinition {
 }
 
 export interface DzupAgentAgentLoaderOptions {
-  paths: DzupAgentPaths
-  skillLoader: DzupAgentFileLoader
-  skillRegistry: AdapterSkillRegistry
+  /** Fully resolved paths. Either `paths` OR `projectDir` must be supplied. */
+  paths?: DzupAgentPaths
+  /** Shorthand: derive paths from a single project directory. */
+  projectDir?: string
+  /** Skill file loader. Auto-constructed from `paths`/`projectDir` when omitted. */
+  skillLoader?: DzupAgentFileLoader
+  /** Skill registry. Falls back to a fresh `AdapterSkillRegistry` when omitted. */
+  skillRegistry?: AdapterSkillRegistry
 }
 
 // ---------------------------------------------------------------------------
@@ -171,9 +177,9 @@ export class DzupAgentAgentLoader {
   private cache = new Map<string, CacheEntry>()
 
   constructor(options: DzupAgentAgentLoaderOptions) {
-    this.paths = options.paths
-    this.skillLoader = options.skillLoader
-    this.skillRegistry = options.skillRegistry
+    this.paths = options.paths ?? derivePathsFromProjectDir(options.projectDir)
+    this.skillLoader = options.skillLoader ?? new DzupAgentFileLoader({ paths: this.paths })
+    this.skillRegistry = options.skillRegistry ?? new AdapterSkillRegistry()
   }
 
   /**

@@ -13,6 +13,7 @@ import { readdir, readFile, stat, watch as fsWatch } from 'node:fs/promises'
 import { join, basename, extname } from 'node:path'
 import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
 import type { DzupAgentPaths } from '../types.js'
+import { derivePathsFromProjectDir } from './derive-paths.js'
 import {
   parseMarkdownFile,
   type ParsedFrontmatter,
@@ -24,7 +25,17 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface FileLoaderOptions {
-  paths: DzupAgentPaths
+  /**
+   * Fully resolved `.dzupagent/` paths (global + workspace + project).
+   * Either `paths` OR `projectDir` must be supplied.
+   */
+  paths?: DzupAgentPaths
+  /**
+   * Shorthand: when only the project directory is known, the loader
+   * will derive `paths` internally. Global = `~/.dzupagent`,
+   * workspace = project (no split).
+   */
+  projectDir?: string
 }
 
 /** Result of parsing a single skill .md file */
@@ -212,7 +223,7 @@ export class DzupAgentFileLoader {
   private cache = new Map<string, CacheEntry>()
 
   constructor(options: FileLoaderOptions) {
-    this.paths = options.paths
+    this.paths = options.paths ?? derivePathsFromProjectDir(options.projectDir)
   }
 
   /**

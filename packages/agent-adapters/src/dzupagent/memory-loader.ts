@@ -18,6 +18,7 @@ import { join, dirname, basename, extname } from 'node:path'
 import type { AdapterProviderId, CodexMemoryStrategy, DzupAgentPaths } from '../types.js'
 import type { MemoryServiceLike } from '../middleware/memory-enrichment.js'
 import type { AgentMemoryRecalledEvent } from '../types.js'
+import { derivePathsFromProjectDir } from './derive-paths.js'
 import { parseMarkdownFile } from './md-frontmatter-parser.js'
 
 // ---------------------------------------------------------------------------
@@ -38,8 +39,12 @@ export interface MemoryEntry {
 }
 
 export interface DzupAgentMemoryLoaderOptions {
-  paths: DzupAgentPaths
-  providerId: AdapterProviderId
+  /** Fully resolved paths. Either `paths` OR `projectDir` must be supplied. */
+  paths?: DzupAgentPaths
+  /** Shorthand: derive paths from a single project directory. */
+  projectDir?: string
+  /** Provider ID. Defaults to `'claude'` when unspecified. */
+  providerId?: AdapterProviderId
   /**
    * Maximum total tokens to inject across all memory levels.
    * Default: 2000.
@@ -100,8 +105,8 @@ export class DzupAgentMemoryLoader implements MemoryServiceLike {
   private cache = new Map<string, CacheEntry>()
 
   constructor(options: DzupAgentMemoryLoaderOptions) {
-    this.paths = options.paths
-    this.providerId = options.providerId
+    this.paths = options.paths ?? derivePathsFromProjectDir(options.projectDir)
+    this.providerId = options.providerId ?? 'claude'
     this.maxTotalTokens = options.maxTotalTokens ?? 2000
     this.codexMemoryStrategy = options.codexMemoryStrategy ?? 'inject-on-new-thread'
     this.onRecalled = options.onRecalled
