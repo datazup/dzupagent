@@ -30,3 +30,7 @@ export type {
   CorpusScoredDocument,
 } from './corpus-types.js'
 export { CorpusNotFoundError, SourceNotFoundError } from './corpus-types.js'
+
+// --- Qdrant wiring ---
+export { createQdrantRagPipeline, ensureTenantCollection } from './qdrant-factory.js'
+export type { QdrantRagConfig } from './qdrant-factory.js'

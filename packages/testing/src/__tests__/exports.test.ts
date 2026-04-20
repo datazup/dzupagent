@@ -46,10 +46,18 @@ describe('Package exports — @dzupagent/testing', () => {
     expect(exportNames).toEqual([
       'ESCALATION_SUITE',
       'ESCAPE_SUITE',
+      'ExactMatchScorer',
       'INJECTION_SUITE',
+      'LlmJudgeScorer',
+      'LlmRecorder',
       'MockSkillStepResolver',
       'POISONING_SUITE',
+      'RegexScorer',
+      'buildStubAnthropicClient',
+      'createDemoEvalSuite',
+      'runEvalSuite',
       'runSecuritySuite',
+      'withRecordedRegistry',
     ]);
   });
 });

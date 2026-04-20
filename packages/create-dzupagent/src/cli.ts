@@ -13,7 +13,7 @@
 
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Command } from 'commander'
+import { Command, Option } from 'commander'
 import { colors, Spinner } from './logger.js'
 import type {
   TemplateType,
@@ -28,6 +28,7 @@ import { listFeatures } from './features.js'
 import { generateProject } from './generator.js'
 import { runWizard } from './wizard.js'
 import { validateProjectName, getInstallCommand, getDevCommand } from './utils.js'
+import { runSyncCommand, VALID_SYNC_TARGETS } from './sync.js'
 
 const VALID_TEMPLATES = new Set(Object.keys(templateRegistry))
 
@@ -70,6 +71,54 @@ export function createProgram(): Command {
         process.exit(1)
       }
     })
+
+  program
+    .command('sync <target>')
+    .description(
+      `Sync .dzupagent/ definitions into native agent files. Targets: ${VALID_SYNC_TARGETS.join(', ')}`,
+    )
+    .option('--execute', 'Apply the sync plan (default: plan-only preview)', false)
+    .option('--force', 'Overwrite diverged files instead of skipping them', false)
+    .option(
+      '--dry-run',
+      'Show the plan and diffs without writing any files (companion to --force)',
+      false,
+    )
+    .addOption(
+      new Option(
+        '--dry-run-format <format>',
+        'Output format for --dry-run diagnostics: console (default) or json',
+      )
+        .choices(['console', 'json'])
+        .default('console'),
+    )
+    .option('--cwd <path>', 'Project root to sync (default: current working directory)')
+    .action(
+      async (
+        target: string,
+        options: {
+          execute?: boolean
+          force?: boolean
+          dryRun?: boolean
+          dryRunFormat?: 'console' | 'json'
+          cwd?: string
+        },
+      ) => {
+        try {
+          await runSyncCommand(target, {
+            execute: options.execute === true,
+            force: options.force === true,
+            dryRun: options.dryRun === true,
+            ...(options.dryRunFormat !== undefined ? { dryRunFormat: options.dryRunFormat } : {}),
+            ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+          })
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err)
+          console.error(colors.red(`\nError: ${message}`))
+          process.exit(1)
+        }
+      },
+    )
 
   return program
 }

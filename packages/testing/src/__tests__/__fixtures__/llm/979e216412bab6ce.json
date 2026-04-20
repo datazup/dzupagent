@@ -1,0 +1,20 @@
+{
+  "request": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is 2 + 2?"
+      }
+    ],
+    "model": "claude-haiku-4-5-20251001",
+    "temperature": null,
+    "maxTokens": null,
+    "provider": "anthropic"
+  },
+  "response": "2 + 2 = 4",
+  "usage": {
+    "inputTokens": 12,
+    "outputTokens": 9
+  },
+  "recordedAt": "2026-04-19T00:00:00.000Z"
+}
