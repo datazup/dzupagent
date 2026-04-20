@@ -15,10 +15,25 @@ import { CliSkillCompiler } from './compilers/cli-skill-compiler.js'
 
 export class AdapterSkillRegistry {
   private compilers = new Map<AdapterProviderId, AdapterSkillCompiler>()
+  private bundles = new Map<string, AdapterSkillBundle>()
 
   /** Register a compiler for a provider. Overwrites any existing registration. */
   register(compiler: AdapterSkillCompiler): void {
     this.compilers.set(compiler.providerId, compiler)
+  }
+
+  /**
+   * Register a skill bundle so it can be looked up by bundleId later.
+   * Overwrites any existing registration for the same bundleId.
+   */
+  registerBundle(bundle: AdapterSkillBundle): { ok: true } {
+    this.bundles.set(bundle.bundleId, bundle)
+    return { ok: true }
+  }
+
+  /** Look up a previously registered bundle by bundleId. */
+  getBundle(bundleId: string): AdapterSkillBundle | undefined {
+    return this.bundles.get(bundleId)
   }
 
   /** Look up a compiler by provider ID. */

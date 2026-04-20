@@ -13,7 +13,7 @@ import type {
   SkillCapabilityMatrix,
 } from '@dzupagent/adapter-types'
 import type { AdapterSkillBundle } from './adapter-skill-types.js'
-import type { AdapterSkillRegistry } from './adapter-skill-registry.js'
+import { AdapterSkillRegistry, createDefaultSkillRegistry } from './adapter-skill-registry.js'
 
 export type { CapabilityStatus, ProviderCapabilityRow, SkillCapabilityMatrix }
 
@@ -70,8 +70,13 @@ function deriveCapabilityStatus(
 export class SkillCapabilityMatrixBuilder {
   private readonly registry: AdapterSkillRegistry
 
-  constructor(registry: AdapterSkillRegistry) {
-    this.registry = registry
+  /**
+   * Construct the builder with an explicit registry, or pass nothing to
+   * auto-populate a default registry that contains every built-in skill
+   * compiler (useful for CLI tools & ad-hoc capability inspection).
+   */
+  constructor(registry?: AdapterSkillRegistry) {
+    this.registry = registry ?? createDefaultSkillRegistry()
   }
 
   /**
