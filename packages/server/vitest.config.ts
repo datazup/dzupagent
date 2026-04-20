@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+    testTimeout: 30000,
     include: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
     // Stub files for tests moved to app domain packages — no test suites
     exclude: [

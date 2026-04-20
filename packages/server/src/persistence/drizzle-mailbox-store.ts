@@ -9,9 +9,27 @@
 import type { MailboxStore, MailMessage, MailboxQuery } from '@dzupagent/agent'
 import { eq, and, gt, isNull, asc, sql } from 'drizzle-orm'
 import { agentMailbox } from './drizzle-schema.js'
+import type { DrizzleDlqStore } from './drizzle-dlq-store.js'
+import {
+  MailRateLimitError,
+  type MailRateLimiter,
+} from '../notifications/mail-rate-limiter.js'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzle = any
+
+/**
+ * Optional collaborators wired into the mailbox store at construction time.
+ *
+ * - `rateLimiter`: enforces a per-recipient token bucket in `save()`.
+ * - `dlq`: parks overflow (and other transient failures) for later retry.
+ *
+ * Both are optional — when omitted, the store behaves exactly as before.
+ */
+export interface DrizzleMailboxStoreOptions {
+  rateLimiter?: MailRateLimiter
+  dlq?: DrizzleDlqStore
+}
 
 interface MailboxRow {
   id: string
@@ -38,10 +56,37 @@ function rowToMessage(row: MailboxRow): MailMessage {
 }
 
 export class DrizzleMailboxStore implements MailboxStore {
-  constructor(private readonly db: AnyDrizzle) {}
+  private readonly rateLimiter?: MailRateLimiter
+  private readonly dlq?: DrizzleDlqStore
 
+  constructor(
+    private readonly db: AnyDrizzle,
+    options: DrizzleMailboxStoreOptions = {},
+  ) {
+    this.rateLimiter = options.rateLimiter
+    this.dlq = options.dlq
+  }
+
+  /**
+   * Persist a mail message for later retrieval.
+   *
+   * If a rate limiter is configured and the recipient's bucket is empty, the
+   * message is diverted to the DLQ (when a DLQ is configured) with
+   * `failReason="rate_limit"` and {@link MailRateLimitError} is rethrown so
+   * the caller can surface a 429 (or handle it as desired). When no DLQ is
+   * configured, the error propagates unchanged and no persistence occurs.
+   */
   async save(message: MailMessage): Promise<void> {
     const id = message.id || crypto.randomUUID()
+    const normalized: MailMessage = { ...message, id }
+
+    if (this.rateLimiter && !this.rateLimiter.tryConsume(normalized.to)) {
+      if (this.dlq) {
+        await this.dlq.enqueue(normalized, 'rate_limit')
+      }
+      throw new MailRateLimitError(normalized.to, 6_000)
+    }
+
     await this.db.insert(agentMailbox).values({
       id,
       fromAgent: message.from,

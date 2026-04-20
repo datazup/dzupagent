@@ -33,6 +33,8 @@ export interface WSClient {
 export interface ClientFilter extends EventSubscriptionFilter {
   /** Only receive events for this run */
   runId?: string
+  /** Only receive events for this compile */
+  compileId?: string
 }
 
 export interface EventBridgeConfig {

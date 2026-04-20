@@ -87,12 +87,46 @@ import { createReflectionRoutes } from './routes/reflections.js'
 import { createMailboxRoutes } from './routes/mailbox.js'
 import { createClusterRoutes } from './routes/clusters.js'
 import type { ClusterStore } from './persistence/drizzle-cluster-store.js'
-import { openaiAuthMiddleware, type OpenAIAuthConfig } from './openai/auth-middleware.js'
-import { createCompletionsRoute } from './openai/completions-route.js'
-import { createModelsRoute } from './openai/models-route.js'
+import { openaiAuthMiddleware, type OpenAIAuthConfig } from './routes/openai-compat/auth-middleware.js'
+import { createOpenAICompatCompletionsRoute } from './routes/openai-compat/completions.js'
+import { createModelsRoute } from './routes/openai-compat/models-route.js'
 import { SlackNotificationChannel } from './notifications/channels/slack-channel.js'
 import { EmailWebhookNotificationChannel } from './notifications/channels/email-webhook-channel.js'
 import type { Notifier } from './notifications/notifier.js'
+import {
+  MailRateLimiter,
+  type MailRateLimiterConfig,
+} from './notifications/mail-rate-limiter.js'
+import {
+  MailDlqWorker,
+  DEFAULT_DLQ_WORKER_INTERVAL_MS,
+  DEFAULT_DLQ_WORKER_BATCH_SIZE,
+} from './notifications/mail-dlq-worker.js'
+import { DrizzleDlqStore } from './persistence/drizzle-dlq-store.js'
+import { DrizzleMailboxStore } from './persistence/drizzle-mailbox-store.js'
+
+// Drizzle DB clients are opaque at this layer — we intentionally avoid a hard
+// dependency on `drizzle-orm/postgres-js` here.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyDrizzle = any
+
+/**
+ * Optional mail delivery config. When provided, `createForgeApp` constructs a
+ * {@link MailRateLimiter}, {@link DrizzleDlqStore}, and {@link DrizzleMailboxStore}
+ * wired together, plus starts a {@link MailDlqWorker} that drains the DLQ on
+ * a fixed interval. The resulting mailbox store overrides `mailboxStore` on
+ * the server config.
+ */
+export interface MailDeliveryConfig {
+  /** Drizzle DB client used by the DLQ store and mailbox store. */
+  db: AnyDrizzle
+  /** Token-bucket configuration. Defaults to 10 tokens / 10-per-minute refill. */
+  rateLimiter?: MailRateLimiterConfig
+  /** DLQ drain interval in milliseconds. Defaults to 10s. */
+  dlqWorkerIntervalMs?: number
+  /** DLQ batch size per drain. Defaults to 50. */
+  dlqBatchSize?: number
+}
 
 /**
  * Shared scheduling options for consolidation (everything except the task itself
@@ -205,6 +239,13 @@ export interface ForgeServerConfig {
   reflectionStore?: RunReflectionStore
   /** Optional mailbox store for inter-agent messaging. Defaults to InMemoryMailboxStore if not provided. */
   mailboxStore?: MailboxStore
+  /**
+   * Optional mail delivery infrastructure. When provided, a
+   * {@link MailRateLimiter} and {@link DrizzleDlqStore} are constructed, wired
+   * into a new {@link DrizzleMailboxStore} (overriding `mailboxStore`), and a
+   * {@link MailDlqWorker} is started to drain the DLQ periodically.
+   */
+  mailDelivery?: MailDeliveryConfig
   /** Optional cluster store for multi-role agent teams. When provided, mounts /api/clusters routes. */
   clusterStore?: ClusterStore
   /** Optional marketplace catalog store. When provided, mounts /api/marketplace routes. */
@@ -535,8 +576,35 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
 
   // --- Mailbox Routes ---
   {
-    const mailboxStore = runtimeConfig.mailboxStore ?? new InMemoryMailboxStore()
-    app.route('/api/mailbox', createMailboxRoutes({ mailboxStore }))
+    let mailboxStore: MailboxStore
+    let dlqStore: DrizzleDlqStore | undefined
+
+    if (runtimeConfig.mailDelivery) {
+      const mailCfg = runtimeConfig.mailDelivery
+      const rateLimiter = new MailRateLimiter(mailCfg.rateLimiter ?? {})
+      dlqStore = new DrizzleDlqStore(mailCfg.db)
+      mailboxStore = new DrizzleMailboxStore(mailCfg.db, {
+        rateLimiter,
+        dlq: dlqStore,
+      })
+
+      // Start the DLQ drain worker and register shutdown cleanup.
+      const worker = new MailDlqWorker({
+        dlq: dlqStore,
+        mailbox: mailboxStore,
+        intervalMs: mailCfg.dlqWorkerIntervalMs ?? DEFAULT_DLQ_WORKER_INTERVAL_MS,
+        batchSize: mailCfg.dlqBatchSize ?? DEFAULT_DLQ_WORKER_BATCH_SIZE,
+      })
+      worker.start()
+
+      if (runtimeConfig.shutdown) {
+        registerShutdownDrainHook(runtimeConfig.shutdown, () => worker.stop())
+      }
+    } else {
+      mailboxStore = runtimeConfig.mailboxStore ?? new InMemoryMailboxStore()
+    }
+
+    app.route('/api/mailbox', createMailboxRoutes({ mailboxStore, dlqStore }))
 
     // --- Cluster Routes ---
     if (runtimeConfig.clusterStore) {
@@ -552,7 +620,7 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
     // Apply OpenAI auth middleware to all /v1/* routes (separate from /api/* auth)
     app.use('/v1/*', openaiAuthMiddleware(runtimeConfig.openai?.auth))
 
-    app.route('/v1/chat/completions', createCompletionsRoute({
+    app.route('/v1/chat/completions', createOpenAICompatCompletionsRoute({
       agentStore: runtimeConfig.agentStore,
       modelRegistry: runtimeConfig.modelRegistry,
       eventBus: runtimeConfig.eventBus,

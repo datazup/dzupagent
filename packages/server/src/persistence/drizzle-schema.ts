@@ -310,3 +310,39 @@ export const agentMailbox = pgTable(
     index('agent_mailbox_to_agent_created_at_idx').on(table.toAgent, table.createdAt),
   ],
 )
+
+// ---------------------------------------------------------------------------
+// Agent Mail Dead-Letter Queue
+// ---------------------------------------------------------------------------
+
+/**
+ * Dead-letter queue for undeliverable/rate-limited agent mail messages.
+ *
+ * Rows are enqueued when `DrizzleMailboxStore.save()` fails (e.g. rate-limit
+ * overflow). A background worker periodically `drain()`s due rows and attempts
+ * redelivery. After {@link MAX_DLQ_ATTEMPTS} attempts, `deadAt` is set and the
+ * row is skipped by `drain()` until manually redelivered or purged.
+ *
+ * All timestamps are epoch milliseconds (integer) for consistency with
+ * {@link agentMailbox}.
+ */
+export const agentMailDlq = pgTable(
+  'agent_mail_dlq',
+  {
+    id: text('id').primaryKey(),
+    originalMessageId: text('original_message_id').notNull(),
+    fromAgent: text('from_agent').notNull(),
+    toAgent: text('to_agent').notNull(),
+    subject: text('subject').notNull(),
+    body: jsonb('body').$type<Record<string, unknown>>().notNull(),
+    failReason: text('fail_reason').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    nextRetryAt: integer('next_retry_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+    deadAt: integer('dead_at'),
+  },
+  (table) => [
+    index('agent_mail_dlq_next_retry_at_idx').on(table.nextRetryAt),
+    index('agent_mail_dlq_to_agent_idx').on(table.toAgent),
+  ],
+)

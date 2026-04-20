@@ -338,6 +338,122 @@ export function createProgram(): Command {
       }
     })
 
+  // ---- dzupagent ----
+  const dzupagentCmd = program
+    .command('dzupagent')
+    .description('Manage .dzupagent/ workspace configuration')
+
+  dzupagentCmd
+    .command('status')
+    .description('Show .dzupagent/ workspace status (skills, agents, memory, state)')
+    .option('--project-root <path>', 'Path to the project root', process.cwd())
+    .action(async (opts: { projectRoot: string }) => {
+      try {
+        const { WorkspaceResolver, DzupAgentFileLoader, DzupAgentAgentLoader, DzupAgentMemoryLoader } =
+          await import('@dzupagent/agent-adapters')
+        const { readFile } = await import('node:fs/promises')
+
+        const resolver = new WorkspaceResolver()
+        const workspace = await resolver.resolve(opts.projectRoot)
+        const { projectDir } = workspace
+
+        const fileLoader = new DzupAgentFileLoader({ projectDir })
+        const agentLoader = new DzupAgentAgentLoader({ projectDir })
+        const memoryLoader = new DzupAgentMemoryLoader({ projectDir })
+
+        const [skills, agents, entries] = await Promise.all([
+          fileLoader.loadSkills(),
+          agentLoader.loadAgents(),
+          memoryLoader.loadEntries(),
+        ])
+
+        console.log(`.dzupagent/ status  (${projectDir})`)
+        console.log(`  Skills: ${skills.length}`)
+        console.log(`  Agents: ${agents.length}`)
+        console.log(`  Memory: ${entries.length} entries`)
+
+        try {
+          const raw = await readFile(`${projectDir}/.dzupagent/state.json`, 'utf-8')
+          const parsed: unknown = JSON.parse(raw)
+          console.log(`  state.json: ${JSON.stringify(parsed, null, 2)}`)
+        } catch {
+          console.log(`  state.json: no state.json found`)
+        }
+      } catch (err) {
+        console.error(`[dzup] status failed: ${err instanceof Error ? err.message : String(err)}`)
+        process.exit(1)
+      }
+    })
+
+  dzupagentCmd
+    .command('capabilities')
+    .description('Show capability matrix for a skill across all adapter providers')
+    .argument('<skill-id>', 'Skill bundle ID to inspect')
+    .option('--project-root <path>', 'Path to the project root', process.cwd())
+    .action(async (skillId: string, opts: { projectRoot: string }) => {
+      try {
+        const {
+          WorkspaceResolver,
+          DzupAgentFileLoader,
+          AdapterSkillRegistry,
+          ClaudeSkillCompiler,
+          SkillCapabilityMatrixBuilder,
+        } = await import('@dzupagent/agent-adapters')
+
+        const resolver = new WorkspaceResolver()
+        const workspace = await resolver.resolve(opts.projectRoot)
+        const { projectDir } = workspace
+
+        const fileLoader = new DzupAgentFileLoader({ projectDir })
+        const skills = await fileLoader.loadSkills()
+
+        const bundle = skills.find((s) => s.bundleId === skillId)
+        if (!bundle) {
+          console.error(`[dzup] capabilities failed: skill "${skillId}" not found`)
+          process.exit(1)
+          return
+        }
+
+        const registry = new AdapterSkillRegistry()
+        registry.register(new ClaudeSkillCompiler())
+        registry.registerBundle(bundle)
+
+        const builder = new SkillCapabilityMatrixBuilder()
+        const matrix = builder.buildForSkill(bundle)
+
+        const columns = ['System Prompt', 'Tool Bindings', 'Approval Mode', 'Network Policy', 'Budget Limit']
+        const fields = ['systemPrompt', 'toolBindings', 'approvalMode', 'networkPolicy', 'budgetLimit'] as const
+
+        console.log(`Capability Matrix — ${matrix.skillId}`)
+        const header = `${'Provider'.padEnd(16)}${columns.map((c) => c.padEnd(16)).join('')}`
+        console.log(header)
+        console.log('-'.repeat(header.length))
+
+        for (const [provider, row] of Object.entries(matrix.providers)) {
+          const values = fields.map((f) => String((row as Record<string, unknown>)[f] ?? '').padEnd(16)).join('')
+          console.log(`${provider.padEnd(16)}${values}`)
+        }
+
+        const warnings: Array<{ provider: string; message: string }> = []
+        for (const [provider, row] of Object.entries(matrix.providers)) {
+          const providerWarnings = (row as { warnings?: string[] }).warnings ?? []
+          for (const w of providerWarnings) {
+            warnings.push({ provider, message: w })
+          }
+        }
+
+        if (warnings.length > 0) {
+          console.log('Warnings:')
+          for (const { provider, message } of warnings) {
+            console.log(`  [${provider}] ${message}`)
+          }
+        }
+      } catch (err) {
+        console.error(`[dzup] capabilities failed: ${err instanceof Error ? err.message : String(err)}`)
+        process.exit(1)
+      }
+    })
+
   return program
 }
 

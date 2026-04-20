@@ -7,12 +7,14 @@ export interface EventEnvelope {
   timestamp: string
   runId?: string
   agentId?: string
+  compileId?: string
   payload: DzupEvent
 }
 
 export interface EventSubscriptionFilter {
   runId?: string
   agentId?: string
+  compileId?: string
   eventTypes?: DzupEvent['type'][]
 }
 
@@ -56,6 +58,7 @@ let globalEnvelopeCounter = 0
 function toEnvelope(event: DzupEvent): EventEnvelope {
   const hasRunId = 'runId' in event && typeof (event as { runId?: unknown }).runId === 'string'
   const hasAgentId = 'agentId' in event && typeof (event as { agentId?: unknown }).agentId === 'string'
+  const hasCompileId = 'compileId' in event && typeof (event as { compileId?: unknown }).compileId === 'string'
   return {
     id: `evt-${Date.now()}-${++globalEnvelopeCounter}`,
     version: 'v1',
@@ -63,6 +66,7 @@ function toEnvelope(event: DzupEvent): EventEnvelope {
     timestamp: new Date().toISOString(),
     runId: hasRunId ? (event as { runId: string }).runId : undefined,
     agentId: hasAgentId ? (event as { agentId: string }).agentId : undefined,
+    compileId: hasCompileId ? (event as { compileId: string }).compileId : undefined,
     payload: event,
   }
 }
@@ -70,6 +74,7 @@ function toEnvelope(event: DzupEvent): EventEnvelope {
 function matchesFilter(envelope: EventEnvelope, filter: EventSubscriptionFilter): boolean {
   if (filter.runId && envelope.runId !== filter.runId) return false
   if (filter.agentId && envelope.agentId !== filter.agentId) return false
+  if (filter.compileId && envelope.compileId !== filter.compileId) return false
   if (filter.eventTypes) {
     // Explicit empty list means deny-all (useful as a safe baseline before scoped subscribe).
     if (filter.eventTypes.length === 0) return false

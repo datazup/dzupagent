@@ -8,14 +8,18 @@
 import { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import type { MailboxStore, MailMessage } from '@dzupagent/agent'
+import type { DrizzleDlqStore } from '../persistence/drizzle-dlq-store.js'
+import { MailRateLimitError } from '../notifications/mail-rate-limiter.js'
 
 export interface MailboxRouteConfig {
   mailboxStore: MailboxStore
+  /** Optional DLQ store. Enables POST /dlq/:id/redeliver when provided. */
+  dlqStore?: DrizzleDlqStore
 }
 
 export function createMailboxRoutes(config: MailboxRouteConfig): Hono {
   const app = new Hono()
-  const { mailboxStore } = config
+  const { mailboxStore, dlqStore } = config
 
   // POST /:agentId/send — Send a message from this agent
   app.post('/:agentId/send', async (c) => {
@@ -38,9 +42,44 @@ export function createMailboxRoutes(config: MailboxRouteConfig): Hono {
       createdAt: Date.now(),
     }
 
-    await mailboxStore.save(message)
+    try {
+      await mailboxStore.save(message)
+    } catch (err) {
+      if (err instanceof MailRateLimitError) {
+        return c.json(
+          {
+            error: {
+              code: 'RATE_LIMITED',
+              message: err.message,
+              retryAfterMs: err.retryAfterMs,
+            },
+          },
+          429,
+        )
+      }
+      throw err
+    }
 
     return c.json(message)
+  })
+
+  // POST /dlq/:id/redeliver — Move a DLQ entry back into the mailbox
+  app.post('/dlq/:id/redeliver', async (c) => {
+    if (!dlqStore) {
+      return c.json(
+        { error: { code: 'NOT_CONFIGURED', message: 'DLQ is not configured' } },
+        501,
+      )
+    }
+    const id = c.req.param('id')
+    const ok = await dlqStore.redeliver(id)
+    if (!ok) {
+      return c.json(
+        { error: { code: 'NOT_FOUND', message: `DLQ entry ${id} not found` } },
+        404,
+      )
+    }
+    return c.json({ id, redelivered: true })
   })
 
   // GET /:agentId/messages — Retrieve messages for an agent

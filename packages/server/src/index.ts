@@ -9,7 +9,7 @@
 
 // --- App ---
 export { createForgeApp } from './app.js'
-export type { ForgeServerConfig, ConsolidationConfig } from './app.js'
+export type { ForgeServerConfig, ConsolidationConfig, MailDeliveryConfig } from './app.js'
 export type { ServerRoutePlugin } from './route-plugin.js'
 
 // --- Routes ---
@@ -172,6 +172,28 @@ export { SlackNotificationChannel } from './notifications/channels/slack-channel
 export type { SlackNotificationChannelConfig } from './notifications/channels/slack-channel.js'
 export { EmailWebhookNotificationChannel } from './notifications/channels/email-webhook-channel.js'
 export type { EmailWebhookNotificationChannelConfig } from './notifications/channels/email-webhook-channel.js'
+export {
+  MailRateLimiter,
+  MailRateLimitError,
+  DEFAULT_CAPACITY as DEFAULT_MAIL_BUCKET_CAPACITY,
+  DEFAULT_REFILL_PER_MINUTE as DEFAULT_MAIL_REFILL_PER_MINUTE,
+} from './notifications/mail-rate-limiter.js'
+export type { MailRateLimiterConfig } from './notifications/mail-rate-limiter.js'
+export {
+  MailDlqWorker,
+  DEFAULT_DLQ_WORKER_INTERVAL_MS,
+  DEFAULT_DLQ_WORKER_BATCH_SIZE,
+} from './notifications/mail-dlq-worker.js'
+export type { MailDlqWorkerConfig } from './notifications/mail-dlq-worker.js'
+export {
+  DrizzleDlqStore,
+  DLQ_INITIAL_BACKOFF_MS,
+  MAX_DLQ_ATTEMPTS,
+  computeNextRetryDelayMs,
+  dlqRowToMessage,
+} from './persistence/drizzle-dlq-store.js'
+export type { DlqRow } from './persistence/drizzle-dlq-store.js'
+export type { DrizzleMailboxStoreOptions } from './persistence/drizzle-mailbox-store.js'
 
 // --- A2A (Agent-to-Agent) Protocol ---
 export { buildAgentCard, InMemoryA2ATaskStore, DrizzleA2ATaskStore, createA2ARoutes } from './a2a/index.js'
@@ -254,10 +276,19 @@ export type { ClusterRouteConfig } from './routes/clusters.js'
 // --- OpenAI-compatible API ---
 export {
   OpenAICompletionMapper,
-  createCompletionsRoute,
+  createOpenAICompatCompletionsRoute,
   createModelsRoute,
   openaiAuthMiddleware,
-} from './openai/index.js'
+  mapRequest,
+  mapFinalStreamChunk,
+  mapResponseWithTools,
+  extractToolCallsFromMessages,
+  validateCompletionRequest,
+  generateCompletionId,
+  badRequest,
+  notFoundError,
+  serverError,
+} from './routes/openai-compat/index.js'
 export type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -267,10 +298,12 @@ export type {
   OpenAIErrorResponse,
   GenerateOptions,
   MappedRequest,
-  CompletionsRouteConfig,
+  OpenAICompatCompletionsConfig,
   ModelsRouteConfig,
   OpenAIAuthConfig,
-} from './openai/index.js'
+  EnhancedMappedRequest,
+  ResponseToolCall,
+} from './routes/openai-compat/index.js'
 
 // --- Platform Adapters ---
 export { toLambdaHandler } from './platforms/lambda.js'

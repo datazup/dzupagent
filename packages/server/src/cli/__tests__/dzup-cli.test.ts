@@ -439,6 +439,7 @@ describe('dzup CLI', () => {
       'config',
       'dev',
       'doctor',
+      'dzupagent',
       'list',
       'marketplace',
       'mcp',

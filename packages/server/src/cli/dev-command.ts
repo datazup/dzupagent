@@ -1,20 +1,11 @@
 /**
  * Dev mode CLI command — starts a DzupAgent server with sensible defaults
  * for local development (no auth, in-memory stores, trace printing).
+ *
+ * All heavy imports are deferred to start() so that importing this module
+ * is instantaneous (important for CLI startup time and test isolation).
  */
-import type { Hono } from 'hono'
-import {
-  InMemoryRunStore,
-  InMemoryAgentStore,
-  ModelRegistry,
-  createEventBus,
-} from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
-import { createForgeApp } from '../app.js'
-import { TracePrinter } from './trace-printer.js'
-import { InMemoryRunQueue } from '../queue/run-queue.js'
-import { createDefaultRunExecutor } from '../runtime/default-run-executor.js'
-import { createDzupAgentRunExecutor } from '../runtime/dzip-agent-run-executor.js'
 
 export interface DevCommandConfig {
   /** Port to listen on (default: 4000) */
@@ -35,15 +26,32 @@ export interface DevCommandHandle {
 export function createDevCommand(config?: DevCommandConfig): DevCommandHandle {
   const port = config?.port ?? 4000
   const verbose = config?.verbose ?? false
-  const eventBus = config?.eventBus ?? createEventBus()
-  const runQueue = new InMemoryRunQueue()
 
-  let server: { close(): void; app: Hono } | null = null
-  const tracePrinter = new TracePrinter(verbose)
+  let stopHandle: (() => Promise<void>) | null = null
 
   return {
     async start(): Promise<void> {
+      const [
+        { InMemoryRunStore, InMemoryAgentStore, ModelRegistry, createEventBus },
+        { TracePrinter },
+        { InMemoryRunQueue },
+        { createDefaultRunExecutor },
+        { createDzupAgentRunExecutor },
+        { createForgeApp },
+      ] = await Promise.all([
+        import('@dzupagent/core'),
+        import('./trace-printer.js'),
+        import('../queue/run-queue.js'),
+        import('../runtime/default-run-executor.js'),
+        import('../runtime/dzip-agent-run-executor.js'),
+        import('../app.js'),
+      ])
+
+      const eventBus = config?.eventBus ?? createEventBus()
+      const runQueue = new InMemoryRunQueue()
+      const tracePrinter = new TracePrinter(verbose)
       const modelRegistry = new ModelRegistry()
+
       const honoApp = createForgeApp({
         runStore: new InMemoryRunStore(),
         agentStore: new InMemoryAgentStore(),
@@ -57,27 +65,26 @@ export function createDevCommand(config?: DevCommandConfig): DevCommandHandle {
 
       tracePrinter.attach(eventBus)
 
-       
       console.log(`[forge-dev] Starting dev server on port ${port}`)
       if (!config?.noPlayground) {
-         
         console.log(`[forge-dev] Playground: http://localhost:${port}/api/health`)
       }
 
-      // Store a reference so stop() can clean up.
-      // In a real Bun/Node deployment, this would call serve().
-      server = { app: honoApp, close() { /* no-op for in-memory */ } }
+      stopHandle = async () => {
+        tracePrinter.detach()
+        await runQueue.stop(false)
+        console.log('[forge-dev] Server stopped')
+      }
+
+      // In a real Bun/Node deployment, this would call serve() with honoApp.
+      void honoApp
     },
 
     async stop(): Promise<void> {
-      tracePrinter.detach()
-      if (server) {
-        server.close()
-        server = null
+      if (stopHandle) {
+        await stopHandle()
+        stopHandle = null
       }
-      await runQueue.stop(false)
-       
-      console.log('[forge-dev] Server stopped')
     },
   }
 }
