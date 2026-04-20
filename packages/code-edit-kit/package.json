@@ -25,8 +25,12 @@
     "zod": ">=4.0.0"
   },
   "devDependencies": {
+    "@dzupagent/codegen": "workspace:*",
+    "@langchain/core": "^1.1.39",
     "tsup": "^8.5.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
+    "zod": "^4.3.6"
   },
   "license": "MIT"
 }

@@ -230,6 +230,14 @@ export type DzupEvent =
   | { type: 'run:cancelled'; runId: string; agentId: string; reason?: string }
   // --- Mailbox ---
   | { type: 'mail:received'; message: { id: string; from: string; to: string; subject: string; body: Record<string, unknown>; createdAt: number } }
+  // --- Flow Compiler (Wave 11 ADR §4) ---
+  | { type: 'flow:compile_started'; compileId: string; inputKind: 'object' | 'json-string' }
+  | { type: 'flow:compile_parsed'; compileId: string; astNodeType: string | null; errorCount: number }
+  | { type: 'flow:compile_shape_validated'; compileId: string; errorCount: number }
+  | { type: 'flow:compile_semantic_resolved'; compileId: string; resolvedCount: number; personaCount: number; errorCount: number }
+  | { type: 'flow:compile_lowered'; compileId: string; target: 'skill-chain' | 'workflow-builder' | 'pipeline'; nodeCount: number; edgeCount: number; warningCount: number }
+  | { type: 'flow:compile_completed'; compileId: string; target: 'skill-chain' | 'workflow-builder' | 'pipeline'; durationMs: number }
+  | { type: 'flow:compile_failed'; compileId: string; stage: 1 | 2 | 3 | 4; errorCount: number; durationMs: number }
 
 /** Extract a specific event by its type discriminator */
 export type DzupEventOf<T extends DzupEvent['type']> = Extract<DzupEvent, { type: T }>

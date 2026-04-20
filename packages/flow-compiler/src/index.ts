@@ -16,7 +16,7 @@
  */
 
 import { parseFlow } from '@dzupagent/flow-ast'
-import type { FlowNode, ParseInput } from '@dzupagent/flow-ast'
+import type { ParseInput } from '@dzupagent/flow-ast'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { validateShape } from './stages/shape-validate.js'
@@ -44,56 +44,22 @@ export type { ParseInput } from '@dzupagent/flow-ast'
 export type CompileSuccess = CompilationResult & { compileId: string }
 export type CompileFailure = { errors: CompilationError[]; compileId: string }
 
-// Forward-reference shim: `flow:compile_*` event shapes land in
-// `@dzupagent/core` via Step A (parallel work). Until that ships, we cast
-// emitted events through this local widening so the hot path stays honest
-// without importing yet-unlanded types. Remove the cast once Step A merges.
-// See Wave 11 ADR §4 for the canonical payloads.
-type FlowCompileEvent =
-  | {
-      type: 'flow:compile_started'
-      compileId: string
-      inputKind: 'object' | 'json-string'
-    }
-  | {
-      type: 'flow:compile_parsed'
-      compileId: string
-      astNodeType: FlowNode['type'] | null
-      errorCount: number
-    }
-  | {
-      type: 'flow:compile_shape_validated'
-      compileId: string
-      errorCount: number
-    }
-  | {
-      type: 'flow:compile_semantic_resolved'
-      compileId: string
-      resolvedCount: number
-      personaCount: number
-      errorCount: number
-    }
-  | {
-      type: 'flow:compile_lowered'
-      compileId: string
-      target: 'skill-chain' | 'workflow-builder' | 'pipeline'
-      nodeCount: number
-      edgeCount: number
-      warningCount: number
-    }
-  | {
-      type: 'flow:compile_completed'
-      compileId: string
-      target: 'skill-chain' | 'workflow-builder' | 'pipeline'
-      durationMs: number
-    }
-  | {
-      type: 'flow:compile_failed'
-      compileId: string
-      stage: 1 | 2 | 3 | 4
-      errorCount: number
-      durationMs: number
-    }
+// Flow compiler event shapes are part of the canonical `DzupEvent` union in
+// `@dzupagent/core` (Wave 11 ADR §4). We narrow to the relevant subset here
+// so `emit` site types remain tight without reintroducing the legacy cast.
+type FlowCompileEvent = Extract<
+  DzupEvent,
+  {
+    type:
+      | 'flow:compile_started'
+      | 'flow:compile_parsed'
+      | 'flow:compile_shape_validated'
+      | 'flow:compile_semantic_resolved'
+      | 'flow:compile_lowered'
+      | 'flow:compile_completed'
+      | 'flow:compile_failed'
+  }
+>
 
 const NOOP_EMIT: (_e: FlowCompileEvent) => void = () => {
   /* no-op; forwardInnerEvents is off or no bus provided */
@@ -135,7 +101,7 @@ export function createFlowCompiler(opts: CompilerOptions): {
   // See ADR §4.5 for the branchless-hot-path rationale.
   const emit: (e: FlowCompileEvent) => void =
     opts.forwardInnerEvents === true && opts.eventBus !== undefined
-      ? ((bus: DzupEventBus) => (e: FlowCompileEvent) => bus.emit(e as DzupEvent))(opts.eventBus)
+      ? ((bus: DzupEventBus) => (e: FlowCompileEvent) => bus.emit(e))(opts.eventBus)
       : NOOP_EMIT
 
   return {

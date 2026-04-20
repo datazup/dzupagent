@@ -32,9 +32,12 @@ Primary runtime dependency:
 
 ### 2.3 Execution Features (`CompiledWorkflow`)
 
-- `run(initialState, { signal, onEvent })`
+- `run(initialState, { signal, runId, onEvent })`
 - `stream(initialState, { signal })` async generator of `WorkflowEvent`
+- `resume(checkpointOrRunId, additionalState?, { signal, onEvent })` continues execution from a `PipelineCheckpoint` (suspend point) — see §5.3
 - `toPipelineDefinition()` for inspection/export of compiled graph
+- `withCheckpointStore(store)` opt-in durable suspend/resume via `PipelineCheckpointStore`
+- `withJournal(journal)` / `withStore(store)` for journal-based fork/replay (see `RunHandle`)
 
 ### 2.4 Supported Merge Strategies
 
@@ -138,16 +141,25 @@ Important for callers:
 - If key is not present in configured branches, execution fails with explicit error.
 - Branch decision is persisted in internal state key and resolved by runtime predicate.
 
-### 5.3 Suspend Semantics
+### 5.3 Suspend / Resume Semantics
 
 - Hitting `suspend(reason)` causes runtime to return in `suspended` state.
-- `CompiledWorkflow.run()` surfaces this as a `suspended` event and returns current state.
+- `CompiledWorkflow.run()` surfaces this as a `suspended` event and returns the current state without writing a `run_completed` journal entry.
 - Subsequent nodes after suspend are not executed in that run.
 
-Important limitation:
+Resume continuation (durable):
 
-- `CompiledWorkflow` currently has no public `resume(...)` API.
-- Suspend is therefore a pause boundary visible in events/state, but continuation must be implemented outside this wrapper (e.g., lower-level pipeline APIs/checkpointing).
+- When a `PipelineCheckpointStore` is attached via `withCheckpointStore(store)`, the underlying `PipelineRuntime` persists a `PipelineCheckpoint` at every suspension point automatically.
+- `CompiledWorkflow.resume(checkpointOrRunId, additionalState?, options?)` rehydrates state and continues from the node *after* the suspension point. It is a thin delegation to `PipelineRuntime.resume(checkpoint, additionalState)`.
+- `additionalState` is shallow-merged with the restored state and is the canonical channel for injecting human-in-the-loop input (e.g. an approval payload).
+- `resume(...)` writes a `run_resumed` journal entry (when a `RunJournal` is attached) and reuses the original `pipelineRunId`, so a single suspend/resume lifecycle remains under one logical run.
+
+Two distinct continuation modes are now supported:
+
+| Mode | API | Backing store | Use case |
+|---|---|---|---|
+| Pipeline checkpoint resume | `CompiledWorkflow.resume(...)` | `PipelineCheckpointStore` | Continue a paused run from its suspension point |
+| Journal-based fork / replay | `RunHandle.fork(stepId)` / `RunHandle.resumeFromStep(stepId)` (via `getHandle(runId)`) | `RunJournal` + `RunStore` | Branch a new run from any completed step in a historical run |
 
 ### 5.4 Error Semantics
 
@@ -320,4 +332,5 @@ Not explicitly covered by the current workflow test file:
 - `createWorkflow` returns a builder, so callers must chain and call `.build()` before execution.
 - For predictable parallel outcomes, avoid in-place shared state mutation inside parallel step implementations.
 - Use `toPipelineDefinition()` when you need graph inspection, diagnostics, or interoperability with lower-level pipeline tooling.
-- If true suspend/resume lifecycle is required, plan around lower-level pipeline checkpoint/resume APIs until `CompiledWorkflow` exposes first-class resume support.
+- For durable suspend/resume, attach a `PipelineCheckpointStore` via `withCheckpointStore(...)` and continue with `CompiledWorkflow.resume(runIdOrCheckpoint, additionalState?)`.
+- For replay-style branching from any historical step (not just suspension points), use `withJournal(...)` + `withStore(...)` and operate on the `RunHandle` returned by `getHandle(runId)`.

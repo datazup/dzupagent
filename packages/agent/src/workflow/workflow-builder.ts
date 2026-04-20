@@ -23,7 +23,14 @@
  * const result = await workflow.run({ spec: '...' })
  * ```
  */
-import type { PipelineDefinition, PipelineNode, RunJournal, RunStore } from '@dzupagent/core'
+import type {
+  PipelineDefinition,
+  PipelineNode,
+  PipelineCheckpoint,
+  PipelineCheckpointStore,
+  RunJournal,
+  RunStore,
+} from '@dzupagent/core'
 import type {
   WorkflowStep,
   WorkflowNode,
@@ -104,6 +111,7 @@ export class CompiledWorkflow {
   private readonly compilation: WorkflowCompilation
   private journal?: RunJournal
   private store?: RunStore
+  private checkpointStore?: PipelineCheckpointStore
   private readonly activeRuns = new Map<string, { store?: RunStore; journal?: RunJournal }>()
 
   constructor(
@@ -122,6 +130,22 @@ export class CompiledWorkflow {
   /** Attach a RunStore for run persistence and lookup. Returns `this` for fluent chaining. */
   withStore(store: RunStore): this {
     this.store = store
+    return this
+  }
+
+  /**
+   * Attach a PipelineCheckpointStore for durable suspend/resume.
+   *
+   * When configured, the underlying PipelineRuntime persists a checkpoint
+   * each time the workflow hits a `suspend(...)` step. The persisted
+   * checkpoint can later be passed to {@link resume} (or loaded by
+   * `pipelineRunId` from the same store) to continue execution from the
+   * suspension point in a new run.
+   *
+   * Returns `this` for fluent chaining.
+   */
+  withCheckpointStore(checkpointStore: PipelineCheckpointStore): this {
+    this.checkpointStore = checkpointStore
     return this
   }
 
@@ -219,6 +243,7 @@ export class CompiledWorkflow {
       // config type currently narrows predicates to boolean.
       predicates: this.compilation.predicates as Record<string, (state: Record<string, unknown>) => boolean>,
       signal: options?.signal,
+      checkpointStore: this.checkpointStore,
       onEvent: (event) => this.handleRuntimeEvent(event, journalEmit, (err) => {
         pipelineFailure = err
       }),
@@ -236,6 +261,12 @@ export class CompiledWorkflow {
           })
         }
         throw new Error(errorMsg)
+      }
+      if (result.state === 'suspended') {
+        // Journal entry for suspension is already written via journalEmit
+        // when the runtime emits the 'pipeline:suspended' event handler
+        // → 'suspended' workflow event → journal 'run_suspended' append.
+        return { ...latestObservedState }
       }
       // Journal: run_completed
       if (journal) {
@@ -292,6 +323,125 @@ export class CompiledWorkflow {
     }
 
     await runPromise
+  }
+
+  /**
+   * Resume a previously suspended workflow run from a pipeline checkpoint.
+   *
+   * Thin delegation to {@link PipelineRuntime.resume}. The checkpoint can be
+   * supplied directly or looked up from the configured PipelineCheckpointStore
+   * by `pipelineRunId`.
+   *
+   * Continues execution from the node *after* the suspension point. The same
+   * compiled workflow instance is used, so step handlers and predicates are
+   * identical to the original run. State is restored from the checkpoint and
+   * shallow-merged with `additionalState` (e.g. human review input).
+   *
+   * @param checkpointOrRunId — a PipelineCheckpoint object, or a `pipelineRunId`
+   *   string to load from the configured checkpoint store.
+   * @param additionalState — optional state delta merged into the restored state
+   *   (useful for injecting human-in-the-loop input).
+   * @param options — abort signal and optional event subscriber.
+   * @returns the final observed state when the resumed run reaches a terminal
+   *   state (or the snapshot at the next suspension if it suspends again).
+   * @throws if `checkpointOrRunId` is a string and no checkpoint store is
+   *   configured, or if no checkpoint exists for the given runId.
+   */
+  async resume(
+    checkpointOrRunId: PipelineCheckpoint | string,
+    additionalState?: Record<string, unknown>,
+    options?: { signal?: AbortSignal; onEvent?: (event: WorkflowEvent) => void },
+  ): Promise<Record<string, unknown>> {
+    const checkpoint = await this.loadCheckpoint(checkpointOrRunId)
+
+    const journal = this.journal
+    const runId = checkpoint.pipelineRunId
+    const emit = options?.onEvent ?? (() => {})
+
+    this.activeRuns.set(runId, { store: this.store, journal })
+
+    const journalEmit: (event: WorkflowEvent) => void = journal
+      ? (event) => {
+          emit(event)
+          void this.journalWrite(journal, runId, event)
+        }
+      : emit
+
+    let latestObservedState: Record<string, unknown> = {
+      ...checkpoint.state,
+      ...additionalState,
+    }
+    let pipelineFailure: string | null = null
+
+    if (journal) {
+      await journal.append(runId, {
+        type: 'run_resumed',
+        data: { resumeToken: `pipeline:${checkpoint.version}`, input: additionalState },
+      })
+    }
+
+    const runtime = new PipelineRuntime({
+      definition: this.compilation.definition,
+      nodeExecutor: this.compilation.createNodeExecutor(journalEmit, (state) => {
+        latestObservedState = state
+      }),
+      predicates: this.compilation.predicates as Record<string, (state: Record<string, unknown>) => boolean>,
+      signal: options?.signal,
+      checkpointStore: this.checkpointStore,
+      onEvent: (event) => this.handleRuntimeEvent(event, journalEmit, (err) => {
+        pipelineFailure = err
+      }),
+    })
+
+    try {
+      const result = await runtime.resume(checkpoint, additionalState)
+      if (result.state === 'failed') {
+        const errorMsg = pipelineFailure ?? this.extractFailure(result.nodeResults) ?? 'Workflow resume failed'
+        if (journal) {
+          await journal.append(runId, {
+            type: 'run_failed',
+            data: { error: errorMsg },
+          })
+        }
+        throw new Error(errorMsg)
+      }
+      if (result.state === 'suspended') {
+        return { ...latestObservedState }
+      }
+      if (journal) {
+        await journal.append(runId, {
+          type: 'run_completed',
+          data: { output: latestObservedState },
+        })
+      }
+      return { ...latestObservedState }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (!pipelineFailure) {
+        journalEmit({ type: 'workflow:failed', error: message })
+      }
+      throw err
+    } finally {
+      this.activeRuns.delete(runId)
+    }
+  }
+
+  private async loadCheckpoint(
+    checkpointOrRunId: PipelineCheckpoint | string,
+  ): Promise<PipelineCheckpoint> {
+    if (typeof checkpointOrRunId !== 'string') {
+      return checkpointOrRunId
+    }
+    if (!this.checkpointStore) {
+      throw new Error(
+        `Cannot resume by runId '${checkpointOrRunId}': no checkpoint store configured. Use withCheckpointStore() or pass a PipelineCheckpoint directly.`,
+      )
+    }
+    const checkpoint = await this.checkpointStore.load(checkpointOrRunId)
+    if (!checkpoint) {
+      throw new Error(`No checkpoint found for pipelineRunId '${checkpointOrRunId}'`)
+    }
+    return checkpoint
   }
 
   /**

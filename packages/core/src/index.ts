@@ -761,6 +761,19 @@ export type { SemanticSearchProvider } from './registry/index.js'
 // Registry — vector-backed semantic search (VEC-011)
 export { VectorStoreSemanticSearch } from './registry/index.js'
 
+// --- Flow handle types (Stage 3/4 boundary for @dzupagent/flow-compiler) ---
+export type {
+  SkillHandle,
+  McpToolHandle,
+  WorkflowHandle,
+  AgentHandle,
+  FlowHandle,
+  McpInvocationResult,
+  AgentInvocation,
+  AgentInvocationResult,
+  SkillExecutionContext,
+} from './flow/index.js'
+
 // --- Pipeline ---
 export type {
   NodeRetryPolicy,
