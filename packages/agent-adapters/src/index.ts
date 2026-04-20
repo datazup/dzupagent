@@ -24,6 +24,8 @@ export type {
   AgentFailedEvent,
   AgentStreamDeltaEvent,
   AgentProgressEvent,
+  GovernanceEvent,
+  GovernanceEventKind,
   TokenUsage,
   HealthStatus,
   SessionInfo,

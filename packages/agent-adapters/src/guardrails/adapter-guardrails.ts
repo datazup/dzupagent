@@ -61,6 +61,8 @@ export interface AdapterGuardrailsConfig {
   eventBus?: DzupEventBus
   /** Content filter for output */
   outputFilter?: (output: string) => Promise<string | null>
+  /** Callback invoked when a guardrail rule violation is detected (for governance side-channel). */
+  onRuleViolation?: (ruleId: string, severity: 'warn' | 'block', detail: string) => void
 }
 
 export interface GuardrailViolation {
@@ -351,6 +353,7 @@ export class AdapterGuardrails {
         severity: 'critical',
       }
       this.violations.push(violation)
+      this.config.onRuleViolation?.('blocked_tool', 'block', violation.message)
       return { abort: true, abortReason: violation.message }
     }
 
@@ -654,6 +657,7 @@ export class AdapterGuardrails {
     severity: GuardrailViolation['severity'],
   ): void {
     this.violations.push({ type, message, severity })
+    this.config.onRuleViolation?.(type, severity === 'critical' ? 'block' : 'warn', message)
   }
 
   /**

@@ -40,7 +40,7 @@ const PROVIDER_SYNC_CAPABILITIES: Record<
   { instructions: boolean; skills: boolean; agents: boolean }
 > = {
   claude:  { instructions: true,  skills: true,  agents: true  },
-  codex:   { instructions: true,  skills: false, agents: false },
+  codex:   { instructions: true,  skills: true,  agents: true  },
   gemini:  { instructions: true,  skills: false, agents: false },
   qwen:    { instructions: true,  skills: true,  agents: true  },
   goose:   { instructions: true,  skills: false, agents: false },
@@ -262,7 +262,7 @@ export class DzupAgentSyncer {
     const caps = PROVIDER_SYNC_CAPABILITIES[target]
     const warnings: string[] = []
 
-    // Codex: instructions → AGENTS.md
+    // Codex: instructions → AGENTS.md, skills → .codex/skills/<id>/SKILL.md
     if (target === 'codex') {
       const memoryEntries = await this.loadMemoryFiles(this.paths.projectDir)
       const globalEntries =
@@ -270,27 +270,76 @@ export class DzupAgentSyncer {
           ? await this.loadMemoryFiles(this.paths.globalDir)
           : []
       const allEntries = [...globalEntries, ...memoryEntries]
-      const targetPath = join(this.projectRoot, 'AGENTS.md')
       const state = await readStateJson(this.paths.stateFile)
+      const syncState = state.sync
 
-      if (allEntries.length === 0) {
-        return { target: 'codex', toWrite: [], diverged: [] }
+      const toWrite: SyncPlanEntry[] = []
+      const diverged: SyncDivergedEntry[] = []
+
+      // Instructions → AGENTS.md
+      if (allEntries.length > 0) {
+        const targetPath = join(this.projectRoot, 'AGENTS.md')
+        const content = this.renderInstructionsFile(allEntries, 'DzupAgent Instructions')
+        const stored = syncState[targetPath]
+        const existingContent = await readFileSafe(targetPath)
+
+        if (existingContent === undefined || stored === undefined) {
+          toWrite.push({ sourcePath: '.dzupagent/memory', targetPath, content })
+        } else {
+          const currentHash = sha256(existingContent)
+          if (stored.lastSyncHash === currentHash) {
+            toWrite.push({ sourcePath: '.dzupagent/memory', targetPath, content })
+          } else {
+            diverged.push({ targetPath, lastSyncHash: stored.lastSyncHash, currentHash, newContent: content, sourcePath: '.dzupagent/memory' })
+          }
+        }
       }
 
-      const content = this.renderInstructionsFile(allEntries, 'DzupAgent Instructions')
-      const stored = state.sync[targetPath]
-      const existingContent = await readFileSafe(targetPath)
+      // Skills → .codex/skills/<bundleId>/SKILL.md
+      if (caps.skills) {
+        const skills = await this.fileLoader.loadSkills()
+        for (const bundle of skills) {
+          const content = this.renderClaudeCommand(bundle)
+          const targetPath = join(this.projectRoot, '.codex', 'skills', bundle.bundleId, 'SKILL.md')
+          const stored = syncState[targetPath]
+          const existingContent = await readFileSafe(targetPath)
 
-      if (existingContent === undefined || stored === undefined) {
-        return { target: 'codex', toWrite: [{ sourcePath: '.dzupagent/memory', targetPath, content }], diverged: [] }
+          if (existingContent === undefined || stored === undefined) {
+            toWrite.push({ sourcePath: bundle.bundleId, targetPath, content })
+          } else {
+            const currentHash = sha256(existingContent)
+            if (stored.lastSyncHash === currentHash) {
+              toWrite.push({ sourcePath: bundle.bundleId, targetPath, content })
+            } else {
+              diverged.push({ targetPath, lastSyncHash: stored.lastSyncHash, currentHash, newContent: content, sourcePath: bundle.bundleId })
+            }
+          }
+        }
       }
 
-      const currentHash = sha256(existingContent)
-      if (stored.lastSyncHash === currentHash) {
-        return { target: 'codex', toWrite: [{ sourcePath: '.dzupagent/memory', targetPath, content }], diverged: [] }
+      // Agents → .codex/agents/<name>.md  (same Markdown format as Claude agents)
+      if (caps.agents) {
+        const agents = await this.agentLoader.loadAgents()
+        for (const agent of agents) {
+          const content = this.renderClaudeAgent(agent)
+          const targetPath = join(this.projectRoot, '.codex', 'agents', `${agent.name}.md`)
+          const stored = syncState[targetPath]
+          const existingContent = await readFileSafe(targetPath)
+
+          if (existingContent === undefined || stored === undefined) {
+            toWrite.push({ sourcePath: agent.filePath, targetPath, content })
+          } else {
+            const currentHash = sha256(existingContent)
+            if (stored.lastSyncHash === currentHash) {
+              toWrite.push({ sourcePath: agent.filePath, targetPath, content })
+            } else {
+              diverged.push({ targetPath, lastSyncHash: stored.lastSyncHash, currentHash, newContent: content, sourcePath: agent.filePath })
+            }
+          }
+        }
       }
 
-      return { target: 'codex', toWrite: [], diverged: [{ targetPath, lastSyncHash: stored.lastSyncHash, currentHash, newContent: content, sourcePath: '.dzupagent/memory' }] }
+      return { target: 'codex', toWrite, diverged }
     }
 
     // Gemini: instructions → GEMINI.md

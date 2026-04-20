@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import * as os from 'node:os'
 import { ForgeError } from '@dzupagent/core'
 
 import type {
@@ -8,6 +9,7 @@ import type {
   AdapterCapabilityProfile,
   AgentEvent,
   AgentInput,
+  GovernanceEvent,
   HealthStatus,
   EnvFilterConfig,
   InteractionPolicy,
@@ -65,6 +67,43 @@ interface NormalizedAdapterError {
 }
 
 /**
+ * Per-provider relative/home paths that DzupAgent knows may contain run
+ * artifacts (sessions, memory snapshots, skill bundles). These are used to
+ * seed the {@link ArtifactWatcher} on run start. Entries beginning with `~`
+ * are resolved against {@link os.homedir}; other entries are treated as
+ * relative to the run's working directory by the watcher integration.
+ */
+const PROVIDER_WATCH_SPECS: Partial<Record<string, string[]>> = {
+  claude: ['.claude', '~/.claude'],
+  codex: ['.codex', '~/.codex'],
+  gemini: ['.gemini', '~/.gemini'],
+  qwen: ['.qwen', '~/.qwen'],
+  goose: ['.goosehints', '~/.config/goose', '~/.local/share/goose'],
+  crush: ['.crush', '~/.config/crush', '~/.local/share/crush'],
+}
+
+/**
+ * Resolve a provider watch-spec entry to an absolute path. `~` and `~/...`
+ * are expanded against the current user's home directory; anything else is
+ * resolved against the supplied working directory.
+ */
+function resolveWatchPath(entry: string, workingDirectory: string): string {
+  if (entry === '~') return os.homedir()
+  if (entry.startsWith('~/')) return `${os.homedir()}/${entry.slice(2)}`
+  if (entry.startsWith('/')) return entry
+  return `${workingDirectory.replace(/\/$/, '')}/${entry}`
+}
+
+/**
+ * Opaque handle returned by an artifact-watcher implementation. The base
+ * adapter only needs a way to stop a running watcher; the concrete type is
+ * intentionally minimal so the adapter-monitor dependency stays optional.
+ */
+interface ArtifactWatcherHandle {
+  stop: () => void
+}
+
+/**
  * Shared base class for CLI-backed adapters (Gemini/Qwen/Crush).
  *
  * Centralizes:
@@ -79,9 +118,67 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   protected config: AdapterConfig
   private currentAbortController: AbortController | null = null
 
+  /**
+   * Active artifact-watcher handle for the current run, if any. Populated by
+   * {@link startArtifactWatcher} on run start and cleared by
+   * {@link stopArtifactWatcher} when the run ends (success, failure, or
+   * cancellation). Remains `null` unless a concrete watcher is wired in via
+   * {@link setArtifactWatcherFactory}.
+   */
+  private artifactWatcher: ArtifactWatcherHandle | null = null
+
+  /**
+   * Optional factory that creates an {@link ArtifactWatcherHandle} given a
+   * list of absolute paths to watch. This indirection keeps the
+   * `@datazup/dzupagent-adapter-monitor` package an *optional* peer: when the
+   * dependency is not installed, the factory stays `null` and
+   * {@link startArtifactWatcher} becomes a no-op.
+   */
+  private artifactWatcherFactory:
+    | ((paths: string[], providerId: AdapterProviderId) => ArtifactWatcherHandle)
+    | null = null
+
+  /**
+   * Listeners registered via {@link onGovernanceEvent}.  The governance
+   * plane is a side-channel parallel to the primary AgentEvent stream — it
+   * surfaces approval/authorization decisions, hook executions, rule
+   * violations, and dangerous-command detections for auditing purposes.
+   */
+  private governanceListeners = new Set<(event: GovernanceEvent) => void>()
+
   constructor(providerId: AdapterProviderId, config: AdapterConfig = {}) {
     this.providerId = providerId
     this.config = { ...config }
+  }
+
+  /**
+   * Subscribe to governance events emitted by this adapter.
+   * Returns an unsubscribe function — call it when the consumer detaches
+   * to prevent leaks.  Errors thrown inside listeners are swallowed so they
+   * cannot break the adapter event loop.
+   */
+  onGovernanceEvent(listener: (event: GovernanceEvent) => void): () => void {
+    this.governanceListeners.add(listener)
+    return () => {
+      this.governanceListeners.delete(listener)
+    }
+  }
+
+  /**
+   * Emit a governance event to all registered listeners.
+   *
+   * Subclasses and internal helpers call this to publish approval requests,
+   * hook executions, rule violations, or dangerous-command alerts.  Listener
+   * errors are intentionally swallowed to protect the event loop.
+   */
+  protected emitGovernanceEvent(event: GovernanceEvent): void {
+    for (const listener of this.governanceListeners) {
+      try {
+        listener(event)
+      } catch {
+        /* listener errors must not break the adapter event loop */
+      }
+    }
   }
 
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
@@ -102,6 +199,15 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       isResume: !!input.resumeSessionId,
       ...(input.correlationId ? { correlationId: input.correlationId } : {}),
     }
+
+    // ArtifactWatcher integration: start watcher on run begin, stop on end
+    // (requires @datazup/dzupagent-adapter-monitor peer). When the peer is
+    // not wired via setArtifactWatcherFactory this call is a no-op.
+    const watchSpec = PROVIDER_WATCH_SPECS[this.providerId] ?? []
+    const workingDirectory =
+      input.workingDirectory ?? this.config.workingDirectory ?? process.cwd()
+    const resolvedPaths = watchSpec.map((p) => resolveWatchPath(p, workingDirectory))
+    this.startArtifactWatcher(resolvedPaths)
 
     this.currentAbortController = new AbortController()
     const combinedSignal = input.signal
@@ -133,6 +239,8 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         const interactionId = randomUUID()
         const timeoutMs = policy.askCaller?.timeoutMs ?? 60_000
         const now = Date.now()
+        // runId defaults to correlationId when present, else the sessionId.
+        const runId = input.correlationId ?? sessionId
 
         if (policy.mode === 'ask-caller') {
           pendingEvents.push({
@@ -147,6 +255,19 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           })
         }
 
+        // Governance side-channel: mirror every interaction request as an
+        // approval_requested event regardless of policy mode so the audit
+        // trail captures auto-approved prompts too.
+        this.emitGovernanceEvent({
+          type: 'governance:approval_requested',
+          runId,
+          sessionId,
+          interactionId,
+          providerId: this.providerId,
+          timestamp: now,
+          prompt: question,
+        })
+
         const result = await resolver.resolve({ interactionId, question, kind })
 
         pendingEvents.push({
@@ -158,6 +279,18 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           resolvedBy: result.resolvedBy,
           timestamp: Date.now(),
           ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+        })
+
+        // Governance side-channel: mirror resolution with a normalized
+        // resolution field distinct from the detailed resolvedBy.
+        this.emitGovernanceEvent({
+          type: 'governance:approval_resolved',
+          runId,
+          sessionId,
+          interactionId,
+          providerId: this.providerId,
+          timestamp: Date.now(),
+          resolution: mapResolvedByToResolution(result.resolvedBy),
         })
 
         return result.answer
@@ -172,6 +305,32 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         // Drain any interaction events accumulated during stdinResponder
         for (const evt of pendingEvents.splice(0)) {
           yield evt
+        }
+
+        // Detect hook execution records from the provider JSONL stream and
+        // emit governance:hook_executed so the audit plane captures them.
+        // Providers signal hook runs via type: 'hook_execution' or a hookName
+        // field at the top level of the JSONL record.
+        const recordType = typeof record.type === 'string' ? record.type : ''
+        if (
+          recordType === 'hook_execution' ||
+          (typeof record.hookName === 'string' && record.hookName.length > 0)
+        ) {
+          const hookName = (record.hookName as string | undefined) ?? recordType
+          const exitCode =
+            typeof record.exitCode === 'number' ? record.exitCode :
+            typeof record.exit_code === 'number' ? record.exit_code :
+            undefined
+          const runId = input.correlationId ?? sessionId
+          this.emitGovernanceEvent({
+            type: 'governance:hook_executed',
+            runId,
+            sessionId,
+            providerId: this.providerId,
+            timestamp: Date.now(),
+            hookName,
+            ...(exitCode !== undefined ? { exitCode } : {}),
+          })
         }
 
         const event = this.mapProviderEvent(record, sessionId)
@@ -224,6 +383,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     } finally {
       resolver?.dispose()
       this.currentAbortController = null
+      this.stopArtifactWatcher()
     }
   }
 
@@ -259,6 +419,55 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
   configure(opts: Partial<AdapterConfig>): void {
     this.config = { ...this.config, ...opts }
+  }
+
+  /**
+   * Wire an artifact-watcher implementation. Intended for hosts that depend
+   * on `@datazup/dzupagent-adapter-monitor` to pass a factory that returns a
+   * concrete {@link ArtifactWatcher} handle.  When no factory is set, the
+   * watcher integration becomes a no-op — the base package stays free of
+   * the optional peer dependency while still supporting the run lifecycle
+   * hook points.
+   */
+  setArtifactWatcherFactory(
+    factory:
+      | ((paths: string[], providerId: AdapterProviderId) => ArtifactWatcherHandle)
+      | null,
+  ): void {
+    this.artifactWatcherFactory = factory
+  }
+
+  /**
+   * Begin watching the supplied paths for the duration of the current run.
+   * Called automatically by {@link execute} right after the
+   * `adapter:started` event has been yielded. No-op when no factory has
+   * been wired or when the provider has no registered watch-spec.
+   */
+  protected startArtifactWatcher(paths: string[]): void {
+    if (this.artifactWatcher) return
+    if (!this.artifactWatcherFactory) return
+    if (paths.length === 0) return
+    try {
+      this.artifactWatcher = this.artifactWatcherFactory(paths, this.providerId)
+    } catch {
+      // Watcher start failures must not break the run — best-effort only.
+      this.artifactWatcher = null
+    }
+  }
+
+  /**
+   * Stop the active artifact watcher, if any. Invoked in the `finally`
+   * block of {@link execute} so it runs on success, failure, and
+   * cancellation paths.
+   */
+  protected stopArtifactWatcher(): void {
+    if (!this.artifactWatcher) return
+    try {
+      this.artifactWatcher.stop()
+    } catch {
+      // swallow — stopping is best-effort
+    }
+    this.artifactWatcher = null
   }
 
   getCapabilities(): AdapterCapabilityProfile {
@@ -331,4 +540,17 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     record: Record<string, unknown>,
     sessionId: string,
   ): AgentEvent | undefined
+}
+
+/**
+ * Map an interaction-resolver `resolvedBy` value to the normalized
+ * governance `resolution` field.  Everything that is not an explicit
+ * caller-provided allow/deny is classified as `auto`.
+ */
+function mapResolvedByToResolution(
+  resolvedBy: 'auto-approve' | 'auto-deny' | 'default-answers' | 'ai-autonomous' | 'caller' | 'timeout-fallback',
+): 'approved' | 'denied' | 'auto' {
+  if (resolvedBy === 'auto-approve') return 'approved'
+  if (resolvedBy === 'auto-deny') return 'denied'
+  return 'auto'
 }

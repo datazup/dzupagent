@@ -367,6 +367,100 @@ describe('DzupAgentSyncer', () => {
     expect(plan2.toWrite).toHaveLength(0)
   })
 
+  // 16b. planSync('codex') with skills → toWrite has .codex/skills/<id>/SKILL.md
+  it("planSync('codex') skills → writes .codex/skills/<id>/SKILL.md", async () => {
+    const skillsDir = join(paths.projectDir, 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    await writeFile(join(skillsDir, 'search.md'), '---\nname: search\n---\n\n## Task\nSearch the codebase')
+
+    const plan = await syncer.planSync('codex')
+
+    expect(plan.target).toBe('codex')
+    const skillEntry = plan.toWrite.find((e) =>
+      e.targetPath === join(root, '.codex', 'skills', 'search', 'SKILL.md'),
+    )
+    expect(skillEntry).toBeDefined()
+    expect(skillEntry!.content).toContain('description: search')
+    expect(skillEntry!.content).toContain('Search the codebase')
+  })
+
+  // 16c. planSync('codex') with both memory and skills → toWrite has both entries
+  it("planSync('codex') memory + skills → writes AGENTS.md and .codex/skills/<id>/SKILL.md", async () => {
+    const memoryDir = join(paths.projectDir, 'memory')
+    await mkdir(memoryDir, { recursive: true })
+    await writeFile(join(memoryDir, 'ctx.md'), '---\nname: ctx\ntype: project\n---\n\nContext body.')
+
+    const skillsDir = join(paths.projectDir, 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    await writeFile(join(skillsDir, 'deploy.md'), '---\nname: deploy\n---\n\n## Task\nRun deploy')
+
+    const plan = await syncer.planSync('codex')
+
+    const targetPaths = plan.toWrite.map((e) => e.targetPath)
+    expect(targetPaths).toContain(join(root, 'AGENTS.md'))
+    expect(targetPaths).toContain(join(root, '.codex', 'skills', 'deploy', 'SKILL.md'))
+  })
+
+  // 16d. planSync('codex') executeSync writes .codex/skills/<id>/SKILL.md with correct content
+  it("planSync('codex') executeSync writes skill file to correct path", async () => {
+    const skillsDir = join(paths.projectDir, 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    await writeFile(join(skillsDir, 'lint.md'), '---\nname: lint\n---\n\n## Task\nRun the linter')
+
+    const plan = await syncer.planSync('codex')
+    await syncer.executeSync(plan)
+
+    const written = await readFile(join(root, '.codex', 'skills', 'lint', 'SKILL.md'), 'utf-8')
+    expect(written).toContain('---')
+    expect(written).toContain('description: lint')
+    expect(written).toContain('Run the linter')
+  })
+
+  // 16e. planSync('codex') with no skills and no memory → empty plan (no regression)
+  it("planSync('codex') no memory and no skills → empty plan", async () => {
+    const plan = await syncer.planSync('codex')
+
+    expect(plan.target).toBe('codex')
+    expect(plan.toWrite).toHaveLength(0)
+    expect(plan.diverged).toHaveLength(0)
+  })
+
+  // 16f. planSync('codex') with memory only → only instructions entry (no skills regression)
+  it("planSync('codex') memory only → only AGENTS.md entry, no .codex/skills/ entries", async () => {
+    const memoryDir = join(paths.projectDir, 'memory')
+    await mkdir(memoryDir, { recursive: true })
+    await writeFile(join(memoryDir, 'ctx.md'), '---\nname: ctx\ntype: project\n---\n\nContext only.')
+
+    const plan = await syncer.planSync('codex')
+
+    expect(plan.toWrite).toHaveLength(1)
+    expect(plan.toWrite[0]!.targetPath).toBe(join(root, 'AGENTS.md'))
+    expect(plan.toWrite.some((e) => e.targetPath.includes('.codex/skills'))).toBe(false)
+  })
+
+  // 16g. planSync('codex') divergence detection for .codex/skills/<id>/SKILL.md
+  it("planSync('codex') detects divergence after user edits .codex/skills/<id>/SKILL.md", async () => {
+    const skillsDir = join(paths.projectDir, 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    await writeFile(join(skillsDir, 'review.md'), '---\nname: review\n---\n\n## Task\nReview the PR')
+
+    // First sync
+    const plan1 = await syncer.planSync('codex')
+    await syncer.executeSync(plan1)
+
+    // User edits the native file
+    const nativePath = join(root, '.codex', 'skills', 'review', 'SKILL.md')
+    await writeFile(nativePath, 'User edited this Codex skill manually.')
+
+    // Fresh syncer to avoid loader cache
+    syncer = await setupSyncer(root, paths)
+    const plan2 = await syncer.planSync('codex')
+
+    const divergedEntry = plan2.diverged.find((d) => d.targetPath === nativePath)
+    expect(divergedEntry).toBeDefined()
+    expect(plan2.toWrite.some((e) => e.targetPath === nativePath)).toBe(false)
+  })
+
   // 17. planSync('gemini') no memory → empty plan
   it("planSync('gemini') no memory files → empty plan", async () => {
     const plan = await syncer.planSync('gemini')
