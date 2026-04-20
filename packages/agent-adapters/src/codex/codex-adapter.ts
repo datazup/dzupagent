@@ -140,6 +140,7 @@ interface CodexThreadOptions {
   workingDirectory?: string
   approvalPolicy?: string
   networkAccessEnabled?: boolean
+  skipGitRepoCheck?: boolean
 }
 
 /** The Codex class from the SDK */
