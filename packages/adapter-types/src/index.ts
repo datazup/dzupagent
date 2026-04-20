@@ -272,6 +272,11 @@ export interface AdapterConfig {
   providerOptions?: Record<string, unknown> | undefined
   /** Mid-execution interaction handling policy. Default behavior: auto-approve. */
   interactionPolicy?: InteractionPolicy | undefined
+  /**
+   * Codex-only: skip the git-repo safety check when starting a thread.
+   * Adapters that do not use Codex ignore this flag.
+   */
+  skipGitRepoCheck?: boolean | undefined
 }
 
 /**
@@ -431,6 +436,11 @@ export interface ProviderCapabilityRow {
   networkPolicy: CapabilityStatus
   budgetLimit: CapabilityStatus
   warnings: string[]
+  /**
+   * Index signature so callers can read rows generically
+   * (for example when formatting a matrix into a table).
+   */
+  [key: string]: CapabilityStatus | string[] | undefined
 }
 
 export interface SkillCapabilityMatrix {
@@ -481,4 +491,70 @@ export interface DzupAgentPaths {
   stateFile: string
   /** <project>/.dzupagent/config.json */
   projectConfig: string
+}
+
+// ---------------------------------------------------------------------------
+// Run Event Store — raw, normalized, and artifact event persistence
+// ---------------------------------------------------------------------------
+
+/**
+ * A raw provider event persisted verbatim to `.dzupagent/runs/<runId>/raw-events.jsonl`.
+ * The `payload` is the unmodified SDK/CLI output — shape varies per provider.
+ */
+export interface RawAgentEvent {
+  providerId: AdapterProviderId
+  runId: string
+  /** Session ID, if available at the time of the event */
+  sessionId?: string | undefined
+  /** Monotonic epoch-ms timestamp */
+  timestamp: number
+  /** Where the raw event originated */
+  source: 'stdout' | 'stderr' | 'sdk' | 'ipc'
+  /** Unmodified provider payload */
+  payload: unknown
+  /** Correlation ID propagated from the originating request */
+  correlationId?: string | undefined
+}
+
+/**
+ * An artifact mutation event — created when an adapter writes, updates, or
+ * removes a file under the run directory (transcripts, checkpoints, outputs…).
+ */
+export interface AgentArtifactEvent {
+  runId: string
+  providerId: AdapterProviderId
+  timestamp: number
+  /** Classifier for downstream tooling */
+  artifactType: 'transcript' | 'checkpoint' | 'output' | 'log' | 'other'
+  /** Absolute filesystem path of the artifact */
+  path: string
+  /** Mutation kind */
+  action: 'created' | 'updated' | 'deleted'
+  /** Optional provider-specific metadata */
+  metadata?: Record<string, unknown> | undefined
+  correlationId?: string | undefined
+}
+
+/** Terminal status for a completed run */
+export type RunStatus = 'completed' | 'failed' | 'cancelled'
+
+/**
+ * Summary record written to `.dzupagent/runs/<runId>/summary.json` when the
+ * store is closed. Aggregates high-level run statistics.
+ */
+export interface RunSummary {
+  runId: string
+  providerId: AdapterProviderId
+  /** Session ID, if one was assigned by the provider */
+  sessionId?: string | undefined
+  startedAt: number
+  completedAt: number
+  durationMs: number
+  toolCallCount: number
+  artifactCount: number
+  tokenUsage?: TokenUsage | undefined
+  /** Populated when status === 'failed' */
+  errorMessage?: string | undefined
+  status: RunStatus
+  correlationId?: string | undefined
 }
