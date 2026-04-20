@@ -1,9 +1,18 @@
 /**
  * DzupAgentSyncer -- generates native agent files from .dzupagent/ definitions.
  *
- * Writes `.claude/commands/<name>.md` and `.claude/agents/<name>.md` from
- * skill bundles and agent definitions.  Detects divergence (user-edited
- * native files) and skips those to avoid data loss.
+ * Implements write-back sync across all 6 supported providers:
+ *   - Claude  (full: commands + agents + skills + instructions)
+ *   - Codex   (instructions)
+ *   - Gemini  (instructions)
+ *   - Goose   (instructions)
+ *   - Qwen    (instructions + skills + agents)
+ *   - Crush   (skills)
+ *
+ * Writes provider-native files (e.g. `.claude/commands/<name>.md`,
+ * `.claude/agents/<name>.md`) from skill bundles and agent definitions.
+ * Detects divergence (user-edited native files) and skips those to avoid
+ * data loss.
  */
 
 import { createHash } from 'node:crypto'

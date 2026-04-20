@@ -180,7 +180,7 @@ describe('projectGooseConfig', () => {
     expect(patch).toEqual({})
   })
 
-  it('emits GOOSE_MODEL and GOOSE_PROVIDER from context', () => {
+  it('emits provider block and legacy GOOSE_MODEL from context', () => {
     const ctx: CompileContext = {
       providerId: 'goose',
       model: 'claude-3-5-sonnet',
@@ -188,33 +188,45 @@ describe('projectGooseConfig', () => {
     }
     const patch = projectGooseConfig(emptyPlan(), ctx)
     expect(patch).toEqual({
+      provider: {
+        model: 'claude-3-5-sonnet',
+        name: 'anthropic',
+      },
       GOOSE_MODEL: 'claude-3-5-sonnet',
-      GOOSE_PROVIDER: 'anthropic',
     })
   })
 
-  it('emits toolkits.require_confirmation: true when approval flags are present', () => {
+  it('emits goose.mode: approve when approval flags are present', () => {
     const patch = projectGooseConfig(
       emptyPlan({ auditFlags: ['approval:bash'] }),
       { providerId: 'goose' },
     )
-    expect(patch).toEqual({ toolkits: { require_confirmation: true } })
+    expect(patch).toEqual({ goose: { mode: 'approve' } })
   })
 
-  it('combines env-style keys with toolkits block', () => {
+  it('combines provider, approval mode, and extensions', () => {
     const ctx: CompileContext = {
       providerId: 'goose',
       model: 'gpt-4o',
       providerName: 'openai',
+      apiKey: 'sk-oai',
     }
     const patch = projectGooseConfig(
-      emptyPlan({ auditFlags: ['approval:network'] }),
+      emptyPlan({
+        auditFlags: ['approval:network'],
+        watchPaths: ['logs/'],
+      }),
       ctx,
     )
     expect(patch).toEqual({
+      provider: {
+        model: 'gpt-4o',
+        api_key: 'sk-oai',
+        name: 'openai',
+      },
       GOOSE_MODEL: 'gpt-4o',
-      GOOSE_PROVIDER: 'openai',
-      toolkits: { require_confirmation: true },
+      goose: { mode: 'approve' },
+      extensions: [{ type: 'watcher', path: 'logs/' }],
     })
   })
 })
@@ -225,7 +237,7 @@ describe('projectCrushConfig', () => {
     expect(patch).toEqual({})
   })
 
-  it('emits crush_model and crush_api_key from context', () => {
+  it('emits model and api_key from context', () => {
     const ctx: CompileContext = {
       providerId: 'crush',
       model: 'crush-local',
@@ -233,33 +245,37 @@ describe('projectCrushConfig', () => {
     }
     const patch = projectCrushConfig(emptyPlan(), ctx)
     expect(patch).toEqual({
-      crush_model: 'crush-local',
-      crush_api_key: 'sk-crush',
+      model: 'crush-local',
+      api_key: 'sk-crush',
     })
   })
 
-  it('emits safe_mode: true when approval flags are present', () => {
+  it('emits permissionMode: ask when approval flags are present', () => {
     const patch = projectCrushConfig(
       emptyPlan({ auditFlags: ['approval:bash'] }),
       { providerId: 'crush' },
     )
-    expect(patch).toEqual({ safe_mode: true })
+    expect(patch).toEqual({ permissionMode: 'ask' })
   })
 
-  it('combines model, api key, and safe_mode', () => {
+  it('combines model, api_key, permissionMode, and mcp.servers', () => {
     const ctx: CompileContext = {
       providerId: 'crush',
       model: 'crush-7b',
       apiKey: 'sk',
     }
     const patch = projectCrushConfig(
-      emptyPlan({ auditFlags: ['approval:network'] }),
+      emptyPlan({
+        auditFlags: ['approval:network'],
+        monitorSubscriptions: ['mcp:filesystem', 'artifact:source'],
+      }),
       ctx,
     )
     expect(patch).toEqual({
-      crush_model: 'crush-7b',
-      crush_api_key: 'sk',
-      safe_mode: true,
+      model: 'crush-7b',
+      api_key: 'sk',
+      permissionMode: 'ask',
+      mcp: { servers: ['filesystem'] },
     })
   })
 })

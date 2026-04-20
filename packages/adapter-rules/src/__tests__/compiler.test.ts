@@ -327,7 +327,7 @@ describe('RuleCompiler', () => {
     expect(plan.providerConfigPatch).toEqual({})
   })
 
-  it('Goose provider config patch sets toolkits.require_confirmation: true when require_approval present', () => {
+  it('Goose provider config patch sets goose.mode: approve when require_approval present', () => {
     const plan = new RuleCompiler().compile(
       [
         rule({
@@ -337,7 +337,7 @@ describe('RuleCompiler', () => {
       ],
       gooseCtx,
     )
-    expect(plan.providerConfigPatch).toEqual({ toolkits: { require_confirmation: true } })
+    expect(plan.providerConfigPatch).toEqual({ goose: { mode: 'approve' } })
   })
 
   it('Goose provider config patch is empty when no approval effects are present', () => {
@@ -348,7 +348,7 @@ describe('RuleCompiler', () => {
     expect(plan.providerConfigPatch).toEqual({})
   })
 
-  it('Crush provider config patch sets safe_mode: true when require_approval present', () => {
+  it('Crush provider config patch sets permissionMode: ask when require_approval present', () => {
     const plan = new RuleCompiler().compile(
       [
         rule({
@@ -358,7 +358,7 @@ describe('RuleCompiler', () => {
       ],
       crushCtx,
     )
-    expect(plan.providerConfigPatch).toEqual({ safe_mode: true })
+    expect(plan.providerConfigPatch).toEqual({ permissionMode: 'ask' })
   })
 
   it('Crush provider config patch is empty when no approval effects are present', () => {

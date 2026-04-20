@@ -2,9 +2,10 @@
  * Crush provider config projector.
  *
  * Projects a RuntimePlan into a Crush config patch in the
- * `.crush/config.toml` format. Emits `crush_model` and `crush_api_key`
- * fields when the corresponding inputs are present. Approval effects
- * set `safe_mode: true` so every tool call requires interactive approval.
+ * `crush.json` format. Emits `model` and `api_key` fields when present in
+ * context, sets `permissionMode: 'ask'` when approval effects are present,
+ * and forwards MCP server references (carried by `monitorSubscriptions`
+ * with an `mcp:` prefix) into the `mcp.servers` array.
  */
 
 import type { CompileContext, RuntimePlan } from '../types.js'
@@ -16,15 +17,22 @@ export function projectCrushConfig(
   const patch: Record<string, unknown> = {}
 
   if (context.model !== undefined) {
-    patch['crush_model'] = context.model
+    patch['model'] = context.model
   }
   if (context.apiKey !== undefined) {
-    patch['crush_api_key'] = context.apiKey
+    patch['api_key'] = context.apiKey
   }
 
   const approvalFlags = plan.auditFlags.filter((f) => f.startsWith('approval:'))
   if (approvalFlags.length > 0) {
-    patch['safe_mode'] = true
+    patch['permissionMode'] = 'ask'
+  }
+
+  const mcpServers = plan.monitorSubscriptions
+    .filter((s) => s.startsWith('mcp:'))
+    .map((s) => s.slice('mcp:'.length))
+  if (mcpServers.length > 0) {
+    patch['mcp'] = { servers: mcpServers }
   }
 
   return patch
