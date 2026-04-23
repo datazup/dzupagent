@@ -1,5 +1,13 @@
 export { AdapterRegistry } from './adapter-registry.js'
-export type { AdapterRegistryConfig } from './adapter-registry.js'
+export { ProviderAdapterRegistry } from './adapter-registry.js'
+export type {
+  AdapterRegistryConfig,
+  ProviderAdapterRegistryConfig,
+  AdapterHealthDetail,
+  ProviderAdapterHealthDetail,
+  DetailedHealthStatus,
+  ProviderAdapterRegistryHealthStatus,
+} from './adapter-registry.js'
 
 export {
   TagBasedRouter,

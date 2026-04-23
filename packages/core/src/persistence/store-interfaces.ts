@@ -96,10 +96,16 @@ export interface RunStore {
 }
 
 // ---------------------------------------------------------------------------
-// Agent Store
+// Agent Execution Spec Store
 // ---------------------------------------------------------------------------
 
-export interface AgentDefinition {
+/**
+ * Local runnable agent configuration used by the current execution path.
+ *
+ * This is intentionally distinct from the control-plane `RegisteredAgent`
+ * model used by `AgentRegistry`.
+ */
+export interface AgentExecutionSpec {
   id: string
   name: string
   description?: string
@@ -115,15 +121,24 @@ export interface AgentDefinition {
   updatedAt?: Date
 }
 
-export interface AgentFilter {
+export interface AgentExecutionSpecFilter {
   active?: boolean
   tags?: string[]
   limit?: number
 }
 
-export interface AgentStore {
-  save(agent: AgentDefinition): Promise<void>
-  get(id: string): Promise<AgentDefinition | null>
-  list(filter?: AgentFilter): Promise<AgentDefinition[]>
+export interface AgentExecutionSpecStore {
+  save(agent: AgentExecutionSpec): Promise<void>
+  get(id: string): Promise<AgentExecutionSpec | null>
+  list(filter?: AgentExecutionSpecFilter): Promise<AgentExecutionSpec[]>
   delete(id: string): Promise<void>
 }
+
+/** @deprecated Use `AgentExecutionSpec`. */
+export type AgentDefinition = AgentExecutionSpec
+
+/** @deprecated Use `AgentExecutionSpecFilter`. */
+export type AgentFilter = AgentExecutionSpecFilter
+
+/** @deprecated Use `AgentExecutionSpecStore`. */
+export type AgentStore = AgentExecutionSpecStore

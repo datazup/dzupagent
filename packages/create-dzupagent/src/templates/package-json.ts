@@ -30,8 +30,8 @@ export function generatePackageJson(options: PackageJsonOptions): string {
   }
 
   const dependencies: Record<string, string> = {
-    '@dzupagent/core': '^0.1.0',
-    '@dzupagent/agent': '^0.1.0',
+    '@dzupagent/core': '^0.2.0',
+    '@dzupagent/agent': '^0.2.0',
     ...buildFeatureDependencies(options.features, options.database),
     ...(options.templateDependencies ?? {}),
   }
@@ -50,7 +50,7 @@ export function generatePackageJson(options: PackageJsonOptions): string {
 
   const pkg = {
     name: options.projectName,
-    version: '0.1.0',
+    version: '0.2.0',
     type: 'module',
     scripts,
     dependencies: sortObject(dependencies),
@@ -67,12 +67,12 @@ function buildFeatureDependencies(
   const deps: Record<string, string> = {}
 
   if (features.includes('auth') || features.includes('dashboard') || features.includes('ai')) {
-    deps['@dzupagent/server'] = '^0.1.0'
+    deps['@dzupagent/server'] = '^0.2.0'
   }
 
   if (features.includes('ai')) {
-    deps['@dzupagent/memory'] = '^0.1.0'
-    deps['@dzupagent/context'] = '^0.1.0'
+    deps['@dzupagent/memory'] = '^0.2.0'
+    deps['@dzupagent/context'] = '^0.2.0'
   }
 
   if (database === 'postgres') {

@@ -10,7 +10,7 @@ export const codegenTemplate: TemplateManifest = {
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
-          version: '0.1.0',
+          version: '0.2.0',
           type: 'module',
           scripts: {
             build: 'tsup',
@@ -63,7 +63,7 @@ console.log('Codegen agent created:', agent.name)
         {
           name: '{{projectName}}',
           template: '{{template}}',
-          version: '0.1.0',
+          version: '0.2.0',
           codegen: { vfs: true, gitTools: true },
         },
         null,
@@ -88,9 +88,9 @@ workspace/
     },
   ],
   dependencies: {
-    '@dzupagent/core': '^0.1.0',
-    '@dzupagent/agent': '^0.1.0',
-    '@dzupagent/codegen': '^0.1.0',
+    '@dzupagent/core': '^0.2.0',
+    '@dzupagent/agent': '^0.2.0',
+    '@dzupagent/codegen': '^0.2.0',
   },
   devDependencies: {
     typescript: '^5.4.0',

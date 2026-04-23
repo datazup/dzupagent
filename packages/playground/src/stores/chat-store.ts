@@ -8,7 +8,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import type { ChatMessage, AgentSummary, ApiResponse, TraceEvent, RunHistoryEntry } from '../types.js'
+import type { ChatMessage, AgentDefinitionSummary, ApiResponse, TraceEvent, RunHistoryEntry } from '../types.js'
 import { useApi } from '../composables/useApi.js'
 import { useTraceStore } from './trace-store.js'
 import { useWsStore } from './ws-store.js'
@@ -19,7 +19,7 @@ export const useChatStore = defineStore('chat', () => {
   // ── State ─────────────────────────────────────────
   const messages = ref<ChatMessage[]>([])
   const currentAgentId = ref<string | null>(null)
-  const agents = ref<AgentSummary[]>([])
+  const agents = ref<AgentDefinitionSummary[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
   const activeRunId = ref<string | null>(null)
@@ -244,7 +244,7 @@ export const useChatStore = defineStore('chat', () => {
   /** Fetch available agents from the server */
   async function fetchAgents(): Promise<void> {
     try {
-      const result = await get<ApiResponse<AgentSummary[]>>('/api/agents?active=true')
+      const result = await get<ApiResponse<AgentDefinitionSummary[]>>('/api/agent-definitions?active=true')
       agents.value = result.data
     } catch (err: unknown) {
       error.value = err instanceof Error ? err.message : 'Failed to fetch agents'

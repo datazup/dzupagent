@@ -325,6 +325,7 @@ export type { WorkingMemoryConfig, WorkingMemorySnapshot } from './persistence/w
 export { InMemoryRunStore, InMemoryAgentStore } from './persistence/in-memory-store.js'
 export type {
   RunStore, Run, CreateRunInput, RunFilter, RunStatus, LogEntry,
+  AgentExecutionSpecStore, AgentExecutionSpec, AgentExecutionSpecFilter,
   AgentStore, AgentDefinition, AgentFilter,
 } from './persistence/store-interfaces.js'
 export { InMemoryEventLog, EventLogSink } from './persistence/event-log.js'
@@ -438,8 +439,18 @@ export type {
 export { MCPClient } from './mcp/mcp-client.js'
 export { mcpToolToLangChain, mcpToolsToLangChain, langChainToolToMcp } from './mcp/mcp-tool-bridge.js'
 export { DeferredToolLoader } from './mcp/deferred-loader.js'
-export { DzupAgentMCPServer } from './mcp/mcp-server.js'
-export type { MCPServerOptions, MCPExposedTool, MCPRequest, MCPResponse } from './mcp/mcp-server.js'
+export { DzupAgentMCPServer, isMCPRequest } from './mcp/mcp-server.js'
+export type {
+  MCPServerOptions,
+  MCPExposedTool,
+  MCPExposedResource,
+  MCPExposedResourceTemplate,
+  MCPServerCapabilities,
+  MCPInitializeResult,
+  MCPRequest,
+  MCPRequestId,
+  MCPResponse,
+} from './mcp/mcp-server.js'
 export type {
   MCPTransport,
   MCPServerConfig,
@@ -784,6 +795,7 @@ export type {
   SkillHandle,
   McpToolHandle,
   WorkflowHandle,
+  ResolvedAgentHandle,
   AgentHandle,
   FlowHandle,
   McpInvocationResult,

@@ -79,6 +79,9 @@ export type DzupEvent =
   | { type: 'provider:failed'; tier: string; provider: string; message: string }
   | { type: 'provider:circuit_opened'; provider: string }
   | { type: 'provider:circuit_closed'; provider: string }
+  // --- Adapter Registry ---
+  | { type: 'adapter_registry:provider_registered'; providerId: string; name: string }
+  | { type: 'adapter_registry:provider_deregistered'; providerId: string; reason: string }
   // --- Identity ---
   | { type: 'identity:resolved'; agentId: string; uri: string }
   | { type: 'identity:failed'; agentId: string; error: string }

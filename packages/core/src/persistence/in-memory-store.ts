@@ -4,9 +4,9 @@ import type {
   CreateRunInput,
   RunFilter,
   LogEntry,
-  AgentStore,
-  AgentDefinition,
-  AgentFilter,
+  AgentExecutionSpecStore,
+  AgentExecutionSpec,
+  AgentExecutionSpecFilter,
 } from './store-interfaces.js'
 import { defaultLogger, type FrameworkLogger } from '../utils/logger.js'
 
@@ -186,18 +186,18 @@ export class InMemoryRunStore implements RunStore {
 // InMemoryAgentStore — for development and testing
 // ---------------------------------------------------------------------------
 
-export class InMemoryAgentStore implements AgentStore {
-  private agents = new Map<string, AgentDefinition>()
+export class InMemoryAgentStore implements AgentExecutionSpecStore {
+  private agents = new Map<string, AgentExecutionSpec>()
 
-  async save(agent: AgentDefinition): Promise<void> {
+  async save(agent: AgentExecutionSpec): Promise<void> {
     this.agents.set(agent.id, { ...agent, updatedAt: new Date() })
   }
 
-  async get(id: string): Promise<AgentDefinition | null> {
+  async get(id: string): Promise<AgentExecutionSpec | null> {
     return this.agents.get(id) ?? null
   }
 
-  async list(filter?: AgentFilter): Promise<AgentDefinition[]> {
+  async list(filter?: AgentExecutionSpecFilter): Promise<AgentExecutionSpec[]> {
     let results = [...this.agents.values()]
 
     if (filter?.active !== undefined) {

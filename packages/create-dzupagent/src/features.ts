@@ -9,7 +9,7 @@ const featureRegistry: Record<string, FeatureDefinition> = {
     name: 'Authentication',
     description: 'API key or JWT authentication middleware',
     dependencies: {
-      '@dzupagent/server': '^0.1.0',
+      '@dzupagent/server': '^0.2.0',
     },
     files: [
       {
@@ -43,7 +43,7 @@ export function authMiddleware(apiKey: string) {
     name: 'Dashboard',
     description: 'Admin dashboard UI with agent monitoring',
     dependencies: {
-      '@dzupagent/server': '^0.1.0',
+      '@dzupagent/server': '^0.2.0',
     },
     files: [
       {
@@ -182,8 +182,8 @@ export class TeamService {
     name: 'AI / LLM',
     description: 'AI features with memory, embeddings, and vector search',
     dependencies: {
-      '@dzupagent/memory': '^0.1.0',
-      '@dzupagent/context': '^0.1.0',
+      '@dzupagent/memory': '^0.2.0',
+      '@dzupagent/context': '^0.2.0',
     },
     files: [
       {

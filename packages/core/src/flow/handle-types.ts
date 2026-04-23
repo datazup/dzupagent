@@ -75,9 +75,11 @@ export interface WorkflowHandle {
 }
 
 /**
- * Structural contract for a resolved agent. Populated by AgentRegistry.
+ * Structural contract for a resolved agent invocation handle.
+ *
+ * Populated by `AgentRegistry` or a registry-backed resolver.
  */
-export interface AgentHandle {
+export interface ResolvedAgentHandle {
   readonly kind: 'agent'
   readonly id: string
   readonly displayName: string
@@ -87,6 +89,9 @@ export interface AgentHandle {
    */
   readonly invoke: (input: AgentInvocation) => Promise<AgentInvocationResult>
 }
+
+/** @deprecated Use `ResolvedAgentHandle`. */
+export type AgentHandle = ResolvedAgentHandle
 
 export interface AgentInvocation {
   readonly prompt: string
@@ -101,7 +106,7 @@ export interface AgentInvocationResult {
 }
 
 /** Narrow discriminated union over all handle kinds. */
-export type FlowHandle = SkillHandle | McpToolHandle | WorkflowHandle | AgentHandle
+export type FlowHandle = SkillHandle | McpToolHandle | WorkflowHandle | ResolvedAgentHandle
 
 /** Minimal execution context threaded to SkillHandle.execute. */
 export interface SkillExecutionContext {

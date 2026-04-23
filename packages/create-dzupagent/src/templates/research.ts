@@ -10,7 +10,7 @@ export const researchTemplate: TemplateManifest = {
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
-          version: '0.1.0',
+          version: '0.2.0',
           type: 'module',
           scripts: {
             dev: 'tsx watch src/server.ts',
@@ -137,7 +137,7 @@ PORT=3000
         {
           name: '{{projectName}}',
           template: '{{template}}',
-          version: '0.1.0',
+          version: '0.2.0',
           server: { port: 3000 },
         },
         null,

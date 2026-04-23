@@ -1,5 +1,5 @@
 /**
- * PostgreSQL implementations of RunStore and AgentStore.
+ * PostgreSQL implementations of RunStore and the execution-spec store.
  *
  * Uses Drizzle ORM for type-safe queries against the forge_* tables.
  */
@@ -14,9 +14,9 @@ import type {
   RunFilter,
   RunStatus,
   LogEntry,
-  AgentStore,
-  AgentDefinition,
-  AgentFilter,
+  AgentExecutionSpecStore,
+  AgentExecutionSpec,
+  AgentExecutionSpecFilter,
 } from '@dzupagent/core'
 
 type DB = PostgresJsDatabase<Record<string, never>>
@@ -173,10 +173,10 @@ export class PostgresRunStore implements RunStore {
 // PostgresAgentStore
 // ---------------------------------------------------------------------------
 
-export class PostgresAgentStore implements AgentStore {
+export class PostgresAgentStore implements AgentExecutionSpecStore {
   constructor(private db: DB) {}
 
-  async save(agent: AgentDefinition): Promise<void> {
+  async save(agent: AgentExecutionSpec): Promise<void> {
     const existing = await this.get(agent.id)
     if (existing) {
       await this.db
@@ -211,7 +211,7 @@ export class PostgresAgentStore implements AgentStore {
     }
   }
 
-  async get(id: string): Promise<AgentDefinition | null> {
+  async get(id: string): Promise<AgentExecutionSpec | null> {
     const rows = await this.db
       .select()
       .from(dzipAgents)
@@ -221,7 +221,7 @@ export class PostgresAgentStore implements AgentStore {
     return row ? this.toAgent(row) : null
   }
 
-  async list(filter?: AgentFilter): Promise<AgentDefinition[]> {
+  async list(filter?: AgentExecutionSpecFilter): Promise<AgentExecutionSpec[]> {
     const conditions: SQL[] = []
     if (filter?.active !== undefined) conditions.push(eq(dzipAgents.active, filter.active))
 
@@ -245,7 +245,7 @@ export class PostgresAgentStore implements AgentStore {
       .where(eq(dzipAgents.id, id))
   }
 
-  private toAgent(row: typeof dzipAgents.$inferSelect): AgentDefinition {
+  private toAgent(row: typeof dzipAgents.$inferSelect): AgentExecutionSpec {
     return {
       id: row.id,
       name: row.name,
@@ -254,7 +254,7 @@ export class PostgresAgentStore implements AgentStore {
       modelTier: row.modelTier,
       tools: (row.tools as string[]) ?? undefined,
       guardrails: (row.guardrails as Record<string, unknown>) ?? undefined,
-      approval: row.approval as AgentDefinition['approval'],
+      approval: row.approval as AgentExecutionSpec['approval'],
       version: row.version,
       active: row.active,
       metadata: (row.metadata as Record<string, unknown>) ?? undefined,

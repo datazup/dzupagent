@@ -10,7 +10,7 @@ export const serverTemplate: TemplateManifest = {
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
-          version: '0.1.0',
+          version: '0.2.0',
           type: 'module',
           scripts: {
             build: 'tsup',
@@ -84,7 +84,7 @@ CMD ["node", "dist/index.js"]
         {
           name: '{{projectName}}',
           template: '{{template}}',
-          version: '0.1.0',
+          version: '0.2.0',
           server: { port: 4000, auth: 'api-key' },
           database: { provider: 'postgres' },
         },
@@ -111,9 +111,9 @@ dist/
     },
   ],
   dependencies: {
-    '@dzupagent/core': '^0.1.0',
-    '@dzupagent/agent': '^0.1.0',
-    '@dzupagent/server': '^0.1.0',
+    '@dzupagent/core': '^0.2.0',
+    '@dzupagent/agent': '^0.2.0',
+    '@dzupagent/server': '^0.2.0',
     'drizzle-orm': '^0.36.0',
   },
   devDependencies: {

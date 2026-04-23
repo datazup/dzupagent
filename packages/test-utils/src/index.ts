@@ -20,5 +20,15 @@ export {
   waitForEvent,
   waitForCondition,
 } from './test-helpers.js'
+export {
+  describeMcpPublisherCompatibilitySuite,
+} from './mcp-compatibility.js'
+export type {
+  McpCompatibilityCaseName,
+  McpCompatibilityHarness,
+  McpCompatibilityResponse,
+  McpCompatibilityToolCallCase,
+  McpPublisherCompatibilitySuiteOptions,
+} from './mcp-compatibility.js'
 
 export const dzupagent_TEST_UTILS_VERSION = '0.1.0'

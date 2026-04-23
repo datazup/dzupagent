@@ -50,7 +50,7 @@ export function createProgram(): Command {
   program
     .name('create-dzupagent')
     .description('Scaffold a new DzupAgent project from a template')
-    .version('0.1.0')
+    .version('0.2.0')
     .argument('[project-name]', 'Name of the project directory to create')
     .option('-t, --template <type>', 'Template to use (default: minimal)')
     .option('-f, --features <list>', 'Comma-separated feature list (e.g. auth,billing,teams)')

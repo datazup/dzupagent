@@ -143,8 +143,11 @@ export async function* spawnAndStreamJsonl(
       }
     }
 
-    stdout.on('data', (chunk: Buffer | string) => {
-      chunkQueue.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
+    stdout.on('readable', () => {
+      let chunk: Buffer | string | null
+      while ((chunk = stdout.read() as Buffer | string | null) !== null) {
+        chunkQueue.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
+      }
       wakeReader()
     })
     stdout.once('end', () => {
@@ -159,8 +162,8 @@ export async function* spawnAndStreamJsonl(
 
     // Wait for the process to either spawn successfully or fail immediately.
     const spawnError = await new Promise<Error | null>((resolve) => {
-      child.once('error', (err: Error) => resolve(err))
       child.once('spawn', () => resolve(null))
+      child.once('error', (err: Error) => resolve(err))
     })
 
     if (spawnError) {

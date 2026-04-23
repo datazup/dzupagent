@@ -44,6 +44,8 @@ export interface AdapterRegistryConfig {
   circuitBreaker?: Partial<CircuitBreakerConfig> | undefined
 }
 
+export type ProviderAdapterRegistryConfig = AdapterRegistryConfig
+
 /** Detailed per-adapter health including circuit breaker diagnostics. */
 export interface AdapterHealthDetail {
   healthy: boolean
@@ -61,12 +63,16 @@ export interface AdapterHealthDetail {
   lastFailureAt?: number | undefined
 }
 
+export type ProviderAdapterHealthDetail = AdapterHealthDetail
+
 /** Aggregated detailed health status for all registered adapters. */
 export interface DetailedHealthStatus {
   status: 'healthy' | 'degraded' | 'unhealthy'
   adapters: Record<string, AdapterHealthDetail>
   timestamp: number
 }
+
+export type ProviderAdapterRegistryHealthStatus = DetailedHealthStatus
 
 export class AdapterRegistry {
   private readonly adapters = new Map<AdapterProviderId, AgentCLIAdapter>()
@@ -90,8 +96,8 @@ export class AdapterRegistry {
       this.breakers.set(adapter.providerId, new CircuitBreaker(this.cbConfig))
     }
     this.emitEvent({
-      type: 'registry:agent_registered',
-      agentId: adapter.providerId,
+      type: 'adapter_registry:provider_registered',
+      providerId: adapter.providerId,
       name: `adapter:${adapter.providerId}`,
     })
     return this
@@ -144,8 +150,8 @@ export class AdapterRegistry {
     this.disabledAdapters.delete(providerId)
     if (existed) {
       this.emitEvent({
-        type: 'registry:agent_deregistered',
-        agentId: providerId,
+        type: 'adapter_registry:provider_deregistered',
+        providerId,
         reason: 'unregistered',
       })
     }
@@ -602,8 +608,8 @@ export class AdapterRegistry {
       | { type: 'provider:failed'; tier: string; provider: string; message: string }
       | { type: 'provider:circuit_opened'; provider: string }
       | { type: 'provider:circuit_closed'; provider: string }
-      | { type: 'registry:agent_registered'; agentId: string; name: string }
-      | { type: 'registry:agent_deregistered'; agentId: string; reason: string },
+      | { type: 'adapter_registry:provider_registered'; providerId: string; name: string }
+      | { type: 'adapter_registry:provider_deregistered'; providerId: string; reason: string },
   ): void {
     if (this.eventBus) {
       // The event types are a subset of DzupEvent. `usage` on agent:completed
@@ -615,3 +621,5 @@ export class AdapterRegistry {
     }
   }
 }
+
+export { AdapterRegistry as ProviderAdapterRegistry }

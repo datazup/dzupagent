@@ -6,7 +6,7 @@
  * @example
  * ```ts
  * const { get, post } = useApi()
- * const agents = await get<ApiResponse<AgentSummary[]>>('/api/agents')
+ * const definitions = await get<ApiResponse<AgentDefinitionSummary[]>>('/api/agent-definitions')
  * ```
  */
 import type { ApiError } from '../types.js'

@@ -10,7 +10,7 @@ export const multiAgentTemplate: TemplateManifest = {
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
-          version: '0.1.0',
+          version: '0.2.0',
           type: 'module',
           scripts: {
             build: 'tsup',
@@ -80,7 +80,7 @@ export function createPlanner(): DzupAgent {
         {
           name: '{{projectName}}',
           template: '{{template}}',
-          version: '0.1.0',
+          version: '0.2.0',
           agents: {
             planner: { role: 'orchestrator' },
             executor: { role: 'worker' },
@@ -106,8 +106,8 @@ dist/
     },
   ],
   dependencies: {
-    '@dzupagent/core': '^0.1.0',
-    '@dzupagent/agent': '^0.1.0',
+    '@dzupagent/core': '^0.2.0',
+    '@dzupagent/agent': '^0.2.0',
   },
   devDependencies: {
     typescript: '^5.4.0',

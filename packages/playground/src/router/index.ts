@@ -10,9 +10,14 @@ const routes: RouteRecordRaw[] = [
     component: () => import('../views/PlaygroundView.vue'),
   },
   {
+    path: '/agent-definitions',
+    name: 'agent-definitions',
+    component: () => import('../views/AgentDefinitionsView.vue'),
+  },
+  {
     path: '/agents',
     name: 'agents',
-    component: () => import('../views/AgentsView.vue'),
+    redirect: '/agent-definitions',
   },
   {
     path: '/runs',

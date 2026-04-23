@@ -2,6 +2,27 @@ import { asEvent } from './shared.js'
 import type { MetricMapFragment } from './types.js'
 
 export const platformRegistryProtocolMetricMap = {
+  // --- Adapter Registry ---
+  'adapter_registry:provider_registered': [
+    {
+      metricName: 'forge_adapter_registry_operations_total',
+      type: 'counter',
+      description: 'Total adapter provider registration events',
+      labelKeys: ['operation'],
+      extract: () => ({ value: 1, labels: { operation: 'registered' } }),
+    },
+  ],
+
+  'adapter_registry:provider_deregistered': [
+    {
+      metricName: 'forge_adapter_registry_operations_total',
+      type: 'counter',
+      description: 'Total adapter provider deregistration events',
+      labelKeys: ['operation'],
+      extract: () => ({ value: 1, labels: { operation: 'deregistered' } }),
+    },
+  ],
+
   // --- Registry ---
   'registry:agent_registered': [
     {

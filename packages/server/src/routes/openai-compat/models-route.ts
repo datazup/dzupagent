@@ -5,11 +5,11 @@
  * clients can discover available "models" (which are really agents).
  */
 import { Hono } from 'hono'
-import type { AgentStore } from '@dzupagent/core'
+import type { AgentExecutionSpecStore } from '@dzupagent/core'
 import type { ModelListResponse, ModelObject } from './types.js'
 
 export interface ModelsRouteConfig {
-  agentStore: AgentStore
+  agentStore: AgentExecutionSpecStore
 }
 
 export function createModelsRoute(config: ModelsRouteConfig): Hono {

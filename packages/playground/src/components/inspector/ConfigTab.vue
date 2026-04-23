@@ -2,18 +2,18 @@
 /**
  * ConfigTab -- View and edit the selected agent's configuration.
  *
- * Shows full agent detail from GET /api/agents/:id and supports
+ * Shows full agent detail from GET /api/agent-definitions/:id and supports
  * inline editing of instructions, tools, guardrails, and approval mode.
  */
 import { computed, ref, watch } from 'vue'
 import { useChatStore } from '../../stores/chat-store.js'
-import { useAgentStore } from '../../stores/agent-store.js'
-import type { AgentDetail } from '../../types.js'
+import { useAgentDefinitionsStore } from '../../stores/agent-definitions-store.js'
+import type { AgentDefinitionDetail } from '../../types.js'
 
 const chatStore = useChatStore()
-const agentStore = useAgentStore()
+const agentStore = useAgentDefinitionsStore()
 
-const agent = ref<AgentDetail | null>(null)
+const agent = ref<AgentDefinitionDetail | null>(null)
 const isEditing = ref(false)
 
 // Edit form state

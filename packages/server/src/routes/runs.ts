@@ -30,6 +30,7 @@ import { streamRunHandleToSSE } from '../streaming/sse-streaming-adapter.js'
 export function createRunRoutes(config: ForgeServerConfig): Hono {
   const app = new Hono()
   const { runStore, eventBus } = config
+  const executableAgentResolver = config.executableAgentResolver
 
   // POST /api/runs — Trigger a new run
   app.post('/', async (c) => {
@@ -39,7 +40,9 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
       return c.json({ error: { code: 'VALIDATION_ERROR', message: 'agentId is required' } }, 400)
     }
 
-    const agent = await config.agentStore.get(body.agentId)
+    const agent = executableAgentResolver
+      ? await executableAgentResolver.resolve(body.agentId)
+      : await config.agentStore.get(body.agentId)
     if (!agent) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
     }

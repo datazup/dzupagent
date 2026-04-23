@@ -180,9 +180,9 @@ export class MCPToolSharingBridge {
    * This allows the bridge to act as an MCP server for adapters that
    * support the MCP protocol natively.
    */
-  async handleRequest(request: unknown): Promise<unknown> {
+  async handleRequest(request: unknown): Promise<MCPResponse | null> {
     const mcpRequest = request as MCPRequest
-    const response: MCPResponse = await this.mcpServer.handleRequest(mcpRequest)
+    const response = await this.mcpServer.handleRequest(mcpRequest)
     return response
   }
 

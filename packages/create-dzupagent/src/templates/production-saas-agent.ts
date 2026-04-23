@@ -10,7 +10,7 @@ export const productionSaasAgentTemplate: TemplateManifest = {
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
-          version: '0.1.0',
+          version: '0.2.0',
           type: 'module',
           scripts: {
             build: 'tsup',
@@ -206,7 +206,7 @@ volumes:
         {
           name: '{{projectName}}',
           template: '{{template}}',
-          version: '0.1.0',
+          version: '0.2.0',
           server: { port: 4000, auth: 'api-key' },
           database: { provider: 'postgres' },
           queue: { provider: 'redis' },
@@ -298,12 +298,12 @@ dist/
     },
   ],
   dependencies: {
-    '@dzupagent/core': '^0.1.0',
-    '@dzupagent/agent': '^0.1.0',
-    '@dzupagent/server': '^0.1.0',
-    '@dzupagent/memory': '^0.1.0',
-    '@dzupagent/context': '^0.1.0',
-    '@dzupagent/otel': '^0.1.0',
+    '@dzupagent/core': '^0.2.0',
+    '@dzupagent/agent': '^0.2.0',
+    '@dzupagent/server': '^0.2.0',
+    '@dzupagent/memory': '^0.2.0',
+    '@dzupagent/context': '^0.2.0',
+    '@dzupagent/otel': '^0.2.0',
     'drizzle-orm': '^0.36.0',
     bullmq: '^5.0.0',
     ioredis: '^5.4.0',

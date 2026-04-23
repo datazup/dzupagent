@@ -10,7 +10,7 @@ export const costConstrainedWorkerTemplate: TemplateManifest = {
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
-          version: '0.1.0',
+          version: '0.2.0',
           type: 'module',
           scripts: {
             build: 'tsup',
@@ -116,7 +116,7 @@ export const config = {
         {
           name: '{{projectName}}',
           template: '{{template}}',
-          version: '0.1.0',
+          version: '0.2.0',
           model: 'claude-3-haiku-20240307',
           memory: { provider: 'in-memory' },
           tokenBudget: {
@@ -206,8 +206,8 @@ dist/
     },
   ],
   dependencies: {
-    '@dzupagent/core': '^0.1.0',
-    '@dzupagent/agent': '^0.1.0',
+    '@dzupagent/core': '^0.2.0',
+    '@dzupagent/agent': '^0.2.0',
   },
   devDependencies: {
     typescript: '^5.4.0',

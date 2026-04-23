@@ -16,7 +16,7 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { HumanMessage } from '@langchain/core/messages'
 import { DzupAgent } from '@dzupagent/agent'
-import type { AgentStore, ModelRegistry, DzupEventBus } from '@dzupagent/core'
+import type { AgentExecutionSpecStore, ModelRegistry, DzupEventBus } from '@dzupagent/core'
 import { OpenAICompletionMapper } from './completion-mapper.js'
 import {
   mapRequest,
@@ -33,7 +33,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface OpenAICompatCompletionsConfig {
-  agentStore: AgentStore
+  agentStore: AgentExecutionSpecStore
   modelRegistry: ModelRegistry
   eventBus: DzupEventBus
 }

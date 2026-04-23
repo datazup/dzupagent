@@ -91,8 +91,8 @@ export interface MemoryImportRequest {
 
 // ── Agent ────────────────────────────────────────────────
 
-/** Agent definition for the selector */
-export interface AgentSummary {
+/** Agent definition summary for selectors and definition lists. */
+export interface AgentDefinitionSummary {
   id: string
   name: string
   description?: string
@@ -100,8 +100,8 @@ export interface AgentSummary {
   active: boolean
 }
 
-/** Full agent definition from GET /api/agents/:id */
-export interface AgentDetail extends AgentSummary {
+/** Full agent definition from GET /api/agent-definitions/:id */
+export interface AgentDefinitionDetail extends AgentDefinitionSummary {
   instructions: string
   tools?: string[]
   guardrails?: Record<string, unknown>
@@ -111,11 +111,17 @@ export interface AgentDetail extends AgentSummary {
   updatedAt?: string
 }
 
-/** Agent config displayed in the config tab (alias for backward compat) */
-export type AgentConfig = AgentDetail
+/** @deprecated Use `AgentDefinitionSummary`. */
+export type AgentSummary = AgentDefinitionSummary
 
-/** Input for creating a new agent */
-export interface AgentCreateInput {
+/** @deprecated Use `AgentDefinitionDetail`. */
+export type AgentDetail = AgentDefinitionDetail
+
+/** Agent config displayed in the config tab (alias for backward compat) */
+export type AgentConfig = AgentDefinitionDetail
+
+/** Input for creating a new agent definition */
+export interface AgentDefinitionCreateInput {
   name: string
   instructions: string
   modelTier: string
@@ -126,8 +132,14 @@ export interface AgentCreateInput {
   metadata?: Record<string, unknown>
 }
 
-/** Input for updating an agent */
-export type AgentUpdateInput = Partial<AgentCreateInput> & { active?: boolean }
+/** Input for updating an agent definition */
+export type AgentDefinitionUpdateInput = Partial<AgentDefinitionCreateInput> & { active?: boolean }
+
+/** @deprecated Use `AgentDefinitionCreateInput`. */
+export type AgentCreateInput = AgentDefinitionCreateInput
+
+/** @deprecated Use `AgentDefinitionUpdateInput`. */
+export type AgentUpdateInput = AgentDefinitionUpdateInput
 
 // ── Runs ─────────────────────────────────────────────────
 

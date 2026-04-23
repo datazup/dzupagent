@@ -16,6 +16,7 @@ export type { ServerRoutePlugin } from './route-plugin.js'
 export { createRunRoutes } from './routes/runs.js'
 export { createRunContextRoutes } from './routes/run-context.js'
 export type { TokenLifecycleLike, TokenLifecycleRegistry } from './routes/run-context.js'
+export { createAgentDefinitionRoutes } from './routes/agents.js'
 export { createAgentRoutes } from './routes/agents.js'
 export { createApprovalRoutes } from './routes/approval.js'
 export { createHumanContactRoutes } from './routes/human-contact.js'
@@ -126,6 +127,15 @@ export type { HumanContactTimeoutConfig } from './lifecycle/human-contact-timeou
 // --- Eval Orchestration ---
 export { EvalOrchestrator, EvalExecutionUnavailableError, EvalRunInvalidStateError } from './services/eval-orchestrator.js'
 export type { EvalOrchestratorConfig, EvalExecutionTarget, EvalExecutionContext, EvalQueueStats } from './services/eval-orchestrator.js'
+export { AgentControlPlaneService } from './services/agent-control-plane-service.js'
+export type { AgentControlPlaneServiceConfig } from './services/agent-control-plane-service.js'
+export {
+  ControlPlaneExecutableAgentResolver,
+  AgentStoreExecutableAgentResolver,
+} from './services/executable-agent-resolver.js'
+export type {
+  ExecutableAgentResolver,
+} from './services/executable-agent-resolver.js'
 
 // --- WebSocket ---
 export { EventBridge } from './ws/event-bridge.js'

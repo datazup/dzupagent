@@ -7,6 +7,7 @@ export type {
   SkillHandle,
   McpToolHandle,
   WorkflowHandle,
+  ResolvedAgentHandle,
   AgentHandle,
   FlowHandle,
   McpInvocationResult,

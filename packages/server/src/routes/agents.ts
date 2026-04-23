@@ -1,33 +1,38 @@
 /**
  * Agent definition management routes.
  *
- * GET    /api/agents      — List agent definitions
- * POST   /api/agents      — Create agent definition
- * GET    /api/agents/:id  — Get agent by ID
- * PATCH  /api/agents/:id  — Update agent definition
- * DELETE /api/agents/:id  — Soft-delete agent (set active=false)
+ * Canonical path:
+ * GET    /api/agent-definitions      — List agent definitions
+ * POST   /api/agent-definitions      — Create agent definition
+ * GET    /api/agent-definitions/:id  — Get agent definition by ID
+ * PATCH  /api/agent-definitions/:id  — Update agent definition
+ * DELETE /api/agent-definitions/:id  — Soft-delete agent definition
+ *
+ * Compatibility alias:
+ * - `/api/agents/*`
  */
 import { Hono } from 'hono'
 import type { ForgeServerConfig } from '../app.js'
+import { AgentDefinitionService } from '../services/agent-definition-service.js'
 
-export function createAgentRoutes(config: ForgeServerConfig): Hono {
+export function createAgentDefinitionRoutes(config: ForgeServerConfig): Hono {
   const app = new Hono()
-  const { agentStore } = config
+  const service = new AgentDefinitionService({ agentStore: config.agentStore })
 
-  // GET /api/agents — List agents
+  // GET /api/agent-definitions — List agent definitions
   app.get('/', async (c) => {
     const active = c.req.query('active')
     const limit = parseInt(c.req.query('limit') ?? '100', 10)
 
-    const agents = await agentStore.list({
+    const agents = await service.list({
       active: active !== undefined ? active === 'true' : undefined,
-      limit: Math.min(limit, 200),
+      limit,
     })
 
     return c.json({ data: agents, count: agents.length })
   })
 
-  // POST /api/agents — Create agent
+  // POST /api/agent-definitions — Create agent definition
   app.post('/', async (c) => {
     const body = await c.req.json<{
       id?: string
@@ -48,42 +53,22 @@ export function createAgentRoutes(config: ForgeServerConfig): Hono {
       )
     }
 
-    const id = body.id ?? crypto.randomUUID()
-
-    await agentStore.save({
-      id,
-      name: body.name,
-      description: body.description,
-      instructions: body.instructions,
-      modelTier: body.modelTier,
-      tools: body.tools,
-      guardrails: body.guardrails,
-      approval: body.approval,
-      metadata: body.metadata,
-      active: true,
-    })
-
-    const saved = await agentStore.get(id)
+    const saved = await service.create(body)
     return c.json({ data: saved }, 201)
   })
 
-  // GET /api/agents/:id — Get agent
+  // GET /api/agent-definitions/:id — Get agent definition
   app.get('/:id', async (c) => {
-    const agent = await agentStore.get(c.req.param('id'))
+    const agent = await service.get(c.req.param('id'))
     if (!agent) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
     }
     return c.json({ data: agent })
   })
 
-  // PATCH /api/agents/:id — Update agent
+  // PATCH /api/agent-definitions/:id — Update agent definition
   app.patch('/:id', async (c) => {
     const id = c.req.param('id')
-    const existing = await agentStore.get(id)
-    if (!existing) {
-      return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
-    }
-
     const body = await c.req.json<Partial<{
       name: string
       description: string
@@ -95,27 +80,25 @@ export function createAgentRoutes(config: ForgeServerConfig): Hono {
       metadata: Record<string, unknown>
     }>>()
 
-    await agentStore.save({
-      ...existing,
-      ...body,
-      id, // preserve original ID
-    })
-
-    const updated = await agentStore.get(id)
+    const updated = await service.update(id, body)
+    if (!updated) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
+    }
     return c.json({ data: updated })
   })
 
-  // DELETE /api/agents/:id — Soft-delete agent
+  // DELETE /api/agent-definitions/:id — Soft-delete agent definition
   app.delete('/:id', async (c) => {
     const id = c.req.param('id')
-    const existing = await agentStore.get(id)
-    if (!existing) {
+    const deleted = await service.delete(id)
+    if (!deleted) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
     }
-
-    await agentStore.delete(id)
     return c.json({ data: { id, deleted: true } })
   })
 
   return app
 }
+
+/** @deprecated Use `createAgentDefinitionRoutes`. */
+export const createAgentRoutes = createAgentDefinitionRoutes

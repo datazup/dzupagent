@@ -20,7 +20,7 @@
  */
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import type { RunStore, AgentStore, ModelRegistry } from '@dzupagent/core'
+import type { RunStore, AgentExecutionSpecStore, ModelRegistry, AgentRegistry } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 import type { MetricsCollector } from '@dzupagent/core'
 import type { CostAwareRouter } from '@dzupagent/core'
@@ -31,7 +31,7 @@ import type { SkillStepResolver } from '@dzupagent/agent'
 import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters'
 import { createHealthRoutes } from './routes/health.js'
 import { createRunRoutes } from './routes/runs.js'
-import { createAgentRoutes } from './routes/agents.js'
+import { createAgentDefinitionRoutes } from './routes/agents.js'
 import { createApprovalRoutes } from './routes/approval.js'
 import { createHumanContactRoutes } from './routes/human-contact.js'
 import { createMemoryRoutes } from './routes/memory.js'
@@ -62,6 +62,11 @@ import { createDeployRoutes, type DeployRouteConfig } from './routes/deploy.js'
 import { createLearningRoutes, type LearningRouteConfig } from './routes/learning.js'
 import type { PromptFeedbackLoop } from './services/prompt-feedback-loop.js'
 import type { LearningEventProcessor } from './services/learning-event-processor.js'
+import {
+  ControlPlaneExecutableAgentResolver,
+  type ExecutableAgentResolver,
+} from './services/executable-agent-resolver.js'
+import { AgentControlPlaneService } from './services/agent-control-plane-service.js'
 import { createBenchmarkRoutes, type BenchmarkRouteConfig } from './routes/benchmarks.js'
 import { createEvalRoutes, type EvalRouteConfig } from './routes/evals.js'
 import { PrometheusMetricsCollector } from './metrics/prometheus-collector.js'
@@ -113,6 +118,7 @@ import { DrizzleDlqStore } from './persistence/drizzle-dlq-store.js'
 import { DrizzleMailboxStore } from './persistence/drizzle-mailbox-store.js'
 import type { PostgresApiKeyStore } from './persistence/api-key-store.js'
 import { createApiKeyRoutes } from './routes/api-keys.js'
+import { createRegistryRoutes } from './routes/registry.js'
 
 // Drizzle DB clients are opaque at this layer — we intentionally avoid a hard
 // dependency on `drizzle-orm/postgres-js` here.
@@ -161,7 +167,11 @@ export type ConsolidationConfig =
 
 export interface ForgeServerConfig {
   runStore: RunStore
-  agentStore: AgentStore
+  agentStore: AgentExecutionSpecStore
+  /** Optional registry control plane for registry-backed management and execution projection. */
+  registry?: AgentRegistry
+  /** Optional boundary that resolves a runnable execution spec for a run or compatibility API. */
+  executableAgentResolver?: ExecutableAgentResolver
   eventBus: DzupEventBus
   modelRegistry: ModelRegistry
   auth?: AuthConfig
@@ -469,8 +479,14 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   const fallbackRunExecutor = createDefaultRunExecutor(config.modelRegistry)
   const effectiveRunExecutor = config.runExecutor
     ?? createDzupAgentRunExecutor({ fallback: fallbackRunExecutor })
+  const controlPlaneService = new AgentControlPlaneService({
+    agentStore: config.agentStore,
+    registry: config.registry,
+  })
   const runtimeConfig: ForgeServerConfig = {
     ...config,
+    executableAgentResolver: config.executableAgentResolver
+      ?? new ControlPlaneExecutableAgentResolver(controlPlaneService),
     runExecutor: effectiveRunExecutor,
   }
 
@@ -479,6 +495,7 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
       runQueue: runtimeConfig.runQueue,
       runStore: runtimeConfig.runStore,
       agentStore: runtimeConfig.agentStore,
+      executableAgentResolver: runtimeConfig.executableAgentResolver,
       eventBus: runtimeConfig.eventBus,
       modelRegistry: runtimeConfig.modelRegistry,
       runExecutor: effectiveRunExecutor,
@@ -569,7 +586,11 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   app.route('/api/health', createRoutingStatsRoutes({ runStore: runtimeConfig.runStore }))
   app.route('/api/runs', createRunRoutes(runtimeConfig))
   app.route('/api/runs', createRunContextRoutes(runtimeConfig))
-  app.route('/api/agents', createAgentRoutes(runtimeConfig))
+  app.route('/api/agent-definitions', createAgentDefinitionRoutes(runtimeConfig))
+  app.route('/api/agents', createAgentDefinitionRoutes(runtimeConfig))
+  if (runtimeConfig.registry) {
+    app.route('/api/registry', createRegistryRoutes({ registry: runtimeConfig.registry }))
+  }
   if (runtimeConfig.apiKeyStore) {
     const allowedTiers = runtimeConfig.rateLimit?.tiers
       ? Object.keys(runtimeConfig.rateLimit.tiers)

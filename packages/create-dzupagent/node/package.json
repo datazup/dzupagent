@@ -1,6 +1,6 @@
 {
   "name": "node",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "build": "tsup",
@@ -11,8 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dzupagent/agent": "^0.1.0",
-    "@dzupagent/core": "^0.1.0"
+    "@dzupagent/agent": "^0.2.0",
+    "@dzupagent/core": "^0.2.0"
   },
   "devDependencies": {
     "tsup": "^8.5.1",

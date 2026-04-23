@@ -10,7 +10,7 @@ export const secureInternalAssistantTemplate: TemplateManifest = {
       templateContent: JSON.stringify(
         {
           name: '{{projectName}}',
-          version: '0.1.0',
+          version: '0.2.0',
           type: 'module',
           scripts: {
             build: 'tsup',
@@ -109,7 +109,7 @@ export const config = {
         {
           name: '{{projectName}}',
           template: '{{template}}',
-          version: '0.1.0',
+          version: '0.2.0',
           server: { port: 4000, auth: 'bearer', host: '127.0.0.1' },
           security: {
             cors: 'strict',
@@ -211,11 +211,11 @@ logs/
     },
   ],
   dependencies: {
-    '@dzupagent/core': '^0.1.0',
-    '@dzupagent/agent': '^0.1.0',
-    '@dzupagent/server': '^0.1.0',
-    '@dzupagent/memory': '^0.1.0',
-    '@dzupagent/context': '^0.1.0',
+    '@dzupagent/core': '^0.2.0',
+    '@dzupagent/agent': '^0.2.0',
+    '@dzupagent/server': '^0.2.0',
+    '@dzupagent/memory': '^0.2.0',
+    '@dzupagent/context': '^0.2.0',
   },
   devDependencies: {
     typescript: '^5.4.0',

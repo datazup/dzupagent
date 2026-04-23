@@ -1,8 +1,18 @@
 export { MCPClient } from './mcp-client.js'
 export { mcpToolToLangChain, mcpToolsToLangChain, langChainToolToMcp } from './mcp-tool-bridge.js'
 export { DeferredToolLoader } from './deferred-loader.js'
-export { DzupAgentMCPServer } from './mcp-server.js'
-export type { MCPServerOptions, MCPExposedTool, MCPRequest, MCPResponse } from './mcp-server.js'
+export { DzupAgentMCPServer, isMCPRequest } from './mcp-server.js'
+export type {
+  MCPServerOptions,
+  MCPExposedTool,
+  MCPExposedResource,
+  MCPExposedResourceTemplate,
+  MCPServerCapabilities,
+  MCPInitializeResult,
+  MCPRequest,
+  MCPRequestId,
+  MCPResponse,
+} from './mcp-server.js'
 export type {
   MCPTransport,
   MCPServerConfig,

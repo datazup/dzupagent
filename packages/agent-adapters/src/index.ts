@@ -65,7 +65,15 @@ export { resolvePersonaTemplate } from './prompts/system-prompt-builder.js'
 
 // --- Registry & Router ---
 export { AdapterRegistry } from './registry/adapter-registry.js'
-export type { AdapterRegistryConfig, DetailedHealthStatus, AdapterHealthDetail } from './registry/adapter-registry.js'
+export { ProviderAdapterRegistry } from './registry/adapter-registry.js'
+export type {
+  AdapterRegistryConfig,
+  ProviderAdapterRegistryConfig,
+  DetailedHealthStatus,
+  ProviderAdapterRegistryHealthStatus,
+  AdapterHealthDetail,
+  ProviderAdapterHealthDetail,
+} from './registry/adapter-registry.js'
 export {
   TagBasedRouter,
   CostOptimizedRouter,

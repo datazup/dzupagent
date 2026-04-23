@@ -1,10 +1,11 @@
-import type { AgentDefinition, ModelRegistry, RunStore, MetricsCollector } from '@dzupagent/core'
+import type { AgentExecutionSpec, ModelRegistry, RunStore, MetricsCollector } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 import type { RunContextTransfer, PersistedIntentContext } from '@dzupagent/core'
 import { withForgeContext, type ForgeTraceContext } from '@dzupagent/otel'
 import type { RunQueue } from '../queue/run-queue.js'
 import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
+import type { ExecutableAgentResolver } from '../services/executable-agent-resolver.js'
 import { extractTraceContext } from '@dzupagent/core'
 import { isStructuredResult, isRecord } from './utils.js'
 import { reportRetrievalFeedback, type RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
@@ -15,7 +16,7 @@ export interface RunExecutionContext {
   agentId: string
   input: unknown
   metadata?: Record<string, unknown>
-  agent: AgentDefinition
+  agent: AgentExecutionSpec
   runStore: RunStore
   eventBus: DzupEventBus
   modelRegistry: ModelRegistry
@@ -100,9 +101,10 @@ export interface EscalationPolicyLike {
 export interface StartRunWorkerOptions {
   runQueue: RunQueue
   runStore: RunStore
+  executableAgentResolver?: ExecutableAgentResolver
   agentStore: {
-    get(id: string): Promise<AgentDefinition | null>
-    save?(agent: AgentDefinition): Promise<void>
+    get(id: string): Promise<AgentExecutionSpec | null>
+    save?(agent: AgentExecutionSpec): Promise<void>
   }
   eventBus: DzupEventBus
   modelRegistry: ModelRegistry
@@ -199,6 +201,10 @@ async function closeTraceWithTerminalStep(
  * Start the queue worker that transitions queued runs to terminal states.
  */
 export function startRunWorker(options: StartRunWorkerOptions): void {
+  const executableAgentResolver = options.executableAgentResolver ?? {
+    resolve: (agentId: string) => options.agentStore.get(agentId),
+  }
+
   options.runQueue.start(async (job, signal) => {
     const startedAt = Date.now()
     options.shutdown?.trackRun(job.runId)
@@ -229,7 +235,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
     try {
       throwIfAborted(signal)
 
-      const agent = await options.agentStore.get(job.agentId)
+      const agent = await executableAgentResolver.resolve(job.agentId)
       if (!agent) {
         await options.runStore.update(job.runId, {
           status: 'failed',
@@ -773,7 +779,7 @@ function resolveSessionId(job: { runId: string; metadata?: Record<string, unknow
 /** Derive the current intent from job/agent metadata. */
 function resolveIntent(
   job: { metadata?: Record<string, unknown> },
-  agent: AgentDefinition,
+  agent: AgentExecutionSpec,
 ): string | undefined {
   const fromJob = job.metadata?.['intent']
   if (typeof fromJob === 'string' && fromJob.length > 0) return fromJob

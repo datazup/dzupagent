@@ -213,7 +213,7 @@ const healthLabel = computed(() => {
 
 const navLinks = [
   { to: '/', label: 'Agent Chat', icon: '>' },
-  { to: '/agents', label: 'Agents', icon: '#' },
+  { to: '/agent-definitions', label: 'Agent Definitions', icon: '#' },
   { to: '/runs', label: 'Run History', icon: '%' },
   { to: '/eval-dashboard', label: 'Eval Dashboard', icon: '*' },
   { to: '/evals', label: 'Evals', icon: '=' },

@@ -1,5 +1,13 @@
 import type { Request, Response, NextFunction } from 'express'
 import type { DzupAgent, GenerateResult } from '@dzupagent/agent'
+import type {
+  MCPRequest,
+  MCPRequestId,
+  MCPResponse,
+  MCPToolDescriptor,
+  MCPResource,
+  MCPResourceTemplate,
+} from '@dzupagent/core'
 
 /**
  * A single SSE event to be written to the response stream.
@@ -84,4 +92,83 @@ export interface AgentRouterConfig {
   }
   /** Base path prefix (default: '/') */
   basePath?: string
+}
+
+/**
+ * Minimal MCP server surface expected by the shared Express MCP router.
+ */
+export interface MCPRequestHandler {
+  handleRequest(request: MCPRequest): Promise<MCPResponse | null>
+  listTools(): MCPToolDescriptor[]
+  listResources?(): MCPResource[]
+  listResourceTemplates?(): MCPResourceTemplate[]
+}
+
+export type MCPRequestHandlerResolver =
+  | MCPRequestHandler
+  | ((req: Request) => MCPRequestHandler | Promise<MCPRequestHandler>)
+
+export interface MCPAuthFailurePayload {
+  error: string
+  message: string
+  timestamp: string
+}
+
+export interface MCPAuthFailureContext {
+  req: Request
+  res: Response
+  reason: 'missing_credentials' | 'invalid_credentials'
+}
+
+export type MCPRequestContextResolver<TContext> = (
+  credential: string,
+  req: Request,
+) => Promise<TContext | null | undefined> | TContext | null | undefined
+
+export type MCPRequestContextAssigner<TContext> = (req: Request, context: TContext) => void
+
+export type MCPRequestContextFailureHandler = (
+  context: MCPAuthFailureContext,
+) => void | Promise<void>
+
+export interface MCPRequestContextAuthConfig<TContext> {
+  resolveContext: MCPRequestContextResolver<TContext>
+  assign?: MCPRequestContextAssigner<TContext>
+  credentialHeader?: string
+  allowBearerAuth?: boolean
+  missingCredentialMessage?: string
+  invalidCredentialMessage?: string
+  onAuthFailure?: MCPRequestContextFailureHandler
+}
+
+/**
+ * Configuration for the Express MCP router factory.
+ */
+export interface MCPRouterConfig {
+  /** MCP server instance or request-scoped compatible handler */
+  server: MCPRequestHandlerResolver
+  /** Express auth middleware to apply to all MCP routes */
+  auth?: (req: Request, res: Response, next: NextFunction) => void
+  /** Base path for the JSON-RPC endpoint and helper routes. Default: '/mcp' */
+  basePath?: string
+  /** Optional route toggles for metadata/listing endpoints */
+  expose?: {
+    tools?: boolean
+    resources?: boolean
+    resourceTemplates?: boolean
+  }
+  /** Lifecycle hooks */
+  hooks?: {
+    beforeRequest?: (req: Request, request: MCPRequest) => Promise<void> | void
+    afterRequest?: (
+      req: Request,
+      request: MCPRequest,
+      response: MCPResponse | null,
+    ) => Promise<void> | void
+    onError?: (
+      req: Request,
+      error: Error,
+      requestId: MCPRequestId,
+    ) => Promise<void> | void
+  }
 }
