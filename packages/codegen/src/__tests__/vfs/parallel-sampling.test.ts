@@ -119,7 +119,7 @@ describe('sample()', () => {
 
   it('non-Error thrown values are stringified', async () => {
     const results = await sample(root, 1, async () => {
-      throw 'string-error' // eslint-disable-line @typescript-eslint/only-throw-error
+      return Promise.reject('string-error')
     })
 
     expect(results[0]!.error).toBe('string-error')

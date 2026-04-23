@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AdapterPluginLoader } from '../plugin/adapter-plugin-loader.js'
 import { defineAdapterPlugin } from '../plugin/adapter-plugin-sdk.js'
 import type { AdapterPlugin } from '../plugin/adapter-plugin-sdk.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -67,11 +67,11 @@ function createTestPlugin(
 // ---------------------------------------------------------------------------
 
 describe('AdapterPluginLoader lifecycle', () => {
-  let registry: AdapterRegistry
+  let registry: ProviderAdapterRegistry
   let loader: AdapterPluginLoader
 
   beforeEach(() => {
-    registry = new AdapterRegistry()
+    registry = new ProviderAdapterRegistry()
     loader = new AdapterPluginLoader(registry)
   })
 

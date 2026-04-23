@@ -596,7 +596,7 @@ describe('CodeSearchService', () => {
 
     it('handles non-Error thrown objects in error capture', async () => {
       mockStore.upsert.mockImplementation(async () => {
-        throw 'string error' // eslint-disable-line no-throw-literal
+        return Promise.reject('string error')
       })
 
       const result = await service.indexFiles([

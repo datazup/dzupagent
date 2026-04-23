@@ -19,7 +19,7 @@ describe('ARCHITECTURE.md', () => {
   it('documents critical runtime components and routing', () => {
     const content = readArchitectureDoc()
 
-    expect(content).toContain('AdapterRegistry')
+    expect(content).toContain('ProviderAdapterRegistry')
     expect(content).toContain('OrchestratorFacade')
     expect(content).toContain('ParallelExecutor')
     expect(content).toContain('SupervisorOrchestrator')

@@ -1,0 +1,13 @@
+{
+  "id": "chatcmpl-fixed",
+  "object": "chat.completion.chunk",
+  "created": 1746000100,
+  "model": "helper",
+  "choices": [
+    {
+      "index": 0,
+      "delta": {},
+      "finish_reason": "length"
+    }
+  ]
+}

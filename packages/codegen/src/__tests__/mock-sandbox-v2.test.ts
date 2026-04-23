@@ -150,13 +150,11 @@ describe('MockSandboxV2', () => {
 
     it('records each call', async () => {
       const { sessionId } = await sandbox.startSession()
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      for await (const _event of sandbox.executeStream(sessionId, 'ls')) {
-        // consume
+      for await (const event of sandbox.executeStream(sessionId, 'ls')) {
+        void event
       }
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      for await (const _event of sandbox.executeStream(sessionId, 'pwd')) {
-        // consume
+      for await (const event of sandbox.executeStream(sessionId, 'pwd')) {
+        void event
       }
 
       expect(sandbox.executeStreamCalls).toHaveLength(2)
@@ -166,9 +164,8 @@ describe('MockSandboxV2', () => {
 
     it('throws when session does not exist', async () => {
       await expect(async () => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        for await (const _event of sandbox.executeStream('nonexistent', 'ls')) {
-          // consume
+        for await (const event of sandbox.executeStream('nonexistent', 'ls')) {
+          void event
         }
       }).rejects.toThrow('Session not found: nonexistent')
     })
@@ -250,9 +247,8 @@ describe('MockSandboxV2', () => {
       await sandbox.stopSession(sessionId)
 
       await expect(async () => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        for await (const _event of sandbox.executeStream(sessionId, 'ls')) {
-          // consume
+        for await (const event of sandbox.executeStream(sessionId, 'ls')) {
+          void event
         }
       }).rejects.toThrow(`Session not found: ${sessionId}`)
     })

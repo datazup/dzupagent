@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -36,7 +36,7 @@ function createMockAdapter(
   }
 }
 
-describe('AdapterRegistry lifecycle', () => {
+describe('ProviderAdapterRegistry lifecycle', () => {
   const task: TaskDescriptor = { prompt: 'test task', tags: [] }
   const input: AgentInput = { prompt: 'test input' }
 
@@ -53,7 +53,7 @@ describe('AdapterRegistry lifecycle', () => {
   }
 
   it('unregister removes adapter', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude'))
 
     expect(registry.get('claude')).toBeDefined()
@@ -64,12 +64,12 @@ describe('AdapterRegistry lifecycle', () => {
   })
 
   it('unregister returns false for unknown provider', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     expect(registry.unregister('claude')).toBe(false)
   })
 
   it('disable excludes adapter from routing', () => {
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(
       createMockAdapter('claude', [
         {
@@ -103,7 +103,7 @@ describe('AdapterRegistry lifecycle', () => {
   })
 
   it('enable re-includes disabled adapter', async () => {
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(
       createMockAdapter('claude', [
         {
@@ -128,7 +128,7 @@ describe('AdapterRegistry lifecycle', () => {
   })
 
   it('isEnabled returns correct state', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude'))
 
     expect(registry.isEnabled('claude')).toBe(true)
@@ -142,7 +142,7 @@ describe('AdapterRegistry lifecycle', () => {
   })
 
   it('disabled adapter excluded from getForTask', () => {
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(createMockAdapter('claude'))
 
     registry.disable('claude')
@@ -151,7 +151,7 @@ describe('AdapterRegistry lifecycle', () => {
   })
 
   it('disabled adapter excluded from health status', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude'))
 
     registry.disable('claude')
@@ -164,13 +164,13 @@ describe('AdapterRegistry lifecycle', () => {
   })
 
   it('unregistered adapter cannot be enabled', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     // enable on non-existent adapter returns false (nothing to delete from set)
     expect(registry.enable('claude')).toBe(false)
   })
 
   it('disabled adapter excluded from executeWithFallback', async () => {
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(
       createMockAdapter('claude', [
         {

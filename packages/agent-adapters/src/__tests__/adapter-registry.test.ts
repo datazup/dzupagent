@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createEventBus, ForgeError } from '@dzupagent/core'
 
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { EventBusBridge } from '../registry/event-bus-bridge.js'
 import { RegistryExecutionPort } from '../integration/provider-execution-port.js'
 import type {
@@ -72,7 +72,7 @@ function createAbortingAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   }
 }
 
-describe('AdapterRegistry', () => {
+describe('ProviderAdapterRegistry', () => {
   const task: TaskDescriptor = {
     prompt: 'test task',
     tags: [],
@@ -128,7 +128,7 @@ describe('AdapterRegistry', () => {
       },
     ])
 
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(failedOnly).register(succeeds)
 
     const events = await collectEvents(registry.executeWithFallback(input, task))
@@ -167,7 +167,7 @@ describe('AdapterRegistry', () => {
       },
     ])
 
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(nonTerminal).register(succeeds)
 
     const events = await collectEvents(registry.executeWithFallback(input, task))
@@ -196,7 +196,7 @@ describe('AdapterRegistry', () => {
       },
     ])
 
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(aborted).register(succeeds)
 
     const yielded: AgentEvent[] = []
@@ -231,7 +231,7 @@ describe('AdapterRegistry', () => {
       },
     ])
 
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(nonTerminalClaude).register(nonTerminalCodex)
 
     await expect(collectEvents(registry.executeWithFallback(input, task))).rejects.toThrow(
@@ -310,7 +310,7 @@ describe('RegistryExecutionPort', () => {
       },
     ])
 
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(adapter)
 
     const port = new RegistryExecutionPort(registry)
@@ -339,7 +339,7 @@ describe('RegistryExecutionPort', () => {
       },
     ])
 
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(failAdapter)
 
     const port = new RegistryExecutionPort(registry)
@@ -365,7 +365,7 @@ describe('RegistryExecutionPort', () => {
       },
     ])
 
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(adapter)
 
     const eventBus = createEventBus()
@@ -405,7 +405,7 @@ describe('RegistryExecutionPort', () => {
       },
     ])
 
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(adapter)
 
     const eventBus = createEventBus()
@@ -439,7 +439,7 @@ describe('RegistryExecutionPort', () => {
       },
     ])
 
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(adapter)
 
     const eventBus = createEventBus()
@@ -489,7 +489,7 @@ describe('RegistryExecutionPort', () => {
       },
     ])
 
-    const registry = new AdapterRegistry().setRouter(router)
+    const registry = new ProviderAdapterRegistry().setRouter(router)
     registry.register(failClaude).register(successCodex)
 
     const port = new RegistryExecutionPort(registry)

@@ -11,7 +11,7 @@ import type {
   BidStrategy,
   ContractNetConfig,
 } from '../orchestration/contract-net.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -204,8 +204,8 @@ describe('ContractNetOrchestrator', () => {
     emitted = collectBusEvents(bus)
   })
 
-  function buildRegistry(adapters: AgentCLIAdapter[]): AdapterRegistry {
-    const registry = new AdapterRegistry()
+  function buildRegistry(adapters: AgentCLIAdapter[]): ProviderAdapterRegistry {
+    const registry = new ProviderAdapterRegistry()
     for (const adapter of adapters) {
       registry.register(adapter)
     }
@@ -213,7 +213,7 @@ describe('ContractNetOrchestrator', () => {
   }
 
   function buildOrchestrator(
-    registry: AdapterRegistry,
+    registry: ProviderAdapterRegistry,
     overrides?: Partial<ContractNetConfig>,
   ): ContractNetOrchestrator {
     return new ContractNetOrchestrator({
@@ -268,7 +268,7 @@ describe('ContractNetOrchestrator', () => {
   })
 
   it('throws when no healthy adapters are available', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     const orchestrator = buildOrchestrator(registry)
 
     await expect(

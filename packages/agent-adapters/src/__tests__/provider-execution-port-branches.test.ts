@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { RegistryExecutionPort } from '../integration/provider-execution-port.js'
 import type {
   AdapterProviderId,
@@ -66,7 +66,7 @@ describe('RegistryExecutionPort - branch coverage', () => {
         timestamp: 3,
       },
     ])
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(adapter)
     const port = new RegistryExecutionPort(registry)
 
@@ -95,7 +95,7 @@ describe('RegistryExecutionPort - branch coverage', () => {
         timestamp: 2,
       },
     ])
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(adapter)
     const port = new RegistryExecutionPort(registry)
 
@@ -121,7 +121,7 @@ describe('RegistryExecutionPort - branch coverage', () => {
         timestamp: 2,
       },
     ])
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(adapter)
     const port = new RegistryExecutionPort(registry)
 
@@ -149,7 +149,7 @@ describe('RegistryExecutionPort - branch coverage', () => {
         timestamp: 2,
       },
     ])
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(adapter)
     const port = new RegistryExecutionPort(registry)
 
@@ -174,7 +174,7 @@ describe('RegistryExecutionPort - branch coverage', () => {
         timestamp: 2,
       },
     ])
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(adapter)
     const port = new RegistryExecutionPort(registry)
 
@@ -199,7 +199,7 @@ describe('RegistryExecutionPort - branch coverage', () => {
         timestamp: 2,
       },
     ])
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(adapter)
     const port = new RegistryExecutionPort(registry)
 

@@ -103,6 +103,7 @@ async function createSchema(client: PgClient): Promise<void> {
       token_usage_output  INTEGER DEFAULT 0,
       cost_cents          REAL DEFAULT 0,
       error               TEXT,
+      owner_id            TEXT,
       metadata            JSONB DEFAULT '{}',
       input_embedding     vector(1536),
       output_embedding    vector(1536),

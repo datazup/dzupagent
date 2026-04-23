@@ -1,0 +1,18 @@
+{
+  "runId": "run-123",
+  "providerId": "openrouter",
+  "sessionId": "session-123",
+  "startedAt": 1746000000000,
+  "completedAt": 1746000010000,
+  "durationMs": 10000,
+  "toolCallCount": 3,
+  "artifactCount": 2,
+  "tokenUsage": {
+    "inputTokens": 512,
+    "outputTokens": 96,
+    "cachedInputTokens": 128,
+    "costCents": 44
+  },
+  "status": "completed",
+  "correlationId": "corr-123"
+}

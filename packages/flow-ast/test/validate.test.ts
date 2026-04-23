@@ -273,6 +273,60 @@ describe('flowDocumentSchema', () => {
     expect(result.success).toBe(true)
   })
 
+  it('accepts JSON-like input defaults', () => {
+    const result = flowDocumentSchema.safeParse({
+      dsl: 'dzupflow/v1',
+      id: 'workflow',
+      version: 1,
+      inputs: {
+        payload: {
+          type: 'object',
+          default: {
+            nested: ['a', 1, true, null],
+          },
+        },
+      },
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [{ type: 'complete', id: 'done' }],
+      },
+    })
+
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects non-FlowValue input defaults', () => {
+    const result = flowDocumentSchema.safeParse({
+      dsl: 'dzupflow/v1',
+      id: 'workflow',
+      version: 1,
+      inputs: {
+        startedAt: {
+          type: 'string',
+          default: new Date('2026-04-23T00:00:00.000Z'),
+        },
+      },
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [{ type: 'complete', id: 'done' }],
+      },
+    })
+
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: 'root.inputs.startedAt.default',
+            message: 'input spec.default must be a JSON-like value when present',
+          }),
+        ]),
+      )
+    }
+  })
+
   it('rejects a document whose canonical nodes are missing ids', () => {
     const result = flowDocumentSchema.safeParse({
       dsl: 'dzupflow/v1',

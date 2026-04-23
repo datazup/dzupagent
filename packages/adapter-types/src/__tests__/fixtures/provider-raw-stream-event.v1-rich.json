@@ -1,0 +1,16 @@
+{
+  "type": "adapter:provider_raw",
+  "rawEvent": {
+    "providerId": "codex",
+    "runId": "run-123",
+    "sessionId": "session-123",
+    "providerEventId": "provider-evt-1",
+    "timestamp": 1746000001000,
+    "source": "sdk",
+    "payload": {
+      "type": "response.output_text.delta",
+      "delta": "hello"
+    },
+    "correlationId": "corr-123"
+  }
+}

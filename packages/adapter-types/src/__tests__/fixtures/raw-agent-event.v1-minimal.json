@@ -1,0 +1,10 @@
+{
+  "providerId": "codex",
+  "runId": "run-compat-1",
+  "timestamp": 1746000001000,
+  "source": "sdk",
+  "payload": {
+    "type": "response.output_text.delta",
+    "delta": "hello"
+  }
+}

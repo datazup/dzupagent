@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { defineAdapterPlugin, isAdapterPlugin } from '../plugin/adapter-plugin-sdk.js'
 import { AdapterPluginLoader } from '../plugin/adapter-plugin-loader.js'
 import type { AgentCLIAdapter } from '../types.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 
 function createMockAdapter(): AgentCLIAdapter {
   return {
@@ -69,7 +69,7 @@ describe('isAdapterPlugin', () => {
 
 describe('AdapterPluginLoader', () => {
   it('registers plugin adapter in registry', () => {
-    const mockRegistry = { register: vi.fn() } as unknown as AdapterRegistry
+    const mockRegistry = { register: vi.fn() } as unknown as ProviderAdapterRegistry
     const loader = new AdapterPluginLoader(mockRegistry)
     const plugin = defineAdapterPlugin({
       id: 'test',
@@ -84,7 +84,7 @@ describe('AdapterPluginLoader', () => {
   })
 
   it('lists loaded plugins', () => {
-    const mockRegistry = { register: vi.fn() } as unknown as AdapterRegistry
+    const mockRegistry = { register: vi.fn() } as unknown as ProviderAdapterRegistry
     const loader = new AdapterPluginLoader(mockRegistry)
     const plugin = defineAdapterPlugin({
       id: 'test',
@@ -100,7 +100,7 @@ describe('AdapterPluginLoader', () => {
   })
 
   it('passes config to createAdapter', () => {
-    const mockRegistry = { register: vi.fn() } as unknown as AdapterRegistry
+    const mockRegistry = { register: vi.fn() } as unknown as ProviderAdapterRegistry
     const loader = new AdapterPluginLoader(mockRegistry)
     const createAdapter = vi.fn().mockReturnValue(createMockAdapter())
     const plugin = defineAdapterPlugin({

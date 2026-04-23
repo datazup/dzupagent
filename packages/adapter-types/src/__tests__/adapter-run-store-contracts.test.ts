@@ -1,13 +1,105 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 import type {
   AgentArtifactEvent,
   GovernanceEvent,
+  ProviderRawStreamEvent,
   RawAgentEvent,
   RunSummary,
 } from '../index.js'
 
 function roundTripJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
+}
+
+function loadJsonFixture<T>(name: string): T {
+  const path = resolve(import.meta.dirname, 'fixtures', name)
+  return JSON.parse(readFileSync(path, 'utf8')) as T
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function expectStringField(record: Record<string, unknown>, key: string): void {
+  expect(typeof record[key]).toBe('string')
+}
+
+function expectNumberField(record: Record<string, unknown>, key: string): void {
+  expect(typeof record[key]).toBe('number')
+}
+
+function expectOptionalStringField(record: Record<string, unknown>, key: string): void {
+  if (key in record) {
+    expect(typeof record[key]).toBe('string')
+  }
+}
+
+function expectRawAgentEventShape(value: unknown): asserts value is RawAgentEvent {
+  expect(isRecord(value)).toBe(true)
+  const record = value as Record<string, unknown>
+  expectStringField(record, 'providerId')
+  expectStringField(record, 'runId')
+  expectNumberField(record, 'timestamp')
+  expect(['stdout', 'stderr', 'sdk', 'ipc']).toContain(record['source'])
+  expect('payload' in record).toBe(true)
+  expectOptionalStringField(record, 'sessionId')
+  expectOptionalStringField(record, 'providerEventId')
+  expectOptionalStringField(record, 'parentProviderEventId')
+  expectOptionalStringField(record, 'correlationId')
+}
+
+function expectAgentArtifactEventShape(value: unknown): asserts value is AgentArtifactEvent {
+  expect(isRecord(value)).toBe(true)
+  const record = value as Record<string, unknown>
+  expectStringField(record, 'runId')
+  expectStringField(record, 'providerId')
+  expectNumberField(record, 'timestamp')
+  expect(['transcript', 'checkpoint', 'output', 'log', 'other']).toContain(record['artifactType'])
+  expectStringField(record, 'path')
+  expect(['created', 'updated', 'deleted']).toContain(record['action'])
+  if ('metadata' in record) {
+    expect(isRecord(record['metadata'])).toBe(true)
+  }
+  expectOptionalStringField(record, 'correlationId')
+}
+
+function expectRunSummaryShape(value: unknown): asserts value is RunSummary {
+  expect(isRecord(value)).toBe(true)
+  const record = value as Record<string, unknown>
+  expectStringField(record, 'runId')
+  expectStringField(record, 'providerId')
+  expectNumberField(record, 'startedAt')
+  expectNumberField(record, 'completedAt')
+  expectNumberField(record, 'durationMs')
+  expectNumberField(record, 'toolCallCount')
+  expectNumberField(record, 'artifactCount')
+  expect(['completed', 'failed', 'cancelled']).toContain(record['status'])
+  expectOptionalStringField(record, 'sessionId')
+  expectOptionalStringField(record, 'errorMessage')
+  expectOptionalStringField(record, 'correlationId')
+  if ('tokenUsage' in record) {
+    expect(isRecord(record['tokenUsage'])).toBe(true)
+    const tokenUsage = record['tokenUsage'] as Record<string, unknown>
+    expectNumberField(tokenUsage, 'inputTokens')
+    expectNumberField(tokenUsage, 'outputTokens')
+    if ('cachedInputTokens' in tokenUsage) {
+      expect(typeof tokenUsage['cachedInputTokens']).toBe('number')
+    }
+    if ('costCents' in tokenUsage) {
+      expect(typeof tokenUsage['costCents']).toBe('number')
+    }
+  }
+}
+
+function expectProviderRawStreamEventShape(value: unknown): asserts value is ProviderRawStreamEvent {
+  expect(isRecord(value)).toBe(true)
+  const record = value as Record<string, unknown>
+  expect(record['type']).toBe('adapter:provider_raw')
+  expect('rawEvent' in record).toBe(true)
+  expectRawAgentEventShape(record['rawEvent'])
 }
 
 function summarizeGovernanceEvent(event: GovernanceEvent): string {
@@ -26,51 +118,32 @@ function summarizeGovernanceEvent(event: GovernanceEvent): string {
 }
 
 describe('adapter run-store contract fixtures', () => {
-  it('round-trips a persisted raw provider event without widening required fields', () => {
-    const rawEvent: RawAgentEvent = {
-      providerId: 'codex',
-      runId: 'run-123',
-      sessionId: 'session-123',
-      providerEventId: 'provider-evt-1',
-      parentProviderEventId: 'provider-evt-root',
-      timestamp: 1_746_000_001_000,
-      source: 'sdk',
-      payload: {
-        type: 'response.output_text.delta',
-        delta: 'hello',
-      },
-      correlationId: 'corr-123',
-    }
+  it('keeps backward-compatible persisted raw provider fixtures valid at runtime', () => {
+    const minimalFixture = loadJsonFixture<unknown>('raw-agent-event.v1-minimal.json')
+    const richFixture = loadJsonFixture<unknown>('raw-agent-event.v1-rich.json')
 
-    const parsed = roundTripJson(rawEvent)
+    expectRawAgentEventShape(minimalFixture)
+    expectRawAgentEventShape(richFixture)
+    expect(roundTripJson(minimalFixture)).toEqual(minimalFixture)
+    expect(roundTripJson(richFixture)).toEqual(richFixture)
 
-    expect(parsed).toEqual(rawEvent)
-    expect(parsed.payload).toMatchObject({
+    expect((richFixture.payload as Record<string, unknown>)).toMatchObject({
       type: 'response.output_text.delta',
       delta: 'hello',
     })
   })
 
-  it('keeps artifact mutation events serializable for jsonl persistence', () => {
-    const artifact: AgentArtifactEvent = {
-      runId: 'run-123',
-      providerId: 'claude',
-      timestamp: 1_746_000_002_000,
-      artifactType: 'checkpoint',
-      path: '/workspace/project/.dzupagent/runs/run-123/checkpoint.json',
-      action: 'updated',
-      metadata: {
-        bytesWritten: 512,
-        format: 'json',
-      },
-      correlationId: 'corr-123',
-    }
+  it('keeps backward-compatible artifact fixtures valid for jsonl persistence', () => {
+    const minimalFixture = loadJsonFixture<unknown>('agent-artifact-event.v1-minimal.json')
+    const richFixture = loadJsonFixture<unknown>('agent-artifact-event.v1-rich.json')
 
-    const parsed = roundTripJson(artifact)
+    expectAgentArtifactEventShape(minimalFixture)
+    expectAgentArtifactEventShape(richFixture)
+    expect(roundTripJson(minimalFixture)).toEqual(minimalFixture)
+    expect(roundTripJson(richFixture)).toEqual(richFixture)
 
-    expect(parsed).toEqual(artifact)
-    expect(parsed.action).toBe('updated')
-    expect(parsed.artifactType).toBe('checkpoint')
+    expect((richFixture as AgentArtifactEvent).action).toBe('updated')
+    expect((richFixture as AgentArtifactEvent).artifactType).toBe('checkpoint')
   })
 
   it('preserves governance union exhaustiveness across the side-channel event plane', () => {
@@ -133,30 +206,27 @@ describe('adapter run-store contract fixtures', () => {
     ])
   })
 
-  it('models a terminal run summary with persisted usage telemetry', () => {
-    const summary: RunSummary = {
-      runId: 'run-123',
-      providerId: 'openrouter',
-      sessionId: 'session-123',
-      startedAt: 1_746_000_000_000,
-      completedAt: 1_746_000_010_000,
-      durationMs: 10_000,
-      toolCallCount: 3,
-      artifactCount: 2,
-      tokenUsage: {
-        inputTokens: 512,
-        outputTokens: 96,
-        cachedInputTokens: 128,
-        costCents: 44,
-      },
-      status: 'completed',
-      correlationId: 'corr-123',
-    }
+  it('keeps backward-compatible run summary fixtures valid with usage telemetry', () => {
+    const minimalFixture = loadJsonFixture<unknown>('run-summary.v1-minimal.json')
+    const richFixture = loadJsonFixture<unknown>('run-summary.v1-rich.json')
 
-    const parsed = roundTripJson(summary)
+    expectRunSummaryShape(minimalFixture)
+    expectRunSummaryShape(richFixture)
+    expect(roundTripJson(minimalFixture)).toEqual(minimalFixture)
+    expect(roundTripJson(richFixture)).toEqual(richFixture)
 
-    expect(parsed).toEqual(summary)
-    expect(parsed.tokenUsage?.cachedInputTokens).toBe(128)
-    expect(parsed.status).toBe('completed')
+    expect((richFixture as RunSummary).tokenUsage?.cachedInputTokens).toBe(128)
+    expect((richFixture as RunSummary).status).toBe('completed')
+  })
+
+  it('keeps the live provider-raw wrapper aligned with the persisted raw-event plane', () => {
+    const fixture = loadJsonFixture<unknown>('provider-raw-stream-event.v1-rich.json')
+
+    expectProviderRawStreamEventShape(fixture)
+    expect(roundTripJson(fixture)).toEqual(fixture)
+
+    const typedFixture = fixture as ProviderRawStreamEvent
+    expect(typedFixture.type).toBe('adapter:provider_raw')
+    expect(typedFixture.rawEvent.providerEventId).toBe('provider-evt-1')
   })
 })

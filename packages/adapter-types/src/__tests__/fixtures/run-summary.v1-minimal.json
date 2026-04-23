@@ -1,0 +1,10 @@
+{
+  "runId": "run-compat-1",
+  "providerId": "openrouter",
+  "startedAt": 1746000000000,
+  "completedAt": 1746000010000,
+  "durationMs": 10000,
+  "toolCallCount": 0,
+  "artifactCount": 0,
+  "status": "completed"
+}

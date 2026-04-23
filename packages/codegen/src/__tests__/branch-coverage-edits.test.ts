@@ -177,8 +177,7 @@ describe('createWriteFileTool — branch coverage', () => {
     const ws = {
       ...makeFakeWorkspace({}),
       writeFile: async () => {
-        // eslint-disable-next-line no-throw-literal
-        throw 'primitive failure'
+        return Promise.reject('primitive failure')
       },
     } as Workspace
     const tool = createWriteFileTool({ workspace: ws })

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ForgeError } from '@dzupagent/core'
 import { z } from 'zod'
 import { collectEvents } from './test-helpers.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import {
   JsonOutputSchema,
   StructuredOutputAdapter,
@@ -27,8 +27,8 @@ const { GeminiSDKAdapter } = await import('../gemini/gemini-sdk-adapter.js')
 
 const TEST_API_KEY = 'test-api-key'
 
-function createGeminiRegistry(): AdapterRegistry {
-  const registry = new AdapterRegistry()
+function createGeminiRegistry(): ProviderAdapterRegistry {
+  const registry = new ProviderAdapterRegistry()
   registry.register(new GeminiSDKAdapter({
     model: 'gemini-2.5-pro',
     googleApiKey: TEST_API_KEY,
@@ -333,7 +333,7 @@ describe('GeminiSDKAdapter', () => {
       response: Promise.resolve({}),
     })
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(new GeminiSDKAdapter({
       model: 'gemini-2.5-pro',
       googleApiKey: TEST_API_KEY,
@@ -399,7 +399,7 @@ describe('GeminiSDKAdapter', () => {
         response: Promise.resolve({}),
       })
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(new GeminiSDKAdapter({
       model: 'gemini-2.5-pro',
       googleApiKey: TEST_API_KEY,

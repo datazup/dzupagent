@@ -1,0 +1,10 @@
+{
+  "agentId": "helper",
+  "prompt": "User: Summarize the diff.\n\nAssistant: I will inspect it.\n\nTool: {\"files\":3}",
+  "systemOverride": "You are a concise assistant.",
+  "options": {
+    "temperature": 0.2,
+    "maxTokens": 256,
+    "stop": ["DONE"]
+  }
+}

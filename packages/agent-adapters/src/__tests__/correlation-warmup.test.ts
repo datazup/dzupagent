@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -228,7 +228,7 @@ describe('SDK Warmup', () => {
     const adapter2 = createMockAdapter('codex', { warmup: warmupFn })
     const adapterNoWarmup = createMockAdapter('gemini')
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(adapter1)
     registry.register(adapter2)
     registry.register(adapterNoWarmup)
@@ -245,7 +245,7 @@ describe('SDK Warmup', () => {
     const adapter1 = createMockAdapter('claude', { warmup: failingWarmup })
     const adapter2 = createMockAdapter('codex', { warmup: successWarmup })
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(adapter1)
     registry.register(adapter2)
 

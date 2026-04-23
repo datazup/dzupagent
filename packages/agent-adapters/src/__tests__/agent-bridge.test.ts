@@ -4,7 +4,7 @@ import {
   AdapterAsToolWrapper,
   AgentIntegrationBridge,
 } from '../integration/agent-bridge.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -90,8 +90,8 @@ function createFailingAdapter(
   }
 }
 
-function createRegistry(adapters: AgentCLIAdapter[]): AdapterRegistry {
-  const registry = new AdapterRegistry()
+function createRegistry(adapters: AgentCLIAdapter[]): ProviderAdapterRegistry {
+  const registry = new ProviderAdapterRegistry()
   for (const adapter of adapters) {
     registry.register(adapter)
   }
@@ -103,7 +103,7 @@ function createRegistry(adapters: AgentCLIAdapter[]): AdapterRegistry {
 // ---------------------------------------------------------------------------
 
 describe('AdapterAsToolWrapper', () => {
-  let registry: AdapterRegistry
+  let registry: ProviderAdapterRegistry
   let sut: AdapterAsToolWrapper
 
   beforeEach(() => {
@@ -183,7 +183,7 @@ describe('AdapterAsToolWrapper', () => {
 // ---------------------------------------------------------------------------
 
 describe('AgentIntegrationBridge', () => {
-  let registry: AdapterRegistry
+  let registry: ProviderAdapterRegistry
   let bridge: AgentIntegrationBridge
 
   beforeEach(() => {
@@ -290,7 +290,7 @@ describe('AgentIntegrationBridge', () => {
     })
 
     it('throws when no adapters are registered', () => {
-      const emptyRegistry = new AdapterRegistry()
+      const emptyRegistry = new ProviderAdapterRegistry()
       const emptyBridge = new AgentIntegrationBridge(emptyRegistry)
 
       expect(() => emptyBridge.createRoutedTool()).toThrow()
