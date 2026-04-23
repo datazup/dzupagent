@@ -75,17 +75,17 @@ describe('calculateBackoff', () => {
     const d0 = calculateBackoff(0, 1000, 30_000)
     const d1 = calculateBackoff(1, 1000, 30_000)
     const d2 = calculateBackoff(2, 1000, 30_000)
-    // With jitter, d1 should be roughly 2x d0, d2 roughly 4x d0
-    // But due to jitter, we just check ordering and rough magnitude
-    expect(d0).toBeGreaterThanOrEqual(1000)
-    expect(d0).toBeLessThanOrEqual(1250) // 1000 + 25% jitter
-    expect(d1).toBeGreaterThanOrEqual(2000)
-    expect(d2).toBeGreaterThanOrEqual(4000)
+    // Equal jitter: 50%–100% of capped delay
+    expect(d0).toBeGreaterThanOrEqual(500)   // min: 1000 * 0.5
+    expect(d0).toBeLessThanOrEqual(1000)     // max: 1000 * 1.0
+    expect(d1).toBeGreaterThanOrEqual(1000)  // min: 2000 * 0.5
+    expect(d2).toBeGreaterThanOrEqual(2000)  // min: 4000 * 0.5
   })
 
   it('clamps at maxMs', () => {
     const d = calculateBackoff(20, 1000, 5000)
-    expect(d).toBeLessThanOrEqual(6250) // 5000 + 25% jitter
+    expect(d).toBeLessThanOrEqual(5000) // capped at maxMs, then jittered down
+    expect(d).toBeGreaterThanOrEqual(2500) // min: 5000 * 0.5
   })
 })
 

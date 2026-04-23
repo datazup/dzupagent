@@ -89,10 +89,10 @@ describe('openaiAuthMiddleware', () => {
     expect(res.status).toBe(401)
   })
 
-  it('accepts any non-empty Bearer token in dev mode (no validateKey)', async () => {
+  it('rejects requests when no validateKey is configured (secure-by-default)', async () => {
     const app = buildApp()
     const res = await app.request('/ok', { headers: { Authorization: 'Bearer dev-token' } })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(401)
   })
 
   it('passes through every request when enabled=false', async () => {

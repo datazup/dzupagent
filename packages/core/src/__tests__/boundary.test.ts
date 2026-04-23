@@ -51,6 +51,7 @@ const ALLOWED_IMPORTS = new Set([
   '@dzupagent/context',
   '@dzupagent/memory-ipc',
   '@dzupagent/runtime-contracts',
+  '@dzupagent/agent-types', // Layer 0 canonical types (RetryPolicy, StuckDetectorConfig, etc.)
 ])
 
 describe('Package boundary enforcement', () => {

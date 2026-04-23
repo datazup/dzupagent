@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -28,10 +28,10 @@ function createMockAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   }
 }
 
-describe('AdapterRegistry production gate', () => {
+describe('ProviderAdapterRegistry production gate', () => {
   describe('registerProductionAdapters', () => {
     it('registers adapter with providerId "claude" (productIntegrated: true)', () => {
-      const registry = new AdapterRegistry()
+      const registry = new ProviderAdapterRegistry()
       registry.registerProductionAdapters([createMockAdapter('claude')])
 
       expect(registry.listAdapters()).toContain('claude')
@@ -39,7 +39,7 @@ describe('AdapterRegistry production gate', () => {
     })
 
     it('registers adapter with providerId "codex" (productIntegrated: true)', () => {
-      const registry = new AdapterRegistry()
+      const registry = new ProviderAdapterRegistry()
       registry.registerProductionAdapters([createMockAdapter('codex')])
 
       expect(registry.listAdapters()).toContain('codex')
@@ -47,7 +47,7 @@ describe('AdapterRegistry production gate', () => {
     })
 
     it('does NOT register adapter with providerId "goose" (productIntegrated: false)', () => {
-      const registry = new AdapterRegistry()
+      const registry = new ProviderAdapterRegistry()
       registry.registerProductionAdapters([createMockAdapter('goose')])
 
       expect(registry.listAdapters()).not.toContain('goose')
@@ -55,7 +55,7 @@ describe('AdapterRegistry production gate', () => {
     })
 
     it('does NOT register adapter with providerId "crush" (productIntegrated: false)', () => {
-      const registry = new AdapterRegistry()
+      const registry = new ProviderAdapterRegistry()
       registry.registerProductionAdapters([createMockAdapter('crush')])
 
       expect(registry.listAdapters()).not.toContain('crush')
@@ -63,7 +63,7 @@ describe('AdapterRegistry production gate', () => {
     })
 
     it('does NOT register adapter with providerId "gemini-sdk" (productIntegrated: false)', () => {
-      const registry = new AdapterRegistry()
+      const registry = new ProviderAdapterRegistry()
       registry.registerProductionAdapters([
         createMockAdapter('gemini-sdk'),
       ])
@@ -75,7 +75,7 @@ describe('AdapterRegistry production gate', () => {
 
   describe('registerExperimentalAdapters', () => {
     it('DOES register "goose" when given a valid flag string', () => {
-      const registry = new AdapterRegistry()
+      const registry = new ProviderAdapterRegistry()
       registry.registerExperimentalAdapters(
         [createMockAdapter('goose')],
         'enable-experimental',
@@ -86,7 +86,7 @@ describe('AdapterRegistry production gate', () => {
     })
 
     it('throws when flag is empty string', () => {
-      const registry = new AdapterRegistry()
+      const registry = new ProviderAdapterRegistry()
 
       expect(() =>
         registry.registerExperimentalAdapters(
@@ -99,7 +99,7 @@ describe('AdapterRegistry production gate', () => {
     })
 
     it('does NOT register "claude" (productIntegrated: true, not experimental)', () => {
-      const registry = new AdapterRegistry()
+      const registry = new ProviderAdapterRegistry()
       registry.registerExperimentalAdapters(
         [createMockAdapter('claude')],
         'enable-experimental',

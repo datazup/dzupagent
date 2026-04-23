@@ -1,0 +1,8 @@
+{
+  "runId": "run-compat-1",
+  "providerId": "claude",
+  "timestamp": 1746000002000,
+  "artifactType": "output",
+  "path": "/workspace/project/.dzupagent/runs/run-compat-1/output.txt",
+  "action": "created"
+}

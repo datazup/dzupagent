@@ -32,12 +32,10 @@ describe('playground router', () => {
     expect(names).toContain('eval-dashboard')
   })
 
-  it('keeps the legacy /agents redirect as a compatibility route', () => {
-    const routes = router.getRoutes()
-    const paths = routes.map((route) => route.path)
-    const names = routes.map((route) => route.name)
+  it('keeps the legacy /agents route only as a compatibility redirect', () => {
+    const legacyRoute = router.getRoutes().find((route) => route.path === '/agents')
 
-    expect(paths).toContain('/agents')
-    expect(names).toContain('agents')
+    expect(legacyRoute?.name).toBe('agents')
+    expect(legacyRoute?.redirect).toBe('/agent-definitions')
   })
 })

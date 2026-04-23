@@ -175,12 +175,15 @@ describe('DzupAgent model resolution', () => {
     const registry = {
       getModel: vi.fn(() => mockModel),
       getModelByName: vi.fn(() => mockModel),
+      getModelWithFallback: vi.fn(() => ({ model: mockModel, provider: 'test-provider' })),
+      recordProviderSuccess: vi.fn(),
+      recordProviderFailure: vi.fn(),
     }
     const agent = new DzupAgent(minimalConfig({
       model: 'chat',
       registry: registry as never,
     }))
-    expect(registry.getModel).toHaveBeenCalledWith('chat')
+    expect(registry.getModelWithFallback).toHaveBeenCalledWith('chat')
     expect(agent.id).toBe('test-agent')
   })
 
@@ -189,6 +192,9 @@ describe('DzupAgent model resolution', () => {
     const registry = {
       getModel: vi.fn(() => mockModel),
       getModelByName: vi.fn(() => mockModel),
+      getModelWithFallback: vi.fn(() => ({ model: mockModel, provider: 'test-provider' })),
+      recordProviderSuccess: vi.fn(),
+      recordProviderFailure: vi.fn(),
     }
     new DzupAgent(minimalConfig({
       model: 'gpt-4o',
@@ -202,12 +208,15 @@ describe('DzupAgent model resolution', () => {
     const registry = {
       getModel: vi.fn(() => mockModel),
       getModelByName: vi.fn(() => mockModel),
+      getModelWithFallback: vi.fn(() => ({ model: mockModel, provider: 'test-provider' })),
+      recordProviderSuccess: vi.fn(),
+      recordProviderFailure: vi.fn(),
     }
 
     for (const tier of ['chat', 'reasoning', 'codegen', 'embedding']) {
       new DzupAgent(minimalConfig({ model: tier, registry: registry as never }))
     }
-    expect(registry.getModel).toHaveBeenCalledTimes(4)
+    expect(registry.getModelWithFallback).toHaveBeenCalledTimes(4)
   })
 })
 

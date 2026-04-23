@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import { AdapterRegistry } from '../registry/adapter-registry.js'
-import type { DetailedHealthStatus } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistryHealthStatus } from '../registry/adapter-registry.js'
 import {
   AdapterHttpHandler,
   isStreamResponse,
@@ -71,10 +71,10 @@ function makeRequest(
 // ---------------------------------------------------------------------------
 
 describe('Detailed Health', () => {
-  let registry: AdapterRegistry
+  let registry: ProviderAdapterRegistry
 
   beforeEach(() => {
-    registry = new AdapterRegistry({
+    registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 60_000 },
     })
   })
@@ -169,7 +169,7 @@ describe('Detailed Health', () => {
           },
         },
         timestamp: Date.now(),
-      } satisfies DetailedHealthStatus),
+      } satisfies ProviderAdapterRegistryHealthStatus),
       listAdapters: vi.fn().mockReturnValue(['claude']),
     }
 
@@ -190,7 +190,7 @@ describe('Detailed Health', () => {
     const json = result as HttpResponse
     expect(json.status).toBe(200)
 
-    const body = json.body as DetailedHealthStatus
+    const body = json.body as ProviderAdapterRegistryHealthStatus
     expect(body.status).toBe('healthy')
     expect(body.adapters['claude']).toBeDefined()
     expect(body.adapters['claude']!.circuitState).toBe('closed')

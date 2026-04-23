@@ -71,6 +71,6 @@ describe('Route plugins', () => {
     expect(response.status).toBe(404)
     expect(createRoutes).not.toHaveBeenCalled()
     expect(onMount).not.toHaveBeenCalled()
-    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('api/invalid'))
   })
 })

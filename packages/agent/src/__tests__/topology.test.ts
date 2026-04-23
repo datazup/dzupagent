@@ -781,7 +781,7 @@ describe('TopologyExecutor — executeMesh edge cases', () => {
   it('captures non-Error rejection as string in error result', async () => {
     const model = {
       invoke: vi.fn(async () => {
-        throw 'string-error'  // eslint-disable-line no-throw-literal
+        return Promise.reject('string-error')
       }),
       bindTools: vi.fn(function (this: BaseChatModel) {
         return this
@@ -992,7 +992,7 @@ describe('TopologyExecutor — executeRing edge cases', () => {
     const model1 = createMockModel([{ content: 'Previous' }])
     const model2 = {
       invoke: vi.fn(async () => {
-        throw 'non-error-string'  // eslint-disable-line no-throw-literal
+        return Promise.reject('non-error-string')
       }),
       bindTools: vi.fn(function (this: BaseChatModel) {
         return this

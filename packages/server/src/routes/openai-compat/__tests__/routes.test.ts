@@ -705,7 +705,12 @@ describe('OpenAI-compatible routes', () => {
       const authedApp = createForgeApp(
         createTestConfig({
           agentStore,
-          openai: { auth: { enabled: true } },
+          openai: {
+            auth: {
+              enabled: true,
+              validateKey: async (key) => key === 'test-key-123' ? { userId: 'u1' } : null,
+            },
+          },
         }),
       )
 

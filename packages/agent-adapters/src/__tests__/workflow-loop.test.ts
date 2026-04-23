@@ -5,7 +5,7 @@ import {
   AdapterWorkflowBuilder,
 } from '../workflow/adapter-workflow.js'
 import type { LoopConfig, AdapterWorkflowEvent } from '../workflow/adapter-workflow.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -50,8 +50,8 @@ function createCountingAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   }
 }
 
-function createRegistry(adapters: AgentCLIAdapter[]): AdapterRegistry {
-  const registry = new AdapterRegistry()
+function createRegistry(adapters: AgentCLIAdapter[]): ProviderAdapterRegistry {
+  const registry = new ProviderAdapterRegistry()
   for (const adapter of adapters) {
     registry.register(adapter)
   }

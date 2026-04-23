@@ -1,0 +1,13 @@
+{
+  "runId": "run-123",
+  "providerId": "claude",
+  "timestamp": 1746000002000,
+  "artifactType": "checkpoint",
+  "path": "/workspace/project/.dzupagent/runs/run-123/checkpoint.json",
+  "action": "updated",
+  "metadata": {
+    "bytesWritten": 512,
+    "format": "json"
+  },
+  "correlationId": "corr-123"
+}

@@ -20,7 +20,7 @@ import type {
   AgentEvent,
   AgentInput,
 } from '../types.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -202,11 +202,11 @@ describe('ContainsKeywordsScorer', () => {
 
 describe('ABTestRunner', () => {
   let bus: DzupEventBus
-  let registry: AdapterRegistry
+  let registry: ProviderAdapterRegistry
 
   beforeEach(() => {
     bus = createEventBus()
-    registry = new AdapterRegistry()
+    registry = new ProviderAdapterRegistry()
   })
 
   describe('runSingle', () => {

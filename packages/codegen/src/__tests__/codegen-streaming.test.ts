@@ -219,7 +219,7 @@ describe('mergeCodegenStreams', () => {
 
   it('yields error events for non-Error thrown values', async () => {
     async function* throwString(): AsyncGenerator<CodegenStreamEvent> {
-      throw 'string-error' // eslint-disable-line no-throw-literal
+      await Promise.reject('string-error')
     }
 
     const result = await collect(mergeCodegenStreams(throwString()))
