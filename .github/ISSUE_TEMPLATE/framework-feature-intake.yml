@@ -1,0 +1,81 @@
+name: Framework Feature Intake
+description: Propose a DzupAgent framework feature, promotion, or public-surface expansion
+title: "[feature-intake] "
+labels:
+  - feature-intake
+body:
+  - type: input
+    id: consumer_repo
+    attributes:
+      label: Owning Consumer Repo
+      description: Which real consumer repo needs this?
+      placeholder: apps/ai-saas-starter-kit
+    validations:
+      required: true
+
+  - type: input
+    id: package_scope
+    attributes:
+      label: Target Package Or Surface
+      description: Which `@dzupagent/*` package or surface is affected?
+      placeholder: "@dzupagent/core"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier_impact
+    attributes:
+      label: Expected Tier Impact
+      description: Which tier is this expected to affect?
+      options:
+        - Tier 1 supported kernel
+        - Tier 2 supported secondary package
+        - Tier 3 parked or non-driving surface
+        - New package
+    validations:
+      required: true
+
+  - type: textarea
+    id: framework_rationale
+    attributes:
+      label: Why Framework Instead Of App Or shared-kit?
+      description: Explain why this belongs in `dzupagent`.
+      placeholder: This removes duplicated workaround logic used by two active consumers...
+    validations:
+      required: true
+
+  - type: textarea
+    id: contract_shape
+    attributes:
+      label: Contract Shape
+      description: What public contract, API, schema, or behavior would be added or widened?
+      placeholder: New event type, adapter capability contract, package export, config field...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What app-local or shared-kit alternatives were considered?
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation_plan
+    attributes:
+      label: Validation Plan
+      description: Which consumer matrix step, repo test, or package check will prove this change?
+      placeholder: node scripts/run-dzupagent-consumer-matrix.mjs --mode=baseline
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: promotion_rule
+    attributes:
+      label: Promotion Rule Confirmation
+      options:
+        - label: This is backed by at least one named consumer repo.
+          required: true
+        - label: If this is domain-shaped, it has either two consumers or an explicit strategic exception.
+          required: true
