@@ -4,7 +4,7 @@ test.describe('Playground chat streaming', () => {
   test('renders stream deltas and final assistant output from websocket events', async ({ page }) => {
     let runPollCount = 0
 
-    await page.route('**/api/agents?active=true', async (route) => {
+    await page.route('**/api/agent-definitions?active=true', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

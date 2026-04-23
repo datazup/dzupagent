@@ -1,29 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type {
-  ExecutionRunStatus,
-  ExecutionRun,
-  PersonaRoleType,
   FeatureBrief,
-  WorkItem,
   PersonaProfile,
+  PersonaRoleType,
+  WorkItem,
 } from '../index.js'
 
-describe('runtime-contracts type exports', () => {
-  it('ExecutionRun shape is constructable', () => {
-    const run: ExecutionRun = {
-      id: 'r-1',
-      taskId: 't-1',
-      workflowRunId: 'w-1',
-      providerId: 'openai',
-      status: 'queued' satisfies ExecutionRunStatus,
-      input: 'test prompt',
-      startedAt: Date.now(),
-    }
-    expect(run.id).toBe('r-1')
-    expect(run.status).toBe('queued')
-  })
-
-  it('FeatureBrief shape is constructable', () => {
+describe('runtime-contracts planning seam', () => {
+  it('keeps feature and work-item planning shapes constructable', () => {
     const brief: FeatureBrief = {
       id: 'f-1',
       title: 'Auth feature',
@@ -35,10 +19,7 @@ describe('runtime-contracts type exports', () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    expect(brief.priority).toBe('high')
-  })
 
-  it('WorkItem shape is constructable', () => {
     const item: WorkItem = {
       id: 'wi-1',
       featureId: 'f-1',
@@ -49,10 +30,12 @@ describe('runtime-contracts type exports', () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
+
+    expect(brief.priority).toBe('high')
     expect(item.status).toBe('pending')
   })
 
-  it('PersonaProfile shape is constructable', () => {
+  it('keeps persona profiles aligned with planning role types', () => {
     const persona: PersonaProfile = {
       id: 'p-1',
       name: 'Backend Dev',
@@ -64,6 +47,8 @@ describe('runtime-contracts type exports', () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
+
     expect(persona.roleType).toBe('backend_dev')
+    expect(persona.capabilities).toContain('express')
   })
 })

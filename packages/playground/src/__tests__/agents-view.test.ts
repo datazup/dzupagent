@@ -1,7 +1,7 @@
 /**
- * Tests for the AgentsView component.
+ * Tests for the AgentDefinitions view component.
  *
- * Verifies: loading state, empty state, agent card rendering,
+ * Verifies: loading state, empty state, definition card rendering,
  * status indicators, filter tabs, create modal, edit modal,
  * delete confirmation flow, and error display.
  */
@@ -44,13 +44,13 @@ const agentStore = {
   }),
 }
 
-vi.mock('../stores/agent-store.js', () => ({
-  useAgentStore: () => agentStore,
+vi.mock('../stores/agent-definitions-store.js', () => ({
+  useAgentDefinitionsStore: () => agentStore,
 }))
 
 async function mountView() {
-  const { default: AgentsView } = await import('../views/AgentsView.vue')
-  return mount(AgentsView, {
+  const { default: AgentDefinitionsView } = await import('../views/AgentDefinitionsView.vue')
+  return mount(AgentDefinitionsView, {
     global: {
       stubs: {
         Teleport: true,
@@ -82,7 +82,7 @@ const sampleAgents: MockAgentSummary[] = [
   },
 ]
 
-describe('AgentsView', () => {
+describe('AgentDefinitionsView', () => {
   beforeEach(() => {
     mockFetchAgents.mockReset()
     mockFetchAgent.mockReset()
@@ -99,23 +99,23 @@ describe('AgentsView', () => {
     agentStore.activeCount = 0
   })
 
-  it('shows loading state while fetching agents', async () => {
+  it('shows loading state while fetching agent definitions', async () => {
     agentStore.isLoading = true
 
     const wrapper = await mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Loading agents...')
+    expect(wrapper.text()).toContain('Loading agent definitions...')
   })
 
-  it('shows empty state when no agents exist', async () => {
+  it('shows empty state when no agent definitions exist', async () => {
     agentStore.filteredAgents = []
 
     const wrapper = await mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('No agents found')
-    expect(wrapper.text()).toContain('Create your first agent')
+    expect(wrapper.text()).toContain('No agent definitions found')
+    expect(wrapper.text()).toContain('Create your first agent definition')
   })
 
   it('calls fetchAgents on mount', async () => {
@@ -217,10 +217,10 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('Deactivate')
   })
 
-  it('shows New Agent button in header', async () => {
+  it('shows New Definition button in header', async () => {
     const wrapper = await mountView()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('+ New Agent')
+    expect(wrapper.text()).toContain('+ New Definition')
   })
 })

@@ -20,7 +20,7 @@ import {
   ModelRegistry,
   createEventBus,
 } from '@dzupagent/core'
-import type { AgentDefinition } from '@dzupagent/core'
+import type { AgentExecutionSpec } from '@dzupagent/core'
 import { DzupAgent } from '@dzupagent/agent'
 import { Hono as HonoApp } from 'hono'
 import { createOpenAICompatCompletionsRoute } from '../completions.js'
@@ -46,7 +46,7 @@ vi.mock('@dzupagent/agent', async (importOriginal) => {
 // Test fixtures
 // ---------------------------------------------------------------------------
 
-const BASE_AGENT: AgentDefinition = {
+const BASE_AGENT: AgentExecutionSpec = {
   id: 'helper',
   name: 'Helper Agent',
   description: 'A helpful agent',

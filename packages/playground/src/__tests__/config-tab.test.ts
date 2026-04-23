@@ -1,15 +1,15 @@
 /**
  * Tests for the ConfigTab component.
  *
- * ConfigTab shows agent configuration and supports inline editing.
- * We stub both the chat store and agent store to avoid network calls.
+ * ConfigTab shows agent-definition configuration and supports inline editing.
+ * We stub both the chat store and agent-definition store to avoid network calls.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import { useChatStore } from '../stores/chat-store.js'
-import { useAgentStore } from '../stores/agent-store.js'
-import type { AgentDetail } from '../types.js'
+import { useAgentDefinitionsStore } from '../stores/agent-definitions-store.js'
+import type { AgentDefinitionDetail } from '../types.js'
 
 // -- Mock useApi --
 const getMock = vi.fn()
@@ -25,7 +25,7 @@ vi.mock('../composables/useApi.js', () => ({
   }),
 }))
 
-function makeAgentDetail(overrides: Partial<AgentDetail> = {}): AgentDetail {
+function makeAgentDetail(overrides: Partial<AgentDefinitionDetail> = {}): AgentDefinitionDetail {
   return {
     id: 'agent-1',
     name: 'Test Agent',
@@ -305,7 +305,7 @@ describe('ConfigTab', () => {
     const wrapper = await mountConfigTab()
     await flushPromises()
 
-    const agentStore = useAgentStore()
+    const agentStore = useAgentDefinitionsStore()
     expect(agentStore.error).toBe('Agent not found')
   })
 })

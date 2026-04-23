@@ -6,7 +6,7 @@ import {
   ModelRegistry,
   createEventBus,
 } from '@dzupagent/core'
-import type { AgentDefinition } from '@dzupagent/core'
+import type { AgentExecutionSpec } from '@dzupagent/core'
 import { createForgeApp, type ForgeServerConfig } from '../../../app.js'
 import { DzupAgent } from '@dzupagent/agent'
 
@@ -29,7 +29,7 @@ vi.mock('@dzupagent/agent', async (importOriginal) => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const ECHO_AGENT: AgentDefinition = {
+const ECHO_AGENT: AgentExecutionSpec = {
   id: 'echo',
   name: 'Echo Agent',
   description: 'Echoes back input',

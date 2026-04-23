@@ -92,6 +92,20 @@ describe('OTelBridge extended', () => {
   })
 
   describe('registry metrics', () => {
+    it('records adapter_registry:provider_registered counter', () => {
+      bus.emit({ type: 'adapter_registry:provider_registered', providerId: 'p1', name: 'adapter:p1' })
+      expect(sink.getCounter('forge_adapter_registry_operations_total', {
+        operation: 'registered',
+      })).toBe(1)
+    })
+
+    it('records adapter_registry:provider_deregistered counter', () => {
+      bus.emit({ type: 'adapter_registry:provider_deregistered', providerId: 'p1', reason: 'unregistered' })
+      expect(sink.getCounter('forge_adapter_registry_operations_total', {
+        operation: 'deregistered',
+      })).toBe(1)
+    })
+
     it('records registry:agent_registered counter', () => {
       bus.emit({ type: 'registry:agent_registered', agentId: 'a1', capabilities: [] })
       expect(sink.getCounter('forge_registry_operations_total', {

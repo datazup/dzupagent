@@ -3,7 +3,7 @@ import type {
   SkillHandle,
   McpToolHandle,
   WorkflowHandle,
-  AgentHandle,
+  ResolvedAgentHandle,
   FlowHandle,
   SkillExecutionContext,
   AgentInvocation,
@@ -66,14 +66,14 @@ describe('flow handle types', () => {
     expect(handle.version).toBe(3)
   })
 
-  it('constructs an AgentHandle and invokes it', async () => {
+  it('constructs a ResolvedAgentHandle and invokes it', async () => {
     const invocation: AgentInvocation = { prompt: 'hello', parentRunId: 'parent-1' }
     const mockResult: AgentInvocationResult = {
       output: 'hi',
       runId: 'child-1',
       durationMs: 42,
     }
-    const handle: AgentHandle = {
+    const handle: ResolvedAgentHandle = {
       kind: 'agent',
       id: 'agent-1',
       displayName: 'Echo Agent',

@@ -5,7 +5,7 @@ import { authMiddleware, type AuthConfig } from '../middleware/auth.js'
 function createApp(config: AuthConfig): Hono {
   const app = new Hono()
   app.use('/api/*', authMiddleware(config))
-  app.get('/api/agents', (c) => c.json({ ok: true }))
+  app.get('/api/agent-definitions', (c) => c.json({ ok: true }))
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.get('/api/health/ready', (c) => c.json({ ok: true }))
   return app
@@ -16,7 +16,7 @@ describe('authMiddleware', () => {
 
   it('passes all requests through when mode is "none"', async () => {
     const app = createApp({ mode: 'none' })
-    const res = await app.request('/api/agents')
+    const res = await app.request('/api/agent-definitions')
     expect(res.status).toBe(200)
   })
 
@@ -27,7 +27,7 @@ describe('authMiddleware', () => {
       mode: 'api-key',
       validateKey: async () => ({ id: 'k1' }),
     })
-    const res = await app.request('/api/agents')
+    const res = await app.request('/api/agent-definitions')
     expect(res.status).toBe(401)
     const body = await res.json() as { error: { code: string } }
     expect(body.error.code).toBe('UNAUTHORIZED')
@@ -38,7 +38,7 @@ describe('authMiddleware', () => {
       mode: 'api-key',
       validateKey: async () => null,
     })
-    const res = await app.request('/api/agents', {
+    const res = await app.request('/api/agent-definitions', {
       headers: { Authorization: 'Bearer bad-key' },
     })
     expect(res.status).toBe(401)
@@ -51,7 +51,7 @@ describe('authMiddleware', () => {
       mode: 'api-key',
       validateKey: async (key) => (key === 'good-key' ? { id: 'k1' } : null),
     })
-    const res = await app.request('/api/agents', {
+    const res = await app.request('/api/agent-definitions', {
       headers: { Authorization: 'Bearer good-key' },
     })
     expect(res.status).toBe(200)
@@ -62,7 +62,7 @@ describe('authMiddleware', () => {
       mode: 'api-key',
       validateKey: async (key) => (key === 'raw-token' ? { id: 'k2' } : null),
     })
-    const res = await app.request('/api/agents', {
+    const res = await app.request('/api/agent-definitions', {
       headers: { Authorization: 'raw-token' },
     })
     expect(res.status).toBe(200)
@@ -88,7 +88,7 @@ describe('authMiddleware', () => {
 
   it('returns 503 when validateKey is not configured but mode is api-key', async () => {
     const app = createApp({ mode: 'api-key' })
-    const res = await app.request('/api/agents', {
+    const res = await app.request('/api/agent-definitions', {
       headers: { Authorization: 'Bearer some-key' },
     })
     expect(res.status).toBe(503)
@@ -101,7 +101,7 @@ describe('authMiddleware', () => {
       mode: 'api-key',
       validateKey: async () => ({ id: 'k1' }),
     })
-    const res = await app.request('/api/agents', {
+    const res = await app.request('/api/agent-definitions', {
       headers: { Authorization: '' },
     })
     expect(res.status).toBe(401)

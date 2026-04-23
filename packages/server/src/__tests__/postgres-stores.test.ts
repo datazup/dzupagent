@@ -9,7 +9,7 @@ import {
   PostgresAgentStore,
   DrizzleVectorStore,
 } from '../persistence/postgres-stores.js'
-import type { AgentDefinition, LogEntry } from '@dzupagent/core'
+import type { AgentExecutionSpec, LogEntry } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Chainable Drizzle mock
@@ -428,7 +428,7 @@ describe('PostgresRunStore', () => {
 // ---------------------------------------------------------------------------
 
 describe('PostgresAgentStore', () => {
-  const baseAgent: AgentDefinition = {
+  const baseAgent: AgentExecutionSpec = {
     id: 'a1',
     name: 'Test Agent',
     instructions: 'Do things',
@@ -501,7 +501,7 @@ describe('PostgresAgentStore', () => {
   })
 
   describe('get()', () => {
-    it('returns a mapped AgentDefinition', async () => {
+    it('returns a mapped AgentExecutionSpec', async () => {
       const row = {
         id: 'a1', name: 'A', description: 'D', instructions: 'I',
         modelTier: 'chat', tools: ['echo'], guardrails: { max: 1 },

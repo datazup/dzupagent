@@ -6,7 +6,8 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useAgentStore } from '../stores/agent-store.js'
+import { useAgentDefinitionsStore } from '../stores/agent-definitions-store.js'
+import { useAgentStore as useAgentStoreCompat } from '../stores/agent-store.js'
 
 const getMock = vi.fn()
 const postMock = vi.fn()
@@ -23,7 +24,7 @@ vi.mock('../composables/useApi.js', () => ({
   }),
 }))
 
-describe('agent-store', () => {
+describe('agent-definitions-store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     getMock.mockReset()
@@ -33,7 +34,7 @@ describe('agent-store', () => {
   })
 
   it('starts with empty state', () => {
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     expect(store.agents).toEqual([])
     expect(store.selectedAgent).toBeNull()
     expect(store.isLoading).toBe(false)
@@ -44,10 +45,14 @@ describe('agent-store', () => {
     expect(store.activeCount).toBe(0)
   })
 
+  it('exports the canonical and compatibility store under the same implementation', () => {
+    expect(useAgentStoreCompat).toBe(useAgentDefinitionsStore)
+  })
+
   // ── Getters ─────────────────────────────────────────
 
   it('filteredAgents returns all agents when filter is all', () => {
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [
       { id: '1', name: 'A', active: true, modelTier: 'sonnet' },
       { id: '2', name: 'B', active: false, modelTier: 'haiku' },
@@ -57,7 +62,7 @@ describe('agent-store', () => {
   })
 
   it('filteredAgents returns only active agents when filter is active', () => {
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [
       { id: '1', name: 'A', active: true, modelTier: 'sonnet' },
       { id: '2', name: 'B', active: false, modelTier: 'haiku' },
@@ -68,7 +73,7 @@ describe('agent-store', () => {
   })
 
   it('filteredAgents returns only inactive agents when filter is inactive', () => {
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [
       { id: '1', name: 'A', active: true, modelTier: 'sonnet' },
       { id: '2', name: 'B', active: false, modelTier: 'haiku' },
@@ -79,7 +84,7 @@ describe('agent-store', () => {
   })
 
   it('agentCount returns total agent count', () => {
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [
       { id: '1', name: 'A', active: true, modelTier: 'sonnet' },
       { id: '2', name: 'B', active: false, modelTier: 'haiku' },
@@ -88,7 +93,7 @@ describe('agent-store', () => {
   })
 
   it('activeCount returns only active agents count', () => {
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [
       { id: '1', name: 'A', active: true, modelTier: 'sonnet' },
       { id: '2', name: 'B', active: false, modelTier: 'haiku' },
@@ -101,27 +106,27 @@ describe('agent-store', () => {
 
   it('fetchAgents with all filter makes request without params', async () => {
     getMock.mockResolvedValueOnce({ data: [] })
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.filter = 'all'
     await store.fetchAgents()
-    expect(getMock).toHaveBeenCalledWith('/api/agents')
+    expect(getMock).toHaveBeenCalledWith('/api/agent-definitions')
     expect(store.isLoading).toBe(false)
   })
 
   it('fetchAgents with active filter adds query param', async () => {
     getMock.mockResolvedValueOnce({ data: [] })
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.filter = 'active'
     await store.fetchAgents()
-    expect(getMock).toHaveBeenCalledWith('/api/agents?active=true')
+    expect(getMock).toHaveBeenCalledWith('/api/agent-definitions?active=true')
   })
 
   it('fetchAgents with inactive filter adds query param', async () => {
     getMock.mockResolvedValueOnce({ data: [] })
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.filter = 'inactive'
     await store.fetchAgents()
-    expect(getMock).toHaveBeenCalledWith('/api/agents?active=false')
+    expect(getMock).toHaveBeenCalledWith('/api/agent-definitions?active=false')
   })
 
   it('fetchAgents populates agents array', async () => {
@@ -130,7 +135,7 @@ describe('agent-store', () => {
         { id: '1', name: 'Agent A', active: true, modelTier: 'sonnet' },
       ],
     })
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     await store.fetchAgents()
     expect(store.agents).toHaveLength(1)
     expect(store.agents[0]?.name).toBe('Agent A')
@@ -138,7 +143,7 @@ describe('agent-store', () => {
 
   it('fetchAgents handles errors', async () => {
     getMock.mockRejectedValueOnce(new Error('Fetch failed'))
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     await store.fetchAgents()
     expect(store.error).toBe('Fetch failed')
     expect(store.isLoading).toBe(false)
@@ -146,7 +151,7 @@ describe('agent-store', () => {
 
   it('fetchAgents handles non-Error exceptions', async () => {
     getMock.mockRejectedValueOnce(42)
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     await store.fetchAgents()
     expect(store.error).toBe('Failed to fetch agents')
   })
@@ -156,7 +161,7 @@ describe('agent-store', () => {
   it('fetchAgent sets selectedAgent and returns it', async () => {
     const agent = { id: 'a1', name: 'Test', active: true, modelTier: 'sonnet', instructions: 'help' }
     getMock.mockResolvedValueOnce({ data: agent })
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     const result = await store.fetchAgent('a1')
     expect(result).toEqual(agent)
     expect(store.selectedAgent).toEqual(agent)
@@ -165,7 +170,7 @@ describe('agent-store', () => {
 
   it('fetchAgent returns null on error', async () => {
     getMock.mockRejectedValueOnce(new Error('Not found'))
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     const result = await store.fetchAgent('missing')
     expect(result).toBeNull()
     expect(store.error).toBe('Not found')
@@ -176,7 +181,7 @@ describe('agent-store', () => {
   it('createAgent adds new agent to list', async () => {
     const newAgent = { id: 'a2', name: 'New', active: true, modelTier: 'sonnet' }
     postMock.mockResolvedValueOnce({ data: newAgent })
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = []
     const result = await store.createAgent({ name: 'New', instructions: 'test', modelTier: 'sonnet' })
     expect(result).toEqual(newAgent)
@@ -186,7 +191,7 @@ describe('agent-store', () => {
 
   it('createAgent handles error', async () => {
     postMock.mockRejectedValueOnce(new Error('Validation failed'))
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     const result = await store.createAgent({ name: 'Bad', instructions: '', modelTier: 'sonnet' })
     expect(result).toBeNull()
     expect(store.error).toBe('Validation failed')
@@ -198,7 +203,7 @@ describe('agent-store', () => {
   it('updateAgent updates agent in list and selectedAgent', async () => {
     const updated = { id: 'a1', name: 'Updated', active: true, modelTier: 'opus' }
     patchMock.mockResolvedValueOnce({ data: updated })
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [{ id: 'a1', name: 'Old', active: true, modelTier: 'sonnet' }] as unknown as typeof store.agents
     store.selectedAgent = { id: 'a1', name: 'Old' } as unknown as typeof store.selectedAgent
 
@@ -212,7 +217,7 @@ describe('agent-store', () => {
   it('updateAgent does not update selectedAgent when ids differ', async () => {
     const updated = { id: 'a1', name: 'Updated', active: true, modelTier: 'opus' }
     patchMock.mockResolvedValueOnce({ data: updated })
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [{ id: 'a1', name: 'Old', active: true, modelTier: 'sonnet' }] as unknown as typeof store.agents
     store.selectedAgent = { id: 'a2', name: 'Other' } as unknown as typeof store.selectedAgent
 
@@ -223,7 +228,7 @@ describe('agent-store', () => {
   it('updateAgent handles agent not found in list', async () => {
     const updated = { id: 'a1', name: 'Updated', active: true, modelTier: 'opus' }
     patchMock.mockResolvedValueOnce({ data: updated })
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [] as never
 
     const result = await store.updateAgent('a1', { name: 'Updated' })
@@ -233,7 +238,7 @@ describe('agent-store', () => {
 
   it('updateAgent handles error', async () => {
     patchMock.mockRejectedValueOnce(new Error('Update failed'))
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     const result = await store.updateAgent('a1', { name: 'Updated' })
     expect(result).toBeNull()
     expect(store.error).toBe('Update failed')
@@ -243,7 +248,7 @@ describe('agent-store', () => {
 
   it('deleteAgent soft-deletes agent in list and selectedAgent', async () => {
     delMock.mockResolvedValueOnce({})
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [{ id: 'a1', name: 'Test', active: true, modelTier: 'sonnet' }] as unknown as typeof store.agents
     store.selectedAgent = { id: 'a1', name: 'Test', active: true } as unknown as typeof store.selectedAgent
 
@@ -256,7 +261,7 @@ describe('agent-store', () => {
 
   it('deleteAgent does not update selectedAgent when ids differ', async () => {
     delMock.mockResolvedValueOnce({})
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [{ id: 'a1', name: 'Test', active: true, modelTier: 'sonnet' }] as unknown as typeof store.agents
     store.selectedAgent = { id: 'a2', name: 'Other', active: true } as unknown as typeof store.selectedAgent
 
@@ -266,7 +271,7 @@ describe('agent-store', () => {
 
   it('deleteAgent handles agent not in list', async () => {
     delMock.mockResolvedValueOnce({})
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.agents = [] as never
 
     const result = await store.deleteAgent('a1')
@@ -275,7 +280,7 @@ describe('agent-store', () => {
 
   it('deleteAgent handles error', async () => {
     delMock.mockRejectedValueOnce(new Error('Delete failed'))
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     const result = await store.deleteAgent('a1')
     expect(result).toBe(false)
     expect(store.error).toBe('Delete failed')
@@ -285,7 +290,7 @@ describe('agent-store', () => {
   // ── setFilter ───────────────────────────────────────
 
   it('setFilter updates filter value', () => {
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.setFilter('active')
     expect(store.filter).toBe('active')
     store.setFilter('inactive')
@@ -297,7 +302,7 @@ describe('agent-store', () => {
   // ── clearError ──────────────────────────────────────
 
   it('clearError resets error to null', () => {
-    const store = useAgentStore()
+    const store = useAgentDefinitionsStore()
     store.error = 'Something went wrong'
     store.clearError()
     expect(store.error).toBeNull()

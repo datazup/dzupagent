@@ -98,6 +98,8 @@ describe('EVENT_METRIC_MAP', () => {
       'provider:failed': { type: 'provider:failed', provider: 'p1', tier: 'primary', message: 'x' },
       'provider:circuit_opened': { type: 'provider:circuit_opened', provider: 'p1' },
       'provider:circuit_closed': { type: 'provider:circuit_closed', provider: 'p1' },
+      'adapter_registry:provider_registered': { type: 'adapter_registry:provider_registered', providerId: 'p1', name: 'adapter:p1' },
+      'adapter_registry:provider_deregistered': { type: 'adapter_registry:provider_deregistered', providerId: 'p1', reason: 'unregistered' },
       'identity:resolved': { type: 'identity:resolved', agentId: 'a1', method: 'jwt' },
       'identity:failed': { type: 'identity:failed', agentId: 'a1', reason: 'x' },
       'identity:credential_expired': { type: 'identity:credential_expired', agentId: 'a1', credentialType: 'key' },

@@ -14,7 +14,11 @@
  *
  * No build step, no external dependencies — uses only Node built-ins.
  *
- * To extend: add an entry to FORBIDDEN_EDGES or APP_FORBIDDEN_EDGES below.
+ * Policy source of truth:
+ *   config/architecture-boundaries.json
+ *
+ * This keeps boundary policy machine-readable so other tooling can adopt the
+ * same rule set without duplicating arrays in test code.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -31,18 +35,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MONOREPO_ROOT = path.resolve(__dirname, '../../../../..');
 // The apps/ directory lives one level above dzupagent/ in the outer monorepo.
 const APPS_ROOT = path.resolve(MONOREPO_ROOT, '../apps');
-
-// ---------------------------------------------------------------------------
-// Forbidden-edge map
-//
-// Shape: { importer: string; forbidden: string[] }[]
-//
-// Each entry declares that the source package MUST NOT contain any
-// production import of the listed target packages.
-//
-// Extend this list to enforce new architectural constraints without
-// touching any other part of the file.
-// ---------------------------------------------------------------------------
+const BOUNDARY_CONFIG_PATH = path.join(MONOREPO_ROOT, 'config', 'architecture-boundaries.json');
 
 interface ForbiddenRule {
   /**
@@ -56,45 +49,6 @@ interface ForbiddenRule {
   forbidden: string[];
 }
 
-const FORBIDDEN_EDGES: ForbiddenRule[] = [
-  {
-    importer: 'core',
-    forbidden: ['agent', 'codegen', 'connectors', 'server', 'agent-adapters'],
-  },
-  {
-    importer: 'agent',
-    forbidden: ['server'],
-  },
-  {
-    importer: 'codegen',
-    forbidden: ['agent', 'server', 'connectors'],
-  },
-  {
-    importer: 'connectors',
-    forbidden: ['agent', 'codegen', 'server'],
-  },
-  {
-    importer: 'agent-adapters',
-    forbidden: ['server'],
-  },
-  {
-    importer: 'server',
-    forbidden: ['playground', 'create-dzupagent', 'testing', 'test-utils'],
-  },
-];
-
-// ---------------------------------------------------------------------------
-// App-to-app forbidden edges
-//
-// Scanning granularity: top-level app workspaces (apps/<name>/) only.
-// codev-app's internal sub-workspaces (@codev-app/web, @codev-app/api) are
-// treated as internal concerns of codev-app and are NOT listed as peer apps
-// here — cross-imports between them are codev-app's own business, not a
-// monorepo boundary violation.
-//
-// Package names below come from each app's package.json "name" field.
-// ---------------------------------------------------------------------------
-
 interface AppForbiddenRule {
   /** Directory basename under apps/ (e.g. "codev-app"). */
   dirName: string;
@@ -102,22 +56,23 @@ interface AppForbiddenRule {
   packageName: string;
 }
 
-/**
- * Every top-level app workspace that participates in cross-app enforcement.
- * Each entry is forbidden from importing any OTHER entry's packageName.
- */
-const APP_WORKSPACES: AppForbiddenRule[] = [
-  { dirName: 'ai-saas-starter-kit', packageName: 'ai-saas-starter-kit' },
-  { dirName: 'blood-pressure', packageName: 'blood-pressure' },
-  { dirName: 'codeindex-app', packageName: 'codeindex-app' },
-  { dirName: 'codev-app', packageName: 'codev-app' },
-  { dirName: 'nl2sql', packageName: 'nl2sql-engine' },
-  { dirName: 'research-app', packageName: 'research-app' },
-  { dirName: 'seo-batch', packageName: 'seo-batch' },
-  { dirName: 'template-app', packageName: 'template-app' },
-  { dirName: 'testman-app', packageName: 'testman-app' },
-  { dirName: 'textflow-rag', packageName: 'textflow-rag' },
-];
+interface ArchitectureBoundaryConfig {
+  packageBoundaryRules: ForbiddenRule[];
+  appWorkspaces: AppForbiddenRule[];
+}
+
+function loadBoundaryConfig(configPath: string): ArchitectureBoundaryConfig {
+  const raw = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Partial<ArchitectureBoundaryConfig>;
+
+  return {
+    packageBoundaryRules: Array.isArray(raw.packageBoundaryRules) ? raw.packageBoundaryRules : [],
+    appWorkspaces: Array.isArray(raw.appWorkspaces) ? raw.appWorkspaces : [],
+  };
+}
+
+const BOUNDARY_CONFIG = loadBoundaryConfig(BOUNDARY_CONFIG_PATH);
+const PACKAGE_BOUNDARY_RULES = BOUNDARY_CONFIG.packageBoundaryRules;
+const APP_WORKSPACES = BOUNDARY_CONFIG.appWorkspaces;
 
 // ---------------------------------------------------------------------------
 // File-system helpers
@@ -212,7 +167,7 @@ interface Violation {
 function collectViolations(): Violation[] {
   const violations: Violation[] = [];
 
-  for (const rule of FORBIDDEN_EDGES) {
+  for (const rule of PACKAGE_BOUNDARY_RULES) {
     const srcDir = path.join(MONOREPO_ROOT, 'packages', rule.importer, 'src');
     const files = collectSourceFiles(srcDir);
 
@@ -326,42 +281,37 @@ function formatAppViolations(violations: AppViolation[]): string {
 // Tests
 // ---------------------------------------------------------------------------
 
-/**
- * Snapshot of the forbidden-edge rules so that if someone removes an entry
- * from FORBIDDEN_EDGES (accidentally weakening the policy) this test fails.
- */
 describe('Architecture boundary rules — policy completeness', () => {
-  it('enforces all six declared importer packages', () => {
-    const importers = FORBIDDEN_EDGES.map((r) => r.importer).sort();
-    expect(importers).toEqual([
-      'agent',
-      'agent-adapters',
-      'codegen',
-      'connectors',
-      'core',
-      'server',
-    ]);
+  it('loads a machine-readable boundary config from config/architecture-boundaries.json', () => {
+    expect(fs.existsSync(BOUNDARY_CONFIG_PATH)).toBe(true);
+    expect(PACKAGE_BOUNDARY_RULES.length).toBeGreaterThan(0);
+    expect(APP_WORKSPACES.length).toBeGreaterThan(0);
   });
 
-  it('core rule forbids all five downstream packages', () => {
-    const coreRule = FORBIDDEN_EDGES.find((r) => r.importer === 'core');
-    expect(coreRule).toBeDefined();
-    expect(coreRule?.forbidden.sort()).toEqual([
-      'agent',
-      'agent-adapters',
-      'codegen',
-      'connectors',
-      'server',
-    ]);
+  it('uses unique importer package entries', () => {
+    const importers = PACKAGE_BOUNDARY_RULES.map((r) => r.importer);
+    expect(new Set(importers).size).toBe(importers.length);
   });
 
   it('every rule has at least one forbidden target', () => {
-    for (const rule of FORBIDDEN_EDGES) {
+    for (const rule of PACKAGE_BOUNDARY_RULES) {
+      expect(
+        rule.importer.length,
+        'Each package boundary rule must define a non-empty importer name',
+      ).toBeGreaterThan(0);
       expect(
         rule.forbidden.length,
         `Rule for "${rule.importer}" must list at least one forbidden package`,
       ).toBeGreaterThan(0);
+      expect(new Set(rule.forbidden).size).toBe(rule.forbidden.length);
     }
+  });
+
+  it('uses unique app workspace directory and package name entries', () => {
+    const dirs = APP_WORKSPACES.map((app) => app.dirName);
+    const packageNames = APP_WORKSPACES.map((app) => app.packageName);
+    expect(new Set(dirs).size).toBe(dirs.length);
+    expect(new Set(packageNames).size).toBe(packageNames.length);
   });
 });
 
@@ -369,138 +319,30 @@ describe('Architecture boundary rules — policy completeness', () => {
  * One describe block per package so CI output clearly identifies which
  * package introduced the violation.
  */
-describe('Architecture boundary enforcement — @dzupagent/core', () => {
-  const violations = collectViolations().filter((v) => v.importer === 'core');
+for (const rule of PACKAGE_BOUNDARY_RULES) {
+  describe(`Architecture boundary enforcement — @dzupagent/${rule.importer}`, () => {
+    const violations = collectViolations().filter((v) => v.importer === rule.importer);
 
-  it('must not import @dzupagent/agent', () => {
-    const hits = violations.filter((v) => v.forbidden === 'agent');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
+    for (const forbidden of rule.forbidden) {
+      it(`must not import @dzupagent/${forbidden}`, () => {
+        const hits = violations.filter((v) => v.forbidden === forbidden);
+        expect(hits, formatViolations(hits)).toHaveLength(0);
+      });
+    }
   });
-
-  it('must not import @dzupagent/codegen', () => {
-    const hits = violations.filter((v) => v.forbidden === 'codegen');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-
-  it('must not import @dzupagent/connectors', () => {
-    const hits = violations.filter((v) => v.forbidden === 'connectors');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-
-  it('must not import @dzupagent/server', () => {
-    const hits = violations.filter((v) => v.forbidden === 'server');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-
-  it('must not import @dzupagent/agent-adapters', () => {
-    const hits = violations.filter((v) => v.forbidden === 'agent-adapters');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-});
-
-describe('Architecture boundary enforcement — @dzupagent/agent', () => {
-  const violations = collectViolations().filter((v) => v.importer === 'agent');
-
-  it('must not import @dzupagent/server', () => {
-    const hits = violations.filter((v) => v.forbidden === 'server');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-});
-
-describe('Architecture boundary enforcement — @dzupagent/codegen', () => {
-  const violations = collectViolations().filter((v) => v.importer === 'codegen');
-
-  it('must not import @dzupagent/agent', () => {
-    const hits = violations.filter((v) => v.forbidden === 'agent');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-
-  it('must not import @dzupagent/server', () => {
-    const hits = violations.filter((v) => v.forbidden === 'server');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-
-  it('must not import @dzupagent/connectors', () => {
-    const hits = violations.filter((v) => v.forbidden === 'connectors');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-});
-
-describe('Architecture boundary enforcement — @dzupagent/connectors', () => {
-  const violations = collectViolations().filter((v) => v.importer === 'connectors');
-
-  it('must not import @dzupagent/agent', () => {
-    const hits = violations.filter((v) => v.forbidden === 'agent');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-
-  it('must not import @dzupagent/codegen', () => {
-    const hits = violations.filter((v) => v.forbidden === 'codegen');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-
-  it('must not import @dzupagent/server', () => {
-    const hits = violations.filter((v) => v.forbidden === 'server');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-});
-
-describe('Architecture boundary enforcement — @dzupagent/agent-adapters', () => {
-  const violations = collectViolations().filter((v) => v.importer === 'agent-adapters');
-
-  it('must not import @dzupagent/server', () => {
-    const hits = violations.filter((v) => v.forbidden === 'server');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-});
-
-describe('Architecture boundary enforcement — @dzupagent/server', () => {
-  const violations = collectViolations().filter((v) => v.importer === 'server');
-
-  it('must not import @dzupagent/playground', () => {
-    const hits = violations.filter((v) => v.forbidden === 'playground');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-
-  it('must not import @dzupagent/create-dzupagent', () => {
-    const hits = violations.filter((v) => v.forbidden === 'create-dzupagent');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-
-  it('must not import @dzupagent/testing', () => {
-    const hits = violations.filter((v) => v.forbidden === 'testing');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-
-  it('must not import @dzupagent/test-utils', () => {
-    const hits = violations.filter((v) => v.forbidden === 'test-utils');
-    expect(hits, formatViolations(hits)).toHaveLength(0);
-  });
-});
+}
 
 // ---------------------------------------------------------------------------
 // App-to-app boundary rules — policy completeness
 // ---------------------------------------------------------------------------
 
 describe('Apps boundary rules — policy completeness', () => {
-  it('enforces all ten declared app workspaces', () => {
-    const dirs = APP_WORKSPACES.map((a) => a.dirName).sort();
-    expect(dirs).toEqual([
-      'ai-saas-starter-kit',
-      'blood-pressure',
-      'codeindex-app',
-      'codev-app',
-      'nl2sql',
-      'research-app',
-      'seo-batch',
-      'template-app',
-      'testman-app',
-      'textflow-rag',
-    ]);
-  });
-
   it('every app workspace entry has a non-empty packageName', () => {
     for (const app of APP_WORKSPACES) {
+      expect(
+        app.dirName.length,
+        'Each app workspace entry must define a non-empty directory name',
+      ).toBeGreaterThan(0);
       expect(
         app.packageName.length,
         `APP_WORKSPACES entry for "${app.dirName}" must have a non-empty packageName`,

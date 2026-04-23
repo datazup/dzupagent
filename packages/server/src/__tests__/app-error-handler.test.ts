@@ -30,7 +30,7 @@ describe('App-level error handling', () => {
     vi.spyOn(config.agentStore, 'get').mockRejectedValue(new Error('unexpected DB error'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    const res = await app.request('/api/agents/some-id')
+    const res = await app.request('/api/agent-definitions/some-id')
     expect(res.status).toBe(500)
     const data = await res.json() as { error: { code: string; message: string } }
     expect(data.error.code).toBe('INTERNAL_ERROR')
@@ -44,7 +44,7 @@ describe('App-level error handling', () => {
     vi.spyOn(config.agentStore, 'get').mockRejectedValue(new Error('DB exploded'))
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    await app.request('/api/agents/some-id')
+    await app.request('/api/agent-definitions/some-id')
 
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining('DB exploded'),
@@ -65,11 +65,11 @@ describe('App-level error handling', () => {
     vi.spyOn(config.agentStore, 'get').mockRejectedValue(new Error('fail'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    await app.request('/api/agents/some-id')
+    await app.request('/api/agent-definitions/some-id')
 
     expect(mockMetrics.increment).toHaveBeenCalledWith(
       'http_errors_total',
-      expect.objectContaining({ path: '/api/agents/some-id' }),
+      expect.objectContaining({ path: '/api/agent-definitions/some-id' }),
     )
   })
 })
@@ -152,7 +152,7 @@ describe('Auth + rate limit integration', () => {
     })
     const app = createForgeApp(config)
 
-    const res = await app.request('/api/agents')
+    const res = await app.request('/api/agent-definitions')
     expect(res.status).toBe(401)
   })
 
@@ -165,7 +165,7 @@ describe('Auth + rate limit integration', () => {
     })
     const app = createForgeApp(config)
 
-    const res = await app.request('/api/agents', {
+    const res = await app.request('/api/agent-definitions', {
       headers: { Authorization: 'Bearer valid' },
     })
     expect(res.status).toBe(200)

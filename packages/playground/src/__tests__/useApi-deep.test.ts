@@ -100,9 +100,9 @@ describe('useApi', () => {
         404,
       ))
       const { get } = useApi()
-      await expect(get('/api/agents/missing')).rejects.toThrow(ApiRequestError)
+      await expect(get('/api/agent-definitions/missing')).rejects.toThrow(ApiRequestError)
       try {
-        await get('/api/agents/missing')
+        await get('/api/agent-definitions/missing')
       } catch (err) {
         // fetchMock returns different for second call, but the first throw was validated
       }
@@ -130,9 +130,9 @@ describe('useApi', () => {
     it('makes POST request with JSON body', async () => {
       fetchMock.mockResolvedValueOnce(mockResponse({ id: '1' }))
       const { post } = useApi()
-      const result = await post<{ id: string }>('/api/agents', { name: 'Test' })
+      const result = await post<{ id: string }>('/api/agent-definitions', { name: 'Test' })
       expect(result).toEqual({ id: '1' })
-      expect(fetchMock).toHaveBeenCalledWith('/api/agents', expect.objectContaining({
+      expect(fetchMock).toHaveBeenCalledWith('/api/agent-definitions', expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ name: 'Test' }),
       }))
@@ -144,7 +144,7 @@ describe('useApi', () => {
         400,
       ))
       const { post } = useApi()
-      await expect(post('/api/agents', {})).rejects.toThrow('Name required')
+      await expect(post('/api/agent-definitions', {})).rejects.toThrow('Name required')
     })
   })
 
@@ -154,9 +154,9 @@ describe('useApi', () => {
     it('makes PATCH request with JSON body', async () => {
       fetchMock.mockResolvedValueOnce(mockResponse({ updated: true }))
       const { patch } = useApi()
-      const result = await patch<{ updated: boolean }>('/api/agents/1', { name: 'New Name' })
+      const result = await patch<{ updated: boolean }>('/api/agent-definitions/1', { name: 'New Name' })
       expect(result).toEqual({ updated: true })
-      expect(fetchMock).toHaveBeenCalledWith('/api/agents/1', expect.objectContaining({
+      expect(fetchMock).toHaveBeenCalledWith('/api/agent-definitions/1', expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({ name: 'New Name' }),
       }))
@@ -169,9 +169,9 @@ describe('useApi', () => {
     it('makes DELETE request', async () => {
       fetchMock.mockResolvedValueOnce(mockResponse({ deleted: true }))
       const { del } = useApi()
-      const result = await del<{ deleted: boolean }>('/api/agents/1')
+      const result = await del<{ deleted: boolean }>('/api/agent-definitions/1')
       expect(result).toEqual({ deleted: true })
-      expect(fetchMock).toHaveBeenCalledWith('/api/agents/1', expect.objectContaining({
+      expect(fetchMock).toHaveBeenCalledWith('/api/agent-definitions/1', expect.objectContaining({
         method: 'DELETE',
       }))
     })
@@ -182,7 +182,7 @@ describe('useApi', () => {
         403,
       ))
       const { del } = useApi()
-      await expect(del('/api/agents/1')).rejects.toThrow('Cannot delete')
+      await expect(del('/api/agent-definitions/1')).rejects.toThrow('Cannot delete')
     })
   })
 })

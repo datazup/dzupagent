@@ -95,9 +95,9 @@ describe('LocalWorkspace', () => {
   })
 
   it('runCommand captures stderr and non-zero exit code', async () => {
-    const result = await ws.runCommand('node', ['-e', 'process.stderr.write("oops"); process.exit(2)'])
-    expect(result.exitCode).toBe(2)
-    expect(result.stderr).toContain('oops')
+    const result = await ws.runCommand('cat', ['does-not-exist.txt'])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain('does-not-exist.txt')
   })
 
   it('runCommand blocks disallowed commands with exitCode 126', async () => {

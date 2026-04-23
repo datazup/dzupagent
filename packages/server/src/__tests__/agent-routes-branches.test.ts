@@ -41,17 +41,17 @@ describe('agent routes branch coverage', () => {
     app = createForgeApp(config)
   })
 
-  it('GET /api/agents?active=true filters active agents', async () => {
+  it('GET /api/agent-definitions?active=true filters active agent definitions on canonical path', async () => {
     await config.agentStore.save({ id: 'a1', name: 'A1', instructions: 'i', modelTier: 't', active: true })
     await config.agentStore.save({ id: 'a2', name: 'A2', instructions: 'i', modelTier: 't', active: false })
 
-    const res = await app.request('/api/agents?active=true')
+    const res = await app.request('/api/agent-definitions?active=true')
     expect(res.status).toBe(200)
     const data = await res.json() as { data: Array<{ id: string; active: boolean }> }
     expect(data.data.every(a => a.active)).toBe(true)
   })
 
-  it('GET /api/agents?active=false filters inactive agents', async () => {
+  it('GET /api/agents?active=false remains available as a compatibility alias', async () => {
     await config.agentStore.save({ id: 'a1', name: 'A1', instructions: 'i', modelTier: 't', active: true })
     await config.agentStore.save({ id: 'a2', name: 'A2', instructions: 'i', modelTier: 't', active: false })
 
@@ -60,14 +60,14 @@ describe('agent routes branch coverage', () => {
     expect(data.data.every(a => !a.active)).toBe(true)
   })
 
-  it('GET /api/agents clamps limit to 200 max', async () => {
-    const res = await app.request('/api/agents?limit=99999')
+  it('GET /api/agent-definitions clamps limit to 200 max on the canonical path', async () => {
+    const res = await app.request('/api/agent-definitions?limit=99999')
     expect(res.status).toBe(200)
     // The underlying store would respect the limit
   })
 
-  it('POST /api/agents uses provided id when supplied', async () => {
-    const res = await req(app, 'POST', '/api/agents', {
+  it('POST /api/agent-definitions uses provided id when supplied', async () => {
+    const res = await req(app, 'POST', '/api/agent-definitions', {
       id: 'my-custom-id',
       name: 'Test',
       instructions: 'x',
@@ -78,8 +78,8 @@ describe('agent routes branch coverage', () => {
     expect(data.data.id).toBe('my-custom-id')
   })
 
-  it('POST /api/agents generates UUID when id not provided', async () => {
-    const res = await req(app, 'POST', '/api/agents', {
+  it('POST /api/agent-definitions generates UUID when id not provided', async () => {
+    const res = await req(app, 'POST', '/api/agent-definitions', {
       name: 'Test',
       instructions: 'x',
       modelTier: 'chat',
@@ -89,8 +89,8 @@ describe('agent routes branch coverage', () => {
     expect(data.data.id.length).toBeGreaterThan(0)
   })
 
-  it('POST /api/agents rejects missing name', async () => {
-    const res = await req(app, 'POST', '/api/agents', {
+  it('POST /api/agent-definitions rejects missing name', async () => {
+    const res = await req(app, 'POST', '/api/agent-definitions', {
       instructions: 'x',
       modelTier: 'chat',
     })
@@ -99,24 +99,24 @@ describe('agent routes branch coverage', () => {
     expect(data.error.code).toBe('VALIDATION_ERROR')
   })
 
-  it('POST /api/agents rejects missing instructions', async () => {
-    const res = await req(app, 'POST', '/api/agents', {
+  it('POST /api/agent-definitions rejects missing instructions', async () => {
+    const res = await req(app, 'POST', '/api/agent-definitions', {
       name: 'Test',
       modelTier: 'chat',
     })
     expect(res.status).toBe(400)
   })
 
-  it('POST /api/agents rejects missing modelTier', async () => {
-    const res = await req(app, 'POST', '/api/agents', {
+  it('POST /api/agent-definitions rejects missing modelTier', async () => {
+    const res = await req(app, 'POST', '/api/agent-definitions', {
       name: 'Test',
       instructions: 'x',
     })
     expect(res.status).toBe(400)
   })
 
-  it('POST /api/agents accepts all optional fields', async () => {
-    const res = await req(app, 'POST', '/api/agents', {
+  it('POST /api/agent-definitions accepts all optional fields', async () => {
+    const res = await req(app, 'POST', '/api/agent-definitions', {
       id: 'a1',
       name: 'Test',
       description: 'desc',
@@ -134,10 +134,10 @@ describe('agent routes branch coverage', () => {
     expect(data.data.approval).toBe('required')
   })
 
-  it('PATCH /api/agents/:id preserves id even if body has different id', async () => {
+  it('PATCH /api/agent-definitions/:id preserves id even if body has different id', async () => {
     await config.agentStore.save({ id: 'orig', name: 'N', instructions: 'i', modelTier: 't' })
 
-    const res = await req(app, 'PATCH', '/api/agents/orig', {
+    const res = await req(app, 'PATCH', '/api/agent-definitions/orig', {
       id: 'hacker',
       name: 'Updated',
     })
@@ -147,22 +147,22 @@ describe('agent routes branch coverage', () => {
     expect(data.data.name).toBe('Updated')
   })
 
-  it('PATCH /api/agents/:id returns 404 for unknown', async () => {
-    const res = await req(app, 'PATCH', '/api/agents/ghost', { name: 'X' })
+  it('PATCH /api/agent-definitions/:id returns 404 for unknown', async () => {
+    const res = await req(app, 'PATCH', '/api/agent-definitions/ghost', { name: 'X' })
     expect(res.status).toBe(404)
     const data = await res.json() as { error: { code: string } }
     expect(data.error.code).toBe('NOT_FOUND')
   })
 
-  it('DELETE /api/agents/:id returns 404 for unknown', async () => {
-    const res = await req(app, 'DELETE', '/api/agents/ghost')
+  it('DELETE /api/agent-definitions/:id returns 404 for unknown', async () => {
+    const res = await req(app, 'DELETE', '/api/agent-definitions/ghost')
     expect(res.status).toBe(404)
   })
 
-  it('DELETE /api/agents/:id deletes an agent', async () => {
+  it('DELETE /api/agent-definitions/:id deletes an agent definition', async () => {
     await config.agentStore.save({ id: 'a1', name: 'A1', instructions: 'i', modelTier: 't' })
 
-    const res = await req(app, 'DELETE', '/api/agents/a1')
+    const res = await req(app, 'DELETE', '/api/agent-definitions/a1')
     expect(res.status).toBe(200)
     const data = await res.json() as { data: { id: string; deleted: boolean } }
     expect(data.data.deleted).toBe(true)
@@ -173,11 +173,11 @@ describe('agent routes branch coverage', () => {
     expect(after === null || after.active === false).toBe(true)
   })
 
-  it('GET /api/agents treats malformed active query as undefined (all)', async () => {
+  it('GET /api/agent-definitions treats malformed active query as undefined (all)', async () => {
     await config.agentStore.save({ id: 'a1', name: 'A1', instructions: 'i', modelTier: 't', active: true })
     await config.agentStore.save({ id: 'a2', name: 'A2', instructions: 'i', modelTier: 't', active: false })
 
-    const res = await app.request('/api/agents?active=yes')
+    const res = await app.request('/api/agent-definitions?active=yes')
     const data = await res.json() as { data: Array<unknown> }
     // 'yes' is not 'true', so treated as false (active filter applied)
     expect(Array.isArray(data.data)).toBe(true)

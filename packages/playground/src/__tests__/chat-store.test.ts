@@ -6,7 +6,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useChatStore } from '../stores/chat-store.js'
 
 const getMock = vi.fn(async (path: string) => {
-  if (path.startsWith('/api/agents')) {
+  if (path.startsWith('/api/agent-definitions')) {
     return {
       data: [
         { id: 'agent-1', name: 'Test Agent', modelTier: 'sonnet', active: true },

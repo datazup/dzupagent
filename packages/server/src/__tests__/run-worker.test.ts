@@ -19,6 +19,7 @@ import type {
 import { InMemoryRunTraceStore } from '../persistence/run-trace-store.js'
 import { InMemoryReflectionStore } from '@dzupagent/agent'
 import type { RunReflectionStore, ReflectionSummary } from '@dzupagent/agent'
+import type { ExecutableAgentResolver } from '../services/executable-agent-resolver.js'
 
 async function waitForTerminalStatus(
   store: InMemoryRunStore,
@@ -45,6 +46,48 @@ async function waitForTerminalStatus(
 }
 
 describe('run-worker', () => {
+  it('resolves queued jobs through executableAgentResolver when provided', async () => {
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const eventBus = createEventBus()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+    const modelRegistry = new ModelRegistry()
+    const resolve = vi.fn<ExecutableAgentResolver['resolve']>().mockResolvedValue({
+      id: 'resolved-a1',
+      name: 'Resolved Agent',
+      instructions: 'resolver-backed',
+      modelTier: 'chat',
+      active: true,
+    })
+
+    startRunWorker({
+      runQueue,
+      runStore,
+      agentStore,
+      executableAgentResolver: { resolve },
+      eventBus,
+      modelRegistry,
+      runExecutor: async ({ input }) => {
+        const payload = input as { message?: string }
+        return { content: `ok:${payload.message ?? ''}` }
+      },
+    })
+
+    const run = await runStore.create({ agentId: 'resolved-a1', input: { message: 'hello' } })
+    await runQueue.enqueue({
+      runId: run.id,
+      agentId: 'resolved-a1',
+      input: { message: 'hello' },
+      priority: 1,
+    })
+
+    const status = await waitForTerminalStatus(runStore, run.id)
+    expect(status).toBe('completed')
+    expect(resolve).toHaveBeenCalledWith('resolved-a1')
+
+    await runQueue.stop(false)
+  })
+
   it('processes queued jobs and completes runs', async () => {
     const runStore = new InMemoryRunStore()
     const agentStore = new InMemoryAgentStore()

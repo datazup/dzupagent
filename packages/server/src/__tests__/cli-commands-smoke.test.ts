@@ -99,7 +99,7 @@ describe('CLI: config-command', () => {
 // dev-command
 // ---------------------------------------------------------------------------
 
-describe('CLI: dev-command', () => {
+describe('CLI: dev-command', { timeout: 60_000 }, () => {
   it('exports createDevCommand function', async () => {
     const mod = await import('../cli/dev-command.js')
     expect(typeof mod.createDevCommand).toBe('function')

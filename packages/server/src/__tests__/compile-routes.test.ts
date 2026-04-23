@@ -12,6 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Hono } from 'hono'
 import type { DzupEvent } from '@dzupagent/core'
+import type * as FlowCompilerModule from '@dzupagent/flow-compiler'
 import { createCompileRoutes } from '../routes/compile.js'
 import { EventBridge, type WSClient } from '../ws/event-bridge.js'
 import { InMemoryEventGateway } from '../events/event-gateway.js'
@@ -69,7 +70,7 @@ const mockCompile = vi.fn()
 const mockCreateFlowCompiler = vi.fn(() => ({ compile: mockCompile }))
 
 vi.mock('@dzupagent/flow-compiler', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@dzupagent/flow-compiler')>()
+  const actual = await importOriginal<typeof FlowCompilerModule>()
   return {
     ...actual,
     createFlowCompiler: (...args: unknown[]) => mockCreateFlowCompiler(...args),

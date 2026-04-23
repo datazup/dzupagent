@@ -15,6 +15,13 @@ async function collectRecords(
   return records
 }
 
+function spawnBashJsonl(
+  script: string,
+  options?: Parameters<typeof spawnAndStreamJsonl>[2],
+): AsyncGenerator<Record<string, unknown>> {
+  return spawnAndStreamJsonl('bash', ['-lc', script], options)
+}
+
 describe('spawnAndStreamJsonl - branch coverage', () => {
   it('throws ADAPTER_SDK_NOT_INSTALLED when binary does not exist', async () => {
     await expect(
@@ -33,72 +40,50 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
   })
 
   it('handles multiple JSONL records across chunks', async () => {
-    const script = `
-      process.stdout.write('{"a":1}\\\\n{"b":2}\\\\n');
-      process.stdout.write('{"c":3}\\\\n');
-    `
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script]),
+      spawnBashJsonl(`printf '%s\n' '{"a":1}' '{"b":2}' '{"c":3}'`),
     )
     expect(records).toEqual([{ a: 1 }, { b: 2 }, { c: 3 }])
   })
 
   it('skips invalid JSON lines gracefully', async () => {
-    const script = `
-      process.stdout.write('not json\\\\n{"a":1}\\\\ngarbage\\\\n')
-    `
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script]),
+      spawnBashJsonl(`printf '%s\n' 'not json' '{"a":1}' 'garbage'`),
     )
     expect(records).toEqual([{ a: 1 }])
   })
 
   it('skips empty lines', async () => {
-    const script = `
-      process.stdout.write('\\\\n\\\\n{"a":1}\\\\n\\\\n')
-    `
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script]),
+      spawnBashJsonl(`printf '\n\n%s\n\n' '{"a":1}'`),
     )
     expect(records).toEqual([{ a: 1 }])
   })
 
   it('skips JSON arrays (only accepts objects)', async () => {
-    const script = `
-      process.stdout.write('[1,2,3]\\\\n{"a":1}\\\\n')
-    `
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script]),
+      spawnBashJsonl(`printf '%s\n' '[1,2,3]' '{"a":1}'`),
     )
     expect(records).toEqual([{ a: 1 }])
   })
 
   it('skips JSON null and primitives', async () => {
-    const script = `
-      process.stdout.write('null\\\\n42\\\\n"string"\\\\n{"ok":true}\\\\n')
-    `
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script]),
+      spawnBashJsonl(`printf '%s\n' 'null' '42' '"string"' '{"ok":true}'`),
     )
     expect(records).toEqual([{ ok: true }])
   })
 
   it('parses trailing partial buffer without newline', async () => {
-    const script = `
-      process.stdout.write('{"a":1}')
-    `
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script]),
+      spawnBashJsonl(`printf '%s' '{"a":1}'`),
     )
     expect(records).toEqual([{ a: 1 }])
   })
 
   it('skips malformed trailing partial buffer', async () => {
-    const script = `
-      process.stdout.write('{"a":1}\\\\n{"incomplete":')
-    `
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script]),
+      spawnBashJsonl(`printf '%s\n%s' '{"a":1}' '{"incomplete":'`),
     )
     // Only the complete record is yielded
     expect(records).toEqual([{ a: 1 }])
@@ -112,11 +97,8 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
   })
 
   it('passes through spawn options like env', async () => {
-    const script = `
-      process.stdout.write(JSON.stringify({ value: process.env.TEST_VAR }) + '\\\\n')
-    `
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script], {
+      spawnBashJsonl(`printf '{"value":"%s"}\n' "$TEST_VAR"`, {
         env: { ...process.env, TEST_VAR: 'custom-value' },
       }),
     )
@@ -124,41 +106,29 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
   })
 
   it('handles timeoutMs=0 as no-timeout', async () => {
-    const script = `process.stdout.write('{"a":1}\\\\n')`
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script], { timeoutMs: 0 }),
+      spawnBashJsonl(`printf '%s\n' '{"a":1}'`, { timeoutMs: 0 }),
     )
     expect(records).toEqual([{ a: 1 }])
   })
 
   it('respects undefined timeoutMs', async () => {
-    const script = `process.stdout.write('{"a":1}\\\\n')`
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script], { timeoutMs: undefined }),
+      spawnBashJsonl(`printf '%s\n' '{"a":1}'`, { timeoutMs: undefined }),
     )
     expect(records).toEqual([{ a: 1 }])
   })
 
   it('supports backpressure with multiple records', async () => {
-    const script = `
-      process.stdout.write('{"a":1}\\\\n{"b":2}\\\\n{"c":3}\\\\n')
-    `
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script], { backpressure: true }),
+      spawnBashJsonl(`printf '%s\n' '{"a":1}' '{"b":2}' '{"c":3}'`, { backpressure: true }),
     )
     expect(records).toEqual([{ a: 1 }, { b: 2 }, { c: 3 }])
   })
 
   it('handles JSON split across multiple chunks', async () => {
-    // Write a single JSON with explicit delay so it straddles chunk boundaries
-    const script = `
-      process.stdout.write('{"key":"');
-      setTimeout(() => {
-        process.stdout.write('value"}\\\\n')
-      }, 20);
-    `
     const records = await collectRecords(
-      spawnAndStreamJsonl('node', ['-e', script]),
+      spawnBashJsonl(`printf '%s' '{"key":"'; sleep 0.02; printf '%s\n' 'value"}'`),
     )
     expect(records).toEqual([{ key: 'value' }])
   })

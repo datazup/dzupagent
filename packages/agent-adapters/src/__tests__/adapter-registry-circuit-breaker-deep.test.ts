@@ -810,30 +810,30 @@ describe('AdapterRegistry — getForTask', () => {
     const registry = new AdapterRegistry()
     registry.setEventBus(bus)
     registry.register(createMockAdapter('claude', []))
-    const registered = emitted.find((e) => e.type === 'registry:agent_registered')
+    const registered = emitted.find((e) => e.type === 'adapter_registry:provider_registered')
     expect(registered).toBeDefined()
-    expect((registered as { agentId: string }).agentId).toBe('claude')
+    expect((registered as { providerId: string }).providerId).toBe('claude')
   })
 
-  it('registry:agent_deregistered is emitted when unregistering a known adapter', () => {
+  it('adapter_registry:provider_deregistered is emitted when unregistering a known adapter', () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
     const registry = new AdapterRegistry()
     registry.setEventBus(bus)
     registry.register(createMockAdapter('claude', []))
     registry.unregister('claude')
-    const deregistered = emitted.find((e) => e.type === 'registry:agent_deregistered')
+    const deregistered = emitted.find((e) => e.type === 'adapter_registry:provider_deregistered')
     expect(deregistered).toBeDefined()
     expect((deregistered as { reason: string }).reason).toBe('unregistered')
   })
 
-  it('no registry:agent_deregistered event when unregister target does not exist', () => {
+  it('no adapter_registry:provider_deregistered event when unregister target does not exist', () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
     const registry = new AdapterRegistry()
     registry.setEventBus(bus)
     registry.unregister('claude')
-    expect(emitted.find((e) => e.type === 'registry:agent_deregistered')).toBeUndefined()
+    expect(emitted.find((e) => e.type === 'adapter_registry:provider_deregistered')).toBeUndefined()
   })
 })
 
@@ -1256,7 +1256,7 @@ describe('AdapterRegistry — cleanup edge cases', () => {
     registry.register(createMockAdapter('claude', []))
     registry.register(createMockAdapter('codex', []))
     registry.register(createMockAdapter('qwen', []))
-    const registered = emitted.filter((e) => e.type === 'registry:agent_registered')
+    const registered = emitted.filter((e) => e.type === 'adapter_registry:provider_registered')
     expect(registered).toHaveLength(3)
   })
 })

@@ -3,11 +3,13 @@ import { createForgeApp, type ForgeServerConfig } from '../app.js'
 import {
   InMemoryRunStore,
   InMemoryAgentStore,
+  InMemoryRegistry,
   ModelRegistry,
   createEventBus,
 } from '@dzupagent/core'
 import { InMemoryRunTraceStore } from '../persistence/run-trace-store.js'
 import type { RunQueue, RunJob, JobProcessor, QueueStats } from '../queue/run-queue.js'
+import type { ExecutableAgentResolver } from '../services/executable-agent-resolver.js'
 
 function createTestConfig(): ForgeServerConfig {
   return {
@@ -46,6 +48,26 @@ describe('Health routes', () => {
     expect(res.status).toBe(200)
     const data = await res.json() as Record<string, unknown>
     expect(data['status']).toBe('ok')
+  })
+
+  it('mounts /api/registry when registry is provided', async () => {
+    const registry = new InMemoryRegistry()
+    await registry.register({
+      name: 'managed-agent',
+      description: 'Managed agent',
+      capabilities: [{ name: 'code.review', version: '1.0.0', description: 'Code review' }],
+    })
+
+    const app = createForgeApp({
+      ...createTestConfig(),
+      registry,
+    })
+    const res = await app.request('/api/registry/agents')
+
+    expect(res.status).toBe(200)
+    const data = await res.json() as { data: unknown[]; total: number }
+    expect(data.total).toBe(1)
+    expect(data.data).toHaveLength(1)
   })
 
   it('warns when in-memory runtime stores are explicitly configured as unbounded', async () => {
@@ -89,8 +111,8 @@ describe('Agent routes', () => {
     app = createForgeApp(config)
   })
 
-  it('POST /api/agents creates an agent', async () => {
-    const res = await req(app, 'POST', '/api/agents', {
+  it('POST /api/agent-definitions creates an agent definition on the canonical path', async () => {
+    const res = await req(app, 'POST', '/api/agent-definitions', {
       name: 'Test Agent',
       instructions: 'You are a test agent',
       modelTier: 'chat',
@@ -101,9 +123,9 @@ describe('Agent routes', () => {
     expect(data.data.id).toBeTruthy()
   })
 
-  it('GET /api/agents lists agents', async () => {
-    await req(app, 'POST', '/api/agents', { name: 'A1', instructions: 'i1', modelTier: 'chat' })
-    await req(app, 'POST', '/api/agents', { name: 'A2', instructions: 'i2', modelTier: 'codegen' })
+  it('GET /api/agents remains available as a compatibility alias', async () => {
+    await req(app, 'POST', '/api/agent-definitions', { name: 'A1', instructions: 'i1', modelTier: 'chat' })
+    await req(app, 'POST', '/api/agent-definitions', { name: 'A2', instructions: 'i2', modelTier: 'codegen' })
 
     const res = await app.request('/api/agents')
     expect(res.status).toBe(200)
@@ -111,32 +133,32 @@ describe('Agent routes', () => {
     expect(data.count).toBe(2)
   })
 
-  it('GET /api/agents/:id returns 404 for unknown', async () => {
-    const res = await app.request('/api/agents/nonexistent')
+  it('GET /api/agent-definitions/:id returns 404 for unknown on the canonical path', async () => {
+    const res = await app.request('/api/agent-definitions/nonexistent')
     expect(res.status).toBe(404)
   })
 
-  it('PATCH /api/agents/:id updates agent', async () => {
-    const createRes = await req(app, 'POST', '/api/agents', { name: 'Original', instructions: 'i1', modelTier: 'chat' })
+  it('PATCH /api/agent-definitions/:id updates agent definition on the canonical path', async () => {
+    const createRes = await req(app, 'POST', '/api/agent-definitions', { name: 'Original', instructions: 'i1', modelTier: 'chat' })
     const created = await createRes.json() as { data: { id: string } }
     const id = created.data.id
 
-    const updateRes = await req(app, 'PATCH', `/api/agents/${id}`, { name: 'Updated' })
+    const updateRes = await req(app, 'PATCH', `/api/agent-definitions/${id}`, { name: 'Updated' })
     expect(updateRes.status).toBe(200)
     const updated = await updateRes.json() as { data: { name: string } }
     expect(updated.data.name).toBe('Updated')
   })
 
-  it('DELETE /api/agents/:id soft-deletes', async () => {
-    const createRes = await req(app, 'POST', '/api/agents', { name: 'ToDelete', instructions: 'i1', modelTier: 'chat' })
+  it('DELETE /api/agent-definitions/:id soft-deletes on the canonical path', async () => {
+    const createRes = await req(app, 'POST', '/api/agent-definitions', { name: 'ToDelete', instructions: 'i1', modelTier: 'chat' })
     const created = await createRes.json() as { data: { id: string } }
 
-    const delRes = await req(app, 'DELETE', `/api/agents/${created.data.id}`)
+    const delRes = await req(app, 'DELETE', `/api/agent-definitions/${created.data.id}`)
     expect(delRes.status).toBe(200)
   })
 
-  it('POST /api/agents returns 400 without required fields', async () => {
-    const res = await req(app, 'POST', '/api/agents', { name: 'NoInstructions' })
+  it('POST /api/agent-definitions returns 400 without required fields', async () => {
+    const res = await req(app, 'POST', '/api/agent-definitions', { name: 'NoInstructions' })
     expect(res.status).toBe(400)
   })
 })
@@ -173,6 +195,56 @@ describe('Run routes', () => {
       input: { task: 'test' },
     })
     expect(res.status).toBe(404)
+  })
+
+  it('POST /api/runs resolves the executable agent through executableAgentResolver when provided', async () => {
+    const resolve = vi.fn<ExecutableAgentResolver['resolve']>().mockResolvedValue({
+      id: 'resolved-agent',
+      name: 'Resolved Agent',
+      instructions: 'resolved',
+      modelTier: 'chat',
+    })
+
+    const resolverConfig: ForgeServerConfig = {
+      ...createTestConfig(),
+      executableAgentResolver: { resolve },
+    }
+    const resolverApp = createForgeApp(resolverConfig)
+
+    const res = await req(resolverApp, 'POST', '/api/runs', {
+      agentId: 'resolved-agent',
+      input: { task: 'test' },
+    })
+
+    expect(res.status).toBe(201)
+    expect(resolve).toHaveBeenCalledWith('resolved-agent')
+  })
+
+  it('POST /api/runs resolves a registry-backed projected execution spec by default', async () => {
+    const projectedConfig = createTestConfig()
+    const registry = new InMemoryRegistry()
+    projectedConfig.registry = registry
+    await projectedConfig.agentStore.save({
+      id: 'local-projection',
+      name: 'Projected Agent',
+      instructions: 'projected',
+      modelTier: 'chat',
+      active: true,
+    })
+    const registered = await registry.register({
+      name: 'Managed Agent',
+      description: 'Registry-backed managed agent',
+      capabilities: [{ name: 'code.review', version: '1.0.0', description: 'Code review' }],
+      metadata: { executionSpecId: 'local-projection' },
+    })
+    const projectedApp = createForgeApp(projectedConfig)
+
+    const res = await req(projectedApp, 'POST', '/api/runs', {
+      agentId: registered.id,
+      input: { task: 'test' },
+    })
+
+    expect(res.status).toBe(201)
   })
 
   it('POST /api/runs enqueues work and returns 202 when runQueue is configured', async () => {

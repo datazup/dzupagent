@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createForgeApp, type ForgeServerConfig } from '../app.js'
 import { InMemoryPersonaStore } from '../personas/persona-store.js'
+import type * as FlowCompilerModule from '@dzupagent/flow-compiler'
 import {
   InMemoryRunStore,
   InMemoryAgentStore,
@@ -33,7 +34,7 @@ const mockCompile = vi.fn()
 const mockCreateFlowCompiler = vi.fn(() => ({ compile: mockCompile }))
 
 vi.mock('@dzupagent/flow-compiler', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@dzupagent/flow-compiler')>()
+  const actual = await importOriginal<typeof FlowCompilerModule>()
   return {
     ...actual,
     createFlowCompiler: (...args: unknown[]) => mockCreateFlowCompiler(...args),

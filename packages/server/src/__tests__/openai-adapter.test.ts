@@ -5,7 +5,7 @@
  *   - completion-mapper (tool-call chunks + ID + response shape)
  *   - completions-route input validation (400 branches)
  *
- * All external dependencies (AgentStore, ModelRegistry, EventBus, agent
+ * All external dependencies (execution-spec store, ModelRegistry, EventBus, agent
  * execution) are faked so no real LLM call is ever made.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -14,14 +14,21 @@ import { openaiAuthMiddleware } from '../routes/openai-compat/auth-middleware.js
 import { createModelsRoute } from '../routes/openai-compat/models-route.js'
 import { createOpenAICompatCompletionsRoute } from '../routes/openai-compat/completions.js'
 import { OpenAICompletionMapper } from '../routes/openai-compat/completion-mapper.js'
-import type { AgentDefinition, AgentStore, ModelRegistry, DzupEventBus } from '@dzupagent/core'
+import type {
+  AgentExecutionSpec,
+  AgentExecutionSpecStore,
+  ModelRegistry,
+  DzupEventBus,
+} from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Fakes
 // ---------------------------------------------------------------------------
 
-function makeAgentStore(agents: AgentDefinition[] = []): AgentStore {
-  const store = new Map(agents.map((a) => [a.id, a]))
+function makeAgentExecutionSpecStore(
+  executionSpecs: AgentExecutionSpec[] = [],
+): AgentExecutionSpecStore {
+  const store = new Map(executionSpecs.map((spec) => [spec.id, spec]))
   return {
     async get(id: string) { return store.get(id) ?? null },
     async list(filter?) {
@@ -29,12 +36,12 @@ function makeAgentStore(agents: AgentDefinition[] = []): AgentStore {
       if (filter?.active !== undefined) return all.filter((a) => (a.active ?? true) === filter.active)
       return all
     },
-    async save(a: AgentDefinition) { store.set(a.id, a) },
+    async save(spec: AgentExecutionSpec) { store.set(spec.id, spec) },
     async delete(id: string) { store.delete(id) },
   }
 }
 
-function makeAgent(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
+function makeExecutionSpec(overrides: Partial<AgentExecutionSpec> = {}): AgentExecutionSpec {
   return {
     id: 'test-agent',
     name: 'Test Agent',
@@ -124,16 +131,16 @@ describe('openaiAuthMiddleware', () => {
 // ---------------------------------------------------------------------------
 
 describe('createModelsRoute', () => {
-  function buildApp(agents: AgentDefinition[]): Hono {
+  function buildApp(executionSpecs: AgentExecutionSpec[]): Hono {
     const app = new Hono()
-    app.route('/', createModelsRoute({ agentStore: makeAgentStore(agents) }))
+    app.route('/', createModelsRoute({ agentStore: makeAgentExecutionSpecStore(executionSpecs) }))
     return app
   }
 
   it('lists only active agents as model objects', async () => {
     const app = buildApp([
-      makeAgent({ id: 'a1' }),
-      makeAgent({ id: 'a2' }),
+      makeExecutionSpec({ id: 'a1' }),
+      makeExecutionSpec({ id: 'a2' }),
     ])
 
     const res = await app.request('/')
@@ -154,7 +161,7 @@ describe('createModelsRoute', () => {
 
   it('maps createdAt to unix seconds', async () => {
     const app = buildApp([
-      makeAgent({ id: 'a1', createdAt: new Date('2026-01-02T00:00:00Z') }),
+      makeExecutionSpec({ id: 'a1', createdAt: new Date('2026-01-02T00:00:00Z') }),
     ])
     const res = await app.request('/')
     const body = (await res.json()) as { data: Array<{ created: number }> }
@@ -163,7 +170,7 @@ describe('createModelsRoute', () => {
   })
 
   it('falls back to now() when agent.createdAt is missing', async () => {
-    const app = buildApp([makeAgent({ id: 'a1', createdAt: undefined })])
+    const app = buildApp([makeExecutionSpec({ id: 'a1', createdAt: undefined })])
     const res = await app.request('/')
     const body = (await res.json()) as { data: Array<{ created: number }> }
     // Reasonable lower bound (post-2025)
@@ -171,7 +178,7 @@ describe('createModelsRoute', () => {
   })
 
   it('returns a single model for GET /:model when found', async () => {
-    const app = buildApp([makeAgent({ id: 'specific' })])
+    const app = buildApp([makeExecutionSpec({ id: 'specific' })])
     const res = await app.request('/specific')
     expect(res.status).toBe(200)
     const body = (await res.json()) as { id: string; object: string }
@@ -287,10 +294,10 @@ describe('OpenAICompletionMapper — extras', () => {
 // ---------------------------------------------------------------------------
 
 describe('createOpenAICompatCompletionsRoute — request validation', () => {
-  function buildApp(agents: AgentDefinition[] = []): Hono {
+  function buildApp(executionSpecs: AgentExecutionSpec[] = []): Hono {
     const app = new Hono()
     app.route('/', createOpenAICompatCompletionsRoute({
-      agentStore: makeAgentStore(agents),
+      agentStore: makeAgentExecutionSpecStore(executionSpecs),
       modelRegistry: nullRegistry,
       eventBus: nullEventBus,
     }))
