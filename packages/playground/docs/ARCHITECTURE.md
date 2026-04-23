@@ -7,7 +7,7 @@ It is a Vue 3 + Pinia + Vue Router SPA that provides:
 
 - Interactive agent chat with streamed assistant output.
 - Real-time operational observability (trace timeline, live events, tool/memory telemetry).
-- Operational management workflows (runs, evals, benchmarks, agents, marketplace).
+- Operational management workflows (runs, evals, benchmarks, agent definitions, marketplace).
 
 The package is private to this monorepo and communicates with backend services through HTTP + WebSocket/SSE contracts. It does not directly depend on runtime internals from `@dzupagent/core` or `@dzupagent/agent`.
 
@@ -21,7 +21,7 @@ The package is private to this monorepo and communicates with backend services t
 
 2. Domain Views
 - `src/views/*.vue`
-- Route-level workflows for chat, runs, evals, benchmarks, agents, and marketplace.
+- Route-level workflows for chat, runs, evals, benchmarks, agent definitions, and marketplace.
 
 3. Reusable Components
 - `src/components/**`
@@ -46,7 +46,8 @@ The package is private to this monorepo and communicates with backend services t
 - `/runs/:id` -> run detail (`RunDetailView.vue`)
 - `/benchmarks` + `/benchmarks/:runId`
 - `/evals` + `/evals/:id`
-- `/agents`
+- `/agent-definitions`
+- `/agents` (legacy redirect)
 - `/marketplace`
 
 ## 3. Core Runtime Flow
@@ -189,17 +190,17 @@ Primary modules:
 - `src/stores/benchmark-store.ts`, `src/views/BenchmarksView.vue`, `src/views/BenchmarkRunDetailView.vue`
 - `src/stores/eval-store.ts`, `src/views/EvalsView.vue`, `src/views/EvalRunDetailView.vue`
 
-## 4.6 Agent management and marketplace
+## 4.6 Agent definition management and marketplace
 
-- Agent CRUD: list, filter, create, edit, soft-delete.
+- Agent definition CRUD: list, filter, create, edit, soft-delete.
 - Config inspector tab for editing selected agent behavior.
 - Marketplace browsing/search/filter/install/uninstall UX.
 
 Primary modules:
 
-- `src/stores/agent-store.ts`
+- `src/stores/agent-definitions-store.ts`
 - `src/stores/marketplace-store.ts`
-- `src/views/AgentsView.vue`
+- `src/views/AgentDefinitionsView.vue`
 - `src/views/MarketplaceView.vue`
 
 ## 4.7 Health and resiliency
@@ -233,12 +234,12 @@ Chat/runs:
 
 Agents:
 
-- `GET /api/agents`
-- `GET /api/agents?active=true`
-- `GET /api/agents/:id`
-- `POST /api/agents`
-- `PATCH /api/agents/:id`
-- `DELETE /api/agents/:id`
+- `GET /api/agent-definitions`
+- `GET /api/agent-definitions?active=true`
+- `GET /api/agent-definitions/:id`
+- `POST /api/agent-definitions`
+- `PATCH /api/agent-definitions/:id`
+- `DELETE /api/agent-definitions/:id`
 
 Health/events:
 
@@ -411,7 +412,7 @@ Notable low-coverage files:
 
 - `src/App.vue` `0%`
 - `src/main.ts` `0%`
-- `src/views/AgentsView.vue` `0%`
+- `src/views/AgentDefinitionsView.vue` `0%`
 - `src/views/EvalsView.vue` `0%`
 - `src/views/PlaygroundView.vue` `0%`
 - `src/views/RunDetailView.vue` `0%`

@@ -42,6 +42,13 @@ Active drift examples from the analysis pack:
 - server README examples no longer match current auth config types
 - migration docs and wave trackers contain contradictory status claims
 
+Current live progress from this session:
+- `docs/CAPABILITY_MATRIX.md` now exists and can be generated/checked via plain Node tooling
+- `yarn verify:strict` is now green, so docs can no longer describe execution truth as "not yet proven"
+- `create-dzupagent` CLI version, generated project version, and generated `@dzupagent/*` dependency pins were aligned to `0.2.0`
+- the remaining docs/scaffolder drift is now primarily about duplicated truth ownership, stale high-traffic README examples, and mixed public naming rather than missing generation paths
+- `create-dzupagent` README still described only five templates even though the package now exposes nine built-in templates plus preset-driven flows
+
 ## Required Work
 
 ### 1. Establish the tracked docs entry points
@@ -57,13 +64,19 @@ Exit condition:
 Required outcome:
 - package manifests, runtime constants, health endpoints, and README snippets report the same version lineage
 
+Current progress:
+- scaffolder-emitted version identity is aligned to `0.2.0`
+
+Remaining gap:
+- version truth is still duplicated across multiple package READMEs and runtime-facing constants
+
 Exit condition:
 - operators and consumers do not get contradictory version identity from code vs docs
 
 ### 3. Fix high-traffic copy-paste paths
 
 Required outcome:
-- root README, server README, playground README, and migration guidance reflect current package names, config types, and route/auth expectations
+- root README, server README, playground README, scaffolder README, and migration guidance reflect current package names, config types, template inventory, and route/auth expectations
 
 Exit condition:
 - common setup snippets are type-accurate and path-accurate
@@ -72,6 +85,13 @@ Exit condition:
 
 Required outcome:
 - generated projects do not encode stale auth or route assumptions
+
+Current progress:
+- generated package versions and dependency pins no longer start new projects on stale `0.1.0` contracts
+
+Remaining gap:
+- the package still has multiple generation paths and no single-source version helper, so this class of drift can recur
+- template inventory and preset-oriented onboarding copy can still drift unless README truth is updated alongside registry changes
 
 Exit condition:
 - smoke tests cover current server contract expectations for generated apps/templates
@@ -84,6 +104,14 @@ Required outcome:
 Exit condition:
 - wave/rebaseline status tables do not contradict current verification evidence
 
+### 6. Reduce naming ambiguity in docs and scaffolder surfaces
+
+Required outcome:
+- docs and generated surfaces do not present `DzupAgent`, `Forge`, and `DZIP` as if they are interchangeable without a compatibility explanation
+
+Exit condition:
+- public docs and generated defaults have one canonical term set per surface, with aliases called out explicitly where compatibility requires them
+
 ## Verification Requirements
 
 Minimum proof before closing this area:
@@ -92,6 +120,13 @@ Minimum proof before closing this area:
 2. high-traffic docs updated for any changed auth, route, version, or migration behavior
 3. scaffolder or example paths updated alongside contract changes
 4. doc-sensitive checks or smoke checks recorded if they are part of the updated process
+5. rebaseline/status docs reflect the actually observed strict verification state
+
+Recommended additions for the next wave:
+
+1. snapshot tests that assert scaffolder-emitted package versions track the intended repo version
+2. README/example scans for stale template counts, naming aliases, and `0.1.0` references outside the scaffolder package
+3. a rule that any export-surface change regenerates `docs/CAPABILITY_MATRIX.md` in the same change wave
 
 Recommended additional proof:
 

@@ -21,7 +21,7 @@ npm install create-dzupagent
 ```
 <!-- AUTO-GENERATED-END -->
 
-CLI scaffolding tool for creating new DzupAgent projects. Generates project files from template manifests with `{{variable}}` interpolation. Ships with five built-in templates covering common agent architectures.
+CLI scaffolding tool for creating new DzupAgent projects. Generates project files from template manifests with `{{variable}}` interpolation. Ships with nine built-in templates plus preset-driven flows for common agent architectures.
 
 ## Usage
 
@@ -38,6 +38,10 @@ npx create-dzupagent my-project --template codegen
 npx create-dzupagent my-project --template multi-agent
 npx create-dzupagent my-project --template server
 npx create-dzupagent my-project --template minimal
+npx create-dzupagent my-project --template production-saas-agent
+npx create-dzupagent my-project --template secure-internal-assistant
+npx create-dzupagent my-project --template cost-constrained-worker
+npx create-dzupagent my-project --template research
 ```
 
 ## Installation
@@ -50,7 +54,7 @@ npm install create-dzupagent
 
 ## Templates
 
-Five built-in project templates are available:
+Nine built-in project templates are available:
 
 | Template | Description |
 |----------|-------------|
@@ -59,8 +63,24 @@ Five built-in project templates are available:
 | `codegen` | Code generation agent with VFS, sandbox, and git tooling. Built on `@dzupagent/codegen`. |
 | `multi-agent` | Multi-agent orchestration with supervisor pattern. Multiple agents coordinating via the event bus. |
 | `server` | Standalone DzupAgent server deployment. REST API and WebSocket server with persistence. |
+| `production-saas-agent` | SaaS-oriented production template with billing, teams, auth, and operational defaults. |
+| `secure-internal-assistant` | Internal assistant template focused on controlled access, secure defaults, and enterprise-style deployment. |
+| `cost-constrained-worker` | Worker-oriented template optimized for budget-aware execution and constrained automation tasks. |
+| `research` | Research agent template for search, synthesis, and report-oriented workflows. |
 
 Each template defines its own set of files, dependencies, and dev dependencies through a `TemplateManifest`.
+
+## Presets
+
+Five built-in presets provide higher-level starting points on top of the template registry:
+
+| Preset | Template | Description |
+|--------|----------|-------------|
+| `minimal` | `minimal` | Bare-bones single-agent setup with no extras. |
+| `starter` | `full-stack` | Base full-stack template with auth and dashboard enabled. |
+| `full` | `production-saas-agent` | Production SaaS setup with auth, dashboard, billing, teams, and AI overlays. |
+| `api-only` | `server` | Backend-only server flow with auth defaults and no frontend. |
+| `research` | `research` | Research-focused flow for search and synthesis workloads. |
 
 ## Programmatic API
 
@@ -120,6 +140,10 @@ import {
   codegenTemplate,
   multiAgentTemplate,
   serverTemplate,
+  productionSaasAgentTemplate,
+  secureInternalAssistantTemplate,
+  costConstrainedWorkerTemplate,
+  researchTemplate,
 } from 'create-dzupagent'
 
 // templateRegistry is Record<TemplateType, TemplateManifest>
@@ -147,12 +171,25 @@ const minimal = templateRegistry['minimal']
 - `codegenTemplate` -- manifest for the `codegen` template
 - `multiAgentTemplate` -- manifest for the `multi-agent` template
 - `serverTemplate` -- manifest for the `server` template
+- `productionSaasAgentTemplate` -- manifest for the `production-saas-agent` template
+- `secureInternalAssistantTemplate` -- manifest for the `secure-internal-assistant` template
+- `costConstrainedWorkerTemplate` -- manifest for the `cost-constrained-worker` template
+- `researchTemplate` -- manifest for the `research` template
 
 ### Types
 
 ```ts
 // Supported template identifiers
-type TemplateType = 'minimal' | 'full-stack' | 'codegen' | 'multi-agent' | 'server'
+type TemplateType =
+  | 'minimal'
+  | 'full-stack'
+  | 'codegen'
+  | 'multi-agent'
+  | 'server'
+  | 'production-saas-agent'
+  | 'secure-internal-assistant'
+  | 'cost-constrained-worker'
+  | 'research'
 
 // Options passed to ScaffoldEngine.generate()
 interface ScaffoldOptions {

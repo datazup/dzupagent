@@ -89,10 +89,12 @@ Mounted routes:
 - Always:
   - `/api/health` (liveness/readiness + metrics json + routing stats)
   - `/api/runs`
-  - `/api/agents`
+  - `/api/agent-definitions`
+  - `/api/agents` (deprecated compatibility alias)
   - `/api/runs/:id/approve|reject`
   - `/api/events/stream`
 - Conditional:
+  - `/api/registry` via `registry`
   - `/api/runs/:id/messages` via `traceStore`
   - `/api/memory/*` + `/api/memory-browse/*` via `memoryService`
   - `/api/memory/health` via `memoryHealth`
@@ -171,7 +173,8 @@ Feature: Agent CRUD and run lifecycle APIs.
 - Files: `routes/agents.ts`, `routes/runs.ts`, `routes/approval.ts`, `routes/health.ts`
 - Default in app: Yes
 - Usage:
-  - `GET/POST/PATCH/DELETE /api/agents`
+  - `GET/POST/PATCH/DELETE /api/agent-definitions`
+  - `GET/POST/PATCH/DELETE /api/agents` (deprecated compatibility alias)
   - `POST /api/runs`
   - `GET /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/logs`, `GET /api/runs/:id/trace`
   - `POST /api/runs/:id/cancel|approve|reject`
@@ -515,4 +518,3 @@ Risks / opportunities:
 2. Add integration tests for Postgres stores (beyond registry-focused persistence tests).
 3. Add execution-path tests for platform adapters and graceful shutdown with active queue workload.
 4. Add explicit architecture tests for “default mounted vs manual mount” route boundaries to prevent drift.
-

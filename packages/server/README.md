@@ -112,13 +112,15 @@ This enables:
 
 - `GET /api/health`
 - `GET /api/health/ready`
-- `GET|POST|PATCH|DELETE /api/agents/*`
+- `GET|POST|PATCH|DELETE /api/agent-definitions/*`
+- `GET|POST|PATCH|DELETE /api/agents/*` (deprecated compatibility alias)
 - `GET|POST /api/runs/*`
 - `POST /api/runs/:id/approve|reject|cancel`
 - `GET /api/events/stream`
 
 Conditional routes:
 
+- `/api/registry/*` when `registry` is configured
 - `/api/memory/*` and `/api/memory-browse/*` when `memoryService` is configured
 - `/playground/*` when `playground.distDir` is configured
 

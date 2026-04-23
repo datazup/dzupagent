@@ -186,7 +186,6 @@ Runtime observability:
 - No structured logging, tracing, or metrics in this package itself.
 
 ## Risks and TODOs
-- CLI version drift: `createProgram()` reports version `0.1.0` while `package.json` is `0.2.0`.
 - Documentation drift: package README still documents five-template-era behavior, but registry currently has nine templates and expanded flows.
 - Dual generation paths: `generateProject()` and legacy `ScaffoldEngine` produce different outputs (skip/synthesize behavior exists only in `generateProject`), which can confuse programmatic users.
 - Silent non-fatal step failures: git/dependency install/wire failures are swallowed and represented only by boolean flags; CLI does not print explicit failure reasons.

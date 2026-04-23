@@ -5,7 +5,7 @@
 Make verification and release gates authoritative so the repo can use green status as real engineering and release signal.
 
 Current shared status:
-- `not done`
+- `in progress`
 
 Primary control references:
 - [`../STABILIZATION_REBASELINE_2026-04-23.md`](../STABILIZATION_REBASELINE_2026-04-23.md)
@@ -37,14 +37,16 @@ Primary paths:
 
 ## Evidence Baseline
 
-Root script ordering still shows the core problem:
-- `verify:strict` currently runs drift, coverage, and capability-matrix checks before `turbo run build typecheck lint test`
+Active live baseline after the current stabilization wave:
+- strict preflights are green in-session
+- `@dzupagent/agent-adapters` coverage summaries are generated again
+- capability-matrix generation and freshness checks are now plain-Node and sandbox-safe
+- `@dzupagent/server` package-local blockers were fixed and the full package test lane is green
+- `yarn verify:strict` completed successfully in the current session
 
-Analysis-pack findings that remain the active baseline:
-- strict gate is non-hermetic
-- coverage gate depends on pre-existing summaries
-- publish path is build-heavy but not full correctness-gated
-- migration workflow is underdefined for production safety
+Remaining verification gap:
+- `yarn verify` has not yet been re-run to completion after the current stabilization wave
+- publish and integration controls are still weaker than the repo's now-proven strict baseline
 
 ## Required Work
 
@@ -52,6 +54,11 @@ Analysis-pack findings that remain the active baseline:
 
 Required outcome:
 - strict verification generates the artifacts it needs or moves non-product freshness checks out of the core correctness lane
+
+Current progress:
+- capability-matrix generation no longer depends on `tsx` IPC or shell-spawn behavior
+- workspace coverage summaries are available for the packages currently tracked by the strict lane
+- the strict lane has been observed green end to end after the current package fixes
 
 Minimum shape:
 - runtime inventory strict
@@ -64,15 +71,30 @@ Minimum shape:
 Exit condition:
 - a clean runner can execute `verify:strict` without pre-seeded local artifacts
 
-### 2. Separate docs freshness from correctness signal
+### 2. Widen The Baseline Back To `verify`
+
+Required outcome:
+- the broader verification lane does not quietly diverge from the now-stable strict lane
+
+Required verification:
+- `yarn verify`
+- record the exact first failing package/check if the broader lane still differs from strict
+
+Exit condition:
+- the repo can point to one broader baseline and one strict baseline without contradictory status
+
+### 3. Separate docs freshness from correctness signal
 
 Required outcome:
 - missing docs artifacts do not cause the core correctness lane to fail before code is evaluated
 
+Current progress:
+- this risk is reduced for `CAPABILITY_MATRIX.md` because the checker can now generate and compare the artifact in-process
+
 Exit condition:
 - docs freshness remains required where appropriate, but it is not masquerading as runtime correctness
 
-### 3. Add an explicit integration lane
+### 4. Add An Explicit Integration Lane
 
 Required outcome:
 - env-backed server, RAG, and playground checks have a named place in the control model
@@ -85,7 +107,7 @@ Suggested direction:
 Exit condition:
 - teams can point to one explicit lane for infra-backed truth instead of informal ad-hoc reruns
 
-### 4. Promote migration controls to release gates
+### 5. Promote Migration Controls To Release Gates
 
 Required outcome:
 - migration apply/check commands exist and are part of release expectations
@@ -98,7 +120,7 @@ Minimum shape:
 Exit condition:
 - release claims are not made from build-only success
 
-### 5. Align publish workflow with actual trust bar
+### 6. Align Publish Workflow With Actual Trust Bar
 
 Required outcome:
 - publish automation enforces at least the baseline verify path, and eventually the strict path once it is hermetic
@@ -110,10 +132,17 @@ Exit condition:
 
 Minimum proof before closing this area:
 
-1. `yarn verify`
-2. `yarn verify:strict`
+1. `yarn verify:strict`
+2. `yarn verify`
 3. explicit record of any integration lane and migration gate behavior
 4. exact failing package/check recorded if any gate is still red
+
+Current next proof target:
+1. run `yarn verify`
+2. if it fails, record the first failing package/check
+3. fix only that blocker
+4. rerun the narrowest proving command
+5. widen back to `yarn verify`
 
 Recommended additional proof:
 
@@ -126,8 +155,9 @@ Recommended additional proof:
 Do not mark this area `done` unless:
 
 1. strict verification is hermetic enough to serve as a trust signal
-2. publish path no longer relies on weaker proof than the tracked stabilization model
-3. migration readiness is part of release truth rather than operator convention
+2. the broader verification lane is also revalidated and its status does not contradict strict
+3. publish path no longer relies on weaker proof than the tracked stabilization model
+4. migration readiness is part of release truth rather than operator convention
 
 ## Explicit Non-Goals During This Tranche
 

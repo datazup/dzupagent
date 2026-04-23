@@ -30,26 +30,48 @@ Rule:
 ### What Is Green In The Current Session
 
 - `yarn check:improvements:drift`
-- `yarn test:inventory:runtime`
+- `yarn test:inventory:runtime:strict`
+- `yarn check:workspace:coverage`
+- `yarn check:waiver-expiry`
+- `yarn check:capability-matrix`
 - `yarn check:domain-boundaries`
+- `yarn check:terminal-tool-event-guards`
+- `yarn workspace @dzupagent/agent-adapters test -- src/__tests__/process-helpers.test.ts src/__tests__/process-helpers-branches.test.ts src/__tests__/session-registry.test.ts src/__tests__/adapter-conformance.contract.test.ts src/__tests__/cli-smoke.test.ts`
+- `yarn workspace @dzupagent/agent-adapters test:coverage`
+- `yarn workspace create-dzupagent typecheck`
+- `yarn workspace create-dzupagent lint`
+- `yarn workspace create-dzupagent test`
 - `yarn workspace @dzupagent/server typecheck`
+- `yarn workspace @dzupagent/server lint`
+- `yarn workspace @dzupagent/server test`
+- `yarn workspace @dzupagent/codegen test`
 - `yarn workspace @dzupagent/server test -- src/__tests__/run-trace-lifecycle.test.ts src/__tests__/runs-resume-semantics.test.ts src/__tests__/session-q-halted-run-status.test.ts`
 - `yarn workspace @dzupagent/server test -- src/__tests__/api-key-wiring.test.ts src/routes/__tests__/api-keys.test.ts src/routes/openai-compat/__tests__/routes.test.ts src/routes/openai-compat/__tests__/completions.test.ts`
+- `yarn workspace @dzupagent/server test -- src/__tests__/compile-routes.test.ts src/__tests__/workflow-routes.test.ts`
+- `yarn verify:strict`
 
 ### What Is Still Open
 
-- `verify` and `verify:strict` have not been re-run in this session.
-- The broad `server` change set is only partially revalidated.
-- Producer/consumer contract drift is still a risk across `server`, `playground`, scaffolding, and docs.
-- Release/docs truth is not yet aligned with the live workspace.
+- `yarn verify` has not been rerun to completion after the current wave.
+- Public naming and vocabulary still drift across `DzupAgent`, `Forge`, and `DZIP` surfaces in `server`, scaffolder output, logs, and env vars.
+- Producer/consumer contract drift is still a risk across `server`, `playground`, scaffolding, and docs, especially where one codepath owns route behavior but multiple surfaces describe it.
+- Version and generated-doc truth improved in this wave, but the repo still lacks single-source ownership for several shared truth surfaces and still requires same-wave regeneration discipline.
+- Root lint policy still silently skips eight published packages because they do not expose `lint` scripts.
 
 ## Drift Diagnosis
 
-The main drift is process drift, not just code drift:
+The current drift is best understood in four buckets:
 
-1. Historical implementation plans are complete, but they are no longer the active control document for the current workspace.
-2. `check:improvements:drift` only proves that docs agree with docs; it does not prove that the repo still matches the last documented execution story.
-3. The most active packages are also the highest-risk runtime packages, so stale status claims now create coordination and release risk.
+1. Execution truth drift:
+   this was the main blocker at the start of the session and is now materially reduced. `yarn verify:strict` has been observed green end to end, and the highest-risk package slices were revalidated locally before widening back out.
+2. Generated truth drift:
+   generated artifacts such as `docs/CAPABILITY_MATRIX.md` can fall behind as soon as export surfaces change. This wave removed the brittle tooling path, but the workflow still depends on regenerating artifacts in the same execution wave as source changes.
+3. Contract truth drift:
+   active seams across `server`, `playground`, scaffolder output, and docs still do not have one explicit canonical owner per wire contract. That means local green tests can coexist with downstream confusion if route, envelope, or status semantics drift.
+4. Naming and policy drift:
+   mixed `DzupAgent` / `Forge` / `DZIP` vocabulary and the root-lint skip set both weaken the repo's trust model. Even when tests are green, ambiguous names and silent policy gaps make it harder to reason about what is stable, public, and governed.
+
+The practical implication is that the repo has moved beyond "unknown state" and into late-stage stabilization. The next tranche should minimize new drift by forcing code, generated truth, contract truth, and naming/policy truth to land together.
 
 ## Workstream Status
 
@@ -60,48 +82,32 @@ Legend:
 
 | Workstream | Status | Evidence |
 |---|---|---|
-| Verification baseline refresh | partially done | Drift/runtime inventory/domain-boundary checks are green; full `verify` and `verify:strict` remain open. |
-| Server runtime truth | partially done | Typecheck and 19 targeted lifecycle tests are green, but the broader `server` wave still needs deeper route/persistence review. |
-| Server auth and secret boundaries | partially done | 76 targeted control-plane/auth tests are green, but touched routes still need explicit revalidation against current analysis-pack guidance. |
+| Verification baseline refresh | done | Strict preflight checks are green, `@dzupagent/agent-adapters` coverage is restored, capability-matrix tooling is hermetic enough for sandboxed runs, and `yarn verify:strict` completed successfully. |
+| Server runtime truth | done | `@dzupagent/server` typecheck, lint, targeted runtime/auth/compile/workflow tests, and the full package test lane are green in the current session. |
+| Server auth and secret boundaries | partially done | Targeted auth/control-plane tests are green and the full `server` test lane passes, but explicit ownership and compatibility proof still need convergence across consumers and docs. |
 | Contract convergence across producers/consumers | not done | No shared 2026-04-23 checkpoint yet across `server`, `playground`, scaffolder, and docs. |
-| Release/docs status truth | in progress | Rebaseline exists, but shared tracked documentation needs to stay synchronized with future execution. |
+| Release/docs status truth | partially done | Capability-matrix tooling is now plain-Node and hermetic enough for sandboxed runs, `create-dzupagent` now emits `0.2.0` truth, and the remaining gaps are naming, README, and ownership drift rather than broken generation paths. |
 
 ## Next Tasks
 
-### 1. Finish Server Runtime Truth Revalidation
+### 1. Reduce Public Naming And Vocabulary Drift
 
 Scope:
-- `packages/server/src/runtime/run-worker.ts`
-- `packages/server/src/routes/runs.ts`
-- `packages/server/src/routes/run-trace.ts`
-- `packages/server/src/persistence/`
+- `packages/server/src/index.ts`
+- `packages/server/src/cli/`
+- `packages/server/src/runtime/`
+- `packages/create-dzupagent/`
+- high-traffic docs and READMEs
 
 Required verification:
-- `yarn workspace @dzupagent/server typecheck`
-- `yarn workspace @dzupagent/server test -- src/__tests__/run-trace-lifecycle.test.ts src/__tests__/runs-resume-semantics.test.ts src/__tests__/session-q-halted-run-status.test.ts`
-- Add or update focused tests if any terminal-state or cancellation behavior changed without direct coverage
+- `rg -n "createForgeApp|ForgeServerConfig|forge-|DZIP_|dzip-agent" packages/server packages/create-dzupagent docs`
+- rerun the narrowest package-local checks for any touched surfaces
+- update docs/examples in the same wave as any public rename or aliasing decision
 
 Exit rule:
-- Do not mark this done unless lifecycle reporting, cancellation semantics, and persistence wiring are all rechecked together.
+- Do not treat naming cleanup as complete while one product surface still presents overlapping `DzupAgent`, `Forge`, and `DZIP` terms without an explicit compatibility rationale.
 
-### 2. Finish Server Auth And Secret-Boundary Revalidation
-
-Scope:
-- `packages/server/src/app.ts`
-- `packages/server/src/routes/api-keys.ts`
-- `packages/server/src/routes/openai-compat/`
-- `packages/server/src/routes/compile.ts`
-- `packages/server/src/routes/compile-result-event.ts`
-- `packages/server/src/middleware/`
-
-Required verification:
-- `yarn workspace @dzupagent/server test -- src/__tests__/api-key-wiring.test.ts src/routes/__tests__/api-keys.test.ts src/routes/openai-compat/__tests__/routes.test.ts src/routes/openai-compat/__tests__/completions.test.ts`
-- Add denial-path coverage for any touched endpoint that mutates keys, prompts, compile execution, or compatibility routes
-
-Exit rule:
-- Do not mark this done without explicit unauthorized or owner-scope denial coverage for touched endpoints.
-
-### 3. Reconcile Contract Drift On Active Seams
+### 2. Reconcile Contract Drift On Active Seams
 
 Scope:
 - `packages/server/src/routes/`
@@ -110,21 +116,57 @@ Scope:
 - `docs/`
 
 Required verification:
-- Focused server tests on any changed route contracts
-- Smallest consumer-facing checks that prove the payload and status semantics still match
-- Doc/example updates in the same wave as contract changes
+- focused server tests on any changed route contracts
+- smallest consumer-facing checks that prove payload, envelope, and status semantics still match
+- doc/example updates in the same wave as contract changes
+- for scaffolder truth changes, rerun:
+  - `yarn workspace create-dzupagent typecheck`
+  - `yarn workspace create-dzupagent lint`
+  - `yarn workspace create-dzupagent test`
 
 Exit rule:
-- No contract-affecting change closes without server verification plus either a consumer update or a deliberate compatibility note.
+- No contract-affecting change closes without server verification plus either a consumer update or an explicit compatibility note.
 
-### 4. Restore Authoritative Workspace Gates
+### 3. Reduce Generated-Truth And Version-Truth Drift At The Source
+
+Required verification:
+- `yarn docs:capability-matrix`
+- `yarn check:capability-matrix`
+- `yarn workspace create-dzupagent test`
+- `rg -n "five built-in templates|0\\.1\\.0|\\^0\\.1\\.0" packages/create-dzupagent packages/*/README.md`
+
+Exit rule:
+- Do not mark this done while version identity, template inventory, or generated docs still require manual detective work to determine current truth.
+
+### 4. Reduce Policy Drift And Lint Blind Spots
+
+Required verification:
+- identify packages still skipped by root lint because they lack `lint`
+- current missing-lint set to reconcile:
+  - `@dzupagent/adapter-types`
+  - `@dzupagent/app-tools`
+  - `@dzupagent/code-edit-kit`
+  - `@dzupagent/flow-ast`
+  - `@dzupagent/flow-compiler`
+  - `@dzupagent/flow-dsl`
+  - `@dzupagent/hitl-kit`
+  - `@dzupagent/runtime-contracts`
+- decide whether each becomes:
+  - a real lint participant
+  - or an explicit tracked exception with owner, reason, and review date
+- rerun the narrowest repo-level lint proof justified by the touched configuration
+
+Exit rule:
+- The root policy should not silently skip packages that are otherwise treated as first-class runtime or release surfaces.
+
+### 5. Widen Back To The Broader Verification Lane
 
 Required verification:
 - `yarn verify`
-- `yarn verify:strict`
+- record the first failing package/check if this broader lane still exposes drift outside the strict baseline
 
 Exit rule:
-- If either fails, record the exact failing package/check before taking on unrelated work.
+- Do not claim repo-wide verification maturity from `verify:strict` alone if the broader baseline still diverges.
 
 ## Execution Rules To Minimize Drift
 
@@ -133,3 +175,5 @@ Exit rule:
 3. If a route, contract, or auth surface changes, update tests and docs in the same execution wave.
 4. Record exact failing commands rather than replacing them with generic "still in progress" wording.
 5. Do not use a passing doc-drift check as a substitute for live workspace revalidation.
+6. If an exported surface changes, regenerate the tracked generated artifacts in the same wave.
+7. If scaffolder defaults change, rerun scaffolder tests in the same wave so stale template truth does not persist.

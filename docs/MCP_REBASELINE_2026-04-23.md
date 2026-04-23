@@ -34,6 +34,10 @@ This rebaseline covers two distinct MCP directions that must not be conflated:
 Rule:
 - external MCP management and local MCP publishing may share protocol and transport utilities, but they are different trust boundaries and must remain different product surfaces
 
+Current execution note:
+- the active implementation wave is intentionally focused on framework publishing support in `@dzupagent/core` and `@dzupagent/express`
+- `packages/server` hardening remains valid work, but it is explicitly out of scope for this wave
+
 ## Current Reality
 
 ### What Is Already Implemented
@@ -67,10 +71,10 @@ There are also two useful app-side patterns already present:
 
 ### What Is Not Done Yet
 
-- `DzupAgentMCPServer` is still minimal and tool-focused
 - the `dzupagent/server` MCP control plane is not hardened enough by default
-- there is no shared app publishing kit for `apps/*/apps/api`
 - app MCP publishing patterns are already drifting from each other
+- app-level auth/context conventions for published MCP servers are not standardized yet
+- only `testman-app` and `research-app` have been migrated onto the shared `@dzupagent/express` publishing path so far
 - operator CLI UX and onboarding are still incomplete
 
 ## Drift Diagnosis
@@ -79,7 +83,7 @@ The main risk is not missing MCP support. The main risk is implementation drift 
 
 1. `dzupagent/core` MCP model
    - strong substrate
-   - minimal publishing surface
+   - canonical publishing surface now exists, but no app adopters are migrated yet
 
 2. `testman-app` MCP publishing model
    - simple, lightweight, tool-only
@@ -99,6 +103,10 @@ This creates the following drift classes:
   - app-local HTTP wrappers instead of one shared publishing adapter
 - schema drift
   - different tool result, resource, and error envelopes
+- request-context drift
+  - tenant/user context may still be resolved differently per app even though the shared router now supports request-scoped server resolution
+- local dependency-link drift
+  - consumer repos can fall back to the public registry when their `portal:` / workspace-link policy does not cover newly adopted framework packages
 - verification drift
   - no shared compatibility fixture proving identical behavior across publisher implementations
 
@@ -151,33 +159,34 @@ Legend:
 | Core MCP substrate in `dzupagent` | done | Client/manager/bridge/server/resources/sampling/security/reliability/connection pool all exist. |
 | Runtime MCP consumption in `dzupagent/server` | done | `mcp:*` selector resolution and route-level manager integration exist. |
 | Compiler/runtime lazy MCP resolution | done | `MCPAsyncToolResolver` exists in `@dzupagent/connectors`. |
-| Canonical MCP publishing core for apps | in progress | `DzupAgentMCPServer` exists, but only supports minimal tools/list + tools/call behavior. |
-| Shared app publishing transport glue | not done | No shared Express publishing kit yet; apps still carry local route glue. |
-| App adopter standardization | not done | `testman-app` and `research-app` use different MCP patterns. |
-| External MCP control-plane hardening | not done | `/api/mcp/*` still needs stronger authz, redaction, and transport policy. |
+| Canonical MCP publishing core for apps | done | `DzupAgentMCPServer` now supports `initialize`, notifications/`id:null`, resources, capability advertisement, structured tool results, and optional sampling handler support with focused tests. |
+| Shared app publishing transport glue | done | `@dzupagent/express` now exposes `createMcpRouter(...)`, request-scoped server resolution, and reusable MCP request-context auth helpers for tenant-aware publishers. |
+| App adopter standardization | in progress | `testman-app` and `research-app` are now migrated to the shared express router; `codev-app` and `ai-saas-starter-kit` are not migrated yet. |
+| External MCP control-plane hardening | not done | `/api/mcp/*` still needs stronger authz, redaction, and transport policy, but this is parked outside the current framework wave. |
 | Operator CLI onboarding and doctor flows | not done | `dzup mcp` UX is still mostly placeholder behavior. |
-| Shared compatibility verification across repos | not done | No single compatibility fixture suite covers core + app publishers. |
-| Drift-control documentation and rollout sequencing | in progress | This document establishes the current execution baseline. |
+| Shared compatibility verification across repos | in progress | `@dzupagent/test-utils` now exports a reusable MCP publisher compatibility suite, and `testman-app` consumes it. `research-app` still uses app-local publish-route assertions while its route harness is stabilized against the new shared auth helper. |
+| Drift-control documentation and rollout sequencing | in progress | This document now reflects the framework-only execution wave and updated next steps. |
 
 ## Focused Execution Order
 
 Work should proceed in this order to minimize rework:
 
 1. Freeze architecture and contract boundaries
-2. Harden external MCP control plane in `dzupagent/server`
-3. Expand shared publishing core in `@dzupagent/core`
-4. Add shared Express publishing adapter
-5. Migrate `testman-app`
-6. Migrate `research-app`
-7. Add read-first adoption in `codev-app`
-8. Add reference/scaffold support in `ai-saas-starter-kit`
-9. Add onboarding, doctor, and scaffolding
-10. Add final shared compatibility and rollout gates
+2. Expand shared publishing core in `@dzupagent/core`
+3. Add shared Express publishing adapter
+4. Migrate `testman-app`
+5. Migrate `research-app`
+6. Standardize reusable auth/context helpers for published MCP servers
+7. Add shared compatibility fixtures and rollout gates
+8. Add read-first adoption in `codev-app`
+9. Add reference/scaffold support in `ai-saas-starter-kit`
+10. Revisit `packages/server` hardening as a separate control-plane track
 
 Reason:
 
-- hardening and protocol clarity must come before multi-app rollout
+- protocol clarity must come before multi-app rollout
 - app migrations should prove the shared path rather than invent it
+- app auth/context conventions should be standardized before broad adoption, even though request-scoped server resolution is now available
 - onboarding should follow the stable implementation, not precede it
 
 ## Detailed Next Tasks
@@ -210,6 +219,10 @@ Exit rule:
 Goal:
 - make `/api/mcp/*` safe enough to serve as the external MCP control plane
 
+Current status:
+- intentionally deferred from the active framework wave
+- do not mix this work into app-publishing changes until adopter migrations are complete
+
 Required work:
 - add admin-only or capability-based authz on `/api/mcp/*`
 - redact `env`, `headers`, and secret refs from route responses
@@ -241,6 +254,21 @@ Exit rule:
 Goal:
 - turn `DzupAgentMCPServer` into the shared, protocol-correct publishing base for app APIs
 
+Current status:
+- completed for the framework wave
+
+Done in this wave:
+- added `initialize`
+- added notification-compatible handling for requests without `id`
+- added support for `id: null`
+- added `resources/list`
+- added `resources/templates/list`
+- added `resources/read`
+- added capability advertisement
+- added optional sampling handler support
+- added extensible registration/list methods for resources and resource templates
+- added focused core tests for the new protocol surface
+
 Required work:
 - add `initialize`
 - support `id: null` and notification-compatible handling
@@ -258,6 +286,8 @@ Likely files:
 
 Verification:
 - `cd dzupagent && yarn workspace @dzupagent/core test`
+- `cd dzupagent && yarn workspace @dzupagent/core test src/mcp/__tests__/mcp-server.test.ts`
+- `cd dzupagent && yarn workspace @dzupagent/core typecheck`
 - add dedicated focused tests for:
   - initialize response
   - invalid request envelope
@@ -272,6 +302,18 @@ Exit rule:
 
 Goal:
 - give app repos one blessed way to expose MCP over Express
+
+Current status:
+- completed for the framework wave
+
+Done in this wave:
+- added `createMcpRouter(...)` in `@dzupagent/express`
+- standardized JSON-RPC invalid-request and internal-error envelopes at the router layer
+- added notification handling that returns HTTP `204`
+- added optional helper routes for tools, resources, and resource templates
+- added auth and lifecycle hook entry points for app repos
+- added request-scoped server resolution so publishers can bind handlers to tenant/user context per request
+- added focused router tests
 
 Required work:
 - add a router factory in `@dzupagent/express`
@@ -288,6 +330,8 @@ Likely files:
 
 Verification:
 - `cd dzupagent && yarn workspace @dzupagent/express build`
+- `cd dzupagent && yarn workspace @dzupagent/express test src/__tests__/mcp-router.test.ts`
+- `cd dzupagent && yarn workspace @dzupagent/express typecheck`
 - add focused tests in the adapter package for:
   - valid MCP request routing
   - invalid request handling
@@ -301,13 +345,33 @@ Exit rule:
 Goal:
 - prove the shared publishing path with the simplest existing MCP publisher
 
+Current status:
+- completed for the first adopter wave
+
+Done in this wave:
+- migrated the MCP route to `createMcpRouter(...)`
+- preserved the existing tool surface while keeping resource/template helper routes disabled
+- tightened shared invalid-request validation so malformed MCP IDs are still rejected after migration
+- added focused integration coverage for:
+  - routed valid MCP requests
+  - notification `204` behavior
+  - invalid-request handling
+  - `/mcp/tools`
+  - auth middleware execution
+- fixed local consumer-link drift in `testman-app` by adding missing `portal:` resolutions for the newly consumed framework packages
+
 Required work:
-- migrate `testman-app` from local `DzupAgentMCPServer` route glue to the shared adapter
+- migrate `testman-app` from local `DzupAgentMCPServer` route glue to `createMcpRouter(...)`
 - preserve existing published tools:
   - `generate-test-cases`
   - `extract-requirements`
   - `query-rag`
 - keep behavior unchanged before expanding scope
+- add a parity test proving:
+  - existing auth still wraps the MCP endpoint
+  - `/mcp/tools` output is stable
+  - invalid JSON-RPC requests still return a compliant envelope
+  - notification requests do not produce a response body
 
 Likely files:
 - `apps/testman-app/apps/api/src/lib/dzupagent-mcp.ts`
@@ -316,6 +380,11 @@ Likely files:
 Verification:
 - `cd apps/testman-app && yarn workspace @testman-app/api run typecheck`
 - `cd apps/testman-app && yarn test:api:integration`
+- add a focused API test for the migrated MCP route before marking done
+
+Completed verification for this wave:
+- `cd apps/testman-app && yarn workspace @testman-app/api run typecheck`
+- `cd apps/testman-app && yarn workspace @testman-app/api test src/tests/integration/ai-observability.routes.test.ts`
 
 Exit rule:
 - parity tests must pass before adding any new tool/resource publishing features in this app
@@ -324,6 +393,23 @@ Exit rule:
 
 Goal:
 - prove the shared publishing path on a tenant-aware, resource-heavy app
+
+Current status:
+- completed for the second adopter wave
+
+Done in this wave:
+- added request-scoped server resolution support in `@dzupagent/express`
+- kept the existing REST management/control surface under cookie auth
+- added a separate JSON-RPC publish surface at `/api/research/mcp/publish`
+- authenticated the publish surface with MCP API keys rather than session cookies
+- bound published tool/resource handlers to tenant/user context per request
+- exposed resources and resource templates through the shared publisher path
+- added focused integration coverage for:
+  - missing API key denial
+  - valid publish helper route access
+  - `initialize`
+  - notification `204`
+  - invalid-request handling
 
 Required work:
 - keep tenant-aware API key auth
@@ -340,10 +426,79 @@ Verification:
 - `cd apps/research-app && yarn workspace @research-app/api typecheck`
 - `cd apps/research-app && yarn workspace @research-app/api test`
 
+Completed verification for this wave:
+- `cd apps/research-app && yarn install`
+- `cd apps/research-app && yarn workspace @research-app/api typecheck`
+- `cd apps/research-app && yarn workspace @research-app/api test src/tests/integration/mcp-publish.routes.test.ts`
+
 Exit rule:
 - do not collapse external MCP management concerns into the shared publishing layer; keep responsibilities separate
 
-### Task Group G — Read-First Adopters: `codev-app` And `ai-saas-starter-kit`
+### Task Group G — Shared Auth/Context Helpers And Compatibility Fixtures
+
+Goal:
+- stop each adopter app from inventing a slightly different auth/context wrapper around the shared router
+
+Current status:
+- partially completed in the current framework wave
+
+Done in this wave:
+- `@dzupagent/express` now exports reusable MCP request-context helpers:
+  - `createMcpRequestContextAuth(...)`
+  - `extractMcpCredential(...)`
+  - `getMcpRequestContext(...)`
+  - `requireMcpRequestContext(...)`
+- `research-app` publish routing now uses the shared request-context auth helper instead of app-local credential parsing and request mutation
+- `@dzupagent/test-utils` now exports `describeMcpPublisherCompatibilitySuite(...)`
+- the shared compatibility suite now covers:
+  - `initialize`
+  - `tools/list`
+  - `tools/call`
+  - invalid request
+  - `id: null`
+  - notifications
+  - optional resources
+  - optional resource templates
+- `testman-app` publish-route tests now consume the shared compatibility suite
+
+Remaining work:
+- migrate `research-app` onto the shared compatibility suite after its publish-route harness is stabilized
+- decide whether the compatibility suite should grow explicit assertions for capability payloads and error envelopes beyond invalid-request
+- extract a tiny shared Express test harness helper if more adopters need route-level MCP contract tests
+
+Required work:
+- define one reusable pattern for API-key or bearer-token backed MCP publish auth
+- define one shared request-context contract for:
+  - tenantId
+  - userId
+  - optional actor/service metadata
+- add a reusable compatibility fixture covering:
+  - `initialize`
+  - `tools/list`
+  - `tools/call`
+  - invalid request
+  - `id: null`
+  - notifications
+  - resources
+  - resource templates
+- make future adopters consume that fixture rather than re-implementing ad hoc route assertions
+
+Verification:
+- `cd dzupagent && yarn workspace @dzupagent/express test src/__tests__/mcp-context.test.ts src/__tests__/mcp-router.test.ts`
+- `cd dzupagent && yarn workspace @dzupagent/express typecheck`
+- `cd dzupagent && yarn workspace @dzupagent/test-utils test src/__tests__/mcp-compatibility.test.ts`
+- `cd dzupagent && yarn workspace @dzupagent/test-utils typecheck`
+- `cd apps/testman-app && yarn workspace @testman-app/api test src/tests/integration/ai-observability.routes.test.ts`
+- `cd apps/testman-app && yarn workspace @testman-app/api run typecheck`
+- `research-app` remains partially verified in this wave:
+  - `yarn install` completed after route changes
+  - full API typecheck is currently blocked by broader `@dzupagent/core` portal/declaration issues in the app workspace
+  - focused publish-route test currently needs a harness cleanup pass before it can be treated as a stable gate again
+
+Exit rule:
+- do not widen adopter rollout again until at least one tenant-aware adopter also consumes the shared compatibility suite cleanly
+
+### Task Group H — Read-First Adopters: `codev-app` And `ai-saas-starter-kit`
 
 Goal:
 - expand adoption without increasing side-effect risk early
@@ -366,7 +521,7 @@ Verification:
 Exit rule:
 - start read-only unless there is a strong product reason to expose mutation tools immediately
 
-### Task Group H — Operator UX And Onboarding
+### Task Group I — Operator UX And Onboarding
 
 Goal:
 - make MCP use and MCP publishing discoverable and supportable
@@ -392,7 +547,7 @@ Verification:
 Exit rule:
 - do not claim MCP product readiness if onboarding still requires reading internal code to wire basic publisher flows
 
-### Task Group I — Anti-Drift Quality Gates
+### Task Group J — Anti-Drift Quality Gates
 
 Goal:
 - stop MCP behavior from fragmenting across repos after rollout starts
@@ -409,14 +564,25 @@ Required work:
 - document policy:
   - no bespoke app-local JSON-RPC envelope handling unless explicitly justified
   - no new MCP auth model without shared review
+- standardize local consumer linking for framework packages:
+  - if an app repo develops against local `dzupagent` packages, its root package manager config must resolve all consumed internal packages through `portal:` / workspace links rather than relying on registry fallbacks
+- keep publish and control-plane surfaces separate:
+  - external MCP management may stay REST/control-plane oriented
+  - local app publishing must use the shared JSON-RPC publisher path rather than being folded into management routes
 
 Verification:
 - `dzupagent` targeted core/server tests
 - adopter app API typecheck + integration tests
+
+Next focused tasks from here:
+- stabilize `research-app` publish-route verification against the shared auth helper, then move it onto `describeMcpPublisherCompatibilitySuite(...)`
+- decide whether to place a shared Express MCP dispatch harness in `@dzupagent/test-utils` for adopter route tests
+- migrate `codev-app` with a read-only first wave
+- normalize local-link policy in the remaining consumer repos before further framework package adoption
 - release checklist updated with MCP-specific gates
 
 Exit rule:
-- do not widen app adoption until the compatibility suite exists and both `testman-app` and `research-app` pass it
+- do not widen app adoption until the compatibility suite exists and both `testman-app` and at least one tenant-aware adopter pass it
 
 ## Verification Matrix
 
