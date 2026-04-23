@@ -17,7 +17,6 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@dzupagent/agent": "0.2.0",
     "@dzupagent/core": "0.2.0",
     "mammoth": "^1.12.0",
     "pdf-parse": "^2.4.5"
@@ -31,6 +30,9 @@
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",
     "zod": "^4.3.6"
+  },
+  "resolutions": {
+    "@xmldom/xmldom": ">=0.8.13"
   },
   "files": [
     "dist"

@@ -18,6 +18,8 @@ import {
   type BaseMessage,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import type { TokenCounter } from './token-lifecycle.js'
+import { CharEstimateCounter } from './char-estimate-counter.js'
 
 export interface MessageManagerConfig {
   /** Maximum message count before triggering summarization (default 30) */
@@ -26,8 +28,17 @@ export interface MessageManagerConfig {
   keepRecentMessages?: number
   /** Maximum estimated token budget for the messages array (default 12 000) */
   maxMessageTokens?: number
-  /** Rough characters-per-token for budget estimation (default 4) */
+  /**
+   * Rough characters-per-token for budget estimation (default 4).
+   * Only consulted when `tokenCounter` is not provided.
+   */
   charsPerToken?: number
+  /**
+   * Pluggable token counter. Defaults to {@link CharEstimateCounter}
+   * (chars/4 heuristic). Swap in {@link TiktokenCounter} for precise
+   * OpenAI-compatible counts.
+   */
+  tokenCounter?: TokenCounter
   /** Number of recent messages whose tool results are preserved (default 6) */
   preserveRecentToolResults?: number
   /** Max chars for a pruned tool result placeholder (default 120) */
@@ -45,15 +56,38 @@ export interface MessageManagerConfig {
    * config surface. `summarizeAndTrim` itself ignores this field.
    */
   memoryFrame?: unknown
+  /**
+   * Structurally-typed event bus handle used to surface non-fatal
+   * compression failures. Emits `context:compress_failed` when
+   * summarization throws.
+   */
+  eventBus?: {
+    emit(event: { type: string } & Record<string, unknown>): void
+  }
 }
 
-const DEFAULTS: Omit<Required<MessageManagerConfig>, 'onFallback' | 'memoryFrame'> = {
+const DEFAULTS: Omit<Required<MessageManagerConfig>, 'onFallback' | 'memoryFrame' | 'eventBus' | 'tokenCounter'> = {
   maxMessages: 30,
   keepRecentMessages: 10,
   maxMessageTokens: 12_000,
   charsPerToken: 4,
   preserveRecentToolResults: 6,
   prunedToolResultMaxChars: 120,
+}
+
+/** Shared default. Constructed once so callers that don't inject a counter
+ *  do not pay a per-call allocation cost. */
+const DEFAULT_TOKEN_COUNTER: TokenCounter = new CharEstimateCounter()
+
+/**
+ * Resolve the effective token counter from a user-supplied config, with a
+ * single fallback to the shared default. When the caller leaves
+ * `tokenCounter` unset but overrides `charsPerToken`, the default counter
+ * is still used and the per-call estimator falls through to the `/
+ * charsPerToken` path so the historical behaviour is preserved.
+ */
+function resolveTokenCounter(config?: MessageManagerConfig): TokenCounter {
+  return config?.tokenCounter ?? DEFAULT_TOKEN_COUNTER
 }
 
 // ---------- Structured summary template --------------------------------------
@@ -90,7 +124,22 @@ function getMessageContent(m: BaseMessage): string {
   return typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
 }
 
-function estimateTokens(text: string, charsPerToken: number): number {
+/**
+ * Local token-estimate helper. When the caller has wired a
+ * {@link TokenCounter} into `MessageManagerConfig.tokenCounter`, this
+ * delegates to it (passing `model` when available). Otherwise it falls back
+ * to the legacy `length / charsPerToken` shape so tests and callers that
+ * tune only `charsPerToken` keep working unchanged.
+ */
+function estimateTokens(
+  text: string,
+  charsPerToken: number,
+  counter?: TokenCounter,
+  model?: string,
+): number {
+  if (counter && counter !== DEFAULT_TOKEN_COUNTER) {
+    return counter.count(text, model)
+  }
   return Math.ceil(text.length / charsPerToken)
 }
 
@@ -270,6 +319,17 @@ export function shouldSummarize(
 
   if (messages.length > cfg.maxMessages) return true
 
+  // When an explicit tokenCounter is wired, use it (accurate per-message
+  // count); otherwise sum chars and divide (legacy behaviour).
+  const counter = resolveTokenCounter(config)
+  if (config?.tokenCounter && counter !== DEFAULT_TOKEN_COUNTER) {
+    const totalTokens = messages.reduce(
+      (sum, m) => sum + counter.count(getMessageContent(m)),
+      0,
+    )
+    return totalTokens > cfg.maxMessageTokens
+  }
+
   const totalChars = messages.reduce((sum, m) => {
     return sum + getMessageContent(m).length
   }, 0)
@@ -329,7 +389,11 @@ export async function summarizeAndTrim(
     .join('\n')
 
   // Scale summary budget: ~20% of the old content's token estimate
-  const oldTokens = estimateTokens(formattedOld, cfg.charsPerToken)
+  const oldTokens = estimateTokens(
+    formattedOld,
+    cfg.charsPerToken,
+    resolveTokenCounter(config),
+  )
   const summaryBudget = Math.min(Math.max(Math.round(oldTokens * 0.2), 200), 2000)
 
   const userPrompt = existingSummary
@@ -347,8 +411,14 @@ export async function summarizeAndTrim(
         : JSON.stringify(response.content)
 
     return { summary, trimmedMessages: repairedRecent }
-  } catch {
-    // If summarization fails, just trim without summarizing
+  } catch (err) {
+    // Compression failures must never abort a run. Surface via the event
+    // bus so telemetry/observability picks it up and fall back to trim.
+    config?.eventBus?.emit({
+      type: 'context:compress_failed',
+      error: err instanceof Error ? err.message : String(err),
+      phase: 'summarize',
+    })
     return { summary: existingSummary ?? '', trimmedMessages: repairedRecent }
   }
 }

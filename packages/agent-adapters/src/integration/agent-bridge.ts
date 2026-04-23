@@ -20,7 +20,7 @@ import type {
   TaskDescriptor,
   TokenUsage,
 } from '../types.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,7 +68,7 @@ export interface ToolInvocationArgs {
   systemPrompt?: string | undefined
 }
 
-function resolveRegistryProviderId(registry: AdapterRegistry): AdapterProviderId {
+function resolveRegistryProviderId(registry: ProviderAdapterRegistry): AdapterProviderId {
   return registry.listAdapters()[0] ?? ('unknown' as AdapterProviderId)
 }
 
@@ -86,7 +86,7 @@ export class AdapterAsToolWrapper {
   private readonly toolDescription: string
 
   constructor(
-    private readonly registry: AdapterRegistry,
+    private readonly registry: ProviderAdapterRegistry,
     private readonly config: AdapterToolConfig,
   ) {
     this.toolName = config.name ?? `adapter_${config.providerId}`
@@ -223,7 +223,7 @@ export class AdapterAsToolWrapper {
  */
 class RoutedToolWrapper extends AdapterAsToolWrapper {
   constructor(
-    private readonly routedRegistry: AdapterRegistry,
+    private readonly routedRegistry: ProviderAdapterRegistry,
     config: {
       name?: string | undefined
       description?: string | undefined
@@ -362,7 +362,7 @@ class RoutedToolWrapper extends AdapterAsToolWrapper {
  * ```
  */
 export class AgentIntegrationBridge {
-  constructor(private readonly registry: AdapterRegistry) {}
+  constructor(private readonly registry: ProviderAdapterRegistry) {}
 
   /**
    * Create a tool wrapper for a specific adapter.

@@ -57,6 +57,13 @@ export const forgeRuns = pgTable('forge_runs', {
   tokenUsageOutput: integer('token_usage_output').default(0),
   costCents: real('cost_cents').default(0),
   error: text('error'),
+  /**
+   * API key identifier that created this run. Populated from the
+   * authenticated `apiKey` context variable; nullable for backward
+   * compatibility with rows created before tenant scoping was enforced.
+   * Consumed by server routes to reject cross-key reads/writes with 404.
+   */
+  ownerId: text('owner_id'),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
   /** Optional pgvector embedding of run input for semantic search. */
   inputEmbedding: vectorColumn('input_embedding', { dimensions: 1536 }),

@@ -1,5 +1,5 @@
 /**
- * AdapterRegistry — manages agent adapters with circuit breaker integration,
+ * ProviderAdapterRegistry — manages provider adapters with circuit breaker integration,
  * event bus observability, and automatic fallback execution.
  *
  * Each adapter is tracked by its AdapterProviderId. Circuit breakers prevent
@@ -39,15 +39,15 @@ function isProviderRawStreamEvent(event: AgentStreamEvent): event is Extract<Age
   return event.type === 'adapter:provider_raw'
 }
 
-export interface AdapterRegistryConfig {
+export interface ProviderAdapterRegistryConfig {
   /** Circuit breaker config applied to all adapters */
   circuitBreaker?: Partial<CircuitBreakerConfig> | undefined
 }
-
-export type ProviderAdapterRegistryConfig = AdapterRegistryConfig
+/** @deprecated Use `ProviderAdapterRegistryConfig`. */
+export type AdapterRegistryConfig = ProviderAdapterRegistryConfig
 
 /** Detailed per-adapter health including circuit breaker diagnostics. */
-export interface AdapterHealthDetail {
+export interface ProviderAdapterHealthDetail {
   healthy: boolean
   providerId: string
   sdkInstalled: boolean
@@ -62,19 +62,19 @@ export interface AdapterHealthDetail {
   /** Last failure timestamp */
   lastFailureAt?: number | undefined
 }
-
-export type ProviderAdapterHealthDetail = AdapterHealthDetail
+/** @deprecated Use `ProviderAdapterHealthDetail`. */
+export type AdapterHealthDetail = ProviderAdapterHealthDetail
 
 /** Aggregated detailed health status for all registered adapters. */
-export interface DetailedHealthStatus {
+export interface ProviderAdapterRegistryHealthStatus {
   status: 'healthy' | 'degraded' | 'unhealthy'
-  adapters: Record<string, AdapterHealthDetail>
+  adapters: Record<string, ProviderAdapterHealthDetail>
   timestamp: number
 }
+/** @deprecated Use `ProviderAdapterRegistryHealthStatus`. */
+export type DetailedHealthStatus = ProviderAdapterRegistryHealthStatus
 
-export type ProviderAdapterRegistryHealthStatus = DetailedHealthStatus
-
-export class AdapterRegistry {
+export class ProviderAdapterRegistry {
   private readonly adapters = new Map<AdapterProviderId, AgentCLIAdapter>()
   private readonly breakers = new Map<AdapterProviderId, CircuitBreaker>()
   private readonly cbConfig: Partial<CircuitBreakerConfig> | undefined
@@ -85,7 +85,7 @@ export class AdapterRegistry {
   private router: TaskRoutingStrategy = new TagBasedRouter()
   private eventBus: DzupEventBus | undefined
 
-  constructor(config?: AdapterRegistryConfig) {
+  constructor(config?: ProviderAdapterRegistryConfig) {
     this.cbConfig = config?.circuitBreaker
   }
 
@@ -477,9 +477,9 @@ export class AdapterRegistry {
    * Get detailed health with circuit breaker state for each adapter.
    * Use for /health/detailed endpoints and Kubernetes readiness probes.
    */
-  async getDetailedHealth(): Promise<DetailedHealthStatus> {
+  async getDetailedHealth(): Promise<ProviderAdapterRegistryHealthStatus> {
     const basicHealth = await this.getHealthStatus()
-    const adapters: Record<string, AdapterHealthDetail> = {}
+    const adapters: Record<string, ProviderAdapterHealthDetail> = {}
 
     let allHealthy = true
     let anyHealthy = false
@@ -622,4 +622,5 @@ export class AdapterRegistry {
   }
 }
 
-export { AdapterRegistry as ProviderAdapterRegistry }
+/** @deprecated Use `ProviderAdapterRegistry`. */
+export { ProviderAdapterRegistry as AdapterRegistry }

@@ -10,8 +10,14 @@
 // Types
 // ---------------------------------------------------------------------------
 
-/** Retry configuration for a single skill-chain step. */
-export interface RetryPolicy {
+import type { RetryPolicy as CanonicalRetryPolicy } from '@dzupagent/agent-types'
+
+/**
+ * Retry configuration for a single skill-chain step. Extends the canonical
+ * `RetryPolicy` from `@dzupagent/agent-types` with a skill-chain-specific
+ * `retryableErrors` filter, and tightens `maxAttempts` to be required.
+ */
+export interface RetryPolicy extends Omit<CanonicalRetryPolicy, 'maxAttempts' | 'initialBackoffMs' | 'maxBackoffMs' | 'multiplier' | 'jitter'> {
   /** Total number of attempts (including the first). Must be >= 1. */
   maxAttempts: number
   /** Initial backoff delay in ms (default: 100). */
@@ -28,6 +34,9 @@ export interface RetryPolicy {
    */
   retryableErrors?: Array<string | RegExp>
 }
+
+/** @deprecated Use `RetryPolicy` from `@dzupagent/agent-types` for the canonical shape. */
+export type RetryConfig = RetryPolicy
 
 /** Merge strategy for parallel step groups. */
 export type ParallelMergeStrategy = 'merge-objects' | 'last-wins'

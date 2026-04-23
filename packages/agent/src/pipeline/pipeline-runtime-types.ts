@@ -109,16 +109,21 @@ export interface LoopMetrics {
 // Retry policy
 // ---------------------------------------------------------------------------
 
-/** Retry configuration for transient node failures. */
-export interface RetryPolicy {
+import type { RetryPolicy as CanonicalRetryPolicy } from '@dzupagent/agent-types'
+
+/**
+ * Retry configuration for transient node failures.
+ *
+ * Extends the canonical `RetryPolicy` from `@dzupagent/agent-types` with a
+ * pipeline-specific `retryableErrors` filter. The shared fields
+ * (`initialBackoffMs`, `maxBackoffMs`, `multiplier`, `backoffMultiplier`,
+ * `jitter`) come from the canonical shape.
+ */
+export interface RetryPolicy extends Omit<CanonicalRetryPolicy, 'initialBackoffMs' | 'maxBackoffMs' | 'jitter'> {
   /** Initial backoff delay in ms (default: 1000) */
   initialBackoffMs?: number
   /** Maximum backoff delay in ms (default: 30000) */
   maxBackoffMs?: number
-  /** Backoff multiplier (default: 2). Alias: `backoffMultiplier`. */
-  multiplier?: number
-  /** Alias for `multiplier` (default: 2). If both are set, `multiplier` takes precedence. */
-  backoffMultiplier?: number
   /**
    * When true, adds random jitter (0-50%) to the calculated backoff delay
    * to prevent thundering-herd problems. Default: false.

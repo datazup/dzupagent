@@ -16,8 +16,46 @@
 import type { BaseStore } from '@langchain/langgraph'
 import type { NamespaceConfig, FormatOptions, SemanticStoreAdapter } from './memory-types.js'
 import { sanitizeMemoryContent } from './memory-sanitizer.js'
-import { scoreWithDecay } from './decay-engine.js'
+import { createDecayMetadata, scoreWithDecay } from './decay-engine.js'
 import type { DecayMetadata } from './decay-engine.js'
+
+/**
+ * Structurally-typed PII detection result. Mirrors
+ * `PIIDetectionResult` from `@dzupagent/core/security/pii-detector`
+ * without creating a hard dependency on core (memory sits below core
+ * in the dependency graph).
+ */
+export interface MemoryPIIResult {
+  hasPII: boolean
+  redacted: string
+}
+
+/**
+ * Structurally-typed event bus for non-fatal memory telemetry.
+ * Mirrors the shape of `DzupEventBus.emit` — only the method we use.
+ */
+export interface MemoryEventBus {
+  emit(event: { type: string } & Record<string, unknown>): void
+}
+
+export interface MemoryServiceOptions {
+  rejectUnsafe?: boolean
+  semanticStore?: SemanticStoreAdapter
+  referenceTracker?: ReferenceTracker
+  /** Toggle PII detection/redaction on the write path. Defaults to true. */
+  piiRedactionEnabled?: boolean
+  /**
+   * Optional PII detector. When provided and `piiRedactionEnabled !== false`,
+   * text content is scanned and redacted before persistence. Structurally
+   * typed to accept `detectPII` from `@dzupagent/core/security` without a
+   * compile-time dependency on core.
+   */
+  detectPII?: (text: string) => MemoryPIIResult
+  /** Optional event bus for non-fatal telemetry emission. */
+  eventBus?: MemoryEventBus
+  /** Agent id used as a tag when emitting memory events. */
+  agentId?: string
+}
 import {
   getMemoryStoreCapabilities,
   type MemoryStoreCapabilities,
@@ -40,17 +78,23 @@ export class MemoryService {
   private readonly semanticStore: SemanticStoreAdapter | undefined
   private readonly storeCapabilities: MemoryStoreCapabilities
   private readonly referenceTracker: ReferenceTracker | undefined
+  private readonly options: MemoryServiceOptions | undefined
+  private readonly eventBus: MemoryEventBus | undefined
+  private readonly agentId: string | undefined
 
   constructor(
     private readonly store: BaseStore,
     namespaces: NamespaceConfig[],
-    options?: { rejectUnsafe?: boolean; semanticStore?: SemanticStoreAdapter; referenceTracker?: ReferenceTracker },
+    options?: MemoryServiceOptions,
   ) {
     this.nsMap = new Map(namespaces.map(ns => [ns.name, ns]))
     this.rejectUnsafe = options?.rejectUnsafe ?? true
     this.semanticStore = options?.semanticStore
     this.referenceTracker = options?.referenceTracker
     this.storeCapabilities = getMemoryStoreCapabilities(store)
+    this.options = options
+    this.eventBus = options?.eventBus
+    this.agentId = options?.agentId
   }
 
   // ---------- Internals -------------------------------------------------------
@@ -109,14 +153,35 @@ export class MemoryService {
     key: string,
     value: Record<string, unknown>,
   ): Promise<void> {
+    let workingValue = value
+    let textContent = typeof workingValue['text'] === 'string'
+      ? (workingValue['text'] as string)
+      : JSON.stringify(workingValue)
+
     if (this.rejectUnsafe) {
-      const textContent = typeof value['text'] === 'string'
-        ? value['text']
-        : JSON.stringify(value)
       const result = sanitizeMemoryContent(textContent)
       if (!result.safe) {
         // Silently reject — security violations should not surface to the LLM
         return
+      }
+    }
+
+    // PII detection / redaction (non-fatal). When a detector is supplied
+    // and redaction is enabled (default), rewrite `text` to the redacted
+    // form so persisted memories never contain raw PII.
+    if (this.options?.piiRedactionEnabled !== false && this.options?.detectPII) {
+      try {
+        const piiResult = this.options.detectPII(textContent)
+        if (piiResult.hasPII) {
+          textContent = piiResult.redacted
+          workingValue = { ...workingValue, text: textContent }
+          this.eventBus?.emit({
+            type: 'memory:pii_redacted',
+            agentId: this.agentId ?? 'unknown',
+          })
+        }
+      } catch {
+        // PII detection must never abort a write
       }
     }
 
@@ -126,9 +191,19 @@ export class MemoryService {
       // For searchable namespaces, ensure a "text" field exists in the value.
       // PostgresStore uses this field for embedding/indexing. Without it,
       // semantic search silently returns no results.
-      let enriched = value
-      if (ns.searchable && typeof value['text'] !== 'string') {
-        enriched = { ...value, text: JSON.stringify(value) }
+      let enriched = workingValue
+      if (ns.searchable && typeof enriched['text'] !== 'string') {
+        enriched = { ...enriched, text: JSON.stringify(enriched) }
+      }
+
+      // Auto-populate decay metadata so every persisted memory participates
+      // in decay-aware retrieval (strength, accessCount, half-life). Caller-
+      // supplied `_decay` is preserved when present.
+      if (!enriched['_decay']) {
+        const importance = typeof enriched['importance'] === 'number'
+          ? (enriched['importance'] as number)
+          : 0.5
+        enriched = { ...enriched, _decay: createDecayMetadata({ importance }) }
       }
       await this.store.put(
         tuple,

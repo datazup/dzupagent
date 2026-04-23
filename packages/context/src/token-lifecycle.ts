@@ -60,6 +60,25 @@ export interface TokenLifecycleReport {
   recommendation?: string
 }
 
+/**
+ * Pluggable token counter. Implementations may use chars/4 heuristics
+ * (cheap, imprecise) or real model-specific encoders (e.g. `js-tiktoken`).
+ *
+ * Call sites that need to budget tokens should accept an optional
+ * `TokenCounter` so downstream consumers can opt in to precise counting
+ * without pulling heavyweight deps into this package.
+ */
+export interface TokenCounter {
+  /**
+   * Count tokens for a piece of text.
+   * @param text  The text to count.
+   * @param model Optional model identifier (e.g. `gpt-4o-mini`). Counters
+   *              that support model-specific vocabularies should use it;
+   *              heuristic counters may ignore it.
+   */
+  count(text: string, model?: string): number
+}
+
 const DEFAULT_WARN = 0.8
 const DEFAULT_CRITICAL = 0.95
 

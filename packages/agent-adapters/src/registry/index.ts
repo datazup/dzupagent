@@ -1,12 +1,16 @@
-export { AdapterRegistry } from './adapter-registry.js'
 export { ProviderAdapterRegistry } from './adapter-registry.js'
 export type {
-  AdapterRegistryConfig,
   ProviderAdapterRegistryConfig,
-  AdapterHealthDetail,
   ProviderAdapterHealthDetail,
-  DetailedHealthStatus,
   ProviderAdapterRegistryHealthStatus,
+} from './adapter-registry.js'
+/** @deprecated Use `ProviderAdapterRegistry`. */
+export { AdapterRegistry } from './adapter-registry.js'
+/** @deprecated Use `ProviderAdapterRegistryConfig`, `ProviderAdapterHealthDetail`, and `ProviderAdapterRegistryHealthStatus`. */
+export type {
+  AdapterRegistryConfig,
+  AdapterHealthDetail,
+  DetailedHealthStatus,
 } from './adapter-registry.js'
 
 export {

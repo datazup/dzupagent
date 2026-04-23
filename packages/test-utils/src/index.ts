@@ -21,6 +21,15 @@ export {
   waitForCondition,
 } from './test-helpers.js'
 export {
+  createExpressRouteHarness,
+} from './express-route-harness.js'
+export type {
+  ExpressRouteDispatchInput,
+  ExpressRouteHarness,
+  ExpressRouteHarnessResponse,
+  ExpressRouteHarnessState,
+} from './express-route-harness.js'
+export {
   describeMcpPublisherCompatibilitySuite,
 } from './mcp-compatibility.js'
 export type {

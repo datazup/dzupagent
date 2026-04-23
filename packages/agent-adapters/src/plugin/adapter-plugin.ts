@@ -12,8 +12,8 @@ import type { DzupEventBus, DzupEventOf } from '@dzupagent/core'
 import { defaultLogger } from '@dzupagent/core'
 
 import type { AgentCLIAdapter, TaskRoutingStrategy } from '../types.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
-import type { AdapterRegistryConfig } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistryConfig } from '../registry/adapter-registry.js'
 import { EventBusBridge } from '../registry/event-bus-bridge.js'
 import { CostTrackingMiddleware } from '../middleware/cost-tracking.js'
 import type { CostTrackingConfig } from '../middleware/cost-tracking.js'
@@ -28,7 +28,7 @@ export interface AdapterPluginConfig {
   /** Adapters to register. If not provided, none are registered automatically. */
   adapters?: AgentCLIAdapter[]
   /** Registry config (circuit breaker settings) */
-  registryConfig?: AdapterRegistryConfig
+  registryConfig?: ProviderAdapterRegistryConfig
   /** Cost tracking config */
   costTracking?: CostTrackingConfig
   /** Session registry config */
@@ -64,7 +64,7 @@ export interface AdapterPluginInstance {
   eventHandlers: Record<string, (event: unknown) => void | Promise<void>>
 
   /** Access the adapter registry */
-  getRegistry(): AdapterRegistry
+  getRegistry(): ProviderAdapterRegistry
   /** Access the session registry (if enabled) */
   getSessionRegistry(): SessionRegistry | undefined
   /** Access the cost tracking middleware (if enabled) */
@@ -95,7 +95,7 @@ const PLUGIN_VERSION = '0.1.0'
  */
 export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPluginInstance {
   // Subsystems — initialised lazily in onRegister
-  let registry: AdapterRegistry | undefined
+  let registry: ProviderAdapterRegistry | undefined
   let eventBridge: EventBusBridge | undefined
   let costTracking: CostTrackingMiddleware | undefined
   let sessionRegistry: SessionRegistry | undefined
@@ -117,8 +117,8 @@ export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPl
     onRegister(ctx: { eventBus: DzupEventBus; modelRegistry?: unknown }): void {
       const { eventBus } = ctx
 
-      // 1. Create AdapterRegistry
-      registry = new AdapterRegistry(config.registryConfig)
+      // 1. Create the provider adapter registry
+      registry = new ProviderAdapterRegistry(config.registryConfig)
 
       // 2. Register provided adapters
       if (config.adapters) {
@@ -166,7 +166,7 @@ export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPl
 
     eventHandlers,
 
-    getRegistry(): AdapterRegistry {
+    getRegistry(): ProviderAdapterRegistry {
       if (!registry) {
         throw new Error(
           `AdapterPlugin "${PLUGIN_NAME}" has not been registered yet. ` +

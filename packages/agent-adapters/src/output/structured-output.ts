@@ -31,7 +31,7 @@ import type {
   AgentInput,
   TaskDescriptor,
 } from '../types.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 
 // ---------------------------------------------------------------------------
 // Schema interfaces
@@ -178,7 +178,7 @@ function buildFailureResult<T>(
  * Returns the completed event (if any) and all yielded events.
  */
 async function collectExecution(
-  registry: AdapterRegistry,
+  registry: ProviderAdapterRegistry,
   input: AgentInput,
   task: TaskDescriptor,
 ): Promise<{ completed: AgentCompletedEvent | undefined; events: AgentEvent[] }> {
@@ -359,13 +359,13 @@ export class RegexOutputSchema implements OutputSchema<RegExpMatchArray> {
 // ---------------------------------------------------------------------------
 
 export class StructuredOutputAdapter {
-  private readonly registry: AdapterRegistry
+  private readonly registry: ProviderAdapterRegistry
   private readonly maxRetries: number
   private readonly injectFormatInstructions: boolean
   private readonly eventBus: DzupEventBus | undefined
 
   constructor(
-    registry: AdapterRegistry,
+    registry: ProviderAdapterRegistry,
     config?: StructuredOutputConfig,
   ) {
     this.registry = registry

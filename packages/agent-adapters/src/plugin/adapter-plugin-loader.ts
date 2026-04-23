@@ -1,6 +1,6 @@
 import { ForgeError } from '@dzupagent/core'
 import type { AdapterProviderId } from '../types.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type { CostModelRegistry } from '../middleware/cost-models.js'
 import type { AdapterPlugin } from './adapter-plugin-sdk.js'
 import { isAdapterPlugin } from './adapter-plugin-sdk.js'
@@ -17,7 +17,7 @@ export class AdapterPluginLoader {
   private readonly pluginProviderMap = new Map<string, AdapterProviderId>()
 
   constructor(
-    private readonly registry: AdapterRegistry,
+    private readonly registry: ProviderAdapterRegistry,
     private readonly costModels?: CostModelRegistry,
   ) {}
 

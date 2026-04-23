@@ -339,7 +339,10 @@ export class RunReflector {
    * Score using LLM reflection. Throws on failure.
    */
   private async scoreLlm(input: ReflectionInput): Promise<LlmReflectionResult> {
-    const llm = this.config!.llm!
+    if (!this.config?.llm) {
+      throw new Error('RunReflector: llm is not configured — scoreLlm() called without a configured llm function')
+    }
+    const llm = this.config.llm
     const prompt = this.buildLlmPrompt(input)
     const raw = await llm(prompt)
     const result = this.parseLlmResponse(raw)

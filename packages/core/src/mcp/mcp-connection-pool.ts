@@ -64,17 +64,29 @@ export function hashServerConfig(config: MCPServerConfig): string {
   return createHash('sha256').update(normalized).digest('hex').slice(0, 16)
 }
 
-/** Calculate exponential backoff delay with jitter. */
+import { calculateBackoff as sharedCalculateBackoff } from '../utils/backoff.js'
+
+/**
+ * Calculate exponential backoff delay with jitter.
+ *
+ * Thin adapter over `calculateBackoff` in `utils/backoff.ts` — preserved
+ * under this name so the existing (`attempt, baseMs, maxMs`) positional
+ * signature used by this module stays stable. Uses equal-jitter
+ * (50%–100% of the capped delay) via the shared helper.
+ */
 export function calculateBackoff(
   attempt: number,
   baseMs: number,
   maxMs: number,
 ): number {
-  const exponential = baseMs * Math.pow(2, attempt)
-  const clamped = Math.min(exponential, maxMs)
-  // Add 0-25% jitter to prevent thundering herd
-  const jitter = clamped * 0.25 * Math.random()
-  return Math.floor(clamped + jitter)
+  return Math.floor(
+    sharedCalculateBackoff(attempt, {
+      initialBackoffMs: baseMs,
+      maxBackoffMs: maxMs,
+      multiplier: 2,
+      jitter: true,
+    }),
+  )
 }
 
 // ---------------------------------------------------------------------------

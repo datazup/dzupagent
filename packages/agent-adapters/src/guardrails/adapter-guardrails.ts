@@ -7,9 +7,12 @@
  */
 
 import { createHash } from 'node:crypto'
+import type { StuckDetectorConfig } from '@dzupagent/agent-types'
 import type { DzupEventBus } from '@dzupagent/core'
 import type { BudgetUsage } from '@dzupagent/core'
 import type { AgentEvent, AgentStreamEvent, TokenUsage } from '../types.js'
+
+export type { StuckDetectorConfig }
 
 function isProviderRawStreamEvent(
   event: AgentStreamEvent,
@@ -21,23 +24,15 @@ function isProviderRawStreamEvent(
 // Stuck detector types
 // ---------------------------------------------------------------------------
 
-export interface StuckDetectorConfig {
-  /** Max identical sequential tool calls before flagging (default: 3) */
-  maxRepeatCalls: number
-  /** Max errors in a window before flagging (default: 5) */
-  maxErrorsInWindow: number
-  /** Error window in ms (default: 60_000) */
-  errorWindowMs: number
-  /** Max iterations with no tool calls before flagging (default: 3) */
-  maxIdleIterations: number
-}
-
 export interface StuckStatus {
   stuck: boolean
   reason?: string
 }
 
-const DEFAULT_STUCK_CONFIG: StuckDetectorConfig = {
+/** Fully-resolved stuck config with defaults applied. */
+type ResolvedStuckDetectorConfig = Required<StuckDetectorConfig>
+
+const DEFAULT_STUCK_CONFIG: ResolvedStuckDetectorConfig = {
   maxRepeatCalls: 3,
   maxErrorsInWindow: 5,
   errorWindowMs: 60_000,
@@ -107,9 +102,9 @@ export class AdapterStuckDetector {
   private recentCalls: Array<{ name: string; hash: string; timestamp: number }> = []
   private recentErrors: Array<{ message: string; timestamp: number }> = []
   private idleCount = 0
-  private readonly config: StuckDetectorConfig
+  private readonly config: ResolvedStuckDetectorConfig
 
-  constructor(config?: Partial<StuckDetectorConfig>) {
+  constructor(config?: StuckDetectorConfig) {
     this.config = { ...DEFAULT_STUCK_CONFIG, ...config }
   }
 

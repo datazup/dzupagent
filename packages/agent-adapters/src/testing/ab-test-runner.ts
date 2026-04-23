@@ -10,7 +10,7 @@
 import type { DzupEventBus } from '@dzupagent/core'
 import { Semaphore } from '@dzupagent/core/orchestration'
 
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterConfig,
   AdapterProviderId,
@@ -23,7 +23,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 export interface ABTestConfig {
-  registry: AdapterRegistry
+  registry: ProviderAdapterRegistry
   eventBus?: DzupEventBus
 }
 
@@ -320,7 +320,7 @@ interface ABJob {
 // ---------------------------------------------------------------------------
 
 export class ABTestRunner {
-  private readonly registry: AdapterRegistry
+  private readonly registry: ProviderAdapterRegistry
   private readonly eventBus: DzupEventBus | undefined
 
   constructor(config: ABTestConfig) {

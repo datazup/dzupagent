@@ -11,6 +11,7 @@
  */
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
+import type * as TsMorph from 'ts-morph'
 
 /**
  * Minimal interface for an MCP client instance.
@@ -45,10 +46,10 @@ export interface RenameSymbolResult {
  * Load ts-morph dynamically so the peer dep stays optional.
  * Throws the canonical error message when ts-morph is not installed.
  */
-async function loadTsMorph(): Promise<typeof import('ts-morph')> {
+async function loadTsMorph(): Promise<typeof TsMorph> {
   try {
     // Using a dynamic import keeps this an optional peer.
-    return (await import('ts-morph')) as typeof import('ts-morph')
+    return (await import('ts-morph')) as typeof TsMorph
   } catch {
     throw new Error('ts-morph is required for rename-symbol tool')
   }

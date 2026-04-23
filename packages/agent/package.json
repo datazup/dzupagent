@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@dzupagent/adapter-types": "0.2.0",
+    "@dzupagent/agent-types": "0.2.0",
     "@dzupagent/context": "0.2.0",
     "@dzupagent/core": "0.2.0",
     "@dzupagent/memory-ipc": "0.2.0"

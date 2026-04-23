@@ -41,6 +41,7 @@ function eventToAuditAction(eventType: string): string | undefined {
     'agent:failed': 'agent.failed',
     'tool:called': 'tool.called',
     'tool:error': 'tool.error',
+    'llm:invoked': 'llm.invoked',
   }
   return mapping[eventType]
 }

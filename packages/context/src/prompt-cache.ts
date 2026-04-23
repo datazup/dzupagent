@@ -128,6 +128,35 @@ export function applyAnthropicCacheControl(
 }
 
 /**
+ * Strategy for placing cache breakpoints on non-system messages.
+ *
+ * - `'positional'` (legacy): always mark the LAST 3 non-system messages.
+ *   Simple but sensitive to tool-result insertions — a new ToolMessage
+ *   shifts the window and invalidates the cache on every turn.
+ *
+ * - `'content-addressed'` (default, new): prefer stable message boundaries
+ *   — messages with a `cacheAnchor: true` metadata flag, or messages with
+ *   text content longer than {@link CONTENT_ADDRESSED_MIN_LENGTH}. When no
+ *   stable boundary is found, falls back to `'positional'` so the
+ *   invariant (≤ 3 breakpoints applied) is preserved.
+ */
+export type CacheStrategy = 'positional' | 'content-addressed'
+
+/** Options accepted by {@link applyCacheBreakpoints}. */
+export interface CacheBreakpointOptions {
+  /** Placement strategy. Defaults to `'content-addressed'`. */
+  cacheStrategy?: CacheStrategy
+}
+
+/**
+ * Minimum text length (in characters) for a message to qualify as a
+ * content-addressed anchor under the `'content-addressed'` strategy.
+ * Short tool-result messages do not qualify — that is the point of this
+ * strategy: small churn should not shift the cache window.
+ */
+const CONTENT_ADDRESSED_MIN_LENGTH = 2000
+
+/**
  * Apply cache breakpoints to LangChain BaseMessage[] format.
  *
  * This is a convenience wrapper that works with the LangChain message types
@@ -138,11 +167,17 @@ export function applyAnthropicCacheControl(
  * ignore the additional_kwargs.cache_control field.
  *
  * @param messages Full message array (system + conversation)
+ * @param options  Optional placement strategy config. Defaults to
+ *                 `'content-addressed'`.
  * @returns New array with cache breakpoints applied (originals not mutated)
  */
-export function applyCacheBreakpoints(messages: BaseMessage[]): BaseMessage[] {
+export function applyCacheBreakpoints(
+  messages: BaseMessage[],
+  options?: CacheBreakpointOptions,
+): BaseMessage[] {
   if (messages.length === 0) return messages
 
+  const strategy: CacheStrategy = options?.cacheStrategy ?? 'content-addressed'
   const result: BaseMessage[] = []
 
   for (let i = 0; i < messages.length; i++) {
@@ -162,7 +197,7 @@ export function applyCacheBreakpoints(messages: BaseMessage[]): BaseMessage[] {
     result.push(copy)
   }
 
-  // Mark last 3 non-system messages (breakpoints 2-4)
+  // Collect non-system indices for downstream strategies.
   const nonSystemIndices: number[] = []
   for (let i = 0; i < result.length; i++) {
     const msg = result[i]
@@ -171,7 +206,27 @@ export function applyCacheBreakpoints(messages: BaseMessage[]): BaseMessage[] {
     }
   }
 
-  const markCount = Math.min(MAX_BREAKPOINTS - 1, nonSystemIndices.length)
+  const maxMark = MAX_BREAKPOINTS - 1
+
+  if (strategy === 'content-addressed') {
+    // Strategy: pick up to `maxMark` stable anchors, preferring anchors
+    // explicitly tagged with `cacheAnchor: true` over length-based ones.
+    // If no stable anchor exists, fall back to positional so we still
+    // place the breakpoint somewhere useful.
+    const anchorIndices = findStableAnchors(result, nonSystemIndices)
+    if (anchorIndices.length > 0) {
+      const toMark = anchorIndices.slice(-maxMark)
+      for (const idx of toMark) {
+        const target = result[idx]
+        if (target) _setCacheControl(target)
+      }
+      return result
+    }
+    // fall through to positional
+  }
+
+  // Positional strategy (also the 'content-addressed' no-anchor fallback).
+  const markCount = Math.min(maxMark, nonSystemIndices.length)
   const startMark = nonSystemIndices.length - markCount
 
   for (let j = startMark; j < nonSystemIndices.length; j++) {
@@ -183,6 +238,52 @@ export function applyCacheBreakpoints(messages: BaseMessage[]): BaseMessage[] {
   }
 
   return result
+}
+
+/**
+ * Identify stable anchor indices within `nonSystemIndices`. A message is a
+ * stable anchor when either:
+ *   (a) `additional_kwargs.cacheAnchor === true` (explicit opt-in), or
+ *   (b) its plain-text content length exceeds
+ *       {@link CONTENT_ADDRESSED_MIN_LENGTH}.
+ *
+ * Returns the indices in original (ascending) order.
+ */
+function findStableAnchors(
+  messages: BaseMessage[],
+  nonSystemIndices: number[],
+): number[] {
+  const anchors: number[] = []
+  for (const idx of nonSystemIndices) {
+    const msg = messages[idx]
+    if (!msg) continue
+
+    const kwargs = msg.additional_kwargs as { cacheAnchor?: unknown } | undefined
+    if (kwargs && kwargs.cacheAnchor === true) {
+      anchors.push(idx)
+      continue
+    }
+
+    const content = msg.content
+    const text = typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content
+          .map((block) => {
+            if (typeof block === 'string') return block
+            if (block && typeof block === 'object' && 'text' in block) {
+              const t = (block as { text?: unknown }).text
+              return typeof t === 'string' ? t : ''
+            }
+            return ''
+          })
+          .join('')
+        : ''
+    if (text.length >= CONTENT_ADDRESSED_MIN_LENGTH) {
+      anchors.push(idx)
+    }
+  }
+  return anchors
 }
 
 /** Clone a BaseMessage by spreading its fields */

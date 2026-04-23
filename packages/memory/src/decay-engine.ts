@@ -63,11 +63,16 @@ export function reinforceMemory(meta: DecayMetadata): DecayMetadata {
 
 /**
  * Create initial decay metadata for a new memory record.
+ *
+ * When an `importance` value (0..1) is provided, the initial strength is
+ * weighted by it so high-importance memories enter the system with more
+ * durability. Importance defaults to 1 (full strength) when omitted.
  */
-export function createDecayMetadata(): DecayMetadata {
+export function createDecayMetadata(opts?: { importance?: number }): DecayMetadata {
   const now = Date.now()
+  const importance = Math.max(0, Math.min(1, opts?.importance ?? 1))
   return {
-    strength: 1,
+    strength: importance,
     accessCount: 0,
     lastAccessedAt: now,
     createdAt: now,

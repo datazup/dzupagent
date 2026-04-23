@@ -19,6 +19,63 @@ type TokenizeResult =
   | { ok: true; value: YamlLine[] }
   | { ok: false; errors: YamlParseError[] }
 
+function isIdentifierStart(char: string): boolean {
+  return (char >= 'A' && char <= 'Z')
+    || (char >= 'a' && char <= 'z')
+    || char === '_'
+}
+
+function isIdentifierPart(char: string): boolean {
+  return isIdentifierStart(char)
+    || (char >= '0' && char <= '9')
+    || char === '-'
+}
+
+function parseInlineMappingEntry(content: string): { key: string; rawValue?: string } | null {
+  const separator = content.indexOf(':')
+  if (separator <= 0) return null
+
+  const key = content.slice(0, separator)
+  if (!isIdentifierStart(key[0] ?? '')) return null
+  for (let index = 1; index < key.length; index += 1) {
+    if (!isIdentifierPart(key[index] ?? '')) return null
+  }
+
+  const remainder = content.slice(separator + 1)
+  if (remainder.length === 0) return { key, rawValue: '' }
+  if (remainder.startsWith(' ')) return { key, rawValue: remainder.slice(1) }
+  return null
+}
+
+function isNumericScalar(value: string): boolean {
+  if (value.length === 0) return false
+  let index = 0
+  if (value[0] === '-') {
+    if (value.length === 1) return false
+    index = 1
+  }
+
+  let hasDigitsBeforeDecimal = false
+  while (index < value.length && value[index] !== '.') {
+    const char = value[index]
+    if (char === undefined || char < '0' || char > '9') return false
+    hasDigitsBeforeDecimal = true
+    index += 1
+  }
+
+  if (!hasDigitsBeforeDecimal) return false
+  if (index === value.length) return true
+  if (value[index] !== '.' || index === value.length - 1) return false
+  index += 1
+
+  while (index < value.length) {
+    const char = value[index]
+    if (char === undefined || char < '0' || char > '9') return false
+    index += 1
+  }
+  return true
+}
+
 export function parseYamlSubset(source: string): YamlParseResult {
   const lines = tokenize(source)
   if (!lines.ok) return lines
@@ -115,18 +172,17 @@ function parseSequence(lines: YamlLine[], startIndex: number, indent: number): B
       continue
     }
 
-    const keyOnly = /^([A-Za-z_][\w-]*):\s*$/.exec(rest)
-    if (keyOnly) {
+    const inlineEntry = parseInlineMappingEntry(rest)
+    if (inlineEntry?.rawValue === '') {
       const nested = parseNested(lines, index + 1, indent + 4)
       if (!nested.ok) return nested
-      items.push({ [keyOnly[1]!]: nested.value })
+      items.push({ [inlineEntry.key]: nested.value })
       index = nested.nextIndex
       continue
     }
 
-    const keyValue = /^([A-Za-z_][\w-]*):\s+(.+)$/.exec(rest)
-    if (keyValue) {
-      items.push({ [keyValue[1]!]: parseScalar(keyValue[2]!) })
+    if (inlineEntry?.rawValue !== undefined && inlineEntry.rawValue.length > 0) {
+      items.push({ [inlineEntry.key]: parseScalar(inlineEntry.rawValue) })
       index += 1
       continue
     }
@@ -150,8 +206,8 @@ function parseMapping(lines: YamlLine[], startIndex: number, indent: number): Bl
     }
     if (line.content.startsWith('- ')) break
 
-    const match = /^([A-Za-z_][\w-]*):(?:\s+(.*))?$/.exec(line.content)
-    if (!match) {
+    const entry = parseInlineMappingEntry(line.content)
+    if (!entry) {
       return {
         ok: false,
         errors: [{
@@ -163,8 +219,7 @@ function parseMapping(lines: YamlLine[], startIndex: number, indent: number): Bl
       }
     }
 
-    const key = match[1]!
-    const rawValue = match[2]
+    const { key, rawValue } = entry
     if (rawValue === undefined || rawValue.length === 0) {
       const nested = parseNested(lines, index + 1, indent + 2)
       if (!nested.ok) return nested
@@ -218,7 +273,7 @@ function parseScalar(raw: string): unknown {
   if (value === 'true') return true
   if (value === 'false') return false
   if (value === 'null' || value === '~') return null
-  if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value)
+  if (isNumericScalar(value)) return Number(value)
   if (value.startsWith('[') && value.endsWith(']')) {
     const inner = value.slice(1, -1).trim()
     if (inner.length === 0) return []

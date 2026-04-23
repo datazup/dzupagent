@@ -11,6 +11,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./ops": {
+      "import": "./dist/ops.js",
+      "types": "./dist/ops.d.ts"
     }
   },
   "scripts": {

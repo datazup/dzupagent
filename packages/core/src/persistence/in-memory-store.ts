@@ -86,6 +86,7 @@ export class InMemoryRunStore implements RunStore {
       status: 'queued',
       input: input.input,
       metadata: input.metadata ?? {},
+      ...(input.ownerId !== undefined ? { ownerId: input.ownerId } : {}),
       startedAt: new Date(),
     }
     this.runs.set(run.id, run)

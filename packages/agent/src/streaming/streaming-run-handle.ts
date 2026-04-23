@@ -127,26 +127,24 @@ export class StreamingRunHandle {
    * events have been consumed.
    */
   events(): AsyncIterable<StreamEvent> {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const self = this
     return {
-      [Symbol.asyncIterator](): AsyncIterator<StreamEvent> {
+      [Symbol.asyncIterator]: (): AsyncIterator<StreamEvent> => {
         return {
-          next(): Promise<IteratorResult<StreamEvent>> {
+          next: (): Promise<IteratorResult<StreamEvent>> => {
             // Drain buffered events first
-            if (self.eventQueue.length > 0) {
-              const event = self.eventQueue.shift()!
+            if (this.eventQueue.length > 0) {
+              const event = this.eventQueue.shift()!
               return Promise.resolve({ value: event, done: false })
             }
 
             // If terminal and no more buffered events, we are done
-            if (self._status !== 'running') {
+            if (this._status !== 'running') {
               return Promise.resolve({ value: undefined as unknown as StreamEvent, done: true })
             }
 
             // Wait for the next event from the producer
             return new Promise<IteratorResult<StreamEvent>>((resolve) => {
-              self.waiter = { resolve }
+              this.waiter = { resolve }
             })
           },
         }

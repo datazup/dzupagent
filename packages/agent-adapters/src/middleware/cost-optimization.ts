@@ -6,7 +6,7 @@
  * tag-similarity matching.
  *
  * Implements TaskRoutingStrategy so it can plug directly into
- * AdapterRegistry as a drop-in router.
+ * ProviderAdapterRegistry as a drop-in router.
  */
 
 import type { DzupEventBus } from '@dzupagent/core'

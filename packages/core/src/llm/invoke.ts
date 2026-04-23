@@ -3,7 +3,14 @@
  */
 import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import { isTransientError, DEFAULT_RETRY_CONFIG, type RetryConfig } from './retry.js'
+import { ForgeError } from '../errors/forge-error.js'
+import { calculateBackoff } from '../utils/backoff.js'
+import {
+  DEFAULT_RETRY_CONFIG,
+  isContextLengthError,
+  isTransientError,
+  type RetryConfig,
+} from './retry.js'
 
 /** Token usage extracted from LLM response metadata */
 export interface TokenUsage {
@@ -166,8 +173,24 @@ export async function invokeWithTimeout(
     } catch (err: unknown) {
       lastError = err instanceof Error ? err : new Error(String(err))
 
+      // Context-length errors are non-transient: retrying with the same
+      // prompt will fail identically. Surface as a dedicated ForgeError
+      // so upstream logic (compression, model-swap) can react correctly.
+      if (isContextLengthError(lastError)) {
+        throw new ForgeError({
+          code: 'CONTEXT_LENGTH_EXCEEDED',
+          message: `Context length exceeded: ${lastError.message}`,
+          cause: lastError,
+        })
+      }
+
       if (attempt < maxAttempts && isTransientError(lastError)) {
-        const backoffMs = Math.min(backoffBase * 2 ** (attempt - 1), maxBackoff)
+        // attempt is 1-based here; calculateBackoff expects 0-based so pass attempt-1.
+        const backoffMs = calculateBackoff(attempt - 1, {
+          initialBackoffMs: backoffBase,
+          maxBackoffMs: maxBackoff,
+          multiplier: 2,
+        })
         await new Promise(resolve => setTimeout(resolve, backoffMs))
         continue
       }

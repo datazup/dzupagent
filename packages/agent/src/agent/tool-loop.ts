@@ -13,7 +13,13 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { extractTokenUsage, type TokenUsage } from '@dzupagent/core'
+import {
+  extractTokenUsage,
+  type TokenUsage,
+  type ToolGovernance,
+  type SafetyMonitor,
+  type DzupEventBus,
+} from '@dzupagent/core'
 import type { CompressResult } from '@dzupagent/context'
 import type { IterationBudget } from '../guardrails/iteration-budget.js'
 import type { StuckDetector, StuckStatus } from '../guardrails/stuck-detector.js'
@@ -145,6 +151,88 @@ export interface ToolLoopConfig {
    * `context:compressed` telemetry event.
    */
   onCompressed?: (info: { before: number; after: number; summary: string | null }) => void
+
+  /**
+   * Optional tool governance layer. When present, each tool call is checked
+   * via {@link ToolGovernance.checkAccess}. Blocked tools return a
+   * `[blocked]` ToolMessage instead of invoking the underlying tool.
+   * Tools requiring approval emit an `approval:requested` event (when an
+   * event bus is configured) and proceed — full human-in-the-loop gating
+   * is expected to be layered externally via the event.
+   */
+  toolGovernance?: ToolGovernance
+
+  /**
+   * Optional safety monitor. When present, every tool result is scanned via
+   * {@link SafetyMonitor.scanContent} for prompt-injection or other
+   * violations before being appended to message history. Critical or
+   * blocking violations replace the tool output with a safe rejection.
+   */
+  safetyMonitor?: SafetyMonitor
+
+  /**
+   * Disable scanning tool results via {@link safetyMonitor}.
+   * Defaults to `true` when a safetyMonitor is provided; set to `false`
+   * to opt out of scanning (e.g., when upstream scanning already happened).
+   */
+  scanToolResults?: boolean
+
+  /**
+   * Optional event bus. When present, the tool loop emits lifecycle events
+   * such as `approval:requested` (for governance-gated tools).
+   */
+  eventBus?: DzupEventBus
+
+  /**
+   * Per-tool execution timeouts in milliseconds.
+   *
+   * When a tool is invoked, the promise returned by `tool.invoke()` is
+   * raced against a timer set to the configured value. If the timer fires
+   * first, the call rejects with `Error("Tool \"<name>\" timed out after
+   * <ms>ms")` and the surrounding loop records the failure exactly as it
+   * would for any other tool error (stuck detection, stats, latency
+   * callback, surfaced in the conversation as a `Tool error` message).
+   *
+   * Enforces {@link ToolGovernanceConfig.maxExecutionMs} semantics at the
+   * call-site instead of at the governance layer (governance declares the
+   * policy; the loop enforces it). Tools not listed here run without an
+   * explicit timeout.
+   *
+   * Example: `{ fetchUrl: 10_000, expensiveQuery: 60_000 }`.
+   */
+  toolTimeouts?: Record<string, number>
+
+  /**
+   * Optional OTel tracer for emitting one span per tool invocation.
+   * Uses structural typing so the agent package does not have to depend on
+   * `@dzupagent/otel`. Any object matching `DzupTracer`'s shape works —
+   * `startToolSpan(name, options)` returns a span with a `setAttribute`
+   * method and an `end()` method, `endSpanWithError(span, error)` closes
+   * the span with an error status.
+   */
+  tracer?: ToolLoopTracer
+}
+
+/**
+ * Minimal tool span shape. Structurally compatible with OTel's `Span` and
+ * with `@dzupagent/otel`'s `OTelSpan`. Only the calls made by the tool
+ * loop are declared.
+ */
+export interface ToolLoopSpan {
+  setAttribute(key: string, value: string | number | boolean): unknown
+  end(): void
+}
+
+/**
+ * Structural tracer interface for the tool loop. Compatible with
+ * `DzupTracer` from `@dzupagent/otel` without importing it.
+ */
+export interface ToolLoopTracer {
+  startToolSpan(
+    toolName: string,
+    options?: { inputSize?: number },
+  ): ToolLoopSpan
+  endSpanWithError(span: ToolLoopSpan, error: unknown): void
 }
 
 export interface ToolLoopResult {
@@ -566,6 +654,36 @@ async function executeSingleToolCall(
     }
   }
 
+  // Tool governance: access check (blocked / approval-required)
+  if (config.toolGovernance) {
+    const access = config.toolGovernance.checkAccess(toolName, tc.args)
+    if (!access.allowed) {
+      const reason = access.reason ?? 'Tool access denied'
+      config.onToolResult?.(toolName, `[blocked: ${reason}]`)
+      return {
+        message: new ToolMessage({
+          content: `[blocked] ${reason}`,
+          tool_call_id: toolCallId,
+          name: toolName,
+        }),
+      }
+    }
+    if (access.requiresApproval) {
+      // Emit approval:requested so external HITL can observe. The tool
+      // loop does not block waiting — wiring the wait is the caller's
+      // responsibility (typically via ApprovalGate on the event bus).
+      try {
+        config.eventBus?.emit({
+          type: 'approval:requested',
+          runId: toolCallId,
+          plan: { toolName, args: tc.args },
+        } as never)
+      } catch {
+        // Non-fatal: event emission must not abort the run
+      }
+    }
+  }
+
   const tool = toolMap.get(toolName)
   if (!tool) {
     config.onToolResult?.(toolName, '[not found]')
@@ -600,18 +718,80 @@ async function executeSingleToolCall(
   let errorMsg: string | undefined
   let message: ToolMessage
 
+  // Optional OTel span per tool invocation. `inputSize` is the rough byte
+  // cost of the validated args; the span is closed either in the success
+  // branch (via `span.end()`) or via `endSpanWithError` in the catch block.
+  const inputSize = JSON.stringify(validatedArgs).length
+  const span = config.tracer?.startToolSpan(toolName, { inputSize })
+
   try {
-    const result = await tool.invoke(validatedArgs)
+    const result = await invokeWithOptionalTimeout(
+      toolName,
+      config.toolTimeouts?.[toolName],
+      () => tool.invoke(validatedArgs),
+    )
     const rawResultStr = typeof result === 'string' ? result : JSON.stringify(result)
-    const resultStr = config.transformToolResult
+    let resultStr = config.transformToolResult
       ? await config.transformToolResult(toolName, validatedArgs, rawResultStr)
       : rawResultStr
+
+    // Safety scan: inspect the tool result for prompt-injection / unsafe
+    // content before surfacing it back to the model. Critical or `block`/`kill`
+    // violations replace the output with a safe rejection message.
+    if (config.safetyMonitor && config.scanToolResults !== false) {
+      try {
+        const violations = config.safetyMonitor.scanContent(resultStr, {
+          source: 'tool:result',
+          toolName,
+        })
+        const hardBlock = violations.find(
+          v => v.action === 'block' || v.action === 'kill' || v.severity === 'critical',
+        )
+        if (hardBlock) {
+          resultStr = `[blocked] Tool result contained potentially unsafe content (${hardBlock.category}): ${hardBlock.message}`
+          config.onToolResult?.(toolName, '[blocked: unsafe tool output]')
+          message = new ToolMessage({
+            content: resultStr,
+            tool_call_id: toolCallId,
+            name: toolName,
+          })
+          const durationMs = Date.now() - startMs
+          stat.calls++
+          stat.totalMs += durationMs
+          config.onToolLatency?.(toolName, durationMs, 'unsafe-result')
+          // Close span on early-return (unsafe-result branch)
+          if (span) {
+            try {
+              span.setAttribute('durationMs', durationMs)
+              span.setAttribute('outputSize', resultStr.length)
+              span.setAttribute('blocked', true)
+              span.end()
+            } catch {
+              // Tracer failures must not abort the tool loop
+            }
+          }
+          return { message }
+        }
+      } catch {
+        // Non-fatal: safety scan failure must not abort the run
+      }
+    }
+
     message = new ToolMessage({
       content: resultStr,
       tool_call_id: toolCallId,
       name: toolName,
     })
     config.onToolResult?.(toolName, resultStr)
+    if (span) {
+      try {
+        span.setAttribute('durationMs', Date.now() - startMs)
+        span.setAttribute('outputSize', resultStr.length)
+        span.end()
+      } catch {
+        // Tracer failures must not abort the tool loop
+      }
+    }
   } catch (err: unknown) {
     errorMsg = err instanceof Error ? err.message : String(err)
     message = new ToolMessage({
@@ -621,6 +801,14 @@ async function executeSingleToolCall(
     })
     config.onToolResult?.(toolName, `[error: ${errorMsg}]`)
     stat.errors++
+    if (span) {
+      try {
+        span.setAttribute('durationMs', Date.now() - startMs)
+        config.tracer?.endSpanWithError(span, err)
+      } catch {
+        // Tracer failures must not abort the tool loop
+      }
+    }
   }
 
   const durationMs = Date.now() - startMs
@@ -745,13 +933,18 @@ async function executeToolCallsParallel(
   }
 
   // Build a ToolLookup that wraps the toolMap with transformToolResult support
+  // and per-tool timeout enforcement (GA-02).
   const wrappedRegistry: ToolLookup = {
     get(name: string) {
       const tool = toolMap.get(name)
       if (!tool) return undefined
       return {
         async invoke(args: Record<string, unknown>) {
-          const result = await tool.invoke(args)
+          const result = await invokeWithOptionalTimeout(
+            name,
+            config.toolTimeouts?.[name],
+            () => tool.invoke(args),
+          )
           const rawResultStr = typeof result === 'string' ? result : JSON.stringify(result)
           return config.transformToolResult
             ? await config.transformToolResult(name, args, rawResultStr)
@@ -808,4 +1001,39 @@ async function executeToolCallsParallel(
     .filter((r): r is { index: number; result: ToolCallResult } => r !== null)
     .sort((a, b) => a.index - b.index)
     .map(r => r.result)
+}
+
+// ---------- Tool timeout enforcement (GA-02) ----------
+
+/**
+ * Invoke a tool and optionally race it against a timeout.
+ *
+ * When `timeoutMs` is falsy (`undefined`, `null`, or `0`), the invocation
+ * runs unbounded (preserves the prior behaviour). When a positive
+ * `timeoutMs` is provided, the promise is raced against a timer and
+ * rejects with `Error("Tool \"<name>\" timed out after <ms>ms")` if the
+ * timer wins. The timer is cleared in either branch so it never leaks.
+ */
+async function invokeWithOptionalTimeout<T>(
+  toolName: string,
+  timeoutMs: number | undefined,
+  invoke: () => Promise<T>,
+): Promise<T> {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return invoke()
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Tool "${toolName}" timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    )
+  })
+
+  try {
+    return await Promise.race([invoke(), timeoutPromise])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }

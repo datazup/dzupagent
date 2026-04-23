@@ -132,7 +132,13 @@ export class CodegenRunEngine {
     }
 
     // Fallback to CodeGenService (direct ModelRegistry path)
-    return this.fallbackService!.generateFile(params, systemPrompt)
+    if (!this.fallbackService) {
+      throw new Error(
+        'CodegenRunEngine: fallbackService is not initialized. Provide a registry in the constructor config before calling generateFile() without an adapter.',
+      )
+    }
+    const fallbackService = this.fallbackService
+    return fallbackService.generateFile(params, systemPrompt)
   }
 
   /**
@@ -143,7 +149,12 @@ export class CodegenRunEngine {
     params: GenerateFileParams,
     systemPrompt: string,
   ): Promise<GenerateFileResult> {
-    const adapter = this.adapter!
+    if (!this.adapter) {
+      throw new Error(
+        'CodegenRunEngine: adapter is not initialized. generateViaAdapter() must not be called unless an AgentCLIAdapter was provided in the constructor config.',
+      )
+    }
+    const adapter = this.adapter
     const language = detectLanguage(params.filePath)
     const userMessage = buildUserMessage(params)
 

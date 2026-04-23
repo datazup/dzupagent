@@ -31,7 +31,7 @@ import type {
   PipelineRuntimeEvent,
 } from '@dzupagent/agent'
 
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCompletedEvent,
@@ -165,7 +165,7 @@ interface AdapterWorkflowCompilation {
   predicates: Record<string, (state: Record<string, unknown>) => boolean | string>
   internalStateKeys: Set<string>
   createNodeExecutor: (
-    registry: AdapterRegistry,
+    registry: ProviderAdapterRegistry,
     emit: (event: AdapterWorkflowEvent) => void,
     stepResults: AdapterStepResult[],
     onStateObserved: (state: Record<string, unknown>) => void,
@@ -175,7 +175,7 @@ interface AdapterWorkflowCompilation {
 const PREV_RESULT_STATE_KEY = '__adapter_workflow_internal_prev_result'
 
 function resolveFallbackProviderId(
-  registry: AdapterRegistry,
+  registry: ProviderAdapterRegistry,
   preferredProvider?: AdapterProviderId,
 ): AdapterProviderId {
   return preferredProvider ?? registry.listAdapters()[0] ?? ('unknown' as AdapterProviderId)
@@ -259,7 +259,7 @@ export class AdapterWorkflow {
    * variable always refers to the most recent step result.
    */
   async run(
-    registry: AdapterRegistry,
+    registry: ProviderAdapterRegistry,
     options?: AdapterWorkflowRunOptions,
   ): Promise<AdapterWorkflowResult> {
     const state: Record<string, unknown> = { ...(options?.initialState ?? {}) }
@@ -510,7 +510,7 @@ function compileAdapterWorkflow(
   const edges: PipelineDefinition['edges'] = []
   const predicates: Record<string, (state: Record<string, unknown>) => boolean | string> = {}
   const handlers = new Map<string, (
-    registry: AdapterRegistry,
+    registry: ProviderAdapterRegistry,
     state: Record<string, unknown>,
     signal: AbortSignal | undefined,
     emit: (event: AdapterWorkflowEvent) => void,
@@ -529,7 +529,7 @@ function compileAdapterWorkflow(
   const addTransformNode = (
     prefix: string,
     handler: (
-      registry: AdapterRegistry,
+      registry: ProviderAdapterRegistry,
       state: Record<string, unknown>,
       signal: AbortSignal | undefined,
       emit: (event: AdapterWorkflowEvent) => void,
@@ -856,7 +856,7 @@ function compileAdapterWorkflow(
 async function executeLoop(
   loopConfig: LoopConfig,
   workflowId: string,
-  registry: AdapterRegistry,
+  registry: ProviderAdapterRegistry,
   state: Record<string, unknown>,
   emit: (event: AdapterWorkflowEvent) => void,
   stepResults: AdapterStepResult[],
@@ -910,7 +910,7 @@ async function executeLoop(
 }
 
 async function executeAdapterStep(
-  registry: AdapterRegistry,
+  registry: ProviderAdapterRegistry,
   workflowId: string,
   config: AdapterStepConfig,
   state: Record<string, unknown>,
@@ -1094,7 +1094,7 @@ function mergeParallelResults(
 }
 
 async function consumeAdapterEvents(
-  registry: AdapterRegistry,
+  registry: ProviderAdapterRegistry,
   input: AgentInput,
   task: TaskDescriptor,
   signal?: AbortSignal,

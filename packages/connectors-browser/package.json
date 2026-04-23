@@ -17,7 +17,6 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@dzupagent/agent": "0.2.0",
     "@dzupagent/core": "0.2.0"
   },
   "peerDependencies": {

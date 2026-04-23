@@ -10,7 +10,7 @@
 
 import type { DzupEventBus } from '@dzupagent/core'
 
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCompletedEvent,
@@ -28,7 +28,7 @@ import { resolveFallbackProviderId as resolveFallbackProviderIdFromSource } from
 export type MergeStrategy = 'first-wins' | 'all' | 'best-of-n'
 
 export interface ParallelExecutorConfig {
-  registry: AdapterRegistry
+  registry: ProviderAdapterRegistry
   eventBus?: DzupEventBus | undefined
 }
 
@@ -104,7 +104,7 @@ function isUserCancellationReason(reason: ParallelAbortReason | undefined): bool
 // ---------------------------------------------------------------------------
 
 export class ParallelExecutor {
-  private readonly registry: AdapterRegistry
+  private readonly registry: ProviderAdapterRegistry
   private readonly eventBus: DzupEventBus | undefined
 
   constructor(config: ParallelExecutorConfig) {

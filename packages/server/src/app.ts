@@ -27,6 +27,7 @@ import type { CostAwareRouter } from '@dzupagent/core'
 import type { McpManager } from '@dzupagent/core'
 import type { RunJournal } from '@dzupagent/core'
 import type { SkillRegistry, WorkflowRegistry } from '@dzupagent/core'
+import { createSafetyMonitor } from '@dzupagent/core'
 import type { SkillStepResolver } from '@dzupagent/agent'
 import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters'
 import { createHealthRoutes } from './routes/health.js'
@@ -231,6 +232,13 @@ export interface ForgeServerConfig {
   evals?: EvalRouteConfig
   /** Optional MCP manager — enables /api/mcp routes for server lifecycle management */
   mcpManager?: McpManager
+  /**
+   * Allowlist of executable paths/names accepted by POST /api/mcp/servers
+   * when `transport === 'stdio'`. An unlisted command returns 403. Leave
+   * undefined or empty to disable stdio MCP server registration entirely.
+   * HTTP/SSE transports are unaffected.
+   */
+  mcpAllowedExecutables?: string[]
   /** Optional adapter skill registry — enables /api/skills routes for skill preview */
   skillRegistry?: AdapterSkillRegistry
   /** Optional RunJournal for durability features (fork, checkpoints, resumeFromStep) */
@@ -309,6 +317,15 @@ export interface ForgeServerConfig {
    * simply observe the same shared event bus.
    */
   learningEventProcessor?: LearningEventProcessor | LearningEventProcessorLike
+  /**
+   * When true, skip attaching the built-in runtime {@link SafetyMonitor} to
+   * the shared event bus. By default the server wires a monitor so that
+   * `safety:violation`/`safety:blocked`/`safety:kill_requested` events are
+   * emitted in response to `tool:error` and `memory:written` activity.
+   * Set this flag for hosts that supply their own monitor or want to opt
+   * out entirely (for example, tests).
+   */
+  disableSafetyMonitor?: boolean
 }
 
 /**
@@ -436,7 +453,12 @@ function createBuiltInRoutePlugins(config: ForgeServerConfig, eventGateway: Even
   if (config.mcpManager) {
     plugins.push({
       prefix: '/api/mcp',
-      createRoutes: () => createMcpRoutes({ mcpManager: config.mcpManager }),
+      createRoutes: () => createMcpRoutes({
+        mcpManager: config.mcpManager,
+        ...(config.mcpAllowedExecutables !== undefined
+          ? { mcpAllowedExecutables: config.mcpAllowedExecutables }
+          : {}),
+      }),
     })
   }
 
@@ -476,6 +498,17 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
 
   const app = new Hono()
   const eventGateway = config.eventGateway ?? new InMemoryEventGateway(config.eventBus)
+
+  // --- Runtime SafetyMonitor ---
+  // Attach the built-in safety monitor to the shared event bus so that
+  // tool errors and memory writes are scanned for prompt-injection and
+  // other policy violations. `createSafetyMonitor({ eventBus })`
+  // auto-attaches — no explicit `attach()` call is needed here. Hosts can
+  // opt out via `disableSafetyMonitor`.
+  if (!config.disableSafetyMonitor) {
+    createSafetyMonitor({ eventBus: config.eventBus })
+  }
+
   const fallbackRunExecutor = createDefaultRunExecutor(config.modelRegistry)
   const effectiveRunExecutor = config.runExecutor
     ?? createDzupAgentRunExecutor({ fallback: fallbackRunExecutor })
@@ -516,8 +549,19 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
     allowHeaders: ['Content-Type', 'Authorization'],
   }))
 
+  // Warn operators when CORS is left wide open. We keep the permissive
+  // default for backwards compatibility but flag it so production
+  // deployments set an explicit allow-list via `corsOrigins`.
+  const corsValue = config.corsOrigins ?? '*'
+  if (corsValue === '*' || !config.corsOrigins) {
+    console.warn(
+      '[ForgeServer] WARNING: CORS is open to all origins (*). Set corsOrigins in ForgeServerConfig for production deployments.',
+    )
+  }
+
+  let effectiveAuth: AuthConfig | undefined
   if (config.auth) {
-    let effectiveAuth = config.auth
+    effectiveAuth = config.auth
     if (
       config.auth.mode === 'api-key' &&
       !config.auth.validateKey &&
@@ -646,6 +690,15 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   if (runtimeConfig.a2a) {
     const a2aConfig = runtimeConfig.a2a
     const agentCard = buildAgentCard(a2aConfig.agentCardConfig)
+
+    // Protect A2A routes (except /.well-known/agent.json which must remain
+    // public per the A2A spec). The well-known path is mounted at the app
+    // root below, so gating `/a2a/*` and `/a2a` leaves discovery
+    // unauthenticated while requiring credentials for tasks and JSON-RPC.
+    if (effectiveAuth) {
+      app.use('/a2a', authMiddleware(effectiveAuth))
+      app.use('/a2a/*', authMiddleware(effectiveAuth))
+    }
 
     // Select task store: Drizzle if env flag set, otherwise provided or in-memory
     let taskStore: A2ATaskStore
@@ -790,6 +843,11 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   }
 
   // --- Prometheus metrics endpoint (only when using PrometheusMetricsCollector) ---
+  // TODO(security): `/metrics` is currently mounted on the public app and
+  // bypasses auth. For production deployments this should be exposed on an
+  // internal-only port (e.g. a separate Hono listener bound to 127.0.0.1) or
+  // protected by an IP allow-list. Until then, operators are expected to
+  // block `/metrics` at the ingress/load-balancer layer.
   if (runtimeConfig.metrics && runtimeConfig.metrics instanceof PrometheusMetricsCollector) {
     app.route('/metrics', createMetricsRoute({ collector: runtimeConfig.metrics }))
   }

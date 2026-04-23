@@ -382,6 +382,68 @@ export const emptyEventMetricMap = {
       },
     ),
   ],
+  'context:compress_failed': [
+    counter(
+      'dzip_context_compress_failed_total',
+      'Total context compression failures (summarizer error)',
+      ['phase'],
+      (e) => {
+        const ev = asEvent<'context:compress_failed'>(e)
+        return { value: 1, labels: { phase: ev.phase } }
+      },
+    ),
+  ],
+  // --- LLM invocation (compliance/audit traceability) ---
+  'llm:invoked': [
+    counter(
+      'dzip_llm_invoked_total',
+      'Total LLM invocations recorded for compliance',
+      ['agent_id', 'model'],
+      (e) => {
+        const ev = asEvent<'llm:invoked'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId, model: ev.model } }
+      },
+    ),
+    histogram(
+      'dzip_llm_input_tokens',
+      'Input tokens per LLM invocation',
+      ['agent_id', 'model'],
+      (e) => {
+        const ev = asEvent<'llm:invoked'>(e)
+        return { value: ev.inputTokens, labels: { agent_id: ev.agentId, model: ev.model } }
+      },
+    ),
+    histogram(
+      'dzip_llm_output_tokens',
+      'Output tokens per LLM invocation',
+      ['agent_id', 'model'],
+      (e) => {
+        const ev = asEvent<'llm:invoked'>(e)
+        return { value: ev.outputTokens, labels: { agent_id: ev.agentId, model: ev.model } }
+      },
+    ),
+    histogram(
+      'dzip_llm_cost_cents',
+      'Cost in cents per LLM invocation',
+      ['agent_id', 'model'],
+      (e) => {
+        const ev = asEvent<'llm:invoked'>(e)
+        return { value: ev.costCents, labels: { agent_id: ev.agentId, model: ev.model } }
+      },
+    ),
+  ],
+  // --- Memory PII redaction ---
+  'memory:pii_redacted': [
+    counter(
+      'dzip_memory_pii_redacted_total',
+      'Total memory writes where PII was detected and redacted',
+      ['agent_id'],
+      (e) => {
+        const ev = asEvent<'memory:pii_redacted'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId } }
+      },
+    ),
+  ],
   // --- Mailbox ---
   'mail:received': [
     counter(

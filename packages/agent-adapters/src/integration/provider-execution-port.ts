@@ -1,6 +1,6 @@
 /**
  * RegistryExecutionPort — implements the `ProviderExecutionPort` interface
- * from `@dzupagent/agent` using `AdapterRegistry.executeWithFallback()`.
+ * from `@dzupagent/agent` using `ProviderAdapterRegistry.executeWithFallback()`.
  *
  * This bridges the dependency-inverted port with the concrete adapter
  * runtime, keeping `@dzupagent/agent` free of adapter implementation details.
@@ -18,12 +18,12 @@ import type {
   AdapterProviderId,
 } from '@dzupagent/adapter-types'
 
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { EventBusBridge } from '../registry/event-bus-bridge.js'
 
 export class RegistryExecutionPort implements ProviderExecutionPort {
   constructor(
-    private readonly registry: AdapterRegistry,
+    private readonly registry: ProviderAdapterRegistry,
     private readonly bridge?: EventBusBridge,
   ) {}
 

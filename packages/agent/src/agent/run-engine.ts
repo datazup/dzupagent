@@ -1,7 +1,7 @@
 import { ToolMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { estimateTokens, type RunJournalEntry } from '@dzupagent/core'
+import { calculateCostCents, estimateTokens, type RunJournalEntry } from '@dzupagent/core'
 import type {
   CompressionLogEntry,
   DzupAgentConfig,
@@ -223,6 +223,18 @@ export async function executeGenerateRun(
         params.transformToolResult(name, input, result),
       onUsage: (usage) => {
         params.options?.onUsage?.(usage)
+        // Compliance / audit — ISO/IEC 42001 traceability: every LLM
+        // invocation must be recorded in the audit store. The event bus
+        // listener in ComplianceAuditLogger picks this up automatically.
+        params.config.eventBus?.emit({
+          type: 'llm:invoked',
+          agentId: params.agentId,
+          model: usage.model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          costCents: calculateCostCents(usage),
+          timestamp: Date.now(),
+        })
       },
       onToolResult: (_name, result) => {
         // Charge tool-result bytes against the token lifecycle plugin so

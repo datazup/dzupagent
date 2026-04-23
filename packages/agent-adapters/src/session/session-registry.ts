@@ -16,7 +16,7 @@ import type {
   AgentStreamEvent,
   AgentInput,
 } from '../types.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { ConversationCompressor } from './conversation-compressor.js'
 import type { ConversationCompressorOptions } from './conversation-compressor.js'
 
@@ -292,7 +292,7 @@ export class SessionRegistry {
   async *executeMultiTurn(
     input: AgentInput,
     options: MultiTurnOptions,
-    registry: AdapterRegistry,
+    registry: ProviderAdapterRegistry,
   ): AsyncGenerator<AgentEvent, void, undefined> {
     for await (const event of this.executeMultiTurnWithRaw(input, options, registry)) {
       if (!isProviderRawStreamEvent(event)) {
@@ -304,7 +304,7 @@ export class SessionRegistry {
   async *executeMultiTurnWithRaw(
     input: AgentInput,
     options: MultiTurnOptions,
-    registry: AdapterRegistry,
+    registry: ProviderAdapterRegistry,
   ): AsyncGenerator<AgentStreamEvent, void, undefined> {
     const workflow = this.requireWorkflow(options.workflowId)
     const now = new Date()
@@ -370,7 +370,7 @@ export class SessionRegistry {
       preferredProvider: targetProvider,
     }
 
-    const registryWithOptionalRaw = registry as AdapterRegistry & {
+    const registryWithOptionalRaw = registry as ProviderAdapterRegistry & {
       executeWithFallbackWithRaw?: (
         input: AgentInput,
         task: { prompt: string; tags: string[]; preferredProvider: AdapterProviderId | undefined },
@@ -442,7 +442,7 @@ export class SessionRegistry {
     workflowId: string,
     interactionId: string,
     answer: string,
-    registry: AdapterRegistry,
+    registry: ProviderAdapterRegistry,
     provider?: AdapterProviderId,
   ): Promise<boolean> {
     const workflow = this.requireWorkflow(workflowId)

@@ -14,6 +14,7 @@
 import { Hono } from 'hono'
 import type { ForgeServerConfig } from '../app.js'
 import { AgentDefinitionService } from '../services/agent-definition-service.js'
+import { AgentCreateSchema, parseIntBounded, validateBodyCompat } from './schemas.js'
 
 export function createAgentDefinitionRoutes(config: ForgeServerConfig): Hono {
   const app = new Hono()
@@ -22,7 +23,7 @@ export function createAgentDefinitionRoutes(config: ForgeServerConfig): Hono {
   // GET /api/agent-definitions — List agent definitions
   app.get('/', async (c) => {
     const active = c.req.query('active')
-    const limit = parseInt(c.req.query('limit') ?? '100', 10)
+    const limit = parseIntBounded(c.req.query('limit'), 100, 1, 500)
 
     const agents = await service.list({
       active: active !== undefined ? active === 'true' : undefined,
@@ -34,24 +35,9 @@ export function createAgentDefinitionRoutes(config: ForgeServerConfig): Hono {
 
   // POST /api/agent-definitions — Create agent definition
   app.post('/', async (c) => {
-    const body = await c.req.json<{
-      id?: string
-      name: string
-      instructions: string
-      modelTier: string
-      description?: string
-      tools?: string[]
-      guardrails?: Record<string, unknown>
-      approval?: 'auto' | 'required' | 'conditional'
-      metadata?: Record<string, unknown>
-    }>()
-
-    if (!body.name || !body.instructions || !body.modelTier) {
-      return c.json(
-        { error: { code: 'VALIDATION_ERROR', message: 'name, instructions, and modelTier are required' } },
-        400,
-      )
-    }
+    const parsed = await validateBodyCompat(c, AgentCreateSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
     const saved = await service.create(body)
     return c.json({ data: saved }, 201)

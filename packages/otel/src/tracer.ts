@@ -234,7 +234,9 @@ export class DzupTracer {
   endSpanWithError(span: OTelSpan, error: unknown): void {
     const message = error instanceof Error ? error.message : String(error)
     span.setStatus({ code: SpanStatusCode.ERROR, message })
-    span.setAttribute(ForgeSpanAttr.ERROR_CODE, message)
+    // Truncate to avoid unbounded error strings (stack traces, LLM outputs)
+    // being forwarded to the OTel collector as span attributes.
+    span.setAttribute(ForgeSpanAttr.ERROR_CODE, message.slice(0, 120))
     span.end()
   }
 

@@ -42,8 +42,20 @@ export type DzupEvent =
   | { type: 'tool:called'; toolName: string; input: unknown; executionRunId?: string }
   | { type: 'tool:result'; toolName: string; durationMs: number; executionRunId?: string }
   | { type: 'tool:error'; toolName: string; errorCode: ForgeErrorCode; message: string; executionRunId?: string }
+  // --- LLM invocation (compliance/audit) ---
+  | {
+      type: 'llm:invoked'
+      agentId: string
+      runId?: string
+      model: string
+      inputTokens: number
+      outputTokens: number
+      costCents: number
+      timestamp: number
+    }
   // --- Memory ---
   | { type: 'memory:written'; namespace: string; key: string }
+  | { type: 'memory:pii_redacted'; agentId: string }
   | { type: 'memory:searched'; namespace: string; query: string; resultCount: number }
   | { type: 'memory:error'; namespace: string; message: string }
   | { type: 'memory:retrieval_source_failed'; source: string; error: string; durationMs: number; query: string }
@@ -201,6 +213,7 @@ export type DzupEvent =
   | { type: 'cache:degraded'; operation: string; recoverable: boolean }
   | { type: 'memory:index_failed'; namespace: string; recoverable: boolean }
   | { type: 'context:transfer_partial'; recoverable: boolean }
+  | { type: 'context:compress_failed'; error: string; phase: string }
   // --- Agent progress ---
   | { type: 'agent:progress'; agentId: string; phase: string; percentage: number; message: string; timestamp: number }
   // --- Recovery extended ---
