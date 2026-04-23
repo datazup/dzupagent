@@ -1,0 +1,287 @@
+{
+  "@dzupagent/core": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app",
+      "help"
+    ]
+  },
+  "@dzupagent/agent": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app",
+      "help"
+    ]
+  },
+  "@dzupagent/memory": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/context": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/rag": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/connectors": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/agent-adapters": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app"
+    ]
+  },
+  "@dzupagent/otel": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/codegen": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/research-app",
+      "apps/seo-batch"
+    ]
+  },
+  "@dzupagent/runtime-contracts": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/cache": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/codev-app",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/adapter-types": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/codev-app",
+      "shared-kit"
+    ]
+  },
+  "@dzupagent/adapter-rules": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": []
+  },
+  "@dzupagent/connectors-browser": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/nl2sql",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/connectors-documents": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/nl2sql",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/express": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/nl2sql",
+      "apps/research-app"
+    ]
+  },
+  "@dzupagent/flow-ast": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/codev-app"
+    ]
+  },
+  "@dzupagent/flow-compiler": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/codev-app"
+    ]
+  },
+  "@dzupagent/flow-dsl": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/codev-app"
+    ]
+  },
+  "@dzupagent/memory-ipc": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/scraper": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/codev-app",
+      "apps/research-app"
+    ]
+  },
+  "@dzupagent/server": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/research-app"
+    ]
+  },
+  "@dzupagent/evals": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/testing": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/research-app"
+    ]
+  },
+  "@dzupagent/test-utils": {
+    "tier": 2,
+    "status": "supported-secondary",
+    "roadmapDriver": false,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/app-tools": {
+    "tier": 3,
+    "status": "parked",
+    "roadmapDriver": false,
+    "owners": []
+  },
+  "@dzupagent/code-edit-kit": {
+    "tier": 3,
+    "status": "parked",
+    "roadmapDriver": false,
+    "owners": []
+  },
+  "@dzupagent/hitl-kit": {
+    "tier": 3,
+    "status": "parked",
+    "roadmapDriver": false,
+    "owners": []
+  },
+  "@dzupagent/playground": {
+    "tier": 3,
+    "status": "parked",
+    "roadmapDriver": false,
+    "owners": []
+  },
+  "create-dzupagent": {
+    "tier": 3,
+    "status": "parked",
+    "roadmapDriver": false,
+    "owners": []
+  }
+}
