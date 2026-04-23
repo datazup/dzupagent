@@ -5,7 +5,16 @@ import { execFileSync } from 'node:child_process'
 const repoRoot = process.cwd()
 const packagesDir = join(repoRoot, 'packages')
 
-const runtimePackageDenylist = new Set(['create-dzupagent', 'playground', 'test-utils', 'testing', 'runtime-contracts'])
+const runtimePackageDenylist = new Set([
+  'create-dzupagent',
+  'playground',
+  'test-utils',
+  'testing',
+  'runtime-contracts',
+  // `hitl-kit` is a pure types package (payload/response shapes) with no
+  // runtime logic to exercise, so it carries no test suite by design.
+  'hitl-kit',
+])
 const runtimeCriticalPackages = new Set([
   'agent',
   'agent-adapters',
@@ -79,6 +88,22 @@ function countTestFiles(srcPath, patterns) {
   return rgCount(args)
 }
 
+// Some runtime packages (for example `flow-ast`, `flow-compiler`) keep their
+// suites in a top-level `test/` directory rather than `src/__tests__/`. We
+// scan both locations and sum the results so the inventory gate reflects the
+// real suite coverage regardless of layout.
+function countPackageTestFiles(packageName, patterns) {
+  const srcPath = `packages/${packageName}/src`
+  let total = countTestFiles(srcPath, patterns)
+
+  const siblingTestDir = join(packagesDir, packageName, 'test')
+  if (existsSync(siblingTestDir)) {
+    total += countTestFiles(`packages/${packageName}/test`, patterns)
+  }
+
+  return total
+}
+
 const packageNames = readdirSync(packagesDir, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => entry.name)
@@ -90,9 +115,8 @@ const runtimePackages = packageNames.filter((name) => {
 })
 
 const summary = runtimePackages.map((name) => {
-  const srcPath = `packages/${name}/src`
-  const testCount = countTestFiles(srcPath, ['*test.ts', '*test.tsx'])
-  const integrationStyleTestCount = countTestFiles(srcPath, integrationStyleTestPatterns)
+  const testCount = countPackageTestFiles(name, ['*test.ts', '*test.tsx'])
+  const integrationStyleTestCount = countPackageTestFiles(name, integrationStyleTestPatterns)
   return {
     name,
     testCount,
