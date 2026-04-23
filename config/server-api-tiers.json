@@ -242,6 +242,22 @@
     },
     {
       "match": "exact",
+      "pattern": "./services/agent-control-plane-service.js",
+      "tier": "secondary",
+      "area": "control-plane",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Control-plane projection service is useful infrastructure, but too specialized for the minimal root server seam."
+    },
+    {
+      "match": "exact",
+      "pattern": "./services/executable-agent-resolver.js",
+      "tier": "secondary",
+      "area": "control-plane",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Executable-agent resolution helpers are useful during control-plane adoption, but should not silently widen the default root API."
+    },
+    {
+      "match": "exact",
       "pattern": "./lifecycle/human-contact-timeout.js",
       "tier": "secondary",
       "area": "lifecycle",
