@@ -166,7 +166,7 @@ const result = await invokeWithTimeout(model, messages, { timeoutMs: 30_000 })
 
 ### Version
 
-- `dzupagent_CORE_VERSION: string` -- current package version (`'0.1.0'`)
+- `dzupagent_CORE_VERSION: string` -- current package version (`'0.2.0'`)
 
 ## Facade Imports
 

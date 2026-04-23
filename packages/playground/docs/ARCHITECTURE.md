@@ -47,7 +47,7 @@ The package is private to this monorepo and communicates with backend services t
 - `/benchmarks` + `/benchmarks/:runId`
 - `/evals` + `/evals/:id`
 - `/agent-definitions`
-- `/agents` (legacy redirect)
+- `/agents` (compatibility-only legacy redirect; do not build new UI features on it)
 - `/marketplace`
 
 ## 3. Core Runtime Flow

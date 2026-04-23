@@ -146,7 +146,7 @@ LangGraph-compatible tool factories for use inside agent nodes:
 
 ### Version
 
-- `dzupagent_CODEGEN_VERSION: string` -- current package version (`'0.1.0'`)
+- `dzupagent_CODEGEN_VERSION: string` -- current package version (`'0.2.0'`)
 
 ## Configuration
 
@@ -171,7 +171,7 @@ This package relies on `@dzupagent/core` for LLM and persistence configuration. 
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@dzupagent/core` | `0.1.0` | Core agent infrastructure (LLM, memory, prompts) |
+| `@dzupagent/core` | `0.2.0` | Core agent infrastructure (LLM, memory, prompts) |
 
 ## License
 

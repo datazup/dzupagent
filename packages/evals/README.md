@@ -408,7 +408,7 @@ await runner.regressionCheck(dataset, baseline)
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@dzupagent/core` | `0.1.0` | Core infrastructure |
+| `@dzupagent/core` | `0.2.0` | Core infrastructure |
 
 ## License
 

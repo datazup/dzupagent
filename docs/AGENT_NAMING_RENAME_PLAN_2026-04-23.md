@@ -16,7 +16,7 @@ Related decisions:
 
 ## Current Tranche Status
 
-Status as of 2026-04-23 after the eighth focused implementation pass:
+Status as of 2026-04-23 after the twelfth focused implementation pass:
 
 - `done`: canonical execution-spec aliases exist in `core`
   - `AgentExecutionSpec`
@@ -58,6 +58,29 @@ Status as of 2026-04-23 after the eighth focused implementation pass:
 - `done`: first-party server tests now teach canonical `/api/agent-definitions` routes by default
 - `done`: first-party playground store tests now teach `useAgentDefinitionsStore` by default
 - `done`: server docs now present canonical routes first and keep alias routes only as deprecation notes
+- `done`: the legacy playground store wrapper now re-exports only `useAgentStore`, so the canonical store is no longer taught through the legacy file path
+- `done`: the server root API surface now marks `createAgentRoutes` as deprecated
+- `done`: active `agent-adapters` implementation files now prefer `ProviderAdapterRegistry*`
+- `done`: focused `agent-adapters` docs and focused tests now teach `ProviderAdapterRegistry*` by default
+- `done`: secondary `agent-adapters` architecture docs now teach `ProviderAdapterRegistry*`
+- `done`: additional focused tests now teach `ProviderAdapterRegistry*`
+  - `provider-execution-port-branches.test.ts`
+  - `adapter-plugin-sdk.test.ts`
+  - `adapter-plugin-lifecycle.test.ts`
+  - `ab-test-runner.test.ts`
+- `done`: the next behavioral test cluster now teaches `ProviderAdapterRegistry*`
+  - `adapter-lifecycle.test.ts`
+  - `adapter-registry-production-gate.test.ts`
+  - `workflow-skip.test.ts`
+  - `workflow-loop.test.ts`
+- `done`: the next integration test cluster now teaches `ProviderAdapterRegistry*`
+  - `correlation-warmup.test.ts`
+  - `agent-bridge.test.ts`
+  - `contract-net.test.ts`
+  - `gemini-sdk-adapter.test.ts`
+- `done`: the secondary `agent-adapters/docs/analyze_codex.md` doc now teaches `ProviderAdapterRegistry`
+- `done`: the router compatibility test now asserts `/agents` redirect behavior directly
+- `done`: the legacy playground wrapper files now describe themselves as deprecated compatibility-only entrypoints
 - `done`: focused package verification passed for `core`, `agent-adapters`, `otel`, and impacted `server` checks
 - `not done`: internal imports across packages still mostly use legacy names
 - `not done`: registry implementation/export renames (`InMemoryRegistry`, `PostgresRegistry`) have not started
@@ -280,13 +303,15 @@ Highest-leverage execution-spec hotspots:
 Highest-leverage provider-registry hotspots:
 
 - `packages/agent-adapters/src/index.ts`
-  - still exports `AdapterRegistry` and `DetailedHealthStatus` prominently for compatibility
+  - still exports `AdapterRegistry` and `DetailedHealthStatus` for compatibility, but canonical exports now come first
 - `packages/agent-adapters/src/integration/*`
-  - integration seams still use `AdapterRegistry` as the dominant developer-facing type
+  - resolved in tranche 9; active integration seams now use `ProviderAdapterRegistry`
 - `packages/agent-adapters/src/__tests__/*`
-  - the test suite still overwhelmingly uses `AdapterRegistry`
+  - focused canonical tests were migrated in tranches 9 and 10; the broader suite still mostly uses `AdapterRegistry`
 - `packages/agent-adapters/README.md`
-  - external-facing docs still teach the legacy provider-registry vocabulary
+  - resolved in tranche 9; focused examples now teach `ProviderAdapterRegistry`
+- `packages/agent-adapters/docs/ARCHITECTURE.md`
+  - resolved in tranche 10; secondary package docs now teach `ProviderAdapterRegistry`
 
 ## Compatibility Removal Ledger
 
@@ -735,36 +760,38 @@ Verification snapshot for tranche 3:
 ## Recommended Next Focused Tranche
 
 Objective:
-- reduce developer-facing drift without widening the compatibility blast radius
+- remove remaining developer-facing drift without widening the compatibility blast radius
 
 Tasks:
 
-1. `packages/server`
-- widen the control-plane service beyond execution projection:
-  - keep `ExecutableAgentResolver` small
-  - keep `AgentControlPlaneService` as the single owner of registry-aware local execution policy
-  - move more route-owned control-plane decisions behind the service
-
-2. `packages/core`, `packages/server`, and docs
-- continue shrinking legacy imports and alias teaching surfaces
+1. `packages/agent-adapters`
+- migrate the next coherent test cluster from `AdapterRegistry` to `ProviderAdapterRegistry`
 - prioritize:
-  - `packages/core/src/flow/index.ts`
-  - server/public export inventories
-  - deprecation notes that still describe old routes as active surfaces instead of compatibility-only
+  - `src/__tests__/workflow-timeout.test.ts`
+  - `src/__tests__/adapter-workflow.test.ts`
+  - `src/__tests__/orchestration-branches-2.test.ts`
+  - `src/__tests__/map-reduce.test.ts`
+- keep explicit compatibility alias tests separate from normal behavioral tests
 
-3. Compatibility governance
-- turn the new removal ledger into actionable deletion waves:
-  - canonical-path test parity
-  - alias consumer count reaches zero
-  - docs collapse to one deprecation note per alias
-  - next deletion-ready candidates:
-    - `useAgentStore`
-    - `AgentsView.vue`
-    - `/agents` redirect once registry/fleet UI work is ready
+2. `packages/playground`
+- reduce the remaining alias teaching surfaces to pure compatibility wrappers
+- prioritize:
+  - `src/views/AgentsView.vue`
+  - `src/stores/agent-store.ts`
+  - `src/__tests__/agent-store.test.ts`
+  - `src/__tests__/router.test.ts`
+- do not add new behavior to `/agents` or `useAgentStore`
 
-4. `packages/agent-adapters`
-- move from alias exports to canonical internal usage for `ProviderAdapterRegistry*`
-- then tackle external docs/examples that still teach `AdapterRegistry`
+3. `packages/server` and docs
+- keep compatibility aliases visible but clearly secondary
+- prioritize:
+  - root export inventories
+  - deprecation notes that still describe old routes as active surfaces
+  - compatibility ledgers for `/api/agents` and `createAgentRoutes`
+
+4. Hold productization expansion until alias drift is smaller
+- do not start broad fleet UI work until the remaining alias-teaching surfaces are down to explicit compatibility-only ledgers
+- then start a separate productization tranche for registry/fleet UI
 
 Verification:
 
@@ -775,7 +802,12 @@ Verification:
 - `yarn workspace @dzupagent/server test src/services/__tests__/agent-definition-service.test.ts`
 - `yarn workspace @dzupagent/server test src/services/__tests__/agent-control-plane-service.test.ts`
 - `yarn workspace @dzupagent/server test src/services/__tests__/executable-agent-resolver.test.ts`
-- `rg -n "AgentDefinition|AgentStore|AgentHandle|/api/agents|/agents|registry:agent_" packages/core packages/server packages/playground packages/agent-adapters`
+- `yarn workspace @dzupagent/agent-adapters typecheck`
+- `yarn workspace @dzupagent/agent-adapters test src/__tests__/provider-execution-port-branches.test.ts src/__tests__/adapter-plugin-sdk.test.ts src/__tests__/adapter-plugin-lifecycle.test.ts src/__tests__/ab-test-runner.test.ts`
+- `yarn workspace @dzupagent/agent-adapters test src/__tests__/adapter-lifecycle.test.ts src/__tests__/adapter-registry-production-gate.test.ts src/__tests__/workflow-skip.test.ts src/__tests__/workflow-loop.test.ts`
+- `yarn workspace @dzupagent/agent-adapters test src/__tests__/correlation-warmup.test.ts src/__tests__/agent-bridge.test.ts src/__tests__/contract-net.test.ts src/__tests__/gemini-sdk-adapter.test.ts`
+- `yarn workspace @dzupagent/agent-adapters test src/__tests__/workflow-timeout.test.ts src/__tests__/adapter-workflow.test.ts src/__tests__/orchestration-branches-2.test.ts src/__tests__/map-reduce.test.ts`
+- `rg -n "AgentDefinition|AgentStore|AgentHandle|/api/agents|/agents|registry:agent_|AdapterRegistry\\b|DetailedHealthStatus\\b" packages/core packages/server packages/playground packages/agent-adapters`
 
 ## Success Criteria
 

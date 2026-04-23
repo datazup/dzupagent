@@ -25,7 +25,7 @@ npm install @dzupagent/agent-adapters
 ## Core design
 
 - **Unified adapter contract** via `AgentCLIAdapter` and `AgentEvent` stream (`adapter:started`, `adapter:message`, `adapter:tool_call`, `adapter:tool_result`, `adapter:stream_delta`, `adapter:completed`, `adapter:failed`).
-- **Provider routing + fallback** via `AdapterRegistry` and routing strategies (`TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter`, `CapabilityRouter`, `ContextAwareRouter`).
+- **Provider routing + fallback** via `ProviderAdapterRegistry` and routing strategies (`TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter`, `CapabilityRouter`, `ContextAwareRouter`).
 - **High-level orchestration** through `OrchestratorFacade` / `createOrchestrator` (`run`, `parallel`, `race`, `supervisor`, `mapReduce`, `bid`, `chat`).
 - **Operational controls** including cost tracking/optimization, guardrails, approval gates, recovery copilot, checkpoints, and run management.
 
@@ -44,7 +44,7 @@ npm install @dzupagent/agent-adapters
 
 ### 2) Registry, routing, and fallback execution
 
-- `AdapterRegistry` registers adapters and executes with router-selected primary + fallback providers.
+- `ProviderAdapterRegistry` registers adapters and executes with router-selected primary + fallback providers.
 - Health-aware selection with circuit breaker integration from `@dzupagent/core`.
 - Router options:
   - **Tag based** (`TagBasedRouter`) for heuristics by task tags.
@@ -212,7 +212,7 @@ for await (const event of gate.guard(context, adapter.execute({ prompt: 'Execute
 
 ```ts
 import {
-  AdapterRegistry,
+  ProviderAdapterRegistry,
   ClaudeAgentAdapter,
   StructuredOutputAdapter,
   JsonOutputSchema,
@@ -223,7 +223,7 @@ interface ReleasePlan {
   risk: 'low' | 'medium' | 'high'
 }
 
-const registry = new AdapterRegistry()
+const registry = new ProviderAdapterRegistry()
 registry.register(new ClaudeAgentAdapter({ apiKey: process.env.ANTHROPIC_API_KEY }))
 
 const planSchema = new JsonOutputSchema<ReleasePlan>(
@@ -257,13 +257,13 @@ if (result.result.success) {
 
 ```ts
 import {
-  AdapterRegistry,
+  ProviderAdapterRegistry,
   ClaudeAgentAdapter,
   CodexAdapter,
   defineWorkflow,
 } from '@dzupagent/agent-adapters'
 
-const registry = new AdapterRegistry()
+const registry = new ProviderAdapterRegistry()
 registry.register(new ClaudeAgentAdapter({ apiKey: process.env.ANTHROPIC_API_KEY }))
 registry.register(new CodexAdapter({ apiKey: process.env.OPENAI_API_KEY }))
 
@@ -291,7 +291,7 @@ console.log(workflowResult.success, workflowResult.finalState)
 ## Main exports (by area)
 
 - **Adapters:** `ClaudeAgentAdapter`, `CodexAdapter`, `GeminiCLIAdapter`, `QwenAdapter`, `CrushAdapter`
-- **Registry/routing:** `AdapterRegistry`, `TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter`, `CapabilityRouter`, `ContextAwareRouter`
+- **Registry/routing:** `ProviderAdapterRegistry`, `TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter`, `CapabilityRouter`, `ContextAwareRouter`
 - **Orchestration:** `OrchestratorFacade`, `createOrchestrator`, `SupervisorOrchestrator`, `ParallelExecutor`, `MapReduceOrchestrator`, `ContractNetOrchestrator`
 - **Workflow/session/persistence:** `defineWorkflow`, `AdapterWorkflowBuilder`, `SessionRegistry`, `WorkflowCheckpointer`, `RunManager`, `FileCheckpointStore`
 - **Controls/safety:** `AdapterGuardrails`, `AdapterApprovalGate`, `AdapterRecoveryCopilot`, `CostTrackingMiddleware`, `CostOptimizationEngine`

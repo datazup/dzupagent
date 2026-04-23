@@ -60,55 +60,62 @@ The core MCP substrate in `dzupagent` is real and should be extended rather than
 - `@dzupagent/connectors`
   - `MCPAsyncToolResolver` for compiler/runtime-backed lazy MCP tool resolution
 
-There are also two useful app-side patterns already present:
+There are also three useful app-side patterns already present:
 
 - `apps/testman-app/apps/api`
   - publishes app features via `DzupAgentMCPServer`
   - exposes a tool-only JSON-RPC endpoint
 - `apps/research-app/apps/api`
   - has tenant-aware MCP auth/config management and resource/tool surfaces
-  - currently implemented as an app-local MCP stack rather than a shared dzupagent publishing kit
+- local management/business logic remains app-specific, but the publishing surface is now aligned to the shared dzupagent kit
+- `apps/codev-app/apps/api`
+  - now publishes read-only adapter-monitor diagnostics through the shared dzupagent publishing path
+  - provides the current reference for bearer-token-backed operational MCP publishing
 
 ### What Is Not Done Yet
 
 - the `dzupagent/server` MCP control plane is not hardened enough by default
-- app MCP publishing patterns are already drifting from each other
-- app-level auth/context conventions for published MCP servers are not standardized yet
-- only `testman-app` and `research-app` have been migrated onto the shared `@dzupagent/express` publishing path so far
+- second-wave app surfaces are not standardized yet beyond the first read-only rollout set
+- local-link hygiene still needs to stay consistent as more consumer repos adopt additional `@dzupagent/*` packages
+- only `ai-saas-starter-kit` is still missing migration onto the shared `@dzupagent/express` publishing path in the current app set
 - operator CLI UX and onboarding are still incomplete
 
 ## Drift Diagnosis
 
-The main risk is not missing MCP support. The main risk is implementation drift across three partially overlapping models:
+The main risk is not missing MCP support. The main risk is rollout drift across adopter waves after the framework path is already established:
 
 1. `dzupagent/core` MCP model
    - strong substrate
-   - canonical publishing surface now exists, but no app adopters are migrated yet
+   - canonical publishing surface now exists and is now exercised by three adopters
 
 2. `testman-app` MCP publishing model
    - simple, lightweight, tool-only
-   - no shared tenant/auth/resource contract
+   - now aligned to the shared router + compatibility suite
 
 3. `research-app` MCP management/publishing model
    - richer tenant-aware behavior
-   - implemented outside the shared dzupagent publishing kit
+   - local business logic is richer, but the publish surface is now aligned to the shared dzupagent kit
+
+4. `codev-app` MCP publishing model
+   - read-only bearer-token publisher for adapter-monitor diagnostics
+   - first adopter proving the shared path for authenticated operational tooling surfaces
 
 This creates the following drift classes:
 
 - protocol drift
   - different JSON-RPC compatibility behavior across repos
 - auth drift
-  - different bearer/API-key/tenant handling patterns
+  - different bearer/API-key/tenant handling patterns can still reappear in future adopters if they skip the shared request-context helper
 - transport drift
   - app-local HTTP wrappers instead of one shared publishing adapter
 - schema drift
   - different tool result, resource, and error envelopes
 - request-context drift
-  - tenant/user context may still be resolved differently per app even though the shared router now supports request-scoped server resolution
+  - tenant/user context still needs one documented contract for future adopters even though the shared router now supports request-scoped server resolution
 - local dependency-link drift
   - consumer repos can fall back to the public registry when their `portal:` / workspace-link policy does not cover newly adopted framework packages
 - verification drift
-  - no shared compatibility fixture proving identical behavior across publisher implementations
+  - reduced for current adopters, but future adopters can still drift if they skip the shared harness + compatibility suite
 
 ## Target Architecture
 
@@ -161,10 +168,10 @@ Legend:
 | Compiler/runtime lazy MCP resolution | done | `MCPAsyncToolResolver` exists in `@dzupagent/connectors`. |
 | Canonical MCP publishing core for apps | done | `DzupAgentMCPServer` now supports `initialize`, notifications/`id:null`, resources, capability advertisement, structured tool results, and optional sampling handler support with focused tests. |
 | Shared app publishing transport glue | done | `@dzupagent/express` now exposes `createMcpRouter(...)`, request-scoped server resolution, and reusable MCP request-context auth helpers for tenant-aware publishers. |
-| App adopter standardization | in progress | `testman-app` and `research-app` are now migrated to the shared express router; `codev-app` and `ai-saas-starter-kit` are not migrated yet. |
+| App adopter standardization | in progress | `testman-app`, `research-app`, and `codev-app` are now migrated to the shared express router; `ai-saas-starter-kit` is still pending. |
 | External MCP control-plane hardening | not done | `/api/mcp/*` still needs stronger authz, redaction, and transport policy, but this is parked outside the current framework wave. |
 | Operator CLI onboarding and doctor flows | not done | `dzup mcp` UX is still mostly placeholder behavior. |
-| Shared compatibility verification across repos | in progress | `@dzupagent/test-utils` now exports a reusable MCP publisher compatibility suite, and `testman-app` consumes it. `research-app` still uses app-local publish-route assertions while its route harness is stabilized against the new shared auth helper. |
+| Shared compatibility verification across repos | done | `@dzupagent/test-utils` now exports a reusable MCP publisher compatibility suite and Express route harness, and `testman-app`, `research-app`, and `codev-app` consume them with focused adopter tests passing. |
 | Drift-control documentation and rollout sequencing | in progress | This document now reflects the framework-only execution wave and updated next steps. |
 
 ## Focused Execution Order
@@ -179,7 +186,7 @@ Work should proceed in this order to minimize rework:
 6. Standardize reusable auth/context helpers for published MCP servers
 7. Add shared compatibility fixtures and rollout gates
 8. Add read-first adoption in `codev-app`
-9. Add reference/scaffold support in `ai-saas-starter-kit`
+9. Expand second-wave read surfaces in adopters and add reference/scaffold support in `ai-saas-starter-kit`
 10. Revisit `packages/server` hardening as a separate control-plane track
 
 Reason:
@@ -440,7 +447,7 @@ Goal:
 - stop each adopter app from inventing a slightly different auth/context wrapper around the shared router
 
 Current status:
-- partially completed in the current framework wave
+- completed for the current framework wave
 
 Done in this wave:
 - `@dzupagent/express` now exports reusable MCP request-context helpers:
@@ -450,6 +457,7 @@ Done in this wave:
   - `requireMcpRequestContext(...)`
 - `research-app` publish routing now uses the shared request-context auth helper instead of app-local credential parsing and request mutation
 - `@dzupagent/test-utils` now exports `describeMcpPublisherCompatibilitySuite(...)`
+- `@dzupagent/test-utils` now exports `createExpressRouteHarness(...)` so adopter route tests can share the same in-memory Express dispatch layer
 - the shared compatibility suite now covers:
   - `initialize`
   - `tools/list`
@@ -460,11 +468,12 @@ Done in this wave:
   - optional resources
   - optional resource templates
 - `testman-app` publish-route tests now consume the shared compatibility suite
+- `research-app` publish-route tests now consume the shared compatibility suite
+- `testman-app` and `research-app` now both use the shared Express route harness instead of app-local MCP dispatch scaffolding
+- `research-app` focused API typecheck and publish-route test pass again after aligning the tenant-aware auth assertions with the shared helper contract
 
 Remaining work:
-- migrate `research-app` onto the shared compatibility suite after its publish-route harness is stabilized
 - decide whether the compatibility suite should grow explicit assertions for capability payloads and error envelopes beyond invalid-request
-- extract a tiny shared Express test harness helper if more adopters need route-level MCP contract tests
 
 Required work:
 - define one reusable pattern for API-key or bearer-token backed MCP publish auth
@@ -490,23 +499,61 @@ Verification:
 - `cd dzupagent && yarn workspace @dzupagent/test-utils typecheck`
 - `cd apps/testman-app && yarn workspace @testman-app/api test src/tests/integration/ai-observability.routes.test.ts`
 - `cd apps/testman-app && yarn workspace @testman-app/api run typecheck`
-- `research-app` remains partially verified in this wave:
-  - `yarn install` completed after route changes
-  - full API typecheck is currently blocked by broader `@dzupagent/core` portal/declaration issues in the app workspace
-  - focused publish-route test currently needs a harness cleanup pass before it can be treated as a stable gate again
+- `cd apps/research-app && yarn install`
+- `cd apps/research-app && yarn workspace @research-app/api test src/tests/integration/mcp-publish.routes.test.ts`
+- `cd apps/research-app && yarn workspace @research-app/api typecheck`
 
 Exit rule:
-- do not widen adopter rollout again until at least one tenant-aware adopter also consumes the shared compatibility suite cleanly
+- satisfied for the current adopter set; use the same suite for all new adopters before widening the rollout
 
 ### Task Group H — Read-First Adopters: `codev-app` And `ai-saas-starter-kit`
 
 Goal:
 - expand adoption without increasing side-effect risk early
 
+Current status:
+- `codev-app` first-wave read-only MCP publishing is now implemented on the shared framework path
+- the publish surface is mounted at `/api/v1/mcp` through `createMcpRouter(...)`
+- bearer-token auth is resolved through `createMcpRequestContextAuth(...)`
+- focused MCP route tests now use both shared helpers:
+  - `createExpressRouteHarness(...)`
+  - `describeMcpPublisherCompatibilitySuite(...)`
+- focused `@codev-app/api` MCP tests and typecheck pass for this first wave
+
+Done in this wave:
+- added a shared-framework publisher in `apps/codev-app/apps/api/src/mcp/server.ts`
+- added a shared-framework publish route in `apps/codev-app/apps/api/src/routes/mcp-publish.routes.ts`
+- mounted the publish surface in `apps/codev-app/apps/api/src/app.ts`
+- published the first read-only tool set:
+  - `list_adapter_monitor_providers`
+  - `list_adapter_monitor_scopes`
+  - `get_adapter_mcp_status`
+  - `get_adapter_monitor_snapshot`
+- added focused server-builder and publish-route tests using the shared route harness and compatibility suite
+- confirmed the adopter route tests are using the real runtime mount path (`/api/v1/mcp`) rather than a harness-only shortcut
+
 `codev-app` first-wave candidates:
 - adapter monitor inventory/status
+  - `GET /adapter-monitor/providers`
+  - `GET /adapter-monitor/scopes`
+  - `GET /adapter-monitor/:providerId/mcp-status`
+  - `GET /adapter-monitor/:providerId/snapshot`
 - persona/tool capability reads
+  - `GET /orchestration/personas`
+  - `GET /orchestration/personas/:id`
+  - `GET /capabilities`
 - diagnostics/status queries
+  - `GET /orchestration/health` only after admin-role semantics are mapped cleanly into MCP auth/context
+
+Remaining work:
+1. add `capabilities` and persona catalog reads as the second read-only slice
+2. decide whether any adapter-monitor state should also be exposed as MCP resources instead of tools
+3. leave orchestration mutation, run controls, and approval actions out of scope until auth/role semantics are mapped more tightly
+
+Required next verification additions for `codev-app`:
+- one tenant/auth assertion proving the publish route resolves bearer-token tenant context into MCP tool execution
+- one smoke test proving admin-only or mutation-only data is not exposed through the first-wave MCP surface
+- if resources are added in the next slice, extend the shared compatibility usage to cover them explicitly
 
 `ai-saas-starter-kit` first-wave role:
 - reference implementation
@@ -517,6 +564,11 @@ Verification:
 - `cd apps/codev-app && yarn test:integration`
 - `cd apps/ai-saas-starter-kit && yarn typecheck`
 - `cd apps/ai-saas-starter-kit && yarn test`
+
+Completed verification for this wave:
+- `cd apps/codev-app && yarn install`
+- `cd apps/codev-app && yarn workspace @codev-app/api test src/__tests__/mcp.server.test.ts src/__tests__/mcp-publish.routes.test.ts`
+- `cd apps/codev-app && yarn workspace @codev-app/api typecheck`
 
 Exit rule:
 - start read-only unless there is a strong product reason to expose mutation tools immediately
@@ -575,14 +627,20 @@ Verification:
 - adopter app API typecheck + integration tests
 
 Next focused tasks from here:
-- stabilize `research-app` publish-route verification against the shared auth helper, then move it onto `describeMcpPublisherCompatibilitySuite(...)`
-- decide whether to place a shared Express MCP dispatch harness in `@dzupagent/test-utils` for adopter route tests
-- migrate `codev-app` with a read-only first wave
-- normalize local-link policy in the remaining consumer repos before further framework package adoption
+- add second-wave read-only adopters in `codev-app`:
+  - `GET /capabilities`
+  - `GET /orchestration/personas`
+  - `GET /orchestration/personas/:id`
+- normalize local-link policy in remaining consumer repos before further framework package adoption
+- extract a short adopter checklist for future apps:
+  - shared auth helper
+  - shared router
+  - shared route harness
+  - shared compatibility suite
 - release checklist updated with MCP-specific gates
 
 Exit rule:
-- do not widen app adoption until the compatibility suite exists and both `testman-app` and at least one tenant-aware adopter pass it
+- satisfied for the current adopter set; next widening step is second-wave read-only surfaces and `ai-saas-starter-kit`, not more framework-layer divergence
 
 ## Verification Matrix
 

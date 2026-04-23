@@ -22,16 +22,20 @@ The longer-term goal is to keep `dzupagent` feature-rich without letting that ri
 - Moved `packages/testing/src/__tests__/boundary/architecture.test.ts` to consume that config instead of hardcoded rule arrays.
 - Added a machine-readable `@dzupagent/server` API tier inventory at `config/server-api-tiers.json`.
 - Added a generated root-surface report at `docs/SERVER_API_SURFACE_INDEX.md`.
+- Added a phase-1 `@dzupagent/server` root allowlist and migration matrix at `docs/SERVER_ROOT_ALLOWLIST_2026-04-23.md`.
+- Added a real `@dzupagent/server/ops` subpath entrypoint while preserving current root exports for compatibility.
 - Added `docs:server-api-surface` and `check:server-api-surface` scripts to keep the inventory aligned with `packages/server/src/index.ts`.
 - Added a repo-grounded contract segmentation plan at `docs/CONTRACT_SEGMENTATION_PLAN_2026-04-23.md`.
 - Implemented the first-pass internal source split for `@dzupagent/adapter-types` and `@dzupagent/runtime-contracts` while preserving public `index.ts` facades.
+- Added a fixture-based runtime-compatibility pilot for `packages/server/src/routes/openai-compat`.
+- Restored `check:server-api-surface` by classifying the current control-plane service exports in `config/server-api-tiers.json`.
 
 ### In Progress
 
 - Converting architecture policy from test-local convention into reusable repo configuration.
 - Re-baselining the architecture refactor work around explicit drift classes and verifiable next steps.
-- Converting `@dzupagent/server` surface review from narrative assessment into config-backed inventory and targeted validation.
-- Expanding contract-correctness coverage after the internal source split in `@dzupagent/adapter-types` and `@dzupagent/runtime-contracts`.
+- Turning the `@dzupagent/server` subpath work from the first implemented `ops` tranche into the next explicit runtime/control-plane migration seam.
+- Keeping runtime-compatibility enforcement aligned with the export-reduction plan so new wire checks do not widen the root surface again.
 
 ### Not Started
 
@@ -112,15 +116,15 @@ Tasks:
 - Stop exporting persistence internals and feature-specific utilities through the root entrypoint unless explicitly intended.
 
 Current findings:
-- `packages/server/src/index.ts` currently exposes `124` unique export sources.
+- `packages/server/src/index.ts` currently exposes `126` unique export sources.
 - Current tier split is:
   - `29` stable
-  - `28` secondary
+  - `30` secondary
   - `49` experimental
   - `18` internal
 - Root exposure recommendation is:
   - `29` keep in root
-  - `77` candidate subpath exports
+  - `79` candidate subpath exports
   - `18` root leaks to remove over time
 - Real direct workspace root-import usage is narrow relative to the exposed surface:
   - `ServerRoutePlugin` appears in `7` files
@@ -137,6 +141,10 @@ Implication:
 - The root package surface is much broader than current direct code consumption requires.
 - The next cleanup should shrink the root surface around the stable set first rather than splitting packages immediately.
 - There is a clean migration path because current direct workspace code is not depending on experimental or internal root exports.
+- The report guardrail is live again after classifying the current control-plane service exports, so allowlist work can now proceed against a passing inventory.
+- The first allowlist and migration matrix are now documented in `docs/SERVER_ROOT_ALLOWLIST_2026-04-23.md`.
+- The lowest-risk first pruning tranche has now been implemented: `@dzupagent/server/ops` gives doctor and scorecard helpers an explicit non-root home while root aliases remain compatible.
+- The next high-value server drift is now concentrated in `runtime` and `control-plane` secondary exports, not in ops tooling.
 
 Verification:
 - Root export inventory reviewed against current consumers.
@@ -210,6 +218,8 @@ Reference:
   - direct persisted-plane fixture coverage now exists for `RawAgentEvent`, `AgentArtifactEvent`, `GovernanceEvent`, and `RunSummary`
   - `runtime-contracts` tests are now separated by planning, execution, ledger, and schedule seams
   - focused validation remained green after the coverage reorganization
+  - backward-compatible golden payload fixtures now exist for minimal and rich persisted run contract shapes
+  - `ProviderRawStreamEvent` is covered so the live raw wrapper remains aligned with the persisted raw-event plane
 
 Verification:
 - Existing package tests still pass.
@@ -241,7 +251,9 @@ Tasks:
 Current findings:
 - The first fixture tranche is now in place for the highest-pressure persisted adapter run contracts:
   `RawAgentEvent`, `AgentArtifactEvent`, `GovernanceEvent`, and `RunSummary`.
-- The remaining drift is runtime-level compatibility, not structural organization.
+- The persisted run compatibility tranche is now in place with golden payload fixtures and wrapper coverage.
+- The first server wire-surface pilot is now in place for `routes/openai-compat`.
+- The remaining runtime-compatibility drift is no longer “no pilot exists”; it is deciding whether to extend the pattern to another wire surface or shift back to root-surface reduction.
 - `runtime-contracts` test coverage is now seam-owned, which makes the next schema/fixture tranche narrower and easier to review.
 
 Verification:
@@ -258,39 +270,48 @@ Exit criteria:
 
 1. Keep architecture policy config-driven.
 2. Keep `@dzupagent/server` export inventory and tiering config-backed.
-3. Add runtime-compatibility enforcement for the persisted run contract family and the next highest-value wire surfaces.
+3. Prepare the next explicit non-root seam after the implemented `server/ops` tranche.
 
 Focused stabilization order for the next slice:
-- first: persisted adapter run contracts
-  - `RawAgentEvent`
-  - `AgentArtifactEvent`
-  - `RunSummary`
-- second: live raw wrapper
-  - `ProviderRawStreamEvent`
-- third: only after the above is green, move to the pilot wire surface in
-  `packages/server/src/routes/openai-compat`
+- completed:
+  - persisted adapter run contracts
+    - `RawAgentEvent`
+    - `AgentArtifactEvent`
+    - `RunSummary`
+  - live raw wrapper
+    - `ProviderRawStreamEvent`
+  - first server wire-surface compatibility pilot
+  - first server subpath tranche
+    - `@dzupagent/server/ops`
+- next active item:
+  - runtime/control-plane migration matrix
+  - decision on `@dzupagent/server/runtime` versus `@dzupagent/server/control-plane`
+  - only after that, decide the next wire-surface compatibility extension or the next implemented subpath tranche
 
 ### Next
 
-1. Propose the first reduced root export allowlist for `@dzupagent/server` based on the current stable set.
-2. Split current direct root imports into:
-  - keep on root
-  - move to `@dzupagent/server/ops`
-  - move to `@dzupagent/server/runtime`
-3. Identify every current workspace consumer touching `secondary`, `experimental`, or `internal` root exports and map migration paths.
-4. Introduce runtime schemas for one pilot surface:
-   `packages/server/src/routes/openai-compat`
-5. Add contract fixtures for adapter event payloads.
+1. Document the runtime/control-plane migration matrix from current `secondary` server exports.
+2. Decide whether `AgentControlPlaneService` and executable-agent resolvers should live under `@dzupagent/server/runtime` or a dedicated `@dzupagent/server/control-plane` subpath.
+3. Keep the allowlist, surface index, and tier config synchronized after the implemented ops tranche.
+4. Extend wire-surface compatibility only where it helps the next export-reduction tranche rather than adding disconnected coverage.
+5. Keep contract fixtures for shared adapter/runtime surfaces green while the `server` export migration continues.
 
 Detailed next tasks:
-- `server` root allowlist draft:
-  - derive from current `stable` entries in `config/server-api-tiers.json`
-  - review each `secondary` module with real usage before moving it
-- `server` migration matrix:
+- implemented server subpath tranche:
+  - `@dzupagent/server/ops` now re-exports:
+    - doctor helpers
+    - scorecard CLI helpers
+    - scorecard reporting/types
+  - root aliases remain in place for compatibility
+  - package build, typecheck, and targeted ops-facing tests are now part of the validation pattern
+- follow-on server migration planning:
   - `ServerRoutePlugin` stays on root
   - `ForgeServerConfig` stays on root
-  - doctor/scorecard helpers become first candidates for `ops` subpath exports
-- contract split design:
+  - `createForgeApp` stays on root
+  - `AgentControlPlaneService` and `ExecutableAgentResolver` family are now the highest-value explicit subpath candidates
+  - `runtime/*` secondary exports should be grouped with that decision instead of being moved piecemeal
+  - `routes/openai-compat` remains a future `compat` or explicit non-root seam, not part of the phase-1 root allowlist
+- contract split discipline:
   - keep `src/index.ts` as a pure facade in both packages after future edits
   - keep direct fixture coverage green for:
     - `adapter-types`: `RawAgentEvent`, `AgentArtifactEvent`, `GovernanceEvent`, `RunSummary`
@@ -300,10 +321,13 @@ Detailed next tasks:
     - `agent-adapters` normalization and run-store
     - `codegen` run engine
     - `core` skill-model re-exports
-  - implement the first runtime-schema or golden-fixture tranche for persisted run contracts:
-    `RawAgentEvent`, `AgentArtifactEvent`, and `RunSummary`
-  - add one fixture for `ProviderRawStreamEvent` to protect the live raw-event wrapper alongside the persisted plane
-  - only after persisted run contracts are covered, start the first `server` runtime-schema pilot in `routes/openai-compat`
+  - keep the persisted run compatibility tranche green:
+    - `RawAgentEvent`
+    - `AgentArtifactEvent`
+    - `RunSummary`
+    - `ProviderRawStreamEvent`
+  - keep the `openai-compat` pilot green while the next server runtime/control-plane plan is prepared
+  - do not widen the next slice into broader runtime-schema work until the next non-root server seam is explicit and validated
 
 ### Later
 
@@ -338,7 +362,7 @@ Run these after each focused tranche instead of only relying on a full monorepo 
 - fixture/schema tests for changed interfaces
 
 6. Session handoff
-- use `docs/NEXT_SESSION_PROMPT_2026-04-23_contract-runtime-compat.md` as the default continuation prompt for the next focused tranche
+- use `docs/NEXT_SESSION_PROMPT_2026-04-23_server-runtime-control-plane-matrix.md` as the default continuation prompt for the next focused tranche
 
 5. Broader validation when public API changes
 - `yarn verify`

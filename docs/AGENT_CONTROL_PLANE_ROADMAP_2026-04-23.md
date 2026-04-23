@@ -17,7 +17,7 @@ Decision summary:
 
 ## Current Status
 
-Status after the eighth focused cleanup tranche:
+Status after the twelfth focused cleanup tranche:
 
 - `done`: the repo now has canonical execution-spec naming aliases in `core`
 - `done`: the repo now has a canonical server path for agent definitions: `/api/agent-definitions`
@@ -38,6 +38,28 @@ Status after the eighth focused cleanup tranche:
 - `done`: normal server CRUD tests now exercise `/api/agent-definitions` by default; `/api/agents` is reduced to explicit compatibility coverage
 - `done`: playground store tests now exercise `useAgentDefinitionsStore` by default; `useAgentStore` remains only as a compatibility assertion
 - `done`: server docs now teach canonical route mounting first and describe `/api/agents` as compatibility-only
+- `done`: the legacy playground store wrapper now re-exports only `useAgentStore`, so the canonical store is no longer taught through the legacy file path
+- `done`: the server root export now marks `createAgentRoutes` as deprecated at the root API surface
+- `done`: active `agent-adapters` codepaths, focused docs, and focused tests now teach `ProviderAdapterRegistry*` as the primary vocabulary
+- `done`: the secondary `agent-adapters/docs/ARCHITECTURE.md` doc now teaches `ProviderAdapterRegistry*`
+- `done`: additional focused `agent-adapters` tests now teach `ProviderAdapterRegistry*`
+  - `provider-execution-port-branches.test.ts`
+  - `adapter-plugin-sdk.test.ts`
+  - `adapter-plugin-lifecycle.test.ts`
+  - `ab-test-runner.test.ts`
+- `done`: the next `agent-adapters` behavioral test cluster now teaches `ProviderAdapterRegistry*`
+  - `adapter-lifecycle.test.ts`
+  - `adapter-registry-production-gate.test.ts`
+  - `workflow-skip.test.ts`
+  - `workflow-loop.test.ts`
+- `done`: the next `agent-adapters` integration test cluster now teaches `ProviderAdapterRegistry*`
+  - `correlation-warmup.test.ts`
+  - `agent-bridge.test.ts`
+  - `contract-net.test.ts`
+  - `gemini-sdk-adapter.test.ts`
+- `done`: the secondary `agent-adapters/docs/analyze_codex.md` note now teaches `ProviderAdapterRegistry`
+- `done`: the playground router compatibility test now asserts the redirect behavior directly instead of just checking legacy path presence
+- `done`: the legacy playground wrapper modules now describe themselves as deprecated compatibility-only entrypoints
 - `done`: focused verification passed for the current rename-and-taxonomy cleanup wave
 - `in progress`: migration from legacy names to canonical names inside active packages
 - `not done`: registry-led operator UI does not exist yet
@@ -59,7 +81,7 @@ This leaves the repo with two problems:
 
 ## Current Drift
 
-Important drift after the eighth tranche:
+Important drift after the twelfth tranche:
 
 1. Canonical aliases exist in `core`, but most internal code still imports the legacy execution-spec names.
 2. Registry implementation/export names are still generic and can still be confused with non-control-plane registries.
@@ -72,17 +94,17 @@ Concrete remaining drift hotspots:
 - `packages/core/src/flow/index.ts`
   - still exports `AgentHandle` for compatibility
 - `packages/server/src/index.ts`
-  - still re-exports `createAgentRoutes`
+  - still re-exports `createAgentRoutes`, but now marks it deprecated at the root surface
 - `packages/playground/src/stores/agent-store.ts`
-  - still exports `useAgentStore` as a wrapper alias
+  - now exports only `useAgentStore` as a compatibility alias; canonical imports no longer come from the legacy file
 - `packages/playground/src/views/AgentsView.vue`
   - still exists as a wrapper view
 - `packages/server/src/__tests__/routes.test.ts` and `packages/server/src/__tests__/agent-routes-branches.test.ts`
   - still contain the explicit `/api/agents` compatibility assertions
 - `packages/playground/src/__tests__/router.test.ts` and `packages/playground/src/__tests__/agent-store.test.ts`
-  - still contain the explicit `/agents` and `useAgentStore` compatibility assertions
+  - still contain the explicit `/agents` redirect and `useAgentStore` compatibility assertions
 - `packages/agent-adapters`
-  - broad internal usage and docs still teach `AdapterRegistry`
+  - compatibility aliases still exist, and the remaining workflow/orchestration/deep test suites still mostly teach `AdapterRegistry`
 
 This drift is acceptable only because it is deliberate, documented, and bounded by the next tranche.
 
@@ -141,11 +163,11 @@ Actions:
 
 1. Make registry exposure first-class in server composition.
 Current blocker:
-- `createForgeApp()` mounts `/api/agent-definitions` plus the `/api/agents` compatibility alias, but not `/api/registry`.
+- `createForgeApp()` can mount `/api/registry` when `registry` is supplied, but registry is still an opt-in surface rather than the default operator path.
 Planned change:
-- add a first-class registry installer path in `packages/server/src/app.ts`, with explicit config ownership rather than manual host-only wiring.
+- keep the explicit `registry` installer path, but make the surrounding operator workflow treat it as a normal first-class deployment option instead of a sidecar capability.
 Exit condition:
-- a standard server assembly can expose registry APIs without bespoke boot code.
+- a standard server assembly can expose registry APIs through one documented configuration path, and docs/tests treat that path as first-class.
 
 2. Add a registry/fleet operator surface in playground.
 Current blocker:
@@ -184,8 +206,8 @@ Detailed next tasks:
 1. Introduce a separate registry/fleet route and view instead of overloading definition CRUD.
 2. Move health/readiness panels onto canonical DTOs before expanding operator UI.
 3. Keep `/api/agents` and `/agents` only as temporary compatibility surfaces while the new UI lands.
-4. Add deprecation markers in docs/tests so compatibility paths remain explicit technical debt, not silent defaults.
-5. Repair the `@dzupagent/agent-adapters` declaration boundary so package-scoped typecheck remains usable during follow-on architecture work.
+4. Keep alias coverage minimal and explicit in tests/docs so compatibility paths remain visible technical debt, not silent defaults.
+5. Do not start broad operator-UI expansion until the remaining alias-teaching surfaces are down to thin compatibility ledgers.
 
 Verification:
 
@@ -447,6 +469,74 @@ Verification completed for the just-finished tranche:
 - `yarn workspace @dzupagent/playground test src/__tests__/agent-store.test.ts src/__tests__/router.test.ts`
 - `yarn workspace @dzupagent/server typecheck`
 - `yarn workspace @dzupagent/playground typecheck`
+- `yarn workspace @dzupagent/agent-adapters typecheck`
+- `yarn workspace @dzupagent/server typecheck`
+- `yarn workspace @dzupagent/playground typecheck`
+- `yarn workspace @dzupagent/agent-adapters test src/__tests__/adapter-registry.test.ts src/__tests__/detailed-health.test.ts src/__tests__/architecture-doc.test.ts src/__tests__/provider-execution-port-branches.test.ts`
+- `yarn workspace @dzupagent/playground test src/__tests__/agent-store.test.ts`
+- `yarn workspace @dzupagent/server test src/__tests__/routes.test.ts src/__tests__/agent-routes-branches.test.ts`
+- `yarn workspace @dzupagent/agent-adapters test src/__tests__/provider-execution-port-branches.test.ts src/__tests__/adapter-plugin-sdk.test.ts src/__tests__/adapter-plugin-lifecycle.test.ts src/__tests__/ab-test-runner.test.ts`
+- `yarn workspace @dzupagent/playground test src/__tests__/router.test.ts`
+- `yarn workspace @dzupagent/agent-adapters test src/__tests__/adapter-lifecycle.test.ts src/__tests__/adapter-registry-production-gate.test.ts src/__tests__/workflow-skip.test.ts src/__tests__/workflow-loop.test.ts`
+- `yarn workspace @dzupagent/agent-adapters test src/__tests__/correlation-warmup.test.ts src/__tests__/agent-bridge.test.ts src/__tests__/contract-net.test.ts src/__tests__/gemini-sdk-adapter.test.ts`
+
+## Re-Evaluated Next Focus
+
+What should stop:
+
+- no new features on `/api/agents`, `/agents`, `createAgentRoutes`, or `useAgentStore`
+- no broad rename waves that touch multiple bounded contexts at once
+- no new docs/examples that teach `AdapterRegistry` as the primary provider-registry symbol
+
+What is actually left to remove:
+
+1. Compatibility-only aliases in public/UI surfaces
+- `packages/server/src/index.ts`
+- `packages/playground/src/stores/agent-store.ts`
+- `packages/playground/src/views/AgentsView.vue`
+- explicit compatibility assertions in `packages/server/src/__tests__/*` and `packages/playground/src/__tests__/*`
+
+2. Broad legacy naming in the `agent-adapters` test surface
+- the active codepaths are mostly migrated, but many tests still instantiate `AdapterRegistry`
+- this is now the biggest remaining naming drift inside active packages
+
+3. Product-vs-architecture mismatch
+- registry is the chosen control plane
+- the shipped UI still starts from agent-definition CRUD because there is no fleet UI yet
+
+Next focused tasks:
+
+1. Migrate the next coherent `agent-adapters` test cluster to `ProviderAdapterRegistry*`.
+Suggested files:
+- `workflow-timeout.test.ts`
+- `adapter-workflow.test.ts`
+- `orchestration-branches-2.test.ts`
+- `map-reduce.test.ts`
+Verification:
+- `yarn workspace @dzupagent/agent-adapters typecheck`
+- `yarn workspace @dzupagent/agent-adapters test src/__tests__/workflow-timeout.test.ts src/__tests__/adapter-workflow.test.ts src/__tests__/orchestration-branches-2.test.ts src/__tests__/map-reduce.test.ts`
+- `rg -n "AdapterRegistry|DetailedHealthStatus" packages/agent-adapters/src/__tests__ packages/agent-adapters/docs`
+
+2. Prepare the first alias-deletion-ready UI wave.
+Suggested files:
+- `packages/playground/src/views/AgentsView.vue`
+- `packages/playground/src/stores/agent-store.ts`
+- `packages/playground/src/__tests__/agent-store.test.ts`
+- `packages/playground/src/__tests__/router.test.ts`
+Verification:
+- `yarn workspace @dzupagent/playground typecheck`
+- `yarn workspace @dzupagent/playground test src/__tests__/agent-store.test.ts src/__tests__/router.test.ts`
+- `rg -n "useAgentStore|/agents\\b|AgentsView" packages/playground docs`
+
+3. Only after those two waves, start the first registry/fleet UI slice.
+Suggested scope:
+- registry list
+- registry detail
+- health summary
+Verification:
+- server/playground typecheck
+- focused route/store tests for registry APIs and UI wiring
+- `rg -n "/api/registry|registry" packages/playground packages/server`
 
 #### Phase F: Narrow the public API surface
 

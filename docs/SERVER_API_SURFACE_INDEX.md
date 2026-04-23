@@ -6,9 +6,9 @@ Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`
 
 ## Summary
 
-- Unique export sources in root index: `124`
-- Tier counts: stable=`29`, secondary=`28`, experimental=`49`, internal=`18`
-- Recommended root exposure: keep-root=`29`, candidate-subpath=`77`, remove-root=`18`
+- Unique export sources in root index: `126`
+- Tier counts: stable=`29`, secondary=`30`, experimental=`49`, internal=`18`
+- Recommended root exposure: keep-root=`29`, candidate-subpath=`79`, remove-root=`18`
 
 ## Current Direct Root Imports
 
@@ -75,6 +75,8 @@ Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`
 | `./lifecycle/graceful-shutdown.js` | `stable` | `lifecycle` | `keep-root` | 3 | `GracefulShutdown`, `ShutdownConfig`, `ShutdownState` |
 | `./lifecycle/human-contact-timeout.js` | `secondary` | `lifecycle` | `candidate-subpath` | 2 | `HumanContactTimeoutScheduler`, `HumanContactTimeoutConfig` |
 | `./services/eval-orchestrator.js` | `secondary` | `evals` | `candidate-subpath` | 7 | `EvalOrchestrator`, `EvalExecutionUnavailableError`, `EvalRunInvalidStateError`, `EvalOrchestratorConfig` |
+| `./services/agent-control-plane-service.js` | `secondary` | `control-plane` | `candidate-subpath` | 2 | `AgentControlPlaneService`, `AgentControlPlaneServiceConfig` |
+| `./services/executable-agent-resolver.js` | `secondary` | `control-plane` | `candidate-subpath` | 3 | `ControlPlaneExecutableAgentResolver`, `AgentStoreExecutableAgentResolver`, `ExecutableAgentResolver` |
 | `./ws/event-bridge.js` | `stable` | `realtime` | `keep-root` | 4 | `EventBridge`, `WSClient`, `ClientFilter`, `EventBridgeConfig` |
 | `./ws/control-protocol.js` | `stable` | `realtime` | `keep-root` | 6 | `createWsControlHandler`, `WSControlClientMessage`, `WSControlServerMessage`, `WSControlHandlerOptions` |
 | `./ws/authorization.js` | `stable` | `realtime` | `keep-root` | 3 | `createScopedAuthorizeFilter`, `WSClientScope`, `ScopedAuthorizeFilterOptions` |

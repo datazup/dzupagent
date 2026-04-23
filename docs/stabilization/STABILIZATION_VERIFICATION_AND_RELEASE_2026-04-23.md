@@ -43,10 +43,12 @@ Active live baseline after the current stabilization wave:
 - capability-matrix generation and freshness checks are now plain-Node and sandbox-safe
 - `@dzupagent/server` package-local blockers were fixed and the full package test lane is green
 - `yarn verify:strict` completed successfully in the current session
+- `yarn verify` completed successfully in the current session
+- `yarn lint` now covers all 30 packages in scope after adding lint participation for the previously skipped workspaces
+- warning-only lint debt in `@dzupagent/agent` and `@dzupagent/codegen` was removed, so the root lint lane is currently warning-clean
 
 Remaining verification gap:
-- `yarn verify` has not yet been re-run to completion after the current stabilization wave
-- publish and integration controls are still weaker than the repo's now-proven strict baseline
+- publish and integration controls are still weaker than the repo's now-proven strict and broad verification baselines
 
 ## Required Work
 
@@ -71,14 +73,14 @@ Minimum shape:
 Exit condition:
 - a clean runner can execute `verify:strict` without pre-seeded local artifacts
 
-### 2. Widen The Baseline Back To `verify`
+### 2. Keep The Broad Baseline Proven
 
 Required outcome:
-- the broader verification lane does not quietly diverge from the now-stable strict lane
+- the broader verification lane stays aligned with the now-stable strict lane and remains explicitly recorded as proven
 
 Required verification:
 - `yarn verify`
-- record the exact first failing package/check if the broader lane still differs from strict
+- record the exact first failing package/check if the broader lane regresses from the current green baseline
 
 Exit condition:
 - the repo can point to one broader baseline and one strict baseline without contradictory status
@@ -138,8 +140,8 @@ Minimum proof before closing this area:
 4. exact failing package/check recorded if any gate is still red
 
 Current next proof target:
-1. run `yarn verify`
-2. if it fails, record the first failing package/check
+1. preserve the current green `yarn verify` result in tracked docs and status language
+2. if a later rerun fails, record the first failing package/check
 3. fix only that blocker
 4. rerun the narrowest proving command
 5. widen back to `yarn verify`

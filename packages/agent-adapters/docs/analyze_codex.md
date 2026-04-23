@@ -36,7 +36,7 @@ This review analyzes the current implementation in `packages/agent-adapters` wit
 - Shared contracts:
   - `AgentEvent`/`AgentCLIAdapter` via `@dzupagent/adapter-types`
 - Core runtime:
-  - `AdapterRegistry` with fallback + circuit breaker integration
+  - `ProviderAdapterRegistry` with fallback + circuit breaker integration
   - routers: tag/cost/round-robin/composite/capability/context/learning
   - orchestration: supervisor, parallel, map-reduce, contract-net
   - workflow DSL + validator + checkpointing

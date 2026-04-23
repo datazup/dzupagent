@@ -25,6 +25,7 @@ Detailed analysis baseline:
 | [`STABILIZATION_CONTRACT_CONVERGENCE_2026-04-23.md`](./STABILIZATION_CONTRACT_CONVERGENCE_2026-04-23.md) | Producer-consumer contract convergence across server, playground, core, and scaffolder. |
 | [`STABILIZATION_VERIFICATION_AND_RELEASE_2026-04-23.md`](./STABILIZATION_VERIFICATION_AND_RELEASE_2026-04-23.md) | Hermetic verification, integration lanes, migration controls, and release gating. |
 | [`STABILIZATION_DOCS_AND_SCAFFOLDER_TRUTH_2026-04-23.md`](./STABILIZATION_DOCS_AND_SCAFFOLDER_TRUTH_2026-04-23.md) | Docs, version truth, capability matrix, scaffolder drift, and operator-facing accuracy. |
+| [`STABILIZATION_HANDOFF_MEMORY_2026-04-23.md`](./STABILIZATION_HANDOFF_MEMORY_2026-04-23.md) | Detailed memory of unfinished analyzed features, remaining drift classes, and exact next-step verification guidance. |
 
 ## Control Rules
 
