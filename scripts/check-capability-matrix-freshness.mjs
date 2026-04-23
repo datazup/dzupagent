@@ -2,15 +2,15 @@
 /**
  * check-capability-matrix-freshness.mjs
  *
- * Regenerates CAPABILITY_MATRIX.md into a temp file and compares with the
+ * Regenerates CAPABILITY_MATRIX.md in-process and compares with the
  * committed version. Exits non-zero if they differ (matrix is stale).
  *
  * Usage: node scripts/check-capability-matrix-freshness.mjs
  */
 
-import { execSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { generateCapabilityMatrix } from './generate-capability-matrix.mjs'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const MATRIX_PATH = resolve(ROOT, 'docs/CAPABILITY_MATRIX.md')
@@ -25,7 +25,7 @@ const committed = readFileSync(MATRIX_PATH, 'utf8')
 
 // Regenerate
 console.log('Regenerating CAPABILITY_MATRIX.md...')
-execSync('npx tsx scripts/generate-capability-matrix.ts', { cwd: ROOT, stdio: 'pipe' })
+generateCapabilityMatrix(ROOT)
 
 const fresh = readFileSync(MATRIX_PATH, 'utf8')
 
