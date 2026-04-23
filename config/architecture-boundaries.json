@@ -1,0 +1,70 @@
+{
+  "packageBoundaryRules": [
+    {
+      "importer": "core",
+      "forbidden": ["agent", "codegen", "connectors", "server", "agent-adapters"]
+    },
+    {
+      "importer": "agent",
+      "forbidden": ["server"]
+    },
+    {
+      "importer": "codegen",
+      "forbidden": ["agent", "server", "connectors"]
+    },
+    {
+      "importer": "connectors",
+      "forbidden": ["agent", "codegen", "server"]
+    },
+    {
+      "importer": "agent-adapters",
+      "forbidden": ["server"]
+    },
+    {
+      "importer": "server",
+      "forbidden": ["playground", "create-dzupagent", "testing", "test-utils"]
+    }
+  ],
+  "appWorkspaces": [
+    {
+      "dirName": "ai-saas-starter-kit",
+      "packageName": "ai-saas-starter-kit"
+    },
+    {
+      "dirName": "blood-pressure",
+      "packageName": "blood-pressure"
+    },
+    {
+      "dirName": "codeindex-app",
+      "packageName": "codeindex-app"
+    },
+    {
+      "dirName": "codev-app",
+      "packageName": "codev-app"
+    },
+    {
+      "dirName": "nl2sql",
+      "packageName": "nl2sql-engine"
+    },
+    {
+      "dirName": "research-app",
+      "packageName": "research-app"
+    },
+    {
+      "dirName": "seo-batch",
+      "packageName": "seo-batch"
+    },
+    {
+      "dirName": "template-app",
+      "packageName": "template-app"
+    },
+    {
+      "dirName": "testman-app",
+      "packageName": "testman-app"
+    },
+    {
+      "dirName": "textflow-rag",
+      "packageName": "textflow-rag"
+    }
+  ]
+}

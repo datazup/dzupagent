@@ -1,0 +1,732 @@
+{
+  "rules": [
+    {
+      "match": "exact",
+      "pattern": "./app.js",
+      "tier": "stable",
+      "area": "app",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Primary app factory used by templates and current workspace consumers."
+    },
+    {
+      "match": "exact",
+      "pattern": "./route-plugin.js",
+      "tier": "stable",
+      "area": "extensibility",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Minimal route-plugin contract consumed by app-specific server extensions."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/runs.js",
+      "tier": "stable",
+      "area": "routes-core",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Core run lifecycle API."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/agents.js",
+      "tier": "stable",
+      "area": "routes-core",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Core agent-management API."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/approval.js",
+      "tier": "stable",
+      "area": "routes-core",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Approval controls are part of the primary run-management seam."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/human-contact.js",
+      "tier": "secondary",
+      "area": "routes-core",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Human-contact flows are useful, but not part of the narrow default hosting API."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/health.js",
+      "tier": "stable",
+      "area": "routes-core",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Health endpoints are a top-level server responsibility."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/events.js",
+      "tier": "stable",
+      "area": "realtime",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Event streaming is a first-class transport surface."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./middleware/",
+      "tier": "stable",
+      "area": "middleware",
+      "recommendedRootExposure": "keep-root",
+      "reason": "HTTP policy and identity middleware are core to the server transport surface."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./queue/",
+      "tier": "stable",
+      "area": "queue",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Queue abstractions are part of the main run-execution integration seam."
+    },
+    {
+      "match": "exact",
+      "pattern": "./lifecycle/graceful-shutdown.js",
+      "tier": "stable",
+      "area": "lifecycle",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Graceful shutdown is a core host-runtime concern."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./ws/",
+      "tier": "stable",
+      "area": "realtime",
+      "recommendedRootExposure": "keep-root",
+      "reason": "WebSocket bridging and control are part of the top-level transport surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./events/event-gateway.js",
+      "tier": "stable",
+      "area": "realtime",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Event gateway is shared transport infrastructure."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./platforms/",
+      "tier": "stable",
+      "area": "platforms",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Platform handlers are directly referenced by templates and setup docs."
+    },
+    {
+      "match": "exact",
+      "pattern": "./streaming/sse-streaming-adapter.js",
+      "tier": "stable",
+      "area": "realtime",
+      "recommendedRootExposure": "keep-root",
+      "reason": "SSE adapter is a narrow transport helper aligned with the core event surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/run-context.js",
+      "tier": "secondary",
+      "area": "trace-context",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Useful run-context helpers, but not part of the minimal hosting surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/workflows.js",
+      "tier": "secondary",
+      "area": "workflow-routes",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Workflow routes are important but not broadly used by current direct consumers."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/api-keys.js",
+      "tier": "secondary",
+      "area": "security-routes",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Operationally useful, but separable from the minimal root server surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/run-trace.js",
+      "tier": "secondary",
+      "area": "trace-routes",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Trace inspection is adjacent to core runs, but not part of the main bootstrapping API."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/metrics.js",
+      "tier": "secondary",
+      "area": "metrics",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Metrics route is useful, but can move behind an ops-focused subpath."
+    },
+    {
+      "match": "exact",
+      "pattern": "./metrics/prometheus-collector.js",
+      "tier": "secondary",
+      "area": "metrics",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Prometheus collector is real infrastructure, but not needed by minimal app consumers."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/postgres-stores.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Important store implementations, but too implementation-specific for the default root surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/api-key-store.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Useful store API, but separable from the minimal hosting entrypoint."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/vector-column.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Database-specific helper that should not dominate the root package surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/vector-ops.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Vector helpers are persistence-adjacent implementation utilities."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/run-trace-store.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Trace store is useful for operations, but not part of the minimal root contract."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/drizzle-run-trace-store.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Concrete Drizzle implementation should eventually move off the root surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/benchmark-run-store.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Useful only for benchmark-capable deployments."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/eval-run-store.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Useful only for eval-capable deployments."
+    },
+    {
+      "match": "exact",
+      "pattern": "./services/eval-orchestrator.js",
+      "tier": "secondary",
+      "area": "evals",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Useful infrastructure, but not a core default-consumer seam."
+    },
+    {
+      "match": "exact",
+      "pattern": "./lifecycle/human-contact-timeout.js",
+      "tier": "secondary",
+      "area": "lifecycle",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Workflow-specific lifecycle helper."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/consolidation-scheduler.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Operational runtime helper, but not part of the narrow hosting API."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/run-worker.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Current workspace code imports worker helpers, but they are more advanced than the main app factory."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/default-run-executor.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Executor helper should remain available, but not dominate the root package."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/dzip-agent-run-executor.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Advanced executor helper used in docs and examples, but not minimal root API."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/resource-quota.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Useful quota helpers, but not part of the narrow default server seam."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/retrieval-feedback-hook.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Featureful runtime hook that should not be implicitly pulled into the root surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/tool-resolver.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Runtime helper that belongs behind a more explicit advanced-runtime import path."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/utils.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Generic runtime helpers should not widen the default root package contract."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/openai-compat/index.js",
+      "tier": "secondary",
+      "area": "compat",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "A legitimate compatibility surface, but distinct enough to live behind a focused subpath."
+    },
+    {
+      "match": "exact",
+      "pattern": "./cli/doctor.js",
+      "tier": "secondary",
+      "area": "ops",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Real workspace code uses doctor helpers, but CLI operations should not crowd the root runtime entrypoint."
+    },
+    {
+      "match": "exact",
+      "pattern": "./scorecard/index.js",
+      "tier": "secondary",
+      "area": "ops",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Current workspace code uses scorecard types and helpers, but they are operational rather than foundational."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/memory.js",
+      "tier": "experimental",
+      "area": "memory",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Feature-rich memory plane that should not expand the default server promise implicitly."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/memory-browse.js",
+      "tier": "experimental",
+      "area": "memory",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Memory-browse capabilities are useful, but should stay off the minimal root surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/learning.js",
+      "tier": "experimental",
+      "area": "learning",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Learning dashboard APIs are advanced feature-plane functionality."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/benchmarks.js",
+      "tier": "experimental",
+      "area": "benchmarks",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Benchmark APIs are useful, but should not sit in the default top-level surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/evals.js",
+      "tier": "experimental",
+      "area": "evals",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Eval APIs are advanced functionality better isolated from the core hosting seam."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/memory-health.js",
+      "tier": "experimental",
+      "area": "memory",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Memory-health endpoints are useful add-ons, not part of the narrow core surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/routing-stats.js",
+      "tier": "experimental",
+      "area": "observability",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Routing-stats route is useful, but feature-specific."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/playground.js",
+      "tier": "experimental",
+      "area": "playground",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Playground route should not define the default public server API."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./notifications/",
+      "tier": "experimental",
+      "area": "notifications",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Notification infrastructure is useful, but should move behind an explicit feature boundary."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./a2a/",
+      "tier": "experimental",
+      "area": "a2a",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Agent-to-agent protocol support is valuable, but separate from the primary hosting seam."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/marketplace.js",
+      "tier": "experimental",
+      "area": "marketplace",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Marketplace routes are feature-plane capabilities."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./marketplace/",
+      "tier": "experimental",
+      "area": "marketplace",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Marketplace storage and helpers should move behind an explicit feature boundary."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/memory-sync.js",
+      "tier": "experimental",
+      "area": "memory",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "CRDT sync is advanced functionality rather than baseline hosting."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./triggers/",
+      "tier": "experimental",
+      "area": "triggers",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Trigger infrastructure is valuable but should remain explicitly opt-in."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/triggers.js",
+      "tier": "experimental",
+      "area": "triggers",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Trigger routes are feature-plane capabilities."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/schedules.js",
+      "tier": "experimental",
+      "area": "triggers",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Schedule routes should not widen the default root surface."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./schedules/",
+      "tier": "experimental",
+      "area": "triggers",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Schedule stores are feature-specific infrastructure."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/personas.js",
+      "tier": "experimental",
+      "area": "personas",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Persona management is a higher-level domain feature."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/prompts.js",
+      "tier": "experimental",
+      "area": "prompts",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Prompt versioning routes are advanced feature-plane APIs."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./prompts/",
+      "tier": "experimental",
+      "area": "prompts",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Prompt stores and helpers are feature-specific infrastructure."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./personas/",
+      "tier": "experimental",
+      "area": "personas",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Persona stores and helpers are domain-level features."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/presets.js",
+      "tier": "experimental",
+      "area": "presets",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Preset routes are useful add-ons, not baseline hosting."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/reflections.js",
+      "tier": "experimental",
+      "area": "reflections",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Reflection routes should remain behind a more explicit feature surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./services/benchmark-orchestrator.js",
+      "tier": "experimental",
+      "area": "benchmarks",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Benchmark orchestration is advanced feature-plane infrastructure."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/sleep-consolidation-task.js",
+      "tier": "experimental",
+      "area": "runtime",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Specific consolidation task should not be part of the default root API."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/memory-quota-manager.js",
+      "tier": "experimental",
+      "area": "runtime",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Quota-manager detail is useful, but advanced."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./deploy/",
+      "tier": "experimental",
+      "area": "deploy",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Deployment helpers are feature-plane capabilities rather than core hosting APIs."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/deploy.js",
+      "tier": "experimental",
+      "area": "deploy",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Deployment routes should stay behind an explicit deploy-oriented subpath."
+    },
+    {
+      "match": "exact",
+      "pattern": "./security/incident-response.js",
+      "tier": "experimental",
+      "area": "security",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Incident response engine is important, but featureful and not a minimal root concern."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/postgres-registry.js",
+      "tier": "experimental",
+      "area": "registry",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Registry persistence is useful, but not part of the narrow root seam."
+    },
+    {
+      "match": "exact",
+      "pattern": "./registry/health-monitor.js",
+      "tier": "experimental",
+      "area": "registry",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Registry monitoring is a higher-order operational plane."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/registry.js",
+      "tier": "experimental",
+      "area": "registry",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Registry routes should not widen the default root server contract."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/mailbox.js",
+      "tier": "experimental",
+      "area": "notifications",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Mailbox routes are feature-plane APIs."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/clusters.js",
+      "tier": "experimental",
+      "area": "clusters",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Cluster routes are specialized feature-plane APIs."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/drizzle-schema.js",
+      "tier": "internal",
+      "area": "persistence",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Raw Drizzle schema should not be a root-level public dependency surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/drizzle-dlq-store.js",
+      "tier": "internal",
+      "area": "persistence",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Low-level DLQ store details should move off the root surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/drizzle-mailbox-store.js",
+      "tier": "internal",
+      "area": "persistence",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Concrete mailbox persistence implementation should not be exposed from the root entrypoint."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/drizzle-reflection-store.js",
+      "tier": "internal",
+      "area": "persistence",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Concrete reflection persistence implementation should not be exposed from the root entrypoint."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/drizzle-cluster-store.js",
+      "tier": "internal",
+      "area": "persistence",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Concrete cluster persistence implementation should not be exposed from the root entrypoint."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./docs/",
+      "tier": "internal",
+      "area": "docs",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Documentation renderers and generators should not widen the default runtime API."
+    },
+    {
+      "match": "exact",
+      "pattern": "./cli/plugins-command.js",
+      "tier": "internal",
+      "area": "cli",
+      "recommendedRootExposure": "remove-root",
+      "reason": "CLI command plumbing should move behind CLI-specific entrypoints."
+    },
+    {
+      "match": "exact",
+      "pattern": "./cli/dev-command.js",
+      "tier": "internal",
+      "area": "cli",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Dev-command plumbing should not be part of the default server runtime surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./cli/trace-printer.js",
+      "tier": "internal",
+      "area": "cli",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Trace-printing helper is CLI-specific."
+    },
+    {
+      "match": "exact",
+      "pattern": "./cli/config-command.js",
+      "tier": "internal",
+      "area": "cli",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Config command helpers should live behind CLI-specific imports."
+    },
+    {
+      "match": "exact",
+      "pattern": "./cli/memory-command.js",
+      "tier": "internal",
+      "area": "cli",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Memory command helpers are CLI-specific plumbing."
+    },
+    {
+      "match": "exact",
+      "pattern": "./cli/vectordb-command.js",
+      "tier": "internal",
+      "area": "cli",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Vector DB command helpers are CLI-specific plumbing."
+    },
+    {
+      "match": "exact",
+      "pattern": "./cli/marketplace-command.js",
+      "tier": "internal",
+      "area": "cli",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Marketplace CLI command helpers should move off the runtime root surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./cli/scorecard-command.js",
+      "tier": "internal",
+      "area": "cli",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Scorecard CLI command helpers are distinct from scorecard library APIs."
+    },
+    {
+      "match": "exact",
+      "pattern": "<local>:dzupagent_SERVER_VERSION",
+      "tier": "internal",
+      "area": "versioning",
+      "recommendedRootExposure": "remove-root",
+      "reason": "Hardcoded version export is a root-surface drift risk and should not be a public contract."
+    }
+  ]
+}
