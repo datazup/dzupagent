@@ -59,5 +59,8 @@
     "turbo": "^2.9.0",
     "typedoc": "^0.28.18",
     "typedoc-plugin-markdown": "^4.11.0"
+  },
+  "resolutions": {
+    "@xmldom/xmldom": ">=0.8.13"
   }
 }
