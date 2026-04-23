@@ -3,7 +3,7 @@
  * using the map-reduce pattern.
  *
  * 1. **Split** — a Chunker breaks the input into typed chunks
- * 2. **Map**   — each chunk is executed via AdapterRegistry.executeWithFallback
+ * 2. **Map**   — each chunk is executed via ProviderAdapterRegistry.executeWithFallback
  * 3. **Reduce** — a ReducerFn combines all map results into a single output
  *
  * Concurrency is bounded by a simple counting semaphore.
@@ -21,7 +21,7 @@ import type {
   TaskDescriptor,
 } from '../types.js'
 
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -103,7 +103,7 @@ export interface MapReduceOptions<TChunk, TMapResult, TReduceResult> {
 
 /** Configuration for the MapReduceOrchestrator. */
 export interface MapReduceConfig {
-  registry: AdapterRegistry
+  registry: ProviderAdapterRegistry
   eventBus?: DzupEventBus | undefined
   /** Maximum number of concurrent map operations. Default: 4 */
   maxConcurrency?: number | undefined
@@ -197,7 +197,7 @@ export class DirectoryChunker implements Chunker<string[]> {
 // ---------------------------------------------------------------------------
 
 export class MapReduceOrchestrator {
-  private readonly registry: AdapterRegistry
+  private readonly registry: ProviderAdapterRegistry
   private readonly eventBus: DzupEventBus | undefined
   private readonly maxConcurrency: number
 

@@ -3,6 +3,7 @@
  * retry strategies, per-phase timeouts, and checkpoint support.
  */
 
+import { calculateBackoff } from '@dzupagent/core'
 import type { SkillResolutionContext } from '@dzupagent/core'
 import type { GuardrailGateConfig } from './guardrail-gate.js'
 import { runGuardrailGate, summarizeGateResult } from './guardrail-gate.js'
@@ -147,7 +148,11 @@ async function withTimeout<T>(
 }
 
 function backoffDelay(attempt: number): number {
-  return Math.min(1000 * 2 ** attempt, 30_000)
+  return calculateBackoff(attempt, {
+    initialBackoffMs: 1000,
+    maxBackoffMs: 30_000,
+    multiplier: 2,
+  })
 }
 
 /**

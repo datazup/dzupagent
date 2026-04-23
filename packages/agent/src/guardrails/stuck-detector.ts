@@ -7,24 +7,19 @@
  * - No-progress iterations (no new tool calls or outputs)
  */
 import { createHash } from 'node:crypto'
+import type { StuckDetectorConfig } from '@dzupagent/agent-types'
 
-export interface StuckDetectorConfig {
-  /** Max identical sequential tool calls before flagging (default: 3) */
-  maxRepeatCalls: number
-  /** Max errors in a window before flagging (default: 5) */
-  maxErrorsInWindow: number
-  /** Error window in ms (default: 60_000) */
-  errorWindowMs: number
-  /** Max iterations with no new tool calls before flagging (default: 3) */
-  maxIdleIterations: number
-}
+export type { StuckDetectorConfig }
 
 export interface StuckStatus {
   stuck: boolean
   reason?: string
 }
 
-const DEFAULT_CONFIG: StuckDetectorConfig = {
+/** Fully-resolved config with all defaults applied. */
+type ResolvedStuckDetectorConfig = Required<StuckDetectorConfig>
+
+const DEFAULT_CONFIG: ResolvedStuckDetectorConfig = {
   maxRepeatCalls: 3,
   maxErrorsInWindow: 5,
   errorWindowMs: 60_000,
@@ -36,9 +31,9 @@ export class StuckDetector {
   private recentErrors: Array<{ message: string; timestamp: number }> = []
   private idleCount = 0
   private _lastToolCallCount = 0
-  private readonly config: StuckDetectorConfig
+  private readonly config: ResolvedStuckDetectorConfig
 
-  constructor(config?: Partial<StuckDetectorConfig>) {
+  constructor(config?: StuckDetectorConfig) {
     this.config = { ...DEFAULT_CONFIG, ...config }
   }
 

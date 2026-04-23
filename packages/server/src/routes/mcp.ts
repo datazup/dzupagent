@@ -19,9 +19,12 @@ import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../app.js'
 import { sanitizeError } from './route-error.js'
+import { McpServerSchema, validateBodyCompat } from './schemas.js'
 import type { McpServerInput, McpServerPatch, McpProfile } from '@dzupagent/core'
 
-export function createMcpRoutes(config: Pick<ForgeServerConfig, 'mcpManager'>): Hono<AppEnv> {
+export function createMcpRoutes(
+  config: Pick<ForgeServerConfig, 'mcpManager' | 'mcpAllowedExecutables'>,
+): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
 
   // Guard: return 503 if mcpManager is not configured (checked per-request)
@@ -47,21 +50,27 @@ export function createMcpRoutes(config: Pick<ForgeServerConfig, 'mcpManager'>): 
 
   // POST /servers — add a server
   app.post('/servers', async (c) => {
-    let body: McpServerInput
-    try {
-      body = await c.req.json<McpServerInput>()
-    } catch {
-      return c.json(
-        { error: { code: 'VALIDATION_ERROR', message: 'Invalid JSON body' } },
-        400,
-      )
-    }
+    const parsed = await validateBodyCompat(c, McpServerSchema)
+    if (parsed instanceof Response) return parsed
+    const body: McpServerInput = parsed
 
-    if (!body.id || !body.transport || !body.endpoint) {
-      return c.json(
-        { error: { code: 'VALIDATION_ERROR', message: 'id, transport, and endpoint are required' } },
-        400,
-      )
+    // RF-S03: gate stdio transport registrations behind an explicit
+    // allowlist so authenticated API keys cannot spawn arbitrary binaries
+    // on the host. `endpoint` carries the command for stdio transports.
+    if (body.transport === 'stdio') {
+      const allowedExes = config.mcpAllowedExecutables ?? []
+      if (!allowedExes.includes(body.endpoint)) {
+        return c.json(
+          {
+            error: {
+              code: 'FORBIDDEN',
+              message:
+                'stdio MCP server command not in allowlist. Set mcpAllowedExecutables in ForgeServerConfig.',
+            },
+          },
+          403,
+        )
+      }
     }
 
     try {

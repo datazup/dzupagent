@@ -7,20 +7,28 @@
  *
  * Supports three modes:
  * 1. **Delegate** — if a `validateKey` function is provided, it is called.
- * 2. **Dev mode** — if no `validateKey` is provided, any non-empty Bearer
- *    token is accepted (suitable for local development only).
- * 3. **Disabled** — if `enabled` is explicitly false, requests pass through.
+ * 2. **Disabled** — if `enabled` is explicitly `false`, requests pass
+ *    through unauthenticated. This is the only way to opt into dev mode.
+ * 3. **Rejected** — if no `validateKey` is provided and `enabled` is not
+ *    explicitly `false`, all requests are rejected with 401. This is a
+ *    secure-by-default posture: silent dev-mode fallthrough has been
+ *    removed to avoid accidentally shipping an open endpoint.
  */
 import type { MiddlewareHandler } from 'hono'
 import type { OpenAIErrorResponse } from './types.js'
 
 export interface OpenAIAuthConfig {
-  /** When false, the middleware is a no-op pass-through. */
+  /**
+   * When `false`, the middleware is a no-op pass-through. This is the only
+   * supported way to disable auth for development — omitting `validateKey`
+   * without also setting `enabled: false` results in all requests being
+   * rejected with 401.
+   */
   enabled?: boolean
   /**
-   * Optional key validator.  Return a truthy metadata object on success,
-   * or null/undefined to reject.  When omitted, any non-empty Bearer token
-   * is accepted (dev mode).
+   * Optional key validator. Return a truthy metadata object on success,
+   * or null/undefined to reject. Required unless `enabled` is explicitly
+   * `false`.
    */
   validateKey?: (key: string) => Promise<Record<string, unknown> | null>
 }
@@ -87,10 +95,19 @@ export function openaiAuthMiddleware(config?: OpenAIAuthConfig): MiddlewareHandl
       }
       // Stash metadata for downstream handlers
       c.set('apiKey' as never, keyMeta as never)
+      return next()
     }
 
-    // Dev mode: non-empty token accepted without further validation
-
-    return next()
+    // Secure-by-default: when no validator is configured and auth was not
+    // explicitly disabled (`enabled === false` was handled at the top of
+    // this middleware), reject the request. This prevents accidentally
+    // shipping a dev-mode fallthrough to production.
+    return c.json(
+      errorResponse(
+        'API key authentication is not configured on this server.',
+        'invalid_api_key',
+      ),
+      401,
+    )
   }
 }

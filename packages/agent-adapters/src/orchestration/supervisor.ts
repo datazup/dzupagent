@@ -2,7 +2,7 @@
  * SupervisorOrchestrator -- Supervisor multi-agent pattern.
  *
  * A supervisor decomposes a goal into subtasks and delegates each to the
- * best-suited adapter via the AdapterRegistry.  Dependencies between
+ * best-suited adapter via the ProviderAdapterRegistry. Dependencies between
  * subtasks are respected: independent subtasks run in parallel (up to
  * `maxConcurrentDelegations`), while dependent subtasks wait for their
  * prerequisites to complete.
@@ -17,7 +17,7 @@ import type { DzupEventBus } from '@dzupagent/core'
 import { ForgeError } from '@dzupagent/core'
 import { Semaphore } from '@dzupagent/core/orchestration'
 
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCompletedEvent,
@@ -81,7 +81,7 @@ export interface SupervisorOptions {
 
 /** Configuration for the SupervisorOrchestrator. */
 export interface SupervisorConfig {
-  registry: AdapterRegistry
+  registry: ProviderAdapterRegistry
   eventBus?: DzupEventBus | undefined
   decomposer?: TaskDecomposer | undefined
   /** Maximum subtasks executing concurrently. Default 3. */
@@ -222,7 +222,7 @@ async function acquireSemaphore(semaphore: Semaphore, signal?: AbortSignal): Pro
 }
 
 export class SupervisorOrchestrator {
-  private readonly registry: AdapterRegistry
+  private readonly registry: ProviderAdapterRegistry
   private readonly eventBus: DzupEventBus | undefined
   private readonly decomposer: TaskDecomposer
   private readonly maxConcurrent: number

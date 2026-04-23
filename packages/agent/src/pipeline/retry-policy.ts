@@ -8,6 +8,7 @@
  * @module pipeline/retry-policy
  */
 
+import { calculateBackoff as coreCalculateBackoff } from '@dzupagent/core'
 import type { RetryPolicy } from './pipeline-runtime-types.js'
 
 // ---------------------------------------------------------------------------
@@ -67,13 +68,20 @@ export function calculateBackoff(attempt: number, policy?: RetryPolicy): number 
   const multiplier = policy?.multiplier ?? policy?.backoffMultiplier ?? DEFAULT_RETRY_POLICY.multiplier
   const jitter = policy?.jitter ?? false
 
-  const base = Math.min(initialMs * Math.pow(multiplier, attempt - 1), maxMs)
+  // Core helper uses 0-based attempt; callers here pass 1-based, so shift.
+  const base = coreCalculateBackoff(Math.max(0, attempt - 1), {
+    initialBackoffMs: initialMs,
+    maxBackoffMs: maxMs,
+    multiplier,
+  })
 
   if (!jitter) {
     return base
   }
 
-  // Add 0-50% jitter
+  // Preserve agent-specific additive jitter (0-50% above base). Core helper
+  // applies multiplicative "equal jitter" (50%-100% band); agent callers
+  // and tests depend on the additive shape so we keep it here.
   const jitterFactor = Math.random() * 0.5
   return Math.round(base + base * jitterFactor)
 }

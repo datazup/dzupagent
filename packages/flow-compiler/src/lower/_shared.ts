@@ -10,7 +10,19 @@
  * @module lower/_shared
  */
 
-import type { FlowNode, ResolvedTool } from '@dzupagent/flow-ast'
+import type {
+  ActionNode,
+  ApprovalNode,
+  BranchNode,
+  ClarificationNode,
+  CompleteNode,
+  FlowNode,
+  ForEachNode,
+  ParallelNode,
+  PersonaNode,
+  ResolvedTool,
+  RouteNode,
+} from '@dzupagent/flow-ast'
 import type {
   AgentHandle,
   AgentNode,
@@ -258,7 +270,7 @@ function lowerSequence(
  * action → look up resolved tool, emit ToolNode or AgentNode depending on kind.
  */
 function lowerAction(
-  node: import('@dzupagent/flow-ast').ActionNode,
+  node: ActionNode,
   ctx: LowerPipelineContext,
   path: string,
 ): LowerPipelineResult {
@@ -309,7 +321,7 @@ function lowerAction(
  * else throw a router-contract violation error.
  */
 function lowerForEach(
-  node: import('@dzupagent/flow-ast').ForEachNode,
+  node: ForEachNode,
   ctx: LowerPipelineContext,
   path: string,
 ): LowerPipelineResult {
@@ -346,7 +358,7 @@ function lowerForEach(
  * sub-graphs.
  */
 function lowerBranch(
-  node: import('@dzupagent/flow-ast').BranchNode,
+  node: BranchNode,
   ctx: LowerPipelineContext,
   path: string,
 ): LowerPipelineResult {
@@ -401,7 +413,7 @@ function lowerBranch(
  * Each branch is lowered as a sequence; ForkNode and JoinNode share a forkId.
  */
 function lowerParallel(
-  node: import('@dzupagent/flow-ast').ParallelNode,
+  node: ParallelNode,
   ctx: LowerPipelineContext,
   path: string,
 ): LowerPipelineResult {
@@ -457,7 +469,7 @@ function lowerParallel(
  * approval → GateNode(approval) suspend + onApprove/onReject branches.
  */
 function lowerApproval(
-  node: import('@dzupagent/flow-ast').ApprovalNode,
+  node: ApprovalNode,
   ctx: LowerPipelineContext,
   path: string,
 ): LowerPipelineResult {
@@ -506,7 +518,7 @@ function lowerApproval(
  * The question and expected-input metadata are carried in the node name/description.
  */
 function lowerClarification(
-  node: import('@dzupagent/flow-ast').ClarificationNode,
+  node: ClarificationNode,
   ctx: LowerPipelineContext,
   path: string,
 ): LowerPipelineResult {
@@ -527,7 +539,7 @@ function lowerClarification(
  * Uses ctx.resolvedPersonas to confirm the persona ref was resolved.
  */
 function lowerPersona(
-  node: import('@dzupagent/flow-ast').PersonaNode,
+  node: PersonaNode,
   ctx: LowerPipelineContext,
   path: string,
 ): LowerPipelineResult {
@@ -569,7 +581,7 @@ function lowerPersona(
  * Strategy and provider/tags are carried in the node name/description.
  */
 function lowerRoute(
-  node: import('@dzupagent/flow-ast').RouteNode,
+  node: RouteNode,
   ctx: LowerPipelineContext,
   path: string,
 ): LowerPipelineResult {
@@ -602,7 +614,7 @@ function lowerRoute(
  * description since PipelineNode has no dedicated terminal type).
  */
 function lowerComplete(
-  node: import('@dzupagent/flow-ast').CompleteNode,
+  node: CompleteNode,
   ctx: LowerPipelineContext,
   path: string,
 ): LowerPipelineResult {

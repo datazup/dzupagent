@@ -1,4 +1,5 @@
 /**
- * Compatibility wrapper for the canonical `agent-definitions-store`.
+ * Deprecated compatibility wrapper for the canonical `agent-definitions-store`.
+ * Keep this file alias-only until `useAgentStore` is deleted.
  */
-export { useAgentDefinitionsStore, useAgentStore } from './agent-definitions-store.js'
+export { useAgentStore } from './agent-definitions-store.js'

@@ -1,9 +1,9 @@
 /**
  * Document connector — wraps document parsing utilities as LangChain-compatible
- * tools via createForgeTool from @dzupagent/agent.
+ * tools via createForgeTool from @dzupagent/core.
  */
 
-import { createForgeTool } from '@dzupagent/agent'
+import { createForgeTool } from '@dzupagent/core'
 import { z } from 'zod'
 import { parseDocument } from './parse-document.js'
 import { splitIntoChunks } from './chunking/split-into-chunks.js'

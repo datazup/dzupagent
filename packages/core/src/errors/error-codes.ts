@@ -14,6 +14,7 @@ export type ForgeErrorCode =
   | 'TOKEN_LIMIT_EXCEEDED'
   | 'COST_LIMIT_EXCEEDED'
   | 'ITERATION_LIMIT_EXCEEDED'
+  | 'CONTEXT_LENGTH_EXCEEDED'
   // --- Pipeline errors ---
   | 'PIPELINE_PHASE_FAILED'
   | 'VALIDATION_FAILED'

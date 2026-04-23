@@ -2,7 +2,7 @@
  * OrchestratorFacade -- high-level builder-pattern API that simplifies
  * using all orchestration patterns with a single entrypoint.
  *
- * Internally wires up AdapterRegistry, EventBusBridge, CostTrackingMiddleware,
+ * Internally wires up ProviderAdapterRegistry, EventBusBridge, CostTrackingMiddleware,
  * and SessionRegistry, then delegates to the appropriate orchestrator for
  * each pattern (supervisor, parallel, map-reduce, contract-net).
  *
@@ -26,7 +26,7 @@
 import { createEventBus, ForgeError } from '@dzupagent/core'
 import type { CircuitBreakerConfig, DzupEvent, DzupEventBus } from '@dzupagent/core'
 
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { EventBusBridge } from '../registry/event-bus-bridge.js'
 import {
   CostTrackingMiddleware,
@@ -249,7 +249,7 @@ export interface InteractionResponseOptions {
  * automatic wiring of registry, event bus, cost tracking, and session management.
  */
 export class OrchestratorFacade {
-  private readonly _registry: AdapterRegistry
+  private readonly _registry: ProviderAdapterRegistry
   private readonly _eventBus: DzupEventBus
   private readonly _bridge: EventBusBridge
   private readonly _costTracking: CostTrackingMiddleware | undefined
@@ -268,7 +268,7 @@ export class OrchestratorFacade {
     this._eventBus = eventBus
 
     // Build registry with circuit breaker config and event bus
-    this._registry = new AdapterRegistry(
+    this._registry = new ProviderAdapterRegistry(
       config.circuitBreakerConfig
         ? { circuitBreaker: config.circuitBreakerConfig }
         : undefined,
@@ -323,7 +323,7 @@ export class OrchestratorFacade {
   // -------------------------------------------------------------------------
 
   /** Access the underlying adapter registry */
-  get registry(): AdapterRegistry {
+  get registry(): ProviderAdapterRegistry {
     return this._registry
   }
 

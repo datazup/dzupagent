@@ -4,8 +4,8 @@ export type CodexMemoryStrategy =
   | 'inject-on-new-thread'
   | 'trust-thread-history'
 
-/** Global/project DzupAgent configuration (config.json) */
-export interface DzupAgentConfig {
+/** Global/project DzupAgent adapter memory configuration (config.json) */
+export interface AdapterMemoryConfig {
   codex?: {
     /** How to handle memory injection for Codex. Default: 'inject-on-new-thread' */
     memoryStrategy?: CodexMemoryStrategy | undefined
@@ -23,6 +23,9 @@ export interface DzupAgentConfig {
     onProjectOpen?: boolean | undefined
   }
 }
+
+/** @deprecated Use AdapterMemoryConfig instead */
+export type DzupAgentConfig = AdapterMemoryConfig
 
 /** Resolved filesystem paths for a project's .dzupagent/ context */
 export interface DzupAgentPaths {

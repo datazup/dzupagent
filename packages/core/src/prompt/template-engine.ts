@@ -13,6 +13,17 @@ function camelToSnake(str: string): string {
 }
 
 /**
+ * Escape `{{` / `}}` delimiters in a user-supplied value so that a
+ * subsequent template resolution pass (e.g., template cache hydration
+ * or nested fragment composition) does not treat them as template
+ * variables. Prevents reflected prompt-injection of the form
+ * `{"instructions": "{{system_secret}}"}`.
+ */
+function escapeTemplateDelimiters(value: string): string {
+  return value.replace(/\{\{/g, '{{_ESC_').replace(/\}\}/g, '_ESC_}}')
+}
+
+/**
  * Flatten a TemplateContext (Record<string, unknown>) into a flat
  * string-valued map suitable for template substitution.
  *
@@ -21,13 +32,23 @@ function camelToSnake(str: string): string {
  * - Objects are JSON-stringified
  * - undefined/null → ''
  * - camelCase keys auto-map to snake_case for template matching
+ *
+ * User-supplied values have their `{{` / `}}` delimiters escaped to
+ * prevent reflected template injection. Pass `rawVariables` to opt
+ * specific system-controlled variables out of escaping.
  */
-export function flattenContext(context: TemplateContext): Record<string, string> {
+export function flattenContext(
+  context: TemplateContext,
+  rawVariables?: readonly string[],
+): Record<string, string> {
   const map: Record<string, string> = {}
+  const rawSet = new Set(rawVariables ?? [])
 
   for (const [key, value] of Object.entries(context)) {
     const snakeKey = camelToSnake(key)
-    const strValue = valueToString(value)
+    const raw = valueToString(value)
+    const isRaw = rawSet.has(key) || rawSet.has(snakeKey)
+    const strValue = isRaw ? raw : escapeTemplateDelimiters(raw)
 
     // Store under both original and snake_case keys
     map[key] = strValue
@@ -126,9 +147,15 @@ export function resolveTemplate(
     variables?: TemplateVariable[]
     partials?: Record<string, string>
     strictMode?: boolean
+    /**
+     * Variable names whose values should bypass `{{` / `}}` escaping.
+     * Use for system-controlled values that intentionally carry
+     * template syntax (e.g., nested-prompt composition).
+     */
+    rawVariables?: readonly string[]
   },
 ): string {
-  const variableMap = flattenContext(context)
+  const variableMap = flattenContext(context, options?.rawVariables)
 
   // Apply defaults and enforce required variables
   if (options?.variables) {

@@ -20,6 +20,12 @@ export interface CircuitBreakerConfig {
   resetTimeoutMs: number
   /** Max attempts allowed in HALF_OPEN state before re-opening (default: 1) */
   halfOpenMaxAttempts: number
+  /**
+   * Alias for `resetTimeoutMs` (orchestration-flavoured name). If both are
+   * set, `resetTimeoutMs` takes precedence. Kept for compatibility with
+   * the former `AgentCircuitBreaker` API.
+   */
+  cooldownMs?: number
 }
 
 export type CircuitState = 'closed' | 'open' | 'half-open'
@@ -38,7 +44,14 @@ export class CircuitBreaker {
   private readonly config: CircuitBreakerConfig
 
   constructor(config?: Partial<CircuitBreakerConfig>) {
-    this.config = { ...DEFAULT_CONFIG, ...config }
+    // Honor `cooldownMs` as an alias for `resetTimeoutMs` when the caller
+    // uses the orchestration-flavoured name. Explicit `resetTimeoutMs`
+    // always wins.
+    const merged: CircuitBreakerConfig = { ...DEFAULT_CONFIG, ...config }
+    if (config?.cooldownMs !== undefined && config.resetTimeoutMs === undefined) {
+      merged.resetTimeoutMs = config.cooldownMs
+    }
+    this.config = merged
   }
 
   /** Check if a request can proceed. Returns false if circuit is OPEN. */
@@ -105,5 +118,65 @@ export class CircuitBreaker {
     this.failureCount = 0
     this.halfOpenAttempts = 0
     this.lastFailureAt = 0
+  }
+}
+
+/**
+ * Keyed circuit breaker registry — maintains one `CircuitBreaker` per key
+ * (e.g. per agent id, per provider id). Replaces the former
+ * `AgentCircuitBreaker` in the agent package.
+ */
+export class KeyedCircuitBreaker {
+  private readonly breakers = new Map<string, CircuitBreaker>()
+  private readonly config: Partial<CircuitBreakerConfig>
+
+  constructor(config: Partial<CircuitBreakerConfig> = {}) {
+    this.config = config
+  }
+
+  /** Get or create a breaker for the given key. */
+  private forKey(key: string): CircuitBreaker {
+    const existing = this.breakers.get(key)
+    if (existing) return existing
+    const fresh = new CircuitBreaker(this.config)
+    this.breakers.set(key, fresh)
+    return fresh
+  }
+
+  /** Record a timeout/failure for a specific key. */
+  recordFailure(key: string): void {
+    this.forKey(key).recordFailure()
+  }
+
+  /** Alias for `recordFailure` to match the legacy AgentCircuitBreaker API. */
+  recordTimeout(key: string): void {
+    this.recordFailure(key)
+  }
+
+  /** Record a successful call for a specific key. */
+  recordSuccess(key: string): void {
+    this.forKey(key).recordSuccess()
+  }
+
+  /** Check whether the key's breaker allows traffic right now. */
+  isAvailable(key: string): boolean {
+    const breaker = this.breakers.get(key)
+    if (!breaker) return true
+    return breaker.canExecute()
+  }
+
+  /** Filter a list of objects with `id` down to those whose circuit is closed/half-open. */
+  filterAvailable<T extends { id: string }>(items: T[]): T[] {
+    return items.filter((i) => this.isAvailable(i.id))
+  }
+
+  /** Get the current state of a specific key. */
+  getState(key: string): CircuitState {
+    return this.breakers.get(key)?.getState() ?? 'closed'
+  }
+
+  /** Reset all breakers (useful for testing). */
+  reset(): void {
+    this.breakers.clear()
   }
 }

@@ -3,7 +3,7 @@ import type { CompiledWorkflow } from '../workflow/workflow-builder.js'
 import type { WorkflowEvent, WorkflowContext } from '../workflow/workflow-types.js'
 import type { SkillChain, RetryPolicy } from '@dzupagent/core'
 import type { SkillRegistry, DzupEventBus } from '@dzupagent/core'
-import { validateChain } from '@dzupagent/core'
+import { validateChain, calculateBackoff } from '@dzupagent/core'
 import type { SkillStepResolver } from './skill-step-resolver.js'
 import type { StateTransformer } from './state-contract.js'
 import { ChainValidationError, ConditionEvaluationError, StepExecutionError } from './errors.js'
@@ -257,11 +257,19 @@ export class SkillChainExecutor {
                 if (!isRetryable) break
               }
 
-              // Calculate backoff
+              // Calculate backoff using the shared helper. The shared helper
+              // uses 0-based `attempt`; callers here use 1-based so we pass
+              // `attempt - 1`. The legacy `+/-20%` jitter is preserved here
+              // (shared helper applies 50%-100% equal jitter) to keep test
+              // expectations stable.
               const base = retryPolicy?.initialBackoffMs ?? 100
               const mult = retryPolicy?.multiplier ?? 2
               const max = retryPolicy?.maxBackoffMs ?? 30_000
-              let backoffMs = Math.min(base * Math.pow(mult, attempt - 1), max)
+              let backoffMs = calculateBackoff(Math.max(0, attempt - 1), {
+                initialBackoffMs: base,
+                maxBackoffMs: max,
+                multiplier: mult,
+              })
               if (retryPolicy?.jitter) {
                 backoffMs = backoffMs * (0.8 + Math.random() * 0.4) // +/-20%
               }

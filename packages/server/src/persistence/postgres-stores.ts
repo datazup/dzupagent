@@ -36,6 +36,7 @@ export class PostgresRunStore implements RunStore {
         status: 'queued',
         input: input.input as Record<string, unknown>,
         metadata: input.metadata ?? {},
+        ownerId: input.ownerId ?? null,
         startedAt: new Date(),
       })
       .returning()
@@ -163,6 +164,7 @@ export class PostgresRunStore implements RunStore {
       costCents: row.costCents ?? undefined,
       error: row.error ?? undefined,
       metadata: (row.metadata as Record<string, unknown>) ?? undefined,
+      ownerId: row.ownerId ?? null,
       startedAt: row.startedAt,
       completedAt: row.completedAt ?? undefined,
     }

@@ -48,11 +48,11 @@ export type {
   StructuredOutputStrategy,
   StructuredOutputModelCapabilities,
 } from './llm/model-config.js'
-export { CircuitBreaker } from './llm/circuit-breaker.js'
+export { CircuitBreaker, KeyedCircuitBreaker } from './llm/circuit-breaker.js'
 export type { CircuitBreakerConfig, CircuitState } from './llm/circuit-breaker.js'
 export { invokeWithTimeout, extractTokenUsage, estimateTokens } from './llm/invoke.js'
 export type { TokenUsage, InvokeOptions } from './llm/invoke.js'
-export { isTransientError, DEFAULT_RETRY_CONFIG } from './llm/retry.js'
+export { isTransientError, isContextLengthError, DEFAULT_RETRY_CONFIG } from './llm/retry.js'
 export type { RetryConfig } from './llm/retry.js'
 export type { RegistryMiddleware, MiddlewareContext, MiddlewareResult, MiddlewareTokenUsage } from './llm/registry-middleware.js'
 export { EmbeddingRegistry, createDefaultEmbeddingRegistry, COMMON_EMBEDDING_MODELS } from './llm/embedding-registry.js'
@@ -952,6 +952,10 @@ export type {
 export type { BaseConnectorTool } from './tools/connector-contract.js'
 export { isBaseConnectorTool, normalizeBaseConnectorTool, normalizeBaseConnectorTools } from './tools/connector-contract.js'
 
+// --- Tool Factory ---
+export { createForgeTool } from './tools/create-tool.js'
+export type { ForgeToolConfig } from './tools/create-tool.js'
+
 // --- Tool Stats ---
 export { ToolStatsTracker } from './tools/tool-stats-tracker.js'
 export type {
@@ -1000,6 +1004,8 @@ export type { TraceContext } from './telemetry/trace-propagation.js'
 // --- Utils ---
 export { defaultLogger, noopLogger } from './utils/logger.js'
 export type { FrameworkLogger } from './utils/logger.js'
+export { calculateBackoff } from './utils/backoff.js'
+export type { BackoffConfig } from './utils/backoff.js'
 
 // --- Version ---
 export const dzupagent_CORE_VERSION = '0.1.0'

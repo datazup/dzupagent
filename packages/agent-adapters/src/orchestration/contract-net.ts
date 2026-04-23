@@ -21,7 +21,7 @@
 import type { DzupEventBus } from '@dzupagent/core'
 import { ForgeError } from '@dzupagent/core'
 
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCompletedEvent,
@@ -73,7 +73,7 @@ export interface ContractNetOptions {
 
 /** Configuration for the ContractNetOrchestrator. */
 export interface ContractNetConfig {
-  registry: AdapterRegistry
+  registry: ProviderAdapterRegistry
   eventBus?: DzupEventBus | undefined
   /** Max time (ms) to collect bids. Default 5000. */
   bidTimeoutMs?: number | undefined
@@ -288,7 +288,7 @@ function scoreBid(bid: Bid, criteria: BidSelectionCriteria): number {
 // ---------------------------------------------------------------------------
 
 export class ContractNetOrchestrator {
-  private readonly registry: AdapterRegistry
+  private readonly registry: ProviderAdapterRegistry
   private readonly eventBus: DzupEventBus | undefined
   private readonly bidTimeoutMs: number
   private readonly bidStrategy: BidStrategy

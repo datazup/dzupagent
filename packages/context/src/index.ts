@@ -59,6 +59,7 @@ export type { CompressionLevel, ProgressiveCompressConfig, ProgressiveCompressRe
 
 // --- Prompt Cache ---
 export { applyAnthropicCacheControl, applyCacheBreakpoints } from './prompt-cache.js'
+export type { CacheStrategy, CacheBreakpointOptions } from './prompt-cache.js'
 
 // --- Context Transfer ---
 export { ContextTransferService } from './context-transfer.js'
@@ -78,4 +79,9 @@ export type {
   TokenLifecycleConfig,
   TokenLifecycleStatus,
   TokenLifecycleReport,
+  TokenCounter,
 } from './token-lifecycle.js'
+
+// --- Token Counters ---
+export { CharEstimateCounter } from './char-estimate-counter.js'
+export { TiktokenCounter } from './tiktoken-counter.js'

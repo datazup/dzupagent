@@ -17,6 +17,7 @@ export { createRunRoutes } from './routes/runs.js'
 export { createRunContextRoutes } from './routes/run-context.js'
 export type { TokenLifecycleLike, TokenLifecycleRegistry } from './routes/run-context.js'
 export { createAgentDefinitionRoutes } from './routes/agents.js'
+/** @deprecated Use `createAgentDefinitionRoutes`. */
 export { createAgentRoutes } from './routes/agents.js'
 export { createApprovalRoutes } from './routes/approval.js'
 export { createHumanContactRoutes } from './routes/human-contact.js'

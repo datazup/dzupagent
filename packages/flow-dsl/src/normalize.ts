@@ -8,6 +8,7 @@ import type {
   FlowInputSpec,
   FlowNode,
   FlowNodeBase,
+  FlowValue,
   ForEachNode,
   ParallelNode,
   PersonaNode,
@@ -673,7 +674,17 @@ function normalizeInputs(
       type: value.type,
       ...(typeof value.required === 'boolean' ? { required: value.required } : {}),
       ...(typeof value.description === 'string' ? { description: value.description } : {}),
-      ...(value.default !== undefined ? { default: value.default } : {}),
+      ...(value.default !== undefined && isFlowValue(value.default)
+        ? { default: value.default }
+        : {}),
+    }
+    if (value.default !== undefined && !isFlowValue(value.default)) {
+      diagnostics.push({
+        phase: 'normalize',
+        code: DSL_ERROR.INVALID_INPUT_SPEC,
+        message: 'input spec.default must be a JSON-like value when present',
+        path: `root.inputs.${key}.default`,
+      })
     }
   }
   return inputs
@@ -757,8 +768,34 @@ function isInputType(value: unknown): value is FlowInputSpec['type'] {
     || value === 'any'
 }
 
-function isPlainObject(value: unknown): value is Record<string, any> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+function isFlowValue(value: unknown): value is FlowValue {
+  if (
+    value === null
+    || typeof value === 'string'
+    || typeof value === 'number'
+    || typeof value === 'boolean'
+  ) {
+    return true
+  }
+
+  if (Array.isArray(value)) {
+    return value.every((entry) => isFlowValue(entry))
+  }
+
+  if (isPlainObject(value)) {
+    return Object.values(value).every((entry) => isFlowValue(entry))
+  }
+
+  return false
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
 }
 
 function reportUnsupportedFields(

@@ -36,6 +36,13 @@ export interface Run {
   costCents?: number
   error?: string
   metadata?: Record<string, unknown>
+  /**
+   * Identifier of the API key (or other principal) that created this run.
+   * Used by the server routes to scope list/get/cancel/pause/resume access
+   * so one tenant's API key cannot manage another's runs. Nullable for
+   * backward compatibility with records created before tenant scoping.
+   */
+  ownerId?: string | null
   startedAt: Date
   completedAt?: Date
 }
@@ -44,6 +51,8 @@ export interface CreateRunInput {
   agentId: string
   input: unknown
   metadata?: Record<string, unknown>
+  /** See {@link Run.ownerId}. */
+  ownerId?: string | null
 }
 
 export interface RunFilter {

@@ -32,6 +32,7 @@ import type {
   FlowDocumentV1,
   FlowInputSpec,
   FlowNode,
+  FlowValue,
   ValidationError,
   ValidationErrorCode,
 } from './types.js'
@@ -1069,7 +1070,15 @@ function validateOptionalInputs(
       }
     }
     if ('default' in rawSpec && rawSpec['default'] !== undefined) {
-      spec.default = rawSpec['default'] as FlowInputSpec['default']
+      if (isFlowValue(rawSpec['default'])) {
+        spec.default = rawSpec['default']
+      } else {
+        issues.push({
+          path: joinPath(joinPath(joinPath(path, 'inputs'), key), 'default'),
+          code: 'MISSING_REQUIRED_FIELD',
+          message: 'input spec.default must be a JSON-like value when present',
+        })
+      }
     }
     inputs[key] = spec
   }
@@ -1233,7 +1242,33 @@ function validateCanonicalNodeIds(
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function isFlowValue(value: unknown): value is FlowValue {
+  if (
+    value === null
+    || typeof value === 'string'
+    || typeof value === 'number'
+    || typeof value === 'boolean'
+  ) {
+    return true
+  }
+
+  if (Array.isArray(value)) {
+    return value.every((entry) => isFlowValue(entry))
+  }
+
+  if (isPlainObject(value)) {
+    return Object.values(value).every((entry) => isFlowValue(entry))
+  }
+
+  return false
 }
 
 function describeJsType(value: unknown): string {

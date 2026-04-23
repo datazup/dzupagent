@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs'
+import type { Dirent } from 'node:fs'
 import * as path from 'node:path'
 import type { DomainToolDefinition } from '../types.js'
 import type { ExecutableDomainTool } from './shared.js'
@@ -38,7 +39,7 @@ export function globToRegExp(pattern: string): RegExp {
 }
 
 async function walk(dir: string, rootDir: string): Promise<string[]> {
-  let entries: import('node:fs').Dirent[]
+  let entries: Dirent[]
   try {
     entries = await fs.readdir(dir, { withFileTypes: true })
   } catch {
