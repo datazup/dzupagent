@@ -1,6 +1,11 @@
 /**
  * Backend storage interface for cache implementations.
  * Both in-memory and Redis backends implement this contract.
+ *
+ * Sorted-set methods (zadd/zrangebyscore/zrem/zcard) generalize the cache
+ * for callers that need lightweight ordered indexes (e.g. provenance trackers,
+ * recency queues). Implementations MUST be safe to call concurrently on
+ * distinct keys; concurrency on the same key is the caller's responsibility.
  */
 export interface CacheBackend {
   get(key: string): Promise<string | null>
@@ -8,6 +13,23 @@ export interface CacheBackend {
   delete(key: string): Promise<void>
   clear(): Promise<void>
   stats(): Promise<CacheStats>
+  /**
+   * Add `member` to the sorted set at `key` with the given numeric `score`.
+   * If `member` already exists, its score is updated.
+   */
+  zadd(key: string, score: number, member: string): Promise<void>
+  /**
+   * Return members with scores in [min, max] in ascending score order.
+   */
+  zrangebyscore(key: string, min: number, max: number): Promise<string[]>
+  /**
+   * Remove `member` from the sorted set at `key`. No-op if missing.
+   */
+  zrem(key: string, member: string): Promise<void>
+  /**
+   * Return the number of members in the sorted set at `key` (0 if missing).
+   */
+  zcard(key: string): Promise<number>
 }
 
 /**

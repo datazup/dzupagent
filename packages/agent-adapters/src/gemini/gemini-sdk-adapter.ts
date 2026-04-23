@@ -18,7 +18,14 @@ import type {
 
 // SDK type stubs (for dynamic import)
 interface GeminiSDK {
-  getGenerativeModel(config: { model: string; systemInstruction?: string }): GeminiModel
+  getGenerativeModel(config: {
+    model: string
+    systemInstruction?: string
+    generationConfig?: {
+      responseMimeType?: string
+      responseSchema?: Record<string, unknown>
+    }
+  }): GeminiModel
 }
 interface GeminiModel {
   generateContentStream(
@@ -73,6 +80,14 @@ export class GeminiSDKAdapter implements AgentCLIAdapter {
       model: this.config.model ?? 'gemini-3-pro-preview',
       ...(input.systemPrompt !== undefined
         ? { systemInstruction: String(new SystemPromptBuilder(input.systemPrompt).buildFor('gemini-sdk')) }
+        : {}),
+      ...(input.outputSchema !== undefined
+        ? {
+            generationConfig: {
+              responseMimeType: 'application/json',
+              responseSchema: input.outputSchema,
+            },
+          }
         : {}),
     })
 

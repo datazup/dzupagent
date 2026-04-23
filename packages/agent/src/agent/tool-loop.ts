@@ -14,6 +14,7 @@ import {
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { extractTokenUsage, type TokenUsage } from '@dzupagent/core'
+import type { CompressResult } from '@dzupagent/context'
 import type { IterationBudget } from '../guardrails/iteration-budget.js'
 import type { StuckDetector, StuckStatus } from '../guardrails/stuck-detector.js'
 import { StuckError } from './stuck-error.js'
@@ -44,7 +45,7 @@ export interface ToolStat {
 }
 
 /** Why the tool loop stopped. */
-export type StopReason = 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'error' | 'stuck'
+export type StopReason = 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'error' | 'stuck' | 'token_exhausted'
 
 export interface ToolLoopConfig {
   maxIterations: number
@@ -102,6 +103,48 @@ export interface ToolLoopConfig {
    * Stage 1 = tool blocked, Stage 2 = nudge message injected, Stage 3 = loop aborted.
    */
   onStuck?: (toolName: string, stage: number) => void
+
+  /**
+   * Check after each LLM turn — halt if token budget exhausted.
+   *
+   * Typically wired to {@link AgentLoopPlugin.shouldHalt} from the token
+   * lifecycle plugin. Called after usage has been recorded on the LLM
+   * response and BEFORE any tool calls in that turn are executed.
+   */
+  shouldHalt?: () => boolean
+
+  /**
+   * Invoked when the loop halts due to token exhaustion.
+   *
+   * Callers typically emit a `run:halted:token-exhausted` telemetry event
+   * from this callback. It fires exactly once, immediately before the loop
+   * breaks with `stopReason === 'token_exhausted'`.
+   */
+  onHalted?: (reason: 'token_exhausted') => void
+
+  /**
+   * Optional hook invoked after each LLM turn's `onUsage` call. When the
+   * returned result has `compressed === true`, the tool loop replaces its
+   * working message history with `result.messages` before the next
+   * iteration.
+   *
+   * Typically wired to {@link AgentLoopPlugin.maybeCompress} from the
+   * token lifecycle plugin — that plugin internally short-circuits when
+   * pressure status is `ok` or `warn` and only triggers the actual
+   * compression pipeline when pressure transitions to `critical` (or
+   * `exhausted`).
+   *
+   * Errors thrown from this hook are swallowed (compression is best-effort
+   * and must never abort an otherwise-healthy run).
+   */
+  maybeCompress?: (messages: BaseMessage[]) => Promise<CompressResult>
+
+  /**
+   * Called when `maybeCompress` returned `compressed: true` and the loop
+   * adopted the shrunken message history. Useful for emitting a
+   * `context:compressed` telemetry event.
+   */
+  onCompressed?: (info: { before: number; after: number; summary: string | null }) => void
 }
 
 export interface ToolLoopResult {
@@ -241,6 +284,39 @@ export async function runToolLoop(
     }
 
     allMessages.push(response)
+
+    // Token lifecycle auto-compression — invoked AFTER usage has been
+    // recorded on the current LLM response and BEFORE the halt check.
+    // The callback (typically AgentLoopPlugin.maybeCompress) internally
+    // short-circuits when pressure status is ok/warn, so invoking it on
+    // every turn is safe and cheap. When compression runs successfully
+    // we swap in the shrunken message history for subsequent iterations.
+    if (config.maybeCompress) {
+      try {
+        const before = allMessages.length
+        const compressResult = await config.maybeCompress(allMessages)
+        if (compressResult.compressed) {
+          allMessages.length = 0
+          allMessages.push(...compressResult.messages)
+          config.onCompressed?.({
+            before,
+            after: allMessages.length,
+            summary: compressResult.summary,
+          })
+        }
+      } catch {
+        // Compression must never abort a run — swallow and continue.
+      }
+    }
+
+    // Token lifecycle halt check — evaluated AFTER usage is recorded on
+    // the current LLM response but BEFORE any tool calls in this turn
+    // execute. A `true` return ends the loop with `token_exhausted`.
+    if (config.shouldHalt?.()) {
+      stopReason = 'token_exhausted'
+      config.onHalted?.('token_exhausted')
+      break
+    }
 
     // Check for tool calls
     const ai = response as AIMessage

@@ -3,7 +3,7 @@
  * with tag-based search, JSON serialization, and case-insensitive lookup.
  */
 
-import type { SkillChain } from './skill-chain.js'
+import type { SkillChain, SkillChainStep } from './skill-chain.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,6 +26,13 @@ export interface WorkflowRegistrySnapshot {
 
 export interface WorkflowRegistrationOptions {
   overwrite?: boolean
+  description?: string
+  tags?: string[]
+}
+
+export interface WorkflowComposeOptions {
+  /** When true, registers the composed chain under the given name. */
+  registerResult?: boolean
   description?: string
   tags?: string[]
 }
@@ -154,6 +161,42 @@ export class WorkflowRegistry {
 
   get size(): number {
     return this.entries.size
+  }
+
+  // -------------------------------------------------------------------------
+  // Composition
+  // -------------------------------------------------------------------------
+
+  /**
+   * Merge steps from multiple registered chains into a new SkillChain.
+   * Steps are concatenated in the order the workflow names are listed.
+   *
+   * @throws if workflowNames is empty or any referenced workflow is not registered
+   */
+  compose(
+    name: string,
+    workflowNames: string[],
+    options?: WorkflowComposeOptions,
+  ): SkillChain {
+    if (workflowNames.length === 0) {
+      throw new Error('workflowNames must not be empty')
+    }
+    const allSteps: SkillChainStep[] = []
+    for (const wfName of workflowNames) {
+      const chain = this.get(wfName)
+      if (!chain) {
+        throw new Error(`Workflow "${wfName}" not found in registry`)
+      }
+      allSteps.push(...chain.steps)
+    }
+    const composed: SkillChain = { name, steps: allSteps }
+    if (options?.registerResult) {
+      this.register(name, composed, {
+        ...(options.description !== undefined && { description: options.description }),
+        ...(options.tags !== undefined && { tags: options.tags }),
+      })
+    }
+    return composed
   }
 
   // -------------------------------------------------------------------------

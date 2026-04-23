@@ -537,6 +537,50 @@ export interface A2ATaskResponse {
   data: A2ATask
 }
 
+// ── Compile ──────────────────────────────────────────────
+
+export type CompileStage =
+  | 'started'
+  | 'parsed'
+  | 'shape_validated'
+  | 'semantic_resolved'
+  | 'lowered'
+  | 'completed'
+
+export const COMPILE_STAGES: readonly CompileStage[] = [
+  'started',
+  'parsed',
+  'shape_validated',
+  'semantic_resolved',
+  'lowered',
+  'completed',
+]
+
+export type CompileStageStatus = 'pending' | 'active' | 'done' | 'failed'
+
+export interface CompileStageSummary {
+  stage: CompileStage
+  status: CompileStageStatus
+  startedAt?: number
+  endedAt?: number
+  durationMs?: number
+  errorCount?: number
+  details?: Record<string, unknown>
+}
+
+export type CompileRunStatus = 'idle' | 'subscribing' | 'running' | 'completed' | 'failed'
+
+export interface CompileRunState {
+  compileId: string | null
+  status: CompileRunStatus
+  errorCount: number
+  warningCount: number
+  stages: CompileStageSummary[]
+  target?: 'skill-chain' | 'workflow-builder' | 'pipeline'
+  durationMs?: number
+  failure?: { stage: 1 | 2 | 3 | 4; errorCount: number; durationMs: number }
+}
+
 // ── API ──────────────────────────────────────────────────
 
 /** Standard API response wrapper */

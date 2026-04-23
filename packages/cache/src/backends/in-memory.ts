@@ -13,6 +13,11 @@ interface CacheItem {
  */
 export class InMemoryCacheBackend implements CacheBackend {
   private cache = new Map<string, CacheItem>()
+  /**
+   * Sorted-set storage: outer key → inner Map<member, score>. Order is not
+   * tracked structurally; queries sort on read. Adequate for tests / dev.
+   */
+  private sortedSets = new Map<string, Map<string, number>>()
   private maxEntries: number
   private stats_: { hits: number; misses: number }
 
@@ -67,7 +72,38 @@ export class InMemoryCacheBackend implements CacheBackend {
 
   async clear(): Promise<void> {
     this.cache.clear()
+    this.sortedSets.clear()
     this.stats_ = { hits: 0, misses: 0 }
+  }
+
+  // --- sorted-set operations -------------------------------------------------
+
+  async zadd(key: string, score: number, member: string): Promise<void> {
+    const set = this.sortedSets.get(key) ?? new Map<string, number>()
+    set.set(member, score)
+    this.sortedSets.set(key, set)
+  }
+
+  async zrangebyscore(key: string, min: number, max: number): Promise<string[]> {
+    const set = this.sortedSets.get(key)
+    if (!set) return []
+    return [...set.entries()]
+      .filter(([, score]) => score >= min && score <= max)
+      .sort((a, b) => a[1] - b[1])
+      .map(([member]) => member)
+  }
+
+  async zrem(key: string, member: string): Promise<void> {
+    const set = this.sortedSets.get(key)
+    if (!set) return
+    set.delete(member)
+    if (set.size === 0) {
+      this.sortedSets.delete(key)
+    }
+  }
+
+  async zcard(key: string): Promise<number> {
+    return this.sortedSets.get(key)?.size ?? 0
   }
 
   async stats(): Promise<CacheStats> {

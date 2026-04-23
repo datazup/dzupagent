@@ -7,7 +7,13 @@
 
 import { ForgeError } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
-import type { AgentEvent, AdapterProviderId, TokenUsage } from '../types.js'
+import type { AgentStreamEvent, AdapterProviderId, TokenUsage } from '../types.js'
+
+function isProviderRawStreamEvent(
+  event: AgentStreamEvent,
+): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
+  return event.type === 'adapter:provider_raw'
+}
 
 // ---------------------------------------------------------------------------
 // Cost estimation tables (cents per 1M tokens)
@@ -111,8 +117,13 @@ export class CostTrackingMiddleware {
    * All events are yielded unchanged. On `adapter:completed` events that
    * carry `usage`, cost is accumulated and budget checks are performed.
    */
-  async *wrap(source: AsyncGenerator<AgentEvent>): AsyncGenerator<AgentEvent> {
+  async *wrap<T extends AgentStreamEvent>(source: AsyncGenerator<T>): AsyncGenerator<T> {
     for await (const event of source) {
+      if (isProviderRawStreamEvent(event)) {
+        yield event
+        continue
+      }
+
       if (event.type === 'adapter:completed' && event.usage) {
         this.recordUsage(event.providerId, event.usage)
       }

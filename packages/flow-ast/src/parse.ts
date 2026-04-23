@@ -190,7 +190,11 @@ function parseSequence(obj: Record<string, unknown>, pointer: string, ctx: Parse
     return null
   }
   const nodes = parseNodeArray(nodesRaw, joinPointer(pointer, 'nodes'), ctx)
-  return { type: 'sequence', nodes }
+  return {
+    type: 'sequence',
+    ...parseCommonNodeFields(obj, pointer, ctx),
+    nodes,
+  }
 }
 
 function parseAction(obj: Record<string, unknown>, pointer: string, ctx: ParseContext): ActionNode | null {
@@ -237,6 +241,7 @@ function parseAction(obj: Record<string, unknown>, pointer: string, ctx: ParseCo
   // toolRefRaw and inputRaw are validated above — narrow with type assertions through helpers:
   const node: ActionNode = {
     type: 'action',
+    ...parseCommonNodeFields(obj, pointer, ctx),
     toolRef: toolRefRaw as string,
     input: inputRaw as Record<string, unknown>,
   }
@@ -286,6 +291,7 @@ function parseForEach(obj: Record<string, unknown>, pointer: string, ctx: ParseC
   const body = parseNodeArray(bodyRaw as unknown[], joinPointer(pointer, 'body'), ctx)
   return {
     type: 'for_each',
+    ...parseCommonNodeFields(obj, pointer, ctx),
     source: sourceRaw as string,
     as: asRaw as string,
     body,
@@ -343,6 +349,7 @@ function parseBranch(obj: Record<string, unknown>, pointer: string, ctx: ParseCo
 
   const node: BranchNode = {
     type: 'branch',
+    ...parseCommonNodeFields(obj, pointer, ctx),
     condition: conditionRaw as string,
     then: thenNodes,
   }
@@ -418,6 +425,7 @@ function parseApproval(obj: Record<string, unknown>, pointer: string, ctx: Parse
 
   const node: ApprovalNode = {
     type: 'approval',
+    ...parseCommonNodeFields(obj, pointer, ctx),
     question: questionRaw as string,
     onApprove,
   }
@@ -477,6 +485,7 @@ function parseClarification(
 
   const node: ClarificationNode = {
     type: 'clarification',
+    ...parseCommonNodeFields(obj, pointer, ctx),
     question: questionRaw,
   }
   if (expected !== undefined) node.expected = expected
@@ -512,7 +521,12 @@ function parsePersona(obj: Record<string, unknown>, pointer: string, ctx: ParseC
   }
 
   const body = parseNodeArray(bodyRaw as unknown[], joinPointer(pointer, 'body'), ctx)
-  return { type: 'persona', personaId: personaIdRaw as string, body }
+  return {
+    type: 'persona',
+    ...parseCommonNodeFields(obj, pointer, ctx),
+    personaId: personaIdRaw as string,
+    body,
+  }
 }
 
 function parseRoute(obj: Record<string, unknown>, pointer: string, ctx: ParseContext): RouteNode | null {
@@ -579,6 +593,7 @@ function parseRoute(obj: Record<string, unknown>, pointer: string, ctx: ParseCon
   const body = parseNodeArray(bodyRaw as unknown[], joinPointer(pointer, 'body'), ctx)
   const node: RouteNode = {
     type: 'route',
+    ...parseCommonNodeFields(obj, pointer, ctx),
     strategy: strategyRaw as 'capability' | 'fixed-provider',
     body,
   }
@@ -613,7 +628,11 @@ function parseParallel(obj: Record<string, unknown>, pointer: string, ctx: Parse
     branches.push(parseNodeArray(branchVal, branchPointer, ctx))
   }
 
-  return { type: 'parallel', branches }
+  return {
+    type: 'parallel',
+    ...parseCommonNodeFields(obj, pointer, ctx),
+    branches,
+  }
 }
 
 function parseComplete(obj: Record<string, unknown>, pointer: string, ctx: ParseContext): CompleteNode | null {
@@ -630,7 +649,10 @@ function parseComplete(obj: Record<string, unknown>, pointer: string, ctx: Parse
       })
     }
   }
-  const node: CompleteNode = { type: 'complete' }
+  const node: CompleteNode = {
+    type: 'complete',
+    ...parseCommonNodeFields(obj, pointer, ctx),
+  }
   if (result !== undefined) node.result = result
   return node
 }
@@ -646,6 +668,62 @@ function parseNodeArray(items: unknown[], basePointer: string, ctx: ParseContext
     if (child) out.push(child)
   }
   return out
+}
+
+function parseCommonNodeFields(
+  obj: Record<string, unknown>,
+  pointer: string,
+  ctx: ParseContext,
+): Pick<SequenceNode, 'id' | 'name' | 'description' | 'meta'> {
+  const fields: Pick<SequenceNode, 'id' | 'name' | 'description' | 'meta'> = {}
+
+  parseOptionalStringField(obj, 'id', pointer, ctx, (value) => {
+    fields.id = value
+  })
+  parseOptionalStringField(obj, 'name', pointer, ctx, (value) => {
+    fields.name = value
+  })
+  parseOptionalStringField(obj, 'description', pointer, ctx, (value) => {
+    fields.description = value
+  })
+
+  if ('meta' in obj) {
+    const metaRaw = obj.meta
+    if (metaRaw !== undefined) {
+      if (isPlainObject(metaRaw)) {
+        fields.meta = metaRaw
+      } else {
+        ctx.errors.push({
+          code: 'EXPECTED_OBJECT',
+          message: `Field "meta" must be an object when present, received ${describeJsType(metaRaw)}`,
+          pointer: joinPointer(pointer, 'meta'),
+        })
+      }
+    }
+  }
+
+  return fields
+}
+
+function parseOptionalStringField(
+  obj: Record<string, unknown>,
+  key: 'id' | 'name' | 'description',
+  pointer: string,
+  ctx: ParseContext,
+  assign: (value: string) => void,
+): void {
+  if (!(key in obj)) return
+  const raw = obj[key]
+  if (raw === undefined) return
+  if (typeof raw === 'string') {
+    assign(raw)
+    return
+  }
+  ctx.errors.push({
+    code: 'WRONG_FIELD_TYPE',
+    message: `Field "${key}" must be a string when present, received ${describeJsType(raw)}`,
+    pointer: joinPointer(pointer, key),
+  })
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

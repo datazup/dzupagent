@@ -26,7 +26,8 @@ import { findWeakMemories } from './decay-engine.js'
 import { healMemory } from './memory-healer.js'
 import { dedupLessons } from './lesson-dedup.js'
 import { extractConventions } from './convention/convention-extractor-m4.js'
-import { pruneStaleMemories } from './staleness-pruner.js'
+import { pruneStaleMemoriesWithGraph } from './staleness-pruner.js'
+import type { CausalGraph } from './causal/causal-graph.js'
 import { parseMemoryEntry } from './consolidation-types.js'
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,16 @@ export interface SleepConsolidationConfig {
   stalenessMaxAgeDays?: number | undefined
   /** Importance threshold that protects entries from staleness pruning (default: 0.8) */
   stalenessImportanceThreshold?: number | undefined
+  /**
+   * Optional causal graph. When provided, pruned entries will have their
+   * nodes removed from the causal graph during the staleness-prune phase.
+   */
+  causalGraph?: CausalGraph | undefined
+  /**
+   * Namespace to use when removing nodes from the causal graph.
+   * Required when `causalGraph` is provided.
+   */
+  causalNamespace?: string | undefined
 }
 
 export interface SleepConsolidationReport {
@@ -81,6 +92,8 @@ export interface SleepConsolidationReport {
     conventionsExtracted: number
     /** Entries pruned by staleness score (M4 staleness-prune phase) */
     stalenessPruned: number
+    /** Causal relations removed during staleness-prune phase */
+    stalenessCausalRelationsRemoved: number
   }>
   /** Total LLM calls used */
   totalLLMCalls: number
@@ -157,6 +170,7 @@ export class SleepConsolidator {
       let lessonsDeduplicated = 0
       let conventionsExtracted = 0
       let stalenessPruned = 0
+      let stalenessCausalRelationsRemoved = 0
 
       // Phase 1: Semantic dedup
       if (this.phases.includes('dedup') && totalLLMCalls < this.maxLLMCalls) {
@@ -283,11 +297,14 @@ export class SleepConsolidator {
           const entries = items.map(item =>
             parseMemoryEntry(item.key, item.value as Record<string, unknown>),
           )
-          const result = pruneStaleMemories(entries, {
+          const result = await pruneStaleMemoriesWithGraph(entries, {
             maxStaleness: this.config.stalenessThreshold,
             maxAgeDays: this.config.stalenessMaxAgeDays,
             importanceThreshold: this.config.stalenessImportanceThreshold,
+            causalGraph: this.config.causalGraph,
+            causalNamespace: this.config.causalNamespace,
           })
+          stalenessCausalRelationsRemoved = result.causalRelationsRemoved
           for (const entry of result.pruned) {
             try {
               await store.delete(namespace, entry.key)
@@ -304,6 +321,7 @@ export class SleepConsolidator {
       results.push({
         namespace, deduplicated, pruned, contradictionsFound, healed,
         lessonsDeduplicated, conventionsExtracted, stalenessPruned,
+        stalenessCausalRelationsRemoved,
       })
     }
 

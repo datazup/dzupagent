@@ -20,10 +20,84 @@ import {
   type ValidationHook,
   type ValidationHookContext,
 } from '../types.js'
+import type { PolicyEnforcer } from '../policy-enforcer.js'
+import {
+  FileRollbackStore,
+  InMemoryRollbackStore,
+  type RollbackStore,
+} from '../rollback/file-rollback-store.js'
 
 const inputSchema = z.object({
   diff: z.string().describe('Unified diff in git diff format'),
 })
+
+/**
+ * Locally-sourced UUID — avoids a hard dependency on `node:crypto` types in
+ * the DTS build (this package keeps `"types": []` in its tsconfig). Uses
+ * `globalThis.crypto.randomUUID()` when available (Node 19+ and browsers),
+ * and falls back to a plain pseudo-random v4 for older runtimes.
+ */
+function uuid(): string {
+  const g = globalThis as { crypto?: { randomUUID?: () => string } }
+  if (g.crypto?.randomUUID) return g.crypto.randomUUID()
+  const hex = (n: number): string => Math.floor(Math.random() * n).toString(16)
+  return [
+    `${hex(0x100000000)}`.padStart(8, '0'),
+    `${hex(0x10000)}`.padStart(4, '0'),
+    `4${`${hex(0x1000)}`.padStart(3, '0')}`,
+    `${(8 + Math.floor(Math.random() * 4)).toString(16)}${`${hex(0x1000)}`.padStart(3, '0')}`,
+    `${hex(0x1000000)}`.padStart(6, '0') + `${hex(0x1000000)}`.padStart(6, '0'),
+  ].join('-')
+}
+
+// ---------------------------------------------------------------------------
+// Rollback registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Module-level default rollback store. Preserves the original process-local
+ * semantics for call sites that use the plain `createApplyPatchTool(ws)`
+ * signature without supplying a custom store. Tests clear this via
+ * `__clearRollbackRegistry()`.
+ */
+let defaultRollbackStore: RollbackStore = new InMemoryRollbackStore()
+
+/**
+ * Restore files captured by a previous `apply_patch` to their pre-patch state.
+ *
+ * The token is the value emitted as `rollbackToken: <uuid>` in an
+ * `apply_patch` result string. Returns `true` on a successful restore and
+ * `false` when the token is unknown (already consumed or never issued).
+ *
+ * By default this consults the process-local registry. When using a custom
+ * (e.g. persistent) store, pass it explicitly as the second argument.
+ */
+export async function undoApplyPatch(
+  rollbackToken: string,
+  store: RollbackStore = defaultRollbackStore,
+): Promise<boolean> {
+  const entry = await store.load(rollbackToken)
+  if (!entry) return false
+  await store.delete(rollbackToken)
+  for (const [path, original] of entry.originals) {
+    if (original === null) {
+      await entry.workspace.delete(path).catch(() => undefined)
+    } else {
+      await entry.workspace.write(path, original)
+    }
+  }
+  return true
+}
+
+/** Test helper — clears the default in-memory rollback registry. */
+export function __clearRollbackRegistry(): void {
+  defaultRollbackStore = new InMemoryRollbackStore()
+}
+
+/** Test/inspection helper — expose the default store (mostly for assertions). */
+export function __getDefaultRollbackStore(): RollbackStore {
+  return defaultRollbackStore
+}
 
 /**
  * Count `+` / `-` lines in a unified diff, ignoring file headers
@@ -82,33 +156,105 @@ function hookMatchesStage(
   }
 }
 
+export interface HookRunRecord {
+  hook: ValidationHook
+  result: ValidationHookResultInternal
+}
+
+interface ValidationHookResultInternal {
+  valid: boolean
+  reason?: string
+  /**
+   * Set when the hook threw. We treat thrown errors as a non-fatal
+   * warning so subsequent hooks still run.
+   */
+  threw?: boolean
+}
+
+async function runHooksCollecting(
+  hooks: ValidationHook[] | undefined,
+  stage: 'pre_apply' | 'post_apply',
+  ctx: ValidationHookContext,
+): Promise<HookRunRecord[]> {
+  const records: HookRunRecord[] = []
+  if (!hooks || hooks.length === 0) return records
+  for (const hook of hooks) {
+    if (!hookMatchesStage(hook, stage)) continue
+    // Narrowed by hookMatchesStage (returns false when run is undefined).
+    const runFn = hook.run!
+    try {
+      const res = await runFn(ctx)
+      records.push({ hook, result: { valid: res.valid, reason: res.reason } })
+    } catch (err) {
+      // Exceptions are treated as warn-level: other hooks still run.
+      const msg = err instanceof Error ? err.message : String(err)
+      records.push({
+        hook,
+        result: {
+          valid: false,
+          reason: `hook threw: ${msg}`,
+          threw: true,
+        },
+      })
+    }
+  }
+  return records
+}
+
+/**
+ * Legacy helper retained for parity — throws the first rejection. Only used
+ * for pre_apply evaluation where a reject must abort before we write.
+ */
 async function runHooks(
   hooks: ValidationHook[] | undefined,
   stage: 'pre_apply' | 'post_apply',
   ctx: ValidationHookContext,
 ): Promise<void> {
-  if (!hooks || hooks.length === 0) return
-  for (const hook of hooks) {
-    if (!hookMatchesStage(hook, stage)) continue
-    // Narrowed by hookMatchesStage (returns false when run is undefined).
-    const runFn = hook.run!
-    const res = await runFn(ctx)
-    if (!res.valid) {
-      const reason = res.reason ?? 'validation hook rejected the patch'
+  const records = await runHooksCollecting(hooks, stage, ctx)
+  for (const rec of records) {
+    // Thrown hooks are warnings, not rejections.
+    if (rec.result.threw) continue
+    if (!rec.result.valid) {
+      const reason = rec.result.reason ?? 'validation hook rejected the patch'
       throw new ToolRejectedError(
-        `${hook.name} (${stage}): ${reason}`,
-        hook.name,
+        `${rec.hook.name} (${stage}): ${reason}`,
+        rec.hook.name,
         stage,
       )
     }
   }
 }
 
+export interface CreateApplyPatchToolOptions {
+  policy?: EditPolicy
+  /** Optional policy enforcer — consulted before pre-apply hooks. */
+  policyEnforcer?: PolicyEnforcer
+  /**
+   * Custom rollback store. When omitted the process-local default is used,
+   * unless `storageDir` is provided (which wires a FileRollbackStore bound
+   * to the tool's workspace).
+   */
+  rollbackStore?: RollbackStore
+  /**
+   * When set, the tool persists rollback entries to disk under this directory
+   * via a `FileRollbackStore`. Ignored if `rollbackStore` is also provided.
+   */
+  storageDir?: string
+}
+
 export function createApplyPatchTool(
   workspace: WorkspaceFS,
-  opts?: { policy?: EditPolicy },
+  opts?: CreateApplyPatchToolOptions,
 ): DynamicStructuredTool {
   const hooks = opts?.policy?.hooks
+  const enforcer = opts?.policyEnforcer
+  // Resolve the store lazily so that `__clearRollbackRegistry()` (which
+  // rebinds the module-level default) affects tools created beforehand.
+  const fileStore: RollbackStore | undefined = opts?.storageDir
+    ? new FileRollbackStore(workspace, { storageDir: opts.storageDir })
+    : undefined
+  const resolveStore = (): RollbackStore =>
+    opts?.rollbackStore ?? fileStore ?? defaultRollbackStore
 
   return new DynamicStructuredTool({
     name: 'apply_patch',
@@ -121,6 +267,19 @@ export function createApplyPatchTool(
       const diff = input.diff
       const { added: linesAdded, removed: linesRemoved } = countDiffLines(diff)
       const filesInDiff = extractDiffFiles(diff)
+
+      // ---- PolicyEnforcer gate ----
+      if (enforcer) {
+        const decision = await enforcer.enforce({
+          diff,
+          filesModified: filesInDiff,
+          linesAdded,
+          linesRemoved,
+        })
+        if (!decision.valid) {
+          return `apply_patch denied by policy: ${decision.reason ?? 'unknown reason'}`
+        }
+      }
 
       // ---- Pre-apply hook evaluation ----
       try {
@@ -137,6 +296,16 @@ export function createApplyPatchTool(
         }
         const msg = err instanceof Error ? err.message : String(err)
         return `apply_patch pre-validation failed: ${msg}`
+      }
+
+      // ---- Capture originals for rollback BEFORE applying ----
+      const originals = new Map<string, string | null>()
+      for (const p of filesInDiff) {
+        try {
+          originals.set(p, await workspace.read(p))
+        } catch {
+          originals.set(p, null)
+        }
       }
 
       // ---- Apply ----
@@ -164,21 +333,56 @@ export function createApplyPatchTool(
 
       const successfulPaths = successful.map((r) => r.filePath)
 
-      // ---- Post-apply hook evaluation ----
-      try {
-        await runHooks(hooks, 'post_apply', {
-          stage: 'post_apply',
-          diff,
-          filesModified: successfulPaths,
-          linesAdded,
-          linesRemoved,
-        })
-      } catch (err) {
-        if (err instanceof ToolRejectedError) {
-          return `apply_patch post-validation failed: ${err.message}`
+      // ---- Post-apply hook evaluation (collects all results) ----
+      const postRecords = await runHooksCollecting(hooks, 'post_apply', {
+        stage: 'post_apply',
+        diff,
+        filesModified: successfulPaths,
+        linesAdded,
+        linesRemoved,
+      })
+
+      const invalidPost = postRecords.filter((r) => !r.result.valid && !r.result.threw)
+      if (invalidPost.length > 0) {
+        // Classify by the most severe failureAction in order:
+        // rollback > require_approval > warn.
+        const actions = invalidPost.map((r) => r.hook.failureAction)
+        const summary = invalidPost
+          .map((r) => `${r.hook.name}: ${r.result.reason ?? 'rejected'}`)
+          .join('; ')
+
+        if (actions.includes('rollback')) {
+          // Restore originals synchronously.
+          for (const [path, original] of originals) {
+            if (original === null) {
+              await workspace.delete(path).catch(() => undefined)
+            } else {
+              await workspace.write(path, original)
+            }
+          }
+          return `apply_patch rolled back after post-validation failed: ${summary}`
         }
-        const msg = err instanceof Error ? err.message : String(err)
-        return `apply_patch post-validation error: ${msg}`
+
+        if (actions.includes('require_approval')) {
+          // Register rollback token so a reviewer can undo.
+          const rollbackToken = uuid()
+          await resolveStore().save(rollbackToken, { workspace, originals })
+          return [
+            `apply_patch requires approval — post-validation reported issues:`,
+            `  ${summary}`,
+            `approvalRequired: true`,
+            `rollbackToken: ${rollbackToken}`,
+            `filesModified: ${successfulPaths.join(', ')}`,
+          ].join('\n')
+        }
+
+        // warn — applied but surface failure details; still emit rollback token.
+        const rollbackToken = uuid()
+        await resolveStore().save(rollbackToken, { workspace, originals })
+        return [
+          `apply_patch post-validation failed: ${summary}`,
+          `rollbackToken: ${rollbackToken}`,
+        ].join('\n')
       }
 
       const fileList = successfulPaths.map((p) => `  - ${p}`).join('\n')
@@ -193,8 +397,12 @@ export function createApplyPatchTool(
           ? `\n${failed.length} file(s) failed: ${failed.map((r) => r.filePath).join(', ')}`
           : ''
 
+      // Register rollback token for any successful patch (even without hooks).
+      const rollbackToken = uuid()
+      await resolveStore().save(rollbackToken, { workspace, originals })
+
       return (
-        `Patch applied to ${successful.length} file(s)${lineSummary}:\n${fileList}${failNote}`
+        `Patch applied to ${successful.length} file(s)${lineSummary}:\n${fileList}${failNote}\nrollbackToken: ${rollbackToken}`
       )
     },
   })

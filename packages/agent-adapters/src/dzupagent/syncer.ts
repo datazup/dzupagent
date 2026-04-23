@@ -16,7 +16,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readdir, readFile, writeFile, mkdir, unlink } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 import type { DzupAgentPaths } from '../types.js'
 import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
@@ -67,6 +67,8 @@ export interface SyncPlan {
   target: SyncTarget
   toWrite: SyncPlanEntry[]
   diverged: SyncDivergedEntry[]
+  /** Native files whose source definition was removed from .dzupagent/. */
+  toDelete?: string[]
   warnings?: string[]
 }
 
@@ -90,6 +92,8 @@ export interface SyncResult {
   written: SyncResultWritten[]
   skipped: SyncResultSkipped[]
   diverged: SyncResultDiverged[]
+  /** Native files deleted because their source definition was removed. */
+  deleted?: string[]
   warnings?: string[]
 }
 
@@ -318,11 +322,15 @@ export class DzupAgentSyncer {
       }
 
       // Agents → .codex/agents/<name>.md  (same Markdown format as Claude agents)
+      const toDelete: string[] = []
       if (caps.agents) {
         const agents = await this.agentLoader.loadAgents()
+        const currentAgentPaths = new Set<string>()
+
         for (const agent of agents) {
           const content = this.renderClaudeAgent(agent)
           const targetPath = join(this.projectRoot, '.codex', 'agents', `${agent.name}.md`)
+          currentAgentPaths.add(targetPath)
           const stored = syncState[targetPath]
           const existingContent = await readFileSafe(targetPath)
 
@@ -337,9 +345,18 @@ export class DzupAgentSyncer {
             }
           }
         }
+
+        // Detect agents that were previously synced but are no longer defined
+        // in .dzupagent/agents/. Scan syncState for paths under .codex/agents/.
+        const codexAgentsPrefix = join(this.projectRoot, '.codex', 'agents') + '/'
+        for (const trackedPath of Object.keys(syncState)) {
+          if (trackedPath.startsWith(codexAgentsPrefix) && !currentAgentPaths.has(trackedPath)) {
+            toDelete.push(trackedPath)
+          }
+        }
       }
 
-      return { target: 'codex', toWrite, diverged }
+      return { target: 'codex', toWrite, diverged, ...(toDelete.length > 0 ? { toDelete } : {}) }
     }
 
     // Gemini: instructions → GEMINI.md
@@ -585,6 +602,7 @@ export class DzupAgentSyncer {
     const written: SyncResultWritten[] = []
     const skipped: SyncResultSkipped[] = []
     const resultDiverged: SyncResultDiverged[] = []
+    const deleted: string[] = []
 
     // Log any warnings from the plan
     if (plan.warnings !== undefined) {
@@ -666,6 +684,30 @@ export class DzupAgentSyncer {
       written.push({ targetPath: entry.targetPath, sourcePath: entry.sourcePath })
     }
 
+    // Delete entries whose source was removed from .dzupagent/
+    if (plan.toDelete !== undefined) {
+      for (const deletePath of plan.toDelete) {
+        if (dryRun) {
+          reporter.reportWouldWrite(`[delete] ${deletePath}`)
+          deleted.push(deletePath)
+          continue
+        }
+
+        try {
+          await unlink(deletePath)
+        } catch (err: unknown) {
+          // File may have already been removed by the user — that's fine.
+          const code = (err as { code?: string } | undefined)?.code
+          if (code !== 'ENOENT') {
+            throw err
+          }
+        }
+        // Drop from state.json so a re-sync won't try to delete again.
+        delete state.sync[deletePath]
+        deleted.push(deletePath)
+      }
+    }
+
     // Persist state.json preserving projections and files (skip when dry-run)
     if (dryRun) {
       reporter.flush()
@@ -678,6 +720,7 @@ export class DzupAgentSyncer {
       written,
       skipped,
       diverged: resultDiverged,
+      ...(deleted.length > 0 ? { deleted } : {}),
       ...(plan.warnings !== undefined ? { warnings: plan.warnings } : {}),
     }
   }

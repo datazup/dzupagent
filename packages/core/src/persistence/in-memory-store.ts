@@ -123,6 +123,19 @@ export class InMemoryRunStore implements RunStore {
     return results.slice(offset, offset + limit)
   }
 
+  async count(filter?: RunFilter): Promise<number> {
+    let results = [...this.runs.values()]
+
+    if (filter?.agentId) {
+      results = results.filter(r => r.agentId === filter.agentId)
+    }
+    if (filter?.status) {
+      results = results.filter(r => r.status === filter.status)
+    }
+
+    return results.length
+  }
+
   async addLog(runId: string, entry: LogEntry): Promise<void> {
     const list = this.logs.get(runId)
     if (!list) return

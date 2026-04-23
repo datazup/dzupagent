@@ -41,6 +41,12 @@ export interface AdapterPluginConfig {
   enableCostTracking?: boolean
   /** Whether to enable session registry. Default true */
   enableSessionRegistry?: boolean
+  /**
+   * Opt-in flag enabling registration of experimental (productIntegrated: false)
+   * adapters. When unset or empty, only production adapters are registered.
+   * The string is passed through to `registry.registerExperimentalAdapters`.
+   */
+  experimentalFlag?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -116,8 +122,10 @@ export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPl
 
       // 2. Register provided adapters
       if (config.adapters) {
-        for (const adapter of config.adapters) {
-          registry.register(adapter)
+        const adapters = config.adapters
+        registry.registerProductionAdapters(adapters)
+        if (config.experimentalFlag) {
+          registry.registerExperimentalAdapters(adapters, config.experimentalFlag)
         }
       }
 

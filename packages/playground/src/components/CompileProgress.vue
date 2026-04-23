@@ -73,6 +73,8 @@ const headerStatus = computed(() => {
       return { label: 'Completed', cls: 'bg-pg-success' }
     case 'failed':
       return { label: 'Failed', cls: 'bg-pg-error' }
+    default:
+      return { label: 'Idle', cls: 'bg-pg-text-muted/40' }
   }
 })
 

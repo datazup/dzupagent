@@ -1,15 +1,18 @@
 /**
  * RunEventStore — persists raw, normalized, and artifact events for a single run.
  *
- * Layout:
- *   .dzupagent/runs/<runId>/
- *     raw-events.jsonl        — one RawAgentEvent per line
- *     normalized-events.jsonl — one AgentEvent per line
- *     artifacts.jsonl         — one AgentArtifactEvent per line
- *     summary.json            — RunSummary (written on close)
+ * Layout: <projectDir>/.dzupagent/runs/<runId>/
+ *   raw-events.jsonl        — one RawAgentEvent per line
+ *   normalized-events.jsonl — one AgentEvent per line
+ *   artifacts.jsonl         — one AgentArtifactEvent per line
+ *   summary.json            — RunSummary (written on close)
+ *
+ * Path is derived via runLogRoot() so that replay endpoints share the same contract.
  */
 import { mkdir, appendFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+
+import { runLogRoot } from './run-log-root.js'
 
 import type { AgentEvent } from '../types.js'
 import type { RawAgentEvent, AgentArtifactEvent, RunSummary } from '@dzupagent/adapter-types'
@@ -38,7 +41,7 @@ export class RunEventStore {
 
   constructor({ runId, projectDir }: { runId: string; projectDir: string }) {
     this.runId = runId
-    this.runDir = join(projectDir, 'runs', runId)
+    this.runDir = runLogRoot(projectDir, runId)
   }
 
   /** Create the run directory and flush any buffered events. */

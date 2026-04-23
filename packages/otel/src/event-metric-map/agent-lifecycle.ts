@@ -93,4 +93,17 @@ export const agentLifecycleMetricMap = {
     },
   ],
 
+  'run:halted:token-exhausted': [
+    {
+      metricName: 'dzip_run_halted_token_exhausted_total',
+      type: 'counter',
+      description: 'Total runs halted due to token exhaustion',
+      labelKeys: ['agent_id'],
+      extract: (e) => {
+        const ev = asEvent<'run:halted:token-exhausted'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId } }
+      },
+    },
+  ],
+
 } satisfies MetricMapFragment

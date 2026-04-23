@@ -54,10 +54,14 @@ import { createSleepConsolidationTask, type SleepConsolidatorLike } from './runt
 import { createMemoryHealthRoutes, type MemoryHealthRouteConfig } from './routes/memory-health.js'
 import { createRoutingStatsRoutes } from './routes/routing-stats.js'
 import { createRunTraceRoutes } from './routes/run-trace.js'
+import { createEnrichmentMetricsRoute } from './routes/enrichment-metrics.js'
+import { createRunContextRoutes, type TokenLifecycleRegistry } from './routes/run-context.js'
 import type { RunTraceStore } from './persistence/run-trace-store.js'
 import { createMetricsRoute } from './routes/metrics.js'
 import { createDeployRoutes, type DeployRouteConfig } from './routes/deploy.js'
 import { createLearningRoutes, type LearningRouteConfig } from './routes/learning.js'
+import type { PromptFeedbackLoop } from './services/prompt-feedback-loop.js'
+import type { LearningEventProcessor } from './services/learning-event-processor.js'
 import { createBenchmarkRoutes, type BenchmarkRouteConfig } from './routes/benchmarks.js'
 import { createEvalRoutes, type EvalRouteConfig } from './routes/evals.js'
 import { PrometheusMetricsCollector } from './metrics/prometheus-collector.js'
@@ -77,6 +81,8 @@ import type { ScheduleStore } from './schedules/schedule-store.js'
 import type { ScheduleRouteConfig } from './routes/schedules.js'
 import { createPersonaRoutes } from './routes/personas.js'
 import type { PersonaStore } from './personas/persona-store.js'
+import { createPromptRoutes } from './routes/prompts.js'
+import type { PromptStore } from './prompts/prompt-store.js'
 import { createPresetRoutes } from './routes/presets.js'
 import { createMarketplaceRoutes } from './routes/marketplace.js'
 import type { CatalogStore } from './marketplace/catalog-store.js'
@@ -105,6 +111,8 @@ import {
 } from './notifications/mail-dlq-worker.js'
 import { DrizzleDlqStore } from './persistence/drizzle-dlq-store.js'
 import { DrizzleMailboxStore } from './persistence/drizzle-mailbox-store.js'
+import type { PostgresApiKeyStore } from './persistence/api-key-store.js'
+import { createApiKeyRoutes } from './routes/api-keys.js'
 
 // Drizzle DB clients are opaque at this layer — we intentionally avoid a hard
 // dependency on `drizzle-orm/postgres-js` here.
@@ -157,6 +165,9 @@ export interface ForgeServerConfig {
   eventBus: DzupEventBus
   modelRegistry: ModelRegistry
   auth?: AuthConfig
+  /** Optional Postgres API key store. When provided alongside auth.mode='api-key',
+   *  store.validate is wired as the validateKey callback automatically. */
+  apiKeyStore?: PostgresApiKeyStore
   corsOrigins?: string | string[]
   /** Rate limiting configuration (disabled if not provided) */
   rateLimit?: Partial<RateLimiterConfig>
@@ -186,6 +197,12 @@ export interface ForgeServerConfig {
   memoryHealth?: MemoryHealthRouteConfig
   /** Optional run trace store for step-by-step replay and debugging */
   traceStore?: RunTraceStore
+  /** Optional token lifecycle registry — when provided, `/api/runs/:id/context`
+   *  pulls live token usage + status from the manager associated with the run.
+   *  Run executors are responsible for populating the registry on start and
+   *  clearing it on completion. Omitted → the route falls back to run metadata
+   *  and logs, returning a zero-state report when nothing is known. */
+  tokenLifecycleRegistry?: TokenLifecycleRegistry
   /** Optional cost-aware router — automatically selects optimal model tier per run based on input complexity */
   router?: CostAwareRouter
   /** Optional run reflector — scores every completed run for quality tracking.
@@ -233,6 +250,8 @@ export interface ForgeServerConfig {
   scheduleStore?: ScheduleStore
   /** Optional callback invoked when a schedule is manually triggered */
   onScheduleTrigger?: ScheduleRouteConfig['onManualTrigger']
+  /** Optional prompt store for prompt version management */
+  promptStore?: PromptStore
   /** Optional persona store for persona management */
   personaStore?: PersonaStore
   /** Optional notifier for escalation notifications */
@@ -259,6 +278,47 @@ export interface ForgeServerConfig {
     /** Auth config for /v1/* routes (independent from /api/* auth). */
     auth?: OpenAIAuthConfig
   }
+  /**
+   * Optional prompt feedback loop (Step 2 of the closed-loop self-improvement
+   * system). When provided, `start()` is invoked during `createForgeApp` and
+   * `stop()` is registered on the graceful shutdown drain hook (if
+   * `config.shutdown` is also provided). The loop consumes `run:scored`
+   * events off `config.eventBus` and invokes its prompt optimizer when a run
+   * scores below its configured threshold.
+   */
+  promptFeedbackLoop?: PromptFeedbackLoop | PromptFeedbackLoopLike
+  /**
+   * Optional learning event processor (Step 3 of the closed-loop system).
+   * When provided, `start()` is invoked during `createForgeApp` and `stop()`
+   * is registered on the graceful shutdown drain hook (if `config.shutdown`
+   * is also provided). The processor consumes `run:scored` events off
+   * `config.eventBus` and persists extracted patterns to memory.
+   *
+   * Note: the feedback loop and learning processor each subscribe to
+   * `run:scored` independently — no explicit forwarding is required. Both
+   * simply observe the same shared event bus.
+   */
+  learningEventProcessor?: LearningEventProcessor | LearningEventProcessorLike
+}
+
+/**
+ * Structural type matching {@link PromptFeedbackLoop}'s lifecycle API.
+ * Uses structural typing so hosts can inject custom implementations or mocks
+ * without importing the concrete class.
+ */
+export interface PromptFeedbackLoopLike {
+  start(): void
+  stop(): void
+}
+
+/**
+ * Structural type matching {@link LearningEventProcessor}'s lifecycle API.
+ * Uses structural typing so hosts can inject custom implementations or mocks
+ * without importing the concrete class.
+ */
+export interface LearningEventProcessorLike {
+  start(): void
+  stop(): void
 }
 
 const startedRunQueues = new WeakSet<RunQueue>()
@@ -349,8 +409,19 @@ function mountRoutePlugins(
   }
 }
 
-function createBuiltInRoutePlugins(config: ForgeServerConfig): ServerRoutePlugin[] {
+function createBuiltInRoutePlugins(config: ForgeServerConfig, eventGateway: EventGateway): ServerRoutePlugin[] {
   const plugins: ServerRoutePlugin[] = []
+  const effectiveCompileConfig: CompileRouteConfig | undefined =
+    config.compile?.personaResolver || !config.personaStore
+      ? {
+          ...(config.compile ?? {}),
+          eventGateway,
+        }
+      : {
+          ...(config.compile ?? {}),
+          personaStore: config.personaStore,
+          eventGateway,
+        }
 
   if (config.mcpManager) {
     plugins.push({
@@ -374,6 +445,7 @@ function createBuiltInRoutePlugins(config: ForgeServerConfig): ServerRoutePlugin
         workflowRegistry: config.workflowRegistry,
         resolver: config.skillStepResolver,
         eventBus: config.eventBus,
+        compile: effectiveCompileConfig,
       }),
     })
   }
@@ -383,7 +455,7 @@ function createBuiltInRoutePlugins(config: ForgeServerConfig): ServerRoutePlugin
   // can wire a domain catalog via `config.compile.toolResolver`.
   plugins.push({
     prefix: '/api/workflows',
-    createRoutes: () => createCompileRoutes(config.compile ?? {}),
+    createRoutes: () => createCompileRoutes(effectiveCompileConfig ?? {}),
   })
 
   return plugins
@@ -428,7 +500,21 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   }))
 
   if (config.auth) {
-    app.use('/api/*', authMiddleware(config.auth))
+    let effectiveAuth = config.auth
+    if (
+      config.auth.mode === 'api-key' &&
+      !config.auth.validateKey &&
+      config.apiKeyStore
+    ) {
+      effectiveAuth = {
+        ...config.auth,
+        validateKey: async (key) => {
+          const record = await config.apiKeyStore!.validate(key)
+          return record ? { ...record } as Record<string, unknown> : null
+        },
+      }
+    }
+    app.use('/api/*', authMiddleware(effectiveAuth))
   }
 
   if (config.rateLimit) {
@@ -482,9 +568,17 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   app.route('/api/health', createHealthRoutes(runtimeConfig))
   app.route('/api/health', createRoutingStatsRoutes({ runStore: runtimeConfig.runStore }))
   app.route('/api/runs', createRunRoutes(runtimeConfig))
+  app.route('/api/runs', createRunContextRoutes(runtimeConfig))
   app.route('/api/agents', createAgentRoutes(runtimeConfig))
+  if (runtimeConfig.apiKeyStore) {
+    const allowedTiers = runtimeConfig.rateLimit?.tiers
+      ? Object.keys(runtimeConfig.rateLimit.tiers)
+      : undefined
+    app.route('/api/keys', createApiKeyRoutes({ store: runtimeConfig.apiKeyStore, allowedTiers }))
+  }
   app.route('/api/runs', createApprovalRoutes(runtimeConfig))
   app.route('/api/runs', createHumanContactRoutes(runtimeConfig))
+  app.route('/api/runs', createEnrichmentMetricsRoute({ runStore: runtimeConfig.runStore }))
 
   if (runtimeConfig.traceStore) {
     app.route('/api/runs', createRunTraceRoutes({
@@ -564,6 +658,11 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
       scheduleStore: runtimeConfig.scheduleStore,
       onManualTrigger: runtimeConfig.onScheduleTrigger,
     }))
+  }
+
+  // --- Prompt Routes ---
+  if (runtimeConfig.promptStore) {
+    app.route('/api/prompts', createPromptRoutes({ promptStore: runtimeConfig.promptStore }))
   }
 
   // --- Persona Routes ---
@@ -662,7 +761,7 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   }
 
   const allRoutePlugins = [
-    ...createBuiltInRoutePlugins(runtimeConfig),
+    ...createBuiltInRoutePlugins(runtimeConfig, eventGateway),
     ...(runtimeConfig.routePlugins ?? []),
   ]
   if (allRoutePlugins.length) {
@@ -703,6 +802,31 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
 
       // Expose scheduler status via health route
       app.get('/api/health/consolidation', (c) => c.json({ data: scheduler.status() }))
+    }
+  }
+
+  // --- Closed-loop self-improvement wiring ---
+  // Both the PromptFeedbackLoop (Step 2) and LearningEventProcessor (Step 3)
+  // subscribe to `run:scored` events on the shared event bus. They operate
+  // independently — one rewrites failing prompts, the other persists learned
+  // patterns — and require no direct coupling beyond sharing the bus.
+  if (runtimeConfig.promptFeedbackLoop) {
+    const loop = runtimeConfig.promptFeedbackLoop
+    loop.start()
+    if (runtimeConfig.shutdown) {
+      registerShutdownDrainHook(runtimeConfig.shutdown, async () => {
+        loop.stop()
+      })
+    }
+  }
+
+  if (runtimeConfig.learningEventProcessor) {
+    const processor = runtimeConfig.learningEventProcessor
+    processor.start()
+    if (runtimeConfig.shutdown) {
+      registerShutdownDrainHook(runtimeConfig.shutdown, async () => {
+        processor.stop()
+      })
     }
   }
 

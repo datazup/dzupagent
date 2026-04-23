@@ -40,7 +40,7 @@ import type {
   AgentInput,
   TaskDescriptor,
 } from '../types.js'
-import { TemplateResolver } from './template-resolver.js'
+import { WorkflowStepResolver } from './template-resolver.js'
 import type { TemplateContext } from './template-resolver.js'
 import { WorkflowValidator } from './workflow-validator.js'
 
@@ -182,15 +182,15 @@ function resolveFallbackProviderId(
 }
 
 // ---------------------------------------------------------------------------
-// Template resolution (delegated to TemplateResolver)
+// Template resolution (delegated to WorkflowStepResolver)
 // ---------------------------------------------------------------------------
 
 /** Shared resolver instance used by the compilation and execution logic. */
-const sharedTemplateResolver = new TemplateResolver()
+const sharedTemplateResolver = new WorkflowStepResolver()
 
 /**
  * Resolve template variables in a prompt string.
- * Thin wrapper around TemplateResolver for backward compatibility.
+ * Thin wrapper around WorkflowStepResolver for backward compatibility.
  */
 function resolveTemplate(
   template: string,

@@ -61,9 +61,22 @@ export class SkillChainExecutor {
     this.config.logger?.debug(`[SkillChainExecutor] compile start: "${chain.name}" (${chain.steps.length} steps)`)
 
     // 1. Pre-flight validation: check all skills are resolvable
-    const allSkillIds = chain.steps.map(s => s.skillName)
+    // For parallel steps, expand parallelSkills into individual IDs for resolution checks.
+    const allSkillIds: string[] = []
+    for (const step of chain.steps) {
+      if (step.parallelSkills && step.parallelSkills.length > 0) {
+        allSkillIds.push(...step.parallelSkills)
+      } else {
+        allSkillIds.push(step.skillName)
+      }
+    }
+    // Build a synthetic chain using the expanded skill IDs for validateChain
+    const expandedChain = {
+      name: chain.name,
+      steps: allSkillIds.map(id => ({ skillName: id })),
+    }
     const resolvableSkills = allSkillIds.filter(id => this.config.resolver.canResolve(id))
-    const validation = validateChain(chain, resolvableSkills)
+    const validation = validateChain(expandedChain, resolvableSkills)
     if (!validation.valid) {
       throw new ChainValidationError(chain.name, validation)
     }
@@ -80,6 +93,57 @@ export class SkillChainExecutor {
       // Insert suspend node before this step if suspendBefore is set
       if (step.suspendBefore) {
         builder.suspend(`before:${step.skillName}`)
+      }
+
+      // Handle parallel step groups
+      if (step.parallelSkills && step.parallelSkills.length > 0) {
+        const parallelSkills = step.parallelSkills
+        const mergeStrategy = step.mergeStrategy ?? 'merge-objects'
+        const stepLevelTransformer = step.stateTransformer
+        const stepIndex = i
+        const skillName = step.skillName
+
+        // Resolve all parallel sub-skills eagerly
+        const subSteps = await Promise.all(
+          parallelSkills.map(id => this.config.resolver.resolve(id)),
+        )
+
+        const logger = this.config.logger
+
+        builder.then({
+          id: skillName,
+          description: `Parallel: ${parallelSkills.join(', ')}`,
+          execute: async (input: unknown, ctx: WorkflowContext) => {
+            let state = ((input as Record<string, unknown>) ?? {}) as Record<string, unknown>
+
+            // Apply step-level stateTransformer before forking
+            if (stepLevelTransformer) {
+              state = stepLevelTransformer(state)
+            }
+
+            logger?.debug(`[SkillChainExecutor] step ${stepIndex} parallel "${skillName}" starting`)
+
+            const results = await Promise.all(
+              subSteps.map(sub => sub.execute(state, ctx) as Promise<Record<string, unknown>>),
+            )
+
+            // Merge results back into state
+            let merged = { ...state }
+            if (mergeStrategy === 'last-wins') {
+              for (const r of results) {
+                merged = { ...merged, ...r }
+              }
+            } else {
+              // merge-objects: same as last-wins but explicit intent
+              for (const r of results) {
+                merged = { ...merged, ...r }
+              }
+            }
+            return merged
+          },
+        })
+
+        continue
       }
 
       // Resolve the skill to a WorkflowStep

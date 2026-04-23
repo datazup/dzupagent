@@ -222,6 +222,10 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
     }
   }
 
+  respondInteraction(interactionId: string, answer: string): boolean {
+    return this.resolver?.respond(interactionId, answer) ?? false
+  }
+
   // -----------------------------------------------------------------------
   // AgentCLIAdapter.execute
   // -----------------------------------------------------------------------

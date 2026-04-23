@@ -6,9 +6,9 @@ import type { RunQueue } from '../queue/run-queue.js'
 import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
 import { extractTraceContext } from '@dzupagent/core'
-import { isStructuredResult } from './utils.js'
+import { isStructuredResult, isRecord } from './utils.js'
 import { reportRetrievalFeedback, type RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
-import type { RunReflectionStore, ReflectionSummary } from '@dzupagent/agent'
+import type { RunReflectionStore, ReflectionSummary, CompressionLogEntry } from '@dzupagent/agent'
 
 export interface RunExecutionContext {
   runId: string
@@ -33,6 +33,16 @@ export interface RunExecutorResult {
     message: string
     data?: unknown
   }>
+  /**
+   * Session Y: compression events observed during the run.
+   *
+   * Populated when the underlying agent emitted one or more auto-compression
+   * events (see {@link GenerateResult.compressionLog}). The run-worker merges
+   * this list into `run.metadata.compressionLog` so telemetry consumers can
+   * inspect when (and by how much) the conversation was compacted without
+   * reading intermediate agent state.
+   */
+  compressionLog?: CompressionLogEntry[]
 }
 
 export type RunExecutor = (context: RunExecutionContext) => Promise<unknown | RunExecutorResult>
@@ -118,6 +128,18 @@ export interface StartRunWorkerOptions {
   /** Optional reflection store — persists a ReflectionSummary after each completed run
    *  when a reflector is configured. Failure to save is non-fatal. */
   reflectionStore?: RunReflectionStore
+  /** Optional run outcome analyzer — scores persisted run events via eval
+   *  scorers and emits `run:scored`. Any failure is swallowed and surfaced
+   *  via the analyzer's `onError` hook. */
+  runOutcomeAnalyzer?: RunOutcomeAnalyzerLike
+}
+
+/** Structural type for RunOutcomeAnalyzer — avoids a hard dep on the service module. */
+export interface RunOutcomeAnalyzerLike {
+  analyze(
+    runId: string,
+    options?: { agentId?: string; input?: string; output?: string; reference?: string },
+  ): Promise<unknown>
 }
 
 async function waitForApprovalDecision(
@@ -157,20 +179,20 @@ function throwIfAborted(signal: AbortSignal): void {
   }
 }
 
-function closeTraceWithTerminalStep(
+async function closeTraceWithTerminalStep(
   traceStore: RunTraceStore | undefined,
   runId: string,
   status: 'failed' | 'cancelled' | 'rejected',
   details?: Record<string, unknown>,
-): void {
+): Promise<void> {
   if (!traceStore) return
-  traceStore.addStep(runId, {
+  await traceStore.addStep(runId, {
     timestamp: Date.now(),
     type: 'system',
     content: { status },
     metadata: details,
   })
-  traceStore.completeTrace(runId)
+  await traceStore.completeTrace(runId)
 }
 
 /**
@@ -227,13 +249,15 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       await options.runStore.update(job.runId, { status: 'running' })
 
       // --- Start trace (optional) ---
-      options.traceStore?.startTrace(job.runId, job.agentId)
-      options.traceStore?.addStep(job.runId, {
-        timestamp: Date.now(),
-        type: 'user_input',
-        content: job.input,
-        metadata: job.metadata ? { ...job.metadata } : undefined,
-      })
+      if (options.traceStore) {
+        await options.traceStore.startTrace(job.runId, job.agentId)
+        await options.traceStore.addStep(job.runId, {
+          timestamp: Date.now(),
+          type: 'user_input',
+          content: job.input,
+          metadata: job.metadata ? { ...job.metadata } : undefined,
+        })
+      }
 
       await options.runStore.addLog(job.runId, {
         level: 'info',
@@ -279,7 +303,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
             errorCode: 'APPROVAL_REJECTED',
             message: decision.reason ?? 'Run rejected by approval policy',
           })
-          closeTraceWithTerminalStep(
+          await closeTraceWithTerminalStep(
             options.traceStore,
             job.runId,
             'rejected',
@@ -351,29 +375,67 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       const costCents = isStructuredResult(execution) ? execution.costCents : undefined
       const metadata = isStructuredResult(execution) ? execution.metadata : undefined
       const additionalLogs = isStructuredResult(execution) ? execution.logs ?? [] : []
+      // Session Y: when the executor returns a GenerateResult-style result with
+      // a non-empty compressionLog, merge it into run.metadata.compressionLog so
+      // downstream consumers (telemetry, replay UI) can inspect compression
+      // events without reading intermediate agent state. Only merged when at
+      // least one entry exists — empty lists are treated as "no compression".
+      const compressionLog = isStructuredResult(execution) && execution.compressionLog && execution.compressionLog.length > 0
+        ? execution.compressionLog
+        : undefined
+      const mergedMetadata = metadata || compressionLog
+        ? {
+            ...(metadata ?? {}),
+            ...(compressionLog ? { compressionLog } : {}),
+          }
+        : undefined
 
       const durationMs = Date.now() - startedAt
+      // Session Q: a clean halt surfaced by the executor (e.g. token exhaustion
+      // via `run:halted:token-exhausted`) is NOT a failure — it is a distinct
+      // terminal state. We detect it via the `halted:true` metadata flag
+      // emitted by dzip-agent-run-executor.ts and map it to the formal
+      // 'halted' RunStatus. The `metadata.halted` flag is preserved so older
+      // readers that predate Session Q continue to work.
+      const halted = metadata != null
+        && typeof metadata === 'object'
+        && (metadata as Record<string, unknown>)['halted'] === true
+
+      // Session W: if the executor persisted a tokenLifecycleReport in
+      // metadata, promote it to output.tokenLifecycle so clients get full
+      // phase breakdown in a single REST call without reading /context.
+      // Only merged when `output` is itself a plain object — scalar outputs
+      // (strings, numbers) pass through unchanged.
+      const tokenLifecycleForOutput = isRecord(metadata) && isRecord(metadata['tokenLifecycleReport'])
+        ? metadata['tokenLifecycleReport']
+        : undefined
+      const finalOutput = tokenLifecycleForOutput && isRecord(output)
+        ? { ...output, tokenLifecycle: tokenLifecycleForOutput }
+        : output
+
       await options.runStore.update(job.runId, {
-        status: 'completed',
-        output,
+        status: halted ? 'halted' : 'completed',
+        output: finalOutput,
         ...(tokenUsage ? { tokenUsage } : {}),
         ...(typeof costCents === 'number' ? { costCents } : {}),
-        ...(metadata ? { metadata: { ...(job.metadata ?? {}), ...metadata } } : {}),
+        ...(mergedMetadata ? { metadata: { ...(job.metadata ?? {}), ...mergedMetadata } } : {}),
         completedAt: new Date(),
       })
       // --- Record output step and complete trace (optional) ---
-      options.traceStore?.addStep(job.runId, {
-        timestamp: Date.now(),
-        type: 'output',
-        content: output,
-        metadata: {
-          ...(tokenUsage ? { tokenUsage } : {}),
-          ...(typeof costCents === 'number' ? { costCents } : {}),
+      if (options.traceStore) {
+        await options.traceStore.addStep(job.runId, {
+          timestamp: Date.now(),
+          type: 'output',
+          content: output,
+          metadata: {
+            ...(tokenUsage ? { tokenUsage } : {}),
+            ...(typeof costCents === 'number' ? { costCents } : {}),
+            durationMs,
+          },
           durationMs,
-        },
-        durationMs,
-      })
-      options.traceStore?.completeTrace(job.runId)
+        })
+        await options.traceStore.completeTrace(job.runId)
+      }
 
       await options.runStore.addLog(job.runId, {
         level: 'info',
@@ -536,6 +598,52 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         }
       }
 
+      // --- Run outcome analyzer (closed-loop self-improvement) ---
+      if (options.runOutcomeAnalyzer) {
+        try {
+          const outputText = typeof output === 'string'
+            ? output
+            : output && typeof output === 'object' && 'message' in output && typeof (output as { message?: unknown }).message === 'string'
+              ? (output as { message: string }).message
+              : JSON.stringify(output ?? '')
+          const inputText = typeof job.input === 'string'
+            ? job.input
+            : JSON.stringify(job.input ?? '')
+          const analysis = await options.runOutcomeAnalyzer.analyze(job.runId, {
+            agentId: job.agentId,
+            input: inputText,
+            output: outputText,
+          })
+          // Success log — confirms run:scored was emitted on the event bus.
+          // `analysis` is typed as `unknown` via the structural interface, so
+          // we narrow defensively before surfacing score/passed.
+          const summary = (analysis && typeof analysis === 'object')
+            ? analysis as { score?: unknown; passed?: unknown }
+            : null
+          const score = typeof summary?.score === 'number' ? summary.score : undefined
+          const passed = typeof summary?.passed === 'boolean' ? summary.passed : undefined
+          await options.runStore.addLog(job.runId, {
+            level: 'info',
+            phase: 'run-outcome',
+            message: score !== undefined
+              ? `Run outcome scored: ${score.toFixed(3)} (${passed ? 'pass' : 'fail'})`
+              : 'Run outcome analyzer completed',
+            data: {
+              ...(score !== undefined ? { score } : {}),
+              ...(passed !== undefined ? { passed } : {}),
+            },
+          }).catch(() => { /* swallow nested failure */ })
+        } catch (_analyzerErr) {
+          // Scoring is best-effort — never block the completion path.
+          await options.runStore.addLog(job.runId, {
+            level: 'warn',
+            phase: 'run-outcome',
+            message: 'Run outcome analyzer failed',
+            data: { error: _analyzerErr instanceof Error ? _analyzerErr.message : String(_analyzerErr) },
+          }).catch(() => { /* swallow nested failure */ })
+        }
+      }
+
       // --- Save cross-intent context after successful run (optional) ---
       if (options.contextTransfer) {
         try {
@@ -603,7 +711,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       if (signal.aborted) {
         const run = await options.runStore.get(job.runId)
         // Only update if not already in a terminal state
-        if (run && !['completed', 'failed', 'cancelled', 'rejected'].includes(run.status)) {
+        if (run && !['completed', 'failed', 'cancelled', 'rejected', 'halted'].includes(run.status)) {
           await options.runStore.update(job.runId, {
             status: 'cancelled',
             error: 'Cancelled by user',
@@ -621,7 +729,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
             errorCode: 'AGENT_ABORTED',
             message: 'Cancelled by user',
           })
-          closeTraceWithTerminalStep(options.traceStore, job.runId, 'cancelled', { reason: 'Cancelled by user' })
+          await closeTraceWithTerminalStep(options.traceStore, job.runId, 'cancelled', { reason: 'Cancelled by user' })
         }
         return
       }
@@ -645,7 +753,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         errorCode: 'INTERNAL_ERROR',
         message,
       })
-      closeTraceWithTerminalStep(options.traceStore, job.runId, 'failed', { error: message })
+      await closeTraceWithTerminalStep(options.traceStore, job.runId, 'failed', { error: message })
     } finally {
       options.shutdown?.untrackRun(job.runId)
     }

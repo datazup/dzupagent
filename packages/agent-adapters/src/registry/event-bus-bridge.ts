@@ -13,7 +13,13 @@ import {
 } from '@dzupagent/core'
 import { randomUUID } from 'node:crypto'
 
-import type { AgentEvent } from '../types.js'
+import type { AgentEvent, AgentStreamEvent } from '../types.js'
+
+function isProviderRawStreamEvent(
+  event: AgentStreamEvent,
+): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
+  return event.type === 'adapter:provider_raw'
+}
 
 /**
  * Bridges adapter-level events (AgentEvent) to the unified DzupEventBus.
@@ -50,6 +56,47 @@ export class EventBusBridge {
     let activeToolName: string | undefined
 
     for await (const event of source) {
+      if (event.type === 'adapter:tool_call') {
+        activeToolName = event.toolName
+      } else if (event.type === 'adapter:tool_result') {
+        activeToolName = undefined
+      } else if (event.type === 'adapter:failed' && activeToolName) {
+        const executionRunId = requireTerminalToolExecutionRunId({
+          eventType: 'tool:error',
+          toolName: activeToolName,
+          executionRunId: resolvedRunId,
+        })
+        this.bus.emit({
+          type: 'tool:error',
+          toolName: activeToolName,
+          errorCode: 'TOOL_EXECUTION_FAILED',
+          message: event.error,
+          executionRunId,
+        })
+        activeToolName = undefined
+      }
+
+      const dzipEvent = EventBusBridge.mapToDzupEvent(event, resolvedRunId)
+      if (dzipEvent !== null) {
+        this.bus.emit(dzipEvent)
+      }
+      yield event
+    }
+  }
+
+  async *bridgeWithRaw(
+    source: AsyncGenerator<AgentStreamEvent, void, undefined>,
+    runId?: string,
+  ): AsyncGenerator<AgentStreamEvent, void, undefined> {
+    const resolvedRunId = runId ?? randomUUID()
+    let activeToolName: string | undefined
+
+    for await (const event of source) {
+      if (isProviderRawStreamEvent(event)) {
+        yield event
+        continue
+      }
+
       if (event.type === 'adapter:tool_call') {
         activeToolName = event.toolName
       } else if (event.type === 'adapter:tool_result') {

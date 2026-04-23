@@ -26,7 +26,7 @@ export interface DrizzleA2ADatabase {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzle = any
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 function createSelectProxy(): never {
   throw new Error('Type-only helper')
 }

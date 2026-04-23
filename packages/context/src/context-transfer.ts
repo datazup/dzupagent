@@ -275,6 +275,19 @@ export class ContextTransferService {
    * Returns a new array — does not mutate the input.
    */
   injectContext(context: IntentContext, messages: readonly BaseMessage[]): BaseMessage[] {
+    // Idempotency: if the messages array already contains a transferred-context
+    // system message for the same source intent, return a shallow copy
+    // unchanged. The marker matches the header produced by formatContextText().
+    const marker = `## Context Transferred from "${context.fromIntent}"`
+    const alreadyInjected = messages.some((m) => {
+      if (m._getType() !== 'system') return false
+      const content = getContent(m)
+      return content.startsWith(marker)
+    })
+    if (alreadyInjected) {
+      return [...messages]
+    }
+
     const systemMsg = this.formatAsMessage(context)
     const result = [...messages]
 

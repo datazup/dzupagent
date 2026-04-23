@@ -174,6 +174,7 @@ export const useWsStore = defineStore('ws', () => {
     // Actions
     connect,
     disconnect,
+    sendJson,
     clearEventLog,
     setSubscription,
   }

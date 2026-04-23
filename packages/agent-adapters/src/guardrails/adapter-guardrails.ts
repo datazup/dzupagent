@@ -9,7 +9,13 @@
 import { createHash } from 'node:crypto'
 import type { DzupEventBus } from '@dzupagent/core'
 import type { BudgetUsage } from '@dzupagent/core'
-import type { AgentEvent, TokenUsage } from '../types.js'
+import type { AgentEvent, AgentStreamEvent, TokenUsage } from '../types.js'
+
+function isProviderRawStreamEvent(
+  event: AgentStreamEvent,
+): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
+  return event.type === 'adapter:provider_raw'
+}
 
 // ---------------------------------------------------------------------------
 // Stuck detector types
@@ -243,13 +249,26 @@ export class AdapterGuardrails {
    *
    * At each event, checks all budget limits and emits warnings/violations as needed.
    */
-  async *wrap(
+  wrap(
     source: AsyncGenerator<AgentEvent>,
     abortFn?: () => void,
-  ): AsyncGenerator<AgentEvent> {
+  ): AsyncGenerator<AgentEvent>
+  wrap(
+    source: AsyncGenerator<AgentStreamEvent>,
+    abortFn?: () => void,
+  ): AsyncGenerator<AgentStreamEvent>
+  async *wrap(
+    source: AsyncGenerator<AgentStreamEvent>,
+    abortFn?: () => void,
+  ): AsyncGenerator<AgentStreamEvent> {
     this.startTime = Date.now()
 
     for await (const event of source) {
+      if (isProviderRawStreamEvent(event)) {
+        yield event
+        continue
+      }
+
       // Process the event through guardrails
       const result = await this.processEvent(event)
 
@@ -273,6 +292,25 @@ export class AdapterGuardrails {
         yield event
       }
     }
+  }
+
+  /**
+   * Replace the `onRuleViolation` callback after construction.  Used by
+   * {@link BaseCliAdapter.attachGuardrailsGovernance} to route guardrail
+   * violations into the adapter's governance side-channel without
+   * rebuilding the guardrails instance.
+   */
+  setOnRuleViolation(
+    cb: ((ruleId: string, severity: 'warn' | 'block', detail: string) => void) | undefined,
+  ): void {
+    this.config.onRuleViolation = cb
+  }
+
+  /** Read the current `onRuleViolation` callback, if any. */
+  getOnRuleViolation():
+    | ((ruleId: string, severity: 'warn' | 'block', detail: string) => void)
+    | undefined {
+    return this.config.onRuleViolation
   }
 
   /** Get current guardrail status */

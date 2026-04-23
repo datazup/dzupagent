@@ -27,6 +27,13 @@ export interface RunResult<TOutput = unknown, TState = Record<string, unknown>> 
   durationMs?: number
   totalTokens?: number
   totalCostCents?: number
+  /**
+   * Per-run memory frame snapshot captured during `prepareMessages()`.
+   * Surfaced for observability so callers can inspect exactly which memory
+   * context (e.g. Arrow FrozenSnapshot) was attached to this run. Opaque —
+   * the shape depends on the configured memory provider.
+   */
+  memoryFrame?: unknown
 }
 
 // ─── Error Types ──────────────────────────────────────────────────────────────

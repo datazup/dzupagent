@@ -258,7 +258,7 @@ export function mapResponseWithTools(
     usage: {
       prompt_tokens: usage.totalInputTokens,
       completion_tokens: usage.totalOutputTokens,
-      total_tokens: usage.totalInputTokens + usage.totalOutputTokens,
+      total_tokens: (usage.totalInputTokens ?? 0) + (usage.totalOutputTokens ?? 0),
     },
   }
 }

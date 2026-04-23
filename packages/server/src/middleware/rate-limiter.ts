@@ -3,8 +3,20 @@
  *
  * Limits requests per API key (or per IP if unauthenticated).
  * Uses a sliding-window token bucket algorithm.
+ *
+ * Supports per-tier rate limits driven by `ApiKeyRecord.rateLimitTier`.
+ * When auth middleware has populated `c.get('apiKey')` with a record
+ * containing a `rateLimitTier` field that matches a key in `config.tiers`,
+ * the tier-specific limits are applied instead of the global defaults.
  */
 import type { MiddlewareHandler } from 'hono'
+
+export interface RateLimiterTierConfig {
+  /** Max requests per window for this tier */
+  maxRequests: number
+  /** Window duration in ms for this tier */
+  windowMs: number
+}
 
 export interface RateLimiterConfig {
   /** Max requests per window (default: 100) */
@@ -27,6 +39,13 @@ export interface RateLimiterConfig {
    * Disabled by default because raw forwarded headers are trivially spoofed.
    */
   trustForwardedFor?: boolean
+  /**
+   * Per-tier rate limit overrides. Keys match `ApiKeyRecord.rateLimitTier`
+   * values (e.g. "standard", "premium", "admin"). When the authenticated
+   * request's tier matches a key here, that tier's `maxRequests`/`windowMs`
+   * are used instead of the top-level defaults.
+   */
+  tiers?: Record<string, RateLimiterTierConfig>
 }
 
 interface BucketEntry {
@@ -132,10 +151,31 @@ export class TokenBucketLimiter {
  * Create Hono rate limiting middleware.
  */
 export function rateLimiterMiddleware(config?: Partial<RateLimiterConfig>): MiddlewareHandler {
-  const limiter = new TokenBucketLimiter(config)
+  const globalMaxRequests = config?.maxRequests ?? DEFAULT_CONFIG.maxRequests
+  const globalWindowMs = config?.windowMs ?? DEFAULT_CONFIG.windowMs
   const prefix = config?.headerPrefix ?? DEFAULT_CONFIG.headerPrefix
-  const maxRequests = config?.maxRequests ?? DEFAULT_CONFIG.maxRequests
   const trustForwardedFor = config?.trustForwardedFor ?? false
+  const tiers = config?.tiers
+
+  // One limiter per tier so bucket sizes and refill rates match the tier's
+  // configured window. Unknown tiers (and unauthenticated requests) fall
+  // through to the default limiter.
+  const defaultLimiter = new TokenBucketLimiter({
+    maxRequests: globalMaxRequests,
+    windowMs: globalWindowMs,
+  })
+  const tierLimiters = new Map<string, TokenBucketLimiter>()
+  if (tiers) {
+    for (const [name, cfg] of Object.entries(tiers)) {
+      tierLimiters.set(
+        name,
+        new TokenBucketLimiter({
+          maxRequests: cfg.maxRequests,
+          windowMs: cfg.windowMs,
+        }),
+      )
+    }
+  }
 
   return async (c, next) => {
     // Skip rate limiting for health endpoints
@@ -146,9 +186,19 @@ export function rateLimiterMiddleware(config?: Partial<RateLimiterConfig>): Midd
     const key = config?.keyExtractor?.(c)
       ?? extractDefaultRateLimitKey(c, { trustForwardedFor })
 
-    const result = limiter.consume(key)
+    // Resolve tier from auth-populated API key metadata, if any.
+    const apiKeyMeta = c.get('apiKey' as never) as
+      | { rateLimitTier?: string }
+      | undefined
+    const tier = apiKeyMeta?.rateLimitTier
+    const tierLimiter = tier ? tierLimiters.get(tier) : undefined
+    const effectiveLimiter = tierLimiter ?? defaultLimiter
+    const tierCfg = tier && tiers ? tiers[tier] : undefined
+    const effectiveMax = tierCfg?.maxRequests ?? globalMaxRequests
 
-    c.header(`${prefix}-Limit`, String(maxRequests))
+    const result = effectiveLimiter.consume(key)
+
+    c.header(`${prefix}-Limit`, String(effectiveMax))
     c.header(`${prefix}-Remaining`, String(result.remaining))
 
     if (!result.allowed) {

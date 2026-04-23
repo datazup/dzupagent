@@ -18,7 +18,7 @@
  */
 import type { MailboxStore, MailMessage } from '@dzupagent/agent'
 import {
-  DrizzleDlqStore,
+  type DrizzleDlqStore,
   dlqRowToMessage,
   type DlqRow,
 } from '../persistence/drizzle-dlq-store.js'

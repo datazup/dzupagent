@@ -6,9 +6,14 @@ import {
   type TokenUsage,
   type ModelRegistry,
 } from '@dzupagent/core'
+import { TokenLifecycleManager, createTokenBudget } from '@dzupagent/context'
 import type { RunExecutor, RunExecutorResult } from './run-worker.js'
 import { resolveAgentTools, type CustomToolResolver, type ToolResolverOptions } from './tool-resolver.js'
 import { isStructuredResult } from './utils.js'
+import type { TokenLifecycleLike } from '../routes/run-context.js'
+
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000
+const DEFAULT_RESERVED_OUTPUT_TOKENS = 4_096
 
 function resolveModelName(modelTier: string, registry: ModelRegistry): string {
   try {
@@ -38,6 +43,12 @@ export interface DzupAgentRunExecutorOptions {
   toolResolver?: CustomToolResolver
   /** 'strict' throws if any tools remain unresolved; 'lenient' warns (default). */
   resolvePolicy?: ToolResolverOptions['resolvePolicy']
+  /** Optional registry to register the per-run TokenLifecycleManager into. */
+  tokenLifecycleRegistry?: Map<string, TokenLifecycleLike>
+  /** Model context window size (tokens). Default: 200_000 */
+  contextWindowTokens?: number
+  /** Reserved output tokens. Default: 4_096 */
+  reservedOutputTokens?: number
 }
 
 /**
@@ -50,6 +61,37 @@ export function createDzupAgentRunExecutor(
     const prompt = toPrompt(ctx.input) || 'Proceed with the requested task.'
 
     let toolCleanup: (() => Promise<void>) | undefined
+
+    // --- Token lifecycle manager (per-run) ---
+    const manager = new TokenLifecycleManager({
+      budget: createTokenBudget(
+        options?.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
+        options?.reservedOutputTokens ?? DEFAULT_RESERVED_OUTPUT_TOKENS,
+      ),
+    })
+    options?.tokenLifecycleRegistry?.set(ctx.runId, manager)
+
+    // Track prompt tokens up-front so the lifecycle report is meaningful
+    // even when the agent flow fails and we fall through to the fallback.
+    manager.track('prompt', Math.ceil(prompt.length / 4))
+
+    const persistLifecycleReport = async (): Promise<void> => {
+      try {
+        // RunStore.update is a shallow merge, so we read existing metadata
+        // and spread it to preserve sibling fields (streamMode, chunkCount,
+        // etc.) when attaching the token lifecycle report.
+        const existing = await ctx.runStore.get(ctx.runId)
+        const existingMetadata = (existing?.metadata ?? {}) as Record<string, unknown>
+        await ctx.runStore.update(ctx.runId, {
+          metadata: {
+            ...existingMetadata,
+            tokenLifecycleReport: manager.report,
+          },
+        })
+      } catch {
+        // non-fatal — metadata persistence is best-effort
+      }
+    }
 
     try {
       const resolvedTools = await resolveAgentTools(
@@ -83,6 +125,8 @@ export function createDzupAgentRunExecutor(
       const chunks: string[] = []
       const logs: RunExecutorResult['logs'] = []
       let hitIterationLimit = false
+      let tokenExhausted = false
+      let tokenExhaustedIterations = 0
       let lastFlushAt = 0
       let totalInputTokens = 0
       let totalOutputTokens = 0
@@ -165,7 +209,9 @@ export function createDzupAgentRunExecutor(
             executionRunId: ctx.runId,
           })
           // Tool results become input tokens in the next LLM call
-          totalInputTokens += Math.ceil(resultStr.length / 4)
+          const toolResultTokens = Math.ceil(resultStr.length / 4)
+          totalInputTokens += toolResultTokens
+          manager.track('tool-result', toolResultTokens)
           logs.push({
             level: 'info',
             phase: 'tool_result',
@@ -222,6 +268,31 @@ export function createDzupAgentRunExecutor(
 
         if (event.type === 'done') {
           hitIterationLimit = Boolean(event.data['hitIterationLimit'])
+          const stopReason = typeof event.data['stopReason'] === 'string'
+            ? event.data['stopReason']
+            : undefined
+          if (stopReason === 'token_exhausted') {
+            tokenExhausted = true
+            const iters = event.data['iterations']
+            tokenExhaustedIterations = typeof iters === 'number' ? iters : 0
+            logs.push({
+              level: 'warn',
+              phase: 'agent',
+              message: 'Run halted due to token exhaustion',
+              data: { stopReason, iterations: tokenExhaustedIterations },
+            })
+            // Emit the halted event on ctx.eventBus so downstream consumers
+            // (telemetry, orchestration, OTEL) can react. This mirrors the
+            // pattern used inside run-engine.ts. We do NOT throw — token
+            // exhaustion is a clean halt, not an error.
+            ctx.eventBus.emit({
+              type: 'run:halted:token-exhausted',
+              agentId: ctx.agentId,
+              runId: ctx.runId,
+              iterations: tokenExhaustedIterations,
+              reason: 'token_exhausted',
+            })
+          }
           const doneContent = typeof event.data['content'] === 'string' ? event.data['content'] : ''
           if (doneContent && chunks.length === 0) {
             chunks.push(doneContent)
@@ -243,6 +314,9 @@ export function createDzupAgentRunExecutor(
       totalInputTokens += promptTokens
       totalOutputTokens += Math.ceil(content.length / 4)
 
+      // Track generated output against the lifecycle manager
+      manager.track('output', totalOutputTokens)
+
       const modelTier = effectiveModelTier ?? 'chat'
       const modelName = resolveModelName(modelTier, ctx.modelRegistry)
       const usage: TokenUsage = {
@@ -251,6 +325,9 @@ export function createDzupAgentRunExecutor(
         outputTokens: totalOutputTokens,
       }
       const costCents = calculateCostCents(usage)
+
+      // Persist the final lifecycle report on successful completion.
+      await persistLifecycleReport()
 
       return {
         output: { message: content || '[empty response]' },
@@ -262,12 +339,23 @@ export function createDzupAgentRunExecutor(
           hitIterationLimit,
           activatedTools: resolvedTools.activated,
           unresolvedTools: resolvedTools.unresolved,
+          ...(tokenExhausted
+            ? {
+                halted: true,
+                haltReason: 'token_exhausted',
+                haltIterations: tokenExhaustedIterations,
+              }
+            : {}),
         },
         logs,
       }
     } catch (error) {
       if (options?.fallback) {
         const fallbackResult = await options.fallback(ctx)
+        // Persist lifecycle report even on the fallback path so downstream
+        // consumers (e.g. /api/runs/:id/context) can see the tokens that
+        // were accounted for prior to the failure.
+        await persistLifecycleReport()
         if (isStructuredResult(fallbackResult)) {
           return {
             ...fallbackResult,
@@ -286,9 +374,15 @@ export function createDzupAgentRunExecutor(
           },
         }
       }
+      // Persist before rethrowing so the terminal run still exposes the report.
+      await persistLifecycleReport()
       throw error
     } finally {
       await toolCleanup?.()
+      // Deregister the per-run manager from the registry on both success and
+      // failure — the persisted `tokenLifecycleReport` metadata takes over as
+      // the data source for /api/runs/:id/context after this point.
+      options?.tokenLifecycleRegistry?.delete(ctx.runId)
     }
   }
 }

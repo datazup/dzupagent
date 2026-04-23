@@ -81,6 +81,32 @@ export const forgeRunLogs = pgTable('forge_run_logs', {
 })
 
 // ---------------------------------------------------------------------------
+// Run Artifacts
+// ---------------------------------------------------------------------------
+
+/**
+ * Artifacts produced by a run — files, URLs, or binary blobs surfaced through
+ * the `/runs/:id/artifacts` endpoint. Rows are cascade-deleted when the parent
+ * run is removed.
+ */
+export const runArtifacts = pgTable(
+  'run_artifacts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: uuid('run_id').references(() => forgeRuns.id, { onDelete: 'cascade' }).notNull(),
+    name: varchar('name', { length: 255 }).notNull(),
+    mimeType: varchar('mime_type', { length: 255 }),
+    size: integer('size'),
+    url: text('url'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('run_artifacts_run_id_idx').on(table.runId),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Deployment History
 // ---------------------------------------------------------------------------
 
@@ -344,5 +370,71 @@ export const agentMailDlq = pgTable(
   (table) => [
     index('agent_mail_dlq_next_retry_at_idx').on(table.nextRetryAt),
     index('agent_mail_dlq_to_agent_idx').on(table.toAgent),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Run Traces
+// ---------------------------------------------------------------------------
+
+export const runTraces = pgTable('run_traces', {
+  runId: varchar('run_id', { length: 255 }).primaryKey(),
+  agentId: varchar('agent_id', { length: 255 }).notNull(),
+  startedAt: integer('started_at').notNull(),        // epoch ms
+  completedAt: integer('completed_at'),               // epoch ms, nullable
+  totalSteps: integer('total_steps').notNull().default(0),
+})
+
+export const traceSteps = pgTable(
+  'trace_steps',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    runId: varchar('run_id', { length: 255 }).notNull().references(() => runTraces.runId, { onDelete: 'cascade' }),
+    stepIndex: integer('step_index').notNull(),
+    timestamp: integer('timestamp').notNull(),         // epoch ms
+    type: varchar('type', { length: 30 }).notNull(),  // 'user_input'|'llm_request'|etc.
+    content: jsonb('content').notNull(),
+    metadata: jsonb('metadata'),
+    durationMs: integer('duration_ms'),
+  },
+  (table) => [
+    index('trace_steps_run_id_idx').on(table.runId),
+    index('trace_steps_run_step_idx').on(table.runId, table.stepIndex),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// API Keys
+// ---------------------------------------------------------------------------
+
+/**
+ * API keys used for authenticating clients against the server.
+ *
+ * The raw key is never stored — only the SHA-256 hex digest. The raw value is
+ * returned exactly once at creation time; callers are responsible for storing
+ * it securely. Keys can be scoped to an owner, time-limited via `expiresAt`,
+ * and revoked by setting `revokedAt`.
+ */
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** SHA-256 hex digest of the raw key (64 chars). */
+    keyHash: varchar('key_hash', { length: 64 }).notNull().unique(),
+    /** The user/agent id that owns this key. */
+    ownerId: varchar('owner_id', { length: 255 }).notNull(),
+    /** Human-readable label for the key. */
+    name: varchar('name', { length: 255 }),
+    /** Rate-limit tier, consumed by the rate-limiter middleware. */
+    rateLimitTier: varchar('rate_limit_tier', { length: 50 }).default('standard').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    expiresAt: timestamp('expires_at'),
+    revokedAt: timestamp('revoked_at'),
+    lastUsedAt: timestamp('last_used_at'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  },
+  (table) => [
+    index('api_keys_owner_id_idx').on(table.ownerId),
+    index('api_keys_key_hash_idx').on(table.keyHash),
   ],
 )

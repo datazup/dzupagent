@@ -34,3 +34,42 @@ export { CorpusNotFoundError, SourceNotFoundError } from './corpus-types.js'
 // --- Qdrant wiring ---
 export { createQdrantRagPipeline, ensureTenantCollection } from './qdrant-factory.js'
 export type { QdrantRagConfig } from './qdrant-factory.js'
+
+// --- Folder Context Generator ---
+export { FolderContextGenerator } from './folder-context-generator.js'
+export type {
+  FolderContextConfig,
+  FileScore,
+  ContextSnapshot,
+  ContextTransferLike,
+} from './folder-context-generator.js'
+
+// --- Qdrant Option-A provider (single shared collection + tenantId filter) ---
+export {
+  QdrantVectorStore,
+  QdrantCorpusStore,
+  createQdrantRetriever,
+  loadQdrantClient,
+  __resetQdrantLoaderForTests,
+} from './providers/qdrant.js'
+export type {
+  QdrantVectorStoreConfig,
+  QdrantRetrieverConfig,
+  QdrantRetrieverWiring,
+  QdrantClientLike,
+  QdrantFilter,
+  QdrantFilterClause,
+} from './providers/qdrant.js'
+
+// ---------------------------------------------------------------------------
+// Canonical public-API aliases
+// ---------------------------------------------------------------------------
+//
+// The underlying implementations ship under descriptive legacy names
+// (`HybridRetriever`, `ContextAssembler`, `SmartChunker`). The aliases below
+// expose the documented `@dzupagent/rag` surface — `RagRetriever`,
+// `RagContextAssembler`, `ChunkingPipeline` — while keeping the original
+// exports intact for existing consumers.
+export { HybridRetriever as RagRetriever } from './retriever.js'
+export { ContextAssembler as RagContextAssembler } from './assembler.js'
+export { SmartChunker as ChunkingPipeline } from './chunker.js'

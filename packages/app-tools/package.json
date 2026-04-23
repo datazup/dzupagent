@@ -20,12 +20,20 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
+    "@dzupagent/code-edit-kit": "0.2.0",
     "@dzupagent/core": "0.2.0",
     "@dzupagent/hitl-kit": "0.2.0"
   },
+  "peerDependenciesMeta": {
+    "@dzupagent/code-edit-kit": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@dzupagent/code-edit-kit": "0.2.0",
     "@dzupagent/core": "0.2.0",
     "@dzupagent/hitl-kit": "0.2.0",
+    "@types/node": "^20.11.0",
     "tsup": "^8.5.1",
     "typescript": "^5.8.3",
     "vitest": "^2.1.9"

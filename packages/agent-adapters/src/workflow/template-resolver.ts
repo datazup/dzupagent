@@ -32,14 +32,14 @@ export interface TemplateReference {
 const TEMPLATE_PATTERN = /\{\{([a-zA-Z0-9_.]+)\}\}/g
 
 // ---------------------------------------------------------------------------
-// TemplateResolver
+// WorkflowStepResolver
 // ---------------------------------------------------------------------------
 
 /**
  * Resolves template variables in workflow step prompts.
  * Supports `{{prev}}` for previous step result and `{{state.key.nested}}` for state access.
  */
-export class TemplateResolver {
+export class WorkflowStepResolver {
   /**
    * Resolve all `{{...}}` template variables in a string.
    *

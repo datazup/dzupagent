@@ -17,6 +17,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { ModelRegistry } from '../llm/model-registry.js'
 import type { SkillLoader } from '../skills/skill-loader.js'
 import { extractTokenUsage } from '../llm/invoke.js'
+import { attachStructuredOutputCapabilities } from '../llm/structured-output-capabilities.js'
 import { mergeFileChanges } from './file-merge.js'
 import { REACT_DEFAULTS } from './subagent-types.js'
 import type { SubAgentConfig, SubAgentResult, SubAgentUsage } from './subagent-types.js'
@@ -249,13 +250,16 @@ export class SubAgentSpawner {
   // ---------------------------------------------------------------------------
 
   private resolveModel(config: SubAgentConfig): BaseChatModel {
+    const attachCapabilities = (model: BaseChatModel): BaseChatModel =>
+      attachStructuredOutputCapabilities(model, config.structuredOutputCapabilities)
+
     if (!config.model) {
-      return this.registry.getModel('codegen')
+      return attachCapabilities(this.registry.getModel('codegen'))
     }
     if (typeof config.model === 'string') {
-      return this.registry.getModel(config.model)
+      return attachCapabilities(this.registry.getModel(config.model))
     }
-    return config.model
+    return attachCapabilities(config.model)
   }
 
   /**

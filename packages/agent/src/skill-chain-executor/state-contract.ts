@@ -3,6 +3,20 @@
  * Documentation interfaces only -- not enforced at runtime.
  */
 
+import { z } from 'zod'
+
+const ChainStepInputSchema = z.object({
+  userMessage: z.string(),
+  stepIndex: z.number(),
+  skillId: z.string(),
+  previousOutputs: z.record(z.string(), z.string()),
+})
+
+/** Validate and parse raw input into a typed ChainStepInput. Throws ZodError on failure. */
+export function validateChainStepInput(input: unknown): ChainStepInput {
+  return ChainStepInputSchema.parse(input)
+}
+
 /** Keys the step reads from accumulated state. */
 export interface ChainStepInput {
   userMessage: string

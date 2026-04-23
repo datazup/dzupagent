@@ -10,6 +10,7 @@ import { join, relative, resolve, sep } from 'node:path'
 import type { VirtualFS } from './virtual-fs.js'
 import { parseUnifiedDiff, applyPatchSet } from './patch-engine.js'
 import type { PatchApplyResult, ApplyPatchSetOptions } from './patch-engine.js'
+import { PathSecurityError } from './path-security-error.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,7 +108,7 @@ export class DiskWorkspaceFS implements WorkspaceFS {
   private resolveSafe(path: string): string {
     const resolved = resolve(this.rootDir, path)
     if (!resolved.startsWith(this.rootDir + sep) && resolved !== this.rootDir) {
-      throw new Error(`Path traversal detected: "${path}" escapes root "${this.rootDir}"`)
+      throw new PathSecurityError(path, this.rootDir)
     }
     return resolved
   }
@@ -157,8 +158,9 @@ export class DiskWorkspaceFS implements WorkspaceFS {
     const parsed = parseUnifiedDiff(patch)
     const readFn = (p: string): Promise<string | null> => this.read(p)
     const writeFn = (p: string, c: string): Promise<void> => this.write(p, c)
-    const patchOpts: ApplyPatchSetOptions = {}
-    if (opts?.rollbackOnFailure !== undefined) patchOpts.rollbackOnFailure = opts.rollbackOnFailure
+    const patchOpts: ApplyPatchSetOptions = {
+      rollbackOnFailure: opts?.rollbackOnFailure ?? true,
+    }
     const result = await applyPatchSet(parsed, readFn, writeFn, patchOpts)
     return result
   }

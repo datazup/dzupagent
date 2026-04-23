@@ -92,6 +92,21 @@ export class PostgresRunStore implements RunStore {
     return rows.map(r => this.toRun(r))
   }
 
+  async count(filter?: RunFilter): Promise<number> {
+    const conditions: SQL[] = []
+    if (filter?.agentId) conditions.push(eq(forgeRuns.agentId, filter.agentId))
+    if (filter?.status) conditions.push(eq(forgeRuns.status, filter.status))
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined
+
+    const rows = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(forgeRuns)
+      .where(where)
+
+    return rows[0]?.count ?? 0
+  }
+
   async addLog(runId: string, entry: LogEntry): Promise<void> {
     await this.db.insert(forgeRunLogs).values({
       runId,

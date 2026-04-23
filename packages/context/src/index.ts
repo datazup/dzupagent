@@ -20,6 +20,13 @@ export type { MessageManagerConfig } from './message-manager.js'
 export { autoCompress, FrozenSnapshot } from './auto-compress.js'
 export type { AutoCompressConfig, CompressResult } from './auto-compress.js'
 
+// --- Snapshot Builder ---
+export { buildFrozenSnapshot } from './snapshot-builder.js'
+export type {
+  MemoryServiceLike,
+  BuildFrozenSnapshotOptions,
+} from './snapshot-builder.js'
+
 // --- Extraction Bridge ---
 export { createExtractionHook } from './extraction-bridge.js'
 export type { MessageExtractionFn } from './extraction-bridge.js'

@@ -11,7 +11,10 @@
  *   - `unsubscribe:compile` — stop receiving compile events for an id
  *
  * Server → Client:
- *   - `compile:event`       — forwarded flow-compiler event envelope
+ *   - `compile:event`       — forwarded compile-scoped event envelope.
+ *                             Lifecycle events originate from the compiler;
+ *                             `flow:compile_result` is a server-synthesized
+ *                             terminal payload when a producer publishes it.
  */
 
 /** Client → Server: subscribe to a compile stream. */

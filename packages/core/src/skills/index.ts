@@ -9,4 +9,4 @@ export type { SkillManagerConfig, CreateSkillInput, PatchSkillInput, SkillWriteR
 export { SkillLearner } from './skill-learner.js'
 export type { SkillMetrics, SkillExecutionResult, SkillLearnerConfig } from './skill-learner.js'
 export { createSkillChain, validateChain, SkillChainBuilder } from './skill-chain.js'
-export type { SkillChainStep, SkillChain, ChainValidationResult, RetryPolicy } from './skill-chain.js'
+export type { SkillChainStep, SkillChain, ChainValidationResult, RetryPolicy, ParallelMergeStrategy } from './skill-chain.js'

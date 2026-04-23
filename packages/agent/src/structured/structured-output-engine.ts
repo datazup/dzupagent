@@ -4,12 +4,30 @@
  * Implements a fallback chain: detected strategy -> generic-parse -> fallback-prompt,
  * with retry logic on validation failure.
  */
-import { zodToJsonSchema } from '@dzupagent/core'
+import {
+  attachStructuredOutputErrorContext,
+  executeStructuredParseLoop,
+  buildStructuredOutputCorrectionPrompt,
+  buildStructuredOutputExhaustedError,
+  detectStructuredOutputStrategy,
+  isStructuredOutputExhaustedErrorMessage,
+  prepareStructuredOutputSchemaContract,
+  resolveStructuredOutputCapabilities,
+  resolveStructuredOutputSchemaProvider,
+  unwrapStructuredEnvelope,
+} from '@dzupagent/core'
+import type { StructuredOutputFailureCategory } from '@dzupagent/core'
 import type {
+  StructuredOutputCapabilities,
   StructuredOutputConfig,
   StructuredOutputResult,
   StructuredOutputStrategy,
 } from './structured-output-types.js'
+
+export {
+  detectStructuredOutputStrategy as detectStrategy,
+  resolveStructuredOutputCapabilities,
+}
 
 /** Minimal LLM interface required by the structured output engine. */
 export interface StructuredLLM {
@@ -21,21 +39,7 @@ export interface StructuredLLMWithMeta extends StructuredLLM {
   model?: string
   modelName?: string
   name?: string
-}
-
-/**
- * Detect the best structured output strategy based on the model name.
- */
-export function detectStrategy(llm: StructuredLLMWithMeta): StructuredOutputStrategy {
-  const name = (llm.model ?? llm.modelName ?? llm.name ?? '').toLowerCase()
-
-  if (name.includes('claude') || name.includes('anthropic')) {
-    return 'anthropic-tool-use'
-  }
-  if (name.includes('gpt') || name.includes('openai')) {
-    return 'openai-json-schema'
-  }
-  return 'generic-parse'
+  structuredOutputCapabilities?: StructuredOutputCapabilities
 }
 
 /**
@@ -76,18 +80,20 @@ function extractJson(raw: string): string {
 /**
  * Build a schema description string from a Zod schema for the fallback-prompt strategy.
  */
-function buildSchemaPrompt<T>(config: StructuredOutputConfig<T>): string {
-  const jsonSchema = zodToJsonSchema(config.schema)
-  const name = config.schemaName ?? 'output'
-  const desc = config.schemaDescription ?? `Structured ${name} object`
-
+function buildSchemaPrompt(
+  schemaName: string,
+  schemaDescription: string | undefined,
+  descriptor: ReturnType<typeof prepareStructuredOutputSchemaContract>['responseSchemaDescriptor'],
+): string {
+  const desc = schemaDescription ?? `Structured ${schemaName} object`
   return [
     `You must respond with a valid JSON object matching this schema.`,
-    `Schema name: ${name}`,
+    `Schema name: ${schemaName}`,
     `Description: ${desc}`,
+    `Schema hash: ${descriptor.schemaHash}`,
     `JSON Schema:`,
     '```json',
-    JSON.stringify(jsonSchema, null, 2),
+    JSON.stringify(descriptor.jsonSchema, null, 2),
     '```',
     `Respond ONLY with the JSON object, no other text.`,
   ].join('\n')
@@ -98,14 +104,17 @@ function buildSchemaPrompt<T>(config: StructuredOutputConfig<T>): string {
  */
 function tryParse<T>(
   raw: string,
-  config: StructuredOutputConfig<T>,
+  contract: ReturnType<typeof prepareStructuredOutputSchemaContract>,
 ): { success: true; data: T } | { success: false; error: string } {
   try {
     const jsonStr = extractJson(raw)
     const parsed: unknown = JSON.parse(jsonStr)
-    const result = config.schema.safeParse(parsed)
+    const result = contract.responseSchema.safeParse(parsed)
     if (result.success) {
-      return { success: true, data: result.data as T }
+      return {
+        success: true,
+        data: unwrapStructuredEnvelope<T>(result.data, contract.requiresEnvelope),
+      }
     }
     // Format validation errors
     const issues = 'error' in result && result.error && 'issues' in result.error
@@ -130,56 +139,83 @@ async function tryStrategy<T>(
   config: StructuredOutputConfig<T>,
   strategy: StructuredOutputStrategy,
   maxRetries: number,
-): Promise<StructuredOutputResult<T> | null> {
-  let retries = 0
-  let currentMessages = [...messages]
+  contract: ReturnType<typeof prepareStructuredOutputSchemaContract>,
+): Promise<
+  | { kind: 'success'; result: StructuredOutputResult<T> }
+  | { kind: 'continue' }
+  | { kind: 'error'; error: Error; failureCategory: StructuredOutputFailureCategory }
+> {
+  const initialMessages = [...messages]
+
+  if (contract.requiresEnvelope) {
+    initialMessages.push({
+      role: 'system',
+      content: 'Return the final JSON payload inside the top-level "result" property.',
+    })
+  }
 
   // For fallback-prompt, inject schema instructions
   if (strategy === 'fallback-prompt') {
-    const schemaPrompt = buildSchemaPrompt(config)
-    currentMessages = [
-      ...messages,
+    const schemaPrompt = buildSchemaPrompt(
+      contract.schemaName,
+      config.schemaDescription,
+      contract.responseSchemaDescriptor,
+    )
+    initialMessages.push(
       { role: 'user', content: schemaPrompt },
-    ]
+    )
   }
 
-  while (retries <= maxRetries) {
-    try {
-      const response = await llm.invoke(currentMessages)
-      const raw = typeof response.content === 'string'
-        ? response.content
-        : JSON.stringify(response.content)
-
-      const parsed = tryParse(raw, config)
-      if (parsed.success) {
+  try {
+    const result = await executeStructuredParseLoop({
+      initialState: initialMessages,
+      maxRetries,
+      invoke: async (currentMessages) => {
+        const response = await llm.invoke(currentMessages)
         return {
-          data: parsed.data,
-          strategy,
-          retries,
-          raw,
+          raw: typeof response.content === 'string'
+            ? response.content
+            : JSON.stringify(response.content),
+          meta: null,
         }
-      }
+      },
+      parse: (raw) => tryParse(raw, contract),
+      onRetryState: (currentMessages, { raw, error }) => [
+        ...currentMessages,
+        { role: 'assistant', content: raw },
+        {
+          role: 'user',
+          content: buildStructuredOutputCorrectionPrompt({
+            schemaName: contract.requestSchemaDescriptor.schemaName,
+            schemaHash: contract.requestSchemaDescriptor.schemaHash,
+            description: 'Respond ONLY with valid JSON.',
+          }, error),
+        },
+      ],
+    })
 
-      // Validation failed — send error back to LLM for retry
-      if (retries < maxRetries) {
-        currentMessages = [
-          ...currentMessages,
-          { role: 'assistant', content: raw },
-          {
-            role: 'user',
-            content: `Your response did not match the required schema.\n${parsed.error}\n\nPlease fix the output and try again. Respond ONLY with valid JSON.`,
-          },
-        ]
-        retries++
-      } else {
-        return null
-      }
-    } catch {
-      return null
+    if (!result.success) {
+      return { kind: 'continue' }
+    }
+
+    return {
+      kind: 'success',
+      result: {
+        data: result.data as T,
+        strategy,
+        retries: result.retries,
+        raw: result.raw,
+        schemaName: contract.requestSchemaDescriptor.schemaName,
+        schemaHash: contract.requestSchemaDescriptor.schemaHash,
+      },
+    }
+  } catch (err) {
+    return {
+      kind: 'error',
+      error: err instanceof Error ? err : new Error(String(err)),
+      failureCategory: 'provider_execution_failed',
     }
   }
-
-  return null
 }
 
 /**
@@ -196,26 +232,96 @@ export async function generateStructured<T>(
   config: StructuredOutputConfig<T>,
 ): Promise<StructuredOutputResult<T>> {
   const maxRetries = config.maxRetries ?? 2
-  const primaryStrategy = config.strategy ?? detectStrategy(llm as StructuredLLMWithMeta)
+  const capabilities = resolveStructuredOutputCapabilities(
+    llm as StructuredLLMWithMeta,
+    config,
+  )
+  const primaryStrategy = config.strategy ?? capabilities.preferredStrategy
+  const schemaProvider = resolveStructuredOutputSchemaProvider(config.schemaProvider, capabilities)
+  const schemaContract = prepareStructuredOutputSchemaContract(config.schema, {
+    agentId: config.agentId ?? null,
+    intent: config.intent ?? null,
+    schemaName: config.schemaName,
+    schemaProvider,
+  })
+  const schemaName = schemaContract.schemaName
+  let lastProviderFailure: Error | null = null
+  let sawParseExhaustion = false
 
-  // Build fallback chain (skip duplicates)
-  const strategies: StructuredOutputStrategy[] = [primaryStrategy]
-  if (primaryStrategy !== 'generic-parse') {
-    strategies.push('generic-parse')
-  }
-  if (primaryStrategy !== 'fallback-prompt') {
-    strategies.push('fallback-prompt')
-  }
-
-  for (const strategy of strategies) {
-    const result = await tryStrategy(llm, messages, config, strategy, maxRetries)
-    if (result) {
-      return result
+  // When callers explicitly select a strategy, respect that exact execution mode.
+  // Only auto-detected calls build the multi-strategy fallback chain.
+  const strategies: StructuredOutputStrategy[] = config.strategy
+    ? [config.strategy]
+    : [primaryStrategy]
+  if (!config.strategy) {
+    if (capabilities.fallbackStrategies && capabilities.fallbackStrategies.length > 0) {
+      for (const strategy of capabilities.fallbackStrategies) {
+        if (!strategies.includes(strategy)) {
+          strategies.push(strategy)
+        }
+      }
+    } else {
+      if (primaryStrategy !== 'generic-parse') {
+        strategies.push('generic-parse')
+      }
+      if (primaryStrategy !== 'fallback-prompt') {
+        strategies.push('fallback-prompt')
+      }
     }
   }
 
-  throw new Error(
-    `Structured output extraction failed after trying strategies: ${strategies.join(', ')}. ` +
-    `Max retries per strategy: ${maxRetries}.`,
-  )
+  for (const strategy of strategies) {
+    const attempt = await tryStrategy(llm, messages, {
+      ...config,
+      schemaName,
+      schemaProvider,
+    }, strategy, maxRetries, schemaContract)
+    if (attempt.kind === 'success') {
+      return attempt.result
+    }
+    if (attempt.kind === 'error') {
+      lastProviderFailure = attempt.error
+      continue
+    }
+    sawParseExhaustion = true
+  }
+
+  const modelName = 'model' in llm && typeof llm.model === 'string'
+    ? llm.model
+    : 'modelName' in llm && typeof llm.modelName === 'string'
+      ? llm.modelName
+      : 'name' in llm && typeof llm.name === 'string'
+        ? llm.name
+        : 'unknown'
+  const terminalError = sawParseExhaustion || !lastProviderFailure
+    ? new Error(buildStructuredOutputExhaustedError({
+      schemaName: schemaContract.requestSchemaDescriptor.schemaName,
+      schemaHash: schemaContract.requestSchemaDescriptor.schemaHash,
+    }, maxRetries + 1))
+    : lastProviderFailure
+  const failureCategory: StructuredOutputFailureCategory =
+    sawParseExhaustion || !lastProviderFailure
+      ? 'parse_exhausted'
+      : 'provider_execution_failed'
+  const enriched = attachStructuredOutputErrorContext(terminalError, {
+    agentId: config.agentId ?? null,
+    intent: config.intent ?? null,
+    provider: schemaContract.requestSchemaDescriptor.provider,
+    model: modelName,
+    failureCategory: isStructuredOutputExhaustedErrorMessage(terminalError.message, {
+      schemaName: schemaContract.requestSchemaDescriptor.schemaName,
+      schemaHash: schemaContract.requestSchemaDescriptor.schemaHash,
+    })
+      ? 'parse_exhausted'
+      : failureCategory,
+    requiresEnvelope: schemaContract.requiresEnvelope,
+    messageCount: messages.length + (schemaContract.requiresEnvelope ? 1 : 0),
+    requestSchema: schemaContract.requestSchemaDescriptor,
+    responseSchema: schemaContract.responseSchemaDescriptor,
+  })
+  Object.assign(enriched, {
+    structuredOutputStrategies: strategies,
+    structuredOutputMaxRetriesPerStrategy: maxRetries,
+  })
+  throw enriched
 }

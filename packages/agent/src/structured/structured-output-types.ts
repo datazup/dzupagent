@@ -5,6 +5,10 @@
  * from LLM responses, with automatic fallback chains and retry logic.
  */
 import type { z } from 'zod'
+import type {
+  StructuredOutputModelCapabilities,
+  StructuredOutputStrategy,
+} from '@dzupagent/core'
 
 /**
  * Strategy for extracting structured output from an LLM.
@@ -14,11 +18,14 @@ import type { z } from 'zod'
  * - `generic-parse`: Extracts JSON from the LLM text response and validates with Zod.
  * - `fallback-prompt`: Sends the schema description as a prompt, asking the LLM to output JSON.
  */
-export type StructuredOutputStrategy =
-  | 'anthropic-tool-use'
-  | 'openai-json-schema'
-  | 'generic-parse'
-  | 'fallback-prompt'
+export type { StructuredOutputStrategy }
+
+/**
+ * Explicit structured-output execution capabilities for a model or call site.
+ *
+ * Use this to avoid inferring behavior purely from model-name heuristics.
+ */
+export type StructuredOutputCapabilities = StructuredOutputModelCapabilities
 
 /**
  * Configuration for a structured output extraction call.
@@ -28,12 +35,20 @@ export interface StructuredOutputConfig<T = unknown> {
   schema: z.ZodType<T>
   /** Strategy to use. Auto-detected from model name if not specified. */
   strategy?: StructuredOutputStrategy
+  /** Explicit provider capability descriptor. Preferred over model-name heuristics. */
+  capabilities?: StructuredOutputCapabilities
   /** Maximum retries on validation failure (default: 2). */
   maxRetries?: number
   /** Human-readable name for the schema (used in prompts/tool definitions). */
   schemaName?: string
+  /** Optional agent id used to derive a stable default schema name. */
+  agentId?: string
+  /** Optional intent used to derive a stable default schema name. */
+  intent?: string
   /** Description of the schema (used in fallback-prompt strategy). */
   schemaDescription?: string
+  /** Provider-oriented schema normalization target. */
+  schemaProvider?: 'generic' | 'openai'
 }
 
 /**
@@ -48,4 +63,8 @@ export interface StructuredOutputResult<T> {
   retries: number
   /** Raw LLM output before parsing. */
   raw: string
+  /** Stable schema name used for this extraction run. */
+  schemaName: string
+  /** Stable schema hash derived from the normalized JSON Schema. */
+  schemaHash: string
 }

@@ -7,8 +7,22 @@
  * falls back to alternative providers if retries are exhausted.
  */
 
-import { ForgeError } from '@dzupagent/core'
-import type { DzupEventBus } from '@dzupagent/core'
+import { z } from 'zod'
+import {
+  ForgeError,
+  executeStructuredParseLoop,
+  executeStructuredParseStreamLoop,
+  buildStructuredOutputCorrectionPrompt,
+  buildStructuredOutputExhaustedError,
+  prepareStructuredOutputSchemaContract,
+  unwrapStructuredEnvelope,
+} from '@dzupagent/core'
+import type {
+  DzupEventBus,
+  StructuredOutputErrorSchemaRef,
+  StructuredOutputFailureCategory,
+  StructuredOutputSchemaContract,
+} from '@dzupagent/core'
 
 import type {
   AdapterProviderId,
@@ -27,6 +41,17 @@ import type { AdapterRegistry } from '../registry/adapter-registry.js'
 export interface OutputSchema<T = unknown> {
   /** Schema name for error messages */
   name: string
+  /** Optional stable schema hash for diagnostics and bug reports */
+  schemaHash?: string
+  /** Optional provider-facing JSON Schema for adapters that support native structured output. */
+  outputSchema?: Record<string, unknown>
+  /** Optional structured-output diagnostics aligned with the main throwing runtimes. */
+  structuredOutput?: {
+    requiresEnvelope: boolean
+    requestSchema: StructuredOutputErrorSchemaRef
+    responseSchema?: StructuredOutputErrorSchemaRef
+    failureCategory?: StructuredOutputFailureCategory
+  }
   /** Validate and parse raw output. Returns parsed value or throws. */
   parse(raw: string): T
   /** Get a description of the expected format (for prompt injection) */
@@ -51,8 +76,17 @@ export interface ParseResult<T> {
   value?: T | undefined
   raw: string
   providerId: AdapterProviderId
+  schemaName: string
+  schemaHash?: string | undefined
   parseAttempts: number
   error?: string | undefined
+  failureCategory?: StructuredOutputFailureCategory | undefined
+  structuredOutput?: {
+    requiresEnvelope: boolean
+    requestSchema: StructuredOutputErrorSchemaRef
+    responseSchema?: StructuredOutputErrorSchemaRef
+    failureCategory?: StructuredOutputFailureCategory
+  } | undefined
 }
 
 export interface StructuredRunResult<T> {
@@ -73,6 +107,70 @@ export interface StructuredRunResult<T> {
 function extractJsonFromMarkdown(text: string): string | null {
   const match = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
   return match?.[1]?.trim() ?? null
+}
+
+function toSchemaRef(descriptor: StructuredOutputSchemaContract['requestSchemaDescriptor']): StructuredOutputErrorSchemaRef {
+  return {
+    name: descriptor.schemaName,
+    hash: descriptor.schemaHash,
+    preview: descriptor.schemaPreview,
+    summary: descriptor.summary,
+  }
+}
+
+function createZodStructuredValidator<T>(
+  contract: StructuredOutputSchemaContract,
+): (data: unknown) => T {
+  return (data: unknown) => {
+    const parsed = contract.responseSchema.parse(data)
+    return unwrapStructuredEnvelope<T>(parsed, contract.requiresEnvelope)
+  }
+}
+
+function withFailureCategory(
+  structuredOutput: OutputSchema['structuredOutput'] | undefined,
+  failureCategory: StructuredOutputFailureCategory | undefined,
+): ParseResult<unknown>['structuredOutput'] | undefined {
+  if (structuredOutput === undefined) {
+    return undefined
+  }
+  if (failureCategory === undefined) {
+    return structuredOutput
+  }
+
+  return {
+    ...structuredOutput,
+    failureCategory,
+  }
+}
+
+function buildFailureResult<T>(
+  input: {
+    providerId: AdapterProviderId
+    schema: OutputSchema<T>
+    parseAttempts: number
+    error: string
+    failureCategory: StructuredOutputFailureCategory
+  },
+): ParseResult<T> {
+  return {
+    success: false,
+    raw: '',
+    providerId: input.providerId,
+    schemaName: input.schema.name,
+    ...(input.schema.schemaHash === undefined ? {} : { schemaHash: input.schema.schemaHash }),
+    parseAttempts: input.parseAttempts,
+    error: input.error,
+    failureCategory: input.failureCategory,
+    ...(input.schema.structuredOutput === undefined
+      ? {}
+      : {
+          structuredOutput: withFailureCategory(
+            input.schema.structuredOutput,
+            input.failureCategory,
+          ),
+        }),
+  }
 }
 
 /**
@@ -98,6 +196,12 @@ async function collectExecution(
   return { completed, events }
 }
 
+class MissingCompletedStreamResultError extends Error {
+  constructor() {
+    super('Structured output streamed execution completed without adapter:completed result')
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Built-in schemas
 // ---------------------------------------------------------------------------
@@ -108,6 +212,16 @@ async function collectExecution(
  */
 export class JsonOutputSchema<T> implements OutputSchema<T> {
   readonly name: string
+  readonly schemaHash: string | undefined
+  readonly outputSchema: Record<string, unknown> | undefined
+  readonly structuredOutput:
+    | {
+        requiresEnvelope: boolean
+        requestSchema: StructuredOutputErrorSchemaRef
+        responseSchema: StructuredOutputErrorSchemaRef
+        failureCategory?: StructuredOutputFailureCategory
+      }
+    | undefined
   private readonly validator: (data: unknown) => T
   private readonly schemaDescription: string
 
@@ -115,10 +229,62 @@ export class JsonOutputSchema<T> implements OutputSchema<T> {
     name: string,
     validator: (data: unknown) => T,
     schemaDescription?: string,
+    metadata?: {
+      schemaHash?: string
+      outputSchema?: Record<string, unknown>
+      structuredOutput?: {
+        requiresEnvelope: boolean
+        requestSchema: StructuredOutputErrorSchemaRef
+        responseSchema: StructuredOutputErrorSchemaRef
+        failureCategory?: StructuredOutputFailureCategory
+      }
+    },
   ) {
     this.name = name
     this.validator = validator
     this.schemaDescription = schemaDescription ?? 'valid JSON matching the expected schema'
+    this.schemaHash = metadata?.schemaHash
+    this.outputSchema = metadata?.outputSchema
+    this.structuredOutput = metadata?.structuredOutput
+  }
+
+  static fromZod<T>(
+    schema: z.ZodType<T>,
+    options?: {
+      schemaName?: string
+      agentId?: string
+      intent?: string
+      provider?: 'generic' | 'openai'
+      schemaDescription?: string
+    },
+  ): JsonOutputSchema<T> {
+    const contract = prepareStructuredOutputSchemaContract(schema, {
+      schemaName: options?.schemaName,
+      agentId: options?.agentId ?? null,
+      intent: options?.intent ?? null,
+      schemaProvider: options?.provider ?? 'generic',
+    })
+    const schemaDescription = options?.schemaDescription
+      ?? [
+        `valid JSON matching schema "${contract.requestSchemaDescriptor.schemaName}"`,
+        `(schema hash: ${contract.requestSchemaDescriptor.schemaHash})`,
+        `JSON Schema: ${JSON.stringify(contract.responseSchemaDescriptor.jsonSchema)}`,
+      ].join(' ')
+
+    return new JsonOutputSchema(
+      contract.requestSchemaDescriptor.schemaName,
+      createZodStructuredValidator(contract),
+      schemaDescription,
+      {
+        schemaHash: contract.requestSchemaDescriptor.schemaHash,
+        outputSchema: contract.requestSchemaDescriptor.jsonSchema,
+        structuredOutput: {
+          requiresEnvelope: contract.requiresEnvelope,
+          requestSchema: toSchemaRef(contract.requestSchemaDescriptor),
+          responseSchema: toSchemaRef(contract.responseSchemaDescriptor),
+        },
+      },
+    )
   }
 
   parse(raw: string): T {
@@ -215,8 +381,7 @@ export class StructuredOutputAdapter {
    * 2. Execute via the registry's fallback chain.
    * 3. Parse the result against the schema.
    * 4. On parse failure, retry with a correction prompt (up to maxRetries).
-   * 5. If all retries exhausted, try a fresh execution (triggers different provider).
-   * 6. Return a StructuredRunResult with parsed value, timing, and collected events.
+   * 5. Return a StructuredRunResult with parsed value, timing, and collected events.
    */
   async execute<T>(
     input: AgentInput,
@@ -225,7 +390,6 @@ export class StructuredOutputAdapter {
   ): Promise<StructuredRunResult<T>> {
     const startMs = Date.now()
     const collectedEvents: AgentEvent[] = []
-    let fallbackUsed = false
 
     const effectiveTask: TaskDescriptor = task ?? {
       prompt: input.prompt,
@@ -233,118 +397,138 @@ export class StructuredOutputAdapter {
     }
 
     // Build the initial prompt with optional format instructions
+    const baseInput = this.buildStructuredInput(input, schema)
     const basePrompt = this.injectFormatInstructions
-      ? `${input.prompt}\n\nIMPORTANT: Respond with ${schema.describe()}`
-      : input.prompt
+      ? `${baseInput.prompt}\n\nIMPORTANT: Respond with ${schema.describe()}`
+      : baseInput.prompt
 
     let lastProviderId: AdapterProviderId | undefined
     let totalParseAttempts = 0
     let lastParseError = ''
+    const attemptedProviders = new Set<AdapterProviderId>()
 
-    // Outer loop: up to 2 full execution cycles (initial + fallback rotation)
-    for (let providerAttempt = 0; providerAttempt < 2; providerAttempt++) {
-      if (providerAttempt > 0) {
-        fallbackUsed = true
-      }
-
-      // Inner loop: initial execution + retries with correction prompts
-      for (let retry = 0; retry <= this.maxRetries; retry++) {
-        const prompt = retry === 0
-          ? basePrompt
-          : `Your previous output was invalid. Error: ${lastParseError}. Please try again with the correct format: ${schema.describe()}`
-
-        const execInput: AgentInput = { ...input, prompt }
-
-        let completed: AgentCompletedEvent | undefined
-        try {
-          const result = await collectExecution(this.registry, execInput, effectiveTask)
-          completed = result.completed
+    try {
+      const parsed = await executeStructuredParseLoop({
+        initialState: { ...baseInput, prompt: basePrompt },
+        maxRetries: this.maxRetries,
+        invoke: async (currentInput) => {
+          const result = await collectExecution(this.registry, currentInput, effectiveTask)
           collectedEvents.push(...result.events)
 
-          // Track the provider that responded
           for (const event of result.events) {
-            if (event.type === 'adapter:started' || event.type === 'adapter:completed') {
+            if (
+              event.type === 'adapter:started'
+              || event.type === 'adapter:completed'
+              || event.type === 'adapter:failed'
+            ) {
+              attemptedProviders.add(event.providerId)
               lastProviderId = event.providerId
             }
           }
-        } catch (err) {
-          // All adapters exhausted during this execution
-          const errorMsg = err instanceof Error ? err.message : String(err)
-          this.emitEvent({
-            type: 'structured_output:all_failed',
-            schemaName: schema.name,
-            error: errorMsg,
-          })
+
+          const completed = result.completed
+          if (!completed) {
+            throw new Error('Structured output adapter execution completed without adapter:completed result')
+          }
+
           return {
-            result: {
-              success: false,
-              raw: '',
+            raw: completed.result,
+            meta: completed,
+          }
+        },
+        parse: (raw) => {
+          totalParseAttempts++
+          try {
+            return {
+              success: true as const,
+              data: schema.parse(raw),
+            }
+          } catch (err) {
+            lastParseError = err instanceof Error ? err.message : String(err)
+            this.emitEvent({
+              type: 'structured_output:parse_failed',
+              schemaName: schema.name,
+              ...(schema.schemaHash === undefined ? {} : { schemaHash: schema.schemaHash }),
               providerId: lastProviderId ?? ('unknown' as AdapterProviderId),
-              parseAttempts: totalParseAttempts,
-              error: errorMsg,
-            },
-            durationMs: Date.now() - startMs,
-            fallbackUsed,
-            events: collectedEvents,
+              attempt: totalParseAttempts,
+              error: lastParseError,
+            })
+            return { success: false as const, error: lastParseError }
           }
-        }
-
-        if (!completed) {
-          // No completed event — unusual, skip to next attempt
-          continue
-        }
-
-        lastProviderId = completed.providerId
-        totalParseAttempts++
-
-        try {
-          const value = schema.parse(completed.result)
-          this.emitEvent({
-            type: 'structured_output:parsed',
+        },
+        onRetryState: (_currentInput, { error }) => ({
+          ...baseInput,
+          prompt: buildStructuredOutputCorrectionPrompt({
             schemaName: schema.name,
-            providerId: lastProviderId,
-            attempts: totalParseAttempts,
-          })
-          return {
-            result: {
-              success: true,
-              value,
-              raw: completed.result,
-              providerId: lastProviderId,
-              parseAttempts: totalParseAttempts,
-            },
-            durationMs: Date.now() - startMs,
-            fallbackUsed,
-            events: collectedEvents,
-          }
-        } catch (parseErr) {
-          lastParseError = parseErr instanceof Error ? parseErr.message : String(parseErr)
-          this.emitEvent({
-            type: 'structured_output:parse_failed',
+            schemaHash: schema.schemaHash,
+            description: schema.describe(),
+          }, error),
+        }),
+      })
+
+      if (parsed.success) {
+        const providerId = parsed.meta.providerId
+        this.emitEvent({
+          type: 'structured_output:parsed',
+          schemaName: schema.name,
+          ...(schema.schemaHash === undefined ? {} : { schemaHash: schema.schemaHash }),
+          providerId,
+          attempts: totalParseAttempts,
+        })
+        return {
+          result: {
+            success: true,
+            value: parsed.data,
+            raw: parsed.raw,
+            providerId,
             schemaName: schema.name,
-            providerId: lastProviderId,
-            attempt: totalParseAttempts,
-            error: lastParseError,
-          })
-          // Continue to next retry iteration
+            ...(schema.schemaHash === undefined ? {} : { schemaHash: schema.schemaHash }),
+            parseAttempts: totalParseAttempts,
+            ...(schema.structuredOutput === undefined
+              ? {}
+              : { structuredOutput: withFailureCategory(schema.structuredOutput, undefined) }),
+          },
+          durationMs: Date.now() - startMs,
+          fallbackUsed: attemptedProviders.size > 1,
+          events: collectedEvents,
         }
       }
-      // All retries exhausted for this cycle — outer loop tries again with
-      // a fresh execution (the registry may route to a different provider)
-    }
 
-    // All providers and retries exhausted
-    return {
-      result: {
-        success: false,
-        raw: '',
-        providerId: lastProviderId ?? ('unknown' as AdapterProviderId),
-        parseAttempts: totalParseAttempts,
-        error: `Failed to parse output matching schema "${schema.name}" after ${totalParseAttempts} attempts`,
-      },
-      durationMs: Date.now() - startMs,
-      fallbackUsed,
-      events: collectedEvents,
+      return {
+        result: buildFailureResult({
+          providerId: lastProviderId ?? ('unknown' as AdapterProviderId),
+          schema,
+          parseAttempts: totalParseAttempts,
+          error: buildStructuredOutputExhaustedError({
+            schemaName: schema.name,
+            schemaHash: schema.schemaHash,
+          }, totalParseAttempts),
+          failureCategory: 'parse_exhausted',
+        }),
+        durationMs: Date.now() - startMs,
+        fallbackUsed: attemptedProviders.size > 1,
+        events: collectedEvents,
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      this.emitEvent({
+        type: 'structured_output:all_failed',
+        schemaName: schema.name,
+        ...(schema.schemaHash === undefined ? {} : { schemaHash: schema.schemaHash }),
+        error: errorMsg,
+      })
+      return {
+        result: buildFailureResult({
+          providerId: lastProviderId ?? ('unknown' as AdapterProviderId),
+          schema,
+          parseAttempts: totalParseAttempts,
+          error: errorMsg,
+          failureCategory: 'provider_execution_failed',
+        }),
+        durationMs: Date.now() - startMs,
+        fallbackUsed: attemptedProviders.size > 1,
+        events: collectedEvents,
+      }
     }
   }
 
@@ -365,68 +549,146 @@ export class StructuredOutputAdapter {
       tags: ['structured-output'],
     }
 
+    const baseInput = this.buildStructuredInput(input, schema)
     const basePrompt = this.injectFormatInstructions
-      ? `${input.prompt}\n\nIMPORTANT: Respond with ${schema.describe()}`
-      : input.prompt
+      ? `${baseInput.prompt}\n\nIMPORTANT: Respond with ${schema.describe()}`
+      : baseInput.prompt
 
-    let currentInput: AgentInput = { ...input, prompt: basePrompt }
-    let completedEvent: AgentCompletedEvent | undefined
+    let currentInput: AgentInput = { ...baseInput, prompt: basePrompt }
+    let lastCompletedProviderId: AdapterProviderId | undefined
     let parseAttempts = 0
-
-    for (let retry = 0; retry <= this.maxRetries; retry++) {
-      completedEvent = undefined
-
-      const gen = this.registry.executeWithFallback(currentInput, effectiveTask)
-      for await (const event of gen) {
-        yield event
-        if (event.type === 'adapter:completed') {
-          completedEvent = event
+    const registry = this.registry
+    let parsedResult:
+      | {
+          success: true
+          data: T
+          raw: string
+          retries: number
+          meta: AgentCompletedEvent
         }
-      }
-
-      if (!completedEvent) {
-        // No completed event — adapter chain was exhausted (failures already yielded)
-        return
-      }
-
-      parseAttempts++
-      try {
-        const value = schema.parse(completedEvent.result)
-        // Yield a synthetic completed event with the validated result
-        yield {
-          type: 'adapter:completed' as const,
-          providerId: completedEvent.providerId,
-          sessionId: completedEvent.sessionId,
-          result: JSON.stringify(value),
-          usage: completedEvent.usage,
-          durationMs: completedEvent.durationMs,
-          timestamp: Date.now(),
+      | {
+          success: false
+          retries: number
+          meta?: AgentCompletedEvent
         }
-        return
-      } catch (parseErr) {
-        const parseError = parseErr instanceof Error ? parseErr.message : String(parseErr)
-        this.emitEvent({
-          type: 'structured_output:parse_failed',
-          schemaName: schema.name,
-          providerId: completedEvent.providerId,
-          attempt: parseAttempts,
-          error: parseError,
-        })
+      | null = null
 
-        if (retry < this.maxRetries) {
-          currentInput = {
-            ...input,
-            prompt: `Your previous output was invalid. Error: ${parseError}. Please try again with the correct format: ${schema.describe()}`,
+    try {
+      for await (const item of executeStructuredParseStreamLoop({
+        initialState: currentInput,
+        maxRetries: this.maxRetries,
+        invoke: async function* (
+          attemptInput: AgentInput,
+        ): AsyncGenerator<AgentEvent, { raw: string; meta: AgentCompletedEvent }, undefined> {
+          let completedEvent: AgentCompletedEvent | undefined
+
+          const gen = registry.executeWithFallback(attemptInput, effectiveTask)
+          for await (const event of gen) {
+            yield event
+            if (event.type === 'adapter:completed') {
+              completedEvent = event
+              lastCompletedProviderId = event.providerId
+            }
           }
+
+          if (!completedEvent) {
+            throw new MissingCompletedStreamResultError()
+          }
+
+          return {
+            raw: completedEvent.result,
+            meta: completedEvent,
+          }
+        },
+        parse: (raw) => {
+          parseAttempts++
+          try {
+            return {
+              success: true as const,
+              data: schema.parse(raw),
+            }
+          } catch (parseErr) {
+            const parseError = parseErr instanceof Error ? parseErr.message : String(parseErr)
+            this.emitEvent({
+              type: 'structured_output:parse_failed',
+              schemaName: schema.name,
+              ...(schema.schemaHash === undefined ? {} : { schemaHash: schema.schemaHash }),
+              providerId: lastCompletedProviderId ?? ('unknown' as AdapterProviderId),
+              attempt: parseAttempts,
+              error: parseError,
+            })
+            return { success: false as const, error: parseError }
+          }
+        },
+        onRetryState: (_currentInput, { error }) => {
+          currentInput = {
+            ...baseInput,
+            prompt: buildStructuredOutputCorrectionPrompt({
+              schemaName: schema.name,
+              schemaHash: schema.schemaHash,
+              description: schema.describe(),
+            }, error),
+          }
+          return currentInput
+        },
+      })) {
+        if (item.type === 'event') {
+          yield item.event
+          continue
         }
+
+        parsedResult = item.result.success
+          ? {
+              success: true,
+              data: item.result.data,
+              raw: item.result.raw,
+              retries: item.result.retries,
+              meta: item.result.meta,
+            }
+          : {
+              success: false,
+              retries: item.result.retries,
+              ...(item.result.meta === undefined ? {} : { meta: item.result.meta }),
+            }
       }
+    } catch (err) {
+      if (err instanceof MissingCompletedStreamResultError) {
+        // No completed event — adapter chain was exhausted (failures already yielded).
+        return
+      }
+
+      throw err
     }
 
-    // All retries exhausted
+    if (parsedResult?.success) {
+      this.emitEvent({
+        type: 'structured_output:parsed',
+        schemaName: schema.name,
+        ...(schema.schemaHash === undefined ? {} : { schemaHash: schema.schemaHash }),
+        providerId: parsedResult.meta.providerId,
+        attempts: parseAttempts,
+      })
+
+      // Yield a synthetic completed event with the validated result
+      yield {
+        type: 'adapter:completed' as const,
+        providerId: parsedResult.meta.providerId,
+        sessionId: parsedResult.meta.sessionId,
+        result: JSON.stringify(parsedResult.data),
+        usage: parsedResult.meta.usage,
+        durationMs: parsedResult.meta.durationMs,
+        timestamp: Date.now(),
+      }
+      return
+    }
+
     yield {
       type: 'adapter:failed' as const,
-      providerId: completedEvent?.providerId ?? ('unknown' as AdapterProviderId),
-      error: `Failed to parse output matching schema "${schema.name}" after ${parseAttempts} attempts`,
+      providerId: parsedResult?.meta?.providerId ?? ('unknown' as AdapterProviderId),
+      error: buildStructuredOutputExhaustedError({
+        schemaName: schema.name,
+        schemaHash: schema.schemaHash,
+      }, parseAttempts),
       code: 'OUTPUT_PARSE_FAILED',
       timestamp: Date.now(),
     }
@@ -436,17 +698,31 @@ export class StructuredOutputAdapter {
   // Private helpers
   // ---------------------------------------------------------------------------
 
+  private buildStructuredInput<T>(
+    input: AgentInput,
+    schema: OutputSchema<T>,
+  ): AgentInput {
+    return schema.outputSchema === undefined
+      ? input
+      : {
+          ...input,
+          outputSchema: schema.outputSchema,
+        }
+  }
+
   private emitEvent(
     event:
       | {
           type: 'structured_output:parsed'
           schemaName: string
+          schemaHash?: string
           providerId: AdapterProviderId
           attempts: number
         }
       | {
           type: 'structured_output:parse_failed'
           schemaName: string
+          schemaHash?: string
           providerId: AdapterProviderId
           attempt: number
           error: string
@@ -454,6 +730,7 @@ export class StructuredOutputAdapter {
       | {
           type: 'structured_output:all_failed'
           schemaName: string
+          schemaHash?: string
           error: string
         },
   ): void {

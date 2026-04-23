@@ -146,7 +146,7 @@ export function createAgentRouter(config: AgentRouterConfig): Router {
         usage: {
           inputTokens: generateResult.usage.totalInputTokens,
           outputTokens: generateResult.usage.totalOutputTokens,
-          totalTokens: generateResult.usage.totalInputTokens + generateResult.usage.totalOutputTokens,
+          totalTokens: (generateResult.usage.totalInputTokens ?? 0) + (generateResult.usage.totalOutputTokens ?? 0),
         },
         toolCalls: generateResult.toolStats.length,
         durationMs,

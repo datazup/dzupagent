@@ -32,9 +32,22 @@ export interface MessageManagerConfig {
   preserveRecentToolResults?: number
   /** Max chars for a pruned tool result placeholder (default 120) */
   prunedToolResultMaxChars?: number
+  /**
+   * Telemetry callback invoked when summarizeAndTrim falls back or truncates.
+   * Receives a reason identifier plus before/after token counts.
+   */
+  onFallback?: (reason: string, before: number, after: number) => void
+  /**
+   * Optional Arrow memory frame (opaque to this module).
+   *
+   * Passed through by callers (e.g. DzupAgent) so downstream compression
+   * paths like `autoCompress` can consume it without requiring a separate
+   * config surface. `summarizeAndTrim` itself ignores this field.
+   */
+  memoryFrame?: unknown
 }
 
-const DEFAULTS: Required<MessageManagerConfig> = {
+const DEFAULTS: Omit<Required<MessageManagerConfig>, 'onFallback' | 'memoryFrame'> = {
   maxMessages: 30,
   keepRecentMessages: 10,
   maxMessageTokens: 12_000,

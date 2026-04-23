@@ -1,7 +1,9 @@
 import { ToolMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import { estimateTokens, type RunJournalEntry } from '@dzupagent/core'
 import type {
+  CompressionLogEntry,
   DzupAgentConfig,
   GenerateOptions,
   GenerateResult,
@@ -9,7 +11,11 @@ import type {
 import { IterationBudget } from '../guardrails/iteration-budget.js'
 import { StuckDetector } from '../guardrails/stuck-detector.js'
 import { createToolLoopLearningHook } from './tool-loop-learning.js'
-import { extractFinalAiMessageContent } from './message-utils.js'
+import {
+  estimateConversationTokensForMessages,
+  extractFinalAiMessageContent,
+} from './message-utils.js'
+import { rehydrateMessagesFromJournal } from './resume-utils.js'
 import { runToolLoop, type StopReason, type ToolStat } from './tool-loop.js'
 import { ReflectionAnalyzer } from '../reflection/reflection-analyzer.js'
 import { buildWorkflowEventsFromToolStats } from '../reflection/learning-bridge.js'
@@ -22,6 +28,13 @@ export interface PreparedRunState {
   toolMap: Map<string, StructuredToolInterface>
   model: BaseChatModel
   stuckDetector?: StuckDetector
+  /**
+   * Per-run memory frame snapshot captured during `prepareMessages`.
+   * Threaded through the run state (instead of stored on the agent instance)
+   * so concurrent `generate()`/`stream()` calls on the same agent cannot
+   * clobber each other's frame reference.
+   */
+  memoryFrame?: unknown
 }
 
 interface PrepareRunStateParams {
@@ -29,10 +42,20 @@ interface PrepareRunStateParams {
   resolvedModel: BaseChatModel
   messages: BaseMessage[]
   options?: GenerateOptions
-  prepareMessages: (messages: BaseMessage[]) => Promise<BaseMessage[]>
+  prepareMessages: (
+    messages: BaseMessage[],
+  ) => Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }>
   getTools: () => StructuredToolInterface[]
   bindTools: (model: BaseChatModel, tools: StructuredToolInterface[]) => BaseChatModel
   runBeforeAgentHooks: () => Promise<void>
+  /**
+   * Optional journal used for resume rehydration. When `options._resume.lastStateSeq`
+   * is set, the run engine will pull entries up to that seq and reconstruct the
+   * message history instead of using `prepareMessages`' result.
+   */
+  journal?: { getAll: (runId: string) => Promise<RunJournalEntry[]> }
+  /** Run id used to query the journal when resuming. */
+  runId?: string
 }
 
 interface ExecuteGenerateRunParams {
@@ -46,7 +69,7 @@ interface ExecuteGenerateRunParams {
     input: Record<string, unknown>,
     result: string,
   ) => Promise<string>
-  maybeUpdateSummary: (messages: BaseMessage[]) => Promise<void>
+  maybeUpdateSummary: (messages: BaseMessage[], memoryFrame?: unknown) => Promise<void>
 }
 
 interface StreamingToolCall {
@@ -82,9 +105,39 @@ export async function prepareRunState(
     ? new IterationBudget(params.config.guardrails)
     : undefined
 
-  const preparedMessages = await params.prepareMessages(params.messages)
+  const prepared = await params.prepareMessages(params.messages)
+  const preparedMessages = prepared.messages
+  const memoryFrame = prepared.memoryFrame
+
+  // When resuming from a checkpoint, reconstruct message history from the journal
+  // so the agent continues from the last committed step rather than re-executing.
+  let finalMessages = preparedMessages
+  const resumeSeq = params.options?._resume?.lastStateSeq
+  if (resumeSeq !== undefined && params.journal != null && params.runId != null) {
+    const allEntries = await params.journal.getAll(params.runId)
+    const entriesUpToSeq = allEntries.filter((e) => e.seq <= resumeSeq)
+    const startedEntry = allEntries.find((e) => e.type === 'run_started')
+    const originalInput =
+      startedEntry != null
+        ? String((startedEntry.data as { input?: unknown }).input ?? '')
+        : extractFirstHumanMessage(preparedMessages)
+    const rehydrated = rehydrateMessagesFromJournal(entriesUpToSeq, originalInput)
+    if (rehydrated.length > 0) {
+      finalMessages = rehydrated
+    }
+  }
+
   const tools = params.getTools()
   const model = params.bindTools(params.resolvedModel, tools)
+
+  // Charge the prompt-build phase to the token lifecycle plugin (if any)
+  // so per-phase token breakdowns appear in lifecycle reports. This runs
+  // AFTER prepareMessages/rehydration so it reflects the final transcript
+  // that will be sent to the model.
+  if (params.config.tokenLifecyclePlugin) {
+    const promptTokens = estimateConversationTokensForMessages(finalMessages)
+    params.config.tokenLifecyclePlugin.trackPhase('prompt', promptTokens)
+  }
 
   await params.runBeforeAgentHooks()
 
@@ -104,17 +157,38 @@ export async function prepareRunState(
   return {
     maxIterations,
     budget,
-    preparedMessages,
+    preparedMessages: finalMessages,
     tools,
     toolMap: new Map(tools.map(tool => [tool.name, tool])),
     model,
     stuckDetector,
+    memoryFrame,
   }
+}
+
+/**
+ * Best-effort extraction of the first human-authored message content from a
+ * prepared transcript. Used as a fallback when the journal lacks a
+ * `run_started` entry during resume rehydration.
+ */
+function extractFirstHumanMessage(messages: BaseMessage[]): string {
+  for (const m of messages) {
+    const typed = m as { _getType?: () => string }
+    if (typeof typed._getType === 'function' && typed._getType() === 'human') {
+      return typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+    }
+  }
+  return ''
 }
 
 export async function executeGenerateRun(
   params: ExecuteGenerateRunParams,
 ): Promise<GenerateResult> {
+  // Accumulates compression events observed during the run. Surfaced back
+  // to the caller via `GenerateResult.compressionLog` so telemetry/UIs can
+  // inspect when (and by how much) the conversation was compacted.
+  const compressionLog: CompressionLogEntry[] = []
+
   const result = await runToolLoop(
     params.runState.model,
     params.runState.preparedMessages,
@@ -150,6 +224,17 @@ export async function executeGenerateRun(
       onUsage: (usage) => {
         params.options?.onUsage?.(usage)
       },
+      onToolResult: (_name, result) => {
+        // Charge tool-result bytes against the token lifecycle plugin so
+        // per-phase breakdowns reflect tool output ingestion separately
+        // from LLM input/output.
+        if (params.config.tokenLifecyclePlugin && result) {
+          params.config.tokenLifecyclePlugin.trackPhase(
+            'tool-result',
+            estimateTokens(result),
+          )
+        }
+      },
       onToolLatency: (name, durationMs, error) => {
         params.config.eventBus?.emit({
           type: 'tool:latency',
@@ -158,8 +243,48 @@ export async function executeGenerateRun(
           ...(error !== undefined ? { error } : {}),
         })
       },
+      shouldHalt: params.config.tokenLifecyclePlugin
+        ? () => params.config.tokenLifecyclePlugin!.shouldHalt()
+        : undefined,
+      // Auto-compression — delegates to the token lifecycle plugin.
+      // The plugin short-circuits internally when pressure is ok/warn;
+      // actual compression only runs when pressure transitions to
+      // critical or exhausted.
+      maybeCompress: params.config.tokenLifecyclePlugin
+        ? (messages) =>
+            params.config.tokenLifecyclePlugin!.maybeCompress(
+              messages,
+              params.runState.model,
+              null,
+            )
+        : undefined,
+      // Persist each compression event to the run-scoped compressionLog so
+      // callers can inspect when (and by how much) the history was compacted.
+      // Only fires when `maybeCompress` returned `compressed: true`.
+      onCompressed: (info) => {
+        compressionLog.push({
+          before: info.before,
+          after: info.after,
+          summary: info.summary,
+          ts: Date.now(),
+        })
+      },
+      // Note: run:halted:token-exhausted is emitted AFTER the loop
+      // completes (below) so the iteration count is accurate.
     },
   )
+
+  // Emit token-exhaustion telemetry as soon as the loop reports the
+  // matching stop reason. This precedes agent:stop_reason so dashboards
+  // can react to the halt before the generic stop event fires.
+  if (result.stopReason === 'token_exhausted') {
+    params.config.eventBus?.emit({
+      type: 'run:halted:token-exhausted',
+      agentId: params.agentId,
+      iterations: result.llmCalls,
+      reason: 'token_exhausted',
+    })
+  }
 
   emitStopReasonTelemetry(params.config, params.agentId, {
     stopReason: result.stopReason,
@@ -175,7 +300,7 @@ export async function executeGenerateRun(
     }
   }
 
-  await params.maybeUpdateSummary(result.messages)
+  await params.maybeUpdateSummary(result.messages, params.runState.memoryFrame)
 
   // --- Post-run reflection analysis (best-effort, non-fatal) ---
   if (params.config.onReflectionComplete) {
@@ -204,6 +329,14 @@ export async function executeGenerateRun(
     stopReason: result.stopReason,
     toolStats: result.toolStats,
     stuckError: result.stuckError,
+    // Surface the per-run memory frame for observability so callers (and the
+    // public `RunResult` via `runInBackground`) can inspect which memory
+    // context was attached to this run.
+    memoryFrame: params.runState.memoryFrame,
+    // Only expose the compression log when at least one compression event
+    // fired; leave undefined otherwise to avoid cluttering result payloads
+    // for runs that never compacted.
+    ...(compressionLog.length > 0 ? { compressionLog } : {}),
   }
 }
 

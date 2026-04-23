@@ -11,6 +11,9 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "bin": {
+    "dzupagent-compile": "./dist/bin/compile.js"
+  },
   "files": [
     "dist"
   ],
@@ -22,6 +25,9 @@
   "peerDependencies": {
     "@dzupagent/core": "0.2.0",
     "@dzupagent/flow-ast": "0.2.0"
+  },
+  "dependencies": {
+    "@dzupagent/flow-dsl": "0.2.0"
   },
   "devDependencies": {
     "@dzupagent/app-tools": "0.2.0",

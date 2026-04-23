@@ -32,11 +32,17 @@
 
 import type { DzupEventBus } from '@dzupagent/core'
 
-import type { AdapterProviderId, AgentEvent } from '../types.js'
+import type { AdapterProviderId, AgentEvent, AgentStreamEvent } from '../types.js'
 import { validateWebhookUrl } from '../utils/url-validator.js'
 import type { UrlValidationOptions } from '../utils/url-validator.js'
 import { InMemoryApprovalAuditStore } from './approval-audit.js'
 import type { ApprovalAuditStore } from './approval-audit.js'
+
+function isProviderRawStreamEvent(
+  event: AgentStreamEvent,
+): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
+  return event.type === 'adapter:provider_raw'
+}
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -381,14 +387,28 @@ export class AdapterApprovalGate {
    * before execution begins. If rejected or timed out, yields an
    * `adapter:failed` event and returns.
    */
-  async *guard(
+  guard(
     context: ApprovalContext,
     source: AsyncGenerator<AgentEvent>,
-  ): AsyncGenerator<AgentEvent> {
+  ): AsyncGenerator<AgentEvent>
+  guard(
+    context: ApprovalContext,
+    source: AsyncGenerator<AgentStreamEvent>,
+  ): AsyncGenerator<AgentStreamEvent>
+  async *guard(
+    context: ApprovalContext,
+    source: AsyncGenerator<AgentStreamEvent>,
+  ): AsyncGenerator<AgentStreamEvent> {
     const result = await this.requestApproval(context)
 
     if (result === 'approved') {
-      yield* source
+      for await (const event of source) {
+        if (isProviderRawStreamEvent(event)) {
+          yield event
+          continue
+        }
+        yield event
+      }
       return
     }
 

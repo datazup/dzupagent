@@ -3,6 +3,7 @@
  */
 
 import type { ForgeConfig } from './config-loader.js';
+import type { StructuredOutputStrategy } from '../llm/model-config.js';
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -14,6 +15,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function pushIf(errors: string[], condition: boolean, msg: string): void {
   if (condition) errors.push(msg);
+}
+
+const STRUCTURED_OUTPUT_STRATEGIES: StructuredOutputStrategy[] = [
+  'anthropic-tool-use',
+  'openai-json-schema',
+  'generic-parse',
+  'fallback-prompt',
+];
+
+function isStructuredOutputStrategy(value: unknown): value is StructuredOutputStrategy {
+  return typeof value === 'string'
+    && STRUCTURED_OUTPUT_STRATEGIES.includes(value as StructuredOutputStrategy);
 }
 
 /**
@@ -38,6 +51,57 @@ export function validateConfig(config: unknown): { valid: boolean; errors: strin
         pushIf(errors, !isPlainObject(p), `providers[${i}] must be an object`);
         if (isPlainObject(p)) {
           pushIf(errors, typeof p['provider'] !== 'string', `providers[${i}].provider must be a string`);
+          pushIf(
+            errors,
+            p['apiKey'] !== undefined && typeof p['apiKey'] !== 'string',
+            `providers[${i}].apiKey must be a string`,
+          );
+          pushIf(
+            errors,
+            p['baseUrl'] !== undefined && typeof p['baseUrl'] !== 'string',
+            `providers[${i}].baseUrl must be a string`,
+          );
+          pushIf(
+            errors,
+            p['priority'] !== undefined && (typeof p['priority'] !== 'number' || !Number.isFinite(p['priority'])),
+            `providers[${i}].priority must be a finite number`,
+          );
+
+          const structuredOutputDefaults = p['structuredOutputDefaults'];
+          pushIf(
+            errors,
+            structuredOutputDefaults !== undefined && !isPlainObject(structuredOutputDefaults),
+            `providers[${i}].structuredOutputDefaults must be an object`,
+          );
+          if (isPlainObject(structuredOutputDefaults)) {
+            pushIf(
+              errors,
+              !isStructuredOutputStrategy(structuredOutputDefaults['preferredStrategy']),
+              `providers[${i}].structuredOutputDefaults.preferredStrategy must be a supported strategy`,
+            );
+            pushIf(
+              errors,
+              structuredOutputDefaults['schemaProvider'] !== undefined
+                && structuredOutputDefaults['schemaProvider'] !== 'generic'
+                && structuredOutputDefaults['schemaProvider'] !== 'openai',
+              `providers[${i}].structuredOutputDefaults.schemaProvider must be "generic" or "openai"`,
+            );
+            pushIf(
+              errors,
+              structuredOutputDefaults['fallbackStrategies'] !== undefined
+                && !Array.isArray(structuredOutputDefaults['fallbackStrategies']),
+              `providers[${i}].structuredOutputDefaults.fallbackStrategies must be an array`,
+            );
+            if (Array.isArray(structuredOutputDefaults['fallbackStrategies'])) {
+              for (let j = 0; j < structuredOutputDefaults['fallbackStrategies'].length; j++) {
+                pushIf(
+                  errors,
+                  !isStructuredOutputStrategy(structuredOutputDefaults['fallbackStrategies'][j]),
+                  `providers[${i}].structuredOutputDefaults.fallbackStrategies[${j}] must be a supported strategy`,
+                );
+              }
+            }
+          }
         }
       }
     }

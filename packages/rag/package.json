@@ -25,7 +25,13 @@
   },
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",
+    "@qdrant/js-client-rest": ">=1.9.0",
     "zod": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@qdrant/js-client-rest": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@langchain/core": "^1.1.39",

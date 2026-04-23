@@ -37,7 +37,17 @@ export { createManifest, serializeManifest } from './plugin/plugin-manifest.js'
 
 // --- LLM ---
 export { ModelRegistry } from './llm/model-registry.js'
-export type { LLMProviderConfig, ModelTier, ModelSpec, ModelOverrides, ModelFactory } from './llm/model-config.js'
+export type {
+  KnownLLMProvider,
+  LLMProviderConfig,
+  LLMProviderName,
+  ModelTier,
+  ModelSpec,
+  ModelOverrides,
+  ModelFactory,
+  StructuredOutputStrategy,
+  StructuredOutputModelCapabilities,
+} from './llm/model-config.js'
 export { CircuitBreaker } from './llm/circuit-breaker.js'
 export type { CircuitBreakerConfig, CircuitState } from './llm/circuit-breaker.js'
 export { invokeWithTimeout, extractTokenUsage, estimateTokens } from './llm/invoke.js'
@@ -47,6 +57,13 @@ export type { RetryConfig } from './llm/retry.js'
 export type { RegistryMiddleware, MiddlewareContext, MiddlewareResult, MiddlewareTokenUsage } from './llm/registry-middleware.js'
 export { EmbeddingRegistry, createDefaultEmbeddingRegistry, COMMON_EMBEDDING_MODELS } from './llm/embedding-registry.js'
 export type { EmbeddingModelEntry } from './llm/embedding-registry.js'
+export {
+  attachStructuredOutputCapabilities,
+  getProviderStructuredOutputDefaults,
+  getStructuredOutputDefaultsForProviderName,
+  isKnownLLMProvider,
+  normalizeStructuredOutputCapabilities,
+} from './llm/structured-output-capabilities.js'
 
 // --- Prompt ---
 export {
@@ -412,6 +429,7 @@ export type {
   WorkflowRegistryEntry,
   WorkflowRegistrySnapshot,
   WorkflowRegistrationOptions,
+  WorkflowComposeOptions,
   WorkflowFindResult,
   WorkflowListEntry,
 } from './skills/workflow-registry.js'
@@ -829,6 +847,14 @@ export {
   AgentCardV2Schema, validateAgentCard,
   // Tool Format Adapters
   zodToJsonSchema, jsonSchemaToZod, toOpenAISafeSchema,
+  toStructuredOutputJsonSchema, describeStructuredOutputSchema,
+  buildStructuredOutputSchemaName, attachStructuredOutputErrorContext,
+  detectStructuredOutputStrategy, resolveStructuredOutputCapabilities,
+  resolveStructuredOutputSchemaProvider, shouldAttemptNativeStructuredOutput,
+  prepareStructuredOutputSchemaContract, unwrapStructuredEnvelope,
+  executeStructuredParseLoop, executeStructuredParseStreamLoop,
+  buildStructuredOutputCorrectionPrompt, buildStructuredOutputExhaustedError,
+  isStructuredOutputExhaustedErrorMessage,
   toOpenAIFunction, toOpenAITool, fromOpenAIFunction,
   toMCPToolDescriptor, fromMCPToolDescriptor,
   // AGENTS.md V2 Parser
@@ -841,6 +867,13 @@ export type {
   AgentCardValidationResult,
   // OpenAI types
   OpenAIFunctionDefinition, OpenAIToolDefinition,
+  // Structured output
+  StructuredOutputSchemaSummary, StructuredOutputSchemaDescriptor,
+  StructuredOutputErrorSchemaRef, StructuredOutputFailureCategory, StructuredOutputErrorContextInput,
+  StructuredOutputProvider, StructuredOutputRuntimeMeta, StructuredOutputSchemaContract,
+  StructuredOutputSchemaRef, StructuredParseAttempt, StructuredParseLoopSuccess,
+  StructuredParseLoopFailure, StructuredParseLoopResult, ExecuteStructuredParseLoopInput,
+  ExecuteStructuredParseStreamLoopInput, StructuredParseStreamLoopEvent,
   // Tool adapter types
   ToolSchemaDescriptor, MCPToolDescriptorCompat,
   // AGENTS.md V2 types

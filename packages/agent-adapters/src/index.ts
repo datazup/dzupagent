@@ -16,6 +16,7 @@ export type {
   AdapterCapabilityProfile,
   AgentInput,
   AgentEvent,
+  AgentStreamEvent,
   AgentStartedEvent,
   AgentMessageEvent,
   AgentToolCallEvent,
@@ -262,7 +263,7 @@ export type {
   BranchCondition,
   LoopConfig,
 } from './workflow/adapter-workflow.js'
-export { TemplateResolver } from './workflow/template-resolver.js'
+export { WorkflowStepResolver } from './workflow/template-resolver.js'
 export type { TemplateContext, TemplateReference } from './workflow/template-resolver.js'
 export { WorkflowValidator } from './workflow/workflow-validator.js'
 export type { ValidationError, ValidationResult } from './workflow/workflow-validator.js'
@@ -512,4 +513,25 @@ export type { InteractionRequest, InteractionResult } from './interaction/intera
 
 // --- Run Event Store ---
 export { RunEventStore } from './runs/run-event-store.js'
-export type { RawAgentEvent, AgentArtifactEvent, RunSummary } from '@dzupagent/adapter-types'
+export { runLogRoot } from './runs/run-log-root.js'
+export type { RawAgentEvent, ProviderRawStreamEvent, AgentArtifactEvent, RunSummary } from '@dzupagent/adapter-types'
+
+// --- Provider Catalog ---
+export {
+  PROVIDER_CATALOG,
+  getMonitorableProviders,
+  getProductProviders,
+  getProviderCapabilities,
+} from './provider-catalog.js'
+export type { ProviderCapabilities, MonitorTier } from './provider-catalog.js'
+
+// --- Unified Event Normalization ---
+export { normalizeEvent } from './normalize.js'
+export type { Provider as NormalizeProvider } from './normalize.js'
+
+// --- Enrichment Pipeline ---
+export { EnrichmentPipeline } from './enrichment/enrichment-pipeline.js'
+export type {
+  EnrichmentContext,
+  EnrichmentResult,
+} from './enrichment/enrichment-pipeline.js'

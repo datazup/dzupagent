@@ -5,10 +5,10 @@
  *   - "What memory informed run X?" → getReferencesForRun(runId)
  *   - "Where has memory Y been used?" → getRunsCitingMemory(entryId)
  *
- * Storage model (Redis, when configured):
- *   - Sorted set per run:    dz:refs:run:{runId}        score=timestamp, member=entryId
- *   - Sorted set per entry:  dz:refs:entry:{entryId}    score=timestamp, member=runId
- *   - Context hash per (run,entry): dz:refs:ctx:{runId}:{entryId} → JSON(retrievalContext)
+ * Storage model (when backed by a CacheBackend with sorted-set support):
+ *   - Sorted set per run:    {prefix}:run:{runId}     score=timestamp, member=`{entryId}@{ts}`
+ *   - Sorted set per entry:  {prefix}:entry:{entryId} score=timestamp, member=`{runId}@{ts}`
+ *   - Context value per pair: {prefix}:ctx:{runId}:{entryId}@{ts} → JSON(retrievalContext)
  *
  * The tracker is *fire-and-forget* from the caller's perspective — it exposes
  * `trackReference` as an async method but the memory-service hook invokes it
@@ -17,10 +17,13 @@
  *
  * Two backends are provided:
  *   - InMemoryReferenceStore: default, zero-config, suitable for tests/dev.
- *   - RedisReferenceStore: accepts an ioredis-compatible client (duck-typed).
- *     The memory package does not import ioredis directly — callers pass the
- *     client they already have (e.g. shared with @dzupagent/cache).
+ *   - RedisReferenceStore: accepts a `@dzupagent/cache` CacheBackend. Pass a
+ *     RedisCacheBackend (or any other CacheBackend implementation) — the
+ *     memory package does not depend on ioredis directly, only on the cache
+ *     contract.
  */
+
+import type { CacheBackend } from '@dzupagent/cache'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -78,34 +81,6 @@ export interface ReferenceStore {
   listByEntry(entryId: string, options?: ReferenceQueryOptions): Promise<ReferenceRecord[]>
   /** Clear all records for a run (useful for tests / GDPR). */
   clearRun(runId: string): Promise<void>
-}
-
-// ---------------------------------------------------------------------------
-// Minimal ioredis-compatible interface
-// ---------------------------------------------------------------------------
-
-/**
- * Minimal sorted-set client contract. We duck-type this to avoid a hard
- * dependency on ioredis (the @dzupagent/cache package uses the same pattern).
- */
-export interface SortedSetClientLike {
-  zadd(key: string, score: number, member: string): Promise<unknown>
-  /**
-   * Returns members with scores. Matches ioredis signature:
-   *   zrange(key, start, stop, 'WITHSCORES')
-   *   zrange(key, start, stop, 'REV', 'WITHSCORES')
-   */
-  zrange(key: string, start: number, stop: number, ...args: string[]): Promise<string[]>
-  /**
-   * zrangebyscore(key, min, max, 'WITHSCORES', 'LIMIT', offset, count)
-   */
-  zrangebyscore(key: string, min: number | string, max: number | string, ...args: (string | number)[]): Promise<string[]>
-  hset(key: string, field: string, value: string): Promise<unknown>
-  hget(key: string, field: string): Promise<string | null>
-  hdel(key: string, ...fields: string[]): Promise<unknown>
-  del(...keys: string[]): Promise<unknown>
-  /** scan(cursor, 'MATCH', pattern, 'COUNT', n) → [nextCursor, keys[]] */
-  scan(cursor: string | number, ...args: (string | number)[]): Promise<[string, string[]]>
 }
 
 // ---------------------------------------------------------------------------
@@ -181,32 +156,37 @@ export class InMemoryReferenceStore implements ReferenceStore {
 }
 
 // ---------------------------------------------------------------------------
-// Redis backend
+// Cache-backed (Redis) backend
 // ---------------------------------------------------------------------------
 
 export interface RedisReferenceStoreOptions {
   /** Key prefix (default: 'dz:refs'). */
   prefix?: string
   /**
-   * Optional error sink. Called when Redis operations fail. Defaults to a
+   * Optional error sink. Called when backend operations fail. Defaults to a
    * no-op so reference-tracking failures never surface to the caller.
    */
   onError?: (operation: string, err: unknown) => void
 }
 
 /**
- * Redis-backed reference store using sorted sets + per-pair hash for context.
- * The client is duck-typed so consumers can share an ioredis instance
- * (e.g. the one used by @dzupagent/cache) without requiring this package to
- * depend on ioredis.
+ * CacheBackend-backed reference store using sorted sets for the bidirectional
+ * indexes and a regular cache value for per-citation retrieval context.
+ *
+ * Members are encoded as `{id}@{retrievedAt}` so a single sorted-set lookup
+ * carries enough information to re-derive the timestamp without WITHSCORES
+ * (which is intentionally outside the minimal CacheBackend contract).
+ *
+ * Pass any `CacheBackend` implementation — typically a `RedisCacheBackend`
+ * from `@dzupagent/cache` for production, or `InMemoryCacheBackend` for tests.
  */
 export class RedisReferenceStore implements ReferenceStore {
-  private readonly client: SortedSetClientLike
+  private readonly cache: CacheBackend
   private readonly prefix: string
   private readonly onError: (operation: string, err: unknown) => void
 
-  constructor(client: SortedSetClientLike, options?: RedisReferenceStoreOptions) {
-    this.client = client
+  constructor(cache: CacheBackend, options?: RedisReferenceStoreOptions) {
+    this.cache = cache
     this.prefix = options?.prefix ?? 'dz:refs'
     this.onError = options?.onError ?? (() => { /* swallow */ })
   }
@@ -219,23 +199,40 @@ export class RedisReferenceStore implements ReferenceStore {
     return `${this.prefix}:entry:${entryId}`
   }
 
-  private ctxKey(runId: string): string {
-    return `${this.prefix}:ctx:${runId}`
+  private ctxKey(runId: string, entryId: string, retrievedAt: number): string {
+    return `${this.prefix}:ctx:${runId}:${entryId}@${retrievedAt}`
   }
 
-  private ctxField(entryId: string, retrievedAt: number): string {
-    return `${entryId}@${retrievedAt}`
+  private encodeMember(id: string, retrievedAt: number): string {
+    return `${id}@${retrievedAt}`
+  }
+
+  /** Parse `{id}@{ts}` back into its parts; returns null on malformed input. */
+  private decodeMember(member: string): { id: string; retrievedAt: number } | null {
+    const at = member.lastIndexOf('@')
+    if (at <= 0 || at === member.length - 1) return null
+    const id = member.slice(0, at)
+    const ts = Number(member.slice(at + 1))
+    if (!Number.isFinite(ts)) return null
+    return { id, retrievedAt: ts }
   }
 
   async record(record: ReferenceRecord): Promise<void> {
     try {
       const { runId, memoryEntryId, retrievedAt, retrievalContext } = record
       await Promise.all([
-        this.client.zadd(this.runKey(runId), retrievedAt, memoryEntryId),
-        this.client.zadd(this.entryKey(memoryEntryId), retrievedAt, runId),
-        this.client.hset(
-          this.ctxKey(runId),
-          this.ctxField(memoryEntryId, retrievedAt),
+        this.cache.zadd(
+          this.runKey(runId),
+          retrievedAt,
+          this.encodeMember(memoryEntryId, retrievedAt),
+        ),
+        this.cache.zadd(
+          this.entryKey(memoryEntryId),
+          retrievedAt,
+          this.encodeMember(runId, retrievedAt),
+        ),
+        this.cache.set(
+          this.ctxKey(runId, memoryEntryId, retrievedAt),
           JSON.stringify(retrievalContext),
         ),
       ])
@@ -246,21 +243,17 @@ export class RedisReferenceStore implements ReferenceStore {
 
   async listByRun(runId: string, options?: ReferenceQueryOptions): Promise<ReferenceRecord[]> {
     try {
-      const members = await this.rangeWithScores(
-        this.runKey(runId),
-        options,
-      )
+      const members = await this.rangeMembers(this.runKey(runId), options)
       const results: ReferenceRecord[] = []
-      for (const { member, score } of members) {
-        const ctxRaw = await this.client
-          .hget(this.ctxKey(runId), this.ctxField(member, score))
+      for (const { id: memoryEntryId, retrievedAt } of members) {
+        const ctxRaw = await this.cache
+          .get(this.ctxKey(runId, memoryEntryId, retrievedAt))
           .catch(() => null)
-        const retrievalContext = parseContext(ctxRaw)
         results.push({
           runId,
-          memoryEntryId: member,
-          retrievedAt: score,
-          retrievalContext,
+          memoryEntryId,
+          retrievedAt,
+          retrievalContext: parseContext(ctxRaw),
         })
       }
       return results
@@ -272,21 +265,17 @@ export class RedisReferenceStore implements ReferenceStore {
 
   async listByEntry(entryId: string, options?: ReferenceQueryOptions): Promise<ReferenceRecord[]> {
     try {
-      const members = await this.rangeWithScores(
-        this.entryKey(entryId),
-        options,
-      )
+      const members = await this.rangeMembers(this.entryKey(entryId), options)
       const results: ReferenceRecord[] = []
-      for (const { member, score } of members) {
-        const ctxRaw = await this.client
-          .hget(this.ctxKey(member), this.ctxField(entryId, score))
+      for (const { id: runId, retrievedAt } of members) {
+        const ctxRaw = await this.cache
+          .get(this.ctxKey(runId, entryId, retrievedAt))
           .catch(() => null)
-        const retrievalContext = parseContext(ctxRaw)
         results.push({
-          runId: member,
+          runId,
           memoryEntryId: entryId,
-          retrievedAt: score,
-          retrievalContext,
+          retrievedAt,
+          retrievalContext: parseContext(ctxRaw),
         })
       }
       return results
@@ -298,81 +287,56 @@ export class RedisReferenceStore implements ReferenceStore {
 
   async clearRun(runId: string): Promise<void> {
     try {
-      // Read all entries cited by this run before deleting the sorted set
-      const members = await this.rangeWithScores(this.runKey(runId))
+      // Pull every member of the run sorted set so we can scrub the reverse
+      // indexes and per-citation context entries.
+      const runKey = this.runKey(runId)
+      const rawMembers = await this.cache.zrangebyscore(runKey, -Infinity, Infinity)
 
-      // Remove from reverse indexes: delete runId from each entry's sorted set.
-      // We cannot use ZREM with score constraints atomically, so we scan &
-      // filter; acceptable since clearRun is cold-path (tests / GDPR).
-      for (const { member: entryId } of members) {
-        const entryKey = this.entryKey(entryId)
-        // Remove runId from the entry's sorted set
-        await this.client.zrangebyscore(entryKey, '-inf', '+inf')
-          .then(async all => {
-            if (all.includes(runId)) {
-              // ioredis exposes ZREM via generic `call`, but our minimal
-              // interface doesn't. Emulate by reading all and re-adding
-              // sans-runId would destroy scores — so use del as a last resort
-              // only when the runId is the sole remaining member.
-              if (all.length === 1) {
-                await this.client.del(entryKey)
-              }
-              // For multi-member entries we rely on TTLs/compaction in prod.
-            }
-          })
-          .catch(err => this.onError('clearRun:reverse', err))
+      for (const member of rawMembers) {
+        const decoded = this.decodeMember(member)
+        if (!decoded) continue
+        const { id: entryId, retrievedAt } = decoded
+
+        // Remove (runId@ts) from the reverse entry-keyed sorted set
+        await this.cache
+          .zrem(this.entryKey(entryId), this.encodeMember(runId, retrievedAt))
+          .catch(err => this.onError('clearRun:zrem', err))
+
+        // Remove the per-citation context value
+        await this.cache
+          .delete(this.ctxKey(runId, entryId, retrievedAt))
+          .catch(err => this.onError('clearRun:ctx-delete', err))
+
+        // Remove the member from the run sorted set itself
+        await this.cache
+          .zrem(runKey, member)
+          .catch(err => this.onError('clearRun:zrem-self', err))
       }
-
-      await Promise.all([
-        this.client.del(this.runKey(runId)),
-        this.client.del(this.ctxKey(runId)),
-      ])
     } catch (err) {
       this.onError('clearRun', err)
     }
   }
 
-  private async rangeWithScores(
+  /**
+   * Read a window of members from a sorted set, decode their embedded
+   * timestamps, sort most-recent-first, and apply `limit`.
+   */
+  private async rangeMembers(
     key: string,
     options?: ReferenceQueryOptions,
-  ): Promise<Array<{ member: string; score: number }>> {
+  ): Promise<Array<{ id: string; retrievedAt: number }>> {
     const limit = options?.limit ?? 100
-    const sinceMs = options?.sinceMs
-    const untilMs = options?.untilMs
+    const min = options?.sinceMs ?? -Infinity
+    const max = options?.untilMs ?? Infinity
 
-    let raw: string[]
-    if (sinceMs !== undefined || untilMs !== undefined) {
-      const min = sinceMs ?? '-inf'
-      const max = untilMs ?? '+inf'
-      raw = await this.client.zrangebyscore(
-        key,
-        min,
-        max,
-        'WITHSCORES',
-        'LIMIT',
-        0,
-        limit,
-      )
-    } else {
-      // Most recent first: REV range 0..limit-1
-      raw = await this.client.zrange(key, 0, Math.max(0, limit - 1), 'REV', 'WITHSCORES')
+    const raw = await this.cache.zrangebyscore(key, min, max)
+    const decoded: Array<{ id: string; retrievedAt: number }> = []
+    for (const member of raw) {
+      const d = this.decodeMember(member)
+      if (d) decoded.push(d)
     }
-
-    const out: Array<{ member: string; score: number }> = []
-    for (let i = 0; i < raw.length; i += 2) {
-      const member = raw[i]
-      const scoreStr = raw[i + 1]
-      if (member === undefined || scoreStr === undefined) continue
-      const score = Number(scoreStr)
-      if (!Number.isFinite(score)) continue
-      out.push({ member, score })
-    }
-
-    // zrangebyscore returns ascending — flip to descending for consistency
-    if (sinceMs !== undefined || untilMs !== undefined) {
-      out.sort((a, b) => b.score - a.score)
-    }
-    return out
+    decoded.sort((a, b) => b.retrievedAt - a.retrievedAt)
+    return decoded.slice(0, Math.max(0, limit))
   }
 }
 

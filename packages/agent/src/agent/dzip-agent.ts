@@ -20,18 +20,30 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { ZodType } from 'zod'
-import type {
+import {
   AIMessage,
+  HumanMessage,
   BaseMessage,
+  SystemMessage,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
+  attachStructuredOutputCapabilities,
   type ModelTier,
+  type StructuredOutputModelCapabilities,
   shouldSummarize,
   summarizeAndTrim,
   InMemoryRunJournal,
-  toOpenAISafeSchema,
+  attachStructuredOutputErrorContext,
+  executeStructuredParseLoop,
+  buildStructuredOutputCorrectionPrompt,
+  buildStructuredOutputExhaustedError,
+  isStructuredOutputExhaustedErrorMessage,
+  prepareStructuredOutputSchemaContract,
+  resolveStructuredOutputSchemaProvider,
+  shouldAttemptNativeStructuredOutput,
+  unwrapStructuredEnvelope,
 } from '@dzupagent/core'
 import { extractTokenUsage, estimateTokens, type TokenUsage } from '@dzupagent/core'
 import type {
@@ -61,8 +73,15 @@ import {
 } from './run-engine.js'
 import type { RunHandle, LaunchOptions } from './run-handle-types.js'
 import { ConcreteRunHandle } from './run-handle.js'
-
 const MODEL_TIERS: Set<string> = new Set(['chat', 'reasoning', 'codegen', 'embedding'])
+
+function resolveStructuredOutputCapabilities(
+  model: BaseChatModel,
+): StructuredOutputModelCapabilities | undefined {
+  return (model as BaseChatModel & {
+    structuredOutputCapabilities?: StructuredOutputModelCapabilities
+  }).structuredOutputCapabilities
+}
 
 export class DzupAgent {
   readonly id: string
@@ -109,7 +128,30 @@ export class DzupAgent {
       memoryScope: config.memoryScope,
       arrowMemory: config.arrowMemory,
       memoryProfile: config.memoryProfile,
+      frozenSnapshot: config.frozenSnapshot,
       estimateConversationTokens: (messages) => this.estimateConversationTokens(messages),
+      onFallback: config.onFallback
+        ? (reason, before, after) => {
+            config.onFallback!(reason, before, after)
+            config.eventBus?.emit({
+              type: 'agent:context_fallback',
+              agentId: this.id,
+              reason,
+              before,
+              after,
+            })
+          }
+        : config.eventBus
+          ? (reason, before, after) => {
+              config.eventBus!.emit({
+                type: 'agent:context_fallback',
+                agentId: this.id,
+                reason,
+                before,
+                after,
+              })
+            }
+          : undefined,
     })
     this.middlewareRuntime = new AgentMiddlewareRuntime({
       agentId: this.id,
@@ -146,7 +188,7 @@ export class DzupAgent {
       runBeforeAgentHooks: () => this.runBeforeAgentHooks(),
     })
 
-    return executeGenerateRun({
+    const result = await executeGenerateRun({
       agentId: this.id,
       config: this.config,
       options,
@@ -155,14 +197,22 @@ export class DzupAgent {
         this.invokeModelWithMiddleware(model, preparedMessages),
       transformToolResult: (toolName, input, result) =>
         this.transformToolResultWithMiddleware(toolName, input, result),
-      maybeUpdateSummary: (allMessages) => this.maybeUpdateSummary(allMessages),
+      maybeUpdateSummary: (allMessages, memoryFrame) =>
+        this.maybeUpdateSummary(allMessages, memoryFrame),
     })
+
+    if ((result.stopReason as string) !== 'failed') {
+      await this.maybeWriteBackMemory(result.content)
+    }
+
+    return result
   }
 
   /**
    * Generate a response with structured output validated against a Zod schema.
    *
-   * Uses LangChain's withStructuredOutput when the model supports it,
+   * Uses LangChain's withStructuredOutput when the model supports it and the
+   * resolved structured-output capability metadata opts into a native strategy;
    * otherwise parses the LLM text response as JSON and validates.
    */
   async generateStructured<T>(
@@ -170,34 +220,206 @@ export class DzupAgent {
     schema: ZodType<T>,
     options?: GenerateOptions,
   ): Promise<{ data: T; usage: GenerateResult['usage'] }> {
-    // Strip unsupported constraints (minLength, maxLength, minItems, maxItems, etc.)
-    // before passing to withStructuredOutput — OpenAI strict mode rejects them.
-    const safeSchema = toOpenAISafeSchema(schema)
+    const fallbackMaxRetries = 2
+    const model = this.resolvedModel
+    const structuredOutputCapabilities = resolveStructuredOutputCapabilities(model)
+    const schemaProvider = resolveStructuredOutputSchemaProvider(options?.schemaProvider, structuredOutputCapabilities)
+    const schemaContract = prepareStructuredOutputSchemaContract(schema, {
+      agentId: this.id,
+      intent: options?.intent ?? null,
+      schemaName: options?.schemaName,
+      schemaProvider,
+      previewChars: 240,
+    })
+    const requestMessages = schemaContract.requiresEnvelope
+      ? [
+          ...messages,
+          new SystemMessage('Return the final JSON payload inside the top-level "result" property.'),
+        ]
+      : messages
+
+    const modelName = (model as BaseChatModel & {
+      model?: string
+      modelName?: string
+      name?: string
+    }).model
+      ?? (model as BaseChatModel & { modelName?: string }).modelName
+      ?? (model as BaseChatModel & { name?: string }).name
+      ?? 'unknown'
+
+    this.config.eventBus?.emit({
+      type: 'agent:structured_schema_prepared',
+      agentId: this.id,
+      schemaName: schemaContract.requestSchemaDescriptor.schemaName,
+      schemaHash: schemaContract.requestSchemaDescriptor.schemaHash,
+      provider: schemaContract.requestSchemaDescriptor.provider,
+      topLevelType: schemaContract.requestSchemaDescriptor.summary.topLevelType,
+      propertyCount: schemaContract.requestSchemaDescriptor.summary.totalProperties,
+      requiredCount: schemaContract.requestSchemaDescriptor.summary.totalRequired,
+    })
+
+    let nativeStructuredError: Error | null = null
 
     // Try withStructuredOutput first (Anthropic/OpenAI support this natively)
-    const model = this.resolvedModel
-    if ('withStructuredOutput' in model && typeof model.withStructuredOutput === 'function') {
-      const structuredModel = (model as BaseChatModel & {
-        withStructuredOutput: (s: ZodType<T>) => BaseChatModel
-      }).withStructuredOutput(safeSchema as ZodType<T>)
+    if (shouldAttemptNativeStructuredOutput(model, structuredOutputCapabilities)) {
+      try {
+        const structuredModel = (model as BaseChatModel & {
+          withStructuredOutput: (s: ZodType<T>) => BaseChatModel
+        }).withStructuredOutput(schemaContract.requestSchema as ZodType<T>)
 
-      const prepared = await this.prepareMessages(messages)
-      const response = await structuredModel.invoke(prepared)
+        const prepared = await this.prepareMessages(requestMessages)
+        const response = await structuredModel.invoke(prepared.messages)
 
-      // Validate the response against the original schema (with constraints)
-      const parsed = schema.parse(response)
+        const parsed = schemaContract.responseSchema.parse(response)
 
-      return {
-        data: parsed,
-        usage: { totalInputTokens: 0, totalOutputTokens: 0, llmCalls: 1 },
+        return {
+          data: unwrapStructuredEnvelope(parsed, schemaContract.requiresEnvelope),
+          usage: { totalInputTokens: 0, totalOutputTokens: 0, llmCalls: 1 },
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        nativeStructuredError = err instanceof Error ? err : new Error(message)
+
+        this.config.eventBus?.emit({
+          type: 'agent:structured_native_rejected',
+          agentId: this.id,
+          schemaName: schemaContract.requestSchemaDescriptor.schemaName,
+          schemaHash: schemaContract.requestSchemaDescriptor.schemaHash,
+          provider: schemaContract.requestSchemaDescriptor.provider,
+          model: modelName,
+          message,
+        })
+        this.config.eventBus?.emit({
+          type: 'agent:structured_fallback_used',
+          agentId: this.id,
+          schemaName: schemaContract.requestSchemaDescriptor.schemaName,
+          schemaHash: schemaContract.requestSchemaDescriptor.schemaHash,
+          provider: schemaContract.requestSchemaDescriptor.provider,
+          model: modelName,
+          from: 'native_provider',
+          to: 'text_json',
+        })
+
+        console.warn('[DzupAgent.generateStructured] Native structured output failed; falling back to text JSON parsing.', {
+          agentId: this.id,
+          schemaName: schemaContract.requestSchemaDescriptor.schemaName,
+          model: modelName,
+          schemaHash: schemaContract.requestSchemaDescriptor.schemaHash,
+          provider: schemaContract.requestSchemaDescriptor.provider,
+          schemaSummary: schemaContract.requestSchemaDescriptor.summary,
+          schemaPreview: schemaContract.requestSchemaDescriptor.schemaPreview,
+          error: message,
+        })
+
+        // Some provider/runtime combinations reject the native structured schema
+        // before the model can answer. Fall back to text generation plus local
+        // JSON extraction so callers still get a structured result.
       }
     }
 
-    // Fallback: generate text, extract JSON from anywhere in the response
-    const result = await this.generate(messages, options)
-    const jsonStr = extractJsonFromText(result.content)
-    const parsed = schema.parse(JSON.parse(jsonStr))
-    return { data: parsed, usage: result.usage }
+    // Fallback: generate text, extract JSON, and retry with a correction prompt.
+    try {
+      const fallbackResult = await executeStructuredParseLoop({
+        initialState: {
+          messages: requestMessages,
+          usage: emptyGenerateUsage(),
+        },
+        maxRetries: fallbackMaxRetries,
+        invoke: async (state) => {
+          const result = await this.generate(state.messages, options)
+          return {
+            raw: result.content,
+            meta: result.usage,
+          }
+        },
+        parse: (raw) => {
+          try {
+            const jsonStr = extractJsonFromText(raw)
+            const parsedJson = JSON.parse(jsonStr) as unknown
+            const parsed = schemaContract.responseSchema.safeParse(parsedJson)
+            if (parsed.success) {
+              return {
+                success: true as const,
+                data: unwrapStructuredEnvelope(parsed.data, schemaContract.requiresEnvelope),
+              }
+            }
+
+            const issues = parsed.error.issues
+              .map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
+              .join('; ')
+
+            return {
+              success: false as const,
+              error: `Schema validation failed: ${issues}`,
+            }
+          } catch (err) {
+            return {
+              success: false as const,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          }
+        },
+        onRetryState: (state, { raw, error, meta }) => ({
+          messages: [
+            ...state.messages,
+            new AIMessage(raw),
+            new HumanMessage(buildStructuredOutputCorrectionPrompt({
+              schemaName: schemaContract.requestSchemaDescriptor.schemaName,
+              schemaHash: schemaContract.requestSchemaDescriptor.schemaHash,
+              description: 'Respond ONLY with valid JSON.',
+            }, error)),
+          ],
+          usage: mergeGenerateUsage(state.usage, meta),
+        }),
+      })
+
+      if (!fallbackResult.success) {
+        throw new Error(buildStructuredOutputExhaustedError({
+          schemaName: schemaContract.requestSchemaDescriptor.schemaName,
+          schemaHash: schemaContract.requestSchemaDescriptor.schemaHash,
+        }, fallbackResult.retries + 1))
+      }
+
+      return {
+        data: fallbackResult.data as T,
+        usage: mergeGenerateUsage(fallbackResult.state.usage, fallbackResult.meta),
+      }
+    } catch (err) {
+      const failureMessage = err instanceof Error ? err.message : String(err)
+      const enriched = attachStructuredOutputErrorContext(err, {
+        agentId: this.id,
+        intent: options?.intent ?? null,
+        provider: schemaContract.requestSchemaDescriptor.provider,
+        model: modelName,
+        failureCategory: isStructuredOutputExhaustedErrorMessage(failureMessage, {
+          schemaName: schemaContract.requestSchemaDescriptor.schemaName,
+          schemaHash: schemaContract.requestSchemaDescriptor.schemaHash,
+        })
+          ? 'parse_exhausted'
+          : 'provider_execution_failed',
+        requiresEnvelope: schemaContract.requiresEnvelope,
+        messageCount: requestMessages.length,
+        requestSchema: schemaContract.requestSchemaDescriptor,
+        responseSchema: schemaContract.responseSchemaDescriptor,
+      })
+
+      if (nativeStructuredError) {
+        Object.assign(enriched, {
+          nativeStructuredOutputError: nativeStructuredError.message,
+        })
+      }
+
+      this.config.eventBus?.emit({
+        type: 'agent:structured_validation_failed',
+        agentId: this.id,
+        schemaName: schemaContract.requestSchemaDescriptor.schemaName,
+        schemaHash: schemaContract.requestSchemaDescriptor.schemaHash,
+        provider: schemaContract.requestSchemaDescriptor.provider,
+        model: modelName,
+        message: enriched.message,
+      })
+      throw enriched
+    }
   }
 
   /**
@@ -223,21 +445,41 @@ export class DzupAgent {
       middleware => typeof middleware.wrapModelCall === 'function',
     ) ?? false
 
+    // When a tokenLifecyclePlugin is configured, wrap options.onUsage so the
+    // plugin receives real LLM token counts. Both GenerateOptions.onUsage and
+    // AgentLoopPlugin.onUsage share the same `{ model, inputTokens, outputTokens }`
+    // shape, so no adapter transformation is needed — we just forward twice.
+    const tokenPlugin = this.config.tokenLifecyclePlugin
+    const userOnUsage = options?.onUsage
+    const wrappedOnUsage = tokenPlugin
+      ? (usage: TokenUsage) => {
+          tokenPlugin.onUsage(usage)
+          userOnUsage?.(usage)
+        }
+      : userOnUsage
+    const optionsWithUsage: GenerateOptions | undefined = tokenPlugin
+      ? { ...(options ?? {}), onUsage: wrappedOnUsage }
+      : options
+
     if (!('stream' in runState.model) || typeof runState.model.stream !== 'function' || usesModelWrapper) {
       const result = await executeGenerateRun({
         agentId: this.id,
         config: this.config,
-        options,
+        options: optionsWithUsage,
         runState,
         invokeModel: (model, preparedMessages) =>
           this.invokeModelWithMiddleware(model, preparedMessages),
         transformToolResult: (toolName, input, result) =>
           this.transformToolResultWithMiddleware(toolName, input, result),
-        maybeUpdateSummary: (allMessages) => this.maybeUpdateSummary(allMessages),
+        maybeUpdateSummary: (allMessages, memoryFrame) =>
+          this.maybeUpdateSummary(allMessages, memoryFrame),
       })
 
       if (result.content) {
         yield { type: 'text', data: { content: result.content } }
+      }
+      if (result.stopReason === 'complete') {
+        await this.maybeWriteBackMemory(result.content)
       }
       yield {
         type: 'done',
@@ -257,13 +499,19 @@ export class DzupAgent {
     const toolStats = createToolStatTracker()
     let llmCalls = 0
 
-    const finalizeRun = async (stopReason: 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'stuck') => {
+    const finalizeRun = async (
+      stopReason: 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'stuck',
+      content?: string,
+    ) => {
       emitStopReasonTelemetry(this.config, this.id, {
         stopReason,
         llmCalls,
         toolStats: toolStats.toArray(),
       })
-      await this.maybeUpdateSummary(allMessages)
+      await this.maybeUpdateSummary(allMessages, runState.memoryFrame)
+      if (stopReason === 'complete') {
+        await this.maybeWriteBackMemory(content ?? '')
+      }
     }
 
     for (let iteration = 0; iteration < runState.maxIterations; iteration++) {
@@ -308,7 +556,7 @@ export class DzupAgent {
 
       allMessages.push(fullResponse)
 
-      if (runState.budget) {
+      {
         const modelName = (runState.model as BaseChatModel & { model?: string }).model
         const realUsage = extractTokenUsage(fullResponse, modelName ?? undefined)
         const hasRealUsage = realUsage.inputTokens > 0 || realUsage.outputTokens > 0
@@ -323,9 +571,16 @@ export class DzupAgent {
               ),
               outputTokens: estimateTokens(chunks.join('')),
             }
-        const warnings = runState.budget.recordUsage(usage)
-        for (const warning of warnings) {
-          yield { type: 'budget_warning', data: { message: warning.message } }
+
+        // Forward usage to the token lifecycle plugin and user callback so the
+        // native streaming path mirrors the non-streaming fallback.
+        wrappedOnUsage?.(usage)
+
+        if (runState.budget) {
+          const warnings = runState.budget.recordUsage(usage)
+          for (const warning of warnings) {
+            yield { type: 'budget_warning', data: { message: warning.message } }
+          }
         }
       }
 
@@ -336,7 +591,7 @@ export class DzupAgent {
       }> | undefined
 
       if (!toolCalls || toolCalls.length === 0) {
-        await finalizeRun('complete')
+        await finalizeRun('complete', chunks.join(''))
         yield {
           type: 'done',
           data: {
@@ -369,6 +624,12 @@ export class DzupAgent {
         })
 
         allMessages.push(execution.message)
+        // Charge tool-result bytes against the token lifecycle plugin so
+        // the streaming path mirrors the non-streaming executor in its
+        // per-phase breakdown contributions.
+        if (tokenPlugin && execution.eventResult) {
+          tokenPlugin.trackPhase('tool-result', estimateTokens(execution.eventResult))
+        }
         yield {
           type: 'tool_result',
           data: { name: toolCall.name, result: execution.eventResult },
@@ -521,13 +782,20 @@ export class DzupAgent {
     const result = await this.generate(messages, generateOptions)
     handle._complete(result.content, {
       durationMs: undefined,
-      totalTokens: result.usage.totalInputTokens + result.usage.totalOutputTokens,
+      totalTokens: (result.usage.totalInputTokens ?? 0) + (result.usage.totalOutputTokens ?? 0),
+      // Surface the per-run memory frame on the public RunResult so callers
+      // can inspect which memory context was attached to this run. Only
+      // forward when defined (the field is optional on RunResult).
+      ...(result.memoryFrame !== undefined ? { memoryFrame: result.memoryFrame } : {}),
     })
   }
 
   private resolveModel(config: DzupAgentConfig): BaseChatModel {
+    const attachCapabilities = (model: BaseChatModel): BaseChatModel =>
+      attachStructuredOutputCapabilities(model, config.structuredOutputCapabilities)
+
     if (typeof config.model !== 'string') {
-      return config.model
+      return attachCapabilities(config.model)
     }
 
     if (!config.registry) {
@@ -537,10 +805,10 @@ export class DzupAgent {
     }
 
     if (MODEL_TIERS.has(config.model)) {
-      return config.registry.getModel(config.model as ModelTier)
+      return attachCapabilities(config.registry.getModel(config.model as ModelTier))
     }
 
-    return config.registry.getModelByName(config.model)
+    return attachCapabilities(config.registry.getModelByName(config.model))
   }
 
   private getTools(): StructuredToolInterface[] {
@@ -564,15 +832,31 @@ export class DzupAgent {
     return model
   }
 
-  private async prepareMessages(messages: BaseMessage[]): Promise<BaseMessage[]> {
+  private async prepareMessages(
+    messages: BaseMessage[],
+  ): Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }> {
     // Resolve instructions: static or merged with AGENTS.md
     const baseInstructions = await this.resolveInstructions()
 
+    // Apply phase-aware retention windowing when configured.
+    // No-op when config.messagePhase is unset.
+    const windowedMessages = await this.applyPhaseWindow(messages)
+
     // Load memory context (Arrow-budgeted or standard)
     let memoryContext: string | null = null
+    // Per-run memory frame — threaded explicitly through the run state instead
+    // of stored on the agent instance so concurrent generate() calls on the
+    // same agent cannot clobber each other's frame reference.
+    let memoryFrame: unknown = undefined
     if (this.config.memory && this.config.memoryScope && this.config.memoryNamespace) {
       try {
-        memoryContext = await this.memoryContextLoader.load(messages)
+        const result = await this.memoryContextLoader.load(windowedMessages)
+        memoryContext = result.context
+        // Gate: only retain frame when Arrow memory is explicitly configured.
+        // This keeps the default compression path untouched for non-Arrow agents.
+        if (this.config.arrowMemory || this.config.memoryProfile) {
+          memoryFrame = result.frame ?? null
+        }
       } catch {
         // Memory failures are non-fatal
       }
@@ -580,12 +864,47 @@ export class DzupAgent {
 
     // Context compression is handled by maybeUpdateSummary after generation.
     // summarizeAndTrim internally runs prune + repair + split + summarize.
-    return buildPreparedMessages({
+    const preparedMessages = buildPreparedMessages({
       baseInstructions,
       memoryContext,
       conversationSummary: this.conversationSummary,
-      messages,
+      messages: windowedMessages,
     })
+
+    return { messages: preparedMessages, memoryFrame }
+  }
+
+  /**
+   * Apply phase-aware retention windowing to the message list.
+   *
+   * When `config.messagePhase` is undefined, returns the messages unchanged
+   * (zero impact on the default path). Otherwise, uses
+   * {@link PhaseAwareWindowManager.findRetentionSplit} to compute a split
+   * index and returns only the retained tail portion.
+   *
+   * The PhaseAwareWindowManager import is dynamic to avoid any circular
+   * dependency risk and to keep phase-window code out of the hot path when
+   * the feature is disabled.
+   */
+  private async applyPhaseWindow(messages: BaseMessage[]): Promise<BaseMessage[]> {
+    if (!this.config.messagePhase) {
+      return messages
+    }
+
+    const targetKeep = this.config.messageConfig?.keepRecentMessages ?? 10
+
+    try {
+      const { PhaseAwareWindowManager } = await import('@dzupagent/context')
+      const manager = new PhaseAwareWindowManager()
+      const splitIdx = manager.findRetentionSplit(messages, targetKeep)
+      if (splitIdx <= 0) {
+        return messages
+      }
+      return messages.slice(splitIdx)
+    } catch {
+      // If dynamic import or windowing fails, fall back to the full message list.
+      return messages
+    }
   }
 
   /**
@@ -604,7 +923,10 @@ export class DzupAgent {
     return estimateConversationTokensForMessages(messages)
   }
 
-  private async maybeUpdateSummary(messages: BaseMessage[]): Promise<void> {
+  private async maybeUpdateSummary(
+    messages: BaseMessage[],
+    memoryFrame?: unknown,
+  ): Promise<void> {
     if (!shouldSummarize(messages, this.config.messageConfig)) return
 
     try {
@@ -617,7 +939,32 @@ export class DzupAgent {
         messages,
         this.conversationSummary,
         summaryModel,
-        this.config.messageConfig,
+        {
+          ...this.config.messageConfig,
+          ...(memoryFrame ? { memoryFrame } : {}),
+          onFallback: this.config.onFallback
+            ? (reason: string, before: number, after: number) => {
+                this.config.onFallback!(reason, before, after)
+                this.config.eventBus?.emit({
+                  type: 'agent:context_fallback',
+                  agentId: this.id,
+                  reason,
+                  before,
+                  after,
+                })
+              }
+            : this.config.eventBus
+              ? (reason: string, before: number, after: number) => {
+                  this.config.eventBus!.emit({
+                    type: 'agent:context_fallback',
+                    agentId: this.id,
+                    reason,
+                    before,
+                    after,
+                  })
+                }
+              : undefined,
+        },
       )
       this.conversationSummary = summary
     } catch {
@@ -651,6 +998,44 @@ export class DzupAgent {
     result: string,
   ): Promise<string> {
     return this.middlewareRuntime.transformToolResult(toolName, input, result)
+  }
+
+  /**
+   * P9 memory write-back. Persists the agent's final response content
+   * back to MemoryService after a successful run so memory becomes durable
+   * across calls without callers having to do it manually.
+   *
+   * No-op unless `memory`, `memoryNamespace`, `memoryScope` are all set,
+   * `memoryWriteBack !== false`, and `content` is non-empty.  Failures
+   * are swallowed — write-back must never throw.
+   */
+  private async maybeWriteBackMemory(content: string): Promise<void> {
+    if (
+      this.config.memoryWriteBack === false ||
+      !this.config.memory ||
+      !this.config.memoryNamespace ||
+      !this.config.memoryScope ||
+      !content
+    ) return
+    try {
+      const now = Date.now()
+      const key = now.toString()
+      await this.config.memory.put(
+        this.config.memoryNamespace,
+        this.config.memoryScope,
+        key,
+        {
+          text: content,
+          agentId: this.id,
+          timestamp: now,
+          ...(this.config.ttlMs !== undefined
+            ? { expiresAt: now + this.config.ttlMs }
+            : {}),
+        },
+      )
+    } catch {
+      // write-back failures are non-fatal
+    }
   }
 }
 
@@ -696,4 +1081,23 @@ export function extractJsonFromText(text: string): string {
 
   // 3. Last resort — return the trimmed text and let JSON.parse throw
   return trimmed
+}
+
+function emptyGenerateUsage(): GenerateResult['usage'] {
+  return {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    llmCalls: 0,
+  }
+}
+
+function mergeGenerateUsage(
+  left: GenerateResult['usage'],
+  right: GenerateResult['usage'],
+): GenerateResult['usage'] {
+  return {
+    totalInputTokens: left.totalInputTokens + right.totalInputTokens,
+    totalOutputTokens: left.totalOutputTokens + right.totalOutputTokens,
+    llmCalls: left.llmCalls + right.llmCalls,
+  }
 }

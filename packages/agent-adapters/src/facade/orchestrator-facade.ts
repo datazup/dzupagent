@@ -69,18 +69,15 @@ import { PolicyConformanceChecker } from '../policy/policy-conformance.js'
 import type { AdapterApprovalGate, ApprovalContext } from '../approval/adapter-approval.js'
 import type { AdapterGuardrails } from '../guardrails/adapter-guardrails.js'
 import { WorkspaceResolver } from '../dzupagent/workspace-resolver.js'
-import { loadDzupAgentConfig, getMaxMemoryTokens, getCodexMemoryStrategy } from '../dzupagent/config.js'
-import { DzupAgentFileLoader } from '../dzupagent/file-loader.js'
-import { DzupAgentMemoryLoader } from '../dzupagent/memory-loader.js'
-import { buildSystemPrompt } from '../skills/compilers/compiler-utils.js'
+import { loadDzupAgentConfig } from '../dzupagent/config.js'
+import { EnrichmentPipeline } from '../enrichment/enrichment-pipeline.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
   AgentCompletedEvent,
   AgentEvent,
+  AgentStreamEvent,
   AgentInput,
-  AgentMemoryRecalledEvent,
-  AgentSkillsCompiledEvent,
   DzupAgentPaths,
   TaskDescriptor,
   TaskRoutingStrategy,
@@ -97,6 +94,12 @@ function resolveRunFallbackProviderId(
     ?? preferredProvider
     ?? resolveFallbackProviderId(registry.listAdapters())
     ?? ('unknown' as AdapterProviderId)
+}
+
+function isProviderRawStreamEvent(
+  event: AgentStreamEvent,
+): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
+  return event.type === 'adapter:provider_raw'
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +215,8 @@ export interface ChatOptions {
   includeHistory?: boolean | undefined
   workingDirectory?: string | undefined
   systemPrompt?: string | undefined
+  /** Maximum turns / iterations */
+  maxTurns?: number | undefined
   /** Sampling temperature (0-1) */
   temperature?: number | undefined
   /** Maximum output tokens */
@@ -220,6 +225,17 @@ export interface ChatOptions {
   topP?: number | undefined
   /** Per-turn adapter timeout override (milliseconds) */
   timeoutMs?: number | undefined
+  /** When true and an approvalGate is configured, requires approval before execution. */
+  requireApproval?: boolean | undefined
+  /** Approval context metadata forwarded to the approval gate. */
+  approvalRunId?: string | undefined
+  /** Per-turn policy (overrides default policy if set). */
+  policy?: AdapterPolicy | undefined
+}
+
+export interface InteractionResponseOptions {
+  workflowId: string
+  provider?: AdapterProviderId | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +337,59 @@ export class OrchestratorFacade {
     return this._sessions
   }
 
+  private applyPostStreamWrappers<T extends AgentStreamEvent>(
+    eventStream: AsyncGenerator<T, void, undefined>,
+  ): AsyncGenerator<T, void, undefined> {
+    let wrapped = eventStream
+
+    if (this._costTracking) {
+      wrapped = this._costTracking.wrap(wrapped) as AsyncGenerator<T, void, undefined>
+    }
+
+    if (this._guardrails) {
+      wrapped = this._guardrails.wrap(wrapped) as AsyncGenerator<T, void, undefined>
+    }
+
+    return wrapped
+  }
+
+  private applyPolicyOverrides(
+    input: AgentInput,
+    preferredProvider: AdapterProviderId | undefined,
+    activePolicy: AdapterPolicy | undefined,
+  ): void {
+    if (!activePolicy) return
+
+    const targetProvider = preferredProvider ?? this._registry.listAdapters()[0]
+    if (!targetProvider) return
+
+    const compiled = this.compilePolicyWithConformance(targetProvider, activePolicy)
+    const adapter = this._registry.get(targetProvider)
+    if (adapter) {
+      adapter.configure(compiled.config)
+    }
+    if (Object.keys(compiled.inputOptions).length > 0) {
+      input.options = { ...input.options, ...compiled.inputOptions }
+    }
+    if (compiled.guardrails.maxIterations !== undefined && input.maxTurns === undefined) {
+      input.maxTurns = compiled.guardrails.maxIterations
+    }
+  }
+
+  private buildApprovalContext(
+    prompt: string,
+    providerId: AdapterProviderId | undefined,
+    approvalRunId: string | undefined,
+    tags?: string[] | undefined,
+  ): ApprovalContext {
+    return {
+      runId: approvalRunId ?? crypto.randomUUID(),
+      description: prompt.slice(0, 200),
+      providerId: providerId ?? ('auto' as AdapterProviderId),
+      tags,
+    }
+  }
+
   // -------------------------------------------------------------------------
   // run() — simplest API
   // -------------------------------------------------------------------------
@@ -387,26 +456,7 @@ export class OrchestratorFacade {
     }
 
     // Compile and enforce policy if one is specified
-    const activePolicy = options?.policy ?? this._defaultPolicy
-    if (activePolicy) {
-      const targetProvider = options?.preferredProvider ?? this._registry.listAdapters()[0]
-      if (targetProvider) {
-        const compiled = this.compilePolicyWithConformance(targetProvider, activePolicy)
-        // Merge compiled config into the target adapter
-        const adapter = this._registry.get(targetProvider)
-        if (adapter) {
-          adapter.configure(compiled.config)
-        }
-        // Merge compiled input options into the AgentInput
-        if (Object.keys(compiled.inputOptions).length > 0) {
-          input.options = { ...input.options, ...compiled.inputOptions }
-        }
-        // Apply guardrail hints (maxTurns override from policy)
-        if (compiled.guardrails.maxIterations !== undefined && input.maxTurns === undefined) {
-          input.maxTurns = compiled.guardrails.maxIterations
-        }
-      }
-    }
+    this.applyPolicyOverrides(input, options?.preferredProvider, options?.policy ?? this._defaultPolicy)
 
     // Execute with fallback through the registry
     let eventStream: AsyncGenerator<AgentEvent, void, undefined> =
@@ -415,24 +465,16 @@ export class OrchestratorFacade {
     // Bridge events to the event bus
     eventStream = this._bridge.bridge(eventStream)
 
-    // Wrap with cost tracking if enabled
-    if (this._costTracking) {
-      eventStream = this._costTracking.wrap(eventStream)
-    }
-
-    // Wrap with guardrails if configured
-    if (this._guardrails) {
-      eventStream = this._guardrails.wrap(eventStream)
-    }
+    eventStream = this.applyPostStreamWrappers(eventStream)
 
     // Wrap with approval gate if configured and requested
     if (this._approvalGate && options?.requireApproval) {
-      const approvalContext: ApprovalContext = {
-        runId: options.approvalRunId ?? crypto.randomUUID(),
-        description: prompt.slice(0, 200),
-        providerId: options.preferredProvider ?? ('auto' as AdapterProviderId),
-        tags: options.tags,
-      }
+      const approvalContext = this.buildApprovalContext(
+        prompt,
+        options?.preferredProvider,
+        options?.approvalRunId,
+        options?.tags,
+      )
       eventStream = this._approvalGate.guard(approvalContext, eventStream)
     }
 
@@ -641,6 +683,17 @@ export class OrchestratorFacade {
     prompt: string,
     options?: ChatOptions,
   ): AsyncGenerator<AgentEvent, void, undefined> {
+    for await (const event of this.chatWithRaw(prompt, options)) {
+      if (!isProviderRawStreamEvent(event)) {
+        yield event
+      }
+    }
+  }
+
+  async *chatWithRaw(
+    prompt: string,
+    options?: ChatOptions,
+  ): AsyncGenerator<AgentStreamEvent, void, undefined> {
     this.assertNotShutdown('chat')
     // Resolve or create workflow — auto-create if an external ID is given but
     // doesn't exist yet in the in-memory session registry (e.g. DB session IDs).
@@ -664,8 +717,15 @@ export class OrchestratorFacade {
       prompt,
       workingDirectory: options?.workingDirectory,
       systemPrompt: options?.systemPrompt,
+      maxTurns: options?.maxTurns,
       ...(Object.keys(adapterOptions).length > 0 && { options: adapterOptions }),
     }
+
+    if (this._dzupagentConfig) {
+      await this.applyDzupAgentEnrichment(input)
+    }
+
+    this.applyPolicyOverrides(input, options?.provider, options?.policy ?? this._defaultPolicy)
 
     const multiTurnOptions: MultiTurnOptions = {
       workflowId,
@@ -673,23 +733,35 @@ export class OrchestratorFacade {
       includeHistory: options?.includeHistory ?? true,
     }
 
-    let eventStream: AsyncGenerator<AgentEvent, void, undefined> =
-      this._sessions.executeMultiTurn(input, multiTurnOptions, this._registry)
+    let eventStream = this._sessions.executeMultiTurnWithRaw(input, multiTurnOptions, this._registry)
+    eventStream = this._bridge.bridgeWithRaw(eventStream, workflowId)
+    eventStream = this.applyPostStreamWrappers(eventStream)
 
-    // Bridge events to the event bus
-    eventStream = this._bridge.bridge(eventStream, workflowId)
-
-    // Wrap with cost tracking if enabled
-    if (this._costTracking) {
-      eventStream = this._costTracking.wrap(eventStream)
-    }
-
-    // Wrap with guardrails if configured
-    if (this._guardrails) {
-      eventStream = this._guardrails.wrap(eventStream)
+    if (this._approvalGate && options?.requireApproval) {
+      const approvalContext = this.buildApprovalContext(
+        prompt,
+        options?.provider,
+        options?.approvalRunId,
+      )
+      eventStream = this._approvalGate.guard(approvalContext, eventStream)
     }
 
     yield* eventStream
+  }
+
+  async respondInteraction(
+    interactionId: string,
+    answer: string,
+    options: InteractionResponseOptions,
+  ): Promise<boolean> {
+    this.assertNotShutdown('respondInteraction')
+    return await this._sessions.respondInteraction(
+      options.workflowId,
+      interactionId,
+      answer,
+      this._registry,
+      options.provider,
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -777,73 +849,20 @@ export class OrchestratorFacade {
 
     const paths = await this.resolveDzupAgentPaths()
     const dzupConfig = await loadDzupAgentConfig(paths)
+    const providerId =
+      this._registry.listAdapters()[0] ?? ('claude' as AdapterProviderId)
 
-    // --- Skills injection ---
-    if (!cfg.skipSkills) {
-      try {
-        const fileLoader = new DzupAgentFileLoader({ paths })
-        const bundles = await fileLoader.loadSkills()
-        if (bundles.length > 0) {
-          const skillPromptParts = bundles.map((bundle) => {
-            const content = buildSystemPrompt(bundle)
-            return `## Skill: ${bundle.bundleId}\n${content}`
-          })
-          const skillBlock = skillPromptParts.join('\n\n')
-          const existing = input.systemPrompt ?? ''
-          input.systemPrompt = existing
-            ? `${skillBlock}\n\n${existing}`
-            : skillBlock
-          const providerId = this._registry.listAdapters()[0] ?? ('claude' as AdapterProviderId)
-          const skillsCompiledEvent: AgentSkillsCompiledEvent = {
-            type: 'adapter:skills_compiled',
-            providerId,
-            timestamp: Date.now(),
-            skills: bundles.map(b => ({ skillId: b.bundleId, degraded: [], dropped: [] })),
-          }
-          // Adapter-layer event emitted directly on the bus (not via the bridge).
-          // Cast required because AgentSkillsCompiledEvent is not part of the core DzupEvent union.
-          this._eventBus.emit(skillsCompiledEvent as unknown as DzupEvent)
-        }
-      } catch {
-        // Best-effort — skill loading failure must not block the run
-      }
-    }
-
-    // --- Memory injection ---
-    if (!cfg.skipMemory) {
-      try {
-        // Determine which provider we are targeting for strategy selection
-        const providerId = this._registry.listAdapters()[0] ?? ('claude' as AdapterProviderId)
-        const memoryLoader = new DzupAgentMemoryLoader({
-          paths,
-          providerId,
-          maxTotalTokens: getMaxMemoryTokens(dzupConfig),
-          codexMemoryStrategy: getCodexMemoryStrategy(dzupConfig),
-          onRecalled: (entries, totalTokens) => {
-            const event: AgentMemoryRecalledEvent = {
-              type: 'adapter:memory_recalled',
-              providerId,
-              timestamp: Date.now(),
-              entries,
-              totalTokens,
-            }
-            this._eventBus.emit(event as unknown as DzupEvent)
-          },
-        })
-
-        const entries = await memoryLoader.loadEntries()
-        if (entries.length > 0) {
-          const snippets = entries.map((e) => e.content.trim()).join('\n\n')
-          const memoryBlock = `## Project Context\n\n${snippets}\n`
-          const existing = input.systemPrompt ?? ''
-          input.systemPrompt = existing
-            ? `${existing}\n\n${memoryBlock}`
-            : memoryBlock
-        }
-      } catch {
-        // Best-effort — memory loading failure must not block the run
-      }
-    }
+    await EnrichmentPipeline.apply(input, {
+      paths,
+      dzupConfig,
+      providerId,
+      skipSkills: cfg.skipSkills,
+      skipMemory: cfg.skipMemory,
+      // Adapter-layer events are emitted directly on the bus (not via the
+      // bridge). Cast required because these events are not part of the
+      // core DzupEvent union.
+      emitEvent: (event) => this._eventBus.emit(event as unknown as DzupEvent),
+    })
   }
 
   /** @internal Throws if the orchestrator has been shut down */

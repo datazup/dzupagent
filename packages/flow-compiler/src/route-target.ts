@@ -129,7 +129,7 @@ export function hasOnError(ast: FlowNode): boolean {
 
   const visit = (node: FlowNode): void => {
     if (found) return
-    if ((node as Record<string, unknown>).on_error !== undefined) {
+    if ((node as unknown as Record<string, unknown>).on_error !== undefined) {
       found = true
       return
     }

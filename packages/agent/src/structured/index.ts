@@ -3,6 +3,7 @@
  */
 export type {
   StructuredOutputStrategy,
+  StructuredOutputCapabilities,
   StructuredOutputConfig,
   StructuredOutputResult,
 } from './structured-output-types.js'
@@ -10,6 +11,7 @@ export type {
 export {
   generateStructured,
   detectStrategy,
+  resolveStructuredOutputCapabilities,
 } from './structured-output-engine.js'
 
 export type {

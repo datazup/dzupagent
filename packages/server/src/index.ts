@@ -14,6 +14,8 @@ export type { ServerRoutePlugin } from './route-plugin.js'
 
 // --- Routes ---
 export { createRunRoutes } from './routes/runs.js'
+export { createRunContextRoutes } from './routes/run-context.js'
+export type { TokenLifecycleLike, TokenLifecycleRegistry } from './routes/run-context.js'
 export { createAgentRoutes } from './routes/agents.js'
 export { createApprovalRoutes } from './routes/approval.js'
 export { createHumanContactRoutes } from './routes/human-contact.js'
@@ -52,12 +54,17 @@ export type {
   VectorSearchResult as DrizzleVectorSearchResult,
   VectorSearchOptions as DrizzleVectorSearchOptions,
 } from './persistence/postgres-stores.js'
-export { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors, deploymentHistory, a2aTasks, a2aTaskMessages, triggerConfigs, scheduleConfigs, runReflections, agentMailbox, agentClusters, clusterRoles, agentCatalog } from './persistence/drizzle-schema.js'
+export { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors, deploymentHistory, a2aTasks, a2aTaskMessages, triggerConfigs, scheduleConfigs, runReflections, agentMailbox, agentClusters, clusterRoles, agentCatalog, runTraces, traceSteps, apiKeys } from './persistence/drizzle-schema.js'
+export { PostgresApiKeyStore, hashApiKey, generateRawApiKey } from './persistence/api-key-store.js'
+export type { ApiKeyRecord, CreateApiKeyResult } from './persistence/api-key-store.js'
+export { createApiKeyRoutes } from './routes/api-keys.js'
+export type { ApiKeyRoutesConfig } from './routes/api-keys.js'
 
 // --- Vector (pgvector) ---
 export { vectorColumn } from './persistence/vector-column.js'
 export { cosineDistance, l2Distance, innerProduct, toVector } from './persistence/vector-ops.js'
 export { InMemoryRunTraceStore, computeStepDistribution } from './persistence/run-trace-store.js'
+export { DrizzleRunTraceStore } from './persistence/drizzle-run-trace-store.js'
 export { InMemoryBenchmarkRunStore } from './persistence/benchmark-run-store.js'
 export { InMemoryEvalRunStore } from './persistence/eval-run-store.js'
 export type {
@@ -255,9 +262,15 @@ export type { ScheduleRouteConfig } from './routes/schedules.js'
 export { InMemoryScheduleStore, DrizzleScheduleStore } from './schedules/schedule-store.js'
 export type { ScheduleStore, ScheduleRecord } from './schedules/schedule-store.js'
 export { createPersonaRoutes } from './routes/personas.js'
+export { createPromptRoutes } from './routes/prompts.js'
+export type { PromptRouteConfig } from './routes/prompts.js'
+export { InMemoryPromptStore } from './prompts/prompt-store.js'
+export type { PromptStore, PromptVersionRecord, PromptStatus } from './prompts/prompt-store.js'
 export type { PersonaRouteConfig } from './routes/personas.js'
 export { InMemoryPersonaStore } from './personas/persona-store.js'
 export type { PersonaStore, PersonaRecord } from './personas/persona-store.js'
+export { createPersonaStoreResolver } from './personas/persona-resolver.js'
+export type { PersonaStoreResolver } from './personas/persona-resolver.js'
 export { createPresetRoutes } from './routes/presets.js'
 export type { PresetRouteConfig } from './routes/presets.js'
 export { createReflectionRoutes } from './routes/reflections.js'

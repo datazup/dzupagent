@@ -13,6 +13,7 @@ import type { DzupEventBus } from '@dzupagent/core'
 import type {
   AdapterProviderId,
   AgentEvent,
+  AgentStreamEvent,
   AgentInput,
 } from '../types.js'
 import type { AdapterRegistry } from '../registry/adapter-registry.js'
@@ -53,6 +54,12 @@ export interface WorkflowSession {
   metadata: Record<string, unknown>
   /** Current active provider */
   activeProvider?: AdapterProviderId | undefined
+}
+
+function isProviderRawStreamEvent(
+  event: AgentStreamEvent,
+): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
+  return event.type === 'adapter:provider_raw'
 }
 
 export interface SessionRegistryConfig {
@@ -287,6 +294,18 @@ export class SessionRegistry {
     options: MultiTurnOptions,
     registry: AdapterRegistry,
   ): AsyncGenerator<AgentEvent, void, undefined> {
+    for await (const event of this.executeMultiTurnWithRaw(input, options, registry)) {
+      if (!isProviderRawStreamEvent(event)) {
+        yield event
+      }
+    }
+  }
+
+  async *executeMultiTurnWithRaw(
+    input: AgentInput,
+    options: MultiTurnOptions,
+    registry: AdapterRegistry,
+  ): AsyncGenerator<AgentStreamEvent, void, undefined> {
     const workflow = this.requireWorkflow(options.workflowId)
     const now = new Date()
     workflow.lastActiveAt = now
@@ -351,12 +370,25 @@ export class SessionRegistry {
       preferredProvider: targetProvider,
     }
 
-    const eventStream = registry.executeWithFallback(effectiveInput, task)
+    const registryWithOptionalRaw = registry as AdapterRegistry & {
+      executeWithFallbackWithRaw?: (
+        input: AgentInput,
+        task: { prompt: string; tags: string[]; preferredProvider: AdapterProviderId | undefined },
+      ) => AsyncGenerator<AgentStreamEvent, void, undefined>
+    }
+    const eventStream = registryWithOptionalRaw.executeWithFallbackWithRaw
+      ? registryWithOptionalRaw.executeWithFallbackWithRaw(effectiveInput, task)
+      : registry.executeWithFallback(effectiveInput, task)
 
     let resolvedProvider: AdapterProviderId | undefined = targetProvider
     const startMs = Date.now()
 
     for await (const event of eventStream) {
+      if (isProviderRawStreamEvent(event)) {
+        yield event
+        continue
+      }
+
       // Feed every event to the compressor for future turns
       compressor.recordEvent(event)
 
@@ -404,6 +436,30 @@ export class SessionRegistry {
       providerId: resolvedProvider,
       durationMs: Date.now() - startMs,
     })
+  }
+
+  async respondInteraction(
+    workflowId: string,
+    interactionId: string,
+    answer: string,
+    registry: AdapterRegistry,
+    provider?: AdapterProviderId,
+  ): Promise<boolean> {
+    const workflow = this.requireWorkflow(workflowId)
+    const orderedProviders = [
+      provider,
+      workflow.activeProvider,
+      ...workflow.providerSessions.keys(),
+    ].filter((value, index, array): value is AdapterProviderId =>
+      typeof value === 'string' && array.indexOf(value) === index,
+    )
+
+    for (const candidate of orderedProviders) {
+      const handled = await registry.respondInteraction(candidate, interactionId, answer)
+      if (handled) return true
+    }
+
+    return false
   }
 
   // -----------------------------------------------------------------------

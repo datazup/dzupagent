@@ -52,22 +52,22 @@ export interface TraceStepDistribution {
 
 export interface RunTraceStore {
   /** Start a new trace for a run */
-  startTrace(runId: string, agentId: string): void
+  startTrace(runId: string, agentId: string): Promise<void>
 
   /** Add a step to the trace */
-  addStep(runId: string, step: Omit<TraceStep, 'stepIndex'>): void
+  addStep(runId: string, step: Omit<TraceStep, 'stepIndex'>): Promise<void>
 
   /** Complete the trace */
-  completeTrace(runId: string): void
+  completeTrace(runId: string): Promise<void>
 
   /** Get the full trace */
-  getTrace(runId: string): RunTrace | null
+  getTrace(runId: string): Promise<RunTrace | null>
 
   /** Get a range of steps (for paginated replay) */
-  getSteps(runId: string, from: number, to: number): TraceStep[]
+  getSteps(runId: string, from: number, to: number): Promise<TraceStep[]>
 
   /** Delete a trace */
-  deleteTrace(runId: string): void
+  deleteTrace(runId: string): Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +136,7 @@ export class InMemoryRunTraceStore implements RunTraceStore {
     }
   }
 
-  startTrace(runId: string, agentId: string): void {
+  startTrace(runId: string, agentId: string): Promise<void> {
     if (!this.traces.has(runId)) {
       this.traceOrder.push(runId)
     }
@@ -148,13 +148,14 @@ export class InMemoryRunTraceStore implements RunTraceStore {
       totalSteps: 0,
     })
     this.enforceTraceLimit()
+    return Promise.resolve()
   }
 
-  addStep(runId: string, step: Omit<TraceStep, 'stepIndex'>): void {
+  addStep(runId: string, step: Omit<TraceStep, 'stepIndex'>): Promise<void> {
     const trace = this.traces.get(runId)
-    if (!trace) return
+    if (!trace) return Promise.resolve()
 
-    if (trace.steps.length >= this.maxSteps) return
+    if (trace.steps.length >= this.maxSteps) return Promise.resolve()
 
     const fullStep: TraceStep = {
       ...step,
@@ -163,34 +164,37 @@ export class InMemoryRunTraceStore implements RunTraceStore {
 
     trace.steps.push(fullStep)
     trace.totalSteps = trace.steps.length
+    return Promise.resolve()
   }
 
-  completeTrace(runId: string): void {
+  completeTrace(runId: string): Promise<void> {
     const trace = this.traces.get(runId)
-    if (!trace) return
+    if (!trace) return Promise.resolve()
     trace.completedAt = Date.now()
+    return Promise.resolve()
   }
 
-  getTrace(runId: string): RunTrace | null {
-    return this.traces.get(runId) ?? null
+  getTrace(runId: string): Promise<RunTrace | null> {
+    return Promise.resolve(this.traces.get(runId) ?? null)
   }
 
-  getSteps(runId: string, from: number, to: number): TraceStep[] {
+  getSteps(runId: string, from: number, to: number): Promise<TraceStep[]> {
     const trace = this.traces.get(runId)
-    if (!trace) return []
+    if (!trace) return Promise.resolve([])
 
     const clampedFrom = Math.max(0, from)
     const clampedTo = Math.min(trace.steps.length, to)
 
-    if (clampedFrom >= clampedTo) return []
+    if (clampedFrom >= clampedTo) return Promise.resolve([])
 
-    return trace.steps.slice(clampedFrom, clampedTo)
+    return Promise.resolve(trace.steps.slice(clampedFrom, clampedTo))
   }
 
-  deleteTrace(runId: string): void {
+  deleteTrace(runId: string): Promise<void> {
     this.traces.delete(runId)
     const idx = this.traceOrder.indexOf(runId)
     if (idx >= 0) this.traceOrder.splice(idx, 1)
+    return Promise.resolve()
   }
 
   private enforceTraceLimit(): void {

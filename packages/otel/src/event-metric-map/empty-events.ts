@@ -26,6 +26,72 @@ export const emptyEventMetricMap = {
     ),
   ],
 
+  // --- Agent context fallback telemetry ---
+  'agent:context_fallback': [
+    counter(
+      'dzip_agent_context_fallback_total',
+      'Total context fallback events (memory or compression truncation)',
+      ['agent_id', 'reason'],
+      (e) => {
+        const ev = asEvent<'agent:context_fallback'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId, reason: ev.reason } }
+      },
+    ),
+  ],
+  'agent:structured_schema_prepared': [
+    counter(
+      'dzip_agent_structured_schema_prepared_total',
+      'Total structured-output schema preparations',
+      ['agent_id', 'provider'],
+      (e) => {
+        const ev = asEvent<'agent:structured_schema_prepared'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId, provider: ev.provider } }
+      },
+    ),
+  ],
+  'agent:structured_native_rejected': [
+    counter(
+      'dzip_agent_structured_native_rejected_total',
+      'Total native structured-output schema rejections',
+      ['agent_id', 'provider', 'model'],
+      (e) => {
+        const ev = asEvent<'agent:structured_native_rejected'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId, provider: ev.provider, model: ev.model } }
+      },
+    ),
+  ],
+  'agent:structured_fallback_used': [
+    counter(
+      'dzip_agent_structured_fallback_used_total',
+      'Total structured-output fallbacks used after native rejection',
+      ['agent_id', 'provider', 'model', 'from', 'to'],
+      (e) => {
+        const ev = asEvent<'agent:structured_fallback_used'>(e)
+        return {
+          value: 1,
+          labels: {
+            agent_id: ev.agentId,
+            provider: ev.provider,
+            model: ev.model,
+            from: ev.from,
+            to: ev.to,
+          },
+        }
+      },
+    ),
+  ],
+  'agent:structured_validation_failed': [
+    counter(
+      'dzip_agent_structured_validation_failed_total',
+      'Total structured-output validation failures',
+      ['agent_id', 'provider', 'model'],
+      (e) => {
+        const ev = asEvent<'agent:structured_validation_failed'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId, provider: ev.provider, model: ev.model } }
+      },
+    ),
+  ],
+
   // --- Agent streaming and progress ---
   'agent:stream_delta': [
     counter(
@@ -192,6 +258,28 @@ export const emptyEventMetricMap = {
       (e) => {
         const ev = asEvent<'quality:adjusted'>(e)
         return { value: 1, labels: { adjustment: ev.adjustment, reversible: String(ev.reversible) } }
+      },
+    ),
+  ],
+
+  // --- Run outcome scoring (closed-loop self-improvement) ---
+  'run:scored': [
+    counter(
+      'dzip_run_scored_total',
+      'Total runs scored by the run outcome analyzer',
+      ['passed'],
+      (e) => {
+        const ev = asEvent<'run:scored'>(e)
+        return { value: 1, labels: { passed: String(ev.passed) } }
+      },
+    ),
+    histogram(
+      'dzip_run_scored_score',
+      'Aggregate run outcome score in [0,1]',
+      ['passed'],
+      (e) => {
+        const ev = asEvent<'run:scored'>(e)
+        return { value: ev.score, labels: { passed: String(ev.passed) } }
       },
     ),
   ],

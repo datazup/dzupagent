@@ -29,6 +29,8 @@
  */
 
 import type {
+  FlowDocumentV1,
+  FlowInputSpec,
   FlowNode,
   ValidationError,
   ValidationErrorCode,
@@ -119,6 +121,30 @@ export const flowNodeSchema: SchemaLike<FlowNode> = {
   },
 }
 
+/**
+ * Runtime schema for the canonical authored workflow document. Unlike
+ * `flowNodeSchema`, this validator enforces document-level invariants such as
+ * required workflow metadata and unique, present node ids.
+ */
+export const flowDocumentSchema: SchemaLike<FlowDocumentV1> = {
+  parse(value: unknown): FlowDocumentV1 {
+    const issues: SchemaIssue[] = []
+    const doc = validateFlowDocument(value, 'root', issues)
+    if (issues.length > 0 || doc === null) {
+      throw new SchemaValidationError(issues)
+    }
+    return doc
+  },
+  safeParse(value: unknown): SafeParseResult<FlowDocumentV1> {
+    const issues: SchemaIssue[] = []
+    const doc = validateFlowDocument(value, 'root', issues)
+    if (issues.length > 0 || doc === null) {
+      return { success: false, error: new SchemaValidationError(issues) }
+    }
+    return { success: true, data: doc }
+  },
+}
+
 // ---------------------------------------------------------------------------
 // FlowEdge schema
 //
@@ -188,6 +214,15 @@ export function validateFlowNodeShape(
   return issues.map(issueToValidationError)
 }
 
+export function validateFlowDocumentShape(
+  value: unknown,
+  basePath: string = 'root',
+): ValidationError[] {
+  const issues: SchemaIssue[] = []
+  validateFlowDocument(value, basePath, issues)
+  return issues.map(issueToValidationError)
+}
+
 function issueToValidationError(issue: SchemaIssue): ValidationError {
   // Best-effort nodeType recovery: when the issue path targets an AST node
   // whose `type` discriminator failed, we lose the original discriminator
@@ -199,6 +234,86 @@ function issueToValidationError(issue: SchemaIssue): ValidationError {
     code: issue.code,
     message: issue.message,
   }
+}
+
+// ---------------------------------------------------------------------------
+// FlowDocument walker
+// ---------------------------------------------------------------------------
+
+function validateFlowDocument(
+  value: unknown,
+  path: string,
+  issues: SchemaIssue[],
+): FlowDocumentV1 | null {
+  if (!isPlainObject(value)) {
+    issues.push({
+      path,
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `Expected workflow document object, received ${describeJsType(value)}`,
+    })
+    return null
+  }
+
+  const dsl = value['dsl']
+  if (dsl !== 'dzupflow/v1') {
+    issues.push({
+      path: joinPath(path, 'dsl'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `document.dsl must equal "dzupflow/v1", received ${describeJsType(dsl) === 'string' ? JSON.stringify(dsl) : describeJsType(dsl)}`,
+    })
+  }
+
+  const id = value['id']
+  if (typeof id !== 'string' || id.length === 0) {
+    issues.push({
+      path: joinPath(path, 'id'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'document.id is required (non-empty string)',
+    })
+  }
+
+  const version = value['version']
+  if (!Number.isInteger(version) || (version as number) <= 0) {
+    issues.push({
+      path: joinPath(path, 'version'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'document.version is required (positive integer)',
+    })
+  }
+
+  const title = validateOptionalStringField(value, path, 'title', issues)
+  const description = validateOptionalStringField(value, path, 'description', issues)
+  const tags = validateOptionalStringArrayField(value, path, 'tags', issues)
+  const meta = validateOptionalObjectField(value, path, 'meta', issues)
+  const inputs = validateOptionalInputs(value, path, issues)
+  const defaults = validateOptionalDefaults(value, path, issues)
+
+  const rootNode = validateFlowNode(value['root'], joinPath(path, 'root'), issues)
+  if (rootNode === null) return null
+  if (rootNode.type !== 'sequence') {
+    issues.push({
+      path: joinPath(path, 'root'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `document.root must be a sequence node, received ${rootNode.type}`,
+    })
+    return null
+  }
+
+  validateCanonicalNodeIds(rootNode, joinPath(path, 'root'), issues, new Map<string, string>())
+
+  const doc: FlowDocumentV1 = {
+    dsl: 'dzupflow/v1',
+    id: typeof id === 'string' ? id : '',
+    version: Number.isInteger(version) ? (version as number) : 0,
+    root: rootNode,
+  }
+  if (title !== undefined) doc.title = title
+  if (description !== undefined) doc.description = description
+  if (tags !== undefined) doc.tags = tags
+  if (meta !== undefined) doc.meta = meta
+  if (inputs !== undefined) doc.inputs = inputs
+  if (defaults !== undefined) doc.defaults = defaults
+  return doc
 }
 
 // ---------------------------------------------------------------------------
@@ -308,6 +423,7 @@ function validateSequence(
   path: string,
   issues: SchemaIssue[],
 ): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
   const nodes = validateNodeArray(obj['nodes'], `${path}.nodes`, issues)
   if (nodes === null) return null
   if (nodes.length === 0) {
@@ -317,7 +433,7 @@ function validateSequence(
       message: 'sequence.nodes must contain at least one node',
     })
   }
-  return { type: 'sequence', nodes }
+  return { type: 'sequence', ...common, nodes }
 }
 
 function validateAction(
@@ -325,6 +441,7 @@ function validateAction(
   path: string,
   issues: SchemaIssue[],
 ): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
   const toolRef = obj['toolRef']
   const input = obj['input']
   let ok = true
@@ -359,6 +476,7 @@ function validateAction(
   if (!ok) return null
   const node: FlowNode = {
     type: 'action',
+    ...common,
     toolRef: toolRef as string,
     input: input as Record<string, unknown>,
   }
@@ -371,6 +489,7 @@ function validateForEach(
   path: string,
   issues: SchemaIssue[],
 ): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
   const source = obj['source']
   const as = obj['as']
   let ok = true
@@ -402,6 +521,7 @@ function validateForEach(
   if (!ok) return null
   return {
     type: 'for_each',
+    ...common,
     source: source as string,
     as: as as string,
     body,
@@ -413,6 +533,7 @@ function validateBranch(
   path: string,
   issues: SchemaIssue[],
 ): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
   const condition = obj['condition']
   let ok = true
   if (typeof condition !== 'string' || condition.length === 0) {
@@ -440,6 +561,7 @@ function validateBranch(
   if (!ok) return null
   const node: FlowNode = {
     type: 'branch',
+    ...common,
     condition: condition as string,
     then: thenBody,
   }
@@ -452,6 +574,7 @@ function validateApproval(
   path: string,
   issues: SchemaIssue[],
 ): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
   const question = obj['question']
   let ok = true
   if (typeof question !== 'string' || question.length === 0) {
@@ -492,6 +615,7 @@ function validateApproval(
   if (!ok) return null
   const node: FlowNode = {
     type: 'approval',
+    ...common,
     question: question as string,
     onApprove,
   }
@@ -505,6 +629,7 @@ function validateClarification(
   path: string,
   issues: SchemaIssue[],
 ): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
   const question = obj['question']
   if (typeof question !== 'string' || question.length === 0) {
     issues.push({
@@ -546,7 +671,7 @@ function validateClarification(
       message: "clarification.choices is required (non-empty array) when expected='choice'",
     })
   }
-  const node: FlowNode = { type: 'clarification', question }
+  const node: FlowNode = { type: 'clarification', ...common, question }
   if (expected !== undefined) node.expected = expected
   if (choices !== undefined) node.choices = choices
   return node
@@ -557,6 +682,7 @@ function validatePersona(
   path: string,
   issues: SchemaIssue[],
 ): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
   const personaId = obj['personaId']
   let ok = true
   if (typeof personaId !== 'string' || personaId.length === 0) {
@@ -577,7 +703,7 @@ function validatePersona(
     })
   }
   if (!ok) return null
-  return { type: 'persona', personaId: personaId as string, body }
+  return { type: 'persona', ...common, personaId: personaId as string, body }
 }
 
 function validateRoute(
@@ -585,6 +711,7 @@ function validateRoute(
   path: string,
   issues: SchemaIssue[],
 ): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
   const strategy = obj['strategy']
   let ok = true
   if (strategy !== 'capability' && strategy !== 'fixed-provider') {
@@ -646,6 +773,7 @@ function validateRoute(
   if (!ok) return null
   const node: FlowNode = {
     type: 'route',
+    ...common,
     strategy: strategy as 'capability' | 'fixed-provider',
     body,
   }
@@ -659,6 +787,7 @@ function validateParallel(
   path: string,
   issues: SchemaIssue[],
 ): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
   const branchesRaw = obj['branches']
   if (!Array.isArray(branchesRaw)) {
     issues.push({
@@ -690,7 +819,7 @@ function validateParallel(
     }
     branches.push(branch)
   }
-  return { type: 'parallel', branches }
+  return { type: 'parallel', ...common, branches }
 }
 
 function validateComplete(
@@ -698,6 +827,7 @@ function validateComplete(
   path: string,
   issues: SchemaIssue[],
 ): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
   let result: string | undefined
   if ('result' in obj && obj['result'] !== undefined) {
     const r = obj['result']
@@ -710,7 +840,7 @@ function validateComplete(
       })
     }
   }
-  const node: FlowNode = { type: 'complete' }
+  const node: FlowNode = { type: 'complete', ...common }
   if (result !== undefined) node.result = result
   return node
 }
@@ -785,6 +915,322 @@ function validateFlowEdge(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function validateCommonNodeFields(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): {
+  id?: string
+  name?: string
+  description?: string
+  meta?: Record<string, unknown>
+} {
+  const fields: {
+    id?: string
+    name?: string
+    description?: string
+    meta?: Record<string, unknown>
+  } = {}
+
+  const id = validateOptionalStringField(obj, path, 'id', issues)
+  if (id !== undefined) fields.id = id
+
+  const name = validateOptionalStringField(obj, path, 'name', issues)
+  if (name !== undefined) fields.name = name
+
+  const description = validateOptionalStringField(obj, path, 'description', issues)
+  if (description !== undefined) fields.description = description
+
+  const meta = validateOptionalObjectField(obj, path, 'meta', issues)
+  if (meta !== undefined) fields.meta = meta
+
+  return fields
+}
+
+function validateOptionalStringField(
+  obj: Record<string, unknown>,
+  path: string,
+  key: string,
+  issues: SchemaIssue[],
+): string | undefined {
+  if (!(key in obj) || obj[key] === undefined) return undefined
+  const value = obj[key]
+  if (typeof value !== 'string') {
+    issues.push({
+      path: joinPath(path, key),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `${key} must be a string when present, received ${describeJsType(value)}`,
+    })
+    return undefined
+  }
+  return value
+}
+
+function validateOptionalStringArrayField(
+  obj: Record<string, unknown>,
+  path: string,
+  key: string,
+  issues: SchemaIssue[],
+): string[] | undefined {
+  if (!(key in obj) || obj[key] === undefined) return undefined
+  const value = obj[key]
+  if (Array.isArray(value) && value.every((v): v is string => typeof v === 'string')) {
+    return value
+  }
+  issues.push({
+    path: joinPath(path, key),
+    code: 'MISSING_REQUIRED_FIELD',
+    message: `${key} must be an array of strings when present`,
+  })
+  return undefined
+}
+
+function validateOptionalObjectField(
+  obj: Record<string, unknown>,
+  path: string,
+  key: string,
+  issues: SchemaIssue[],
+): Record<string, unknown> | undefined {
+  if (!(key in obj) || obj[key] === undefined) return undefined
+  const value = obj[key]
+  if (isPlainObject(value)) return value
+  issues.push({
+    path: joinPath(path, key),
+    code: 'MISSING_REQUIRED_FIELD',
+    message: `${key} must be an object when present, received ${describeJsType(value)}`,
+  })
+  return undefined
+}
+
+function validateOptionalInputs(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): FlowDocumentV1['inputs'] | undefined {
+  if (!('inputs' in obj) || obj['inputs'] === undefined) return undefined
+  const value = obj['inputs']
+  if (!isPlainObject(value)) {
+    issues.push({
+      path: joinPath(path, 'inputs'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `document.inputs must be an object when present, received ${describeJsType(value)}`,
+    })
+    return undefined
+  }
+
+  const inputs: NonNullable<FlowDocumentV1['inputs']> = {}
+  for (const [key, rawSpec] of Object.entries(value)) {
+    if (!isPlainObject(rawSpec)) {
+      issues.push({
+        path: joinPath(joinPath(path, 'inputs'), key),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'input spec must be an object',
+      })
+      continue
+    }
+
+    const type = rawSpec['type']
+    if (
+      type !== 'string'
+      && type !== 'number'
+      && type !== 'boolean'
+      && type !== 'object'
+      && type !== 'array'
+      && type !== 'any'
+    ) {
+      issues.push({
+        path: joinPath(joinPath(joinPath(path, 'inputs'), key), 'type'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'input spec.type must be one of string|number|boolean|object|array|any',
+      })
+      continue
+    }
+
+    const spec: NonNullable<FlowDocumentV1['inputs']>[string] = { type }
+    if ('required' in rawSpec && rawSpec['required'] !== undefined) {
+      if (typeof rawSpec['required'] === 'boolean') spec.required = rawSpec['required']
+      else {
+        issues.push({
+          path: joinPath(joinPath(joinPath(path, 'inputs'), key), 'required'),
+          code: 'MISSING_REQUIRED_FIELD',
+          message: 'input spec.required must be a boolean when present',
+        })
+      }
+    }
+    if ('description' in rawSpec && rawSpec['description'] !== undefined) {
+      if (typeof rawSpec['description'] === 'string') spec.description = rawSpec['description']
+      else {
+        issues.push({
+          path: joinPath(joinPath(joinPath(path, 'inputs'), key), 'description'),
+          code: 'MISSING_REQUIRED_FIELD',
+          message: 'input spec.description must be a string when present',
+        })
+      }
+    }
+    if ('default' in rawSpec && rawSpec['default'] !== undefined) {
+      spec.default = rawSpec['default'] as FlowInputSpec['default']
+    }
+    inputs[key] = spec
+  }
+  return inputs
+}
+
+function validateOptionalDefaults(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): FlowDocumentV1['defaults'] | undefined {
+  if (!('defaults' in obj) || obj['defaults'] === undefined) return undefined
+  const value = obj['defaults']
+  if (!isPlainObject(value)) {
+    issues.push({
+      path: joinPath(path, 'defaults'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `document.defaults must be an object when present, received ${describeJsType(value)}`,
+    })
+    return undefined
+  }
+
+  const defaults: NonNullable<FlowDocumentV1['defaults']> = {}
+  if ('personaRef' in value && value['personaRef'] !== undefined) {
+    if (typeof value['personaRef'] === 'string') defaults.personaRef = value['personaRef']
+    else {
+      issues.push({
+        path: joinPath(joinPath(path, 'defaults'), 'personaRef'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'defaults.personaRef must be a string when present',
+      })
+    }
+  }
+  if ('timeoutMs' in value && value['timeoutMs'] !== undefined) {
+    if (typeof value['timeoutMs'] === 'number' && Number.isFinite(value['timeoutMs']) && value['timeoutMs'] > 0) {
+      defaults.timeoutMs = value['timeoutMs']
+    } else {
+      issues.push({
+        path: joinPath(joinPath(path, 'defaults'), 'timeoutMs'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'defaults.timeoutMs must be a positive number when present',
+      })
+    }
+  }
+  if ('retry' in value && value['retry'] !== undefined) {
+    const retry = value['retry']
+    if (isPlainObject(retry)) {
+      const attempts = retry['attempts']
+      if (typeof attempts === 'number' && Number.isInteger(attempts) && attempts > 0) {
+        defaults.retry = { attempts }
+        const delayMs = retry['delayMs']
+        if (delayMs !== undefined) {
+          if (typeof delayMs === 'number' && Number.isFinite(delayMs) && delayMs >= 0) {
+            defaults.retry.delayMs = delayMs
+          } else {
+            issues.push({
+              path: joinPath(joinPath(joinPath(path, 'defaults'), 'retry'), 'delayMs'),
+              code: 'MISSING_REQUIRED_FIELD',
+              message: 'defaults.retry.delayMs must be a non-negative number when present',
+            })
+          }
+        }
+      } else {
+        issues.push({
+          path: joinPath(joinPath(joinPath(path, 'defaults'), 'retry'), 'attempts'),
+          code: 'MISSING_REQUIRED_FIELD',
+          message: 'defaults.retry.attempts must be a positive integer',
+        })
+      }
+    } else {
+      issues.push({
+        path: joinPath(joinPath(path, 'defaults'), 'retry'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'defaults.retry must be an object when present',
+      })
+    }
+  }
+
+  return Object.keys(defaults).length > 0 ? defaults : {}
+}
+
+function validateCanonicalNodeIds(
+  node: FlowNode,
+  path: string,
+  issues: SchemaIssue[],
+  seen: Map<string, string>,
+): void {
+  if (typeof node.id !== 'string' || node.id.length === 0) {
+    issues.push({
+      path: joinPath(path, 'id'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'canonical document nodes must define a non-empty id',
+    })
+  } else {
+    const priorPath = seen.get(node.id)
+    if (priorPath !== undefined) {
+      issues.push({
+        path: joinPath(path, 'id'),
+        code: 'DUPLICATE_NODE_ID',
+        message: `duplicate node id "${node.id}" first seen at ${priorPath}`,
+      })
+    } else {
+      seen.set(node.id, path)
+    }
+  }
+
+  switch (node.type) {
+    case 'sequence':
+      node.nodes.forEach((child, index) => {
+        validateCanonicalNodeIds(child, `${joinPath(path, 'nodes')}[${index}]`, issues, seen)
+      })
+      return
+    case 'for_each':
+      node.body.forEach((child, index) => {
+        validateCanonicalNodeIds(child, `${joinPath(path, 'body')}[${index}]`, issues, seen)
+      })
+      return
+    case 'branch':
+      node.then.forEach((child, index) => {
+        validateCanonicalNodeIds(child, `${joinPath(path, 'then')}[${index}]`, issues, seen)
+      })
+      node.else?.forEach((child, index) => {
+        validateCanonicalNodeIds(child, `${joinPath(path, 'else')}[${index}]`, issues, seen)
+      })
+      return
+    case 'approval':
+      node.onApprove.forEach((child, index) => {
+        validateCanonicalNodeIds(child, `${joinPath(path, 'onApprove')}[${index}]`, issues, seen)
+      })
+      node.onReject?.forEach((child, index) => {
+        validateCanonicalNodeIds(child, `${joinPath(path, 'onReject')}[${index}]`, issues, seen)
+      })
+      return
+    case 'persona':
+    case 'route':
+      node.body.forEach((child, index) => {
+        validateCanonicalNodeIds(child, `${joinPath(path, 'body')}[${index}]`, issues, seen)
+      })
+      return
+    case 'parallel':
+      node.branches.forEach((branch, branchIndex) => {
+        branch.forEach((child, childIndex) => {
+          validateCanonicalNodeIds(
+            child,
+            `${joinPath(path, 'branches')}[${branchIndex}][${childIndex}]`,
+            issues,
+            seen,
+          )
+        })
+      })
+      return
+    case 'action':
+    case 'clarification':
+    case 'complete':
+      return
+    default: {
+      const _exhaustive: never = node
+      void _exhaustive
+    }
+  }
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

@@ -5,6 +5,15 @@
  * Each adapter is tracked by its AdapterProviderId. Circuit breakers prevent
  * routing to unhealthy adapters, and the event bus provides unified
  * observability across all adapter operations.
+ *
+ * Productization note:
+ *   The `goose`, `crush`, and `gemini-sdk` providers are core-only and
+ *   NOT productized. They may be registered here for framework use but
+ *   are excluded from product-facing surfaces — see
+ *   `provider-catalog.ts` (`productIntegrated: false`) for the
+ *   authoritative policy and `getProductProviders()` helper. This
+ *   decision can be revisited to promote them to experimental / opt-in
+ *   later by flipping the `productIntegrated` flag.
  */
 
 import { CircuitBreaker, ForgeError } from '@dzupagent/core'
@@ -14,6 +23,7 @@ import type {
   AdapterProviderId,
   AgentCLIAdapter,
   AgentEvent,
+  AgentStreamEvent,
   AgentInput,
   HealthStatus,
   RoutingDecision,
@@ -21,8 +31,13 @@ import type {
   TaskRoutingStrategy,
   TokenUsage,
 } from '../types.js'
+import { getProviderCapabilities } from '../provider-catalog.js'
 
 import { TagBasedRouter } from './task-router.js'
+
+function isProviderRawStreamEvent(event: AgentStreamEvent): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
+  return event.type === 'adapter:provider_raw'
+}
 
 export interface AdapterRegistryConfig {
   /** Circuit breaker config applied to all adapters */
@@ -82,6 +97,42 @@ export class AdapterRegistry {
     return this
   }
 
+  /**
+   * Register only production (productIntegrated: true) adapters from the
+   * given array. Experimental adapters are silently skipped — use
+   * `registerExperimentalAdapters` with an explicit opt-in flag for those.
+   */
+  registerProductionAdapters(adapters: AgentCLIAdapter[]): this {
+    for (const adapter of adapters) {
+      const caps = getProviderCapabilities(adapter.providerId)
+      if (caps?.productIntegrated) {
+        this.register(adapter)
+      }
+    }
+    return this
+  }
+
+  /**
+   * Register experimental (productIntegrated: false) adapters, gated by an
+   * explicit non-empty opt-in flag string. Production adapters in the
+   * array are silently skipped — use `registerProductionAdapters` for those.
+   *
+   * Throws if the flag is missing or empty to prevent accidental
+   * registration of experimental providers in product surfaces.
+   */
+  registerExperimentalAdapters(adapters: AgentCLIAdapter[], flag: string): this {
+    if (!flag || flag.trim() === '') {
+      throw new Error('registerExperimentalAdapters requires a non-empty flag string opt-in')
+    }
+    for (const adapter of adapters) {
+      const caps = getProviderCapabilities(adapter.providerId)
+      if (caps && !caps.productIntegrated) {
+        this.register(adapter)
+      }
+    }
+    return this
+  }
+
   /** Unregister an adapter by provider ID. Returns true if it existed. */
   unregister(providerId: AdapterProviderId): boolean {
     const existed = this.adapters.has(providerId)
@@ -132,6 +183,18 @@ export class AdapterRegistry {
     return adapter
   }
 
+  async respondInteraction(
+    providerId: AdapterProviderId,
+    interactionId: string,
+    answer: string,
+  ): Promise<boolean> {
+    const adapter = this.adapters.get(providerId)
+    if (!adapter || typeof adapter.respondInteraction !== 'function') {
+      return false
+    }
+    return await adapter.respondInteraction(interactionId, answer)
+  }
+
   /** Get the best available adapter for a task using the active routing strategy. */
   getForTask(task: TaskDescriptor): { adapter: AgentCLIAdapter; decision: RoutingDecision } {
     const healthyIds = this.getHealthyProviderIds()
@@ -171,6 +234,17 @@ export class AdapterRegistry {
     input: AgentInput,
     task: TaskDescriptor,
   ): AsyncGenerator<AgentEvent, void, undefined> {
+    for await (const event of this.executeWithFallbackWithRaw(input, task)) {
+      if (!isProviderRawStreamEvent(event)) {
+        yield event
+      }
+    }
+  }
+
+  async *executeWithFallbackWithRaw(
+    input: AgentInput,
+    task: TaskDescriptor,
+  ): AsyncGenerator<AgentStreamEvent, void, undefined> {
     const healthyIds = this.getHealthyProviderIds()
     if (healthyIds.length === 0) {
       throw new ForgeError({
@@ -203,9 +277,13 @@ export class AdapterRegistry {
         })
 
         const startMs = Date.now()
-        const gen = adapter.execute(input)
+        const gen = adapter.executeWithRaw?.(input) ?? adapter.execute(input)
 
         for await (const event of gen) {
+          if (isProviderRawStreamEvent(event)) {
+            yield event
+            continue
+          }
           if (event.type === 'adapter:completed') {
             sawCompleted = true
             // Preserve token usage surfaced by the adapter so downstream

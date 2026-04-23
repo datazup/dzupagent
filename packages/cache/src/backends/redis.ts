@@ -10,6 +10,10 @@ interface RedisClientLike {
   set(key: string, value: string): Promise<unknown>
   del(...keys: string[]): Promise<number>
   scan(cursor: string | number, ...args: unknown[]): Promise<[string, string[]]>
+  zadd(key: string, score: number, member: string): Promise<unknown>
+  zrangebyscore(key: string, min: number | string, max: number | string): Promise<string[]>
+  zrem(key: string, ...members: string[]): Promise<number>
+  zcard(key: string): Promise<number>
 }
 
 /**
@@ -103,5 +107,26 @@ export class RedisCacheBackend implements CacheBackend {
       size: -1, // Redis size requires DBSIZE or key counting; return -1 to indicate unknown
       hitRate: total > 0 ? this.stats_.hits / total : 0,
     }
+  }
+
+  // --- sorted-set operations -------------------------------------------------
+  // Unlike get/set/delete/clear (which degrade silently to keep the cache
+  // path non-blocking), sorted-set ops surface errors so callers using the
+  // backend for indexing/provenance can decide how to handle failures.
+
+  async zadd(key: string, score: number, member: string): Promise<void> {
+    await this.client.zadd(this.prefixedKey(key), score, member)
+  }
+
+  async zrangebyscore(key: string, min: number, max: number): Promise<string[]> {
+    return await this.client.zrangebyscore(this.prefixedKey(key), min, max)
+  }
+
+  async zrem(key: string, member: string): Promise<void> {
+    await this.client.zrem(this.prefixedKey(key), member)
+  }
+
+  async zcard(key: string): Promise<number> {
+    return await this.client.zcard(this.prefixedKey(key))
   }
 }

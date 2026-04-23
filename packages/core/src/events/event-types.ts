@@ -130,6 +130,45 @@ export type DzupEvent =
   | { type: 'tool:latency'; toolName: string; durationMs: number; error?: string }
   | { type: 'agent:stop_reason'; agentId: string; reason: string; iterations: number; toolStats: ToolStatSummary[] }
   | { type: 'agent:stuck_detected'; agentId: string; reason: string; recovery: string; timestamp: number; repeatedTool?: string; escalationLevel?: number }
+  | { type: 'agent:context_fallback'; agentId: string; reason: string; before: number; after: number }
+  | {
+      type: 'agent:structured_schema_prepared'
+      agentId: string
+      schemaName: string
+      schemaHash: string
+      provider: string
+      topLevelType: string | null
+      propertyCount: number
+      requiredCount: number
+    }
+  | {
+      type: 'agent:structured_native_rejected'
+      agentId: string
+      schemaName: string
+      schemaHash: string
+      provider: string
+      model: string
+      message: string
+    }
+  | {
+      type: 'agent:structured_fallback_used'
+      agentId: string
+      schemaName: string
+      schemaHash: string
+      provider: string
+      model: string
+      from: 'native_provider'
+      to: 'text_json'
+    }
+  | {
+      type: 'agent:structured_validation_failed'
+      agentId: string
+      schemaName: string
+      schemaHash: string
+      provider: string
+      model: string
+      message: string
+    }
   // --- Delegation ---
   | { type: 'delegation:started'; parentRunId: string; targetAgentId: string; delegationId: string }
   | { type: 'delegation:completed'; parentRunId: string; targetAgentId: string; delegationId: string; durationMs: number; success: boolean }
@@ -228,8 +267,40 @@ export type DzupEvent =
   | { type: 'run:paused'; runId: string; agentId: string }
   | { type: 'run:resumed'; runId: string; agentId: string; resumeToken?: string; input?: unknown }
   | { type: 'run:cancelled'; runId: string; agentId: string; reason?: string }
+  | { type: 'run:halted:token-exhausted'; agentId: string; runId?: string; iterations: number; reason: 'token_exhausted' }
+  // --- Run outcome scoring (closed-loop self-improvement) ---
+  | {
+      type: 'run:scored'
+      runId: string
+      agentId?: string
+      /** Weighted aggregate score in the range [0, 1]. */
+      score: number
+      /** Whether the run is considered a pass under the configured threshold. */
+      passed: boolean
+      /** Per-scorer breakdown — name, raw score, pass flag, and reasoning. */
+      scorerBreakdown: Array<{
+        scorerName: string
+        score: number
+        pass: boolean
+        reasoning: string
+      }>
+      /** Event counts driving the score. */
+      metrics: {
+        totalEvents: number
+        toolCalls: number
+        toolErrors: number
+        errors: number
+        durationMs?: number
+      }
+      /** Epoch-ms when scoring completed. */
+      scoredAt: number
+    }
   // --- Mailbox ---
   | { type: 'mail:received'; message: { id: string; from: string; to: string; subject: string; body: Record<string, unknown>; createdAt: number } }
+  // --- API Key lifecycle ---
+  | { type: 'api-key:created'; id: string; ownerId: string; tier: string }
+  | { type: 'api-key:revoked'; id: string; ownerId: string }
+  | { type: 'api-key:validated'; id: string; ownerId: string; tier: string }
   // --- Flow Compiler (Wave 11 ADR §4) ---
   | { type: 'flow:compile_started'; compileId: string; inputKind: 'object' | 'json-string' }
   | { type: 'flow:compile_parsed'; compileId: string; astNodeType: string | null; errorCount: number }
@@ -237,6 +308,22 @@ export type DzupEvent =
   | { type: 'flow:compile_semantic_resolved'; compileId: string; resolvedCount: number; personaCount: number; errorCount: number }
   | { type: 'flow:compile_lowered'; compileId: string; target: 'skill-chain' | 'workflow-builder' | 'pipeline'; nodeCount: number; edgeCount: number; warningCount: number }
   | { type: 'flow:compile_completed'; compileId: string; target: 'skill-chain' | 'workflow-builder' | 'pipeline'; durationMs: number }
+  | {
+      type: 'flow:compile_result'
+      compileId: string
+      target: 'skill-chain' | 'workflow-builder' | 'pipeline'
+      artifact: unknown
+      warnings: Array<{ stage: 4; code: string; message: string; nodePath?: string }>
+      reasons: Array<{
+        code:
+          | 'SEQUENTIAL_ONLY'
+          | 'BRANCH_PRESENT'
+          | 'PARALLEL_PRESENT'
+          | 'SUSPEND_PRESENT'
+          | 'FOR_EACH_PRESENT'
+        message: string
+      }>
+    }
   | { type: 'flow:compile_failed'; compileId: string; stage: 1 | 2 | 3 | 4; errorCount: number; durationMs: number }
 
 /** Extract a specific event by its type discriminator */

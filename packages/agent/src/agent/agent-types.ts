@@ -11,7 +11,9 @@ import type {
   MemoryService,
   MessageManagerConfig,
   DzupEventBus,
+  StructuredOutputModelCapabilities,
 } from '@dzupagent/core'
+import type { ConversationPhase, FrozenSnapshot } from '@dzupagent/context'
 import type { ToolStat, StopReason } from './tool-loop.js'
 import type { StuckError } from './stuck-error.js'
 import type { GuardrailConfig } from '../guardrails/guardrail-types.js'
@@ -20,6 +22,7 @@ import type { ToolLoopLearningConfig, RunLearnings } from './tool-loop-learning.
 import type { ReflectionSummary } from '../reflection/reflection-types.js'
 import type { ReflectionAnalyzerConfig } from '../reflection/reflection-analyzer.js'
 import type { MailboxStore } from '../mailbox/types.js'
+import type { AgentLoopPlugin } from '../token-lifecycle-wiring.js'
 
 /** Configuration for creating a DzupAgent */
 export interface DzupAgentConfig {
@@ -31,6 +34,13 @@ export interface DzupAgentConfig {
   instructions: string
   /** Model to use — either a BaseChatModel instance, a ModelTier string, or a 'provider/model' string */
   model: BaseChatModel | ModelTier | string
+  /**
+   * Optional structured-output capability override for the resolved model.
+   *
+   * Use this when passing a direct BaseChatModel instance or other bypassed
+   * runtime surface that would otherwise rely on heuristic detection.
+   */
+  structuredOutputCapabilities?: StructuredOutputModelCapabilities
   /** Model registry for resolving tier/name strings */
   registry?: ModelRegistry
   /** Tools available to this agent */
@@ -43,8 +53,31 @@ export interface DzupAgentConfig {
   memoryScope?: Record<string, string>
   /** Memory namespace to use */
   memoryNamespace?: string
+  /**
+   * When true (default), the agent's response content is persisted to
+   * MemoryService after each successful run. Set to false to disable
+   * automatic write-back.
+   */
+  memoryWriteBack?: boolean
+  /**
+   * Optional TTL for written-back memory records, in milliseconds.
+   *
+   * When set, `maybeWriteBackMemory()` stamps each persisted record with an
+   * `expiresAt = Date.now() + ttlMs` marker so consumers (e.g.
+   * {@link buildFrozenSnapshot}) can filter out stale entries without a
+   * separate sweeper.  When unset, records never expire.
+   */
+  ttlMs?: number
   /** Message compression config */
   messageConfig?: MessageManagerConfig
+  /**
+   * When set, applies phase-aware message retention windowing before each
+   * prepareMessages() call. Uses PhaseAwareWindowManager.findRetentionSplit()
+   * to score and trim low-value messages for the given phase.
+   *
+   * Gate: no effect when unset (zero impact on default path).
+   */
+  messagePhase?: ConversationPhase
   /** Safety guardrails */
   guardrails?: GuardrailConfig
   /** Maximum tool-call iterations before forcing a response (default: 10) */
@@ -53,6 +86,12 @@ export interface DzupAgentConfig {
   description?: string
   /** Event bus for emitting telemetry and lifecycle events */
   eventBus?: DzupEventBus
+
+  /**
+   * Telemetry callback invoked when memory falls back or compression truncates.
+   * Receives a reason identifier plus before/after token counts.
+   */
+  onFallback?: (reason: string, before: number, after: number) => void
 
   /**
    * Optional tool stats tracker for injecting preferred-tool hints
@@ -86,6 +125,20 @@ export interface DzupAgentConfig {
    * - `'memory-heavy'` — 200 K budget, 50 % memory, 4 K reserve (knowledge-intensive)
    */
   memoryProfile?: MemoryProfile
+
+  /**
+   * Optional frozen memory snapshot.
+   *
+   * When set, the agent's memory context loader uses this pre-built snapshot
+   * on subsequent calls instead of reloading from the memory service, avoiding
+   * redundant loads for agents that share static knowledge.
+   *
+   * The snapshot is consulted via {@link FrozenSnapshot.isActive}; when active
+   * the loader returns the cached context and skips the memory service fetch.
+   * Callers are responsible for freezing the snapshot (typically on the first
+   * successful load) and thawing it when the underlying memory changes.
+   */
+  frozenSnapshot?: FrozenSnapshot
 
   /**
    * How instructions are resolved:
@@ -143,6 +196,18 @@ export interface DzupAgentConfig {
    * The mailbox instance is also exposed as `agent.mailbox` for external access.
    */
   mailbox?: AgentMailboxConfig
+
+  /**
+   * Optional token lifecycle plugin — wires auto-compression and halt
+   * behaviour into the default tool loop. Build with
+   * {@link createTokenLifecyclePlugin} from `../token-lifecycle-wiring`.
+   *
+   * When present, the plugin's `shouldHalt()` method is consulted after
+   * each LLM turn. A `true` return ends the loop with
+   * `stopReason: 'token_exhausted'` and emits a
+   * `run:halted:token-exhausted` event on `eventBus` (if configured).
+   */
+  tokenLifecyclePlugin?: AgentLoopPlugin
 }
 
 /** Configuration for enabling the inter-agent mailbox on a DzupAgent. */
@@ -177,6 +242,44 @@ export interface GenerateOptions {
   onUsage?: (usage: { model: string; inputTokens: number; outputTokens: number }) => void
   /** Current intent for per-intent tool ranking (passed to ToolStatsTracker) */
   intent?: string
+  /**
+   * Optional structured-output schema name override.
+   *
+   * Used by `generateStructured()` for schema hashing, telemetry, and provider
+   * diagnostics. When unset, the agent derives a stable default from `agentId`
+   * and `intent`.
+   */
+  schemaName?: string
+  /**
+   * Structured-output schema normalization target.
+   *
+   * - `openai` (default): strips unsupported constraints before native
+   *   structured-output calls and hashes the provider-safe schema.
+   * - `generic`: uses canonical JSON Schema without provider stripping.
+   */
+  schemaProvider?: 'generic' | 'openai'
+  /** Internal resume context — set by the server worker when re-enqueueing a paused run. */
+  _resume?: {
+    resumeToken?: string
+    checkpoint?: string
+    lastStateSeq?: number
+    input?: unknown
+  }
+}
+
+/**
+ * A single compression event captured during a run.
+ *
+ * Populated by the run engine when {@link ToolLoopConfig.onCompressed}
+ * fires (i.e. `maybeCompress` returned `compressed: true` and the loop
+ * adopted the shrunken history). `ts` is the epoch-millisecond
+ * timestamp at which the compression was observed.
+ */
+export interface CompressionLogEntry {
+  before: number
+  after: number
+  summary: string | null
+  ts: number
 }
 
 /** Result of a generate() call */
@@ -207,6 +310,22 @@ export interface GenerateResult {
    * Only present when `selfLearning.enabled` is true in the agent config.
    */
   learnings?: RunLearnings
+  /**
+   * Per-run memory frame snapshot captured during `prepareMessages()`.
+   * Threaded from the run state so observers (and the public `RunResult`)
+   * can inspect exactly which memory context was attached to this run.
+   * Opaque — the shape depends on the configured memory provider.
+   */
+  memoryFrame?: unknown
+  /**
+   * Log of compression events that fired during this run.
+   *
+   * Populated by the run engine's `onCompressed` wiring; only present when
+   * auto-compression triggered (i.e. `maybeCompress` returned
+   * `compressed: true` at least once). Entries are appended in the order
+   * compression was observed.
+   */
+  compressionLog?: CompressionLogEntry[]
 }
 
 /** A single streamed event from the agent */

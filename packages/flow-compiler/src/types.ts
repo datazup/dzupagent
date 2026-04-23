@@ -1,4 +1,5 @@
 import type { AsyncToolResolver, ToolResolver } from '@dzupagent/flow-ast'
+import type { ParseInput } from '@dzupagent/flow-ast'
 import type { DzupEventBus } from '@dzupagent/core'
 
 export interface CompilerOptions {
@@ -42,15 +43,55 @@ export interface AsyncPersonaResolver {
 
 export type CompilationTarget = 'skill-chain' | 'workflow-builder' | 'pipeline'
 
+export type CompilationStage = 1 | 2 | 3 | 4
+
+export interface CompilationDiagnostic {
+  stage: CompilationStage
+  code: string
+  message: string
+  nodePath?: string
+  suggestion?: string
+}
+
+export interface CompilationWarning {
+  stage: 4
+  code: string
+  message: string
+  nodePath?: string
+}
+
+export interface CompilationTargetReason {
+  code: 'SEQUENTIAL_ONLY' | 'BRANCH_PRESENT' | 'PARALLEL_PRESENT' | 'SUSPEND_PRESENT' | 'FOR_EACH_PRESENT'
+  message: string
+}
+
 export interface CompilationResult {
   target: CompilationTarget
   // The compiled artifact — typed as unknown here; each consumer casts to the right type
   artifact: unknown
-  warnings: string[]
+  warnings: CompilationWarning[]
+  reasons: CompilationTargetReason[]
 }
 
-export interface CompilationError {
-  stage: 1 | 2 | 3 | 4
-  message: string
-  nodePath?: string
+export type CompilationError = CompilationDiagnostic
+
+export interface CompileSuccess {
+  compileId: string
+  target: CompilationTarget
+  artifact: unknown
+  warnings: CompilationWarning[]
+  reasons: CompilationTargetReason[]
+}
+
+export interface CompileFailure {
+  compileId: string
+  errors: CompilationDiagnostic[]
+}
+
+export type CompileResult = CompileSuccess | CompileFailure
+
+export interface FlowCompiler {
+  compile(input: ParseInput): Promise<CompileSuccess | CompileFailure>
+  compileDocument(document: unknown): Promise<CompileSuccess | CompileFailure>
+  compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure>
 }

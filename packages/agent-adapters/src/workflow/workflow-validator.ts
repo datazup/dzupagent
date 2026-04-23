@@ -5,7 +5,7 @@
  * correctness before compilation.
  */
 
-import type { TemplateResolver } from './template-resolver.js'
+import type { WorkflowStepResolver } from './template-resolver.js'
 
 // ---------------------------------------------------------------------------
 // Types (re-declare the node union locally to avoid circular imports)
@@ -50,7 +50,7 @@ export interface ValidationResult {
  * - Unresolvable template references (warnings, since parallel steps may set them)
  */
 export class WorkflowValidator {
-  constructor(private readonly templateResolver: TemplateResolver) {}
+  constructor(private readonly templateResolver: WorkflowStepResolver) {}
 
   /**
    * Run all validations on the workflow nodes.

@@ -30,7 +30,16 @@ export type { ForgeErrorCode } from '../errors/error-codes.js'
 
 // --- LLM ---
 export { ModelRegistry } from '../llm/model-registry.js'
-export type { LLMProviderConfig, ModelTier, ModelSpec, ModelOverrides } from '../llm/model-config.js'
+export type {
+  KnownLLMProvider,
+  LLMProviderConfig,
+  LLMProviderName,
+  ModelTier,
+  ModelSpec,
+  ModelOverrides,
+  StructuredOutputStrategy,
+  StructuredOutputModelCapabilities,
+} from '../llm/model-config.js'
 export { invokeWithTimeout } from '../llm/invoke.js'
 export type { TokenUsage, InvokeOptions } from '../llm/invoke.js'
 
@@ -71,12 +80,18 @@ import { createContainer } from '../config/container.js'
 import { createEventBus } from '../events/event-bus.js'
 import type { DzupEventBus } from '../events/event-bus.js'
 import { ModelRegistry } from '../llm/model-registry.js'
+import type {
+  KnownLLMProvider,
+  LLMProviderConfig,
+  StructuredOutputModelCapabilities,
+} from '../llm/model-config.js'
 import type { ForgeContainer } from '../config/container.js'
+import { getProviderStructuredOutputDefaults } from '../llm/structured-output-capabilities.js'
 
 /** Minimal options required to bootstrap an agent. */
 export interface QuickAgentOptions {
-  /** LLM provider name (e.g. 'anthropic', 'openai'). */
-  provider: 'anthropic' | 'openai' | 'openrouter' | 'azure' | 'bedrock' | 'custom'
+  /** LLM provider name (e.g. 'anthropic', 'openai', or a custom gateway id). */
+  provider: LLMProviderConfig['provider']
   /** API key for the provider. */
   apiKey: string
   /** Optional base URL override (e.g. for proxies). */
@@ -89,6 +104,8 @@ export interface QuickAgentOptions {
   chatMaxTokens?: number
   /** Max tokens for codegen model. Default 8192. */
   codegenMaxTokens?: number
+  /** Optional provider-level structured-output capability override. */
+  structuredOutputCapabilities?: StructuredOutputModelCapabilities
 }
 
 /** Return type from {@link createQuickAgent}. */
@@ -101,13 +118,21 @@ export interface QuickAgentResult {
   registry: ModelRegistry
 }
 
-const PROVIDER_DEFAULTS: Record<string, { chat: string; codegen: string }> = {
+const PROVIDER_DEFAULTS: Record<KnownLLMProvider, { chat: string; codegen: string }> = {
   anthropic: { chat: 'claude-haiku-4-20250514', codegen: 'claude-sonnet-4-20250514' },
   openai: { chat: 'gpt-4o-mini', codegen: 'gpt-4o' },
   openrouter: { chat: 'anthropic/claude-haiku', codegen: 'anthropic/claude-sonnet' },
+  google: { chat: 'gemini-2.5-flash', codegen: 'gemini-2.5-pro' },
+  qwen: { chat: 'qwen-turbo', codegen: 'qwen-plus' },
   azure: { chat: 'gpt-4o-mini', codegen: 'gpt-4o' },
   bedrock: { chat: 'anthropic.claude-haiku', codegen: 'anthropic.claude-sonnet' },
   custom: { chat: 'default', codegen: 'default' },
+}
+
+function getQuickStartProviderDefaults(
+  provider: LLMProviderConfig['provider'],
+): { chat: string; codegen: string } {
+  return PROVIDER_DEFAULTS[provider as KnownLLMProvider] ?? PROVIDER_DEFAULTS['custom']
 }
 
 /**
@@ -118,7 +143,9 @@ const PROVIDER_DEFAULTS: Record<string, { chat: string; codegen: string }> = {
  * advanced setups, use the individual modules directly.
  */
 export function createQuickAgent(options: QuickAgentOptions): QuickAgentResult {
-  const defaults = PROVIDER_DEFAULTS[options.provider] ?? PROVIDER_DEFAULTS['custom']!
+  const defaults = getQuickStartProviderDefaults(options.provider)
+  const structuredOutputDefaults = options.structuredOutputCapabilities
+    ?? getProviderStructuredOutputDefaults(options.provider)
 
   const container = createContainer()
   const eventBus = createEventBus()
@@ -128,6 +155,7 @@ export function createQuickAgent(options: QuickAgentOptions): QuickAgentResult {
     provider: options.provider,
     apiKey: options.apiKey,
     ...(options.baseUrl ? { baseUrl: options.baseUrl } : {}),
+    ...(structuredOutputDefaults ? { structuredOutputDefaults } : {}),
     priority: 1,
     models: {
       chat: {

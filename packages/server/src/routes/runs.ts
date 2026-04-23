@@ -16,12 +16,13 @@
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { ForgeServerConfig } from '../app.js'
-import type { RunStatus, LogEntry } from '@dzupagent/core'
+import type { RunStatus, LogEntry, RunJournalEntry } from '@dzupagent/core'
 import { injectTraceContext } from '@dzupagent/core'
 import {
   ConcreteRunHandle,
   ForkLimitExceededError,
   CheckpointExpiredError,
+  InvalidRunStateError,
   StreamingRunHandle,
 } from '@dzupagent/agent'
 import { streamRunHandleToSSE } from '../streaming/sse-streaming-adapter.js'
@@ -137,14 +138,26 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
     const limit = parseInt(c.req.query('limit') ?? '50', 10)
     const offset = parseInt(c.req.query('offset') ?? '0', 10)
 
-    const runs = await runStore.list({
+    const listFilter = {
       agentId: agentId ?? undefined,
       status: status ?? undefined,
       limit: Math.min(limit, 100),
       offset,
-    })
+    }
 
-    return c.json({ data: runs, count: runs.length })
+    const runs = await runStore.list(listFilter)
+
+    // `total` reflects the full match count ignoring pagination, so UIs can
+    // render accurate pagination controls. Falls back to `runs.length` for
+    // stores that don't implement the optional `count()` method.
+    const total = typeof runStore.count === 'function'
+      ? await runStore.count({
+          ...(agentId !== undefined ? { agentId } : {}),
+          ...(status !== undefined ? { status } : {}),
+        })
+      : runs.length
+
+    return c.json({ data: runs, count: runs.length, total })
   })
 
   // GET /api/runs/:id — Get single run
@@ -162,7 +175,12 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
     if (!run) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Run not found' } }, 404)
     }
-    if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+    if (
+      run.status === 'completed'
+      || run.status === 'failed'
+      || run.status === 'cancelled'
+      || run.status === 'halted'
+    ) {
       return c.json({ error: { code: 'INVALID_STATE', message: `Cannot cancel run in ${run.status} state` } }, 400)
     }
 
@@ -194,6 +212,20 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
   })
 
   // POST /api/runs/:id/resume — Resume a paused or suspended run
+  //
+  // Resume semantics:
+  //   1. If `config.journal` is configured, the handler rehydrates a
+  //      ConcreteRunHandle from the journal, replays the last
+  //      `step_completed` checkpoint, and (if present) the most recent
+  //      `state_updated` entry. The journal handle's `resume()` appends a
+  //      `run_resumed` entry with idempotent resumeToken semantics.
+  //   2. If `config.runQueue` + `config.runExecutor` are configured, the
+  //      run is re-enqueued with `metadata._resume` carrying the checkpoint
+  //      sequence and user-supplied input so the executor can continue from
+  //      the last committed step.
+  //   3. When no journal is configured, the endpoint falls back to a
+  //      simple status transition + event emit (original behavior), so
+  //      existing deployments are unaffected.
   app.post('/:id/resume', async (c) => {
     const run = await runStore.get(c.req.param('id'))
     if (!run) {
@@ -216,16 +248,135 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
       // Empty body is acceptable for resume
     }
 
+    // --- Journal-backed rehydration path ---
+    let checkpoint: {
+      stepId: string
+      stepSeq: number
+      toolName?: string
+      completedAt: string
+    } | undefined
+    let lastStateSeq: number | undefined
+
+    if (config.journal) {
+      try {
+        const entries: RunJournalEntry[] = await config.journal.getAll(run.id)
+
+        // Find the most recent step_completed entry — that's the checkpoint
+        // from which the executor will continue its tool loop.
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const entry = entries[i]
+          if (entry && entry.type === 'step_completed') {
+            const data = entry.data as { stepId: string; toolName?: string }
+            checkpoint = {
+              stepId: data.stepId,
+              stepSeq: entry.seq,
+              completedAt: entry.ts,
+              ...(data.toolName !== undefined ? { toolName: data.toolName } : {}),
+            }
+            break
+          }
+        }
+
+        // Find the most recent state_updated entry so the executor can
+        // restore business state (message history, working memory, etc.).
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const entry = entries[i]
+          if (entry && entry.type === 'state_updated') {
+            lastStateSeq = entry.seq
+            break
+          }
+        }
+
+        // Rehydrate the RunHandle and append the run_resumed journal entry.
+        // `resume()` is idempotent on resumeToken — a repeated call with
+        // the same token is a silent no-op.
+        const handle = await ConcreteRunHandle.fromRunId(run.id, config.journal)
+        await handle.resume(input, resumeToken)
+      } catch (err) {
+        if (err instanceof InvalidRunStateError) {
+          return c.json({
+            error: { code: 'INVALID_STATE', message: err.message },
+          }, 400)
+        }
+        // Any other journal error (e.g. run not found in journal) is
+        // non-fatal — we degrade to the legacy path so callers that
+        // manage state outside the journal continue to work.
+      }
+    }
+
     await runStore.update(run.id, { status: 'running' })
+
+    // Add a structured log entry capturing the resume checkpoint so
+    // /runs/:id/logs and /runs/:id/trace expose the transition.
+    await runStore.addLog(run.id, {
+      level: 'info',
+      phase: 'resume',
+      message: checkpoint
+        ? `Resumed from step ${checkpoint.stepId} (seq ${checkpoint.stepSeq})`
+        : 'Resumed run',
+      data: {
+        ...(resumeToken !== undefined ? { resumeToken } : {}),
+        ...(checkpoint !== undefined ? { checkpoint } : {}),
+        ...(lastStateSeq !== undefined ? { lastStateSeq } : {}),
+        ...(input !== undefined ? { hasInput: true } : {}),
+      },
+    })
+
+    // Re-enqueue the run so the worker continues execution from the
+    // checkpoint. Without a queue the executor cannot be re-entered
+    // here; callers subscribing to `run:resumed` are expected to drive
+    // continuation themselves.
+    let queueAccepted: { jobId: string; priority: number } | undefined
+    if (config.runQueue && config.runExecutor) {
+      const priorityRaw = typeof (run.metadata ?? {})['priority'] === 'number'
+        ? ((run.metadata ?? {})['priority'] as number)
+        : 5
+      const priority = Number.isFinite(priorityRaw) ? Math.max(0, Math.floor(priorityRaw)) : 5
+
+      const resumedMetadata: Record<string, unknown> = {
+        ...(run.metadata ?? {}),
+        _resume: {
+          ...(resumeToken !== undefined ? { resumeToken } : {}),
+          ...(checkpoint !== undefined ? { checkpoint } : {}),
+          ...(lastStateSeq !== undefined ? { lastStateSeq } : {}),
+          ...(input !== undefined ? { input } : {}),
+        },
+      }
+
+      const job = await config.runQueue.enqueue({
+        runId: run.id,
+        agentId: run.agentId,
+        input: input ?? run.input,
+        metadata: resumedMetadata,
+        priority,
+      })
+      queueAccepted = { jobId: job.id, priority }
+    }
+
     eventBus.emit({
       type: 'run:resumed',
       runId: run.id,
       agentId: run.agentId,
       ...(resumeToken !== undefined ? { resumeToken } : {}),
-      ...(input !== undefined ? { input } : {}),
+      // Carry checkpoint info on `input` so downstream subscribers (worker,
+      // UI, metrics) can read the restore point without widening the event
+      // type. If the caller supplied an explicit `input`, that wins.
+      ...(input !== undefined
+        ? { input }
+        : checkpoint !== undefined
+          ? { input: { _resumeCheckpoint: checkpoint, ...(lastStateSeq !== undefined ? { _lastStateSeq: lastStateSeq } : {}) } }
+          : {}),
     })
 
-    return c.json({ data: { runId: run.id, status: 'running' as const } })
+    return c.json({
+      data: {
+        runId: run.id,
+        status: 'running' as const,
+        ...(checkpoint !== undefined ? { checkpoint } : {}),
+        ...(lastStateSeq !== undefined ? { lastStateSeq } : {}),
+        ...(queueAccepted !== undefined ? { queue: { accepted: true, ...queueAccepted } } : {}),
+      },
+    })
   })
 
   // POST /api/runs/:id/fork — Fork a run from a checkpoint step
@@ -317,6 +468,12 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
 
     const logs = await runStore.getLogs(run.id)
 
+    // If a traceStore is configured, include its structured step-by-step trace
+    // (awaited to support both sync InMemory and async Drizzle implementations).
+    const structuredTrace = config.traceStore
+      ? await config.traceStore.getTrace(run.id)
+      : null
+
     // Build usage summary
     const usage = {
       tokenUsage: run.tokenUsage ?? { input: 0, output: 0 },
@@ -351,6 +508,16 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
         usage,
         startedAt: run.startedAt,
         completedAt: run.completedAt,
+        ...(structuredTrace
+          ? {
+              trace: {
+                steps: structuredTrace.steps,
+                totalSteps: structuredTrace.totalSteps,
+                startedAt: structuredTrace.startedAt,
+                completedAt: structuredTrace.completedAt,
+              },
+            }
+          : {}),
       },
     })
   })
@@ -371,6 +538,29 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
 
     return streamSSE(c, async (stream) => {
       const handle = new StreamingRunHandle({ maxBufferSize: 100 })
+
+      // Emit a `run:memory-frame` SSE event directly if the current run has a
+      // memoryFrame snapshot stored on its metadata. Written directly to the
+      // SSE stream (bypassing StreamingRunHandle) so we can extend the event
+      // vocabulary without widening the closed StreamEvent union. Must be
+      // awaited BEFORE the `done` event is pushed so the memory frame arrives
+      // on the wire first.
+      const maybeEmitMemoryFrame = async (): Promise<void> => {
+        try {
+          const latest = await runStore.get(runId)
+          const memoryFrame = latest?.metadata != null
+            && typeof latest.metadata === 'object'
+            ? (latest.metadata as Record<string, unknown>)['memoryFrame']
+            : undefined
+          if (memoryFrame === undefined) return
+          await stream.writeSSE({
+            event: 'run:memory-frame',
+            data: JSON.stringify({ runId, memoryFrame }),
+          })
+        } catch {
+          // Non-fatal — memory frame emission is best-effort observability
+        }
+      }
 
       // Subscribe to bus events for this run and push into the handle
       const unsub = eventBus.onAny((event) => {
@@ -404,20 +594,24 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
             break
           }
           case 'agent:stream_done': {
-            handle.push({
-              type: 'done',
-              finalOutput: event.finalContent,
-            })
-            handle.complete()
+            const finalOutput = event.finalContent
+            void (async () => {
+              await maybeEmitMemoryFrame()
+              if (handle.status !== 'running') return
+              handle.push({ type: 'done', finalOutput })
+              handle.complete()
+            })()
             break
           }
           case 'agent:completed': {
             const completedEvent = event as { output?: string }
-            handle.push({
-              type: 'done',
-              finalOutput: typeof completedEvent.output === 'string' ? completedEvent.output : '',
-            })
-            handle.complete()
+            const finalOutput = typeof completedEvent.output === 'string' ? completedEvent.output : ''
+            void (async () => {
+              await maybeEmitMemoryFrame()
+              if (handle.status !== 'running') return
+              handle.push({ type: 'done', finalOutput })
+              handle.complete()
+            })()
             break
           }
           case 'agent:failed': {
@@ -438,10 +632,13 @@ export function createRunRoutes(config: ForgeServerConfig): Hono {
       const checkInterval = setInterval(() => { void (async () => {
         if (handle.status !== 'running') { clearInterval(checkInterval); return }
         const current = await runStore.get(runId)
-        if (!current || ['completed', 'failed', 'cancelled', 'rejected'].includes(current.status)) {
+        if (!current || ['completed', 'failed', 'cancelled', 'rejected', 'halted'].includes(current.status)) {
           if (handle.status === 'running') {
-            handle.push({ type: 'done', finalOutput: '' })
-            handle.complete()
+            await maybeEmitMemoryFrame()
+            if (handle.status === 'running') {
+              handle.push({ type: 'done', finalOutput: '' })
+              handle.complete()
+            }
           }
           clearInterval(checkInterval)
         }

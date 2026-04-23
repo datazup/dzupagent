@@ -26,10 +26,23 @@ import { lowerSkillChain } from './lower/lower-skill-chain.js'
 import { lowerPipelineFlat } from './lower/lower-pipeline-flat.js'
 import { lowerPipelineLoop } from './lower/lower-pipeline-loop.js'
 import { hasOnError } from './route-target.js'
+import { prepareFlowInputFromDocument, prepareFlowInputFromDsl } from './authoring-input.js'
+import { compileTextInput, isFlowDocumentJson } from './cli-input.js'
 
-import type { CompilerOptions, CompilationResult, CompilationError } from './types.js'
+import type {
+  CompilerOptions,
+  CompilationError,
+  CompilationTarget,
+  CompilationTargetReason,
+  CompilationWarning,
+  CompileFailure,
+  FlowCompiler,
+  CompileSuccess,
+} from './types.js'
 
 export * from './types.js'
+export { prepareFlowInputFromDocument, prepareFlowInputFromDsl } from './authoring-input.js'
+export { compileTextInput, isFlowDocumentJson } from './cli-input.js'
 export { validateShape } from './stages/shape-validate.js'
 export { semanticResolve } from './stages/semantic.js'
 export type { SemanticOptions, SemanticResult } from './stages/semantic.js'
@@ -40,9 +53,6 @@ export type { ParseInput } from '@dzupagent/flow-ast'
 // ---------------------------------------------------------------------------
 // Compiler factory
 // ---------------------------------------------------------------------------
-
-export type CompileSuccess = CompilationResult & { compileId: string }
-export type CompileFailure = { errors: CompilationError[]; compileId: string }
 
 // Flow compiler event shapes are part of the canonical `DzupEvent` union in
 // `@dzupagent/core` (Wave 11 ADR §4). We narrow to the relevant subset here
@@ -86,9 +96,7 @@ const NOOP_EMIT: (_e: FlowCompileEvent) => void = () => {
  * @throws {Error} if `opts.forwardInnerEvents === true` and `opts.eventBus`
  *   is not supplied. Construct-time throw, never at compile time.
  */
-export function createFlowCompiler(opts: CompilerOptions): {
-  compile(input: ParseInput): Promise<CompileSuccess | CompileFailure>
-} {
+export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
   if (opts.forwardInnerEvents === true && opts.eventBus === undefined) {
     throw new Error(
       'flow-compiler: forwardInnerEvents=true requires an eventBus — ' +
@@ -104,8 +112,7 @@ export function createFlowCompiler(opts: CompilerOptions): {
       ? ((bus: DzupEventBus) => (e: FlowCompileEvent) => bus.emit(e))(opts.eventBus)
       : NOOP_EMIT
 
-  return {
-    async compile(input: ParseInput): Promise<CompileSuccess | CompileFailure> {
+  async function compile(input: ParseInput): Promise<CompileSuccess | CompileFailure> {
       const compileId = crypto.randomUUID()
       const startedAt = Date.now()
 
@@ -122,8 +129,9 @@ export function createFlowCompiler(opts: CompilerOptions): {
 
       const stage1Errors: CompilationError[] = parseResult.errors.map((e) => ({
         stage: 1 as const,
+        code: e.code,
         message: e.message,
-        nodePath: e.pointer.length > 0 ? e.pointer : undefined,
+        nodePath: jsonPointerToNodePath(e.pointer),
       }))
 
       emit({
@@ -153,6 +161,7 @@ export function createFlowCompiler(opts: CompilerOptions): {
 
       const stage2Errors: CompilationError[] = shapeErrors.map((e) => ({
         stage: 2 as const,
+        code: e.code,
         message: e.message,
         nodePath: e.nodePath,
       }))
@@ -201,8 +210,10 @@ export function createFlowCompiler(opts: CompilerOptions): {
       if (semanticResult.errors.length > 0) {
         const stage3Errors: CompilationError[] = semanticResult.errors.map((e) => ({
           stage: 3 as const,
+          code: e.code,
           message: e.message,
           nodePath: e.nodePath,
+          ...extractSuggestionFromMessage(e.message),
         }))
         emit({
           type: 'flow:compile_failed',
@@ -219,7 +230,7 @@ export function createFlowCompiler(opts: CompilerOptions): {
       // -----------------------------------------------------------------------
       // Stage 4: Route + lower
       // -----------------------------------------------------------------------
-      const { target } = routeTarget(ast)
+      const { target, bitmask } = routeTarget(ast)
 
       // Stage 4 defense-in-depth: skill-chain target must not carry on_error.
       // validateShape (stage 2) already catches this via OI-4, but if a caller
@@ -227,6 +238,7 @@ export function createFlowCompiler(opts: CompilerOptions): {
       if (target === 'skill-chain' && hasOnError(ast)) {
         const stage4Error: CompilationError = {
           stage: 4,
+          code: 'UNSUPPORTED_FIELD',
           message: 'on_error is only legal in pipeline-targeted flows',
           nodePath: 'root',
         }
@@ -277,8 +289,41 @@ export function createFlowCompiler(opts: CompilerOptions): {
         durationMs: Date.now() - startedAt,
       })
 
-      return { target, artifact, warnings, compileId }
-    },
+      return {
+        target,
+        artifact,
+        warnings: toCompilationWarnings(warnings),
+        reasons: targetReasons(target, bitmask),
+        compileId,
+      }
+  }
+
+  async function compileDocument(document: unknown): Promise<CompileSuccess | CompileFailure> {
+    const prepared = prepareFlowInputFromDocument(document)
+    if (!prepared.ok) {
+      return {
+        compileId: crypto.randomUUID(),
+        errors: prepared.errors,
+      }
+    }
+    return compile(prepared.flowInput)
+  }
+
+  async function compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure> {
+    const prepared = prepareFlowInputFromDsl(source)
+    if (!prepared.ok) {
+      return {
+        compileId: crypto.randomUUID(),
+        errors: prepared.errors,
+      }
+    }
+    return compile(prepared.flowInput)
+  }
+
+  return {
+    compile,
+    compileDocument,
+    compileDsl,
   }
 }
 
@@ -308,4 +353,78 @@ function countArtifact(
     nodeCount: Array.isArray(obj.nodes) ? obj.nodes.length : 0,
     edgeCount: Array.isArray(obj.edges) ? obj.edges.length : 0,
   }
+}
+
+function jsonPointerToNodePath(pointer: string): string | undefined {
+  if (pointer.length === 0) return 'root'
+
+  const parts = pointer
+    .split('/')
+    .slice(1)
+    .map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'))
+
+  let path = 'root'
+  for (const part of parts) {
+    if (/^\d+$/.test(part)) {
+      path += `[${part}]`
+    } else {
+      path += `.${part}`
+    }
+  }
+  return path
+}
+
+function extractSuggestionFromMessage(message: string): { suggestion?: string } {
+  const match = /Did you mean:\s*"([^"]+)"/.exec(message)
+  return match ? { suggestion: match[1] } : {}
+}
+
+function toCompilationWarnings(warnings: string[]): CompilationWarning[] {
+  return warnings.map((message) => ({
+    stage: 4 as const,
+    code: 'LOWERING_WARNING',
+    message,
+  }))
+}
+
+function targetReasons(
+  target: CompilationTarget,
+  bitmask: number,
+): CompilationTargetReason[] {
+  const reasons: CompilationTargetReason[] = []
+
+  if (bitmask === 0 && target === 'skill-chain') {
+    reasons.push({
+      code: 'SEQUENTIAL_ONLY',
+      message: 'No branching, suspend, or loop features were detected; routed to skill-chain.',
+    })
+    return reasons
+  }
+
+  if ((bitmask & (1 << 0)) !== 0) {
+    reasons.push({
+      code: 'BRANCH_PRESENT',
+      message: 'Branch control flow is present; skill-chain is not sufficient.',
+    })
+  }
+  if ((bitmask & (1 << 1)) !== 0) {
+    reasons.push({
+      code: 'PARALLEL_PRESENT',
+      message: 'Parallel control flow is present; graph-style lowering is required.',
+    })
+  }
+  if ((bitmask & (1 << 2)) !== 0) {
+    reasons.push({
+      code: 'SUSPEND_PRESENT',
+      message: 'Suspend-capable nodes are present; routed beyond skill-chain.',
+    })
+  }
+  if ((bitmask & (1 << 3)) !== 0) {
+    reasons.push({
+      code: 'FOR_EACH_PRESENT',
+      message: 'Loop semantics are present; routed to pipeline.',
+    })
+  }
+
+  return reasons
 }

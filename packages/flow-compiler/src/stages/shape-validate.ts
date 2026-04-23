@@ -173,7 +173,7 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
 // ---------------------------------------------------------------------------
 
 function walkOnError(node: FlowNode, path: string, errors: ValidationError[]): void {
-  if ((node as Record<string, unknown>).on_error !== undefined) {
+  if ((node as unknown as Record<string, unknown>).on_error !== undefined) {
     errors.push({
       nodeType: node.type,
       nodePath: path,

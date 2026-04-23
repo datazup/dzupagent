@@ -31,7 +31,8 @@ export function createRunTraceRoutes(config: RunTraceRouteConfig): Hono {
       )
     }
 
-    const trace = traceStore.getTrace(runId)
+    // Await to support both sync (InMemory) and async (Drizzle) implementations.
+    const trace = await traceStore.getTrace(runId)
     if (!trace) {
       return c.json(
         { error: { code: 'NOT_FOUND', message: 'Trace not found for this run' } },
@@ -54,7 +55,7 @@ export function createRunTraceRoutes(config: RunTraceRouteConfig): Hono {
         )
       }
 
-      const steps = traceStore.getSteps(runId, from, to)
+      const steps = await traceStore.getSteps(runId, from, to)
       const distribution = computeStepDistribution(steps)
 
       return c.json({

@@ -29,6 +29,9 @@ export interface RetryPolicy {
   retryableErrors?: Array<string | RegExp>
 }
 
+/** Merge strategy for parallel step groups. */
+export type ParallelMergeStrategy = 'merge-objects' | 'last-wins'
+
 export interface SkillChainStep {
   /** Name of the skill to execute at this step. */
   skillName: string
@@ -52,6 +55,14 @@ export interface SkillChainStep {
   timeoutMs?: number
   /** Per-step retry policy with exponential backoff. */
   retryPolicy?: RetryPolicy
+  /**
+   * When set, this step is a parallel group. `skillName` is a synthetic
+   * key ("parallel:<a,b,...>") and actual execution runs all listed skill IDs
+   * concurrently via Promise.all, merging results according to `mergeStrategy`.
+   */
+  parallelSkills?: string[]
+  /** How to merge parallel sub-skill results. Defaults to 'merge-objects'. */
+  mergeStrategy?: ParallelMergeStrategy
 }
 
 export interface SkillChain {
@@ -116,6 +127,30 @@ export class SkillChainBuilder {
   /** Add a step that suspends for human-in-the-loop review before executing. */
   stepSuspend(skillName: string, opts?: Omit<SkillChainStep, 'skillName' | 'suspendBefore'>): this {
     this._steps.push({ skillName, suspendBefore: true, ...opts })
+    return this
+  }
+
+  /**
+   * Add a parallel group step. All listed skill IDs execute concurrently and
+   * their results are merged into shared state.
+   */
+  parallel(
+    skillIds: string[],
+    opts?: {
+      mergeStrategy?: ParallelMergeStrategy
+      stateTransformer?: (state: Record<string, unknown>) => Record<string, unknown>
+    },
+  ): this {
+    if (skillIds.length === 0) {
+      throw new Error('parallel() requires at least one skill ID')
+    }
+    const syntheticName = `parallel:${skillIds.join(',')}`
+    this._steps.push({
+      skillName: syntheticName,
+      parallelSkills: skillIds,
+      ...(opts?.mergeStrategy !== undefined && { mergeStrategy: opts.mergeStrategy }),
+      ...(opts?.stateTransformer !== undefined && { stateTransformer: opts.stateTransformer }),
+    })
     return this
   }
 

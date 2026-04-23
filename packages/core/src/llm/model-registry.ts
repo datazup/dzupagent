@@ -7,6 +7,7 @@ import type {
   ModelOverrides,
   ModelSpec,
   ModelFactory,
+  StructuredOutputModelCapabilities,
 } from './model-config.js'
 import { CircuitBreaker } from './circuit-breaker.js'
 import type { CircuitBreakerConfig } from './circuit-breaker.js'
@@ -15,6 +16,21 @@ import { isTransientError } from './retry.js'
 import type { RegistryMiddleware } from './registry-middleware.js'
 import type { EmbeddingRegistry } from './embedding-registry.js'
 import { createDefaultEmbeddingRegistry } from './embedding-registry.js'
+import {
+  attachStructuredOutputCapabilities,
+  getProviderStructuredOutputDefaults,
+  normalizeStructuredOutputCapabilities,
+} from './structured-output-capabilities.js'
+
+function resolveStructuredOutputCapabilities(
+  provider: LLMProviderConfig,
+  spec: ModelSpec,
+): StructuredOutputModelCapabilities | undefined {
+  const capabilities = spec.structuredOutput
+    ?? provider.structuredOutputDefaults
+    ?? getProviderStructuredOutputDefaults(provider.provider)
+  return capabilities ? normalizeStructuredOutputCapabilities(capabilities) : undefined
+}
 
 /**
  * Returns true for OpenAI reasoning models that only support the default
@@ -119,7 +135,12 @@ function defaultModelFactory(
     case 'bedrock':
     case 'custom':
       throw new Error(`Provider "${provider.provider}" requires a custom ModelFactory`)
+
+    default:
+      throw new Error(`Provider "${provider.provider}" requires a custom ModelFactory`)
   }
+
+  throw new Error(`Provider "${provider.provider}" requires a custom ModelFactory`)
 }
 
 /**
@@ -151,6 +172,15 @@ export class ModelRegistry {
 
   /** Pre-loaded embedding model registry */
   readonly embeddings: EmbeddingRegistry = createDefaultEmbeddingRegistry()
+
+  private decorateStructuredOutputCapabilities(
+    model: BaseChatModel,
+    provider: LLMProviderConfig,
+    spec: ModelSpec,
+  ): BaseChatModel {
+    const capabilities = resolveStructuredOutputCapabilities(provider, spec)
+    return attachStructuredOutputCapabilities(model, capabilities)
+  }
 
   /** Register a provider with model tier mappings */
   addProvider(config: LLMProviderConfig): this {
@@ -189,7 +219,11 @@ export class ModelRegistry {
     for (const provider of this.providers) {
       const spec = provider.models[tier]
       if (spec) {
-        return this.factory(provider, spec, overrides)
+        return this.decorateStructuredOutputCapabilities(
+          this.factory(provider, spec, overrides),
+          provider,
+          spec,
+        )
       }
     }
     throw new Error(
@@ -215,7 +249,11 @@ export class ModelRegistry {
     if (!spec) {
       throw new Error(`Provider "${providerName}" has no model for tier "${tier}"`)
     }
-    return this.factory(provider, spec, overrides)
+    return this.decorateStructuredOutputCapabilities(
+      this.factory(provider, spec, overrides),
+      provider,
+      spec,
+    )
   }
 
   /**
@@ -229,7 +267,11 @@ export class ModelRegistry {
     for (const provider of this.providers) {
       for (const spec of Object.values(provider.models)) {
         if (spec && spec.name === modelName) {
-          return this.factory(provider, spec, overrides)
+          return this.decorateStructuredOutputCapabilities(
+            this.factory(provider, spec, overrides),
+            provider,
+            spec,
+          )
         }
       }
     }
@@ -237,7 +279,11 @@ export class ModelRegistry {
     for (const provider of this.providers) {
       for (const spec of Object.values(provider.models)) {
         if (spec && spec.name.includes(modelName)) {
-          return this.factory(provider, spec, overrides)
+          return this.decorateStructuredOutputCapabilities(
+            this.factory(provider, spec, overrides),
+            provider,
+            spec,
+          )
         }
       }
     }
@@ -258,7 +304,14 @@ export class ModelRegistry {
   getSpec(tier: ModelTier): (ModelSpec & { provider: string }) | null {
     for (const provider of this.providers) {
       const spec = provider.models[tier]
-      if (spec) return { ...spec, provider: provider.provider }
+      if (spec) {
+        const capabilities = resolveStructuredOutputCapabilities(provider, spec)
+        return {
+          ...spec,
+          ...(capabilities ? { structuredOutput: capabilities } : {}),
+          provider: provider.provider,
+        }
+      }
     }
     return null
   }
@@ -291,7 +344,11 @@ export class ModelRegistry {
       }
 
       try {
-        const model = this.factory(provider, spec, overrides)
+        const model = this.decorateStructuredOutputCapabilities(
+          this.factory(provider, spec, overrides),
+          provider,
+          spec,
+        )
         return { model, provider: provider.provider }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)

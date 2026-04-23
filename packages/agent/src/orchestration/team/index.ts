@@ -37,4 +37,6 @@ export type {
   TeamRuntimeEventEmitter,
   TeamRuntimeOptions,
   ParticipantResolver,
+  TeamRuntimeTracer,
+  TeamOTelSpanLike,
 } from './team-runtime.js'

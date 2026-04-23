@@ -146,6 +146,14 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
    */
   private governanceListeners = new Set<(event: GovernanceEvent) => void>()
 
+  /**
+   * Run-scoped correlation context used by governance emitters that fire
+   * outside the spawn loop (e.g. {@link emitRuleViolation} called from the
+   * rules compile path, or from a guardrails callback).  Populated at the
+   * top of {@link execute} and cleared in `finally`.
+   */
+  private currentRunContext: { runId: string; sessionId: string } | null = null
+
   constructor(providerId: AdapterProviderId, config: AdapterConfig = {}) {
     this.providerId = providerId
     this.config = { ...config }
@@ -181,9 +189,160 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     }
   }
 
+  /**
+   * Emit a `governance:rule_violation` event on the governance side-channel.
+   *
+   * The canonical emission path is the RuleCompiler's validation step
+   * (see `@dzupagent/adapter-rules`) and the {@link AdapterGuardrails}
+   * `onRuleViolation` callback.  This helper provides a convenient,
+   * type-safe shortcut that also stamps the currently-active run context
+   * (populated by {@link execute}).
+   *
+   * Callers may override `runId` or `sessionId` explicitly; when omitted
+   * the current run context is used, and when no run is active the
+   * caller-supplied runId is required (falls back to an empty string only
+   * when also omitted — hosts should pass one in for out-of-run
+   * validations).
+   */
+  emitRuleViolation(opts: {
+    ruleId: string
+    severity: 'warn' | 'block'
+    detail: string
+    runId?: string
+    sessionId?: string
+    timestamp?: number
+  }): void {
+    const ctx = this.currentRunContext
+    const runId = opts.runId ?? ctx?.runId ?? ''
+    const sessionId = opts.sessionId ?? ctx?.sessionId
+    const event: GovernanceEvent = {
+      type: 'governance:rule_violation',
+      runId,
+      providerId: this.providerId,
+      timestamp: opts.timestamp ?? Date.now(),
+      ruleId: opts.ruleId,
+      severity: opts.severity,
+      detail: opts.detail,
+      ...(sessionId ? { sessionId } : {}),
+    }
+    this.emitGovernanceEvent(event)
+  }
+
+  /**
+   * Wire an {@link AdapterGuardrails}-like object so its `onRuleViolation`
+   * callback is routed into this adapter's governance side-channel.
+   *
+   * The supplied object is mutated: its `onRuleViolation` field is replaced
+   * with a composed callback that first forwards to any existing callback
+   * and then emits a `governance:rule_violation` event.  Call sites that
+   * want to observe violations on both channels should register the
+   * original callback before invoking this method.
+   */
+  attachGuardrailsGovernance(
+    guardrails: {
+      onRuleViolation?: (
+        ruleId: string,
+        severity: 'warn' | 'block',
+        detail: string,
+      ) => void
+      getOnRuleViolation?: () =>
+        | ((ruleId: string, severity: 'warn' | 'block', detail: string) => void)
+        | undefined
+      setOnRuleViolation?: (
+        cb:
+          | ((ruleId: string, severity: 'warn' | 'block', detail: string) => void)
+          | undefined,
+      ) => void
+    },
+  ): void {
+    const existing = guardrails.getOnRuleViolation
+      ? guardrails.getOnRuleViolation()
+      : guardrails.onRuleViolation
+    const composed = (
+      ruleId: string,
+      severity: 'warn' | 'block',
+      detail: string,
+    ): void => {
+      try {
+        existing?.(ruleId, severity, detail)
+      } catch {
+        /* host callback errors must not break governance emission */
+      }
+      this.emitRuleViolation({ ruleId, severity, detail })
+    }
+    if (guardrails.setOnRuleViolation) {
+      guardrails.setOnRuleViolation(composed)
+    } else {
+      guardrails.onRuleViolation = composed
+    }
+  }
+
+  /**
+   * Validate a list of rules against a compile context using the supplied
+   * validator callback.  Any violations reported by the validator are
+   * emitted as `governance:rule_violation` events and returned.
+   *
+   * Agent-adapters intentionally does not take a hard dependency on
+   * `@dzupagent/adapter-rules`; hosts that wish to integrate the
+   * RuleCompiler pass its validation function here.  This keeps the base
+   * adapter's governance plane aware of compile-time rule failures without
+   * introducing a package-level dependency.
+   */
+  validateAndEmitRules<TRule, TContext>(
+    rules: TRule[],
+    context: TContext,
+    validator: (
+      rules: TRule[],
+      context: TContext,
+    ) => ReadonlyArray<{
+      ruleId: string
+      severity: 'warn' | 'block'
+      detail: string
+    }>,
+    opts?: { runId?: string; sessionId?: string },
+  ): ReadonlyArray<{
+    ruleId: string
+    severity: 'warn' | 'block'
+    detail: string
+  }> {
+    let violations: ReadonlyArray<{
+      ruleId: string
+      severity: 'warn' | 'block'
+      detail: string
+    }> = []
+    try {
+      violations = validator(rules, context)
+    } catch {
+      // A thrown validator is treated as a single blocking violation so the
+      // governance plane still records the failure.
+      const runId = opts?.runId ?? this.currentRunContext?.runId ?? ''
+      const sessionId = opts?.sessionId ?? this.currentRunContext?.sessionId
+      this.emitRuleViolation({
+        ruleId: 'rule_compile_error',
+        severity: 'block',
+        detail: 'Rule validator threw',
+        ...(runId ? { runId } : {}),
+        ...(sessionId ? { sessionId } : {}),
+      })
+      return []
+    }
+    for (const v of violations) {
+      this.emitRuleViolation({
+        ruleId: v.ruleId,
+        severity: v.severity,
+        detail: v.detail,
+        ...(opts?.runId ? { runId: opts.runId } : {}),
+        ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
+      })
+    }
+    return violations
+  }
+
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
     const sessionId = randomUUID()
     const startTime = Date.now()
+    const runIdForContext = input.correlationId ?? sessionId
+    this.currentRunContext = { runId: runIdForContext, sessionId }
 
     await this.assertReady()
 
@@ -309,19 +468,42 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
         // Detect hook execution records from the provider JSONL stream and
         // emit governance:hook_executed so the audit plane captures them.
-        // Providers signal hook runs via type: 'hook_execution' or a hookName
-        // field at the top level of the JSONL record.
+        // Providers signal hook runs via type: 'hook_execution' (Codex
+        // pattern), a top-level hookName / hook_name field, or a nested
+        // `hook.name` object.
         const recordType = typeof record.type === 'string' ? record.type : ''
-        if (
+        const topLevelHookName =
+          (typeof record.hookName === 'string' && record.hookName.length > 0
+            ? record.hookName
+            : undefined) ??
+          (typeof record.hook_name === 'string' && record.hook_name.length > 0
+            ? record.hook_name
+            : undefined)
+        const nestedHookName =
+          record.hook &&
+          typeof record.hook === 'object' &&
+          typeof (record.hook as Record<string, unknown>).name === 'string'
+            ? ((record.hook as Record<string, unknown>).name as string)
+            : undefined
+        const isHookRecord =
           recordType === 'hook_execution' ||
-          (typeof record.hookName === 'string' && record.hookName.length > 0)
-        ) {
-          const hookName = (record.hookName as string | undefined) ?? recordType
+          !!topLevelHookName ||
+          !!nestedHookName
+        if (isHookRecord) {
+          const hookName =
+            topLevelHookName ?? nestedHookName ?? recordType
           const exitCode =
-            typeof record.exitCode === 'number' ? record.exitCode :
-            typeof record.exit_code === 'number' ? record.exit_code :
-            undefined
-          const runId = input.correlationId ?? sessionId
+            typeof record.exitCode === 'number'
+              ? record.exitCode
+              : typeof record.exit_code === 'number'
+              ? record.exit_code
+              : typeof record.hook === 'object' &&
+                record.hook !== null &&
+                typeof (record.hook as Record<string, unknown>).exitCode ===
+                  'number'
+              ? ((record.hook as Record<string, unknown>).exitCode as number)
+              : undefined
+          const runId = this.currentRunContext?.runId ?? input.correlationId ?? sessionId
           this.emitGovernanceEvent({
             type: 'governance:hook_executed',
             runId,
@@ -384,6 +566,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       resolver?.dispose()
       this.currentAbortController = null
       this.stopArtifactWatcher()
+      this.currentRunContext = null
     }
   }
 

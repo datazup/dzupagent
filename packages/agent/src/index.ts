@@ -8,6 +8,7 @@
 
 // --- Agent ---
 export { DzupAgent } from './agent/dzip-agent.js'
+export { createAgentWithMemory } from './agent/agent-factory.js'
 export type {
   DzupAgentConfig,
   AgentMailboxConfig,
@@ -15,6 +16,7 @@ export type {
   GenerateOptions,
   GenerateResult,
   AgentStreamEvent,
+  CompressionLogEntry,
 } from './agent/agent-types.js'
 export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory-profiles.js'
 export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
@@ -187,6 +189,12 @@ export type {
 // --- Context ---
 export { autoCompress, FrozenSnapshot } from './context/auto-compress.js'
 export type { AutoCompressConfig, CompressResult } from './context/auto-compress.js'
+export { withTokenLifecycle } from './context/token-lifecycle-integration.js'
+export type {
+  TokenLifecycleHooks,
+  TokenLifecyclePhase,
+  TokenPressureListener,
+} from './context/token-lifecycle-integration.js'
 
 // --- Approval ---
 export { ApprovalGate } from './approval/approval-gate.js'
@@ -238,6 +246,7 @@ export {
 } from './structured/index.js'
 export type {
   StructuredOutputStrategy,
+  StructuredOutputCapabilities,
   StructuredOutputConfig,
   StructuredOutputResult,
   StructuredLLM,
@@ -354,6 +363,38 @@ export type {
   PlaygroundEvent,
   TeamRunResult,
 } from './playground/types.js'
+
+// --- TeamRuntime (declarative team execution engine) ---
+export {
+  TeamRuntime,
+  DEFAULT_ROUTER_MODEL,
+  DEFAULT_PARTICIPANT_MODEL,
+  DEFAULT_GOVERNANCE_MODEL,
+} from './orchestration/team/team-runtime.js'
+export type {
+  TeamRuntimeEvent,
+  TeamRuntimeEventEmitter,
+  TeamRuntimeOptions,
+  ParticipantResolver,
+  TeamRuntimeTracer,
+  TeamOTelSpanLike,
+} from './orchestration/team/team-runtime.js'
+export type {
+  CoordinatorPattern as TeamCoordinatorPattern,
+  ParticipantDefinition,
+  TeamDefinition,
+} from './orchestration/team/team-definition.js'
+export type {
+  ExecutionPolicy,
+  GovernancePolicy,
+  MemoryPolicy,
+  IsolationPolicy,
+  MailboxPolicy,
+  EvaluationPolicy,
+  TeamPolicies,
+} from './orchestration/team/team-policy.js'
+export type { TeamPhase, TeamPhaseModel } from './orchestration/team/team-phase.js'
+export type { TeamCheckpoint, ResumeContract } from './orchestration/team/team-checkpoint.js'
 
 // --- Reflection ---
 export { RunReflector } from './reflection/run-reflector.js'
@@ -630,8 +671,29 @@ export type {
 
 export { InMemoryMailboxStore } from './mailbox/index.js'
 export { AgentMailboxImpl } from './mailbox/index.js'
+export type { AgentMailboxOptions } from './mailbox/index.js'
 export { createSendMailTool, createCheckMailTool } from './mailbox/index.js'
 export type { MailToolConfig } from './mailbox/index.js'
+export { InMemoryDeadLetterStore } from './mailbox/index.js'
+export type {
+  DeadLetter,
+  DeadLetterMeta,
+  DeadLetterStore,
+} from './mailbox/index.js'
+export {
+  RateLimiter,
+  MailRateLimitedError,
+  DEFAULT_RATE_LIMIT,
+} from './mailbox/index.js'
+export type { RateLimiterConfig } from './mailbox/index.js'
+
+// --- Token Lifecycle Wiring (default-loop plugin) ---
+export { createTokenLifecyclePlugin } from './token-lifecycle-wiring.js'
+export type {
+  AgentLoopPlugin,
+  TokenLifecyclePluginOptions,
+  CompressionHintListener,
+} from './token-lifecycle-wiring.js'
 
 // --- Version ---
 export const dzupagent_AGENT_VERSION = '0.1.0'

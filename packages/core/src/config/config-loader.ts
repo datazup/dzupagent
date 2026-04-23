@@ -7,6 +7,11 @@
 
 import { readFile } from 'node:fs/promises';
 import { validateConfig } from './config-schema.js';
+import type { StructuredOutputModelCapabilities } from '../llm/model-config.js';
+import {
+  getStructuredOutputDefaultsForProviderName,
+  normalizeStructuredOutputCapabilities,
+} from '../llm/structured-output-capabilities.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,7 +20,9 @@ import { validateConfig } from './config-schema.js';
 export interface ProviderConfig {
   provider: string;
   apiKey?: string;
+  baseUrl?: string;
   priority?: number;
+  structuredOutputDefaults?: StructuredOutputModelCapabilities;
 }
 
 export interface RateLimitConfig {
@@ -99,6 +106,22 @@ function tryParseJson<T>(raw: string): T | undefined {
   }
 }
 
+function normalizeProviderConfig(provider: ProviderConfig): ProviderConfig {
+  const structuredOutputDefaults = provider.structuredOutputDefaults
+    ? normalizeStructuredOutputCapabilities(provider.structuredOutputDefaults)
+    : getStructuredOutputDefaultsForProviderName(provider.provider)
+
+  return structuredOutputDefaults
+    ? { ...provider, structuredOutputDefaults }
+    : provider
+}
+
+function normalizeForgeConfig(config: Partial<ForgeConfig>): Partial<ForgeConfig> {
+  return config.providers
+    ? { ...config, providers: config.providers.map(normalizeProviderConfig) }
+    : config
+}
+
 // ---------------------------------------------------------------------------
 // loadEnvConfig
 // ---------------------------------------------------------------------------
@@ -127,7 +150,7 @@ export function loadEnvConfig(): Partial<ForgeConfig> {
   // Providers
   if (env['DZIP_PROVIDERS']) {
     const parsed = tryParseJson<ProviderConfig[]>(env['DZIP_PROVIDERS']);
-    if (parsed) config.providers = parsed;
+    if (parsed) config.providers = parsed.map(normalizeProviderConfig);
   }
 
   // Models
@@ -196,7 +219,7 @@ export async function loadFileConfig(filePath: string): Promise<Partial<ForgeCon
     if (!isPlainObject(parsed)) return {};
     const result = validateConfig(parsed);
     if (!result.valid) return {};
-    return parsed as Partial<ForgeConfig>;
+    return normalizeForgeConfig(parsed as Partial<ForgeConfig>);
   } catch {
     return {};
   }
@@ -215,7 +238,7 @@ export function mergeConfigs(...layers: ConfigLayer[]): ForgeConfig {
   for (const layer of sorted) {
     result = deepMerge(result, layer.config as Record<string, unknown>);
   }
-  return result as unknown as ForgeConfig;
+  return normalizeForgeConfig(result as unknown as ForgeConfig) as ForgeConfig;
 }
 
 // ---------------------------------------------------------------------------

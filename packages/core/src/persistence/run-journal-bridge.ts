@@ -66,6 +66,25 @@ export class RunJournalBridgeRunStore implements RunStore {
     return this.store.list(filter)
   }
 
+  async count(filter?: RunFilter): Promise<number> {
+    // Delegate to the wrapped store when it exposes count(); otherwise fall
+    // back to the (more expensive) list(...).length derivation so callers that
+    // rely on this method on a bridged store still get a correct value.
+    if (typeof this.store.count === 'function') {
+      return this.store.count(filter)
+    }
+    // Fallback: re-list with a large limit and no offset so we approximate the
+    // true total. This is only used for third-party RunStore implementations
+    // that predate the optional count() method.
+    const { limit: _limit, offset: _offset, ...baseFilter } = filter ?? {}
+    const rows = await this.store.list({
+      ...baseFilter,
+      limit: Number.MAX_SAFE_INTEGER,
+      offset: 0,
+    })
+    return rows.length
+  }
+
   async addLog(runId: string, entry: LogEntry): Promise<void> {
     await this.store.addLog(runId, entry)
     // Logs are not journaled individually (too noisy)

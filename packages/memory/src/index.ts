@@ -359,6 +359,23 @@ export type { MemoryContext, MemoryIntegratorConfig } from './memory-integrator.
 export { TenantScopedStore } from './tenant-scoped-store.js'
 export type { TenantScopedStoreConfig, TenantSearchResult } from './tenant-scoped-store.js'
 
+// --- In-Memory Reference Tracker (cross-run promotion support) ---
+export { InMemoryReferenceTracker } from './shared/reference-tracker.js'
+export type { ReferenceCountEntry } from './shared/reference-tracker.js'
+
+// --- Redis Reference Tracker ---
+export {
+  RedisReferenceTracker,
+  createReferenceTracker,
+} from './provenance/redis-reference-tracker.js'
+export type {
+  RedisReferenceTrackerOptions,
+  RedisClientLike as ReferenceTrackerRedisClientLike,
+  RedisPipelineLike as ReferenceTrackerRedisPipelineLike,
+  CreateReferenceTrackerOptions,
+  ReferenceTracker,
+} from './provenance/redis-reference-tracker.js'
+
 // --- Team Memory Graph ---
 export { TeamMemoryGraph } from './graph/index.js'
 export { TrustScorer } from './graph/index.js'

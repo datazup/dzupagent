@@ -122,13 +122,45 @@ export async function* spawnAndStreamJsonl(
   }
 
   try {
-    // Handle spawn errors (e.g. binary not found)
+    // Stream JSONL from stdout. Attach listeners before awaiting the spawn
+    // handshake so short-lived commands cannot exit before we start
+    // observing their output.
+    const stdout = child.stdout
+    if (!stdout) {
+      return
+    }
+
+    let buffer = ''
+    const chunkQueue: string[] = []
+    let streamEnded = false
+    let streamError: Error | null = null
+    let notifyReader: (() => void) | null = null
+
+    const wakeReader = (): void => {
+      if (notifyReader) {
+        notifyReader()
+        notifyReader = null
+      }
+    }
+
+    stdout.on('data', (chunk: Buffer | string) => {
+      chunkQueue.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
+      wakeReader()
+    })
+    stdout.once('end', () => {
+      streamEnded = true
+      wakeReader()
+    })
+    stdout.once('error', (err: Error) => {
+      streamError = err
+      streamEnded = true
+      wakeReader()
+    })
+
+    // Wait for the process to either spawn successfully or fail immediately.
     const spawnError = await new Promise<Error | null>((resolve) => {
-      child.on('error', (err: Error) => resolve(err))
-      // If stdout starts flowing, spawn succeeded
-      child.stdout?.once('readable', () => resolve(null))
-      // Also resolve on early close with no error
-      child.on('close', () => resolve(null))
+      child.once('error', (err: Error) => resolve(err))
+      child.once('spawn', () => resolve(null))
     })
 
     if (spawnError) {
@@ -151,16 +183,18 @@ export async function* spawnAndStreamJsonl(
       })
     }
 
-    // Stream JSONL from stdout
-    const stdout = child.stdout
-    if (!stdout) {
-      return
-    }
+    while (!streamEnded || chunkQueue.length > 0) {
+      if (chunkQueue.length === 0) {
+        await new Promise<void>((resolve) => {
+          notifyReader = resolve
+        })
+        continue
+      }
 
-    let buffer = ''
+      const chunk = chunkQueue.shift()
+      if (chunk === undefined) continue
 
-    for await (const chunk of stdout) {
-      buffer += String(chunk)
+      buffer += chunk
       const lines = buffer.split('\n')
       // Keep the last (potentially incomplete) line in the buffer
       buffer = lines.pop() ?? ''
@@ -197,6 +231,15 @@ export async function* spawnAndStreamJsonl(
           // Skip non-JSON lines (CLI preamble, progress indicators, etc.)
         }
       }
+    }
+
+    if (streamError) {
+      throw ForgeError.wrap(streamError, {
+        code: 'ADAPTER_EXECUTION_FAILED',
+        message: `Failed while reading stdout from '${command}'`,
+        recoverable: false,
+        context: { command },
+      })
     }
 
     // Process any remaining data in the buffer

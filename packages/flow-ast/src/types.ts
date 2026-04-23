@@ -1,3 +1,34 @@
+export type FlowPrimitive = string | number | boolean | null
+export type FlowValue = FlowPrimitive | FlowValue[] | { [key: string]: FlowValue }
+
+export interface FlowNodeBase {
+  /**
+   * Stable node identifier. Optional at the low-level AST layer for backward
+   * compatibility with existing compiler fixtures; required by
+   * `FlowDocumentV1` validation for canonical authored flows.
+   */
+  id?: string
+  name?: string
+  description?: string
+  meta?: Record<string, unknown>
+}
+
+export interface FlowInputSpec {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'any'
+  required?: boolean
+  description?: string
+  default?: FlowValue
+}
+
+export interface FlowDefaults {
+  personaRef?: string
+  timeoutMs?: number
+  retry?: {
+    attempts: number
+    delayMs?: number
+  }
+}
+
 export type FlowNode =
   | SequenceNode
   | ActionNode
@@ -10,16 +41,65 @@ export type FlowNode =
   | ParallelNode
   | CompleteNode
 
-export type SequenceNode    = { type: 'sequence'; nodes: FlowNode[] }
-export type ActionNode      = { type: 'action'; toolRef: string; input: Record<string, unknown>; personaRef?: string }
-export type ForEachNode     = { type: 'for_each'; source: string; as: string; body: FlowNode[] }
-export type BranchNode      = { type: 'branch'; condition: string; then: FlowNode[]; else?: FlowNode[] }
-export type ApprovalNode    = { type: 'approval'; question: string; options?: string[]; onApprove: FlowNode[]; onReject?: FlowNode[] }
-export type ClarificationNode = { type: 'clarification'; question: string; expected?: 'text' | 'choice'; choices?: string[] }
-export type PersonaNode     = { type: 'persona'; personaId: string; body: FlowNode[] }
-export type RouteNode       = { type: 'route'; strategy: 'capability' | 'fixed-provider'; tags?: string[]; provider?: string; body: FlowNode[] }
-export type ParallelNode    = { type: 'parallel'; branches: FlowNode[][] }
-export type CompleteNode    = { type: 'complete'; result?: string }
+export type SequenceNode = FlowNodeBase & { type: 'sequence'; nodes: FlowNode[] }
+export type ActionNode = FlowNodeBase & {
+  type: 'action'
+  toolRef: string
+  input: Record<string, unknown>
+  personaRef?: string
+}
+export type ForEachNode = FlowNodeBase & {
+  type: 'for_each'
+  source: string
+  as: string
+  body: FlowNode[]
+}
+export type BranchNode = FlowNodeBase & {
+  type: 'branch'
+  condition: string
+  then: FlowNode[]
+  else?: FlowNode[]
+}
+export type ApprovalNode = FlowNodeBase & {
+  type: 'approval'
+  question: string
+  options?: string[]
+  onApprove: FlowNode[]
+  onReject?: FlowNode[]
+}
+export type ClarificationNode = FlowNodeBase & {
+  type: 'clarification'
+  question: string
+  expected?: 'text' | 'choice'
+  choices?: string[]
+}
+export type PersonaNode = FlowNodeBase & {
+  type: 'persona'
+  personaId: string
+  body: FlowNode[]
+}
+export type RouteNode = FlowNodeBase & {
+  type: 'route'
+  strategy: 'capability' | 'fixed-provider'
+  tags?: string[]
+  provider?: string
+  body: FlowNode[]
+}
+export type ParallelNode = FlowNodeBase & { type: 'parallel'; branches: FlowNode[][] }
+export type CompleteNode = FlowNodeBase & { type: 'complete'; result?: string }
+
+export interface FlowDocumentV1 {
+  dsl: 'dzupflow/v1'
+  id: string
+  title?: string
+  description?: string
+  version: number
+  inputs?: Record<string, FlowInputSpec>
+  defaults?: FlowDefaults
+  tags?: string[]
+  meta?: Record<string, unknown>
+  root: SequenceNode
+}
 
 // Validation errors produced by Stage 3 semantic validator
 export interface ValidationError {
@@ -35,6 +115,7 @@ export type ValidationErrorCode =
   | 'EMPTY_BODY'
   | 'INVALID_CONDITION'
   | 'MISSING_REQUIRED_FIELD'
+  | 'DUPLICATE_NODE_ID'
   | 'RESOLVER_INFRA_ERROR'
 
 /**

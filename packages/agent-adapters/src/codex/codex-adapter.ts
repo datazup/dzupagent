@@ -15,9 +15,12 @@ import type {
   AdapterProviderId,
   AgentCLIAdapter,
   AgentEvent,
+  AgentStreamEvent,
   AgentInput,
   HealthStatus,
   InteractionPolicy,
+  ProviderRawStreamEvent,
+  RawAgentEvent,
   TokenUsage,
 } from '../types.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
@@ -168,6 +171,19 @@ function isCodexItemOfType<T extends CodexThreadItem['type']>(
   return item.type === type
 }
 
+function annotateProviderIdentity<T extends AgentEvent>(
+  event: T,
+  providerEventId: string | null,
+  parentProviderEventId: string | null,
+): T {
+  if (!providerEventId && !parentProviderEventId) return event
+  return {
+    ...event,
+    ...(providerEventId ? { providerEventId } : {}),
+    ...(parentProviderEventId ? { parentProviderEventId } : {}),
+  } as T
+}
+
 /** Map AdapterConfig sandbox mode to the Codex SDK SandboxMode enum values */
 function toCodexSandboxMode(
   mode: AdapterConfig['sandboxMode'],
@@ -194,6 +210,41 @@ function toTokenUsage(
   }
 }
 
+function summarizeTodoList(
+  items: ReadonlyArray<{ text: string; completed: boolean }>,
+): {
+  current: number
+  total: number
+  percentage: number
+  message: string
+} {
+  const total = items.length
+  const current = items.filter((item) => item.completed).length
+  const percentage = total > 0 ? Math.round((current / total) * 100) : 100
+  const nextPending = items
+    .find((item) => !item.completed && item.text.trim().length > 0)
+    ?.text
+    .trim()
+
+  if (total === 0) {
+    return {
+      current,
+      total,
+      percentage,
+      message: 'Todo list updated',
+    }
+  }
+
+  return {
+    current,
+    total,
+    percentage,
+    message: nextPending
+      ? `Todo list updated (${current}/${total} completed). Next: ${nextPending}`
+      : `Todo list updated (${current}/${total} completed)`,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // CodexAdapter
 // ---------------------------------------------------------------------------
@@ -216,6 +267,14 @@ export class CodexAdapter implements AgentCLIAdapter {
   // ---- AgentCLIAdapter interface ------------------------------------------
 
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+    for await (const event of this.executeWithRaw(input)) {
+      if (event.type !== 'adapter:provider_raw') {
+        yield event
+      }
+    }
+  }
+
+  async *executeWithRaw(input: AgentInput): AsyncGenerator<AgentStreamEvent, void, undefined> {
     const sdk = await this.loadSdk()
     const codex = this.createInstance(sdk, input.systemPrompt)
     const threadOpts = this.buildThreadOptions(input)
@@ -239,7 +298,11 @@ export class CodexAdapter implements AgentCLIAdapter {
 
     this.currentInput = input
     this.currentIsResume = true
-    yield* this.runStreamedThread(thread, input, codex)
+    for await (const event of this.runStreamedThread(thread, input, codex)) {
+      if (event.type !== 'adapter:provider_raw') {
+        yield event
+      }
+    }
   }
 
   interrupt(): void {
@@ -283,6 +346,10 @@ export class CodexAdapter implements AgentCLIAdapter {
       supportsStreaming: true,
       supportsCostUsage: true,
     }
+  }
+
+  respondInteraction(interactionId: string, answer: string): boolean {
+    return this.resolver?.respond(interactionId, answer) ?? false
   }
 
   async warmup(): Promise<void> {
@@ -460,7 +527,7 @@ export class CodexAdapter implements AgentCLIAdapter {
     thread: CodexThread,
     input: AgentInput,
     codex: CodexInstance,
-  ): AsyncGenerator<AgentEvent, void, undefined> {
+  ): AsyncGenerator<AgentStreamEvent, void, undefined> {
     this.abortController = new AbortController()
     const startTime = now()
     let sessionId = this.currentSessionId ?? `codex-${Date.now()}`
@@ -475,6 +542,8 @@ export class CodexAdapter implements AgentCLIAdapter {
     let eventCount = 0
     let lastEventAt = startTime
     let lastEventType = 'none'
+    let rawEventOrdinal = 0
+    let threadProviderEventId: string | null = null
 
     // Auto-abort after timeout so we never hang
     let didTimeout = false
@@ -536,6 +605,25 @@ export class CodexAdapter implements AgentCLIAdapter {
 
     try {
       for await (const event of streamedTurn.events) {
+        if (event.type === 'thread.started' && event.thread_id) {
+          sessionId = event.thread_id
+          this.currentSessionId = sessionId
+          console.debug('[codex-adapter.ts:runStreamedThread] session assigned', { sessionId })
+        }
+
+        rawEventOrdinal += 1
+        const rawProviderEvent = this.wrapRawProviderEvent(
+          event,
+          sessionId,
+          input,
+          rawEventOrdinal,
+          threadProviderEventId,
+        )
+        if (event.type === 'thread.started') {
+          threadProviderEventId = rawProviderEvent.rawEvent.providerEventId ?? threadProviderEventId
+        }
+        yield rawProviderEvent
+
         const eventNow = now()
         const gapMs = eventNow - lastEventAt
         eventCount += 1
@@ -550,13 +638,13 @@ export class CodexAdapter implements AgentCLIAdapter {
           })
         }
 
-        const mapped = this.mapEvent(event, sessionId, startTime)
-
-        if (event.type === 'thread.started' && event.thread_id) {
-          sessionId = event.thread_id
-          this.currentSessionId = sessionId
-          console.debug('[codex-adapter.ts:runStreamedThread] session assigned', { sessionId })
-        }
+        const mapped = this.mapEvent(
+          event,
+          sessionId,
+          startTime,
+          rawProviderEvent.rawEvent.providerEventId ?? null,
+          rawProviderEvent.rawEvent.parentProviderEventId ?? null,
+        )
 
         if (event.type === 'turn.completed' && event.usage) {
           lastUsage = toTokenUsage(event.usage)
@@ -572,7 +660,7 @@ export class CodexAdapter implements AgentCLIAdapter {
           const now2 = now()
 
           if (policy.mode === 'ask-caller') {
-            const interactionEvent: AgentEvent = {
+            const interactionEvent = annotateProviderIdentity({
               type: 'adapter:interaction_required',
               providerId: this.providerId,
               interactionId,
@@ -581,12 +669,12 @@ export class CodexAdapter implements AgentCLIAdapter {
               timestamp: now2,
               expiresAt: now2 + (policy.askCaller?.timeoutMs ?? 60_000),
               ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-            }
+            }, rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
             yield interactionEvent
           }
 
           const result = await resolver.resolve({ interactionId, question: item.message, kind: item.kind })
-          const resolvedEvent: AgentEvent = {
+          const resolvedEvent = annotateProviderIdentity({
             type: 'adapter:interaction_resolved',
             providerId: this.providerId,
             interactionId,
@@ -595,7 +683,7 @@ export class CodexAdapter implements AgentCLIAdapter {
             resolvedBy: result.resolvedBy,
             timestamp: now(),
             ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-          }
+          }, rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
           yield resolvedEvent
           continue
         }
@@ -621,7 +709,7 @@ export class CodexAdapter implements AgentCLIAdapter {
             const now2 = now()
 
             if (policy.mode === 'ask-caller') {
-              const interactionEvent: AgentEvent = {
+              const interactionEvent = annotateProviderIdentity({
                 type: 'adapter:interaction_required',
                 providerId: this.providerId,
                 interactionId,
@@ -630,12 +718,12 @@ export class CodexAdapter implements AgentCLIAdapter {
                 timestamp: now2,
                 expiresAt: now2 + (policy.askCaller?.timeoutMs ?? 60_000),
                 ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-              }
+              }, rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
               yield interactionEvent
             }
 
             const result = await resolver.resolve({ interactionId, question: errMsg, kind: 'permission' })
-            yield {
+            yield annotateProviderIdentity({
               type: 'adapter:interaction_resolved',
               providerId: this.providerId,
               interactionId,
@@ -644,7 +732,7 @@ export class CodexAdapter implements AgentCLIAdapter {
               resolvedBy: result.resolvedBy,
               timestamp: now(),
               ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-            } as AgentEvent
+            }, rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
 
             if (result.answer === 'yes' || result.answer === 'approve') {
               // Resume the thread with an approval message
@@ -739,6 +827,32 @@ export class CodexAdapter implements AgentCLIAdapter {
     }
   }
 
+  private wrapRawProviderEvent(
+    event: CodexStreamEvent,
+    sessionId: string,
+    input: AgentInput,
+    ordinal: number,
+    threadProviderEventId: string | null,
+  ): ProviderRawStreamEvent {
+    const providerEventId = this.buildProviderEventId(event, sessionId, ordinal)
+    const rawEvent: RawAgentEvent = {
+      providerId: this.providerId,
+      runId: sessionId,
+      sessionId,
+      providerEventId,
+      ...(event.type === 'thread.started' ? {} : { parentProviderEventId: threadProviderEventId ?? undefined }),
+      timestamp: now(),
+      source: 'sdk',
+      payload: event,
+      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+    }
+
+    return {
+      type: 'adapter:provider_raw',
+      rawEvent,
+    }
+  }
+
   /**
    * Map a single Codex SDK event to zero or more AgentEvents.
    *
@@ -749,13 +863,15 @@ export class CodexAdapter implements AgentCLIAdapter {
     event: CodexStreamEvent,
     sessionId: string,
     _turnStartTime: number,
+    providerEventId: string | null,
+    parentProviderEventId: string | null,
   ): AgentEvent[] {
     const ts = now()
 
     switch (event.type) {
       case 'thread.started':
         return [
-          {
+          annotateProviderIdentity({
             type: 'adapter:started',
             providerId: this.providerId,
             sessionId: event.thread_id ?? sessionId,
@@ -765,12 +881,12 @@ export class CodexAdapter implements AgentCLIAdapter {
             model: this.config.model ?? 'gpt-5.4',
             ...((() => { const wd = this.currentInput?.workingDirectory ?? this.config.workingDirectory; return wd !== undefined ? { workingDirectory: wd } : {} })()),
             isResume: this.currentIsResume,
-          },
+          }, providerEventId, parentProviderEventId),
         ]
 
       case 'item.completed': {
         if (!event.item) return []
-        return this.mapItemCompleted(event.item, ts)
+        return this.mapItemCompleted(event.item, ts, providerEventId, parentProviderEventId)
       }
 
       case 'turn.completed': {
@@ -791,27 +907,27 @@ export class CodexAdapter implements AgentCLIAdapter {
               ? errObj
               : 'Turn failed (unknown reason)'
         return [
-          {
+          annotateProviderIdentity({
             type: 'adapter:failed',
             providerId: this.providerId,
             sessionId,
             error: errMsg,
             code: 'ADAPTER_EXECUTION_FAILED',
             timestamp: ts,
-          },
+          }, providerEventId, parentProviderEventId),
         ]
       }
 
       case 'error':
         return [
-          {
+          annotateProviderIdentity({
             type: 'adapter:failed',
             providerId: this.providerId,
             sessionId,
             error: event.message ?? 'Unknown error',
             code: 'ADAPTER_EXECUTION_FAILED',
             timestamp: ts,
-          },
+          }, providerEventId, parentProviderEventId),
         ]
 
       // Events we acknowledge but don't map to AgentEvents:
@@ -826,36 +942,41 @@ export class CodexAdapter implements AgentCLIAdapter {
    *
    * CommandExecutionItem produces both a tool_call and a tool_result event.
    */
-  private mapItemCompleted(item: CodexThreadItem, ts: number): AgentEvent[] {
+  private mapItemCompleted(
+    item: CodexThreadItem,
+    ts: number,
+    providerEventId: string | null,
+    parentProviderEventId: string | null,
+  ): AgentEvent[] {
     if (isCodexItemOfType(item, 'agent_message')) {
       return [
-        {
+        annotateProviderIdentity({
           type: 'adapter:message',
           providerId: this.providerId,
           content: item.text ?? '',  // SDK uses .text, not .content
           role: 'assistant',
           timestamp: ts,
-        },
+        }, providerEventId, parentProviderEventId),
       ]
     }
 
     if (isCodexItemOfType(item, 'command_execution')) {
       return [
-        {
+        annotateProviderIdentity({
           type: 'adapter:tool_call',
           providerId: this.providerId,
           toolName: 'shell',
           input: { command: item.command },
           timestamp: ts,
-        },
-        {
+        }, providerEventId, parentProviderEventId),
+        annotateProviderIdentity({
           type: 'adapter:tool_result',
           providerId: this.providerId,
           toolName: 'shell',
           output: item.aggregated_output ?? '',  // SDK uses .aggregated_output, not .output
           durationMs: 0, // SDK doesn't provide per-command timing
           timestamp: ts,
-        },
+        }, providerEventId, parentProviderEventId),
       ]
     }
 
@@ -865,14 +986,14 @@ export class CodexAdapter implements AgentCLIAdapter {
         .map((c) => `${c.kind}: ${c.path}`)
         .join('\n')
       return [
-        {
+        annotateProviderIdentity({
           type: 'adapter:tool_result',
           providerId: this.providerId,
           toolName: 'file_edit',
           output: summary,
           durationMs: 0,
           timestamp: ts,
-        },
+        }, providerEventId, parentProviderEventId),
       ]
     }
 
@@ -883,57 +1004,73 @@ export class CodexAdapter implements AgentCLIAdapter {
         ? JSON.stringify(item.result.content)
         : (item.error?.message ?? '')
       return [
-        {
+        annotateProviderIdentity({
           type: 'adapter:tool_call',
           providerId: this.providerId,
           toolName,
           input: item.arguments,
           timestamp: ts,
-        },
-        {
+        }, providerEventId, parentProviderEventId),
+        annotateProviderIdentity({
           type: 'adapter:tool_result',
           providerId: this.providerId,
           toolName,
           output: outputContent,
           durationMs: 0,
           timestamp: ts,
-        },
+        }, providerEventId, parentProviderEventId),
       ]
     }
 
     if (isCodexItemOfType(item, 'web_search')) {
       return [
-        {
+        annotateProviderIdentity({
           type: 'adapter:tool_call',
           providerId: this.providerId,
           toolName: 'web_search',
           input: { query: item.query },
           timestamp: ts,
-        },
+        }, providerEventId, parentProviderEventId),
       ]
     }
 
     if (isCodexItemOfType(item, 'reasoning')) {
       return [
-        {
+        annotateProviderIdentity({
           type: 'adapter:message',
           providerId: this.providerId,
           content: item.text ?? '',  // SDK uses .text, not .content
           role: 'assistant',
           timestamp: ts,
-        },
+        }, providerEventId, parentProviderEventId),
+      ]
+    }
+
+    if (isCodexItemOfType(item, 'todo_list')) {
+      const summary = summarizeTodoList(item.items)
+      return [
+        annotateProviderIdentity({
+          type: 'adapter:progress',
+          providerId: this.providerId,
+          phase: 'todo_list',
+          current: summary.current,
+          total: summary.total,
+          percentage: summary.percentage,
+          message: summary.message,
+          timestamp: ts,
+        }, providerEventId, parentProviderEventId),
       ]
     }
 
     if (isCodexItemOfType(item, 'error')) {
       return [
-        {
+        annotateProviderIdentity({
           type: 'adapter:failed',
           providerId: this.providerId,
           error: item.message,
           code: 'ADAPTER_EXECUTION_FAILED',
           timestamp: ts,
-        },
+        }, providerEventId, parentProviderEventId),
       ]
     }
 
@@ -942,8 +1079,26 @@ export class CodexAdapter implements AgentCLIAdapter {
       return []
     }
 
-    // todo_list and any future item types — silently skip
+    // Any future item types we do not recognize are intentionally skipped.
     return []
+  }
+
+  private buildProviderEventId(
+    event: CodexStreamEvent,
+    sessionId: string,
+    ordinal: number,
+  ): string {
+    const itemId =
+      event.item && typeof event.item === 'object' && 'id' in event.item && typeof event.item.id === 'string'
+        ? event.item.id
+        : null
+    const threadId = typeof event.thread_id === 'string' ? event.thread_id : sessionId
+    return [
+      this.providerId,
+      threadId,
+      event.type,
+      itemId ?? ordinal,
+    ].join(':')
   }
 
   /**

@@ -426,6 +426,14 @@ export class PlanningAgent {
     const result = await generateStructured(llm, messages, {
       schema: DecompositionSchema,
       maxRetries: 2,
+      agentId: 'planning-agent',
+      intent: 'planning:decompose-goal',
+      capabilities: {
+        preferredStrategy: 'generic-parse',
+        schemaProvider: 'generic',
+        fallbackStrategies: ['fallback-prompt'],
+      },
+      schemaProvider: 'generic',
       schemaName: 'DecompositionPlan',
       schemaDescription: 'A directed acyclic graph of tasks assigned to specialist agents',
     })

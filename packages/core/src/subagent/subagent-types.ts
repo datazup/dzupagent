@@ -1,7 +1,7 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { BaseMessage } from '@langchain/core/messages'
-import type { ModelTier } from '../llm/model-config.js'
+import type { ModelTier, StructuredOutputModelCapabilities } from '../llm/model-config.js'
 import type { AgentMiddleware } from '../middleware/types.js'
 
 /** Configuration for spawning a sub-agent */
@@ -11,6 +11,8 @@ export interface SubAgentConfig {
   systemPrompt: string
   /** Use a specific model instance or a registry tier name */
   model?: BaseChatModel | ModelTier
+  /** Optional structured-output capability override for the resolved model. */
+  structuredOutputCapabilities?: StructuredOutputModelCapabilities
   tools?: StructuredToolInterface[]
   skills?: string[]
   middleware?: AgentMiddleware[]

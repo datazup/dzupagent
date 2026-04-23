@@ -20,6 +20,7 @@ export type RunStatus =
   | 'paused'             // Wave 9: cooperative pause via RunHandle
   | 'suspended'          // Wave 9: workflow-level suspension
   | 'completed'          // terminal: success
+  | 'halted'             // terminal: clean halt (e.g. token exhaustion)
   | 'failed'             // terminal: error
   | 'rejected'           // terminal: approval rejected
   | 'cancelled'          // terminal: user-cancelled
@@ -76,6 +77,19 @@ export interface RunStore {
   update(id: string, update: Partial<Run>): Promise<void>
   get(id: string): Promise<Run | null>
   list(filter?: RunFilter): Promise<Run[]>
+  /**
+   * Count the total number of runs matching `filter` (ignoring `limit`/`offset`).
+   *
+   * Used by GET /api/runs to return a `total` alongside the paginated `data`,
+   * enabling UIs to render accurate pagination controls without having to fetch
+   * the entire result set.
+   *
+   * Optional: implementations that predate this interface method will cause
+   * callers to fall back to `list(...).length` (page size), which is not the
+   * true total. All first-party stores (`InMemoryRunStore`, `PostgresRunStore`,
+   * `RunJournalBridgeRunStore`) implement this method.
+   */
+  count?(filter?: RunFilter): Promise<number>
   addLog(runId: string, entry: LogEntry): Promise<void>
   addLogs(runId: string, entries: LogEntry[]): Promise<void>
   getLogs(runId: string): Promise<LogEntry[]>

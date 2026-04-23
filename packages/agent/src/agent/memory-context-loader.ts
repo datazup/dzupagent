@@ -1,5 +1,6 @@
 import type { BaseMessage } from '@langchain/core/messages'
 import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
+import type { FrozenSnapshot } from '@dzupagent/context'
 import { estimateTokens } from '@dzupagent/core'
 
 import type { DzupAgentConfig } from './agent-types.js'
@@ -47,6 +48,16 @@ export interface AgentMemoryContextLoaderConfig {
   memoryProfile?: DzupAgentConfig['memoryProfile']
   estimateConversationTokens: (messages: BaseMessage[]) => number
   loadArrowRuntime?: () => Promise<ArrowMemoryRuntime>
+  /**
+   * Telemetry callback invoked when the Arrow memory path falls back to the
+   * standard memory path, or when the computed memory budget is zero.
+   */
+  onFallback?: (reason: string, before: number, after: number) => void
+  /**
+   * Optional frozen snapshot for prompt-cache optimization.
+   * When set and not invalidated, skips memory reload and returns cached context.
+   */
+  frozenSnapshot?: FrozenSnapshot
 }
 
 async function loadArrowRuntime(): Promise<ArrowMemoryRuntime> {
@@ -60,13 +71,20 @@ export class AgentMemoryContextLoader {
     this.loadArrowRuntime = config.loadArrowRuntime ?? loadArrowRuntime
   }
 
-  async load(messages: BaseMessage[]): Promise<string | null> {
+  async load(messages: BaseMessage[]): Promise<{ context: string | null; frame?: unknown }> {
     const memory = this.config.memory
     const scope = this.config.memoryScope
     const namespace = this.config.memoryNamespace
 
     if (!memory || !scope || !namespace) {
-      return null
+      return { context: null }
+    }
+
+    // Frozen snapshot optimization: skip reload when cache prefix is stable.
+    // Returns the cached context immediately, preserving Anthropic prompt-cache
+    // prefix hits across agent iterations.
+    if (this.config.frozenSnapshot?.isActive()) {
+      return { context: this.config.frozenSnapshot.get() }
     }
 
     const resolvedArrowConfig = resolveArrowMemoryConfig(
@@ -76,20 +94,28 @@ export class AgentMemoryContextLoader {
 
     if (resolvedArrowConfig) {
       try {
-        return await this.loadArrowMemoryContext(
+        const result = await this.loadArrowMemoryContext(
           memory,
           namespace,
           scope,
           messages,
           resolvedArrowConfig,
         )
+        // Freeze snapshot after a successful Arrow load so subsequent calls
+        // can short-circuit to the cached context.
+        if (result.context !== null) {
+          this.config.frozenSnapshot?.freeze(result.context, result.frame)
+        }
+        return result
       } catch {
         // Fall back to the standard path if Arrow selection fails.
+        this.config.onFallback?.('arrow_fallback', 0, 0)
       }
     }
 
     const records = await memory.get(namespace, scope)
-    return memory.formatForPrompt(records) || null
+    const context = memory.formatForPrompt(records) || null
+    return { context }
   }
 
   private async loadArrowMemoryContext(
@@ -98,7 +124,7 @@ export class AgentMemoryContextLoader {
     scope: Record<string, string>,
     messages: BaseMessage[],
     arrowCfg: ResolvedArrowMemoryConfig,
-  ): Promise<string | null> {
+  ): Promise<{ context: string | null; frame: unknown }> {
     const {
       extendMemoryServiceWithArrow,
       selectMemoriesByBudget,
@@ -112,7 +138,7 @@ export class AgentMemoryContextLoader {
     const frame = await arrowExt.exportFrame(namespace, scope) as { numRows: number }
 
     if (frame.numRows === 0) {
-      return null
+      return { context: null, frame }
     }
 
     const totalBudget = arrowCfg.totalBudget ?? 128_000
@@ -127,7 +153,8 @@ export class AgentMemoryContextLoader {
     ))
 
     if (memoryBudget <= 0) {
-      return null
+      this.config.onFallback?.('budget_zero', 0, 0)
+      return { context: null, frame }
     }
 
     const phase = arrowCfg.currentPhase
@@ -136,7 +163,7 @@ export class AgentMemoryContextLoader {
       : selectMemoriesByBudget(frame, memoryBudget)
 
     if (selected.length === 0) {
-      return null
+      return { context: null, frame }
     }
 
     const reader = new FrameReader(frame)
@@ -156,6 +183,6 @@ export class AgentMemoryContextLoader {
       lines.push(`- [${recordNamespace}] ${text}`)
     }
 
-    return lines.join('\n')
+    return { context: lines.join('\n'), frame }
   }
 }

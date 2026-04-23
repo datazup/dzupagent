@@ -19,6 +19,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@dzupagent/cache": "0.2.0",
     "@dzupagent/memory-ipc": "0.2.0"
   },
   "peerDependencies": {

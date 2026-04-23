@@ -228,6 +228,18 @@ export class CodeSearchService {
   // ---------------------------------------------------------------------
 
   /**
+   * Drop and recreate the vector collection, resetting all tracking state.
+   * Equivalent to a full re-index — call `indexFile`/`indexFiles` after this.
+   */
+  async reindexCollection(): Promise<void> {
+    await this.store.store.deleteCollection(this.collection)
+    this.indexedFiles.clear()
+    this.indexedLanguages.clear()
+    this.lastIndexedAt = null
+    await this.store.ensureCollection(this.collection)
+  }
+
+  /**
    * Remove all indexed chunks for a given file path.
    */
   async removeFile(filePath: string): Promise<void> {

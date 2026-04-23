@@ -296,6 +296,21 @@ export interface AgentCLIAdapter {
   execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined>
 
   /**
+   * Execute a prompt and yield unified events plus provider-native raw events.
+   * Adapters that do not implement this may still be wrapped by callers that
+   * synthesize a normalized-only stream.
+   */
+  executeWithRaw?(input: AgentInput): AsyncGenerator<AgentStreamEvent, void, undefined>
+
+  /**
+   * Respond to a pending ask-caller interaction.
+   *
+   * Returns true when the interaction was found and resolved, false when the
+   * adapter has no matching pending interaction.
+   */
+  respondInteraction?(interactionId: string, answer: string): boolean | Promise<boolean>
+
+  /**
    * Resume a previous session by ID.
    * Not all adapters support this — throws if unsupported.
    */
@@ -365,6 +380,8 @@ export interface AgentMemoryRecalledEvent {
   }>
   /** Total tokens injected across all entries */
   totalTokens: number
+  /** Duration of the memory recall phase in milliseconds */
+  durationMs: number
   correlationId?: string | undefined
 }
 
@@ -380,6 +397,8 @@ export interface AgentSkillsCompiledEvent {
     /** Features that were silently dropped (unsupported by provider) */
     dropped: string[]
   }>
+  /** Duration of the skills compilation phase in milliseconds */
+  durationMs: number
   correlationId?: string | undefined
 }
 
@@ -506,6 +525,10 @@ export interface RawAgentEvent {
   runId: string
   /** Session ID, if available at the time of the event */
   sessionId?: string | undefined
+  /** Stable event identifier assigned by the adapter when available */
+  providerEventId?: string | undefined
+  /** Parent provider event identifier when a hierarchy is known */
+  parentProviderEventId?: string | undefined
   /** Monotonic epoch-ms timestamp */
   timestamp: number
   /** Where the raw event originated */
@@ -515,6 +538,18 @@ export interface RawAgentEvent {
   /** Correlation ID propagated from the originating request */
   correlationId?: string | undefined
 }
+
+/**
+ * Side-channel wrapper for a provider-native raw event emitted live alongside
+ * normalized adapter events.
+ */
+export interface ProviderRawStreamEvent {
+  type: 'adapter:provider_raw'
+  rawEvent: RawAgentEvent
+}
+
+/** Stream item yielded by raw-capable adapters and orchestrators. */
+export type AgentStreamEvent = AgentEvent | ProviderRawStreamEvent
 
 /**
  * An artifact mutation event — created when an adapter writes, updates, or

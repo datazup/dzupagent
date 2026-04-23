@@ -209,4 +209,41 @@ export const platformIdentityMetricMap = {
     },
   ],
 
+  // --- API key lifecycle ---
+  'api-key:created': [
+    {
+      metricName: 'dzip_api_key_operations_total',
+      type: 'counter',
+      description: 'Total API key lifecycle operations',
+      labelKeys: ['operation', 'tier'],
+      extract: (e) => {
+        const ev = asEvent<'api-key:created'>(e)
+        return { value: 1, labels: { operation: 'created', tier: ev.tier } }
+      },
+    },
+  ],
+
+  'api-key:revoked': [
+    {
+      metricName: 'dzip_api_key_operations_total',
+      type: 'counter',
+      description: 'Total API key lifecycle operations',
+      labelKeys: ['operation', 'tier'],
+      extract: () => ({ value: 1, labels: { operation: 'revoked', tier: 'unknown' } }),
+    },
+  ],
+
+  'api-key:validated': [
+    {
+      metricName: 'dzip_api_key_validations_total',
+      type: 'counter',
+      description: 'Total API key validation events',
+      labelKeys: ['tier'],
+      extract: (e) => {
+        const ev = asEvent<'api-key:validated'>(e)
+        return { value: 1, labels: { tier: ev.tier } }
+      },
+    },
+  ],
+
 } satisfies MetricMapFragment

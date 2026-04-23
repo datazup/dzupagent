@@ -30,6 +30,10 @@ export {
   zodToJsonSchema,
   jsonSchemaToZod,
   toOpenAISafeSchema,
+  toStructuredOutputJsonSchema,
+  describeStructuredOutputSchema,
+  buildStructuredOutputSchemaName,
+  attachStructuredOutputErrorContext,
   toOpenAIFunction,
   toOpenAITool,
   fromOpenAIFunction,
@@ -37,9 +41,44 @@ export {
   fromMCPToolDescriptor,
 } from './tool-format-adapters.js'
 export type {
+  StructuredOutputProvider,
+  StructuredOutputRuntimeMeta,
+  StructuredOutputSchemaContract,
+} from './structured-output-contract.js'
+export {
+  detectStructuredOutputStrategy,
+  resolveStructuredOutputCapabilities,
+  resolveStructuredOutputSchemaProvider,
+  shouldAttemptNativeStructuredOutput,
+  prepareStructuredOutputSchemaContract,
+  unwrapStructuredEnvelope,
+} from './structured-output-contract.js'
+export {
+  executeStructuredParseLoop,
+  executeStructuredParseStreamLoop,
+  buildStructuredOutputCorrectionPrompt,
+  buildStructuredOutputExhaustedError,
+  isStructuredOutputExhaustedErrorMessage,
+} from './structured-output-retry.js'
+export type {
   ToolSchemaDescriptor,
   MCPToolDescriptorCompat,
+  StructuredOutputSchemaSummary,
+  StructuredOutputSchemaDescriptor,
+  StructuredOutputErrorSchemaRef,
+  StructuredOutputFailureCategory,
+  StructuredOutputErrorContextInput,
 } from './tool-format-adapters.js'
+export type {
+  StructuredOutputSchemaRef,
+  StructuredParseAttempt,
+  StructuredParseLoopSuccess,
+  StructuredParseLoopFailure,
+  StructuredParseLoopResult,
+  ExecuteStructuredParseLoopInput,
+  ExecuteStructuredParseStreamLoopInput,
+  StructuredParseStreamLoopEvent,
+} from './structured-output-retry.js'
 
 // --- AGENTS.md V2 Types ---
 export type {

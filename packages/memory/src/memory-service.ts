@@ -22,21 +22,34 @@ import {
   getMemoryStoreCapabilities,
   type MemoryStoreCapabilities,
 } from './store-capabilities.js'
+import type { ReferenceTracker } from './provenance/reference-tracker.js'
+import { deriveMemoryEntryId } from './provenance/reference-tracker.js'
+
+/**
+ * Caller-supplied context identifying the agent run that issued a read.
+ * When present, MemoryService records a fire-and-forget citation via
+ * the configured ReferenceTracker (if any).
+ */
+export interface ReadContext {
+  runId: string
+}
 
 export class MemoryService {
   private readonly nsMap: Map<string, NamespaceConfig>
   private readonly rejectUnsafe: boolean
   private readonly semanticStore: SemanticStoreAdapter | undefined
   private readonly storeCapabilities: MemoryStoreCapabilities
+  private readonly referenceTracker: ReferenceTracker | undefined
 
   constructor(
     private readonly store: BaseStore,
     namespaces: NamespaceConfig[],
-    options?: { rejectUnsafe?: boolean; semanticStore?: SemanticStoreAdapter },
+    options?: { rejectUnsafe?: boolean; semanticStore?: SemanticStoreAdapter; referenceTracker?: ReferenceTracker },
   ) {
     this.nsMap = new Map(namespaces.map(ns => [ns.name, ns]))
     this.rejectUnsafe = options?.rejectUnsafe ?? true
     this.semanticStore = options?.semanticStore
+    this.referenceTracker = options?.referenceTracker
     this.storeCapabilities = getMemoryStoreCapabilities(store)
   }
 
@@ -148,24 +161,47 @@ export class MemoryService {
    * Retrieve records from a namespace.
    * If `key` is provided, fetches that single item; otherwise lists all via search.
    * Non-fatal: returns [] on error.
+   *
+   * When `readContext` is provided and a ReferenceTracker is configured, each
+   * returned entry is cited fire-and-forget — the read path is never blocked.
    */
   async get(
     namespace: string,
     scope: Record<string, string>,
     key?: string,
+    readContext?: ReadContext,
   ): Promise<Record<string, unknown>[]> {
     const ns = this.getNamespace(namespace)
     const tuple = this.buildNamespaceTuple(ns, scope)
+    let results: Record<string, unknown>[]
     try {
       if (key) {
         const item = await this.store.get(tuple, key)
-        return item ? [item.value as Record<string, unknown>] : []
+        results = item ? [item.value as Record<string, unknown>] : []
+      } else {
+        const items = await this.store.search(tuple)
+        results = items.map(i => i.value as Record<string, unknown>)
       }
-      const items = await this.store.search(tuple)
-      return items.map(i => i.value as Record<string, unknown>)
     } catch {
       return []
     }
+
+    // Fire-and-forget reference tracking (never blocks the read path)
+    if (readContext && this.referenceTracker && results.length > 0) {
+      const tracker = this.referenceTracker
+      const { runId } = readContext
+      void Promise.all(
+        results.map((record, rank) => {
+          const entryId = deriveMemoryEntryId(record, rank)
+          return tracker.trackReference(runId, entryId, {
+            namespace,
+            rank,
+          })
+        }),
+      ).catch(() => { /* swallow tracker errors — non-fatal */ })
+    }
+
+    return results
   }
 
   /**
@@ -201,18 +237,23 @@ export class MemoryService {
    * Semantic search within a searchable namespace.
    * Falls back to plain `get()` if the namespace is not marked searchable.
    * Non-fatal: returns [] on error.
+   *
+   * When `readContext` is provided and a ReferenceTracker is configured, each
+   * returned entry is cited fire-and-forget — the search path is never blocked.
    */
   async search(
     namespace: string,
     scope: Record<string, string>,
     query: string,
     limit = 5,
+    readContext?: ReadContext,
   ): Promise<Record<string, unknown>[]> {
     const ns = this.getNamespace(namespace)
     if (!ns.searchable) {
       return this.get(namespace, scope)
     }
     const tuple = this.buildNamespaceTuple(ns, scope)
+    let finalResults: Record<string, unknown>[]
     try {
       // Fetch extra results so decay re-ranking can still fill the limit
       const fetchLimit = Math.min(limit * 2, limit + 20)
@@ -238,15 +279,33 @@ export class MemoryService {
 
       // If SemanticStore available, fuse keyword + vector results via RRF
       if (this.semanticStore) {
-        return this.fuseWithVector(namespace, query, scored, limit)
+        finalResults = await this.fuseWithVector(namespace, query, scored, limit)
+      } else {
+        // Re-sort by decay-weighted score (descending) and trim to requested limit
+        scored.sort((a, b) => b.finalScore - a.finalScore)
+        finalResults = scored.slice(0, limit).map(s => s.value)
       }
-
-      // Re-sort by decay-weighted score (descending) and trim to requested limit
-      scored.sort((a, b) => b.finalScore - a.finalScore)
-      return scored.slice(0, limit).map(s => s.value)
     } catch {
       return []
     }
+
+    // Fire-and-forget reference tracking (never blocks the search path)
+    if (readContext && this.referenceTracker && finalResults.length > 0) {
+      const tracker = this.referenceTracker
+      const { runId } = readContext
+      void Promise.all(
+        finalResults.map((record, rank) => {
+          const entryId = deriveMemoryEntryId(record, rank)
+          return tracker.trackReference(runId, entryId, {
+            namespace,
+            query,
+            rank,
+          })
+        }),
+      ).catch(() => { /* swallow tracker errors — non-fatal */ })
+    }
+
+    return finalResults
   }
 
   /** Snapshot the capabilities exposed by the backing store. */
