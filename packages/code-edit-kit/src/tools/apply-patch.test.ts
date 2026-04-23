@@ -1,9 +1,11 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { InMemoryWorkspaceFS, VirtualFS } from '@dzupagent/codegen'
 import {
   createApplyPatchTool,
   countDiffLines,
   extractDiffFiles,
+  undoApplyPatch,
+  __clearRollbackRegistry,
 } from './apply-patch.tool.js'
 import type {
   ValidationHook,
@@ -11,6 +13,15 @@ import type {
   ValidationHookContext,
   EditPolicy,
 } from '../types.js'
+
+beforeEach(() => {
+  __clearRollbackRegistry()
+})
+
+function extractRollbackToken(result: string): string | null {
+  const m = result.match(/rollbackToken:\s*([a-zA-Z0-9-]+)/)
+  return m?.[1] ?? null
+}
 
 function makeWorkspace(seed: Record<string, string> = {}): InMemoryWorkspaceFS {
   const vfs = new VirtualFS()
@@ -234,5 +245,228 @@ describe('createApplyPatchTool — descriptor-only hook (no run())', () => {
     const tool = createApplyPatchTool(ws, { policy })
     const result = await tool.invoke({ diff: VALID_DIFF })
     expect(result).toContain('Patch applied to 1 file')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// failureAction: rollback
+// ---------------------------------------------------------------------------
+
+describe('createApplyPatchTool — failureAction=rollback', () => {
+  it('restores original file content when a post-apply hook with failureAction=rollback rejects', async () => {
+    const ws = makeWorkspace({ 'src/index.ts': INITIAL_FILE })
+    const hook: ValidationHook = {
+      name: 'reject-always',
+      trigger: 'after_patch',
+      failureAction: 'rollback',
+      run: async (ctx) =>
+        ctx.stage === 'post_apply'
+          ? { valid: false, reason: 'post reject' }
+          : { valid: true },
+    }
+    const policy: EditPolicy = {
+      preferPatch: true,
+      maxDirectWriteLines: 5,
+      requireValidationAfterWrite: true,
+      hooks: [hook],
+    }
+
+    const tool = createApplyPatchTool(ws, { policy })
+    const result = await tool.invoke({ diff: VALID_DIFF })
+
+    expect(result).toContain('rolled back after post-validation failed')
+    expect(result).toContain('reject-always')
+
+    // File on disk restored to the original content.
+    const after = await ws.read('src/index.ts')
+    expect(after).toBe(INITIAL_FILE)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// failureAction: require_approval
+// ---------------------------------------------------------------------------
+
+describe('createApplyPatchTool — failureAction=require_approval', () => {
+  it('emits approvalRequired + rollbackToken when a post hook rejects with require_approval', async () => {
+    const ws = makeWorkspace({ 'src/index.ts': INITIAL_FILE })
+    const hook: ValidationHook = {
+      name: 'human-review',
+      trigger: 'after_patch',
+      failureAction: 'require_approval',
+      run: async (ctx) =>
+        ctx.stage === 'post_apply'
+          ? { valid: false, reason: 'needs human review' }
+          : { valid: true },
+    }
+    const policy: EditPolicy = {
+      preferPatch: true,
+      maxDirectWriteLines: 5,
+      requireValidationAfterWrite: true,
+      hooks: [hook],
+    }
+
+    const tool = createApplyPatchTool(ws, { policy })
+    const result = await tool.invoke({ diff: VALID_DIFF })
+
+    expect(result).toContain('requires approval')
+    expect(result).toContain('approvalRequired: true')
+    expect(result).toContain('rollbackToken:')
+    expect(result).toContain('human-review')
+    expect(result).toContain('filesModified: src/index.ts')
+
+    // Patch is currently applied (awaiting approval / undo).
+    const after = await ws.read('src/index.ts')
+    expect(after).toContain('line2_modified')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// always-trigger hook with empty patch
+// ---------------------------------------------------------------------------
+
+describe('createApplyPatchTool — always-trigger hook with empty patch', () => {
+  it('runs always-trigger hooks even when no lines changed', async () => {
+    const ws = makeWorkspace({ 'src/index.ts': INITIAL_FILE })
+    const runSpy = vi.fn(
+      (_ctx: ValidationHookContext): ValidationHookResult => ({ valid: true }),
+    )
+    const hook: ValidationHook = {
+      name: 'always-runs',
+      trigger: 'always',
+      failureAction: 'warn',
+      run: runSpy,
+    }
+    const policy: EditPolicy = {
+      preferPatch: true,
+      maxDirectWriteLines: 5,
+      requireValidationAfterWrite: true,
+      hooks: [hook],
+    }
+    const tool = createApplyPatchTool(ws, { policy })
+
+    // Empty diff — no headers, no +/- lines.
+    await tool.invoke({ diff: '' })
+
+    // Pre-apply invocation happens regardless of patch size.
+    expect(runSpy).toHaveBeenCalled()
+    const preCall = runSpy.mock.calls[0]!
+    expect(preCall[0]!.stage).toBe('pre_apply')
+    expect(preCall[0]!.linesAdded).toBe(0)
+    expect(preCall[0]!.linesRemoved).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Multiple hooks — registration order
+// ---------------------------------------------------------------------------
+
+describe('createApplyPatchTool — hook ordering', () => {
+  it('runs multiple hooks in registration order', async () => {
+    const ws = makeWorkspace({ 'src/index.ts': INITIAL_FILE })
+    const order: string[] = []
+
+    const mk = (name: string): ValidationHook => ({
+      name,
+      trigger: 'always',
+      failureAction: 'warn',
+      run: () => {
+        order.push(name)
+        return { valid: true }
+      },
+    })
+
+    const policy: EditPolicy = {
+      preferPatch: true,
+      maxDirectWriteLines: 5,
+      requireValidationAfterWrite: true,
+      hooks: [mk('first'), mk('second'), mk('third')],
+    }
+    const tool = createApplyPatchTool(ws, { policy })
+    await tool.invoke({ diff: VALID_DIFF })
+
+    // Three hooks x two stages (pre+post) = 6 invocations, in order.
+    expect(order).toEqual([
+      'first',
+      'second',
+      'third',
+      'first',
+      'second',
+      'third',
+    ])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hook throwing an exception is treated as warn
+// ---------------------------------------------------------------------------
+
+describe('createApplyPatchTool — hook exception handling', () => {
+  it('treats a thrown hook as a non-fatal warning and still runs subsequent hooks', async () => {
+    const ws = makeWorkspace({ 'src/index.ts': INITIAL_FILE })
+    const later = vi.fn(
+      (_ctx: ValidationHookContext): ValidationHookResult => ({ valid: true }),
+    )
+    const policy: EditPolicy = {
+      preferPatch: true,
+      maxDirectWriteLines: 5,
+      requireValidationAfterWrite: true,
+      hooks: [
+        {
+          name: 'broken',
+          trigger: 'always',
+          failureAction: 'warn',
+          run: () => {
+            throw new Error('boom')
+          },
+        },
+        {
+          name: 'after-broken',
+          trigger: 'always',
+          failureAction: 'warn',
+          run: later,
+        },
+      ],
+    }
+    const tool = createApplyPatchTool(ws, { policy })
+    const result = await tool.invoke({ diff: VALID_DIFF })
+
+    // Patch still applies — exception didn't abort the flow.
+    expect(result).toContain('Patch applied to 1 file')
+    // The subsequent hook ran at both stages.
+    expect(later).toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// rollbackToken + undoApplyPatch
+// ---------------------------------------------------------------------------
+
+describe('createApplyPatchTool — rollbackToken undo', () => {
+  it('emits a rollbackToken that can be used to restore original content', async () => {
+    const ws = makeWorkspace({ 'src/index.ts': INITIAL_FILE })
+    const tool = createApplyPatchTool(ws)
+
+    const result = await tool.invoke({ diff: VALID_DIFF })
+
+    // Sanity: patch applied.
+    expect(result).toContain('Patch applied to 1 file')
+    const token = extractRollbackToken(result)
+    expect(token).not.toBeNull()
+
+    // Confirm file was changed before undo.
+    expect(await ws.read('src/index.ts')).toContain('line2_modified')
+
+    // Undo
+    const ok = await undoApplyPatch(token!)
+    expect(ok).toBe(true)
+
+    // File restored.
+    const restored = await ws.read('src/index.ts')
+    expect(restored).toBe(INITIAL_FILE)
+
+    // Token is consumed — second call returns false.
+    const again = await undoApplyPatch(token!)
+    expect(again).toBe(false)
   })
 })

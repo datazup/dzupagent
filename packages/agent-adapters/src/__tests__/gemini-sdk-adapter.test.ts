@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ForgeError } from '@dzupagent/core'
+import { z } from 'zod'
 import { collectEvents } from './test-helpers.js'
+import { AdapterRegistry } from '../registry/adapter-registry.js'
+import {
+  JsonOutputSchema,
+  StructuredOutputAdapter,
+} from '../output/structured-output.js'
 import type { AgentEvent } from '../types.js'
 
 // Mock the SDK module
@@ -20,6 +26,25 @@ vi.mock('@google/generative-ai', () => ({
 const { GeminiSDKAdapter } = await import('../gemini/gemini-sdk-adapter.js')
 
 const TEST_API_KEY = 'test-api-key'
+
+function createGeminiRegistry(): AdapterRegistry {
+  const registry = new AdapterRegistry()
+  registry.register(new GeminiSDKAdapter({
+    model: 'gemini-2.5-pro',
+    googleApiKey: TEST_API_KEY,
+  }))
+  return registry
+}
+
+function expectLatestGeminiSchema(expected: Record<string, unknown>): void {
+  expect(mockGetGenerativeModel).toHaveBeenLastCalledWith(expect.objectContaining({
+    model: 'gemini-2.5-pro',
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: expected,
+    },
+  }))
+}
 
 describe('GeminiSDKAdapter', () => {
   beforeEach(() => {
@@ -262,5 +287,383 @@ describe('GeminiSDKAdapter', () => {
       model: 'gemini-2.5-flash',
       systemInstruction: 'You are a helpful assistant',
     })
+  })
+
+  it('passes native Gemini responseSchema config when outputSchema is provided', async () => {
+    async function* streamChunks() {
+      yield { text: () => '{"answer":42}', functionCalls: () => undefined }
+    }
+
+    mockGenerateContentStream.mockResolvedValue({
+      stream: streamChunks(),
+      response: Promise.resolve({}),
+    })
+
+    const outputSchema = {
+      type: 'object',
+      properties: {
+        answer: { type: 'number' },
+      },
+      required: ['answer'],
+      additionalProperties: false,
+    }
+
+    const adapter = new GeminiSDKAdapter({ model: 'gemini-2.5-pro', googleApiKey: TEST_API_KEY })
+    await collectEvents(adapter.execute({ prompt: 'Return JSON.', outputSchema }))
+
+    expect(mockGetGenerativeModel).toHaveBeenCalledWith({
+      model: 'gemini-2.5-pro',
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: outputSchema,
+      },
+    })
+  })
+
+  it('works with StructuredOutputAdapter on the Gemini SDK seam', async () => {
+    async function* streamChunks() {
+      yield {
+        text: () => '```json\n{"answer": 42}\n```',
+        functionCalls: () => undefined,
+      }
+    }
+
+    mockGenerateContentStream.mockResolvedValue({
+      stream: streamChunks(),
+      response: Promise.resolve({}),
+    })
+
+    const registry = new AdapterRegistry()
+    registry.register(new GeminiSDKAdapter({
+      model: 'gemini-2.5-pro',
+      googleApiKey: TEST_API_KEY,
+    }))
+
+    const adapter = new StructuredOutputAdapter(registry, { maxRetries: 2 })
+    const result = await adapter.execute(
+      { prompt: 'Return the numeric answer as JSON.' },
+      JsonOutputSchema.fromZod(
+        z.object({ answer: z.number() }),
+        {
+          agentId: 'gemini-sdk-adapter',
+          intent: 'generation:qa-answer',
+        },
+      ),
+    )
+
+    expect(result.result.success).toBe(true)
+    expect(result.result.value).toEqual({ answer: 42 })
+    expect(result.result.providerId).toBe('gemini-sdk')
+    expect(result.result.schemaName).toBe('gemini-sdk-adapter.generation.qa.answer')
+    expect(result.result.schemaHash).toMatch(/^[a-f0-9]{16}$/)
+    expect(result.result.parseAttempts).toBe(1)
+    expect(result.fallbackUsed).toBe(false)
+    expect(mockGetGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gemini-2.5-pro',
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          additionalProperties: false,
+          properties: {
+            answer: { type: 'number' },
+          },
+          required: ['answer'],
+          type: 'object',
+        },
+      },
+    }))
+  })
+
+  it('retries structured parsing on the Gemini SDK seam and succeeds on correction', async () => {
+    async function* invalidChunks() {
+      yield {
+        text: () => 'not valid json',
+        functionCalls: () => undefined,
+      }
+    }
+
+    async function* correctedChunks() {
+      yield {
+        text: () => '{"answer": 7}',
+        functionCalls: () => undefined,
+      }
+    }
+
+    mockGenerateContentStream
+      .mockResolvedValueOnce({
+        stream: invalidChunks(),
+        response: Promise.resolve({}),
+      })
+      .mockResolvedValueOnce({
+        stream: correctedChunks(),
+        response: Promise.resolve({}),
+      })
+
+    const registry = new AdapterRegistry()
+    registry.register(new GeminiSDKAdapter({
+      model: 'gemini-2.5-pro',
+      googleApiKey: TEST_API_KEY,
+    }))
+
+    const adapter = new StructuredOutputAdapter(registry, { maxRetries: 2 })
+    const result = await adapter.execute(
+      { prompt: 'Return the numeric answer as JSON.' },
+      JsonOutputSchema.fromZod(
+        z.object({ answer: z.number() }),
+        {
+          agentId: 'gemini-sdk-adapter',
+          intent: 'generation:qa-answer',
+        },
+      ),
+    )
+
+    expect(result.result.success).toBe(true)
+    expect(result.result.value).toEqual({ answer: 7 })
+    expect(result.result.providerId).toBe('gemini-sdk')
+    expect(result.result.parseAttempts).toBe(2)
+    expect(result.fallbackUsed).toBe(false)
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(2)
+    expect(mockGetGenerativeModel).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      generationConfig: expect.objectContaining({
+        responseMimeType: 'application/json',
+      }),
+    }))
+    expect(mockGetGenerativeModel).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      generationConfig: expect.objectContaining({
+        responseMimeType: 'application/json',
+      }),
+    }))
+  })
+
+  it.each([
+    {
+      label: 'envelope-backed top-level array',
+      schema: z.object({
+        result: z.array(z.object({
+          id: z.string(),
+          priority: z.enum(['HIGH', 'LOW']),
+        })),
+      }),
+      response: '{"result":[{"id":"REQ-1","priority":"HIGH"}]}',
+      expectedValue: {
+        result: [{ id: 'REQ-1', priority: 'HIGH' }],
+      },
+      expectedSchema: {
+        additionalProperties: false,
+        properties: {
+          result: {
+            items: {
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string' },
+                priority: {
+                  enum: ['HIGH', 'LOW'],
+                  type: 'string',
+                },
+              },
+              required: ['id', 'priority'],
+              type: 'object',
+            },
+            type: 'array',
+          },
+        },
+        required: ['result'],
+        type: 'object',
+      },
+    },
+    {
+      label: 'nested nullable objects',
+      schema: z.object({
+        metadata: z.object({
+          notes: z.string().nullable(),
+          items: z.array(z.object({
+            id: z.string(),
+            tags: z.array(z.string()),
+          })),
+        }),
+      }),
+      response: '{"metadata":{"notes":null,"items":[{"id":"item-1","tags":["a","b"]}]}}',
+      expectedValue: {
+        metadata: {
+          notes: null,
+          items: [{ id: 'item-1', tags: ['a', 'b'] }],
+        },
+      },
+      expectedSchema: {
+        additionalProperties: false,
+        properties: {
+          metadata: {
+            additionalProperties: false,
+            properties: {
+              notes: {
+                anyOf: [
+                  { type: 'string' },
+                  { type: 'null' },
+                ],
+              },
+              items: {
+                items: {
+                  additionalProperties: false,
+                  properties: {
+                    id: { type: 'string' },
+                    tags: {
+                      items: { type: 'string' },
+                      type: 'array',
+                    },
+                  },
+                  required: ['id', 'tags'],
+                  type: 'object',
+                },
+                type: 'array',
+              },
+            },
+            required: ['notes', 'items'],
+            type: 'object',
+          },
+        },
+        required: ['metadata'],
+        type: 'object',
+      },
+    },
+    {
+      label: 'enum-bearing object',
+      schema: z.object({
+        status: z.enum(['PASS', 'FAIL']),
+        summary: z.string(),
+      }),
+      response: '{"status":"PASS","summary":"All checks passed"}',
+      expectedValue: {
+        status: 'PASS',
+        summary: 'All checks passed',
+      },
+      expectedSchema: {
+        additionalProperties: false,
+        properties: {
+          status: {
+            enum: ['PASS', 'FAIL'],
+            type: 'string',
+          },
+          summary: { type: 'string' },
+        },
+        required: ['status', 'summary'],
+        type: 'object',
+      },
+    },
+  ])('propagates native Gemini responseSchema for $label', async ({
+    schema,
+    response,
+    expectedValue,
+    expectedSchema,
+  }) => {
+    async function* streamChunks() {
+      yield {
+        text: () => response,
+        functionCalls: () => undefined,
+      }
+    }
+
+    mockGenerateContentStream.mockResolvedValue({
+      stream: streamChunks(),
+      response: Promise.resolve({}),
+    })
+
+    const adapter = new StructuredOutputAdapter(createGeminiRegistry(), { maxRetries: 2 })
+    const result = await adapter.execute(
+      { prompt: 'Return structured JSON.' },
+      JsonOutputSchema.fromZod(schema, {
+        agentId: 'gemini-sdk-adapter',
+        intent: 'generation:edge-case',
+      }),
+    )
+
+    expect(result.result.success).toBe(true)
+    expect(result.result.value).toEqual(expectedValue)
+    expect(result.result.providerId).toBe('gemini-sdk')
+    expect(result.result.parseAttempts).toBe(1)
+    expectLatestGeminiSchema(expectedSchema)
+  })
+
+  it('preserves native Gemini responseSchema across retry for envelope-backed arrays', async () => {
+    async function* invalidChunks() {
+      yield {
+        text: () => '{"result":[{"id":"REQ-1","priority":"MAYBE"}]}',
+        functionCalls: () => undefined,
+      }
+    }
+
+    async function* correctedChunks() {
+      yield {
+        text: () => '{"result":[{"id":"REQ-1","priority":"HIGH"}]}',
+        functionCalls: () => undefined,
+      }
+    }
+
+    mockGenerateContentStream
+      .mockResolvedValueOnce({
+        stream: invalidChunks(),
+        response: Promise.resolve({}),
+      })
+      .mockResolvedValueOnce({
+        stream: correctedChunks(),
+        response: Promise.resolve({}),
+      })
+
+    const schema = z.object({
+      result: z.array(z.object({
+        id: z.string(),
+        priority: z.enum(['HIGH', 'LOW']),
+      })),
+    })
+
+    const adapter = new StructuredOutputAdapter(createGeminiRegistry(), { maxRetries: 2 })
+    const result = await adapter.execute(
+      { prompt: 'Return structured JSON.' },
+      JsonOutputSchema.fromZod(schema, {
+        agentId: 'gemini-sdk-adapter',
+        intent: 'generation:edge-case',
+      }),
+    )
+
+    const expectedSchema = {
+      additionalProperties: false,
+      properties: {
+        result: {
+          items: {
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string' },
+              priority: {
+                enum: ['HIGH', 'LOW'],
+                type: 'string',
+              },
+            },
+            required: ['id', 'priority'],
+            type: 'object',
+          },
+          type: 'array',
+        },
+      },
+      required: ['result'],
+      type: 'object',
+    }
+
+    expect(result.result.success).toBe(true)
+    expect(result.result.value).toEqual({
+      result: [{ id: 'REQ-1', priority: 'HIGH' }],
+    })
+    expect(result.result.parseAttempts).toBe(2)
+    expect(mockGetGenerativeModel).toHaveBeenCalledTimes(2)
+    expect(mockGetGenerativeModel).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: expectedSchema,
+      },
+    }))
+    expect(mockGetGenerativeModel).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: expectedSchema,
+      },
+    }))
   })
 })

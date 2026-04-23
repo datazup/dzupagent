@@ -60,7 +60,7 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       instructions: 'i',
       estimateConversationTokens: () => 0,
     })
-    await expect(loader.load([new HumanMessage('hi')])).resolves.toBeNull()
+    await expect(loader.load([new HumanMessage('hi')])).resolves.toMatchObject({ context: null })
   })
 
   it('returns null when scope is not configured', async () => {
@@ -71,7 +71,7 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       memoryNamespace: 'ns',
       estimateConversationTokens: () => 0,
     })
-    await expect(loader.load([new HumanMessage('hi')])).resolves.toBeNull()
+    await expect(loader.load([new HumanMessage('hi')])).resolves.toMatchObject({ context: null })
   })
 
   it('returns null when namespace is not configured', async () => {
@@ -82,7 +82,7 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       memoryScope: { p: 'demo' },
       estimateConversationTokens: () => 0,
     })
-    await expect(loader.load([new HumanMessage('hi')])).resolves.toBeNull()
+    await expect(loader.load([new HumanMessage('hi')])).resolves.toMatchObject({ context: null })
   })
 
   it('standard path returns null when formatForPrompt yields empty string', async () => {
@@ -94,7 +94,7 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       memoryScope: { p: 'demo' },
       estimateConversationTokens: () => 0,
     })
-    await expect(loader.load([new HumanMessage('hi')])).resolves.toBeNull()
+    await expect(loader.load([new HumanMessage('hi')])).resolves.toMatchObject({ context: null })
   })
 
   it('arrow path returns null when exported frame has zero rows', async () => {
@@ -110,7 +110,7 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       estimateConversationTokens: () => 0,
       loadArrowRuntime,
     })
-    await expect(loader.load([new HumanMessage('hi')])).resolves.toBeNull()
+    await expect(loader.load([new HumanMessage('hi')])).resolves.toMatchObject({ context: null })
     expect(phaseWeightedSelection).not.toHaveBeenCalled()
   })
 
@@ -131,7 +131,7 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       estimateConversationTokens: () => 500_000,
       loadArrowRuntime,
     })
-    await expect(loader.load([new HumanMessage('hi')])).resolves.toBeNull()
+    await expect(loader.load([new HumanMessage('hi')])).resolves.toMatchObject({ context: null })
   })
 
   it('arrow path returns null when selected list is empty', async () => {
@@ -146,7 +146,7 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       estimateConversationTokens: () => 0,
       loadArrowRuntime,
     })
-    await expect(loader.load([new HumanMessage('hi')])).resolves.toBeNull()
+    await expect(loader.load([new HumanMessage('hi')])).resolves.toMatchObject({ context: null })
   })
 
   it('arrow path uses selectMemoriesByBudget when phase is undefined', async () => {
@@ -165,9 +165,9 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       estimateConversationTokens: () => 0,
       loadArrowRuntime,
     })
-    await expect(loader.load([new HumanMessage('hi')])).resolves.toBe(
-      '## Memory Context\n- [ns] no-phase',
-    )
+    await expect(loader.load([new HumanMessage('hi')])).resolves.toMatchObject({
+      context: '## Memory Context\n- [ns] no-phase',
+    })
     expect(selectMemoriesByBudget).toHaveBeenCalled()
     expect(phaseWeightedSelection).not.toHaveBeenCalled()
   })
@@ -188,9 +188,9 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       estimateConversationTokens: () => 0,
       loadArrowRuntime,
     })
-    await expect(loader.load([new HumanMessage('hi')])).resolves.toBe(
-      '## Memory Context\n- [custom-ns] stored',
-    )
+    await expect(loader.load([new HumanMessage('hi')])).resolves.toMatchObject({
+      context: '## Memory Context\n- [custom-ns] stored',
+    })
     expect(selectMemoriesByBudget).toHaveBeenCalled()
     expect(phaseWeightedSelection).not.toHaveBeenCalled()
   })
@@ -215,9 +215,9 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       loadArrowRuntime,
     })
     const out = await loader.load([new HumanMessage('hi')])
-    expect(out).toContain('[ns] first')
-    expect(out).toContain('[other] second')
-    expect(out?.split('\n').length).toBe(3) // header + 2 kept rows
+    expect(out.context).toContain('[ns] first')
+    expect(out.context).toContain('[other] second')
+    expect(out.context?.split('\n').length).toBe(3) // header + 2 kept rows
   })
 
   it('arrow path stringifies value when text is not a string', async () => {
@@ -237,7 +237,7 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       loadArrowRuntime,
     })
     const out = await loader.load([new HumanMessage('hi')])
-    expect(out).toContain('[ns] {"foo":"bar","n":1}')
+    expect(out.context).toContain('[ns] {"foo":"bar","n":1}')
   })
 
   it('uses default loadArrowRuntime when none is provided', async () => {
@@ -251,8 +251,8 @@ describe('AgentMemoryContextLoader — branch coverage', () => {
       memoryScope: { p: 'demo' },
       estimateConversationTokens: () => 0,
     })
-    await expect(loader.load([new HumanMessage('hi')])).resolves.toBe(
-      '## Memory Context\n- stored fact',
-    )
+    await expect(loader.load([new HumanMessage('hi')])).resolves.toMatchObject({
+      context: '## Memory Context\n- stored fact',
+    })
   })
 })

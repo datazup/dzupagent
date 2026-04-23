@@ -117,6 +117,28 @@ describe('parseFlow — input-format edge cases', () => {
     expect(result.errors).toEqual([])
     expect(result.ast).toEqual({ type: 'complete' })
   })
+
+  it('preserves optional node metadata fields when present', () => {
+    const result = parseFlow({
+      type: 'action',
+      id: 'plan',
+      name: 'Plan Work',
+      description: 'Create the plan',
+      meta: { source: 'dsl' },
+      toolRef: 'tool.plan',
+      input: {},
+    })
+    expect(result.errors).toEqual([])
+    expect(result.ast).toEqual({
+      type: 'action',
+      id: 'plan',
+      name: 'Plan Work',
+      description: 'Create the plan',
+      meta: { source: 'dsl' },
+      toolRef: 'tool.plan',
+      input: {},
+    })
+  })
 })
 
 describe('parseFlow — shape validation', () => {

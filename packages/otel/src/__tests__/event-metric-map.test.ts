@@ -1,6 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, expectTypeOf } from 'vitest'
+import type { DzupEvent } from '@dzupagent/core'
 import { EVENT_METRIC_MAP, getAllMetricNames } from '../event-metric-map.js'
 import type { MetricMapping } from '../event-metric-map.js'
+
+type EventMetricMapKeys = keyof typeof EVENT_METRIC_MAP
+type MissingEventMetricMappings = Exclude<DzupEvent['type'], EventMetricMapKeys>
+type UnexpectedEventMetricMappings = Exclude<EventMetricMapKeys, DzupEvent['type']>
 
 describe('EVENT_METRIC_MAP', () => {
   it('has a mapping entry for every DzupEvent type', () => {
@@ -13,6 +18,11 @@ describe('EVENT_METRIC_MAP', () => {
       const mappings = EVENT_METRIC_MAP[key as keyof typeof EVENT_METRIC_MAP]
       expect(Array.isArray(mappings)).toBe(true)
     }
+  })
+
+  it('stays type-aligned with DzupEvent', () => {
+    expectTypeOf<MissingEventMetricMappings>().toEqualTypeOf<never>()
+    expectTypeOf<UnexpectedEventMetricMappings>().toEqualTypeOf<never>()
   })
 
   it('every mapping has required fields', () => {
@@ -56,6 +66,7 @@ describe('EVENT_METRIC_MAP', () => {
       'cache:degraded',
       'memory:index_failed',
       'context:transfer_partial',
+      'flow:compile_result',
     ] as const
 
     for (const eventType of populatedEvents) {
@@ -162,6 +173,14 @@ describe('EVENT_METRIC_MAP', () => {
       'cache:degraded': { type: 'cache:degraded', operation: 'get', key: 'k1', reason: 'timeout', timestamp: Date.now(), recoverable: true },
       'memory:index_failed': { type: 'memory:index_failed', namespace: 'ns', key: 'k1', reason: 'corrupt', timestamp: Date.now(), recoverable: false },
       'context:transfer_partial': { type: 'context:transfer_partial', sessionId: 's1', reason: 'truncated', timestamp: Date.now(), recoverable: true },
+      'flow:compile_result': {
+        type: 'flow:compile_result',
+        compileId: 'c1',
+        target: 'pipeline',
+        artifact: { nodes: [], edges: [] },
+        warnings: [{ stage: 4, code: 'WARN_1', message: 'minor issue' }],
+        reasons: [{ code: 'FOR_EACH_PRESENT', message: 'Loop semantics are present; routed to pipeline.' }],
+      },
     }
 
     for (const [eventType, event] of Object.entries(testEvents)) {

@@ -127,6 +127,131 @@ describe('ModelRegistry', () => {
     expect(model['_maxTokens']).toBe(2048)
   })
 
+  it('decorates resolved models with provider-derived structured-output capabilities', () => {
+    const realRegistry = new ModelRegistry()
+    realRegistry.addProvider(makeProvider({ provider: 'openai', apiKey: 'oai' }))
+
+    const model = realRegistry.getModel('chat') as unknown as Record<string, unknown>
+    expect(model['structuredOutputCapabilities']).toEqual({
+      preferredStrategy: 'openai-json-schema',
+      schemaProvider: 'openai',
+      fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+    })
+  })
+
+  it('treats openrouter as prompt-json fallback unless a provider override opts into native schema mode', () => {
+    const realRegistry = new ModelRegistry()
+    realRegistry.addProvider(makeProvider({
+      provider: 'openrouter',
+      apiKey: 'router-key',
+      models: {
+        chat: {
+          name: 'openai/gpt-4o-mini',
+          maxTokens: 1024,
+        },
+      },
+    }))
+
+    const model = realRegistry.getModel('chat') as unknown as Record<string, unknown>
+    expect(model['structuredOutputCapabilities']).toEqual({
+      preferredStrategy: 'generic-parse',
+      schemaProvider: 'generic',
+      fallbackStrategies: ['fallback-prompt'],
+    })
+  })
+
+  it('prefers explicit structured-output capabilities from the model spec', () => {
+    const realRegistry = new ModelRegistry()
+    realRegistry.addProvider(makeProvider({
+      structuredOutputDefaults: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse'],
+      },
+      models: {
+        chat: {
+          name: 'claude-haiku',
+          maxTokens: 1024,
+          structuredOutput: {
+            preferredStrategy: 'generic-parse',
+            schemaProvider: 'generic',
+            fallbackStrategies: ['fallback-prompt'],
+          },
+        },
+      },
+    }))
+
+    const model = realRegistry.getModel('chat') as unknown as Record<string, unknown>
+    expect(model['structuredOutputCapabilities']).toEqual({
+      preferredStrategy: 'generic-parse',
+      schemaProvider: 'generic',
+      fallbackStrategies: ['fallback-prompt'],
+    })
+  })
+
+  it('uses provider-level structured-output defaults for custom surfaces', () => {
+    const realRegistry = new ModelRegistry()
+    realRegistry.setFactory(stubFactory)
+    realRegistry.addProvider(makeProvider({
+      provider: 'custom',
+      structuredOutputDefaults: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+      models: {
+        chat: {
+          name: 'gateway/gpt-4o-mini',
+          maxTokens: 2048,
+        },
+      },
+    }))
+
+    const model = realRegistry.getModel('chat') as unknown as Record<string, unknown>
+    expect(model['structuredOutputCapabilities']).toEqual({
+      preferredStrategy: 'openai-json-schema',
+      schemaProvider: 'openai',
+      fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+    })
+  })
+
+  it('preserves arbitrary custom gateway provider names with explicit structured-output defaults', () => {
+    const realRegistry = new ModelRegistry()
+    realRegistry.setFactory(stubFactory)
+    realRegistry.addProvider(makeProvider({
+      provider: 'gateway-openai-proxy',
+      structuredOutputDefaults: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+      models: {
+        chat: {
+          name: 'gateway/gpt-4o-mini',
+          maxTokens: 2048,
+        },
+      },
+    }))
+
+    const model = realRegistry.getModel('chat') as unknown as Record<string, unknown>
+    expect(model['_provider']).toBe('gateway-openai-proxy')
+    expect(model['structuredOutputCapabilities']).toEqual({
+      preferredStrategy: 'openai-json-schema',
+      schemaProvider: 'openai',
+      fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+    })
+    expect(realRegistry.getSpec('chat')).toEqual({
+      name: 'gateway/gpt-4o-mini',
+      maxTokens: 2048,
+      structuredOutput: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+      provider: 'gateway-openai-proxy',
+    })
+  })
+
   // --- getModelFromProvider ---
 
   it('gets a model from a specific provider', () => {
@@ -178,7 +303,100 @@ describe('ModelRegistry', () => {
     expect(spec).toEqual({
       name: 'claude-haiku',
       maxTokens: 1024,
+      structuredOutput: {
+        preferredStrategy: 'anthropic-tool-use',
+        schemaProvider: 'generic',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
       provider: 'anthropic',
+    })
+  })
+
+  it('normalizes inferred structured-output capabilities in getSpec for google OpenAI-compatible transport', () => {
+    registry.addProvider(makeProvider({
+      provider: 'google',
+      apiKey: 'google-key',
+      models: {
+        chat: { name: 'gemini-2.5-pro', maxTokens: 4096 },
+      },
+    }))
+
+    expect(registry.getSpec('chat')).toEqual({
+      name: 'gemini-2.5-pro',
+      maxTokens: 4096,
+      structuredOutput: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+      provider: 'google',
+    })
+  })
+
+  it('normalizes inferred structured-output capabilities in getSpec for qwen OpenAI-compatible transport', () => {
+    registry.addProvider(makeProvider({
+      provider: 'qwen',
+      apiKey: 'qwen-key',
+      models: {
+        chat: { name: 'qwen-turbo', maxTokens: 4096 },
+      },
+    }))
+
+    expect(registry.getSpec('chat')).toEqual({
+      name: 'qwen-turbo',
+      maxTokens: 4096,
+      structuredOutput: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+      provider: 'qwen',
+    })
+  })
+
+  it('reports openrouter getSpec structured output as prompt-json fallback by default', () => {
+    registry.addProvider(makeProvider({
+      provider: 'openrouter',
+      apiKey: 'router-key',
+      models: {
+        chat: { name: 'openai/gpt-4o-mini', maxTokens: 4096 },
+      },
+    }))
+
+    expect(registry.getSpec('chat')).toEqual({
+      name: 'openai/gpt-4o-mini',
+      maxTokens: 4096,
+      structuredOutput: {
+        preferredStrategy: 'generic-parse',
+        schemaProvider: 'generic',
+        fallbackStrategies: ['fallback-prompt'],
+      },
+      provider: 'openrouter',
+    })
+  })
+
+  it('prefers provider-level structured-output defaults in getSpec for custom providers', () => {
+    registry.addProvider(makeProvider({
+      provider: 'custom',
+      structuredOutputDefaults: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+      models: {
+        chat: { name: 'gateway/gpt-4o-mini', maxTokens: 4096 },
+      },
+    }))
+
+    expect(registry.getSpec('chat')).toEqual({
+      name: 'gateway/gpt-4o-mini',
+      maxTokens: 4096,
+      structuredOutput: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+      provider: 'custom',
     })
   })
 

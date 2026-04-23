@@ -34,9 +34,8 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
 
   it('handles multiple JSONL records across chunks', async () => {
     const script = `
-      process.stdout.write('{"a":1}\\n{"b":2}\\n');
-      process.stdout.write('{"c":3}\\n');
-      process.exit(0);
+      process.stdout.write('{"a":1}\\\\n{"b":2}\\\\n');
+      process.stdout.write('{"c":3}\\\\n');
     `
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script]),
@@ -46,8 +45,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
 
   it('skips invalid JSON lines gracefully', async () => {
     const script = `
-      process.stdout.write('not json\\n{"a":1}\\ngarbage\\n');
-      process.exit(0);
+      process.stdout.write('not json\\\\n{"a":1}\\\\ngarbage\\\\n')
     `
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script]),
@@ -57,8 +55,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
 
   it('skips empty lines', async () => {
     const script = `
-      process.stdout.write('\\n\\n{"a":1}\\n\\n');
-      process.exit(0);
+      process.stdout.write('\\\\n\\\\n{"a":1}\\\\n\\\\n')
     `
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script]),
@@ -68,8 +65,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
 
   it('skips JSON arrays (only accepts objects)', async () => {
     const script = `
-      process.stdout.write('[1,2,3]\\n{"a":1}\\n');
-      process.exit(0);
+      process.stdout.write('[1,2,3]\\\\n{"a":1}\\\\n')
     `
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script]),
@@ -79,8 +75,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
 
   it('skips JSON null and primitives', async () => {
     const script = `
-      process.stdout.write('null\\n42\\n"string"\\n{"ok":true}\\n');
-      process.exit(0);
+      process.stdout.write('null\\\\n42\\\\n"string"\\\\n{"ok":true}\\\\n')
     `
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script]),
@@ -90,8 +85,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
 
   it('parses trailing partial buffer without newline', async () => {
     const script = `
-      process.stdout.write('{"a":1}');
-      process.exit(0);
+      process.stdout.write('{"a":1}')
     `
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script]),
@@ -101,8 +95,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
 
   it('skips malformed trailing partial buffer', async () => {
     const script = `
-      process.stdout.write('{"a":1}\\n{"incomplete":');
-      process.exit(0);
+      process.stdout.write('{"a":1}\\\\n{"incomplete":')
     `
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script]),
@@ -120,8 +113,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
 
   it('passes through spawn options like env', async () => {
     const script = `
-      process.stdout.write(JSON.stringify({ value: process.env.TEST_VAR }) + '\\n');
-      process.exit(0);
+      process.stdout.write(JSON.stringify({ value: process.env.TEST_VAR }) + '\\\\n')
     `
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script], {
@@ -132,7 +124,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
   })
 
   it('handles timeoutMs=0 as no-timeout', async () => {
-    const script = `process.stdout.write('{"a":1}\\n'); process.exit(0)`
+    const script = `process.stdout.write('{"a":1}\\\\n')`
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script], { timeoutMs: 0 }),
     )
@@ -140,7 +132,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
   })
 
   it('respects undefined timeoutMs', async () => {
-    const script = `process.stdout.write('{"a":1}\\n'); process.exit(0)`
+    const script = `process.stdout.write('{"a":1}\\\\n')`
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script], { timeoutMs: undefined }),
     )
@@ -149,8 +141,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
 
   it('supports backpressure with multiple records', async () => {
     const script = `
-      process.stdout.write('{"a":1}\\n{"b":2}\\n{"c":3}\\n');
-      process.exit(0);
+      process.stdout.write('{"a":1}\\\\n{"b":2}\\\\n{"c":3}\\\\n')
     `
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script], { backpressure: true }),
@@ -163,8 +154,7 @@ describe('spawnAndStreamJsonl - branch coverage', () => {
     const script = `
       process.stdout.write('{"key":"');
       setTimeout(() => {
-        process.stdout.write('value"}\\n');
-        process.exit(0);
+        process.stdout.write('value"}\\\\n')
       }, 20);
     `
     const records = await collectRecords(

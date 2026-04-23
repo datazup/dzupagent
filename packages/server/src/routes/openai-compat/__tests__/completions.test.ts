@@ -407,7 +407,7 @@ describe('OpenAI-compat completions route', () => {
       mockStream.mockImplementation(async function* () {
         yield { type: 'text', data: { content: 'starting...' } }
         throw new Error('stream failure')
-        // eslint-disable-next-line no-unreachable
+         
         yield { type: 'done', data: {} }
       })
 

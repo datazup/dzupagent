@@ -113,7 +113,12 @@ describe('createFlowCompiler — happy path skill-chain', () => {
     const result = await compiler.compile(input)
 
     expect('errors' in result).toBe(false)
-    const success = result as { target: string; artifact: unknown; warnings: string[] }
+    const success = result as {
+      target: string
+      artifact: unknown
+      warnings: Array<{ code: string; message: string }>
+      reasons: Array<{ code: string; message: string }>
+    }
     expect(success.target).toBe('skill-chain')
 
     const chain = success.artifact as SkillChain
@@ -122,6 +127,9 @@ describe('createFlowCompiler — happy path skill-chain', () => {
     expect(chain.steps[0]?.skillName).toBe('pm.create_task')
     expect(chain.steps[1]?.skillName).toBe('pm.update_task')
     expect(success.warnings).toEqual([])
+    expect(success.reasons).toEqual([
+      expect.objectContaining({ code: 'SEQUENTIAL_ONLY' }),
+    ])
   })
 
   it('uses the default chain name "flow"', async () => {
@@ -130,6 +138,53 @@ describe('createFlowCompiler — happy path skill-chain', () => {
     const result = await compiler.compile({ type: 'action', toolRef: 'tasks.run', input: {} })
     const success = result as { artifact: SkillChain }
     expect(success.artifact.name).toBe('flow')
+  })
+
+  it('compiles a canonical FlowDocument via compileDocument()', async () => {
+    const resolver = makeResolver(['tasks.run'])
+    const compiler = createFlowCompiler({ toolResolver: resolver })
+
+    const result = await compiler.compileDocument({
+      dsl: 'dzupflow/v1',
+      id: 'doc_flow',
+      version: 1,
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          { type: 'action', id: 'run', toolRef: 'tasks.run', input: {} },
+        ],
+      },
+    })
+
+    expect('errors' in result).toBe(false)
+    const success = result as { target: string; artifact: SkillChain }
+    expect(success.target).toBe('skill-chain')
+    expect(success.artifact.steps).toHaveLength(1)
+    expect(success.artifact.steps[0]?.skillName).toBe('tasks.run')
+  })
+
+  it('compiles dzupflow DSL text via compileDsl()', async () => {
+    const resolver = makeResolver(['tasks.run'])
+    const compiler = createFlowCompiler({ toolResolver: resolver })
+
+    const result = await compiler.compileDsl(`
+dsl: dzupflow/v1
+id: review_and_build
+version: 1
+steps:
+  - action:
+      id: run
+      ref: tasks.run
+      input:
+        mode: run
+`)
+
+    expect('errors' in result).toBe(false)
+    const success = result as { target: string; artifact: SkillChain }
+    expect(success.target).toBe('skill-chain')
+    expect(success.artifact.steps).toHaveLength(1)
+    expect(success.artifact.steps[0]?.skillName).toBe('tasks.run')
   })
 })
 
@@ -152,8 +207,9 @@ describe('createFlowCompiler — happy path workflow-builder', () => {
     const result = await compiler.compile(input)
 
     expect('errors' in result).toBe(false)
-    const success = result as { target: string; artifact: unknown; warnings: string[] }
+    const success = result as { target: string; artifact: unknown; reasons: Array<{ code: string }> }
     expect(success.target).toBe('workflow-builder')
+    expect(success.reasons.some((reason) => reason.code === 'BRANCH_PRESENT')).toBe(true)
 
     const pipeline = success.artifact as PipelineDefinition
     expect(typeof pipeline.id).toBe('string')
@@ -183,8 +239,9 @@ describe('createFlowCompiler — happy path pipeline', () => {
     const result = await compiler.compile(input)
 
     expect('errors' in result).toBe(false)
-    const success = result as { target: string; artifact: unknown; warnings: string[] }
+    const success = result as { target: string; artifact: unknown; reasons: Array<{ code: string }> }
     expect(success.target).toBe('pipeline')
+    expect(success.reasons.some((reason) => reason.code === 'FOR_EACH_PRESENT')).toBe(true)
 
     const pipeline = success.artifact as PipelineDefinition
     expect(typeof pipeline.id).toBe('string')
@@ -205,9 +262,10 @@ describe('createFlowCompiler — stage 2 errors', () => {
     const result = await compiler.compile({ type: 'sequence', nodes: [] })
 
     expect('errors' in result).toBe(true)
-    const failure = result as { errors: Array<{ stage: number; message: string }> }
+    const failure = result as { errors: Array<{ stage: number; code: string; message: string }> }
     expect(failure.errors.length).toBeGreaterThan(0)
     expect(failure.errors.every((e) => e.stage === 2)).toBe(true)
+    expect(failure.errors[0]?.code).toBe('EMPTY_BODY')
     expect(failure.errors[0]?.message).toMatch(/sequence\.nodes must contain/)
   })
 
@@ -238,6 +296,51 @@ describe('createFlowCompiler — stage 2 errors', () => {
     // Shape errors — stage 2
     expect(failure.errors.some((e) => e.stage === 2)).toBe(true)
   })
+
+  it('compileDocument() returns stage:2 diagnostics for invalid canonical documents', async () => {
+    const resolver = makeResolver([])
+    const compiler = createFlowCompiler({ toolResolver: resolver })
+
+    const result = await compiler.compileDocument({
+      dsl: 'dzupflow/v1',
+      id: 'doc_flow',
+      version: 1,
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [],
+      },
+    })
+
+    expect('errors' in result).toBe(true)
+    const failure = result as { errors: Array<{ stage: number; code: string }> }
+    expect(failure.errors.some((e) => e.stage === 2)).toBe(true)
+    expect(failure.errors[0]?.code).toBe('EMPTY_BODY')
+  })
+
+  it('compileDsl() returns normalized diagnostics for invalid DSL text', async () => {
+    const resolver = makeResolver([])
+    const compiler = createFlowCompiler({ toolResolver: resolver })
+
+    const result = await compiler.compileDsl(`
+dsl: dzupflow/v1
+id: invalid
+version: 1
+steps:
+  - action:
+      id: run
+      ref: tasks.run
+      on_error:
+        action: retry
+      input: {}
+`)
+
+    expect('errors' in result).toBe(true)
+    const failure = result as { errors: Array<{ stage: number; code: string; nodePath?: string }> }
+    expect(failure.errors.some((e) => e.stage === 2)).toBe(true)
+    expect(failure.errors[0]?.code).toBe('UNSUPPORTED_FIELD')
+    expect(failure.errors[0]?.nodePath).toBe('root.steps[0].on_error')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -256,9 +359,10 @@ describe('createFlowCompiler — stage 3 errors', () => {
     })
 
     expect('errors' in result).toBe(true)
-    const failure = result as { errors: Array<{ stage: number; message: string }> }
+    const failure = result as { errors: Array<{ stage: number; code: string; message: string; suggestion?: string }> }
     expect(failure.errors.length).toBeGreaterThan(0)
     expect(failure.errors.every((e) => e.stage === 3)).toBe(true)
+    expect(failure.errors[0]?.code).toBe('UNRESOLVED_TOOL_REF')
     expect(failure.errors[0]?.message).toMatch(/unknown\.tool/)
   })
 

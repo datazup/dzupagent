@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { InMemoryCacheBackend, type CacheBackend } from '@dzupagent/cache'
 import {
   ReferenceTracker,
   InMemoryReferenceStore,
@@ -6,7 +7,6 @@ import {
   deriveMemoryEntryId,
   type ReferenceStore,
   type ReferenceRecord,
-  type SortedSetClientLike,
 } from '../reference-tracker.js'
 
 // ---------------------------------------------------------------------------
@@ -204,115 +204,13 @@ describe('deriveMemoryEntryId', () => {
 })
 
 // ---------------------------------------------------------------------------
-// RedisReferenceStore (mocked client)
+// RedisReferenceStore (backed by a CacheBackend)
 // ---------------------------------------------------------------------------
 
-function createMockRedisClient(): SortedSetClientLike & {
-  zadds: Array<{ key: string; score: number; member: string }>
-  hsets: Array<{ key: string; field: string; value: string }>
-  dels: string[]
-  sortedSets: Map<string, Map<string, number>>
-  hashes: Map<string, Map<string, string>>
-} {
-  const sortedSets = new Map<string, Map<string, number>>()
-  const hashes = new Map<string, Map<string, string>>()
-  const zadds: Array<{ key: string; score: number; member: string }> = []
-  const hsets: Array<{ key: string; field: string; value: string }> = []
-  const dels: string[] = []
-
-  return {
-    sortedSets,
-    hashes,
-    zadds,
-    hsets,
-    dels,
-    async zadd(key, score, member) {
-      zadds.push({ key, score, member })
-      const set = sortedSets.get(key) ?? new Map<string, number>()
-      set.set(member, score)
-      sortedSets.set(key, set)
-      return 1
-    },
-    async zrange(key, start, stop, ...args) {
-      const set = sortedSets.get(key) ?? new Map()
-      const withScores = args.includes('WITHSCORES')
-      const rev = args.includes('REV')
-      const entries = [...set.entries()].sort((a, b) =>
-        rev ? b[1] - a[1] : a[1] - b[1],
-      )
-      const effectiveStop = stop < 0 ? entries.length + stop : stop
-      const slice = entries.slice(start, effectiveStop + 1)
-      if (!withScores) return slice.map(([m]) => m)
-      const out: string[] = []
-      for (const [m, s] of slice) {
-        out.push(m, String(s))
-      }
-      return out
-    },
-    async zrangebyscore(key, min, max, ...args) {
-      const set = sortedSets.get(key) ?? new Map()
-      const withScores = args.includes('WITHSCORES')
-      const lo = min === '-inf' ? -Infinity : Number(min)
-      const hi = max === '+inf' ? Infinity : Number(max)
-
-      const limitIdx = args.indexOf('LIMIT')
-      let offset = 0
-      let count = Number.MAX_SAFE_INTEGER
-      if (limitIdx >= 0) {
-        offset = Number(args[limitIdx + 1] ?? 0)
-        count = Number(args[limitIdx + 2] ?? Number.MAX_SAFE_INTEGER)
-      }
-
-      const entries = [...set.entries()]
-        .filter(([, s]) => s >= lo && s <= hi)
-        .sort((a, b) => a[1] - b[1])
-        .slice(offset, offset + count)
-
-      if (!withScores) return entries.map(([m]) => m)
-      const out: string[] = []
-      for (const [m, s] of entries) {
-        out.push(m, String(s))
-      }
-      return out
-    },
-    async hset(key, field, value) {
-      hsets.push({ key, field, value })
-      const h = hashes.get(key) ?? new Map<string, string>()
-      h.set(field, value)
-      hashes.set(key, h)
-      return 1
-    },
-    async hget(key, field) {
-      return hashes.get(key)?.get(field) ?? null
-    },
-    async hdel(key, ...fields) {
-      const h = hashes.get(key)
-      if (!h) return 0
-      let n = 0
-      for (const f of fields) {
-        if (h.delete(f)) n++
-      }
-      return n
-    },
-    async del(...keys) {
-      dels.push(...keys)
-      let n = 0
-      for (const k of keys) {
-        if (sortedSets.delete(k)) n++
-        if (hashes.delete(k)) n++
-      }
-      return n
-    },
-    async scan(cursor, ..._args) {
-      return [String(cursor), []]
-    },
-  }
-}
-
 describe('RedisReferenceStore', () => {
-  it('writes to run sorted set, entry sorted set, and context hash', async () => {
-    const client = createMockRedisClient()
-    const store = new RedisReferenceStore(client, { prefix: 'test' })
+  it('writes to run sorted set, entry sorted set, and context value', async () => {
+    const cache = new InMemoryCacheBackend()
+    const store = new RedisReferenceStore(cache, { prefix: 'test' })
 
     await store.record({
       runId: 'run-1',
@@ -321,17 +219,19 @@ describe('RedisReferenceStore', () => {
       retrievalContext: { query: 'why' },
     })
 
-    expect(client.zadds).toContainEqual({ key: 'test:run:run-1', score: 5000, member: 'mem-a' })
-    expect(client.zadds).toContainEqual({ key: 'test:entry:mem-a', score: 5000, member: 'run-1' })
-    expect(client.hsets).toHaveLength(1)
-    expect(client.hsets[0]!.key).toBe('test:ctx:run-1')
-    expect(client.hsets[0]!.field).toBe('mem-a@5000')
-    expect(JSON.parse(client.hsets[0]!.value)).toEqual({ query: 'why' })
+    expect(await cache.zcard('test:run:run-1')).toBe(1)
+    expect(await cache.zcard('test:entry:mem-a')).toBe(1)
+    expect(await cache.zrangebyscore('test:run:run-1', 0, 10000)).toEqual(['mem-a@5000'])
+    expect(await cache.zrangebyscore('test:entry:mem-a', 0, 10000)).toEqual(['run-1@5000'])
+
+    const ctxRaw = await cache.get('test:ctx:run-1:mem-a@5000')
+    expect(ctxRaw).not.toBeNull()
+    expect(JSON.parse(ctxRaw!)).toEqual({ query: 'why' })
   })
 
   it('listByRun returns most-recent-first with context', async () => {
-    const client = createMockRedisClient()
-    const store = new RedisReferenceStore(client, { prefix: 'test' })
+    const cache = new InMemoryCacheBackend()
+    const store = new RedisReferenceStore(cache, { prefix: 'test' })
 
     await store.record({ runId: 'r', memoryEntryId: 'a', retrievedAt: 100, retrievalContext: { rank: 0 } })
     await store.record({ runId: 'r', memoryEntryId: 'b', retrievedAt: 300, retrievalContext: { rank: 1 } })
@@ -343,8 +243,8 @@ describe('RedisReferenceStore', () => {
   })
 
   it('listByEntry returns most-recent-first', async () => {
-    const client = createMockRedisClient()
-    const store = new RedisReferenceStore(client)
+    const cache = new InMemoryCacheBackend()
+    const store = new RedisReferenceStore(cache)
 
     await store.record({ runId: 'r1', memoryEntryId: 'mem', retrievedAt: 100, retrievalContext: {} })
     await store.record({ runId: 'r2', memoryEntryId: 'mem', retrievedAt: 200, retrievalContext: {} })
@@ -354,8 +254,8 @@ describe('RedisReferenceStore', () => {
   })
 
   it('applies sinceMs / untilMs window via zrangebyscore', async () => {
-    const client = createMockRedisClient()
-    const store = new RedisReferenceStore(client)
+    const cache = new InMemoryCacheBackend()
+    const store = new RedisReferenceStore(cache)
 
     for (let i = 1; i <= 5; i++) {
       await store.record({ runId: 'r', memoryEntryId: `e${i}`, retrievedAt: i * 100, retrievalContext: {} })
@@ -366,31 +266,32 @@ describe('RedisReferenceStore', () => {
   })
 
   it('parses invalid context JSON as {}', async () => {
-    const client = createMockRedisClient()
-    const store = new RedisReferenceStore(client)
+    const cache = new InMemoryCacheBackend()
+    const store = new RedisReferenceStore(cache)
 
     await store.record({ runId: 'r', memoryEntryId: 'e', retrievedAt: 1, retrievalContext: { rank: 9 } })
-    // Corrupt the context
-    client.hashes.get('dz:refs:ctx:r')!.set('e@1', '{not-json')
+    // Corrupt the context value
+    await cache.set('dz:refs:ctx:r:e@1', '{not-json')
 
     const refs = await store.listByRun('r')
     expect(refs).toHaveLength(1)
     expect(refs[0]!.retrievalContext).toEqual({})
   })
 
-  it('swallows client errors and invokes onError', async () => {
+  it('swallows backend errors and invokes onError', async () => {
     const onError = vi.fn()
-    const badClient: SortedSetClientLike = {
+    const badCache: CacheBackend = {
+      get: vi.fn().mockRejectedValue(new Error('nope')),
+      set: vi.fn().mockRejectedValue(new Error('nope')),
+      delete: vi.fn().mockRejectedValue(new Error('nope')),
+      clear: vi.fn().mockRejectedValue(new Error('nope')),
+      stats: vi.fn().mockResolvedValue({ hits: 0, misses: 0, size: 0, hitRate: 0 }),
       zadd: vi.fn().mockRejectedValue(new Error('nope')),
-      zrange: vi.fn().mockRejectedValue(new Error('nope')),
       zrangebyscore: vi.fn().mockRejectedValue(new Error('nope')),
-      hset: vi.fn().mockRejectedValue(new Error('nope')),
-      hget: vi.fn().mockRejectedValue(new Error('nope')),
-      hdel: vi.fn().mockRejectedValue(new Error('nope')),
-      del: vi.fn().mockRejectedValue(new Error('nope')),
-      scan: vi.fn().mockRejectedValue(new Error('nope')),
+      zrem: vi.fn().mockRejectedValue(new Error('nope')),
+      zcard: vi.fn().mockResolvedValue(0),
     }
-    const store = new RedisReferenceStore(badClient, { onError })
+    const store = new RedisReferenceStore(badCache, { onError })
 
     await store.record({ runId: 'r', memoryEntryId: 'e', retrievedAt: 1, retrievalContext: {} })
     const refs = await store.listByRun('r')
@@ -398,15 +299,31 @@ describe('RedisReferenceStore', () => {
     expect(onError).toHaveBeenCalled()
   })
 
-  it('clearRun deletes the run and context keys', async () => {
-    const client = createMockRedisClient()
-    const store = new RedisReferenceStore(client, { prefix: 'test' })
+  it('clearRun removes run sorted set, ctx values, and reverse-index entries', async () => {
+    const cache = new InMemoryCacheBackend()
+    const store = new RedisReferenceStore(cache, { prefix: 'test' })
 
-    await store.record({ runId: 'r', memoryEntryId: 'a', retrievedAt: 1, retrievalContext: {} })
+    await store.record({ runId: 'r', memoryEntryId: 'a', retrievedAt: 1, retrievalContext: { rank: 0 } })
+    await store.record({ runId: 'r', memoryEntryId: 'b', retrievedAt: 2, retrievalContext: { rank: 1 } })
+    // A second run citing 'a' must survive clearRun('r')
+    await store.record({ runId: 'r2', memoryEntryId: 'a', retrievedAt: 3, retrievalContext: { rank: 0 } })
+
     await store.clearRun('r')
 
-    expect(client.dels).toContain('test:run:r')
-    expect(client.dels).toContain('test:ctx:r')
+    expect(await cache.zcard('test:run:r')).toBe(0)
+    expect(await cache.get('test:ctx:r:a@1')).toBeNull()
+    expect(await cache.get('test:ctx:r:b@2')).toBeNull()
+
+    // Reverse index for 'a' should still hold r2 but not r
+    const aMembers = await cache.zrangebyscore('test:entry:a', -Infinity, Infinity)
+    expect(aMembers).toEqual(['r2@3'])
+    // Reverse index for 'b' is now empty (or deleted)
+    expect(await cache.zcard('test:entry:b')).toBe(0)
+
+    // Run 'r2' is unaffected
+    const r2Refs = await store.listByRun('r2')
+    expect(r2Refs).toHaveLength(1)
+    expect(r2Refs[0]!.memoryEntryId).toBe('a')
   })
 })
 

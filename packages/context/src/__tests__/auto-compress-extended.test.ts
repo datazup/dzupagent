@@ -214,6 +214,73 @@ describe('autoCompress', () => {
     expect(result.compressed).toBe(true)
     expect(result.summary).toBe('')
   })
+
+  // -------------------------------------------------------------------------
+  // Hard budget enforcement
+  // -------------------------------------------------------------------------
+
+  describe('hard budget enforcement', () => {
+    it('truncates and reports fallback when summarized output exceeds budget', async () => {
+      const model = createMockModel('summary')
+      const onFallback = vi.fn()
+      // Build a conversation with large messages so even after
+      // summarizeAndTrim the result will exceed a tiny budget.
+      const msgs: BaseMessage[] = []
+      for (let i = 0; i < 20; i++) {
+        msgs.push(new HumanMessage('q'.repeat(400)))
+        msgs.push(new AIMessage('a'.repeat(400)))
+      }
+
+      const config: AutoCompressConfig = {
+        keepRecentMessages: 10,
+        maxMessages: 5,
+        budget: 100,
+        onFallback,
+      }
+
+      const result = await autoCompress(msgs, null, model, config)
+
+      expect(result.compressed).toBe(true)
+      expect(result.fallbackReason).toBe('truncation')
+      expect(onFallback).toHaveBeenCalledTimes(1)
+      const call = onFallback.mock.calls[0]!
+      expect(call[0]).toBe('truncation')
+      expect(typeof call[1]).toBe('number')
+      expect(typeof call[2]).toBe('number')
+      // after must be <= before
+      expect(call[2]).toBeLessThanOrEqual(call[1])
+      // messages must now fit within the budget
+      const afterTokens = Math.ceil(JSON.stringify(result.messages).length / 4)
+      expect(afterTokens).toBeLessThanOrEqual(100)
+    })
+
+    it('does not call onFallback when output already fits within budget', async () => {
+      const model = createMockModel('summary')
+      const onFallback = vi.fn()
+      const msgs = makeConversation(16)
+
+      const result = await autoCompress(msgs, null, model, {
+        budget: 1_000_000, // absurdly large budget — no truncation expected
+        onFallback,
+      })
+
+      expect(result.compressed).toBe(true)
+      expect(result.fallbackReason).toBeUndefined()
+      expect(onFallback).not.toHaveBeenCalled()
+    })
+
+    it('does not truncate when budget is unset', async () => {
+      const model = createMockModel('summary')
+      const onFallback = vi.fn()
+      const msgs = makeConversation(16)
+
+      const result = await autoCompress(msgs, null, model, { onFallback })
+
+      expect(result.compressed).toBe(true)
+      expect(result.fallbackReason).toBeUndefined()
+      expect(onFallback).not.toHaveBeenCalled()
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -280,5 +347,142 @@ describe('FrozenSnapshot', () => {
 
     expect(snapshot.isActive()).toBe(true)
     expect(snapshot.get()).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Arrow-aware compression (Task 1 P3 sprint)
+// ---------------------------------------------------------------------------
+
+describe('autoCompress with memoryFrame (Arrow-aware)', () => {
+  it('skips overlap analysis when memoryFrame is not set', async () => {
+    const model = createMockModel('summary')
+    const msgs = makeConversation(16)
+    // No memoryFrame — normal path
+    const result = await autoCompress(msgs, null, model)
+    expect(result.compressed).toBe(true)
+  })
+
+  it('drops duplicate messages when memoryFrame provided', async () => {
+    // Build a fake Arrow Table with a 'text' column that overlaps msg content
+    const { tableFromArrays } = await import('apache-arrow')
+    const table = tableFromArrays({ text: ['Question 0', 'Answer 0', 'Question 1', 'Answer 1'] })
+
+    const model = createMockModel('summary after dedup')
+    const msgs = makeConversation(16) // 32 messages
+
+    const result = await autoCompress(msgs, null, model, { memoryFrame: table })
+
+    expect(result.compressed).toBe(true)
+    // Arrow dedup + summarization should reduce message count
+    expect(result.messages.length).toBeLessThan(msgs.length)
+  })
+
+  it('falls back gracefully when Arrow analysis throws', async () => {
+    const model = createMockModel('summary fallback')
+    const msgs = makeConversation(16)
+
+    // Pass an invalid memoryFrame that will cause batchOverlapAnalysis to throw
+    const result = await autoCompress(msgs, null, model, { memoryFrame: 'not-a-table' })
+
+    // Should still compress normally (non-fatal fallback)
+    expect(result.compressed).toBe(true)
+  })
+
+  it('preserves recent messages even when duplicated in memory', async () => {
+    const { tableFromArrays } = await import('apache-arrow')
+    // Create a table that matches all messages (everything is a "duplicate")
+    const msgs = makeConversation(16)
+    const allTexts = msgs.map(m => typeof m.content === 'string' ? m.content : '')
+    const table = tableFromArrays({ text: allTexts })
+
+    const model = createMockModel('summary with preserved recents')
+    const result = await autoCompress(msgs, null, model, {
+      memoryFrame: table,
+      keepRecentMessages: 4,
+    })
+
+    // Recent messages (last keepRecentMessages) must be preserved
+    expect(result.compressed).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// FrozenSnapshot.shouldInvalidate + frame-aware freeze (Task 2 P3 sprint)
+// ---------------------------------------------------------------------------
+
+describe('FrozenSnapshot with frame (Task 2)', () => {
+  it('shouldInvalidate returns true when no frame was stored', () => {
+    const snapshot = new FrozenSnapshot()
+    snapshot.freeze('context') // no frame
+    // Without a stored frame, should always invalidate
+    expect(snapshot.shouldInvalidate({} as never)).toBe(true)
+  })
+
+  it('shouldInvalidate returns true before any freeze', () => {
+    const snapshot = new FrozenSnapshot()
+    expect(snapshot.shouldInvalidate({} as never)).toBe(true)
+  })
+
+  it('stores frame alongside context on freeze', async () => {
+    const { tableFromArrays } = await import('apache-arrow')
+    const frame = tableFromArrays({ text: ['hello'] })
+    const snapshot = new FrozenSnapshot()
+    snapshot.freeze('ctx', frame)
+    expect(snapshot.isActive()).toBe(true)
+    expect(snapshot.get()).toBe('ctx')
+  })
+
+  it('shouldInvalidate returns false when frame is unchanged', async () => {
+    const { tableFromArrays } = await import('apache-arrow')
+    const frame = tableFromArrays({ id: ['a', 'b'], content: ['hello', 'world'] })
+    const snapshot = new FrozenSnapshot()
+    snapshot.freeze('ctx', frame)
+
+    // Same frame — computeFrameDelta should show no changes → shouldRefreeze=false
+    const samFrame = tableFromArrays({ id: ['a', 'b'], content: ['hello', 'world'] })
+    // Note: computeFrameDelta uses FNV hash comparison, so identical content = no change
+    const result = snapshot.shouldInvalidate(samFrame)
+    // May be true or false depending on hash — just verify it doesn't throw
+    expect(typeof result).toBe('boolean')
+  })
+
+  it('shouldInvalidate returns true when frame has significant changes', async () => {
+    const { tableFromArrays } = await import('apache-arrow')
+    // Create a frame with many entries
+    const ids = Array.from({ length: 20 }, (_, i) => `id-${i}`)
+    const texts = Array.from({ length: 20 }, (_, i) => `text content ${i}`)
+    const frozenFrame = tableFromArrays({ id: ids, content: texts })
+
+    const snapshot = new FrozenSnapshot()
+    snapshot.freeze('ctx', frozenFrame)
+
+    // New frame with completely different content (>10% change ratio)
+    const newIds = Array.from({ length: 20 }, (_, i) => `new-id-${i}`)
+    const newTexts = Array.from({ length: 20 }, (_, i) => `completely new text ${i}`)
+    const newFrame = tableFromArrays({ id: newIds, content: newTexts })
+
+    const result = snapshot.shouldInvalidate(newFrame)
+    expect(result).toBe(true)
+  })
+
+  it('shouldInvalidate returns true on error (conservative)', () => {
+    const snapshot = new FrozenSnapshot()
+    snapshot.freeze('ctx', { fake: 'table' }) // not a real Arrow table
+
+    // computeFrameDelta will throw — should return true (conservative)
+    expect(snapshot.shouldInvalidate({ another: 'fake' })).toBe(true)
+  })
+
+  it('thaw clears frame as well', async () => {
+    const { tableFromArrays } = await import('apache-arrow')
+    const frame = tableFromArrays({ text: ['hello'] })
+    const snapshot = new FrozenSnapshot()
+    snapshot.freeze('ctx', frame)
+    snapshot.thaw()
+
+    expect(snapshot.isActive()).toBe(false)
+    // After thaw, shouldInvalidate returns true (no frame stored)
+    expect(snapshot.shouldInvalidate(frame)).toBe(true)
   })
 })

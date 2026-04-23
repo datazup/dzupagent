@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
+import { ChatAnthropic } from '@langchain/anthropic'
+import { ChatOpenAI } from '@langchain/openai'
 import {
   AgentCardV2Schema,
   validateAgentCard,
@@ -8,6 +10,10 @@ import {
   zodToJsonSchema,
   jsonSchemaToZod,
   toOpenAISafeSchema,
+  toStructuredOutputJsonSchema,
+  describeStructuredOutputSchema,
+  buildStructuredOutputSchemaName,
+  attachStructuredOutputErrorContext,
   toOpenAIFunction,
   toOpenAITool,
   fromOpenAIFunction,
@@ -15,8 +21,62 @@ import {
   fromMCPToolDescriptor,
 } from '../tool-format-adapters.js'
 import type { ToolSchemaDescriptor } from '../tool-format-adapters.js'
+import {
+  executeStructuredParseLoop,
+  executeStructuredParseStreamLoop,
+  buildStructuredOutputCorrectionPrompt,
+  buildStructuredOutputExhaustedError,
+} from '../structured-output-retry.js'
 import type { OpenAIFunctionDefinition } from '../openai-function-types.js'
 import { parseAgentsMdV2, generateAgentsMd, toLegacyConfig } from '../agents-md-parser-v2.js'
+
+function extractOpenAIResponseSchema(
+  config: ConstructorParameters<typeof ChatOpenAI>[0],
+  schema: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const model = new ChatOpenAI(config)
+  const structured = model.withStructuredOutput(schema, { method: 'jsonSchema' }) as {
+    first: { defaultOptions?: { response_format?: Record<string, unknown> } }
+  }
+  const responseFormat = structured.first.defaultOptions?.response_format as {
+    json_schema?: { schema?: Record<string, unknown> }
+  }
+
+  return responseFormat.json_schema?.schema
+}
+
+function extractAnthropicStructuredConfig(
+  schema: z.ZodType,
+  name = 'extract',
+): {
+  tools?: Array<Record<string, unknown>>
+  tool_choice?: Record<string, unknown>
+  ls_structured_output_format?: {
+    kwargs?: Record<string, unknown>
+    schema?: Record<string, unknown>
+  }
+} | undefined {
+  const model = new ChatAnthropic({
+    apiKey: 'test',
+    model: 'claude-3-5-sonnet-latest',
+  })
+  const structured = model.withStructuredOutput(schema, { name }) as {
+    bound?: {
+      first?: {
+        config?: {
+          tools?: Array<Record<string, unknown>>
+          tool_choice?: Record<string, unknown>
+          ls_structured_output_format?: {
+            kwargs?: Record<string, unknown>
+            schema?: Record<string, unknown>
+          }
+        }
+      }
+    }
+  }
+
+  return structured.bound?.first?.config
+}
 
 // =========================================================================
 // Agent Card V2 validation
@@ -271,6 +331,615 @@ describe('toOpenAISafeSchema', () => {
     expect(safe.safeParse({ title: 'toolong' }).success).toBe(true)
     // Original still rejects
     expect(schema.safeParse({ title: 'toolong' }).success).toBe(false)
+  })
+})
+
+describe('toStructuredOutputJsonSchema', () => {
+  it('uses Zod built-in JSON Schema conversion and canonicalizes output', () => {
+    const schema = z.object({
+      name: z.string(),
+      details: z.object({
+        count: z.number(),
+      }),
+      notes: z.string().nullable(),
+    })
+
+    const jsonSchema = toStructuredOutputJsonSchema(schema)
+
+    expect(jsonSchema).toEqual({
+      additionalProperties: false,
+      properties: {
+        details: {
+          additionalProperties: false,
+          properties: {
+            count: {
+              type: 'number',
+            },
+          },
+          required: ['count'],
+          type: 'object',
+        },
+        name: {
+          type: 'string',
+        },
+        notes: {
+          anyOf: [
+            { type: 'string' },
+            { type: 'null' },
+          ],
+        },
+      },
+      required: ['name', 'details', 'notes'],
+      type: 'object',
+    })
+  })
+
+  it('applies the OpenAI-safe conversion before generating provider schema', () => {
+    const schema = z.object({
+      title: z.string().min(1).max(100),
+      tags: z.array(z.string()).min(1).max(5),
+    })
+
+    const jsonSchema = toStructuredOutputJsonSchema(schema, { provider: 'openai' })
+    const properties = jsonSchema['properties'] as Record<string, Record<string, unknown>>
+
+    expect(properties['title']).toEqual({ type: 'string' })
+    expect(properties['tags']).toEqual({ type: 'array', items: { type: 'string' } })
+  })
+})
+
+describe('describeStructuredOutputSchema', () => {
+  it('returns stable schema hashes and useful summary metadata', () => {
+    const schema = z.object({
+      status: z.enum(['OPEN', 'CLOSED']),
+      items: z.array(z.object({
+        id: z.string(),
+      })),
+      notes: z.string().nullable(),
+    })
+
+    const descriptor = describeStructuredOutputSchema(schema, {
+      schemaName: 'TicketList',
+      provider: 'openai',
+      previewChars: 80,
+    })
+
+    expect(descriptor.schemaName).toBe('TicketList')
+    expect(descriptor.provider).toBe('openai')
+    expect(descriptor.schemaHash).toMatch(/^[a-f0-9]{16}$/)
+    expect(descriptor.summary.topLevelType).toBe('object')
+    expect(descriptor.summary.topLevelAdditionalProperties).toBe(false)
+    expect(descriptor.summary.totalProperties).toBeGreaterThanOrEqual(4)
+    expect(descriptor.summary.totalRequired).toBeGreaterThanOrEqual(3)
+    expect(descriptor.summary.enumCount).toBeGreaterThanOrEqual(1)
+    expect(descriptor.summary.nullableCount).toBeGreaterThanOrEqual(1)
+    expect(descriptor.schemaPreview.length).toBeLessThanOrEqual(83)
+  })
+})
+
+describe('buildStructuredOutputSchemaName', () => {
+  it('builds stable names from agent id and intent', () => {
+    expect(buildStructuredOutputSchemaName({
+      agentId: 'requirement-extractor',
+      intent: 'generation:requirement-extraction',
+      requiresEnvelope: true,
+    })).toBe('requirement-extractor.generation.requirement.extraction.envelope')
+  })
+
+  it('falls back to generic defaults when inputs are missing', () => {
+    expect(buildStructuredOutputSchemaName({})).toBe('agent.structured.output')
+  })
+})
+
+describe('attachStructuredOutputErrorContext', () => {
+  it('attaches stable schema diagnostics to the thrown error', () => {
+    const requestSchema = describeStructuredOutputSchema(z.object({
+      result: z.array(z.object({
+        id: z.string(),
+      })),
+    }), {
+      schemaName: 'requirement-extractor.generation.requirement.extraction.envelope',
+      provider: 'openai',
+      previewChars: 120,
+    })
+    const responseSchema = describeStructuredOutputSchema(z.object({
+      result: z.array(z.object({
+        id: z.string(),
+      })),
+    }), {
+      schemaName: 'requirement-extractor.generation.requirement.extraction.envelope.response',
+      provider: 'generic',
+      previewChars: 120,
+    })
+
+    const enriched = attachStructuredOutputErrorContext(
+      new Error('Invalid schema for response_format'),
+      {
+        agentId: 'requirement-extractor',
+        intent: 'generation:requirement-extraction',
+        provider: 'openai',
+        model: 'gpt-4.1-mini',
+        failureCategory: 'provider_execution_failed',
+        requiresEnvelope: true,
+        messageCount: 2,
+        requestSchema,
+        responseSchema,
+      },
+    )
+
+    expect(enriched).toMatchObject({
+      message: 'Invalid schema for response_format',
+      agentId: 'requirement-extractor',
+      intent: 'generation:requirement-extraction',
+      provider: 'openai',
+      model: 'gpt-4.1-mini',
+      failureCategory: 'provider_execution_failed',
+      schemaName: 'requirement-extractor.generation.requirement.extraction.envelope',
+      messageCount: 2,
+    })
+    expect((enriched as Error & { schemaHash?: string }).schemaHash).toMatch(/^[a-f0-9]{16}$/)
+    expect(enriched).toHaveProperty('structuredOutput.requestSchema.hash')
+    expect(enriched).toHaveProperty('structuredOutput.responseSchema.hash')
+    expect(enriched).toHaveProperty('structuredOutput.failureCategory', 'provider_execution_failed')
+  })
+})
+
+describe('structured output retry helpers', () => {
+  it('retries until parsing succeeds', async () => {
+    const result = await executeStructuredParseLoop({
+      initialState: { value: 'bad' },
+      maxRetries: 2,
+      invoke: async (state) => ({ raw: state.value, meta: 'meta' }),
+      parse: (raw) => raw === 'ok'
+        ? { success: true as const, data: { ok: true } }
+        : { success: false as const, error: 'bad output' },
+      onRetryState: () => ({ value: 'ok' }),
+    })
+
+    expect(result).toMatchObject({
+      success: true,
+      data: { ok: true },
+      retries: 1,
+      raw: 'ok',
+      meta: 'meta',
+    })
+  })
+
+  it('returns failure metadata when retries are exhausted', async () => {
+    const result = await executeStructuredParseLoop({
+      initialState: { value: 'bad' },
+      maxRetries: 1,
+      invoke: async (state) => ({ raw: state.value, meta: 42 }),
+      parse: () => ({ success: false as const, error: 'still bad' }),
+      onRetryState: () => ({ value: 'bad-again' }),
+    })
+
+    expect(result).toEqual({
+      success: false,
+      retries: 1,
+      state: { value: 'bad-again' },
+      lastError: 'still bad',
+      lastRaw: 'bad-again',
+      meta: 42,
+    })
+  })
+
+  it('supports streamed retries while preserving yielded events', async () => {
+    const items: Array<unknown> = []
+
+    for await (const item of executeStructuredParseStreamLoop({
+      initialState: { value: 'bad' },
+      maxRetries: 1,
+      invoke: async function* (state) {
+        yield `started:${state.value}`
+        return { raw: state.value, meta: 'stream-meta' }
+      },
+      parse: (raw) => raw === 'ok'
+        ? { success: true as const, data: { ok: true } }
+        : { success: false as const, error: 'bad streamed output' },
+      onRetryState: () => ({ value: 'ok' }),
+    })) {
+      items.push(item)
+    }
+
+    expect(items).toEqual([
+      { type: 'event', event: 'started:bad' },
+      { type: 'event', event: 'started:ok' },
+      {
+        type: 'result',
+        result: {
+          success: true,
+          data: { ok: true },
+          raw: 'ok',
+          retries: 1,
+          state: { value: 'ok' },
+          meta: 'stream-meta',
+        },
+      },
+    ])
+  })
+
+  it('builds standardized correction and exhausted messages', () => {
+    expect(buildStructuredOutputCorrectionPrompt({
+      schemaName: 'AnswerSchema',
+      schemaHash: 'abcd1234efef5678',
+      description: 'valid JSON only',
+    }, 'missing field')).toContain('AnswerSchema')
+    expect(buildStructuredOutputCorrectionPrompt({
+      schemaName: 'AnswerSchema',
+      schemaHash: 'abcd1234efef5678',
+      description: 'valid JSON only',
+    }, 'missing field')).toContain('abcd1234efef5678')
+
+    expect(buildStructuredOutputExhaustedError({
+      schemaName: 'AnswerSchema',
+      schemaHash: 'abcd1234efef5678',
+    }, 3)).toBe('Failed to parse output matching schema "AnswerSchema" (abcd1234efef5678) after 3 attempts')
+  })
+})
+
+describe('OpenAI structured-output contract', () => {
+  it('demonstrates that LangChain jsonSchema mode sends raw Zod internals when given a Zod schema', () => {
+    const schema = z.object({
+      answer: z.number(),
+    })
+    const model = new ChatOpenAI({
+      apiKey: 'test',
+      model: 'gpt-4o-mini',
+    })
+    const structured = model.withStructuredOutput(schema, { method: 'jsonSchema' }) as {
+      first: { defaultOptions?: { response_format?: Record<string, unknown> } }
+    }
+    const responseFormat = structured.first.defaultOptions?.response_format as {
+      json_schema?: { schema?: Record<string, unknown> }
+    }
+
+    expect(responseFormat.json_schema?.schema).toHaveProperty('def')
+    expect(responseFormat.json_schema?.schema).toHaveProperty('type', 'object')
+  })
+
+  it('produces a real JSON Schema payload when given the provider-safe JSON Schema object', () => {
+    const schema = z.object({
+      answer: z.number(),
+    })
+    const providerSchema = toStructuredOutputJsonSchema(schema, { provider: 'openai' })
+    const model = new ChatOpenAI({
+      apiKey: 'test',
+      model: 'gpt-4o-mini',
+    })
+    const structured = model.withStructuredOutput(providerSchema, { method: 'jsonSchema' }) as {
+      first: { defaultOptions?: { response_format?: Record<string, unknown> } }
+    }
+    const responseFormat = structured.first.defaultOptions?.response_format as {
+      json_schema?: { schema?: Record<string, unknown> }
+    }
+
+    expect(responseFormat.json_schema?.schema).toEqual({
+      additionalProperties: false,
+      properties: {
+        answer: {
+          type: 'number',
+        },
+      },
+      required: ['answer'],
+      type: 'object',
+    })
+    expect(responseFormat.json_schema?.schema).not.toHaveProperty('def')
+  })
+
+  it.each([
+    {
+      label: 'OpenAI',
+      config: {
+        apiKey: 'test',
+        model: 'gpt-4o-mini',
+      },
+    },
+    {
+      label: 'OpenRouter',
+      config: {
+        apiKey: 'test',
+        model: 'openai/gpt-4o-mini',
+        configuration: { baseURL: 'https://openrouter.ai/api/v1' },
+      },
+    },
+    {
+      label: 'Google OpenAI-compatible',
+      config: {
+        apiKey: 'test',
+        model: 'gemini-2.5-pro',
+        configuration: { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' },
+      },
+    },
+    {
+      label: 'Custom OpenAI-compatible gateway',
+      config: {
+        apiKey: 'test',
+        model: 'gateway/gpt-4o-mini',
+        configuration: { baseURL: 'https://gateway.example/v1' },
+      },
+    },
+  ])('keeps provider-safe JSON Schema payload stable for $label ChatOpenAI-compatible transport', ({ config }) => {
+    const schema = z.object({
+      answer: z.number().min(0).max(100),
+      tags: z.array(z.string()).min(1).max(5),
+    })
+    const providerSchema = toStructuredOutputJsonSchema(schema, { provider: 'openai' })
+    const model = new ChatOpenAI(config)
+    const structured = model.withStructuredOutput(providerSchema, { method: 'jsonSchema' }) as {
+      first: { defaultOptions?: { response_format?: Record<string, unknown> } }
+    }
+    const responseFormat = structured.first.defaultOptions?.response_format as {
+      json_schema?: { schema?: Record<string, unknown> }
+    }
+
+    expect(responseFormat.json_schema?.schema).toEqual(providerSchema)
+    expect(responseFormat.json_schema?.schema).not.toHaveProperty('def')
+    expect(responseFormat.json_schema?.schema).not.toHaveProperty('properties.answer.minimum')
+  })
+
+  it.each([
+    {
+      label: 'envelope-backed top-level array',
+      schema: z.object({
+        result: z.array(z.object({
+          id: z.string(),
+          priority: z.enum(['HIGH', 'LOW']),
+        })),
+      }),
+      verify: (providerSchema: Record<string, unknown>) => {
+        expect(providerSchema).toEqual({
+          additionalProperties: false,
+          properties: {
+            result: {
+              items: {
+                additionalProperties: false,
+                properties: {
+                  id: { type: 'string' },
+                  priority: {
+                    enum: ['HIGH', 'LOW'],
+                    type: 'string',
+                  },
+                },
+                required: ['id', 'priority'],
+                type: 'object',
+              },
+              type: 'array',
+            },
+          },
+          required: ['result'],
+          type: 'object',
+        })
+      },
+    },
+    {
+      label: 'nested nullable arrays-of-objects',
+      schema: z.object({
+        metadata: z.object({
+          notes: z.string().nullable(),
+          items: z.array(z.object({
+            id: z.string(),
+            tags: z.array(z.string()).min(1).max(5),
+          })),
+        }),
+      }),
+      verify: (providerSchema: Record<string, unknown>) => {
+        expect(providerSchema).toMatchObject({
+          additionalProperties: false,
+          properties: {
+            metadata: {
+              additionalProperties: false,
+              properties: {
+                notes: {
+                  anyOf: [
+                    { type: 'string' },
+                    { type: 'null' },
+                  ],
+                },
+                items: {
+                  type: 'array',
+                  items: {
+                    additionalProperties: false,
+                    properties: {
+                      id: { type: 'string' },
+                      tags: {
+                        items: { type: 'string' },
+                        type: 'array',
+                      },
+                    },
+                    required: ['id', 'tags'],
+                    type: 'object',
+                  },
+                },
+              },
+              required: ['notes', 'items'],
+              type: 'object',
+            },
+          },
+          required: ['metadata'],
+          type: 'object',
+        })
+        expect(JSON.stringify(providerSchema)).not.toContain('minItems')
+        expect(JSON.stringify(providerSchema)).not.toContain('maxItems')
+      },
+    },
+    {
+      label: 'stripped scalar constraints',
+      schema: z.object({
+        title: z.string().min(1).max(100),
+        score: z.number().min(0).max(1),
+      }),
+      verify: (providerSchema: Record<string, unknown>) => {
+        expect(providerSchema).toEqual({
+          additionalProperties: false,
+          properties: {
+            score: { type: 'number' },
+            title: { type: 'string' },
+          },
+          required: ['title', 'score'],
+          type: 'object',
+        })
+        expect(JSON.stringify(providerSchema)).not.toContain('minimum')
+        expect(JSON.stringify(providerSchema)).not.toContain('maximum')
+        expect(JSON.stringify(providerSchema)).not.toContain('minLength')
+        expect(JSON.stringify(providerSchema)).not.toContain('maxLength')
+      },
+    },
+  ])('keeps edge-case provider-safe schema stable across OpenAI-compatible transports for $label', ({ schema, verify }) => {
+    const providerSchema = toStructuredOutputJsonSchema(schema, { provider: 'openai' })
+
+    const openAiSchema = extractOpenAIResponseSchema({
+      apiKey: 'test',
+      model: 'gpt-4o-mini',
+    }, providerSchema)
+    const openRouterSchema = extractOpenAIResponseSchema({
+      apiKey: 'test',
+      model: 'openai/gpt-4o-mini',
+      configuration: { baseURL: 'https://openrouter.ai/api/v1' },
+    }, providerSchema)
+    const googleSchema = extractOpenAIResponseSchema({
+      apiKey: 'test',
+      model: 'gemini-2.5-pro',
+      configuration: { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' },
+    }, providerSchema)
+    const customGatewaySchema = extractOpenAIResponseSchema({
+      apiKey: 'test',
+      model: 'gateway/gpt-4o-mini',
+      configuration: { baseURL: 'https://gateway.example/v1' },
+    }, providerSchema)
+
+    expect(openAiSchema).toEqual(providerSchema)
+    expect(openRouterSchema).toEqual(providerSchema)
+    expect(googleSchema).toEqual(providerSchema)
+    expect(customGatewaySchema).toEqual(providerSchema)
+    verify(providerSchema)
+  })
+})
+
+describe('Anthropic structured-output contract', () => {
+  it('binds a native tool definition with real JSON Schema and explicit tool choice', () => {
+    const schema = z.object({
+      answer: z.string(),
+      score: z.number(),
+    })
+    const config = extractAnthropicStructuredConfig(schema)
+
+    expect(config?.tool_choice).toEqual({ type: 'tool', name: 'extract' })
+    expect(config?.tools).toEqual([
+      {
+        name: 'extract',
+        description: 'A function available to call.',
+        input_schema: {
+          $schema: 'https://json-schema.org/draft/2020-12/schema',
+          type: 'object',
+          properties: {
+            answer: { type: 'string' },
+            score: { type: 'number' },
+          },
+          required: ['answer', 'score'],
+          additionalProperties: false,
+        },
+      },
+    ])
+    expect(config?.ls_structured_output_format).toEqual({
+      kwargs: { method: 'functionCalling' },
+      schema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        type: 'object',
+        properties: {
+          answer: { type: 'string' },
+          score: { type: 'number' },
+        },
+        required: ['answer', 'score'],
+        additionalProperties: false,
+      },
+    })
+  })
+
+  it.each([
+    {
+      label: 'envelope-backed top-level array',
+      schema: z.object({
+        result: z.array(z.object({
+          id: z.string(),
+          priority: z.enum(['HIGH', 'LOW']),
+        })),
+      }),
+      verify: (inputSchema: Record<string, unknown>) => {
+        expect(inputSchema).toMatchObject({
+          type: 'object',
+          additionalProperties: false,
+          required: ['result'],
+          properties: {
+            result: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['id', 'priority'],
+                properties: {
+                  id: { type: 'string' },
+                  priority: {
+                    type: 'string',
+                    enum: ['HIGH', 'LOW'],
+                  },
+                },
+              },
+            },
+          },
+        })
+      },
+    },
+    {
+      label: 'nested nullable object',
+      schema: z.object({
+        metadata: z.object({
+          notes: z.string().nullable(),
+          owner: z.object({
+            id: z.string(),
+          }),
+        }),
+      }),
+      verify: (inputSchema: Record<string, unknown>) => {
+        expect(inputSchema).toMatchObject({
+          type: 'object',
+          additionalProperties: false,
+          required: ['metadata'],
+          properties: {
+            metadata: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['notes', 'owner'],
+              properties: {
+                notes: {
+                  anyOf: [
+                    { type: 'string' },
+                    { type: 'null' },
+                  ],
+                },
+                owner: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['id'],
+                  properties: {
+                    id: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+        })
+      },
+    },
+  ])('keeps native tool schema stable for $label', ({ schema, verify }) => {
+    const config = extractAnthropicStructuredConfig(schema)
+    const inputSchema = config?.tools?.[0]?.['input_schema'] as Record<string, unknown> | undefined
+
+    expect(config?.tool_choice).toEqual({ type: 'tool', name: 'extract' })
+    expect(config?.ls_structured_output_format?.kwargs).toEqual({ method: 'functionCalling' })
+    expect(inputSchema).toBeDefined()
+    expect(inputSchema).not.toHaveProperty('def')
+    verify(inputSchema!)
   })
 })
 

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { RunEventStore } from '../runs/run-event-store.js'
+import { runLogRoot } from '../runs/run-log-root.js'
 import type { RawAgentEvent, AgentArtifactEvent, RunSummary } from '../runs/run-event-store.js'
 import type { AgentEvent } from '../types.js'
 
@@ -35,7 +36,7 @@ describe('RunEventStore', () => {
       await store.open()
 
       const { stat } = await import('node:fs/promises')
-      const info = await stat(join(projectDir, 'runs', runId))
+      const info = await stat(runLogRoot(projectDir, runId))
       expect(info.isDirectory()).toBe(true)
     })
 
@@ -48,7 +49,7 @@ describe('RunEventStore', () => {
       await store.open()
 
       const { stat } = await import('node:fs/promises')
-      const info = await stat(join(deepProjectDir, 'runs', runId))
+      const info = await stat(runLogRoot(deepProjectDir, runId))
       expect(info.isDirectory()).toBe(true)
     })
   })
@@ -70,7 +71,7 @@ describe('RunEventStore', () => {
       }
       await store.appendRaw(event)
 
-      const filePath = join(projectDir, 'runs', runId, 'raw-events.jsonl')
+      const filePath = join(runLogRoot(projectDir, runId), 'raw-events.jsonl')
       const content = await readFile(filePath, 'utf8')
       const lines = content.trim().split('\n')
       expect(lines).toHaveLength(1)
@@ -95,7 +96,7 @@ describe('RunEventStore', () => {
       // Now open — should flush
       await store.open()
 
-      const filePath = join(projectDir, 'runs', runId, 'raw-events.jsonl')
+      const filePath = join(runLogRoot(projectDir, runId), 'raw-events.jsonl')
       const content = await readFile(filePath, 'utf8')
       const lines = content.trim().split('\n')
       expect(lines).toHaveLength(1)
@@ -117,7 +118,7 @@ describe('RunEventStore', () => {
         await store.appendRaw(ev)
       }
 
-      const filePath = join(projectDir, 'runs', runId, 'raw-events.jsonl')
+      const filePath = join(runLogRoot(projectDir, runId), 'raw-events.jsonl')
       const content = await readFile(filePath, 'utf8')
       const lines = content.trim().split('\n')
       expect(lines).toHaveLength(3)
@@ -143,7 +144,7 @@ describe('RunEventStore', () => {
       }
       await store.appendNormalized(event)
 
-      const filePath = join(projectDir, 'runs', runId, 'normalized-events.jsonl')
+      const filePath = join(runLogRoot(projectDir, runId), 'normalized-events.jsonl')
       const content = await readFile(filePath, 'utf8')
       const lines = content.trim().split('\n')
       expect(lines).toHaveLength(1)
@@ -164,7 +165,7 @@ describe('RunEventStore', () => {
       await store.appendNormalized(event)
       await store.open()
 
-      const filePath = join(projectDir, 'runs', runId, 'normalized-events.jsonl')
+      const filePath = join(runLogRoot(projectDir, runId), 'normalized-events.jsonl')
       const content = await readFile(filePath, 'utf8')
       const lines = content.trim().split('\n')
       expect(lines).toHaveLength(1)
@@ -190,7 +191,7 @@ describe('RunEventStore', () => {
       }
       await store.appendArtifact(event)
 
-      const filePath = join(projectDir, 'runs', runId, 'artifacts.jsonl')
+      const filePath = join(runLogRoot(projectDir, runId), 'artifacts.jsonl')
       const content = await readFile(filePath, 'utf8')
       const lines = content.trim().split('\n')
       expect(lines).toHaveLength(1)
@@ -219,7 +220,7 @@ describe('RunEventStore', () => {
       }
       await store.close(summary)
 
-      const summaryPath = join(projectDir, 'runs', runId, 'summary.json')
+      const summaryPath = join(runLogRoot(projectDir, runId), 'summary.json')
       const raw = await readFile(summaryPath, 'utf8')
       const parsed = JSON.parse(raw) as RunSummary
       expect(parsed).toEqual(summary)
@@ -244,7 +245,7 @@ describe('RunEventStore', () => {
       }
       await store.close(summary)
 
-      const summaryPath = join(projectDir, 'runs', runId, 'summary.json')
+      const summaryPath = join(runLogRoot(projectDir, runId), 'summary.json')
       const parsed = JSON.parse(await readFile(summaryPath, 'utf8')) as RunSummary
       expect(parsed.status).toBe('failed')
       expect(parsed.errorMessage).toBe('Process exited with code 1')
@@ -268,7 +269,7 @@ describe('RunEventStore', () => {
       }
       await store.close(summary)
 
-      const summaryPath = join(projectDir, 'runs', runId, 'summary.json')
+      const summaryPath = join(runLogRoot(projectDir, runId), 'summary.json')
       const raw = await readFile(summaryPath, 'utf8')
       // Pretty-printed JSON contains newlines
       expect(raw).toContain('\n')

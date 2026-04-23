@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { TemplateResolver } from '../workflow/template-resolver.js'
+import { WorkflowStepResolver } from '../workflow/template-resolver.js'
 import type { TemplateContext } from '../workflow/template-resolver.js'
 
-describe('TemplateResolver', () => {
-  const resolver = new TemplateResolver()
+describe('WorkflowStepResolver', () => {
+  const resolver = new WorkflowStepResolver()
 
   // -------------------------------------------------------------------------
   // resolve()

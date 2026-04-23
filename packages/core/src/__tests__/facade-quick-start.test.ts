@@ -57,8 +57,50 @@ describe('createQuickAgent', () => {
     const { registry } = createQuickAgent({ provider: 'openai', apiKey: 'k' })
     const chatSpec = registry.getSpec('chat')
     expect(chatSpec!.name).toBe('gpt-4o-mini')
+    expect(chatSpec!.structuredOutput).toEqual({
+      preferredStrategy: 'openai-json-schema',
+      schemaProvider: 'openai',
+      fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+    })
     const codegenSpec = registry.getSpec('codegen')
     expect(codegenSpec!.name).toBe('gpt-4o')
+  })
+
+  it('applies google Gemini defaults when provider is google', () => {
+    const { registry } = createQuickAgent({ provider: 'google', apiKey: 'k' })
+    const chatSpec = registry.getSpec('chat')
+    expect(chatSpec!.name).toBe('gemini-2.5-flash')
+    expect(chatSpec!.structuredOutput).toEqual({
+      preferredStrategy: 'openai-json-schema',
+      schemaProvider: 'openai',
+      fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+    })
+    const codegenSpec = registry.getSpec('codegen')
+    expect(codegenSpec!.name).toBe('gemini-2.5-pro')
+  })
+
+  it('applies qwen defaults when provider is qwen', () => {
+    const { registry } = createQuickAgent({ provider: 'qwen', apiKey: 'k' })
+    const chatSpec = registry.getSpec('chat')
+    expect(chatSpec!.name).toBe('qwen-turbo')
+    expect(chatSpec!.structuredOutput).toEqual({
+      preferredStrategy: 'openai-json-schema',
+      schemaProvider: 'openai',
+      fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+    })
+    const codegenSpec = registry.getSpec('codegen')
+    expect(codegenSpec!.name).toBe('qwen-plus')
+  })
+
+  it('defaults openrouter to prompt-json fallback until native gateway acceptance is explicitly proven', () => {
+    const { registry } = createQuickAgent({ provider: 'openrouter', apiKey: 'k' })
+    const chatSpec = registry.getSpec('chat')
+    expect(chatSpec!.name).toBe('anthropic/claude-haiku')
+    expect(chatSpec!.structuredOutput).toEqual({
+      preferredStrategy: 'generic-parse',
+      schemaProvider: 'generic',
+      fallbackStrategies: ['fallback-prompt'],
+    })
   })
 
   it('respects custom chatModel and codegenModel', () => {
@@ -99,6 +141,57 @@ describe('createQuickAgent', () => {
     const { registry } = createQuickAgent({ provider: 'custom', apiKey: 'k' })
     const chatSpec = registry.getSpec('chat')
     expect(chatSpec!.name).toBe('default')
+  })
+
+  it('allows explicit structured-output capability overrides for custom providers', () => {
+    const { registry } = createQuickAgent({
+      provider: 'custom',
+      apiKey: 'k',
+      baseUrl: 'https://gateway.example/v1',
+      chatModel: 'gateway/gpt-4o-mini',
+      structuredOutputCapabilities: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+    })
+
+    expect(registry.getSpec('chat')).toEqual({
+      name: 'gateway/gpt-4o-mini',
+      maxTokens: 4096,
+      structuredOutput: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+      provider: 'custom',
+    })
+  })
+
+  it('preserves arbitrary custom gateway provider names while using explicit structured-output overrides', () => {
+    const { registry } = createQuickAgent({
+      provider: 'gateway-openai-proxy',
+      apiKey: 'k',
+      baseUrl: 'https://gateway.example/v1',
+      chatModel: 'gateway/gpt-4o-mini',
+      structuredOutputCapabilities: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+    })
+
+    expect(registry.listProviders()).toEqual(['gateway-openai-proxy'])
+    expect(registry.getSpec('chat')).toEqual({
+      name: 'gateway/gpt-4o-mini',
+      maxTokens: 4096,
+      structuredOutput: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+      provider: 'gateway-openai-proxy',
+    })
   })
 
   it('marks the registry as configured', () => {

@@ -302,7 +302,7 @@ describe('CodexAdapter', () => {
       }
     })
 
-    it('silently skips todo_list items', async () => {
+    it('maps todo_list items to adapter progress updates', async () => {
       const thread = createMockThread([
         threadStartedEvent(),
         itemCompletedEvent({
@@ -314,9 +314,14 @@ describe('CodexAdapter', () => {
       mockStartThread.mockReturnValue(thread)
 
       const events = await collectEvents(adapter.execute(makeInput()))
-      const types = events.map((e) => e.type)
-      expect(types).not.toContain('adapter:message')
-      expect(types).not.toContain('adapter:tool_call')
+      const progress = events.find((event) => event.type === 'adapter:progress')
+      expect(progress).toBeDefined()
+      if (progress?.type === 'adapter:progress') {
+        expect(progress.phase).toBe('todo_list')
+        expect(progress.current).toBe(0)
+        expect(progress.total).toBe(1)
+        expect(progress.percentage).toBe(0)
+      }
     })
 
     it('emits completed event with usage from turn.completed', async () => {
@@ -356,6 +361,52 @@ describe('CodexAdapter', () => {
       if (completed?.type === 'adapter:completed') {
         expect(completed.usage?.cachedInputTokens).toBe(50)
       }
+    })
+
+    it('keeps turn.completed as provider raw while forwarding its usage onto adapter:completed', async () => {
+      const thread = createMockThread([
+        threadStartedEvent('thread-raw-usage'),
+        turnCompletedEvent({
+          input_tokens: 100,
+          output_tokens: 200,
+          cached_input_tokens: 25,
+        } as { input_tokens: number; output_tokens: number; cached_input_tokens: number }),
+      ])
+      mockStartThread.mockReturnValue(thread)
+
+      const events = await collectEvents(adapter.executeWithRaw(makeInput()))
+      const providerRawEvents = events
+        .filter((event) => event.type === 'adapter:provider_raw')
+        .map((event) => event.rawEvent)
+
+      expect(providerRawEvents).toHaveLength(2)
+      expect(providerRawEvents[0]).toMatchObject({
+        payload: expect.objectContaining({
+          type: 'thread.started',
+          thread_id: 'thread-raw-usage',
+        }),
+      })
+      expect(providerRawEvents[1]).toMatchObject({
+        parentProviderEventId: providerRawEvents[0]?.providerEventId,
+        payload: expect.objectContaining({
+          type: 'turn.completed',
+          usage: expect.objectContaining({
+            input_tokens: 100,
+            output_tokens: 200,
+            cached_input_tokens: 25,
+          }),
+        }),
+      })
+
+      const completed = events.find((event) => event.type === 'adapter:completed') as Extract<
+        (typeof events)[number],
+        { type: 'adapter:completed' }
+      > | undefined
+      expect(completed?.usage).toEqual({
+        inputTokens: 100,
+        outputTokens: 200,
+        cachedInputTokens: 25,
+      })
     })
 
     it('emits failed event when SDK throws during runStreamed', async () => {

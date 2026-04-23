@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
+import { z } from 'zod'
 
 import {
   JsonOutputSchema,
@@ -162,6 +163,45 @@ describe('JsonOutputSchema', () => {
     expect(desc).toContain('JSON')
     expect(desc).toContain('no markdown')
   })
+
+  it('can derive a standardized schema contract from a Zod schema', () => {
+    const schema = JsonOutputSchema.fromZod(
+      z.object({
+        answer: z.number(),
+      }),
+      {
+        agentId: 'adapter-agent',
+        intent: 'generation:qa-answer',
+      },
+    )
+
+    expect(schema.name).toBe('adapter-agent.generation.qa.answer')
+    expect(schema.schemaHash).toMatch(/^[a-f0-9]{16}$/)
+    expect(schema.describe()).toContain('schema hash')
+    expect(schema.parse('{"answer": 42}')).toEqual({ answer: 42 })
+  })
+
+  it('auto-wraps top-level array schemas and returns the unwrapped result', () => {
+    const schema = JsonOutputSchema.fromZod(
+      z.array(z.object({ id: z.string() })),
+      {
+        agentId: 'adapter-agent',
+        intent: 'generation:requirement-extraction',
+        provider: 'openai',
+      },
+    )
+
+    expect(schema.name).toBe('adapter-agent.generation.requirement.extraction.envelope')
+    expect(schema.structuredOutput).toMatchObject({
+      requiresEnvelope: true,
+      requestSchema: { name: 'adapter-agent.generation.requirement.extraction.envelope' },
+      responseSchema: { name: 'adapter-agent.generation.requirement.extraction.envelope.response' },
+    })
+    expect(schema.parse('{"result":[{"id":"REQ-1"},{"id":"REQ-2"}]}')).toEqual([
+      { id: 'REQ-1' },
+      { id: 'REQ-2' },
+    ])
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -224,6 +264,7 @@ describe('StructuredOutputAdapter', () => {
 
     expect(result.result.success).toBe(true)
     expect(result.result.value).toEqual({ status: 'ok' })
+    expect(result.result.schemaName).toBe('test')
     expect(result.result.parseAttempts).toBe(1)
     expect(result.fallbackUsed).toBe(false)
     expect(result.durationMs).toBeGreaterThanOrEqual(0)
@@ -345,6 +386,86 @@ describe('StructuredOutputAdapter', () => {
     expect(result.result.parseAttempts).toBeGreaterThan(0)
   })
 
+  it('propagates schema hash and uses it in failure messaging for standardized Zod schemas', async () => {
+    const adapter = createMockAdapter('claude', ['not json ever'])
+    registry.register(adapter)
+
+    const soa = new StructuredOutputAdapter(registry, { maxRetries: 0 })
+    const schema = JsonOutputSchema.fromZod(
+      z.object({
+        answer: z.number(),
+      }),
+      {
+        schemaName: 'AnswerSchema',
+        provider: 'openai',
+      },
+    )
+
+    const result = await soa.execute({ prompt: 'Give me JSON' }, schema)
+
+    expect(result.result.success).toBe(false)
+    expect(result.result.schemaName).toBe('AnswerSchema')
+    expect(result.result.schemaHash).toMatch(/^[a-f0-9]{16}$/)
+    expect(result.result.error).toContain('AnswerSchema')
+    expect(result.result.error).toContain(result.result.schemaHash!)
+    expect(result.result.failureCategory).toBe('parse_exhausted')
+    expect(result.result.structuredOutput).toMatchObject({
+      failureCategory: 'parse_exhausted',
+    })
+  })
+
+  it('carries envelope-aware request and response schema diagnostics for non-object schemas', async () => {
+    const adapter = createMockAdapter('claude', ['not json ever'])
+    registry.register(adapter)
+
+    const soa = new StructuredOutputAdapter(registry, { maxRetries: 0 })
+    const schema = JsonOutputSchema.fromZod(
+      z.array(z.string().min(2)),
+      {
+        agentId: 'adapter-agent',
+        intent: 'generation:requirement-extraction',
+        provider: 'openai',
+      },
+    )
+
+    const result = await soa.execute({ prompt: 'Give me JSON' }, schema)
+
+    expect(result.result.success).toBe(false)
+    expect(result.result.schemaName).toBe('adapter-agent.generation.requirement.extraction.envelope')
+    expect(result.result.structuredOutput).toMatchObject({
+      failureCategory: 'parse_exhausted',
+      requiresEnvelope: true,
+      requestSchema: {
+        name: 'adapter-agent.generation.requirement.extraction.envelope',
+      },
+      responseSchema: {
+        name: 'adapter-agent.generation.requirement.extraction.envelope.response',
+      },
+    })
+  })
+
+  it('marks provider execution failures with an explicit failure category', async () => {
+    registry.register(createFailingAdapter('claude'))
+
+    const soa = new StructuredOutputAdapter(registry, { maxRetries: 0 })
+    const schema = JsonOutputSchema.fromZod(
+      z.object({ answer: z.number() }),
+      {
+        schemaName: 'AnswerSchema',
+        provider: 'openai',
+      },
+    )
+
+    const result = await soa.execute({ prompt: 'Give me JSON' }, schema)
+
+    expect(result.result.success).toBe(false)
+    expect(result.result.error).toContain('Adapter failed')
+    expect(result.result.failureCategory).toBe('provider_execution_failed')
+    expect(result.result.structuredOutput).toMatchObject({
+      failureCategory: 'provider_execution_failed',
+    })
+  })
+
   describe('executeStreamed', () => {
     it('yields events including final parsed result', async () => {
       const adapter = createMockAdapter('claude', ['{"streamed": true}'])
@@ -368,6 +489,31 @@ describe('StructuredOutputAdapter', () => {
       // The last completed event should have the parsed JSON
       const completedEvents = events.filter((e) => e.type === 'adapter:completed')
       expect(completedEvents.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('retries streamed validation with a correction prompt and yields the corrected result', async () => {
+      const adapter = createMockAdapter('claude', ['not json', '{"streamed": "fixed"}'])
+      registry.register(adapter)
+
+      const soa = new StructuredOutputAdapter(registry, { maxRetries: 1, eventBus: bus })
+      const schema = new JsonOutputSchema('stream-retry', (d) => d as Record<string, unknown>)
+
+      const events: AgentEvent[] = []
+      for await (const event of soa.executeStreamed(
+        { prompt: 'Stream it' },
+        schema,
+      )) {
+        events.push(event)
+      }
+
+      expect(events.filter((e) => e.type === 'adapter:started')).toHaveLength(2)
+
+      const completedEvents = events.filter((e) => e.type === 'adapter:completed')
+      const lastCompleted = completedEvents[completedEvents.length - 1]
+      expect(lastCompleted).toMatchObject({
+        type: 'adapter:completed',
+        result: '{"streamed":"fixed"}',
+      })
     })
 
     it('yields failed event when all retries exhausted', async () => {

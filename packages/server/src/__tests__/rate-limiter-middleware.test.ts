@@ -181,3 +181,176 @@ describe('rateLimiterMiddleware (Hono integration)', () => {
     expect(res.status).toBe(429)
   })
 })
+
+describe('rateLimiterMiddleware tier enforcement', () => {
+  /**
+   * Build a minimal Hono app that simulates the auth middleware by setting
+   * `c.get('apiKey')` from a test-only header `X-Test-Tier`. This mirrors
+   * what the real auth middleware does after validating an API key, without
+   * needing to spin up the full createForgeApp pipeline.
+   */
+  function buildTierApp(cfg: Parameters<typeof rateLimiterMiddleware>[0]) {
+    const app = new Hono()
+    app.use('/api/*', async (c, next) => {
+      const tier = c.req.header('X-Test-Tier')
+      if (tier) {
+        c.set('apiKey' as never, { rateLimitTier: tier, ownerId: 'u1' } as never)
+      }
+      return next()
+    })
+    app.use('/api/*', rateLimiterMiddleware(cfg))
+    app.get('/api/test', (c) => c.json({ ok: true }))
+    return app
+  }
+
+  it('falls back to global defaults when no tier config is provided', async () => {
+    const app = buildTierApp({ maxRequests: 2, windowMs: 60_000 })
+    const r1 = await app.request('/api/test', {
+      headers: { Authorization: 'Bearer k-none-1' },
+    })
+    const r2 = await app.request('/api/test', {
+      headers: { Authorization: 'Bearer k-none-1' },
+    })
+    const r3 = await app.request('/api/test', {
+      headers: { Authorization: 'Bearer k-none-1' },
+    })
+    expect(r1.status).toBe(200)
+    expect(r2.status).toBe(200)
+    expect(r3.status).toBe(429)
+    // Limit header reflects the global default, not a tier
+    expect(r1.headers.get('X-RateLimit-Limit')).toBe('2')
+  })
+
+  it('applies standard tier limits when apiKey.rateLimitTier is "standard"', async () => {
+    const app = buildTierApp({
+      maxRequests: 2,
+      windowMs: 60_000,
+      tiers: {
+        standard: { maxRequests: 5, windowMs: 60_000 },
+        premium: { maxRequests: 100, windowMs: 60_000 },
+      },
+    })
+
+    // Each unique bearer token gets its own bucket — standard tier allows 5
+    const results: number[] = []
+    for (let i = 0; i < 6; i++) {
+      const res = await app.request('/api/test', {
+        headers: {
+          Authorization: 'Bearer k-std-1',
+          'X-Test-Tier': 'standard',
+        },
+      })
+      results.push(res.status)
+      if (i === 0) {
+        expect(res.headers.get('X-RateLimit-Limit')).toBe('5')
+      }
+    }
+    // First 5 allowed, 6th rate limited
+    expect(results.slice(0, 5)).toEqual([200, 200, 200, 200, 200])
+    expect(results[5]).toBe(429)
+  })
+
+  it('applies premium tier with much higher limit than global default', async () => {
+    const app = buildTierApp({
+      maxRequests: 1, // global is very restrictive
+      windowMs: 60_000,
+      tiers: {
+        premium: { maxRequests: 50, windowMs: 60_000 },
+      },
+    })
+
+    // Fire 10 requests — global would block after 1, premium allows 50
+    let allowedCount = 0
+    for (let i = 0; i < 10; i++) {
+      const res = await app.request('/api/test', {
+        headers: {
+          Authorization: 'Bearer k-prem-1',
+          'X-Test-Tier': 'premium',
+        },
+      })
+      if (res.status === 200) allowedCount++
+    }
+    expect(allowedCount).toBe(10)
+  })
+
+  it('falls back to global defaults for an unknown tier name', async () => {
+    const app = buildTierApp({
+      maxRequests: 2,
+      windowMs: 60_000,
+      tiers: {
+        premium: { maxRequests: 100, windowMs: 60_000 },
+      },
+    })
+
+    // Unknown tier "platinum" — should use global (max 2)
+    const r1 = await app.request('/api/test', {
+      headers: { Authorization: 'Bearer k-unk-1', 'X-Test-Tier': 'platinum' },
+    })
+    const r2 = await app.request('/api/test', {
+      headers: { Authorization: 'Bearer k-unk-1', 'X-Test-Tier': 'platinum' },
+    })
+    const r3 = await app.request('/api/test', {
+      headers: { Authorization: 'Bearer k-unk-1', 'X-Test-Tier': 'platinum' },
+    })
+    expect(r1.status).toBe(200)
+    expect(r2.status).toBe(200)
+    expect(r3.status).toBe(429)
+    expect(r1.headers.get('X-RateLimit-Limit')).toBe('2')
+  })
+
+  it('admin tier with very high limit accommodates burst traffic', async () => {
+    const app = buildTierApp({
+      maxRequests: 1,
+      windowMs: 60_000,
+      tiers: {
+        admin: { maxRequests: 10_000, windowMs: 60_000 },
+      },
+    })
+
+    let allowedCount = 0
+    for (let i = 0; i < 100; i++) {
+      const res = await app.request('/api/test', {
+        headers: {
+          Authorization: 'Bearer k-admin-1',
+          'X-Test-Tier': 'admin',
+        },
+      })
+      if (res.status === 200) allowedCount++
+    }
+    expect(allowedCount).toBe(100)
+  })
+
+  it('different tiers maintain separate bucket pools for the same identity', async () => {
+    // Same bearer token but different tiers should not share buckets,
+    // because each tier has its own limiter instance.
+    const app = buildTierApp({
+      maxRequests: 1,
+      windowMs: 60_000,
+      tiers: {
+        standard: { maxRequests: 2, windowMs: 60_000 },
+        premium: { maxRequests: 3, windowMs: 60_000 },
+      },
+    })
+
+    // Exhaust the standard-tier bucket
+    const s1 = await app.request('/api/test', {
+      headers: { Authorization: 'Bearer shared-key', 'X-Test-Tier': 'standard' },
+    })
+    const s2 = await app.request('/api/test', {
+      headers: { Authorization: 'Bearer shared-key', 'X-Test-Tier': 'standard' },
+    })
+    const s3 = await app.request('/api/test', {
+      headers: { Authorization: 'Bearer shared-key', 'X-Test-Tier': 'standard' },
+    })
+    expect(s1.status).toBe(200)
+    expect(s2.status).toBe(200)
+    expect(s3.status).toBe(429)
+
+    // Switching the same key to premium should have a fresh bucket
+    const p1 = await app.request('/api/test', {
+      headers: { Authorization: 'Bearer shared-key', 'X-Test-Tier': 'premium' },
+    })
+    expect(p1.status).toBe(200)
+    expect(p1.headers.get('X-RateLimit-Limit')).toBe('3')
+  })
+})

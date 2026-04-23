@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { TemplateResolver } from '../workflow/template-resolver.js'
+import { WorkflowStepResolver } from '../workflow/template-resolver.js'
 import { WorkflowValidator } from '../workflow/workflow-validator.js'
 import type { AdapterWorkflowNode } from '../workflow/workflow-validator.js'
 
 describe('WorkflowValidator', () => {
-  const resolver = new TemplateResolver()
+  const resolver = new WorkflowStepResolver()
   const validator = new WorkflowValidator(resolver)
 
   // -------------------------------------------------------------------------

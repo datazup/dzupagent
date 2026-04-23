@@ -138,7 +138,7 @@ describe('run-worker', () => {
     expect(status).toBe('failed')
     const failed = await runStore.get(run.id)
     expect(failed?.error).toContain('boom')
-    const trace = traceStore.getTrace(run.id)
+    const trace = await traceStore.getTrace(run.id)
     expect(trace?.completedAt).toBeGreaterThan(0)
     expect(trace?.steps.some(step => step.type === 'system' && (step.content as { status?: string }).status === 'failed')).toBe(true)
 
@@ -330,7 +330,7 @@ describe('run-worker', () => {
     expect(status).toBe('cancelled')
     const updated = await runStore.get(run.id)
     expect(updated?.error).toContain('Cancelled')
-    const trace = traceStore.getTrace(run.id)
+    const trace = await traceStore.getTrace(run.id)
     expect(trace?.completedAt).toBeGreaterThan(0)
     expect(trace?.steps.some(step => step.type === 'system' && (step.content as { status?: string }).status === 'cancelled')).toBe(true)
 
@@ -388,7 +388,7 @@ describe('run-worker', () => {
     const rejected = await runStore.get(run.id)
     expect(rejected?.error).toContain('not safe')
     expect(rejected?.output).toBeUndefined()
-    const trace = traceStore.getTrace(run.id)
+    const trace = await traceStore.getTrace(run.id)
     expect(trace?.completedAt).toBeGreaterThan(0)
     expect(trace?.steps.some(step => step.type === 'system' && (step.content as { status?: string }).status === 'rejected')).toBe(true)
 
@@ -2641,6 +2641,179 @@ describe('run-worker — escalation policy edge cases', () => {
     const logs = await runStore.getLogs(run.id)
     expect(logs.filter((l) => l.phase === 'escalation')).toHaveLength(0)
     expect(seenEvents).not.toContain('registry:agent_updated')
+
+    await runQueue.stop(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Session Y — compressionLog persistence
+// ---------------------------------------------------------------------------
+
+describe('run-worker — compressionLog persistence', () => {
+  it('persists compressionLog entries into run.metadata.compressionLog', async () => {
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const eventBus = createEventBus()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+    const modelRegistry = new ModelRegistry()
+
+    await agentStore.save({
+      id: 'a-compress',
+      name: 'Compress Agent',
+      instructions: 'test',
+      modelTier: 'chat',
+      active: true,
+    })
+
+    const expectedEntries = [
+      { before: 12000, after: 4200, summary: 'compacted early history', ts: 1_700_000_000_000 },
+      { before: 9000, after: 3100, summary: null, ts: 1_700_000_001_000 },
+    ]
+
+    startRunWorker({
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus,
+      modelRegistry,
+      runExecutor: async () => ({
+        output: { message: 'ok' },
+        compressionLog: expectedEntries,
+      }),
+    })
+
+    const run = await runStore.create({ agentId: 'a-compress', input: { message: 'hi' } })
+    await runQueue.enqueue({
+      runId: run.id,
+      agentId: 'a-compress',
+      input: { message: 'hi' },
+      priority: 1,
+    })
+
+    const status = await waitForTerminalStatus(runStore, run.id)
+    expect(status).toBe('completed')
+
+    const completed = await runStore.get(run.id)
+    const meta = completed?.metadata as Record<string, unknown> | undefined
+    expect(meta?.['compressionLog']).toEqual(expectedEntries)
+
+    await runQueue.stop(false)
+  })
+
+  it('does not add compressionLog key when executor omits it or returns empty list', async () => {
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const eventBus = createEventBus()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+    const modelRegistry = new ModelRegistry()
+
+    await agentStore.save({
+      id: 'a-no-compress',
+      name: 'No Compress Agent',
+      instructions: 'test',
+      modelTier: 'chat',
+      active: true,
+    })
+
+    // First run: executor omits compressionLog entirely
+    startRunWorker({
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus,
+      modelRegistry,
+      runExecutor: async ({ input }) => {
+        const payload = input as { case?: string }
+        return payload.case === 'empty'
+          ? { output: { message: 'empty' }, compressionLog: [] }
+          : { output: { message: 'omit' } }
+      },
+    })
+
+    const run1 = await runStore.create({ agentId: 'a-no-compress', input: { case: 'omit' } })
+    await runQueue.enqueue({
+      runId: run1.id,
+      agentId: 'a-no-compress',
+      input: { case: 'omit' },
+      priority: 1,
+    })
+    await waitForTerminalStatus(runStore, run1.id)
+    const completed1 = await runStore.get(run1.id)
+    const meta1 = (completed1?.metadata ?? {}) as Record<string, unknown>
+    expect(meta1['compressionLog']).toBeUndefined()
+
+    const run2 = await runStore.create({ agentId: 'a-no-compress', input: { case: 'empty' } })
+    await runQueue.enqueue({
+      runId: run2.id,
+      agentId: 'a-no-compress',
+      input: { case: 'empty' },
+      priority: 1,
+    })
+    await waitForTerminalStatus(runStore, run2.id)
+    const completed2 = await runStore.get(run2.id)
+    const meta2 = (completed2?.metadata ?? {}) as Record<string, unknown>
+    expect(meta2['compressionLog']).toBeUndefined()
+
+    await runQueue.stop(false)
+  })
+
+  it('preserves sibling metadata (job.metadata + executor.metadata) alongside compressionLog', async () => {
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const eventBus = createEventBus()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+    const modelRegistry = new ModelRegistry()
+
+    await agentStore.save({
+      id: 'a-compress-merge',
+      name: 'Compress Merge Agent',
+      instructions: 'test',
+      modelTier: 'chat',
+      active: true,
+    })
+
+    const entry = { before: 8000, after: 2500, summary: 'rollup', ts: 1_700_000_500_000 }
+
+    startRunWorker({
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus,
+      modelRegistry,
+      runExecutor: async () => ({
+        output: { message: 'done' },
+        metadata: { streamMode: true, chunkCount: 7 },
+        compressionLog: [entry],
+      }),
+    })
+
+    const run = await runStore.create({
+      agentId: 'a-compress-merge',
+      input: { message: 'hi' },
+      metadata: { sessionId: 'sess-42', intent: 'summarize' },
+    })
+    await runQueue.enqueue({
+      runId: run.id,
+      agentId: 'a-compress-merge',
+      input: { message: 'hi' },
+      metadata: { sessionId: 'sess-42', intent: 'summarize' },
+      priority: 1,
+    })
+
+    const status = await waitForTerminalStatus(runStore, run.id)
+    expect(status).toBe('completed')
+
+    const completed = await runStore.get(run.id)
+    const meta = completed?.metadata as Record<string, unknown>
+    // Job-level metadata preserved
+    expect(meta['sessionId']).toBe('sess-42')
+    expect(meta['intent']).toBe('summarize')
+    // Executor metadata merged
+    expect(meta['streamMode']).toBe(true)
+    expect(meta['chunkCount']).toBe(7)
+    // compressionLog present
+    expect(meta['compressionLog']).toEqual([entry])
 
     await runQueue.stop(false)
   })

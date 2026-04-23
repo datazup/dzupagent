@@ -65,11 +65,43 @@ describe('loadEnvConfig', () => {
 
   it('parses DZIP_PROVIDERS JSON', () => {
     process.env['DZIP_PROVIDERS'] = JSON.stringify([
-      { provider: 'anthropic', priority: 1 },
+      {
+        provider: 'anthropic',
+        priority: 1,
+        structuredOutputDefaults: {
+          preferredStrategy: 'anthropic-tool-use',
+          schemaProvider: 'generic',
+          fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+        },
+      },
     ]);
     const config = loadEnvConfig();
     expect(config.providers).toHaveLength(1);
     expect(config.providers![0].provider).toBe('anthropic');
+    expect(config.providers![0].structuredOutputDefaults).toEqual({
+      preferredStrategy: 'anthropic-tool-use',
+      schemaProvider: 'generic',
+      fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+    });
+  });
+
+  it('hydrates known provider structured-output defaults in DZIP_PROVIDERS when omitted', () => {
+    process.env['DZIP_PROVIDERS'] = JSON.stringify([
+      {
+        provider: 'google',
+        priority: 1,
+      },
+    ]);
+    const config = loadEnvConfig();
+    expect(config.providers).toEqual([{
+      provider: 'google',
+      priority: 1,
+      structuredOutputDefaults: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+    }]);
   });
 
   it('ignores malformed DZIP_PROVIDERS JSON', () => {
@@ -115,9 +147,49 @@ describe('loadFileConfig', () => {
 
   it('loads a valid JSON config file', async () => {
     const filePath = join(tmpDir, 'forge.json');
-    await writeFile(filePath, JSON.stringify({ models: { chat: 'gpt-4o' } }));
+    await writeFile(filePath, JSON.stringify({
+      models: { chat: 'gpt-4o' },
+      providers: [{
+        provider: 'custom',
+        baseUrl: 'https://gateway.example/v1',
+        structuredOutputDefaults: {
+          preferredStrategy: 'generic-parse',
+          schemaProvider: 'generic',
+          fallbackStrategies: ['fallback-prompt'],
+        },
+      }],
+    }));
     const config = await loadFileConfig(filePath);
     expect(config.models).toEqual({ chat: 'gpt-4o' });
+    expect(config.providers).toEqual([{
+      provider: 'custom',
+      baseUrl: 'https://gateway.example/v1',
+      structuredOutputDefaults: {
+        preferredStrategy: 'generic-parse',
+        schemaProvider: 'generic',
+        fallbackStrategies: ['fallback-prompt'],
+      },
+    }]);
+  });
+
+  it('hydrates known provider structured-output defaults from file config when omitted', async () => {
+    const filePath = join(tmpDir, 'forge.json');
+    await writeFile(filePath, JSON.stringify({
+      providers: [{
+        provider: 'openrouter',
+        baseUrl: 'https://openrouter.example/v1',
+      }],
+    }));
+    const config = await loadFileConfig(filePath);
+    expect(config.providers).toEqual([{
+      provider: 'openrouter',
+      baseUrl: 'https://openrouter.example/v1',
+      structuredOutputDefaults: {
+        preferredStrategy: 'generic-parse',
+        schemaProvider: 'generic',
+        fallbackStrategies: ['fallback-prompt'],
+      },
+    }]);
   });
 
   it('returns empty partial for missing file', async () => {
@@ -191,6 +263,29 @@ describe('mergeConfigs', () => {
     // Other defaults preserved
     expect(result.memory.store).toBe('in-memory');
   });
+
+  it('normalizes known provider structured-output defaults after merge', () => {
+    const result = mergeConfigs({
+      name: 'runtime',
+      priority: 20,
+      config: {
+        providers: [{
+          provider: 'qwen',
+          apiKey: 'qwen-key',
+        }],
+      },
+    });
+
+    expect(result.providers).toEqual([{
+      provider: 'qwen',
+      apiKey: 'qwen-key',
+      structuredOutputDefaults: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+    }]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -238,6 +333,27 @@ describe('resolveConfig', () => {
     });
     expect(result.server.port).toBe(1111);
   });
+
+  it('normalizes provider defaults in runtime overrides during resolveConfig', async () => {
+    const result = await resolveConfig({
+      runtimeOverrides: {
+        providers: [{
+          provider: 'google',
+          apiKey: 'google-key',
+        }],
+      },
+    });
+
+    expect(result.providers).toEqual([{
+      provider: 'google',
+      apiKey: 'google-key',
+      structuredOutputDefaults: {
+        preferredStrategy: 'openai-json-schema',
+        schemaProvider: 'openai',
+        fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+      },
+    }]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -284,6 +400,35 @@ describe('validateConfig', () => {
   it('accepts partial config (empty object)', () => {
     const { valid } = validateConfig({});
     expect(valid).toBe(true);
+  });
+
+  it('accepts provider structured-output defaults', () => {
+    const { valid, errors } = validateConfig({
+      providers: [{
+        provider: 'custom',
+        baseUrl: 'https://gateway.example/v1',
+        structuredOutputDefaults: {
+          preferredStrategy: 'generic-parse',
+          schemaProvider: 'generic',
+          fallbackStrategies: ['fallback-prompt'],
+        },
+      }],
+    });
+    expect(valid).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects invalid provider structured-output defaults', () => {
+    const { valid, errors } = validateConfig({
+      providers: [{
+        provider: 'custom',
+        structuredOutputDefaults: {
+          preferredStrategy: 'not-a-strategy',
+        },
+      }],
+    });
+    expect(valid).toBe(false);
+    expect(errors[0]).toContain('providers[0].structuredOutputDefaults.preferredStrategy');
   });
 });
 

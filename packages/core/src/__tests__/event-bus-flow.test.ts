@@ -21,7 +21,7 @@ describe('DzupEventBus — flow compiler events', () => {
     })
   })
 
-  it('delivers all seven flow:compile_* events in emission order via onAny', () => {
+  it('delivers compile lifecycle and result events in emission order via onAny', () => {
     const bus = createEventBus()
     const captured: DzupEvent[] = []
     bus.onAny((e) => { captured.push(e) })
@@ -51,6 +51,14 @@ describe('DzupEventBus — flow compiler events', () => {
       target: 'pipeline',
       durationMs: 12,
     })
+    bus.emit({
+      type: 'flow:compile_result',
+      compileId,
+      target: 'pipeline',
+      artifact: { nodes: [], edges: [] },
+      warnings: [],
+      reasons: [{ code: 'FOR_EACH_PRESENT', message: 'Loop semantics are present; routed to pipeline.' }],
+    })
 
     expect(captured.map((e) => e.type)).toEqual([
       'flow:compile_started',
@@ -59,6 +67,7 @@ describe('DzupEventBus — flow compiler events', () => {
       'flow:compile_semantic_resolved',
       'flow:compile_lowered',
       'flow:compile_completed',
+      'flow:compile_result',
     ])
     for (const e of captured) {
       // Each flow event carries the correlating compileId.

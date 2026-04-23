@@ -139,6 +139,31 @@ describe('DzupAgent model resolution', () => {
     expect(agent.id).toBe('test-agent')
   })
 
+  it('attaches explicit structured-output capabilities to a direct model instance', () => {
+    const model = createMockModel([new AIMessage('direct')]) as BaseChatModel & {
+      structuredOutputCapabilities?: {
+        preferredStrategy: 'generic-parse'
+        schemaProvider: 'generic'
+        fallbackStrategies: ['fallback-prompt']
+      }
+    }
+
+    new DzupAgent(minimalConfig({
+      model,
+      structuredOutputCapabilities: {
+        preferredStrategy: 'generic-parse',
+        schemaProvider: 'generic',
+        fallbackStrategies: ['fallback-prompt'],
+      },
+    }))
+
+    expect(model.structuredOutputCapabilities).toEqual({
+      preferredStrategy: 'generic-parse',
+      schemaProvider: 'generic',
+      fallbackStrategies: ['fallback-prompt'],
+    })
+  })
+
   it('throws when model is a string but no registry is provided', () => {
     expect(() => {
       new DzupAgent(minimalConfig({ model: 'codegen', registry: undefined }))
@@ -281,6 +306,25 @@ describe('DzupAgent generateStructured()', () => {
     expect(result.usage.llmCalls).toBeGreaterThanOrEqual(1)
   })
 
+  it('retries text JSON fallback with a correction prompt when parsing fails', async () => {
+    const { z } = await import('zod')
+
+    const model = createMockModel([
+      new AIMessage('not valid json'),
+      new AIMessage('{"answer": 42}'),
+    ], { withStructuredOutput: false }) as BaseChatModel & {
+      invoke: ReturnType<typeof vi.fn>
+    }
+    const agent = new DzupAgent(minimalConfig({ model }))
+
+    const schema = z.object({ answer: z.number() })
+    const result = await agent.generateStructured([new HumanMessage('what is 6*7?')], schema)
+
+    expect(result.data).toEqual({ answer: 42 })
+    expect(result.usage.llmCalls).toBe(2)
+    expect(model.invoke).toHaveBeenCalledTimes(2)
+  })
+
   it('uses withStructuredOutput when model supports it', async () => {
     const { z } = await import('zod')
 
@@ -291,6 +335,198 @@ describe('DzupAgent generateStructured()', () => {
     const result = await agent.generateStructured([new HumanMessage('what?')], schema)
 
     expect(result.data).toEqual({ answer: 42 })
+  })
+
+  it('falls back to text generation when native structured output rejects the schema', async () => {
+    const { z } = await import('zod')
+
+    const fallbackResponse = new AIMessage('{"answer": 42}')
+    const model = createMockModel([fallbackResponse], { withStructuredOutput: true }) as BaseChatModel & {
+      withStructuredOutput: ReturnType<typeof vi.fn>
+      invoke: ReturnType<typeof vi.fn>
+    }
+    model.withStructuredOutput.mockReturnValue({
+      invoke: vi.fn(async () => {
+        throw new Error('Invalid schema for response_format')
+      }),
+    })
+
+    const agent = new DzupAgent(minimalConfig({ model }))
+    const schema = z.object({ answer: z.number() })
+    const result = await agent.generateStructured([new HumanMessage('what?')], schema)
+
+    expect(result.data).toEqual({ answer: 42 })
+    expect(model.invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips native structured output when model capabilities declare prompt-json fallback only', async () => {
+    const { z } = await import('zod')
+
+    const model = createMockModel([
+      new AIMessage('{"answer": 42}'),
+    ], { withStructuredOutput: true }) as BaseChatModel & {
+      withStructuredOutput: ReturnType<typeof vi.fn>
+      invoke: ReturnType<typeof vi.fn>
+      structuredOutputCapabilities?: {
+        preferredStrategy: 'generic-parse'
+        schemaProvider: 'generic'
+        fallbackStrategies: ['fallback-prompt']
+      }
+    }
+    model.structuredOutputCapabilities = {
+      preferredStrategy: 'generic-parse',
+      schemaProvider: 'generic',
+      fallbackStrategies: ['fallback-prompt'],
+    }
+
+    const agent = new DzupAgent(minimalConfig({ model }))
+    const schema = z.object({ answer: z.number() })
+    const result = await agent.generateStructured([new HumanMessage('what?')], schema)
+
+    expect(result.data).toEqual({ answer: 42 })
+    expect(model.withStructuredOutput).not.toHaveBeenCalled()
+    expect(model.invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips native structured output when direct-model config explicitly declares prompt-json fallback', async () => {
+    const { z } = await import('zod')
+
+    const model = createMockModel([
+      new AIMessage('{"answer": 42}'),
+    ], { withStructuredOutput: true }) as BaseChatModel & {
+      withStructuredOutput: ReturnType<typeof vi.fn>
+      invoke: ReturnType<typeof vi.fn>
+    }
+
+    const agent = new DzupAgent(minimalConfig({
+      model,
+      structuredOutputCapabilities: {
+        preferredStrategy: 'generic-parse',
+        schemaProvider: 'generic',
+        fallbackStrategies: ['fallback-prompt'],
+      },
+    }))
+
+    const schema = z.object({ answer: z.number() })
+    const result = await agent.generateStructured([new HumanMessage('what?')], schema)
+
+    expect(result.data).toEqual({ answer: 42 })
+    expect(model.withStructuredOutput).not.toHaveBeenCalled()
+    expect(model.invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('emits structured-output telemetry when native schema is rejected and fallback succeeds', async () => {
+    const { z } = await import('zod')
+
+    const fallbackResponse = new AIMessage('{"answer": 42}')
+    const model = createMockModel([fallbackResponse], { withStructuredOutput: true }) as BaseChatModel & {
+      withStructuredOutput: ReturnType<typeof vi.fn>
+      invoke: ReturnType<typeof vi.fn>
+    }
+    model.withStructuredOutput.mockReturnValue({
+      invoke: vi.fn(async () => {
+        throw new Error('Invalid schema for response_format')
+      }),
+    })
+
+    const eventBus = {
+      emit: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      onAny: vi.fn(),
+    }
+
+    const agent = new DzupAgent(minimalConfig({
+      model,
+      eventBus: eventBus as never,
+    }))
+    const schema = z.object({ answer: z.number() })
+    const result = await agent.generateStructured(
+      [new HumanMessage('what?')],
+      schema,
+      { intent: 'generation:qa-answer', schemaName: 'test-agent.generation.qa.answer' },
+    )
+
+    expect(result.data).toEqual({ answer: 42 })
+    expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'agent:structured_schema_prepared',
+      agentId: 'test-agent',
+      schemaName: 'test-agent.generation.qa.answer',
+    }))
+    expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'agent:structured_native_rejected',
+      agentId: 'test-agent',
+      schemaName: 'test-agent.generation.qa.answer',
+      message: 'Invalid schema for response_format',
+    }))
+    expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'agent:structured_fallback_used',
+      agentId: 'test-agent',
+      schemaName: 'test-agent.generation.qa.answer',
+      from: 'native_provider',
+      to: 'text_json',
+    }))
+  })
+
+  it('attaches structured-output diagnostics when fallback validation fails', async () => {
+    const { z } = await import('zod')
+
+    const model = createMockModel([new AIMessage('not json')], { withStructuredOutput: false })
+    const eventBus = {
+      emit: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      onAny: vi.fn(),
+    }
+
+    const agent = new DzupAgent(minimalConfig({
+      model,
+      eventBus: eventBus as never,
+    }))
+    const schema = z.object({ answer: z.number() })
+
+    await expect(agent.generateStructured(
+      [new HumanMessage('what?')],
+      schema,
+      { intent: 'generation:qa-answer', schemaName: 'test-agent.generation.qa.answer' },
+    )).rejects.toMatchObject({
+      agentId: 'test-agent',
+      intent: 'generation:qa-answer',
+      schemaName: 'test-agent.generation.qa.answer',
+      provider: 'openai',
+      model: 'unknown',
+      failureCategory: 'parse_exhausted',
+    })
+
+    expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'agent:structured_validation_failed',
+      agentId: 'test-agent',
+      schemaName: 'test-agent.generation.qa.answer',
+    }))
+  })
+
+  it('marks provider execution failures with an explicit structured-output failure category', async () => {
+    const model = {
+      invoke: vi.fn(async () => {
+        throw new Error('provider timeout')
+      }),
+      bindTools: vi.fn().mockReturnThis(),
+      stream: vi.fn(async function* () {}),
+    } as unknown as BaseChatModel
+
+    const agent = new DzupAgent(minimalConfig({ model }))
+    const { z } = await import('zod')
+
+    await expect(agent.generateStructured(
+      [new HumanMessage('what?')],
+      z.object({ answer: z.number() }),
+      { intent: 'generation:qa-answer', schemaName: 'test-agent.generation.qa.answer' },
+    )).rejects.toMatchObject({
+      failureCategory: 'provider_execution_failed',
+      structuredOutput: {
+        failureCategory: 'provider_execution_failed',
+      },
+    })
   })
 
   it('handles raw JSON (no code fence) in text response', async () => {
@@ -305,6 +541,58 @@ describe('DzupAgent generateStructured()', () => {
     const result = await agent.generateStructured([new HumanMessage('name?')], schema)
 
     expect(result.data).toEqual({ name: 'test' })
+  })
+
+  it('auto-wraps top-level array schemas and returns the unwrapped result', async () => {
+    const { z } = await import('zod')
+
+    const model = createMockModel([
+      new AIMessage('{"result":[{"id":"REQ-1"},{"id":"REQ-2"}]}'),
+    ], { withStructuredOutput: false })
+    const agent = new DzupAgent(minimalConfig({ model }))
+
+    const schema = z.array(z.object({ id: z.string() }))
+    const result = await agent.generateStructured(
+      [new HumanMessage('extract requirements')],
+      schema,
+      { intent: 'generation:requirement-extraction' },
+    )
+
+    expect(result.data).toEqual([{ id: 'REQ-1' }, { id: 'REQ-2' }])
+  })
+
+  it('uses envelope-aware schema naming and diagnostics for top-level array schemas', async () => {
+    const { z } = await import('zod')
+
+    const model = createMockModel([new AIMessage('not json')], { withStructuredOutput: false })
+    const eventBus = {
+      emit: vi.fn(),
+      on: vi.fn(),
+      once: vi.fn(),
+      onAny: vi.fn(),
+    }
+
+    const agent = new DzupAgent(minimalConfig({
+      model,
+      eventBus: eventBus as never,
+    }))
+    const schema = z.array(z.object({ id: z.string() }))
+
+    await expect(agent.generateStructured(
+      [new HumanMessage('extract requirements')],
+      schema,
+      { intent: 'generation:requirement-extraction' },
+    )).rejects.toMatchObject({
+      schemaName: 'test-agent.generation.requirement.extraction.envelope',
+      structuredOutput: expect.objectContaining({
+        requiresEnvelope: true,
+      }),
+    })
+
+    expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'agent:structured_schema_prepared',
+      schemaName: 'test-agent.generation.requirement.extraction.envelope',
+    }))
   })
 })
 

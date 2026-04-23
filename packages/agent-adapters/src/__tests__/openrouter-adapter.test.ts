@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { z } from 'zod'
 
 import { ForgeError } from '@dzupagent/core'
 
 import { OpenRouterAdapter } from '../openrouter/openrouter-adapter.js'
+import { AdapterRegistry } from '../registry/adapter-registry.js'
+import {
+  JsonOutputSchema,
+  StructuredOutputAdapter,
+} from '../output/structured-output.js'
 import { collectEvents } from './test-helpers.js'
 
 /**
@@ -308,5 +314,80 @@ describe('OpenRouterAdapter', () => {
     expect(messages).toHaveLength(2)
     expect(messages[0]).toEqual({ role: 'system', content: 'You are helpful.' })
     expect(messages[1]).toEqual({ role: 'user', content: 'hi' })
+  })
+
+  it('works with StructuredOutputAdapter over the OpenRouter fetch seam', async () => {
+    const sseLines = [
+      'data: {"choices":[{"delta":{"content":"```json\\n{\\"answer\\":42}\\n```"}}]}',
+      'data: [DONE]',
+    ]
+    const fetchMock = vi.fn().mockResolvedValue(
+      mockFetchResponse(createSSEStream(sseLines)),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const registry = new AdapterRegistry()
+    registry.register(new OpenRouterAdapter({ openRouterApiKey: 'key' }))
+
+    const adapter = new StructuredOutputAdapter(registry, { maxRetries: 2 })
+    const result = await adapter.execute(
+      { prompt: 'Return the numeric answer as JSON.' },
+      JsonOutputSchema.fromZod(
+        z.object({ answer: z.number() }),
+        {
+          agentId: 'openrouter-adapter',
+          intent: 'generation:qa-answer',
+        },
+      ),
+    )
+
+    expect(result.result.success).toBe(true)
+    expect(result.result.value).toEqual({ answer: 42 })
+    expect(result.result.providerId).toBe('openrouter')
+    expect(result.result.parseAttempts).toBe(1)
+    expect(result.fallbackUsed).toBe(false)
+
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+    ) as Record<string, unknown>
+    expect(body).not.toHaveProperty('response_format')
+    expect(body).not.toHaveProperty('json_schema')
+  })
+
+  it('retries structured parsing over the OpenRouter fetch seam and succeeds on correction', async () => {
+    const firstResponse = mockFetchResponse(createSSEStream([
+      'data: {"choices":[{"delta":{"content":"not valid json"}}]}',
+      'data: [DONE]',
+    ]))
+    const secondResponse = mockFetchResponse(createSSEStream([
+      'data: {"choices":[{"delta":{"content":"{\\"answer\\":7}"}}]}',
+      'data: [DONE]',
+    ]))
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(firstResponse)
+      .mockResolvedValueOnce(secondResponse)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const registry = new AdapterRegistry()
+    registry.register(new OpenRouterAdapter({ openRouterApiKey: 'key' }))
+
+    const adapter = new StructuredOutputAdapter(registry, { maxRetries: 2 })
+    const result = await adapter.execute(
+      { prompt: 'Return the numeric answer as JSON.' },
+      JsonOutputSchema.fromZod(
+        z.object({ answer: z.number() }),
+        {
+          agentId: 'openrouter-adapter',
+          intent: 'generation:qa-answer',
+        },
+      ),
+    )
+
+    expect(result.result.success).toBe(true)
+    expect(result.result.value).toEqual({ answer: 7 })
+    expect(result.result.providerId).toBe('openrouter')
+    expect(result.result.parseAttempts).toBe(2)
+    expect(result.fallbackUsed).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

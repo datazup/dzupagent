@@ -10,10 +10,14 @@ import {
   OrchestratorFacade,
   createOrchestrator,
 } from '../facade/orchestrator-facade.js'
+import { AdapterApprovalGate } from '../approval/adapter-approval.js'
+import { AdapterGuardrails } from '../guardrails/adapter-guardrails.js'
+import type { AdapterPolicy } from '../policy/policy-compiler.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
   AgentEvent,
+  AgentStreamEvent,
   AgentInput,
   TaskDescriptor,
   RoutingDecision,
@@ -80,6 +84,126 @@ function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
   const events: DzupEvent[] = []
   bus.onAny((e) => events.push(e))
   return events
+}
+
+function createRawCapableAdapter(options?: {
+  providerId?: AdapterProviderId
+  emitBlockedTool?: boolean
+  rawPayload?: unknown
+}): AgentCLIAdapter {
+  const providerId = options?.providerId ?? ('claude' as AdapterProviderId)
+
+  return {
+    providerId,
+    async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      yield {
+        type: 'adapter:started',
+        providerId,
+        sessionId: 'sess-raw',
+        timestamp: Date.now(),
+      }
+      if (options?.emitBlockedTool) {
+        yield {
+          type: 'adapter:tool_call',
+          providerId,
+          toolName: 'bash',
+          input: { cmd: 'rm -rf /tmp/demo' },
+          timestamp: Date.now(),
+        }
+      }
+      yield {
+        type: 'adapter:completed',
+        providerId,
+        sessionId: 'sess-raw',
+        result: 'done',
+        usage: { inputTokens: 20, outputTokens: 10 },
+        durationMs: 5,
+        timestamp: Date.now(),
+      }
+    },
+    async *executeWithRaw(input: AgentInput): AsyncGenerator<AgentStreamEvent, void, undefined> {
+      yield {
+        type: 'adapter:provider_raw',
+        rawEvent: {
+          providerId,
+          runId: 'wf-raw',
+          sessionId: 'sess-raw',
+          providerEventId: 'prov-raw-1',
+          timestamp: Date.now(),
+          source: 'sdk',
+          payload: options?.rawPayload ?? { type: 'item.completed', item: { type: 'web_search' } },
+          correlationId: input.correlationId,
+        },
+      }
+      yield* this.execute(input)
+    },
+    async *resumeSession() {},
+    interrupt() {},
+    async healthCheck() {
+      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
+    },
+    configure() {},
+  }
+}
+
+function createPolicyCapturingRawAdapter(
+  providerId: AdapterProviderId = 'codex',
+): {
+  adapter: AgentCLIAdapter
+  getCapturedInput: () => AgentInput | undefined
+  configureSpy: ReturnType<typeof vi.fn>
+} {
+  let capturedInput: AgentInput | undefined
+  const configureSpy = vi.fn()
+
+  const adapter: AgentCLIAdapter = {
+    providerId,
+    async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      capturedInput = input
+      yield {
+        type: 'adapter:started',
+        providerId,
+        sessionId: 'sess-policy',
+        timestamp: Date.now(),
+      }
+      yield {
+        type: 'adapter:completed',
+        providerId,
+        sessionId: 'sess-policy',
+        result: 'done',
+        usage: { inputTokens: 12, outputTokens: 6 },
+        durationMs: 5,
+        timestamp: Date.now(),
+      }
+    },
+    async *executeWithRaw(input: AgentInput): AsyncGenerator<AgentStreamEvent, void, undefined> {
+      yield {
+        type: 'adapter:provider_raw',
+        rawEvent: {
+          providerId,
+          runId: 'wf-policy',
+          sessionId: 'sess-policy',
+          providerEventId: 'prov-policy-1',
+          timestamp: Date.now(),
+          source: 'sdk',
+          payload: { type: 'thread.started' },
+        },
+      }
+      yield* this.execute(input)
+    },
+    async *resumeSession() {},
+    interrupt() {},
+    async healthCheck() {
+      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
+    },
+    configure: configureSpy,
+  }
+
+  return {
+    adapter,
+    getCapturedInput: () => capturedInput,
+    configureSpy,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +591,122 @@ describe('OrchestratorFacade', () => {
 
       expect(events2.length).toBeGreaterThan(0)
     })
+
+    it('supports approval-gated chat turns', async () => {
+      const approvalGate = new AdapterApprovalGate({
+        mode: 'required',
+        timeoutMs: 5_000,
+        eventBus: bus,
+      })
+      const facade = createOrchestrator({
+        adapters: [claudeAdapter],
+        eventBus: bus,
+        approvalGate,
+      })
+
+      const stream = facade.chat('Needs approval', {
+        provider: 'claude',
+        requireApproval: true,
+        approvalRunId: 'chat-approval-1',
+      })
+
+      const firstEventPromise = stream.next()
+      await vi.waitFor(() => {
+        expect(approvalGate.listPending()).toHaveLength(1)
+      })
+
+      const pendingRequest = approvalGate.listPending()[0]
+      expect(pendingRequest?.runId).toBe('chat-approval-1')
+      approvalGate.grant(pendingRequest!.requestId, 'tester')
+
+      const firstEvent = await firstEventPromise
+      expect(firstEvent.done).toBe(false)
+      expect(firstEvent.value?.type).toBe('adapter:started')
+
+      const remainingTypes: string[] = []
+      for await (const event of stream) {
+        remainingTypes.push(event.type)
+      }
+
+      expect(remainingTypes).toContain('adapter:completed')
+      expect(emitted).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'approval:requested', runId: 'chat-approval-1' }),
+        expect.objectContaining({ type: 'approval:granted', runId: 'chat-approval-1' }),
+      ]))
+    })
+  })
+
+  describe('chatWithRaw()', () => {
+    it('tracks cost while preserving provider raw events', async () => {
+      const facade = createOrchestrator({
+        adapters: [createRawCapableAdapter()],
+        eventBus: bus,
+        enableCostTracking: true,
+      })
+
+      const events: AgentStreamEvent[] = []
+      for await (const event of facade.chatWithRaw('Inspect the raw stream path')) {
+        events.push(event)
+      }
+
+      expect(events.map((event) => event.type)).toContain('adapter:provider_raw')
+      expect(events.map((event) => event.type)).toContain('adapter:completed')
+      expect(facade.getCostReport()?.totalCostCents ?? 0).toBeGreaterThan(0)
+    })
+
+    it('applies guardrails without dropping provider raw events emitted before the violation', async () => {
+      const facade = createOrchestrator({
+        adapters: [createRawCapableAdapter({ emitBlockedTool: true })],
+        eventBus: bus,
+        guardrails: new AdapterGuardrails({
+          blockedTools: ['bash'],
+        }),
+      })
+
+      const events: AgentStreamEvent[] = []
+      for await (const event of facade.chatWithRaw('Run a blocked command')) {
+        events.push(event)
+      }
+
+      expect(events[0]?.type).toBe('adapter:provider_raw')
+      expect(events.at(-1)).toMatchObject({
+        type: 'adapter:failed',
+        error: expect.stringContaining('blocked'),
+      })
+    })
+
+    it('applies policy overrides on raw-capable chat turns', async () => {
+      const { adapter, getCapturedInput, configureSpy } = createPolicyCapturingRawAdapter('codex')
+      const facade = createOrchestrator({
+        adapters: [adapter],
+        eventBus: bus,
+      })
+      const policy: AdapterPolicy = {
+        sandboxMode: 'workspace-write',
+        approvalRequired: true,
+        maxTurns: 7,
+      }
+
+      const events: AgentStreamEvent[] = []
+      for await (const event of facade.chatWithRaw('Use policy', {
+        provider: 'codex',
+        policy,
+      })) {
+        events.push(event)
+      }
+
+      expect(events.map((event) => event.type)).toContain('adapter:provider_raw')
+      expect(configureSpy).toHaveBeenCalledWith(expect.objectContaining({
+        sandboxMode: 'workspace-write',
+      }))
+      expect(getCapturedInput()).toMatchObject({
+        maxTurns: 7,
+        options: expect.objectContaining({
+          approvalPolicy: 'on-failure',
+          maxTurns: 7,
+        }),
+      })
+    })
   })
 
   describe('getCostReport()', () => {
@@ -726,6 +966,40 @@ Review code for correctness and style.
     expect(prompt).toContain('code-review')
     expect(prompt).toContain('expert code reviewer')
     expect(prompt).toContain('Review code for correctness')
+  })
+
+  it('applies dzupagent skill enrichment on chatWithRaw()', async () => {
+    const skillsDir = join(tempDir, '.dzupagent', 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    await writeFile(
+      join(skillsDir, 'debug-flow.md'),
+      `---
+name: debug-flow
+version: "1"
+---
+
+## Task
+Inspect event drift before responding.
+`,
+    )
+
+    const { adapter, getCapturedSystemPrompt } = createCapturingAdapter()
+    const facade = createOrchestrator({
+      adapters: [adapter],
+      eventBus: bus,
+      dzupagent: { projectRoot: tempDir },
+    })
+
+    const events: AgentEvent[] = []
+    for await (const event of facade.chat('Inspect the raw stream path')) {
+      events.push(event)
+    }
+
+    expect(events.map((event) => event.type)).toContain('adapter:completed')
+    const prompt = getCapturedSystemPrompt()
+    expect(prompt).toBeDefined()
+    expect(prompt).toContain('debug-flow')
+    expect(prompt).toContain('Inspect event drift before responding')
   })
 
   it('with dzupagent: { skipMemory: true }: memory NOT injected', async () => {

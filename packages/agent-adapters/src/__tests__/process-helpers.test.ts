@@ -44,7 +44,7 @@ describe('spawnAndStreamJsonl', () => {
   })
 
   it('accepts backpressure option without error', async () => {
-    const script = `process.stdout.write(JSON.stringify({ a: 1 }) + '\\n'); process.exit(0)`
+    const script = `process.stdout.write(JSON.stringify({ a: 1 }) + '\\\\n')`
     const records = await collectRecords(
       spawnAndStreamJsonl('node', ['-e', script], { backpressure: true }),
     )

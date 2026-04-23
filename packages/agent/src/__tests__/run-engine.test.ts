@@ -80,7 +80,7 @@ function basePrepareParams(overrides: Partial<Parameters<typeof prepareRunState>
     resolvedModel: model,
     messages: [new HumanMessage('hello')] as BaseMessage[],
     options: undefined as GenerateOptions | undefined,
-    prepareMessages: vi.fn(async (msgs: BaseMessage[]) => msgs),
+    prepareMessages: vi.fn(async (msgs: BaseMessage[]) => ({ messages: msgs })),
     getTools: vi.fn(() => tools),
     bindTools: vi.fn((_m: BaseChatModel, _t: StructuredToolInterface[]) => model),
     runBeforeAgentHooks: vi.fn(async () => {}),
@@ -259,7 +259,7 @@ describe('prepareRunState', () => {
     it('calls prepareMessages and returns its result', async () => {
       const prepared = [new HumanMessage('prepared')]
       const params = basePrepareParams({
-        prepareMessages: vi.fn(async () => prepared),
+        prepareMessages: vi.fn(async () => ({ messages: prepared })),
       })
       const state = await prepareRunState(params)
       expect(params.prepareMessages).toHaveBeenCalledWith(params.messages)
@@ -270,10 +270,20 @@ describe('prepareRunState', () => {
       const original = [new HumanMessage('original')]
       const params = basePrepareParams({
         messages: original,
-        prepareMessages: vi.fn(async (msgs: BaseMessage[]) => msgs),
+        prepareMessages: vi.fn(async (msgs: BaseMessage[]) => ({ messages: msgs })),
       })
       await prepareRunState(params)
       expect(params.prepareMessages).toHaveBeenCalledWith(original)
+    })
+
+    it('threads memoryFrame from prepareMessages into the run state', async () => {
+      const prepared = [new HumanMessage('prepared')]
+      const frame = { tag: 'test-frame' }
+      const params = basePrepareParams({
+        prepareMessages: vi.fn(async () => ({ messages: prepared, memoryFrame: frame })),
+      })
+      const state = await prepareRunState(params)
+      expect(state.memoryFrame).toBe(frame)
     })
   })
 
@@ -542,7 +552,48 @@ describe('executeGenerateRun', () => {
     const params = baseExecuteParams(runState)
     await executeGenerateRun(params)
 
-    expect(params.maybeUpdateSummary).toHaveBeenCalledWith(msgs)
+    expect(params.maybeUpdateSummary).toHaveBeenCalledWith(msgs, undefined)
+  })
+
+  it('passes memoryFrame from runState to maybeUpdateSummary', async () => {
+    const frame = { tag: 'run-frame' }
+    const runState = makeRunState({ memoryFrame: frame })
+    const msgs = [new HumanMessage('h'), new AIMessage('a')]
+    mockRunToolLoop.mockResolvedValue(makeToolLoopResult({ messages: msgs }))
+
+    const params = baseExecuteParams(runState)
+    await executeGenerateRun(params)
+
+    expect(params.maybeUpdateSummary).toHaveBeenCalledWith(msgs, frame)
+  })
+
+  it('surfaces memoryFrame from runState on the returned result for observability', async () => {
+    // P6 Task 1: when memory is configured (e.g. arrowMemory), the
+    // memoryFrame captured during prepareMessages() must propagate through
+    // the run so callers can read `result.memoryFrame` (and via
+    // `runInBackground` -> `_complete`, the public `RunResult.memoryFrame`).
+    const frame = { snapshot: 'frozen', recordCount: 42 }
+    const runState = makeRunState({ memoryFrame: frame })
+    mockRunToolLoop.mockResolvedValue(makeToolLoopResult())
+    mockExtractFinalAiMessageContent.mockReturnValue('done')
+
+    const result = await executeGenerateRun(baseExecuteParams(runState))
+
+    expect(result.memoryFrame).toBe(frame)
+    expect(result.memoryFrame).not.toBeNull()
+    expect(result.memoryFrame).toBeDefined()
+  })
+
+  it('leaves memoryFrame undefined on the returned result when memory is not configured', async () => {
+    // No arrowMemory / memory config -> prepareMessages returns no frame ->
+    // runState.memoryFrame is undefined -> RunResult.memoryFrame is undefined.
+    const runState = makeRunState()
+    mockRunToolLoop.mockResolvedValue(makeToolLoopResult())
+    mockExtractFinalAiMessageContent.mockReturnValue('done')
+
+    const result = await executeGenerateRun(baseExecuteParams(runState))
+
+    expect(result.memoryFrame).toBeUndefined()
   })
 
   it('returns correct usage stats', async () => {

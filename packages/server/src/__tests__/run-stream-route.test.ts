@@ -928,6 +928,97 @@ describe('GET /api/runs/:id/stream — SSE integration', () => {
   })
 
   // ──────────────────────────────────────────────────────────────────
+  // 21b. memoryFrame exposure
+  // ──────────────────────────────────────────────────────────────────
+
+  it('emits run:memory-frame before done when run.metadata.memoryFrame is set (agent:completed)', async () => {
+    const { runId } = await setupRunForStream(config, { runStatus: 'running' })
+
+    // Stash a memoryFrame on the run metadata so the stream handler can find it.
+    await config.runStore.update(runId, {
+      metadata: { memoryFrame: { snapshot: 'frozen-v1', rows: 3 } },
+    })
+
+    setTimeout(() => {
+      eventBus.emit({
+        type: 'agent:completed',
+        agentId: 'agent-stream',
+        runId,
+        durationMs: 100,
+      })
+    }, 30)
+
+    const res = await app.request(`/api/runs/${runId}/stream`)
+    const lines = await readSSELines(res)
+    const events = parseSSEEvents(lines)
+
+    const frame = events.find((e) => e.event === 'run:memory-frame')
+    expect(frame).toBeDefined()
+    const frameData = JSON.parse(frame!.data) as { runId: string; memoryFrame: unknown }
+    expect(frameData.runId).toBe(runId)
+    expect(frameData.memoryFrame).toEqual({ snapshot: 'frozen-v1', rows: 3 })
+
+    // run:memory-frame must precede the done event
+    const frameIdx = events.findIndex((e) => e.event === 'run:memory-frame')
+    const doneIdx = events.findIndex((e) => e.event === 'done')
+    expect(frameIdx).toBeLessThan(doneIdx)
+  })
+
+  it('emits run:memory-frame before done when run.metadata.memoryFrame is set (agent:stream_done)', async () => {
+    const { runId } = await setupRunForStream(config, { runStatus: 'running' })
+
+    await config.runStore.update(runId, {
+      metadata: { memoryFrame: { snapshot: 'frozen-v2' } },
+    })
+
+    setTimeout(() => {
+      eventBus.emit({
+        type: 'agent:stream_done',
+        agentId: 'agent-stream',
+        runId,
+        finalContent: 'done via stream_done',
+      })
+    }, 30)
+
+    const res = await app.request(`/api/runs/${runId}/stream`)
+    const lines = await readSSELines(res)
+    const events = parseSSEEvents(lines)
+
+    const frame = events.find((e) => e.event === 'run:memory-frame')
+    expect(frame).toBeDefined()
+    const frameData = JSON.parse(frame!.data) as { runId: string; memoryFrame: unknown }
+    expect(frameData.memoryFrame).toEqual({ snapshot: 'frozen-v2' })
+
+    const frameIdx = events.findIndex((e) => e.event === 'run:memory-frame')
+    const doneIdx = events.findIndex((e) => e.event === 'done')
+    expect(frameIdx).toBeLessThan(doneIdx)
+  })
+
+  it('does NOT emit run:memory-frame when run.metadata.memoryFrame is absent', async () => {
+    const { runId } = await setupRunForStream(config, { runStatus: 'running' })
+
+    setTimeout(() => {
+      eventBus.emit({
+        type: 'agent:completed',
+        agentId: 'agent-stream',
+        runId,
+        durationMs: 100,
+      })
+    }, 30)
+
+    const res = await app.request(`/api/runs/${runId}/stream`)
+    const lines = await readSSELines(res)
+    const events = parseSSEEvents(lines)
+
+    const frame = events.find((e) => e.event === 'run:memory-frame')
+    expect(frame).toBeUndefined()
+
+    // Sanity: done still fires
+    const done = events.find((e) => e.event === 'done')
+    expect(done).toBeDefined()
+  })
+
+  // ──────────────────────────────────────────────────────────────────
   // 21. Rejected run via polling
   // ──────────────────────────────────────────────────────────────────
 

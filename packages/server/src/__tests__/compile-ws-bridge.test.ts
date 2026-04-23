@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createEventBus, type DzupEvent } from '@dzupagent/core'
 import { EventBridge, type WSClient } from '../ws/event-bridge.js'
 import { createCompileWsHandler } from '../ws/compile-handler.js'
+import { buildCompileResultEvent } from '../routes/compile-result-event.js'
 
 class MockWsClient implements WSClient {
   readyState = 1
@@ -51,12 +52,19 @@ function buildCompileEvents(compileId: string): DzupEvent[] {
       warningCount: 0,
     },
     { type: 'flow:compile_completed', compileId, target: 'workflow-builder', durationMs: 42 },
+    buildCompileResultEvent({
+      compileId,
+      target: 'workflow-builder',
+      artifact: { nodes: [], edges: [] },
+      warnings: [],
+      reasons: [{ code: 'BRANCH_PRESENT', message: 'Branch control flow is present; skill-chain is not sufficient.' }],
+    }),
     { type: 'flow:compile_failed', compileId, stage: 3, errorCount: 1, durationMs: 99 },
   ]
 }
 
 describe('compile WS bridge', () => {
-  it('delivers all 7 flow:compile_* events to a subscribed client', async () => {
+  it('delivers compile lifecycle and result events to a subscribed client', async () => {
     const bus = createEventBus()
     const bridge = new EventBridge(bus)
     const ws = new MockWsClient()
@@ -78,6 +86,7 @@ describe('compile WS bridge', () => {
         'flow:compile_failed',
         'flow:compile_lowered',
         'flow:compile_parsed',
+        'flow:compile_result',
         'flow:compile_semantic_resolved',
         'flow:compile_shape_validated',
         'flow:compile_started',

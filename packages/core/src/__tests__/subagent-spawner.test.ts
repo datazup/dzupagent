@@ -82,6 +82,34 @@ describe('SubAgentSpawner', () => {
       const humanMsg = invokeCall[0][1] as HumanMessage
       expect(typeof humanMsg.content === 'string' && humanMsg.content.includes('src/main.ts')).toBe(true)
     })
+
+    it('attaches explicit structured-output capabilities to a direct sub-agent model instance', async () => {
+      const aiMsg = new AIMessage({ content: 'Done' })
+      const model = createMockModel([aiMsg]) as BaseChatModel & {
+        structuredOutputCapabilities?: {
+          preferredStrategy: 'generic-parse'
+          schemaProvider: 'generic'
+          fallbackStrategies: ['fallback-prompt']
+        }
+      }
+      const registry = createMockRegistry(model)
+      const spawner = new SubAgentSpawner(registry)
+
+      await spawner.spawn(baseConfig({
+        model,
+        structuredOutputCapabilities: {
+          preferredStrategy: 'generic-parse',
+          schemaProvider: 'generic',
+          fallbackStrategies: ['fallback-prompt'],
+        },
+      }), 'Read files')
+
+      expect(model.structuredOutputCapabilities).toEqual({
+        preferredStrategy: 'generic-parse',
+        schemaProvider: 'generic',
+        fallbackStrategies: ['fallback-prompt'],
+      })
+    })
   })
 
   describe('spawnReAct() — tool-calling loop', () => {

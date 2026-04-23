@@ -1096,6 +1096,7 @@ describe('EventBusBridge — scoping and cleanup', () => {
       timestamp: 1,
       entries: [{ level: 'project', name: 'x', tokenEstimate: 10 }],
       totalTokens: 10,
+      durationMs: 0,
     }
     const yielded = await collect(bridge.bridge(yieldEvents([mem]), 'run-1'))
     expect(yielded).toHaveLength(1)

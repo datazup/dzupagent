@@ -489,6 +489,7 @@ describe('EventBusBridge', () => {
         providerId: 'claude',
         timestamp: Date.now(),
         skills: [{ skillId: 'code-review', degraded: [], dropped: [] }],
+        durationMs: 0,
       }
       const result = EventBusBridge.mapToDzupEvent(event, RUN_ID)
       expect(result).toBeNull()
@@ -501,6 +502,7 @@ describe('EventBusBridge', () => {
         timestamp: Date.now(),
         entries: [{ level: 'project', name: 'tech-stack', tokenEstimate: 100 }],
         totalTokens: 100,
+        durationMs: 0,
       }
       const result = EventBusBridge.mapToDzupEvent(event, RUN_ID)
       expect(result).toBeNull()
@@ -516,6 +518,7 @@ describe('EventBusBridge', () => {
         providerId: 'claude',
         timestamp: Date.now(),
         skills: [{ skillId: 'my-skill', degraded: [], dropped: [] }],
+        durationMs: 0,
       }
 
       const yielded = await collectAll(bridge.bridge(yieldEvents([skillsEvent]), RUN_ID))

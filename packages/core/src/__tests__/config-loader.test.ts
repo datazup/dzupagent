@@ -55,11 +55,54 @@ describe('Config Loader', () => {
 
     it('parses DZIP_PROVIDERS as JSON array', () => {
       process.env['DZIP_PROVIDERS'] = JSON.stringify([
-        { provider: 'openai', apiKey: 'sk-test', priority: 1 },
+        {
+          provider: 'openai',
+          apiKey: 'sk-test',
+          baseUrl: 'https://gateway.example/v1',
+          priority: 1,
+          structuredOutputDefaults: {
+            preferredStrategy: 'generic-parse',
+            schemaProvider: 'generic',
+            fallbackStrategies: ['fallback-prompt'],
+          },
+        },
       ])
       const config = loadEnvConfig()
       expect(config.providers).toEqual([
-        { provider: 'openai', apiKey: 'sk-test', priority: 1 },
+        {
+          provider: 'openai',
+          apiKey: 'sk-test',
+          baseUrl: 'https://gateway.example/v1',
+          priority: 1,
+          structuredOutputDefaults: {
+            preferredStrategy: 'generic-parse',
+            schemaProvider: 'generic',
+            fallbackStrategies: ['fallback-prompt'],
+          },
+        },
+      ])
+    })
+
+    it('hydrates known provider structured-output defaults from DZIP_PROVIDERS when omitted', () => {
+      process.env['DZIP_PROVIDERS'] = JSON.stringify([
+        {
+          provider: 'openrouter',
+          apiKey: 'router-key',
+          priority: 1,
+        },
+      ])
+      const config = loadEnvConfig()
+      expect(config.providers).toEqual([
+        {
+          provider: 'openrouter',
+          apiKey: 'router-key',
+          priority: 1,
+          structuredOutputDefaults: {
+            preferredStrategy: 'generic-parse',
+            schemaProvider: 'generic',
+            fallbackStrategies: ['fallback-prompt'],
+          },
+        },
       ])
     })
 
@@ -135,12 +178,57 @@ describe('Config Loader', () => {
     })
 
     it('reads and parses a valid JSON config file', async () => {
-      const fileContent = JSON.stringify({ plugins: ['./my-plugin.js'] })
+      const fileContent = JSON.stringify({
+        plugins: ['./my-plugin.js'],
+        providers: [{
+          provider: 'custom',
+          baseUrl: 'https://gateway.example/v1',
+          structuredOutputDefaults: {
+            preferredStrategy: 'generic-parse',
+            schemaProvider: 'generic',
+            fallbackStrategies: ['fallback-prompt'],
+          },
+        }],
+      })
       mockedReadFile.mockResolvedValue(fileContent)
 
       const config = await loadFileConfig('/path/to/config.json')
       expect(mockedReadFile).toHaveBeenCalledWith('/path/to/config.json', 'utf-8')
-      expect(config).toEqual({ plugins: ['./my-plugin.js'] })
+      expect(config).toEqual({
+        plugins: ['./my-plugin.js'],
+        providers: [{
+          provider: 'custom',
+          baseUrl: 'https://gateway.example/v1',
+          structuredOutputDefaults: {
+            preferredStrategy: 'generic-parse',
+            schemaProvider: 'generic',
+            fallbackStrategies: ['fallback-prompt'],
+          },
+        }],
+      })
+    })
+
+    it('hydrates known provider structured-output defaults from file config when omitted', async () => {
+      const fileContent = JSON.stringify({
+        providers: [{
+          provider: 'qwen',
+          apiKey: 'qwen-key',
+          priority: 2,
+        }],
+      })
+      mockedReadFile.mockResolvedValue(fileContent)
+
+      const config = await loadFileConfig('/path/to/config.json')
+      expect(config.providers).toEqual([{
+        provider: 'qwen',
+        apiKey: 'qwen-key',
+        priority: 2,
+        structuredOutputDefaults: {
+          preferredStrategy: 'openai-json-schema',
+          schemaProvider: 'openai',
+          fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+        },
+      }])
     })
 
     it('returns empty object for missing file', async () => {
@@ -190,6 +278,31 @@ describe('Config Loader', () => {
       expect(result.security.riskClassification).toBe(false)
       // Other defaults remain intact
       expect(result.models).toEqual(DEFAULT_CONFIG.models)
+    })
+
+    it('normalizes known provider structured-output defaults after merge', () => {
+      const result = mergeConfigs(
+        {
+          name: 'runtime',
+          priority: 20,
+          config: {
+            providers: [{
+              provider: 'google',
+              apiKey: 'google-key',
+            }],
+          },
+        },
+      )
+
+      expect(result.providers).toEqual([{
+        provider: 'google',
+        apiKey: 'google-key',
+        structuredOutputDefaults: {
+          preferredStrategy: 'openai-json-schema',
+          schemaProvider: 'openai',
+          fallbackStrategies: ['generic-parse', 'fallback-prompt'],
+        },
+      }])
     })
 
     it('higher priority layer wins over lower', () => {

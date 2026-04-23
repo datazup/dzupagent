@@ -3,8 +3,9 @@
  *
  * Tests the /api/workflows/* endpoints for execute, dry-run, stream, and list.
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { createForgeApp, type ForgeServerConfig } from '../app.js'
+import { InMemoryPersonaStore } from '../personas/persona-store.js'
 import {
   InMemoryRunStore,
   InMemoryAgentStore,
@@ -16,6 +17,28 @@ import {
 } from '@dzupagent/core'
 import type { SkillStepResolver } from '@dzupagent/agent'
 import type { Hono } from 'hono'
+
+// ---------------------------------------------------------------------------
+// Mock @dzupagent/flow-compiler
+//
+// The compiled-flow branch of POST /api/workflows/execute calls
+// `createFlowCompiler(...).compile(flow)`. We stub that so the tests never
+// instantiate a real compiler — they just feed predetermined results.
+//
+// Textual workflow tests never touch this module, so the mock stays idle for
+// them. `mockCompile.mockResolvedValueOnce(...)` is used per-test to set up
+// the compile outcome.
+// ---------------------------------------------------------------------------
+const mockCompile = vi.fn()
+const mockCreateFlowCompiler = vi.fn(() => ({ compile: mockCompile }))
+
+vi.mock('@dzupagent/flow-compiler', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dzupagent/flow-compiler')>()
+  return {
+    ...actual,
+    createFlowCompiler: (...args: unknown[]) => mockCreateFlowCompiler(...args),
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -271,6 +294,378 @@ describe('Workflow routes', () => {
       })
       const res = await req(appMissingRegistry, 'POST', '/api/workflows/execute', { text: 'summarize' })
       expect(res.status).toBe(503)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // POST /api/workflows/execute — compiled-flow branch
+  // -------------------------------------------------------------------------
+
+  describe('POST /api/workflows/execute (compiled flow)', () => {
+    beforeEach(() => {
+      mockCompile.mockReset()
+      mockCreateFlowCompiler.mockClear()
+    })
+
+    /** Build a minimal successful compile result bound to a given chain name. */
+    function successCompile(steps: Array<{ skillName: string }>, chainName = 'flow') {
+      return {
+        artifact: { name: chainName, steps },
+        warnings: [] as string[],
+        target: 'skill-chain' as const,
+        compileId: 'cid-exec-1',
+      }
+    }
+
+    it('returns 200 and executes the compiled skill-chain artifact', async () => {
+      mockCompile.mockResolvedValueOnce(
+        successCompile([{ skillName: 'summarize' }, { skillName: 'translate' }]),
+      )
+
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        flow: { type: 'action', tool: 'summarize' },
+        initialState: { userMessage: 'hi' },
+      })
+
+      expect(res.status).toBe(200)
+      const json = (await res.json()) as {
+        result: Record<string, unknown>
+        compileId: string
+        target: string
+        warnings: unknown[]
+      }
+      expect(json.compileId).toBe('cid-exec-1')
+      expect(json.target).toBe('skill-chain')
+      expect(json.result['summarize']).toBe('done')
+      expect(json.result['translate']).toBe('done')
+      expect(Array.isArray(json.warnings)).toBe(true)
+
+      // Compiler is constructed with the configured tool resolver (here none is
+      // wired, so the no-op resolver is passed through).
+      expect(mockCreateFlowCompiler).toHaveBeenCalledTimes(1)
+    })
+
+    it('accepts flow as a JSON-encoded string', async () => {
+      mockCompile.mockResolvedValueOnce(
+        successCompile([{ skillName: 'summarize' }]),
+      )
+
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        flow: JSON.stringify({ type: 'action', tool: 'summarize' }),
+      })
+      expect(res.status).toBe(200)
+    })
+
+    it('accepts canonical workflow document input', async () => {
+      mockCompile.mockResolvedValueOnce(
+        successCompile([{ skillName: 'summarize' }]),
+      )
+
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        document: {
+          dsl: 'dzupflow/v1',
+          id: 'doc_flow',
+          version: 1,
+          root: {
+            type: 'sequence',
+            id: 'root',
+            nodes: [
+              { type: 'complete', id: 'done', result: 'ok' },
+            ],
+          },
+        },
+      })
+      expect(res.status).toBe(200)
+    })
+
+    it('accepts dzupflow DSL input and compiles the normalized root flow', async () => {
+      mockCompile.mockResolvedValueOnce(
+        successCompile([{ skillName: 'summarize' }]),
+      )
+
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        dsl: `
+dsl: dzupflow/v1
+id: review_and_build
+version: 1
+steps:
+  - complete:
+      id: done
+      result: ok
+`,
+      })
+      expect(res.status).toBe(200)
+      expect(mockCompile).toHaveBeenCalledWith({
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          { type: 'complete', id: 'done', result: 'ok' },
+        ],
+      })
+    })
+
+    it('returns 400 when both text and flow are provided', async () => {
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        text: 'summarize',
+        flow: { type: 'action', tool: 'summarize' },
+      })
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as { error: { code: string; message: string } }
+      expect(json.error.code).toBe('VALIDATION_ERROR')
+      expect(json.error.message).toMatch(/one compile input/)
+    })
+
+    it('returns 400 when text is combined with a DSL compile input', async () => {
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        text: 'summarize',
+        dsl: `
+dsl: dzupflow/v1
+id: review_and_build
+version: 1
+steps:
+  - complete:
+      id: done
+      result: ok
+`,
+      })
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as { error: { code: string; message: string } }
+      expect(json.error.code).toBe('VALIDATION_ERROR')
+      expect(json.error.message).toMatch(/one compile input/)
+    })
+
+    it('returns 400 when flow is a non-string, non-object primitive', async () => {
+      const res = await req(app, 'POST', '/api/workflows/execute', { flow: 42 })
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as { error: { code: string } }
+      expect(json.error.code).toBe('VALIDATION_ERROR')
+    })
+
+    it('returns 400 when target is an unknown value', async () => {
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        flow: { type: 'action', tool: 'summarize' },
+        target: 'bogus-target',
+      })
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as { error: { code: string; message: string } }
+      expect(json.error.code).toBe('VALIDATION_ERROR')
+      expect(json.error.message).toMatch(/target must be one of/)
+    })
+
+    it('returns 400 when a non-executable target is requested', async () => {
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        flow: { type: 'action', tool: 'summarize' },
+        target: 'pipeline',
+      })
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as { error: { code: string; message: string } }
+      expect(json.error.code).toBe('VALIDATION_ERROR')
+      expect(json.error.message).toMatch(/Only target="skill-chain"/)
+    })
+
+    it('returns 400 when compiler reports errors', async () => {
+      mockCompile.mockResolvedValueOnce({
+        errors: [
+          { stage: 2, message: 'bad shape', nodePath: 'root' },
+        ],
+        compileId: 'cid-fail-1',
+      })
+
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        flow: { type: 'action' },
+      })
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as {
+        error: { code: string; message: string; stage: number; compileId: string }
+      }
+      expect(json.error.code).toBe('COMPILE_ERROR')
+      expect(json.error.stage).toBe(2)
+      expect(json.error.compileId).toBe('cid-fail-1')
+      expect(json.error.message).toMatch(/bad shape/)
+    })
+
+    it('returns 400 when compiled target is not skill-chain', async () => {
+      mockCompile.mockResolvedValueOnce({
+        artifact: { nodes: [], edges: [] },
+        warnings: [],
+        target: 'pipeline' as const,
+        compileId: 'cid-pipe-1',
+      })
+
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        flow: { type: 'for_each', items: [], body: { type: 'action', tool: 'x' } },
+      })
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as { error: { code: string; message: string } }
+      expect(json.error.code).toBe('VALIDATION_ERROR')
+      expect(json.error.message).toMatch(/not executable here/)
+    })
+
+    it('returns 500 when compiler throws', async () => {
+      mockCompile.mockRejectedValueOnce(new Error('boom'))
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        flow: { type: 'action', tool: 'summarize' },
+      })
+      expect(res.status).toBe(500)
+      const json = (await res.json()) as { error: { code: string } }
+      expect(json.error.code).toBe('COMPILE_ERROR')
+    })
+
+    it('returns 500 when skill execution fails', async () => {
+      // Compiler returns a chain referencing a skill the resolver does NOT know.
+      mockCompile.mockResolvedValueOnce(
+        successCompile([{ skillName: 'nonexistent-skill' }]),
+      )
+
+      const res = await req(app, 'POST', '/api/workflows/execute', {
+        flow: { type: 'action', tool: 'nonexistent-skill' },
+      })
+      expect(res.status).toBe(500)
+      const json = (await res.json()) as { error: { code: string } }
+      expect(json.error.code).toBe('EXECUTION_ERROR')
+    })
+
+    it('streams execution events as SSE when Accept: text/event-stream', async () => {
+      mockCompile.mockResolvedValueOnce(
+        successCompile([{ skillName: 'summarize' }]),
+      )
+
+      const res = await app.request('/api/workflows/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+        body: JSON.stringify({ flow: { type: 'action', tool: 'summarize' } }),
+      })
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toContain('text/event-stream')
+
+      const body = await res.text()
+      // The stream emits a synthetic compile:completed header event, then the
+      // skill-chain step lifecycle, and finally a `done` sentinel.
+      expect(body).toContain('event: compile:completed')
+      expect(body).toContain('"compileId":"cid-exec-1"')
+      expect(body).toContain('event: step:started')
+      expect(body).toContain('event: done')
+    })
+
+    it('SSE surface emits an error event when compile reports errors', async () => {
+      mockCompile.mockResolvedValueOnce({
+        errors: [{ stage: 2, message: 'shape fail', nodePath: 'root' }],
+        compileId: 'cid-sse-fail',
+      })
+
+      // Compile errors short-circuit BEFORE SSE negotiation (the helper
+      // returns a 400 JSON response even when Accept is SSE) — verify that
+      // contract so clients know the SSE upgrade never happens for bad input.
+      const res = await app.request('/api/workflows/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+        body: JSON.stringify({ flow: { type: 'action' } }),
+      })
+
+      expect(res.status).toBe(400)
+      const json = (await res.json()) as { error: { code: string } }
+      expect(json.error.code).toBe('COMPILE_ERROR')
+    })
+
+    it('passes the configured compile.toolResolver through to createFlowCompiler', async () => {
+      mockCompile.mockResolvedValueOnce(
+        successCompile([{ skillName: 'summarize' }]),
+      )
+
+      const customResolver = {
+        resolve: () => null,
+        listAvailable: () => [],
+      }
+
+      const appWithCompile = createForgeApp({
+        ...createTestConfig(),
+        compile: { toolResolver: customResolver },
+      })
+
+      const res = await appWithCompile.request('/api/workflows/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flow: { type: 'action', tool: 'summarize' } }),
+      })
+      expect(res.status).toBe(200)
+
+      // Last constructor call receives our custom resolver.
+      const lastCall = mockCreateFlowCompiler.mock.calls.at(-1)
+      expect(lastCall).toBeDefined()
+      const constructorArg = (lastCall as unknown[])[0] as { toolResolver: unknown }
+      expect(constructorArg.toolResolver).toBe(customResolver)
+    })
+
+    it('derives compile.personaResolver from personaStore when no explicit resolver is provided', async () => {
+      mockCompile.mockResolvedValueOnce(
+        successCompile([{ skillName: 'summarize' }]),
+      )
+
+      const personaStore = new InMemoryPersonaStore()
+      await personaStore.save({
+        id: 'planner',
+        name: 'Planner',
+        instructions: 'Plan the work',
+      })
+
+      const appWithPersonas = createForgeApp({
+        ...createTestConfig(),
+        personaStore,
+      })
+
+      const res = await appWithPersonas.request('/api/workflows/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flow: { type: 'action', tool: 'summarize' } }),
+      })
+      expect(res.status).toBe(200)
+
+      const lastCall = mockCreateFlowCompiler.mock.calls.at(-1)
+      expect(lastCall).toBeDefined()
+      const constructorArg = (lastCall as unknown[])[0] as {
+        personaResolver?: { resolve: (ref: string) => unknown }
+      }
+      expect(constructorArg.personaResolver).toBeDefined()
+      expect(typeof constructorArg.personaResolver?.resolve).toBe('function')
+    })
+
+    it('prefers compile.personaResolver over personaStore-derived resolver', async () => {
+      mockCompile.mockResolvedValueOnce(
+        successCompile([{ skillName: 'summarize' }]),
+      )
+
+      const personaStore = new InMemoryPersonaStore()
+      await personaStore.save({
+        id: 'planner',
+        name: 'Planner',
+        instructions: 'Plan the work',
+      })
+      const personaResolver = { resolve: vi.fn().mockReturnValue(true) }
+
+      const appWithCompile = createForgeApp({
+        ...createTestConfig(),
+        personaStore,
+        compile: { personaResolver },
+      })
+
+      const res = await appWithCompile.request('/api/workflows/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flow: { type: 'action', tool: 'summarize' } }),
+      })
+      expect(res.status).toBe(200)
+
+      const lastCall = mockCreateFlowCompiler.mock.calls.at(-1)
+      expect(lastCall).toBeDefined()
+      const constructorArg = (lastCall as unknown[])[0] as { personaResolver?: unknown }
+      expect(constructorArg.personaResolver).toBe(personaResolver)
     })
   })
 })

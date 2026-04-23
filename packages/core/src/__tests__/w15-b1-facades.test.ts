@@ -29,7 +29,7 @@ import type { QuickAgentOptions, QuickAgentResult, DzupEventBus } from '../facad
 
 describe('createQuickAgent — provider coverage', () => {
   const providers: Array<QuickAgentOptions['provider']> = [
-    'anthropic', 'openai', 'openrouter', 'azure', 'bedrock', 'custom',
+    'anthropic', 'openai', 'openrouter', 'google', 'qwen', 'azure', 'bedrock', 'custom',
   ]
 
   for (const provider of providers) {
@@ -56,6 +56,16 @@ describe('createQuickAgent — provider coverage', () => {
   it('openrouter defaults to anthropic/claude-haiku for chat', () => {
     const { registry } = createQuickAgent({ provider: 'openrouter', apiKey: 'k' })
     expect(registry.getSpec('chat')!.name).toBe('anthropic/claude-haiku')
+  })
+
+  it('google defaults to gemini-2.5-flash for chat', () => {
+    const { registry } = createQuickAgent({ provider: 'google', apiKey: 'k' })
+    expect(registry.getSpec('chat')!.name).toBe('gemini-2.5-flash')
+  })
+
+  it('qwen defaults to qwen-turbo for chat', () => {
+    const { registry } = createQuickAgent({ provider: 'qwen', apiKey: 'k' })
+    expect(registry.getSpec('chat')!.name).toBe('qwen-turbo')
   })
 
   it('passes baseUrl when provided', () => {

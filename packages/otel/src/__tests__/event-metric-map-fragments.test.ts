@@ -6,6 +6,7 @@ import { budgetMetricMap } from '../event-metric-map/budget.js'
 import { governanceMetricMap } from '../event-metric-map/governance.js'
 import { vectorMetricMap } from '../event-metric-map/vector.js'
 import { delegationMetricMap } from '../event-metric-map/delegation.js'
+import { flowCompileMetricMap } from '../event-metric-map/flow-compile.js'
 import { supervisorMetricMap } from '../event-metric-map/supervisor.js'
 import { pipelineRuntimeMetricMap } from '../event-metric-map/pipeline-runtime.js'
 import { telemetryMetricMap } from '../event-metric-map/telemetry.js'
@@ -296,6 +297,53 @@ describe('pipeline-runtime metric map', () => {
   it('pipeline:resumed records pipeline_id', () => {
     const result = extractFirst(pipelineRuntimeMetricMap['pipeline:resumed'], { type: 'pipeline:resumed', pipelineId: 'p2' } as DzupEvent)
     expect(result.labels.pipeline_id).toBe('p2')
+  })
+})
+
+describe('flow-compile metric map', () => {
+  it('flow:compile_started labels by input_kind', () => {
+    const result = extractFirst(flowCompileMetricMap['flow:compile_started'], {
+      type: 'flow:compile_started',
+      compileId: 'c1',
+      inputKind: 'json-string',
+    } as DzupEvent)
+    expect(result.value).toBe(1)
+    expect(result.labels.input_kind).toBe('json-string')
+  })
+
+  it('flow:compile_result records warning and reason counts', () => {
+    const mappings = flowCompileMetricMap['flow:compile_result']
+    expect(mappings).toHaveLength(3)
+
+    const event = {
+      type: 'flow:compile_result',
+      compileId: 'c2',
+      target: 'pipeline',
+      artifact: { nodes: [], edges: [] },
+      warnings: [{ stage: 4, code: 'WARN_1', message: 'warn' }],
+      reasons: [{ code: 'FOR_EACH_PRESENT', message: 'pipeline required' }],
+    } as DzupEvent
+
+    expect(mappings[0]!.extract(event)).toEqual({ value: 1, labels: { target: 'pipeline' } })
+    expect(mappings[1]!.extract(event)).toEqual({ value: 1, labels: { target: 'pipeline' } })
+    expect(mappings[2]!.extract(event)).toEqual({ value: 1, labels: { target: 'pipeline' } })
+  })
+
+  it('flow:compile_failed records stage and duration', () => {
+    const mappings = flowCompileMetricMap['flow:compile_failed']
+    expect(mappings).toHaveLength(3)
+
+    const event = {
+      type: 'flow:compile_failed',
+      compileId: 'c3',
+      stage: 3,
+      errorCount: 2,
+      durationMs: 60,
+    } as DzupEvent
+
+    expect(mappings[0]!.extract(event)).toEqual({ value: 1, labels: { stage: '3' } })
+    expect(mappings[1]!.extract(event)).toEqual({ value: 2, labels: { stage: '3' } })
+    expect(mappings[2]!.extract(event)).toEqual({ value: 60, labels: { stage: '3' } })
   })
 })
 

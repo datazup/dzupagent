@@ -9,6 +9,7 @@ import type {
 } from '../sleep-consolidator.js'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseStore } from '@langchain/langgraph'
+import type { CausalGraph } from '../causal/causal-graph.js'
 
 // ---------------------------------------------------------------------------
 // Mock factories
@@ -668,6 +669,190 @@ describe('SleepConsolidator', () => {
       expect(report).toHaveProperty('totalLLMCalls')
       expect(report).toHaveProperty('durationMs')
       expect(report).toHaveProperty('phasesRun')
+    })
+  })
+
+  // ---- Staleness-prune phase ----------------------------------------------
+
+  describe('staleness-prune phase', () => {
+    const MS_PER_DAY = 24 * 60 * 60 * 1000
+    const NOW = Date.now()
+
+    function staleRecord(key: string) {
+      return {
+        key,
+        value: {
+          text: `stale: ${key}`,
+          createdAt: NOW - 100 * MS_PER_DAY,
+          accessCount: 1,
+        },
+      }
+    }
+
+    function freshRecord(key: string) {
+      return {
+        key,
+        value: {
+          text: `fresh: ${key}`,
+          createdAt: NOW - 1 * MS_PER_DAY,
+          accessCount: 10,
+        },
+      }
+    }
+
+    it('should delete stale entries from the store', async () => {
+      const store = createMockStore([staleRecord('old'), freshRecord('new')])
+      const consolidator = new SleepConsolidator(
+        createConfig({ phases: ['staleness-prune'], stalenessThreshold: 30 }),
+      )
+
+      const report = await consolidator.run(store, [['test', 'ns']])
+      expect(report.namespaces[0]!.stalenessPruned).toBe(1)
+      expect(store._data.has('old')).toBe(false)
+      expect(store._data.has('new')).toBe(true)
+    })
+
+    it('should not delete fresh entries', async () => {
+      const store = createMockStore([freshRecord('a'), freshRecord('b')])
+      const consolidator = new SleepConsolidator(
+        createConfig({ phases: ['staleness-prune'], stalenessThreshold: 30 }),
+      )
+
+      const report = await consolidator.run(store, [['test', 'ns']])
+      expect(report.namespaces[0]!.stalenessPruned).toBe(0)
+      expect(store._data.has('a')).toBe(true)
+      expect(store._data.has('b')).toBe(true)
+    })
+
+    it('should call causalGraph.removeNode for each pruned entry when causalGraph is provided', async () => {
+      const store = createMockStore([staleRecord('stale-1'), staleRecord('stale-2'), freshRecord('keep')])
+      const mockGraph = {
+        removeNode: vi.fn().mockResolvedValue(1),
+      }
+
+      const consolidator = new SleepConsolidator(
+        createConfig({
+          phases: ['staleness-prune'],
+          stalenessThreshold: 30,
+          causalGraph: mockGraph as unknown as CausalGraph,
+          causalNamespace: 'test-ns',
+        }),
+      )
+
+      const report = await consolidator.run(store, [['test', 'ns']])
+      expect(report.namespaces[0]!.stalenessPruned).toBe(2)
+      expect(mockGraph.removeNode).toHaveBeenCalledTimes(2)
+      expect(mockGraph.removeNode).toHaveBeenCalledWith('stale-1', 'test-ns')
+      expect(mockGraph.removeNode).toHaveBeenCalledWith('stale-2', 'test-ns')
+    })
+
+    it('should report stalenessCausalRelationsRemoved from causalGraph.removeNode', async () => {
+      const store = createMockStore([staleRecord('a'), staleRecord('b')])
+      const mockGraph = {
+        removeNode: vi.fn().mockResolvedValue(3),
+      }
+
+      const consolidator = new SleepConsolidator(
+        createConfig({
+          phases: ['staleness-prune'],
+          stalenessThreshold: 30,
+          causalGraph: mockGraph as unknown as CausalGraph,
+          causalNamespace: 'ns',
+        }),
+      )
+
+      const report = await consolidator.run(store, [['test', 'ns']])
+      expect(report.namespaces[0]!.stalenessCausalRelationsRemoved).toBe(6)
+    })
+
+    it('should not call removeNode when nothing is pruned', async () => {
+      const store = createMockStore([freshRecord('f1'), freshRecord('f2')])
+      const mockGraph = {
+        removeNode: vi.fn().mockResolvedValue(0),
+      }
+
+      const consolidator = new SleepConsolidator(
+        createConfig({
+          phases: ['staleness-prune'],
+          stalenessThreshold: 30,
+          causalGraph: mockGraph as unknown as CausalGraph,
+          causalNamespace: 'ns',
+        }),
+      )
+
+      const report = await consolidator.run(store, [['test', 'ns']])
+      expect(report.namespaces[0]!.stalenessPruned).toBe(0)
+      expect(report.namespaces[0]!.stalenessCausalRelationsRemoved).toBe(0)
+      expect(mockGraph.removeNode).not.toHaveBeenCalled()
+    })
+
+    it('should report stalenessCausalRelationsRemoved === 0 when no causalGraph is configured', async () => {
+      const store = createMockStore([staleRecord('s1')])
+      const consolidator = new SleepConsolidator(
+        createConfig({ phases: ['staleness-prune'], stalenessThreshold: 30 }),
+      )
+
+      const report = await consolidator.run(store, [['test', 'ns']])
+      expect(report.namespaces[0]!.stalenessPruned).toBe(1)
+      expect(report.namespaces[0]!.stalenessCausalRelationsRemoved).toBe(0)
+    })
+
+    it('should not prune pinned entries even when stale', async () => {
+      const pinnedStale = {
+        key: 'pinned',
+        value: {
+          text: 'pinned stale',
+          createdAt: NOW - 365 * MS_PER_DAY,
+          accessCount: 1,
+          pinned: true,
+        },
+      }
+      const store = createMockStore([pinnedStale])
+      const consolidator = new SleepConsolidator(
+        createConfig({ phases: ['staleness-prune'], stalenessThreshold: 1 }),
+      )
+
+      const report = await consolidator.run(store, [['test', 'ns']])
+      expect(report.namespaces[0]!.stalenessPruned).toBe(0)
+      expect(store._data.has('pinned')).toBe(true)
+    })
+
+    it('should not crash when store.delete fails during staleness-prune', async () => {
+      const store = createMockStore([staleRecord('old')])
+      ;(store as unknown as { delete: ReturnType<typeof vi.fn> }).delete
+        .mockRejectedValue(new Error('delete failed'))
+
+      const consolidator = new SleepConsolidator(
+        createConfig({ phases: ['staleness-prune'], stalenessThreshold: 30 }),
+      )
+
+      const report = await consolidator.run(store, [['test', 'ns']])
+      expect(report.namespaces).toHaveLength(1)
+      expect(report.namespaces[0]!.stalenessPruned).toBe(0)
+    })
+
+    it('should not crash when store.search throws during staleness-prune', async () => {
+      const store = createMockStore()
+      ;(store as unknown as { search: ReturnType<typeof vi.fn> }).search
+        .mockRejectedValue(new Error('unavailable'))
+
+      const consolidator = new SleepConsolidator(
+        createConfig({ phases: ['staleness-prune'] }),
+      )
+
+      const report = await consolidator.run(store, [['test', 'ns']])
+      expect(report.namespaces[0]!.stalenessPruned).toBe(0)
+    })
+
+    it('should include stalenessCausalRelationsRemoved in the report shape', async () => {
+      const store = createMockStore()
+      const consolidator = new SleepConsolidator(
+        createConfig({ phases: ['staleness-prune'] }),
+      )
+
+      const report = await consolidator.run(store, [['test', 'ns']])
+      expect(report.namespaces[0]).toHaveProperty('stalenessCausalRelationsRemoved')
+      expect(typeof report.namespaces[0]!.stalenessCausalRelationsRemoved).toBe('number')
     })
   })
 })

@@ -398,6 +398,280 @@ describe('OpenAI-compatible routes', () => {
   })
 
   // -------------------------------------------------------------------------
+  // response_format JSON mode
+  // -------------------------------------------------------------------------
+
+  describe('POST /v1/chat/completions (response_format json_object)', () => {
+    it('should accept response_format: { type: "json_object" } and return 200', async () => {
+      mockGenerate.mockResolvedValue({
+        content: '{"result":"ok"}',
+        messages: [],
+        usage: { totalInputTokens: 10, totalOutputTokens: 5, llmCalls: 1 },
+        hitIterationLimit: false,
+        stopReason: 'end_turn',
+      })
+
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ response_format: { type: 'json_object' } })),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['object']).toBe('chat.completion')
+      const choices = body['choices'] as Array<Record<string, unknown>>
+      const content = (choices[0]!['message'] as Record<string, unknown>)['content'] as string
+      expect(() => JSON.parse(content)).not.toThrow()
+      const parsed = JSON.parse(content) as Record<string, unknown>
+      expect(parsed['result']).toBe('ok')
+    })
+
+    it('should return a valid ChatCompletionResponse shape when response_format is json_object', async () => {
+      mockGenerate.mockResolvedValue({
+        content: '{"answer":42}',
+        messages: [],
+        usage: { totalInputTokens: 8, totalOutputTokens: 4, llmCalls: 1 },
+        hitIterationLimit: false,
+        stopReason: 'end_turn',
+      })
+
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ response_format: { type: 'json_object' } })),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(typeof body['id']).toBe('string')
+      expect((body['id'] as string).startsWith('chatcmpl-')).toBe(true)
+      expect(body['object']).toBe('chat.completion')
+      const choices = body['choices'] as Array<Record<string, unknown>>
+      expect(choices[0]!['finish_reason']).toBe('stop')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // tool_calls in streaming
+  // -------------------------------------------------------------------------
+
+  describe('POST /v1/chat/completions (streaming with tools)', () => {
+    it('should emit SSE chunks with delta.tool_calls when a tool_call event is yielded', async () => {
+      mockStream.mockImplementation(async function* () {
+        yield {
+          type: 'tool_call',
+          data: { name: 'search', args: { query: 'test' }, id: 'call_abc', index: 0 },
+        }
+        yield { type: 'done', data: {} }
+      })
+
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ stream: true, tools: [{ type: 'function', function: { name: 'search', description: 'Search', parameters: {} } }] })),
+      })
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toContain('text/event-stream')
+
+      const text = await res.text()
+      const jsonLines = text
+        .split('\n')
+        .filter((l) => l.startsWith('data:') && !l.includes('[DONE]'))
+        .map((l) => JSON.parse(l.replace(/^data:\s*/, '')) as Record<string, unknown>)
+
+      const toolCallChunks = jsonLines.filter((chunk) => {
+        const choices = chunk['choices'] as Array<Record<string, unknown>>
+        const delta = choices[0]!['delta'] as Record<string, unknown>
+        return Array.isArray(delta['tool_calls'])
+      })
+      expect(toolCallChunks.length).toBeGreaterThanOrEqual(1)
+
+      const initChunk = toolCallChunks[0]!
+      const choices = initChunk['choices'] as Array<Record<string, unknown>>
+      const delta = choices[0]!['delta'] as Record<string, unknown>
+      const toolCalls = delta['tool_calls'] as Array<Record<string, unknown>>
+      expect(toolCalls[0]!['id']).toBe('call_abc')
+      expect((toolCalls[0]!['function'] as Record<string, unknown>)['name']).toBe('search')
+    })
+
+    it('should emit a finish chunk with finish_reason=tool_calls after tool_call events', async () => {
+      mockStream.mockImplementation(async function* () {
+        yield {
+          type: 'tool_call',
+          data: { name: 'get_weather', args: { location: 'NYC' }, id: 'call_xyz', index: 0 },
+        }
+        yield { type: 'done', data: {} }
+      })
+
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ stream: true, tools: [{ type: 'function', function: { name: 'get_weather', description: 'Get weather', parameters: {} } }] })),
+      })
+
+      const text = await res.text()
+      const jsonLines = text
+        .split('\n')
+        .filter((l) => l.startsWith('data:') && !l.includes('[DONE]'))
+        .map((l) => JSON.parse(l.replace(/^data:\s*/, '')) as Record<string, unknown>)
+
+      const toolCallsFinishChunks = jsonLines.filter((chunk) => {
+        const choices = chunk['choices'] as Array<Record<string, unknown>>
+        return choices[0]!['finish_reason'] === 'tool_calls'
+      })
+      expect(toolCallsFinishChunks.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // logprobs parameter
+  // -------------------------------------------------------------------------
+
+  describe('POST /v1/chat/completions (logprobs parameter)', () => {
+    it('should accept logprobs: true and return 200 without error', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ logprobs: true })),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(body['object']).toBe('chat.completion')
+    })
+
+    it('should accept logprobs: true with top_logprobs and return a valid response shape', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({ logprobs: true, top_logprobs: 3 })),
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as Record<string, unknown>
+      expect(typeof body['id']).toBe('string')
+      expect(body['object']).toBe('chat.completion')
+      const choices = body['choices'] as Array<Record<string, unknown>>
+      expect(choices).toHaveLength(1)
+      expect((choices[0]!['message'] as Record<string, unknown>)['role']).toBe('assistant')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Concurrent requests
+  // -------------------------------------------------------------------------
+
+  describe('POST /v1/chat/completions (concurrent requests)', () => {
+    it('should resolve all 3 concurrent requests with status 200', async () => {
+      mockGenerate
+        .mockResolvedValueOnce({
+          content: 'Response A',
+          messages: [],
+          usage: { totalInputTokens: 10, totalOutputTokens: 5, llmCalls: 1 },
+          hitIterationLimit: false,
+          stopReason: 'end_turn',
+        })
+        .mockResolvedValueOnce({
+          content: 'Response B',
+          messages: [],
+          usage: { totalInputTokens: 12, totalOutputTokens: 6, llmCalls: 1 },
+          hitIterationLimit: false,
+          stopReason: 'end_turn',
+        })
+        .mockResolvedValueOnce({
+          content: 'Response C',
+          messages: [],
+          usage: { totalInputTokens: 14, totalOutputTokens: 7, llmCalls: 1 },
+          hitIterationLimit: false,
+          stopReason: 'end_turn',
+        })
+
+      const [res1, res2, res3] = await Promise.all([
+        app.request('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeCompletionBody({ messages: [{ role: 'user', content: 'request A' }] })),
+        }),
+        app.request('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeCompletionBody({ messages: [{ role: 'user', content: 'request B' }] })),
+        }),
+        app.request('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeCompletionBody({ messages: [{ role: 'user', content: 'request C' }] })),
+        }),
+      ])
+
+      expect(res1!.status).toBe(200)
+      expect(res2!.status).toBe(200)
+      expect(res3!.status).toBe(200)
+    })
+
+    it('should return distinct completion IDs across 3 concurrent requests with no shared state leaks', async () => {
+      mockGenerate
+        .mockResolvedValueOnce({
+          content: 'Response A',
+          messages: [],
+          usage: { totalInputTokens: 10, totalOutputTokens: 5, llmCalls: 1 },
+          hitIterationLimit: false,
+          stopReason: 'end_turn',
+        })
+        .mockResolvedValueOnce({
+          content: 'Response B',
+          messages: [],
+          usage: { totalInputTokens: 12, totalOutputTokens: 6, llmCalls: 1 },
+          hitIterationLimit: false,
+          stopReason: 'end_turn',
+        })
+        .mockResolvedValueOnce({
+          content: 'Response C',
+          messages: [],
+          usage: { totalInputTokens: 14, totalOutputTokens: 7, llmCalls: 1 },
+          hitIterationLimit: false,
+          stopReason: 'end_turn',
+        })
+
+      const [res1, res2, res3] = await Promise.all([
+        app.request('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeCompletionBody({ messages: [{ role: 'user', content: 'request A' }] })),
+        }),
+        app.request('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeCompletionBody({ messages: [{ role: 'user', content: 'request B' }] })),
+        }),
+        app.request('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(makeCompletionBody({ messages: [{ role: 'user', content: 'request C' }] })),
+        }),
+      ])
+
+      const [body1, body2, body3] = await Promise.all([
+        res1!.json() as Promise<Record<string, unknown>>,
+        res2!.json() as Promise<Record<string, unknown>>,
+        res3!.json() as Promise<Record<string, unknown>>,
+      ])
+
+      const ids = new Set([body1['id'], body2['id'], body3['id']])
+      expect(ids.size).toBe(3)
+
+      const contents = [
+        ((body1['choices'] as Array<Record<string, unknown>>)[0]!['message'] as Record<string, unknown>)['content'],
+        ((body2['choices'] as Array<Record<string, unknown>>)[0]!['message'] as Record<string, unknown>)['content'],
+        ((body3['choices'] as Array<Record<string, unknown>>)[0]!['message'] as Record<string, unknown>)['content'],
+      ]
+      expect(new Set(contents).size).toBe(3)
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // Auth middleware
   // -------------------------------------------------------------------------
 

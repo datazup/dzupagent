@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
-import { mkdir, writeFile, readFile, rm } from 'node:fs/promises'
+import { mkdir, writeFile, readFile, rm, chmod, access } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes, createHash } from 'node:crypto'
@@ -628,6 +628,498 @@ describe('DzupAgentSyncer', () => {
     // Sync key populated
     const targetPath = join(root, '.claude', 'commands', 'test.md')
     expect(state.sync[targetPath]).toBeDefined()
+  })
+
+  // ---------------------------------------------------------------------------
+  // Error paths
+  // ---------------------------------------------------------------------------
+
+  describe('error paths', () => {
+    // -------------------------------------------------------------------------
+    // Helpers shared across all error-path adapters
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns true when the current process is running as root.
+     * chmod 444 has no effect for root, so these tests are skipped as root.
+     */
+    function isRoot(): boolean {
+      return process.getuid !== undefined && process.getuid() === 0
+    }
+
+    // -------------------------------------------------------------------------
+    // Codex
+    // -------------------------------------------------------------------------
+
+    describe('codex', () => {
+      // Error 1 — executeSync throws when the target directory is read-only
+      it('executeSync throws when target directory is read-only', async () => {
+        if (isRoot()) return // chmod is ineffective for root
+
+        // Write a memory file so the plan produces one toWrite entry (AGENTS.md at project root).
+        // Make the project root read-only so writeFile(AGENTS.md) fails.
+        const memoryDir = join(paths.projectDir, 'memory')
+        await mkdir(memoryDir, { recursive: true })
+        await writeFile(join(memoryDir, 'ctx.md'), '---\nname: ctx\ntype: project\n---\n\nCodex context.')
+
+        const plan = await syncer.planSync('codex')
+        expect(plan.toWrite).toHaveLength(1)
+
+        // Make the project root read-only
+        await chmod(root, 0o444)
+        try {
+          await expect(syncer.executeSync(plan)).rejects.toThrow()
+        } finally {
+          // Restore permissions so afterEach rm() can clean up
+          await chmod(root, 0o755)
+        }
+      })
+
+      // Error 2 — planSync with corrupted state.json does NOT crash with a raw JSON parse error
+      it('planSync handles corrupted state.json gracefully without throwing', async () => {
+        // Set up a skill so we get a non-trivial plan
+        const skillsDir = join(paths.projectDir, 'skills')
+        await mkdir(skillsDir, { recursive: true })
+        await writeFile(join(skillsDir, 'search.md'), '---\nname: search\n---\n\n## Task\nSearch codebase')
+
+        // First sync to populate state.json
+        const plan1 = await syncer.planSync('codex')
+        await syncer.executeSync(plan1)
+
+        // Corrupt state.json with malformed JSON
+        await mkdir(paths.projectDir, { recursive: true })
+        await writeFile(paths.stateFile, '{corrupted-not-json: true,,}', 'utf-8')
+
+        // planSync must NOT throw a raw JSON parse error
+        const freshSyncer = await setupSyncer(root, paths)
+        const plan2 = await expect(freshSyncer.planSync('codex')).resolves.toBeDefined()
+
+        // Because state was unreadable, the syncer treats the state as empty (no stored hash).
+        // The existing synced file therefore appears as a first-sync candidate (toWrite),
+        // not a divergence — since there is no stored hash to compare against.
+        // This is the defined graceful-fallback behaviour of readStateJson.
+        void plan2
+      })
+
+      // Error 3 — partial write: first skill file written, second blocked by mode-000 target
+      it('executeSync propagates error and leaves first file written, second file unmodified', async () => {
+        if (isRoot()) return // chmod is ineffective for root
+
+        // Skills are sorted alphabetically by filename: alpha < beta.
+        // Plan order is therefore: alpha → beta.
+        const skillsDir = join(paths.projectDir, 'skills')
+        await mkdir(skillsDir, { recursive: true })
+        await writeFile(join(skillsDir, 'alpha.md'), '---\nname: alpha\n---\n\n## Task\nAlpha task')
+        await writeFile(join(skillsDir, 'beta.md'), '---\nname: beta\n---\n\n## Task\nBeta task')
+
+        const plan = await syncer.planSync('codex')
+        // Skills go to .codex/skills/<id>/SKILL.md; with 2 skills there are 2 entries
+        const skillEntries = plan.toWrite.filter((e) => e.targetPath.includes('.codex'))
+        expect(skillEntries.length).toBeGreaterThanOrEqual(2)
+
+        const firstTargetPath = skillEntries[0]!.targetPath  // .codex/skills/alpha/SKILL.md
+        const secondTargetPath = skillEntries[1]!.targetPath // .codex/skills/beta/SKILL.md
+
+        // Pre-create the beta target dir + a mode-000 placeholder so writeFile(beta) fails
+        await mkdir(join(root, '.codex', 'skills', 'beta'), { recursive: true })
+        await writeFile(secondTargetPath, '')
+        await chmod(secondTargetPath, 0o000)
+
+        try {
+          await expect(syncer.executeSync(plan)).rejects.toThrow()
+
+          // First file (alpha) was written successfully
+          const firstExists = await access(firstTargetPath).then(() => true, () => false)
+          expect(firstExists).toBe(true)
+
+          // Restore permissions so we can inspect the second file
+          await chmod(secondTargetPath, 0o644)
+
+          // Second file (beta) still exists — the write was blocked so the file retains
+          // its pre-test placeholder content (empty string).
+          const secondContent = await readFile(secondTargetPath, 'utf-8')
+          expect(secondContent).toBe('')
+        } finally {
+          // Best-effort restore — may already be 0o644 from the try block above
+          await chmod(secondTargetPath, 0o644).catch(() => {/* already restored */})
+        }
+      })
+    })
+
+    // -------------------------------------------------------------------------
+    // Gemini
+    // -------------------------------------------------------------------------
+
+    describe('gemini', () => {
+      // Error 1 — executeSync throws when the target directory is read-only
+      it('executeSync throws when target directory is read-only', async () => {
+        if (isRoot()) return
+
+        const memoryDir = join(paths.projectDir, 'memory')
+        await mkdir(memoryDir, { recursive: true })
+        await writeFile(join(memoryDir, 'guide.md'), '---\nname: guide\ntype: project\n---\n\nGemini guide.')
+
+        const plan = await syncer.planSync('gemini')
+        expect(plan.toWrite).toHaveLength(1)
+        // GEMINI.md is written at projectRoot — make it read-only
+        await chmod(root, 0o444)
+        try {
+          await expect(syncer.executeSync(plan)).rejects.toThrow()
+        } finally {
+          await chmod(root, 0o755)
+        }
+      })
+
+      // Error 2 — planSync with corrupted state.json does NOT crash
+      it('planSync handles corrupted state.json gracefully without throwing', async () => {
+        const memoryDir = join(paths.projectDir, 'memory')
+        await mkdir(memoryDir, { recursive: true })
+        await writeFile(join(memoryDir, 'guide.md'), '---\nname: guide\ntype: project\n---\n\nGemini guide.')
+
+        // First sync to establish state
+        const plan1 = await syncer.planSync('gemini')
+        await syncer.executeSync(plan1)
+
+        // Corrupt state.json
+        await writeFile(paths.stateFile, '<<<not json at all>>>', 'utf-8')
+
+        const freshSyncer = await setupSyncer(root, paths)
+        // Must not throw; graceful fallback returns a valid plan object
+        await expect(freshSyncer.planSync('gemini')).resolves.toBeDefined()
+      })
+
+      // Error 3 — executeSync fails when GEMINI.md target is not writable
+      it('executeSync propagates error when GEMINI.md is not writable', async () => {
+        if (isRoot()) return // chmod is ineffective for root
+
+        const memoryDir = join(paths.projectDir, 'memory')
+        await mkdir(memoryDir, { recursive: true })
+        await writeFile(join(memoryDir, 'guide.md'), '---\nname: guide\ntype: project\n---\n\nGemini guide.')
+
+        const plan = await syncer.planSync('gemini')
+        expect(plan.toWrite).toHaveLength(1)
+
+        const targetPath = plan.toWrite[0]!.targetPath // GEMINI.md at project root
+
+        // Pre-create a mode-000 placeholder at the target path so writeFile fails
+        await writeFile(targetPath, 'original content')
+        await chmod(targetPath, 0o000)
+
+        try {
+          await expect(syncer.executeSync(plan)).rejects.toThrow()
+
+          // The file still contains original content — the write was blocked
+          await chmod(targetPath, 0o644)
+          const content = await readFile(targetPath, 'utf-8')
+          expect(content).toBe('original content')
+        } finally {
+          await chmod(targetPath, 0o644).catch(() => {/* already restored above */})
+        }
+      })
+    })
+
+    // -------------------------------------------------------------------------
+    // Goose
+    // -------------------------------------------------------------------------
+
+    describe('goose', () => {
+      // Error 1 — executeSync throws when target directory is read-only
+      it('executeSync throws when target directory is read-only', async () => {
+        if (isRoot()) return
+
+        const memoryDir = join(paths.projectDir, 'memory')
+        await mkdir(memoryDir, { recursive: true })
+        await writeFile(join(memoryDir, 'hints.md'), '---\nname: hints\ntype: project\n---\n\nGoose hints.')
+
+        const plan = await syncer.planSync('goose')
+        expect(plan.toWrite).toHaveLength(1)
+        // .goosehints is at projectRoot — make root read-only
+        await chmod(root, 0o444)
+        try {
+          await expect(syncer.executeSync(plan)).rejects.toThrow()
+        } finally {
+          await chmod(root, 0o755)
+        }
+      })
+
+      // Error 2 — planSync with corrupted state.json does NOT crash
+      it('planSync handles corrupted state.json gracefully without throwing', async () => {
+        const memoryDir = join(paths.projectDir, 'memory')
+        await mkdir(memoryDir, { recursive: true })
+        await writeFile(join(memoryDir, 'hints.md'), '---\nname: hints\ntype: project\n---\n\nGoose hints.')
+
+        // First sync to establish state
+        const plan1 = await syncer.planSync('goose')
+        await syncer.executeSync(plan1)
+
+        // Corrupt state.json
+        await writeFile(paths.stateFile, 'not-json-at-all', 'utf-8')
+
+        const freshSyncer = await setupSyncer(root, paths)
+        // Must not throw; state falls back to empty default
+        const plan2 = await freshSyncer.planSync('goose')
+        expect(plan2).toBeDefined()
+        expect(plan2.target).toBe('goose')
+
+        // With an unreadable state, the existing .goosehints file looks like a
+        // first-sync candidate (no stored hash) so it lands in toWrite, not diverged.
+        expect(plan2.diverged).toHaveLength(0)
+        expect(plan2.toWrite).toHaveLength(1)
+      })
+
+      // Error 3 — executeSync fails when .goosehints target is not writable
+      it('executeSync propagates error when .goosehints is not writable', async () => {
+        if (isRoot()) return // chmod is ineffective for root
+
+        const memoryDir = join(paths.projectDir, 'memory')
+        await mkdir(memoryDir, { recursive: true })
+        await writeFile(join(memoryDir, 'hints.md'), '---\nname: hints\ntype: project\n---\n\nGoose hints.')
+
+        const plan = await syncer.planSync('goose')
+        expect(plan.toWrite).toHaveLength(1)
+
+        const targetPath = plan.toWrite[0]!.targetPath // .goosehints at project root
+
+        // Pre-create a mode-000 placeholder so the write is blocked by EACCES
+        await writeFile(targetPath, 'original goosehints')
+        await chmod(targetPath, 0o000)
+
+        try {
+          await expect(syncer.executeSync(plan)).rejects.toThrow()
+
+          // Restore and verify file was not overwritten
+          await chmod(targetPath, 0o644)
+          const content = await readFile(targetPath, 'utf-8')
+          expect(content).toBe('original goosehints')
+        } finally {
+          await chmod(targetPath, 0o644).catch(() => {/* already restored above */})
+        }
+      })
+    })
+
+    // -------------------------------------------------------------------------
+    // Crush
+    // -------------------------------------------------------------------------
+
+    describe('crush', () => {
+      // Error 1 — executeSync throws when target directory is read-only
+      it('executeSync throws when target directory is read-only', async () => {
+        if (isRoot()) return
+
+        const skillsDir = join(paths.projectDir, 'skills')
+        await mkdir(skillsDir, { recursive: true })
+        await writeFile(join(skillsDir, 'lint.md'), '---\nname: lint\n---\n\n## Task\nRun linter')
+
+        const plan = await syncer.planSync('crush')
+        expect(plan.toWrite).toHaveLength(1)
+
+        // .crush/skills/ does not yet exist — mkdir is called inside executeSync before writeFile.
+        // Making the root read-only prevents mkdir from creating .crush/skills/.
+        await chmod(root, 0o444)
+        try {
+          await expect(syncer.executeSync(plan)).rejects.toThrow()
+        } finally {
+          await chmod(root, 0o755)
+        }
+      })
+
+      // Error 2 — planSync with corrupted state.json does NOT crash
+      it('planSync handles corrupted state.json gracefully without throwing', async () => {
+        const skillsDir = join(paths.projectDir, 'skills')
+        await mkdir(skillsDir, { recursive: true })
+        await writeFile(join(skillsDir, 'lint.md'), '---\nname: lint\n---\n\n## Task\nRun linter')
+
+        // First sync to establish state
+        const plan1 = await syncer.planSync('crush')
+        await syncer.executeSync(plan1)
+
+        // Corrupt state.json
+        await writeFile(paths.stateFile, '{{invalid}}', 'utf-8')
+
+        const freshSyncer = await setupSyncer(root, paths)
+        // Must not throw
+        const plan2 = await freshSyncer.planSync('crush')
+        expect(plan2).toBeDefined()
+        expect(plan2.target).toBe('crush')
+
+        // With corrupted state, the syncer has no stored hash.  The existing
+        // .crush/skills/lint.md looks like a first-sync candidate and lands in toWrite.
+        expect(plan2.diverged).toHaveLength(0)
+        expect(plan2.toWrite).toHaveLength(1)
+      })
+
+      // Error 3 — partial write: first skill written, second blocked by mode-000 target
+      it('executeSync propagates error and leaves first file written, second file unmodified', async () => {
+        if (isRoot()) return // chmod is ineffective for root
+
+        // Skills sorted alphabetically: alpha.md < beta.md
+        // Plan order: alpha (.crush/skills/alpha.md) → beta (.crush/skills/beta.md)
+        const skillsDir = join(paths.projectDir, 'skills')
+        await mkdir(skillsDir, { recursive: true })
+        await writeFile(join(skillsDir, 'alpha.md'), '---\nname: alpha\n---\n\n## Task\nAlpha task')
+        await writeFile(join(skillsDir, 'beta.md'), '---\nname: beta\n---\n\n## Task\nBeta task')
+
+        const plan = await syncer.planSync('crush')
+        expect(plan.toWrite.length).toBeGreaterThanOrEqual(2)
+
+        const firstTargetPath = plan.toWrite[0]!.targetPath  // .crush/skills/alpha.md
+        const secondTargetPath = plan.toWrite[1]!.targetPath // .crush/skills/beta.md
+
+        // Pre-create the skills directory and a mode-000 placeholder for the second file
+        // so the first write (alpha.md) succeeds but the second (beta.md) is blocked.
+        await mkdir(join(root, '.crush', 'skills'), { recursive: true })
+        await writeFile(secondTargetPath, 'original beta content')
+        await chmod(secondTargetPath, 0o000)
+
+        try {
+          await expect(syncer.executeSync(plan)).rejects.toThrow()
+
+          // First file was written successfully
+          const firstExists = await access(firstTargetPath).then(() => true, () => false)
+          expect(firstExists).toBe(true)
+
+          // Second file exists but was not overwritten (still has placeholder content)
+          await chmod(secondTargetPath, 0o644)
+          const secondContent = await readFile(secondTargetPath, 'utf-8')
+          expect(secondContent).toBe('original beta content')
+        } finally {
+          await chmod(secondTargetPath, 0o644).catch(() => {/* already restored above */})
+        }
+      })
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Codex agents write-back (.codex/agents/<name>.md)
+// ---------------------------------------------------------------------------
+
+describe('Codex agents write-back', () => {
+  let root: string
+  let paths: DzupAgentPaths
+  let syncer: DzupAgentSyncer
+
+  beforeEach(async () => {
+    root = await makeTestDir()
+    paths = makePaths(root)
+    syncer = await setupSyncer(root, paths)
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('writes agent file on first sync', async () => {
+    const agentsDir = join(paths.projectDir, 'agents')
+    await mkdir(agentsDir, { recursive: true })
+    await writeFile(
+      join(agentsDir, 'reviewer.md'),
+      '---\nname: reviewer\ndescription: Code reviewer\n---\n\n## Persona\nYou review code carefully.',
+    )
+
+    const plan = await syncer.planSync('codex')
+    const result = await syncer.executeSync(plan)
+
+    const targetPath = join(root, '.codex', 'agents', 'reviewer.md')
+    expect(result.written.some((w) => w.targetPath === targetPath)).toBe(true)
+
+    const written = await readFile(targetPath, 'utf-8')
+    expect(written).toContain('---')
+    expect(written).toContain('description: Code reviewer')
+    expect(written).toContain('You review code carefully.')
+
+    // state.json hash recorded
+    const stateRaw = await readFile(paths.stateFile, 'utf-8')
+    const state = JSON.parse(stateRaw) as { sync: Record<string, { lastSyncHash: string }> }
+    expect(state.sync[targetPath]).toBeDefined()
+    expect(state.sync[targetPath]!.lastSyncHash).toBe(sha256(written))
+  })
+
+  it('skips agent when content unchanged', async () => {
+    const agentsDir = join(paths.projectDir, 'agents')
+    await mkdir(agentsDir, { recursive: true })
+    await writeFile(
+      join(agentsDir, 'reviewer.md'),
+      '---\nname: reviewer\ndescription: Code reviewer\n---\n\n## Persona\nReview code.',
+    )
+
+    // First sync
+    const plan1 = await syncer.planSync('codex')
+    await syncer.executeSync(plan1)
+
+    // Second sync — native file untouched, hash still matches
+    syncer = await setupSyncer(root, paths)
+    const plan2 = await syncer.planSync('codex')
+
+    const targetPath = join(root, '.codex', 'agents', 'reviewer.md')
+    // No divergence
+    expect(plan2.diverged.find((d) => d.targetPath === targetPath)).toBeUndefined()
+
+    // Content on disk is unchanged after a second executeSync
+    const before = await readFile(targetPath, 'utf-8')
+    await syncer.executeSync(plan2)
+    const after = await readFile(targetPath, 'utf-8')
+    expect(after).toBe(before)
+  })
+
+  it('deletes agent file when removed', async () => {
+    const agentsDir = join(paths.projectDir, 'agents')
+    await mkdir(agentsDir, { recursive: true })
+    const sourcePath = join(agentsDir, 'temp-agent.md')
+    await writeFile(
+      sourcePath,
+      '---\nname: temp-agent\ndescription: Temporary agent\n---\n\n## Persona\nShort-lived.',
+    )
+
+    // First sync writes the native file
+    const plan1 = await syncer.planSync('codex')
+    await syncer.executeSync(plan1)
+
+    const targetPath = join(root, '.codex', 'agents', 'temp-agent.md')
+    // File exists
+    await expect(readFile(targetPath, 'utf-8')).resolves.toBeTruthy()
+
+    // Remove the source definition
+    await rm(sourcePath)
+
+    // Second sync detects the removal and deletes the native file
+    syncer = await setupSyncer(root, paths)
+    const plan2 = await syncer.planSync('codex')
+    expect(plan2.toDelete).toContain(targetPath)
+
+    const result = await syncer.executeSync(plan2)
+    expect(result.deleted).toContain(targetPath)
+
+    // File is gone from disk
+    await expect(readFile(targetPath, 'utf-8')).rejects.toThrow()
+
+    // state.json no longer tracks the deleted path
+    const stateRaw = await readFile(paths.stateFile, 'utf-8')
+    const state = JSON.parse(stateRaw) as { sync: Record<string, unknown> }
+    expect(state.sync[targetPath]).toBeUndefined()
+  })
+
+  it('does not write agents for gemini target', async () => {
+    const agentsDir = join(paths.projectDir, 'agents')
+    await mkdir(agentsDir, { recursive: true })
+    await writeFile(
+      join(agentsDir, 'reviewer.md'),
+      '---\nname: reviewer\ndescription: Code reviewer\n---\n\n## Persona\nReview code.',
+    )
+
+    const plan = await syncer.planSync('gemini')
+
+    // Gemini does not support agents write-back
+    const agentEntries = plan.toWrite.filter((e) => e.targetPath.includes(`${'/'}.gemini${'/'}agents${'/'}`))
+    expect(agentEntries).toHaveLength(0)
+
+    // And no .gemini/agents/ entries of any shape
+    expect(plan.toWrite.some((e) => e.targetPath.includes('.gemini/agents/'))).toBe(false)
+
+    // Execute — confirm no .gemini/agents/ or .codex/agents/ files written by gemini target
+    await syncer.executeSync(plan)
+    await expect(readFile(join(root, '.gemini', 'agents', 'reviewer.md'), 'utf-8')).rejects.toThrow()
+    await expect(readFile(join(root, '.codex', 'agents', 'reviewer.md'), 'utf-8')).rejects.toThrow()
   })
 })
 

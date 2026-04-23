@@ -478,6 +478,49 @@ describe('ContextTransferService — extended', () => {
       }
     })
 
+    it('is idempotent when injecting the same context twice', () => {
+      const source = makeMessages(['Plan', 'Decided to use Prisma. Created src/db/schema.ts.'])
+      const target = messagesWithSystem('System', ['Q', 'A'])
+
+      const ctx = service.extractContext(source, 'plan')
+      ctx.toIntent = 'implement'
+
+      const once = service.injectContext(ctx, target)
+      const twice = service.injectContext(ctx, once)
+
+      // Second injection must be a no-op: length and content identical
+      expect(twice.length).toBe(once.length)
+      expect(twice.map(m => m._getType())).toEqual(once.map(m => m._getType()))
+      for (let i = 0; i < once.length; i++) {
+        expect(twice[i]!.content).toEqual(once[i]!.content)
+      }
+
+      // Exactly one injected transfer marker
+      const injected = twice.filter(m =>
+        m._getType() === 'system' &&
+        typeof m.content === 'string' &&
+        m.content.startsWith('## Context Transferred from "plan"'),
+      )
+      expect(injected.length).toBe(1)
+    })
+
+    it('still injects when a different source intent is already present', () => {
+      const source1 = makeMessages(['Plan A', 'decided to use A'])
+      const source2 = makeMessages(['Plan B', 'decided to use B'])
+      const target = messagesWithSystem('System', ['Q', 'A'])
+
+      const ctx1 = service.extractContext(source1, 'plan_a')
+      ctx1.toIntent = 'implement'
+      const ctx2 = service.extractContext(source2, 'plan_b')
+      ctx2.toIntent = 'implement'
+
+      const after1 = service.injectContext(ctx1, target)
+      const after2 = service.injectContext(ctx2, after1)
+
+      // Distinct source intents should both be injected
+      expect(after2.length).toBe(target.length + 2)
+    })
+
     it('file path extraction handles various formats', () => {
       const content = `
         Modified src/auth/service.ts

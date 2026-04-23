@@ -616,6 +616,38 @@ describe('Adapter Execution Flow', () => {
       expect(toolResults).toHaveLength(1)
       expect(toolResults[0].output).toBe(JSON.stringify(['Found 3 results']))
     })
+
+    it('Codex surfaces todo_list items as adapter progress updates', async () => {
+      const thread = createCodexThread([
+        codexThreadStarted(),
+        {
+          type: 'item.completed',
+          item: {
+            type: 'todo_list',
+            id: 'todo-1',
+            items: [
+              { text: 'Inspect adapter state', completed: true },
+              { text: 'Update event-plane mapping', completed: false },
+              { text: 'Write contract tests', completed: false },
+            ],
+          },
+        },
+        codexTurnCompleted(),
+      ])
+      codexMockStartThread.mockReturnValue(thread)
+
+      const events = await collectEvents(codex.execute({ prompt: 'continue the plan' }))
+      const progress = findEvent(events, 'adapter:progress')!
+
+      expect(progress).toMatchObject({
+        providerId: 'codex',
+        phase: 'todo_list',
+        current: 1,
+        total: 3,
+        percentage: 33,
+        message: 'Todo list updated (1/3 completed). Next: Update event-plane mapping',
+      })
+    })
   })
 
   // =========================================================================
