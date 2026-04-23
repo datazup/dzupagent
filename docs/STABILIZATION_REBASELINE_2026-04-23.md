@@ -21,6 +21,7 @@ Use this file as the shared session-level source of truth, then use the tracked 
 - [`docs/stabilization/STABILIZATION_CONTRACT_CONVERGENCE_2026-04-23.md`](./stabilization/STABILIZATION_CONTRACT_CONVERGENCE_2026-04-23.md)
 - [`docs/stabilization/STABILIZATION_VERIFICATION_AND_RELEASE_2026-04-23.md`](./stabilization/STABILIZATION_VERIFICATION_AND_RELEASE_2026-04-23.md)
 - [`docs/stabilization/STABILIZATION_DOCS_AND_SCAFFOLDER_TRUTH_2026-04-23.md`](./stabilization/STABILIZATION_DOCS_AND_SCAFFOLDER_TRUTH_2026-04-23.md)
+- [`docs/stabilization/STABILIZATION_HANDOFF_MEMORY_2026-04-23.md`](./stabilization/STABILIZATION_HANDOFF_MEMORY_2026-04-23.md)
 
 Rule:
 - area documents can expand the work, but they must not weaken the exit rules in this tracked rebaseline
@@ -49,14 +50,15 @@ Rule:
 - `yarn workspace @dzupagent/server test -- src/__tests__/api-key-wiring.test.ts src/routes/__tests__/api-keys.test.ts src/routes/openai-compat/__tests__/routes.test.ts src/routes/openai-compat/__tests__/completions.test.ts`
 - `yarn workspace @dzupagent/server test -- src/__tests__/compile-routes.test.ts src/__tests__/workflow-routes.test.ts`
 - `yarn verify:strict`
+- `yarn verify`
+- `yarn lint`
 
 ### What Is Still Open
 
-- `yarn verify` has not been rerun to completion after the current wave.
 - Public naming and vocabulary still drift across `DzupAgent`, `Forge`, and `DZIP` surfaces in `server`, scaffolder output, logs, and env vars.
 - Producer/consumer contract drift is still a risk across `server`, `playground`, scaffolding, and docs, especially where one codepath owns route behavior but multiple surfaces describe it.
 - Version and generated-doc truth improved in this wave, but the repo still lacks single-source ownership for several shared truth surfaces and still requires same-wave regeneration discipline.
-- Root lint policy still silently skips eight published packages because they do not expose `lint` scripts.
+- Root lint participation is now workspace-complete and warning-clean in the current session.
 
 ## Drift Diagnosis
 
@@ -86,7 +88,7 @@ Legend:
 | Server runtime truth | done | `@dzupagent/server` typecheck, lint, targeted runtime/auth/compile/workflow tests, and the full package test lane are green in the current session. |
 | Server auth and secret boundaries | partially done | Targeted auth/control-plane tests are green and the full `server` test lane passes, but explicit ownership and compatibility proof still need convergence across consumers and docs. |
 | Contract convergence across producers/consumers | not done | No shared 2026-04-23 checkpoint yet across `server`, `playground`, scaffolder, and docs. |
-| Release/docs status truth | partially done | Capability-matrix tooling is now plain-Node and hermetic enough for sandboxed runs, `create-dzupagent` now emits `0.2.0` truth, and the remaining gaps are naming, README, and ownership drift rather than broken generation paths. |
+| Release/docs status truth | partially done | Capability-matrix tooling is now plain-Node and hermetic enough for sandboxed runs, `create-dzupagent` now emits `0.2.0` truth, `yarn verify`, `yarn verify:strict`, and `yarn lint` are all green, and the remaining gaps are naming and ownership drift rather than broken generation paths or stale high-traffic version docs. |
 
 ## Next Tasks
 
@@ -138,35 +140,23 @@ Required verification:
 Exit rule:
 - Do not mark this done while version identity, template inventory, or generated docs still require manual detective work to determine current truth.
 
-### 4. Reduce Policy Drift And Lint Blind Spots
+### 4. Preserve Root Lint Signal Quality
 
 Required verification:
-- identify packages still skipped by root lint because they lack `lint`
-- current missing-lint set to reconcile:
-  - `@dzupagent/adapter-types`
-  - `@dzupagent/app-tools`
-  - `@dzupagent/code-edit-kit`
-  - `@dzupagent/flow-ast`
-  - `@dzupagent/flow-compiler`
-  - `@dzupagent/flow-dsl`
-  - `@dzupagent/hitl-kit`
-  - `@dzupagent/runtime-contracts`
-- decide whether each becomes:
-  - a real lint participant
-  - or an explicit tracked exception with owner, reason, and review date
-- rerun the narrowest repo-level lint proof justified by the touched configuration
+- `yarn lint`
+- if warnings return, record the exact files and counts immediately rather than treating warning-only output as acceptable steady state
 
 Exit rule:
-- The root policy should not silently skip packages that are otherwise treated as first-class runtime or release surfaces.
+- Do not let later sessions regress from the current warning-clean root lint baseline.
 
 ### 5. Widen Back To The Broader Verification Lane
 
 Required verification:
 - `yarn verify`
-- record the first failing package/check if this broader lane still exposes drift outside the strict baseline
+- keep the exact completed result in the stabilization record so later sessions do not regress to vague status language
 
 Exit rule:
-- Do not claim repo-wide verification maturity from `verify:strict` alone if the broader baseline still diverges.
+- Do not let later tracked docs fall back to claiming the broader baseline is unknown when the current session has already observed it green.
 
 ## Execution Rules To Minimize Drift
 

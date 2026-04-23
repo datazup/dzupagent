@@ -36,6 +36,12 @@ Phase C2 has started:
 - `@dzupagent/runtime-contracts` tests are now separated by seam:
   planning, execution, ledger, and schedule
 - focused validation remained green after both test-tranche changes
+- persisted contract families now also have runtime-compatible golden payload
+  coverage for:
+  - minimal and rich `RawAgentEvent` fixtures
+  - minimal and rich `AgentArtifactEvent` fixtures
+  - minimal and rich `RunSummary` fixtures
+  - `ProviderRawStreamEvent` fixture coverage for the live raw wrapper
 
 ## Current Findings
 
@@ -272,15 +278,14 @@ Required checks:
 
 ## Immediate Next Tasks
 
-1. Add one runtime-compatibility layer for the first persisted contract family:
-   schema or golden-fixture validation for `RawAgentEvent`,
-   `AgentArtifactEvent`, and `RunSummary`.
-2. Add explicit fixture coverage for `ProviderRawStreamEvent` so the live
-   provider-raw wrapper is protected alongside the persisted raw-event plane.
-3. Add at least one backward-compatibility payload fixture per persisted run
-   contract family so additive changes are intentional and reviewable.
-4. Revisit the `@dzupagent/server` root allowlist after the shared contract
-   families have runtime-level compatibility checks.
+1. Start the first wire-surface runtime-compatibility pilot in
+   `packages/server/src/routes/openai-compat`.
+2. Keep the persisted run contract fixtures green while the server pilot is
+   introduced.
+3. Revisit the `@dzupagent/server` root allowlist only after the OpenAI-compat
+   pilot has local runtime validation or golden-fixture coverage.
+4. If the OpenAI-compat pilot is stable, extend the same pattern to the next
+   externally serialized server surface.
 
 ## Exit Criteria
 

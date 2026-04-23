@@ -114,13 +114,13 @@ Tools: execute SQL queries, list tables, describe schema.
 
 ### Version
 
-- `dzupagent_CONNECTORS_VERSION: string` -- `'0.1.0'`
+- `dzupagent_CONNECTORS_VERSION: string` -- `'0.2.0'`
 
 ## Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@dzupagent/core` | `0.1.0` | Core infrastructure |
+| `@dzupagent/core` | `0.2.0` | Core infrastructure |
 
 ## Peer Dependencies
 

@@ -14,7 +14,7 @@
 
 This split is visible in the current product surface:
 
-- `createForgeApp()` mounts `/api/agents` by default, but does not mount `/api/registry` by default in `packages/server/src/app.ts`.
+- `createForgeApp()` mounts `/api/agent-definitions` and the `/api/agents` compatibility alias by default, and can mount `/api/registry` when `registry` is supplied, but registry is still not the default product/operator path in `packages/server/src/app.ts`.
 - Runtime execution still resolves `AgentDefinition` in `packages/server/src/runtime/run-worker.ts`.
 - Registry routes and a registry health monitor exist, but remain optional/manual and are not the default operator path in `packages/server/src/routes/registry.ts` and `packages/server/src/registry/health-monitor.ts`.
 - Playground navigation exposes `/agents`, but not a registry/fleet view in `packages/playground/src/router/index.ts`.

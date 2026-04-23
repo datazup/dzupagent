@@ -439,7 +439,7 @@ ForgeSpanAttr.GEN_AI_USAGE_TOTAL_TOKENS  // 'gen_ai.usage.total_tokens'
 - `SpanStatusCode` -- OTel span status codes (`OK`, `ERROR`, `UNSET`)
 - `SpanKind` -- OTel span kinds (`INTERNAL`, `CLIENT`, `SERVER`, `PRODUCER`, `CONSUMER`)
 - `EVENT_METRIC_MAP` -- complete event-to-metric mapping table
-- `dzupagent_OTEL_VERSION` -- package version (`'0.1.0'`)
+- `dzupagent_OTEL_VERSION` -- package version (`'0.2.0'`)
 
 ### Types
 
@@ -449,7 +449,7 @@ ForgeSpanAttr.GEN_AI_USAGE_TOTAL_TOKENS  // 'gen_ai.usage.total_tokens'
 
 | Package | Version | Required | Purpose |
 |---------|---------|----------|---------|
-| `@dzupagent/core` | `0.1.0` | yes | Event bus, plugin interfaces |
+| `@dzupagent/core` | `0.2.0` | yes | Event bus, plugin interfaces |
 | `@opentelemetry/api` | `^1.7.0` | optional | OTel API for real tracing |
 | `@opentelemetry/sdk-trace-base` | `^1.21.0` | optional | Trace SDK |
 | `@opentelemetry/sdk-metrics` | `^1.21.0` | optional | Metrics SDK |

@@ -9,7 +9,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │                     Application Layer                        │
-│  OrchestratorFacade · createOrchestrator · AdapterRegistry   │
+│ OrchestratorFacade · createOrchestrator · ProviderAdapterRegistry │
 ├──────────────────────────────────────────────────────────────┤
 │                     Routing Layer                            │
 │  TagBasedRouter · CapabilityRouter · ContextAwareRouter      │
@@ -61,7 +61,7 @@ All adapters emit normalized events:
 | `CrushAdapter` | Crush AI | `crush` CLI subprocess |
 | `OpenRouterAdapter` | OpenRouter | OpenAI-compatible HTTP |
 
-## 5. AdapterRegistry
+## 5. ProviderAdapterRegistry
 
 Central registry for provider registration and execution:
 - Registers adapters with metadata (tags, capabilities, cost model)
@@ -128,9 +128,9 @@ for await (const event of adapter.execute({ prompt: 'Hello!' })) {
 
 ### Registry with routing
 ```ts
-import { AdapterRegistry, TagBasedRouter } from '@dzupagent/agent-adapters'
+import { ProviderAdapterRegistry, TagBasedRouter } from '@dzupagent/agent-adapters'
 
-const registry = new AdapterRegistry({ router: new TagBasedRouter() })
+const registry = new ProviderAdapterRegistry({ router: new TagBasedRouter() })
 registry.register('claude', new ClaudeAgentAdapter(), { tags: ['code'] })
 const result = await registry.execute({ prompt: 'Write a sort function', tags: ['code'] })
 ```
@@ -187,7 +187,7 @@ execute({ prompt })
 
 | Test file | Subsystem |
 |---|---|
-| `adapter-registry.test.ts` | AdapterRegistry, routing, fallback |
+| `adapter-registry.test.ts` | ProviderAdapterRegistry, routing, fallback |
 | `parallel-executor.test.ts` | ParallelExecutor concurrent execution |
 | `parallel-executor.contract.test.ts` | ParallelExecutor contracts |
 | `parallel-executor.stress.test.ts` | ParallelExecutor under load |

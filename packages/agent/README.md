@@ -156,15 +156,15 @@ const reviewTool = agent.asTool({ description: 'Run code review' })
 
 ### Version
 
-- `dzupagent_AGENT_VERSION: string` -- `'0.1.0'`
+- `dzupagent_AGENT_VERSION: string` -- `'0.2.0'`
 
 ## Dependencies
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `@dzupagent/core` | `0.1.0` | Core infrastructure (LLM, memory, events) |
-| `@dzupagent/context` | `0.1.0` | Context window management |
-| `@dzupagent/memory-ipc` | `0.1.0` | Arrow-based memory IPC |
+| `@dzupagent/core` | `0.2.0` | Core infrastructure (LLM, memory, events) |
+| `@dzupagent/context` | `0.2.0` | Context window management |
+| `@dzupagent/memory-ipc` | `0.2.0` | Arrow-based memory IPC |
 
 ## Peer Dependencies
 

@@ -45,9 +45,11 @@ Active drift examples from the analysis pack:
 Current live progress from this session:
 - `docs/CAPABILITY_MATRIX.md` now exists and can be generated/checked via plain Node tooling
 - `yarn verify:strict` is now green, so docs can no longer describe execution truth as "not yet proven"
+- `yarn verify` is now green, so the broader workspace baseline is also no longer an open-status unknown
 - `create-dzupagent` CLI version, generated project version, and generated `@dzupagent/*` dependency pins were aligned to `0.2.0`
-- the remaining docs/scaffolder drift is now primarily about duplicated truth ownership, stale high-traffic README examples, and mixed public naming rather than missing generation paths
-- `create-dzupagent` README still described only five templates even though the package now exposes nine built-in templates plus preset-driven flows
+- `create-dzupagent` README now reflects the real nine-template, five-preset surface
+- the remaining docs/scaffolder drift is now primarily about duplicated truth ownership, mixed public naming, and any remaining stale high-traffic README examples outside the scaffolder package rather than missing generation paths
+- root lint participation is now workspace-complete and warning-clean, which removes the earlier policy and signal-quality drift from this area
 
 ## Required Work
 

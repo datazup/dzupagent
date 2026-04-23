@@ -50,11 +50,11 @@ Core run path (`OrchestratorFacade.run`):
 1. Build `AgentInput` + `TaskDescriptor` from prompt/options.
 2. Optionally enrich with `.dzupagent` skills and memory (`applyDzupAgentEnrichment`).
 3. Optionally compile/enforce provider policy (`compilePolicyForProvider` + `PolicyConformanceChecker`).
-4. Execute via `AdapterRegistry.executeWithFallback`.
+4. Execute via `ProviderAdapterRegistry.executeWithFallback`.
 5. Wrap stream with `EventBusBridge`, optional `CostTrackingMiddleware`, optional `AdapterGuardrails`, optional `AdapterApprovalGate`.
 6. Consume events and require an `adapter:completed` terminal event to return success.
 
-Registry fallback path (`AdapterRegistry.executeWithFallback`):
+Registry fallback path (`ProviderAdapterRegistry.executeWithFallback`):
 1. Resolve healthy providers (`disabled` filtered, circuit breaker `canExecute`).
 2. Route using current `TaskRoutingStrategy`.
 3. Build ordered provider list: primary, decision fallbacks, remaining healthy.
@@ -97,7 +97,7 @@ Core contracts (from `@dzupagent/adapter-types`, re-exported by this package):
 - `AdapterProviderId = 'claude' | 'codex' | 'gemini' | 'gemini-sdk' | 'qwen' | 'crush' | 'goose' | 'openrouter'`
 
 Primary runtime APIs:
-- `AdapterRegistry`: adapter registration, health, fallback execution, circuit-breaker recording, router configuration.
+- `ProviderAdapterRegistry`: adapter registration, health, fallback execution, circuit-breaker recording, router configuration.
 - `OrchestratorFacade` / `createOrchestrator`: `run`, `chat`, `parallel`, `race`, `supervisor`, `mapReduce`, `bid`, `shutdown`, `getCostReport`.
 - Routers: `TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter`, `CapabilityRouter`, `ContextAwareRouter`, `LearningRouter`, `CostOptimizationEngine`.
 - Workflow/session/persistence: `defineWorkflow`, `AdapterWorkflowBuilder`, `SessionRegistry`, `WorkflowCheckpointer`, `FileCheckpointStore`, `RunManager`.
