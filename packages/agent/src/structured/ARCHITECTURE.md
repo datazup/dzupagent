@@ -96,16 +96,21 @@ If all fail, throws a detailed error including attempted strategies and retry bu
 Reference: [`structured-output-engine.ts`](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/agent/src/structured/structured-output-engine.ts:193)
 
 ### Feature: Schema-in-prompt fallback mode
-For `fallback-prompt`, engine serializes Zod schema to JSON Schema via:
-- `zodToJsonSchema` from `@dzupagent/core`
+For `fallback-prompt`, engine derives a canonical JSON Schema descriptor via:
+- `describeStructuredOutputSchema` from `@dzupagent/core`
+
+That descriptor provides:
+- canonical JSON Schema for the prompt body
+- stable `schemaHash` for logs and debugging
+- optional provider-aware normalization in other call paths
 
 It injects strict instructions:
 - return only JSON
-- include schema name/description and JSON Schema body
+- include schema name/description, schema hash, and JSON Schema body
 
 Reference:
 - [`structured-output-engine.ts`](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/agent/src/structured/structured-output-engine.ts:79)
-- [`packages/core/src/formats/tool-format-adapters.ts`](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/core/src/formats/tool-format-adapters.ts:39)
+- [`packages/core/src/formats/tool-format-adapters.ts`](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/core/src/formats/tool-format-adapters.ts:79)
 
 ---
 

@@ -216,8 +216,8 @@ const legacy = toLegacyConfig(doc)
 
 - Confirmed active cross-package runtime usage:
   - `packages/agent/src/structured/structured-output-engine.ts`
-    - imports `zodToJsonSchema` from `@dzupagent/core`
-    - used to render JSON Schema into fallback structured-output prompt (`buildSchemaPrompt`).
+    - imports `describeStructuredOutputSchema` from `@dzupagent/core`
+    - used to render canonical JSON Schema plus a stable `schemaHash` into the fallback structured-output prompt (`buildSchemaPrompt`).
 
 ## Current Non-usage (as of this analysis)
 
@@ -292,4 +292,3 @@ Per-file coverage for `src/formats/*` from `coverage-summary.json`:
 2. Risks / tradeoffs:
    - Lightweight YAML parser is intentionally limited; complex YAML constructs are out of scope.
    - Similar schema-conversion logic exists elsewhere (`mcp-tool-bridge`), which may drift if behavior evolves independently.
-
