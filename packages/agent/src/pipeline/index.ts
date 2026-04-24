@@ -7,6 +7,16 @@
 
 export { validatePipeline } from './pipeline-validator.js'
 export { InMemoryPipelineCheckpointStore } from './in-memory-checkpoint-store.js'
+export { PostgresPipelineCheckpointStore } from './postgres-checkpoint-store.js'
+export type {
+  PostgresClientLike,
+  PostgresPipelineCheckpointStoreOptions,
+} from './postgres-checkpoint-store.js'
+export { RedisPipelineCheckpointStore } from './redis-checkpoint-store.js'
+export type {
+  RedisClientLike,
+  RedisPipelineCheckpointStoreOptions,
+} from './redis-checkpoint-store.js'
 export { PipelineRuntime } from './pipeline-runtime.js'
 export { executeLoop, stateFieldTruthy, qualityBelow, hasErrors } from './loop-executor.js'
 export type {

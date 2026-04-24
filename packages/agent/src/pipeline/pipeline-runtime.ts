@@ -15,6 +15,9 @@ import type {
   LoopNode,
 } from '@dzupagent/core'
 import { validatePipeline } from './pipeline-validator.js'
+import { InMemoryPipelineCheckpointStore } from './in-memory-checkpoint-store.js'
+import { PostgresPipelineCheckpointStore } from './postgres-checkpoint-store.js'
+import { RedisPipelineCheckpointStore } from './redis-checkpoint-store.js'
 import { executeLoop } from './loop-executor.js'
 import type { FailureContext, FailureType } from '../recovery/recovery-types.js'
 import type {
@@ -81,6 +84,16 @@ export class PipelineRuntime {
   private budgetWarnings = { warn70: false, warn90: false }
 
   constructor(config: PipelineRuntimeConfig) {
+    // Auto-wire checkpoint store when not explicitly provided.
+    if (!config.checkpointStore) {
+      if (config.redisClient) {
+        config = { ...config, checkpointStore: new RedisPipelineCheckpointStore({ client: config.redisClient }) }
+      } else if (config.pgClient) {
+        config = { ...config, checkpointStore: new PostgresPipelineCheckpointStore({ client: config.pgClient }) }
+      } else {
+        config = { ...config, checkpointStore: new InMemoryPipelineCheckpointStore() }
+      }
+    }
     this.config = config
     this.nodeMap = new Map()
     this.outgoingEdges = new Map()
