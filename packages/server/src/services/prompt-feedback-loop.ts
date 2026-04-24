@@ -31,15 +31,59 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
-import type {
-  OptimizationResult,
-  PromptOptimizer,
-  PromptVersion,
-  PromptVersionStore,
-} from '@dzupagent/evals'
-import { EvalDataset } from '@dzupagent/evals'
+import type { EvalDatasetLike } from '@dzupagent/eval-contracts'
 import { runLogRoot } from '@dzupagent/agent-adapters'
 import type { AgentEvent } from '@dzupagent/agent-adapters'
+
+/**
+ * Minimal structural shape of @dzupagent/evals `PromptOptimizer`. Declared
+ * locally so the server package does not take a runtime dependency on evals
+ * (MC-A02 layer-inversion fix). Hosts that want the feedback loop construct
+ * a real `PromptOptimizer` from `@dzupagent/evals` and pass it via config.
+ */
+export interface PromptOptimizerLike {
+  optimize(input: {
+    promptKey: string
+    dataset: EvalDatasetLike
+    failures: Array<{ input: string; output: string; feedback: string }>
+  }): Promise<OptimizationResultLike>
+}
+
+export interface OptimizationCandidateLike {
+  prompt: string
+  score: number
+}
+
+export interface OptimizationResultLike {
+  baselineScore: number
+  bestCandidate: OptimizationCandidateLike | null
+  candidates: OptimizationCandidateLike[]
+  iterations: number
+}
+
+export interface PromptVersionLike {
+  key: string
+  version: number
+  prompt: string
+  status: 'draft' | 'active' | 'retired'
+  evalScores?: { score: number } | undefined
+  createdAt?: string | undefined
+}
+
+export interface PromptVersionStoreLike {
+  getLatest(key: string): Promise<PromptVersionLike | null>
+  getActive(key: string): Promise<PromptVersionLike | null>
+  create(input: { key: string; prompt: string; status?: 'draft' | 'active' | 'retired'; evalScores?: { score: number } | undefined }): Promise<PromptVersionLike>
+  activate(key: string, version: number): Promise<PromptVersionLike>
+  list(key: string): Promise<PromptVersionLike[]>
+}
+
+// Backward-compat type aliases for the older names used within this module.
+// These were previously imported from @dzupagent/evals.
+type OptimizationResult = OptimizationResultLike
+type PromptOptimizer = PromptOptimizerLike
+type PromptVersion = PromptVersionLike
+type PromptVersionStore = PromptVersionStoreLike
 
 // ---------------------------------------------------------------------------
 // Public config / types
@@ -75,6 +119,17 @@ export interface PromptFeedbackLoopConfig {
    * warning.
    */
   onError?: (runId: string, message: string) => void
+  /**
+   * Factory that constructs an `EvalDatasetLike` from a single (input, output)
+   * sample so the optimizer can re-evaluate candidate prompts. Defaults to a
+   * minimal inline implementation; hosts may pass
+   * `(entries, meta) => EvalDataset.from(entries, meta)` from `@dzupagent/evals`
+   * to use the canonical implementation.
+   */
+  datasetFactory?: (
+    entries: ReadonlyArray<{ id: string; input: string; expectedOutput?: string }>,
+    meta: { name: string },
+  ) => EvalDatasetLike
 }
 
 export interface PromptFeedbackProcessResult {
@@ -102,6 +157,7 @@ export class PromptFeedbackLoop {
   private readonly autoPublishDelta: number
   private readonly promptKeyPrefix: string
   private readonly onError: (runId: string, message: string) => void
+  private readonly datasetFactory: NonNullable<PromptFeedbackLoopConfig['datasetFactory']>
 
   private unsubscribe: (() => void) | null = null
   private readonly inFlight = new Set<string>()
@@ -137,6 +193,7 @@ export class PromptFeedbackLoop {
         ? config.promptKeyPrefix
         : 'run-prompt'
     this.onError = config.onError ?? defaultOnError
+    this.datasetFactory = config.datasetFactory ?? defaultDatasetFactory
   }
 
   /**
@@ -236,7 +293,16 @@ export class PromptFeedbackLoop {
         const promptKey = this.derivePromptKey(prompt)
         try {
           const baseline = await this.ensureBaselineVersion(promptKey, prompt)
-          const dataset = buildDataset(promptKey, derivedInput, derivedOutput)
+          const dataset = this.datasetFactory(
+            [
+              {
+                id: `${promptKey}-sample`,
+                input: derivedInput,
+                expectedOutput: derivedOutput,
+              },
+            ],
+            { name: `feedback-loop:${promptKey}` },
+          )
 
           const optimizationResult = await this.promptOptimizer.optimize({
             promptKey,
@@ -430,20 +496,36 @@ function toFailureFeedback(
 }
 
 /**
- * Build a minimal single-entry dataset so the optimizer can re-evaluate
- * candidate prompts against the same (input, expected output) pair.
+ * Default `EvalDatasetLike` implementation used when the host does not supply
+ * `datasetFactory`. Implements the minimal surface the loop needs (entries +
+ * metadata). Hosts that want the canonical `EvalDataset` from
+ * `@dzupagent/evals` should pass it via config.
  */
-function buildDataset(promptKey: string, input: string, output: string): EvalDataset {
-  return EvalDataset.from(
-    [
-      {
-        id: `${promptKey}-sample`,
-        input,
-        expectedOutput: output,
-      },
-    ],
-    { name: `feedback-loop:${promptKey}` },
-  )
+function defaultDatasetFactory(
+  entries: ReadonlyArray<{ id: string; input: string; expectedOutput?: string }>,
+  meta: { name: string },
+): EvalDatasetLike {
+  const frozen = entries.map((e) => {
+    const entry: { id: string; input: string; expectedOutput?: string } = {
+      id: e.id,
+      input: e.input,
+    }
+    if (e.expectedOutput !== undefined) entry.expectedOutput = e.expectedOutput
+    return entry
+  })
+  return {
+    metadata: {
+      name: meta.name,
+      totalEntries: frozen.length,
+      tags: [],
+    },
+    entries(): ReadonlyArray<{ id: string; input: string; expectedOutput?: string | undefined }> {
+      return frozen
+    },
+    size(): number {
+      return frozen.length
+    },
+  }
 }
 
 function clamp01(value: number): number {

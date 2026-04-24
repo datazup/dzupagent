@@ -30,10 +30,14 @@ import type { SkillRegistry, WorkflowRegistry } from '@dzupagent/core'
 import { createSafetyMonitor } from '@dzupagent/core'
 import type { SkillStepResolver } from '@dzupagent/agent'
 import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters'
+import type { ResourceQuotaManager } from './runtime/resource-quota.js'
+import type { InputGuardConfig } from './security/input-guard.js'
 import { createHealthRoutes } from './routes/health.js'
 import { createRunRoutes } from './routes/runs.js'
 import { createAgentDefinitionRoutes } from './routes/agents.js'
 import { createApprovalRoutes } from './routes/approval.js'
+import { createApprovalsRoutes } from './routes/approvals.js'
+import type { ApprovalStateStore } from '@dzupagent/hitl-kit'
 import { createHumanContactRoutes } from './routes/human-contact.js'
 import { createMemoryRoutes } from './routes/memory.js'
 import { createMemoryBrowseRoutes } from './routes/memory-browse.js'
@@ -41,6 +45,7 @@ import { createPlaygroundRoutes, type PlaygroundRouteConfig } from './routes/pla
 import { createEventRoutes } from './routes/events.js'
 import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
 import { authMiddleware, type AuthConfig } from './middleware/auth.js'
+import { rbacMiddleware, type ForgeRole, type RBACConfig } from './middleware/rbac.js'
 import { rateLimiterMiddleware, type RateLimiterConfig } from './middleware/rate-limiter.js'
 import type { RunQueue } from './queue/run-queue.js'
 import type { GracefulShutdown } from './lifecycle/graceful-shutdown.js'
@@ -176,6 +181,13 @@ export interface ForgeServerConfig {
   eventBus: DzupEventBus
   modelRegistry: ModelRegistry
   auth?: AuthConfig
+  /**
+   * MC-S02: Optional RBAC configuration. Defaults to extracting `role`
+   * from the authenticated `apiKey.role` (fallback `'user'`) and enforcing
+   * admin-only access on `/api/mcp/*` and `/api/clusters/*`. Pass `false`
+   * to disable RBAC entirely (not recommended outside of tests).
+   */
+  rbac?: RBACConfig | false
   /** Optional Postgres API key store. When provided alongside auth.mode='api-key',
    *  store.validate is wired as the validateKey callback automatically. */
   apiKeyStore?: PostgresApiKeyStore
@@ -230,6 +242,18 @@ export interface ForgeServerConfig {
   benchmark?: BenchmarkRouteConfig
   /** Optional eval routes config. When provided, mounts /api/evals routes. */
   evals?: EvalRouteConfig
+  /**
+   * Optional pre-constructed eval orchestrator (MC-A02). When supplied,
+   * overrides `evals.orchestrator` / `evals.orchestratorFactory`. Allows hosts
+   * to inject a `@dzupagent/evals` `EvalOrchestrator` without coupling the
+   * server package to evals.
+   */
+  evalOrchestrator?: import('@dzupagent/eval-contracts').EvalOrchestratorLike
+  /**
+   * Optional pre-constructed benchmark orchestrator (MC-A02). When supplied,
+   * overrides `benchmark.orchestrator` / `benchmark.orchestratorFactory`.
+   */
+  benchmarkOrchestrator?: import('@dzupagent/eval-contracts').BenchmarkOrchestratorLike
   /** Optional MCP manager — enables /api/mcp routes for server lifecycle management */
   mcpManager?: McpManager
   /**
@@ -318,6 +342,13 @@ export interface ForgeServerConfig {
    */
   learningEventProcessor?: LearningEventProcessor | LearningEventProcessorLike
   /**
+   * Optional durable approval state store (MC-GA02). When provided, mounts
+   * `/api/approvals/:runId/:approvalId/grant` and `.../reject` so external
+   * operators can resolve pending approvals held by the same store that
+   * agent code is polling via {@link ApprovalGate}.
+   */
+  approvalStore?: ApprovalStateStore
+  /**
    * When true, skip attaching the built-in runtime {@link SafetyMonitor} to
    * the shared event bus. By default the server wires a monitor so that
    * `safety:violation`/`safety:blocked`/`safety:kill_requested` events are
@@ -326,6 +357,35 @@ export interface ForgeServerConfig {
    * out entirely (for example, tests).
    */
   disableSafetyMonitor?: boolean
+  /**
+   * MC-S01: Optional {@link ResourceQuotaManager} used to enforce per-tenant
+   * quotas on run creation. When provided, `POST /api/runs` calls
+   * `quotaManager.check(tenantId, 'tokensPerMinute', maxTokensPerRun)` before
+   * persisting the run — quota-exceeded requests are rejected with HTTP 429.
+   * The authenticated API key's `metadata.maxTokensPerRun` (if present)
+   * supplies the per-request reservation amount.
+   *
+   * After the run finishes, the run-worker records actual token usage by
+   * creating a 60-second reservation against the same dimension so that the
+   * sliding `tokensPerMinute` window reflects real consumption.
+   *
+   * Omit to disable quota enforcement entirely (library default).
+   */
+  quotaManager?: ResourceQuotaManager
+  /**
+   * MC-S03: Optional security configuration. When `inputGuard` is provided
+   * (or omitted — defaults to a standard {@link InputGuard}) the run-worker
+   * scans every run's input before dispatching to the executor. Injection or
+   * secret-leak patterns cause the run to terminate in `'rejected'` status;
+   * PII matches surface a redacted copy that replaces the raw input before
+   * execution.
+   *
+   * Pass `inputGuard: false` to opt out of scanning entirely (tests /
+   * trusted-tenant deployments).
+   */
+  security?: {
+    inputGuard?: InputGuardConfig | false
+  }
 }
 
 /**
@@ -538,6 +598,8 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
       retrievalFeedback: runtimeConfig.retrievalFeedback,
       traceStore: runtimeConfig.traceStore,
       reflectionStore: runtimeConfig.reflectionStore,
+      quotaManager: runtimeConfig.quotaManager,
+      inputGuardConfig: runtimeConfig.security?.inputGuard,
     })
     startedRunQueues.add(runtimeConfig.runQueue)
   }
@@ -576,6 +638,24 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
       }
     }
     app.use('/api/*', authMiddleware(effectiveAuth))
+
+    // MC-S02: RBAC — mounted after authMiddleware so the `apiKey` context
+    // variable is populated. Role defaults to `'user'` when the API key
+    // record predates the MC-S02 migration, so existing keys keep working
+    // but admin-only endpoints (MCP registration, cluster management)
+    // reject them. Hosts can opt out with `config.rbac = false`.
+    if (config.rbac !== false) {
+      const rbacConfig: RBACConfig = config.rbac ?? {
+        extractRole: (c) => {
+          const key = c.get('apiKey') as Record<string, unknown> | undefined
+          const role = key?.['role']
+          return typeof role === 'string'
+            ? (role as ForgeRole)
+            : ('user' as ForgeRole)
+        },
+      }
+      app.use('/api/*', rbacMiddleware(rbacConfig))
+    }
   }
 
   if (config.rateLimit) {
@@ -642,6 +722,15 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
     app.route('/api/keys', createApiKeyRoutes({ store: runtimeConfig.apiKeyStore, allowedTiers }))
   }
   app.route('/api/runs', createApprovalRoutes(runtimeConfig))
+  if (runtimeConfig.approvalStore) {
+    app.route(
+      '/api/approvals',
+      createApprovalsRoutes({
+        approvalStore: runtimeConfig.approvalStore,
+        eventBus: runtimeConfig.eventBus,
+      }),
+    )
+  }
   app.route('/api/runs', createHumanContactRoutes(runtimeConfig))
   app.route('/api/runs', createEnrichmentMetricsRoute({ runStore: runtimeConfig.runStore }))
 
@@ -672,14 +761,22 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   }
 
   if (runtimeConfig.benchmark) {
-    app.route('/api/benchmarks', createBenchmarkRoutes(runtimeConfig.benchmark))
+    const benchmarkConfig: BenchmarkRouteConfig = { ...runtimeConfig.benchmark }
+    if (runtimeConfig.benchmarkOrchestrator && !benchmarkConfig.orchestrator) {
+      benchmarkConfig.orchestrator = runtimeConfig.benchmarkOrchestrator
+    }
+    app.route('/api/benchmarks', createBenchmarkRoutes(benchmarkConfig))
   }
 
   if (runtimeConfig.evals) {
-    app.route('/api/evals', createEvalRoutes({
+    const evalsConfig: EvalRouteConfig = {
       ...runtimeConfig.evals,
       metrics: runtimeConfig.evals.metrics ?? runtimeConfig.metrics,
-    }))
+    }
+    if (runtimeConfig.evalOrchestrator && !evalsConfig.orchestrator) {
+      evalsConfig.orchestrator = runtimeConfig.evalOrchestrator
+    }
+    app.route('/api/evals', createEvalRoutes(evalsConfig))
   }
 
   if (runtimeConfig.playground) {

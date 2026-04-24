@@ -38,6 +38,8 @@ export const dzipAgents = pgTable('dzip_agents', {
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
   /** Optional pgvector embedding of agent instructions for semantic search. */
   instructionEmbedding: vectorColumn('instruction_embedding', { dimensions: 1536 }),
+  /** MC-S02: Tenant scope. Defaults to 'default'. */
+  tenantId: text('tenant_id').notNull().default('default'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -64,6 +66,8 @@ export const forgeRuns = pgTable('forge_runs', {
    * Consumed by server routes to reject cross-key reads/writes with 404.
    */
   ownerId: text('owner_id'),
+  /** MC-S02: Tenant scope. Defaults to 'default'. */
+  tenantId: text('tenant_id').notNull().default('default'),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
   /** Optional pgvector embedding of run input for semantic search. */
   inputEmbedding: vectorColumn('input_embedding', { dimensions: 1536 }),
@@ -206,6 +210,8 @@ export const triggerConfigs = pgTable('trigger_configs', {
   afterAgentId: text('after_agent_id'),
   enabled: boolean('enabled').default(true).notNull(),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  /** MC-S02: Tenant scope. Defaults to 'default'. */
+  tenantId: text('tenant_id').notNull().default('default'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -221,6 +227,8 @@ export const scheduleConfigs = pgTable('schedule_configs', {
   workflowText: text('workflow_text').notNull(),
   enabled: boolean('enabled').default(true).notNull(),
   metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+  /** MC-S02: Tenant scope. Defaults to 'default'. */
+  tenantId: text('tenant_id').notNull().default('default'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })
@@ -338,9 +346,12 @@ export const agentMailbox = pgTable(
     createdAt: integer('created_at').notNull(),
     readAt: integer('read_at'),
     ttlSeconds: integer('ttl_seconds'),
+    /** MC-S02: Tenant scope. Defaults to 'default'. */
+    tenantId: text('tenant_id').notNull().default('default'),
   },
   (table) => [
     index('agent_mailbox_to_agent_created_at_idx').on(table.toAgent, table.createdAt),
+    index('agent_mailbox_tenant_id_idx').on(table.tenantId),
   ],
 )
 
@@ -434,6 +445,17 @@ export const apiKeys = pgTable(
     name: varchar('name', { length: 255 }),
     /** Rate-limit tier, consumed by the rate-limiter middleware. */
     rateLimitTier: varchar('rate_limit_tier', { length: 50 }).default('standard').notNull(),
+    /**
+     * MC-S02: RBAC role. Defaults to 'user'. Admin-only endpoints (MCP
+     * registration, cluster management) require 'admin'.
+     */
+    role: text('role').notNull().default('user'),
+    /**
+     * MC-S02: Tenant scope carried by this key. Downstream records stamped
+     * with this key inherit the value; list queries filter by tenantId so
+     * keys from different tenants cannot observe each other's data.
+     */
+    tenantId: text('tenant_id').notNull().default('default'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     expiresAt: timestamp('expires_at'),
     revokedAt: timestamp('revoked_at'),
@@ -443,5 +465,6 @@ export const apiKeys = pgTable(
   (table) => [
     index('api_keys_owner_id_idx').on(table.ownerId),
     index('api_keys_key_hash_idx').on(table.keyHash),
+    index('api_keys_tenant_id_idx').on(table.tenantId),
   ],
 )

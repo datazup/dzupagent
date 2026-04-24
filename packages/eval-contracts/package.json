@@ -1,0 +1,30 @@
+{
+  "name": "@dzupagent/eval-contracts",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Neutral type contracts shared between @dzupagent/evals and @dzupagent/server. Types only — no runtime dependencies.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT"
+}

@@ -9,7 +9,7 @@ import { writeFile, rename, mkdir, readFile, unlink } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import type { SkillDefinition } from './skill-types.js'
-import { sanitizeMemoryContent } from '@dzupagent/memory'
+import { scanContent as sanitizeMemoryContent } from '../security/content-sanitizer.js'
 
 // ---------------------------------------------------------------------------
 // Types

@@ -1,5 +1,6 @@
 import { SystemMessage, type BaseMessage } from '@langchain/core/messages'
-import { estimateTokens, formatSummaryContext } from '@dzupagent/core'
+import { estimateTokens } from '@dzupagent/core'
+import { formatSummaryContext } from '@dzupagent/context'
 
 interface BuildPreparedMessagesParams {
   baseInstructions: string

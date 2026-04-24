@@ -8,11 +8,11 @@ import type {
   ModelTier,
   ModelRegistry,
   AgentMiddleware,
-  MemoryService,
-  MessageManagerConfig,
   DzupEventBus,
   StructuredOutputModelCapabilities,
 } from '@dzupagent/core'
+import type { MemoryService } from '@dzupagent/memory'
+import type { MessageManagerConfig } from '@dzupagent/context'
 import type { ConversationPhase, FrozenSnapshot } from '@dzupagent/context'
 import type { ToolStat, StopReason } from './tool-loop.js'
 import type { StuckError } from './stuck-error.js'

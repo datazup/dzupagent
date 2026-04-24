@@ -8,3 +8,8 @@
 
 export type { StuckDetectorConfig } from './guardrails.js'
 export type { RetryPolicy } from './retry.js'
+export type {
+  ToolScope,
+  ToolPermissionEntry,
+  ToolPermissionPolicy,
+} from './tool-permission.js'

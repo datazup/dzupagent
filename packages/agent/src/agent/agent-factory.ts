@@ -7,7 +7,7 @@
  * the supplied memory, namespace, and scope before handing off to the
  * DzupAgent constructor.
  */
-import type { MemoryService } from '@dzupagent/core'
+import type { MemoryService } from '@dzupagent/memory'
 import { buildFrozenSnapshot } from '@dzupagent/context'
 
 import { DzupAgent } from './dzip-agent.js'

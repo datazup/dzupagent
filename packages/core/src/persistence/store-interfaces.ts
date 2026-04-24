@@ -43,6 +43,13 @@ export interface Run {
    * backward compatibility with records created before tenant scoping.
    */
   ownerId?: string | null
+  /**
+   * MC-S02: Tenant scope for this run. Populated from the authenticated
+   * API key's `tenantId`. Used by the server to filter listings so keys
+   * from different tenants cannot observe each other's runs. Defaults to
+   * `'default'` for pre-migration rows and single-tenant deployments.
+   */
+  tenantId?: string | null
   startedAt: Date
   completedAt?: Date
 }
@@ -53,6 +60,8 @@ export interface CreateRunInput {
   metadata?: Record<string, unknown>
   /** See {@link Run.ownerId}. */
   ownerId?: string | null
+  /** See {@link Run.tenantId}. */
+  tenantId?: string | null
 }
 
 export interface RunFilter {
@@ -60,6 +69,8 @@ export interface RunFilter {
   status?: RunStatus
   limit?: number
   offset?: number
+  /** MC-S02: Restrict listings to a single tenant scope. */
+  tenantId?: string
 }
 
 export interface LogEntry {
@@ -126,6 +137,10 @@ export interface AgentExecutionSpec {
   version?: number
   active?: boolean
   metadata?: Record<string, unknown>
+  /**
+   * MC-S02: Tenant scope for this agent definition. Defaults to `'default'`.
+   */
+  tenantId?: string | null
   createdAt?: Date
   updatedAt?: Date
 }
@@ -134,6 +149,8 @@ export interface AgentExecutionSpecFilter {
   active?: boolean
   tags?: string[]
   limit?: number
+  /** MC-S02: Restrict listings to a single tenant scope. */
+  tenantId?: string
 }
 
 export interface AgentExecutionSpecStore {

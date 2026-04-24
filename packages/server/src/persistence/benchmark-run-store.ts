@@ -1,61 +1,25 @@
-import type { BenchmarkComparison, BenchmarkResult } from '@dzupagent/evals'
+/**
+ * As of MC-A02 the benchmark record and store interfaces are canonically
+ * defined in @dzupagent/eval-contracts. This module re-exports them and keeps
+ * the `InMemoryBenchmarkRunStore` implementation.
+ */
+export type {
+  BenchmarkRunArtifactRecord,
+  BenchmarkRunRecord,
+  BenchmarkBaselineRecord,
+  BenchmarkCompareRecord,
+  BenchmarkRunListFilter,
+  BenchmarkRunListPage,
+  BenchmarkRunStore,
+} from '@dzupagent/eval-contracts'
 
-export interface BenchmarkRunArtifactRecord {
-  suiteVersion: string
-  datasetHash: string
-  promptConfigVersion: string
-  buildSha: string
-  modelProfile: string
-}
-
-export interface BenchmarkRunRecord {
-  id: string
-  suiteId: string
-  targetId: string
-  result: BenchmarkResult
-  createdAt: string
-  strict: boolean
-  metadata?: Record<string, unknown>
-  artifact?: BenchmarkRunArtifactRecord
-}
-
-export interface BenchmarkBaselineRecord {
-  suiteId: string
-  targetId: string
-  runId: string
-  result: BenchmarkResult
-  updatedAt: string
-}
-
-export interface BenchmarkCompareRecord {
-  currentRunId: string
-  previousRunId: string
-  comparison: BenchmarkComparison
-  createdAt: string
-}
-
-export interface BenchmarkRunListFilter {
-  suiteId?: string
-  targetId?: string
-  limit?: number
-  cursor?: string
-}
-
-export interface BenchmarkRunListPage {
-  data: BenchmarkRunRecord[]
-  nextCursor: string | null
-  hasMore: boolean
-}
-
-export interface BenchmarkRunStore {
-  saveRun(run: BenchmarkRunRecord): Promise<void>
-  getRun(runId: string): Promise<BenchmarkRunRecord | null>
-  listRuns(filter?: BenchmarkRunListFilter): Promise<BenchmarkRunListPage>
-
-  saveBaseline(baseline: BenchmarkBaselineRecord): Promise<void>
-  getBaseline(suiteId: string, targetId: string): Promise<BenchmarkBaselineRecord | null>
-  listBaselines(filter?: { suiteId?: string; targetId?: string }): Promise<BenchmarkBaselineRecord[]>
-}
+import type {
+  BenchmarkBaselineRecord,
+  BenchmarkRunListFilter,
+  BenchmarkRunListPage,
+  BenchmarkRunRecord,
+  BenchmarkRunStore,
+} from '@dzupagent/eval-contracts'
 
 interface BenchmarkRunCursor {
   createdAt: string

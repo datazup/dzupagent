@@ -24,6 +24,7 @@ export type ForgeErrorCode =
   | 'TOOL_NOT_FOUND'
   | 'TOOL_EXECUTION_FAILED'
   | 'TOOL_TIMEOUT'
+  | 'TOOL_PERMISSION_DENIED'
   // --- MCP errors ---
   | 'MCP_CONNECTION_FAILED'
   | 'MCP_TOOL_NOT_FOUND'

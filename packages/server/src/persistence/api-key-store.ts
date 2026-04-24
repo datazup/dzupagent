@@ -27,6 +27,10 @@ export interface ApiKeyRecord {
   ownerId: string
   name: string | null
   rateLimitTier: string
+  /** MC-S02: RBAC role. Defaults to `'user'`. */
+  role: string
+  /** MC-S02: Tenant scope. Defaults to `'default'`. */
+  tenantId: string
   createdAt: Date
   expiresAt: Date | null
   revokedAt: Date | null
@@ -76,7 +80,15 @@ export class PostgresApiKeyStore {
     ownerId: string,
     name: string,
     tier: string = 'standard',
-    options?: { expiresAt?: Date | null; expiresIn?: number; metadata?: Record<string, unknown> },
+    options?: {
+      expiresAt?: Date | null
+      expiresIn?: number
+      metadata?: Record<string, unknown>
+      /** MC-S02: RBAC role for this key. Defaults to `'user'`. */
+      role?: string
+      /** MC-S02: Tenant scope. Defaults to `'default'`. */
+      tenantId?: string
+    },
   ): Promise<CreateApiKeyResult> {
     const rawKey = generateRawApiKey()
     const keyHash = hashApiKey(rawKey)
@@ -93,6 +105,8 @@ export class PostgresApiKeyStore {
         ownerId,
         name,
         rateLimitTier: tier,
+        role: options?.role ?? 'user',
+        tenantId: options?.tenantId ?? 'default',
         expiresAt,
         metadata: options?.metadata ?? {},
       })
@@ -198,6 +212,8 @@ export class PostgresApiKeyStore {
       ownerId: row.ownerId,
       name: row.name,
       rateLimitTier: row.rateLimitTier,
+      role: (row as unknown as { role?: string }).role ?? 'user',
+      tenantId: (row as unknown as { tenantId?: string }).tenantId ?? 'default',
       createdAt: row.createdAt,
       expiresAt: row.expiresAt,
       revokedAt: row.revokedAt,

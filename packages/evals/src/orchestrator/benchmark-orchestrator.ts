@@ -1,14 +1,25 @@
+/**
+ * BenchmarkOrchestrator — suite runner + baseline management.
+ *
+ * Moved from @dzupagent/server (packages/server/src/services/benchmark-orchestrator.ts)
+ * to @dzupagent/evals in MC-A02 to eliminate the server -> evals layer
+ * inversion. Server consumes it via dependency injection through the
+ * BenchmarkOrchestratorLike contract in @dzupagent/eval-contracts.
+ */
+
 import { randomUUID } from 'node:crypto'
-import type { BenchmarkSuite, BenchmarkComparison } from '@dzupagent/evals'
-import { runBenchmark, compareBenchmarks } from '@dzupagent/evals'
 import type {
-  BenchmarkRunArtifactRecord,
-  BenchmarkRunStore,
-  BenchmarkRunRecord,
   BenchmarkBaselineRecord,
+  BenchmarkCompareResult,
+  BenchmarkOrchestratorLike,
+  BenchmarkRunArtifactRecord,
   BenchmarkRunListFilter,
   BenchmarkRunListPage,
-} from '../persistence/benchmark-run-store.js'
+  BenchmarkRunRecord,
+  BenchmarkRunStore,
+  BenchmarkSuite,
+} from '@dzupagent/eval-contracts'
+import { compareBenchmarks, runBenchmark } from '../benchmarks/benchmark-runner.js'
 
 export interface BenchmarkOrchestratorConfig {
   suites: Record<string, BenchmarkSuite>
@@ -23,7 +34,7 @@ export interface BenchmarkOrchestratorConfig {
 
 export interface BenchmarkRunArtifactInput extends BenchmarkRunArtifactRecord {}
 
-export class BenchmarkOrchestrator {
+export class BenchmarkOrchestrator implements BenchmarkOrchestratorLike {
   constructor(private readonly config: BenchmarkOrchestratorConfig) {}
 
   async runSuite(input: {
@@ -77,11 +88,7 @@ export class BenchmarkOrchestrator {
     return this.config.store.listRuns(filter)
   }
 
-  async compareRuns(currentRunId: string, previousRunId: string): Promise<{
-    currentRun: BenchmarkRunRecord
-    previousRun: BenchmarkRunRecord
-    comparison: BenchmarkComparison
-  }> {
+  async compareRuns(currentRunId: string, previousRunId: string): Promise<BenchmarkCompareResult> {
     const currentRun = await this.config.store.getRun(currentRunId)
     if (!currentRun) throw new Error(`Current run "${currentRunId}" not found`)
     const previousRun = await this.config.store.getRun(previousRunId)
