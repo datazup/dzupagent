@@ -143,6 +143,9 @@ describe('POST /api/runs per-key budget enforcement', () => {
           return {
             id: 'key-1',
             ownerId: 'user-1',
+            // Grant 'operator' so the default RBAC middleware permits
+            // this mock caller to create runs.
+            role: 'operator',
             maxTokensPerRun: opts.perRunCap ?? null,
             maxRunsPerHour: opts.hourlyLimit ?? null,
           }
