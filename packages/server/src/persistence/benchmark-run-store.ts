@@ -15,6 +15,7 @@ export type {
 
 import type {
   BenchmarkBaselineRecord,
+  BenchmarkRunArtifactRecord,
   BenchmarkRunListFilter,
   BenchmarkRunListPage,
   BenchmarkRunRecord,

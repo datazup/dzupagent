@@ -92,13 +92,23 @@ function stringifyInput(input: unknown): string {
  * of `mapStr`. Non-string leaves are returned unchanged. Objects and arrays
  * are shallow-copied so the original input is never mutated.
  */
-function mapStrings(value: unknown, mapStr: (s: string) => string): unknown {
+function mapStrings(
+  value: unknown,
+  mapStr: (s: string) => string,
+  seen = new WeakSet<object>(),
+): unknown {
   if (typeof value === 'string') return mapStr(value)
-  if (Array.isArray(value)) return value.map((v) => mapStrings(v, mapStr))
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return '[Circular]'
+    seen.add(value)
+    return value.map((v) => mapStrings(v, mapStr, seen))
+  }
   if (value && typeof value === 'object') {
+    if (seen.has(value as object)) return '[Circular]'
+    seen.add(value as object)
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = mapStrings(v, mapStr)
+      out[k] = mapStrings(v, mapStr, seen)
     }
     return out
   }

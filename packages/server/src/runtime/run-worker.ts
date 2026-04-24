@@ -9,7 +9,7 @@ import type { ExecutableAgentResolver } from '../services/executable-agent-resol
 import { extractTraceContext } from '@dzupagent/core'
 import { isStructuredResult, isRecord } from './utils.js'
 import { reportRetrievalFeedback, type RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
-import type { ResourceQuotaManager } from './resource-quota.js'
+import type { ResourceQuotaManager } from '../security/resource-quota.js'
 import { createInputGuard, type InputGuard, type InputGuardConfig } from '../security/input-guard.js'
 import type { RunReflectionStore, ReflectionSummary, CompressionLogEntry } from '@dzupagent/agent'
 
@@ -150,14 +150,15 @@ export interface StartRunWorkerOptions {
    */
   inputGuardConfig?: InputGuardConfig | false
   /**
-   * MC-S01: Optional {@link ResourceQuotaManager}. When provided, actual
-   * token usage from each completed run is recorded as a 60-second
-   * reservation against the `tokensPerMinute` dimension so that the next
-   * admission check (in `handleCreateRun`) sees an up-to-date usage window.
-   * Quota-check enforcement itself lives at the HTTP boundary — the worker
-   * only records usage after completion.
+   * MC-S01: Optional per-key {@link ResourceQuotaManager}. When provided,
+   * actual token usage from each completed run is fed back via
+   * `recordUsage(keyId, tokensUsed)` so the next admission check (in
+   * `handleCreateRun`) sees an up-to-date sliding-window total. The key id
+   * is read from `job.metadata.ownerId` (stamped at run creation). Quota
+   * enforcement itself lives at the HTTP boundary — the worker only
+   * attributes consumption after completion.
    */
-  quotaManager?: ResourceQuotaManager
+  resourceQuota?: ResourceQuotaManager
 }
 
 /** Structural type for RunOutcomeAnalyzer — avoids a hard dep on the service module. */
@@ -518,29 +519,27 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       })
 
       // --- MC-S01: record actual token usage against the quota manager ---
-      // We use a 60-second reservation against `tokensPerMinute` so that the
-      // sliding per-minute window seen by `handleCreateRun` reflects real
-      // consumption. Failures are non-fatal — quota accounting must never
-      // block completion.
-      if (options.quotaManager && tokenUsage) {
+      // Feeding real consumption back into the sliding window ensures the
+      // next admission check (in `handleCreateRun`) sees an up-to-date total
+      // for the caller's key. `recordUsage` is synchronous and non-throwing
+      // in the in-memory implementation; this block defends against
+      // alternate backends that might surface errors.
+      if (options.resourceQuota && tokenUsage) {
         const totalTokens = (tokenUsage.input ?? 0) + (tokenUsage.output ?? 0)
-        if (totalTokens > 0) {
-          const tenantId = typeof job.metadata?.['tenantId'] === 'string'
+        const keyId = typeof job.metadata?.['ownerId'] === 'string'
+          ? (job.metadata['ownerId'] as string)
+          : typeof job.metadata?.['tenantId'] === 'string'
             ? (job.metadata['tenantId'] as string)
-            : typeof job.metadata?.['ownerId'] === 'string'
-              ? (job.metadata['ownerId'] as string)
-              : 'default'
+            : undefined
+        if (keyId && totalTokens > 0) {
           try {
-            await options.quotaManager.reserve(tenantId, 'tokensPerMinute', totalTokens, 60_000)
-          } catch (_err) {
-            // Quota may have been exceeded after the fact (race between
-            // admission check and completion). We still surface a log so
-            // operators can diagnose, but do not alter the run status.
+            options.resourceQuota.recordUsage(keyId, totalTokens)
+          } catch (err) {
             await options.runStore.addLog(job.runId, {
               level: 'warn',
               phase: 'quota',
               message: 'Failed to record token usage against quota manager',
-              data: { error: _err instanceof Error ? _err.message : String(_err) },
+              data: { error: err instanceof Error ? err.message : String(err) },
             }).catch(() => { /* swallow */ })
           }
         }

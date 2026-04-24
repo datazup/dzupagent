@@ -37,7 +37,9 @@ export function createApprovalsRoutes(config: ApprovalRoutesConfig): Hono {
   app.post('/:runId/:approvalId/grant', async (c) => {
     const runId = c.req.param('runId')
     const approvalId = c.req.param('approvalId')
-    const body = await c.req.json<{ response?: unknown; approvedBy?: string }>().catch(() => ({}))
+    const body = await c.req
+      .json<{ response?: unknown; approvedBy?: string }>()
+      .catch(() => ({} as { response?: unknown; approvedBy?: string }))
 
     try {
       await approvalStore.grant(runId, approvalId, body.response)
@@ -63,7 +65,9 @@ export function createApprovalsRoutes(config: ApprovalRoutesConfig): Hono {
   app.post('/:runId/:approvalId/reject', async (c) => {
     const runId = c.req.param('runId')
     const approvalId = c.req.param('approvalId')
-    const body = await c.req.json<{ reason?: string }>().catch(() => ({}))
+    const body = await c.req
+      .json<{ reason?: string }>()
+      .catch(() => ({} as { reason?: string }))
     const reason = body.reason ?? 'Rejected by operator'
 
     try {

@@ -4,6 +4,8 @@ import type { MetricsCollector } from '@dzupagent/core'
 import type {
   EvalExecutionTarget,
   EvalOrchestratorLike,
+  EvalQueueStats,
+  EvalRunRecord,
   EvalRunStatus,
   EvalRunStore,
   EvalSuite,
@@ -174,6 +176,145 @@ function mapEvalRouteError(error: unknown): EvalRouteErrorResponse {
 }
 
 /**
+ * Built-in in-process orchestrator. Used when the host supplies an
+ * `executeTarget` function but no `orchestratorFactory`. Executes eval cases
+ * synchronously (in the same process) and writes results to the store.
+ * Sufficient for unit/integration tests and lightweight deployments.
+ */
+class DefaultEvalOrchestrator implements EvalOrchestratorLike {
+  private readonly stats: EvalQueueStats = {
+    pending: 0, active: 0, oldestPendingAgeMs: null,
+    enqueued: 0, started: 0, completed: 0, failed: 0,
+    cancelled: 0, retried: 0, recovered: 0, requeued: 0,
+  }
+
+  constructor(
+    private readonly store: EvalRunStore,
+    private readonly executeTarget: EvalExecutionTarget,
+    private readonly metrics?: MetricsCollector,
+  ) {}
+
+  canExecute(): boolean { return true }
+
+  async queueRun(input: { suite: EvalSuite; metadata?: Record<string, unknown> }): Promise<EvalRunRecord> {
+    const { randomUUID } = await import('node:crypto')
+    const now = new Date().toISOString()
+    const runId = randomUUID()
+    const run: EvalRunRecord = {
+      id: runId,
+      suiteId: input.suite.name,
+      suite: input.suite,
+      status: 'queued',
+      createdAt: now,
+      queuedAt: now,
+      attempts: 0,
+      metadata: input.metadata,
+    }
+    await this.store.saveRun(run)
+    this.stats.enqueued++
+    this.metrics?.increment('forge_eval_queue_enqueued_total')
+
+    // Execute asynchronously
+    void this._executeRun(runId, input.suite)
+    return run
+  }
+
+  private async _executeRun(runId: string, suite: EvalSuite): Promise<void> {
+    this.stats.active++
+    this.stats.started++
+    this.metrics?.increment('forge_eval_queue_started_total')
+    const startedAt = new Date().toISOString()
+    await this.store.updateRun(runId, { status: 'running', startedAt, attempts: 1 })
+
+    const passThreshold = suite.passThreshold ?? 0.7
+    try {
+      const caseResults: Array<{ caseId: string; scorerResults: Array<{ scorerName: string; result: { score: number; pass: boolean; reasoning: string } }>; aggregateScore: number; pass: boolean }> = []
+      for (const c of suite.cases) {
+        const output = await this.executeTarget(c.input, {
+          suiteId: suite.name, runId, attempt: 1, signal: AbortSignal.timeout(60_000),
+        })
+        const scorerResults: Array<{ scorerName: string; result: { score: number; pass: boolean; reasoning: string } }> = []
+        let totalScore = 0
+        for (const scorer of suite.scorers) {
+          const r = await scorer.score(c.input, output, c.expectedOutput)
+          scorerResults.push({ scorerName: scorer.name, result: r })
+          totalScore += r.score
+        }
+        const aggregateScore = suite.scorers.length > 0 ? totalScore / suite.scorers.length : 1
+        caseResults.push({ caseId: c.id, scorerResults, aggregateScore, pass: aggregateScore >= passThreshold })
+      }
+      const passing = caseResults.filter(r => r.pass).length
+      const passRate = suite.cases.length > 0 ? passing / suite.cases.length : 1
+      const aggregateScore = caseResults.length > 0
+        ? caseResults.reduce((s, r) => s + r.aggregateScore, 0) / caseResults.length
+        : 1
+      const completedAt = new Date().toISOString()
+      this.stats.active--
+      this.stats.completed++
+      this.metrics?.increment('forge_eval_queue_completed_total')
+      await this.store.updateRun(runId, {
+        status: 'completed', completedAt,
+        result: { suiteId: suite.name, timestamp: completedAt, results: caseResults, aggregateScore, passRate },
+      })
+    } catch (err) {
+      const completedAt = new Date().toISOString()
+      this.stats.active--
+      this.stats.failed++
+      this.metrics?.increment('forge_eval_queue_failed_total')
+      const isAbort = err instanceof Error && err.name === 'AbortError'
+      if (isAbort) this.metrics?.increment('forge_eval_queue_aborted_total')
+      await this.store.updateRun(runId, {
+        status: 'failed', completedAt,
+        error: { code: 'EVAL_EXECUTION_ERROR', message: err instanceof Error ? err.message : String(err) },
+      })
+    }
+  }
+
+  async cancelRun(runId: string): Promise<EvalRunRecord> {
+    const run = await this.store.getRun(runId)
+    if (!run) throw Object.assign(new Error(`Eval run ${runId} not found`), { code: 'NOT_FOUND' })
+    if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+      const err = new Error(`Cannot cancel eval run in terminal state: ${run.status}`)
+      ;(err as Error & { code?: string }).code = 'INVALID_STATE'
+      err.name = 'EvalRunInvalidStateError'
+      throw err
+    }
+    const completedAt = new Date().toISOString()
+    await this.store.updateRun(runId, { status: 'cancelled', completedAt })
+    return (await this.store.getRun(runId))!
+  }
+
+  async retryRun(runId: string): Promise<EvalRunRecord> {
+    const run = await this.store.getRun(runId)
+    if (!run) throw Object.assign(new Error(`Eval run ${runId} not found`), { code: 'NOT_FOUND' })
+    if (run.status !== 'failed' && run.status !== 'cancelled') {
+      const err = new Error(`Can only retry failed or cancelled runs; current status: ${run.status}`)
+      ;(err as Error & { code?: string }).code = 'INVALID_STATE'
+      err.name = 'EvalRunInvalidStateError'
+      throw err
+    }
+    const now = new Date().toISOString()
+    await this.store.updateRun(runId, { status: 'queued', queuedAt: now, completedAt: undefined, error: undefined })
+    this.stats.retried++
+    this.stats.requeued++
+    void this._executeRun(runId, run.suite)
+    return (await this.store.getRun(runId))!
+  }
+
+  async getRun(runId: string): Promise<EvalRunRecord | null> {
+    return this.store.getRun(runId)
+  }
+
+  async listRuns(filter?: Parameters<EvalRunStore['listRuns']>[0]): Promise<EvalRunRecord[]> {
+    return this.store.listRuns(filter)
+  }
+
+  async getQueueStats(): Promise<EvalQueueStats> {
+    return { ...this.stats }
+  }
+}
+
+/**
  * Minimal no-op orchestrator used when the host neither provides an injected
  * orchestrator nor an orchestrator factory. This keeps the eval routes mounted
  * in read-only mode so `/health`, `/queue/stats`, `/runs`, `/runs/:id` still
@@ -239,6 +380,14 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono {
   const serviceName = config.serviceName ?? DEFAULT_SERVICE_NAME
   const store = config.store ?? new InMemoryEvalRunStore()
 
+  // Require explicit opt-in to read-only mode when no execution capability is configured.
+  if (!config.orchestrator && !config.orchestratorFactory && !config.executeTarget && !config.allowReadOnlyMode) {
+    throw new Error(
+      'Eval routes require an execution target or allowReadOnlyMode: true. ' +
+      'Provide evals.executeTarget, evals.orchestratorFactory, or set evals.allowReadOnlyMode to true.',
+    )
+  }
+
   let orchestrator: EvalOrchestratorLike
   if (config.orchestrator) {
     orchestrator = config.orchestrator
@@ -248,6 +397,8 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono {
     if (config.allowReadOnlyMode !== undefined) deps.allowReadOnlyMode = config.allowReadOnlyMode
     if (config.metrics) deps.metrics = config.metrics
     orchestrator = config.orchestratorFactory(deps)
+  } else if (config.executeTarget) {
+    orchestrator = new DefaultEvalOrchestrator(store, config.executeTarget, config.metrics)
   } else {
     orchestrator = new ReadOnlyEvalOrchestrator(store)
   }
