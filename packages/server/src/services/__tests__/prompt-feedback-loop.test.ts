@@ -9,16 +9,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createEventBus, type DzupEventBus } from '@dzupagent/core'
-import type {
-  OptimizationResult,
-  PromptOptimizer,
-  PromptVersion,
-  PromptVersionStore,
-} from '@dzupagent/evals'
 import { runLogRoot } from '@dzupagent/agent-adapters'
 import type { AgentEvent } from '@dzupagent/agent-adapters'
 
-import { PromptFeedbackLoop } from '../prompt-feedback-loop.js'
+import {
+  PromptFeedbackLoop,
+  type OptimizationResultLike as OptimizationResult,
+  type PromptOptimizerLike as PromptOptimizer,
+  type PromptVersionLike as PromptVersion,
+  type PromptVersionStoreLike as PromptVersionStore,
+} from '../prompt-feedback-loop.js'
 
 // ---------------------------------------------------------------------------
 // Helpers

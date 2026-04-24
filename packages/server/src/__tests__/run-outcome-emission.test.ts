@@ -21,7 +21,7 @@ import {
   type DzupEvent,
   type DzupEventBus,
 } from '@dzupagent/core'
-import type { EvalResult, EvalScorer } from '@dzupagent/evals'
+import type { EvalResult, EvalScorer } from '@dzupagent/eval-contracts'
 import { runLogRoot } from '@dzupagent/agent-adapters'
 import type { AgentEvent } from '@dzupagent/agent-adapters'
 import { waitForCondition } from '@dzupagent/test-utils'

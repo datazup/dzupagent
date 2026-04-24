@@ -8,7 +8,7 @@ import {
   MetricsCollector,
   createEventBus,
 } from '@dzupagent/core'
-import type { EvalScorer, EvalSuite } from '@dzupagent/evals'
+import type { EvalScorer, EvalSuite } from '@dzupagent/eval-contracts'
 
 function req(
   app: ReturnType<typeof createForgeApp>,

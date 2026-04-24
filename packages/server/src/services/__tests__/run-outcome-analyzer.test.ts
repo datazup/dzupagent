@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { createEventBus, type DzupEvent, type DzupEventBus } from '@dzupagent/core'
-import type { EvalResult, EvalScorer } from '@dzupagent/evals'
+import type { EvalResult, EvalScorer } from '@dzupagent/eval-contracts'
 import { runLogRoot } from '@dzupagent/agent-adapters'
 import type { AgentEvent, RunSummary } from '@dzupagent/agent-adapters'
 

@@ -7,7 +7,7 @@ import {
   ModelRegistry,
   createEventBus,
 } from '@dzupagent/core'
-import type { EvalScorer, EvalSuite } from '@dzupagent/evals'
+import type { EvalScorer, EvalSuite } from '@dzupagent/eval-contracts'
 import { InMemoryEvalRunStore } from '../persistence/eval-run-store.js'
 
 function createBaseConfig(): Omit<ForgeServerConfig, 'evals'> {
