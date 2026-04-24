@@ -14,8 +14,8 @@
  */
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { InMemoryStore } from '@langchain/langgraph'
-import { MemoryService } from '@dzupagent/core'
-import type { NamespaceConfig } from '@dzupagent/core'
+import { MemoryService } from '@dzupagent/memory'
+import type { NamespaceConfig } from '@dzupagent/memory'
 import { describe, expect, it } from 'vitest'
 
 import { createAgentWithMemory } from '../agent/agent-factory.js'

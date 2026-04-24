@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from '@langchain/core/messages'
-import { estimateTokens, formatSummaryContext } from '@dzupagent/core'
+import { estimateTokens } from '@dzupagent/core'
+import { formatSummaryContext } from '@dzupagent/context'
 
 import {
   buildPreparedMessages,

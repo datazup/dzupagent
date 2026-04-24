@@ -3,7 +3,7 @@ import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { createEventBus } from '@dzupagent/core'
-import type { MessageManagerConfig } from '@dzupagent/core'
+import type { MessageManagerConfig } from '@dzupagent/context'
 import type { DzupAgentConfig } from '../agent/agent-types.js'
 
 function createMockModel(response = 'response'): BaseChatModel {

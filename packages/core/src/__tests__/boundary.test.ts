@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const SRC_DIR = join(__dirname, '..')
-const PACKAGE_ROOT = join(SRC_DIR, '..')
 
 /**
  * Scan all .ts files in a directory recursively and extract
@@ -38,20 +37,21 @@ function scanForgeImports(dir: string): Array<{ file: string; importPath: string
 }
 
 /**
- * @dzupagent/core is a re-export hub that intentionally depends on
- * @dzupagent/memory, @dzupagent/context, and optionally @dzupagent/memory-ipc.
- * These are declared in package.json dependencies/peerDependencies.
+ * @dzupagent/core is the dependency root (Layer 1). It must not import from
+ * any Layer-2 package (memory, context, memory-ipc, agent, codegen, etc.).
  *
- * This test ensures core does NOT import from packages outside that
- * explicit allowlist (e.g., @dzupagent/agent, @dzupagent/codegen).
+ * Only a small set of foundational type packages are permitted:
+ *   - @dzupagent/agent-types      — canonical primitive types (RetryPolicy, etc.)
+ *   - @dzupagent/runtime-contracts — shared runtime protocol contracts
+ *
+ * MC-A01 removed the previous core -> memory / context / memory-ipc imports
+ * (see audit/full-dzupagent-2026-04-23/run-001/implementation/phase-major/
+ * mc-a01-core-layer-inversion/).
  */
 const ALLOWED_IMPORTS = new Set([
   '@dzupagent/core',
-  '@dzupagent/memory',
-  '@dzupagent/context',
-  '@dzupagent/memory-ipc',
   '@dzupagent/runtime-contracts',
-  '@dzupagent/agent-types', // Layer 0 canonical types (RetryPolicy, StuckDetectorConfig, etc.)
+  '@dzupagent/agent-types',
 ])
 
 describe('Package boundary enforcement', () => {
@@ -76,32 +76,39 @@ describe('Package boundary enforcement', () => {
     expect(violations).toHaveLength(0)
   })
 
-  it('root index does not import optional memory-ipc at package import time', () => {
+  it('does not import @dzupagent/memory (Layer 2)', () => {
+    const imports = scanForgeImports(SRC_DIR)
+    const memoryImports = imports.filter(i => i.importPath.startsWith('@dzupagent/memory'))
+    if (memoryImports.length > 0) {
+      const detail = memoryImports.map(v => `  ${v.file} imports "${v.importPath}"`).join('\n')
+      expect.fail(`@dzupagent/core must not import @dzupagent/memory:\n${detail}`)
+    }
+    expect(memoryImports).toHaveLength(0)
+  })
+
+  it('does not import @dzupagent/context (Layer 2)', () => {
+    const imports = scanForgeImports(SRC_DIR)
+    const contextImports = imports.filter(i => i.importPath.startsWith('@dzupagent/context'))
+    if (contextImports.length > 0) {
+      const detail = contextImports.map(v => `  ${v.file} imports "${v.importPath}"`).join('\n')
+      expect.fail(`@dzupagent/core must not import @dzupagent/context:\n${detail}`)
+    }
+    expect(contextImports).toHaveLength(0)
+  })
+
+  it('does not import @dzupagent/memory-ipc (Layer 2)', () => {
+    const imports = scanForgeImports(SRC_DIR)
+    const ipcImports = imports.filter(i => i.importPath.startsWith('@dzupagent/memory-ipc'))
+    if (ipcImports.length > 0) {
+      const detail = ipcImports.map(v => `  ${v.file} imports "${v.importPath}"`).join('\n')
+      expect.fail(`@dzupagent/core must not import @dzupagent/memory-ipc:\n${detail}`)
+    }
+    expect(ipcImports).toHaveLength(0)
+  })
+
+  it('root index does not reference the deleted memory-ipc subpath', () => {
     const rootIndex = readFileSync(join(SRC_DIR, 'index.ts'), 'utf8')
     expect(rootIndex).not.toContain("from './memory-ipc.js'")
     expect(rootIndex).not.toContain("@dzupagent/memory-ipc")
-  })
-
-  it('@dzupagent/core has at least one re-export from @dzupagent/memory', () => {
-    const imports = scanForgeImports(SRC_DIR)
-    const memoryImports = imports.filter(i => i.importPath.startsWith('@dzupagent/memory'))
-    expect(memoryImports.length).toBeGreaterThan(0)
-  })
-
-  it('@dzupagent/core has at least one re-export from @dzupagent/context', () => {
-    const imports = scanForgeImports(SRC_DIR)
-    const contextImports = imports.filter(i => i.importPath.startsWith('@dzupagent/context'))
-    expect(contextImports.length).toBeGreaterThan(0)
-  })
-
-  it('@dzupagent/core exposes memory-ipc as an explicit subpath export', () => {
-    const packageJson = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as {
-      exports?: Record<string, { import?: string; types?: string }>
-    }
-
-    expect(packageJson.exports?.['./memory-ipc']).toEqual({
-      import: './dist/memory-ipc.js',
-      types: './dist/memory-ipc.d.ts',
-    })
   })
 })

@@ -6,7 +6,7 @@ import {
   ModelRegistry,
   createEventBus,
 } from '@dzupagent/core'
-import type { BenchmarkSuite } from '@dzupagent/evals'
+import type { BenchmarkSuite } from '@dzupagent/eval-contracts'
 import {
   InMemoryBenchmarkRunStore,
   type BenchmarkRunRecord,

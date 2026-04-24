@@ -21,16 +21,16 @@ vi.mock('node:fs/promises', () => ({
 }))
 
 // ---------------------------------------------------------------------------
-// Mock @dzupagent/memory
+// Mock core content-sanitizer (replaces the previous @dzupagent/memory mock).
 // ---------------------------------------------------------------------------
 
-vi.mock('@dzupagent/memory', () => ({
-  sanitizeMemoryContent: vi.fn((content: string) => {
+vi.mock('../security/content-sanitizer.js', () => ({
+  scanContent: vi.fn((content: string) => {
     // Simple mock: content containing "INJECTION" is unsafe
     if (content.includes('INJECTION')) {
-      return { safe: false, threats: ['injection_detected'] }
+      return { safe: false, content, threats: ['injection_detected'] }
     }
-    return { safe: true, threats: [] }
+    return { safe: true, content, threats: [] }
   }),
 }))
 
