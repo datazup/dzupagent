@@ -14,6 +14,7 @@ function makeMockStore(options: MockStoreOptions): PostgresApiKeyStore {
     id: 'key-1',
     ownerId: options.ownerId ?? 'user-1',
     name: 'test',
+    role: 'operator',
     rateLimitTier: 'standard',
     createdAt: new Date(),
     expiresAt: null,

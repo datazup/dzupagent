@@ -54,6 +54,7 @@
     }
   },
   "devDependencies": {
+    "@dzupagent/evals": "0.2.0",
     "@dzupagent/test-utils": "0.2.0",
     "bullmq": "^5.71.0",
     "drizzle-kit": "^0.30.0",

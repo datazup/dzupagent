@@ -46,6 +46,7 @@ class InMemoryApiKeyStore {
       id,
       ownerId,
       name,
+      role: 'operator',
       rateLimitTier: tier,
       createdAt: new Date(),
       expiresAt: null,

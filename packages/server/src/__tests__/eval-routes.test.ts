@@ -9,6 +9,7 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 import type { EvalScorer, EvalSuite } from '@dzupagent/eval-contracts'
+import { EvalOrchestrator } from '@dzupagent/evals'
 import {
   InMemoryEvalRunStore,
   type EvalRunExecutionOwnershipRecord,
@@ -47,6 +48,7 @@ function createActiveConfig(
         'toy-suite': toySuite,
       },
       executeTarget,
+      orchestratorFactory: (deps) => new EvalOrchestrator(deps),
     },
   }
 }
@@ -624,6 +626,7 @@ describe('Eval routes', () => {
         },
         executeTarget: async (input) => input.toUpperCase(),
         store,
+        orchestratorFactory: (deps) => new EvalOrchestrator(deps),
       },
     })
 
@@ -907,6 +910,7 @@ describe('Eval routes', () => {
       ...config.evals,
       store,
       executeTarget: async (input) => input.toUpperCase(),
+      orchestratorFactory: (deps) => new EvalOrchestrator(deps),
     }
 
     const app = createForgeApp(config)
