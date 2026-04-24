@@ -4,10 +4,12 @@ import { describe, it, expect, beforeAll } from 'vitest'
 // Validate that each facade re-exports the expected symbols without pulling
 // in the full index.ts surface. These are structural smoke tests — they
 // confirm that the module graph resolves and key symbols are available.
+//
+// NOTE: The `memory` facade was removed in MC-A01 (core -> memory layer
+// inversion fix). Memory symbols must be imported from @dzupagent/memory.
 // ---------------------------------------------------------------------------
 
 const quickStartModulePromise = import('../facades/quick-start.js')
-const memoryModulePromise = import('../facades/memory.js')
 const orchestrationModulePromise = import('../facades/orchestration.js')
 const securityModulePromise = import('../facades/security.js')
 const facadesIndexModulePromise = import('../facades/index.js')
@@ -41,14 +43,6 @@ describe('facades/quick-start', () => {
     expect(typeof mod.mergeConfigs).toBe('function')
   })
 
-  it('exports memory and context basics', async () => {
-    expect(typeof mod.MemoryService).toBe('function')
-    expect(typeof mod.createStore).toBe('function')
-    expect(typeof mod.shouldSummarize).toBe('function')
-    expect(typeof mod.evictIfNeeded).toBe('function')
-    expect(typeof mod.scoreCompleteness).toBe('function')
-  })
-
   it('createQuickAgent wires container correctly', async () => {
     const result = mod.createQuickAgent({
       provider: 'anthropic',
@@ -80,41 +74,6 @@ describe('facades/quick-start', () => {
 
     // Registry should be populated (no throw on getModel)
     expect(result.registry).toBeDefined()
-  })
-})
-
-describe('facades/memory', () => {
-  let mod: Awaited<typeof memoryModulePromise>
-
-  beforeAll(async () => {
-    mod = await memoryModulePromise
-  })
-
-  it('exports core memory APIs', async () => {
-    expect(typeof mod.MemoryService).toBe('function')
-    expect(typeof mod.createStore).toBe('function')
-    expect(typeof mod.calculateStrength).toBe('function')
-    expect(typeof mod.sanitizeMemoryContent).toBe('function')
-    expect(typeof mod.consolidateNamespace).toBe('function')
-    expect(typeof mod.fusionSearch).toBe('function')
-    expect(typeof mod.WorkingMemory).toBe('function')
-  })
-
-  it('exports retrieval strategies', async () => {
-    expect(typeof mod.AdaptiveRetriever).toBe('function')
-    expect(typeof mod.classifyIntent).toBe('function')
-    expect(typeof mod.voidFilter).toBe('function')
-    expect(typeof mod.rerank).toBe('function')
-    expect(typeof mod.computePPR).toBe('function')
-  })
-
-  it('exports advanced memory subsystems', async () => {
-    expect(typeof mod.TemporalMemoryService).toBe('function')
-    expect(typeof mod.ScopedMemoryService).toBe('function')
-    expect(typeof mod.DualStreamWriter).toBe('function')
-    expect(typeof mod.SleepConsolidator).toBe('function')
-    expect(typeof mod.ObservationalMemory).toBe('function')
-    expect(typeof mod.ProvenanceWriter).toBe('function')
   })
 })
 
@@ -235,16 +194,16 @@ describe('facades/index (namespace re-exports)', () => {
     mod = await facadesIndexModulePromise
   })
 
-  it('exports all four namespaces', async () => {
+  it('exports quickStart, orchestration, security namespaces', async () => {
     expect(mod.quickStart).toBeDefined()
-    expect(mod.memory).toBeDefined()
     expect(mod.orchestration).toBeDefined()
     expect(mod.security).toBeDefined()
+    // memory namespace removed in MC-A01; import from @dzupagent/memory directly
+    expect((mod as Record<string, unknown>).memory).toBeUndefined()
   })
 
   it('namespaces contain expected symbols', async () => {
     expect(typeof mod.quickStart.createQuickAgent).toBe('function')
-    expect(typeof mod.memory.MemoryService).toBe('function')
     expect(typeof mod.orchestration.IntentRouter).toBe('function')
     expect(typeof mod.security.PolicyEvaluator).toBe('function')
   })
@@ -259,14 +218,14 @@ describe('stable entrypoint', () => {
 
   it('exports the curated facade namespaces', async () => {
     expect(mod.quickStart).toBeDefined()
-    expect(mod.memory).toBeDefined()
     expect(mod.orchestration).toBeDefined()
     expect(mod.security).toBeDefined()
+    // memory namespace removed in MC-A01
+    expect((mod as Record<string, unknown>).memory).toBeUndefined()
   })
 
   it('keeps access through the facade namespaces', async () => {
     expect(typeof mod.quickStart.createQuickAgent).toBe('function')
-    expect(typeof mod.memory.MemoryService).toBe('function')
     expect(typeof mod.orchestration.IntentRouter).toBe('function')
     expect(typeof mod.security.PolicyEvaluator).toBe('function')
   })
@@ -284,7 +243,6 @@ describe('advanced entrypoint', () => {
     expect(typeof mod.createContainer).toBe('function')
     expect(typeof mod.createEventBus).toBe('function')
     expect(typeof mod.ModelRegistry).toBe('function')
-    expect(typeof mod.MemoryService).toBe('function')
     expect(typeof mod.IntentRouter).toBe('function')
     expect(typeof mod.createRiskClassifier).toBe('function')
   })
