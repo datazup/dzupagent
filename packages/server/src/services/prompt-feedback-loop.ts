@@ -54,27 +54,40 @@ export interface OptimizationCandidateLike {
   score: number
 }
 
+export interface PromptVersionLike {
+  id: string
+  promptKey: string
+  content: string
+  active?: boolean | undefined
+  metadata?: Record<string, unknown> | undefined
+  createdAt?: string | undefined
+}
+
 export interface OptimizationResultLike {
   baselineScore: number
   bestCandidate: OptimizationCandidateLike | null
   candidates: OptimizationCandidateLike[]
   iterations: number
-}
-
-export interface PromptVersionLike {
-  key: string
-  version: number
-  prompt: string
-  status: 'draft' | 'active' | 'retired'
-  evalScores?: { score: number } | undefined
-  createdAt?: string | undefined
+  /** True when the optimizer produced a better version than the original. */
+  improved: boolean
+  /** Version the optimizer considered best after its round. */
+  bestVersion: PromptVersionLike
+  /** Version the optimizer was seeded with (baseline). */
+  originalVersion: PromptVersionLike
+  /** `bestVersion.score - originalVersion.score`. */
+  scoreImprovement: number
 }
 
 export interface PromptVersionStoreLike {
   getLatest(key: string): Promise<PromptVersionLike | null>
   getActive(key: string): Promise<PromptVersionLike | null>
-  create(input: { key: string; prompt: string; status?: 'draft' | 'active' | 'retired'; evalScores?: { score: number } | undefined }): Promise<PromptVersionLike>
-  activate(key: string, version: number): Promise<PromptVersionLike>
+  save(input: {
+    promptKey: string
+    content: string
+    metadata?: Record<string, unknown> | undefined
+    active?: boolean | undefined
+  }): Promise<PromptVersionLike>
+  activate(versionId: string): Promise<PromptVersionLike>
   list(key: string): Promise<PromptVersionLike[]>
 }
 

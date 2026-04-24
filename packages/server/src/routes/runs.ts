@@ -57,13 +57,10 @@ function getRequestingKeyId(c: Context): string | undefined {
 }
 
 /**
- * MC-S01: Extract a stable tenant identifier for quota accounting.
- *
- * Prefers `tenantId` from the authenticated API key, falls back to the key's
- * `ownerId`, then its `id`, and finally `'default'` when auth is disabled.
- * Using the most specific available identifier keeps per-tenant quotas
- * isolated in multi-tenant deployments while preserving a stable single
- * bucket when a host runs with auth off.
+ * MC-S01 / MC-S02: Extract the authenticated API key's tenant scope from the
+ * Hono context. Prefers `tenantId`, falls back to `ownerId`, then `id`, and
+ * finally `'default'` when auth is disabled entirely. Using this helper keeps
+ * quota accounting and tenant-isolation filters aligned on the same key.
  */
 function getRequestingTenantId(c: Context): string {
   const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
@@ -73,22 +70,6 @@ function getRequestingTenantId(c: Context): string {
   if (typeof ownerId === 'string' && ownerId.length > 0) return ownerId
   const id = key?.['id']
   if (typeof id === 'string' && id.length > 0) return id
-  return 'default'
-}
-
-/**
- * MC-S02: Extract the authenticated API key's tenant scope from the Hono
- * context. Falls back to the key's `ownerId` when `tenantId` is absent so
- * single-tenant deployments that have not adopted the new field continue
- * to stamp runs with a stable identifier. Returns `'default'` when auth is
- * disabled entirely.
- */
-function getRequestingTenantId(c: Context): string {
-  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
-  const tenantId = key?.['tenantId']
-  if (typeof tenantId === 'string' && tenantId.length > 0) return tenantId
-  const ownerId = key?.['ownerId']
-  if (typeof ownerId === 'string' && ownerId.length > 0) return ownerId
   return 'default'
 }
 
@@ -182,36 +163,36 @@ export async function handleCreateRun(
     return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
   }
 
-  // MC-S01: Enforce per-tenant token quota before accepting the run.
-  // `maxTokensPerRun` on the authenticated API key metadata provides the
-  // per-request reservation amount. When the check fails the caller sees
-  // a 429 with enough context (dimension, limit, current) to recover.
-  // When no quota manager is configured, this block is a no-op — preserving
-  // the library-default behavior for single-tenant deployments.
-  if (config.quotaManager) {
-    const apiKey = c.get('apiKey' as never) as Record<string, unknown> | undefined
-    const tenantId = getRequestingTenantId(c)
-    const apiKeyMetadata = apiKey && typeof apiKey['metadata'] === 'object' && apiKey['metadata'] !== null
-      ? (apiKey['metadata'] as Record<string, unknown>)
-      : undefined
-    const maxTokensRaw = apiKeyMetadata?.['maxTokensPerRun']
-    const maxTokensPerRun = typeof maxTokensRaw === 'number' && Number.isFinite(maxTokensRaw)
-      ? Math.max(0, Math.floor(maxTokensRaw))
-      : 0
-    const check = await config.quotaManager.check(
-      tenantId,
-      'tokensPerMinute',
-      maxTokensPerRun,
-    )
-    if (!check.allowed) {
+  // MC-S01: Enforce the per-key hourly token budget before accepting the
+  // run. The API key record carries both a per-run cap (`maxTokensPerRun`)
+  // and an hourly ceiling (`maxRunsPerHour`, expressed in tokens). We use
+  // the per-run cap as the estimate so rejection happens up-front if the
+  // caller would blow through their budget. When no quota manager is
+  // configured this block is a no-op — preserving the library default.
+  //
+  // We also project `guardrails.maxTokens` onto the run metadata so the
+  // executor enforces the same cap. When the caller already supplied a
+  // tighter limit we keep theirs (the smaller of the two).
+  const apiKey = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const rawPerRunCap = apiKey?.['maxTokensPerRun']
+  const perRunCap = typeof rawPerRunCap === 'number' && Number.isFinite(rawPerRunCap) && rawPerRunCap > 0
+    ? Math.floor(rawPerRunCap)
+    : null
+  const rawHourlyLimit = apiKey?.['maxRunsPerHour']
+  const hourlyLimit = typeof rawHourlyLimit === 'number' && Number.isFinite(rawHourlyLimit) && rawHourlyLimit > 0
+    ? Math.floor(rawHourlyLimit)
+    : null
+
+  if (config.resourceQuota) {
+    const keyId = getRequestingKeyId(c) ?? getRequestingTenantId(c)
+    const estimate = perRunCap ?? 0
+    const decision = config.resourceQuota.checkQuota(keyId, estimate, hourlyLimit)
+    if (!decision.allowed) {
       return c.json(
         {
           error: {
             code: 'QUOTA_EXCEEDED',
-            message: `Token quota exceeded for tenant ${tenantId}`,
-            dimension: check.dimension,
-            limit: check.limit,
-            current: check.current,
+            message: decision.reason ?? 'Token quota exceeded',
           },
         },
         429,
@@ -251,7 +232,24 @@ export async function handleCreateRun(
     }
   }
 
-  const mergedMetadata = { ...(body.metadata ?? {}), ...routingMetadata }
+  const mergedMetadata: Record<string, unknown> = { ...(body.metadata ?? {}), ...routingMetadata }
+
+  // MC-S01: project the per-key `maxTokensPerRun` onto `guardrails.maxTokens`
+  // so the executor enforces the same ceiling that the quota admission
+  // check used. Keep the caller's value when it is tighter — never
+  // upgrade a caller-specified cap to the key's (looser) ceiling.
+  if (perRunCap !== null) {
+    const existingGuardrails = (mergedMetadata['guardrails'] && typeof mergedMetadata['guardrails'] === 'object')
+      ? (mergedMetadata['guardrails'] as Record<string, unknown>)
+      : {}
+    const existingMax = typeof existingGuardrails['maxTokens'] === 'number'
+      ? (existingGuardrails['maxTokens'] as number)
+      : undefined
+    const finalMax = typeof existingMax === 'number'
+      ? Math.min(existingMax, perRunCap)
+      : perRunCap
+    mergedMetadata['guardrails'] = { ...existingGuardrails, maxTokens: finalMax }
+  }
 
   // Inject trace context so every run has a traceId from birth.
   // injectTraceContext is idempotent — if metadata already has _trace, it's preserved.

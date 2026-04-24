@@ -30,7 +30,7 @@ import type { SkillRegistry, WorkflowRegistry } from '@dzupagent/core'
 import { createSafetyMonitor } from '@dzupagent/core'
 import type { SkillStepResolver } from '@dzupagent/agent'
 import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters'
-import type { ResourceQuotaManager } from './runtime/resource-quota.js'
+import type { ResourceQuotaManager } from './security/resource-quota.js'
 import type { InputGuardConfig } from './security/input-guard.js'
 import { createHealthRoutes } from './routes/health.js'
 import { createRunRoutes } from './routes/runs.js'
@@ -125,6 +125,7 @@ import { DrizzleMailboxStore } from './persistence/drizzle-mailbox-store.js'
 import type { PostgresApiKeyStore } from './persistence/api-key-store.js'
 import { createApiKeyRoutes } from './routes/api-keys.js'
 import { createRegistryRoutes } from './routes/registry.js'
+import type { EvalOrchestratorLike, BenchmarkOrchestratorLike } from '@dzupagent/eval-contracts'
 
 // Drizzle DB clients are opaque at this layer — we intentionally avoid a hard
 // dependency on `drizzle-orm/postgres-js` here.
@@ -248,12 +249,12 @@ export interface ForgeServerConfig {
    * to inject a `@dzupagent/evals` `EvalOrchestrator` without coupling the
    * server package to evals.
    */
-  evalOrchestrator?: import('@dzupagent/eval-contracts').EvalOrchestratorLike
+  evalOrchestrator?: EvalOrchestratorLike
   /**
    * Optional pre-constructed benchmark orchestrator (MC-A02). When supplied,
    * overrides `benchmark.orchestrator` / `benchmark.orchestratorFactory`.
    */
-  benchmarkOrchestrator?: import('@dzupagent/eval-contracts').BenchmarkOrchestratorLike
+  benchmarkOrchestrator?: BenchmarkOrchestratorLike
   /** Optional MCP manager — enables /api/mcp routes for server lifecycle management */
   mcpManager?: McpManager
   /**
@@ -358,20 +359,21 @@ export interface ForgeServerConfig {
    */
   disableSafetyMonitor?: boolean
   /**
-   * MC-S01: Optional {@link ResourceQuotaManager} used to enforce per-tenant
-   * quotas on run creation. When provided, `POST /api/runs` calls
-   * `quotaManager.check(tenantId, 'tokensPerMinute', maxTokensPerRun)` before
-   * persisting the run — quota-exceeded requests are rejected with HTTP 429.
-   * The authenticated API key's `metadata.maxTokensPerRun` (if present)
-   * supplies the per-request reservation amount.
+   * MC-S01: Optional per-key {@link ResourceQuotaManager} used to enforce
+   * hourly token budgets on run creation. When provided, `POST /api/runs`
+   * calls `resourceQuota.checkQuota(keyId, estimatedTokens, hourlyLimit)`
+   * before persisting the run — quota-exceeded requests are rejected with
+   * HTTP 429 and body `{ error: { code: 'QUOTA_EXCEEDED', ... } }`.
    *
-   * After the run finishes, the run-worker records actual token usage by
-   * creating a 60-second reservation against the same dimension so that the
-   * sliding `tokensPerMinute` window reflects real consumption.
+   * The authenticated API key's `maxTokensPerRun` supplies the per-request
+   * estimate, and `maxRunsPerHour` (expressed as tokens, not runs, in this
+   * simple budget model) supplies the ceiling. After each run completes,
+   * the worker calls `resourceQuota.recordUsage(keyId, totalTokens)` so
+   * the sliding window reflects real consumption.
    *
    * Omit to disable quota enforcement entirely (library default).
    */
-  quotaManager?: ResourceQuotaManager
+  resourceQuota?: ResourceQuotaManager
   /**
    * MC-S03: Optional security configuration. When `inputGuard` is provided
    * (or omitted — defaults to a standard {@link InputGuard}) the run-worker
@@ -598,7 +600,7 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
       retrievalFeedback: runtimeConfig.retrievalFeedback,
       traceStore: runtimeConfig.traceStore,
       reflectionStore: runtimeConfig.reflectionStore,
-      quotaManager: runtimeConfig.quotaManager,
+      resourceQuota: runtimeConfig.resourceQuota,
       inputGuardConfig: runtimeConfig.security?.inputGuard,
     })
     startedRunQueues.add(runtimeConfig.runQueue)
