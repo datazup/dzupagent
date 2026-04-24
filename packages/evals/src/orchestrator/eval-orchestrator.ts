@@ -1,29 +1,35 @@
+/**
+ * EvalOrchestrator — queue / lease / retry orchestration for eval runs.
+ *
+ * Moved from @dzupagent/server (packages/server/src/services/eval-orchestrator.ts)
+ * to @dzupagent/evals in MC-A02 to eliminate the server -> evals layer
+ * inversion. Server consumes it via dependency injection through the
+ * EvalOrchestratorLike contract in @dzupagent/eval-contracts.
+ */
+
 import { randomUUID } from 'node:crypto'
 import type { MetricsCollector } from '@dzupagent/core'
-import type { EvalSuite } from '@dzupagent/evals'
-import { runEvalSuite } from '@dzupagent/evals'
 import type {
+  EvalExecutionContext,
+  EvalExecutionTarget,
+  EvalOrchestratorLike,
+  EvalQueueStats,
   EvalRunAttemptRecord,
   EvalRunErrorRecord,
+  EvalRunExecutionOwnershipRecord,
   EvalRunListFilter,
   EvalRunRecord,
   EvalRunRecoveryRecord,
-  EvalRunExecutionOwnershipRecord,
   EvalRunStore,
-} from '../persistence/eval-run-store.js'
+  EvalSuite,
+} from '@dzupagent/eval-contracts'
+import { runEvalSuite } from '../eval-runner.js'
 
-export interface EvalExecutionContext {
-  suiteId: string
-  runId: string
-  attempt: number
-  metadata?: Record<string, unknown>
-  signal: AbortSignal
-}
-
-export type EvalExecutionTarget = (
-  input: string,
-  context?: EvalExecutionContext,
-) => Promise<string> | string
+export type {
+  EvalExecutionContext,
+  EvalExecutionTarget,
+  EvalQueueStats,
+} from '@dzupagent/eval-contracts'
 
 export interface EvalOrchestratorConfig {
   store: EvalRunStore
@@ -31,20 +37,6 @@ export interface EvalOrchestratorConfig {
   allowReadOnlyMode?: boolean
   concurrency?: number
   metrics?: MetricsCollector
-}
-
-export interface EvalQueueStats {
-  pending: number
-  active: number
-  oldestPendingAgeMs: number | null
-  enqueued: number
-  started: number
-  completed: number
-  failed: number
-  cancelled: number
-  retried: number
-  recovered: number
-  requeued: number
 }
 
 export class EvalExecutionUnavailableError extends Error {
@@ -65,13 +57,13 @@ export class EvalRunInvalidStateError extends Error {
   }
 }
 
-export class EvalOrchestrator {
+export class EvalOrchestrator implements EvalOrchestratorLike {
   private readonly pendingRunIds: string[] = []
   private readonly pendingRunSet = new Set<string>()
   private readonly activeRunControllers = new Map<string, AbortController>()
   private readonly activeLeaseRefreshTimers = new Map<string, ReturnType<typeof setInterval>>()
   private readonly concurrency: number
-  private readonly metrics?: MetricsCollector
+  private readonly metrics: MetricsCollector | undefined
   private readonly instanceId = randomUUID()
   private readonly leaseDurationMs = 30_000
   private readonly leaseRefreshIntervalMs = 10_000
@@ -446,13 +438,14 @@ export class EvalOrchestrator {
             throw new EvalExecutionUnavailableError('Eval execution target is not configured')
           }
 
-          return this.config.executeTarget(input, {
+          const ctx: EvalExecutionContext = {
             suiteId: run.suiteId,
             runId: run.id,
             attempt,
             metadata: run.metadata,
             signal: abortController.signal,
-          })
+          }
+          return this.config.executeTarget(input, ctx)
         },
       )
       const completedAt = new Date().toISOString()

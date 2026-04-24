@@ -9,6 +9,8 @@ import type { ExecutableAgentResolver } from '../services/executable-agent-resol
 import { extractTraceContext } from '@dzupagent/core'
 import { isStructuredResult, isRecord } from './utils.js'
 import { reportRetrievalFeedback, type RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
+import type { ResourceQuotaManager } from './resource-quota.js'
+import { createInputGuard, type InputGuard, type InputGuardConfig } from '../security/input-guard.js'
 import type { RunReflectionStore, ReflectionSummary, CompressionLogEntry } from '@dzupagent/agent'
 
 export interface RunExecutionContext {
@@ -134,6 +136,28 @@ export interface StartRunWorkerOptions {
    *  scorers and emits `run:scored`. Any failure is swallowed and surfaced
    *  via the analyzer's `onError` hook. */
   runOutcomeAnalyzer?: RunOutcomeAnalyzerLike
+  /**
+   * MC-S03: Optional {@link InputGuard} configuration.
+   * - `undefined` (default): a standard guard with built-in rules is created.
+   * - `false`: scanning is disabled entirely (all inputs flow through).
+   * - An {@link InputGuardConfig}: supplies custom length caps / PII flag /
+   *   injected safety monitor.
+   *
+   * When the guard rejects input, the run terminates in `'rejected'` status
+   * before the executor is invoked. When the guard returns a redacted copy,
+   * the redacted value replaces the raw input for dispatch and is persisted
+   * on the run record so downstream readers see the sanitized payload.
+   */
+  inputGuardConfig?: InputGuardConfig | false
+  /**
+   * MC-S01: Optional {@link ResourceQuotaManager}. When provided, actual
+   * token usage from each completed run is recorded as a 60-second
+   * reservation against the `tokensPerMinute` dimension so that the next
+   * admission check (in `handleCreateRun`) sees an up-to-date usage window.
+   * Quota-check enforcement itself lives at the HTTP boundary — the worker
+   * only records usage after completion.
+   */
+  quotaManager?: ResourceQuotaManager
 }
 
 /** Structural type for RunOutcomeAnalyzer — avoids a hard dep on the service module. */
@@ -205,6 +229,15 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
     resolve: (agentId: string) => options.agentStore.get(agentId),
   }
 
+  // MC-S03: Construct the InputGuard once per worker. A single guard
+  // instance (with its internal SafetyMonitor) is reused across runs to
+  // avoid rebuilding the scanner's pattern set per job. When the host
+  // passes `inputGuardConfig: false`, scanning is disabled entirely.
+  const inputGuard: InputGuard | null =
+    options.inputGuardConfig === false
+      ? null
+      : createInputGuard(options.inputGuardConfig)
+
   options.runQueue.start(async (job, signal) => {
     const startedAt = Date.now()
     options.shutdown?.trackRun(job.runId)
@@ -252,6 +285,62 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         return
       }
 
+      // MC-S03: Scan the untrusted run input before any executor work.
+      // Rejections terminate the run in `'rejected'` status; redactions
+      // overwrite `jobInput` (used below in place of `job.input`) so that
+      // the executor, trace store, and run record all observe the same
+      // sanitized payload.
+      let jobInput: unknown = job.input
+      if (inputGuard) {
+        const guardResult = await inputGuard.scan(job.input)
+        if (!guardResult.allowed) {
+          const reason = guardResult.reason ?? 'Rejected by input guard'
+          await options.runStore.update(job.runId, {
+            status: 'rejected',
+            error: reason,
+            completedAt: new Date(),
+          })
+          await options.runStore.addLog(job.runId, {
+            level: 'warn',
+            phase: 'security',
+            message: `Input guard rejected run: ${reason}`,
+            data: {
+              violations: guardResult.violations?.map((v) => ({
+                category: v.category,
+                severity: v.severity,
+                action: v.action,
+              })),
+            },
+          })
+          options.eventBus.emit({
+            type: 'agent:failed',
+            agentId: job.agentId,
+            runId: job.runId,
+            errorCode: 'POLICY_DENIED',
+            message: reason,
+          })
+          await closeTraceWithTerminalStep(
+            options.traceStore,
+            job.runId,
+            'rejected',
+            { reason, guardedBy: 'input-guard' },
+          )
+          return
+        }
+        if (guardResult.redactedInput !== undefined) {
+          jobInput = guardResult.redactedInput
+          // Persist the redacted input on the run record so that any
+          // downstream consumer (UI, analyzer, replay) sees the sanitized
+          // payload — not the raw PII.
+          await options.runStore.update(job.runId, { input: jobInput })
+          await options.runStore.addLog(job.runId, {
+            level: 'info',
+            phase: 'security',
+            message: 'Input guard redacted PII in run input',
+          })
+        }
+      }
+
       await options.runStore.update(job.runId, { status: 'running' })
 
       // --- Start trace (optional) ---
@@ -260,7 +349,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         await options.traceStore.addStep(job.runId, {
           timestamp: Date.now(),
           type: 'user_input',
-          content: job.input,
+          content: jobInput,
           metadata: job.metadata ? { ...job.metadata } : undefined,
         })
       }
@@ -280,7 +369,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
 
         await options.runStore.update(job.runId, {
           status: 'awaiting_approval',
-          plan: { input: job.input, metadata: job.metadata },
+          plan: { input: jobInput, metadata: job.metadata },
         })
         await options.runStore.addLog(job.runId, {
           level: 'info',
@@ -288,7 +377,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
           message: 'Awaiting approval before execution',
           data: { timeoutMs },
         })
-        options.eventBus.emit({ type: 'approval:requested', runId: job.runId, plan: { input: job.input } })
+        options.eventBus.emit({ type: 'approval:requested', runId: job.runId, plan: { input: jobInput } })
 
         const decision = await waitForApprovalDecision(options.eventBus, job.runId, timeoutMs)
         if (!decision.approved) {
@@ -361,7 +450,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       const executeRun = () => options.runExecutor({
         runId: job.runId,
         agentId: job.agentId,
-        input: job.input,
+        input: jobInput,
         metadata: enrichedMetadata,
         agent,
         runStore: options.runStore,
@@ -427,6 +516,36 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         ...(mergedMetadata ? { metadata: { ...(job.metadata ?? {}), ...mergedMetadata } } : {}),
         completedAt: new Date(),
       })
+
+      // --- MC-S01: record actual token usage against the quota manager ---
+      // We use a 60-second reservation against `tokensPerMinute` so that the
+      // sliding per-minute window seen by `handleCreateRun` reflects real
+      // consumption. Failures are non-fatal — quota accounting must never
+      // block completion.
+      if (options.quotaManager && tokenUsage) {
+        const totalTokens = (tokenUsage.input ?? 0) + (tokenUsage.output ?? 0)
+        if (totalTokens > 0) {
+          const tenantId = typeof job.metadata?.['tenantId'] === 'string'
+            ? (job.metadata['tenantId'] as string)
+            : typeof job.metadata?.['ownerId'] === 'string'
+              ? (job.metadata['ownerId'] as string)
+              : 'default'
+          try {
+            await options.quotaManager.reserve(tenantId, 'tokensPerMinute', totalTokens, 60_000)
+          } catch (_err) {
+            // Quota may have been exceeded after the fact (race between
+            // admission check and completion). We still surface a log so
+            // operators can diagnose, but do not alter the run status.
+            await options.runStore.addLog(job.runId, {
+              level: 'warn',
+              phase: 'quota',
+              message: 'Failed to record token usage against quota manager',
+              data: { error: _err instanceof Error ? _err.message : String(_err) },
+            }).catch(() => { /* swallow */ })
+          }
+        }
+      }
+
       // --- Record output step and complete trace (optional) ---
       if (options.traceStore) {
         await options.traceStore.addStep(job.runId, {

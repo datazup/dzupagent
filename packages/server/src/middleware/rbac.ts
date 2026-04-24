@@ -21,7 +21,27 @@ export interface RBACConfig {
   }) => ForgeRole | undefined
   /** Custom role-permission mapping (merged with defaults) */
   customPermissions?: Partial<Record<ForgeRole, ForgePermission[]>>
+  /**
+   * MC-S02: Path prefixes that require `role === 'admin'` regardless of
+   * the permission map. Evaluated BEFORE the generic resource/action
+   * check. Any non-admin role hitting a listed prefix receives 403.
+   *
+   * Defaults to {@link DEFAULT_ADMIN_ONLY_PATHS}.
+   */
+  adminOnlyPaths?: string[]
 }
+
+/**
+ * MC-S02: Default path prefixes that require admin role.
+ *
+ * MCP registration can spawn processes and wire external tools; cluster
+ * management alters multi-role agent topology. Both are gated to
+ * `role === 'admin'` by the default rbacMiddleware configuration.
+ */
+export const DEFAULT_ADMIN_ONLY_PATHS: string[] = [
+  '/api/mcp',
+  '/api/clusters',
+]
 
 /**
  * Default role permissions.
@@ -113,6 +133,7 @@ function methodToAction(method: string): ForgePermission['action'] {
  * Health endpoints are always allowed through.
  */
 export function rbacMiddleware(config: RBACConfig): MiddlewareHandler {
+  const adminOnlyPaths = config.adminOnlyPaths ?? DEFAULT_ADMIN_ONLY_PATHS
   return async (c, next) => {
     // Health endpoints bypass RBAC
     if (c.req.path.startsWith('/api/health')) {
@@ -128,6 +149,25 @@ export function rbacMiddleware(config: RBACConfig): MiddlewareHandler {
     }
 
     c.set('forgeRole' as never, role as never)
+
+    // MC-S02: admin-only path prefixes are enforced before the generic
+    // resource check so MCP/cluster routes reject non-admins even if the
+    // permission map would otherwise let them through.
+    if (role !== 'admin') {
+      for (const prefix of adminOnlyPaths) {
+        if (c.req.path.startsWith(prefix)) {
+          return c.json(
+            {
+              error: {
+                code: 'FORBIDDEN',
+                message: `Role '${role}' cannot access admin-only endpoint '${prefix}'`,
+              },
+            },
+            403,
+          )
+        }
+      }
+    }
 
     const resource = pathToResource(c.req.path)
     if (!resource) {

@@ -1,72 +1,27 @@
-import type { EvalRunResult, EvalSuite } from '@dzupagent/evals'
+/**
+ * As of MC-A02 the record and store interfaces are canonically defined in
+ * @dzupagent/eval-contracts. This module re-exports them so existing
+ * downstream imports (e.g. `from '../persistence/eval-run-store.js'`) keep
+ * working, and keeps the `InMemoryEvalRunStore` implementation that the
+ * server uses in tests and dev.
+ */
+export type {
+  EvalRunStatus,
+  EvalRunErrorRecord,
+  EvalRunRecoveryRecord,
+  EvalRunExecutionOwnershipRecord,
+  EvalRunAttemptRecord,
+  EvalRunRecord,
+  EvalRunListFilter,
+  EvalRunStore,
+} from '@dzupagent/eval-contracts'
 
-export type EvalRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
-
-export interface EvalRunErrorRecord {
-  code: string
-  message: string
-}
-
-export interface EvalRunRecoveryRecord {
-  previousStatus: 'running'
-  previousStartedAt?: string
-  recoveredAt: string
-  reason: 'process-restart'
-}
-
-export interface EvalRunExecutionOwnershipRecord {
-  ownerId: string
-  claimedAt: string
-  leaseExpiresAt: string
-}
-
-export interface EvalRunAttemptRecord {
-  attempt: number
-  status: EvalRunStatus
-  queuedAt: string
-  startedAt?: string
-  completedAt?: string
-  result?: EvalRunResult
-  error?: EvalRunErrorRecord
-  recovery?: EvalRunRecoveryRecord
-}
-
-export interface EvalRunRecord {
-  id: string
-  suiteId: string
-  suite: EvalSuite
-  status: EvalRunStatus
-  createdAt: string
-  queuedAt: string
-  startedAt?: string
-  completedAt?: string
-  result?: EvalRunResult
-  error?: EvalRunErrorRecord
-  recovery?: EvalRunRecoveryRecord
-  executionOwner?: EvalRunExecutionOwnershipRecord
-  attemptHistory?: EvalRunAttemptRecord[]
-  metadata?: Record<string, unknown>
-  attempts: number
-}
-
-export interface EvalRunListFilter {
-  suiteId?: string
-  status?: EvalRunStatus
-  limit?: number
-}
-
-export interface EvalRunStore {
-  saveRun(run: EvalRunRecord): Promise<void>
-  updateRun(runId: string, patch: Partial<EvalRunRecord>): Promise<void>
-  updateRunIf(
-    runId: string,
-    predicate: (run: EvalRunRecord) => boolean,
-    patch: Partial<EvalRunRecord>,
-  ): Promise<boolean>
-  getRun(runId: string): Promise<EvalRunRecord | null>
-  listRuns(filter?: EvalRunListFilter): Promise<EvalRunRecord[]>
-  listAllRuns(): Promise<EvalRunRecord[]>
-}
+import type {
+  EvalRunAttemptRecord,
+  EvalRunListFilter,
+  EvalRunRecord,
+  EvalRunStore,
+} from '@dzupagent/eval-contracts'
 
 function hasOwnProperty<T extends object>(obj: T, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(obj, key)

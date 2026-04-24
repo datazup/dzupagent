@@ -12,6 +12,31 @@ export type {
   Scorer,
 } from './types.js';
 
+// Re-export neutral contract types from @dzupagent/eval-contracts that are
+// used by orchestrators and downstream consumers. Note: `BenchmarkRunRecord`
+// and `BenchmarkRunStore` are intentionally NOT re-exported here because the
+// trend-detection module exports different shapes under the same names
+// (see ./benchmarks/benchmark-trend.js).
+export type {
+  EvalRunStatus,
+  EvalRunRecord,
+  EvalRunErrorRecord,
+  EvalRunRecoveryRecord,
+  EvalRunExecutionOwnershipRecord,
+  EvalRunAttemptRecord,
+  EvalRunListFilter,
+  EvalRunStore,
+  BenchmarkRunArtifactRecord,
+  BenchmarkBaselineRecord,
+  BenchmarkCompareRecord,
+  BenchmarkRunListFilter,
+  BenchmarkRunListPage,
+  EvalOrchestratorLike,
+  BenchmarkOrchestratorLike,
+  BenchmarkRunSuiteInput,
+  BenchmarkCompareResult,
+} from '@dzupagent/eval-contracts';
+
 // Scorers (legacy)
 export { DeterministicScorer } from './deterministic-scorer.js';
 export type { DeterministicScorerConfig } from './deterministic-scorer.js';
@@ -169,6 +194,22 @@ export type {
   OptimizationResult,
   OptimizationCandidate,
 } from './prompt-optimizer/index.js';
+
+// Orchestrators (MC-A02 — moved from @dzupagent/server)
+export {
+  EvalOrchestrator,
+  EvalExecutionUnavailableError,
+  EvalRunInvalidStateError,
+  BenchmarkOrchestrator,
+} from './orchestrator/index.js';
+export type {
+  EvalOrchestratorConfig,
+  EvalExecutionContext,
+  EvalExecutionTarget,
+  EvalQueueStats,
+  BenchmarkOrchestratorConfig,
+  BenchmarkRunArtifactInput,
+} from './orchestrator/index.js';
 
 // Domain-specific scorer (SQL, code, analysis, ops)
 export { DomainScorer } from './scorers/domain-scorer.js';

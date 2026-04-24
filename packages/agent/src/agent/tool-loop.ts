@@ -15,11 +15,13 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
   extractTokenUsage,
+  ForgeError,
   type TokenUsage,
   type ToolGovernance,
   type SafetyMonitor,
   type DzupEventBus,
 } from '@dzupagent/core'
+import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type { CompressResult } from '@dzupagent/context'
 import type { IterationBudget } from '../guardrails/iteration-budget.js'
 import type { StuckDetector, StuckStatus } from '../guardrails/stuck-detector.js'
@@ -211,6 +213,27 @@ export interface ToolLoopConfig {
    * the span with an error status.
    */
   tracer?: ToolLoopTracer
+
+  /**
+   * Identity of the agent that owns this tool loop invocation.
+   *
+   * When combined with {@link toolPermissionPolicy}, each tool call is
+   * checked with `policy.hasPermission(agentId, toolName)` before the
+   * tool is invoked. Denied calls throw a
+   * `TOOL_PERMISSION_DENIED` {@link ForgeError} with `{agentId, toolName}`
+   * in `context`.
+   */
+  agentId?: string
+
+  /**
+   * Pluggable permission policy (MC-GA03). When omitted, no permission
+   * checks run — preserves the pre-MC-GA03 surface for existing callers.
+   *
+   * The policy is consulted BOTH in the sequential path (inside
+   * `executeSingleToolCall`) and in the parallel pre-validation loop so
+   * denied calls never reach `tool.invoke()` in either execution mode.
+   */
+  toolPermissionPolicy?: ToolPermissionPolicy
 }
 
 /**
@@ -642,6 +665,20 @@ async function executeSingleToolCall(
   const toolName = tc.name
   const toolCallId = tc.id ?? `call_${Date.now()}`
 
+  // MC-GA03 — permission check (opt-in). Denied calls throw a
+  // `TOOL_PERMISSION_DENIED` ForgeError that propagates out of the loop
+  // so callers can react (audit, surface to UI, retry with different
+  // identity, etc.).
+  if (config.toolPermissionPolicy && config.agentId) {
+    if (!config.toolPermissionPolicy.hasPermission(config.agentId, toolName)) {
+      throw new ForgeError({
+        code: 'TOOL_PERMISSION_DENIED',
+        message: `Tool "${toolName}" is not accessible to agent "${config.agentId}"`,
+        context: { agentId: config.agentId, toolName },
+      })
+    }
+  }
+
   // Check if tool is blocked
   if (config.budget?.isToolBlocked(toolName)) {
     config.onToolResult?.(toolName, '[blocked]')
@@ -877,6 +914,19 @@ async function executeToolCallsParallel(
   for (let i = 0; i < toolCalls.length; i++) {
     const tc = toolCalls[i]!
     const toolCallId = tc.id ?? `call_${Date.now()}_${i}`
+
+    // MC-GA03 — permission check runs in the pre-validation loop so
+    // denied calls NEVER reach the parallel executor. The throw
+    // propagates out through `executeToolCallsParallel` → `runToolLoop`.
+    if (config.toolPermissionPolicy && config.agentId) {
+      if (!config.toolPermissionPolicy.hasPermission(config.agentId, tc.name)) {
+        throw new ForgeError({
+          code: 'TOOL_PERMISSION_DENIED',
+          message: `Tool "${tc.name}" is not accessible to agent "${config.agentId}"`,
+          context: { agentId: config.agentId, toolName: tc.name },
+        })
+      }
+    }
 
     // Check blocked
     if (config.budget?.isToolBlocked(tc.name)) {

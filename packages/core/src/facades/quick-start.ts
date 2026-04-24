@@ -43,23 +43,10 @@ export type {
 export { invokeWithTimeout } from '../llm/invoke.js'
 export type { TokenUsage, InvokeOptions } from '../llm/invoke.js'
 
-// --- Memory (curated subset) ---
-export { MemoryService, createStore } from '@dzupagent/memory'
-export type { StoreConfig, NamespaceConfig } from '@dzupagent/memory'
-
-// --- Context (curated subset) ---
-export {
-  shouldSummarize,
-  summarizeAndTrim,
-  pruneToolResults,
-  scoreCompleteness,
-  evictIfNeeded,
-} from '@dzupagent/context'
-export type {
-  MessageManagerConfig,
-  CompletenessResult,
-  EvictionConfig,
-} from '@dzupagent/context'
+// --- Memory / Context ---
+// Memory and context are Layer 2 and must be imported directly from
+// @dzupagent/memory and @dzupagent/context. The quick-start facade no
+// longer re-exports them (see MC-A01).
 
 // --- Config ---
 export { DEFAULT_CONFIG, resolveConfig, mergeConfigs } from '../config/index.js'

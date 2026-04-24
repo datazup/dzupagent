@@ -87,6 +87,7 @@ export class InMemoryRunStore implements RunStore {
       input: input.input,
       metadata: input.metadata ?? {},
       ...(input.ownerId !== undefined ? { ownerId: input.ownerId } : {}),
+      ...(input.tenantId !== undefined ? { tenantId: input.tenantId } : {}),
       startedAt: new Date(),
     }
     this.runs.set(run.id, run)
@@ -115,6 +116,10 @@ export class InMemoryRunStore implements RunStore {
     if (filter?.status) {
       results = results.filter(r => r.status === filter.status)
     }
+    if (filter?.tenantId) {
+      const target = filter.tenantId
+      results = results.filter(r => (r.tenantId ?? 'default') === target)
+    }
 
     // Sort by startedAt descending
     results.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())
@@ -132,6 +137,10 @@ export class InMemoryRunStore implements RunStore {
     }
     if (filter?.status) {
       results = results.filter(r => r.status === filter.status)
+    }
+    if (filter?.tenantId) {
+      const target = filter.tenantId
+      results = results.filter(r => (r.tenantId ?? 'default') === target)
     }
 
     return results.length
@@ -203,6 +212,10 @@ export class InMemoryAgentStore implements AgentExecutionSpecStore {
 
     if (filter?.active !== undefined) {
       results = results.filter(a => a.active === filter.active)
+    }
+    if (filter?.tenantId) {
+      const target = filter.tenantId
+      results = results.filter(a => (a.tenantId ?? 'default') === target)
     }
 
     const limit = filter?.limit ?? 100

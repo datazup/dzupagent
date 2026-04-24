@@ -1,18 +1,28 @@
 import { Hono } from 'hono'
-import type { BenchmarkSuite } from '@dzupagent/evals'
-import {
-  CODE_GEN_SUITE,
-  QA_SUITE,
-  TOOL_USE_SUITE,
-  MULTI_TURN_SUITE,
-  VECTOR_SEARCH_SUITE,
-} from '@dzupagent/evals'
-import {
-  InMemoryBenchmarkRunStore,
-  type BenchmarkRunArtifactRecord,
-  type BenchmarkRunStore,
-} from '../persistence/benchmark-run-store.js'
-import { BenchmarkOrchestrator } from '../services/benchmark-orchestrator.js'
+import type {
+  BenchmarkOrchestratorLike,
+  BenchmarkRunArtifactRecord,
+  BenchmarkRunStore,
+  BenchmarkSuite,
+} from '@dzupagent/eval-contracts'
+import { InMemoryBenchmarkRunStore } from '../persistence/benchmark-run-store.js'
+
+/**
+ * Factory for a `BenchmarkOrchestratorLike`. Injected so the server does not
+ * take a runtime dependency on `@dzupagent/evals`. Hosts typically construct
+ * `new BenchmarkOrchestrator({ ... })` from `@dzupagent/evals` inside this
+ * factory.
+ */
+export type BenchmarkOrchestratorFactory = (deps: {
+  suites: Record<string, BenchmarkSuite>
+  executeTarget: (
+    targetId: string,
+    input: string,
+    metadata?: Record<string, unknown>,
+  ) => Promise<string>
+  allowNonStrictExecution?: boolean
+  store: BenchmarkRunStore
+}) => BenchmarkOrchestratorLike
 
 export interface BenchmarkRouteConfig {
   executeTarget: (
@@ -22,13 +32,23 @@ export interface BenchmarkRouteConfig {
   ) => Promise<string>
   /** Explicitly allow non-strict benchmark fallback behavior. */
   allowNonStrictExecution?: boolean
+  /**
+   * Registry of benchmark suites the host wants exposed over HTTP. The server
+   * no longer ships the default evals suite bundle (that coupling was part of
+   * the MC-A02 layer-inversion fix); hosts that want the canonical suites
+   * should import them from `@dzupagent/evals` and pass them here.
+   */
   suites?: Record<string, BenchmarkSuite>
   store?: BenchmarkRunStore
-}
-
-function defaultSuites(): Record<string, BenchmarkSuite> {
-  const suites = [CODE_GEN_SUITE, QA_SUITE, TOOL_USE_SUITE, MULTI_TURN_SUITE, VECTOR_SEARCH_SUITE]
-  return Object.fromEntries(suites.map((s) => [s.id, s]))
+  /** Pre-constructed orchestrator. Takes precedence over `orchestratorFactory`. */
+  orchestrator?: BenchmarkOrchestratorLike
+  /**
+   * Factory for constructing a benchmark orchestrator. When provided, the
+   * server composes the orchestrator on startup. When neither `orchestrator`
+   * nor `orchestratorFactory` is supplied the routes throw 503 on write
+   * endpoints while still serving read endpoints from the store.
+   */
+  orchestratorFactory?: BenchmarkOrchestratorFactory
 }
 
 const DEFAULT_LIMIT = 50
@@ -130,14 +150,63 @@ function parseStrict(raw: unknown): { strict?: boolean; invalid: boolean } {
   return { strict: raw, invalid: false }
 }
 
+/**
+ * Fallback orchestrator used when the host doesn't supply a concrete one.
+ * Write endpoints throw 503; read endpoints proxy directly to the store.
+ */
+class ReadOnlyBenchmarkOrchestrator implements BenchmarkOrchestratorLike {
+  constructor(private readonly store: BenchmarkRunStore) {}
+
+  async runSuite(): Promise<never> {
+    throw new Error('Benchmark orchestrator is not configured on this server')
+  }
+
+  async getRun(runId: string) {
+    return this.store.getRun(runId)
+  }
+
+  async listRuns(filter?: Parameters<BenchmarkRunStore['listRuns']>[0]) {
+    return this.store.listRuns(filter)
+  }
+
+  async compareRuns(): Promise<never> {
+    throw new Error('Benchmark orchestrator is not configured on this server')
+  }
+
+  async setBaseline(): Promise<never> {
+    throw new Error('Benchmark orchestrator is not configured on this server')
+  }
+
+  async getBaseline(suiteId: string, targetId: string) {
+    return this.store.getBaseline(suiteId, targetId)
+  }
+
+  async listBaselines(filter?: { suiteId?: string; targetId?: string }) {
+    return this.store.listBaselines(filter)
+  }
+}
+
 export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono {
   const app = new Hono()
-  const orchestrator = new BenchmarkOrchestrator({
-    suites: config.suites ?? defaultSuites(),
-    executeTarget: config.executeTarget,
-    allowNonStrictExecution: config.allowNonStrictExecution,
-    store: config.store ?? new InMemoryBenchmarkRunStore(),
-  })
+  const store = config.store ?? new InMemoryBenchmarkRunStore()
+  const suites = config.suites ?? {}
+
+  let orchestrator: BenchmarkOrchestratorLike
+  if (config.orchestrator) {
+    orchestrator = config.orchestrator
+  } else if (config.orchestratorFactory) {
+    const factoryDeps: Parameters<BenchmarkOrchestratorFactory>[0] = {
+      suites,
+      executeTarget: config.executeTarget,
+      store,
+    }
+    if (config.allowNonStrictExecution !== undefined) {
+      factoryDeps.allowNonStrictExecution = config.allowNonStrictExecution
+    }
+    orchestrator = config.orchestratorFactory(factoryDeps)
+  } else {
+    orchestrator = new ReadOnlyBenchmarkOrchestrator(store)
+  }
 
   app.get('/runs', async (c) => {
     const suiteId = c.req.query('suiteId') || undefined

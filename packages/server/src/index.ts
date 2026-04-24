@@ -125,9 +125,22 @@ export type { ShutdownConfig, ShutdownState } from './lifecycle/graceful-shutdow
 export { HumanContactTimeoutScheduler } from './lifecycle/human-contact-timeout.js'
 export type { HumanContactTimeoutConfig } from './lifecycle/human-contact-timeout.js'
 
-// --- Eval Orchestration ---
-export { EvalOrchestrator, EvalExecutionUnavailableError, EvalRunInvalidStateError } from './services/eval-orchestrator.js'
-export type { EvalOrchestratorConfig, EvalExecutionTarget, EvalExecutionContext, EvalQueueStats } from './services/eval-orchestrator.js'
+// --- Eval Orchestration (MC-A02) ---
+// Concrete `EvalOrchestrator`, `BenchmarkOrchestrator`, and error classes now
+// live in @dzupagent/evals. The server only re-exports the neutral structural
+// contracts from @dzupagent/eval-contracts so consumers can type-check their
+// injected orchestrators without importing evals transitively.
+export type {
+  EvalOrchestratorLike,
+  BenchmarkOrchestratorLike,
+  EvalExecutionTarget,
+  EvalExecutionContext,
+  EvalQueueStats,
+  BenchmarkRunSuiteInput,
+  BenchmarkCompareResult,
+} from '@dzupagent/eval-contracts'
+export type { EvalOrchestratorFactory } from './routes/evals.js'
+export type { BenchmarkOrchestratorFactory } from './routes/benchmarks.js'
 export { AgentControlPlaneService } from './services/agent-control-plane-service.js'
 export type { AgentControlPlaneServiceConfig } from './services/agent-control-plane-service.js'
 export {
@@ -381,8 +394,10 @@ export type { ScorecardFormat } from './scorecard/index.js'
 
 // --- Runtime ---
 export { ConsolidationScheduler } from './runtime/consolidation-scheduler.js'
-export { BenchmarkOrchestrator } from './services/benchmark-orchestrator.js'
-export type { BenchmarkOrchestratorConfig } from './services/benchmark-orchestrator.js'
+// NOTE (MC-A02): `BenchmarkOrchestrator` moved to @dzupagent/evals. Import
+// `import { BenchmarkOrchestrator } from '@dzupagent/evals'` directly from
+// host apps. The server now consumes it through `BenchmarkOrchestratorLike`
+// from @dzupagent/eval-contracts (see exports above).
 export type { ConsolidationTask, ConsolidationReport, ConsolidationSchedulerConfig } from './runtime/consolidation-scheduler.js'
 export { createSleepConsolidationTask } from './runtime/sleep-consolidation-task.js'
 export type {
@@ -474,6 +489,10 @@ export type {
 // --- Deploy Routes ---
 export { createDeployRoutes } from './routes/deploy.js'
 export type { DeployRouteConfig } from './routes/deploy.js'
+
+// --- Security / Input Guard (MC-S03) ---
+export { createInputGuard, DEFAULT_MAX_INPUT_LENGTH } from './security/input-guard.js'
+export type { InputGuard, InputGuardConfig, InputGuardResult } from './security/input-guard.js'
 
 // --- Security / Incident Response ---
 export { IncidentResponseEngine, clearIncidentFlags, isAgentKilled, isToolDisabled, isNamespaceQuarantined } from './security/incident-response.js'

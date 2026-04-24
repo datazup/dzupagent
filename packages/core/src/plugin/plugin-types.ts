@@ -3,7 +3,6 @@ import type { DzupEvent } from '../events/event-types.js'
 import type { AgentHooks } from '../hooks/hook-types.js'
 import type { AgentMiddleware } from '../middleware/types.js'
 import type { ModelRegistry } from '../llm/model-registry.js'
-import type { MemoryService } from '@dzupagent/memory'
 
 /**
  * Context available to plugins during registration.
@@ -11,7 +10,14 @@ import type { MemoryService } from '@dzupagent/memory'
 export interface PluginContext {
   eventBus: DzupEventBus
   modelRegistry: ModelRegistry
-  memoryService?: MemoryService
+  /**
+   * Optional memory-service reference.
+   *
+   * Typed as `unknown` to avoid a layer inversion (core -> memory).
+   * Plugins that need the real `MemoryService` should import it from
+   * `@dzupagent/memory` and cast: `context.memoryService as MemoryService`.
+   */
+  memoryService?: unknown
 }
 
 /**

@@ -1,18 +1,27 @@
 import { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { MetricsCollector } from '@dzupagent/core'
-import type { EvalSuite } from '@dzupagent/evals'
-import {
-  InMemoryEvalRunStore,
-  type EvalRunStatus,
-  type EvalRunStore,
-} from '../persistence/eval-run-store.js'
-import {
-  EvalExecutionUnavailableError,
-  EvalOrchestrator,
-  EvalRunInvalidStateError,
-  type EvalExecutionTarget,
-} from '../services/eval-orchestrator.js'
+import type {
+  EvalExecutionTarget,
+  EvalOrchestratorLike,
+  EvalRunStatus,
+  EvalRunStore,
+  EvalSuite,
+} from '@dzupagent/eval-contracts'
+import { InMemoryEvalRunStore } from '../persistence/eval-run-store.js'
+
+/**
+ * Factory for constructing an `EvalOrchestratorLike`. Injected so the server
+ * (Layer 4) does not need a runtime dependency on `@dzupagent/evals` (Layer 5).
+ * Hosts that want eval execution provide this factory, typically importing
+ * `EvalOrchestrator` from `@dzupagent/evals`.
+ */
+export type EvalOrchestratorFactory = (deps: {
+  store: EvalRunStore
+  executeTarget?: EvalExecutionTarget
+  allowReadOnlyMode?: boolean
+  metrics?: MetricsCollector
+}) => EvalOrchestratorLike
 
 export interface EvalRouteConfig {
   /** Optional label returned by the route for operator diagnostics. */
@@ -27,6 +36,21 @@ export interface EvalRouteConfig {
   metrics?: MetricsCollector
   /** Optional registry for resolving `suiteId` when a full suite payload is not posted. */
   suites?: Record<string, EvalSuite>
+  /**
+   * Pre-constructed orchestrator. If provided, takes precedence over
+   * `orchestratorFactory`. Enables full dependency injection from the host.
+   */
+  orchestrator?: EvalOrchestratorLike
+  /**
+   * Factory that constructs an orchestrator from the resolved store + target.
+   * Hosts using `@dzupagent/evals` typically pass
+   * `(deps) => new EvalOrchestrator(deps)`.
+   *
+   * When neither `orchestrator` nor `orchestratorFactory` is supplied the
+   * server falls back to read-only mode so eval routes stay available without
+   * an evals runtime.
+   */
+  orchestratorFactory?: EvalOrchestratorFactory
 }
 
 interface EvalRunCreateRequest {
@@ -104,18 +128,32 @@ interface EvalRouteErrorResponse {
   error: { code: string; message: string }
 }
 
+function isExecutionUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  if (error.name === 'EvalExecutionUnavailableError') return true
+  const code = (error as { code?: unknown }).code
+  return code === 'EVAL_EXECUTION_UNAVAILABLE'
+}
+
+function isInvalidStateError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  if (error.name === 'EvalRunInvalidStateError') return true
+  const code = (error as { code?: unknown }).code
+  return code === 'INVALID_STATE'
+}
+
 function mapEvalRouteError(error: unknown): EvalRouteErrorResponse {
-  if (error instanceof EvalExecutionUnavailableError) {
+  if (isExecutionUnavailableError(error)) {
     return {
       status: 503,
-      error: buildExecutionUnavailableError(error.message),
+      error: buildExecutionUnavailableError((error as Error).message),
     }
   }
 
-  if (error instanceof EvalRunInvalidStateError) {
+  if (isInvalidStateError(error)) {
     return {
       status: 400,
-      error: buildInvalidStateError(error.message),
+      error: buildInvalidStateError((error as Error).message),
     }
   }
 
@@ -135,16 +173,85 @@ function mapEvalRouteError(error: unknown): EvalRouteErrorResponse {
   }
 }
 
+/**
+ * Minimal no-op orchestrator used when the host neither provides an injected
+ * orchestrator nor an orchestrator factory. This keeps the eval routes mounted
+ * in read-only mode so `/health`, `/queue/stats`, `/runs`, `/runs/:id` still
+ * respond (empty/read-only) without requiring `@dzupagent/evals`.
+ */
+class ReadOnlyEvalOrchestrator implements EvalOrchestratorLike {
+  constructor(private readonly store: EvalRunStore) {}
+
+  canExecute(): boolean {
+    return false
+  }
+
+  async queueRun(): Promise<never> {
+    const err = new Error(
+      'Eval execution target is not configured. This server is running in read-only mode.',
+    )
+    ;(err as Error & { code?: string }).code = 'EVAL_EXECUTION_UNAVAILABLE'
+    err.name = 'EvalExecutionUnavailableError'
+    throw err
+  }
+
+  async cancelRun(): Promise<never> {
+    const err = new Error('Eval orchestrator is read-only')
+    ;(err as Error & { code?: string }).code = 'INVALID_STATE'
+    err.name = 'EvalRunInvalidStateError'
+    throw err
+  }
+
+  async retryRun(): Promise<never> {
+    const err = new Error('Eval orchestrator is read-only')
+    ;(err as Error & { code?: string }).code = 'INVALID_STATE'
+    err.name = 'EvalRunInvalidStateError'
+    throw err
+  }
+
+  async getRun(runId: string) {
+    return this.store.getRun(runId)
+  }
+
+  async listRuns(filter?: Parameters<EvalRunStore['listRuns']>[0]) {
+    return this.store.listRuns(filter)
+  }
+
+  async getQueueStats() {
+    return {
+      pending: 0,
+      active: 0,
+      oldestPendingAgeMs: null,
+      enqueued: 0,
+      started: 0,
+      completed: 0,
+      failed: 0,
+      cancelled: 0,
+      retried: 0,
+      recovered: 0,
+      requeued: 0,
+    }
+  }
+}
+
 export function createEvalRoutes(config: EvalRouteConfig = {}): Hono {
   const app = new Hono()
   const serviceName = config.serviceName ?? DEFAULT_SERVICE_NAME
   const store = config.store ?? new InMemoryEvalRunStore()
-  const orchestrator = new EvalOrchestrator({
-    store,
-    executeTarget: config.executeTarget,
-    allowReadOnlyMode: config.allowReadOnlyMode,
-    metrics: config.metrics,
-  })
+
+  let orchestrator: EvalOrchestratorLike
+  if (config.orchestrator) {
+    orchestrator = config.orchestrator
+  } else if (config.orchestratorFactory) {
+    const deps: Parameters<EvalOrchestratorFactory>[0] = { store }
+    if (config.executeTarget) deps.executeTarget = config.executeTarget
+    if (config.allowReadOnlyMode !== undefined) deps.allowReadOnlyMode = config.allowReadOnlyMode
+    if (config.metrics) deps.metrics = config.metrics
+    orchestrator = config.orchestratorFactory(deps)
+  } else {
+    orchestrator = new ReadOnlyEvalOrchestrator(store)
+  }
+
   const mode: 'active' | 'read-only' = orchestrator.canExecute() ? 'active' : 'read-only'
 
   function resolveSuite(body: EvalRunCreateRequest): EvalSuite | null {

@@ -57,6 +57,42 @@ function getRequestingKeyId(c: Context): string | undefined {
 }
 
 /**
+ * MC-S01: Extract a stable tenant identifier for quota accounting.
+ *
+ * Prefers `tenantId` from the authenticated API key, falls back to the key's
+ * `ownerId`, then its `id`, and finally `'default'` when auth is disabled.
+ * Using the most specific available identifier keeps per-tenant quotas
+ * isolated in multi-tenant deployments while preserving a stable single
+ * bucket when a host runs with auth off.
+ */
+function getRequestingTenantId(c: Context): string {
+  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const tenantId = key?.['tenantId']
+  if (typeof tenantId === 'string' && tenantId.length > 0) return tenantId
+  const ownerId = key?.['ownerId']
+  if (typeof ownerId === 'string' && ownerId.length > 0) return ownerId
+  const id = key?.['id']
+  if (typeof id === 'string' && id.length > 0) return id
+  return 'default'
+}
+
+/**
+ * MC-S02: Extract the authenticated API key's tenant scope from the Hono
+ * context. Falls back to the key's `ownerId` when `tenantId` is absent so
+ * single-tenant deployments that have not adopted the new field continue
+ * to stamp runs with a stable identifier. Returns `'default'` when auth is
+ * disabled entirely.
+ */
+function getRequestingTenantId(c: Context): string {
+  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const tenantId = key?.['tenantId']
+  if (typeof tenantId === 'string' && tenantId.length > 0) return tenantId
+  const ownerId = key?.['ownerId']
+  if (typeof ownerId === 'string' && ownerId.length > 0) return ownerId
+  return 'default'
+}
+
+/**
  * Enforce owner scoping on a run fetched from the store. Returns the run on
  * success, or a 404 Response when the caller's API key differs from the run's
  * recorded `ownerId`. Runs without an `ownerId` (pre-migration) are always
@@ -67,6 +103,21 @@ function enforceOwnerAccess(c: Context, run: Run): Run | Response {
   if (run.ownerId && requestingKeyId && run.ownerId !== requestingKeyId) {
     return c.json({ error: { code: 'NOT_FOUND', message: 'Run not found' } }, 404)
   }
+
+  // MC-S02: tenant isolation — reject cross-tenant reads even when the
+  // legacy owner check would otherwise allow them through. Runs with no
+  // recorded tenant (pre-migration) are treated as 'default'. We only
+  // gate when the caller is authenticated; unauth'd callers fall through
+  // to preserve the library default.
+  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  if (key) {
+    const requestingTenantId = getRequestingTenantId(c)
+    const runTenantId = (run.tenantId ?? 'default') || 'default'
+    if (runTenantId !== requestingTenantId) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Run not found' } }, 404)
+    }
+  }
+
   return run
 }
 
@@ -131,6 +182,43 @@ export async function handleCreateRun(
     return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
   }
 
+  // MC-S01: Enforce per-tenant token quota before accepting the run.
+  // `maxTokensPerRun` on the authenticated API key metadata provides the
+  // per-request reservation amount. When the check fails the caller sees
+  // a 429 with enough context (dimension, limit, current) to recover.
+  // When no quota manager is configured, this block is a no-op — preserving
+  // the library-default behavior for single-tenant deployments.
+  if (config.quotaManager) {
+    const apiKey = c.get('apiKey' as never) as Record<string, unknown> | undefined
+    const tenantId = getRequestingTenantId(c)
+    const apiKeyMetadata = apiKey && typeof apiKey['metadata'] === 'object' && apiKey['metadata'] !== null
+      ? (apiKey['metadata'] as Record<string, unknown>)
+      : undefined
+    const maxTokensRaw = apiKeyMetadata?.['maxTokensPerRun']
+    const maxTokensPerRun = typeof maxTokensRaw === 'number' && Number.isFinite(maxTokensRaw)
+      ? Math.max(0, Math.floor(maxTokensRaw))
+      : 0
+    const check = await config.quotaManager.check(
+      tenantId,
+      'tokensPerMinute',
+      maxTokensPerRun,
+    )
+    if (!check.allowed) {
+      return c.json(
+        {
+          error: {
+            code: 'QUOTA_EXCEEDED',
+            message: `Token quota exceeded for tenant ${tenantId}`,
+            dimension: check.dimension,
+            limit: check.limit,
+            current: check.current,
+          },
+        },
+        429,
+      )
+    }
+  }
+
   // --- Cost-aware routing: classify input to determine optimal model tier ---
   let routingMetadata: Record<string, unknown> = {}
   if (config.router) {
@@ -180,11 +268,16 @@ export async function handleCreateRun(
   // every caller is allowed through — preserving the library default.
   const ownerId = getRequestingKeyId(c) ?? null
 
+  // MC-S02: carry the tenant scope from the authenticated key so list
+  // queries can isolate runs between tenants.
+  const tenantId = getRequestingTenantId(c)
+
   const run = await runStore.create({
     agentId: body.agentId,
     input: body.input,
     metadata: tracedMetadata,
     ownerId,
+    tenantId,
   })
 
   if (config.runQueue) {
@@ -238,11 +331,19 @@ export async function handleListRuns(
   const limit = parseIntBounded(c.req.query('limit'), 50, 1, 100)
   const offset = parseIntBounded(c.req.query('offset'), 0, 0, 1_000_000)
 
+  // MC-S02: restrict listings to the authenticated key's tenant scope.
+  // When auth is disabled the apiKey context is absent and `listFilter`
+  // omits `tenantId`, preserving the library default that returns all
+  // runs regardless of tenant.
+  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const requestingTenantId = key ? getRequestingTenantId(c) : undefined
+
   const listFilter = {
     agentId: agentId ?? undefined,
     status: status ?? undefined,
     limit,
     offset,
+    ...(requestingTenantId ? { tenantId: requestingTenantId } : {}),
   }
 
   const runs = await runStore.list(listFilter)
@@ -266,6 +367,7 @@ export async function handleListRuns(
     ? await runStore.count({
         ...(agentId !== undefined ? { agentId } : {}),
         ...(status !== undefined ? { status } : {}),
+        ...(requestingTenantId ? { tenantId: requestingTenantId } : {}),
       })
     : visible.length
 

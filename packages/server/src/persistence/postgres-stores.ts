@@ -37,6 +37,7 @@ export class PostgresRunStore implements RunStore {
         input: input.input as Record<string, unknown>,
         metadata: input.metadata ?? {},
         ownerId: input.ownerId ?? null,
+        tenantId: input.tenantId ?? 'default',
         startedAt: new Date(),
       })
       .returning()
@@ -77,6 +78,7 @@ export class PostgresRunStore implements RunStore {
     const conditions: SQL[] = []
     if (filter?.agentId) conditions.push(eq(forgeRuns.agentId, filter.agentId))
     if (filter?.status) conditions.push(eq(forgeRuns.status, filter.status))
+    if (filter?.tenantId) conditions.push(eq(forgeRuns.tenantId, filter.tenantId))
 
     const where = conditions.length > 0 ? and(...conditions) : undefined
     const limit = filter?.limit ?? 50
@@ -97,6 +99,7 @@ export class PostgresRunStore implements RunStore {
     const conditions: SQL[] = []
     if (filter?.agentId) conditions.push(eq(forgeRuns.agentId, filter.agentId))
     if (filter?.status) conditions.push(eq(forgeRuns.status, filter.status))
+    if (filter?.tenantId) conditions.push(eq(forgeRuns.tenantId, filter.tenantId))
 
     const where = conditions.length > 0 ? and(...conditions) : undefined
 
@@ -165,6 +168,7 @@ export class PostgresRunStore implements RunStore {
       error: row.error ?? undefined,
       metadata: (row.metadata as Record<string, unknown>) ?? undefined,
       ownerId: row.ownerId ?? null,
+      tenantId: row.tenantId ?? 'default',
       startedAt: row.startedAt,
       completedAt: row.completedAt ?? undefined,
     }
@@ -194,6 +198,7 @@ export class PostgresAgentStore implements AgentExecutionSpecStore {
           version: (existing.version ?? 0) + 1,
           active: agent.active ?? true,
           metadata: agent.metadata ?? {},
+          ...(agent.tenantId != null ? { tenantId: agent.tenantId } : {}),
           updatedAt: new Date(),
         })
         .where(eq(dzipAgents.id, agent.id))
@@ -209,6 +214,7 @@ export class PostgresAgentStore implements AgentExecutionSpecStore {
         approval: agent.approval ?? 'auto',
         active: agent.active ?? true,
         metadata: agent.metadata ?? {},
+        tenantId: agent.tenantId ?? 'default',
       })
     }
   }
@@ -226,6 +232,7 @@ export class PostgresAgentStore implements AgentExecutionSpecStore {
   async list(filter?: AgentExecutionSpecFilter): Promise<AgentExecutionSpec[]> {
     const conditions: SQL[] = []
     if (filter?.active !== undefined) conditions.push(eq(dzipAgents.active, filter.active))
+    if (filter?.tenantId) conditions.push(eq(dzipAgents.tenantId, filter.tenantId))
 
     const where = conditions.length > 0 ? and(...conditions) : undefined
     const limit = filter?.limit ?? 100
@@ -260,6 +267,7 @@ export class PostgresAgentStore implements AgentExecutionSpecStore {
       version: row.version,
       active: row.active,
       metadata: (row.metadata as Record<string, unknown>) ?? undefined,
+      tenantId: row.tenantId ?? 'default',
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     }

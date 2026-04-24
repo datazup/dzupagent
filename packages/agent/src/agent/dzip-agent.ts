@@ -32,9 +32,8 @@ import {
   attachStructuredOutputCapabilities,
   type ModelTier,
   type StructuredOutputModelCapabilities,
-  shouldSummarize,
-  summarizeAndTrim,
 } from '@dzupagent/core'
+import { shouldSummarize, summarizeAndTrim } from '@dzupagent/context'
 import type {
   DzupAgentConfig,
   GenerateOptions,
