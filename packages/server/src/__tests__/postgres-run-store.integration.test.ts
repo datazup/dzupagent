@@ -104,6 +104,7 @@ async function createSchema(client: PgClient): Promise<void> {
       cost_cents          REAL DEFAULT 0,
       error               TEXT,
       owner_id            TEXT,
+      tenant_id           TEXT,
       metadata            JSONB DEFAULT '{}',
       input_embedding     vector(1536),
       output_embedding    vector(1536),

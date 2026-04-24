@@ -7,27 +7,40 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 import type { BenchmarkSuite } from '@dzupagent/eval-contracts'
+import { BenchmarkOrchestrator } from '@dzupagent/evals'
 import {
   InMemoryBenchmarkRunStore,
   type BenchmarkRunRecord,
 } from '../persistence/benchmark-run-store.js'
+
+const defaultQaSuite: BenchmarkSuite = {
+  id: 'qa',
+  name: 'QA Suite',
+  description: 'Default QA benchmark suite for tests',
+  category: 'qa',
+  dataset: [{ id: 'q1', input: 'hello', expectedOutput: 'answer:hello' }],
+  scorers: [],
+  baselineThresholds: {},
+}
 
 function createTestConfig(
   store?: InMemoryBenchmarkRunStore,
   suites?: Record<string, BenchmarkSuite>,
   options?: { allowNonStrictExecution?: boolean },
 ): ForgeServerConfig {
+  const resolvedSuites = suites ?? { qa: defaultQaSuite }
   return {
     runStore: new InMemoryRunStore(),
     agentStore: new InMemoryAgentStore(),
     eventBus: createEventBus(),
     modelRegistry: new ModelRegistry(),
     benchmark: {
+      suites: resolvedSuites,
       executeTarget: async (_targetId, input) => `answer:${input}`,
+      orchestratorFactory: (deps) => new BenchmarkOrchestrator(deps),
       ...(options?.allowNonStrictExecution === true
         ? { allowNonStrictExecution: true }
         : {}),
-      ...(suites ? { suites } : {}),
       ...(store ? { store } : {}),
     },
   }

@@ -8,6 +8,7 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 import type { EvalScorer, EvalSuite } from '@dzupagent/eval-contracts'
+import { EvalOrchestrator } from '@dzupagent/evals'
 import { InMemoryEvalRunStore } from '../persistence/eval-run-store.js'
 
 function createBaseConfig(): Omit<ForgeServerConfig, 'evals'> {
@@ -91,6 +92,7 @@ describe('eval lease recovery integration', () => {
           return input.toUpperCase()
         },
         store,
+        orchestratorFactory: (deps) => new EvalOrchestrator(deps),
       },
     })
 
@@ -147,6 +149,7 @@ describe('eval lease recovery integration', () => {
           return input.toUpperCase()
         },
         store,
+        orchestratorFactory: (deps) => new EvalOrchestrator(deps),
       },
     })
 
@@ -235,6 +238,7 @@ describe('eval lease recovery integration', () => {
           return input.toUpperCase()
         },
         store,
+        orchestratorFactory: (deps) => new EvalOrchestrator(deps),
       },
     })
 
@@ -295,6 +299,7 @@ describe('eval lease recovery integration', () => {
           return input.toUpperCase()
         },
         store,
+        orchestratorFactory: (deps) => new EvalOrchestrator(deps),
       },
     })
 
