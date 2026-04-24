@@ -169,8 +169,27 @@ export interface PipelineRuntimeConfig {
   definition: PipelineDefinition
   /** Function that executes individual nodes */
   nodeExecutor: NodeExecutor
-  /** Optional checkpoint store for persistence */
+  /**
+   * Optional checkpoint store for persistence.
+   *
+   * When omitted, the runtime selects a store automatically:
+   *   - `redisClient` present → RedisPipelineCheckpointStore
+   *   - `pgClient` present    → PostgresPipelineCheckpointStore
+   *   - neither               → InMemoryPipelineCheckpointStore
+   */
   checkpointStore?: PipelineCheckpointStore
+  /**
+   * Pre-connected Redis client (ioredis / node-redis compatible).
+   * Used to auto-wire `RedisPipelineCheckpointStore` when `checkpointStore`
+   * is not explicitly provided.
+   */
+  redisClient?: import('./redis-checkpoint-store.js').RedisClientLike
+  /**
+   * Pre-connected Postgres client (pg.Pool / pg.Client compatible).
+   * Used to auto-wire `PostgresPipelineCheckpointStore` when `checkpointStore`
+   * is not explicitly provided (and `redisClient` is also absent).
+   */
+  pgClient?: import('./postgres-checkpoint-store.js').PostgresClientLike
   /** Named predicate functions for conditional edges and loops */
   predicates?: Record<string, (state: Record<string, unknown>) => boolean>
   /** Cancellation signal */
