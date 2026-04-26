@@ -1,5 +1,10 @@
 /**
  * JSON-RPC 2.0 method handlers for A2A protocol.
+ *
+ * RF-SEC-05: every handler accepts an `A2ACallerScope` so the JSON-RPC
+ * surface enforces the same owner/tenant gating as the REST routes. Cross-
+ * owner reads return TASK_NOT_FOUND (the JSON-RPC analogue of HTTP 404)
+ * instead of a permission error so existence cannot be enumerated.
  */
 import type { A2ATaskState, A2ATaskMessage } from '../../a2a/task-handler.js'
 import {
@@ -12,7 +17,8 @@ import type {
   JsonRpcRequest,
   JsonRpcResponse,
 } from '@dzupagent/core'
-import type { A2ARoutesConfig } from './helpers.js'
+import type { A2ACallerScope, A2ARoutesConfig } from './helpers.js'
+import { callerOwnsTask } from './helpers.js'
 
 // ---------------------------------------------------------------------------
 // tasks/send — create or continue a task
@@ -21,6 +27,7 @@ import type { A2ARoutesConfig } from './helpers.js'
 export async function handleTasksSend(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
+  scope: A2ACallerScope,
 ): Promise<JsonRpcResponse> {
   const params = req.params
   if (!params) {
@@ -37,6 +44,11 @@ export async function handleTasksSend(
   // --- Multi-turn: continue existing task ---
   if (taskId) {
     const existing = await config.taskStore.get(taskId)
+    // RF-SEC-05: cross-owner continuation looks like TASK_NOT_FOUND so the
+    // attacker cannot tell whether the id exists.
+    if (existing && !callerOwnsTask(scope, existing)) {
+      return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
+    }
     if (existing) {
       // Only tasks in input-required state can accept more input
       if (existing.state === 'input-required') {
@@ -95,6 +107,10 @@ export async function handleTasksSend(
     input: inputText,
     state: 'submitted',
     metadata: params['metadata'] as Record<string, unknown> | undefined,
+    // RF-SEC-05: stamp owner + tenant from the JSON-RPC caller's scope so
+    // tasks/get and tasks/cancel can reject cross-owner access.
+    ownerId: scope.ownerId ?? null,
+    tenantId: scope.tenantId ?? null,
   })
 
   // Store the initial message
@@ -119,6 +135,7 @@ export async function handleTasksSend(
 export async function handleTasksGet(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
+  scope: A2ACallerScope,
 ): Promise<JsonRpcResponse> {
   const taskId = req.params?.['id'] as string | undefined
   if (!taskId) {
@@ -126,7 +143,8 @@ export async function handleTasksGet(
   }
 
   const task = await config.taskStore.get(taskId)
-  if (!task) {
+  // RF-SEC-05: missing record and cross-owner record share the same response.
+  if (!task || !callerOwnsTask(scope, task)) {
     return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
   }
 
@@ -140,6 +158,7 @@ export async function handleTasksGet(
 export async function handleTasksCancel(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
+  scope: A2ACallerScope,
 ): Promise<JsonRpcResponse> {
   const taskId = req.params?.['id'] as string | undefined
   if (!taskId) {
@@ -147,7 +166,9 @@ export async function handleTasksCancel(
   }
 
   const task = await config.taskStore.get(taskId)
-  if (!task) {
+  // RF-SEC-05: same NOT_FOUND shape for missing and cross-owner records so
+  // the cancellation surface cannot be used to enumerate task ids.
+  if (!task || !callerOwnsTask(scope, task)) {
     return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
   }
 
@@ -171,6 +192,7 @@ export async function handleTasksCancel(
 export async function handlePushNotificationSet(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
+  scope: A2ACallerScope,
 ): Promise<JsonRpcResponse> {
   const taskId = req.params?.['id'] as string | undefined
   if (!taskId) {
@@ -183,7 +205,7 @@ export async function handlePushNotificationSet(
   }
 
   const task = await config.taskStore.get(taskId)
-  if (!task) {
+  if (!task || !callerOwnsTask(scope, task)) {
     return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
   }
 
@@ -198,6 +220,7 @@ export async function handlePushNotificationSet(
 export async function handlePushNotificationGet(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
+  scope: A2ACallerScope,
 ): Promise<JsonRpcResponse> {
   const taskId = req.params?.['id'] as string | undefined
   if (!taskId) {
@@ -205,7 +228,7 @@ export async function handlePushNotificationGet(
   }
 
   const task = await config.taskStore.get(taskId)
-  if (!task) {
+  if (!task || !callerOwnsTask(scope, task)) {
     return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
   }
 

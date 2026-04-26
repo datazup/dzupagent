@@ -232,7 +232,7 @@ const navLinks = [
       <!-- Logo -->
       <div class="flex items-center gap-3 border-b border-pg-border px-5 py-4">
         <div
-          class="flex h-9 w-9 items-center justify-center rounded-[10px] bg-pg-accent text-sm font-bold text-pg-accent-text shadow-sm"
+          class="flex h-9 w-9 items-center justify-center rounded-pg bg-pg-accent text-sm font-bold text-pg-accent-text shadow-sm"
         >
           FA
         </div>
@@ -252,7 +252,7 @@ const navLinks = [
           v-for="link in navLinks"
           :key="link.to"
           :to="link.to"
-          class="flex items-center gap-2 rounded-[10px] border border-transparent px-3 py-2.5 text-sm font-medium text-pg-text-secondary transition-colors hover:bg-pg-surface-raised hover:text-pg-text"
+          class="flex items-center gap-2 rounded-pg border border-transparent px-3 py-2.5 text-sm font-medium text-pg-text-secondary transition-colors hover:bg-pg-surface-raised hover:text-pg-text"
           active-class="!border-pg-border !bg-pg-surface-raised !text-pg-text"
         >
           {{ link.label }}
@@ -266,7 +266,7 @@ const navLinks = [
       <div class="border-t border-pg-border px-5 py-4">
         <!-- Server health -->
         <div class="mb-3">
-          <div class="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-pg-text-muted">
+          <div class="mb-1 text-[11px] font-medium uppercase tracking-pg-label text-pg-text-muted">
             Server
           </div>
           <div class="flex items-center gap-2 text-xs text-pg-text-secondary">
@@ -303,7 +303,7 @@ const navLinks = [
 
         <!-- Realtime connection -->
         <div>
-          <div class="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-pg-text-muted">
+          <div class="mb-1 text-[11px] font-medium uppercase tracking-pg-label text-pg-text-muted">
             Realtime
           </div>
           <div class="flex items-center gap-2 text-xs text-pg-text-secondary">
@@ -321,7 +321,7 @@ const navLinks = [
     <main class="flex min-w-0 flex-1 flex-col overflow-hidden">
       <header class="flex items-center justify-between border-b border-pg-border pg-surface-glass px-4 py-3 md:hidden">
         <div class="flex items-center gap-3">
-          <div class="flex h-8 w-8 items-center justify-center rounded-[10px] bg-pg-accent text-xs font-bold text-pg-accent-text">
+          <div class="flex h-8 w-8 items-center justify-center rounded-pg bg-pg-accent text-xs font-bold text-pg-accent-text">
             FA
           </div>
           <div>

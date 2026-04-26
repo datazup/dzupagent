@@ -49,6 +49,8 @@ export { CrushAdapter } from './crush/crush-adapter.js'
 export { GooseAdapter } from './goose/goose-adapter.js'
 export { OpenRouterAdapter } from './openrouter/openrouter-adapter.js'
 export type { OpenRouterConfig } from './openrouter/openrouter-adapter.js'
+export { OpenAIAdapter } from './openai/openai-adapter.js'
+export type { OpenAIConfig, OpenAIRunResult } from './openai/openai-adapter.js'
 
 // --- Prompts ---
 export { SystemPromptBuilder } from './prompts/system-prompt-builder.js'

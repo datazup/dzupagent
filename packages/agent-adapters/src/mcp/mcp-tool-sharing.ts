@@ -171,6 +171,7 @@ export class MCPToolSharingBridge {
       case 'gemini-sdk':
       case 'goose':
       case 'openrouter':
+      case 'openai':
         return this.buildCLIConfig(toolList)
     }
   }

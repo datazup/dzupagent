@@ -124,6 +124,11 @@ const PROVIDER_COMPACTION_MAP: Record<AdapterProviderId, ProviderCompactionCapab
     preferredStrategy: 'truncate',
     maxContextTokens: 128_000,
   },
+  openai: {
+    supportsCompaction: false,
+    preferredStrategy: 'truncate',
+    maxContextTokens: 128_000,
+  },
 }
 
 // ---------------------------------------------------------------------------

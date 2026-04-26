@@ -141,6 +141,16 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
     supportsMaxTurns: true,
     supportsStructuredOutput: false,
   },
+  openai: {
+    supportsSandbox: false,
+    supportsNetworkToggle: false,
+    supportsApproval: false,
+    supportsToolAllowlist: false,
+    supportsToolBlocklist: false,
+    supportsBudget: false,
+    supportsMaxTurns: true,
+    supportsStructuredOutput: false,
+  },
 }
 
 // ---------------------------------------------------------------------------

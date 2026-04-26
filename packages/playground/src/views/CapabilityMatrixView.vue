@@ -7,6 +7,7 @@
  * Rows = providers, columns = capability keys.
  */
 import { ref } from 'vue'
+import PgBadge from '../components/ui/PgBadge.vue'
 
 type CapabilityStatus = 'active' | 'degraded' | 'dropped' | 'unsupported'
 
@@ -73,15 +74,6 @@ function onClear(): void {
   matrix.value = null
 }
 
-function badgeClass(status: CapabilityStatus): string {
-  switch (status) {
-    case 'active': return 'bg-green-500/20 text-green-400'
-    case 'degraded': return 'bg-yellow-500/20 text-yellow-400'
-    case 'dropped': return 'bg-red-500/20 text-red-400'
-    case 'unsupported': return 'bg-pg-surface-raised text-pg-text-muted'
-  }
-}
-
 function providerEntries(providers: SkillCapabilityMatrix['providers']): [AdapterProviderId, ProviderCapabilityRow][] {
   return Object.entries(providers) as [AdapterProviderId, ProviderCapabilityRow][]
 }
@@ -119,11 +111,11 @@ function providersWithWarnings(providers: SkillCapabilityMatrix['providers']): [
         v-model="input"
         type="text"
         placeholder="skillId"
-        class="flex-1 rounded-[10px] border border-pg-border bg-pg-surface px-3 py-2 text-sm text-pg-text placeholder:text-pg-text-muted focus:border-pg-accent focus:outline-none"
+        class="flex-1 rounded-pg border border-pg-border bg-pg-surface px-3 py-2 text-sm text-pg-text placeholder:text-pg-text-muted focus:border-pg-accent focus:outline-none"
       >
       <button
         type="submit"
-        class="rounded-[10px] bg-pg-accent px-4 py-2 text-sm font-medium text-pg-accent-text hover:opacity-90 disabled:opacity-50"
+        class="rounded-pg bg-pg-accent px-4 py-2 text-sm font-medium text-pg-accent-text hover:opacity-90 disabled:opacity-50"
         :disabled="input.trim().length === 0 || isLoading"
       >
         {{ isLoading ? 'Loading...' : 'Inspect' }}
@@ -131,7 +123,7 @@ function providersWithWarnings(providers: SkillCapabilityMatrix['providers']): [
       <button
         v-if="matrix || error"
         type="button"
-        class="rounded-[10px] border border-pg-border px-4 py-2 text-sm font-medium text-pg-text-secondary hover:bg-pg-surface-raised"
+        class="rounded-pg border border-pg-border px-4 py-2 text-sm font-medium text-pg-text-secondary hover:bg-pg-surface-raised"
         @click="onClear"
       >
         Clear
@@ -149,7 +141,7 @@ function providersWithWarnings(providers: SkillCapabilityMatrix['providers']): [
     <!-- Error -->
     <div
       v-else-if="error"
-      class="rounded-[10px] border border-pg-border bg-red-500/10 px-4 py-3 text-sm text-red-400"
+      class="rounded-pg border border-pg-border bg-red-500/10 px-4 py-3 text-sm text-red-400"
       role="alert"
     >
       {{ error }}
@@ -168,7 +160,7 @@ function providersWithWarnings(providers: SkillCapabilityMatrix['providers']): [
       </div>
 
       <!-- Table -->
-      <div class="overflow-x-auto rounded-[10px] border border-pg-border">
+      <div class="overflow-x-auto rounded-pg border border-pg-border">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-pg-border bg-pg-surface-raised">
@@ -198,12 +190,12 @@ function providersWithWarnings(providers: SkillCapabilityMatrix['providers']): [
                 :key="col.key"
                 class="px-4 py-2.5"
               >
-                <span
-                  class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                  :class="badgeClass(row[col.key])"
+                <PgBadge
+                  :capability="row[col.key]"
+                  size="sm"
                 >
                   {{ row[col.key] }}
-                </span>
+                </PgBadge>
               </td>
             </tr>
           </tbody>
@@ -221,7 +213,7 @@ function providersWithWarnings(providers: SkillCapabilityMatrix['providers']): [
         <div
           v-for="[providerId, warnings] in providersWithWarnings(matrix.providers)"
           :key="providerId"
-          class="rounded-[10px] border border-pg-border bg-yellow-500/5 px-4 py-3"
+          class="rounded-pg border border-pg-border bg-yellow-500/5 px-4 py-3"
         >
           <p class="mb-1.5 font-mono text-xs font-semibold text-pg-text">
             {{ providerId }}

@@ -23,6 +23,16 @@ import {
   type DlqRow,
 } from '../persistence/drizzle-dlq-store.js'
 
+/**
+ * Subset of {@link DrizzleDlqStore} surface the worker depends on.
+ *
+ * The worker only needs to drain due rows, record failed attempts, and remove
+ * a row after a successful out-of-band redelivery. Pinning the dependency to
+ * a narrow interface keeps the worker independent of unrelated DLQ helpers
+ * and makes it trivially mockable in tests.
+ */
+type DlqStoreDependency = Pick<DrizzleDlqStore, 'drain' | 'recordAttempt' | 'remove'>
+
 /** Default drain interval (10 seconds). */
 export const DEFAULT_DLQ_WORKER_INTERVAL_MS = 10_000
 
@@ -31,7 +41,7 @@ export const DEFAULT_DLQ_WORKER_BATCH_SIZE = 50
 
 export interface MailDlqWorkerConfig {
   /** DLQ store to drain. */
-  dlq: DrizzleDlqStore
+  dlq: DlqStoreDependency
   /** Mailbox store to retry delivery through. */
   mailbox: MailboxStore
   /** Drain interval in milliseconds. Defaults to 10s. */
@@ -66,7 +76,7 @@ function classifyFailure(error: unknown): string {
 }
 
 export class MailDlqWorker {
-  private readonly dlq: DrizzleDlqStore
+  private readonly dlq: DlqStoreDependency
   private readonly mailbox: MailboxStore
   private readonly intervalMs: number
   private readonly batchSize: number
@@ -150,10 +160,10 @@ export class MailDlqWorker {
     const message: MailMessage = dlqRowToMessage(row)
     try {
       await this.mailbox.save(message)
-      // Remove the original DLQ row so it is not retried again. We call the
-      // private helper below to avoid double-insert via `dlq.redeliver()`
-      // (which would re-insert into the mailbox).
-      await this.removeDlqRow(row.id)
+      // Remove the original DLQ row so it is not retried again. We use the
+      // store's public `remove(id)` helper to avoid double-insert via
+      // `dlq.redeliver()` (which would re-insert into the mailbox).
+      await this.dlq.remove(row.id)
       this.onSuccess?.(row.id)
       return true
     } catch (error) {
@@ -168,20 +178,5 @@ export class MailDlqWorker {
       this.onFailure?.(row.id, reason, error)
       return false
     }
-  }
-
-  /**
-   * Delete a DLQ row by id using the same Drizzle client the store holds.
-   * We reach through the store's `db` because the public API does not expose
-   * a plain `remove(id)` helper — the existing `redeliver(id)` would also
-   * re-insert into the mailbox, which we have already done via
-   * `mailbox.save()`.
-   */
-  private async removeDlqRow(id: string): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dlq = this.dlq as unknown as { db: any }
-    const { agentMailDlq } = await import('../persistence/drizzle-schema.js')
-    const { eq } = await import('drizzle-orm')
-    await dlq.db.delete(agentMailDlq).where(eq(agentMailDlq.id, id))
   }
 }

@@ -33,6 +33,7 @@ const PROVIDER_RATES: Record<AdapterProviderId, ProviderRates> = {
   crush: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
   goose: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
   openrouter: { inputCentsPer1M: 300, outputCentsPer1M: 1500 },
+  openai: { inputCentsPer1M: 250, outputCentsPer1M: 1000 },
 }
 
 // ---------------------------------------------------------------------------

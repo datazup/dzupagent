@@ -10,7 +10,7 @@
  * GET  /stream           — SSE stream of textual workflow execution events
  * GET  /                 — List named workflows from WorkflowRegistry
  */
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { createSkillChain, WorkflowCommandParser } from '@dzupagent/core'
 import type { SkillRegistry, WorkflowRegistry, SkillChain } from '@dzupagent/core'
@@ -346,9 +346,9 @@ function isAllowedTarget(v: unknown): v is CompilationTarget {
  * Any other target is rejected before compilation to fail fast.
  */
 async function executeCompiledFlow(
-  // Hono Context is parameterless here — we use it only for .json/.req/streamSSE helpers.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  c: any,
+  // Narrowed to the Hono Context surface this helper actually consumes
+  // (`json`, `req.header`, and pass-through into `streamSSE`).
+  c: Context,
   body: {
     flow?: unknown
     document?: unknown

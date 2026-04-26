@@ -23,6 +23,7 @@ import type {
   RawAgentEvent,
   TokenUsage,
 } from '../types.js'
+import { withCorrelationId } from '../types.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
 
 // ---------------------------------------------------------------------------
@@ -578,28 +579,26 @@ export class CodexAdapter implements AgentCLIAdapter {
           durationMs,
           error: errMsg,
         })
-        yield {
+        yield withCorrelationId({
           type: 'adapter:failed',
           providerId: this.providerId,
           sessionId,
           error: didTimeout ? `Codex adapter timed out after ${durationMs}ms` : errMsg,
           code: didTimeout ? 'ADAPTER_TIMEOUT' : 'ADAPTER_EXECUTION_FAILED',
           timestamp: now(),
-          ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-        }
+        }, input.correlationId)
         return
       }
 
       console.error('[codex-adapter.ts:runStreamedThread] runStreamed() threw', { sessionId, error: errMsg })
-      yield {
+      yield withCorrelationId({
         type: 'adapter:failed',
         providerId: this.providerId,
         sessionId,
         error: errMsg,
         code: 'ADAPTER_EXECUTION_FAILED',
         timestamp: now(),
-        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-      }
+      }, input.correlationId)
       return
     }
 
@@ -660,7 +659,7 @@ export class CodexAdapter implements AgentCLIAdapter {
           const now2 = now()
 
           if (policy.mode === 'ask-caller') {
-            const interactionEvent = annotateProviderIdentity({
+            const interactionEvent = annotateProviderIdentity(withCorrelationId({
               type: 'adapter:interaction_required',
               providerId: this.providerId,
               interactionId,
@@ -668,13 +667,12 @@ export class CodexAdapter implements AgentCLIAdapter {
               kind: item.kind,
               timestamp: now2,
               expiresAt: now2 + (policy.askCaller?.timeoutMs ?? 60_000),
-              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-            }, rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
+            }, input.correlationId), rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
             yield interactionEvent
           }
 
           const result = await resolver.resolve({ interactionId, question: item.message, kind: item.kind })
-          const resolvedEvent = annotateProviderIdentity({
+          const resolvedEvent = annotateProviderIdentity(withCorrelationId({
             type: 'adapter:interaction_resolved',
             providerId: this.providerId,
             interactionId,
@@ -682,8 +680,7 @@ export class CodexAdapter implements AgentCLIAdapter {
             answer: result.answer,
             resolvedBy: result.resolvedBy,
             timestamp: now(),
-            ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-          }, rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
+          }, input.correlationId), rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
           yield resolvedEvent
           continue
         }
@@ -709,7 +706,7 @@ export class CodexAdapter implements AgentCLIAdapter {
             const now2 = now()
 
             if (policy.mode === 'ask-caller') {
-              const interactionEvent = annotateProviderIdentity({
+              const interactionEvent = annotateProviderIdentity(withCorrelationId({
                 type: 'adapter:interaction_required',
                 providerId: this.providerId,
                 interactionId,
@@ -717,13 +714,12 @@ export class CodexAdapter implements AgentCLIAdapter {
                 kind: 'permission',
                 timestamp: now2,
                 expiresAt: now2 + (policy.askCaller?.timeoutMs ?? 60_000),
-                ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-              }, rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
+              }, input.correlationId), rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
               yield interactionEvent
             }
 
             const result = await resolver.resolve({ interactionId, question: errMsg, kind: 'permission' })
-            yield annotateProviderIdentity({
+            yield annotateProviderIdentity(withCorrelationId({
               type: 'adapter:interaction_resolved',
               providerId: this.providerId,
               interactionId,
@@ -731,32 +727,28 @@ export class CodexAdapter implements AgentCLIAdapter {
               answer: result.answer,
               resolvedBy: result.resolvedBy,
               timestamp: now(),
-              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-            }, rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
+            }, input.correlationId), rawProviderEvent.rawEvent.providerEventId ?? null, rawProviderEvent.rawEvent.parentProviderEventId ?? null)
 
             if (result.answer === 'yes' || result.answer === 'approve') {
               // Resume the thread with an approval message
               const approvalThread = codex.resumeThread(sessionId, this.buildThreadOptions(input))
               yield* this.runStreamedThread(approvalThread, input, codex)
             } else {
-              yield {
+              yield withCorrelationId({
                 type: 'adapter:failed',
                 providerId: this.providerId,
                 sessionId,
                 error: `Interaction denied by policy: ${errMsg}`,
                 code: 'INTERACTION_DENIED',
                 timestamp: now(),
-                ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-              }
+              }, input.correlationId)
             }
             return
           }
         }
 
-        for (const agentEvent of mapped) {
-          if (input.correlationId) {
-            ;(agentEvent as unknown as Record<string, unknown>).correlationId = input.correlationId
-          }
+        for (const rawAgentEvent of mapped) {
+          const agentEvent = withCorrelationId(rawAgentEvent, input.correlationId)
           yield agentEvent
 
           if (agentEvent.type === 'adapter:message' && agentEvent.role === 'assistant') {
@@ -774,7 +766,7 @@ export class CodexAdapter implements AgentCLIAdapter {
           sessionId, reason, durationMs: now() - startTime, finalResponseLength: finalResponse.length,
           eventCount, lastEventType, lastEventAgeMs: now() - lastEventAt,
         })
-        yield {
+        yield withCorrelationId({
           type: didTimeout ? 'adapter:failed' : 'adapter:completed',
           providerId: this.providerId,
           sessionId,
@@ -784,22 +776,20 @@ export class CodexAdapter implements AgentCLIAdapter {
           ...(lastUsage !== undefined ? { usage: lastUsage } : {}),
           durationMs: now() - startTime,
           timestamp: now(),
-          ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-        } as AgentEvent
+        } as AgentEvent, input.correlationId)
         return
       }
 
       const errMsg = err instanceof Error ? err.message : String(err)
       console.error('[codex-adapter.ts:runStreamedThread] event loop threw', { sessionId, error: errMsg })
-      yield {
+      yield withCorrelationId({
         type: 'adapter:failed',
         providerId: this.providerId,
         sessionId,
         error: errMsg,
         code: 'ADAPTER_EXECUTION_FAILED',
         timestamp: now(),
-        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-      }
+      }, input.correlationId)
       return
     } finally {
       clearTimeout(timeoutHandle)
@@ -815,7 +805,7 @@ export class CodexAdapter implements AgentCLIAdapter {
 
     // Always emit a single adapter:completed with the accumulated response
     // and any usage data captured from turn.completed events.
-    yield {
+    yield withCorrelationId({
       type: 'adapter:completed',
       providerId: this.providerId,
       sessionId,
@@ -823,8 +813,7 @@ export class CodexAdapter implements AgentCLIAdapter {
       ...(lastUsage !== undefined ? { usage: lastUsage } : {}),
       durationMs: now() - startTime,
       timestamp: now(),
-      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-    }
+    }, input.correlationId)
   }
 
   private wrapRawProviderEvent(

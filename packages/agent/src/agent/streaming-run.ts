@@ -22,6 +22,7 @@ import {
   extractTokenUsage,
   estimateTokens,
   type TokenUsage,
+  type ModelRegistry,
 } from '@dzupagent/core'
 import type {
   DzupAgentConfig,
@@ -46,6 +47,25 @@ export interface StreamRunContext {
   agentId: string
   config: DzupAgentConfig
   resolvedModel: BaseChatModel
+  /**
+   * Provider name returned by the registry when tier-based fallback was
+   * used at agent construction time. Carries the selected provider into the
+   * native streaming path so that stream success/failure can be recorded
+   * against the same circuit breaker the non-streaming path uses.
+   *
+   * Selection-time only: this provider is fixed for the lifetime of the
+   * run; we do not switch providers mid-stream on transient failure.
+   * `undefined` when the agent was constructed with an explicit model
+   * instance or a model resolved by name (no fallback chain in play).
+   */
+  resolvedProvider?: string | undefined
+  /**
+   * Registry used to resolve {@link resolvedProvider}. Required to thread
+   * native-stream outcomes back to the circuit breaker via
+   * `recordProviderSuccess` / `recordProviderFailure`. `undefined` when
+   * `resolvedProvider` is also `undefined`.
+   */
+  registry?: ModelRegistry | undefined
   prepareMessages: (messages: BaseMessage[]) => Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }>
   getTools: () => StructuredToolInterface[]
   bindTools: (model: BaseChatModel, tools: StructuredToolInterface[]) => BaseChatModel
@@ -177,16 +197,46 @@ export async function* streamRun(
     }
 
     const chunks: string[] = []
-    const stream = await streamModel.stream(allMessages)
+    // Record native streaming outcomes against the same circuit breaker the
+    // non-streaming path feeds via `invokeModelWithMiddleware`. We follow the
+    // selection-time-only fallback model: success/failure is recorded for the
+    // single provider chosen at construction; we never switch providers
+    // mid-run on a transient failure. The breaker state opens the circuit at
+    // the next agent construction (or wherever else `getModelWithFallback`
+    // is consulted).
+    let stream: AsyncIterable<AIMessage>
+    try {
+      stream = await streamModel.stream(allMessages)
+    } catch (err) {
+      if (ctx.resolvedProvider && ctx.registry) {
+        const asError = err instanceof Error ? err : new Error(String(err))
+        ctx.registry.recordProviderFailure(ctx.resolvedProvider, asError)
+      }
+      throw err
+    }
     llmCalls += 1
 
     let fullResponse: AIMessage | null = null
-    for await (const chunk of stream) {
-      fullResponse = chunk
-      const content = typeof chunk.content === 'string' ? chunk.content : ''
-      if (content) {
-        chunks.push(content)
-        yield { type: 'text', data: { content } }
+    let streamThrew = false
+    try {
+      for await (const chunk of stream) {
+        fullResponse = chunk
+        const content = typeof chunk.content === 'string' ? chunk.content : ''
+        if (content) {
+          chunks.push(content)
+          yield { type: 'text', data: { content } }
+        }
+      }
+    } catch (err) {
+      streamThrew = true
+      if (ctx.resolvedProvider && ctx.registry) {
+        const asError = err instanceof Error ? err : new Error(String(err))
+        ctx.registry.recordProviderFailure(ctx.resolvedProvider, asError)
+      }
+      throw err
+    } finally {
+      if (!streamThrew && ctx.resolvedProvider && ctx.registry) {
+        ctx.registry.recordProviderSuccess(ctx.resolvedProvider)
       }
     }
 

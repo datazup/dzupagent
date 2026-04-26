@@ -55,13 +55,33 @@ export interface A2ATask {
   artifacts: A2ATaskArtifact[]
   /** Push notification configuration for this task. */
   pushNotificationConfig?: A2ATaskPushConfig
+  /**
+   * RF-SEC-05: Owner scope. Identifier of the API key that created the task.
+   * `null` when auth is disabled (single-caller default). Cross-owner access
+   * is filtered to a NOT_FOUND response so existence cannot be enumerated.
+   */
+  ownerId?: string | null
+  /**
+   * RF-SEC-05: Tenant scope. Tenant id carried by the authenticated key at
+   * creation time. Defaults to `'default'` when auth is disabled.
+   */
+  tenantId?: string | null
+}
+
+export interface A2ATaskListFilter {
+  agentName?: string
+  state?: A2ATaskState
+  /** Restrict listing to tasks owned by this API key id. */
+  ownerId?: string | null
+  /** Restrict listing to tasks within this tenant. */
+  tenantId?: string | null
 }
 
 export interface A2ATaskStore {
   create(task: Omit<A2ATask, 'id' | 'createdAt' | 'updatedAt' | 'messages' | 'artifacts'>): Promise<A2ATask>
   get(id: string): Promise<A2ATask | null>
   update(id: string, updates: Partial<Pick<A2ATask, 'state' | 'output' | 'error' | 'metadata'>>): Promise<A2ATask | null>
-  list(filter?: { agentName?: string; state?: A2ATaskState }): Promise<A2ATask[]>
+  list(filter?: A2ATaskListFilter): Promise<A2ATask[]>
   /** Append a message to a task's conversation. */
   appendMessage(id: string, message: A2ATaskMessage): Promise<A2ATask | null>
   /** Add an artifact to a task. */
@@ -84,6 +104,9 @@ export class InMemoryA2ATaskStore implements A2ATaskStore {
   ): Promise<A2ATask> {
     this.counter += 1
     const now = new Date().toISOString()
+    // RF-SEC-05: Persist owner/tenant exactly as supplied so the routes can
+    // enforce scope on subsequent reads. Undefined collapses to null so the
+    // shape stays predictable across stores.
     const record: A2ATask = {
       ...task,
       id: `a2a-task-${this.counter}`,
@@ -91,6 +114,8 @@ export class InMemoryA2ATaskStore implements A2ATaskStore {
       updatedAt: now,
       messages: [],
       artifacts: [],
+      ownerId: task.ownerId ?? null,
+      tenantId: task.tenantId ?? null,
     }
     this.tasks.set(record.id, record)
     return record
@@ -116,7 +141,7 @@ export class InMemoryA2ATaskStore implements A2ATaskStore {
     return updated
   }
 
-  async list(filter?: { agentName?: string; state?: A2ATaskState }): Promise<A2ATask[]> {
+  async list(filter?: A2ATaskListFilter): Promise<A2ATask[]> {
     let results = Array.from(this.tasks.values())
 
     if (filter?.agentName) {
@@ -124,6 +149,17 @@ export class InMemoryA2ATaskStore implements A2ATaskStore {
     }
     if (filter?.state) {
       results = results.filter((t) => t.state === filter.state)
+    }
+    // RF-SEC-05: scope filtering. Empty/undefined filter values are treated
+    // as "no constraint" so unauthenticated single-tenant deployments keep
+    // returning every task as before.
+    if (filter?.ownerId !== undefined && filter.ownerId !== null) {
+      const wanted = filter.ownerId
+      results = results.filter((t) => (t.ownerId ?? null) === wanted)
+    }
+    if (filter?.tenantId !== undefined && filter.tenantId !== null) {
+      const wanted = filter.tenantId
+      results = results.filter((t) => (t.tenantId ?? null) === wanted)
     }
 
     return results.sort(

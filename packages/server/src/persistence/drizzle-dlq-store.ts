@@ -161,6 +161,17 @@ export class DrizzleDlqStore {
   }
 
   /**
+   * Delete a DLQ row by id without re-inserting into the mailbox.
+   *
+   * Use this when the caller has already routed the message back into
+   * `agent_mailbox` via {@link MailboxStore.save} and just wants to remove the
+   * DLQ entry — {@link redeliver} would double-insert.
+   */
+  async remove(id: string): Promise<void> {
+    await this.db.delete(agentMailDlq).where(eq(agentMailDlq.id, id))
+  }
+
+  /**
    * Mark a DLQ row dead. Dead rows are skipped by {@link drain}.
    */
   async markDead(id: string, now: number = Date.now()): Promise<void> {

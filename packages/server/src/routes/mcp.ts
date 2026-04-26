@@ -20,7 +20,54 @@ import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../app.js'
 import { sanitizeError } from './route-error.js'
 import { McpServerSchema, validateBodyCompat } from './schemas.js'
-import type { McpServerInput, McpServerPatch, McpProfile } from '@dzupagent/core'
+import type {
+  McpServerInput,
+  McpServerPatch,
+  McpProfile,
+  McpServerDefinition,
+} from '@dzupagent/core'
+
+// ---------------------------------------------------------------------------
+// Response redaction (QF-SEC-06)
+// ---------------------------------------------------------------------------
+
+/**
+ * Redacted view of an {@link McpServerDefinition} for HTTP responses.
+ *
+ * Inline secrets carried on `env` and sensitive `headers` (authorization,
+ * x-api-key, bearer tokens) are replaced with a sentinel string so they
+ * are never returned by the management API. Stored definitions retain
+ * the original values for the MCP execution path.
+ */
+type PublicMcpServerDefinition = Omit<McpServerDefinition, 'env' | 'headers'> & {
+  env?: Record<string, string>
+  headers?: Record<string, string>
+}
+
+const SENSITIVE_HEADER_PATTERN = /authorization|x-api-key|bearer|x-auth|cookie|token/i
+
+function redactMcpDefinition(
+  def: McpServerDefinition,
+): PublicMcpServerDefinition {
+  const redacted: PublicMcpServerDefinition = { ...def }
+
+  if (def.env) {
+    redacted.env = Object.fromEntries(
+      Object.keys(def.env).map((k) => [k, '[REDACTED]']),
+    )
+  }
+
+  if (def.headers) {
+    redacted.headers = Object.fromEntries(
+      Object.entries(def.headers).map(([k, v]) => [
+        k,
+        SENSITIVE_HEADER_PATTERN.test(k) ? '[REDACTED]' : v,
+      ]),
+    )
+  }
+
+  return redacted
+}
 
 export function createMcpRoutes(
   config: Pick<ForgeServerConfig, 'mcpManager' | 'mcpAllowedExecutables'>,
@@ -45,7 +92,10 @@ export function createMcpRoutes(
   // GET /servers — list all servers
   app.get('/servers', async (c) => {
     const servers = await config.mcpManager!.listServers()
-    return c.json({ data: servers, count: servers.length })
+    return c.json({
+      data: servers.map(redactMcpDefinition),
+      count: servers.length,
+    })
   })
 
   // POST /servers — add a server
@@ -75,7 +125,7 @@ export function createMcpRoutes(
 
     try {
       const server = await config.mcpManager!.addServer(body)
-      return c.json({ data: server }, 201)
+      return c.json({ data: redactMcpDefinition(server) }, 201)
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
       console.error(`[mcp] ${internal}`)
@@ -99,7 +149,7 @@ export function createMcpRoutes(
         404,
       )
     }
-    return c.json({ data: server })
+    return c.json({ data: redactMcpDefinition(server) })
   })
 
   // PATCH /servers/:id — update a server
@@ -115,9 +165,33 @@ export function createMcpRoutes(
       )
     }
 
+    // MJ-SEC-03: validate stdio executable allowlist on patch.
+    // A patch may change transport to stdio or change the endpoint of an
+    // existing stdio server — both must be gated.
+    if (patch.transport === 'stdio' || patch.endpoint !== undefined) {
+      const existing = await config.mcpManager!.getServer(id)
+      const effectiveTransport = patch.transport ?? existing?.transport
+      if (effectiveTransport === 'stdio') {
+        const effectiveEndpoint = patch.endpoint ?? existing?.endpoint ?? ''
+        const allowedExes = config.mcpAllowedExecutables ?? []
+        if (!allowedExes.includes(effectiveEndpoint)) {
+          return c.json(
+            {
+              error: {
+                code: 'FORBIDDEN',
+                message:
+                  'stdio MCP server command not in allowlist. Set mcpAllowedExecutables in ForgeServerConfig.',
+              },
+            },
+            403,
+          )
+        }
+      }
+    }
+
     try {
       const updated = await config.mcpManager!.updateServer(id, patch)
-      return c.json({ data: updated })
+      return c.json({ data: redactMcpDefinition(updated) })
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
       console.error(`[mcp] ${internal}`)
@@ -151,7 +225,7 @@ export function createMcpRoutes(
     const id = c.req.param('id')
     try {
       const server = await config.mcpManager!.enableServer(id)
-      return c.json({ data: server })
+      return c.json({ data: redactMcpDefinition(server) })
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
       console.error(`[mcp] ${internal}`)
@@ -170,7 +244,7 @@ export function createMcpRoutes(
     const id = c.req.param('id')
     try {
       const server = await config.mcpManager!.disableServer(id)
-      return c.json({ data: server })
+      return c.json({ data: redactMcpDefinition(server) })
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
       console.error(`[mcp] ${internal}`)

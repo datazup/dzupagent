@@ -23,6 +23,7 @@ import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { resolveFallbackProviderId } from '../utils/provider-helpers.js'
 import type { EscalationHandler } from './escalation-handler.js'
 import { CrossProviderHandoff } from './cross-provider-handoff.js'
+import { selectRecoveryStrategy } from './recovery-strategy.js'
 
 // ---------------------------------------------------------------------------
 // Recovery strategy type
@@ -1136,32 +1137,16 @@ export class AdapterRecoveryCopilot {
   // ---------------------------------------------------------------------------
 
   private selectStrategy(failure: FailureContext): RecoveryStrategy {
-    // Use custom selector if provided
-    if (this.strategySelector) {
-      return this.strategySelector(failure)
-    }
-
-    // Walk through the strategy order and pick the first applicable one
-    const attemptIndex = failure.attemptNumber - 1 // 0-based
-
-    for (let i = attemptIndex; i < this.strategyOrder.length; i++) {
-      const strategy = this.strategyOrder[i]
-      if (strategy === undefined) continue
-
-      // Skip retry-different-provider if all providers have been exhausted
-      if (strategy === 'retry-different-provider') {
-        const healthyProviders = this.registry.listAdapters()
-        const available = healthyProviders.filter(
-          (id) => !failure.exhaustedProviders.includes(id),
-        )
-        if (available.length === 0) continue
-      }
-
-      return strategy
-    }
-
-    // Fall back to abort if nothing else is applicable
-    return 'abort'
+    // Delegate to the standalone selector. This keeps the registry lookup
+    // (the only side effect) here so the helper stays pure and easily
+    // testable, while preserving the exact ordering, skipping, and abort
+    // fallback semantics of the original in-class implementation.
+    return selectRecoveryStrategy({
+      failure,
+      strategyOrder: this.strategyOrder,
+      availableProviders: this.registry.listAdapters(),
+      strategySelector: this.strategySelector,
+    })
   }
 
   // ---------------------------------------------------------------------------

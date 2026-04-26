@@ -54,6 +54,21 @@ export interface AgentMemoryContextLoaderConfig {
    */
   onFallback?: (reason: string, before: number, after: number) => void
   /**
+   * Structured diagnostic callback with richer context than onFallback.
+   * Receives reason code, human-readable detail, provider label, namespace,
+   * and optional token estimates. Never receives raw scope keys/values or
+   * memory record content.
+   */
+  onFallbackDetail?: (event: {
+    reason: string
+    detail: string
+    namespace: string
+    /** Provider label such as 'arrow' or 'standard'. */
+    provider?: string
+    tokensBefore?: number
+    tokensAfter?: number
+  }) => void
+  /**
    * Optional frozen snapshot for prompt-cache optimization.
    * When set and not invalidated, skips memory reload and returns cached context.
    */
@@ -107,15 +122,55 @@ export class AgentMemoryContextLoader {
           this.config.frozenSnapshot?.freeze(result.context, result.frame)
         }
         return result
-      } catch {
+      } catch (err) {
         // Fall back to the standard path if Arrow selection fails.
-        this.config.onFallback?.('arrow_fallback', 0, 0)
+        // Emit structured reason so operators can distinguish absence from outage.
+        // Tokens before = estimated conversation+system before fallback;
+        // tokensAfter is unknown until the standard path runs, so emit 0
+        // as a non-leaking placeholder.
+        const reason = err instanceof Error ? err.message : String(err)
+        const tokensBefore = this.safeEstimateInputTokens(messages)
+        this.config.onFallback?.('arrow_fallback', tokensBefore, 0)
+        this.config.onFallbackDetail?.({
+          reason: 'arrow_runtime_failure',
+          detail: reason,
+          namespace: this.safeNamespace(namespace),
+          provider: 'arrow',
+          tokensBefore,
+          tokensAfter: 0,
+        })
       }
     }
 
     const records = await memory.get(namespace, scope)
     const context = memory.formatForPrompt(records) || null
     return { context }
+  }
+
+  /**
+   * Estimate the input token cost (system prompt + conversation) without
+   * touching memory content. Used purely for telemetry; never leaks
+   * scope keys/values or stored records.
+   */
+  private safeEstimateInputTokens(messages: BaseMessage[]): number {
+    try {
+      const systemTokens = estimateTokens(this.config.instructions)
+      const conversationTokens = this.config.estimateConversationTokens(messages)
+      return systemTokens + conversationTokens
+    } catch {
+      return 0
+    }
+  }
+
+  /**
+   * Return a redacted namespace label safe for telemetry. The namespace is
+   * a logical bucket name (e.g. 'facts', 'episodic') and never a secret in
+   * the framework, but we cap the length defensively in case operators
+   * choose unconventional values.
+   */
+  private safeNamespace(namespace: string | undefined): string {
+    if (!namespace) return 'unknown'
+    return namespace.length > 64 ? `${namespace.slice(0, 64)}...` : namespace
   }
 
   private async loadArrowMemoryContext(
@@ -153,7 +208,22 @@ export class AgentMemoryContextLoader {
     ))
 
     if (memoryBudget <= 0) {
-      this.config.onFallback?.('budget_zero', 0, 0)
+      const tokensBefore = systemPromptTokens + conversationTokens
+      this.config.onFallback?.('budget_zero', tokensBefore, 0)
+      this.config.onFallbackDetail?.({
+        reason: 'memory_budget_zero',
+        // detail uses only numeric estimates — no scope or record content.
+        detail:
+          `systemPromptTokens=${systemPromptTokens} ` +
+          `conversationTokens=${conversationTokens} ` +
+          `totalBudget=${totalBudget} ` +
+          `minResponseReserve=${minResponseReserve} ` +
+          `maxMemoryFraction=${maxMemoryFraction}`,
+        namespace: this.safeNamespace(namespace),
+        provider: 'arrow',
+        tokensBefore,
+        tokensAfter: 0,
+      })
       return { context: null, frame }
     }
 

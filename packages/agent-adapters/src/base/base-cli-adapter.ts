@@ -14,6 +14,7 @@ import type {
   EnvFilterConfig,
   InteractionPolicy,
 } from '../types.js'
+import { withCorrelationId } from '../types.js'
 import { isBinaryAvailable, spawnAndStreamJsonl } from '../utils/process-helpers.js'
 import type { SpawnJsonlOptions } from '../utils/process-helpers.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
@@ -346,7 +347,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
     await this.assertReady()
 
-    yield {
+    yield withCorrelationId({
       type: 'adapter:started',
       providerId: this.providerId,
       sessionId,
@@ -356,8 +357,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       model: this.config.model,
       workingDirectory: input.workingDirectory ?? this.config.workingDirectory,
       isResume: !!input.resumeSessionId,
-      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-    }
+    }, input.correlationId)
 
     // ArtifactWatcher integration: start watcher on run begin, stop on end
     // (requires @datazup/dzupagent-adapter-monitor peer). When the peer is
@@ -402,7 +402,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         const runId = input.correlationId ?? sessionId
 
         if (policy.mode === 'ask-caller') {
-          pendingEvents.push({
+          pendingEvents.push(withCorrelationId({
             type: 'adapter:interaction_required',
             providerId: this.providerId,
             interactionId,
@@ -410,8 +410,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
             kind,
             timestamp: now,
             expiresAt: now + timeoutMs,
-            ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-          })
+          }, input.correlationId))
         }
 
         // Governance side-channel: mirror every interaction request as an
@@ -429,7 +428,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
         const result = await resolver.resolve({ interactionId, question, kind })
 
-        pendingEvents.push({
+        pendingEvents.push(withCorrelationId({
           type: 'adapter:interaction_resolved',
           providerId: this.providerId,
           interactionId,
@@ -437,8 +436,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           answer: result.answer,
           resolvedBy: result.resolvedBy,
           timestamp: Date.now(),
-          ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-        })
+        }, input.correlationId))
 
         // Governance side-channel: mirror resolution with a normalized
         // resolution field distinct from the detailed resolvedBy.
@@ -515,12 +513,10 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           })
         }
 
-        const event = this.mapProviderEvent(record, sessionId)
-        if (!event) continue
+        const mapped = this.mapProviderEvent(record, sessionId)
+        if (!mapped) continue
 
-        if (input.correlationId) {
-          ;(event as unknown as Record<string, unknown>).correlationId = input.correlationId
-        }
+        const event = withCorrelationId(mapped, input.correlationId)
 
         if (event.type === 'adapter:completed') {
           hasCompleted = true
@@ -537,27 +533,25 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       }
 
       if (!hasCompleted && !hasFailed) {
-        yield {
+        yield withCorrelationId({
           type: 'adapter:completed',
           providerId: this.providerId,
           sessionId,
           result: '',
           durationMs: Date.now() - startTime,
           timestamp: Date.now(),
-          ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-        }
+        }, input.correlationId)
       }
     } catch (err: unknown) {
       const normalized = this.normalizeError(err)
-      yield {
+      yield withCorrelationId({
         type: 'adapter:failed',
         providerId: this.providerId,
         sessionId,
         error: normalized.message,
         code: normalized.code,
         timestamp: Date.now(),
-        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-      }
+      }, input.correlationId)
 
       if (this.shouldRethrow(normalized.original)) {
         throw normalized.original

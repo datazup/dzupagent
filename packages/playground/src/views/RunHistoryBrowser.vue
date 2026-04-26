@@ -9,6 +9,8 @@
 import { onMounted, ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useRunStore } from '../stores/run-store.js'
+import PgBadge from '../components/ui/PgBadge.vue'
+import PgButton from '../components/ui/PgButton.vue'
 import type { RunStatus } from '../types.js'
 
 const router = useRouter()
@@ -31,21 +33,6 @@ const offset = computed(() => (page.value - 1) * limit.value)
 const totalPages = computed(() => Math.max(1, Math.ceil(runStore.totalCount / limit.value)))
 const hasPrev = computed(() => page.value > 1)
 const hasNext = computed(() => page.value < totalPages.value)
-
-function statusBadgeClass(status: string): string {
-  switch (status) {
-    case 'pending': return 'bg-gray-200 text-gray-700'
-    case 'queued': return 'bg-gray-200 text-gray-700'
-    case 'running': return 'bg-blue-100 text-blue-700'
-    case 'executing': return 'bg-blue-100 text-blue-700'
-    case 'completed': return 'bg-green-100 text-green-700'
-    case 'failed': return 'bg-red-100 text-red-700'
-    case 'cancelled': return 'bg-gray-200 text-gray-500'
-    case 'rejected': return 'bg-red-100 text-red-600'
-    case 'awaiting_approval': return 'bg-yellow-100 text-yellow-700'
-    default: return 'bg-gray-100 text-gray-600'
-  }
-}
 
 function formatDuration(ms: number | undefined): string {
   if (ms === undefined || ms === null) return '--'
@@ -215,12 +202,9 @@ onMounted(() => {
                   {{ run.agentId }}
                 </td>
                 <td class="px-4 py-3">
-                  <span
-                    class="inline-block rounded-full px-2.5 py-1 text-xs font-medium"
-                    :class="statusBadgeClass(run.status)"
-                  >
+                  <PgBadge :status="run.status">
                     {{ run.status }}
-                  </span>
+                  </PgBadge>
                 </td>
                 <td class="px-4 py-3 text-xs text-pg-text-secondary">
                   {{ formatTimestamp(run.startedAt) }}
@@ -229,12 +213,12 @@ onMounted(() => {
                   {{ formatDuration(run.durationMs) }}
                 </td>
                 <td class="px-4 py-3">
-                  <button
-                    class="rounded-pg-sm border border-pg-border px-2.5 py-1 text-xs text-pg-text-secondary hover:bg-pg-surface-raised hover:text-pg-text"
+                  <PgButton
+                    size="sm"
                     @click.stop="openRunDetail(run.id)"
                   >
                     View
-                  </button>
+                  </PgButton>
                 </td>
               </tr>
 
@@ -282,20 +266,18 @@ onMounted(() => {
           ({{ runStore.filteredRuns.length }} shown)
         </span>
         <div class="flex gap-2">
-          <button
+          <PgButton
             :disabled="!hasPrev"
-            class="rounded-pg-sm border border-pg-border px-3 py-1.5 hover:bg-pg-surface-raised disabled:cursor-not-allowed disabled:opacity-40"
             @click="goToPage(page - 1)"
           >
             Previous
-          </button>
-          <button
+          </PgButton>
+          <PgButton
             :disabled="!hasNext"
-            class="rounded-pg-sm border border-pg-border px-3 py-1.5 hover:bg-pg-surface-raised disabled:cursor-not-allowed disabled:opacity-40"
             @click="goToPage(page + 1)"
           >
             Next
-          </button>
+          </PgButton>
         </div>
       </div>
     </div>

@@ -106,16 +106,34 @@ async function* spawnAndStream(opts: SpawnBridgeOptions): AsyncGenerator<NdjsonL
   child.stdin.write(flowJson, 'utf8')
   child.stdin.end()
 
-  // Drain stderr so it doesn't block the child's output pipe.
+  // Drain stderr so it doesn't block the child's output pipe and so we can
+  // surface diagnostics when the child exits non-zero.
   const stderrChunks: string[] = []
   child.stderr?.setEncoding('utf8')
   child.stderr?.on('data', (chunk: string) => stderrChunks.push(chunk))
+
+  // Capture the child's exit code/signal so we can gate success on it. The
+  // protocol delivers a terminal `result` or `error` frame on stdout, but
+  // partial NDJSON cannot be trusted as success — we MUST observe a clean
+  // exit (code === 0) before treating any earlier `result` frame as final.
+  let exitCode: number | null = null
+  let exitSignal: NodeJS.Signals | null = null
+  let exited = false
+  const exitPromise = new Promise<void>((resolve) => {
+    child.once('close', (code: number | null, sig: NodeJS.Signals | null | undefined) => {
+      exitCode = code
+      exitSignal = sig ?? null
+      exited = true
+      resolve()
+    })
+  })
 
   const readable = child.stdout as Readable
   readable.setEncoding('utf8')
 
   let buffer = ''
   let terminal = false
+  let bufferedResult: Extract<NdjsonLine, { type: 'result' }> | null = null
   try {
     for await (const chunk of readable) {
       if (aborted) break
@@ -135,9 +153,17 @@ async function* spawnAndStream(opts: SpawnBridgeOptions): AsyncGenerator<NdjsonL
           terminal = true
           break
         }
+        if (parsed.type === 'result') {
+          // Buffer the result — do NOT yield until we've confirmed the child
+          // actually exited cleanly. Yielding early would mask a non-zero exit
+          // that follows a "result" frame written by a crashing child.
+          bufferedResult = parsed
+          terminal = true
+          break
+        }
         yield parsed
-        // Stop reading after the terminal lines so we don't over-read.
-        if (parsed.type === 'result' || parsed.type === 'error') {
+        // Stop reading after a fatal error frame.
+        if (parsed.type === 'error') {
           terminal = true
           break
         }
@@ -147,9 +173,44 @@ async function* spawnAndStream(opts: SpawnBridgeOptions): AsyncGenerator<NdjsonL
     // Flush any remaining buffer content (only when stdout drained naturally).
     if (!terminal && buffer.trim().length > 0 && !aborted) {
       try {
-        yield JSON.parse(buffer.trim()) as NdjsonLine
+        const parsed = JSON.parse(buffer.trim()) as NdjsonLine
+        if (parsed.type === 'result') {
+          bufferedResult = parsed
+        } else {
+          yield parsed
+        }
       } catch {
         yield { type: 'error', phase: 'protocol', message: `Malformed NDJSON tail: ${buffer}` }
+      }
+    }
+
+    // Authoritative success gate: wait for the child to exit, then decide
+    // whether to flush the buffered `result` frame. A non-zero exit code or a
+    // termination signal MUST be surfaced as a protocol error — partial
+    // protocol frames cannot mask a crashing child.
+    if (!aborted) {
+      if (!exited) {
+        await Promise.race([
+          exitPromise,
+          new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+        ])
+      }
+
+      if (exitCode === 0 && exitSignal === null && bufferedResult !== null) {
+        yield bufferedResult
+      } else if (exitCode !== 0 || exitSignal !== null) {
+        const codeStr = exitCode === null ? 'null' : String(exitCode)
+        const sigStr = exitSignal === null ? '' : ` signal=${exitSignal}`
+        const stderrText = stderrChunks.join('').trim()
+        const stderrSummary = stderrText.length > 0 ? stderrText : '(no stderr)'
+        const partialNote = bufferedResult !== null
+          ? ' (partial result frame discarded — exit was non-zero)'
+          : ''
+        yield {
+          type: 'error',
+          phase: 'subprocess',
+          message: `dzupagent-compile exited with code=${codeStr}${sigStr}: ${stderrSummary}${partialNote}`,
+        }
       }
     }
   } finally {
@@ -157,10 +218,12 @@ async function* spawnAndStream(opts: SpawnBridgeOptions): AsyncGenerator<NdjsonL
     // Destroy stdout so the child doesn't linger when we exit early.
     if (!readable.destroyed) readable.destroy()
     // Wait for the child to exit, with a safety timeout so tests never hang.
-    await Promise.race([
-      new Promise<void>((resolve) => child.once('close', resolve)),
-      new Promise<void>((resolve) => setTimeout(resolve, 5000)),
-    ])
+    if (!exited) {
+      await Promise.race([
+        exitPromise,
+        new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+      ])
+    }
   }
 }
 
