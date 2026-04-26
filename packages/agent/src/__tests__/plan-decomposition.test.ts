@@ -15,7 +15,7 @@ import type {
 } from '../orchestration/delegating-supervisor.js'
 import type { DelegationResult } from '../orchestration/delegation.js'
 import type { StructuredLLM } from '../structured/structured-output-engine.js'
-import type { AgentDefinition, DzupEventBus } from '@dzupagent/core'
+import type { AgentExecutionSpec, DzupEventBus } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Mock LLM factory
@@ -34,10 +34,10 @@ function createMockLLM(responseContent: string): StructuredLLM {
 // ---------------------------------------------------------------------------
 
 function createMockSupervisor(opts?: {
-  specialists?: Map<string, AgentDefinition>
+  specialists?: Map<string, AgentExecutionSpec>
   resultOverrides?: Map<string, DelegationResult>
 }): DelegatingSupervisor {
-  const specialists = opts?.specialists ?? new Map<string, AgentDefinition>([
+  const specialists = opts?.specialists ?? new Map<string, AgentExecutionSpec>([
     ['db-agent', {
       id: 'db-agent',
       name: 'Database Agent',
@@ -328,7 +328,7 @@ describe('DelegatingSupervisor.planAndDelegate with LLM', () => {
       })
     }
 
-    const specialists = new Map<string, AgentDefinition>([
+    const specialists = new Map<string, AgentExecutionSpec>([
       ['db-agent', {
         id: 'db-agent',
         name: 'Database Agent',
@@ -371,7 +371,7 @@ describe('DelegatingSupervisor.planAndDelegate with LLM', () => {
       })
     }
 
-    const specialists = new Map<string, AgentDefinition>([
+    const specialists = new Map<string, AgentExecutionSpec>([
       ['db-agent', {
         id: 'db-agent',
         name: 'Database Agent',

@@ -205,4 +205,98 @@ describe('Registry Routes', () => {
       expect(data['capabilityCount']).toBe(1)
     })
   })
+
+  describe('GET /api/registry/health', () => {
+    it('returns empty fleet status when registry has no agents', async () => {
+      const { status, json } = await request(app, 'GET', '/api/registry/health')
+      expect(status).toBe(200)
+      const data = json['data'] as Record<string, unknown>
+      expect(data['status']).toBe('empty')
+      const counts = data['counts'] as Record<string, number>
+      expect(counts['total']).toBe(0)
+      expect(counts['healthy']).toBe(0)
+      expect(Array.isArray(data['agents'])).toBe(true)
+      expect((data['agents'] as unknown[]).length).toBe(0)
+      expect(typeof data['timestamp']).toBe('string')
+    })
+
+    it('returns healthy fleet status when all agents are healthy', async () => {
+      const a1 = await registry.register({
+        name: 'alpha',
+        description: 'Alpha agent',
+        capabilities: [makeCap('alpha.cap')],
+      })
+      // Default health status for newly registered agents is 'unknown';
+      // update to healthy so fleet status can be asserted.
+      await registry.updateHealth(a1.id, { status: 'healthy' })
+
+      const { status, json } = await request(app, 'GET', '/api/registry/health')
+      expect(status).toBe(200)
+      const data = json['data'] as Record<string, unknown>
+      expect(data['status']).toBe('healthy')
+      const counts = data['counts'] as Record<string, number>
+      expect(counts['total']).toBe(1)
+      expect(counts['healthy']).toBe(1)
+    })
+
+    it('returns degraded fleet status when some agents are degraded', async () => {
+      const a1 = await registry.register({
+        name: 'alpha',
+        description: 'Alpha',
+        capabilities: [makeCap('alpha.cap')],
+      })
+      const a2 = await registry.register({
+        name: 'beta',
+        description: 'Beta',
+        capabilities: [makeCap('beta.cap')],
+      })
+      await registry.updateHealth(a1.id, { status: 'healthy' })
+      await registry.updateHealth(a2.id, { status: 'degraded' })
+
+      const { status, json } = await request(app, 'GET', '/api/registry/health')
+      expect(status).toBe(200)
+      const data = json['data'] as Record<string, unknown>
+      expect(data['status']).toBe('degraded')
+      const counts = data['counts'] as Record<string, number>
+      expect(counts['healthy']).toBe(1)
+      expect(counts['degraded']).toBe(1)
+    })
+
+    it('returns unhealthy fleet status when all agents are unhealthy', async () => {
+      const a1 = await registry.register({
+        name: 'gamma',
+        description: 'Gamma',
+        capabilities: [makeCap('gamma.cap')],
+      })
+      await registry.updateHealth(a1.id, { status: 'unhealthy' })
+
+      const { json } = await request(app, 'GET', '/api/registry/health')
+      const data = json['data'] as Record<string, unknown>
+      expect(data['status']).toBe('unhealthy')
+    })
+
+    it('includes per-agent health summaries with expected fields', async () => {
+      const a1 = await registry.register({
+        name: 'delta',
+        description: 'Delta',
+        capabilities: [makeCap('delta.cap')],
+      })
+      await registry.updateHealth(a1.id, {
+        status: 'healthy',
+        latencyP50Ms: 42,
+        circuitState: 'closed',
+      })
+
+      const { json } = await request(app, 'GET', '/api/registry/health')
+      const data = json['data'] as Record<string, unknown>
+      const agents = data['agents'] as Array<Record<string, unknown>>
+      expect(agents.length).toBe(1)
+      const summary = agents[0]
+      expect(summary['id']).toBe(a1.id)
+      expect(summary['name']).toBe('delta')
+      expect(summary['status']).toBe('healthy')
+      expect(summary['latencyP50Ms']).toBe(42)
+      expect(summary['circuitState']).toBe('closed')
+    })
+  })
 })

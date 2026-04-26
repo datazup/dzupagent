@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 
 import { defineWorkflow } from '../workflow/adapter-workflow.js'
 import type { AdapterWorkflowEvent } from '../workflow/adapter-workflow.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -43,8 +43,8 @@ function createMockAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   }
 }
 
-function createRegistry(): AdapterRegistry {
-  const registry = new AdapterRegistry()
+function createRegistry(): ProviderAdapterRegistry {
+  const registry = new ProviderAdapterRegistry()
   registry.register(createMockAdapter('claude'))
   return registry
 }

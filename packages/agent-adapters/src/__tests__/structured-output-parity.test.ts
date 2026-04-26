@@ -16,7 +16,7 @@ import {
   generateStructuredOutput,
 } from '../../../agent/src/index.js'
 import type { StructuredLLMWithMeta } from '../../../agent/src/index.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import {
   JsonOutputSchema,
   StructuredOutputAdapter,
@@ -201,7 +201,7 @@ describe('structured output parity', () => {
       },
     )
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', ['not valid json', '{"answer": 42}']))
     const adapter = new StructuredOutputAdapter(registry, { maxRetries: 2 })
     const adapterResult = await adapter.execute(
@@ -280,7 +280,7 @@ describe('structured output parity', () => {
       },
     )
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', ['{"result":[{"id":"REQ-1"},{"id":"REQ-2"}]}']))
     const adapter = new StructuredOutputAdapter(registry, { maxRetries: 0 })
     const adapterResult = await adapter.execute(
@@ -349,7 +349,7 @@ describe('structured output parity', () => {
       },
     ))
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', [
       'not valid json',
       'still not valid',
@@ -430,7 +430,7 @@ describe('structured output parity', () => {
       },
     ))
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', ['not valid json']))
     const adapter = new StructuredOutputAdapter(registry, { maxRetries: 0 })
     const adapterResult = await adapter.execute(
@@ -493,7 +493,7 @@ describe('structured output parity', () => {
       },
     ))
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createFailingAdapter('claude', errorMessage))
     const adapter = new StructuredOutputAdapter(registry, { maxRetries: 0 })
     const adapterResult = await adapter.execute(

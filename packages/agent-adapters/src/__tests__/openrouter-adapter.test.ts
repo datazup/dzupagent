@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { ForgeError } from '@dzupagent/core'
 
 import { OpenRouterAdapter } from '../openrouter/openrouter-adapter.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import {
   JsonOutputSchema,
   StructuredOutputAdapter,
@@ -326,7 +326,7 @@ describe('OpenRouterAdapter', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(new OpenRouterAdapter({ openRouterApiKey: 'key' }))
 
     const adapter = new StructuredOutputAdapter(registry, { maxRetries: 2 })
@@ -368,7 +368,7 @@ describe('OpenRouterAdapter', () => {
       .mockResolvedValueOnce(secondResponse)
     vi.stubGlobal('fetch', fetchMock)
 
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(new OpenRouterAdapter({ openRouterApiKey: 'key' }))
 
     const adapter = new StructuredOutputAdapter(registry, { maxRetries: 2 })

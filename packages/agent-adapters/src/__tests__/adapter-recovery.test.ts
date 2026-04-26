@@ -7,7 +7,7 @@ import {
   AdapterRecoveryCopilot,
   type RecoveryConfig,
 } from '../recovery/adapter-recovery.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -103,7 +103,7 @@ function createAbortingAdapter(
 function createMockRegistry(
   adapter: AgentCLIAdapter,
   adapters: AdapterProviderId[] = [adapter.providerId],
-): AdapterRegistry {
+): ProviderAdapterRegistry {
   const decision: RoutingDecision = {
     provider: adapter.providerId,
     reason: 'mock',
@@ -119,14 +119,14 @@ function createMockRegistry(
     },
     recordSuccess(_id: AdapterProviderId) {},
     recordFailure(_id: AdapterProviderId, _err: Error) {},
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 /** Create a registry that alternates between failing and succeeding. */
 function createRetryRegistry(
   failCount: number,
   successProviderId: AdapterProviderId = 'claude',
-): AdapterRegistry {
+): ProviderAdapterRegistry {
   let callCount = 0
 
   const successAdapter = createMockAdapter(successProviderId, [
@@ -160,12 +160,12 @@ function createRetryRegistry(
     },
     recordSuccess(_id: AdapterProviderId) {},
     recordFailure(_id: AdapterProviderId, _err: Error) {},
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 function createAbortThenSuccessRegistry(
   providerId: AdapterProviderId = 'claude',
-): { registry: AdapterRegistry; getCallCount: () => number } {
+): { registry: ProviderAdapterRegistry; getCallCount: () => number } {
   let callCount = 0
 
   const successAdapter = createMockAdapter(providerId, [
@@ -197,7 +197,7 @@ function createAbortThenSuccessRegistry(
     },
     recordSuccess(_id: AdapterProviderId) {},
     recordFailure(_id: AdapterProviderId, _err: Error) {},
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 
   return {
     registry,
@@ -207,7 +207,7 @@ function createAbortThenSuccessRegistry(
 
 function createRoutingFailureRegistry(
   providers: AdapterProviderId[],
-): AdapterRegistry {
+): ProviderAdapterRegistry {
   return {
     getForTask() {
       throw new Error('routing unavailable')
@@ -217,7 +217,7 @@ function createRoutingFailureRegistry(
     },
     recordSuccess(_id: AdapterProviderId) {},
     recordFailure(_id: AdapterProviderId, _err: Error) {},
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
@@ -440,7 +440,7 @@ describe('AdapterRecoveryCopilot', () => {
         },
         recordSuccess() {},
         recordFailure() {},
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       const copilot = new AdapterRecoveryCopilot(registry, {
         maxAttempts: 3,
@@ -805,7 +805,7 @@ describe('AdapterRecoveryCopilot', () => {
         },
         recordSuccess() {},
         recordFailure() {},
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       const copilot = new AdapterRecoveryCopilot(registry, {
         maxAttempts: 3,
@@ -874,7 +874,7 @@ describe('AdapterRecoveryCopilot', () => {
         },
         recordSuccess() {},
         recordFailure() {},
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       const copilot = new AdapterRecoveryCopilot(registry, {
         maxAttempts: 3,

@@ -13,7 +13,7 @@ import type {
   ReducerFn,
   MapChunkResult,
 } from '../orchestration/map-reduce.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -28,7 +28,7 @@ import type {
 
 function createMockRegistry(
   resultFn?: (prompt: string) => string,
-): AdapterRegistry {
+): ProviderAdapterRegistry {
   const getResult = resultFn ?? ((prompt: string) => `processed: ${prompt}`)
 
   return {
@@ -48,10 +48,10 @@ function createMockRegistry(
         timestamp: Date.now(),
       }
     },
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
-function createFailingRegistry(failAtChunk?: number): AdapterRegistry {
+function createFailingRegistry(failAtChunk?: number): ProviderAdapterRegistry {
   let callCount = 0
 
   return {
@@ -69,7 +69,7 @@ function createFailingRegistry(failAtChunk?: number): AdapterRegistry {
         timestamp: Date.now(),
       }
     },
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
@@ -282,7 +282,7 @@ describe('MapReduceOrchestrator', () => {
           }
           concurrentCount--
         },
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       const orchestrator = new MapReduceOrchestrator({
         registry,
@@ -474,7 +474,7 @@ describe('MapReduceOrchestrator', () => {
             timestamp: Date.now(),
           }
         },
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       const orchestrator = new MapReduceOrchestrator({
         registry,

@@ -10,7 +10,7 @@ import type {
   AgentEvent,
   AgentInput,
 } from '../types.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { collectEvents } from './test-helpers.js'
 
 function createAbortingAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
@@ -47,7 +47,7 @@ function createAbortingAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
   }
 }
 
-function createAbortRegistry(providerId: AdapterProviderId): AdapterRegistry {
+function createAbortRegistry(providerId: AdapterProviderId): ProviderAdapterRegistry {
   const adapter = createAbortingAdapter(providerId)
   return {
     getForTask() {
@@ -65,7 +65,7 @@ function createAbortRegistry(providerId: AdapterProviderId): AdapterRegistry {
     },
     recordSuccess() {},
     recordFailure() {},
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {

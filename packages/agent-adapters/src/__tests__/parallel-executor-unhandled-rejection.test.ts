@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 
 import { ParallelExecutor } from '../orchestration/parallel-executor.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -24,12 +24,12 @@ function createDeferred<T = void>(): {
   return { promise, resolve, reject }
 }
 
-function createMockRegistry(adapters: Map<AdapterProviderId, AgentCLIAdapter>): AdapterRegistry {
+function createMockRegistry(adapters: Map<AdapterProviderId, AgentCLIAdapter>): ProviderAdapterRegistry {
   return {
     getHealthy(providerId: AdapterProviderId) {
       return adapters.get(providerId)
     },
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 function createFastWinnerAdapter(

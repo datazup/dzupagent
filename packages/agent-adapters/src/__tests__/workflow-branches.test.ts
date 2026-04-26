@@ -16,7 +16,7 @@ import {
   typedStep,
 } from '../workflow/adapter-workflow.js'
 import type { AdapterWorkflowEvent } from '../workflow/adapter-workflow.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -63,8 +63,8 @@ function mockAdapter(
   }
 }
 
-function createRegistry(adapters: AgentCLIAdapter[]): AdapterRegistry {
-  const registry = new AdapterRegistry()
+function createRegistry(adapters: AgentCLIAdapter[]): ProviderAdapterRegistry {
+  const registry = new ProviderAdapterRegistry()
   for (const a of adapters) registry.register(a)
   return registry
 }

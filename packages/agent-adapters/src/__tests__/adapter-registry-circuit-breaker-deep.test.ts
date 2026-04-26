@@ -1,5 +1,5 @@
 /**
- * W23-B1 — Deep coverage for AdapterRegistry, CircuitBreaker integration,
+ * W23-B1 — Deep coverage for ProviderAdapterRegistry, CircuitBreaker integration,
  * TaskRouter strategies, and EventBusBridge event scoping.
  *
  * This file complements adapter-registry.test.ts with focused tests covering:
@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createEventBus, ForgeError } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { EventBusBridge } from '../registry/event-bus-bridge.js'
 import {
   TagBasedRouter,
@@ -183,36 +183,36 @@ const TASK: TaskDescriptor = { prompt: 'do work', tags: [] }
 const INPUT: AgentInput = { prompt: 'do work' }
 
 // ---------------------------------------------------------------------------
-// AdapterRegistry — registration lifecycle
+// ProviderAdapterRegistry — registration lifecycle
 // ---------------------------------------------------------------------------
 
-describe('AdapterRegistry — registration lifecycle', () => {
+describe('ProviderAdapterRegistry — registration lifecycle', () => {
   it('register() adds an adapter and listAdapters reflects it', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', []))
     expect(registry.listAdapters()).toContain('claude')
   })
 
   it('register() returns the registry for fluent chaining', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     const returned = registry.register(createMockAdapter('claude', []))
     expect(returned).toBe(registry)
   })
 
   it('get() returns the adapter by providerId', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     const adapter = createMockAdapter('codex', [])
     registry.register(adapter)
     expect(registry.get('codex')).toBe(adapter)
   })
 
   it('get() returns undefined for unknown providerId', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     expect(registry.get('claude')).toBeUndefined()
   })
 
   it('unregister() removes adapter and returns true when it existed', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', []))
     expect(registry.unregister('claude')).toBe(true)
     expect(registry.get('claude')).toBeUndefined()
@@ -220,12 +220,12 @@ describe('AdapterRegistry — registration lifecycle', () => {
   })
 
   it('unregister() returns false for unknown providerId', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     expect(registry.unregister('qwen')).toBe(false)
   })
 
   it('re-register with a new instance replaces the previous adapter', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     const first = createMockAdapter('claude', [])
     const second = createMockAdapter('claude', [])
     registry.register(first)
@@ -236,12 +236,12 @@ describe('AdapterRegistry — registration lifecycle', () => {
   })
 
   it('listAdapters() returns empty array when registry is empty', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     expect(registry.listAdapters()).toEqual([])
   })
 
   it('listAdapters() returns all registered providerIds', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', []))
     registry.register(createMockAdapter('codex', []))
     registry.register(createMockAdapter('qwen', []))
@@ -250,7 +250,7 @@ describe('AdapterRegistry — registration lifecycle', () => {
   })
 
   it('disable() excludes adapter from routing but keeps registration', () => {
-    const registry = new AdapterRegistry().setRouter(FIXED_ROUTER)
+    const registry = new ProviderAdapterRegistry().setRouter(FIXED_ROUTER)
     registry.register(createMockAdapter('claude', []))
     registry.register(createMockAdapter('codex', []))
     expect(registry.disable('claude')).toBe(true)
@@ -259,12 +259,12 @@ describe('AdapterRegistry — registration lifecycle', () => {
   })
 
   it('disable() returns false for unknown providerId', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     expect(registry.disable('claude')).toBe(false)
   })
 
   it('enable() re-activates a disabled adapter', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', []))
     registry.disable('claude')
     expect(registry.enable('claude')).toBe(true)
@@ -272,33 +272,33 @@ describe('AdapterRegistry — registration lifecycle', () => {
   })
 
   it('enable() on unknown adapter returns false', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     expect(registry.enable('claude')).toBe(false)
   })
 
   it('isEnabled() returns false for unregistered adapter', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     expect(registry.isEnabled('claude')).toBe(false)
   })
 })
 
 // ---------------------------------------------------------------------------
-// AdapterRegistry — circuit breaker behavior
+// ProviderAdapterRegistry — circuit breaker behavior
 // ---------------------------------------------------------------------------
 
-describe('AdapterRegistry — circuit breaker behavior', () => {
+describe('ProviderAdapterRegistry — circuit breaker behavior', () => {
   it('recordSuccess() on unknown adapter is a no-op', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     expect(() => registry.recordSuccess('claude')).not.toThrow()
   })
 
   it('recordFailure() on unknown adapter is a no-op', () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     expect(() => registry.recordFailure('claude', new Error('x'))).not.toThrow()
   })
 
   it('circuit opens after failureThreshold consecutive failures', () => {
-    const registry = new AdapterRegistry({
+    const registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
     })
     registry.register(createMockAdapter('claude', []))
@@ -316,7 +316,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
   it('emits provider:circuit_opened when the circuit opens', () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
-    const registry = new AdapterRegistry({
+    const registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
     })
     registry.setEventBus(bus)
@@ -331,7 +331,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
   it('emits provider:failed on every failure regardless of circuit state', () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
-    const registry = new AdapterRegistry({
+    const registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 10, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
     })
     registry.setEventBus(bus)
@@ -348,7 +348,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
   })
 
   it('recordSuccess() resets consecutive failures counter', async () => {
-    const registry = new AdapterRegistry({
+    const registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
     })
     registry.register(createMockAdapter('claude', []))
@@ -364,7 +364,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
     try {
       const bus = createEventBus()
       const emitted = collectBusEvents(bus)
-      const registry = new AdapterRegistry({
+      const registry = new ProviderAdapterRegistry({
         circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 100, halfOpenMaxAttempts: 1 },
       })
       registry.setEventBus(bus)
@@ -386,7 +386,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
   it('does NOT emit provider:circuit_closed when success occurs while already closed', () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
-    const registry = new AdapterRegistry({
+    const registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1000, halfOpenMaxAttempts: 1 },
     })
     registry.setEventBus(bus)
@@ -402,7 +402,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
   it('circuit resets to half-open after resetTimeoutMs elapses', () => {
     vi.useFakeTimers()
     try {
-      const registry = new AdapterRegistry({
+      const registry = new ProviderAdapterRegistry({
         circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 1000, halfOpenMaxAttempts: 1 },
       })
       registry.register(createMockAdapter('claude', []))
@@ -421,7 +421,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
   it('half-open probe success closes the circuit', () => {
     vi.useFakeTimers()
     try {
-      const registry = new AdapterRegistry({
+      const registry = new ProviderAdapterRegistry({
         circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 500, halfOpenMaxAttempts: 1 },
       })
       registry.register(createMockAdapter('claude', []))
@@ -440,7 +440,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
   it('half-open probe failure re-opens the circuit', () => {
     vi.useFakeTimers()
     try {
-      const registry = new AdapterRegistry({
+      const registry = new ProviderAdapterRegistry({
         circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 500, halfOpenMaxAttempts: 1 },
       })
       registry.register(createMockAdapter('claude', []))
@@ -459,7 +459,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
   it('detailed health exposes circuitState transitions', async () => {
     vi.useFakeTimers()
     try {
-      const registry = new AdapterRegistry({
+      const registry = new ProviderAdapterRegistry({
         circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 500, halfOpenMaxAttempts: 1 },
       })
       registry.register(createMockAdapter('claude', []))
@@ -478,7 +478,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
   })
 
   it('lastSuccessAt and lastFailureAt are set after outcomes', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', []))
     registry.recordSuccess('claude')
     registry.recordFailure('claude', new Error('x'))
@@ -488,7 +488,7 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
   })
 
   it('unregister() clears circuit breaker state for the adapter', async () => {
-    const registry = new AdapterRegistry({
+    const registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
     })
     registry.register(createMockAdapter('claude', []))
@@ -503,12 +503,12 @@ describe('AdapterRegistry — circuit breaker behavior', () => {
 })
 
 // ---------------------------------------------------------------------------
-// AdapterRegistry — executeWithFallback routing
+// ProviderAdapterRegistry — executeWithFallback routing
 // ---------------------------------------------------------------------------
 
-describe('AdapterRegistry — executeWithFallback routing', () => {
+describe('ProviderAdapterRegistry — executeWithFallback routing', () => {
   it('executes the primary adapter when it succeeds (no fallback needed)', async () => {
-    const registry = new AdapterRegistry().setRouter(FIXED_ROUTER)
+    const registry = new ProviderAdapterRegistry().setRouter(FIXED_ROUTER)
     registry.register(createMockAdapter('claude', completionEvents('claude')))
     registry.register(createMockAdapter('codex', completionEvents('codex')))
 
@@ -519,7 +519,7 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
   })
 
   it('falls back to the next adapter when the primary fails', async () => {
-    const registry = new AdapterRegistry().setRouter(FIXED_ROUTER)
+    const registry = new ProviderAdapterRegistry().setRouter(FIXED_ROUTER)
     registry.register(createMockAdapter('claude', failureEvents('claude')))
     registry.register(createMockAdapter('codex', completionEvents('codex')))
 
@@ -535,14 +535,14 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
   })
 
   it('throws ALL_ADAPTERS_EXHAUSTED when registry is empty', async () => {
-    const registry = new AdapterRegistry().setRouter(FIXED_ROUTER)
+    const registry = new ProviderAdapterRegistry().setRouter(FIXED_ROUTER)
     const { error } = await runGenSafely(registry.executeWithFallback(INPUT, TASK))
     expect(error).toBeInstanceOf(ForgeError)
     expect((error as ForgeError).code).toBe('ALL_ADAPTERS_EXHAUSTED')
   })
 
   it('throws ALL_ADAPTERS_EXHAUSTED when all adapters have open circuits', async () => {
-    const registry = new AdapterRegistry({
+    const registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
     }).setRouter(FIXED_ROUTER)
     registry.register(createMockAdapter('claude', []))
@@ -556,7 +556,7 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
   })
 
   it('skips disabled adapters in fallback chain', async () => {
-    const registry = new AdapterRegistry().setRouter(FIXED_ROUTER)
+    const registry = new ProviderAdapterRegistry().setRouter(FIXED_ROUTER)
     registry.register(createMockAdapter('claude', failureEvents('claude')))
     registry.register(createMockAdapter('codex', completionEvents('codex')))
     registry.register(createMockAdapter('qwen', completionEvents('qwen')))
@@ -572,7 +572,7 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
   })
 
   it('mid-stream throw triggers fallback and records CB failure', async () => {
-    const registry = new AdapterRegistry({
+    const registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
     }).setRouter(FIXED_ROUTER)
     registry.register(createMidStreamThrowingAdapter('claude', new Error('stream-broken')))
@@ -594,7 +594,7 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
   })
 
   it('throw before any events emits synthesized adapter:failed for that provider', async () => {
-    const registry = new AdapterRegistry().setRouter(FIXED_ROUTER)
+    const registry = new ProviderAdapterRegistry().setRouter(FIXED_ROUTER)
     registry.register(
       createMockAdapter('claude', [], {
         async *execute() {
@@ -623,7 +623,7 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
         return { provider: primary, reason: 'test', confidence: 1, fallbackProviders: fallbacks }
       },
     }
-    const registry = new AdapterRegistry().setRouter(preferCodex)
+    const registry = new ProviderAdapterRegistry().setRouter(preferCodex)
     registry.register(createMockAdapter('claude', completionEvents('claude')))
     registry.register(createMockAdapter('codex', completionEvents('codex')))
     const { events } = await runGenSafely(registry.executeWithFallback(INPUT, TASK))
@@ -638,7 +638,7 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
         return { provider: 'auto', reason: 'no preference', confidence: 0, fallbackProviders: [] }
       },
     }
-    const registry = new AdapterRegistry().setRouter(autoRouter)
+    const registry = new ProviderAdapterRegistry().setRouter(autoRouter)
     registry.register(createMockAdapter('claude', completionEvents('claude')))
     const { events } = await runGenSafely(registry.executeWithFallback(INPUT, TASK))
     const completed = events.find((e) => e.type === 'adapter:completed')
@@ -646,7 +646,7 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
   })
 
   it('record success on completion resets the consecutiveFailures counter', async () => {
-    const registry = new AdapterRegistry({
+    const registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
     }).setRouter(FIXED_ROUTER)
     registry.register(createMockAdapter('claude', completionEvents('claude')))
@@ -661,7 +661,7 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
   it('emits agent:started and agent:completed on event bus for successful run', async () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
-    const registry = new AdapterRegistry().setRouter(FIXED_ROUTER)
+    const registry = new ProviderAdapterRegistry().setRouter(FIXED_ROUTER)
     registry.setEventBus(bus)
     registry.register(createMockAdapter('claude', completionEvents('claude')))
     await runGenSafely(registry.executeWithFallback(INPUT, TASK))
@@ -672,7 +672,7 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
   it('emits agent:failed on event bus when every adapter fails', async () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
-    const registry = new AdapterRegistry().setRouter(FIXED_ROUTER)
+    const registry = new ProviderAdapterRegistry().setRouter(FIXED_ROUTER)
     registry.setEventBus(bus)
     registry.register(createMockAdapter('claude', failureEvents('claude')))
     registry.register(createMockAdapter('codex', failureEvents('codex')))
@@ -683,12 +683,12 @@ describe('AdapterRegistry — executeWithFallback routing', () => {
 })
 
 // ---------------------------------------------------------------------------
-// AdapterRegistry — health aggregation
+// ProviderAdapterRegistry — health aggregation
 // ---------------------------------------------------------------------------
 
-describe('AdapterRegistry — health aggregation', () => {
+describe('ProviderAdapterRegistry — health aggregation', () => {
   it('getHealthStatus aggregates all adapters', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', []))
     registry.register(createMockAdapter('codex', []))
     const status = await registry.getHealthStatus()
@@ -698,7 +698,7 @@ describe('AdapterRegistry — health aggregation', () => {
   })
 
   it('getHealthStatus marks disabled adapters as unhealthy with "disabled" reason', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', []))
     registry.disable('claude')
     const status = await registry.getHealthStatus()
@@ -707,7 +707,7 @@ describe('AdapterRegistry — health aggregation', () => {
   })
 
   it('getHealthStatus synthesizes unhealthy status when healthCheck throws', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(
       createMockAdapter('claude', [], {
         async healthCheck() {
@@ -721,7 +721,7 @@ describe('AdapterRegistry — health aggregation', () => {
   })
 
   it('getDetailedHealth reports "healthy" when all adapters are healthy', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', []))
     registry.register(createMockAdapter('codex', []))
     const detail = await registry.getDetailedHealth()
@@ -730,7 +730,7 @@ describe('AdapterRegistry — health aggregation', () => {
   })
 
   it('getDetailedHealth reports "degraded" when some adapters are unhealthy', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', []))
     registry.register(
       createMockAdapter('codex', [], {
@@ -744,7 +744,7 @@ describe('AdapterRegistry — health aggregation', () => {
   })
 
   it('getDetailedHealth reports "unhealthy" when no adapters are healthy', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(
       createMockAdapter('claude', [], {
         async healthCheck() {
@@ -757,7 +757,7 @@ describe('AdapterRegistry — health aggregation', () => {
   })
 
   it('warmupAll invokes warmup on adapters that define it, ignores failures', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     const warmA = vi.fn(async () => undefined)
     const warmB = vi.fn(async () => {
       throw new Error('warmup-failed')
@@ -773,17 +773,17 @@ describe('AdapterRegistry — health aggregation', () => {
 })
 
 // ---------------------------------------------------------------------------
-// AdapterRegistry — getForTask routing surface
+// ProviderAdapterRegistry — getForTask routing surface
 // ---------------------------------------------------------------------------
 
-describe('AdapterRegistry — getForTask', () => {
+describe('ProviderAdapterRegistry — getForTask', () => {
   it('throws ALL_ADAPTERS_EXHAUSTED when no healthy adapters exist', () => {
-    const registry = new AdapterRegistry().setRouter(FIXED_ROUTER)
+    const registry = new ProviderAdapterRegistry().setRouter(FIXED_ROUTER)
     expect(() => registry.getForTask(TASK)).toThrow(ForgeError)
   })
 
   it('returns the primary adapter from the routing decision', () => {
-    const registry = new AdapterRegistry().setRouter(FIXED_ROUTER)
+    const registry = new ProviderAdapterRegistry().setRouter(FIXED_ROUTER)
     const adapter = createMockAdapter('claude', [])
     registry.register(adapter)
     const { adapter: selected, decision } = registry.getForTask(TASK)
@@ -798,7 +798,7 @@ describe('AdapterRegistry — getForTask', () => {
         return { provider: 'auto', reason: 'auto', confidence: 0, fallbackProviders: [] }
       },
     }
-    const registry = new AdapterRegistry().setRouter(autoRouter)
+    const registry = new ProviderAdapterRegistry().setRouter(autoRouter)
     registry.register(createMockAdapter('claude', []))
     const { adapter } = registry.getForTask(TASK)
     expect(adapter.providerId).toBe('claude')
@@ -807,7 +807,7 @@ describe('AdapterRegistry — getForTask', () => {
   it('registered-event is emitted on bus during register() after setEventBus()', () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.setEventBus(bus)
     registry.register(createMockAdapter('claude', []))
     const registered = emitted.find((e) => e.type === 'adapter_registry:provider_registered')
@@ -818,7 +818,7 @@ describe('AdapterRegistry — getForTask', () => {
   it('adapter_registry:provider_deregistered is emitted when unregistering a known adapter', () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.setEventBus(bus)
     registry.register(createMockAdapter('claude', []))
     registry.unregister('claude')
@@ -830,7 +830,7 @@ describe('AdapterRegistry — getForTask', () => {
   it('no adapter_registry:provider_deregistered event when unregister target does not exist', () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.setEventBus(bus)
     registry.unregister('claude')
     expect(emitted.find((e) => e.type === 'adapter_registry:provider_deregistered')).toBeUndefined()
@@ -1174,7 +1174,7 @@ describe('EventBusBridge — scoping and cleanup', () => {
 // Shutdown / cleanup edge cases
 // ---------------------------------------------------------------------------
 
-describe('AdapterRegistry — cleanup edge cases', () => {
+describe('ProviderAdapterRegistry — cleanup edge cases', () => {
   beforeEach(() => {
     // ensure no lingering fake timers from parallel tests
   })
@@ -1185,7 +1185,7 @@ describe('AdapterRegistry — cleanup edge cases', () => {
   })
 
   it('re-register after unregister creates a fresh breaker', async () => {
-    const registry = new AdapterRegistry({
+    const registry = new ProviderAdapterRegistry({
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
     })
     registry.register(createMockAdapter('claude', []))
@@ -1196,7 +1196,7 @@ describe('AdapterRegistry — cleanup edge cases', () => {
   })
 
   it('setRouter replaces the routing strategy and uses the new one', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude', completionEvents('claude')))
     registry.register(createMockAdapter('codex', completionEvents('codex')))
 
@@ -1238,7 +1238,7 @@ describe('AdapterRegistry — cleanup edge cases', () => {
     const bus2 = createEventBus()
     const emit1 = collectBusEvents(bus1)
     const emit2 = collectBusEvents(bus2)
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.setEventBus(bus1)
     registry.register(createMockAdapter('claude', []))
     // swap bus before a failure is recorded
@@ -1251,7 +1251,7 @@ describe('AdapterRegistry — cleanup edge cases', () => {
   it('multiple register events accumulate on the bus', () => {
     const bus = createEventBus()
     const emitted = collectBusEvents(bus)
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     registry.setEventBus(bus)
     registry.register(createMockAdapter('claude', []))
     registry.register(createMockAdapter('codex', []))

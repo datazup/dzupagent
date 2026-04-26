@@ -32,7 +32,7 @@ import {
   ExecutionAnalyzer,
 } from '../learning/adapter-learning-loop.js'
 import type { ExecutionRecord } from '../learning/adapter-learning-loop.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -82,8 +82,8 @@ function completedEvent(
   }
 }
 
-function buildRegistry(adapters: AgentCLIAdapter[]): AdapterRegistry {
-  const registry = new AdapterRegistry()
+function buildRegistry(adapters: AgentCLIAdapter[]): ProviderAdapterRegistry {
+  const registry = new ProviderAdapterRegistry()
   for (const a of adapters) registry.register(a)
   return registry
 }
@@ -126,7 +126,7 @@ describe('ParallelExecutor deep branch coverage', () => {
 
   it('pre-aborted signal with empty provider list still returns result', async () => {
     const executor = new ParallelExecutor({
-      registry: new AdapterRegistry(),
+      registry: new ProviderAdapterRegistry(),
       eventBus: bus,
     })
     const controller = new AbortController()
@@ -264,7 +264,7 @@ describe('MapReduce deep branch coverage', () => {
         }
         yield completedEvent('claude', 'ok')
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
     controller.abort()
     const orchestrator = new MapReduceOrchestrator({ registry, eventBus: bus })
     const result = await orchestrator.execute('a\nb', {
@@ -278,11 +278,11 @@ describe('MapReduce deep branch coverage', () => {
   })
 
   it('treats non-Error rejection reason via String() coercion', async () => {
-    const registry: AdapterRegistry = {
+    const registry: ProviderAdapterRegistry = {
       async *executeWithFallback() {
         throw 'string error' as unknown as Error
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
     const orchestrator = new MapReduceOrchestrator({ registry, eventBus: bus })
     const result = await orchestrator.execute('x', {
       chunker: new LineChunker(1),
@@ -295,11 +295,11 @@ describe('MapReduce deep branch coverage', () => {
   })
 
   it('handles mapper function throwing an error', async () => {
-    const registry: AdapterRegistry = {
+    const registry: ProviderAdapterRegistry = {
       async *executeWithFallback() {
         yield completedEvent('claude', 'never')
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
     const explodingMapper: MapperFn<string[]> = () => {
       throw new Error('mapper exploded')
     }
@@ -315,11 +315,11 @@ describe('MapReduce deep branch coverage', () => {
   })
 
   it('uses extractor that can return undefined typed value', async () => {
-    const registry: AdapterRegistry = {
+    const registry: ProviderAdapterRegistry = {
       async *executeWithFallback() {
         yield completedEvent('claude', 'raw')
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
     const orchestrator = new MapReduceOrchestrator({ registry, eventBus: bus })
     const result = await orchestrator.execute('a', {
       chunker: new LineChunker(1),
@@ -345,7 +345,7 @@ describe('ContractNet deep branch coverage', () => {
 
   it('throws ALL_ADAPTERS_EXHAUSTED when there is no healthy adapter for any bid', async () => {
     // No adapters registered — listAdapters returns []
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     const orchestrator = new ContractNetOrchestrator({
       registry,
       eventBus: bus,
