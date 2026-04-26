@@ -104,7 +104,8 @@ Concrete remaining drift hotspots:
 - `packages/playground/src/__tests__/router.test.ts` and `packages/playground/src/__tests__/agent-store.test.ts`
   - still contain the explicit `/agents` redirect and `useAgentStore` compatibility assertions
 - `packages/agent-adapters`
-  - compatibility aliases still exist, and the remaining workflow/orchestration/deep test suites still mostly teach `AdapterRegistry`
+  - all `src/__tests__` files now use `ProviderAdapterRegistry`; zero bare deprecated `AdapterRegistry` test references remain (2026-04-25)
+  - six `@deprecated` compatibility re-exports remain in `src/index.ts`, `src/registry/index.ts`, and `src/registry/adapter-registry.ts` — these are intentional public shims with no deletion window set yet
 
 This drift is acceptable only because it is deliberate, documented, and bounded by the next tranche.
 
@@ -192,6 +193,14 @@ Planned change:
 - define one readiness DTO and one registry-health DTO, then consume them directly in playground stores.
 Exit condition:
 - operational badges and readiness panels are driven by one canonical payload shape.
+Status (2026-04-25):
+- **done**: `RegistryFleetHealthDto` (canonical fleet health DTO) defined in `packages/server/src/routes/registry.ts`
+- **done**: `GET /api/registry/health` endpoint added to registry routes (5 new tests, 18 total, all green)
+- **done**: playground `RegistryFleetHealthDto` + supporting types added to `packages/playground/src/types.ts`
+- **done**: `fetchRegistryHealth()` added to `useHealthStore`; result stored in `fleetHealth` ref
+- **not done**: `/api/health/ready` shape alignment with fleet health — deferred to next slice
+- **not done**: HealthMonitor lifecycle wiring in `createForgeApp()` — deferred; consumers can instantiate directly
+- **not done**: WS/SSE transport normalisation — deferred to monitoring transport slice
 
 5. Surface already-implemented run controls from the same operator model.
 Current blocker:
@@ -453,7 +462,12 @@ Verification gate for the next tranche:
 - targeted `rg "agentStore\\.get|AgentDefinition|AgentStore|AgentHandle" packages/server packages/core`
 - targeted `rg "/api/agents|/agents|createAgentRoutes|useAgentStore" packages docs`
 
-Verification completed for the just-finished tranche:
+Verification completed for the just-finished tranche (2026-04-25 — workflow/orchestration/map-reduce test cluster):
+
+- `yarn workspace @dzupagent/agent-adapters typecheck` — clean
+- `yarn workspace @dzupagent/agent-adapters test src/__tests__/workflow-timeout.test.ts src/__tests__/adapter-workflow.test.ts src/__tests__/orchestration-branches-2.test.ts src/__tests__/map-reduce.test.ts` — 117/117 passed
+
+Verification completed for the previous tranche:
 
 - `yarn workspace @dzupagent/core typecheck`
 - `yarn workspace @dzupagent/agent-adapters typecheck`
@@ -497,8 +511,8 @@ What is actually left to remove:
 - explicit compatibility assertions in `packages/server/src/__tests__/*` and `packages/playground/src/__tests__/*`
 
 2. Broad legacy naming in the `agent-adapters` test surface
-- the active codepaths are mostly migrated, but many tests still instantiate `AdapterRegistry`
-- this is now the biggest remaining naming drift inside active packages
+- `done` (2026-04-25): all `src/__tests__` files import `ProviderAdapterRegistry`; `rg "AdapterRegistry\b"` returns only the six `@deprecated` public shim exports in `src/index.ts`, `src/registry/index.ts`, and `src/registry/adapter-registry.ts` — zero deprecated bare references remain in tests
+- next: define a semver target and scan first-party consumers before removing the six shim exports
 
 3. Product-vs-architecture mismatch
 - registry is the chosen control plane
@@ -506,16 +520,13 @@ What is actually left to remove:
 
 Next focused tasks:
 
-1. Migrate the next coherent `agent-adapters` test cluster to `ProviderAdapterRegistry*`.
-Suggested files:
-- `workflow-timeout.test.ts`
-- `adapter-workflow.test.ts`
-- `orchestration-branches-2.test.ts`
-- `map-reduce.test.ts`
-Verification:
-- `yarn workspace @dzupagent/agent-adapters typecheck`
-- `yarn workspace @dzupagent/agent-adapters test src/__tests__/workflow-timeout.test.ts src/__tests__/adapter-workflow.test.ts src/__tests__/orchestration-branches-2.test.ts src/__tests__/map-reduce.test.ts`
-- `rg -n "AdapterRegistry|DetailedHealthStatus" packages/agent-adapters/src/__tests__ packages/agent-adapters/docs`
+1. `done`: Full `agent-adapters` test migration to `ProviderAdapterRegistry*` complete (2026-04-25).
+All `src/__tests__` files migrated in successive clusters. Final confirmed state:
+- 2515/2515 tests pass
+- Typecheck clean (pre-existing `@google/generative-ai` missing-dep error unrelated)
+- `rg "AdapterRegistry\b"` in `src/__tests__` returns zero hits
+- Six `@deprecated` public shim exports remain in `src/index.ts`, `src/registry/index.ts`, `src/registry/adapter-registry.ts` — intentional, no deletion window set yet
+- Drift classified in `packages/agent-adapters/docs/NAMING_CLEANUP_STATUS.md`
 
 2. Prepare the first alias-deletion-ready UI wave.
 Suggested files:

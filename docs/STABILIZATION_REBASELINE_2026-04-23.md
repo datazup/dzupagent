@@ -22,6 +22,7 @@ Use this file as the shared session-level source of truth, then use the tracked 
 - [`docs/stabilization/STABILIZATION_VERIFICATION_AND_RELEASE_2026-04-23.md`](./stabilization/STABILIZATION_VERIFICATION_AND_RELEASE_2026-04-23.md)
 - [`docs/stabilization/STABILIZATION_DOCS_AND_SCAFFOLDER_TRUTH_2026-04-23.md`](./stabilization/STABILIZATION_DOCS_AND_SCAFFOLDER_TRUTH_2026-04-23.md)
 - [`docs/stabilization/STABILIZATION_HANDOFF_MEMORY_2026-04-23.md`](./stabilization/STABILIZATION_HANDOFF_MEMORY_2026-04-23.md)
+- [`docs/DZUPAGENT_RESEARCH_PLANNING_PIPELINE_2026-04-25.md`](./DZUPAGENT_RESEARCH_PLANNING_PIPELINE_2026-04-25.md)
 
 Rule:
 - area documents can expand the work, but they must not weaken the exit rules in this tracked rebaseline
@@ -89,6 +90,7 @@ Legend:
 | Server auth and secret boundaries | partially done | Targeted auth/control-plane tests are green and the full `server` test lane passes, but explicit ownership and compatibility proof still need convergence across consumers and docs. |
 | Contract convergence across producers/consumers | not done | No shared 2026-04-23 checkpoint yet across `server`, `playground`, scaffolder, and docs. |
 | Release/docs status truth | partially done | Capability-matrix tooling is now plain-Node and hermetic enough for sandboxed runs, `create-dzupagent` now emits `0.2.0` truth, `yarn verify`, `yarn verify:strict`, and `yarn lint` are all green, and the remaining gaps are naming and ownership drift rather than broken generation paths or stale high-traffic version docs. |
+| `agent-adapters` test naming drift | done | All `src/__tests__` files import `ProviderAdapterRegistry`; zero bare deprecated references remain. 117/117 tests pass for the workflow/orchestration/map-reduce cluster. Typecheck clean. 2026-04-25. |
 
 ## Next Tasks
 
