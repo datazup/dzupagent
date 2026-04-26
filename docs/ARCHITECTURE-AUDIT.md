@@ -1,162 +1,173 @@
 # Architecture Audit
 
-Date: 2026-04-24
+Date: 2026-04-26
 
 ## Findings
 
-### High: Server public API surface guard is currently broken by an unclassified contract re-export
+### High: Server API surface governance is blocked by an unclassified external contract re-export
 
-Impact: The repository has a dedicated `@dzupagent/server` public-surface inventory and check, but it no longer completes. That means new root exports can bypass the intended tier classification and stale-doc detection path until the classifier is repaired. This is an architecture governance issue, not just a documentation drift issue, because the guard is supposed to protect the server root API from uncontrolled growth.
-
-Evidence:
-- `packages/server/src/index.ts:133` re-exports type contracts directly from `@dzupagent/eval-contracts`.
-- `packages/server/package.json:30` declares `@dzupagent/eval-contracts` as a server dependency.
-- `scripts/server-api-surface-report.mjs:59` requires every export source to match exactly one tier rule, and `scripts/server-api-surface-report.mjs:66` throws when no rule matches.
-- Running `node scripts/server-api-surface-report.mjs --check` failed with: `Expected exactly one tier rule for @dzupagent/eval-contracts, got (none)`.
-- `config/server-api-tiers.json` contains many `./...` server-source rules but no rule for the external `@dzupagent/eval-contracts` re-export.
-
-Remediation:
-- Add an explicit classifier rule for `@dzupagent/eval-contracts`, or update `scripts/server-api-surface-report.mjs` to classify external package re-exports through a separate `external-contract` tier.
-- Regenerate `docs/SERVER_API_SURFACE_INDEX.md` after the classifier can complete.
-- Add a focused test or script fixture that includes an external type-only re-export so this failure mode is caught before landing future contract bridges.
-
-### High: `@dzupagent/server` root still exposes internal, experimental, persistence, CLI, runtime, and feature-plane APIs through one default import surface
-
-Impact: Consumers importing from `@dzupagent/server` get a broad and unstable-looking surface where internal implementation details, optional feature planes, concrete stores, CLI helpers, runtime workers, OpenAI compatibility helpers, and core server bootstrapping types all share the same public entrypoint. This increases accidental coupling, makes SemVer harder to reason about, and raises circularity risk because downstream packages can depend on implementation details that should live behind explicit subpaths.
+Impact: `@dzupagent/server` has a dedicated public-surface inventory and check, but the current check exits before it can compare generated output with `docs/SERVER_API_SURFACE_INDEX.md`. That leaves the broadest framework package without its intended root-export guardrail, so new root exports can bypass tier classification until the classifier is repaired.
 
 Evidence:
-- `docs/SERVER_API_SURFACE_INDEX.md:9` records `126` unique export sources in the root index, with `49` experimental and `18` internal sources at `docs/SERVER_API_SURFACE_INDEX.md:10`.
-- `docs/SERVER_API_SURFACE_INDEX.md:11` recommends only `29` root exports, with `79` candidate subpath exports and `18` remove-root exports.
-- `packages/server/src/index.ts:59` exports Drizzle table/schema symbols directly from `./persistence/drizzle-schema.js`.
-- `packages/server/src/index.ts:302` and `packages/server/src/index.ts:303` export concrete Drizzle stores from the root.
-- `packages/server/src/index.ts:361` through `packages/server/src/index.ts:378` keep CLI/doctor/scorecard command APIs on the root surface even though `packages/server/src/ops.ts:1` introduces a dedicated `@dzupagent/server/ops` facade.
-- `packages/server/src/index.ts:395` through `packages/server/src/index.ts:420` exports runtime worker and quota APIs from the root.
-- `packages/server/package.json:10` exposes only `"."` and `"./ops"` as package subpaths, so runtime/control-plane/persistence/compat planes still lack explicit public homes.
+- `packages/server/src/index.ts:128` through `packages/server/src/index.ts:141` re-export neutral eval and benchmark contract types from `@dzupagent/eval-contracts`.
+- `packages/server/package.json:30` through `packages/server/package.json:37` declares `@dzupagent/eval-contracts` as a server dependency.
+- `scripts/server-api-surface-report.mjs:59` through `scripts/server-api-surface-report.mjs:68` requires every export source to match exactly one rule and throws when no rule matches.
+- `scripts/server-api-surface-report.mjs:256` through `scripts/server-api-surface-report.mjs:268` applies that classifier while building the server export inventory.
+- `config/server-api-tiers.json:1` through `config/server-api-tiers.json:140` starts the tier rules with server-local `./...` patterns and does not classify the external `@dzupagent/eval-contracts` source.
+- Current static command result: `node scripts/server-api-surface-report.mjs --check` failed with `Expected exactly one tier rule for @dzupagent/eval-contracts, got (none)`.
 
 Remediation:
-- Treat the existing `@dzupagent/server/ops` facade as the migration pattern, then add explicit subpaths for runtime/control-plane, persistence, compat, and optional extensions.
-- Move root aliases behind deprecation notes and a compatibility window, starting with internal and experimental sources already marked `remove-root` or `candidate-subpath`.
-- Keep `createForgeApp`, `ForgeServerConfig`, core route plugin types, core middleware, core queues, and platform handlers as the narrow root surface unless a consumer inventory proves otherwise.
-- Make `node scripts/server-api-surface-report.mjs --check` a required gate once the classifier failure above is fixed.
+- Add an explicit tier rule for `@dzupagent/eval-contracts`, or teach `scripts/server-api-surface-report.mjs` to classify external contract packages through a separate `external-contract` tier.
+- Regenerate `docs/SERVER_API_SURFACE_INDEX.md` after the classifier completes.
+- Add a focused fixture or script test that includes an external type-only re-export so future contract bridges cannot break the surface report silently.
 
-### Medium: Package boundary enforcement is useful but still negative-only and covers only selected package pairs
+### High: `@dzupagent/server` root still exposes multiple architecture planes through one default surface
 
-Impact: Current boundary tests can prevent known forbidden edges, but they do not define a complete dependency direction model for all 32 workspaces, do not assert that every package is covered by policy, and do not detect source-level cycles except when a cycle happens to include a configured forbidden edge. This leaves layering drift possible between packages such as `app-tools`, `code-edit-kit`, flow packages, `eval-contracts`, `cache`, and `hitl-kit`.
+Impact: The server root mixes app bootstrapping, route factories, persistence schemas, Drizzle stores, OpenAI compatibility helpers, platform adapters, CLI commands, scorecard helpers, runtime workers, quota primitives, and feedback hooks. This is public API sprawl rather than a stylistic export-order issue: consumers can couple to implementation planes that should have explicit subpaths and compatibility policies.
 
 Evidence:
-- The monorepo contains 32 package workspaces, but `config/architecture-boundaries.json:2` defines package boundary rules for only six importers: `core`, `agent`, `codegen`, `connectors`, `agent-adapters`, and `server`.
-- The same config is expressed as forbidden targets only at `config/architecture-boundaries.json:4` through `config/architecture-boundaries.json:25`; it does not define allowed dependency directions, package tiers, owner metadata, or cycle rules.
-- `packages/testing/src/__tests__/boundary/architecture.test.ts:324` iterates only over configured rules and forbidden targets, so packages omitted from config receive no package-level source import enforcement.
-- `packages/testing/src/__tests__/boundary/architecture.test.ts:379` asserts zero forbidden edges, not zero cycles or zero unclassified edges.
-- `config/package-tiers.json:257` through `config/package-tiers.json:286` classifies tier-3 parked packages, but that package-tier policy is not wired into the boundary test.
+- `packages/server/package.json:10` through `packages/server/package.json:18` exposes only `"."` and `"./ops"` subpaths, so most server planes still share the root.
+- `packages/server/src/index.ts:59` exports Drizzle table/schema symbols from `./persistence/drizzle-schema.js` directly from the root.
+- `packages/server/src/index.ts:302` and `packages/server/src/index.ts:303` export concrete Drizzle-backed stores from the root.
+- `packages/server/src/index.ts:313` through `packages/server/src/index.ts:343` export OpenAI-compatible request/response helpers and route factories from the same root.
+- `packages/server/src/index.ts:350` through `packages/server/src/index.ts:378` export CLI, doctor, marketplace, and scorecard command APIs from the root, even though `packages/server/src/ops.ts:9` already provides an ops-specific facade for part of this surface.
+- `packages/server/src/index.ts:395` through `packages/server/src/index.ts:429` export runtime scheduler, worker, executor, quota, reflector, and retrieval-feedback APIs from the root.
+- A current static export-density scan counted `packages/server/src/index.ts` at 537 lines with 231 `export` statements.
 
 Remediation:
-- Extend `config/architecture-boundaries.json` from a forbidden-edge list into an allowed-layer graph that covers every package workspace.
-- Add a policy-completeness assertion: every `packages/*/package.json` package must be present in either the layer graph or an explicit ignored list.
-- Add a package dependency cycle check over `package.json` dependencies and source imports. This can be a small local script rather than a new runtime dependency.
-- Reuse `config/package-tiers.json` so parked or secondary packages cannot accidentally become upstream dependencies of tier-1 packages without explicit policy.
+- Keep `createForgeApp`, core server config, route-plugin contracts, core transport/middleware primitives, and platform handlers as the narrow default root.
+- Add explicit subpaths for runtime/control-plane, persistence, compat, and optional extension planes, following the existing `@dzupagent/server/ops` pattern.
+- Move root aliases behind deprecation comments and a compatibility window, starting with internal persistence, runtime, CLI, and optional feature exports.
+- Make `node scripts/server-api-surface-report.mjs --check` a required architecture gate after the classifier finding above is fixed.
 
-### Medium: `packages/server/src/app.ts` is an oversized composition root that mixes bootstrapping, feature toggles, route registration, worker startup, stores, and operational side effects
+### Medium: Package boundary policy is negative-only and covers only selected workspace packages
 
-Impact: `createForgeApp` is the correct place for final composition, but the current module has become the default integration point for too many optional planes. Changes to memory, evals, mail delivery, OpenAI compatibility, MCP, workflows, A2A, prompts, personas, registry, clusters, approvals, security, and run workers converge in one file. That concentrates merge conflicts and makes it hard to reason about which feature introduced a dependency or startup side effect.
+Impact: The repo has useful static import guardrails, but the package policy currently prevents known forbidden edges rather than defining a complete layer graph. Packages omitted from the config can still become upstream dependencies of core packages without being classified, and circularity risk is only caught when it happens to cross one of the configured forbidden edges.
 
 Evidence:
-- `packages/server/src/app.ts:21` through `packages/server/src/app.ts:128` imports a broad cross-section of core, agent, adapter, hitl, memory, eval-contract, route, runtime, persistence, notification, and control-plane modules.
-- `packages/server/src/app.ts:175` through `packages/server/src/app.ts:360` defines a single `ForgeServerConfig` interface with many unrelated optional feature groups.
-- `packages/server/src/app.ts:558` starts `createForgeApp`, and by `packages/server/src/app.ts:588` through `packages/server/src/app.ts:607` it is already performing runtime worker startup.
-- The same function handles middleware, auth, RBAC, CORS warnings, metrics, error handling, and core route registration at `packages/server/src/app.ts:609` through `packages/server/src/app.ts:760`.
-- A static size scan found `packages/server/src/app.ts` at 1012 lines, making it one of the largest production modules reviewed.
+- The repository currently has 32 package workspaces under `packages/*`.
+- `config/architecture-boundaries.json:2` through `config/architecture-boundaries.json:27` defines package boundary rules for only six importers: `core`, `agent`, `codegen`, `connectors`, `agent-adapters`, and `server`.
+- The configured package rules are all `forbidden` lists, visible at `config/architecture-boundaries.json:4` through `config/architecture-boundaries.json:25`; the policy does not define allowed layer directions, owner metadata, or cycle handling.
+- `packages/testing/src/__tests__/boundary/architecture.test.ts:322` through `packages/testing/src/__tests__/boundary/architecture.test.ts:332` creates enforcement blocks only for configured package rules.
+- `packages/testing/src/__tests__/boundary/architecture.test.ts:378` through `packages/testing/src/__tests__/boundary/architecture.test.ts:382` asserts zero forbidden cross-package edges, not zero unclassified dependencies or zero dependency cycles.
+- `config/package-tiers.json:257` through `config/package-tiers.json:286` marks packages such as `@dzupagent/app-tools`, `@dzupagent/code-edit-kit`, `@dzupagent/hitl-kit`, `@dzupagent/playground`, and `create-dzupagent` as tier-3 parked packages, but that tier policy is not wired into the boundary test.
+- Current static command result: `yarn workspace @dzupagent/testing test src/__tests__/boundary/architecture.test.ts` passed 34 tests, which confirms the configured forbidden edges are clean but does not prove complete layering or acyclic dependencies.
 
 Remediation:
-- Keep `createForgeApp` as the public entrypoint, but split implementation into internal composition modules such as `composeRuntime`, `composeMiddleware`, `composeCoreRoutes`, `composeOptionalRoutes`, and `composeOperationalServices`.
+- Convert `config/architecture-boundaries.json` from selected forbidden edges into a complete package layer graph that covers every `packages/*/package.json` workspace or explicitly ignores it.
+- Add a policy-completeness assertion that fails when a new package is not classified.
+- Add a package dependency cycle check over package manifests and source imports, and report cycles separately from forbidden-edge violations.
+- Reuse `config/package-tiers.json` so parked packages cannot become upstream dependencies of tier-1 or tier-2 packages without an explicit policy change.
+
+### Medium: `packages/server/src/app.ts` is an oversized composition root with too many side-effect planes
+
+Impact: `createForgeApp` is the right public composition entrypoint, but the implementation module is now the convergence point for route registration, middleware, auth/RBAC, worker startup, stores, mail delivery, A2A, OpenAI compatibility, metrics, scheduler startup, and self-learning loops. That creates merge-conflict pressure and makes it hard to reason about which feature introduced a startup side effect or dependency.
+
+Evidence:
+- `packages/server/src/app.ts:21` through `packages/server/src/app.ts:128` imports core, agent, adapter, hitl, memory, eval-contract, route, runtime, persistence, notification, and control-plane modules into one file.
+- `packages/server/src/app.ts:175` through `packages/server/src/app.ts:365` defines a single `ForgeServerConfig` interface spanning stores, auth, queueing, traces, deployment, learning, benchmarks, evals, MCP, workflow, A2A, triggers, schedules, prompts, personas, notifications, OpenAI compatibility, approval stores, safety, and quotas.
+- `packages/server/src/app.ts:558` through `packages/server/src/app.ts:607` starts the server composition and also starts queue worker execution.
+- `packages/server/src/app.ts:609` through `packages/server/src/app.ts:755` handles middleware, CORS warnings, auth/RBAC, shutdown guards, metrics, error handling, and core route registration.
+- `packages/server/src/app.ts:765` through `packages/server/src/app.ts:916` mounts optional benchmark, eval, playground, A2A, trigger, schedule, prompt, persona, preset, marketplace, reflection, mailbox, cluster, and OpenAI-compatible route planes.
+- `packages/server/src/app.ts:918` through `packages/server/src/app.ts:1009` auto-registers notification channels from environment variables and starts consolidation, prompt-feedback, and learning processors.
+- A current static size scan counted `packages/server/src/app.ts` at 1012 lines.
+
+Remediation:
+- Keep `createForgeApp(config)` as the public entrypoint, but split the implementation into internal helpers such as `composeRuntime`, `composeMiddleware`, `composeCoreRoutes`, `composeOptionalRoutes`, and `composeOperationalServices`.
 - Split `ForgeServerConfig` into smaller grouped option interfaces and re-export the aggregate type for compatibility.
-- Move feature-specific defaults such as mail delivery, OpenAI compatibility, workflows, A2A, and registry route wiring into feature-owned route/plugin factories.
-- Add focused unit tests around the composition helpers so later route additions do not require exercising the full server factory.
+- Move feature-specific defaults and side effects such as mail delivery, A2A task-store selection, OpenAI compatibility, consolidation, and learning loops into feature-owned composition helpers.
+- Add focused tests around the composition helpers so future route additions do not require exercising the entire server factory.
 
-### Medium: `@dzupagent/agent-adapters` is a single facade for provider adapters, orchestration, HTTP, recovery, approval, learning, persistence, and optional SDK-backed integrations
+### Medium: `@dzupagent/agent-adapters` is a single facade for providers, orchestration, HTTP, recovery, approval, learning, persistence, and workflow DSLs
 
-Impact: The package describes itself as the provider adapter layer, but the root entrypoint exposes provider adapters, orchestration primitives, workflow DSL, HTTP request schemas, recovery policy engines, approval stores, learning loops, persistence stores, MCP bridges, observability, and context routing. That makes the public API difficult to segment and encourages consumers to import unrelated adapter internals from the root.
-
-Evidence:
-- `packages/agent-adapters/package.json:8` exposes only the `"."` package entrypoint.
-- Optional provider SDKs are declared at `packages/agent-adapters/package.json:35` through `packages/agent-adapters/package.json:37`, while concrete provider adapters are exported from the root at `packages/agent-adapters/src/index.ts:42` through `packages/agent-adapters/src/index.ts:50`.
-- Orchestration primitives are exported from the same root at `packages/agent-adapters/src/index.ts:105` through `packages/agent-adapters/src/index.ts:141`.
-- Recovery, escalation, HTTP handler, request schemas, structured output, persistence, and learning surfaces are exported from the same root at `packages/agent-adapters/src/index.ts:321` through `packages/agent-adapters/src/index.ts:426`.
-- Large implementation modules reinforce the same hotspot: `packages/agent-adapters/src/recovery/adapter-recovery.ts:1` documents a recovery strategy and trace-capture subsystem, and `packages/agent-adapters/src/workflow/adapter-workflow.ts:1` documents a workflow DSL subsystem.
-
-Remediation:
-- Add subpaths such as `@dzupagent/agent-adapters/providers`, `@dzupagent/agent-adapters/orchestration`, `@dzupagent/agent-adapters/http`, `@dzupagent/agent-adapters/recovery`, and `@dzupagent/agent-adapters/workflow`.
-- Keep root exports for the stable provider registry and the most common adapter contracts, then migrate heavy or optional planes to subpaths.
-- Classify adapter root exports similarly to `config/server-api-tiers.json`, but include optional-dependency sensitivity as part of the tiering.
-- Prefer compatibility re-export windows over immediate removal.
-
-### Low: Oversized root facades make API review harder across core packages even where boundaries are improving
-
-Impact: Large `index.ts` files are not automatically wrong, especially in package facades, but several root entrypoints are large enough that API additions become easy to miss during review. This is structural when a facade mixes stable contracts with convenience helpers and experimental subsystems; it is stylistic only when the file is a generated or deliberate export list with a strict tier policy.
+Impact: The package name and description position it as the provider adapter layer, but the root entrypoint is also the public entrypoint for orchestration frameworks, HTTP request schemas, recovery policy engines, approval primitives, context routing, persistence, learning loops, utilities, skill projection, and workflow DSL support. That is structural coupling risk because optional provider integrations and higher-level orchestration features share one import surface and one compatibility story.
 
 Evidence:
-- A source scan counted `packages/core/src/index.ts` at 807 lines, `packages/agent/src/index.ts` at 699 lines, `packages/agent-adapters/src/index.ts` at 549 lines, `packages/server/src/index.ts` at 536 lines, and `packages/codegen/src/index.ts` at 437 lines.
-- A separate export-line scan found high export density in the same roots: `packages/server/src/index.ts` with 231 export statements, `packages/core/src/index.ts` with 206, `packages/agent/src/index.ts` with 200, `packages/codegen/src/index.ts` with 168, and `packages/agent-adapters/src/index.ts` with 157.
-- `packages/core/package.json:7` through `packages/core/package.json:35` shows a stronger pattern already exists for `core`: root plus `stable`, `advanced`, `quick-start`, `orchestration`, `security`, and `facades` subpaths.
+- `packages/agent-adapters/package.json:5` describes the package as AI agent CLI/SDK adapters, while `packages/agent-adapters/package.json:8` through `packages/agent-adapters/package.json:13` exposes only the `"."` entrypoint.
+- `packages/agent-adapters/package.json:35` through `packages/agent-adapters/package.json:38` declares optional SDK dependencies for concrete providers.
+- `packages/agent-adapters/src/index.ts:41` through `packages/agent-adapters/src/index.ts:51` exports concrete provider adapters from the root.
+- `packages/agent-adapters/src/index.ts:97` through `packages/agent-adapters/src/index.ts:133` exports supervisor, parallel, map-reduce, and contract-net orchestration primitives from the same root.
+- `packages/agent-adapters/src/index.ts:313` through `packages/agent-adapters/src/index.ts:418` exports recovery, escalation, HTTP handler, request schemas, context routing, structured output, persistence, and learning surfaces from the same root.
+- `packages/agent-adapters/src/recovery/adapter-recovery.ts:1` through `packages/agent-adapters/src/recovery/adapter-recovery.ts:10` documents a full recovery strategy and trace-capture subsystem.
+- `packages/agent-adapters/src/workflow/adapter-workflow.ts:1` through `packages/agent-adapters/src/workflow/adapter-workflow.ts:22` documents a declarative workflow DSL subsystem.
+- A current static export-density scan counted `packages/agent-adapters/src/index.ts` at 542 lines with 155 `export` statements.
 
 Remediation:
-- Apply the `@dzupagent/core` subpath pattern to other high-volume packages before removing root compatibility exports.
-- Require every high-volume package root to have a generated or reviewed API tier inventory.
-- Treat facade size as an architectural signal only when it mixes stability tiers or feature planes; do not spend time on purely alphabetic or comment-only reshuffling.
+- Add subpaths such as `@dzupagent/agent-adapters/providers`, `@dzupagent/agent-adapters/orchestration`, `@dzupagent/agent-adapters/http`, `@dzupagent/agent-adapters/recovery`, `@dzupagent/agent-adapters/workflow`, and `@dzupagent/agent-adapters/learning`.
+- Keep root exports for stable provider IDs, adapter contracts, the provider registry, and the most common adapter factories.
+- Add an adapter API surface inventory similar to the server surface report, including optional-dependency sensitivity in the tiering.
+- Use compatibility re-exports during migration rather than removing root exports immediately.
+
+### Low: Large root facades make API review harder across core framework packages
+
+Impact: Large facade files are not automatically a defect. In this repo, though, several root entrypoints mix stable contracts, convenience helpers, advanced modules, and experimental planes, so API additions are hard to review consistently. This is structural when stability tiers are mixed in one root; it would be stylistic only if the files were generated or governed by complete surface inventories.
+
+Evidence:
+- A current static scan counted high-density root facades: `packages/server/src/index.ts` has 231 export statements in 537 lines, `packages/core/src/index.ts` has 206 in 808 lines, `packages/agent/src/index.ts` has 201 in 704 lines, `packages/codegen/src/index.ts` has 168 in 438 lines, `packages/agent-adapters/src/index.ts` has 155 in 542 lines, and `packages/memory/src/index.ts` has 128 in 396 lines.
+- `packages/core/package.json:7` through `packages/core/package.json:35` shows a stronger pattern already exists: root plus `./stable`, `./advanced`, `./quick-start`, `./orchestration`, `./security`, and `./facades` subpaths.
+- `packages/server/package.json:10` through `packages/server/package.json:18` and `packages/agent-adapters/package.json:8` through `packages/agent-adapters/package.json:13` show that server and agent-adapters have not yet applied an equivalent subpath structure to their largest public surfaces.
+
+Remediation:
+- Apply the `@dzupagent/core` subpath pattern to other high-volume packages before adding more root exports.
+- Require a generated or reviewed API tier inventory for every high-density package facade.
+- Treat facade size as an architecture signal only where stability tiers or feature planes are mixed; avoid low-value reshuffling of comments, alphabetization, or purely cosmetic export movement.
 
 ## Scope Reviewed
 
-- Repository root and workspace metadata:
+- Current repository and workspace metadata:
   - `package.json`
+  - `packages/*/package.json`
   - `config/architecture-boundaries.json`
   - `config/package-tiers.json`
   - `config/server-api-tiers.json`
-- Architecture guardrails and reports:
+- Current architecture guardrails:
   - `scripts/check-domain-boundaries.mjs`
   - `scripts/server-api-surface-report.mjs`
   - `packages/testing/src/__tests__/boundary/architecture.test.ts`
-  - `docs/SERVER_API_SURFACE_INDEX.md`
-  - `docs/ARCHITECTURE_REFACTOR_ROADMAP_2026-04-23.md`
-- Public API and layering hotspots:
+- Current public API and layering hotspots:
   - `packages/server/package.json`
   - `packages/server/src/index.ts`
   - `packages/server/src/ops.ts`
   - `packages/server/src/app.ts`
   - `packages/agent-adapters/package.json`
   - `packages/agent-adapters/src/index.ts`
+  - `packages/agent-adapters/src/recovery/adapter-recovery.ts`
+  - `packages/agent-adapters/src/workflow/adapter-workflow.ts`
   - `packages/core/package.json`
-  - `packages/core/src/index.ts`
-- Oversized module and root-facade scans across `packages/*/src`.
+- Current oversized-module and facade scans across `packages/*/src`.
+- Prepared audit prompt pack:
+  - `/media/ninel/Second/code/datazup/ai-internal-dev/audit/full-dzupagent-2026-04-26/run-001/codex-prep/prompts/04-architecture.md`
+  - `/media/ninel/Second/code/datazup/ai-internal-dev/audit/full-dzupagent-2026-04-26/run-001/codex-prep/manifest.json`
 
 Validation actually run:
 - `node scripts/check-domain-boundaries.mjs` passed.
 - `yarn workspace @dzupagent/testing test src/__tests__/boundary/architecture.test.ts` passed: 34 tests.
 - `node scripts/server-api-surface-report.mjs --check` failed before stale-doc comparison because `@dzupagent/eval-contracts` had no matching tier rule.
 
-No broad `yarn verify`, package builds, or runtime server exercises were run for this audit.
+No broad `yarn verify`, package builds, full test suite, runtime server startup, or browser validation was run for this architecture audit.
 
 ## Strengths
 
-- Package boundary checks exist and are not only documentation. `packages/testing/src/__tests__/boundary/architecture.test.ts` statically scans production source imports, and the focused boundary test passed in this audit.
-- Domain-specific package reintroduction is guarded by a standalone script. `scripts/check-domain-boundaries.mjs` passed and prevents universal packages from importing previously extracted domain packages.
-- `@dzupagent/core` already demonstrates a healthier public API pattern with explicit subpaths in `packages/core/package.json:7` through `packages/core/package.json:35`.
-- `@dzupagent/server/ops` is a real subpath facade in `packages/server/src/ops.ts:1` through `packages/server/src/ops.ts:36`, so the server API reduction effort has an implementation pattern rather than only a plan.
-- The server root API has a machine-readable tiering concept and a generated inventory. Even though the check currently fails, the architecture direction is correct and repairable.
-- Several recent refactors reduced direct coupling, for example `packages/server/src/index.ts:128` through `packages/server/src/index.ts:141` moves eval orchestration contracts to `@dzupagent/eval-contracts` instead of concrete `@dzupagent/evals` runtime classes.
+- Architecture checks are not documentation-only. `scripts/check-domain-boundaries.mjs` passed, and `packages/testing/src/__tests__/boundary/architecture.test.ts` passed the configured import-boundary suite.
+- The repo has current package-tier and boundary config files, which gives the architecture work a policy home instead of relying only on reviewer memory.
+- `@dzupagent/core` already demonstrates a healthier public API segmentation pattern with explicit `stable`, `advanced`, `quick-start`, `orchestration`, `security`, and `facades` subpaths.
+- `@dzupagent/server/ops` is a real subpath facade, not just a plan, and can be used as the migration template for runtime, persistence, compat, and control-plane surfaces.
+- The server no longer imports concrete eval orchestrators just to type injected orchestrators; the re-export from `@dzupagent/eval-contracts` is directionally correct even though the surface classifier has not caught up.
+- The boundary test suite separates package-to-package and app-to-app import enforcement, which is a useful foundation for broader layering and cycle checks.
 
 ## Open Questions Or Assumptions
 
-- I assume the `docs/SERVER_API_SURFACE_INDEX.md` counts are baseline review context, not current generated truth, because the current generator fails before it can regenerate.
-- I assume `@dzupagent/eval-contracts` is intended as a neutral contract package and should not be treated as a server implementation leak, but it still needs explicit public-surface classification.
-- I did not run a full source import cycle detector, so circularity risk is based on current policy coverage and dependency graph shape, not on a complete cycle report.
-- I did not inspect every implementation module under the largest packages; the oversized-module findings focus on architecture hotspots visible from root facades, config composition, and package metadata.
-- I assume backward compatibility matters for root exports because package versions are still `0.2.0` but current docs and sibling apps import from package roots.
+- I treated prior audit and stabilization docs as comparison context only; all findings above are based on current files or commands inspected in this pass.
+- I assume `@dzupagent/eval-contracts` is intended to be a neutral contract package and should be classified as such, not removed from server immediately.
+- I did not run a complete dependency cycle detector, so circularity risk is based on policy shape, dependency exposure, and source-import guardrail gaps rather than a proven current cycle.
+- I did not inspect every implementation module in every package. The oversized-module findings focus on public facades and composition hotspots because those are the architecture surfaces most likely to lock in downstream coupling.
+- I assume backward compatibility matters for root exports because workspace packages are versioned and sibling consumers may still import root symbols directly.
 
 ## Recommended Next Actions
 
-1. Repair `scripts/server-api-surface-report.mjs --check` by classifying `@dzupagent/eval-contracts`, then regenerate `docs/SERVER_API_SURFACE_INDEX.md`.
-2. Continue the server root reduction with one narrow tranche: move runtime/control-plane exports behind `@dzupagent/server/runtime` or `@dzupagent/server/control-plane`, while keeping temporary root aliases.
-3. Upgrade `config/architecture-boundaries.json` from selected forbidden edges to a complete package layer graph, and add a completeness check that every workspace package is classified.
-4. Split `packages/server/src/app.ts` internally without changing the public `createForgeApp` entrypoint: route registration, middleware setup, runtime worker boot, and optional feature wiring should become separate internal modules.
-5. Add an `agent-adapters` API surface inventory and subpath plan before adding more provider, orchestration, HTTP, or recovery exports to the root.
-6. Add a lightweight package dependency cycle check to the existing architecture guardrail suite, and report cycles separately from forbidden-edge violations.
+1. Fix `scripts/server-api-surface-report.mjs --check` by classifying `@dzupagent/eval-contracts`, then regenerate `docs/SERVER_API_SURFACE_INDEX.md`.
+2. Continue server root reduction with one narrow tranche: introduce a runtime/control-plane subpath and move worker, executor, quota, registry/control-plane, and feedback exports behind it while preserving temporary root aliases.
+3. Expand `config/architecture-boundaries.json` into a complete package layer graph and add a completeness check for every `packages/*/package.json` workspace.
+4. Add a lightweight package dependency cycle check and report cycles separately from forbidden-edge violations.
+5. Split `packages/server/src/app.ts` internally without changing `createForgeApp(config)`: start with middleware setup, runtime worker boot, optional route mounting, and operational side effects.
+6. Add an `@dzupagent/agent-adapters` API surface inventory and subpath plan before adding more provider, orchestration, HTTP, recovery, workflow, or learning exports to the root.

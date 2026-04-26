@@ -59,7 +59,7 @@
 - `packages/playground/src/assets/main.css:42` defines radius tokens, but `packages/playground/src/App.vue:235` and `packages/playground/src/App.vue:255` use `rounded-[10px]`.
 - `packages/playground/src/App.vue:269` uses `text-[11px]` and `tracking-[0.08em]`; related compact labels use `text-[10px]` at `packages/playground/src/App.vue:280` and `packages/playground/src/App.vue:293`.
 - `packages/playground/src/views/CapabilityMatrixView.vue:122`, `packages/playground/src/views/CapabilityMatrixView.vue:126`, `packages/playground/src/views/CapabilityMatrixView.vue:134`, and `packages/playground/src/views/CapabilityMatrixView.vue:171` use `rounded-[10px]`.
-- A static source scan found 219 occurrences of arbitrary visual utilities or raw Tailwind palette classes across `packages/playground/src`.
+- A static source scan found 210 occurrences of arbitrary visual utilities or raw Tailwind palette classes across `packages/playground/src`.
 
 **Remediation:** Extend the token layer with named compact text, label, nav-item, control, and badge variants where needed. Replace arbitrary radii with `rounded-pg`, `rounded-pg-sm`, or `rounded-pg-lg`, and reserve arbitrary utilities for one-off layout constraints that cannot be represented by existing tokens.
 

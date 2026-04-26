@@ -1,14 +1,14 @@
 # Server API Surface Index
 
-Date: 2026-04-23
+Date: 2026-04-26
 
 Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`.
 
 ## Summary
 
 - Unique export sources in root index: `126`
-- Tier counts: stable=`29`, secondary=`30`, experimental=`49`, internal=`18`
-- Recommended root exposure: keep-root=`29`, candidate-subpath=`79`, remove-root=`18`
+- Tier counts: stable=`30`, secondary=`30`, experimental=`48`, internal=`18`
+- Recommended root exposure: keep-root=`30`, candidate-subpath=`78`, remove-root=`18`
 
 ## Current Direct Root Imports
 
@@ -44,8 +44,8 @@ Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`
 | `./routes/memory.js` | `experimental` | `memory` | `candidate-subpath` | 2 | `createMemoryRoutes`, `MemoryRouteConfig` |
 | `./routes/memory-browse.js` | `experimental` | `memory` | `candidate-subpath` | 2 | `createMemoryBrowseRoutes`, `MemoryBrowseRouteConfig` |
 | `./routes/learning.js` | `experimental` | `learning` | `candidate-subpath` | 2 | `createLearningRoutes`, `LearningRouteConfig` |
-| `./routes/benchmarks.js` | `experimental` | `benchmarks` | `candidate-subpath` | 2 | `createBenchmarkRoutes`, `BenchmarkRouteConfig` |
-| `./routes/evals.js` | `experimental` | `evals` | `candidate-subpath` | 2 | `createEvalRoutes`, `EvalRouteConfig` |
+| `./routes/benchmarks.js` | `experimental` | `benchmarks` | `candidate-subpath` | 3 | `createBenchmarkRoutes`, `BenchmarkRouteConfig`, `BenchmarkOrchestratorFactory` |
+| `./routes/evals.js` | `experimental` | `evals` | `candidate-subpath` | 3 | `createEvalRoutes`, `EvalRouteConfig`, `EvalOrchestratorFactory` |
 | `./routes/memory-health.js` | `experimental` | `memory` | `candidate-subpath` | 3 | `createMemoryHealthRoutes`, `MemoryHealthRouteConfig`, `HealthProvider` |
 | `./routes/routing-stats.js` | `experimental` | `observability` | `candidate-subpath` | 2 | `createRoutingStatsRoutes`, `RoutingStatsConfig` |
 | `./routes/playground.js` | `experimental` | `playground` | `candidate-subpath` | 2 | `createPlaygroundRoutes`, `PlaygroundRouteConfig` |
@@ -74,7 +74,7 @@ Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`
 | `./queue/bullmq-run-queue.js` | `stable` | `queue` | `keep-root` | 2 | `BullMQRunQueue`, `BullMQRunQueueConfig` |
 | `./lifecycle/graceful-shutdown.js` | `stable` | `lifecycle` | `keep-root` | 3 | `GracefulShutdown`, `ShutdownConfig`, `ShutdownState` |
 | `./lifecycle/human-contact-timeout.js` | `secondary` | `lifecycle` | `candidate-subpath` | 2 | `HumanContactTimeoutScheduler`, `HumanContactTimeoutConfig` |
-| `./services/eval-orchestrator.js` | `secondary` | `evals` | `candidate-subpath` | 7 | `EvalOrchestrator`, `EvalExecutionUnavailableError`, `EvalRunInvalidStateError`, `EvalOrchestratorConfig` |
+| `@dzupagent/eval-contracts` | `secondary` | `evals` | `candidate-subpath` | 7 | `EvalOrchestratorLike`, `BenchmarkOrchestratorLike`, `EvalExecutionTarget`, `EvalExecutionContext` |
 | `./services/agent-control-plane-service.js` | `secondary` | `control-plane` | `candidate-subpath` | 2 | `AgentControlPlaneService`, `AgentControlPlaneServiceConfig` |
 | `./services/executable-agent-resolver.js` | `secondary` | `control-plane` | `candidate-subpath` | 3 | `ControlPlaneExecutableAgentResolver`, `AgentStoreExecutableAgentResolver`, `ExecutableAgentResolver` |
 | `./ws/event-bridge.js` | `stable` | `realtime` | `keep-root` | 4 | `EventBridge`, `WSClient`, `ClientFilter`, `EventBridgeConfig` |
@@ -130,7 +130,6 @@ Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`
 | `./cli/scorecard-command.js` | `internal` | `cli` | `remove-root` | 4 | `runScorecard`, `parseScorecardArgs`, `ScorecardCommandOptions`, `ScorecardCommandResult` |
 | `./scorecard/index.js` | `secondary` | `ops` | `candidate-subpath` | 14 | `IntegrationScorecard`, `ScorecardReport`, `ScorecardCategory`, `ScorecardCheck` |
 | `./runtime/consolidation-scheduler.js` | `secondary` | `runtime` | `candidate-subpath` | 4 | `ConsolidationScheduler`, `ConsolidationTask`, `ConsolidationReport`, `ConsolidationSchedulerConfig` |
-| `./services/benchmark-orchestrator.js` | `experimental` | `benchmarks` | `candidate-subpath` | 2 | `BenchmarkOrchestrator`, `BenchmarkOrchestratorConfig` |
 | `./runtime/sleep-consolidation-task.js` | `experimental` | `runtime` | `candidate-subpath` | 4 | `createSleepConsolidationTask`, `SleepConsolidationTaskConfig`, `SleepConsolidatorLike`, `SleepConsolidationReportLike` |
 | `./runtime/memory-quota-manager.js` | `experimental` | `runtime` | `candidate-subpath` | 1 | `InMemoryQuotaManager` |
 | `./runtime/run-worker.js` | `secondary` | `runtime` | `candidate-subpath` | 9 | `startRunWorker`, `RunExecutionContext`, `RunExecutor`, `StartRunWorkerOptions` |
@@ -149,6 +148,7 @@ Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`
 | `./deploy/deployment-history-store.js` | `experimental` | `deploy` | `candidate-subpath` | 7 | `PostgresDeploymentHistoryStore`, `InMemoryDeploymentHistoryStore`, `DeploymentHistoryStoreInterface`, `DeploymentHistoryRecord` |
 | `./deploy/signal-checkers.js` | `experimental` | `deploy` | `candidate-subpath` | 8 | `checkRecoveryCopilotConfigured`, `checkRollbackAvailable`, `computeAllSignals`, `AgentConfigLike` |
 | `./routes/deploy.js` | `experimental` | `deploy` | `candidate-subpath` | 2 | `createDeployRoutes`, `DeployRouteConfig` |
+| `./security/input-guard.js` | `stable` | `security` | `keep-root` | 5 | `createInputGuard`, `DEFAULT_MAX_INPUT_LENGTH`, `InputGuard`, `InputGuardConfig` |
 | `./security/incident-response.js` | `experimental` | `security` | `candidate-subpath` | 12 | `IncidentResponseEngine`, `clearIncidentFlags`, `isAgentKilled`, `isToolDisabled` |
 | `./docs/doc-generator.js` | `internal` | `docs` | `remove-root` | 3 | `DocGenerator`, `DocGeneratorConfig`, `DocGeneratorContext` |
 | `./docs/agent-doc.js` | `internal` | `docs` | `remove-root` | 2 | `renderAgentDoc`, `AgentDocInput` |
