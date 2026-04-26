@@ -89,6 +89,76 @@ describe('DzupAgent onFallback telemetry (Task 3)', () => {
   })
 })
 
+describe('DzupAgent onFallbackDetail telemetry (QF-AGENT-07)', () => {
+  it('DzupAgentConfig accepts onFallbackDetail field without type error', () => {
+    const config: DzupAgentConfig = {
+      id: 'detail-type-check',
+      instructions: 'test',
+      model: createMockModel(),
+      onFallbackDetail: (event) => {
+        void event.reason; void event.detail; void event.namespace
+      },
+    }
+    expect(config.onFallbackDetail).toBeDefined()
+  })
+
+  it('passes onFallbackDetail through to config', () => {
+    const onFallbackDetail = vi.fn()
+    const agent = new DzupAgent({
+      id: 'detail-agent',
+      instructions: 'test',
+      model: createMockModel(),
+      onFallbackDetail,
+    } as DzupAgentConfig)
+    expect((agent as unknown as { config: DzupAgentConfig }).config.onFallbackDetail).toBe(onFallbackDetail)
+  })
+
+  it('calls onFallback and onFallbackDetail when memory load throws', async () => {
+    const onFallback = vi.fn()
+    const onFallbackDetail = vi.fn()
+    const eventBus = createEventBus()
+    const emitSpy = vi.spyOn(eventBus, 'emit')
+
+    const throwingMemory = {
+      get: vi.fn().mockRejectedValue(new Error('DB connection lost')),
+      formatForPrompt: vi.fn(() => ''),
+    }
+
+    const agent = new DzupAgent({
+      id: 'mem-fail-agent',
+      instructions: 'test',
+      model: createMockModel(),
+      memory: throwingMemory as unknown as DzupAgentConfig['memory'],
+      memoryScope: { project: 'test' },
+      memoryNamespace: 'facts',
+      onFallback,
+      onFallbackDetail,
+      eventBus,
+    } as DzupAgentConfig)
+
+    // generate() calls prepareMessages() which catches memory failures non-fatally
+    await agent.generate([new AIMessage('hello')])
+
+    expect(onFallback).toHaveBeenCalledWith('memory_load_failure', expect.any(Number), 0)
+    expect(onFallbackDetail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: 'memory_load_failure',
+        detail: 'DB connection lost',
+        namespace: 'facts',
+        tokensBefore: expect.any(Number),
+        tokensAfter: 0,
+      }),
+    )
+    expect(emitSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'agent:context_fallback',
+        agentId: 'mem-fail-agent',
+        reason: 'memory_load_failure',
+      }),
+    )
+  })
+})
+
 describe('DzupAgent maybeUpdateSummary onFallback wiring (P4 Task 1)', () => {
   it('maybeUpdateSummary passes onFallback into summarizeAndTrim config', async () => {
     // This test verifies that when DzupAgentConfig.messageConfig is spread

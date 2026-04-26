@@ -178,7 +178,7 @@ describe('CapabilityMatrixView', () => {
   // ------------------------------------------------------------------ badges
 
   describe('badgeClass', () => {
-    it('applies bg-green-500/20 class for active status', async () => {
+    it('applies pg-badge-success variant for active status', async () => {
       const body = makeMatrix({ claude: { systemPrompt: 'active' } })
       vi.stubGlobal('fetch', makeFetchOk(body))
 
@@ -190,11 +190,10 @@ describe('CapabilityMatrixView', () => {
       const badges = wrapper.findAll('span.rounded-full')
       const activeOne = badges.find(b => b.text() === 'active')
       expect(activeOne).toBeDefined()
-      expect(activeOne!.classes().join(' ')).toContain('bg-green-500/20')
-      expect(activeOne!.classes().join(' ')).toContain('text-green-400')
+      expect(activeOne!.classes()).toContain('pg-badge-success')
     })
 
-    it('applies bg-yellow-500/20 class for degraded status', async () => {
+    it('applies pg-badge-warning variant for degraded status', async () => {
       const body = makeMatrix({ claude: { systemPrompt: 'degraded' } })
       vi.stubGlobal('fetch', makeFetchOk(body))
 
@@ -206,11 +205,10 @@ describe('CapabilityMatrixView', () => {
       const badges = wrapper.findAll('span.rounded-full')
       const degradedOne = badges.find(b => b.text() === 'degraded')
       expect(degradedOne).toBeDefined()
-      expect(degradedOne!.classes().join(' ')).toContain('bg-yellow-500/20')
-      expect(degradedOne!.classes().join(' ')).toContain('text-yellow-400')
+      expect(degradedOne!.classes()).toContain('pg-badge-warning')
     })
 
-    it('applies bg-red-500/20 class for dropped status', async () => {
+    it('applies pg-badge-danger variant for dropped status', async () => {
       const body = makeMatrix({ claude: { systemPrompt: 'dropped' } })
       vi.stubGlobal('fetch', makeFetchOk(body))
 
@@ -222,11 +220,10 @@ describe('CapabilityMatrixView', () => {
       const badges = wrapper.findAll('span.rounded-full')
       const droppedOne = badges.find(b => b.text() === 'dropped')
       expect(droppedOne).toBeDefined()
-      expect(droppedOne!.classes().join(' ')).toContain('bg-red-500/20')
-      expect(droppedOne!.classes().join(' ')).toContain('text-red-400')
+      expect(droppedOne!.classes()).toContain('pg-badge-danger')
     })
 
-    it('applies bg-pg-surface-raised class for unsupported status', async () => {
+    it('applies pg-badge-muted variant for unsupported status', async () => {
       const body = makeMatrix({ claude: { systemPrompt: 'unsupported' } })
       vi.stubGlobal('fetch', makeFetchOk(body))
 
@@ -238,8 +235,7 @@ describe('CapabilityMatrixView', () => {
       const badges = wrapper.findAll('span.rounded-full')
       const unsupportedOne = badges.find(b => b.text() === 'unsupported')
       expect(unsupportedOne).toBeDefined()
-      expect(unsupportedOne!.classes().join(' ')).toContain('bg-pg-surface-raised')
-      expect(unsupportedOne!.classes().join(' ')).toContain('text-pg-text-muted')
+      expect(unsupportedOne!.classes()).toContain('pg-badge-muted')
     })
   })
 

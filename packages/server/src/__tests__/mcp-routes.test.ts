@@ -253,6 +253,202 @@ describe('MCP routes', () => {
     expect(res.status).toBe(204)
   })
 
+  // --- Secret redaction (QF-SEC-06) ---
+
+  describe('response secret redaction', () => {
+    it('POST /api/mcp/servers redacts env values in response', async () => {
+      const res = await req(app, 'POST', '/api/mcp/servers', {
+        id: 'env-srv',
+        transport: 'http',
+        endpoint: 'http://localhost:3000',
+        enabled: true,
+        env: { MY_TOKEN: 'super-secret', OTHER: 'also-secret' },
+      })
+      expect(res.status).toBe(201)
+      const json = (await res.json()) as {
+        data: { env?: Record<string, string> }
+      }
+      expect(json.data.env).toEqual({
+        MY_TOKEN: '[REDACTED]',
+        OTHER: '[REDACTED]',
+      })
+    })
+
+    it('POST /api/mcp/servers redacts sensitive headers in response', async () => {
+      const res = await req(app, 'POST', '/api/mcp/servers', {
+        id: 'hdr-srv',
+        transport: 'http',
+        endpoint: 'http://localhost:3000',
+        enabled: true,
+        headers: {
+          authorization: 'Bearer secret',
+          'x-api-key': 'k-xyz',
+          'content-type': 'application/json',
+        },
+      })
+      expect(res.status).toBe(201)
+      const json = (await res.json()) as {
+        data: { headers?: Record<string, string> }
+      }
+      expect(json.data.headers).toEqual({
+        authorization: '[REDACTED]',
+        'x-api-key': '[REDACTED]',
+        'content-type': 'application/json',
+      })
+    })
+
+    it('GET /api/mcp/servers/:id redacts secrets in response', async () => {
+      await mcpManager.addServer({
+        id: 'get-redact',
+        transport: 'http',
+        endpoint: 'http://localhost:3000',
+        enabled: true,
+        env: { TOKEN: 'sensitive' },
+        headers: { authorization: 'Bearer xyz' },
+      })
+      const res = await req(app, 'GET', '/api/mcp/servers/get-redact')
+      expect(res.status).toBe(200)
+      const json = (await res.json()) as {
+        data: {
+          env?: Record<string, string>
+          headers?: Record<string, string>
+        }
+      }
+      expect(json.data.env).toEqual({ TOKEN: '[REDACTED]' })
+      expect(json.data.headers).toEqual({ authorization: '[REDACTED]' })
+    })
+
+    it('GET /api/mcp/servers redacts secrets in list response', async () => {
+      await mcpManager.addServer({
+        id: 'list-redact',
+        transport: 'http',
+        endpoint: 'http://localhost:3000',
+        enabled: true,
+        env: { SECRET: 'val' },
+        headers: { authorization: 'Bearer abc' },
+      })
+      const res = await req(app, 'GET', '/api/mcp/servers')
+      expect(res.status).toBe(200)
+      const json = (await res.json()) as {
+        data: Array<{
+          id: string
+          env?: Record<string, string>
+          headers?: Record<string, string>
+        }>
+      }
+      const found = json.data.find((s) => s.id === 'list-redact')
+      expect(found?.env).toEqual({ SECRET: '[REDACTED]' })
+      expect(found?.headers).toEqual({ authorization: '[REDACTED]' })
+      // No raw secret values should appear anywhere in the list payload.
+      const serialized = JSON.stringify(json)
+      expect(serialized).not.toContain('Bearer abc')
+      expect(serialized).not.toContain('"val"')
+    })
+
+    it('PATCH /api/mcp/servers/:id redacts secrets in response', async () => {
+      await mcpManager.addServer({
+        id: 'patch-redact',
+        transport: 'http',
+        endpoint: 'http://localhost:3000',
+        enabled: true,
+      })
+      const res = await req(app, 'PATCH', '/api/mcp/servers/patch-redact', {
+        env: { NEW_TOKEN: 'just-set' },
+        headers: { authorization: 'Bearer new' },
+      })
+      expect(res.status).toBe(200)
+      const json = (await res.json()) as {
+        data: {
+          env?: Record<string, string>
+          headers?: Record<string, string>
+        }
+      }
+      expect(json.data.env).toEqual({ NEW_TOKEN: '[REDACTED]' })
+      expect(json.data.headers).toEqual({ authorization: '[REDACTED]' })
+    })
+
+    it('stored definition retains real env/header values for execution path', async () => {
+      await req(app, 'POST', '/api/mcp/servers', {
+        id: 'stored-real',
+        transport: 'http',
+        endpoint: 'http://localhost:3000',
+        enabled: true,
+        env: { MY_TOKEN: 'real-secret' },
+        headers: { authorization: 'Bearer real' },
+      })
+      // Internal manager access — values should NOT be redacted
+      const stored = await mcpManager.getServer('stored-real')
+      expect(stored?.env).toEqual({ MY_TOKEN: 'real-secret' })
+      expect(stored?.headers).toEqual({ authorization: 'Bearer real' })
+    })
+  })
+
+  // --- MJ-SEC-03: stdio executable re-validation on PATCH ---
+
+  describe('PATCH /api/mcp/servers/:id stdio allowlist re-validation (MJ-SEC-03)', () => {
+    it('allows PATCH that changes a non-stdio server endpoint when no stdio involved', async () => {
+      const server = await mcpManager.addServer({ id: 'http-srv', transport: 'http', endpoint: 'http://old' })
+      const guardedApp = createForgeApp({
+        ...createTestConfig(mcpManager),
+        mcpAllowedExecutables: [],
+      })
+      const res = await req(guardedApp, 'PATCH', `/api/mcp/servers/${server.id}`, { endpoint: 'http://new' })
+      expect(res.status).toBe(200)
+    })
+
+    it('rejects PATCH that changes transport to stdio when endpoint is not in allowlist', async () => {
+      const server = await mcpManager.addServer({ id: 'srv-change', transport: 'http', endpoint: 'http://x' })
+      const guardedApp = createForgeApp({
+        ...createTestConfig(mcpManager),
+        mcpAllowedExecutables: ['npx'],
+      })
+      const res = await req(guardedApp, 'PATCH', `/api/mcp/servers/${server.id}`, {
+        transport: 'stdio',
+        endpoint: '/usr/bin/evil',
+      })
+      expect(res.status).toBe(403)
+      const json = await res.json() as { error: { code: string } }
+      expect(json.error.code).toBe('FORBIDDEN')
+    })
+
+    it('allows PATCH that changes transport to stdio when endpoint is in allowlist', async () => {
+      const server = await mcpManager.addServer({ id: 'srv-ok', transport: 'http', endpoint: 'http://x' })
+      const guardedApp = createForgeApp({
+        ...createTestConfig(mcpManager),
+        mcpAllowedExecutables: ['npx', 'node'],
+      })
+      const res = await req(guardedApp, 'PATCH', `/api/mcp/servers/${server.id}`, {
+        transport: 'stdio',
+        endpoint: 'npx',
+      })
+      expect(res.status).toBe(200)
+    })
+
+    it('rejects PATCH that changes endpoint of an existing stdio server to an unlisted command', async () => {
+      const server = await mcpManager.addServer({ id: 'stdio-srv', transport: 'stdio', endpoint: 'npx' })
+      const guardedApp = createForgeApp({
+        ...createTestConfig(mcpManager),
+        mcpAllowedExecutables: ['npx'],
+      })
+      const res = await req(guardedApp, 'PATCH', `/api/mcp/servers/${server.id}`, {
+        endpoint: '/usr/bin/malicious',
+      })
+      expect(res.status).toBe(403)
+    })
+
+    it('allows PATCH that changes non-endpoint fields of an existing stdio server', async () => {
+      const server = await mcpManager.addServer({ id: 'stdio-safe', transport: 'stdio', endpoint: 'npx' })
+      const guardedApp = createForgeApp({
+        ...createTestConfig(mcpManager),
+        mcpAllowedExecutables: ['npx'],
+      })
+      const res = await req(guardedApp, 'PATCH', `/api/mcp/servers/${server.id}`, {
+        name: 'Updated Name',
+      })
+      expect(res.status).toBe(200)
+    })
+  })
+
   // --- Service unavailable guard ---
 
   it('returns 503 when mcpManager is not configured', async () => {

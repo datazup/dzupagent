@@ -118,7 +118,37 @@ describe('AgentMemoryContextLoader', () => {
 
     await loader.load([new HumanMessage('hello')])
 
-    expect(onFallback).toHaveBeenCalledWith('arrow_fallback', 0, 0)
+    expect(onFallback).toHaveBeenCalledWith('arrow_fallback', expect.any(Number), 0)
+  })
+
+  it('invokes onFallbackDetail with arrow_runtime_failure when Arrow path throws', async () => {
+    const memory = createMemoryService()
+    const onFallbackDetail = vi.fn()
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      arrowMemory: { currentPhase: 'general' },
+      estimateConversationTokens: () => 0,
+      loadArrowRuntime: async () => {
+        throw new Error('Arrow unavailable')
+      },
+      onFallbackDetail,
+    })
+
+    await loader.load([new HumanMessage('hello')])
+
+    expect(onFallbackDetail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: 'arrow_runtime_failure',
+        detail: 'Arrow unavailable',
+        namespace: 'facts',
+        provider: 'arrow',
+        tokensBefore: expect.any(Number),
+        tokensAfter: 0,
+      }),
+    )
   })
 
   it('invokes onFallback with budget_zero when the computed memory budget is non-positive', async () => {
@@ -159,7 +189,59 @@ describe('AgentMemoryContextLoader', () => {
 
     await loader.load([new HumanMessage('hello')])
 
-    expect(onFallback).toHaveBeenCalledWith('budget_zero', 0, 0)
+    expect(onFallback).toHaveBeenCalledWith('budget_zero', expect.any(Number), 0)
+  })
+
+  it('invokes onFallbackDetail with memory_budget_zero including token diagnostics', async () => {
+    const memory = createMemoryService()
+    const onFallbackDetail = vi.fn()
+
+    class FakeFrameReader {
+      constructor(_frame: { numRows: number }) {}
+      toRecords() {
+        return [{ meta: { namespace: 'facts' }, value: { text: 'ignored' } }]
+      }
+    }
+
+    const loadArrowRuntime = vi.fn(async (): Promise<ArrowMemoryRuntime> => ({
+      extendMemoryServiceWithArrow: () => ({
+        exportFrame: async () => ({ numRows: 1 }),
+      }),
+      selectMemoriesByBudget: vi.fn(() => []),
+      phaseWeightedSelection: vi.fn(() => []),
+      FrameReader: FakeFrameReader,
+    }))
+
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'some instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      arrowMemory: {
+        currentPhase: 'general',
+        totalBudget: 100,
+        maxMemoryFraction: 0.1,
+        minResponseReserve: 1_000_000,
+      },
+      estimateConversationTokens: () => 50,
+      loadArrowRuntime,
+      onFallbackDetail,
+    })
+
+    await loader.load([new HumanMessage('hello')])
+
+    expect(onFallbackDetail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: 'memory_budget_zero',
+        namespace: 'facts',
+        provider: 'arrow',
+        tokensBefore: expect.any(Number),
+        tokensAfter: 0,
+      }),
+    )
+    const call = onFallbackDetail.mock.calls[0][0] as { detail: string }
+    expect(call.detail).toContain('totalBudget=100')
+    expect(call.detail).toContain('minResponseReserve=1000000')
   })
 })
 

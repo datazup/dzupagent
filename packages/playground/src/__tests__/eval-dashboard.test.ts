@@ -238,7 +238,7 @@ describe('EvalDashboard', () => {
     expect(wrapper.text()).toContain('Safety evaluation')
   })
 
-  it('displays status badges with correct classes', async () => {
+  it('displays status badges with semantic variant classes', async () => {
     evalStore.runs = sampleRuns
 
     const wrapper = await mountView()
@@ -249,9 +249,9 @@ describe('EvalDashboard', () => {
     const failedBadge = badges.find((b) => b.text() === 'failed')
     const runningBadge = badges.find((b) => b.text() === 'running')
 
-    expect(completedBadge?.classes()).toContain('bg-green-100')
-    expect(failedBadge?.classes()).toContain('bg-red-100')
-    expect(runningBadge?.classes()).toContain('bg-blue-100')
+    expect(completedBadge?.classes()).toContain('pg-badge-success')
+    expect(failedBadge?.classes()).toContain('pg-badge-danger')
+    expect(runningBadge?.classes()).toContain('pg-badge-info')
   })
 
   it('shows scores for completed runs and -- for incomplete', async () => {

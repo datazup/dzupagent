@@ -239,4 +239,96 @@ describe('SpawnCompilerBridge', () => {
 
     expect(ctx.header).not.toHaveBeenCalledWith('X-Run-Id', expect.anything())
   })
+
+  // -------------------------------------------------------------------------
+  // RF-CODE-02 — exit-code gating regression tests
+  // -------------------------------------------------------------------------
+
+  /** Build a child that emits NDJSON lines, then closes with the given code/signal. */
+  function makeChildWithExit(lines: string[], code: number | null, stderr = '', signal: NodeJS.Signals | null = null): ChildMock {
+    const child = new EventEmitter() as ChildMock
+    const content = lines.map((l) => `${l}\n`).join('')
+    child.stdout = Readable.from(content)
+    child.stderr = Readable.from(stderr)
+    child.stdin = { write: vi.fn(), end: vi.fn() }
+    child.kill = vi.fn(() => {
+      setImmediate(() => child.emit('close', code, signal))
+    })
+    const fireClose = (): void => setImmediate(() => child.emit('close', code, signal))
+    child.stdout.on('end', fireClose)
+    child.stdout.on('close', fireClose)
+    return child
+  }
+
+  it('does NOT emit flow:compile_result when child exits non-zero with a buffered result frame', async () => {
+    // Child wrote a complete result line to stdout, but then crashed.
+    const child = makeChildWithExit(successLines, 137, 'OOM killed by kernel\n')
+    spawnMock.mockReturnValueOnce(child)
+
+    const { stream, events } = makeStream()
+    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], { type: 'action', tool: 't' })
+
+    const eventTypes = events.map((e) => e.event)
+    // Critical: the partial result must NOT be surfaced as success.
+    expect(eventTypes).not.toContain('flow:compile_result')
+    // It must be reported as a failure instead.
+    expect(eventTypes).toContain('flow:compile_failed')
+
+    const failed = events.find((e) => e.event === 'flow:compile_failed')!
+    const payload = JSON.parse(failed.data) as { type: string; phase?: string; message?: string }
+    expect(payload.type).toBe('error')
+    expect(payload.phase).toBe('subprocess')
+    expect(payload.message).toMatch(/code=137/)
+    expect(payload.message).toMatch(/OOM killed by kernel/)
+    // Note that the discarded partial result is mentioned for diagnosis.
+    expect(payload.message).toMatch(/partial result frame discarded/i)
+  })
+
+  it('reports a subprocess failure when child exits non-zero without any result frame', async () => {
+    const earlyExitLines = [
+      JSON.stringify({ type: 'flow:compile_started', compileId, inputKind: 'object' }),
+    ]
+    const child = makeChildWithExit(earlyExitLines, 1, 'fatal: bad input\n')
+    spawnMock.mockReturnValueOnce(child)
+
+    const { stream, events } = makeStream()
+    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], {})
+
+    expect(events.map((e) => e.event)).not.toContain('flow:compile_result')
+    const failed = events.find((e) => e.event === 'flow:compile_failed')
+    expect(failed).toBeDefined()
+    const payload = JSON.parse(failed!.data) as { type: string; phase?: string; message?: string }
+    expect(payload.phase).toBe('subprocess')
+    expect(payload.message).toMatch(/code=1/)
+    expect(payload.message).toMatch(/fatal: bad input/)
+    // No partial-result note when there was no buffered result.
+    expect(payload.message).not.toMatch(/partial result frame/i)
+  })
+
+  it('reports a subprocess failure when child is killed by a signal (code=null)', async () => {
+    const child = makeChildWithExit(successLines, null, 'killed by SIGKILL\n', 'SIGKILL')
+    spawnMock.mockReturnValueOnce(child)
+
+    const { stream, events } = makeStream()
+    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], { type: 'action', tool: 't' })
+
+    expect(events.map((e) => e.event)).not.toContain('flow:compile_result')
+    const failed = events.find((e) => e.event === 'flow:compile_failed')
+    expect(failed).toBeDefined()
+    const payload = JSON.parse(failed!.data) as { type: string; phase?: string; message?: string }
+    expect(payload.message).toMatch(/code=null/)
+    expect(payload.message).toMatch(/signal=SIGKILL/)
+  })
+
+  it('still emits flow:compile_result when child exits cleanly (code=0) — sanity', async () => {
+    const child = makeChildWithExit(successLines, 0)
+    spawnMock.mockReturnValueOnce(child)
+
+    const { stream, events } = makeStream()
+    await handleSubprocessCompile(makeCtx(stream) as Parameters<typeof handleSubprocessCompile>[0], { type: 'action', tool: 't' })
+
+    expect(events.map((e) => e.event)).toContain('flow:compile_result')
+    // The buffered result is the last frame emitted.
+    expect(events[events.length - 1]?.event).toBe('flow:compile_result')
+  })
 })
