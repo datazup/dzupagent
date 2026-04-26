@@ -22,3 +22,8 @@ export {
   type RollbackEntry,
   type FileRollbackStoreConfig,
 } from './rollback/file-rollback-store.js'
+export {
+  createAtomicMultiEditTool,
+  type CreateAtomicMultiEditToolOptions,
+  type AtomicMultiEditResult,
+} from './atomic-multi-edit.tool.js'

@@ -43,8 +43,6 @@ export interface ProviderAdapterRegistryConfig {
   /** Circuit breaker config applied to all adapters */
   circuitBreaker?: Partial<CircuitBreakerConfig> | undefined
 }
-/** @deprecated Use `ProviderAdapterRegistryConfig`. */
-export type AdapterRegistryConfig = ProviderAdapterRegistryConfig
 
 /** Detailed per-adapter health including circuit breaker diagnostics. */
 export interface ProviderAdapterHealthDetail {
@@ -62,8 +60,6 @@ export interface ProviderAdapterHealthDetail {
   /** Last failure timestamp */
   lastFailureAt?: number | undefined
 }
-/** @deprecated Use `ProviderAdapterHealthDetail`. */
-export type AdapterHealthDetail = ProviderAdapterHealthDetail
 
 /** Aggregated detailed health status for all registered adapters. */
 export interface ProviderAdapterRegistryHealthStatus {
@@ -71,8 +67,6 @@ export interface ProviderAdapterRegistryHealthStatus {
   adapters: Record<string, ProviderAdapterHealthDetail>
   timestamp: number
 }
-/** @deprecated Use `ProviderAdapterRegistryHealthStatus`. */
-export type DetailedHealthStatus = ProviderAdapterRegistryHealthStatus
 
 export class ProviderAdapterRegistry {
   private readonly adapters = new Map<AdapterProviderId, AgentCLIAdapter>()
@@ -622,5 +616,3 @@ export class ProviderAdapterRegistry {
   }
 }
 
-/** @deprecated Use `ProviderAdapterRegistry`. */
-export { ProviderAdapterRegistry as AdapterRegistry }

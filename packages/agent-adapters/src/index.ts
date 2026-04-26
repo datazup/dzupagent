@@ -70,14 +70,6 @@ export type {
   ProviderAdapterRegistryHealthStatus,
   ProviderAdapterHealthDetail,
 } from './registry/adapter-registry.js'
-/** @deprecated Use `ProviderAdapterRegistry`. */
-export { AdapterRegistry } from './registry/adapter-registry.js'
-/** @deprecated Use `ProviderAdapterRegistryConfig`, `ProviderAdapterRegistryHealthStatus`, and `ProviderAdapterHealthDetail`. */
-export type {
-  AdapterRegistryConfig,
-  DetailedHealthStatus,
-  AdapterHealthDetail,
-} from './registry/adapter-registry.js'
 export {
   TagBasedRouter,
   CostOptimizedRouter,
@@ -211,7 +203,7 @@ export type {
 } from './mcp/mcp-tool-sharing.js'
 
 // --- MCP Adapter Management ---
-export { InMemoryMcpAdapterManager, McpAdapterManager } from './mcp/mcp-adapter-manager.js'
+export { InMemoryMcpAdapterManager } from './mcp/mcp-adapter-manager.js'
 export type {
   AdapterMcpServer,
   AdapterMcpBinding,

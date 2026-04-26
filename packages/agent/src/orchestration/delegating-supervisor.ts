@@ -3,12 +3,12 @@
  * orchestration pattern so a supervisor agent can delegate tasks to
  * specialist agents using the typed delegation protocol.
  *
- * This module depends ONLY on `@dzupagent/core` types (AgentDefinition,
+ * This module depends ONLY on `@dzupagent/core` types (AgentExecutionSpec,
  * RunStore, DzupEventBus). It does NOT import from `@dzupagent/server`
  * or any other sibling package.
  */
 
-import type { AgentDefinition, DzupEventBus } from '@dzupagent/core'
+import type { AgentExecutionSpec, DzupEventBus } from '@dzupagent/core'
 import { OrchestrationError } from './orchestration-error.js'
 import type {
   DelegationTracker,
@@ -58,8 +58,8 @@ export interface AggregatedDelegationResult {
 
 /** Configuration for DelegatingSupervisor. */
 export interface DelegatingSupervisorConfig {
-  /** Map of specialist ID -> AgentDefinition metadata */
-  specialists: Map<string, AgentDefinition>
+  /** Map of specialist ID -> AgentExecutionSpec metadata */
+  specialists: Map<string, AgentExecutionSpec>
   /** The delegation tracker that executes delegations */
   tracker: DelegationTracker
   /** Parent run context for delegation requests */
@@ -146,7 +146,7 @@ const KEYWORD_TAG_MAP: ReadonlyMap<string, string[]> = new Map([
 // ---------------------------------------------------------------------------
 
 export class DelegatingSupervisor {
-  private readonly specialists: Map<string, AgentDefinition>
+  private readonly specialists: Map<string, AgentExecutionSpec>
   private readonly tracker: DelegationTracker
   private readonly parentContext: DelegationContext | undefined
   private readonly eventBus: DzupEventBus | undefined
@@ -455,7 +455,7 @@ export class DelegatingSupervisor {
   }
 
   /** Return the specialist definition by ID, or undefined. */
-  getSpecialist(id: string): AgentDefinition | undefined {
+  getSpecialist(id: string): AgentExecutionSpec | undefined {
     return this.specialists.get(id)
   }
 
@@ -536,7 +536,7 @@ export class DelegatingSupervisor {
 
   /**
    * Match sub-task fragments to specialists based on:
-   * 1. Specialist metadata.tags (from AgentDefinition.metadata)
+   * 1. Specialist metadata.tags (from AgentExecutionSpec.metadata)
    * 2. Specialist tools list
    * 3. Built-in keyword-to-tag map
    */
@@ -575,7 +575,7 @@ export class DelegatingSupervisor {
   private scoreMatch(
     lowerSubtask: string,
     specialistId: string,
-    def: AgentDefinition,
+    def: AgentExecutionSpec,
   ): number {
     let score = 0
 

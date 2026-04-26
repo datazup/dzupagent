@@ -40,6 +40,10 @@ import type {
 import type { TeamPolicies } from './team-policy.js'
 import type { TeamPhase, TeamPhaseModel } from './team-phase.js'
 import type { TeamCheckpoint, ResumeContract } from './team-checkpoint.js'
+import type {
+  SupervisionPolicy,
+  AgentBreakerState,
+} from './supervision-policy.js'
 
 // Recommended model constants — exported for downstream wiring code that needs
 // to align participant/router/governance choices with the framework defaults.
@@ -177,8 +181,15 @@ export interface TeamRuntimeOptions {
    *   - `team.phase_changed`         — per phase transition (attr: `team.phase`)
    *   - `team.participant_completed` — per participant result
    *     (attrs: `team.participant_id`, `team.participant_status`)
+   *   - `circuit_breaker.opened`     — when a participant's failure count
+   *     hits the SupervisionPolicy threshold (attr: `agentId`)
    */
   tracer?: TeamRuntimeTracer
+  /**
+   * Optional per-agent circuit-breaker controls. When present, the runtime
+   * tracks failures per participant and skips agents whose breaker is open.
+   */
+  supervisionPolicy?: SupervisionPolicy
 }
 
 /**
@@ -201,6 +212,9 @@ export class TeamRuntime {
    * to thread the span through every private method signature.
    */
   private currentSpan: TeamOTelSpanLike | undefined
+  private readonly supervisionPolicy: SupervisionPolicy | undefined
+  /** Per-participant circuit-breaker state. Keyed by participant id. */
+  private readonly breakerState = new Map<string, AgentBreakerState>()
 
   constructor(options: TeamRuntimeOptions) {
     this.definition = options.definition
@@ -210,6 +224,66 @@ export class TeamRuntime {
     this.generateRunId =
       options.generateRunId ?? (() => globalThis.crypto.randomUUID())
     this.tracer = options.tracer
+    this.supervisionPolicy = options.supervisionPolicy
+  }
+
+  /**
+   * Whether a participant's circuit is currently open. If `resetAfterMs` has
+   * elapsed since the trip we lazily reset the breaker so the participant is
+   * eligible to run again.
+   */
+  private isCircuitOpen(participantId: string): boolean {
+    if (!this.supervisionPolicy) return false
+    const state = this.breakerState.get(participantId)
+    if (!state || state.openedAt === undefined) return false
+    if (Date.now() - state.openedAt >= this.supervisionPolicy.resetAfterMs) {
+      // Reset: fully clear the breaker so the agent runs again on next pass.
+      state.count = 0
+      state.openedAt = undefined
+      return false
+    }
+    return true
+  }
+
+  /** Record a successful task completion — clears the breaker state. */
+  private recordSuccess(participantId: string): void {
+    if (!this.supervisionPolicy) return
+    const state = this.breakerState.get(participantId)
+    if (state) {
+      state.count = 0
+      state.openedAt = undefined
+    }
+  }
+
+  /**
+   * Record a failure for a participant. Returns `true` when this failure
+   * pushes the breaker open for the first time. Emits the
+   * `circuit_breaker.opened` span event on the first trip.
+   */
+  private recordFailure(participantId: string): boolean {
+    if (!this.supervisionPolicy) return false
+    const state =
+      this.breakerState.get(participantId) ?? { count: 0 }
+    state.count += 1
+    this.breakerState.set(participantId, state)
+
+    const justTripped =
+      state.openedAt === undefined &&
+      state.count >= this.supervisionPolicy.maxFailuresBeforeCircuitBreak
+    if (justTripped) {
+      state.openedAt = Date.now()
+      try {
+        this.supervisionPolicy.onCircuitOpen?.(participantId)
+      } catch {
+        // Callback errors must never bubble — supervision is best-effort.
+      }
+      if (this.currentSpan) {
+        this.currentSpan.addEvent('circuit_breaker.opened', {
+          agentId: participantId,
+        })
+      }
+    }
+    return justTripped
   }
 
   /** The team definition backing this runtime. */
@@ -273,6 +347,32 @@ export class TeamRuntime {
     try {
       this.transition(phaseModel, 'planning', runId)
       this.transition(phaseModel, 'executing', runId)
+
+      // If supervision has tripped every participant's breaker, short-circuit
+      // to an empty result rather than letting the pattern method throw on
+      // an empty participant set.
+      if (
+        this.supervisionPolicy &&
+        this.definition.participants.length > 0 &&
+        this.definition.participants.every((p) => this.isCircuitOpen(p.id))
+      ) {
+        this.transition(phaseModel, 'evaluating', runId)
+        this.transition(phaseModel, 'completing', runId)
+        this.emitEvent({
+          type: 'team_completed',
+          teamId: this.definition.id,
+          runId,
+          durationMs: Date.now() - startedAt,
+          at: new Date(),
+        })
+        if (span && this.tracer) this.tracer.endSpanOk(span)
+        return {
+          content: '',
+          agentResults: [],
+          durationMs: Date.now() - startedAt,
+          pattern: 'peer-to-peer',
+        }
+      }
 
       const pattern: CoordinatorPattern = this.definition.coordinatorPattern
       let result: TeamRunResult
@@ -757,8 +857,14 @@ export class TeamRuntime {
   private async resolveAll(): Promise<
     Array<{ participant: ParticipantDefinition; spawned: SpawnedAgent }>
   > {
+    // Apply the supervision policy: skip participants whose breaker is open
+    // (the lazy reset inside `isCircuitOpen` re-admits them once
+    // `resetAfterMs` has elapsed).
+    const eligible = this.definition.participants.filter(
+      (p) => !this.isCircuitOpen(p.id),
+    )
     return Promise.all(
-      this.definition.participants.map(async (participant) => {
+      eligible.map(async (participant) => {
         const spawned = await this.spawnParticipant(participant)
         return { participant, spawned }
       }),
@@ -827,6 +933,13 @@ export class TeamRuntime {
         'team.participant_id': participant.id,
         'team.participant_status': success ? 'success' : 'failed',
       })
+    }
+    // Update circuit-breaker state. Done last so that any thrown callback
+    // does not interfere with event emission.
+    if (success) {
+      this.recordSuccess(participant.id)
+    } else {
+      this.recordFailure(participant.id)
     }
   }
 

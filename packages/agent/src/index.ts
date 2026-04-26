@@ -395,6 +395,10 @@ export type {
 } from './orchestration/team/team-policy.js'
 export type { TeamPhase, TeamPhaseModel } from './orchestration/team/team-phase.js'
 export type { TeamCheckpoint, ResumeContract } from './orchestration/team/team-checkpoint.js'
+export type {
+  SupervisionPolicy,
+  AgentBreakerState,
+} from './orchestration/team/supervision-policy.js'
 
 // --- Reflection ---
 export { RunReflector } from './reflection/run-reflector.js'
