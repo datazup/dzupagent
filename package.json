@@ -43,6 +43,8 @@
     "release:version": "changeset version",
     "release:publish": "changeset publish",
     "release:status": "changeset status",
+    "audit:deps": "yarn audit",
+    "audit:deps:summary": "yarn audit --summary",
     "bench": "vitest bench --config scripts/bench/vitest.bench.config.ts"
   },
   "engines": {
