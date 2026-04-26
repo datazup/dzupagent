@@ -4,7 +4,7 @@ import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { ParallelExecutor } from '../orchestration/parallel-executor.js'
 import type { ProviderResult } from '../orchestration/parallel-executor.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -131,7 +131,7 @@ function createAbortAwareAdapter(
   }
 }
 
-function createMockRegistry(adapters: Map<AdapterProviderId, AgentCLIAdapter>): AdapterRegistry {
+function createMockRegistry(adapters: Map<AdapterProviderId, AgentCLIAdapter>): ProviderAdapterRegistry {
   return {
     getHealthy(providerId: AdapterProviderId) {
       return adapters.get(providerId)
@@ -139,7 +139,7 @@ function createMockRegistry(adapters: Map<AdapterProviderId, AgentCLIAdapter>): 
     listAdapters() {
       return [...adapters.keys()]
     },
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {

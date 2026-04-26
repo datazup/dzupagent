@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { InMemoryRunStore, createEventBus } from '@dzupagent/core'
-import type { DzupEventBus, DzupEvent, AgentDefinition } from '@dzupagent/core'
+import type { DzupEventBus, DzupEvent, AgentExecutionSpec } from '@dzupagent/core'
 import {
   SimpleDelegationTracker,
   type DelegationExecutor,
@@ -66,8 +66,8 @@ function failingForAgent(
 
 function makeSpecialist(
   id: string,
-  overrides: Partial<AgentDefinition> = {},
-): AgentDefinition {
+  overrides: Partial<AgentExecutionSpec> = {},
+): AgentExecutionSpec {
   return {
     id,
     name: overrides.name ?? id,
@@ -106,7 +106,7 @@ describe('DelegatingSupervisor', () => {
         executor: withStoreUpdate(store, { schema: 'CREATE TABLE users (...)' }),
       })
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['db-specialist', makeSpecialist('db-specialist', {
           metadata: { tags: ['database', 'sql'] },
         })],
@@ -212,7 +212,7 @@ describe('DelegatingSupervisor', () => {
         executor: specialistExecutor(store),
       })
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['agent-db', makeSpecialist('agent-db')],
         ['agent-api', makeSpecialist('agent-api')],
         ['agent-ui', makeSpecialist('agent-ui')],
@@ -248,7 +248,7 @@ describe('DelegatingSupervisor', () => {
         executor: failingForAgent(store, 'agent-api'),
       })
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['agent-db', makeSpecialist('agent-db')],
         ['agent-api', makeSpecialist('agent-api')],
       ])
@@ -312,7 +312,7 @@ describe('DelegatingSupervisor', () => {
         executor: specialistExecutor(store),
       })
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['db-specialist', makeSpecialist('db-specialist', {
           metadata: { tags: ['database', 'schema'] },
         })],
@@ -343,7 +343,7 @@ describe('DelegatingSupervisor', () => {
         executor: specialistExecutor(store),
       })
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['security-agent', makeSpecialist('security-agent', {
           metadata: { tags: ['security', 'auth'] },
         })],
@@ -375,7 +375,7 @@ describe('DelegatingSupervisor', () => {
         executor: withStoreUpdate(store),
       })
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['db-specialist', makeSpecialist('db-specialist', {
           metadata: { tags: ['database'] },
         })],
@@ -399,7 +399,7 @@ describe('DelegatingSupervisor', () => {
         executor: specialistExecutor(store),
       })
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['db-specialist', makeSpecialist('db-specialist', {
           metadata: { tags: ['database'] },
         })],
@@ -431,7 +431,7 @@ describe('DelegatingSupervisor', () => {
         executor: failingForAgent(store, 'agent-broken'),
       })
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['agent-ok', makeSpecialist('agent-ok')],
         ['agent-broken', makeSpecialist('agent-broken')],
       ])
@@ -461,7 +461,7 @@ describe('DelegatingSupervisor', () => {
         executor: withStoreUpdate(store, 'ok'),
       })
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['agent-a', makeSpecialist('agent-a')],
         ['agent-b', makeSpecialist('agent-b')],
       ])
@@ -494,7 +494,7 @@ describe('DelegatingSupervisor', () => {
         executor: withStoreUpdate(store),
       })
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['agent-db', makeSpecialist('agent-db')],
         ['agent-api', makeSpecialist('agent-api')],
       ])
@@ -516,7 +516,7 @@ describe('DelegatingSupervisor', () => {
       const dbDef = makeSpecialist('agent-db', {
         metadata: { tags: ['database'] },
       })
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['agent-db', dbDef],
       ])
 
@@ -551,7 +551,7 @@ describe('DelegatingSupervisor', () => {
         stream: vi.fn(),
       }
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['db-specialist', makeSpecialist('db-specialist', {
           metadata: { tags: ['database', 'sql'] },
         })],
@@ -595,7 +595,7 @@ describe('DelegatingSupervisor', () => {
         stream: vi.fn(),
       }
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['api-specialist', makeSpecialist('api-specialist', {
           metadata: { tags: ['api', 'backend'] },
         })],
@@ -633,7 +633,7 @@ describe('DelegatingSupervisor', () => {
         stream: vi.fn(),
       }
 
-      const specialists = new Map<string, AgentDefinition>([
+      const specialists = new Map<string, AgentExecutionSpec>([
         ['ui-specialist', makeSpecialist('ui-specialist', {
           metadata: { tags: ['ui'] },
         })],

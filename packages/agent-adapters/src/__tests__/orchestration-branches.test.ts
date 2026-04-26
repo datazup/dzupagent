@@ -38,7 +38,7 @@ import type {
 } from '../orchestration/supervisor.js'
 import { ParallelExecutor } from '../orchestration/parallel-executor.js'
 import type { ProviderResult } from '../orchestration/parallel-executor.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -132,14 +132,14 @@ describe('MapReduceOrchestrator branch coverage', () => {
 
   function createRegistry(
     fn: (input: AgentInput, index: number) => AsyncGenerator<AgentEvent, void, undefined>,
-  ): AdapterRegistry {
+  ): ProviderAdapterRegistry {
     let index = 0
     return {
       async *executeWithFallback(input: AgentInput, _task: TaskDescriptor) {
         const current = index++
         yield* fn(input, current)
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
   }
 
   it('handles empty chunk array (no chunks to map)', async () => {
@@ -223,7 +223,7 @@ describe('MapReduceOrchestrator branch coverage', () => {
         void input // suppress unused
         // Yield nothing further
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
 
     const orchestrator = new MapReduceOrchestrator({ registry, eventBus: bus })
     const result = await orchestrator.execute('only', {
@@ -359,8 +359,8 @@ describe('ContractNetOrchestrator branch coverage', () => {
     emitted = collectBusEvents(bus)
   })
 
-  function buildRegistry(adapters: AgentCLIAdapter[]): AdapterRegistry {
-    const registry = new AdapterRegistry()
+  function buildRegistry(adapters: AgentCLIAdapter[]): ProviderAdapterRegistry {
+    const registry = new ProviderAdapterRegistry()
     for (const adapter of adapters) registry.register(adapter)
     return registry
   }
@@ -445,7 +445,7 @@ describe('ContractNetOrchestrator branch coverage', () => {
   })
 
   it('emits reject-proposal when adapter is no longer healthy at award time', async () => {
-    const registry = new AdapterRegistry()
+    const registry = new ProviderAdapterRegistry()
     const adapter = makeAdapter('claude', async function* () {
       yield completedEvent('claude', 'never')
     })
@@ -602,7 +602,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
 
   function registryFor(
     executeImpl: (input: AgentInput) => AsyncGenerator<AgentEvent, void, undefined>,
-  ): AdapterRegistry {
+  ): ProviderAdapterRegistry {
     const decision: RoutingDecision = {
       provider: 'claude' as AdapterProviderId,
       reason: 'mock',
@@ -618,11 +618,11 @@ describe('SupervisorOrchestrator branch coverage', () => {
       async *executeWithFallback(input: AgentInput, _task: TaskDescriptor) {
         yield* executeImpl(input)
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
   }
 
   it('routes decision.provider = auto to specialistId auto in plan_created', async () => {
-    const registry: AdapterRegistry = {
+    const registry: ProviderAdapterRegistry = {
       getForTask() {
         return {
           adapter: {} as AgentCLIAdapter,
@@ -632,7 +632,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
       async *executeWithFallback(_input: AgentInput, _task: TaskDescriptor) {
         yield completedEvent('claude', 'ok')
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
 
     const emitted = collectBusEvents(bus)
     const supervisor = new SupervisorOrchestrator({
@@ -692,7 +692,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
   })
 
   it('propagates non-abort errors from executeWithFallback', async () => {
-    const registry: AdapterRegistry = {
+    const registry: ProviderAdapterRegistry = {
       getForTask() {
         return {
           adapter: {} as AgentCLIAdapter,
@@ -706,7 +706,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
       async *executeWithFallback() {
         throw new Error('unexpected blow-up')
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
 
     const supervisor = new SupervisorOrchestrator({
       registry,
@@ -724,7 +724,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
   })
 
   it('wraps non-Error thrown values with String() coercion', async () => {
-    const registry: AdapterRegistry = {
+    const registry: ProviderAdapterRegistry = {
       getForTask() {
         return {
           adapter: {} as AgentCLIAdapter,
@@ -739,7 +739,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
         // throw non-Error value to exercise String() coercion branch
         throw 'plain-string-error' as unknown as Error
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
 
     const supervisor = new SupervisorOrchestrator({
       registry,
@@ -845,7 +845,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
 
   it('uses preferredProvider field on subtask for task descriptor', async () => {
     let observedTask: TaskDescriptor | undefined
-    const registry: AdapterRegistry = {
+    const registry: ProviderAdapterRegistry = {
       getForTask(task: TaskDescriptor) {
         observedTask = task
         return {
@@ -860,7 +860,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
       async *executeWithFallback() {
         yield completedEvent('codex', 'ok')
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
 
     const supervisor = new SupervisorOrchestrator({
       registry,
@@ -883,7 +883,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
 
   it('propagates budgetConstraint through to task descriptor', async () => {
     let observedTask: TaskDescriptor | undefined
-    const registry: AdapterRegistry = {
+    const registry: ProviderAdapterRegistry = {
       getForTask(task: TaskDescriptor) {
         observedTask = task
         return {
@@ -898,7 +898,7 @@ describe('SupervisorOrchestrator branch coverage', () => {
       async *executeWithFallback() {
         yield completedEvent('claude', 'ok')
       },
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
     const supervisor = new SupervisorOrchestrator({
       registry,
       eventBus: bus,
@@ -944,8 +944,8 @@ describe('ParallelExecutor branch coverage', () => {
 
   function registryFromAdapters(
     adapters: AgentCLIAdapter[],
-  ): AdapterRegistry {
-    const reg = new AdapterRegistry()
+  ): ProviderAdapterRegistry {
+    const reg = new ProviderAdapterRegistry()
     for (const a of adapters) reg.register(a)
     return reg
   }
@@ -1132,7 +1132,7 @@ describe('ParallelExecutor branch coverage', () => {
 
   it('all strategy with zero providers still returns a (synthetic) selectedResult', async () => {
     const executor = new ParallelExecutor({
-      registry: new AdapterRegistry(),
+      registry: new ProviderAdapterRegistry(),
       eventBus: bus,
     })
     const result = await executor.execute(
@@ -1149,7 +1149,7 @@ describe('ParallelExecutor branch coverage', () => {
 
   it('best-of-n with empty results returns synthetic failure', async () => {
     const executor = new ParallelExecutor({
-      registry: new AdapterRegistry(),
+      registry: new ProviderAdapterRegistry(),
       eventBus: bus,
     })
     const result = await executor.execute(

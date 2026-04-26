@@ -5,7 +5,7 @@ import {
   AdapterRecoveryCopilot,
   type RecoveryConfig,
 } from '../recovery/adapter-recovery.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -67,7 +67,7 @@ function createFailingAdapter(
 function createTimedRetryRegistry(
   failCount: number,
   successProviderId: AdapterProviderId = 'claude',
-): { registry: AdapterRegistry; getCallTimestamps: () => number[] } {
+): { registry: ProviderAdapterRegistry; getCallTimestamps: () => number[] } {
   let callCount = 0
   const timestamps: number[] = []
 
@@ -103,7 +103,7 @@ function createTimedRetryRegistry(
     },
     recordSuccess(_id: AdapterProviderId) {},
     recordFailure(_id: AdapterProviderId, _err: Error) {},
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 
   return { registry, getCallTimestamps: () => timestamps }
 }
@@ -116,7 +116,7 @@ function createTimedRetryRegistry(
 function createMultiProviderRegistry(
   providers: AdapterProviderId[],
 ): {
-  registry: AdapterRegistry
+  registry: ProviderAdapterRegistry
   getUsedProviders: () => AdapterProviderId[]
   getInputOptions: () => Array<Record<string, unknown> | undefined>
 } {
@@ -171,7 +171,7 @@ function createMultiProviderRegistry(
     },
     recordSuccess(_id: AdapterProviderId) {},
     recordFailure(_id: AdapterProviderId, _err: Error) {},
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 
   return {
     registry,
@@ -185,7 +185,7 @@ function createMultiProviderRegistry(
  */
 function createAllFailingMultiRegistry(
   providers: AdapterProviderId[],
-): { registry: AdapterRegistry; getUsedProviders: () => AdapterProviderId[] } {
+): { registry: ProviderAdapterRegistry; getUsedProviders: () => AdapterProviderId[] } {
   const usedProviders: AdapterProviderId[] = []
   let callCount = 0
 
@@ -223,7 +223,7 @@ function createAllFailingMultiRegistry(
     },
     recordSuccess(_id: AdapterProviderId) {},
     recordFailure(_id: AdapterProviderId, _err: Error) {},
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 
   return { registry, getUsedProviders: () => usedProviders }
 }
@@ -322,7 +322,7 @@ describe('Recovery Backoff', () => {
       },
       recordSuccess() {},
       recordFailure() {},
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
 
     const copilot = new AdapterRecoveryCopilot(registry, {
       maxAttempts: 5,
@@ -445,7 +445,7 @@ describe('Provider Exclusion', () => {
       },
       recordSuccess() {},
       recordFailure() {},
-    } as unknown as AdapterRegistry
+    } as unknown as ProviderAdapterRegistry
 
     const copilot = new AdapterRecoveryCopilot(registry, {
       maxAttempts: 3,

@@ -7,7 +7,7 @@ import type {
   ConversationEntry,
   SessionRegistryConfig,
 } from '../session/session-registry.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -315,7 +315,7 @@ describe('SessionRegistry', () => {
         async *executeWithFallback(_input: AgentInput, _task: TaskDescriptor) {
           for (const e of events) yield e
         },
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       const collectedEvents: AgentEvent[] = []
       const gen = registry.executeMultiTurn(
@@ -379,7 +379,7 @@ describe('SessionRegistry', () => {
         async *executeWithFallback(_input: AgentInput, _task: TaskDescriptor) {
           for (const e of turn1Events) yield e
         },
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       // Execute first turn
       for await (const _event of registry.executeMultiTurn(
@@ -415,7 +415,7 @@ describe('SessionRegistry', () => {
           capturedInput = input
           for (const e of turn2Events) yield e
         },
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       for await (const _event of registry.executeMultiTurn(
         { prompt: 'Add error handling' },
@@ -457,7 +457,7 @@ describe('SessionRegistry', () => {
         async *executeWithFallback(_input: AgentInput, _task: TaskDescriptor) {
           for (const e of events) yield e
         },
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       // Execute a turn to create the compressor
       for await (const _event of registry.executeMultiTurn(
@@ -479,7 +479,7 @@ describe('SessionRegistry', () => {
           capturedInput = input
           for (const e of events) yield e
         },
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       for await (const _event of registry.executeMultiTurn(
         { prompt: 'Fresh start' },

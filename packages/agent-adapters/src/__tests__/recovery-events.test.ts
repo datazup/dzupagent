@@ -4,7 +4,7 @@ import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 import {
   AdapterRecoveryCopilot,
 } from '../recovery/adapter-recovery.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -61,7 +61,7 @@ function createFailingAdapter(
 function createRetryRegistry(
   failCount: number,
   successProviderId: AdapterProviderId = 'claude',
-): AdapterRegistry {
+): ProviderAdapterRegistry {
   let callCount = 0
 
   const successAdapter = createMockAdapter(successProviderId, [
@@ -95,12 +95,12 @@ function createRetryRegistry(
     },
     recordSuccess(_id: AdapterProviderId) {},
     recordFailure(_id: AdapterProviderId, _err: Error) {},
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 function createAlwaysFailRegistry(
   providerId: AdapterProviderId = 'claude',
-): AdapterRegistry {
+): ProviderAdapterRegistry {
   const failAdapter = createFailingAdapter(providerId, 'permanent failure')
   return {
     getForTask(_task: TaskDescriptor) {
@@ -118,7 +118,7 @@ function createAlwaysFailRegistry(
     },
     recordSuccess(_id: AdapterProviderId) {},
     recordFailure(_id: AdapterProviderId, _err: Error) {},
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 // ---------------------------------------------------------------------------

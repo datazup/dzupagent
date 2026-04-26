@@ -11,7 +11,7 @@ import type {
   TaskDecomposer,
   SupervisorConfig,
 } from '../orchestration/supervisor.js'
-import type { AdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -48,7 +48,7 @@ function createMockAdapter(
 function createMockRegistry(
   adapter: AgentCLIAdapter,
   events?: AgentEvent[],
-): AdapterRegistry {
+): ProviderAdapterRegistry {
   const decision: RoutingDecision = {
     provider: adapter.providerId,
     reason: 'mock',
@@ -78,13 +78,13 @@ function createMockRegistry(
       ]
       for (const e of evts) yield e
     },
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 function createFailingRegistry(
   providerId: AdapterProviderId,
   errorMessage: string,
-): AdapterRegistry {
+): ProviderAdapterRegistry {
   const adapter = createMockAdapter(providerId, [])
   const decision: RoutingDecision = {
     provider: providerId,
@@ -104,7 +104,7 @@ function createFailingRegistry(
         timestamp: Date.now(),
       }
     },
-  } as unknown as AdapterRegistry
+  } as unknown as ProviderAdapterRegistry
 }
 
 function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
@@ -309,7 +309,7 @@ describe('SupervisorOrchestrator', () => {
             timestamp: Date.now(),
           }
         },
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       const decomposer: TaskDecomposer = {
         async decompose(): Promise<SubTask[]> {
@@ -364,7 +364,7 @@ describe('SupervisorOrchestrator', () => {
           }
           concurrentCount--
         },
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       const decomposer: TaskDecomposer = {
         async decompose(): Promise<SubTask[]> {
@@ -450,7 +450,7 @@ describe('SupervisorOrchestrator', () => {
             timestamp: Date.now(),
           }
         },
-      } as unknown as AdapterRegistry
+      } as unknown as ProviderAdapterRegistry
 
       const supervisor = new SupervisorOrchestrator({ registry, eventBus: bus })
 

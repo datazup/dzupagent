@@ -16,7 +16,7 @@ import type {
   AgentInput,
   TaskDescriptor,
 } from '../types.js'
-import { AdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -243,11 +243,11 @@ describe('RegexOutputSchema', () => {
 
 describe('StructuredOutputAdapter', () => {
   let bus: DzupEventBus
-  let registry: AdapterRegistry
+  let registry: ProviderAdapterRegistry
 
   beforeEach(() => {
     bus = createEventBus()
-    registry = new AdapterRegistry()
+    registry = new ProviderAdapterRegistry()
   })
 
   it('executes and returns parsed result on success', async () => {
