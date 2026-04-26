@@ -1,96 +1,105 @@
 ## Findings
 
-### High: Agent-level executions cannot consistently enforce the tool-loop policy surface
+### High: Public `DzupAgent` runs cannot consistently enforce the tool-loop policy surface
 
-Impact: `runToolLoop()` has hooks for tool governance, safety scanning, per-tool timeouts, and tool permissions, but the public `DzupAgent` configuration and normal `generate()` run path do not expose or pass those controls. Consumers using the framework-level agent abstraction can reasonably believe these guardrails are available because they exist in the loop implementation, while their actual agent runs cannot enable them without bypassing `DzupAgent` and calling `runToolLoop()` directly.
+Impact: The reusable tool loop contains meaningful controls for tool governance, safety scanning, per-tool timeouts, argument validation, tracing, and tool permissions, but the top-level agent configuration and normal `generate()` path do not expose or thread most of those controls. Consumers using `DzupAgent` as the framework abstraction can run tools without the policy controls that exist in `runToolLoop()` unless they bypass the agent and call the lower-level loop directly.
 
-Evidence: `ToolLoopConfig` declares `toolGovernance`, `safetyMonitor`, `scanToolResults`, `toolTimeouts`, `agentId`, and `toolPermissionPolicy` in `packages/agent/src/agent/tool-loop.ts:157`. The sequential tool path enforces permission checks, governance access, timeouts, and result scanning in `packages/agent/src/agent/tool-loop.ts:668`, `packages/agent/src/agent/tool-loop.ts:694`, `packages/agent/src/agent/tool-loop.ts:764`, and `packages/agent/src/agent/tool-loop.ts:775`. `DzupAgentConfig` does not define corresponding fields in `packages/agent/src/agent/agent-types.ts:27`, and `executeGenerateRun()` only passes budget, stuck detection, token lifecycle, telemetry callbacks, and transform hooks into `runToolLoop()` in `packages/agent/src/agent/run-engine.ts:192`.
+Evidence: `ToolLoopConfig` defines policy and enforcement controls such as `toolGovernance`, `safetyMonitor`, `scanToolResults`, `toolTimeouts`, `tracer`, `agentId`, and `toolPermissionPolicy` in `packages/agent/src/agent/tool-loop.ts:157`. The sequential executor enforces permission checks, governance decisions, validation, timeout racing, and tool-result safety scanning in `packages/agent/src/agent/tool-loop.ts:668`, `packages/agent/src/agent/tool-loop.ts:694`, `packages/agent/src/agent/tool-loop.ts:736`, `packages/agent/src/agent/tool-loop.ts:764`, and `packages/agent/src/agent/tool-loop.ts:775`. `DzupAgentConfig` exposes `guardrails`, `eventBus`, memory, middleware, and token lifecycle fields but does not expose corresponding fields for those tool-loop controls in `packages/agent/src/agent/agent-types.ts:27`. `executeGenerateRun()` passes budget, stuck detection, usage, result transform, latency, and compression callbacks into `runToolLoop()`, but not governance, safety monitor, tool timeouts, permissions, validation, tracer, or agent identity in `packages/agent/src/agent/run-engine.ts:192`.
 
-Remediation: Promote the active policy controls into `DzupAgentConfig` or a nested `toolExecution`/`toolPolicy` config, then thread them through `prepareRunState()`/`executeGenerateRun()` into `runToolLoop()`. Add parity tests at the `DzupAgent.generate()` level proving a blocked tool, unsafe tool output, denied permission, and per-tool timeout are enforced from the public agent API.
+Remediation: Promote the active tool-execution controls into `DzupAgentConfig` through a nested `toolExecution` or `toolPolicy` object, then thread them through `prepareRunState()` and `executeGenerateRun()` into `runToolLoop()`. Add `DzupAgent.generate()` tests that prove blocked tools, approval-required tools, invalid args, unsafe tool output, permission denial, and per-tool timeout behavior are enforceable from the public agent API.
 
 ### High: Native streaming tool execution bypasses non-streaming guardrails
 
-Impact: Agents using native `stream()` can execute tools through a simpler helper that does not mirror the non-streaming loop's validation and security behavior. This creates mode-dependent behavior for the same agent: fallback streaming reuses `executeGenerateRun()`, but native streaming invokes tools directly without the same governance, permission, timeout, argument validation, or safety-result scanning.
+Impact: Agents using native model streaming can execute tools through a separate helper that does not mirror the non-streaming executor. The same agent can therefore enforce one set of policy in `generate()` or stream fallback mode, but a weaker set in native `stream()` mode.
 
-Evidence: `streamRun()` takes the native streaming branch when `model.stream` is available and middleware does not wrap model calls in `packages/agent/src/agent/streaming-run.ts:104`. In that branch, each tool call is delegated to `executeStreamingToolCall()` in `packages/agent/src/agent/streaming-run.ts:245`. `executeStreamingToolCall()` only checks budget-blocked tools and existence before calling `tool.invoke(toolCall.args)` in `packages/agent/src/agent/run-engine.ts:414`, `packages/agent/src/agent/run-engine.ts:425`, and `packages/agent/src/agent/run-engine.ts:440`. By contrast, the non-streaming loop has separate policy, timeout, validation, and safety-scan paths in `packages/agent/src/agent/tool-loop.ts:631`, `packages/agent/src/agent/tool-loop.ts:668`, `packages/agent/src/agent/tool-loop.ts:694`, `packages/agent/src/agent/tool-loop.ts:764`, and `packages/agent/src/agent/tool-loop.ts:775`. The architecture note says streaming tool execution reuses the helper "to keep behavior consistent with generate mode" in `packages/agent/src/agent/ARCHITECTURE.md:65`, but the current helper is not behavior-equivalent.
+Evidence: `streamRun()` takes the native streaming branch when the bound model has `stream()` and middleware does not wrap model calls in `packages/agent/src/agent/streaming-run.ts:104`. In that branch, tool calls are delegated to `executeStreamingToolCall()` in `packages/agent/src/agent/streaming-run.ts:245`. The streaming helper checks only budget-blocked tools and tool existence before invoking `tool.invoke(toolCall.args)` in `packages/agent/src/agent/run-engine.ts:414`, `packages/agent/src/agent/run-engine.ts:425`, and `packages/agent/src/agent/run-engine.ts:440`. It does not apply `ToolGovernance`, `toolPermissionPolicy`, argument validation, `toolTimeouts`, `safetyMonitor`, or tracing. The non-streaming path has those enforcement points in `packages/agent/src/agent/tool-loop.ts:668`, `packages/agent/src/agent/tool-loop.ts:694`, `packages/agent/src/agent/tool-loop.ts:736`, `packages/agent/src/agent/tool-loop.ts:764`, and `packages/agent/src/agent/tool-loop.ts:775`.
 
-Remediation: Route native streaming tool execution through the same single-call executor used by `runToolLoop()`, or extract one shared `executeToolCall()` implementation with all policy, validation, timeout, safety, stuck, stats, and telemetry behavior. Add a generate-vs-stream parity test that uses a streaming-capable mock model and asserts the same blocked/denied/timed-out/unsafe outcomes.
+Remediation: Extract a shared single-tool executor and use it from sequential, parallel, and native streaming paths. Add generate-vs-stream parity tests with a streaming-capable mock model for denied tools, invalid args, timeout, unsafe result, stuck detection, and telemetry output.
 
-### Medium: Approval-required tools emit an event but continue without a gate
+### High: Parallel tool execution bypasses governance and safety scanning
 
-Impact: `ToolGovernance` can classify a tool as requiring approval, but the tool loop treats that as notification-only. A write, deploy, or external-action tool can still run immediately after `approval:requested` is emitted, so "requires approval" is not an enforcement boundary unless every caller has added an external blocking layer around the loop.
+Impact: Even callers that invoke `runToolLoop()` directly with policy controls can lose enforcement when parallel tool execution is enabled. A tool that would be blocked, approval-marked, or safety-filtered in the sequential path can run in the parallel path because the parallel preflight and registry wrapper implement a different subset of the policy stack.
 
-Evidence: `ToolGovernanceConfig.approvalRequired` is defined as a policy input in `packages/core/src/tools/tool-governance.ts:10`, and `checkAccess()` returns `{ allowed: true, requiresApproval: true }` in `packages/core/src/tools/tool-governance.ts:95`. In the sequential tool path, `requiresApproval` only emits `approval:requested` and then proceeds to tool lookup and execution in `packages/agent/src/agent/tool-loop.ts:708`. The inline comment states that the loop does not block and expects external wiring in `packages/agent/src/agent/tool-loop.ts:709`. The emitted `runId` is the generated tool call ID rather than an enclosing agent run ID in `packages/agent/src/agent/tool-loop.ts:713`.
+Evidence: The parallel pre-validation loop checks `toolPermissionPolicy`, budget-blocked tools, tool existence, and argument validation in `packages/agent/src/agent/tool-loop.ts:914`. It does not call `config.toolGovernance.checkAccess()`, unlike the sequential path in `packages/agent/src/agent/tool-loop.ts:694`. The parallel `wrappedRegistry` enforces timeout and result transformation only in `packages/agent/src/agent/tool-loop.ts:987`; result mapping appends the returned result and calls `onToolResult` without `safetyMonitor.scanContent()` in `packages/agent/src/agent/tool-loop.ts:1027`. The sequential path scans tool results and blocks unsafe output in `packages/agent/src/agent/tool-loop.ts:775`.
 
-Remediation: Either rename/document this as an approval notification hook, or make approval-required tools return a suspended/blocked `ToolMessage` until an `ApprovalGate` decision is supplied. If blocking is added, use a real run/session correlation ID instead of the local tool call ID and add tests for grant, reject, and timeout outcomes.
+Remediation: Move all pre-call and post-call policy checks into the shared tool executor, then have the parallel executor schedule that executor rather than reimplementing a partial version. Add tests that run the same two-tool plan with `parallelTools: true` and `parallelTools: false` and assert identical governance, approval, validation, timeout, and safety outcomes.
 
-### Medium: Tool audit logging is structural but not wired to complete execution provenance
+### Medium: Approval-required tools emit an event but continue without an in-loop gate
 
-Impact: The repo has audit-log abstractions, event-to-audit mapping, and a `ToolGovernance` audit handler, but normal agent tool execution does not emit the canonical tool events or call the governance audit methods. This limits forensic reconstruction of which tool ran, with which input, for which agent run, and with what result.
+Impact: `ToolGovernance` can classify a tool as requiring approval, but the agent loop treats that as notification-only. A write, deploy, or external-action tool can still execute immediately after `approval:requested` is emitted unless every caller has added a separate blocking layer around the loop.
 
-Evidence: `ComplianceAuditLogger` maps `tool:called` and `tool:error` to audit actions in `packages/core/src/security/audit/audit-logger.ts:28`. The OTel audit trail maps `tool:called`, `tool:result`, and `tool:error` in `packages/otel/src/audit-trail.ts:168`. `ToolGovernance` defines `audit()` and `auditResult()` in `packages/core/src/tools/tool-governance.ts:103`, but `runToolLoop()` only uses `checkAccess()` and does not call those audit methods in `packages/agent/src/agent/tool-loop.ts:694`. `executeGenerateRun()` emits `llm:invoked`, `tool:latency`, stuck, halt, and stop-reason events, but does not configure `onToolCall` to emit `tool:called` or `onToolResult` to emit `tool:result`/`tool:error` in `packages/agent/src/agent/run-engine.ts:224` and `packages/agent/src/agent/run-engine.ts:239`.
+Evidence: `ToolGovernanceConfig.approvalRequired` is a first-class policy input in `packages/core/src/tools/tool-governance.ts:10`. `checkAccess()` returns `{ allowed: true, requiresApproval: true }` for those tools in `packages/core/src/tools/tool-governance.ts:95`. The sequential executor emits `approval:requested` and then continues toward tool lookup and execution in `packages/agent/src/agent/tool-loop.ts:708`. The inline comment explicitly says the loop does not block and that the wait is the caller's responsibility in `packages/agent/src/agent/tool-loop.ts:709`. The event uses the local tool call ID as `runId` in `packages/agent/src/agent/tool-loop.ts:713`, which is weaker than a durable enclosing run/session correlation ID.
 
-Remediation: Define one canonical tool execution telemetry contract and emit it from the shared tool executor. Include `agentId`, run ID when available, tool call ID, tool name, sanitized input metadata, result status, duration, and error code/message. Wire `ToolGovernance.audit()`/`auditResult()` or replace them with the canonical event path so audit sinks do not depend on ad hoc callbacks.
+Remediation: Decide whether approval is a hard gate or notification. If it is a hard gate, return a suspended or blocked `ToolMessage` until an `ApprovalGate` decision is supplied, and use a real run ID for correlation. If notification-only is intended, rename or document it as such and avoid implying human-in-the-loop enforcement.
 
-### Medium: Provider fallback is selection-time only, not same-run recovery
+### Medium: Tool audit logging primitives are not wired to complete framework execution provenance
 
-Impact: Tier-based model resolution skips providers with open circuits and records invocation outcomes, but an invocation failure does not retry the same request on the next provider. A transient provider error can still fail the current agent run even when other providers for the same tier are configured and healthy.
+Impact: The repo has audit-log abstractions and OTel event mappings for tool lifecycle events, but the primary agent tool path does not emit the canonical tool events or call the governance audit methods. Operators may get LLM invocation and latency telemetry without enough provenance to reconstruct which tool ran, with what sanitized input, under which run, and whether it succeeded or failed.
 
-Evidence: `DzupAgent` resolves the model once in the constructor in `packages/agent/src/agent/dzip-agent.ts:100`. Tier strings call `registry.getModelWithFallback()` once and store `resolvedModel` plus `resolvedProvider` in `packages/agent/src/agent/dzip-agent.ts:341`. `invokeModelWithMiddleware()` records provider success or failure around a single model call, then rethrows on failure in `packages/agent/src/agent/dzip-agent.ts:485`. `ModelRegistry.getModelWithFallback()` itself skips open circuits and returns the first creatable model, while documenting that invocation success/failure should be recorded after the call in `packages/core/src/llm/model-registry.ts:319`.
+Evidence: `ComplianceAuditLogger` maps `tool:called` and `tool:error` to audit actions in `packages/core/src/security/audit/audit-logger.ts:28`. The OTel audit trail maps `tool:called`, `tool:result`, and `tool:error` in `packages/otel/src/audit-trail.ts:168`. `ToolGovernance` exposes `audit()` and `auditResult()` callbacks in `packages/core/src/tools/tool-governance.ts:103`, but the tool loop only calls `checkAccess()` and does not call those audit methods in `packages/agent/src/agent/tool-loop.ts:694`. `executeGenerateRun()` emits `llm:invoked` and `tool:latency`, while `onToolResult` only charges token lifecycle accounting and does not emit `tool:result` or `tool:error` in `packages/agent/src/agent/run-engine.ts:224` and `packages/agent/src/agent/run-engine.ts:239`.
 
-Remediation: Decide whether "fallback" means provider selection only or same-run failover. If same-run failover is intended, move tier resolution into the invocation path or add a registry method that invokes through an ordered provider chain with retry/fallback policy. If selection-only is intended, update docs/API names to avoid implying per-request recovery and expose clear telemetry for "failed on selected provider, next run may choose another provider."
+Remediation: Define one canonical tool execution telemetry contract and emit it from the shared executor. Include agent ID, durable run ID when available, tool call ID, tool name, sanitized input metadata, result status, duration, and error code/message. Either wire `ToolGovernance.audit()`/`auditResult()` into that executor or deprecate those methods in favor of the canonical event path.
 
-### Low: Memory/context fallback loses diagnostic detail
+### Medium: Provider fallback is selection-time only and native streaming misses provider outcome recording
 
-Impact: Memory and context-management paths favor non-fatal behavior, which is good for availability, but some failures become invisible or under-described. Operators can see that memory was absent from a prompt only in limited cases, not why the standard load failed or how much context was lost.
+Impact: Tier-based model resolution skips providers with open circuits and records failures for future selection, but it does not retry the current run on the next healthy provider after an invocation failure. Native streaming also calls the model stream directly, so provider success/failure recording used by the circuit breaker is not applied there.
 
-Evidence: Arrow memory failures are caught and reported only as `arrow_fallback` with `0, 0` before falling back to the standard path in `packages/agent/src/agent/memory-context-loader.ts:95` and `packages/agent/src/agent/memory-context-loader.ts:110`. A zero memory budget reports `budget_zero` with `0, 0` in `packages/agent/src/agent/memory-context-loader.ts:155`. Standard memory failures during `prepareMessages()` are swallowed without emitting a fallback event in `packages/agent/src/agent/dzip-agent.ts:383`. Summary-compression failures are also swallowed in `packages/agent/src/agent/dzip-agent.ts:433`.
+Evidence: `DzupAgent` resolves the model once in the constructor in `packages/agent/src/agent/dzip-agent.ts:100`. Tier strings call `registry.getModelWithFallback()` once and store the selected provider in `packages/agent/src/agent/dzip-agent.ts:341`. `invokeModelWithMiddleware()` records success or failure for only that selected provider and then rethrows failures in `packages/agent/src/agent/dzip-agent.ts:485`. `ModelRegistry.getModelWithFallback()` itself documents selection-time fallback and says invocation outcomes should be recorded afterward in `packages/core/src/llm/model-registry.ts:319`. Native streaming calls `streamModel.stream(allMessages)` directly in `packages/agent/src/agent/streaming-run.ts:180` rather than using `invokeModelWithMiddleware()`, so the success/failure recording in `packages/agent/src/agent/dzip-agent.ts:494` is bypassed for that path.
 
-Remediation: Keep memory failures non-fatal, but emit structured fallback events with reason, provider/path, namespace, scoped redacted metadata, and before/after token estimates when available. Add tests for Arrow import failure, standard memory load failure, zero budget, and summary failure so dashboards can distinguish "no memory configured" from "memory configured but unavailable."
+Remediation: Clarify whether fallback means provider selection for future runs or same-run recovery. If same-run failover is intended, move tier resolution and invocation into a registry method that can retry the ordered provider chain for both invoke and stream. If selection-only is intended, rename or document the behavior and ensure native streaming still records provider success/failure.
+
+### Low: Memory and context fallback behavior loses diagnostic detail
+
+Impact: Non-fatal memory and context failures protect run availability, but several fallback paths suppress the cause or report only zeroed token counts. This makes it hard for operators to distinguish "no memory configured" from "memory configured but unavailable" or "context was dropped due to budget."
+
+Evidence: Arrow memory load failures are caught and reported only as `arrow_fallback` with `0, 0` before falling back to the standard memory path in `packages/agent/src/agent/memory-context-loader.ts:95` and `packages/agent/src/agent/memory-context-loader.ts:110`. A zero memory budget reports `budget_zero` with `0, 0` in `packages/agent/src/agent/memory-context-loader.ts:155`. Standard memory load failures during `prepareMessages()` are swallowed without a fallback event in `packages/agent/src/agent/dzip-agent.ts:383`. Summary-compression failures are also swallowed in `packages/agent/src/agent/dzip-agent.ts:433`.
+
+Remediation: Preserve non-fatal behavior, but emit structured fallback events with reason, provider/path, namespace, redacted scope metadata, and before/after token estimates when available. Add tests for Arrow runtime failure, standard memory load failure, zero budget, and summary failure so dashboards can separate absence, outage, and truncation.
 
 ## Scope Reviewed
 
-This is a static current-code review of the agent-pattern domain. I reviewed the tool loop, native streaming tool execution, guardrails, memory/context loading, orchestration, provider fallback, and audit logging surfaces under:
+This is a static current-code review of the agent-pattern domain. I reviewed current repository code for:
 
-- `packages/agent/src/agent/**`
-- `packages/agent/src/guardrails/**`
-- `packages/agent/src/orchestration/**`
-- `packages/agent/src/pipeline/**`
-- `packages/core/src/llm/**`
-- `packages/core/src/tools/**`
-- `packages/core/src/security/**`
-- `packages/otel/src/audit-trail.ts`
+- Tool loop and tool execution: `packages/agent/src/agent/tool-loop.ts`, `packages/agent/src/agent/run-engine.ts`, `packages/agent/src/agent/streaming-run.ts`, `packages/agent/src/agent/dzip-agent.ts`
+- Guardrails and safety surfaces: `packages/agent/src/guardrails/**`, `packages/core/src/tools/tool-governance.ts`, `packages/core/src/security/**`
+- Memory and context management: `packages/agent/src/agent/memory-context-loader.ts`, `packages/context/**`, `packages/memory*/**`
+- Orchestration and adapter patterns: `packages/agent/src/orchestration/**`, `packages/agent-adapters/src/orchestration/**`, `packages/agent-adapters/src/recovery/**`, `packages/agent-adapters/src/registry/**`
+- Provider fallback and LLM integration: `packages/core/src/llm/model-registry.ts`, `packages/agent/src/agent/dzip-agent.ts`, `packages/agent/src/agent/streaming-run.ts`
+- Audit logging and observability: `packages/core/src/security/audit/audit-logger.ts`, `packages/otel/src/audit-trail.ts`, `packages/otel/src/safety-monitor.ts`, `packages/agent-adapters/src/registry/event-bus-bridge.ts`
 
-No build, test, typecheck, or runtime validation command was run for this audit document. A quick static scan helper was attempted but was unavailable in this environment (`exit 127`), so it is not treated as validation evidence.
+No build, typecheck, lint, test, or runtime validation command was run for this audit document. The evidence above is static source review only.
 
-Comparison to the local `/audit:full dzupagent` taxonomy is structural only: the prepared prompt pack defines the `agent` domain alongside code, security, architecture, and design domains, but prior/generated audit artifacts were not treated as evidence for these findings.
+Baseline review is kept separate from implementation status: existing audit documents under `docs/` and the run directory were treated as comparison context only, not as evidence that fixes are implemented.
+
+Comparison to the local audit command taxonomy is structural only. The prepared manifest declares `/audit:full dzupagent` with domains `code`, `security`, `architecture`, `agent`, and `design` in `/media/ninel/Second/code/datazup/ai-internal-dev/audit/full-dzupagent-2026-04-26/run-001/codex-prep/manifest.json:10`. The local agent command defines the agent domain structurally around tool loops, memory, context, guardrails, orchestration, and LLM integration in `/media/ninel/Second/code/datazup/ai-internal-dev/.claude/commands/audit/agent.md:136`. Those taxonomy files were not used as evidence of runtime behavior.
 
 ## Strengths
 
-- The core ReAct loop has a well-defined stop-reason model, token/cost/iteration budgets, stuck detection, per-tool stats, optional compression, and callbacks for usage, latency, result transformation, and halt telemetry.
-- The guardrail primitives are decomposed cleanly: `IterationBudget`, `StuckDetector`, `CascadingTimeout`, token lifecycle plugins, and output filters are separate concerns rather than one opaque policy object.
-- Memory context loading supports both a simple memory service path and a token-budgeted Arrow path, with non-fatal fallback behavior that protects run availability.
-- Orchestration includes multiple coordination patterns: sequential, parallel, supervisor, debate, routing policies, merge strategies, circuit breakers, contract-net, and team runtime surfaces.
-- Provider selection has a circuit-breaker-aware registry and records provider success/failure after invocation for future routing decisions.
-- Audit building blocks exist in both core compliance audit logging and OTel audit trail layers, including hash-chain verification concepts and event-bus integration.
+- The core ReAct loop has a clear stop-reason model, iteration and token/cost budgets, stuck detection, usage accounting, per-tool stats, optional compression, and result transformation hooks.
+- Guardrail primitives are decomposed into focused modules such as iteration budget, stuck detection, token lifecycle plugins, and output filtering instead of being one opaque policy block.
+- Memory context loading supports standard memory retrieval, Arrow-backed token-budgeted selection, frozen snapshots, and non-fatal fallback behavior.
+- Orchestration and adapters cover several useful patterns: sequential and parallel execution, supervisor and map-reduce patterns, contract-net style coordination, checkpoint stores, recovery policies, event bus bridges, and provider-specific adapter normalization.
+- Provider selection uses a circuit-breaker-aware registry and records provider success/failure in the normal non-streaming invocation path.
+- Audit and observability building blocks exist across core and OTel layers, including compliance audit logging, audit trail mapping, safety monitoring, cost attribution, and adapter event bridging.
 
 ## Consistency Failures
 
-- The prepared manifest lists `implementation/implementation-task-manifest.json` as an expected output in `/media/ninel/Second/code/datazup/ai-internal-dev/audit/full-dzupagent-2026-04-24/run-002/codex-prep/manifest.json:28`, but that file is missing under the prepared prompt pack. I did not infer implementation task totals or reconcile downstream implementation counts.
-- The existing run-002 domain documents in the audit run directory are treated as comparison/context only. This document is a baseline review artifact and does not claim any implementation status.
+- The prepared manifest lists `implementation/implementation-task-manifest.json` as an expected output in `/media/ninel/Second/code/datazup/ai-internal-dev/audit/full-dzupagent-2026-04-26/run-001/codex-prep/manifest.json:32`, but that file is not present under the prepared prompt pack. I did not infer implementation task totals or reconcile implementation status from missing material.
+- The local command taxonomy exists at the workspace level under `/media/ninel/Second/code/datazup/ai-internal-dev/.claude/commands/audit/`, while this `dzupagent` checkout does not contain a repo-local `.claude/commands/audit` directory. I used the workspace-level taxonomy structurally and did not treat it as current-code evidence.
 
 ## Open Questions Or Assumptions
 
-- I assumed `docs/AGENT-AUDIT.md` is the repository-local target path under the current `dzupagent` checkout, not the audit run directory.
-- It is unclear whether `ToolGovernance.requiresApproval` is intentionally notification-only or intended to become a hard human-in-the-loop gate.
+- I assumed `docs/AGENT-AUDIT.md` is the requested repository-local target path for this step, not the audit run directory copy.
+- It is unclear whether `ToolGovernance.requiresApproval` is intended to be a hard human-in-the-loop gate or only an event notification.
 - It is unclear whether provider fallback is intended to recover within the same run or only influence future model selection after circuit-breaker state changes.
-- I did not verify whether server-level wrappers add missing tool audit/provenance events around `DzupAgent` runs; the finding is scoped to the framework agent paths reviewed above.
+- I did not verify whether downstream server or application wrappers add the missing tool provenance events around `DzupAgent` runs; findings are scoped to the framework and adapter paths reviewed above.
+- I did not run the existing test suite, so I did not verify whether any tests already encode the desired behavior for these gaps.
 
 ## Recommended Next Actions
 
-1. Make the public `DzupAgent` execution contract authoritative for tool policy: expose and thread governance, permissions, timeouts, safety scanning, and argument validation from config into both generate and stream paths.
-2. Extract a single shared tool-call executor and use it from sequential, parallel, and native streaming modes.
-3. Decide and document approval semantics, then either enforce blocking approval or rename the current behavior as approval notification.
-4. Define canonical tool execution audit events and emit them from the shared executor with run correlation.
-5. Clarify provider fallback semantics and either implement same-run failover or rename/docs-adjust the selection-only behavior.
-6. Improve memory/context fallback telemetry while preserving non-fatal run behavior.
+1. Make `DzupAgent` the authoritative public contract for tool policy by exposing and threading governance, permissions, validation, timeouts, safety scanning, tracing, and run identity into all execution modes.
+2. Extract a single shared tool-call executor and route sequential, parallel, and native streaming tool execution through it.
+3. Decide approval semantics and either enforce a blocking approval gate or rename/document the current event-only behavior.
+4. Define canonical tool lifecycle audit events and emit them from the shared executor with durable run correlation and sanitized input/result metadata.
+5. Clarify provider fallback semantics, then implement same-run failover for both invoke and stream or document selection-only fallback and close the native-stream provider-recording gap.
+6. Improve memory/context fallback telemetry while keeping memory failures non-fatal.
