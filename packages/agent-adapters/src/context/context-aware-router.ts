@@ -75,6 +75,7 @@ const DEFAULT_CONTEXT_WINDOWS: Record<AdapterProviderId, number> = {
   crush: 32_000,
   goose: 128_000,
   openrouter: 200_000,
+  openai: 128_000,
 }
 
 /**
@@ -420,6 +421,7 @@ export class ContextInjectionMiddleware {
       crush: 32_000,
       goose: 128_000,
       openrouter: 200_000,
+      openai: 128_000,
     }
     const rawWindow = contextWindows[providerId] ?? 0
 

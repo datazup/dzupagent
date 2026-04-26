@@ -446,10 +446,22 @@ export class MCPClient {
         proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
 
         proc.on('close', (code) => {
-          if (code === 0 || stdout.length > 0) {
+          // Stdio MCP servers communicate via JSON-RPC frames on stdout, but the
+          // *authoritative* signal that the request completed is the child's
+          // exit code. A non-zero exit must always be treated as failure even
+          // when partial stdout was emitted — partial frames cannot be trusted
+          // (they may represent a crash mid-response or a protocol violation).
+          if (code === 0) {
             resolve(stdout)
           } else {
-            reject(new Error(`Process exited with code ${code ?? 'null'}: ${stderr}`))
+            const codeStr = code === null ? 'null (signal)' : String(code)
+            const stderrSummary = stderr.trim().length > 0 ? stderr.trim() : '(no stderr)'
+            const stdoutSummary = stdout.trim().length > 0
+              ? ` (partial stdout: ${stdout.length} bytes discarded)`
+              : ''
+            reject(new Error(
+              `MCP stdio process exited with code ${codeStr}: ${stderrSummary}${stdoutSummary}`,
+            ))
           }
         })
 

@@ -8,3 +8,4 @@ export type AdapterProviderId =
   | 'crush'
   | 'goose'
   | 'openrouter'
+  | 'openai'

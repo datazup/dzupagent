@@ -38,7 +38,7 @@
  * will surface as stage-3 errors.
  */
 
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { createFlowCompiler } from '@dzupagent/flow-compiler'
 import type {
@@ -555,10 +555,9 @@ const STAGE_NAME_BY_EVENT: Record<string, 'parse' | 'validate' | 'lower' | 'code
 }
 
 interface StreamStageCompileArgs {
-  // Hono context — only used for streamSSE / json helpers; typed loosely so
-  // we avoid pulling in `Context<...>` generics for a single helper.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  c: any
+  // Narrowed to the Hono `Context` surface — `streamSSE` / `c.json` are the
+  // only members consumed below.
+  c: Context
   flowInput: string | object
   requestedTarget: CompilationTarget | undefined
   config: CompileRouteConfig

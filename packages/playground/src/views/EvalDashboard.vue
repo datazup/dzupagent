@@ -12,6 +12,7 @@
 import { onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useEvalStore } from '../stores/eval-store.js'
+import PgBadge from '../components/ui/PgBadge.vue'
 
 const router = useRouter()
 const evalStore = useEvalStore()
@@ -59,17 +60,6 @@ function formatPercent(value: number | null): string {
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleString()
-}
-
-function statusBadgeClass(status: string): string {
-  switch (status) {
-    case 'completed': return 'bg-green-100 text-green-700'
-    case 'failed': return 'bg-red-100 text-red-700'
-    case 'running': return 'bg-blue-100 text-blue-700'
-    case 'queued': return 'bg-gray-200 text-gray-700'
-    case 'cancelled': return 'bg-gray-200 text-gray-500'
-    default: return 'bg-gray-100 text-gray-600'
-  }
 }
 
 async function openRun(id: string): Promise<void> {
@@ -269,12 +259,9 @@ onMounted(() => {
                   </div>
                 </td>
                 <td class="px-4 py-3">
-                  <span
-                    class="inline-block rounded-full px-2.5 py-1 text-xs font-medium"
-                    :class="statusBadgeClass(run.status)"
-                  >
+                  <PgBadge :status="run.status">
                     {{ run.status }}
-                  </span>
+                  </PgBadge>
                 </td>
                 <td class="px-4 py-3 font-mono text-sm text-pg-text">
                   {{ run.result ? formatScore(run.result.aggregateScore) : '--' }}

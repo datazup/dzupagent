@@ -64,6 +64,7 @@ const COST_RANK: Record<AdapterProviderId, number> = {
   codex: 5,
   claude: 6,
   openrouter: 6,
+  openai: 5,
 }
 
 /**
@@ -79,6 +80,7 @@ const DEFAULT_PRIORITY: Record<AdapterProviderId, number> = {
   crush: 1,
   goose: 3,
   openrouter: 4,
+  openai: 4,
 }
 
 // --- Helpers ---

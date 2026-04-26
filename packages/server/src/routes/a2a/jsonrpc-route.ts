@@ -12,8 +12,8 @@ import type {
   JsonRpcRequest,
   JsonRpcResponse,
 } from '@dzupagent/core'
-import type { A2ARoutesConfig } from './helpers.js'
-import { A2A_METHODS } from './helpers.js'
+import type { A2ARoutesConfig, A2ACallerScope } from './helpers.js'
+import { A2A_METHODS, getCallerScope } from './helpers.js'
 import {
   handleTasksSend,
   handleTasksGet,
@@ -24,11 +24,17 @@ import {
 
 // ---------------------------------------------------------------------------
 // JSON-RPC method dispatcher
+//
+// RF-SEC-05: every dispatched handler receives the authenticated caller's
+// scope (extracted once per HTTP request and shared across batch entries) so
+// JSON-RPC tasks/* methods enforce the same owner/tenant gating as the REST
+// task routes.
 // ---------------------------------------------------------------------------
 
 async function handleJsonRpcMethod(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
+  scope: A2ACallerScope,
 ): Promise<JsonRpcResponse> {
   if (!A2A_METHODS.has(req.method)) {
     return createJsonRpcError(req.id, JSON_RPC_ERRORS.METHOD_NOT_FOUND, `Unknown method: ${req.method}`)
@@ -37,24 +43,24 @@ async function handleJsonRpcMethod(
   try {
     switch (req.method) {
       case 'tasks/send':
-        return await handleTasksSend(req, config)
+        return await handleTasksSend(req, config, scope)
       case 'tasks/get':
-        return await handleTasksGet(req, config)
+        return await handleTasksGet(req, config, scope)
       case 'tasks/cancel':
-        return await handleTasksCancel(req, config)
+        return await handleTasksCancel(req, config, scope)
       case 'tasks/sendSubscribe':
         // SSE streaming is handled at the HTTP level; for JSON-RPC we
         // create the task and return it (client should use SSE endpoint
         // for streaming). This allows basic compatibility.
-        return await handleTasksSend(req, config)
+        return await handleTasksSend(req, config, scope)
       case 'tasks/pushNotification/set':
-        return await handlePushNotificationSet(req, config)
+        return await handlePushNotificationSet(req, config, scope)
       case 'tasks/pushNotification/get':
-        return await handlePushNotificationGet(req, config)
+        return await handlePushNotificationGet(req, config, scope)
       case 'tasks/resubscribe':
         // Resubscribe returns the current task state; actual SSE
         // streaming is a transport-level concern.
-        return await handleTasksGet(req, config)
+        return await handleTasksGet(req, config, scope)
       default:
         return createJsonRpcError(req.id, JSON_RPC_ERRORS.METHOD_NOT_FOUND, `Unknown method: ${req.method}`)
     }
@@ -75,6 +81,10 @@ export function registerJsonRpcRoute(app: Hono, config: A2ARoutesConfig): void {
       )
     }
 
+    // RF-SEC-05: read caller scope once per HTTP request and reuse it for
+    // every entry in a JSON-RPC batch.
+    const scope = getCallerScope(c)
+
     // --- Batch request ---
     if (Array.isArray(body)) {
       const batchResult = validateJsonRpcBatch(body)
@@ -84,7 +94,7 @@ export function registerJsonRpcRoute(app: Hono, config: A2ARoutesConfig): void {
 
       const responses: JsonRpcResponse[] = []
       for (const req of batchResult.requests) {
-        const resp = await handleJsonRpcMethod(req, config)
+        const resp = await handleJsonRpcMethod(req, config, scope)
         responses.push(resp)
       }
       return c.json(responses)
@@ -96,7 +106,7 @@ export function registerJsonRpcRoute(app: Hono, config: A2ARoutesConfig): void {
       return c.json(validation.error)
     }
 
-    const response = await handleJsonRpcMethod(validation.request, config)
+    const response = await handleJsonRpcMethod(validation.request, config, scope)
     return c.json(response)
   })
 }

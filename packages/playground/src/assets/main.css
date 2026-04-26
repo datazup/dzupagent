@@ -42,9 +42,21 @@
   --radius-pg:                8px;
   --radius-pg-sm:             4px;
   --radius-pg-lg:             12px;
+
+  /* ── Typography ─────────────────────────────── */
+  --tracking-pg-label:        0.08em;
 }
 
-/* ── Dark mode overrides ─────────────────────────────────────────────────── */
+/* ── Theme overrides ─────────────────────────────────────────────────────────
+   Two parallel mechanisms drive dark / light mode in the playground:
+
+   1. The OS-level `prefers-color-scheme` media query, which is honoured when
+      the user has not made an explicit choice (`data-theme` is absent).
+   2. The explicit `[data-theme="dark"]` / `[data-theme="light"]` attribute on
+      `<html>`, set by `useThemeStore.setTheme()`. These take precedence over
+      the media query because they appear later in source order and have the
+      same selector specificity.
+   ─────────────────────────────────────────────────────────────────────────── */
 @layer base {
   @media (prefers-color-scheme: dark) {
     :root {
@@ -61,6 +73,39 @@
       --color-pg-assistant-bg:    oklch(0.275 0.014 235);
       --color-pg-system-bg:       oklch(0.305 0.030 90);
     }
+  }
+
+  /* Explicit light override -- mirrors the @theme defaults so that a user
+     forcing `light` overrides any OS-level dark preference. */
+  :root[data-theme="light"] {
+    --color-pg-bg:              oklch(0.978 0.004 220);
+    --color-pg-surface:         oklch(0.995 0.002 220);
+    --color-pg-surface-raised:  oklch(0.965 0.006 220);
+    --color-pg-surface-overlay: oklch(0.945 0.008 220);
+    --color-pg-border:          oklch(0.860 0.012 230);
+    --color-pg-border-subtle:   oklch(0.905 0.008 230);
+    --color-pg-text:            oklch(0.280 0.012 240);
+    --color-pg-text-secondary:  oklch(0.430 0.014 240);
+    --color-pg-text-muted:      oklch(0.560 0.010 240);
+    --color-pg-user-bg:         oklch(0.900 0.035 215);
+    --color-pg-assistant-bg:    oklch(0.955 0.010 225);
+    --color-pg-system-bg:       oklch(0.955 0.035 90);
+  }
+
+  /* Explicit dark override -- mirrors the prefers-color-scheme block. */
+  :root[data-theme="dark"] {
+    --color-pg-bg:              oklch(0.170 0.010 235);
+    --color-pg-surface:         oklch(0.220 0.012 235);
+    --color-pg-surface-raised:  oklch(0.270 0.014 235);
+    --color-pg-surface-overlay: oklch(0.320 0.016 235);
+    --color-pg-border:          oklch(0.420 0.016 235);
+    --color-pg-border-subtle:   oklch(0.360 0.012 235);
+    --color-pg-text:            oklch(0.945 0.010 235);
+    --color-pg-text-secondary:  oklch(0.760 0.010 235);
+    --color-pg-text-muted:      oklch(0.620 0.010 235);
+    --color-pg-user-bg:         oklch(0.390 0.080 215);
+    --color-pg-assistant-bg:    oklch(0.275 0.014 235);
+    --color-pg-system-bg:       oklch(0.305 0.030 90);
   }
 }
 
@@ -141,4 +186,60 @@
   padding: 0.125rem 0.5rem;
   font-size: 0.75rem;
   color: var(--color-pg-text-muted);
+}
+
+/* ── Semantic status / category badge variants ───────────────────────────────
+   These aliases provide stable semantic class names that views can rely on
+   instead of raw Tailwind palette utilities. They are paired with the
+   `useStatusBadge` composable to map run/eval/capability statuses to these
+   classes.
+   ─────────────────────────────────────────────────────────────────────────── */
+@utility pg-badge-neutral {
+  background-color: var(--color-pg-surface-raised);
+  color: var(--color-pg-text-secondary);
+}
+
+@utility pg-badge-muted {
+  background-color: var(--color-pg-surface-raised);
+  color: var(--color-pg-text-muted);
+}
+
+@utility pg-badge-info {
+  background-color: color-mix(in oklch, var(--color-pg-info) 18%, transparent);
+  color: var(--color-pg-info);
+}
+
+@utility pg-badge-success {
+  background-color: color-mix(in oklch, var(--color-pg-success) 18%, transparent);
+  color: var(--color-pg-success);
+}
+
+@utility pg-badge-warning {
+  background-color: color-mix(in oklch, var(--color-pg-warning) 22%, transparent);
+  color: var(--color-pg-warning);
+}
+
+@utility pg-badge-danger {
+  background-color: color-mix(in oklch, var(--color-pg-error) 18%, transparent);
+  color: var(--color-pg-error);
+}
+
+@utility pg-badge-accent {
+  background-color: color-mix(in oklch, var(--color-pg-accent) 18%, transparent);
+  color: var(--color-pg-accent);
+}
+
+@utility pg-badge-violet {
+  background-color: color-mix(in oklch, oklch(0.620 0.180 300) 18%, transparent);
+  color: oklch(0.620 0.180 300);
+}
+
+@utility pg-badge-cyan {
+  background-color: color-mix(in oklch, oklch(0.700 0.130 215) 18%, transparent);
+  color: oklch(0.700 0.130 215);
+}
+
+@utility pg-badge-rose {
+  background-color: color-mix(in oklch, oklch(0.640 0.200 15) 18%, transparent);
+  color: oklch(0.640 0.200 15);
 }

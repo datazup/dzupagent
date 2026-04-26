@@ -20,6 +20,7 @@ import {
   type ToolGovernance,
   type SafetyMonitor,
   type DzupEventBus,
+  type ForgeErrorCode,
 } from '@dzupagent/core'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type { CompressResult } from '@dzupagent/context'
@@ -53,7 +54,24 @@ export interface ToolStat {
 }
 
 /** Why the tool loop stopped. */
-export type StopReason = 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'error' | 'stuck' | 'token_exhausted'
+export type StopReason =
+  | 'complete'
+  | 'iteration_limit'
+  | 'budget_exceeded'
+  | 'aborted'
+  | 'error'
+  | 'stuck'
+  | 'token_exhausted'
+  /**
+   * The loop halted because an approval-required tool was scheduled. The
+   * tool was NOT executed; an `approval:requested` event was emitted to the
+   * configured event bus carrying the durable runId. Resume of the
+   * suspended call is handled by an external mechanism (typically
+   * `ApprovalGate` listening for `approval:granted` / `approval:rejected`
+   * and re-driving the run via the resume path) — the loop itself does not
+   * implement resumption.
+   */
+  | 'approval_pending'
 
 export interface ToolLoopConfig {
   maxIterations: number
@@ -158,9 +176,23 @@ export interface ToolLoopConfig {
    * Optional tool governance layer. When present, each tool call is checked
    * via {@link ToolGovernance.checkAccess}. Blocked tools return a
    * `[blocked]` ToolMessage instead of invoking the underlying tool.
-   * Tools requiring approval emit an `approval:requested` event (when an
-   * event bus is configured) and proceed — full human-in-the-loop gating
-   * is expected to be layered externally via the event.
+   *
+   * Tools whose `checkAccess` result reports `requiresApproval: true` are
+   * treated as a HARD execution gate (audit fix RF-AGENT-04, approved by
+   * the team 2026-04-26): the underlying tool is NOT invoked, an
+   * `approval:requested` event is emitted (carrying {@link runId} as the
+   * correlation id when provided, falling back to the local tool_call_id
+   * otherwise), an `[approval_pending]` ToolMessage is appended to the
+   * conversation, and the surrounding loop terminates with
+   * `stopReason === 'approval_pending'`.
+   *
+   * Rationale: a notify-and-continue policy is unsafe for a framework that
+   * markets human-in-the-loop because it lets the side-effecting call land
+   * BEFORE the human decision arrives. A hard gate is the only correct
+   * behaviour. Resume of an approval-pending run is a SEPARATE concern and
+   * is NOT implemented inside the loop — typically the external
+   * `ApprovalGate` listens for the approval event, captures the decision,
+   * and re-drives the run via the run engine's resume path.
    */
   toolGovernance?: ToolGovernance
 
@@ -222,8 +254,28 @@ export interface ToolLoopConfig {
    * tool is invoked. Denied calls throw a
    * `TOOL_PERMISSION_DENIED` {@link ForgeError} with `{agentId, toolName}`
    * in `context`.
+   *
+   * Also threaded through the canonical tool lifecycle events
+   * (`tool:called`, `tool:result`, `tool:error`) so consumers can
+   * correlate provenance with the owning agent (RF-AGENT-05).
    */
   agentId?: string
+
+  /**
+   * Durable run identifier for canonical tool lifecycle events
+   * (RF-AGENT-05). When set, emitted `tool:called` / `tool:result` /
+   * `tool:error` events carry `{agentId, runId, toolCallId, ...}` so
+   * downstream consumers (audit trail, replay viewer, OTel bridge) can
+   * stitch provenance back to a specific run without sniffing message
+   * text.
+   *
+   * Also used as the correlation id on `approval:requested` events
+   * emitted when an approval-required tool is gated (RF-AGENT-04). When
+   * omitted, the loop falls back to the LLM-supplied `tool_call_id`,
+   * which works for in-process tests but is NOT durable across process
+   * restarts — real workloads SHOULD set this.
+   */
+  runId?: string
 
   /**
    * Pluggable permission policy (MC-GA03). When omitted, no permission
@@ -438,6 +490,11 @@ export async function runToolLoop(
       break
     }
 
+    // Track approval suspension: if any tool in this iteration required
+    // approval, the underlying tool was NOT invoked and the loop must halt
+    // before the next LLM turn so callers can surface the pause. (RF-AGENT-04)
+    let approvalPending = false
+
     // Execute tool calls (parallel or sequential based on config)
     if (config.parallelTools && toolCalls.length > 1) {
       const results = await executeToolCallsParallel(
@@ -445,6 +502,9 @@ export async function runToolLoop(
       )
       for (const r of results) {
         allMessages.push(r.message)
+        if (r.approvalPending) {
+          approvalPending = true
+        }
         if (r.stuckBreak) {
           stopReason = 'stuck'
         }
@@ -465,6 +525,15 @@ export async function runToolLoop(
           tc, toolMap, config, getOrCreateStat,
         )
         allMessages.push(r.message)
+
+        if (r.approvalPending) {
+          // Hard gate (RF-AGENT-04): halt the loop. The tool was NOT
+          // invoked. Resume must be performed externally — the
+          // ApprovalGate emits `approval:granted` / `approval:rejected`
+          // and the run engine resume path re-drives the run.
+          approvalPending = true
+          break
+        }
 
         if (r.stuckToolName) {
           // Escalating stuck recovery
@@ -498,6 +567,14 @@ export async function runToolLoop(
           break
         }
       }
+    }
+
+    // Break out of outer loop if approval is pending — the loop
+    // intentionally does NOT proceed to a follow-up LLM turn because the
+    // pending tool result has not actually been produced yet. (RF-AGENT-04)
+    if (approvalPending) {
+      stopReason = 'approval_pending'
+      break
     }
 
     // Break out of outer loop if stuck was detected from errors
@@ -565,6 +642,182 @@ export async function runToolLoop(
   }
 }
 
+// ---------- Canonical tool lifecycle telemetry (RF-AGENT-05) ----------
+
+/**
+ * Extract the top-level keys of a tool input object.
+ *
+ * Records ONLY the metadata keys — never the values — so emitting
+ * `tool:called` / `tool:result` / `tool:error` events cannot leak
+ * secrets, PII, or raw arguments into the audit trail.
+ */
+function extractInputMetadataKeys(input: unknown): string[] {
+  if (input == null || typeof input !== 'object') return []
+  if (Array.isArray(input)) return []
+  return Object.keys(input as Record<string, unknown>)
+}
+
+/**
+ * Outcome status for a terminal tool lifecycle event.
+ */
+type ToolLifecycleStatus = 'success' | 'error' | 'timeout' | 'denied'
+
+/**
+ * Detect the canonical status from a thrown error. Used to label
+ * `tool:error` events as `'timeout'` vs generic `'error'` so consumers
+ * can branch without parsing message text.
+ */
+function statusFromError(err: unknown): Extract<ToolLifecycleStatus, 'error' | 'timeout'> {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /timed out after \d+ms/.test(msg) ? 'timeout' : 'error'
+}
+
+/**
+ * Emit a canonical `tool:called` event.
+ *
+ * Side-effect-only — never throws (event-bus failures must not abort
+ * the run). Also bridges to {@link ToolGovernance.audit} when the
+ * governance layer is wired so legacy auditHandler consumers continue
+ * to receive notifications.
+ */
+function emitToolCalled(
+  config: ToolLoopConfig,
+  args: {
+    toolName: string
+    toolCallId: string
+    input: Record<string, unknown>
+    inputMetadataKeys: string[]
+  },
+): void {
+  const { toolName, toolCallId, input, inputMetadataKeys } = args
+  try {
+    config.eventBus?.emit({
+      type: 'tool:called',
+      toolName,
+      input,
+      toolCallId,
+      inputMetadataKeys,
+      ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
+      ...(config.runId !== undefined
+        ? { runId: config.runId, executionRunId: config.runId }
+        : {}),
+    } as never)
+  } catch {
+    // Telemetry must never abort the loop
+  }
+
+  // Bridge to ToolGovernance.audit for legacy auditHandler consumers.
+  if (config.toolGovernance) {
+    void config.toolGovernance.audit({
+      toolName,
+      input,
+      callerAgent: config.agentId ?? 'unknown',
+      timestamp: Date.now(),
+      allowed: true,
+    }).catch(() => { /* non-fatal */ })
+  }
+}
+
+/**
+ * Emit a canonical `tool:result` event for a successful invocation.
+ */
+function emitToolResult(
+  config: ToolLoopConfig,
+  args: {
+    toolName: string
+    toolCallId: string
+    durationMs: number
+    inputMetadataKeys: string[]
+    output: unknown
+  },
+): void {
+  const { toolName, toolCallId, durationMs, inputMetadataKeys, output } = args
+  try {
+    config.eventBus?.emit({
+      type: 'tool:result',
+      toolName,
+      durationMs,
+      toolCallId,
+      inputMetadataKeys,
+      status: 'success',
+      ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
+      ...(config.runId !== undefined
+        ? { runId: config.runId, executionRunId: config.runId }
+        : {}),
+    } as never)
+  } catch {
+    // Telemetry must never abort the loop
+  }
+
+  if (config.toolGovernance) {
+    void config.toolGovernance.auditResult({
+      toolName,
+      output,
+      callerAgent: config.agentId ?? 'unknown',
+      durationMs,
+      success: true,
+      timestamp: Date.now(),
+    }).catch(() => { /* non-fatal */ })
+  }
+}
+
+/**
+ * Emit a canonical `tool:error` event for any non-success terminal
+ * outcome (`error`, `timeout`, `denied`).
+ */
+function emitToolError(
+  config: ToolLoopConfig,
+  args: {
+    toolName: string
+    toolCallId: string
+    durationMs: number
+    inputMetadataKeys: string[]
+    errorCode: ForgeErrorCode
+    errorMessage: string
+    status: Exclude<ToolLifecycleStatus, 'success'>
+  },
+): void {
+  const {
+    toolName,
+    toolCallId,
+    durationMs,
+    inputMetadataKeys,
+    errorCode,
+    errorMessage,
+    status,
+  } = args
+  try {
+    config.eventBus?.emit({
+      type: 'tool:error',
+      toolName,
+      errorCode,
+      message: errorMessage,
+      errorMessage,
+      durationMs,
+      toolCallId,
+      inputMetadataKeys,
+      status,
+      ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
+      ...(config.runId !== undefined
+        ? { runId: config.runId, executionRunId: config.runId }
+        : {}),
+    } as never)
+  } catch {
+    // Telemetry must never abort the loop
+  }
+
+  if (config.toolGovernance) {
+    void config.toolGovernance.auditResult({
+      toolName,
+      output: errorMessage,
+      callerAgent: config.agentId ?? 'unknown',
+      durationMs,
+      success: false,
+      timestamp: Date.now(),
+    }).catch(() => { /* non-fatal */ })
+  }
+}
+
 // ---------- Internal tool execution helpers ----------
 
 /** Result of executing a single tool call. */
@@ -579,6 +832,13 @@ interface ToolCallResult {
   stuckToolName?: string
   /** Reason from stuck detector (for building StuckError). */
   stuckReason?: string
+  /**
+   * If true, the tool was suspended pending human approval (RF-AGENT-04).
+   * The tool was NOT invoked; the outer loop should break with
+   * `stopReason === 'approval_pending'` and surface the suspension to the
+   * caller. Resume is the caller's responsibility (see `ApprovalGate`).
+   */
+  approvalPending?: boolean
 }
 
 type StatGetter = (name: string) => { calls: number; errors: number; totalMs: number }
@@ -665,12 +925,28 @@ async function executeSingleToolCall(
   const toolName = tc.name
   const toolCallId = tc.id ?? `call_${Date.now()}`
 
+  // RF-AGENT-05 — top-level keys of the validated tool input. Recorded
+  // in every emitted lifecycle event so consumers can audit which fields
+  // were supplied without ever seeing the (possibly secret) values.
+  const inputMetadataKeys = extractInputMetadataKeys(tc.args)
+
   // MC-GA03 — permission check (opt-in). Denied calls throw a
   // `TOOL_PERMISSION_DENIED` ForgeError that propagates out of the loop
   // so callers can react (audit, surface to UI, retry with different
   // identity, etc.).
   if (config.toolPermissionPolicy && config.agentId) {
     if (!config.toolPermissionPolicy.hasPermission(config.agentId, toolName)) {
+      // Emit canonical denial telemetry BEFORE throwing so audit consumers
+      // see the denial regardless of how the caller handles the error.
+      emitToolError(config, {
+        toolName,
+        toolCallId,
+        durationMs: 0,
+        inputMetadataKeys,
+        errorCode: 'TOOL_PERMISSION_DENIED',
+        errorMessage: `Tool "${toolName}" is not accessible to agent "${config.agentId}"`,
+        status: 'denied',
+      })
       throw new ForgeError({
         code: 'TOOL_PERMISSION_DENIED',
         message: `Tool "${toolName}" is not accessible to agent "${config.agentId}"`,
@@ -682,6 +958,15 @@ async function executeSingleToolCall(
   // Check if tool is blocked
   if (config.budget?.isToolBlocked(toolName)) {
     config.onToolResult?.(toolName, '[blocked]')
+    emitToolError(config, {
+      toolName,
+      toolCallId,
+      durationMs: 0,
+      inputMetadataKeys,
+      errorCode: 'TOOL_PERMISSION_DENIED',
+      errorMessage: `Tool "${toolName}" is blocked by guardrails`,
+      status: 'denied',
+    })
     return {
       message: new ToolMessage({
         content: `[Tool "${toolName}" is blocked by guardrails]`,
@@ -697,6 +982,15 @@ async function executeSingleToolCall(
     if (!access.allowed) {
       const reason = access.reason ?? 'Tool access denied'
       config.onToolResult?.(toolName, `[blocked: ${reason}]`)
+      emitToolError(config, {
+        toolName,
+        toolCallId,
+        durationMs: 0,
+        inputMetadataKeys,
+        errorCode: 'TOOL_PERMISSION_DENIED',
+        errorMessage: reason,
+        status: 'denied',
+      })
       return {
         message: new ToolMessage({
           content: `[blocked] ${reason}`,
@@ -706,17 +1000,34 @@ async function executeSingleToolCall(
       }
     }
     if (access.requiresApproval) {
-      // Emit approval:requested so external HITL can observe. The tool
-      // loop does not block waiting — wiring the wait is the caller's
-      // responsibility (typically via ApprovalGate on the event bus).
+      // RF-AGENT-04 (approved 2026-04-26): hard execution gate. The tool
+      // is NOT invoked; we emit `approval:requested` carrying the durable
+      // runId (falling back to the local tool_call_id when no runId was
+      // threaded through the config) and return an `[approval_pending]`
+      // ToolMessage. The outer loop breaks with
+      // `stopReason === 'approval_pending'` so callers can surface the
+      // suspension and arrange resume via the run engine. Resume is
+      // explicitly OUT OF SCOPE for the loop itself — see the
+      // toolGovernance docstring above for the full rationale.
+      const correlationId = config.runId ?? toolCallId
       try {
         config.eventBus?.emit({
           type: 'approval:requested',
-          runId: toolCallId,
+          runId: correlationId,
           plan: { toolName, args: tc.args },
         } as never)
       } catch {
         // Non-fatal: event emission must not abort the run
+      }
+      const reason = access.reason ?? 'Approval required'
+      config.onToolResult?.(toolName, `[approval_pending: ${reason}]`)
+      return {
+        message: new ToolMessage({
+          content: `[approval_pending] Tool "${toolName}" requires human approval before execution. ${reason}`,
+          tool_call_id: toolCallId,
+          name: toolName,
+        }),
+        approvalPending: true,
       }
     }
   }
@@ -724,6 +1035,15 @@ async function executeSingleToolCall(
   const tool = toolMap.get(toolName)
   if (!tool) {
     config.onToolResult?.(toolName, '[not found]')
+    emitToolError(config, {
+      toolName,
+      toolCallId,
+      durationMs: 0,
+      inputMetadataKeys,
+      errorCode: 'TOOL_NOT_FOUND',
+      errorMessage: `Tool "${toolName}" not found`,
+      status: 'error',
+    })
     return {
       message: new ToolMessage({
         content: `Error: Tool "${toolName}" not found. Available tools: ${[...toolMap.keys()].join(', ')}`,
@@ -739,6 +1059,15 @@ async function executeSingleToolCall(
 
   if (validationError) {
     config.onToolResult?.(toolName, `[validation error]`)
+    emitToolError(config, {
+      toolName,
+      toolCallId,
+      durationMs: 0,
+      inputMetadataKeys,
+      errorCode: 'VALIDATION_FAILED',
+      errorMessage: validationError,
+      status: 'error',
+    })
     return {
       message: new ToolMessage({
         content: validationError,
@@ -747,6 +1076,21 @@ async function executeSingleToolCall(
       }),
     }
   }
+
+  // Refresh metadata keys against the (possibly repaired) validated args so
+  // the canonical lifecycle events reflect the exact shape that was invoked.
+  const validatedKeys = extractInputMetadataKeys(validatedArgs)
+
+  // RF-AGENT-05 — emit canonical `tool:called` BEFORE invocation. The
+  // event carries the toolCallId, agentId, runId, and the top-level
+  // metadata keys (never the values). Bridges to ToolGovernance.audit
+  // for legacy auditHandler consumers.
+  emitToolCalled(config, {
+    toolName,
+    toolCallId,
+    input: validatedArgs,
+    inputMetadataKeys: validatedKeys,
+  })
 
   config.onToolCall?.(toolName, validatedArgs)
 
@@ -796,6 +1140,17 @@ async function executeSingleToolCall(
           stat.calls++
           stat.totalMs += durationMs
           config.onToolLatency?.(toolName, durationMs, 'unsafe-result')
+          // RF-AGENT-05 — terminal `tool:error` with `denied` status:
+          // unsafe content was produced but blocked before reaching the LLM.
+          emitToolError(config, {
+            toolName,
+            toolCallId,
+            durationMs,
+            inputMetadataKeys: validatedKeys,
+            errorCode: 'TOOL_EXECUTION_FAILED',
+            errorMessage: `Tool result blocked: ${hardBlock.category} — ${hardBlock.message}`,
+            status: 'denied',
+          })
           // Close span on early-return (unsafe-result branch)
           if (span) {
             try {
@@ -820,6 +1175,16 @@ async function executeSingleToolCall(
       name: toolName,
     })
     config.onToolResult?.(toolName, resultStr)
+    // RF-AGENT-05 — terminal `tool:result` with `success` status. Emitted
+    // AFTER transformToolResult and the safety-scan early return so the
+    // success event always reflects the bytes that reached the LLM.
+    emitToolResult(config, {
+      toolName,
+      toolCallId,
+      durationMs: Date.now() - startMs,
+      inputMetadataKeys: validatedKeys,
+      output: resultStr,
+    })
     if (span) {
       try {
         span.setAttribute('durationMs', Date.now() - startMs)
@@ -838,6 +1203,18 @@ async function executeSingleToolCall(
     })
     config.onToolResult?.(toolName, `[error: ${errorMsg}]`)
     stat.errors++
+    // RF-AGENT-05 — terminal `tool:error`. Discriminate `'timeout'` from
+    // generic `'error'` so consumers can branch without parsing message text.
+    const lifecycleStatus = statusFromError(err)
+    emitToolError(config, {
+      toolName,
+      toolCallId,
+      durationMs: Date.now() - startMs,
+      inputMetadataKeys: validatedKeys,
+      errorCode: lifecycleStatus === 'timeout' ? 'TOOL_TIMEOUT' : 'TOOL_EXECUTION_FAILED',
+      errorMessage: errorMsg,
+      status: lifecycleStatus,
+    })
     if (span) {
       try {
         span.setAttribute('durationMs', Date.now() - startMs)
@@ -914,12 +1291,22 @@ async function executeToolCallsParallel(
   for (let i = 0; i < toolCalls.length; i++) {
     const tc = toolCalls[i]!
     const toolCallId = tc.id ?? `call_${Date.now()}_${i}`
+    const inputMetadataKeys = extractInputMetadataKeys(tc.args)
 
     // MC-GA03 — permission check runs in the pre-validation loop so
     // denied calls NEVER reach the parallel executor. The throw
     // propagates out through `executeToolCallsParallel` → `runToolLoop`.
     if (config.toolPermissionPolicy && config.agentId) {
       if (!config.toolPermissionPolicy.hasPermission(config.agentId, tc.name)) {
+        emitToolError(config, {
+          toolName: tc.name,
+          toolCallId,
+          durationMs: 0,
+          inputMetadataKeys,
+          errorCode: 'TOOL_PERMISSION_DENIED',
+          errorMessage: `Tool "${tc.name}" is not accessible to agent "${config.agentId}"`,
+          status: 'denied',
+        })
         throw new ForgeError({
           code: 'TOOL_PERMISSION_DENIED',
           message: `Tool "${tc.name}" is not accessible to agent "${config.agentId}"`,
@@ -931,6 +1318,15 @@ async function executeToolCallsParallel(
     // Check blocked
     if (config.budget?.isToolBlocked(tc.name)) {
       config.onToolResult?.(tc.name, '[blocked]')
+      emitToolError(config, {
+        toolName: tc.name,
+        toolCallId,
+        durationMs: 0,
+        inputMetadataKeys,
+        errorCode: 'TOOL_PERMISSION_DENIED',
+        errorMessage: `Tool "${tc.name}" is blocked by guardrails`,
+        status: 'denied',
+      })
       preResults.push({
         index: i,
         result: {
@@ -944,10 +1340,77 @@ async function executeToolCallsParallel(
       continue
     }
 
+    // Tool governance: access check (blocked / approval-required) — runs
+    // in the pre-validation loop so the call never reaches the parallel
+    // executor. Mirrors the gate enforced in `executeSingleToolCall`.
+    if (config.toolGovernance) {
+      const access = config.toolGovernance.checkAccess(tc.name, tc.args)
+      if (!access.allowed) {
+        const reason = access.reason ?? 'Tool access denied'
+        config.onToolResult?.(tc.name, `[blocked: ${reason}]`)
+        emitToolError(config, {
+          toolName: tc.name,
+          toolCallId,
+          durationMs: 0,
+          inputMetadataKeys,
+          errorCode: 'TOOL_PERMISSION_DENIED',
+          errorMessage: reason,
+          status: 'denied',
+        })
+        preResults.push({
+          index: i,
+          result: {
+            message: new ToolMessage({
+              content: `[blocked] ${reason}`,
+              tool_call_id: toolCallId,
+              name: tc.name,
+            }),
+          },
+        })
+        continue
+      }
+      if (access.requiresApproval) {
+        // Hard gate (RF-AGENT-04). Same semantics as the sequential path.
+        const correlationId = config.runId ?? toolCallId
+        try {
+          config.eventBus?.emit({
+            type: 'approval:requested',
+            runId: correlationId,
+            plan: { toolName: tc.name, args: tc.args },
+          } as never)
+        } catch {
+          // Non-fatal: event emission must not abort the run
+        }
+        const reason = access.reason ?? 'Approval required'
+        config.onToolResult?.(tc.name, `[approval_pending: ${reason}]`)
+        preResults.push({
+          index: i,
+          result: {
+            message: new ToolMessage({
+              content: `[approval_pending] Tool "${tc.name}" requires human approval before execution. ${reason}`,
+              tool_call_id: toolCallId,
+              name: tc.name,
+            }),
+            approvalPending: true,
+          },
+        })
+        continue
+      }
+    }
+
     // Check tool exists
     const tool = toolMap.get(tc.name)
     if (!tool) {
       config.onToolResult?.(tc.name, '[not found]')
+      emitToolError(config, {
+        toolName: tc.name,
+        toolCallId,
+        durationMs: 0,
+        inputMetadataKeys,
+        errorCode: 'TOOL_NOT_FOUND',
+        errorMessage: `Tool "${tc.name}" not found`,
+        status: 'error',
+      })
       preResults.push({
         index: i,
         result: {
@@ -965,6 +1428,15 @@ async function executeToolCallsParallel(
     const { args: validatedArgs, validationError } = maybeValidateArgs(tc, tool, validatorCfg)
     if (validationError) {
       config.onToolResult?.(tc.name, `[validation error]`)
+      emitToolError(config, {
+        toolName: tc.name,
+        toolCallId,
+        durationMs: 0,
+        inputMetadataKeys,
+        errorCode: 'VALIDATION_FAILED',
+        errorMessage: validationError,
+        status: 'error',
+      })
       preResults.push({
         index: i,
         result: {
@@ -1010,7 +1482,20 @@ async function executeToolCallsParallel(
   const execResults = await executeToolsParallel(parallelCalls, wrappedRegistry, {
     maxConcurrency: maxParallel,
     signal: config.signal,
-    onToolStart: (name, args) => config.onToolCall?.(name, args),
+    onToolStart: (name, args) => {
+      config.onToolCall?.(name, args)
+      // RF-AGENT-05 — emit canonical `tool:called` for each parallel
+      // invocation. The executor passes the validated args, which we
+      // derive metadata keys from (no raw values reach telemetry).
+      const ec = executableCalls.find((e) => e.call.name === name && e.call.args === args)
+      const toolCallId = ec?.call.id ?? `call_${Date.now()}_${name}`
+      emitToolCalled(config, {
+        toolName: name,
+        toolCallId,
+        input: args,
+        inputMetadataKeys: extractInputMetadataKeys(args),
+      })
+    },
     onToolEnd: (name, durationMs, error) => {
       config.onToolLatency?.(name, durationMs, error)
     },
@@ -1024,6 +1509,8 @@ async function executeToolCallsParallel(
     stat.calls++
     stat.totalMs += execResult.durationMs
 
+    const inputMetadataKeys = extractInputMetadataKeys(ec.validatedArgs)
+
     let message: ToolMessage
     if (execResult.error) {
       stat.errors++
@@ -1033,6 +1520,17 @@ async function executeToolCallsParallel(
         name: execResult.toolName,
       })
       config.onToolResult?.(execResult.toolName, `[error: ${execResult.error}]`)
+      // RF-AGENT-05 — terminal `tool:error` for the parallel path.
+      const lifecycleStatus = statusFromError(new Error(execResult.error))
+      emitToolError(config, {
+        toolName: execResult.toolName,
+        toolCallId: execResult.toolCallId,
+        durationMs: execResult.durationMs,
+        inputMetadataKeys,
+        errorCode: lifecycleStatus === 'timeout' ? 'TOOL_TIMEOUT' : 'TOOL_EXECUTION_FAILED',
+        errorMessage: execResult.error,
+        status: lifecycleStatus,
+      })
     } else {
       message = new ToolMessage({
         content: execResult.result ?? '',
@@ -1040,6 +1538,14 @@ async function executeToolCallsParallel(
         name: execResult.toolName,
       })
       config.onToolResult?.(execResult.toolName, execResult.result ?? '')
+      // RF-AGENT-05 — terminal `tool:result` for the parallel path.
+      emitToolResult(config, {
+        toolName: execResult.toolName,
+        toolCallId: execResult.toolCallId,
+        durationMs: execResult.durationMs,
+        inputMetadataKeys,
+        output: execResult.result ?? '',
+      })
     }
 
     // Find the placeholder slot for this call's original index

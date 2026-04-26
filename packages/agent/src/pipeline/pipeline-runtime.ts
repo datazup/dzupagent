@@ -65,6 +65,11 @@ import {
   mergeBranchExecutionResult,
   type BranchExecutionResult,
 } from './pipeline-runtime/branch-merge.js'
+import {
+  applyCost as applyBudgetCost,
+  createBudgetTrackerState,
+  type BudgetTrackerState,
+} from './pipeline-runtime/iteration-budget-tracker.js'
 
 // ---------------------------------------------------------------------------
 // Pipeline Runtime
@@ -78,10 +83,13 @@ export class PipelineRuntime {
   private state: PipelineState = 'idle'
   /** Tracks recovery attempts across the entire pipeline run */
   private recoveryAttemptsUsed = 0
-  /** Cumulative cost tracked for iteration budget (cents) */
-  private cumulativeCostCents = 0
-  /** Whether budget warnings have already been emitted at each threshold */
-  private budgetWarnings = { warn70: false, warn90: false }
+  /**
+   * Iteration budget accounting state. Cumulative cost and warning flags
+   * are kept on a single object so the standalone tracker helper can
+   * mutate them in place, preserving the existing field semantics while
+   * making the threshold rules independently testable.
+   */
+  private budgetTracker: BudgetTrackerState = createBudgetTrackerState()
 
   constructor(config: PipelineRuntimeConfig) {
     // Auto-wire checkpoint store when not explicitly provided.
@@ -131,8 +139,7 @@ export class PipelineRuntime {
 
     this.state = 'running'
     this.recoveryAttemptsUsed = 0
-    this.cumulativeCostCents = 0
-    this.budgetWarnings = { warn70: false, warn90: false }
+    this.budgetTracker = createBudgetTrackerState()
     this.emit(pipelineStartedEvent(this.config.definition.id, runId))
 
     const startTime = Date.now()
@@ -575,35 +582,25 @@ export class PipelineRuntime {
           }
         }
 
-        // Iteration budget tracking: accumulate cost and emit warnings
+        // Iteration budget tracking: accumulate cost and emit warnings.
+        // The accounting + threshold rules live in the standalone
+        // iteration-budget-tracker helper so they can be tested in
+        // isolation; the runtime owns event emission and `iteration`
+        // (completedNodeIds.length) is captured before the tracker
+        // mutates so the warning event keeps its original meaning.
         if (this.config.iterationBudget) {
           const ib = this.config.iterationBudget
           const cost = ib.extractCost(node.id, finalResult)
-          if (cost > 0) {
-            this.cumulativeCostCents += cost
-            const pct = this.cumulativeCostCents / ib.maxCostCents
-
-            if (pct >= 0.9 && !this.budgetWarnings.warn90) {
-              this.budgetWarnings.warn90 = true
-              this.emit(
-                iterationBudgetWarningEvent(
-                  'warn_90',
-                  this.cumulativeCostCents,
-                  ib.maxCostCents,
-                  completedNodeIds.length,
-                ),
-              )
-            } else if (pct >= 0.7 && !this.budgetWarnings.warn70) {
-              this.budgetWarnings.warn70 = true
-              this.emit(
-                iterationBudgetWarningEvent(
-                  'warn_70',
-                  this.cumulativeCostCents,
-                  ib.maxCostCents,
-                  completedNodeIds.length,
-                ),
-              )
-            }
+          const decision = applyBudgetCost(this.budgetTracker, cost, ib.maxCostCents)
+          if (decision.warning) {
+            this.emit(
+              iterationBudgetWarningEvent(
+                decision.warning,
+                decision.cumulativeCostCents,
+                ib.maxCostCents,
+                completedNodeIds.length,
+              ),
+            )
           }
         }
 

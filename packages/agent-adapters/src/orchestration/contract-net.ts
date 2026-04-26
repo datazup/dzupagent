@@ -142,6 +142,7 @@ const COST_PER_10K_TOKENS: Record<AdapterProviderId, number> = {
   codex: 4,
   claude: 5,
   openrouter: 5,
+  openai: 4,
 }
 
 /** Default estimated duration in ms for a standard task. */
@@ -154,6 +155,7 @@ const DEFAULT_DURATION_MS: Record<AdapterProviderId, number> = {
   codex: 5_000,
   claude: 5_000,
   openrouter: 5_000,
+  openai: 4_000,
 }
 
 // ---------------------------------------------------------------------------

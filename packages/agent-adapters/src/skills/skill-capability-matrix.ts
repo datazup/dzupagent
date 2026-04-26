@@ -48,6 +48,7 @@ const PROVIDER_CAPABILITIES: Record<
   crush: { toolBindings: 'dropped', approvalMode: 'dropped', networkPolicy: 'dropped', budgetLimit: 'dropped' },
   goose: { toolBindings: 'dropped', approvalMode: 'dropped', networkPolicy: 'dropped', budgetLimit: 'dropped' },
   openrouter: { toolBindings: 'dropped', approvalMode: 'dropped', networkPolicy: 'dropped', budgetLimit: 'dropped' },
+  openai: { toolBindings: 'dropped', approvalMode: 'dropped', networkPolicy: 'dropped', budgetLimit: 'dropped' },
 }
 
 type CapabilityKey = 'toolBindings' | 'approvalMode' | 'networkPolicy' | 'budgetLimit'

@@ -10,6 +10,7 @@ import type {
   A2ATask,
   A2ATaskState,
   A2ATaskStore,
+  A2ATaskListFilter,
   A2ATaskMessage,
   A2ATaskArtifact,
   A2ATaskPushConfig,
@@ -76,6 +77,9 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
         metadata: task.metadata ?? null,
         pushNotificationConfig: task.pushNotificationConfig ?? null,
         artifacts: [],
+        // RF-SEC-05: stamp owner + tenant so subsequent reads can be scoped.
+        ownerId: task.ownerId ?? null,
+        tenantId: task.tenantId ?? 'default',
         createdAt: now,
         updatedAt: now,
       })
@@ -140,13 +144,22 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
     return task
   }
 
-  async list(filter?: { agentName?: string; state?: A2ATaskState }): Promise<A2ATask[]> {
+  async list(filter?: A2ATaskListFilter): Promise<A2ATask[]> {
     const conditions = []
     if (filter?.agentName) {
       conditions.push(eq(a2aTasks.agentName, filter.agentName))
     }
     if (filter?.state) {
       conditions.push(eq(a2aTasks.state, filter.state))
+    }
+    // RF-SEC-05: enforce owner + tenant filters at the SQL level so other
+    // tenants' rows never leave the database. Empty values fall through to
+    // the un-scoped behaviour for unauthenticated single-tenant servers.
+    if (filter?.ownerId !== undefined && filter.ownerId !== null) {
+      conditions.push(eq(a2aTasks.ownerId, filter.ownerId))
+    }
+    if (filter?.tenantId !== undefined && filter.tenantId !== null) {
+      conditions.push(eq(a2aTasks.tenantId, filter.tenantId))
     }
 
     const query = this.db
@@ -255,6 +268,10 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
         parts: m.parts,
       })),
       artifacts: (row.artifacts ?? []) as A2ATaskArtifact[],
+      // RF-SEC-05: surface scope so route handlers can perform owner checks
+      // without re-reading the row.
+      ownerId: row.ownerId ?? null,
+      tenantId: row.tenantId ?? null,
     }
 
     if (row.output !== null && row.output !== undefined) task.output = row.output
@@ -278,6 +295,8 @@ interface TaskRow {
   metadata: unknown
   pushNotificationConfig: unknown
   artifacts: unknown
+  ownerId: string | null
+  tenantId: string | null
   createdAt: Date
   updatedAt: Date
 }

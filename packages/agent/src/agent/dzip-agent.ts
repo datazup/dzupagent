@@ -141,6 +141,8 @@ export class DzupAgent {
               reason,
               before,
               after,
+              provider: 'arrow',
+              namespace: config.memoryNamespace,
             })
           }
         : config.eventBus
@@ -151,9 +153,26 @@ export class DzupAgent {
                 reason,
                 before,
                 after,
+                provider: 'arrow',
+                namespace: config.memoryNamespace,
               })
             }
           : undefined,
+      // Bridge structured detail into eventBus so listeners receive the
+      // richer fields (provider, namespace, detail) on the same event type.
+      onFallbackDetail: (event) => {
+        config.onFallbackDetail?.(event)
+        config.eventBus?.emit({
+          type: 'agent:context_fallback',
+          agentId: this.id,
+          reason: event.reason,
+          before: event.tokensBefore ?? 0,
+          after: event.tokensAfter ?? 0,
+          provider: event.provider,
+          namespace: event.namespace,
+          detail: event.detail,
+        })
+      },
     })
     this.middlewareRuntime = new AgentMiddlewareRuntime({
       agentId: this.id,
@@ -174,6 +193,24 @@ export class DzupAgent {
    *
    * Runs the full ReAct tool-calling loop with guardrails, context
    * compression, and middleware hooks.
+   *
+   * ## Provider fallback semantics — selection-time only
+   *
+   * When constructed with a tier-based model (e.g. `model: 'codegen'`),
+   * the agent resolves a provider once via
+   * `ModelRegistry.getModelWithFallback`. Open-circuit providers are
+   * skipped at that selection step. After that, the chosen provider is
+   * fixed for the lifetime of the agent: per-call success/failure is
+   * recorded against the same circuit breaker (so subsequent agent
+   * constructions skip a degraded provider), but **the agent does not
+   * switch providers mid-run on a transient failure**. Same-run failover
+   * is intentionally out of scope; if your application needs it, build a
+   * higher-level retry/orchestration layer that constructs a fresh agent
+   * after a failure.
+   *
+   * The same model applies to {@link stream}: native streaming records
+   * outcomes against the same circuit breaker as `generate`, keeping
+   * breaker state consistent across modes.
    */
   async generate(
     messages: BaseMessage[],
@@ -241,6 +278,17 @@ export class DzupAgent {
    *
    * Yields text chunks, tool calls/results, budget warnings, and done/error events.
    *
+   * ## Provider fallback semantics — selection-time only
+   *
+   * Mirrors {@link generate}: the provider is fixed at agent construction
+   * via `ModelRegistry.getModelWithFallback` (open-circuit providers are
+   * skipped at that selection step). Native streaming success/failure is
+   * recorded against the **same** circuit breaker the non-streaming path
+   * uses, so breaker state stays consistent between `generate` and
+   * `stream`. There is no same-run provider failover — a transient
+   * stream failure surfaces to the caller; it does not transparently
+   * retry against another provider.
+   *
    * Thin wrapper over {@link streamRun} — see `streaming-run.ts`.
    */
   stream(
@@ -252,6 +300,8 @@ export class DzupAgent {
         agentId: this.id,
         config: this.config,
         resolvedModel: this.resolvedModel,
+        resolvedProvider: this.resolvedProvider,
+        registry: this.config.registry,
         prepareMessages: (inputMessages) => this.prepareMessages(inputMessages),
         getTools: () => this.getTools(),
         bindTools: (model, tools) => this.bindTools(model, tools),
@@ -387,8 +437,32 @@ export class DzupAgent {
         if (this.config.arrowMemory || this.config.memoryProfile) {
           memoryFrame = result.frame ?? null
         }
-      } catch {
-        // Memory failures are non-fatal
+      } catch (err) {
+        // Memory failures are non-fatal; emit structured event so operators can
+        // distinguish "no memory configured" from "memory unavailable".
+        const detail = err instanceof Error ? err.message : String(err)
+        const tokensBefore = this.estimateConversationTokens(windowedMessages)
+        const provider = this.describeMemoryProvider()
+        const namespace = this.config.memoryNamespace ?? 'unknown'
+        this.config.onFallback?.('memory_load_failure', tokensBefore, 0)
+        this.config.onFallbackDetail?.({
+          reason: 'memory_load_failure',
+          detail,
+          namespace,
+          provider,
+          tokensBefore,
+          tokensAfter: 0,
+        })
+        this.config.eventBus?.emit({
+          type: 'agent:context_fallback',
+          agentId: this.id,
+          reason: 'memory_load_failure',
+          before: tokensBefore,
+          after: 0,
+          provider,
+          namespace,
+          detail,
+        })
       }
     }
 
@@ -473,9 +547,46 @@ export class DzupAgent {
         },
       )
       this.conversationSummary = summary
-    } catch {
-      // Summarization failures are non-fatal
+    } catch (err) {
+      // Summarization failures are non-fatal; emit event so operators can
+      // distinguish absence from failure.
+      const detail = err instanceof Error ? err.message : String(err)
+      const tokensBefore = this.estimateConversationTokens(messages)
+      const namespace = this.config.memoryNamespace ?? 'unknown'
+      this.config.onFallback?.('summary_failure', tokensBefore, tokensBefore)
+      this.config.onFallbackDetail?.({
+        reason: 'summary_failure',
+        detail,
+        namespace,
+        provider: 'summary',
+        tokensBefore,
+        tokensAfter: tokensBefore,
+      })
+      this.config.eventBus?.emit({
+        type: 'agent:context_fallback',
+        agentId: this.id,
+        reason: 'summary_failure',
+        before: tokensBefore,
+        after: tokensBefore,
+        provider: 'summary',
+        namespace,
+        detail,
+      })
     }
+  }
+
+  /**
+   * Return a non-leaking provider label for memory telemetry.
+   *
+   * Uses the memory service's constructor name when available so operators
+   * can distinguish between e.g. `MemoryService`, `ScopedMemoryService`, and
+   * custom providers without exposing the underlying instance.
+   */
+  private describeMemoryProvider(): string {
+    const memory = this.config.memory
+    if (!memory) return 'none'
+    const ctor = (memory as { constructor?: { name?: string } }).constructor
+    return ctor?.name && ctor.name !== 'Object' ? ctor.name : 'standard'
   }
 
   private async runBeforeAgentHooks(): Promise<void> {

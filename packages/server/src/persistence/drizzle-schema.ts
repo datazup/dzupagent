@@ -175,6 +175,11 @@ export const a2aTasks = pgTable('a2a_tasks', {
     events?: string[]
   }>(),
   artifacts: jsonb('artifacts').$type<Array<{ parts: Array<{ type: string; text?: string; data?: Record<string, unknown> }>; name?: string; index?: number }>>().default([]),
+  // RF-SEC-05: owner + tenant scope so the API key that submitted a task is
+  // the only caller that can read, list, or cancel it (cross-owner reads
+  // surface as 404 to prevent enumeration).
+  ownerId: text('owner_id'),
+  tenantId: text('tenant_id').notNull().default('default'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

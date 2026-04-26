@@ -228,6 +228,24 @@ function compileForOpenRouter(policy: AdapterPolicy): CompiledPolicyOverrides {
   }
 }
 
+function compileForOpenAI(policy: AdapterPolicy): CompiledPolicyOverrides {
+  const config: Partial<AdapterConfig> = {}
+  const inputOptions: Record<string, unknown> = {}
+
+  if (policy.maxTurns !== undefined) {
+    inputOptions['maxTurns'] = policy.maxTurns
+  }
+
+  // OpenAI is API-based; sandboxMode and networkAccess do not apply at the
+  // provider level. Guardrail hints still apply.
+
+  return {
+    config,
+    inputOptions,
+    guardrails: extractGuardrailHints(policy),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -265,6 +283,7 @@ const PROVIDER_COMPILERS: Record<AdapterProviderId, ProviderCompiler> = {
   crush: compileForCrush,
   goose: compileForGoose,
   openrouter: compileForOpenRouter,
+  openai: compileForOpenAI,
 }
 
 // ---------------------------------------------------------------------------

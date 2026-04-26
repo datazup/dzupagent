@@ -17,6 +17,10 @@ import { runTraces, traceSteps } from './drizzle-schema.js'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzle = any
 
+/** Inferred row types for the run-trace tables. */
+type RunTracesRow = typeof runTraces.$inferSelect
+type TraceStepsRow = typeof traceSteps.$inferSelect
+
 export class DrizzleRunTraceStore implements RunTraceStore {
   constructor(private readonly db: AnyDrizzle) {}
 
@@ -95,19 +99,19 @@ export class DrizzleRunTraceStore implements RunTraceStore {
       .where(eq(traceSteps.runId, runId))
       .orderBy(asc(traceSteps.stepIndex))
 
+    const traceRow = trace as RunTracesRow
     return {
-      runId: trace.runId,
-      agentId: trace.agentId,
-      startedAt: trace.startedAt,
-      completedAt: trace.completedAt ?? undefined,
-      totalSteps: trace.totalSteps,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      steps: steps.map((s: any) => ({
+      runId: traceRow.runId,
+      agentId: traceRow.agentId,
+      startedAt: traceRow.startedAt,
+      completedAt: traceRow.completedAt ?? undefined,
+      totalSteps: traceRow.totalSteps,
+      steps: (steps as TraceStepsRow[]).map((s) => ({
         stepIndex: s.stepIndex,
         timestamp: s.timestamp,
-        type: s.type,
-        content: s.content,
-        metadata: s.metadata ?? undefined,
+        type: s.type as TraceStep['type'],
+        content: s.content as TraceStep['content'],
+        metadata: (s.metadata ?? undefined) as TraceStep['metadata'],
         durationMs: s.durationMs ?? undefined,
       })),
     }
@@ -131,13 +135,12 @@ export class DrizzleRunTraceStore implements RunTraceStore {
       )
       .orderBy(asc(traceSteps.stepIndex))
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((s: any) => ({
+    return (rows as TraceStepsRow[]).map((s) => ({
       stepIndex: s.stepIndex,
       timestamp: s.timestamp,
-      type: s.type,
-      content: s.content,
-      metadata: s.metadata ?? undefined,
+      type: s.type as TraceStep['type'],
+      content: s.content as TraceStep['content'],
+      metadata: (s.metadata ?? undefined) as TraceStep['metadata'],
       durationMs: s.durationMs ?? undefined,
     }))
   }

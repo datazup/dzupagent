@@ -94,6 +94,22 @@ export interface DzupAgentConfig {
   onFallback?: (reason: string, before: number, after: number) => void
 
   /**
+   * Structured diagnostic callback with richer context than onFallback.
+   * Receives reason code, human-readable detail, provider label, namespace,
+   * and optional token estimates. Never receives raw scope keys/values or
+   * memory record content.
+   */
+  onFallbackDetail?: (event: {
+    reason: string
+    detail: string
+    namespace: string
+    /** Provider label (e.g. 'arrow', 'standard', 'summary'). Optional for backwards compatibility. */
+    provider?: string
+    tokensBefore?: number
+    tokensAfter?: number
+  }) => void
+
+  /**
    * Optional tool stats tracker for injecting preferred-tool hints
    * into the system prompt before the first LLM invocation.
    * Uses structural typing so callers can pass a ToolStatsTracker from core.

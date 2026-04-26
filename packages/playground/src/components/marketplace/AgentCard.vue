@@ -7,6 +7,7 @@
  */
 import { computed } from 'vue'
 import type { MarketplaceAgent } from '../../types.js'
+import PgBadge from '../ui/PgBadge.vue'
 
 interface Props {
   /** The marketplace agent to display */
@@ -23,19 +24,6 @@ const emit = defineEmits<{
   install: [agentId: string]
   uninstall: [agentId: string]
 }>()
-
-/** Category badge color mapping */
-const categoryClass = computed(() => {
-  const map: Record<string, string> = {
-    observability: 'bg-blue-500/10 text-blue-400',
-    memory: 'bg-purple-500/10 text-purple-400',
-    security: 'bg-amber-500/10 text-amber-400',
-    codegen: 'bg-green-500/10 text-green-400',
-    integration: 'bg-cyan-500/10 text-cyan-400',
-    testing: 'bg-rose-500/10 text-rose-400',
-  }
-  return map[props.agent.category] ?? 'bg-pg-text-muted/10 text-pg-text-muted'
-})
 
 /** Formatted download count (e.g., 12.4k) */
 const formattedDownloads = computed(() => {
@@ -98,12 +86,13 @@ function handleAction(): void {
 
     <!-- Category + Tags -->
     <div class="mb-3 flex flex-wrap items-center gap-1.5">
-      <span
-        :class="categoryClass"
-        class="rounded-full px-2 py-0.5 text-[10px] font-medium capitalize"
+      <PgBadge
+        :category="agent.category"
+        size="sm"
+        class="capitalize"
       >
         {{ agent.category }}
-      </span>
+      </PgBadge>
       <span
         v-for="tag in agent.tags.slice(0, 3)"
         :key="tag"

@@ -70,6 +70,7 @@ const DEFAULT_PRIORITY: Record<AdapterProviderId, number> = {
   claude: 5,
   codex: 4,
   openrouter: 4,
+  openai: 4,
   gemini: 3,
   'gemini-sdk': 3,
   goose: 3,

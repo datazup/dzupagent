@@ -70,6 +70,9 @@ export interface DeploymentHistoryStoreInterface {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyDrizzleDB = any
 
+/** Inferred row type for the {@link deploymentHistory} table. */
+type DeploymentHistoryRow = typeof deploymentHistory.$inferSelect
+
 export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInterface {
   constructor(private readonly db: AnyDrizzleDB) {}
 
@@ -105,7 +108,7 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
       .orderBy(desc(deploymentHistory.deployedAt))
       .limit(limit)
 
-    return rows.map((r: Record<string, unknown>) => this.toRecord(r))
+    return rows.map((r: DeploymentHistoryRow) => this.toRecord(r))
   }
 
   async getSuccessRate(environment?: string, windowDays = 30): Promise<SuccessRateResult> {
@@ -161,21 +164,19 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
     return this.toRecord(rows[0])
   }
 
-   
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private toRecord(row: any): DeploymentHistoryRecord {
+  private toRecord(row: DeploymentHistoryRow): DeploymentHistoryRecord {
     return {
-      id: row.id as string,
-      confidenceScore: row.confidenceScore as number,
+      id: row.id,
+      confidenceScore: row.confidenceScore,
       gateDecision: row.gateDecision as GateDecision,
-      signalsSnapshot: row.signalsSnapshot as Record<string, unknown>[] | null,
-      deployedAt: row.deployedAt as Date,
-      deployedBy: row.deployedBy as string | null,
-      environment: row.environment as string,
-      rollbackAvailable: row.rollbackAvailable as boolean,
-      outcome: row.outcome as string | null,
-      completedAt: row.completedAt as Date | null,
-      notes: row.notes as string | null,
+      signalsSnapshot: row.signalsSnapshot,
+      deployedAt: row.deployedAt,
+      deployedBy: row.deployedBy,
+      environment: row.environment,
+      rollbackAvailable: row.rollbackAvailable,
+      outcome: row.outcome,
+      completedAt: row.completedAt,
+      notes: row.notes,
     }
   }
 }

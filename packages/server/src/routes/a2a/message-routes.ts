@@ -1,8 +1,12 @@
 /**
  * Multi-turn message route: POST /a2a/tasks/:id/messages
+ *
+ * RF-SEC-05: messages can only be appended to tasks the caller owns.
+ * Cross-owner attempts return 404 to avoid existence enumeration.
  */
 import type { Hono } from 'hono'
 import type { A2ARoutesConfig } from './helpers.js'
+import { callerOwnsTask, getCallerScope } from './helpers.js'
 
 export function registerMessageRoutes(app: Hono, config: A2ARoutesConfig): void {
   app.post('/a2a/tasks/:id/messages', async (c) => {
@@ -16,8 +20,9 @@ export function registerMessageRoutes(app: Hono, config: A2ARoutesConfig): void 
       )
     }
 
+    const scope = getCallerScope(c)
     const task = await config.taskStore.get(taskId)
-    if (!task) {
+    if (!task || !callerOwnsTask(scope, task)) {
       return c.json(
         { error: { code: 'NOT_FOUND', message: 'Task not found' } },
         404,
