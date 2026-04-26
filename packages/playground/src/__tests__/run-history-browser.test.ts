@@ -152,7 +152,7 @@ describe('RunHistoryBrowser', () => {
     expect(wrapper.text()).toContain('failed')
   })
 
-  it('displays status badges with correct CSS classes', async () => {
+  it('displays status badges with semantic variant classes', async () => {
     runStore.filteredRuns = sampleRuns
     runStore.totalCount = sampleRuns.length
 
@@ -165,10 +165,10 @@ describe('RunHistoryBrowser', () => {
     const failedBadge = badges.find((b) => b.text() === 'failed')
     const pendingBadge = badges.find((b) => b.text() === 'pending')
 
-    expect(completedBadge?.classes()).toContain('bg-green-100')
-    expect(runningBadge?.classes()).toContain('bg-blue-100')
-    expect(failedBadge?.classes()).toContain('bg-red-100')
-    expect(pendingBadge?.classes()).toContain('bg-gray-200')
+    expect(completedBadge?.classes()).toContain('pg-badge-success')
+    expect(runningBadge?.classes()).toContain('pg-badge-info')
+    expect(failedBadge?.classes()).toContain('pg-badge-danger')
+    expect(pendingBadge?.classes()).toContain('pg-badge-neutral')
   })
 
   it('displays formatted duration for completed runs', async () => {

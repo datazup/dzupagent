@@ -36,6 +36,8 @@ const MONOREPO_ROOT = path.resolve(__dirname, '../../../../..');
 // The apps/ directory lives one level above dzupagent/ in the outer monorepo.
 const APPS_ROOT = path.resolve(MONOREPO_ROOT, '../apps');
 const BOUNDARY_CONFIG_PATH = path.join(MONOREPO_ROOT, 'config', 'architecture-boundaries.json');
+const PACKAGE_TIERS_PATH = path.join(MONOREPO_ROOT, 'config', 'package-tiers.json');
+const PACKAGES_ROOT = path.join(MONOREPO_ROOT, 'packages');
 
 interface ForbiddenRule {
   /**
@@ -56,9 +58,28 @@ interface AppForbiddenRule {
   packageName: string;
 }
 
+interface LayerEntry {
+  id: number;
+  name: string;
+  description?: string;
+  packages: string[];
+}
+
+interface LayerGraph {
+  description?: string;
+  layers: LayerEntry[];
+  rules?: {
+    allowSameLayerEdges?: boolean;
+    toolingMayBeUpstreamOfSupported?: boolean;
+    toolingLayerId?: number;
+    supportedTiers?: number[];
+  };
+}
+
 interface ArchitectureBoundaryConfig {
   packageBoundaryRules: ForbiddenRule[];
   appWorkspaces: AppForbiddenRule[];
+  layerGraph?: LayerGraph;
 }
 
 function loadBoundaryConfig(configPath: string): ArchitectureBoundaryConfig {
@@ -67,12 +88,65 @@ function loadBoundaryConfig(configPath: string): ArchitectureBoundaryConfig {
   return {
     packageBoundaryRules: Array.isArray(raw.packageBoundaryRules) ? raw.packageBoundaryRules : [],
     appWorkspaces: Array.isArray(raw.appWorkspaces) ? raw.appWorkspaces : [],
+    layerGraph: raw.layerGraph,
   };
 }
 
 const BOUNDARY_CONFIG = loadBoundaryConfig(BOUNDARY_CONFIG_PATH);
 const PACKAGE_BOUNDARY_RULES = BOUNDARY_CONFIG.packageBoundaryRules;
 const APP_WORKSPACES = BOUNDARY_CONFIG.appWorkspaces;
+const LAYER_GRAPH = BOUNDARY_CONFIG.layerGraph;
+
+interface TierEntry {
+  tier: number;
+  status: string;
+  roadmapDriver?: boolean;
+  owners?: string[];
+}
+
+function loadTiersConfig(): Record<string, TierEntry> {
+  return JSON.parse(fs.readFileSync(PACKAGE_TIERS_PATH, 'utf8')) as Record<string, TierEntry>;
+}
+
+const TIERS_CONFIG = loadTiersConfig();
+
+/**
+ * Walk packages/* and read each package.json `name` field.
+ */
+function listWorkspacePackageNames(): string[] {
+  if (!fs.existsSync(PACKAGES_ROOT)) return [];
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(PACKAGES_ROOT, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, 'package.json');
+    if (!fs.existsSync(pkgJsonPath)) continue;
+    try {
+      const json = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')) as { name?: string };
+      if (typeof json.name === 'string' && json.name.length > 0) {
+        out.push(json.name);
+      }
+    } catch {
+      // ignore unparsable package.json files
+    }
+  }
+  return out;
+}
+
+function shortNameOf(pkgName: string): string {
+  if (pkgName.startsWith('@dzupagent/')) return pkgName.slice('@dzupagent/'.length);
+  return pkgName;
+}
+
+function flattenLayerGraphPackageShortNames(graph: LayerGraph | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!graph) return out;
+  for (const layer of graph.layers) {
+    for (const pkg of layer.packages) {
+      out.add(pkg);
+    }
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // File-system helpers
@@ -312,6 +386,76 @@ describe('Architecture boundary rules — policy completeness', () => {
     const packageNames = APP_WORKSPACES.map((app) => app.packageName);
     expect(new Set(dirs).size).toBe(dirs.length);
     expect(new Set(packageNames).size).toBe(packageNames.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Package classification policy completeness
+// ---------------------------------------------------------------------------
+
+describe('Package classification policy completeness', () => {
+  const workspacePackages = listWorkspacePackageNames();
+
+  it('has at least one workspace package to classify', () => {
+    expect(workspacePackages.length).toBeGreaterThan(0);
+  });
+
+  it('declares a layerGraph with at least one layer', () => {
+    expect(LAYER_GRAPH, 'config/architecture-boundaries.json must define a layerGraph').toBeDefined();
+    expect(LAYER_GRAPH!.layers.length).toBeGreaterThan(0);
+  });
+
+  it('every workspace package is classified in config/package-tiers.json', () => {
+    const missing = workspacePackages.filter(
+      (name) => !Object.prototype.hasOwnProperty.call(TIERS_CONFIG, name),
+    );
+    expect(
+      missing,
+      `The following packages are missing from config/package-tiers.json:\n  - ${missing.join('\n  - ')}\n\n` +
+        'Add a tier entry for each new package. Tier metadata is the single source of truth for ' +
+        'package status and ownership.',
+    ).toEqual([]);
+  });
+
+  it('every workspace package is classified in the architecture layer graph', () => {
+    const layerShortNames = flattenLayerGraphPackageShortNames(LAYER_GRAPH);
+    const missing = workspacePackages.filter((name) => !layerShortNames.has(shortNameOf(name)));
+    expect(
+      missing,
+      `The following packages are missing from layerGraph in config/architecture-boundaries.json:\n  - ${missing.join('\n  - ')}\n\n` +
+        'Add each package to the lowest layer that contains all of its runtime dependencies.',
+    ).toEqual([]);
+  });
+
+  it('layer graph does not list a package in more than one layer', () => {
+    const seen = new Map<string, number>();
+    const duplicates: string[] = [];
+    for (const layer of LAYER_GRAPH?.layers ?? []) {
+      for (const pkg of layer.packages) {
+        if (seen.has(pkg)) {
+          duplicates.push(`${pkg} (layers ${seen.get(pkg)} and ${layer.id})`);
+        } else {
+          seen.set(pkg, layer.id);
+        }
+      }
+    }
+    expect(duplicates).toEqual([]);
+  });
+
+  it('layer graph only references real workspace packages', () => {
+    const workspaceShortNames = new Set(workspacePackages.map(shortNameOf));
+    const phantom: string[] = [];
+    for (const layer of LAYER_GRAPH?.layers ?? []) {
+      for (const pkg of layer.packages) {
+        if (!workspaceShortNames.has(pkg)) {
+          phantom.push(`${pkg} (layer ${layer.id})`);
+        }
+      }
+    }
+    expect(
+      phantom,
+      `layerGraph references packages that do not exist under packages/:\n  - ${phantom.join('\n  - ')}`,
+    ).toEqual([]);
   });
 });
 
