@@ -26,6 +26,11 @@ export type { TeamPhase, TeamPhaseModel } from './team-phase.js'
 
 export type { TeamCheckpoint, ResumeContract } from './team-checkpoint.js'
 
+export type {
+  SupervisionPolicy,
+  AgentBreakerState,
+} from './supervision-policy.js'
+
 export {
   TeamRuntime,
   DEFAULT_ROUTER_MODEL,

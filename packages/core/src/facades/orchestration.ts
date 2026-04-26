@@ -137,9 +137,6 @@ export type {
   AgentExecutionSpecStore,
   AgentExecutionSpec,
   AgentExecutionSpecFilter,
-  AgentStore,
-  AgentDefinition,
-  AgentFilter,
 } from '../persistence/store-interfaces.js'
 export { InMemoryEventLog, EventLogSink } from '../persistence/event-log.js'
 export type { RunEvent, EventLogStore } from '../persistence/event-log.js'

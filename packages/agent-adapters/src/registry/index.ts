@@ -4,14 +4,6 @@ export type {
   ProviderAdapterHealthDetail,
   ProviderAdapterRegistryHealthStatus,
 } from './adapter-registry.js'
-/** @deprecated Use `ProviderAdapterRegistry`. */
-export { AdapterRegistry } from './adapter-registry.js'
-/** @deprecated Use `ProviderAdapterRegistryConfig`, `ProviderAdapterHealthDetail`, and `ProviderAdapterRegistryHealthStatus`. */
-export type {
-  AdapterRegistryConfig,
-  AdapterHealthDetail,
-  DetailedHealthStatus,
-} from './adapter-registry.js'
 
 export {
   TagBasedRouter,

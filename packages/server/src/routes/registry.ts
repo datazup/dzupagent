@@ -10,6 +10,7 @@
  * DELETE /api/registry/agents/:id   — deregister agent
  * GET    /api/registry/discover     — query-based discovery
  * GET    /api/registry/stats        — registry statistics
+ * GET    /api/registry/health       — canonical fleet health DTO
  */
 
 import { Hono } from 'hono'
@@ -17,6 +18,44 @@ import type { AgentRegistry, RegisterAgentInput, DiscoveryQuery, ForgeCapability
 
 export interface RegistryRouteConfig {
   registry: AgentRegistry
+}
+
+// ---------------------------------------------------------------------------
+// Canonical fleet health DTO
+// ---------------------------------------------------------------------------
+
+/** Per-agent health summary included in the fleet health response. */
+export interface RegistryAgentHealthSummary {
+  id: string
+  name: string
+  status: AgentHealthStatus
+  circuitState?: 'closed' | 'open' | 'half-open'
+  latencyP50Ms?: number
+  latencyP95Ms?: number
+  consecutiveFailures?: number
+  lastCheckedAt?: string
+}
+
+/**
+ * Canonical registry/fleet health DTO.
+ *
+ * Returned by GET /api/registry/health.  Playground and external operators
+ * consume this shape; keep it additive-only once stable.
+ */
+export interface RegistryFleetHealthDto {
+  /** ISO-8601 timestamp of when this snapshot was generated. */
+  timestamp: string
+  /** Overall fleet status derived from per-agent statuses. */
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'empty'
+  counts: {
+    total: number
+    healthy: number
+    degraded: number
+    unhealthy: number
+    unknown: number
+  }
+  /** Per-agent health summaries (same order as listAgents). */
+  agents: RegistryAgentHealthSummary[]
 }
 
 export function createRegistryRoutes(config: RegistryRouteConfig): Hono {
@@ -156,6 +195,58 @@ export function createRegistryRoutes(config: RegistryRouteConfig): Hono {
     try {
       const stats = await registry.stats()
       return c.json({ data: stats })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: { code: 'REGISTRY_ERROR', message } }, 500)
+    }
+  })
+
+  // GET /api/registry/health — Canonical fleet health DTO
+  app.get('/health', async (c) => {
+    try {
+      const { agents } = await registry.listAgents(1000, 0)
+
+      const counts = { total: agents.length, healthy: 0, degraded: 0, unhealthy: 0, unknown: 0 }
+      const summaries: RegistryAgentHealthSummary[] = []
+
+      for (const agent of agents) {
+        const s = agent.health.status
+        if (s === 'healthy') counts.healthy++
+        else if (s === 'degraded') counts.degraded++
+        else if (s === 'unhealthy') counts.unhealthy++
+        else counts.unknown++
+
+        summaries.push({
+          id: agent.id,
+          name: agent.name,
+          status: s,
+          circuitState: agent.health.circuitState,
+          latencyP50Ms: agent.health.latencyP50Ms,
+          latencyP95Ms: agent.health.latencyP95Ms,
+          consecutiveFailures: agent.health.consecutiveFailures,
+          lastCheckedAt: agent.health.lastCheckedAt?.toISOString(),
+        })
+      }
+
+      let fleetStatus: RegistryFleetHealthDto['status']
+      if (counts.total === 0) {
+        fleetStatus = 'empty'
+      } else if (counts.unhealthy > 0 && counts.healthy === 0) {
+        fleetStatus = 'unhealthy'
+      } else if (counts.degraded > 0 || counts.unhealthy > 0) {
+        fleetStatus = 'degraded'
+      } else {
+        fleetStatus = 'healthy'
+      }
+
+      const dto: RegistryFleetHealthDto = {
+        timestamp: new Date().toISOString(),
+        status: fleetStatus,
+        counts,
+        agents: summaries,
+      }
+
+      return c.json({ data: dto })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       return c.json({ error: { code: 'REGISTRY_ERROR', message } }, 500)

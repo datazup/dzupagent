@@ -261,5 +261,3 @@ export class InMemoryMcpAdapterManager {
   }
 }
 
-/** @deprecated Use InMemoryMcpAdapterManager instead */
-export const McpAdapterManager = InMemoryMcpAdapterManager

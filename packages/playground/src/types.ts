@@ -593,6 +593,38 @@ export interface CompileRunState {
   failure?: { stage: 1 | 2 | 3 | 4; errorCount: number; durationMs: number }
 }
 
+// ── Registry / Fleet ─────────────────────────────────────
+
+export type AgentHealthStatus = 'healthy' | 'degraded' | 'unhealthy' | 'unknown'
+export type CircuitState = 'closed' | 'open' | 'half-open'
+export type FleetStatus = 'healthy' | 'degraded' | 'unhealthy' | 'empty'
+
+/** Per-agent health summary from GET /api/registry/health */
+export interface RegistryAgentHealthSummary {
+  id: string
+  name: string
+  status: AgentHealthStatus
+  circuitState?: CircuitState
+  latencyP50Ms?: number
+  latencyP95Ms?: number
+  consecutiveFailures?: number
+  lastCheckedAt?: string
+}
+
+/** Canonical fleet health DTO from GET /api/registry/health */
+export interface RegistryFleetHealthDto {
+  timestamp: string
+  status: FleetStatus
+  counts: {
+    total: number
+    healthy: number
+    degraded: number
+    unhealthy: number
+    unknown: number
+  }
+  agents: RegistryAgentHealthSummary[]
+}
+
 // ── API ──────────────────────────────────────────────────
 
 /** Standard API response wrapper */

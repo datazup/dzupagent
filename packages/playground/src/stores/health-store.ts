@@ -6,7 +6,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { HealthStatus, HealthReady, HealthMetrics } from '../types.js'
+import type { HealthStatus, HealthReady, HealthMetrics, RegistryFleetHealthDto } from '../types.js'
 import { useApi } from '../composables/useApi.js'
 
 const POLL_INTERVAL_MS = 30_000
@@ -18,6 +18,7 @@ export const useHealthStore = defineStore('health', () => {
   const health = ref<HealthStatus | null>(null)
   const ready = ref<HealthReady | null>(null)
   const metrics = ref<HealthMetrics | null>(null)
+  const fleetHealth = ref<RegistryFleetHealthDto | null>(null)
   const isLoading = ref(false)
   const error = ref<string | null>(null)
   let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -75,6 +76,16 @@ export const useHealthStore = defineStore('health', () => {
     }
   }
 
+  /** Fetch canonical registry/fleet health. Returns null if registry is not configured. */
+  async function fetchRegistryHealth(): Promise<void> {
+    try {
+      const resp = await get<{ data: RegistryFleetHealthDto }>('/api/registry/health')
+      fleetHealth.value = resp.data
+    } catch {
+      fleetHealth.value = null
+    }
+  }
+
   async function refreshAll(): Promise<void> {
     await Promise.all([fetchHealth(), fetchReady()])
   }
@@ -96,6 +107,7 @@ export const useHealthStore = defineStore('health', () => {
     health,
     ready,
     metrics,
+    fleetHealth,
     isLoading,
     error,
     isHealthy,
@@ -105,6 +117,7 @@ export const useHealthStore = defineStore('health', () => {
     fetchHealth,
     fetchReady,
     fetchMetrics,
+    fetchRegistryHealth,
     refreshAll,
     startPolling,
     stopPolling,

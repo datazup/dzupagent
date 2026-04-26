@@ -160,11 +160,3 @@ export interface AgentExecutionSpecStore {
   delete(id: string): Promise<void>
 }
 
-/** @deprecated Use `AgentExecutionSpec`. */
-export type AgentDefinition = AgentExecutionSpec
-
-/** @deprecated Use `AgentExecutionSpecFilter`. */
-export type AgentFilter = AgentExecutionSpecFilter
-
-/** @deprecated Use `AgentExecutionSpecStore`. */
-export type AgentStore = AgentExecutionSpecStore
