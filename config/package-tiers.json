@@ -116,6 +116,29 @@
       "apps/testman-app"
     ]
   },
+  "@dzupagent/agent-types": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
+  "@dzupagent/eval-contracts": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
   "@dzupagent/cache": {
     "tier": 1,
     "status": "supported",
@@ -234,8 +257,8 @@
     ]
   },
   "@dzupagent/testing": {
-    "tier": 2,
-    "status": "supported-secondary",
+    "tier": 3,
+    "status": "tooling",
     "roadmapDriver": false,
     "owners": [
       "apps/ai-saas-starter-kit",
@@ -243,8 +266,8 @@
     ]
   },
   "@dzupagent/test-utils": {
-    "tier": 2,
-    "status": "supported-secondary",
+    "tier": 3,
+    "status": "tooling",
     "roadmapDriver": false,
     "owners": [
       "apps/ai-saas-starter-kit",

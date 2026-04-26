@@ -66,5 +66,97 @@
       "dirName": "textflow-rag",
       "packageName": "textflow-rag"
     }
-  ]
+  ],
+  "layerGraph": {
+    "description": "Directed acyclic layer graph for @dzupagent packages. Each package is assigned exactly one layer. A package may only depend on packages in lower-numbered layers (or share a layer for sibling type-only contracts). Tier metadata for each package lives in config/package-tiers.json — do not duplicate it here.",
+    "layers": [
+      {
+        "id": 0,
+        "name": "contracts",
+        "description": "Type-only / zero-runtime-dep foundations. May not depend on any other @dzupagent package.",
+        "packages": [
+          "adapter-types",
+          "agent-types",
+          "runtime-contracts",
+          "eval-contracts",
+          "cache",
+          "memory-ipc",
+          "hitl-kit",
+          "flow-ast"
+        ]
+      },
+      {
+        "id": 1,
+        "name": "foundation",
+        "description": "Core foundation built on contracts. May depend only on layer 0.",
+        "packages": [
+          "core",
+          "adapter-rules",
+          "flow-dsl",
+          "memory",
+          "context"
+        ]
+      },
+      {
+        "id": 2,
+        "name": "domain",
+        "description": "Single-purpose domain capabilities. May depend on layers 0–1.",
+        "packages": [
+          "codegen",
+          "connectors",
+          "connectors-browser",
+          "connectors-documents",
+          "evals",
+          "otel",
+          "scraper",
+          "rag",
+          "flow-compiler"
+        ]
+      },
+      {
+        "id": 3,
+        "name": "orchestration",
+        "description": "Agent runtime and orchestration. May depend on layers 0–2.",
+        "packages": [
+          "agent",
+          "code-edit-kit"
+        ]
+      },
+      {
+        "id": 4,
+        "name": "composition",
+        "description": "Composition and adapter packages that bind multiple orchestration units. May depend on layers 0–3.",
+        "packages": [
+          "agent-adapters",
+          "app-tools",
+          "express"
+        ]
+      },
+      {
+        "id": 5,
+        "name": "host",
+        "description": "Host runtimes. Top of the dependency graph; nothing may depend on this layer.",
+        "packages": [
+          "server"
+        ]
+      },
+      {
+        "id": 99,
+        "name": "tooling",
+        "description": "Parked / tooling packages. Tier-1 and tier-2 packages MUST NOT take a runtime dependency on any tooling package. Tooling packages may depend on lower numbered layers but must never appear upstream of supported product packages.",
+        "packages": [
+          "testing",
+          "test-utils",
+          "playground",
+          "create-dzupagent"
+        ]
+      }
+    ],
+    "rules": {
+      "allowSameLayerEdges": false,
+      "toolingMayBeUpstreamOfSupported": false,
+      "toolingLayerId": 99,
+      "supportedTiers": [1, 2]
+    }
+  }
 }
