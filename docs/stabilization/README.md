@@ -26,6 +26,8 @@ Detailed analysis baseline:
 | [`STABILIZATION_VERIFICATION_AND_RELEASE_2026-04-23.md`](./STABILIZATION_VERIFICATION_AND_RELEASE_2026-04-23.md) | Hermetic verification, integration lanes, migration controls, and release gating. |
 | [`STABILIZATION_DOCS_AND_SCAFFOLDER_TRUTH_2026-04-23.md`](./STABILIZATION_DOCS_AND_SCAFFOLDER_TRUTH_2026-04-23.md) | Docs, version truth, capability matrix, scaffolder drift, and operator-facing accuracy. |
 | [`STABILIZATION_HANDOFF_MEMORY_2026-04-23.md`](./STABILIZATION_HANDOFF_MEMORY_2026-04-23.md) | Detailed memory of unfinished analyzed features, remaining drift classes, and exact next-step verification guidance. |
+| [`../DZUPAGENT_RESEARCH_PLANNING_PIPELINE_2026-04-25.md`](../DZUPAGENT_RESEARCH_PLANNING_PIPELINE_2026-04-25.md) | Planning-memory artifact for a research-to-implementation workflow that turns topics into evidence-backed task packets for cheaper implementation models. |
+| [`../self-learning/AUTONOMOUS_WORKFLOW_LEARNING_PLAN_2026-04-25.md`](../self-learning/AUTONOMOUS_WORKFLOW_LEARNING_PLAN_2026-04-25.md) | Candidate-first autonomous workflow learning plan: learning candidates, policy-gated promotion, command lifecycle, completion protocol, scoring, and operator review. |
 
 ## Control Rules
 
