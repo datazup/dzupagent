@@ -242,6 +242,14 @@
     },
     {
       "match": "exact",
+      "pattern": "@dzupagent/eval-contracts",
+      "tier": "secondary",
+      "area": "evals",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Neutral structural contracts (EvalOrchestratorLike, BenchmarkOrchestratorLike, etc.) intentionally re-exported from @dzupagent/eval-contracts so consumers can type-check injected orchestrators without pulling @dzupagent/evals transitively (MC-A02). Kept as a contract-only seam adjacent to the eval area."
+    },
+    {
+      "match": "exact",
       "pattern": "./services/agent-control-plane-service.js",
       "tier": "secondary",
       "area": "control-plane",
@@ -583,6 +591,14 @@
       "area": "security",
       "recommendedRootExposure": "candidate-subpath",
       "reason": "Incident response engine is important, but featureful and not a minimal root concern."
+    },
+    {
+      "match": "exact",
+      "pattern": "./security/input-guard.js",
+      "tier": "stable",
+      "area": "security",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Input guard primitives (length cap and control-char rejection) are baseline hardening that every hosting consumer should apply at the root."
     },
     {
       "match": "exact",
