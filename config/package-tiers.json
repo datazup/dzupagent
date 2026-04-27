@@ -295,12 +295,6 @@
     "roadmapDriver": false,
     "owners": []
   },
-  "@dzupagent/playground": {
-    "tier": 3,
-    "status": "parked",
-    "roadmapDriver": false,
-    "owners": []
-  },
   "create-dzupagent": {
     "tier": 3,
     "status": "parked",
