@@ -298,3 +298,51 @@ describe('formatter output contract', () => {
     expect(result.document?.id).toBe('test-flow')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Round-trip: format → parse for checkpoint/restore nodes
+// ---------------------------------------------------------------------------
+
+describe('parser support for checkpoint/restore (handwritten DSL)', () => {
+  it('parses a checkpoint node with all fields', () => {
+    const dsl = [
+      'dsl: dzupflow/v1',
+      'id: test-flow',
+      'version: 1',
+      'steps:',
+      '  - checkpoint:',
+      '      id: cp1',
+      '      captureOutputOf: a1',
+      '      label: "after a1"',
+    ].join('\n')
+    const { document, diagnostics } = parseDslToDocument(dsl)
+    expect(diagnostics.filter((d) => d.phase === 'parse')).toEqual([])
+    expect(document?.root.nodes[0]).toMatchObject({
+      type: 'checkpoint',
+      id: 'cp1',
+      captureOutputOf: 'a1',
+      label: 'after a1',
+    })
+  })
+
+  it('parses a restore node with onNotFound', () => {
+    const dsl = [
+      'dsl: dzupflow/v1',
+      'id: test-flow',
+      'version: 1',
+      'steps:',
+      '  - restore:',
+      '      id: r1',
+      '      checkpointLabel: "snap-1"',
+      '      onNotFound: skip',
+    ].join('\n')
+    const { document, diagnostics } = parseDslToDocument(dsl)
+    expect(diagnostics.filter((d) => d.phase === 'parse')).toEqual([])
+    expect(document?.root.nodes[0]).toMatchObject({
+      type: 'restore',
+      id: 'r1',
+      checkpointLabel: 'snap-1',
+      onNotFound: 'skip',
+    })
+  })
+})

@@ -696,3 +696,139 @@ describe('normalizeSteps — unknown node type', () => {
     expect(diagnostics.some((d) => d.code === 'INVALID_NODE_SHAPE')).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Checkpoint and Restore node parsing
+// ---------------------------------------------------------------------------
+
+describe('checkpoint node', () => {
+  it('parses a valid checkpoint with label', () => {
+    const raw = makeMinimalRaw({
+      steps: [
+        {
+          checkpoint: {
+            id: 'cp1',
+            captureOutputOf: 'step1',
+            label: 'after login verified',
+          },
+        },
+      ],
+    })
+    const { document, diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics).toEqual([])
+    const node = document?.root.nodes[0]
+    expect(node?.type).toBe('checkpoint')
+    if (node?.type === 'checkpoint') {
+      expect(node.captureOutputOf).toBe('step1')
+      expect(node.label).toBe('after login verified')
+      expect(node.id).toBe('cp1')
+    }
+  })
+
+  it('parses a checkpoint without optional label', () => {
+    const raw = makeMinimalRaw({
+      steps: [{ checkpoint: { id: 'cp1', captureOutputOf: 'step1' } }],
+    })
+    const { document, diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics).toEqual([])
+    const node = document?.root.nodes[0]
+    if (node?.type === 'checkpoint') {
+      expect(node.label).toBeUndefined()
+    }
+  })
+
+  it('errors when captureOutputOf is missing', () => {
+    const raw = makeMinimalRaw({
+      steps: [{ checkpoint: { id: 'cp1' } }],
+    })
+    const { diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics.some((d) => d.code === 'MISSING_REQUIRED_FIELD'
+      && d.path === 'root.steps[0].captureOutputOf')).toBe(true)
+  })
+
+  it('errors when label is non-string', () => {
+    const raw = makeMinimalRaw({
+      steps: [
+        { checkpoint: { id: 'cp1', captureOutputOf: 'step1', label: 42 } },
+      ],
+    })
+    const { diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics.some((d) => d.code === 'INVALID_NODE_SHAPE'
+      && d.path === 'root.steps[0].label')).toBe(true)
+  })
+
+  it('reports unsupported fields on checkpoint', () => {
+    const raw = makeMinimalRaw({
+      steps: [
+        {
+          checkpoint: {
+            id: 'cp1',
+            captureOutputOf: 'step1',
+            unknown: 'oops',
+          },
+        },
+      ],
+    })
+    const { diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics.some((d) => d.code === 'UNSUPPORTED_FIELD'
+      && d.path === 'root.steps[0].unknown')).toBe(true)
+  })
+})
+
+describe('restore node', () => {
+  it('parses a valid restore with onNotFound', () => {
+    const raw = makeMinimalRaw({
+      steps: [
+        {
+          restore: {
+            id: 'r1',
+            checkpointLabel: 'after login verified',
+            onNotFound: 'skip',
+          },
+        },
+      ],
+    })
+    const { document, diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics).toEqual([])
+    const node = document?.root.nodes[0]
+    expect(node?.type).toBe('restore')
+    if (node?.type === 'restore') {
+      expect(node.checkpointLabel).toBe('after login verified')
+      expect(node.onNotFound).toBe('skip')
+    }
+  })
+
+  it('parses a restore without optional onNotFound', () => {
+    const raw = makeMinimalRaw({
+      steps: [{ restore: { id: 'r1', checkpointLabel: 'cp' } }],
+    })
+    const { document, diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics).toEqual([])
+    const node = document?.root.nodes[0]
+    if (node?.type === 'restore') {
+      expect(node.onNotFound).toBeUndefined()
+    }
+  })
+
+  it('errors when checkpointLabel is missing', () => {
+    const raw = makeMinimalRaw({
+      steps: [{ restore: { id: 'r1' } }],
+    })
+    const { diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics.some((d) => d.code === 'MISSING_REQUIRED_FIELD'
+      && d.path === 'root.steps[0].checkpointLabel')).toBe(true)
+  })
+
+  it('errors when onNotFound is invalid enum', () => {
+    const raw = makeMinimalRaw({
+      steps: [
+        {
+          restore: { id: 'r1', checkpointLabel: 'cp', onNotFound: 'retry' },
+        },
+      ],
+    })
+    const { diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics.some((d) => d.code === 'INVALID_ENUM_VALUE'
+      && d.path === 'root.steps[0].onNotFound')).toBe(true)
+  })
+})
