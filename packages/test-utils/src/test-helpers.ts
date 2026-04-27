@@ -12,8 +12,8 @@ import {
   type DzupEventBus,
   type DzupEvent,
   type RunStore,
-  type AgentStore,
-  type AgentDefinition,
+  type AgentExecutionSpecStore as AgentStore,
+  type AgentExecutionSpec as AgentDefinition,
 } from '@dzupagent/core'
 
 /** Create a test event bus that captures all emitted events */

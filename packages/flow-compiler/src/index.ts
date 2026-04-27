@@ -197,6 +197,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
       const semanticResult = await semanticResolve(ast, {
         toolResolver: opts.toolResolver,
         personaResolver: opts.personaResolver,
+        ...(opts.target !== undefined ? { target: opts.target } : {}),
       })
 
       emit({

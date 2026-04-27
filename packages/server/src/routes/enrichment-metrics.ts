@@ -13,6 +13,7 @@ import { Hono } from 'hono'
 import { EnrichmentPipeline } from '@dzupagent/agent-adapters'
 import type { ForgeServerConfig } from '../app.js'
 import type { AppEnv } from '../types.js'
+import { requireOwnedRun } from './run-guard.js'
 
 export function createEnrichmentMetricsRoute(
   config: Pick<ForgeServerConfig, 'runStore'>,
@@ -24,13 +25,10 @@ export function createEnrichmentMetricsRoute(
     const runId = c.req.param('id')
 
     try {
-      const run = await runStore.get(runId)
-      if (!run) {
-        return c.json(
-          { error: { code: 'RUN_NOT_FOUND', message: `Run '${runId}' not found` } },
-          404,
-        )
-      }
+      // MJ-SEC-02: shared owner/tenant guard. Returns 404 (not 403) on
+      // cross-owner access to prevent enumeration of foreign run ids.
+      const run = await requireOwnedRun(c, runId, runStore)
+      if (run instanceof Response) return run
 
       const metrics = EnrichmentPipeline.metrics()
       return c.json({ data: metrics }, 200)

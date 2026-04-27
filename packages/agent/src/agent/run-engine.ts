@@ -1,7 +1,18 @@
 import { ToolMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { calculateCostCents, estimateTokens, type RunJournalEntry } from '@dzupagent/core'
+import {
+  calculateCostCents,
+  estimateTokens,
+  ForgeError,
+  requireTerminalToolExecutionRunId,
+  type DzupEventBus,
+  type ForgeErrorCode,
+  type RunJournalEntry,
+  type SafetyMonitor,
+  type ToolGovernance,
+} from '@dzupagent/core'
+import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type {
   CompressionLogEntry,
   DzupAgentConfig,
@@ -16,7 +27,17 @@ import {
   extractFinalAiMessageContent,
 } from './message-utils.js'
 import { rehydrateMessagesFromJournal } from './resume-utils.js'
-import { runToolLoop, type StopReason, type ToolStat } from './tool-loop.js'
+import {
+  runToolLoop,
+  type StopReason,
+  type ToolLoopTracer,
+  type ToolStat,
+} from './tool-loop.js'
+import {
+  validateAndRepairToolArgs,
+  formatSchemaHint,
+  type ToolArgValidatorConfig,
+} from './tool-arg-validator.js'
 import { ReflectionAnalyzer } from '../reflection/reflection-analyzer.js'
 import { buildWorkflowEventsFromToolStats } from '../reflection/learning-bridge.js'
 
@@ -91,6 +112,28 @@ export interface StreamingToolExecutionResult {
 export interface ToolStatTracker {
   record: (name: string, durationMs: number, error?: string) => void
   toArray: () => ToolStat[]
+}
+
+/**
+ * MJ-AGENT-02 — public policy bundle threaded by `streamRun()` into
+ * {@link executeStreamingToolCall} so the native streaming branch
+ * enforces the same governance / permission / validation / timeout /
+ * safety stack as the sequential `tool-loop.ts` path. Each field is
+ * optional; omitting all of them preserves the pre-MJ-AGENT-02
+ * "lite" behaviour (budget block + tool existence only) for callers
+ * that did not opt in via `DzupAgentConfig.toolExecution`.
+ */
+export interface StreamingToolPolicyOptions {
+  toolGovernance?: ToolGovernance
+  toolPermissionPolicy?: ToolPermissionPolicy
+  validateToolArgs?: boolean | ToolArgValidatorConfig
+  toolTimeouts?: Record<string, number>
+  safetyMonitor?: SafetyMonitor
+  scanToolResults?: boolean
+  tracer?: ToolLoopTracer
+  agentId?: string
+  runId?: string
+  eventBus?: DzupEventBus
 }
 
 export async function prepareRunState(
@@ -189,6 +232,16 @@ export async function executeGenerateRun(
   // inspect when (and by how much) the conversation was compacted.
   const compressionLog: CompressionLogEntry[] = []
 
+  // MJ-AGENT-01 — extract the optional public tool-execution policy bundle
+  // and resolve it into the corresponding ToolLoopConfig fields. Each
+  // field is optional; omitting any of them preserves pre-MJ-AGENT-01
+  // behaviour. `toolExecution.agentId` falls back to the agent's own id
+  // so callers don't have to repeat it. `safetyMonitor` takes precedence
+  // over the public-surface alias `resultScanner`.
+  const toolExec = params.config.toolExecution
+  const resolvedSafetyMonitor =
+    toolExec?.safetyMonitor ?? toolExec?.resultScanner
+
   const result = await runToolLoop(
     params.runState.model,
     params.runState.preparedMessages,
@@ -200,6 +253,51 @@ export async function executeGenerateRun(
       stuckDetector: params.runState.stuckDetector,
       toolStatsTracker: params.config.toolStatsTracker,
       intent: params.options?.intent,
+      // MJ-AGENT-01 — public tool-execution policy surface. Each field is
+      // forwarded only when present so the resulting ToolLoopConfig stays
+      // identical to the pre-MJ-AGENT-01 shape when `toolExecution` is
+      // unset (backwards compatibility guarantee).
+      ...(toolExec?.governance !== undefined
+        ? { toolGovernance: toolExec.governance }
+        : {}),
+      ...(resolvedSafetyMonitor !== undefined
+        ? { safetyMonitor: resolvedSafetyMonitor }
+        : {}),
+      ...(toolExec?.scanToolResults !== undefined
+        ? { scanToolResults: toolExec.scanToolResults }
+        : {}),
+      ...(toolExec?.timeouts !== undefined
+        ? { toolTimeouts: toolExec.timeouts }
+        : {}),
+      ...(toolExec?.tracer !== undefined
+        ? { tracer: toolExec.tracer }
+        : {}),
+      // agentId: fall back to the agent's own id ONLY when toolExecution
+      // is provided, so the pre-MJ-AGENT-01 surface (no toolExecution) is
+      // bit-for-bit identical to the previous behaviour. When threaded,
+      // the loop tags canonical lifecycle events (`tool:called`,
+      // `tool:result`, `tool:error`) with provenance and feeds permission
+      // policies with the caller id.
+      ...(toolExec
+        ? { agentId: toolExec.agentId ?? params.agentId }
+        : {}),
+      ...(toolExec?.runId !== undefined ? { runId: toolExec.runId } : {}),
+      ...(toolExec?.argumentValidator !== undefined
+        ? { validateToolArgs: toolExec.argumentValidator }
+        : {}),
+      ...(toolExec?.permissionPolicy !== undefined
+        ? { toolPermissionPolicy: toolExec.permissionPolicy }
+        : {}),
+      // Forward the agent's eventBus to the loop ONLY when toolExecution
+      // is configured. Without `toolExecution`, the loop continues to
+      // operate without lifecycle telemetry — matching pre-MJ-AGENT-01
+      // behaviour exactly. With `toolExecution`, downstream policy events
+      // (e.g. `approval:requested`) and canonical lifecycle events are
+      // routed to the same bus the agent already uses for `llm:invoked`,
+      // `tool:latency`, etc.
+      ...(toolExec && params.config.eventBus !== undefined
+        ? { eventBus: params.config.eventBus }
+        : {}),
       onStuckDetected: (reason, recovery) => {
         params.config.eventBus?.emit({
           type: 'agent:stuck_detected',
@@ -395,6 +493,256 @@ export function createToolStatTracker(): ToolStatTracker {
   }
 }
 
+// ---------- Streaming policy stack helpers (MJ-AGENT-02) ----------
+
+type StreamingLifecycleStatus = 'success' | 'error' | 'timeout' | 'denied'
+
+function streamingExtractInputMetadataKeys(input: unknown): string[] {
+  if (input == null || typeof input !== 'object') return []
+  if (Array.isArray(input)) return []
+  return Object.keys(input as Record<string, unknown>)
+}
+
+function streamingStatusFromError(
+  err: unknown,
+): Extract<StreamingLifecycleStatus, 'error' | 'timeout'> {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /timed out after \d+ms/.test(msg) ? 'timeout' : 'error'
+}
+
+function streamingResolveValidatorConfig(
+  cfg: boolean | ToolArgValidatorConfig | undefined,
+): ToolArgValidatorConfig | null {
+  if (!cfg) return null
+  if (cfg === true) return { autoRepair: true }
+  return cfg
+}
+
+function streamingExtractJsonSchema(
+  tool: StructuredToolInterface,
+): Record<string, unknown> | null {
+  const schema = (tool as StructuredToolInterface & { schema?: unknown }).schema
+  if (!schema) return null
+
+  if (typeof schema === 'object' && schema !== null) {
+    const s = schema as Record<string, unknown>
+    if (s.properties || s.type) return s
+
+    const zodSchema = schema as { jsonSchema?: () => Record<string, unknown> }
+    if (typeof zodSchema.jsonSchema === 'function') {
+      try {
+        return zodSchema.jsonSchema() as Record<string, unknown>
+      } catch {
+        // Ignore
+      }
+    }
+  }
+  return null
+}
+
+function streamingMaybeValidateArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+  tool: StructuredToolInterface,
+  validatorCfg: ToolArgValidatorConfig | null,
+): { args: Record<string, unknown>; validationError?: string } {
+  if (!validatorCfg) return { args }
+
+  const jsonSchema = streamingExtractJsonSchema(tool)
+  if (!jsonSchema) return { args }
+
+  const result = validateAndRepairToolArgs(args, jsonSchema, validatorCfg)
+
+  if (result.valid && result.repairedArgs) {
+    return { args: result.repairedArgs as Record<string, unknown> }
+  }
+
+  if (!result.valid) {
+    const hint = formatSchemaHint(jsonSchema)
+    const errMsg = `Validation failed for tool "${toolName}": ${result.errors.join('; ')}.\n${hint}`
+    return { args, validationError: errMsg }
+  }
+
+  return { args }
+}
+
+function streamingEmitToolCalled(
+  policy: StreamingToolPolicyOptions | undefined,
+  args: {
+    toolName: string
+    toolCallId: string
+    input: Record<string, unknown>
+    inputMetadataKeys: string[]
+  },
+): void {
+  if (!policy) return
+  const { toolName, toolCallId, input, inputMetadataKeys } = args
+  try {
+    policy.eventBus?.emit({
+      type: 'tool:called',
+      toolName,
+      input,
+      toolCallId,
+      inputMetadataKeys,
+      ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
+      ...(policy.runId !== undefined
+        ? { runId: policy.runId, executionRunId: policy.runId }
+        : {}),
+    } as never)
+  } catch {
+    // Telemetry must never abort the loop
+  }
+
+  if (policy.toolGovernance) {
+    void policy.toolGovernance
+      .audit({
+        toolName,
+        input,
+        callerAgent: policy.agentId ?? 'unknown',
+        timestamp: Date.now(),
+        allowed: true,
+      })
+      .catch(() => {
+        /* non-fatal */
+      })
+  }
+}
+
+function streamingEmitToolResult(
+  policy: StreamingToolPolicyOptions | undefined,
+  args: {
+    toolName: string
+    toolCallId: string
+    durationMs: number
+    inputMetadataKeys: string[]
+    output: unknown
+  },
+): void {
+  if (!policy) return
+  const { toolName, toolCallId, durationMs, inputMetadataKeys, output } = args
+  try {
+    const executionRunId = requireTerminalToolExecutionRunId({
+      eventType: 'tool:result',
+      toolName,
+      executionRunId: policy.runId,
+    })
+    policy.eventBus?.emit({
+      type: 'tool:result',
+      toolName,
+      durationMs,
+      toolCallId,
+      inputMetadataKeys,
+      status: 'success',
+      executionRunId,
+      ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
+      ...(policy.runId !== undefined ? { runId: policy.runId } : {}),
+    } as never)
+  } catch {
+    // Telemetry must never abort the loop
+  }
+
+  if (policy.toolGovernance) {
+    void policy.toolGovernance
+      .auditResult({
+        toolName,
+        output,
+        callerAgent: policy.agentId ?? 'unknown',
+        durationMs,
+        success: true,
+        timestamp: Date.now(),
+      })
+      .catch(() => {
+        /* non-fatal */
+      })
+  }
+}
+
+function streamingEmitToolError(
+  policy: StreamingToolPolicyOptions | undefined,
+  args: {
+    toolName: string
+    toolCallId: string
+    durationMs: number
+    inputMetadataKeys: string[]
+    errorCode: ForgeErrorCode
+    errorMessage: string
+    status: Exclude<StreamingLifecycleStatus, 'success'>
+  },
+): void {
+  if (!policy) return
+  const {
+    toolName,
+    toolCallId,
+    durationMs,
+    inputMetadataKeys,
+    errorCode,
+    errorMessage,
+    status,
+  } = args
+  try {
+    const executionRunId = requireTerminalToolExecutionRunId({
+      eventType: 'tool:error',
+      toolName,
+      executionRunId: policy.runId,
+    })
+    policy.eventBus?.emit({
+      type: 'tool:error',
+      toolName,
+      errorCode,
+      message: errorMessage,
+      errorMessage,
+      durationMs,
+      toolCallId,
+      inputMetadataKeys,
+      status,
+      executionRunId,
+      ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
+      ...(policy.runId !== undefined ? { runId: policy.runId } : {}),
+    } as never)
+  } catch {
+    // Telemetry must never abort the loop
+  }
+
+  if (policy.toolGovernance) {
+    void policy.toolGovernance
+      .auditResult({
+        toolName,
+        output: errorMessage,
+        callerAgent: policy.agentId ?? 'unknown',
+        durationMs,
+        success: false,
+        timestamp: Date.now(),
+      })
+      .catch(() => {
+        /* non-fatal */
+      })
+  }
+}
+
+async function streamingInvokeWithOptionalTimeout<T>(
+  toolName: string,
+  timeoutMs: number | undefined,
+  invoke: () => Promise<T>,
+): Promise<T> {
+  if (!timeoutMs || timeoutMs <= 0) {
+    return invoke()
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Tool "${toolName}" timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    )
+  })
+
+  try {
+    return await Promise.race([invoke(), timeoutPromise])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 export async function executeStreamingToolCall(params: {
   toolCall: StreamingToolCall
   toolMap: Map<string, StructuredToolInterface>
@@ -407,67 +755,262 @@ export async function executeStreamingToolCall(params: {
   ) => Promise<string>
   onToolLatency?: (name: string, durationMs: number, error?: string) => void
   statTracker: ToolStatTracker
+  /**
+   * MJ-AGENT-02 — optional public policy bundle. When present, the
+   * streaming executor enforces the SAME governance, permission,
+   * validation, timeout, safety, and tracing controls as the
+   * sequential tool-loop path (`executeSingleToolCall` in
+   * `tool-loop.ts`). When `undefined`, the executor preserves the
+   * pre-MJ-AGENT-02 "lite" surface (budget block + tool existence)
+   * for backwards-compatible callers that didn't thread
+   * `toolExecution` through DzupAgentConfig.
+   */
+  policy?: StreamingToolPolicyOptions
 }): Promise<StreamingToolExecutionResult> {
-  const { toolCall } = params
+  const { toolCall, policy } = params
+  const toolName = toolCall.name
   const toolCallId = toolCall.id ?? `call_${Date.now()}`
+  const inputMetadataKeys = streamingExtractInputMetadataKeys(toolCall.args)
 
-  if (params.budget?.isToolBlocked(toolCall.name)) {
+  // Permission policy check (MC-GA03 / mirrors tool-loop.ts ~937-955).
+  // Throws TOOL_PERMISSION_DENIED so the streaming bridge can surface
+  // an `error` event followed by `done` (stopReason='aborted') —
+  // matching the non-streaming path's observable surface exactly.
+  if (policy?.toolPermissionPolicy && policy.agentId) {
+    if (!policy.toolPermissionPolicy.hasPermission(policy.agentId, toolName)) {
+      streamingEmitToolError(policy, {
+        toolName,
+        toolCallId,
+        durationMs: 0,
+        inputMetadataKeys,
+        errorCode: 'TOOL_PERMISSION_DENIED',
+        errorMessage: `Tool "${toolName}" is not accessible to agent "${policy.agentId}"`,
+        status: 'denied',
+      })
+      throw new ForgeError({
+        code: 'TOOL_PERMISSION_DENIED',
+        message: `Tool "${toolName}" is not accessible to agent "${policy.agentId}"`,
+        context: { agentId: policy.agentId, toolName },
+      })
+    }
+  }
+
+  if (params.budget?.isToolBlocked(toolName)) {
+    streamingEmitToolError(policy, {
+      toolName,
+      toolCallId,
+      durationMs: 0,
+      inputMetadataKeys,
+      errorCode: 'TOOL_PERMISSION_DENIED',
+      errorMessage: `Tool "${toolName}" is blocked by guardrails`,
+      status: 'denied',
+    })
     return {
       message: new ToolMessage({
-        content: `[Tool "${toolCall.name}" is blocked by guardrails]`,
+        content: `[Tool "${toolName}" is blocked by guardrails]`,
         tool_call_id: toolCallId,
-        name: toolCall.name,
+        name: toolName,
       }),
       eventResult: '[blocked]',
     }
   }
 
-  const tool = params.toolMap.get(toolCall.name)
+  // Tool governance access check (mirrors tool-loop.ts ~980-1001).
+  // A blocked tool yields `[blocked: <reason>]` in the streaming
+  // surface so consumers can render the same denial reason as
+  // generate() mode.
+  if (policy?.toolGovernance) {
+    const access = policy.toolGovernance.checkAccess(toolName, toolCall.args)
+    if (!access.allowed) {
+      const reason = access.reason ?? 'Tool access denied'
+      streamingEmitToolError(policy, {
+        toolName,
+        toolCallId,
+        durationMs: 0,
+        inputMetadataKeys,
+        errorCode: 'TOOL_PERMISSION_DENIED',
+        errorMessage: reason,
+        status: 'denied',
+      })
+      return {
+        message: new ToolMessage({
+          content: `[blocked] ${reason}`,
+          tool_call_id: toolCallId,
+          name: toolName,
+        }),
+        eventResult: `[blocked: ${reason}]`,
+      }
+    }
+    // Note: approval-required tools are not handled in the streaming
+    // fast path; agents that depend on the human-in-the-loop approval
+    // flow should use the non-streaming generate() path which routes
+    // through tool-loop.ts and emits `approval:requested`.
+  }
+
+  const tool = params.toolMap.get(toolName)
   if (!tool) {
     return {
       message: new ToolMessage({
-        content: `Error: Tool "${toolCall.name}" not found. Available tools: ${[...params.toolMap.keys()].join(', ')}`,
+        content: `Error: Tool "${toolName}" not found. Available tools: ${[...params.toolMap.keys()].join(', ')}`,
         tool_call_id: toolCallId,
-        name: toolCall.name,
+        name: toolName,
       }),
       eventResult: '[not found]',
     }
   }
 
+  // Argument validation (mirrors tool-loop.ts ~1056-1078). Failures
+  // surface a `[validation error]` marker so the streaming bridge
+  // emits the same downstream signal as the non-streaming executor.
+  const validatorCfg = streamingResolveValidatorConfig(policy?.validateToolArgs)
+  const { args: validatedArgs, validationError } = streamingMaybeValidateArgs(
+    toolName,
+    toolCall.args,
+    tool,
+    validatorCfg,
+  )
+
+  if (validationError) {
+    streamingEmitToolError(policy, {
+      toolName,
+      toolCallId,
+      durationMs: 0,
+      inputMetadataKeys,
+      errorCode: 'VALIDATION_FAILED',
+      errorMessage: validationError,
+      status: 'error',
+    })
+    return {
+      message: new ToolMessage({
+        content: validationError,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+      eventResult: '[validation error]',
+    }
+  }
+
+  const validatedKeys = streamingExtractInputMetadataKeys(validatedArgs)
+
+  streamingEmitToolCalled(policy, {
+    toolName,
+    toolCallId,
+    input: validatedArgs,
+    inputMetadataKeys: validatedKeys,
+  })
+
+  // Optional OTel span per tool invocation (mirrors tool-loop.ts ~1106).
+  const inputSize = JSON.stringify(validatedArgs).length
+  const span = policy?.tracer?.startToolSpan(toolName, { inputSize })
+
   const startMs = Date.now()
   let errorMsg: string | undefined
 
   try {
-    const result = await tool.invoke(toolCall.args)
+    const result = await streamingInvokeWithOptionalTimeout(
+      toolName,
+      policy?.toolTimeouts?.[toolName],
+      () => tool.invoke(validatedArgs),
+    )
     const rawResult = typeof result === 'string' ? result : JSON.stringify(result)
-    const transformedResult = await params.transformToolResult(
-      toolCall.name,
-      toolCall.args,
+    let transformedResult = await params.transformToolResult(
+      toolName,
+      validatedArgs,
       rawResult,
     )
-    const durationMs = Date.now() - startMs
-    params.statTracker.record(toolCall.name, durationMs)
-    params.onToolLatency?.(toolCall.name, durationMs)
 
-    const stuckCheck = params.stuckDetector?.recordToolCall(toolCall.name, toolCall.args)
+    // Safety scan (mirrors tool-loop.ts ~1119-1170). Critical
+    // violations REPLACE the output with `[blocked: unsafe tool
+    // output]` before reaching the model and before the streaming
+    // `tool_result` event fires.
+    if (policy?.safetyMonitor && policy.scanToolResults !== false) {
+      try {
+        const violations = policy.safetyMonitor.scanContent(transformedResult, {
+          source: 'tool:result',
+          toolName,
+        })
+        const hardBlock = violations.find(
+          (v) => v.action === 'block' || v.action === 'kill' || v.severity === 'critical',
+        )
+        if (hardBlock) {
+          const blockedContent = `[blocked] Tool result contained potentially unsafe content (${hardBlock.category}): ${hardBlock.message}`
+          transformedResult = blockedContent
+          const durationMs = Date.now() - startMs
+          params.statTracker.record(toolName, durationMs)
+          params.onToolLatency?.(toolName, durationMs, 'unsafe-result')
+          streamingEmitToolError(policy, {
+            toolName,
+            toolCallId,
+            durationMs,
+            inputMetadataKeys: validatedKeys,
+            errorCode: 'TOOL_EXECUTION_FAILED',
+            errorMessage: `Tool result blocked: ${hardBlock.category} — ${hardBlock.message}`,
+            status: 'denied',
+          })
+          if (span) {
+            try {
+              span.setAttribute('durationMs', durationMs)
+              span.setAttribute('outputSize', blockedContent.length)
+              span.setAttribute('blocked', true)
+              span.end()
+            } catch {
+              // Tracer failures must not abort the streaming loop
+            }
+          }
+          return {
+            message: new ToolMessage({
+              content: blockedContent,
+              tool_call_id: toolCallId,
+              name: toolName,
+            }),
+            eventResult: '[blocked: unsafe tool output]',
+          }
+        }
+      } catch {
+        // Non-fatal: safety scan failure must not abort the run
+      }
+    }
+
+    const durationMs = Date.now() - startMs
+    params.statTracker.record(toolName, durationMs)
+    params.onToolLatency?.(toolName, durationMs)
+
+    streamingEmitToolResult(policy, {
+      toolName,
+      toolCallId,
+      durationMs,
+      inputMetadataKeys: validatedKeys,
+      output: transformedResult,
+    })
+    if (span) {
+      try {
+        span.setAttribute('durationMs', durationMs)
+        span.setAttribute('outputSize', transformedResult.length)
+        span.end()
+      } catch {
+        // Tracer failures must not abort the streaming loop
+      }
+    }
+
+    const stuckCheck = params.stuckDetector?.recordToolCall(toolName, validatedArgs)
     if (stuckCheck?.stuck) {
       const reason = stuckCheck.reason ?? 'Unknown stuck condition'
-      const recovery = `Tool "${toolCall.name}" has been blocked. Try a different approach.`
-      params.budget?.blockTool(toolCall.name)
+      const recovery = `Tool "${toolName}" has been blocked. Try a different approach.`
+      params.budget?.blockTool(toolName)
       return {
         message: new ToolMessage({
           content: transformedResult,
           tool_call_id: toolCallId,
-          name: toolCall.name,
+          name: toolName,
         }),
         eventResult: transformedResult,
         stuckReason: reason,
         stuckRecovery: recovery,
-        repeatedTool: toolCall.name,
+        repeatedTool: toolName,
         stuckNudge: new ToolMessage({
           content: `[Agent appears stuck: ${reason}. ${recovery}]`,
           tool_call_id: toolCallId,
-          name: toolCall.name,
+          name: toolName,
         }),
       }
     }
@@ -476,15 +1019,34 @@ export async function executeStreamingToolCall(params: {
       message: new ToolMessage({
         content: transformedResult,
         tool_call_id: toolCallId,
-        name: toolCall.name,
+        name: toolName,
       }),
       eventResult: transformedResult,
     }
   } catch (error: unknown) {
     errorMsg = error instanceof Error ? error.message : String(error)
     const durationMs = Date.now() - startMs
-    params.statTracker.record(toolCall.name, durationMs, errorMsg)
-    params.onToolLatency?.(toolCall.name, durationMs, errorMsg)
+    params.statTracker.record(toolName, durationMs, errorMsg)
+    params.onToolLatency?.(toolName, durationMs, errorMsg)
+
+    const lifecycleStatus = streamingStatusFromError(error)
+    streamingEmitToolError(policy, {
+      toolName,
+      toolCallId,
+      durationMs,
+      inputMetadataKeys: validatedKeys,
+      errorCode: lifecycleStatus === 'timeout' ? 'TOOL_TIMEOUT' : 'TOOL_EXECUTION_FAILED',
+      errorMessage: errorMsg,
+      status: lifecycleStatus,
+    })
+    if (span) {
+      try {
+        span.setAttribute('durationMs', durationMs)
+        policy?.tracer?.endSpanWithError(span, error)
+      } catch {
+        // Tracer failures must not abort the streaming loop
+      }
+    }
 
     const stuckCheck = params.stuckDetector?.recordError(new Error(errorMsg))
     const reason = stuckCheck?.stuck
@@ -494,14 +1056,14 @@ export async function executeStreamingToolCall(params: {
 
     return {
       message: new ToolMessage({
-        content: `Error executing tool "${toolCall.name}": ${errorMsg}`,
+        content: `Error executing tool "${toolName}": ${errorMsg}`,
         tool_call_id: toolCallId,
-        name: toolCall.name,
+        name: toolName,
       }),
       eventResult: `[error: ${errorMsg}]`,
       stuckReason: reason,
       stuckRecovery: recovery,
-      repeatedTool: reason ? toolCall.name : undefined,
+      repeatedTool: reason ? toolName : undefined,
       shouldStop: reason !== undefined,
     }
   }

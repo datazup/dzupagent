@@ -219,6 +219,13 @@ export function lowerNodeToPipeline(
     case 'complete':
       return lowerComplete(node, ctx, path)
 
+    case 'spawn':
+    case 'classify':
+    case 'emit':
+    case 'memory':
+      // These nodes are runtime-executed and not lowered to graph edges.
+      return { nodes: [], edges: [], warnings: [] }
+
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails here.
       const _exhaustive: never = node

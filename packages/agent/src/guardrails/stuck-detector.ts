@@ -33,6 +33,13 @@ export class StuckDetector {
   private _lastToolCallCount = 0
   private readonly config: ResolvedStuckDetectorConfig
 
+  // Progress-hash detection state (non-overlapping block hashing)
+  private readonly hashWindow = 5
+  private readonly hashRepeatThreshold = 3
+  private currentBlock: string[] = []
+  private lastCompletedBlock: string[] = []
+  private hashHistory: string[] = []
+
   constructor(config?: StuckDetectorConfig) {
     this.config = { ...DEFAULT_CONFIG, ...config }
   }
@@ -61,7 +68,45 @@ export class StuckDetector {
       }
     }
 
+    // Progress-hash check: detect repeated identical non-overlapping blocks
+    this.recordToolNameForHash(name)
+    if (this.isStuckByHash()) {
+      return {
+        stuck: true,
+        reason: `Identical tool sequence repeated ${this.hashRepeatThreshold} times: [${this.lastCompletedBlock.join(', ')}]`,
+      }
+    }
+
     return { stuck: false }
+  }
+
+  /**
+   * Accumulate tool names into non-overlapping blocks of `hashWindow`.
+   * Each time a block is complete its hash is appended to `hashHistory`.
+   * Called internally on every tool call.
+   */
+  private recordToolNameForHash(toolName: string): void {
+    this.currentBlock.push(toolName)
+    if (this.currentBlock.length === this.hashWindow) {
+      const blockHash = this.currentBlock.join('|')
+      this.hashHistory.push(blockHash)
+      if (this.hashHistory.length > this.hashRepeatThreshold) {
+        this.hashHistory.shift()
+      }
+      this.lastCompletedBlock = [...this.currentBlock]
+      this.currentBlock = []
+    }
+  }
+
+  /**
+   * Returns true when the last `hashRepeatThreshold` non-overlapping blocks
+   * all produced the same hash — meaning the agent called the exact same
+   * sequence of `hashWindow` tool names that many consecutive times.
+   */
+  private isStuckByHash(): boolean {
+    if (this.hashHistory.length < this.hashRepeatThreshold) return false
+    const first = this.hashHistory[0]!
+    return this.hashHistory.every(h => h === first)
   }
 
   /** Record an error. Returns stuck status. */
@@ -106,6 +151,9 @@ export class StuckDetector {
     this.recentErrors = []
     this.idleCount = 0
     this._lastToolCallCount = 0
+    this.currentBlock = []
+    this.lastCompletedBlock = []
+    this.hashHistory = []
   }
 
   private hashInput(input: unknown): string {

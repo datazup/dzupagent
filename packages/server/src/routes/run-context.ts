@@ -32,6 +32,7 @@ import { Hono } from 'hono'
 import type { ForgeServerConfig } from '../app.js'
 import type { LogEntry } from '@dzupagent/core'
 import type { CompressionLogEntry } from '@dzupagent/agent'
+import { requireOwnedRun } from './run-guard.js'
 
 /** Structural type for TokenLifecycleManager (from `@dzupagent/context`).
  *  We use structural typing to avoid a hard dependency on the context package,
@@ -167,13 +168,11 @@ export function createRunContextRoutes(config: ForgeServerConfig): Hono {
 
   app.get('/:id/context', async (c) => {
     const runId = c.req.param('id')
-    const run = await runStore.get(runId)
-    if (!run) {
-      return c.json(
-        { error: { code: 'NOT_FOUND', message: 'Run not found' } },
-        404,
-      )
-    }
+    // MJ-SEC-02: shared owner/tenant guard. Returns 404 (not 403) on
+    // cross-owner access to prevent enumeration of foreign run ids.
+    const ownedRun = await requireOwnedRun(c, runId, runStore)
+    if (ownedRun instanceof Response) return ownedRun
+    const run = ownedRun
 
     // --- Resolve token lifecycle report ---
     const lifecycle = config.tokenLifecycleRegistry?.get(runId)
@@ -265,13 +264,11 @@ export function createRunContextRoutes(config: ForgeServerConfig): Hono {
   // -------------------------------------------------------------------------
   app.get('/:id/token-report', async (c) => {
     const runId = c.req.param('id')
-    const run = await runStore.get(runId)
-    if (!run) {
-      return c.json(
-        { error: { code: 'NOT_FOUND', message: 'Run not found' } },
-        404,
-      )
-    }
+    // MJ-SEC-02: shared owner/tenant guard. Returns 404 (not 403) on
+    // cross-owner access to prevent enumeration of foreign run ids.
+    const ownedRun = await requireOwnedRun(c, runId, runStore)
+    if (ownedRun instanceof Response) return ownedRun
+    const run = ownedRun
 
     type LifecyclePhase = { phase: string; tokens: number; timestamp: number }
     type LifecycleStatus = 'ok' | 'warn' | 'critical' | 'exhausted'

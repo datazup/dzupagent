@@ -23,6 +23,12 @@ export interface SemanticOptions {
    * Default: 3. Set to 0 to disable suggestions.
    */
   suggestionDistance?: number
+  /**
+   * Compilation target hint. When `'codev-runtime'`, any tool reference
+   * starting with `codev.` is treated as externally resolved and will
+   * never raise `UNRESOLVED_TOOL_REF`. All other validation rules apply.
+   */
+  target?: 'codev-runtime'
 }
 
 export interface SemanticResult {
@@ -110,6 +116,7 @@ export async function semanticResolve(
     suggestionDistance,
     getAvailable,
     missingPersonaResolverEmitted: false,
+    target: opts.target,
   }
 
   await visit(ast, ROOT_PATH, ctx)
@@ -130,6 +137,7 @@ interface WalkContext {
   suggestionDistance: number
   getAvailable: () => string[]
   missingPersonaResolverEmitted: boolean
+  target: 'codev-runtime' | undefined
 }
 
 async function visit(node: FlowNode, path: string, ctx: WalkContext): Promise<void> {
@@ -229,6 +237,15 @@ async function visit(node: FlowNode, path: string, ctx: WalkContext): Promise<vo
     case 'complete': {
       return
     }
+    case 'spawn':
+    case 'classify':
+    case 'emit':
+    case 'memory':
+    case 'checkpoint':
+    case 'restore': {
+      // Leaf nodes — no refs to resolve in semantic stage.
+      return
+    }
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails
       // compilation here.
@@ -250,15 +267,22 @@ async function resolveAction(node: ActionNode, path: string, ctx: WalkContext): 
   // STAGE 2 already complains about missing/empty toolRef. We still try to
   // resolve when present so STAGE 3 stays focused on resolution outcomes.
   if (typeof node.toolRef === 'string' && node.toolRef.length > 0) {
-    const hit = await resolveToolRef(ctx.toolResolver, node.toolRef, node.type, path, ctx.errors)
-    if (hit === INFRA_FAILURE) {
-      // Infra error already pushed by resolveToolRef; do NOT also emit
-      // UNRESOLVED_TOOL_REF — infra failure supersedes unresolved-ref
-      // messaging on the same node.
-    } else if (hit !== null) {
-      ctx.resolved.set(path, hit)
+    // codev-runtime target: treat any `codev.*` ref as externally resolved.
+    // The runtime will wire these at execution time, so we never emit
+    // UNRESOLVED_TOOL_REF for them when compiling for this target.
+    if (ctx.target === 'codev-runtime' && node.toolRef.startsWith('codev.')) {
+      // Mark as externally resolved — no error, no local registry lookup.
     } else {
-      ctx.errors.push(unresolvedToolError(node.type, path, node.toolRef, ctx))
+      const hit = await resolveToolRef(ctx.toolResolver, node.toolRef, node.type, path, ctx.errors)
+      if (hit === INFRA_FAILURE) {
+        // Infra error already pushed by resolveToolRef; do NOT also emit
+        // UNRESOLVED_TOOL_REF — infra failure supersedes unresolved-ref
+        // messaging on the same node.
+      } else if (hit !== null) {
+        ctx.resolved.set(path, hit)
+      } else {
+        ctx.errors.push(unresolvedToolError(node.type, path, node.toolRef, ctx))
+      }
     }
   }
 

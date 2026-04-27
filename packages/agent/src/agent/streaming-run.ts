@@ -35,6 +35,7 @@ import {
   executeGenerateRun,
   executeStreamingToolCall,
   prepareRunState,
+  type StreamingToolPolicyOptions,
 } from './run-engine.js'
 
 /**
@@ -292,26 +293,85 @@ export async function* streamRun(
       return
     }
 
+    // MJ-AGENT-02 — resolve the public toolExecution policy bundle so the
+    // native streaming path enforces the same governance, permission,
+    // validation, timeout, safety, and tracing controls as
+    // {@link executeGenerateRun} (which threads them via MJ-AGENT-01).
+    // Without this, native stream() ran a "lite" executor that only
+    // checked budget block + tool existence, leaving the policy stack
+    // unenforced for any agent that opted in via DzupAgentConfig.
+    const toolExec = ctx.config.toolExecution
+    const resolvedSafetyMonitor =
+      toolExec?.safetyMonitor ?? toolExec?.resultScanner
+    const streamingPolicy: StreamingToolPolicyOptions | undefined = toolExec
+      ? {
+          ...(toolExec.governance !== undefined
+            ? { toolGovernance: toolExec.governance }
+            : {}),
+          ...(toolExec.permissionPolicy !== undefined
+            ? { toolPermissionPolicy: toolExec.permissionPolicy }
+            : {}),
+          ...(toolExec.argumentValidator !== undefined
+            ? { validateToolArgs: toolExec.argumentValidator }
+            : {}),
+          ...(toolExec.timeouts !== undefined
+            ? { toolTimeouts: toolExec.timeouts }
+            : {}),
+          ...(resolvedSafetyMonitor !== undefined
+            ? { safetyMonitor: resolvedSafetyMonitor }
+            : {}),
+          ...(toolExec.scanToolResults !== undefined
+            ? { scanToolResults: toolExec.scanToolResults }
+            : {}),
+          ...(toolExec.tracer !== undefined ? { tracer: toolExec.tracer } : {}),
+          // agentId / runId mirror the executeGenerateRun fallback: when
+          // `toolExecution` is provided, fall back to the surrounding agent
+          // id so canonical lifecycle events carry provenance.
+          agentId: toolExec.agentId ?? ctx.agentId,
+          ...(toolExec.runId !== undefined ? { runId: toolExec.runId } : {}),
+          // Route policy/lifecycle events to the same bus the agent uses
+          // for `tool:latency` / `llm:invoked`, only when `toolExecution`
+          // is configured (preserves the pre-MJ-AGENT-02 surface for
+          // unconfigured callers).
+          ...(ctx.config.eventBus !== undefined
+            ? { eventBus: ctx.config.eventBus }
+            : {}),
+        }
+      : undefined
+
     for (const toolCall of toolCalls) {
       yield { type: 'tool_call', data: { name: toolCall.name, args: toolCall.args } }
 
-      const execution = await executeStreamingToolCall({
-        toolCall,
-        toolMap: runState.toolMap,
-        budget: runState.budget,
-        stuckDetector: runState.stuckDetector,
-        transformToolResult: (toolName, input, result) =>
-          ctx.transformToolResultWithMiddleware(toolName, input, result),
-        onToolLatency: (name, durationMs, error) => {
-          ctx.config.eventBus?.emit({
-            type: 'tool:latency',
-            toolName: name,
-            durationMs,
-            ...(error !== undefined ? { error } : {}),
-          })
-        },
-        statTracker: toolStats,
-      })
+      let execution: Awaited<ReturnType<typeof executeStreamingToolCall>>
+      try {
+        execution = await executeStreamingToolCall({
+          toolCall,
+          toolMap: runState.toolMap,
+          budget: runState.budget,
+          stuckDetector: runState.stuckDetector,
+          transformToolResult: (toolName, input, result) =>
+            ctx.transformToolResultWithMiddleware(toolName, input, result),
+          onToolLatency: (name, durationMs, error) => {
+            ctx.config.eventBus?.emit({
+              type: 'tool:latency',
+              toolName: name,
+              durationMs,
+              ...(error !== undefined ? { error } : {}),
+            })
+          },
+          statTracker: toolStats,
+          ...(streamingPolicy ? { policy: streamingPolicy } : {}),
+        })
+      } catch (err) {
+        // executeSingleToolCall throws on permission denial
+        // (TOOL_PERMISSION_DENIED). Match the non-streaming path's
+        // behaviour: surface the error to the caller and end the run.
+        const message = err instanceof Error ? err.message : String(err)
+        yield { type: 'error', data: { message } }
+        await finalizeRun('aborted')
+        yield { type: 'done', data: { stopReason: 'aborted' } }
+        return
+      }
 
       allMessages.push(execution.message)
       // Charge tool-result bytes against the token lifecycle plugin so

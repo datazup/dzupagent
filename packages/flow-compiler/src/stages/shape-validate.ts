@@ -157,6 +157,45 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
       // Leaf — no required fields beyond `type`.
       return
     }
+    case 'spawn': {
+      if (!isNonEmptyString(node.templateRef)) {
+        errors.push(missing(node.type, path, 'spawn.templateRef is required (non-empty string)'))
+      }
+      return
+    }
+    case 'classify': {
+      if (!isNonEmptyString(node.prompt)) {
+        errors.push(missing(node.type, path, 'classify.prompt is required (non-empty string)'))
+      }
+      if (!Array.isArray(node.choices) || node.choices.length === 0) {
+        errors.push(missing(node.type, path, 'classify.choices is required (non-empty array)'))
+      }
+      if (!isNonEmptyString(node.outputKey)) {
+        errors.push(missing(node.type, path, 'classify.outputKey is required (non-empty string)'))
+      }
+      return
+    }
+    case 'emit': {
+      if (!isNonEmptyString(node.event)) {
+        errors.push(missing(node.type, path, 'emit.event is required (non-empty string)'))
+      }
+      return
+    }
+    case 'memory': {
+      return
+    }
+    case 'checkpoint': {
+      if (!isNonEmptyString(node.captureOutputOf)) {
+        errors.push(missing(node.type, path, 'checkpoint.captureOutputOf is required (non-empty string)'))
+      }
+      return
+    }
+    case 'restore': {
+      if (!isNonEmptyString(node.checkpointLabel)) {
+        errors.push(missing(node.type, path, 'restore.checkpointLabel is required (non-empty string)'))
+      }
+      return
+    }
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails compilation here.
       const _exhaustive: never = node
@@ -217,7 +256,13 @@ function walkOnError(node: FlowNode, path: string, errors: ValidationError[]): v
     }
     case 'action':
     case 'clarification':
-    case 'complete': {
+    case 'complete':
+    case 'spawn':
+    case 'classify':
+    case 'emit':
+    case 'memory':
+    case 'checkpoint':
+    case 'restore': {
       return
     }
     default: {

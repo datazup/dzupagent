@@ -25,6 +25,10 @@ import {
   isDuckDBError,
   analyticsResultToJson,
 } from './analytics-handler.js'
+import {
+  applyAuthoritativeScope,
+  type MemoryTenantScopeConfig,
+} from './memory-tenant-scope.js'
 
 /**
  * Duck-type check for ZodError without importing zod directly.
@@ -49,11 +53,14 @@ function zodErrorMessage(err: Error & { issues?: Array<{ message: string }>; err
 
 export interface MemoryRouteConfig {
   memoryService: MemoryServiceLike
+  /** Tenant scoping config (MJ-SEC-04). Defaults to auth-middleware-based resolution. */
+  tenantScope?: MemoryTenantScopeConfig
 }
 
 export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
   const app = new Hono()
   const arrowMemory = extendMemoryServiceWithArrow(config.memoryService)
+  const { tenantScope } = config
 
   // POST /export — Export memories as Arrow IPC or JSON
   app.post('/export', async (c) => {
@@ -72,7 +79,9 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
       throw err
     }
 
-    const result = await handleExportMemory(input, {
+    // MJ-SEC-04: override caller-supplied scope with authenticated tenant identity.
+    const safeScope = applyAuthoritativeScope(c, input.scope ?? {}, tenantScope)
+    const result = await handleExportMemory({ ...input, scope: safeScope }, {
       exportFrame: (ns, scope, opts) => arrowMemory.exportFrame(ns, scope, opts),
     })
     return c.json({ data: result })
@@ -95,7 +104,9 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
       throw err
     }
 
-    const result = await handleImportMemory(input, {
+    // MJ-SEC-04: override caller-supplied scope with authenticated tenant identity.
+    const safeScope = applyAuthoritativeScope(c, input.scope ?? {}, tenantScope)
+    const result = await handleImportMemory({ ...input, scope: safeScope }, {
       importFrame: (ns, scope, table, strategy) =>
         arrowMemory.importFrame(ns, scope, table, strategy as ImportStrategy | undefined),
     })

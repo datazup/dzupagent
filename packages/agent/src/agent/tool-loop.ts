@@ -16,6 +16,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
   extractTokenUsage,
   ForgeError,
+  requireTerminalToolExecutionRunId,
   type TokenUsage,
   type ToolGovernance,
   type SafetyMonitor,
@@ -32,11 +33,11 @@ import {
   formatSchemaHint,
   type ToolArgValidatorConfig,
 } from './tool-arg-validator.js'
-import {
-  executeToolsParallel,
-  type ParallelToolCall,
-  type ToolLookup,
-} from './parallel-executor.js'
+// Note: parallel-executor.ts still exports the standalone semaphore
+// primitive (executeToolsParallel) for callers that want raw parallel
+// dispatch without the policy stack. The tool-loop's parallel path was
+// refactored in MJ-AGENT-03 to schedule executeSingleToolCall directly
+// under its own semaphore, so the raw primitive is no longer used here.
 
 interface ToolCall {
   id?: string
@@ -495,77 +496,68 @@ export async function runToolLoop(
     // before the next LLM turn so callers can surface the pause. (RF-AGENT-04)
     let approvalPending = false
 
-    // Execute tool calls (parallel or sequential based on config)
-    if (config.parallelTools && toolCalls.length > 1) {
-      const results = await executeToolCallsParallel(
-        toolCalls, toolMap, config, getOrCreateStat,
-      )
-      for (const r of results) {
-        allMessages.push(r.message)
-        if (r.approvalPending) {
-          approvalPending = true
+    // Execute tool calls. MJ-AGENT-03: both branches feed identical
+    // ToolCallResults into the shared handler below so governance,
+    // safety-scan, stuck-detection, and approval outcomes have full
+    // parity across modes. Both branches schedule the SAME
+    // `executeSingleToolCall` policy stack — parallel just runs them
+    // under a counting semaphore.
+    const results = config.parallelTools && toolCalls.length > 1
+      ? await executeToolCallsParallel(toolCalls, toolMap, config, getOrCreateStat)
+      : await executeToolCallsSequential(toolCalls, toolMap, config, getOrCreateStat)
+
+    let stoppedHandlingResults = false
+    for (const r of results) {
+      if (stoppedHandlingResults) {
+        // After a hard gate fired in sequential mode, executeToolCallsSequential
+        // will have stopped scheduling further calls — but in the parallel
+        // mode, in-flight tools still produced messages. Drain remaining
+        // messages so partial results are surfaced (the loop below halts
+        // after the for-of via approvalPending / stopReason flags).
+      }
+      allMessages.push(r.message)
+
+      if (r.approvalPending) {
+        // Hard gate (RF-AGENT-04): halt the loop. The tool was NOT
+        // invoked. Resume must be performed externally — the
+        // ApprovalGate emits `approval:granted` / `approval:rejected`
+        // and the run engine resume path re-drives the run.
+        approvalPending = true
+        // In sequential mode `executeToolCallsSequential` already short-
+        // circuited so there are no more results to drain. In parallel
+        // mode the remaining results were already collected by
+        // Promise.allSettled — we keep iterating to surface their
+        // ToolMessages but suppress further escalation handling.
+        stoppedHandlingResults = true
+        continue
+      }
+
+      if (r.stuckToolName) {
+        // Escalating stuck recovery — applied uniformly across modes.
+        stuckStage++
+        lastStuckToolName = r.stuckToolName
+        lastStuckReason = r.stuckReason
+        config.onStuck?.(r.stuckToolName, stuckStage)
+
+        if (stuckStage === 2) {
+          // Stage 2: inject a nudge system message
+          allMessages.push(new SystemMessage(
+            'You appear to be stuck repeating the same tool call. Try a different approach or provide your final answer.',
+          ))
         }
-        if (r.stuckBreak) {
+        if (stuckStage >= 3) {
+          // Stage 3: abort the loop
           stopReason = 'stuck'
-        }
-        if (r.stuckToolName) {
-          // Escalating recovery for parallel path
-          stuckStage++
-          lastStuckToolName = r.stuckToolName
-          lastStuckReason = r.stuckReason
-          config.onStuck?.(r.stuckToolName, stuckStage)
-          if (stuckStage >= 3) {
-            stopReason = 'stuck'
-          }
+          break
         }
       }
-    } else {
-      for (const tc of toolCalls) {
-        const r = await executeSingleToolCall(
-          tc, toolMap, config, getOrCreateStat,
-        )
-        allMessages.push(r.message)
 
-        if (r.approvalPending) {
-          // Hard gate (RF-AGENT-04): halt the loop. The tool was NOT
-          // invoked. Resume must be performed externally — the
-          // ApprovalGate emits `approval:granted` / `approval:rejected`
-          // and the run engine resume path re-drives the run.
-          approvalPending = true
-          break
-        }
-
-        if (r.stuckToolName) {
-          // Escalating stuck recovery
-          stuckStage++
-          lastStuckToolName = r.stuckToolName
-          lastStuckReason = r.stuckReason
-          config.onStuck?.(r.stuckToolName, stuckStage)
-
-          if (stuckStage === 1) {
-            // Stage 1: tool already blocked by executeSingleToolCall
-            // stuckNudge is already set
-          }
-          if (stuckStage === 2) {
-            // Stage 2: inject a nudge system message
-            allMessages.push(new SystemMessage(
-              'You appear to be stuck repeating the same tool call. Try a different approach or provide your final answer.',
-            ))
-          }
-          if (stuckStage >= 3) {
-            // Stage 3: abort the loop
-            stopReason = 'stuck'
-            break
-          }
-        }
-
-        if (r.stuckNudge && stuckStage <= 1) {
-          allMessages.push(r.stuckNudge)
-        }
-        if (r.stuckBreak) {
-          stopReason = 'stuck'
-          break
-        }
+      if (r.stuckNudge && stuckStage <= 1) {
+        allMessages.push(r.stuckNudge)
+      }
+      if (r.stuckBreak) {
+        stopReason = 'stuck'
+        break
       }
     }
 
@@ -733,6 +725,11 @@ function emitToolResult(
 ): void {
   const { toolName, toolCallId, durationMs, inputMetadataKeys, output } = args
   try {
+    const executionRunId = requireTerminalToolExecutionRunId({
+      eventType: 'tool:result',
+      toolName,
+      executionRunId: config.runId,
+    })
     config.eventBus?.emit({
       type: 'tool:result',
       toolName,
@@ -740,10 +737,9 @@ function emitToolResult(
       toolCallId,
       inputMetadataKeys,
       status: 'success',
+      executionRunId,
       ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
-      ...(config.runId !== undefined
-        ? { runId: config.runId, executionRunId: config.runId }
-        : {}),
+      ...(config.runId !== undefined ? { runId: config.runId } : {}),
     } as never)
   } catch {
     // Telemetry must never abort the loop
@@ -787,6 +783,11 @@ function emitToolError(
     status,
   } = args
   try {
+    const executionRunId = requireTerminalToolExecutionRunId({
+      eventType: 'tool:error',
+      toolName,
+      executionRunId: config.runId,
+    })
     config.eventBus?.emit({
       type: 'tool:error',
       toolName,
@@ -797,10 +798,9 @@ function emitToolError(
       toolCallId,
       inputMetadataKeys,
       status,
+      executionRunId,
       ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
-      ...(config.runId !== undefined
-        ? { runId: config.runId, executionRunId: config.runId }
-        : {}),
+      ...(config.runId !== undefined ? { runId: config.runId } : {}),
     } as never)
   } catch {
     // Telemetry must never abort the loop
@@ -1265,14 +1265,60 @@ async function executeSingleToolCall(
 }
 
 /**
- * Execute tool calls in parallel using a semaphore-based concurrency limiter.
+ * Execute tool calls sequentially. Thin wrapper around
+ * {@link executeSingleToolCall} that short-circuits on approval-pending or
+ * stage-3 stuck so we don't keep invoking tools after the loop has decided
+ * to halt. Returns the executed results in original order.
+ */
+async function executeToolCallsSequential(
+  toolCalls: ToolCall[],
+  toolMap: Map<string, StructuredToolInterface>,
+  config: ToolLoopConfig,
+  getOrCreateStat: StatGetter,
+): Promise<ToolCallResult[]> {
+  const out: ToolCallResult[] = []
+  for (const tc of toolCalls) {
+    const r = await executeSingleToolCall(tc, toolMap, config, getOrCreateStat)
+    out.push(r)
+    // Stop running additional tools as soon as a hard gate fires —
+    // matches the pre-MJ-AGENT-03 behaviour of breaking the inner for-of
+    // when approval is pending or stuck escalation forced a stop.
+    if (r.approvalPending || r.stuckBreak) break
+  }
+  return out
+}
+
+/**
+ * Execute tool calls in parallel using a semaphore-based concurrency
+ * limiter.
  *
- * Unlike batch-based approaches (which wait for an entire batch to finish
- * before starting the next), the semaphore pattern fills freed slots
- * immediately, yielding better throughput when tool durations vary.
+ * MJ-AGENT-03 (audit fix, 2026-04-26): the parallel path now schedules
+ * the SAME {@link executeSingleToolCall} function as the sequential path
+ * via a counting semaphore, instead of duplicating a partial policy stack
+ * and delegating raw invocation to a separate executor. This guarantees
+ * full parity across modes:
  *
- * Uses Promise.allSettled so a single tool failure does not block others.
- * Stuck detection runs sequentially on results after all complete.
+ *   - permission policy (MC-GA03)
+ *   - guardrail tool blocks (budget.isToolBlocked)
+ *   - tool governance access checks (block / approval — RF-AGENT-04)
+ *   - tool-not-found handling
+ *   - argument validation + auto-repair
+ *   - per-tool timeouts (GA-02)
+ *   - tool result transformation
+ *   - **safety scanning of tool results** (was missing pre-MJ-AGENT-03)
+ *   - **per-tool stuck detection** (was missing pre-MJ-AGENT-03)
+ *   - canonical lifecycle telemetry (RF-AGENT-05)
+ *   - OTel spans
+ *
+ * Concurrency is capped by `config.maxParallelTools` (default 10). Results
+ * are returned in the same order as the input `toolCalls` array regardless
+ * of completion order — preserved by recording each call's original index
+ * before scheduling.
+ *
+ * Uses `Promise.allSettled` so a single tool failure (or a thrown
+ * permission-denied ForgeError) does not block other in-flight calls; the
+ * first thrown error is re-raised after the batch settles to preserve the
+ * sequential path's "throw on permission denied" surface.
  */
 async function executeToolCallsParallel(
   toolCalls: ToolCall[],
@@ -1280,33 +1326,13 @@ async function executeToolCallsParallel(
   config: ToolLoopConfig,
   getOrCreateStat: StatGetter,
 ): Promise<ToolCallResult[]> {
-  const maxParallel = config.maxParallelTools ?? 10
-  const validatorCfg = resolveValidatorConfig(config.validateToolArgs)
-
-  // Pre-validate and resolve args, filter out blocked/missing/invalid tools
-  // so the parallel executor only handles actual invocations.
-  const preResults: Array<{ index: number; result: ToolCallResult } | null> = []
-  const executableCalls: Array<{ index: number; call: ParallelToolCall; validatedArgs: Record<string, unknown> }> = []
-
-  for (let i = 0; i < toolCalls.length; i++) {
-    const tc = toolCalls[i]!
-    const toolCallId = tc.id ?? `call_${Date.now()}_${i}`
-    const inputMetadataKeys = extractInputMetadataKeys(tc.args)
-
-    // MC-GA03 — permission check runs in the pre-validation loop so
-    // denied calls NEVER reach the parallel executor. The throw
-    // propagates out through `executeToolCallsParallel` → `runToolLoop`.
-    if (config.toolPermissionPolicy && config.agentId) {
+  // Pre-validation: check permissions for ALL tool calls before executing any.
+  // Ensures no tool fires when at least one call is denied — matches the
+  // sequential path's "throw on first denied" contract but applied eagerly
+  // so neither allowed nor denied tools execute on a mixed batch.
+  if (config.toolPermissionPolicy && config.agentId) {
+    for (const tc of toolCalls) {
       if (!config.toolPermissionPolicy.hasPermission(config.agentId, tc.name)) {
-        emitToolError(config, {
-          toolName: tc.name,
-          toolCallId,
-          durationMs: 0,
-          inputMetadataKeys,
-          errorCode: 'TOOL_PERMISSION_DENIED',
-          errorMessage: `Tool "${tc.name}" is not accessible to agent "${config.agentId}"`,
-          status: 'denied',
-        })
         throw new ForgeError({
           code: 'TOOL_PERMISSION_DENIED',
           message: `Tool "${tc.name}" is not accessible to agent "${config.agentId}"`,
@@ -1314,249 +1340,131 @@ async function executeToolCallsParallel(
         })
       }
     }
-
-    // Check blocked
-    if (config.budget?.isToolBlocked(tc.name)) {
-      config.onToolResult?.(tc.name, '[blocked]')
-      emitToolError(config, {
-        toolName: tc.name,
-        toolCallId,
-        durationMs: 0,
-        inputMetadataKeys,
-        errorCode: 'TOOL_PERMISSION_DENIED',
-        errorMessage: `Tool "${tc.name}" is blocked by guardrails`,
-        status: 'denied',
-      })
-      preResults.push({
-        index: i,
-        result: {
-          message: new ToolMessage({
-            content: `[Tool "${tc.name}" is blocked by guardrails]`,
-            tool_call_id: toolCallId,
-            name: tc.name,
-          }),
-        },
-      })
-      continue
-    }
-
-    // Tool governance: access check (blocked / approval-required) — runs
-    // in the pre-validation loop so the call never reaches the parallel
-    // executor. Mirrors the gate enforced in `executeSingleToolCall`.
-    if (config.toolGovernance) {
-      const access = config.toolGovernance.checkAccess(tc.name, tc.args)
-      if (!access.allowed) {
-        const reason = access.reason ?? 'Tool access denied'
-        config.onToolResult?.(tc.name, `[blocked: ${reason}]`)
-        emitToolError(config, {
-          toolName: tc.name,
-          toolCallId,
-          durationMs: 0,
-          inputMetadataKeys,
-          errorCode: 'TOOL_PERMISSION_DENIED',
-          errorMessage: reason,
-          status: 'denied',
-        })
-        preResults.push({
-          index: i,
-          result: {
-            message: new ToolMessage({
-              content: `[blocked] ${reason}`,
-              tool_call_id: toolCallId,
-              name: tc.name,
-            }),
-          },
-        })
-        continue
-      }
-      if (access.requiresApproval) {
-        // Hard gate (RF-AGENT-04). Same semantics as the sequential path.
-        const correlationId = config.runId ?? toolCallId
-        try {
-          config.eventBus?.emit({
-            type: 'approval:requested',
-            runId: correlationId,
-            plan: { toolName: tc.name, args: tc.args },
-          } as never)
-        } catch {
-          // Non-fatal: event emission must not abort the run
-        }
-        const reason = access.reason ?? 'Approval required'
-        config.onToolResult?.(tc.name, `[approval_pending: ${reason}]`)
-        preResults.push({
-          index: i,
-          result: {
-            message: new ToolMessage({
-              content: `[approval_pending] Tool "${tc.name}" requires human approval before execution. ${reason}`,
-              tool_call_id: toolCallId,
-              name: tc.name,
-            }),
-            approvalPending: true,
-          },
-        })
-        continue
-      }
-    }
-
-    // Check tool exists
-    const tool = toolMap.get(tc.name)
-    if (!tool) {
-      config.onToolResult?.(tc.name, '[not found]')
-      emitToolError(config, {
-        toolName: tc.name,
-        toolCallId,
-        durationMs: 0,
-        inputMetadataKeys,
-        errorCode: 'TOOL_NOT_FOUND',
-        errorMessage: `Tool "${tc.name}" not found`,
-        status: 'error',
-      })
-      preResults.push({
-        index: i,
-        result: {
-          message: new ToolMessage({
-            content: `Error: Tool "${tc.name}" not found. Available tools: ${[...toolMap.keys()].join(', ')}`,
-            tool_call_id: toolCallId,
-            name: tc.name,
-          }),
-        },
-      })
-      continue
-    }
-
-    // Validate args
-    const { args: validatedArgs, validationError } = maybeValidateArgs(tc, tool, validatorCfg)
-    if (validationError) {
-      config.onToolResult?.(tc.name, `[validation error]`)
-      emitToolError(config, {
-        toolName: tc.name,
-        toolCallId,
-        durationMs: 0,
-        inputMetadataKeys,
-        errorCode: 'VALIDATION_FAILED',
-        errorMessage: validationError,
-        status: 'error',
-      })
-      preResults.push({
-        index: i,
-        result: {
-          message: new ToolMessage({
-            content: validationError,
-            tool_call_id: toolCallId,
-            name: tc.name,
-          }),
-        },
-      })
-      continue
-    }
-
-    preResults.push(null) // placeholder — will be filled from executor results
-    executableCalls.push({ index: i, call: { ...tc, args: validatedArgs }, validatedArgs })
   }
 
-  // Build a ToolLookup that wraps the toolMap with transformToolResult support
-  // and per-tool timeout enforcement (GA-02).
-  const wrappedRegistry: ToolLookup = {
-    get(name: string) {
-      const tool = toolMap.get(name)
-      if (!tool) return undefined
-      return {
-        async invoke(args: Record<string, unknown>) {
-          const result = await invokeWithOptionalTimeout(
-            name,
-            config.toolTimeouts?.[name],
-            () => tool.invoke(args),
-          )
-          const rawResultStr = typeof result === 'string' ? result : JSON.stringify(result)
-          return config.transformToolResult
-            ? await config.transformToolResult(name, args, rawResultStr)
-            : rawResultStr
-        },
-      }
-    },
-    keys() { return toolMap.keys() },
+  const maxParallel = Math.max(1, config.maxParallelTools ?? 10)
+
+  // Counting-semaphore so freed slots are picked up immediately by the
+  // next pending call (matches the throughput characteristics of the
+  // standalone executeToolsParallel primitive).
+  let running = 0
+  const waiting: Array<() => void> = []
+  function acquire(): Promise<void> {
+    if (running < maxParallel) {
+      running++
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve) => {
+      waiting.push(resolve)
+    })
   }
-
-  // Execute through the semaphore-based parallel executor
-  const parallelCalls = executableCalls.map(ec => ec.call)
-  const execResults = await executeToolsParallel(parallelCalls, wrappedRegistry, {
-    maxConcurrency: maxParallel,
-    signal: config.signal,
-    onToolStart: (name, args) => {
-      config.onToolCall?.(name, args)
-      // RF-AGENT-05 — emit canonical `tool:called` for each parallel
-      // invocation. The executor passes the validated args, which we
-      // derive metadata keys from (no raw values reach telemetry).
-      const ec = executableCalls.find((e) => e.call.name === name && e.call.args === args)
-      const toolCallId = ec?.call.id ?? `call_${Date.now()}_${name}`
-      emitToolCalled(config, {
-        toolName: name,
-        toolCallId,
-        input: args,
-        inputMetadataKeys: extractInputMetadataKeys(args),
-      })
-    },
-    onToolEnd: (name, durationMs, error) => {
-      config.onToolLatency?.(name, durationMs, error)
-    },
-  })
-
-  // Map executor results back to ToolCallResults with stats tracking
-  for (let j = 0; j < execResults.length; j++) {
-    const execResult = execResults[j]!
-    const ec = executableCalls[j]!
-    const stat = getOrCreateStat(execResult.toolName)
-    stat.calls++
-    stat.totalMs += execResult.durationMs
-
-    const inputMetadataKeys = extractInputMetadataKeys(ec.validatedArgs)
-
-    let message: ToolMessage
-    if (execResult.error) {
-      stat.errors++
-      message = new ToolMessage({
-        content: `Error executing tool "${execResult.toolName}": ${execResult.error}`,
-        tool_call_id: execResult.toolCallId,
-        name: execResult.toolName,
-      })
-      config.onToolResult?.(execResult.toolName, `[error: ${execResult.error}]`)
-      // RF-AGENT-05 — terminal `tool:error` for the parallel path.
-      const lifecycleStatus = statusFromError(new Error(execResult.error))
-      emitToolError(config, {
-        toolName: execResult.toolName,
-        toolCallId: execResult.toolCallId,
-        durationMs: execResult.durationMs,
-        inputMetadataKeys,
-        errorCode: lifecycleStatus === 'timeout' ? 'TOOL_TIMEOUT' : 'TOOL_EXECUTION_FAILED',
-        errorMessage: execResult.error,
-        status: lifecycleStatus,
-      })
+  function release(): void {
+    const next = waiting.shift()
+    if (next) {
+      // Hand the slot directly to the next waiter so concurrency stays at cap.
+      next()
     } else {
-      message = new ToolMessage({
-        content: execResult.result ?? '',
-        tool_call_id: execResult.toolCallId,
-        name: execResult.toolName,
-      })
-      config.onToolResult?.(execResult.toolName, execResult.result ?? '')
-      // RF-AGENT-05 — terminal `tool:result` for the parallel path.
-      emitToolResult(config, {
-        toolName: execResult.toolName,
-        toolCallId: execResult.toolCallId,
-        durationMs: execResult.durationMs,
-        inputMetadataKeys,
-        output: execResult.result ?? '',
-      })
+      running--
     }
-
-    // Find the placeholder slot for this call's original index
-    preResults[ec.index] = { index: ec.index, result: { message } }
   }
 
-  // Return results in original tool-call order
-  return preResults
-    .filter((r): r is { index: number; result: ToolCallResult } => r !== null)
-    .sort((a, b) => a.index - b.index)
-    .map(r => r.result)
+  // Run executeSingleToolCall under the semaphore. Abort signal is checked
+  // both before acquiring the slot and after waking, mirroring the
+  // standalone executor's cooperative cancellation contract.
+  async function runOne(
+    tc: ToolCall,
+    index: number,
+  ): Promise<{ index: number; result: ToolCallResult; thrown?: unknown }> {
+    if (config.signal?.aborted) {
+      const toolCallId = tc.id ?? `call_${Date.now()}_${index}`
+      return {
+        index,
+        result: {
+          message: new ToolMessage({
+            content: `Error executing tool "${tc.name}": Aborted`,
+            tool_call_id: toolCallId,
+            name: tc.name,
+          }),
+        },
+      }
+    }
+
+    await acquire()
+    try {
+      if (config.signal?.aborted) {
+        const toolCallId = tc.id ?? `call_${Date.now()}_${index}`
+        return {
+          index,
+          result: {
+            message: new ToolMessage({
+              content: `Error executing tool "${tc.name}": Aborted`,
+              tool_call_id: toolCallId,
+              name: tc.name,
+            }),
+          },
+        }
+      }
+      // Delegate to the SHARED policy stack. Any thrown ForgeError
+      // (e.g. TOOL_PERMISSION_DENIED) is captured and re-raised after
+      // the whole batch settles so we don't leave in-flight tools
+      // half-running.
+      const result = await executeSingleToolCall(tc, toolMap, config, getOrCreateStat)
+      return { index, result }
+    } catch (err) {
+      const toolCallId = tc.id ?? `call_${Date.now()}_${index}`
+      return {
+        index,
+        thrown: err,
+        result: {
+          message: new ToolMessage({
+            content: `Error executing tool "${tc.name}": ${err instanceof Error ? err.message : String(err)}`,
+            tool_call_id: toolCallId,
+            name: tc.name,
+          }),
+        },
+      }
+    } finally {
+      release()
+    }
+  }
+
+  const settled = await Promise.allSettled(
+    toolCalls.map((tc, idx) => runOne(tc, idx)),
+  )
+
+  // Collect results in original order; surface the first thrown error
+  // after settling (preserves sequential-path semantics for
+  // TOOL_PERMISSION_DENIED, which is documented to throw out of the loop).
+  const ordered: Array<{ index: number; result: ToolCallResult; thrown?: unknown }> = []
+  for (let i = 0; i < settled.length; i++) {
+    const outcome = settled[i]!
+    if (outcome.status === 'fulfilled') {
+      ordered.push(outcome.value)
+    } else {
+      const tc = toolCalls[i]!
+      const toolCallId = tc.id ?? `call_${Date.now()}_${i}`
+      ordered.push({
+        index: i,
+        thrown: outcome.reason,
+        result: {
+          message: new ToolMessage({
+            content: `Error executing tool "${tc.name}": ${outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)}`,
+            tool_call_id: toolCallId,
+            name: tc.name,
+          }),
+        },
+      })
+    }
+  }
+
+  ordered.sort((a, b) => a.index - b.index)
+
+  const firstThrown = ordered.find(r => r.thrown !== undefined)
+  if (firstThrown) {
+    throw firstThrown.thrown
+  }
+
+  return ordered.map(r => r.result)
 }
 
 // ---------- Tool timeout enforcement (GA-02) ----------

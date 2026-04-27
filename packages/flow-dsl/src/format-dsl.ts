@@ -150,6 +150,50 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
     case 'sequence':
       for (const child of node.nodes) formatNode(lines, child, indentLevel)
       return
+    case 'spawn':
+      lines.push(`${indent}- spawn:`)
+      pushCommon(lines, node, indentLevel + 1)
+      lines.push(`${childIndent}template: ${node.templateRef}`)
+      if (node.waitForCompletion !== undefined) lines.push(`${childIndent}wait: ${node.waitForCompletion}`)
+      return
+    case 'classify':
+      lines.push(`${indent}- classify:`)
+      pushCommon(lines, node, indentLevel + 1)
+      lines.push(`${childIndent}prompt: ${quote(node.prompt)}`)
+      lines.push(`${childIndent}choices: [${node.choices.map(quote).join(', ')}]`)
+      lines.push(`${childIndent}output: ${node.outputKey}`)
+      return
+    case 'emit':
+      lines.push(`${indent}- emit:`)
+      pushCommon(lines, node, indentLevel + 1)
+      lines.push(`${childIndent}event: ${quote(node.event)}`)
+      if (node.payload && Object.keys(node.payload).length > 0) {
+        lines.push(`${childIndent}payload:`)
+        for (const [key, value] of Object.entries(node.payload)) {
+          lines.push(`${childIndent}  ${key}: ${formatScalar(value)}`)
+        }
+      }
+      return
+    case 'memory':
+      lines.push(`${indent}- memory:`)
+      pushCommon(lines, node, indentLevel + 1)
+      lines.push(`${childIndent}operation: ${node.operation}`)
+      lines.push(`${childIndent}tier: ${node.tier}`)
+      if (node.key) lines.push(`${childIndent}key: ${quote(node.key)}`)
+      if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`)
+      return
+    case 'checkpoint':
+      lines.push(`${indent}- checkpoint:`)
+      pushCommon(lines, node, indentLevel + 1)
+      lines.push(`${childIndent}captureOutputOf: ${quote(node.captureOutputOf)}`)
+      if (node.label !== undefined) lines.push(`${childIndent}label: ${quote(node.label)}`)
+      return
+    case 'restore':
+      lines.push(`${indent}- restore:`)
+      pushCommon(lines, node, indentLevel + 1)
+      lines.push(`${childIndent}checkpointLabel: ${quote(node.checkpointLabel)}`)
+      if (node.onNotFound !== undefined) lines.push(`${childIndent}onNotFound: ${node.onNotFound}`)
+      return
     default: {
       const _exhaustive: never = node
       void _exhaustive

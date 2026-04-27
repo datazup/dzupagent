@@ -40,6 +40,12 @@ export type FlowNode =
   | RouteNode
   | ParallelNode
   | CompleteNode
+  | SpawnNode
+  | ClassifyNode
+  | EmitNode
+  | MemoryNode
+  | CheckpointNode
+  | RestoreNode
 
 export type SequenceNode = FlowNodeBase & { type: 'sequence'; nodes: FlowNode[] }
 export type ActionNode = FlowNodeBase & {
@@ -87,6 +93,47 @@ export type RouteNode = FlowNodeBase & {
 }
 export type ParallelNode = FlowNodeBase & { type: 'parallel'; branches: FlowNode[][] }
 export type CompleteNode = FlowNodeBase & { type: 'complete'; result?: string }
+export type SpawnNode = FlowNodeBase & {
+  type: 'spawn'
+  templateRef: string
+  input?: Record<string, unknown>
+  waitForCompletion?: boolean
+}
+export type ClassifyNode = FlowNodeBase & {
+  type: 'classify'
+  prompt: string
+  choices: string[]
+  outputKey: string
+}
+export type EmitNode = FlowNodeBase & {
+  type: 'emit'
+  /** Event name emitted at runtime, e.g. "task.completed", "plan.approved". */
+  event: string
+  /** Static payload merged with run state (runId, tenantId) at emit time. */
+  payload?: Record<string, unknown>
+}
+export type MemoryNode = FlowNodeBase & {
+  type: 'memory'
+  operation: 'read' | 'write' | 'list'
+  tier: 'session' | 'project' | 'workspace'
+  key?: string
+  valueExpr?: string
+  outputVar?: string
+}
+export type CheckpointNode = FlowNodeBase & {
+  type: 'checkpoint'
+  /** Human name e.g. "after login page verified". */
+  label?: string
+  /** Node id whose output should be snapshotted into the checkpoint. */
+  captureOutputOf: string
+}
+export type RestoreNode = FlowNodeBase & {
+  type: 'restore'
+  /** Matches a CheckpointNode's label in the same flow. */
+  checkpointLabel: string
+  /** Behavior when the named checkpoint does not exist at runtime. Defaults to 'fail'. */
+  onNotFound?: 'fail' | 'skip'
+}
 
 export interface FlowDocumentV1 {
   dsl: 'dzupflow/v1'

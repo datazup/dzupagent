@@ -6,14 +6,20 @@
  */
 import { Hono } from 'hono'
 import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
+import {
+  applyAuthoritativeScope,
+  type MemoryTenantScopeConfig,
+} from './memory-tenant-scope.js'
 
 export interface MemoryBrowseRouteConfig {
   memoryService: MemoryServiceLike
+  /** Tenant scoping config (MJ-SEC-04). Defaults to auth-middleware-based resolution. */
+  tenantScope?: MemoryTenantScopeConfig
 }
 
 export function createMemoryBrowseRoutes(config: MemoryBrowseRouteConfig): Hono {
   const app = new Hono()
-  const { memoryService } = config
+  const { memoryService, tenantScope } = config
 
   // GET /:namespace — List or search entries in a namespace
   app.get('/:namespace', async (c) => {
@@ -27,12 +33,12 @@ export function createMemoryBrowseRoutes(config: MemoryBrowseRouteConfig): Hono 
     const offset = offsetStr ? parseInt(offsetStr, 10) : 0
 
     // Parse scope from query param (JSON-encoded)
-    let scope: Record<string, string> = {}
+    let clientScope: Record<string, string> = {}
     if (scopeStr) {
       try {
         const parsed: unknown = JSON.parse(scopeStr)
         if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          scope = parsed as Record<string, string>
+          clientScope = parsed as Record<string, string>
         }
       } catch {
         return c.json(
@@ -41,6 +47,9 @@ export function createMemoryBrowseRoutes(config: MemoryBrowseRouteConfig): Hono 
         )
       }
     }
+
+    // MJ-SEC-04: override client-supplied scope with authenticated tenant identity.
+    const scope = applyAuthoritativeScope(c, clientScope, tenantScope)
 
     try {
       let records: Record<string, unknown>[]

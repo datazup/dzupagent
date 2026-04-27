@@ -24,6 +24,7 @@ import { resolveFallbackProviderId } from '../utils/provider-helpers.js'
 import type { EscalationHandler } from './escalation-handler.js'
 import { CrossProviderHandoff } from './cross-provider-handoff.js'
 import { selectRecoveryStrategy } from './recovery-strategy.js'
+import { applyRecoveryStrategy } from './recovery-strategy-application.js'
 
 // ---------------------------------------------------------------------------
 // Recovery strategy type
@@ -1160,63 +1161,17 @@ export class AdapterRecoveryCopilot {
     _failure: FailureContext,
     exhaustedProviders?: Set<AdapterProviderId>,
   ): AgentInput {
-    switch (strategy) {
-      case 'retry-same-provider':
-        // Retry with the same input — no modifications needed.
-        // The registry may still route to the same provider.
-        return { ...input }
-
-      case 'retry-different-provider': {
-        // Find an alternative that hasn't been exhausted
-        const alternative = this.resolveAvailableProvider(
-          exhaustedProviders ? [...exhaustedProviders] : [],
-        )
-        if (alternative) {
-          // Route to this specific provider by adding preference
-          return {
-            ...input,
-            options: { ...input.options, preferredProvider: alternative },
-          }
-        }
-        // If no alternatives, fall through with unmodified input
-        return { ...input }
-      }
-
-      case 'increase-budget': {
-        const newMaxTurns = input.maxTurns
-          ? Math.ceil(input.maxTurns * this.budgetMultiplier)
-          : undefined
-        const newMaxBudget = input.maxBudgetUsd
-          ? input.maxBudgetUsd * this.budgetMultiplier
-          : undefined
-        return {
-          ...input,
-          ...(newMaxTurns !== undefined && { maxTurns: newMaxTurns }),
-          ...(newMaxBudget !== undefined && { maxBudgetUsd: newMaxBudget }),
-        }
-      }
-
-      case 'simplify-task':
-        // Prepend a simplification directive to the prompt
-        return {
-          ...input,
-          prompt: `[SIMPLIFIED] Please provide a simpler, more direct solution. Avoid complex approaches.\n\n${input.prompt}`,
-          systemPrompt: input.systemPrompt
-            ? `${input.systemPrompt}\n\nIMPORTANT: Simplify your approach. Use the most straightforward solution available.`
-            : 'IMPORTANT: Simplify your approach. Use the most straightforward solution available.',
-        }
-
-      case 'escalate-human':
-      case 'abort':
-        // These are handled in the main loop — no input modification needed.
-        return input
-
-      default: {
-        // Exhaustive check
-        const _exhaustive: never = strategy
-        return _exhaustive
-      }
-    }
+    // Delegate to the standalone applier. The registry-aware
+    // `resolveAvailableProvider` is supplied as a callback so the helper
+    // stays pure (no registry coupling) while preserving the exact
+    // per-strategy mutation semantics of the original in-class switch.
+    return applyRecoveryStrategy({
+      strategy,
+      input,
+      exhaustedProviders,
+      budgetMultiplier: this.budgetMultiplier,
+      resolveAlternativeProvider: (excluded) => this.resolveAvailableProvider(excluded),
+    })
   }
 
   // ---------------------------------------------------------------------------

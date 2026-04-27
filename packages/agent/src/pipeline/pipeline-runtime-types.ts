@@ -13,6 +13,8 @@ import type {
 import type { RecoveryCopilot } from '../recovery/recovery-copilot.js'
 import type { PipelineStuckDetector } from '../self-correction/pipeline-stuck-detector.js'
 import type { TrajectoryCalibrator } from '../self-correction/trajectory-calibrator.js'
+import type { RedisClientLike } from './redis-checkpoint-store.js'
+import type { PostgresClientLike } from './postgres-checkpoint-store.js'
 
 // ---------------------------------------------------------------------------
 // Pipeline state
@@ -183,13 +185,13 @@ export interface PipelineRuntimeConfig {
    * Used to auto-wire `RedisPipelineCheckpointStore` when `checkpointStore`
    * is not explicitly provided.
    */
-  redisClient?: import('./redis-checkpoint-store.js').RedisClientLike
+  redisClient?: RedisClientLike
   /**
    * Pre-connected Postgres client (pg.Pool / pg.Client compatible).
    * Used to auto-wire `PostgresPipelineCheckpointStore` when `checkpointStore`
    * is not explicitly provided (and `redisClient` is also absent).
    */
-  pgClient?: import('./postgres-checkpoint-store.js').PostgresClientLike
+  pgClient?: PostgresClientLike
   /** Named predicate functions for conditional edges and loops */
   predicates?: Record<string, (state: Record<string, unknown>) => boolean>
   /** Cancellation signal */
