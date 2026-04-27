@@ -19,7 +19,7 @@ import { InMemoryPipelineCheckpointStore } from './in-memory-checkpoint-store.js
 import { PostgresPipelineCheckpointStore } from './postgres-checkpoint-store.js'
 import { RedisPipelineCheckpointStore } from './redis-checkpoint-store.js'
 import { executeLoop } from './loop-executor.js'
-import type { FailureContext, FailureType } from '../recovery/recovery-types.js'
+import type { FailureContext } from '../recovery/recovery-types.js'
 import type {
   PipelineState,
   NodeResult,
@@ -70,6 +70,10 @@ import {
   createBudgetTrackerState,
   type BudgetTrackerState,
 } from './pipeline-runtime/iteration-budget-tracker.js'
+import {
+  extractErrorCode,
+  classifyFailureType,
+} from './pipeline-runtime/error-classification.js'
 
 // ---------------------------------------------------------------------------
 // Pipeline Runtime
@@ -901,41 +905,7 @@ export class PipelineRuntime {
   }
 
   private getErrorTarget(nodeId: string, error?: unknown): string | undefined {
-    return getErrorTarget(nodeId, this.errorEdges, this.extractErrorCode(error))
-  }
-
-  private extractErrorCode(error: unknown): string | undefined {
-    if (typeof error === 'object' && error !== null && 'code' in error) {
-      const code = (error as { code?: unknown }).code
-      if (typeof code === 'string' && code.length > 0) {
-        return code
-      }
-    }
-
-    if (typeof error !== 'string') {
-      if (error instanceof Error) {
-        return this.extractErrorCodeFromMessage(error.message)
-      }
-      if (error !== undefined && error !== null) {
-        return this.extractErrorCodeFromMessage(String(error))
-      }
-      return undefined
-    }
-
-    return this.extractErrorCodeFromMessage(error)
-  }
-
-  private extractErrorCodeFromMessage(message: string): string | undefined {
-    const bracketedCode = message.match(/^\[([A-Z][A-Z0-9_]{2,})\]\s*/)
-    if (bracketedCode?.[1]) return bracketedCode[1]
-
-    const prefixedCode = message.match(/^([A-Z][A-Z0-9_]{2,})\s*:/)
-    if (prefixedCode?.[1]) return prefixedCode[1]
-
-    const exactCode = message.match(/^([A-Z][A-Z0-9_]{2,})$/)
-    if (exactCode?.[1]) return exactCode[1]
-
-    return undefined
+    return getErrorTarget(nodeId, this.errorEdges, extractErrorCode(error))
   }
 
   private findJoinNode(forkId: string): JoinNode | undefined {
@@ -1012,7 +982,7 @@ export class PipelineRuntime {
     this.emit(recoveryAttemptedEvent(nodeId, this.recoveryAttemptsUsed, maxAttempts, errorMessage))
 
     // Build a FailureContext for the copilot
-    const failureType = this.classifyError(errorMessage, nodeType)
+    const failureType = classifyFailureType(errorMessage, nodeType)
     const failureContext: FailureContext = {
       type: failureType,
       error: errorMessage,
@@ -1037,27 +1007,6 @@ export class PipelineRuntime {
       this.emit(recoveryFailedEvent(nodeId, this.recoveryAttemptsUsed, `Recovery threw: ${msg}`))
       return false
     }
-  }
-
-  /**
-   * Heuristically classify an error message into a FailureType
-   * for the recovery copilot.
-   */
-  private classifyError(error: string, _nodeType: string): FailureType {
-    const lower = error.toLowerCase()
-    if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('deadline')) {
-      return 'timeout'
-    }
-    if (lower.includes('memory') || lower.includes('oom') || lower.includes('quota') || lower.includes('rate limit') || lower.includes('resource')) {
-      return 'resource_exhaustion'
-    }
-    if (lower.includes('build') || lower.includes('compile') || lower.includes('syntax')) {
-      return 'build_failure'
-    }
-    if (lower.includes('test') || lower.includes('assertion') || lower.includes('expect')) {
-      return 'test_failure'
-    }
-    return 'generation_failure'
   }
 
   private delay(ms: number): Promise<void> {

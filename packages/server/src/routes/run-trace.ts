@@ -8,6 +8,7 @@ import { Hono } from 'hono'
 import type { RunStore } from '@dzupagent/core'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
 import { computeStepDistribution } from '../persistence/run-trace-store.js'
+import { requireOwnedRun } from './run-guard.js'
 
 export interface RunTraceRouteConfig {
   runStore: RunStore
@@ -22,14 +23,10 @@ export function createRunTraceRoutes(config: RunTraceRouteConfig): Hono {
   app.get('/:id/messages', async (c) => {
     const runId = c.req.param('id')
 
-    // Validate that the run exists
-    const run = await runStore.get(runId)
-    if (!run) {
-      return c.json(
-        { error: { code: 'NOT_FOUND', message: 'Run not found' } },
-        404,
-      )
-    }
+    // MJ-SEC-02: shared owner/tenant guard. Returns 404 (not 403) on
+    // cross-owner access to prevent enumeration of foreign run ids.
+    const ownedRun = await requireOwnedRun(c, runId, runStore)
+    if (ownedRun instanceof Response) return ownedRun
 
     // Await to support both sync (InMemory) and async (Drizzle) implementations.
     const trace = await traceStore.getTrace(runId)

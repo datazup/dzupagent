@@ -22,6 +22,7 @@ import type {
   ClarificationNode,
   CompleteNode,
   FlowNode,
+  MemoryNode,
   ParallelNode,
   PersonaNode,
   ResolvedTool,
@@ -142,6 +143,18 @@ function walkNode(
         `lowerSkillChain: for_each node encountered at "${path}". ` +
           `for_each is a pipeline-only variant; the router must dispatch such ASTs to the pipeline-loop target.`,
       )
+    }
+
+    case 'spawn':
+    case 'classify':
+    case 'emit': {
+      // Runtime-executed nodes — no skill-chain step emitted; silently pass through.
+      return
+    }
+
+    case 'memory': {
+      walkMemory(node, path, steps)
+      return
     }
 
     default: {
@@ -390,6 +403,29 @@ function walkComplete(
       `Complete at "${path}" (result="${node.result}") dropped — skill-chain has no terminal result field.`,
     )
   }
+}
+
+/**
+ * memory → synthetic pass-through marker step.
+ *
+ * Skill chains have no native memory-operation primitive. We emit a
+ * structured marker step so the executor can recognise and route the
+ * operation at runtime without losing the operation/tier/key metadata.
+ */
+function walkMemory(
+  node: MemoryNode,
+  path: string,
+  steps: SkillChainStep[],
+): void {
+  const keySuffix = node.key ? `_${slugify(node.key)}` : ''
+  steps.push({
+    skillName: `__memory__${node.operation}_${node.tier}${keySuffix}`,
+    stateTransformer: (state: Record<string, unknown>) => ({
+      ...state,
+      __memoryOp: { operation: node.operation, tier: node.tier, key: node.key },
+      __memoryPath: path,
+    }),
+  })
 }
 
 // ---------------------------------------------------------------------------

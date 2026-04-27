@@ -261,6 +261,31 @@ export class RagPipeline {
     return `${this.config.vectorStore.collectionPrefix}${tenantId}`
   }
 
+  /**
+   * Delete all vector chunks belonging to a given sourceId.
+   *
+   * Sends a metadata-filter delete to the vector store for the collection
+   * derived from `tenantId`. Returns the number of vectors deleted, or 0
+   * when no chunks match.
+   *
+   * @param sourceId - The source document ID whose chunks should be removed
+   * @param tenantId - Tenant scope (determines the collection name)
+   * @returns Count of deleted chunks
+   */
+  async deleteBySourceId(sourceId: string, tenantId: string): Promise<number> {
+    const collectionName = this.getCollectionName(tenantId)
+
+    // Count before deletion so we can return how many were removed
+    const before = await this.deps.vectorStore.count(collectionName)
+
+    await this.deps.vectorStore.delete(collectionName, {
+      filter: { field: 'source_id', op: 'eq', value: sourceId },
+    })
+
+    const after = await this.deps.vectorStore.count(collectionName)
+    return Math.max(0, before - after)
+  }
+
   /** Dispose a single tenant retriever instance (if present). */
   disposeTenant(tenantId: string): void {
     this.retrievers.delete(tenantId)

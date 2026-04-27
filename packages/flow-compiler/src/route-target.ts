@@ -102,6 +102,15 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
         for (const child of node.body) visit(child)
         return
       }
+      case 'spawn':
+      case 'classify':
+      case 'emit':
+      case 'memory':
+      case 'checkpoint':
+      case 'restore': {
+        // Runtime-executed leaf nodes — contribute no feature bits.
+        return
+      }
       default: {
         // Exhaustiveness guard — if a new FlowNode variant is added without
         // a corresponding case, TS will fail compilation here.
@@ -172,7 +181,13 @@ export function hasOnError(ast: FlowNode): boolean {
       }
       case 'action':
       case 'clarification':
-      case 'complete': {
+      case 'complete':
+      case 'spawn':
+      case 'classify':
+      case 'emit':
+      case 'memory':
+      case 'checkpoint':
+      case 'restore': {
         return
       }
       default: {

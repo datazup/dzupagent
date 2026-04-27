@@ -27,6 +27,18 @@ export interface CompilerOptions {
    * `forwardInnerEvents === true`. See Wave 11 ADR §4.
    */
   eventBus?: DzupEventBus
+  /**
+   * Compilation target hint. When set to `'codev-runtime'`, any tool
+   * reference starting with `codev.` is treated as externally resolved
+   * and will never raise an `UNRESOLVED_TOOL_REF` error. All other
+   * validation rules remain in effect.
+   *
+   * This allows flows that reference `codev.*` namespaced tools
+   * (e.g. `codev.planning.create_manifest`, `codev.intake.normalize`)
+   * to compile cleanly without needing those tools registered in the
+   * local resolver.
+   */
+  target?: 'codev-runtime'
 }
 
 export interface PersonaResolver {

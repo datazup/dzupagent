@@ -6,6 +6,7 @@
  */
 import { Hono } from 'hono'
 import type { ForgeServerConfig } from '../app.js'
+import { requireOwnedRun } from './run-guard.js'
 
 export function createApprovalRoutes(config: ForgeServerConfig): Hono {
   const app = new Hono()
@@ -14,11 +15,9 @@ export function createApprovalRoutes(config: ForgeServerConfig): Hono {
   // POST /api/runs/:id/approve — Approve a pending run
   app.post('/:id/approve', async (c) => {
     const id = c.req.param('id')
-    const run = await runStore.get(id)
-
-    if (!run) {
-      return c.json({ error: { code: 'NOT_FOUND', message: 'Run not found' } }, 404)
-    }
+    // MJ-SEC-02: shared owner/tenant guard.
+    const run = await requireOwnedRun(c, id, runStore)
+    if (run instanceof Response) return run
 
     if (run.status !== 'awaiting_approval') {
       return c.json(
@@ -41,11 +40,9 @@ export function createApprovalRoutes(config: ForgeServerConfig): Hono {
     const body = await c.req.json<{ reason?: string }>().catch(() => ({ reason: undefined }))
     const reason = body.reason ?? 'Rejected by user'
 
-    const run = await runStore.get(id)
-
-    if (!run) {
-      return c.json({ error: { code: 'NOT_FOUND', message: 'Run not found' } }, 404)
-    }
+    // MJ-SEC-02: shared owner/tenant guard.
+    const run = await requireOwnedRun(c, id, runStore)
+    if (run instanceof Response) return run
 
     if (run.status !== 'awaiting_approval') {
       return c.json(

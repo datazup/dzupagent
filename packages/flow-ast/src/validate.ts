@@ -35,6 +35,10 @@ import type {
   FlowValue,
   ValidationError,
   ValidationErrorCode,
+  EmitNode,
+  MemoryNode,
+  CheckpointNode,
+  RestoreNode,
 } from './types.js'
 
 // ---------------------------------------------------------------------------
@@ -332,6 +336,12 @@ const KNOWN_NODE_TYPES: ReadonlySet<string> = new Set([
   'route',
   'parallel',
   'complete',
+  'spawn',
+  'classify',
+  'emit',
+  'memory',
+  'checkpoint',
+  'restore',
 ])
 
 function validateFlowNode(
@@ -388,6 +398,18 @@ function validateFlowNode(
       return validateParallel(value, path, issues)
     case 'complete':
       return validateComplete(value, path, issues)
+    case 'spawn':
+      return validateSpawn(value, path, issues)
+    case 'classify':
+      return validateClassify(value, path, issues)
+    case 'emit':
+      return validateEmit(value, path, issues)
+    case 'memory':
+      return validateMemory(value, path, issues)
+    case 'checkpoint':
+      return validateCheckpoint(value, path, issues)
+    case 'restore':
+      return validateRestore(value, path, issues)
     default:
       issues.push({
         path,
@@ -846,6 +868,218 @@ function validateComplete(
   return node
 }
 
+function validateSpawn(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
+  const templateRef = obj['templateRef']
+  if (typeof templateRef !== 'string' || templateRef.length === 0) {
+    issues.push({
+      path: joinPath(path, 'templateRef'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'spawn.templateRef is required (non-empty string)',
+    })
+    return null
+  }
+  let input: Record<string, unknown> | undefined
+  if ('input' in obj && obj['input'] !== undefined) {
+    if (isPlainObject(obj['input'])) input = obj['input']
+    else {
+      issues.push({
+        path: joinPath(path, 'input'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: `spawn.input must be an object when present, received ${describeJsType(obj['input'])}`,
+      })
+    }
+  }
+  let waitForCompletion: boolean | undefined
+  if ('waitForCompletion' in obj && obj['waitForCompletion'] !== undefined) {
+    if (typeof obj['waitForCompletion'] === 'boolean') waitForCompletion = obj['waitForCompletion']
+    else {
+      issues.push({
+        path: joinPath(path, 'waitForCompletion'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: `spawn.waitForCompletion must be a boolean when present, received ${describeJsType(obj['waitForCompletion'])}`,
+      })
+    }
+  }
+  const node: FlowNode = { type: 'spawn', ...common, templateRef }
+  if (input !== undefined) node.input = input
+  if (waitForCompletion !== undefined) node.waitForCompletion = waitForCompletion
+  return node
+}
+
+function validateClassify(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): FlowNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
+  const prompt = obj['prompt']
+  if (typeof prompt !== 'string' || prompt.length === 0) {
+    issues.push({
+      path: joinPath(path, 'prompt'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'classify.prompt is required (non-empty string)',
+    })
+    return null
+  }
+  const choices = obj['choices']
+  if (!Array.isArray(choices) || choices.length === 0 || !choices.every((c) => typeof c === 'string')) {
+    issues.push({
+      path: joinPath(path, 'choices'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'classify.choices is required (non-empty string array)',
+    })
+    return null
+  }
+  const outputKey = obj['outputKey']
+  if (typeof outputKey !== 'string' || outputKey.length === 0) {
+    issues.push({
+      path: joinPath(path, 'outputKey'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'classify.outputKey is required (non-empty string)',
+    })
+    return null
+  }
+  return { type: 'classify', ...common, prompt, choices: choices as string[], outputKey }
+}
+
+function validateMemory(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): MemoryNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
+  const operation = obj['operation']
+  if (operation !== 'read' && operation !== 'write' && operation !== 'list') {
+    issues.push({
+      path: joinPath(path, 'operation'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'memory.operation must be "read", "write", or "list"',
+    })
+    return null
+  }
+  const tier = obj['tier']
+  if (tier !== 'session' && tier !== 'project' && tier !== 'workspace') {
+    issues.push({
+      path: joinPath(path, 'tier'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'memory.tier must be "session", "project", or "workspace"',
+    })
+    return null
+  }
+  const node: MemoryNode = {
+    type: 'memory',
+    ...common,
+    operation: operation as 'read' | 'write' | 'list',
+    tier: tier as 'session' | 'project' | 'workspace',
+  }
+  if ('key' in obj && typeof obj['key'] === 'string') node.key = obj['key']
+  if ('valueExpr' in obj && typeof obj['valueExpr'] === 'string') node.valueExpr = obj['valueExpr']
+  if ('outputVar' in obj && typeof obj['outputVar'] === 'string') node.outputVar = obj['outputVar']
+  return node
+}
+
+function validateEmit(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): EmitNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
+  const event = obj['event']
+  if (typeof event !== 'string' || event.length === 0) {
+    issues.push({
+      path: joinPath(path, 'event'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: '`event` is required and must be a non-empty string',
+    })
+    return null
+  }
+  let payload: Record<string, unknown> | undefined
+  if ('payload' in obj && obj['payload'] !== undefined) {
+    if (isPlainObject(obj['payload'])) {
+      payload = obj['payload']
+    } else {
+      issues.push({
+        path: joinPath(path, 'payload'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'emit.payload must be an object when present',
+      })
+    }
+  }
+  const node: EmitNode = { type: 'emit', ...common, event }
+  if (payload !== undefined) node.payload = payload
+  return node
+}
+
+function validateCheckpoint(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): CheckpointNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
+  const captureOutputOf = obj['captureOutputOf']
+  if (typeof captureOutputOf !== 'string' || captureOutputOf.length === 0) {
+    issues.push({
+      path: joinPath(path, 'captureOutputOf'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'checkpoint.captureOutputOf is required (non-empty string)',
+    })
+    return null
+  }
+  let label: string | undefined
+  if ('label' in obj && obj['label'] !== undefined) {
+    const l = obj['label']
+    if (typeof l === 'string') label = l
+    else {
+      issues.push({
+        path: joinPath(path, 'label'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: `checkpoint.label must be a string when present, received ${describeJsType(l)}`,
+      })
+    }
+  }
+  const node: CheckpointNode = { type: 'checkpoint', ...common, captureOutputOf }
+  if (label !== undefined) node.label = label
+  return node
+}
+
+function validateRestore(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): RestoreNode | null {
+  const common = validateCommonNodeFields(obj, path, issues)
+  const checkpointLabel = obj['checkpointLabel']
+  if (typeof checkpointLabel !== 'string' || checkpointLabel.length === 0) {
+    issues.push({
+      path: joinPath(path, 'checkpointLabel'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'restore.checkpointLabel is required (non-empty string)',
+    })
+    return null
+  }
+  let onNotFound: 'fail' | 'skip' | undefined
+  if ('onNotFound' in obj && obj['onNotFound'] !== undefined) {
+    const v = obj['onNotFound']
+    if (v === 'fail' || v === 'skip') onNotFound = v
+    else {
+      issues.push({
+        path: joinPath(path, 'onNotFound'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: `restore.onNotFound must be "fail" or "skip" when present, received ${describeJsType(v) === 'string' ? JSON.stringify(v) : describeJsType(v)}`,
+      })
+      return null
+    }
+  }
+  const node: RestoreNode = { type: 'restore', ...common, checkpointLabel }
+  if (onNotFound !== undefined) node.onNotFound = onNotFound
+  return node
+}
+
 // ---------------------------------------------------------------------------
 // FlowEdge walker
 // ---------------------------------------------------------------------------
@@ -1233,6 +1467,12 @@ function validateCanonicalNodeIds(
     case 'action':
     case 'clarification':
     case 'complete':
+    case 'spawn':
+    case 'classify':
+    case 'emit':
+    case 'memory':
+    case 'checkpoint':
+    case 'restore':
       return
     default: {
       const _exhaustive: never = node

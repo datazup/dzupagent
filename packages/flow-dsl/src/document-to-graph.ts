@@ -44,6 +44,12 @@ function projectNode(node: FlowNode, state: ProjectionState): ProjectionResult {
     case 'action':
     case 'clarification':
     case 'complete':
+    case 'spawn':
+    case 'classify':
+    case 'emit':
+    case 'memory':
+    case 'checkpoint':
+    case 'restore':
       return { entryIds: [id], exitIds: [id] }
     case 'sequence': {
       const inner = projectSequence(node.nodes, state)
@@ -146,6 +152,18 @@ function labelForNode(node: FlowNode): string {
       return 'complete'
     case 'sequence':
       return 'sequence'
+    case 'spawn':
+      return node.templateRef
+    case 'classify':
+      return node.outputKey
+    case 'emit':
+      return node.event
+    case 'memory':
+      return `${node.operation}:${node.tier}`
+    case 'checkpoint':
+      return node.label ?? `checkpoint:${node.captureOutputOf}`
+    case 'restore':
+      return `restore:${node.checkpointLabel}`
     default: {
       const _exhaustive: never = node
       void _exhaustive

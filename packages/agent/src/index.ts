@@ -17,6 +17,10 @@ export type {
   GenerateResult,
   AgentStreamEvent,
   CompressionLogEntry,
+  ToolExecutionConfig,
+  PerToolTimeoutMap,
+  ArgumentValidator,
+  ToolTracer,
 } from './agent/agent-types.js'
 export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory-profiles.js'
 export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
@@ -698,6 +702,16 @@ export type {
   TokenLifecyclePluginOptions,
   CompressionHintListener,
 } from './token-lifecycle-wiring.js'
+
+// --- Run Metrics Observability ---
+export { RunMetricsAggregator, attachRunMetricsBridge } from './observability/index.js'
+export type {
+  RunSummaryMetrics,
+  RunTokenUsage,
+  AggregatedMetrics,
+  ProviderRollup,
+  EventBusBridgeOptions,
+} from './observability/index.js'
 
 // --- Version ---
 export const dzupagent_AGENT_VERSION = '0.1.0'

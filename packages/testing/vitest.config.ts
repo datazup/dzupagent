@@ -4,8 +4,14 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
-    testTimeout: 60_000,
-    hookTimeout: 60_000,
+    testTimeout: 300_000,
+    hookTimeout: 120_000,
+    // The architecture test scans all app workspaces (~58s under load).
+    // Run in a single thread-based worker so all test files share one process
+    // and the IPC heartbeat between the runner and the thread worker is fast
+    // enough to avoid Vitest's "Timeout calling onTaskUpdate" RPC error.
+    pool: 'vmThreads',
+    poolOptions: { vmThreads: { singleThread: true } },
     include: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
     coverage: {
       provider: 'v8',

@@ -9,6 +9,7 @@
  */
 import { Hono } from 'hono'
 import type { ForgeServerConfig } from '../app.js'
+import { requireOwnedRun } from './run-guard.js'
 
 export function createHumanContactRoutes(config: ForgeServerConfig): Hono {
   const app = new Hono()
@@ -37,14 +38,9 @@ export function createHumanContactRoutes(config: ForgeServerConfig): Hono {
       )
     }
 
-    // --- Look up run ---
-    const run = await runStore.get(runId)
-    if (!run) {
-      return c.json(
-        { error: { code: 'NOT_FOUND', message: 'Run not found' } },
-        404,
-      )
-    }
+    // --- Look up run (MJ-SEC-02: shared owner/tenant guard) ---
+    const run = await requireOwnedRun(c, runId, runStore)
+    if (run instanceof Response) return run
 
     // --- Validate run state ---
     if (run.status !== 'suspended' && run.status !== 'awaiting_approval') {
