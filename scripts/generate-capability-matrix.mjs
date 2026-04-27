@@ -127,7 +127,6 @@ const FALLBACK_DESCRIPTIONS = {
   'org-domain': 'Organization domain models and utilities',
   otel: 'Observability: OpenTelemetry, tracing, metrics',
   'persona-registry': 'Persona registry for agent role management',
-  playground: 'Vue 3 debug UI',
   rag: 'RAG: chunking, retrieval, context assembly, citations',
   scheduler: 'Task scheduling and execution management',
   scraper: 'Web scraping: HTTP, Puppeteer, content extraction',
