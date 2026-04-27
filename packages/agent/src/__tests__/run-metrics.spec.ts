@@ -180,6 +180,66 @@ describe('attachRunMetricsBridge', () => {
     expect(agg.getRunMetrics('r1')?.toolCallCount).toBe(2)
   })
 
+  it('increments checkpointCount when checkpoint:created fires on the bus', async () => {
+    const bus = createEventBus()
+    const agg = new RunMetricsAggregator()
+    attachRunMetricsBridge(bus, agg)
+
+    bus.emit({ type: 'agent:started', agentId: 'openai', runId: 'r-cp' })
+    bus.emit({
+      type: 'checkpoint:created',
+      runId: 'r-cp',
+      nodeId: 'n1',
+      label: 'before-deploy',
+      checkpointAt: new Date().toISOString(),
+    })
+    bus.emit({
+      type: 'checkpoint:created',
+      runId: 'r-cp',
+      nodeId: 'n2',
+      label: 'after-tests',
+      checkpointAt: new Date().toISOString(),
+    })
+    await Promise.resolve()
+
+    const row = agg.getRunMetrics('r-cp')
+    expect(row).toBeDefined()
+    expect(row?.checkpointCount).toBe(2)
+  })
+
+  it('getRunMetrics returns checkpointCount in the row snapshot', () => {
+    const agg = new RunMetricsAggregator({ now: () => 1_000 })
+    agg.recordStart('r1', 'openai')
+    agg.recordCheckpoint('r1', 'first')
+    const row = agg.getRunMetrics('r1')
+    expect(row?.checkpointCount).toBe(1)
+    // Defensive-clone parity: mutating the returned snapshot must not affect store.
+    if (row) {
+      row.checkpointCount = 999
+    }
+    expect(agg.getRunMetrics('r1')?.checkpointCount).toBe(1)
+  })
+
+  it('checkpoint:restored does NOT increment checkpointCount', async () => {
+    const bus = createEventBus()
+    const agg = new RunMetricsAggregator()
+    attachRunMetricsBridge(bus, agg)
+
+    bus.emit({ type: 'agent:started', agentId: 'openai', runId: 'r-restore' })
+    bus.emit({
+      type: 'checkpoint:restored',
+      runId: 'r-restore',
+      checkpointLabel: 'before-deploy',
+      restored: false,
+      reason: 'checkpoint_not_found',
+    })
+    await Promise.resolve()
+
+    const row = agg.getRunMetrics('r-restore')
+    expect(row).toBeDefined()
+    expect(row?.checkpointCount).toBe(0)
+  })
+
   it('records failures via agent:failed', async () => {
     const bus = createEventBus()
     const agg = new RunMetricsAggregator()
