@@ -2,93 +2,130 @@
 
 ## Findings
 
-### SEC-01 High: API key revoke and rotate endpoints are not owner-scoped
+### SECURITY-001: API key revoke and rotate endpoints are not owner- or tenant-scoped
 
-**Impact:** Any authenticated caller that can reach `/api/keys` and knows or obtains another key UUID can revoke that key or rotate it and receive a newly issued raw key for the victim owner. The route also bypasses the generic RBAC map because `/api/keys` is not mapped to a protected resource.
+Severity: high
 
-**Evidence:** `createApiKeyRoutes` resolves owner identity for create/list, but delete and rotate fetch by raw `id` and mutate without comparing `existing.ownerId` to `resolveOwnerId(c)`: [packages/server/src/routes/api-keys.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/api-keys.ts:168), [packages/server/src/routes/api-keys.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/api-keys.ts:182). The underlying store `get(id)` and `revoke(id)` are also unscoped by owner: [packages/server/src/persistence/api-key-store.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/persistence/api-key-store.ts:171), [packages/server/src/persistence/api-key-store.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/persistence/api-key-store.ts:199). RBAC only maps `agents`, `runs`, `tools`, and approval paths, so `/api/keys` falls through: [packages/server/src/middleware/rbac.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/middleware/rbac.ts:100), [packages/server/src/middleware/rbac.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/middleware/rbac.ts:172). The app mounts `/api/keys` when an API key store is configured: [packages/server/src/app.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/app.ts:720).
+Impact: Any authenticated caller that can reach `/api/keys/:id` can revoke or rotate another owner's key if they know or obtain the key id. Rotation returns a fresh raw key, so this can become credential takeover for another owner, not just denial of service.
 
-**Remediation:** Scope `get`, `revoke`, and rotate operations by resolved owner and tenant, returning 404 on mismatch. Add a `keys` RBAC resource or explicit admin/self-only route guard. Add denial tests for cross-owner revoke and rotate, including the raw-key return path.
+Evidence: API-key routes resolve an owner for create/list, but `DELETE /:id` and `POST /:id/rotate` call `store.get(id)` and then `store.revoke(id)` / `store.create(existing.ownerId, ...)` without comparing `existing.ownerId` or `existing.tenantId` to the authenticated caller. The store-level `get` and `revoke` methods are also global by id. See [packages/server/src/routes/api-keys.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/api-keys.ts:168), [packages/server/src/routes/api-keys.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/api-keys.ts:182), and [packages/server/src/persistence/api-key-store.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/persistence/api-key-store.ts:199).
 
-### SEC-02 High: Run context and trace routes bypass run owner and tenant checks
+Remediation: Enforce owner and tenant checks before revoke/rotate, returning 404 for non-owned keys. Prefer store methods such as `getForOwner(id, ownerId, tenantId)` and `revokeForOwner(id, ownerId, tenantId)` so callers cannot accidentally use global operations in HTTP routes. Add tests for cross-owner revoke and rotate attempts.
 
-**Impact:** A caller with a valid API key can read another tenant's run context, token lifecycle report, or full message trace if they know a run ID. Trace and context payloads can contain prompts, tool arguments, model messages, logs, token lifecycle details, and compression summaries.
+### SECURITY-002: RBAC only protects a small route vocabulary and lets many authenticated API routes pass through unclassified
 
-**Evidence:** The main run handlers centralize owner and tenant enforcement in `loadOwnedRun` and `enforceOwnerAccess`: [packages/server/src/routes/runs.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/runs.ts:82), [packages/server/src/routes/runs.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/runs.ts:125). The context route only checks that the run exists before returning lifecycle data: [packages/server/src/routes/run-context.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/run-context.ts:168). The token report route repeats the same existence-only pattern: [packages/server/src/routes/run-context.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/run-context.ts:266). The trace route validates existence only before returning trace steps: [packages/server/src/routes/run-trace.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/run-trace.ts:22). These routes are mounted separately after the scoped run routes: [packages/server/src/app.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/app.ts:713), [packages/server/src/app.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/app.ts:739).
+Severity: high
 
-**Remediation:** Move run ownership and tenant enforcement into a shared exported helper or middleware and apply it to every `/api/runs/:id/*` route, not only handlers in `routes/runs.ts`. Add cross-tenant denial tests for `/context`, `/token-report`, `/messages`, approval routes, enrichment routes, and any future run subroutes.
+Impact: When API-key auth is enabled, non-admin roles can still reach any `/api/*` route whose path is not mapped to `agents`, `runs`, `tools`, or `approvals`, unless the route is separately protected. This weakens authorization for sensitive management surfaces such as `/api/keys`, `/api/registry`, compile, memory, schedules, prompts, personas, marketplace, and other optional routes.
 
-### SEC-03 High: MCP stdio executable allowlist is bypassable through PATCH
+Evidence: `pathToResource` maps only five path segments and `rbacMiddleware` calls `next()` when no resource is found. `DEFAULT_ADMIN_ONLY_PATHS` covers only `/api/mcp` and `/api/clusters`. Core route mounting includes `/api/keys`, but `keys` is not an RBAC resource. See [packages/server/src/middleware/rbac.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/middleware/rbac.ts:41), [packages/server/src/middleware/rbac.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/middleware/rbac.ts:100), [packages/server/src/middleware/rbac.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/middleware/rbac.ts:172), and [packages/server/src/composition/core-routes.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/composition/core-routes.ts:35).
 
-**Impact:** The POST route blocks unapproved stdio commands, but an authorized caller can create a non-stdio server and later PATCH it to `transport: "stdio"` with an arbitrary endpoint. Calling `/test` then passes the stored definition into `MCPClient`, which spawns `definition.endpoint`. If RBAC is disabled, misconfigured, or an admin key is compromised, this becomes host command execution through the MCP management plane.
+Remediation: Move from permissive "unknown route means allow" to an explicit route authorization matrix. At minimum, classify all mounted `/api/*` prefixes and require admin/operator roles for management and mutation surfaces. Add negative tests proving viewer/agent/user roles cannot mutate keys, registry entries, schedules, prompts, memory, MCP, clusters, and compile state.
 
-**Evidence:** POST `/servers` enforces `mcpAllowedExecutables` only when the initial body has `transport === 'stdio'`: [packages/server/src/routes/mcp.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/mcp.ts:52). PATCH accepts unvalidated JSON and immediately calls `updateServer(id, patch)` with no repeated allowlist check: [packages/server/src/routes/mcp.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/mcp.ts:105). `testServer` maps the stored definition to `MCPClient.addServer`, including endpoint, args, env, headers, and transport: [packages/core/src/mcp/mcp-manager.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/core/src/mcp/mcp-manager.ts:140). The client spawns `config.url` for stdio transports: [packages/core/src/mcp/mcp-client.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/core/src/mcp/mcp-client.ts:427). Path and environment sanitizers exist, but they do not replace the route-level executable allowlist: [packages/core/src/mcp/mcp-security.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/core/src/mcp/mcp-security.ts:22), [packages/core/src/mcp/mcp-security.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/core/src/mcp/mcp-security.ts:55).
+### SECURITY-003: Metadata-controlled HTTP tool base URL enables SSRF when the HTTP connector is enabled
 
-**Remediation:** Validate PATCH payloads with a schema, compute the post-merge server definition, and enforce the same stdio allowlist on any transition into or within stdio transport. Consider rejecting changes to `transport` and `endpoint` unless performed through a dedicated admin operation with audit logging.
+Severity: high
 
-### SEC-04 High: Memory browse/export/import trusts caller-supplied scope instead of authenticated tenant scope
+Impact: A run that activates the `http_request` tool can set `metadata.httpBaseUrl` to internal services such as cloud metadata endpoints, localhost admin ports, or private network APIs. The connector prevents per-call origin escape, but it trusts the initial base origin, so the attacker-controlled base still determines the target network location.
 
-**Impact:** Any authenticated caller that can reach memory routes can request arbitrary namespaces and scopes, including another tenant's scope if the backing memory service uses scope keys for isolation. Import routes can also write data into arbitrary scopes. This is a realistic cross-tenant data exposure or poisoning path in multi-tenant deployments.
+Evidence: `resolveAgentTools` accepts `context.metadata.httpBaseUrl` before falling back to `DZIP_HTTP_BASE_URL`, passes it directly to `createHTTPConnector`, and the connector only checks that the tool call path stays on the configured origin. The run executor passes run metadata into tool resolution. See [packages/server/src/runtime/tool-resolver.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/runtime/tool-resolver.ts:639), [packages/connectors/src/http/http-connector.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/connectors/src/http/http-connector.ts:40), and [packages/server/src/runtime/dzip-agent-run-executor.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/runtime/dzip-agent-run-executor.ts:97).
 
-**Evidence:** Memory browse reads `namespace` from the URL and `scope` from a JSON query parameter, then passes both directly to `memoryService.search` or `memoryService.get`: [packages/server/src/routes/memory-browse.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/memory-browse.ts:19), [packages/server/src/routes/memory-browse.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/memory-browse.ts:48). Memory export/import routes parse request bodies and pass namespace/scope into `arrowMemory.exportFrame` and `arrowMemory.importFrame` without deriving or enforcing authenticated tenant context: [packages/server/src/routes/memory.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/memory.ts:58), [packages/server/src/routes/memory.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/memory.ts:81). Analytics routes also export memory using caller-provided namespace and scope query parameters: [packages/server/src/routes/memory.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/memory.ts:116). The app mounts these routes under `/api/memory` and `/api/memory-browse`: [packages/server/src/app.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/app.ts:746).
+Remediation: Do not accept `httpBaseUrl` from run metadata by default. Require host-configured allowlists for HTTP connector origins, reject private/link-local/loopback targets unless explicitly allowed, and bind sensitive headers to configured origins rather than run metadata. Add SSRF tests for `169.254.169.254`, `127.0.0.1`, `localhost`, RFC1918 ranges, and IPv6 loopback.
 
-**Remediation:** Derive tenant scope from authenticated key metadata and merge it server-side into every memory route. Reject client-provided tenant keys that conflict with the authenticated tenant. Add tests proving a caller cannot browse, export, import, or run analytics against another tenant's namespace/scope.
+### SECURITY-004: Metadata-controlled Git working directory can expose or mutate arbitrary local repositories
 
-### SEC-05 Medium: A2A task routes have authentication but no owner or tenant isolation
+Severity: high
 
-**Impact:** In deployments that use A2A with shared task storage, any valid A2A/API credential can list all tasks, fetch task details, or cancel another caller's task. Task metadata and input may contain sensitive prompts or operational context.
+Impact: Agents with Git tools can be pointed at any local path supplied in run metadata. If a caller can submit a run for an agent that has `git_commit` or branch tools enabled, the tool layer may read diffs/logs from unrelated repositories or stage and commit files outside the intended workspace.
 
-**Evidence:** A2A routes are protected by auth only when `effectiveAuth` exists: [packages/server/src/app.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/app.ts:793). The task routes then create, list, get, and cancel tasks without stamping or checking caller identity or tenant: [packages/server/src/routes/a2a/task-routes.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/a2a/task-routes.ts:33), [packages/server/src/routes/a2a/task-routes.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/a2a/task-routes.ts:54), [packages/server/src/routes/a2a/task-routes.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/a2a/task-routes.ts:66), [packages/server/src/routes/a2a/task-routes.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/a2a/task-routes.ts:77). JSON-RPC task methods dispatch to task handlers without visible caller scope: [packages/server/src/routes/a2a/jsonrpc-route.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/a2a/jsonrpc-route.ts:29).
+Evidence: `resolveAgentTools` reads `context.metadata.cwd` and passes it to `new GitExecutor({ cwd })`. `GitExecutor` resolves but does not confine that path to an approved workspace root. Git tools include mutating operations such as `git_commit` with `addAll` and branch switching. See [packages/server/src/runtime/tool-resolver.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/runtime/tool-resolver.ts:550), [packages/codegen/src/git/git-executor.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/codegen/src/git/git-executor.ts:53), and [packages/codegen/src/git/git-tools.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/codegen/src/git/git-tools.ts:109).
 
-**Remediation:** Extend A2A task records with owner and tenant fields derived from auth metadata. Filter list/get/cancel by those fields and return 404 on mismatch. If A2A is intended to be single-tenant per server, document that explicitly and add a guard that rejects multi-tenant config without scoped storage.
+Remediation: Treat workspace root as a trusted server-side run context, not caller-controlled metadata. Add an allowed workspace root policy, reject absolute paths outside that root, and split read-only Git tools from mutating Git tools so mutation requires an explicit elevated capability.
 
-### SEC-06 Medium: MCP management responses expose secret-bearing env and headers
+### SECURITY-005: LocalWorkspace allows absolute paths and `..` traversal for workspace-backed file tools
 
-**Impact:** MCP server definitions can include authorization headers and environment variables. Listing or fetching server definitions returns stored definitions as-is, so credentials can be exposed to admin UI logs, API clients, browser devtools, support bundles, or any caller who reaches the MCP management route.
+Severity: high
 
-**Evidence:** The request schema allows inline `env` and `headers`: [packages/server/src/routes/schemas.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/schemas.ts:66). `InMemoryMcpManager` stores and returns full definitions with object spreads and no redaction: [packages/core/src/mcp/mcp-manager.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/core/src/mcp/mcp-manager.ts:71), [packages/core/src/mcp/mcp-manager.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/core/src/mcp/mcp-manager.ts:177), [packages/core/src/mcp/mcp-manager.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/core/src/mcp/mcp-manager.ts:182). The route returns those definitions directly from list/get/update/create: [packages/server/src/routes/mcp.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/mcp.ts:45), [packages/server/src/routes/mcp.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/mcp.ts:92), [packages/server/src/routes/mcp.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/mcp.ts:118).
+Impact: Workspace-backed `write_file` and `edit_file` can read or write outside the configured project root if given an absolute path or traversal path. In any flow that exposes `LocalWorkspace` to agent tools, prompt-injected or attacker-supplied tool calls could overwrite files outside the intended workspace boundary.
 
-**Remediation:** Store secrets by reference where possible (`headerRef`, `envRef`) and redact inline `env` and sensitive headers on every response. Add a redaction serializer for MCP definitions and tests for create, list, get, patch, and test responses.
+Evidence: `LocalWorkspace.resolvePath` returns absolute paths unchanged and otherwise resolves relative paths without checking that the result stays under `rootDir`. `write_file` and `edit_file` call `context.workspace.writeFile/readFile` directly. A safer implementation already exists in `DiskWorkspaceFS.resolveSafe`, which demonstrates the intended confinement check. See [packages/codegen/src/workspace/local-workspace.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/codegen/src/workspace/local-workspace.ts:106), [packages/codegen/src/tools/write-file.tool.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/codegen/src/tools/write-file.tool.ts:12), [packages/codegen/src/tools/edit-file.tool.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/codegen/src/tools/edit-file.tool.ts:53), and [packages/codegen/src/vfs/workspace-fs.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/codegen/src/vfs/workspace-fs.ts:108).
 
-### SEC-07 Low: Dependency risk is not continuously proven by repo-local audit gates
+Remediation: Reuse the `DiskWorkspaceFS` confinement pattern in `LocalWorkspace`: resolve every path against `rootDir`, reject absolute paths outside the root, reject traversal escapes, and add tests for `../`, absolute `/tmp/...`, sibling-prefix paths, reads, writes, and command cwd.
 
-**Impact:** The repo depends on a broad security-sensitive surface: Hono/server routes, Express compatibility, browser automation, document parsers, database drivers, Docker integration, Qdrant, and optional RAG/vector dependencies. Without a captured advisory scan, dependency exposure remains an operational unknown.
+### SECURITY-006: Prometheus metrics are mounted without app-level authentication
 
-**Evidence:** The runtime dependency surface includes Hono, optional Express compatibility, Puppeteer-based scraping, document parsing, and vector database clients: [packages/server/package.json](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/package.json:30), [packages/express/package.json](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/express/package.json:24), [packages/scraper/package.json](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/scraper/package.json:23), [packages/connectors-documents/package.json](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/connectors-documents/package.json:19), [packages/rag/package.json](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/rag/package.json:26). No runtime dependency advisory command was run or captured for this audit.
+Severity: medium
 
-**Remediation:** Add a documented dependency audit gate for the monorepo, capture results in release evidence, and pin or constrain high-risk optional dependency ranges where consumers could otherwise resolve vulnerable versions.
+Impact: `/metrics` can expose operational details such as route names, status distribution, request volume, error paths, and timing. In production this can aid reconnaissance and leak tenant or workflow activity patterns if ingress does not block it.
+
+Evidence: `mountPrometheusMetricsRoute` mounts `/metrics` on the public Hono app whenever a `PrometheusMetricsCollector` is configured. The code comment states that it bypasses auth and expects ingress/load-balancer blocking. See [packages/server/src/composition/optional-routes.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/composition/optional-routes.ts:279).
+
+Remediation: Provide an app-level protection option for `/metrics`: bind it to an internal listener, require a metrics token, or enforce an IP allowlist before route dispatch. Keep ingress controls as defense in depth rather than the only visible control.
+
+### SECURITY-007: HTTP and MCP tool credentials can be supplied through run metadata
+
+Severity: medium
+
+Impact: Secrets passed in run metadata can be persisted in run records, logs, traces, or event streams before reaching connector code. That creates a credential-retention and accidental-disclosure risk, especially for `githubToken`, `slackToken`, `httpHeaders`, and MCP `headers`/`env`.
+
+Evidence: Tool resolution reads `metadata.githubToken`, `metadata.slackToken`, `metadata.httpHeaders`, and `metadata.mcpServers[*].headers/env`. Run creation persists request metadata on the run before queue execution, while the executor also logs activated tool warnings and tool-call data. MCP management responses redact registered server secrets, but metadata-defined tool credentials do not get equivalent route-boundary redaction before persistence. See [packages/server/src/runtime/tool-resolver.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/runtime/tool-resolver.ts:592), [packages/server/src/runtime/tool-resolver.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/runtime/tool-resolver.ts:617), [packages/server/src/runtime/tool-resolver.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/runtime/tool-resolver.ts:648), [packages/server/src/runtime/tool-resolver.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/runtime/tool-resolver.ts:336), and [packages/server/src/routes/runs.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/server/src/routes/runs.ts:273).
+
+Remediation: Remove secret-bearing connector configuration from run metadata. Resolve credentials server-side from named secret references, redact or reject sensitive metadata keys at run creation, and add trace/log redaction for tool inputs and run metadata.
 
 ## Scope Reviewed
 
-- Server auth/authz: API key middleware, RBAC middleware, OpenAI-compatible auth posture, API key persistence, and API key management routes.
-- Tenant boundaries: run creation/list/detail paths, run context and trace routes, memory routes, A2A task routes, RAG/Qdrant tenant filtering.
-- Secrets: API key hashing, MCP env/header handling, notification env usage, committed `.env*` files.
-- Unsafe input and execution paths: MCP stdio registration/testing, sandbox command execution, codegen file tools, Docker sandbox path handling.
-- Dependency risk: root/package manifests and lockfile presence. No advisory scan was run.
+Reviewed the prepared repo snapshot first: `/media/ninel/Second/code/datazup/ai-internal-dev/audit/full-dzupagent-2026-04-27/run-001/codex-prep/context/repo-snapshot.md`.
 
-Baseline review was kept separate from implementation status. Prior audit artifacts and prep files were used only for workflow shape; findings above are from current repository code.
+Selective current-code review covered:
+
+- Server composition, auth, RBAC, tenant helpers, metrics mounting, OpenAI-compatible auth, and core route mounting under `packages/server/src`.
+- API-key persistence and management routes.
+- Run creation, queued execution, input guard wiring, tool resolution, MCP routes, and MCP client execution.
+- Codegen workspace and Git tool execution boundaries.
+- Connector HTTP request behavior and dependency/security CI markers.
+
+Excluded generated output, dependency folders, coverage, `out`, and old audit artifacts. No runtime validation or dependency audit command was run for this document.
 
 ## Strengths
 
-- API keys are generated with 32 random bytes, stored only as SHA-256 hashes, and raw keys are returned only on issuance paths rather than list/get responses.
-- OpenAI-compatible `/v1/*` auth is secure by default: omitted auth config rejects requests unless `enabled: false` is explicit.
-- Main `/api/runs` create/list/get/cancel paths already stamp owner and tenant metadata and enforce scoped reads for the handlers in `routes/runs.ts`.
-- MCP stdio registration has a POST-time executable allowlist, and child-process environment overrides block dangerous variables such as `NODE_OPTIONS`, `LD_PRELOAD`, and `PATH`.
-- Docker sandbox defaults are reasonably defensive for validation mode: no network, read-only container, no-new-privileges, memory/CPU limits, and path traversal checks for uploaded/downloaded files.
-- Qdrant shared-collection retrieval appends a `tenantId` filter when a tenant is supplied or configured by default.
-- The current checkout only exposed a template `.env.example` under `packages/create-dzupagent/node`; no concrete `.env` secret file was found during this static review.
+- OpenAI-compatible `/v1/*` auth is fail-closed unless explicitly disabled.
+- MCP management responses redact `env` and sensitive headers before returning server definitions.
+- MCP stdio registration through the management route is allowlist-gated.
+- The queued run worker applies an input guard by default and persists redacted input when PII redaction fires.
+- API keys are generated with `randomBytes(32)` and only SHA-256 hashes are stored.
+- Dependency audit, secret scanning, and SAST jobs are present in `.github/workflows/security.yml`.
+- `DiskWorkspaceFS` already has a root-confinement pattern that can be reused for `LocalWorkspace`.
 
 ## Open Questions Or Assumptions
 
-- I did not run server tests, browser tests, or dependency advisory commands for this audit, so all findings are static code-review findings.
-- It is unclear whether production hosts always configure `auth.mode = 'api-key'`, `apiKeyStore`, and default RBAC. If any production host sets `auth` absent, `auth.mode = 'none'`, or `rbac = false`, several route risks become materially higher.
-- The intended tenancy model for memory services and A2A task stores is not fully documented in the reviewed code. Findings assume shared services may be used in multi-tenant deployments.
-- Some protections may exist at an API gateway, reverse proxy, or deployment layer; they were not visible in repository code and were not treated as current-code mitigations.
+- I treated `ForgeServerConfig.auth` as enabled for production deployments, but the framework still allows auth omission or `mode: 'none'` for hosts.
+- I did not verify deployed ingress, reverse proxy, network policy, or whether `/metrics` is externally reachable in any environment.
+- I did not run `yarn audit`; dependency risk was reviewed only from scripts and CI posture, not current advisory output.
+- The tool-execution findings assume untrusted or lower-privilege users can create runs for agents with HTTP/Git/MCP-capable tools. If consuming apps enforce stricter app-level policy before run creation, exploitability is reduced but the framework primitive remains unsafe by default.
 
 ## Recommended Next Actions
 
-1. Fix `SEC-01` and add cross-owner API key revoke/rotate denial tests. This is the cleanest immediate privilege-boundary bug.
-2. Create a shared run-scope guard and apply it to every `/api/runs/:id/*` route, then add cross-tenant tests for context, token-report, messages, approvals, and enrichment endpoints.
-3. Close the MCP PATCH allowlist bypass and add MCP response redaction in the same package-scoped security pass.
-4. Force authenticated tenant scope into memory and A2A routes or document and enforce single-tenant-only deployment constraints.
-5. Add a repeatable dependency advisory gate and record its output separately from this static baseline audit.
+1. Fix `SECURITY-001` first with scoped API-key store methods and route tests for cross-owner/cross-tenant revoke and rotate.
+2. Replace route-prefix inference RBAC with an explicit authorization matrix for every mounted `/api/*` and `/v1/*` surface.
+3. Lock down tool configuration: move credentials and target origins out of run metadata, add SSRF host/IP controls, and require trusted workspace roots for Git tools.
+4. Apply `DiskWorkspaceFS` path confinement semantics to `LocalWorkspace` and add traversal tests for read, write, edit, search, and command cwd.
+5. Add app-level protection for `/metrics` so production safety does not rely only on external ingress configuration.
+6. Run and capture `yarn audit --level moderate` or the CI security workflow separately before synthesizing dependency status.
+
+## Finding Manifest
+
+```json
+{
+  "domain": "security",
+  "counts": { "critical": 0, "high": 5, "medium": 2, "low": 0, "info": 0 },
+  "findings": [
+    { "id": "SECURITY-001", "severity": "high", "title": "API key revoke and rotate endpoints are not owner- or tenant-scoped", "file": "packages/server/src/routes/api-keys.ts" },
+    { "id": "SECURITY-002", "severity": "high", "title": "RBAC only protects a small route vocabulary and lets many authenticated API routes pass through unclassified", "file": "packages/server/src/middleware/rbac.ts" },
+    { "id": "SECURITY-003", "severity": "high", "title": "Metadata-controlled HTTP tool base URL enables SSRF when the HTTP connector is enabled", "file": "packages/server/src/runtime/tool-resolver.ts" },
+    { "id": "SECURITY-004", "severity": "high", "title": "Metadata-controlled Git working directory can expose or mutate arbitrary local repositories", "file": "packages/server/src/runtime/tool-resolver.ts" },
+    { "id": "SECURITY-005", "severity": "high", "title": "LocalWorkspace allows absolute paths and traversal for workspace-backed file tools", "file": "packages/codegen/src/workspace/local-workspace.ts" },
+    { "id": "SECURITY-006", "severity": "medium", "title": "Prometheus metrics are mounted without app-level authentication", "file": "packages/server/src/composition/optional-routes.ts" },
+    { "id": "SECURITY-007", "severity": "medium", "title": "HTTP and MCP tool credentials can be supplied through run metadata", "file": "packages/server/src/runtime/tool-resolver.ts" }
+  ]
+}
+```
