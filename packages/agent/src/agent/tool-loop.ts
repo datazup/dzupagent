@@ -818,6 +818,85 @@ function emitToolError(
   }
 }
 
+/**
+ * Best-effort parse of a tool's raw result into a plain object.
+ * Returns `null` when the value is not (or cannot be coerced into) an
+ * object record. Never throws.
+ */
+function coerceResultToRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed.startsWith('{')) return null
+    try {
+      const parsed = JSON.parse(trimmed) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>
+      }
+    } catch {
+      // Non-JSON tool result — that is fine, just not a checkpoint shape.
+    }
+  }
+  return null
+}
+
+/**
+ * Recognise checkpoint/restore shapes in a tool result and emit the
+ * corresponding canonical event on the configured event bus.
+ *
+ * Two shapes are detected:
+ *  - `{ checkpointed: true, label, nodeId?, checkpointAt? }` ⇒ `checkpoint:created`
+ *  - `{ restored: true | false, label, reason? }`            ⇒ `checkpoint:restored`
+ *
+ * Side-effect-only — never throws. Failures (no event bus, no runId,
+ * malformed payload) are silently ignored to keep the tool loop resilient.
+ */
+function maybeEmitCheckpointEvent(
+  config: ToolLoopConfig,
+  toolName: string,
+  rawResult: unknown,
+): void {
+  if (!config.eventBus || !config.runId) return
+  const record = coerceResultToRecord(rawResult)
+  if (!record) return
+
+  try {
+    if (record['checkpointed'] === true && typeof record['label'] === 'string') {
+      const nodeIdValue = record['nodeId']
+      const checkpointAtValue = record['checkpointAt']
+      const nodeId = typeof nodeIdValue === 'string' ? nodeIdValue : toolName
+      const checkpointAt =
+        typeof checkpointAtValue === 'string' ? checkpointAtValue : new Date().toISOString()
+      config.eventBus.emit({
+        type: 'checkpoint:created',
+        runId: config.runId,
+        nodeId,
+        label: record['label'],
+        checkpointAt,
+      } as never)
+      return
+    }
+
+    if (
+      typeof record['restored'] === 'boolean'
+      && typeof record['label'] === 'string'
+    ) {
+      const reasonValue = record['reason']
+      config.eventBus.emit({
+        type: 'checkpoint:restored',
+        runId: config.runId,
+        checkpointLabel: record['label'],
+        restored: record['restored'] as boolean,
+        ...(typeof reasonValue === 'string' ? { reason: reasonValue } : {}),
+      } as never)
+    }
+  } catch {
+    // Telemetry must never abort the tool loop.
+  }
+}
+
 // ---------- Internal tool execution helpers ----------
 
 /** Result of executing a single tool call. */
@@ -1185,6 +1264,13 @@ async function executeSingleToolCall(
       inputMetadataKeys: validatedKeys,
       output: resultStr,
     })
+    // Surface checkpoint/restore semantics from flow-runtime tools to the
+    // event bus. Tool results carrying `{ checkpointed: true, label }` or
+    // `{ restored: <bool>, label }` are translated into canonical
+    // `checkpoint:created` / `checkpoint:restored` events. The raw result is
+    // preferred over the (possibly transformed) string so we still recognise
+    // structured payloads when `transformToolResult` returns a JSON string.
+    maybeEmitCheckpointEvent(config, toolName, result ?? resultStr)
     if (span) {
       try {
         span.setAttribute('durationMs', Date.now() - startMs)

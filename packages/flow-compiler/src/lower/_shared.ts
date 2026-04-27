@@ -223,6 +223,8 @@ export function lowerNodeToPipeline(
     case 'classify':
     case 'emit':
     case 'memory':
+    case 'checkpoint':
+    case 'restore':
       // These nodes are runtime-executed and not lowered to graph edges.
       return { nodes: [], edges: [], warnings: [] }
 

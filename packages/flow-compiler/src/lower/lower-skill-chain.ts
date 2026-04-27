@@ -147,7 +147,9 @@ function walkNode(
 
     case 'spawn':
     case 'classify':
-    case 'emit': {
+    case 'emit':
+    case 'checkpoint':
+    case 'restore': {
       // Runtime-executed nodes — no skill-chain step emitted; silently pass through.
       return
     }
