@@ -96,12 +96,6 @@
         "lines": 90
       }
     },
-    "playground": {
-      "waiver": {
-        "reason": "Frontend app coverage is still being baselined during the staged rollout.",
-        "until": "2026-06-30"
-      }
-    },
     "rag": {
       "thresholds": {
         "statements": 90,
