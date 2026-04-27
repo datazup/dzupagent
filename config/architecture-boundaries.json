@@ -22,7 +22,7 @@
     },
     {
       "importer": "server",
-      "forbidden": ["playground", "create-dzupagent", "testing", "test-utils"]
+      "forbidden": ["create-dzupagent", "testing", "test-utils"]
     }
   ],
   "appWorkspaces": [
@@ -147,7 +147,6 @@
         "packages": [
           "testing",
           "test-utils",
-          "playground",
           "create-dzupagent"
         ]
       }
