@@ -11,7 +11,7 @@
  */
 import { Hono } from 'hono'
 import { EnrichmentPipeline } from '@dzupagent/agent-adapters'
-import type { ForgeServerConfig } from '../app.js'
+import type { ForgeServerConfig } from '../composition/types.js'
 import type { AppEnv } from '../types.js'
 import { requireOwnedRun } from './run-guard.js'
 

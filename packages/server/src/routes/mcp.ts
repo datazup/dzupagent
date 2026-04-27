@@ -17,7 +17,7 @@
  */
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
-import type { ForgeServerConfig } from '../app.js'
+import type { ForgeServerConfig } from '../composition/types.js'
 import { sanitizeError } from './route-error.js'
 import { McpServerSchema, validateBodyCompat } from './schemas.js'
 import type {

@@ -6,7 +6,7 @@
  * GET /api/health/metrics — Metrics endpoint (JSON format)
  */
 import { Hono } from 'hono'
-import type { ForgeServerConfig } from '../app.js'
+import type { ForgeServerConfig } from '../composition/types.js'
 
 const startTime = Date.now()
 

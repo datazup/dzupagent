@@ -6,7 +6,7 @@
  * Each category contains individual checks that produce pass/warn/fail/skip
  * results. The overall score is a weighted average.
  */
-import type { ForgeServerConfig } from '../app.js'
+import type { ForgeServerConfig } from '../composition/types.js'
 import {
   collectScorecardProbes,
   type ScorecardProbeCollectionOptions,

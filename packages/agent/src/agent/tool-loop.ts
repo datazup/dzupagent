@@ -132,6 +132,52 @@ export interface ToolLoopConfig {
   onStuck?: (toolName: string, stage: number) => void
 
   /**
+   * Optional checkpoint-aware recovery hook (opt-in). When provided, the
+   * tool loop will invoke it BEFORE escalating to stage 2 (nudge) on a
+   * stuck detection. The hook should attempt to restore the most recent
+   * checkpoint relevant to the run and return a result describing the
+   * outcome:
+   *   - `{ restored: true, ... }` — recovery succeeded; the loop swallows
+   *     the stuck event (resets stage), optionally appends the returned
+   *     `nudge` message, and continues the next iteration. The expectation
+   *     is that the run state has been rolled back externally so the next
+   *     LLM turn sees a sane snapshot.
+   *   - `{ restored: false }` or `null`/`undefined` — recovery was not
+   *     possible; the loop falls through to normal stage 2 behavior
+   *     (nudge message) and, on the next stuck event, stage 3 (abort).
+   *
+   * Errors thrown from this hook are caught and treated as
+   * `{ restored: false }` so a failing recovery never escalates the
+   * problem.
+   *
+   * Rationale: agents that maintain section checkpoints (e.g. via the
+   * Codev flow-runtime `checkpoint` node) can self-heal from common
+   * loops without escalating to human approval. Agents without this
+   * capability simply omit the hook and fall back to the existing
+   * 3-stage policy.
+   */
+  recoverFromCheckpoint?: (info: {
+    toolName: string
+    reason: string
+  }) => Promise<{
+    restored: boolean
+    /** Optional message to append to history when `restored === true`. */
+    nudge?: SystemMessage
+    /** Opaque id of the checkpoint that was used; surfaced via `onCheckpointRecovered`. */
+    checkpointId?: string
+  } | null | undefined>
+
+  /**
+   * Called when {@link recoverFromCheckpoint} restores the run successfully.
+   * Useful for emitting a `run:checkpoint-recovered` telemetry event.
+   */
+  onCheckpointRecovered?: (info: {
+    toolName: string
+    reason: string
+    checkpointId?: string
+  }) => void
+
+  /**
    * Check after each LLM turn — halt if token budget exhausted.
    *
    * Typically wired to {@link AgentLoopPlugin.shouldHalt} from the token
@@ -540,10 +586,40 @@ export async function runToolLoop(
         config.onStuck?.(r.stuckToolName, stuckStage)
 
         if (stuckStage === 2) {
-          // Stage 2: inject a nudge system message
-          allMessages.push(new SystemMessage(
-            'You appear to be stuck repeating the same tool call. Try a different approach or provide your final answer.',
-          ))
+          // Stage 2: try checkpoint-aware recovery first (opt-in via
+          // `recoverFromCheckpoint`). If it restores successfully, swallow
+          // the stuck event, reset the staging counter, and continue.
+          // Otherwise fall through to the standard nudge.
+          let recovered = false
+          if (config.recoverFromCheckpoint) {
+            try {
+              const result = await config.recoverFromCheckpoint({
+                toolName: r.stuckToolName,
+                reason: r.stuckReason ?? 'stuck',
+              })
+              if (result?.restored) {
+                recovered = true
+                if (result.nudge) {
+                  allMessages.push(result.nudge)
+                }
+                config.onCheckpointRecovered?.({
+                  toolName: r.stuckToolName,
+                  reason: r.stuckReason ?? 'stuck',
+                  ...(result.checkpointId !== undefined ? { checkpointId: result.checkpointId } : {}),
+                })
+                // Reset staging — next stuck event re-enters at stage 1.
+                stuckStage = 0
+              }
+            } catch {
+              // Recovery hook failures are swallowed — recovery is
+              // best-effort and must never escalate the problem.
+            }
+          }
+          if (!recovered) {
+            allMessages.push(new SystemMessage(
+              'You appear to be stuck repeating the same tool call. Try a different approach or provide your final answer.',
+            ))
+          }
         }
         if (stuckStage >= 3) {
           // Stage 3: abort the loop

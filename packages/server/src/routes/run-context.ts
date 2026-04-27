@@ -29,7 +29,7 @@
  * so callers can poll without branching on 404s.
  */
 import { Hono } from 'hono'
-import type { ForgeServerConfig } from '../app.js'
+import type { ForgeServerConfig } from '../composition/types.js'
 import type { LogEntry } from '@dzupagent/core'
 import type { CompressionLogEntry } from '@dzupagent/agent'
 import { requireOwnedRun } from './run-guard.js'

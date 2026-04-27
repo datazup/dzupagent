@@ -5,7 +5,7 @@
  * POST /api/runs/:id/reject  — Reject a pending run with reason
  */
 import { Hono } from 'hono'
-import type { ForgeServerConfig } from '../app.js'
+import type { ForgeServerConfig } from '../composition/types.js'
 import { requireOwnedRun } from './run-guard.js'
 
 export function createApprovalRoutes(config: ForgeServerConfig): Hono {

@@ -456,4 +456,27 @@ export const emptyEventMetricMap = {
       },
     ),
   ],
+  // --- Checkpoint / Restore ---
+  'checkpoint:created': [
+    counter(
+      'dzip_checkpoints_created_total',
+      'Total checkpoints captured during DSL flow execution',
+      ['run_id'],
+      (e) => {
+        const ev = asEvent<'checkpoint:created'>(e)
+        return { value: 1, labels: { run_id: ev.runId } }
+      },
+    ),
+  ],
+  'checkpoint:restored': [
+    counter(
+      'dzip_checkpoints_restored_total',
+      'Total checkpoint restore attempts (including misses)',
+      ['run_id', 'restored'],
+      (e) => {
+        const ev = asEvent<'checkpoint:restored'>(e)
+        return { value: 1, labels: { run_id: ev.runId, restored: String(ev.restored) } }
+      },
+    ),
+  ],
 } satisfies MetricMapFragment

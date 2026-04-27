@@ -5,7 +5,7 @@
  * configuration. Supports console, JSON, and markdown output formats.
  */
 import { writeFileSync } from 'node:fs'
-import type { ForgeServerConfig } from '../app.js'
+import type { ForgeServerConfig } from '../composition/types.js'
 import { IntegrationScorecard, type ScorecardProbeInput, type ScorecardReport } from '../scorecard/integration-scorecard.js'
 import { ScorecardReporter, type ScorecardFormat } from '../scorecard/scorecard-reporter.js'
 

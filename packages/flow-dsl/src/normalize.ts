@@ -2,6 +2,7 @@ import type {
   ActionNode,
   ApprovalNode,
   BranchNode,
+  CheckpointNode,
   ClarificationNode,
   CompleteNode,
   FlowDocumentV1,
@@ -12,6 +13,7 @@ import type {
   ForEachNode,
   ParallelNode,
   PersonaNode,
+  RestoreNode,
   RouteNode,
   SequenceNode,
 } from '@dzupagent/flow-ast'
@@ -97,6 +99,18 @@ const ROUTE_KEYS = new Set<string>([
 const COMPLETE_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
   'result',
+])
+
+const CHECKPOINT_KEYS = new Set<string>([
+  ...COMMON_NODE_KEYS,
+  'captureOutputOf',
+  'label',
+])
+
+const RESTORE_KEYS = new Set<string>([
+  ...COMMON_NODE_KEYS,
+  'checkpointLabel',
+  'onNotFound',
 ])
 
 const DEFAULT_KEYS = new Set<string>([
@@ -261,6 +275,10 @@ function normalizeNodeWrapper(
       return normalizeRoute(value, path, diagnostics)
     case 'complete':
       return normalizeComplete(value, path, diagnostics)
+    case 'checkpoint':
+      return normalizeCheckpoint(value, path, diagnostics)
+    case 'restore':
+      return normalizeRestore(value, path, diagnostics)
     default:
       diagnostics.push({
         phase: 'normalize',
@@ -617,6 +635,71 @@ function normalizeComplete(
         path: `${path}.result`,
       })
     }
+  }
+  return node
+}
+
+function normalizeCheckpoint(
+  raw: Record<string, unknown>,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): CheckpointNode {
+  reportUnsupportedFields(raw, CHECKPOINT_KEYS, path, diagnostics)
+  const base = normalizeCommonNodeFields(raw, path, diagnostics)
+  const node: CheckpointNode = {
+    type: 'checkpoint',
+    ...base,
+    captureOutputOf: typeof raw.captureOutputOf === 'string' ? raw.captureOutputOf : '',
+  }
+  if (typeof raw.label === 'string') node.label = raw.label
+  else if (raw.label !== undefined) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'checkpoint.label must be a string',
+      path: `${path}.label`,
+    })
+  }
+  if (node.captureOutputOf.length === 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'checkpoint.captureOutputOf is required',
+      path: `${path}.captureOutputOf`,
+    })
+  }
+  return node
+}
+
+function normalizeRestore(
+  raw: Record<string, unknown>,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): RestoreNode {
+  reportUnsupportedFields(raw, RESTORE_KEYS, path, diagnostics)
+  const base = normalizeCommonNodeFields(raw, path, diagnostics)
+  const node: RestoreNode = {
+    type: 'restore',
+    ...base,
+    checkpointLabel: typeof raw.checkpointLabel === 'string' ? raw.checkpointLabel : '',
+  }
+  if (raw.onNotFound === 'fail' || raw.onNotFound === 'skip') {
+    node.onNotFound = raw.onNotFound
+  } else if (raw.onNotFound !== undefined) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_ENUM_VALUE,
+      message: 'restore.onNotFound must be "fail" or "skip"',
+      path: `${path}.onNotFound`,
+    })
+  }
+  if (node.checkpointLabel.length === 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'restore.checkpointLabel is required',
+      path: `${path}.checkpointLabel`,
+    })
   }
   return node
 }
