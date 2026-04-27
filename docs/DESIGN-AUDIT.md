@@ -1,99 +1,130 @@
 ## Findings
 
-### Medium - Design tokens and theming are local to the playground instead of a shared design-system contract
+### DESIGN-001 - High - Playground UI components are documented as consumable, but they are not packaged as a usable design-system surface
 
-**Impact:** The only live design-token layer is embedded in `@dzupagent/playground`, so other DzupAgent packages and adjacent apps cannot consume the same color, radius, spacing, or component decisions through a package boundary. This makes cross-app consistency depend on copy/paste rather than a versioned contract.
+Impact: Consumers are pointed at Vue SFC imports that the published package does not expose or build. That blocks reliable component adoption across apps and encourages downstream products to copy the trace UI or recreate local controls instead of sharing a single design-system primitive set.
 
-**Evidence:**
-- `packages/playground/src/assets/main.css:8` defines the `@theme` token set directly in the app stylesheet, including `--color-pg-*`, `--spacing-pg-sidebar`, and `--radius-pg*`.
-- `packages/playground/src/main.ts:11` imports that local stylesheet directly as the app entry styling boundary.
-- `packages/playground/package.json:16` lists only `pinia`, `vue`, and `vue-router` as runtime dependencies; there is no shared `@dzup-ui`, token, theme, or component package dependency.
-- `packages/playground/vite.config.ts:7` wires Tailwind through the app-local Vite config, with no shared preset or design-system package import.
+Evidence:
+- `packages/agent/src/playground/ui/index.ts:8` documents direct imports such as `@dzupagent/agent/playground/ui/TraceTimeline.vue`.
+- `packages/agent/package.json:7` exposes only the package root `"."`; there is no `./playground/ui/*` subpath export for the documented component imports.
+- `packages/agent/tsup.config.ts:4` builds only `src/index.ts`, so the `.vue` files under `packages/agent/src/playground/ui` are not part of the package entry graph.
+- `packages/agent/package.json:21` through `packages/agent/package.json:42` lists runtime/dev dependencies, but there is no `vue`, Vue plugin, Tailwind, or shared UI/token package dependency even though the SFCs import Vue and use Tailwind classes.
+- `packages/playground/docs/ARCHITECTURE.md:6` through `packages/playground/docs/ARCHITECTURE.md:8` states that `packages/playground` is absent as a real workspace package, leaving no dedicated UI package to own these components.
 
-**Remediation:** Promote the playground token set into a shared package or documented preset, for example `@dzupagent/design-tokens` or an adopted workspace UI package. Keep `packages/playground/src/assets/main.css` as the app integration layer, but import canonical tokens/components from the shared boundary. Add a package-level check that prevents new app-local semantic color tokens without an explicit design-system review.
+Remediation: Decide whether these components are maintenance-only examples or a real shared UI surface. If they are shared, create an explicit package or subpath export with Vue/Tailwind/theme peer requirements, build coverage for `.vue` files, and import examples that resolve from the published artifact. If they are maintenance-only, remove public import guidance and route product UI work to the consuming app boundary.
 
-### Medium - Status, category, and alert colors bypass semantic playground tokens in several views
+### DESIGN-002 - High - There is no repository-level token or theme contract for cross-app consistency
 
-**Impact:** Status badges and category chips use Tailwind palette primitives such as `green`, `blue`, `red`, `yellow`, `purple`, `cyan`, and `rose` alongside `pg-*` semantic tokens. These values will not track the playground theme consistently, especially in dark mode, and tests currently lock some non-token palette classes in place.
+Impact: The repository currently has no canonical design-token package, Tailwind preset, CSS variable contract, or adopted shared UI dependency. Visual decisions in framework UI files therefore live as local utility classes, making Codev/app integration depend on manual class alignment instead of a versioned theme boundary.
 
-**Evidence:**
-- `packages/playground/src/views/RunHistoryBrowser.vue:35` maps run statuses to `bg-gray-200`, `bg-blue-100`, `bg-green-100`, `bg-red-100`, and `bg-yellow-100` instead of `bg-pg-*` semantic status tokens.
-- `packages/playground/src/views/EvalDashboard.vue:64` repeats a similar non-token status map for eval runs.
-- `packages/playground/src/views/CapabilityMatrixView.vue:76` uses `bg-green-500/20`, `bg-yellow-500/20`, and `bg-red-500/20`; the same file uses `bg-red-500/10` for errors at `packages/playground/src/views/CapabilityMatrixView.vue:152` and `bg-yellow-500/5` for warnings at `packages/playground/src/views/CapabilityMatrixView.vue:224`.
-- `packages/playground/src/components/marketplace/AgentCard.vue:28` maps categories to raw palette classes such as `bg-purple-500/10`, `bg-amber-500/10`, and `bg-rose-500/10`.
-- `packages/playground/src/__tests__/run-history-browser.test.ts:168` asserts the raw `bg-green-100`, `bg-blue-100`, `bg-red-100`, and `bg-gray-200` classes, making the drift part of the regression contract.
-- `packages/playground/src/__tests__/capability-matrix-view.test.ts:193` asserts `bg-green-500/20` and `text-green-400`, with similar assertions for yellow and red at `packages/playground/src/__tests__/capability-matrix-view.test.ts:209` and `packages/playground/src/__tests__/capability-matrix-view.test.ts:225`.
+Evidence:
+- `package.json:7` through `package.json:9` limits workspaces to `packages/*`; the bounded snapshot and current file list show no active `packages/design-*`, `packages/ui`, or `packages/theme` source package in this repo.
+- A package manifest search found no `vue`, `tailwindcss`, `@dzup-ui/core`, `@dzup-ui/tokens`, `@datazup/vue-ui`, or `@datazup/dzup-theme` dependency in `package.json` or `packages/*/package.json`.
+- `packages/agent/src/playground/ui/TraceTimeline.vue:63` through `packages/agent/src/playground/ui/TraceTimeline.vue:90` hard-code status colors as Tailwind palette classes rather than semantic tokens.
+- `packages/agent/src/playground/ui/TraceSummary.vue:93` through `packages/agent/src/playground/ui/TraceSummary.vue:132` hand-codes card surfaces with `border-gray-*`, `bg-white`, `dark:bg-gray-900`, and text palette utilities instead of a shared surface token.
+- `AGENTS.md:8` through `AGENTS.md:15` explicitly says new product capabilities should be productized in consuming apps, which makes a reusable framework token contract important when framework examples still expose UI pieces.
 
-**Remediation:** Centralize visual status/category mapping behind semantic helpers or components such as `statusBadgeClass`, `capabilityBadgeClass`, and `categoryBadgeClass` that return `pg-*` token classes. Replace raw palette assertions with semantic expectations. Add tokens for any missing distinct semantic roles before adding more palette families.
+Remediation: Add a narrow design-system boundary before expanding UI reuse: either adopt the workspace UI/token packages as dependencies for any real app-facing UI, or create a small DzupAgent theme contract that exports semantic CSS variables and Tailwind preset names for surfaces, text, borders, status, focus, and density. Keep product-specific screens outside `packages/server` and `packages/playground`, but make reusable primitives consume the shared contract.
 
-### Medium - Plain controls are hand-styled across the app instead of consistently using shared control primitives
+### DESIGN-003 - Medium - Status and alert visuals use raw palette utilities instead of semantic status tokens
 
-**Impact:** Buttons, inputs, selects, tabs, filters, pagination controls, and badges are repeatedly hand-composed from Tailwind classes. This increases UI drift and makes focus, disabled, hover, sizing, density, and accessibility behavior hard to keep consistent.
+Impact: Trace status, error, recovery, and bottleneck visuals are encoded directly as red/emerald/yellow/orange/gray utility classes. If the consuming app changes brand, contrast targets, severity colors, or dark-mode palette, these components will not update coherently.
 
-**Evidence:**
-- `packages/playground/src/assets/main.css:110` defines `pg-input`, `packages/playground/src/assets/main.css:126` defines `pg-btn-accent`, and `packages/playground/src/assets/main.css:138` defines `pg-badge`, but these utilities cover only a narrow subset of controls.
-- A static source scan found 117 raw `<button>`, `<input>`, `<select>`, and `<textarea>` entries in `packages/playground/src`, while only 30 class uses reference `pg-input`, `pg-btn-accent`, or `pg-badge`.
-- `packages/playground/src/components/TraceTimeline.vue:197` through `packages/playground/src/components/TraceTimeline.vue:237` hand-style replay buttons and the playback-speed select individually.
-- `packages/playground/src/views/RunHistoryBrowser.vue:119` hand-builds a segmented status filter, and `packages/playground/src/views/RunHistoryBrowser.vue:285` hand-styles pagination buttons.
-- `packages/playground/src/views/CapabilityMatrixView.vue:117` through `packages/playground/src/views/CapabilityMatrixView.vue:134` hand-style an input, primary button, and secondary button instead of using `pg-input` / button primitives.
-- `packages/playground/src/components/inspector/InspectorPanel.vue:46` hand-builds tabs with per-callsite border/background classes.
+Evidence:
+- `packages/agent/src/playground/ui/TraceTimeline.vue:63` through `packages/agent/src/playground/ui/TraceTimeline.vue:90` maps status to `bg-red-500`, `bg-emerald-500`, `bg-yellow-500`, and `bg-gray-400`.
+- `packages/agent/src/playground/ui/TraceTimeline.vue:150` through `packages/agent/src/playground/ui/TraceTimeline.vue:151` hard-code selected and hover states with `border-blue-*`, `bg-blue-*`, and gray dark-mode utilities.
+- `packages/agent/src/playground/ui/TraceSummary.vue:140` through `packages/agent/src/playground/ui/TraceSummary.vue:156` repeats red/yellow alert treatment directly in component markup.
+- `packages/agent/src/playground/ui/TraceSummary.vue:179` through `packages/agent/src/playground/ui/TraceSummary.vue:183` uses `bg-orange-500` for bottleneck bars, introducing another status color outside a semantic mapping.
+- `packages/agent/src/playground/ui/TraceNodeDetail.vue:33` through `packages/agent/src/playground/ui/TraceNodeDetail.vue:45` defines the same red/emerald/yellow/gray status palette again for badges.
 
-**Remediation:** Add small shared Vue primitives or utilities for `BaseButton`, `IconButton`, `TextInput`, `SelectInput`, `Badge`, `Tabs`, `SegmentedControl`, and `PaginationButton`. Migrate the high-reuse surfaces first: inspector tabs, run status filters, replay controls, primary/secondary buttons, and status badges. Keep tests focused on behavior and semantic variant names rather than exact utility-class strings.
+Remediation: Introduce a small semantic status map, for example `statusToneClasses(status)` or design-token-backed variants for `success`, `danger`, `warning`, `neutral`, `selected`, and `performanceHotspot`. Use that helper across trace timeline, summary, state inspector, and node detail views. Tests should assert semantic status output or variant names rather than exact raw palette utilities.
 
-### Low - Theme integration is tied only to OS preference and lacks an explicit app/theme boundary
+### DESIGN-004 - Medium - Plain controls and display primitives are hand-built instead of shared components
 
-**Impact:** The playground can react to `prefers-color-scheme`, but it cannot participate in an explicit workspace theme, user preference, tenant theme, or cross-app theme handoff. This limits consistency if DzupAgent surfaces are embedded into another app or need deterministic screenshots.
+Impact: The trace UI repeats ad hoc cards, badges, rows, tables, disclosure controls, and progress bars. Without shared primitives, sizing, focus, spacing, density, and dark-mode behavior can drift between DzupAgent examples and product apps that embed or reimplement these screens.
 
-**Evidence:**
-- `packages/playground/src/assets/main.css:47` defines dark-mode overrides only inside `@media (prefers-color-scheme: dark)`.
-- No `data-theme`, theme store, theme provider, or root theme class was found in `packages/playground/src` or `packages/playground/package.json` during static inspection.
-- `packages/playground/src/assets/main.css:69` applies body-level theme styles globally rather than through an app root theme scope.
+Evidence:
+- `packages/agent/src/playground/ui/TraceSummary.vue:91` through `packages/agent/src/playground/ui/TraceSummary.vue:132` defines repeated stat cards inline rather than using a shared `StatCard` or surface primitive.
+- `packages/agent/src/playground/ui/TraceSummary.vue:197` through `packages/agent/src/playground/ui/TraceSummary.vue:223` hand-builds a styled table with raw utility classes.
+- `packages/agent/src/playground/ui/TraceStateInspector.vue:192` through `packages/agent/src/playground/ui/TraceStateInspector.vue:219` uses a clickable `div` with `role="button"` and bespoke badge styles for disclosure rows instead of a reusable disclosure/list-row primitive.
+- `packages/agent/src/playground/ui/TraceNodeDetail.vue:85` through `packages/agent/src/playground/ui/TraceNodeDetail.vue:200` combines card, status badge, metric grid, alert, and code block styling in one component.
+- `packages/agent/src/playground/ui/index.ts:31` through `packages/agent/src/playground/ui/index.ts:45` exports only utility functions; no shared visual primitives are available from the UI module.
 
-**Remediation:** Add an explicit theme boundary, such as `[data-theme="light"]` and `[data-theme="dark"]` token overrides on the app root, with OS preference as the default resolver. Expose a small theme API/store so embedded consumers and tests can set the active theme deterministically.
+Remediation: If this UI remains in framework code, add minimal primitives for `Surface`, `StatusBadge`, `MetricCard`, `ProgressBar`, `DisclosureRow`, and `CodeBlock`, then migrate the four trace SFCs through those primitives. If the design system lives in a consuming app, replace these SFCs with headless presenter data and let the app render with its own component library.
 
-### Low - Arbitrary visual values still appear in component markup despite existing radius and text tokens
+### DESIGN-005 - Medium - Theme integration is local class-level dark mode, not an explicit theme boundary
 
-**Impact:** The app has `--radius-pg`, `--radius-pg-sm`, and `--radius-pg-lg`, but many callsites still use arbitrary radii, text sizes, and letter-spacing values. This creates small but visible inconsistencies and makes future token tuning incomplete.
+Impact: Components can follow Tailwind `dark:` classes, but there is no exported theme provider, root `data-theme` contract, token override hook, or deterministic theme API. Embedded consumers and screenshot tests cannot reliably force or inherit a workspace theme from the framework surface.
 
-**Evidence:**
-- `packages/playground/src/assets/main.css:42` defines radius tokens, but `packages/playground/src/App.vue:235` and `packages/playground/src/App.vue:255` use `rounded-[10px]`.
-- `packages/playground/src/App.vue:269` uses `text-[11px]` and `tracking-[0.08em]`; related compact labels use `text-[10px]` at `packages/playground/src/App.vue:280` and `packages/playground/src/App.vue:293`.
-- `packages/playground/src/views/CapabilityMatrixView.vue:122`, `packages/playground/src/views/CapabilityMatrixView.vue:126`, `packages/playground/src/views/CapabilityMatrixView.vue:134`, and `packages/playground/src/views/CapabilityMatrixView.vue:171` use `rounded-[10px]`.
-- A static source scan found 210 occurrences of arbitrary visual utilities or raw Tailwind palette classes across `packages/playground/src`.
+Evidence:
+- `packages/agent/src/playground/ui/TraceTimeline.vue:150` through `packages/agent/src/playground/ui/TraceTimeline.vue:151` encode dark-mode behavior directly in selected/hover classes.
+- `packages/agent/src/playground/ui/TraceSummary.vue:93` through `packages/agent/src/playground/ui/TraceSummary.vue:132` repeats light/dark surface classes on every stat card.
+- `packages/agent/src/playground/ui/TraceStateInspector.vue:121` through `packages/agent/src/playground/ui/TraceStateInspector.vue:127` returns hard-coded dark variants from local badge logic.
+- `packages/agent/src/playground/ui/TraceNodeDetail.vue:85` and `packages/agent/src/playground/ui/TraceNodeDetail.vue:197` define local dark surfaces instead of consuming a parent theme token.
+- `packages/server/src/routes/playground.ts:60` through `packages/server/src/routes/playground.ts:117` serves static assets only; the server route has no theme negotiation or theme asset contract for hosted playground builds.
 
-**Remediation:** Extend the token layer with named compact text, label, nav-item, control, and badge variants where needed. Replace arbitrary radii with `rounded-pg`, `rounded-pg-sm`, or `rounded-pg-lg`, and reserve arbitrary utilities for one-off layout constraints that cannot be represented by existing tokens.
+Remediation: Define an explicit theme integration contract for any shipped UI: semantic CSS variables scoped under a root class or `data-theme`, documented host responsibilities, and deterministic light/dark selection for tests. Components should consume variables or token-backed utility names rather than encoding every dark variant locally.
+
+```json
+{
+  "domain": "design system",
+  "counts": { "critical": 0, "high": 2, "medium": 3, "low": 0, "info": 0 },
+  "findings": [
+    { "id": "DESIGN-001", "severity": "high", "title": "Playground UI components are documented as consumable, but they are not packaged as a usable design-system surface", "file": "packages/agent/src/playground/ui/index.ts" },
+    { "id": "DESIGN-002", "severity": "high", "title": "There is no repository-level token or theme contract for cross-app consistency", "file": "package.json" },
+    { "id": "DESIGN-003", "severity": "medium", "title": "Status and alert visuals use raw palette utilities instead of semantic status tokens", "file": "packages/agent/src/playground/ui/TraceTimeline.vue" },
+    { "id": "DESIGN-004", "severity": "medium", "title": "Plain controls and display primitives are hand-built instead of shared components", "file": "packages/agent/src/playground/ui/TraceSummary.vue" },
+    { "id": "DESIGN-005", "severity": "medium", "title": "Theme integration is local class-level dark mode, not an explicit theme boundary", "file": "packages/agent/src/playground/ui/TraceNodeDetail.vue" }
+  ]
+}
+```
 
 ## Scope Reviewed
 
-This baseline review covered the current design-system surface in the DzupAgent repository:
+Read first:
+- `/media/ninel/Second/code/datazup/ai-internal-dev/audit/full-dzupagent-2026-04-27/run-001/codex-prep/context/repo-snapshot.md`
 
-- `packages/playground/src/assets/main.css` for Tailwind 4 theme tokens, dark-mode setup, global base styles, and utility classes.
-- `packages/playground/src/main.ts`, `packages/playground/vite.config.ts`, and `packages/playground/package.json` for theme wiring and shared design-system dependency boundaries.
-- Playground Vue views and components under `packages/playground/src/views` and `packages/playground/src/components`, with emphasis on token usage, theming setup, component adoption, hardcoded visual values, and plain control patterns.
-- Relevant playground tests that assert visual classes, especially status and capability badge tests.
+Current-code files selectively reviewed:
+- `package.json`
+- `AGENTS.md`
+- `packages/agent/package.json`
+- `packages/agent/tsup.config.ts`
+- `packages/agent/src/index.ts`
+- `packages/agent/src/playground/ui/index.ts`
+- `packages/agent/src/playground/ui/types.ts`
+- `packages/agent/src/playground/ui/utils.ts`
+- `packages/agent/src/playground/ui/TraceTimeline.vue`
+- `packages/agent/src/playground/ui/TraceSummary.vue`
+- `packages/agent/src/playground/ui/TraceStateInspector.vue`
+- `packages/agent/src/playground/ui/TraceNodeDetail.vue`
+- `packages/agent/src/__tests__/playground-ui-utils.test.ts`
+- `packages/server/src/routes/playground.ts`
+- `packages/server/src/composition/optional-routes.ts`
+- `packages/server/README.md`
+- `README.md`
+- `packages/playground/docs/ARCHITECTURE.md`
 
-No runtime validation, browser rendering, screenshot review, build, lint, or test command was run for this audit. Findings are based on static current-code inspection only. Prior audit artifacts were treated as comparison context, not as implementation status.
+Generated, dependency, coverage, and old-audit artifacts were not used as evidence. No runtime validation, browser rendering, screenshot review, build, lint, typecheck, or test command was run for this audit. Findings are based on static current-code inspection only.
 
 ## Strengths
 
-- The playground has a real token foundation: `packages/playground/src/assets/main.css:8` uses Tailwind 4 `@theme` to register `pg-*` colors, status colors, role backgrounds, sidebar spacing, and radius tokens.
-- Dark-mode values exist for the core surface, text, border, and chat-role tokens at `packages/playground/src/assets/main.css:47`.
-- Base focus styling is centralized through `:focus-visible` at `packages/playground/src/assets/main.css:85`, which is a good accessibility foundation.
-- Some reusable utility classes already exist for common patterns: `pg-scrollbar` at `packages/playground/src/assets/main.css:92`, `pg-surface-glass` at `packages/playground/src/assets/main.css:105`, `pg-input` at `packages/playground/src/assets/main.css:110`, `pg-btn-accent` at `packages/playground/src/assets/main.css:126`, and `pg-badge` at `packages/playground/src/assets/main.css:138`.
-- Several newer views already use semantic `pg-*` status tokens consistently, for example `packages/playground/src/views/EvalsView.vue:32`, `packages/playground/src/views/EvalRunDetailView.vue:23`, and `packages/playground/src/views/BenchmarksView.vue:36`.
+- The repository has a clear product boundary: `AGENTS.md:8` through `AGENTS.md:15` keeps new product UX out of `packages/server` and `packages/playground`, which is the right constraint for framework reuse.
+- Playground hosting is a thin compatibility layer rather than a product UI expansion. `packages/server/src/routes/playground.ts:60` through `packages/server/src/routes/playground.ts:117` only serves static assets and SPA fallback.
+- The trace UI components already include basic accessibility hooks, including list semantics and keyboard activation in `packages/agent/src/playground/ui/TraceTimeline.vue:127` through `packages/agent/src/playground/ui/TraceTimeline.vue:156`, and disclosure keyboard handling in `packages/agent/src/playground/ui/TraceStateInspector.vue:52` through `packages/agent/src/playground/ui/TraceStateInspector.vue:58`.
+- Display logic has started to separate from rendering through `packages/agent/src/playground/ui/utils.ts`, and that helper layer has focused Vitest coverage in `packages/agent/src/__tests__/playground-ui-utils.test.ts`.
+- The decommission note in `packages/playground/docs/ARCHITECTURE.md:3` through `packages/playground/docs/ARCHITECTURE.md:15` truthfully documents that there is no active `packages/playground` package in this checkout.
 
 ## Open Questions Or Assumptions
 
-- This audit assumes `packages/playground` is the only browser UI shipped from this repository. Other UI systems may live in sibling repositories, but they are outside the current repository scope.
-- It is unclear whether the intended shared design-system package should be a DzupAgent-owned package or an adopted sibling UI package. The current repo does not expose a shared UI/token dependency from `@dzupagent/playground`.
-- The current token names use the `pg-*` prefix, which may be appropriate for a playground-only skin but may need a framework-level namespace before becoming a cross-app design-system contract.
-- The audit did not verify actual rendered contrast, dark-mode behavior, or responsive layout in a browser.
+- This audit assumes the design-system domain inside this repo is limited to the active framework UI surfaces and compatibility playground hosting. Sibling workspace UI packages may provide richer design-system infrastructure, but they are outside the audited repository.
+- It is unclear whether the Vue trace components are intended as public consumable UI, internal examples, or abandoned compatibility code. Current docs imply consumption, while package exports/build config do not support it.
+- The audit did not evaluate rendered contrast, responsive behavior, CSS generation, or actual app integration because no runtime/browser validation was run.
+- The preferred cross-app design-system source is not defined in this repo. The remediation can be either adoption of a sibling shared UI package or a narrow DzupAgent-owned token contract.
 
 ## Recommended Next Actions
 
-1. Define the design-system boundary: decide whether to extract the existing `pg-*` tokens into a shared DzupAgent package or adopt an existing workspace UI/token package.
-2. Centralize semantic visual mappings for statuses, capabilities, alerts, and marketplace categories, then update tests to assert semantic variants instead of raw Tailwind palette classes.
-3. Introduce minimal shared control primitives for buttons, inputs, selects, badges, tabs, segmented controls, and pagination controls.
-4. Migrate the highest-reuse callsites first: `RunHistoryBrowser`, `EvalDashboard`, `CapabilityMatrixView`, `TraceTimeline`, `InspectorPanel`, and `AgentCard`.
-5. Add an explicit theme boundary with deterministic light/dark theme selection, while keeping OS preference as the default.
-6. After static cleanup, run `yarn workspace @dzupagent/playground typecheck`, `yarn workspace @dzupagent/playground test`, and a browser/screenshot pass before claiming runtime validation.
+1. Classify `packages/agent/src/playground/ui/*` as either public shared UI or maintenance-only example code, then align exports/docs/build config with that decision.
+2. Define the design-system boundary before adding more UI: shared token/theme package, adopted workspace UI dependency, or headless framework presenters rendered by consuming apps.
+3. Centralize semantic status, surface, text, border, focus, and density tokens; migrate the four trace components away from raw palette utilities.
+4. Add small reusable primitives only if UI remains in the framework package; otherwise move visual composition to the consuming app and keep DzupAgent exports headless.
+5. After design cleanup, run focused validation such as `yarn typecheck --filter=@dzupagent/agent`, `yarn test --filter=@dzupagent/agent`, and a browser/screenshot pass in the consuming app before claiming runtime readiness.
