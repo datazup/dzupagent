@@ -33,6 +33,8 @@ export interface RunSummaryMetrics {
   costMicros: number
   toolCallCount: number
   errorCount: number
+  /** Number of `checkpoint:created` events observed for this run. */
+  checkpointCount: number
 }
 
 /** Per-provider rollup contained in {@link AggregatedMetrics}. */
@@ -92,6 +94,7 @@ export class RunMetricsAggregator {
       costMicros: 0,
       toolCallCount: 0,
       errorCount: 0,
+      checkpointCount: 0,
     })
   }
 
@@ -131,6 +134,19 @@ export class RunMetricsAggregator {
     const row = this.runs.get(runId)
     if (!row) return
     row.toolCallCount += 1
+  }
+
+  /**
+   * Increment the checkpoint counter for a run. The `_label` is accepted
+   * for symmetry with the bus event (and to ease future extension to a
+   * label-set) but is not currently retained on the row.
+   *
+   * No-op if the run is unknown.
+   */
+  recordCheckpoint(runId: string, _label: string): void {
+    const row = this.runs.get(runId)
+    if (!row) return
+    row.checkpointCount += 1
   }
 
   /** Mark a run as paused (e.g. awaiting human approval). */

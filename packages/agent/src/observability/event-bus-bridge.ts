@@ -111,6 +111,12 @@ export function attachRunMetricsBridge(
     }),
   )
 
+  unsubscribers.push(
+    bus.on('checkpoint:created', (e) => {
+      aggregator.recordCheckpoint(e.runId, e.label)
+    }),
+  )
+
   return () => {
     for (const off of unsubscribers) {
       try {

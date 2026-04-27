@@ -47,6 +47,12 @@ export { validateShape } from './stages/shape-validate.js'
 export { semanticResolve } from './stages/semantic.js'
 export type { SemanticOptions, SemanticResult } from './stages/semantic.js'
 export { routeTarget, computeFeatureBitmask, hasOnError, FEATURE_BITS } from './route-target.js'
+export { lowerCheckpointNode, lowerRestoreNode } from './lower/lower-checkpoint.js'
+export type {
+  LoweredNode,
+  LoweredCheckpointNode,
+  LoweredRestoreNode,
+} from './lower/lower-checkpoint.js'
 export { parseFlow } from '@dzupagent/flow-ast'
 export type { ParseInput } from '@dzupagent/flow-ast'
 

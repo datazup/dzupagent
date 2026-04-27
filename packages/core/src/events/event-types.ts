@@ -368,6 +368,23 @@ export type DzupEvent =
       /** Epoch-ms when scoring completed. */
       scoredAt: number
     }
+  // --- Checkpoint / Restore (DSL flow nodes surfaced through agent tool results) ---
+  | {
+      type: 'checkpoint:created'
+      runId: string
+      nodeId: string
+      label: string
+      /** ISO-8601 timestamp the checkpoint was captured at. */
+      checkpointAt: string
+    }
+  | {
+      type: 'checkpoint:restored'
+      runId: string
+      checkpointLabel: string
+      restored: boolean
+      /** Optional reason — populated when `restored:false` (e.g. `checkpoint_not_found`). */
+      reason?: string
+    }
   // --- Mailbox ---
   | { type: 'mail:received'; message: { id: string; from: string; to: string; subject: string; body: Record<string, unknown>; createdAt: number } }
   // --- API Key lifecycle ---
