@@ -1,590 +1,250 @@
 # @dzupagent/evals Architecture
 
-## 1. Purpose and Scope
+## Scope
+`@dzupagent/evals` is the evaluation and conformance package in `dzupagent/packages/evals`.
 
-`@dzupagent/evals` is the evaluation subsystem in DzupAgent for:
+It currently contains:
+- Legacy evaluation APIs (`EvalScorer` style + `runEvalSuite`) kept for compatibility.
+- Enhanced scorer APIs (`Scorer<EvalInput>`), dataset tooling, and concurrent eval runner.
+- Benchmark suites and benchmark comparison/trend utilities.
+- Adapter contract test framework and built-in contract suites.
+- Prompt experiment and prompt optimization workflows.
+- Eval and benchmark orchestrators moved from server (`MC-A02`) and now implemented in this package.
 
-- scoring model/agent outputs
-- running dataset-based evaluations with concurrency controls
-- running benchmark suites with baseline regression checks
-- validating adapter implementations via contract test suites
-- running prompt A/B experiments and iterative prompt optimization loops
+Out of scope for this package:
+- Model/provider implementations.
+- Persistent store implementations (the package consumes store interfaces/contracts).
+- Product-level routing/UI concerns.
 
-The package currently contains two API generations:
+## Responsibilities
+- Define and export evaluation contracts used by evaluators, runners, and orchestrators.
+- Execute dataset-driven scoring with configurable concurrency, abort support, and regression checks.
+- Provide deterministic and LLM-judge scorer implementations, including domain-specific scoring.
+- Provide reusable benchmark suites and result comparison/trend logic.
+- Provide adapter conformance test generation, execution, and reporting.
+- Provide prompt A/B experimentation and iterative prompt optimization over eval outcomes.
+- Orchestrate eval/benchmark run lifecycle via injected run stores and execution targets.
 
-- **Legacy API**: `EvalScorer`, `EvalSuite`, `runEvalSuite`
-- **Enhanced API**: `Scorer<EvalInput>`, `EvalDataset`, `EvalRunner`, benchmark/contract/prompt systems
-
-Both are exported from `src/index.ts` for backward compatibility.
-
----
-
-## 2. High-Level Module Map
-
-```text
-packages/evals/src
-├── types.ts                          # shared legacy + enhanced scorer types
-├── index.ts                          # public exports
-│
-├── deterministic-scorer.ts           # legacy deterministic scorer
-├── llm-judge-scorer.ts               # legacy LLM judge scorer
-├── composite-scorer.ts               # legacy composite scorer
-├── eval-runner.ts                    # legacy suite runner
-│
-├── dataset/
-│   └── eval-dataset.ts               # immutable dataset + JSON/JSONL/CSV loaders
-│
-├── runner/
-│   └── enhanced-runner.ts            # concurrent runner + regression + formatters
-│
-├── scorers/
-│   ├── deterministic-enhanced.ts     # JSON schema / keyword / latency / cost scorers
-│   ├── llm-judge-enhanced.ts         # configurable multi-criteria LLM judge
-│   ├── llm-judge-scorer.ts           # 5-dimension Zod-validated LLM judge
-│   ├── scorer-registry.ts            # registry + built-in scorer factories
-│   ├── domain-scorer.ts              # domain-aware composite scorer
-│   └── domain-scorer/*               # domain configs, deterministic checks, helpers
-│
-├── benchmarks/
-│   ├── benchmark-runner.ts           # suite execution + compare
-│   └── suites/*                      # code-gen, qa, tool-use, multi-turn, etc.
-│
-├── contracts/
-│   ├── contract-test-generator.ts    # fluent suite builder
-│   ├── contract-test-runner.ts       # compliance runner
-│   ├── contract-test-reporter.ts     # markdown/json/CI output
-│   └── suites/*                      # vector-store, sandbox, llm, embedding contracts
-│
-├── prompt-experiment/
-│   └── prompt-experiment.ts          # prompt A/B testing + paired t-test
-│
-└── prompt-optimizer/
-    ├── prompt-version-store.ts       # prompt version persistence + activation/rollback
-    └── prompt-optimizer.ts           # candidate generation + eval loop
-```
-
----
-
-## 3. Core Data Contracts
-
-### 3.1 Legacy contracts (`types.ts`)
-
-- `EvalScorer`: `score(input, output, reference?) -> EvalResult`
-- `EvalSuite`: cases + scorers + optional pass threshold
-- `EvalRunResult`: per-case scorer results + suite aggregates
-
-### 3.2 Enhanced contracts (`types.ts`)
-
-- `EvalInput`: includes `input`, `output`, optional `reference`, `tags`, `latencyMs`, `costCents`, metadata
-- `ScorerConfig`: scorer identity and metadata (`id`, `name`, `type`, `threshold`, etc.)
-- `ScorerResult`: criterion-level scores + aggregate score + pass + duration + optional cost
-- `Scorer<TInput>`: typed scoring interface
-
-### 3.3 Dataset contracts (`dataset/eval-dataset.ts`)
-
-- `EvalEntry`: single test item (`id`, `input`, optional `expectedOutput`, `tags`, metadata)
-- `EvalDataset`: immutable wrapper with:
-  - `from`, `fromJSON`, `fromJSONL`, `fromCSV`
-  - `filter({tags, ids})`
-  - deterministic `sample(count, seed)` using Mulberry32 + Fisher-Yates
-  - metadata (`totalEntries`, tag inventory, version info)
-
----
-
-## 4. Execution Architecture
-
-### 4.1 Legacy execution flow
+## Structure
+Top-level package surface is `src/index.ts` (single public entrypoint compiled by `tsup`).
 
 ```text
-EvalSuite (cases + scorers)
-   -> runEvalSuite(target)
-      -> target(input) per case
-      -> scorer.score(...) for each scorer
-      -> per-case average
-      -> suite aggregate score + passRate
+src/
+  index.ts
+  types.ts
+
+  # Legacy compatibility surface
+  deterministic-scorer.ts
+  llm-judge-scorer.ts
+  composite-scorer.ts
+  eval-runner.ts
+
+  # Dataset + runner
+  dataset/eval-dataset.ts
+  runner/enhanced-runner.ts
+  runner/eval-runner.ts           # re-export shim
+
+  # Scorers
+  scorers/deterministic-enhanced.ts
+  scorers/llm-judge-enhanced.ts
+  scorers/llm-judge-scorer.ts     # 5-dimension scorer with Zod schema
+  scorers/evidence-quality-scorer.ts
+  scorers/scorer-registry.ts
+  scorers/domain-scorer.ts
+  scorers/domain-scorer/*
+  scorers/{composite,deterministic,llm-judge}.ts  # legacy re-export shims
+
+  # Benchmarks
+  benchmarks/benchmark-runner.ts
+  benchmarks/benchmark-trend.ts
+  benchmarks/benchmark-types.ts    # contract type re-exports
+  benchmarks/suites/{code-gen,qa,tool-use,multi-turn,vector-search,self-correction,learning-curve}.ts
+
+  # Contracts
+  contracts/contract-types.ts
+  contracts/contract-test-generator.ts
+  contracts/contract-test-runner.ts
+  contracts/contract-test-reporter.ts
+  contracts/suites/{vector-store,sandbox,llm-provider,embedding-provider}.ts
+
+  # Prompt systems
+  prompt-experiment/prompt-experiment.ts
+  prompt-optimizer/prompt-version-store.ts
+  prompt-optimizer/prompt-optimizer.ts
+
+  # Orchestration (migrated from server)
+  orchestrator/eval-orchestrator.ts
+  orchestrator/benchmark-orchestrator.ts
+
+  __tests__/*.test.ts
 ```
 
-Key traits:
+## Runtime and Control Flow
+### Legacy eval path
+`runEvalSuite(suite, target)`:
+- Runs each case with `target(input)`.
+- Runs all suite scorers for the case via `Promise.all`.
+- Computes per-case aggregate score and pass (`passThreshold`, default `0.7`).
+- Returns suite-level aggregate score and pass rate.
 
-- full `Promise.all` parallelism over cases and scorers
-- fixed aggregation: arithmetic mean of scorer scores
-- case pass: `aggregateScore >= passThreshold` (default `0.7`)
+### Enhanced eval path
+`EvalRunner.evaluateDataset(dataset)`:
+- Validates concurrency as finite positive integer.
+- Uses `Semaphore` from `@dzupagent/core/orchestration` for bounded parallel entry processing.
+- Optionally executes a `target(input, metadata)` for real outputs; otherwise uses `expectedOutput` fallback behavior based on `strict`/`missingTargetFallback`.
+- Builds `EvalInput` per scorer, aggregates scorer results per entry, and emits optional progress callbacks.
+- Returns report (`entries`, per-scorer averages, overall pass rate/score, duration).
 
-### 4.2 Enhanced execution flow (`runner/enhanced-runner.ts`)
+`EvalRunner.regressionCheck(dataset, baseline)`:
+- Re-runs dataset and compares per-scorer averages to baseline map.
+- Returns regressions or throws in `ciMode`.
 
-```text
-EvalDataset + Scorers + (optional) target
-   -> EvalRunner.evaluateDataset()
-      -> bounded concurrency via Semaphore
-      -> output source:
-           target(...) output, OR expectedOutput fallback (configurable)
-      -> scorer.score(EvalInput)
-      -> entry pass: all scorers passed
-      -> report build:
-           per-scorer averages + overall avg + pass rate + duration
-```
+### Scoring flow
+- Deterministic enhanced scorers: JSON schema, keyword, latency, and cost scoring.
+- LLM judging:
+  - `createLLMJudge(...)`: criteria-driven scorer with retry/parsing logic.
+  - `LlmJudgeScorer`: fixed five dimensions (correctness/completeness/coherence/relevance/safety) validated via Zod.
+- `DomainScorer`: domain-specific criteria (`sql`, `code`, `analysis`, `ops`, `general`), with deterministic-only, LLM-only, or combined scoring.
+- `ScorerRegistry`: built-ins (`exact-match`, `contains`, `llm-judge`, `evidence_quality`) + runtime registration.
 
-Key runtime controls:
+### Benchmark flow
+`runBenchmark(suite, target, config?)`:
+- Iterates suite dataset and scorer configs.
+- Uses deterministic heuristics for deterministic scorer types.
+- For `llm-judge` scorer type:
+  - Uses real LLM judging when `config.llm` is provided.
+  - Falls back to heuristic (or throws if `strict`).
+- Produces benchmark result and threshold regressions.
 
-- `concurrency` validation (must be finite positive integer)
-- `AbortSignal` cancellation checks before/after semaphore and scorer loops
-- missing target behavior:
-  - `strict: true` -> throw if `target` absent
-  - non-strict default -> fallback to `expectedOutput` (or empty string)
-  - `missingTargetFallback: "error"` -> throw in non-strict mode if target missing
-- regression mode:
-  - `regressionCheck(dataset, baselineMap)` compares scorer averages to baseline
-  - in `ciMode`, regression throws error
+`compareBenchmarks(current, previous)`:
+- Computes improved/regressed/unchanged scorer IDs using epsilon comparison.
 
----
+`BenchmarkTrendStore.trend(...)`:
+- Pulls historical runs from store.
+- Uses linear-regression slope over recent runs to classify trend (`improving`, `degrading`, `stable`, `insufficient_data`).
 
-## 5. Scoring Subsystem
+### Contract flow
+`ContractSuiteBuilder`:
+- Builds suites with required/recommended/optional tests and duplicate-ID protection.
 
-### 5.1 Legacy scorers
-
-- `DeterministicScorer` (`exactMatch`, `contains`, `regex`, `jsonSchema`)
-- `LLMJudgeScorer` (single prompt, expects JSON with `score/pass/reasoning`)
-- `CompositeScorer` (weighted average of legacy scorers)
-
-### 5.2 Enhanced deterministic scorers (`scorers/deterministic-enhanced.ts`)
-
-- `createJSONSchemaScorer`
-- `createKeywordScorer`
-- `createLatencyScorer`
-- `createCostScorer`
-
-All return `Scorer<EvalInput>` with criterion breakdown and timings.
-
-### 5.3 Enhanced LLM judges
-
-### `createLLMJudge` (`scorers/llm-judge-enhanced.ts`)
-
-- criteria can be string or array of weighted criteria
-- prompt template customizable with placeholders
-- retries on parse failure
-- parses JSON array of criterion results
-- weighted aggregate score, default pass threshold effectively `0.5`
-
-### `LlmJudgeScorer` (`scorers/llm-judge-scorer.ts`)
-
-- fixed 5 dimensions: correctness, completeness, coherence, relevance, safety
-- uses Zod schema validation for structured output
-- supports dimension weights, anchors, retries, token usage callback
-- dual API:
-  - `score(EvalInput) -> ScorerResult`
-  - `score(input, output, reference?) -> JudgeScorerResult`
-- fallback on total parse/call failure: neutral `0.5` across dimensions
-
-### 5.4 Registry (`scorers/scorer-registry.ts`)
-
-- runtime scorer factory registry
-- built-ins: `exact-match`, `contains`, `llm-judge`
-- supports custom registration/unregistration
-- `defaultScorerRegistry` singleton exported
-
-### 5.5 Domain scorer (`scorers/domain-scorer.ts`)
-
-Domain-aware composite evaluator for:
-
-- `sql`
-- `code`
-- `analysis`
-- `ops`
-- `general`
-
-Per criterion, it can use:
-
-- deterministic check only
-- LLM judge only
-- combined mode (40% deterministic + 60% LLM)
-
-Additional capabilities:
-
-- `DomainScorer.detectDomain(input)` using regex pattern matching
-- `DomainScorer.createAutoDetect(model)` to auto-select domain per input
-- domain configs can be customized or weight-overridden via constructor params
-
----
-
-## 6. Benchmark Subsystem
-
-Files: `benchmarks/benchmark-types.ts`, `benchmarks/benchmark-runner.ts`, `benchmarks/suites/*`
-
-Main concepts:
-
-- `BenchmarkSuite`: dataset + scorer configs + baseline thresholds
-- `runBenchmark`: runs target function against suite and computes per-scorer averages
-- `compareBenchmarks`: diff current vs previous by scorer (`improved/regressed/unchanged`)
+`runContractSuite(config)`:
+- Optional suite setup.
+- Category/test-ID filtering.
+- Sequential test execution with per-test timeout wrapper.
+- Optional teardown.
+- Compliance summarization (percent + level: `full|partial|minimal|none`).
 
 Built-in suites:
-
-- `CODE_GEN_SUITE`
-- `QA_SUITE`
-- `TOOL_USE_SUITE`
-- `MULTI_TURN_SUITE`
-- `VECTOR_SEARCH_SUITE`
-- `SELF_CORRECTION_SUITE` (+ 15 predefined correction scenarios across 7 categories)
-- learning curve tooling (`runLearningCurveBenchmark`, `createLearningCurveSuite`)
-
-Notable runtime behavior:
-
-- `runBenchmark` executes dataset entries sequentially
-- deterministic benchmark scoring is keyword-overlap style (heuristic)
-- `llm-judge` scorer in benchmarks:
-  - uses real LLM judge when `config.llm` is provided
-  - falls back to non-empty heuristic (`0.5`) without LLM unless `strict: true`
-
----
-
-## 7. Contract Testing Subsystem
-
-Files: `contracts/*`
-
-Purpose: conformance testing of adapter implementations against required/recommended/optional capabilities.
-
-Core components:
-
-- `ContractSuiteBuilder`:
-  - fluent suite construction (`required`, `recommended`, `optional`)
-  - duplicate-id prevention
-- `timedTest` helper:
-  - duration measurement + error capture
-- `runContractSuite` / `runContractSuites`:
-  - sequential execution (avoids adapter-state conflicts)
-  - optional filtering by category/test IDs
-  - per-test timeout support
-- compliance reporters:
-  - markdown, json, GitHub Actions annotations, badges, summaries
-
-Built-in contract suites:
-
 - `VECTOR_STORE_CONTRACT`
 - `SANDBOX_CONTRACT`
 - `LLM_PROVIDER_CONTRACT`
 - `EMBEDDING_PROVIDER_CONTRACT`
 
-Compliance level logic:
+### Prompt experimentation and optimization
+`PromptExperiment.run(variants, dataset)`:
+- Requires >=2 variants.
+- Uses model invocation + scorers for each dataset entry with bounded concurrency.
+- Computes variant metrics, pairwise paired t-test comparisons, winner, and markdown report.
+
+`PromptOptimizer.optimize(...)`:
+- Loads active prompt version from `PromptVersionStore`.
+- Evaluates baseline prompt on dataset.
+- Generates rewrite candidates with meta model.
+- Evaluates candidates with eval model + scorers.
+- Saves improved versions when score improvement passes threshold.
+- Supports rollback/activation/version lineage through `PromptVersionStore`.
+
+### Orchestrator flow
+`EvalOrchestrator`:
+- Queue/lease-based eval run lifecycle on `EvalRunStore`.
+- Handles enqueue, claim, run, retry, cancel, recovery-on-restart, and lease refresh.
+- Emits queue metrics via optional `MetricsCollector`.
+
+`BenchmarkOrchestrator`:
+- Runs named suites against target IDs through injected executor and `BenchmarkRunStore`.
+- Persists runs, compares runs, and manages per-suite baselines.
+
+## Key APIs and Types
+Primary public API is exported from `src/index.ts`.
+
+Core exported areas:
+- Types:
+  - Legacy eval types (`EvalResult`, `EvalScorer`, `EvalSuite`, etc.) re-exported via `types.ts`.
+  - Enhanced scorer types (`EvalInput`, `ScorerConfig`, `ScorerResult`, `Scorer`).
+  - Orchestrator/run store contract types re-exported from `@dzupagent/eval-contracts`.
+- Scorers:
+  - Legacy: `DeterministicScorer`, `LLMJudgeScorer`, `CompositeScorer`.
+  - Enhanced: `createLLMJudge`, `LlmJudgeScorer`, deterministic scorer factories, `DomainScorer`, `EvidenceQualityScorer`.
+  - Registry: `ScorerRegistry`, `defaultScorerRegistry`.
+- Runners:
+  - `runEvalSuite` (legacy).
+  - `EvalRunner` + report formatters (`reportToMarkdown`, `reportToJSON`, `reportToCIAnnotations`).
+- Dataset:
+  - `EvalDataset`.
+- Benchmarks:
+  - `runBenchmark`, `compareBenchmarks`, suite constants, trend store, learning-curve tools.
+- Contracts:
+  - `ContractSuiteBuilder`, `timedTest`, `runContractSuite(s)`, compliance formatters, built-in contract suites.
+- Prompt systems:
+  - `PromptExperiment`, `PromptVersionStore`, `PromptOptimizer`.
+- Orchestrators:
+  - `EvalOrchestrator`, `BenchmarkOrchestrator`, and orchestrator config types.
+
+## Dependencies
+From `package.json`:
+- Direct dependency: `@dzupagent/core`.
+- Peer dependency: `zod` (`>=4.0.0`).
+- Dev dependencies: `typescript`, `tsup`, `vitest`, `zod`.
+
+Runtime/module imports used in source:
+- `@dzupagent/eval-contracts` (types/contracts + orchestrator interfaces).
+- `@langchain/core` (prompt experiment, optimizer, domain scorer message/model types).
+- `@langchain/langgraph` (`BaseStore` type for prompt version storage).
+- Node built-ins: `node:crypto`.
+
+Build configuration (`tsup.config.ts`):
+- ESM output, Node 20 target, declaration generation.
+- `src/index.ts` as entrypoint.
+- Only `zod` marked as external explicitly.
+
+## Integration Points
+- `@dzupagent/server` (and other consumers) integrate orchestrators through `EvalOrchestratorLike` / `BenchmarkOrchestratorLike` contracts from `@dzupagent/eval-contracts`.
+- Execution targets are injected callbacks (`EvalExecutionTarget`, benchmark `executeTarget`) rather than hard-coded provider/runtime dependencies.
+- Contract suites validate adapter implementations by structural behavior, not concrete class imports.
+- Prompt systems integrate with LangChain-style chat models and BaseStore-compatible persistence.
+- Metric integration is optional through `MetricsCollector` in `EvalOrchestrator`.
+
+## Testing and Observability
+Test setup:
+- Vitest (`environment: node`, `testTimeout: 60_000`, `hookTimeout: 60_000`).
+- Coverage thresholds in config:
+  - `statements >= 60`
+  - `branches >= 50`
+  - `functions >= 50`
+  - `lines >= 60`
+
+Current local test footprint:
+- `31` `*.test.ts` files under `src/`.
+- Broad coverage across runners, scorers, benchmark paths, contract suites/reporting, prompt systems, dataset parsing, and domain scorer modules.
+
+Current local coverage artifact (`coverage/coverage-summary.json`):
+- Total statements/lines: `98.74%`
+- Functions: `99.07%`
+- Branches: `96.00%`
+
+Observability surfaces:
+- `EvalOrchestrator` emits queue gauges/counters/histograms when metrics collector is supplied (pending, active, wait time, lifecycle counters).
+- `EvalRunner`, `PromptExperiment`, and `PromptOptimizer` expose progress and/or structured report outputs for pipeline/CI visibility.
+- Contract and eval report formatters provide markdown/json/CI annotation outputs.
+
+## Risks and TODOs
+- Dependency declaration drift risk: source imports `@dzupagent/eval-contracts`, `@langchain/core`, and `@langchain/langgraph`, while `package.json` lists only `@dzupagent/core` (+ `zod` peer). In workspace builds this can be masked by hoisting; for published/isolated installs this should be reconciled.
+- Legacy + enhanced API coexistence increases maintenance and naming ambiguity (`LLMJudgeScorer` legacy vs `LlmJudgeScorer` enhanced).
+- Benchmark runner uses heuristic fallback for `llm-judge` when no LLM is provided and logs `console.warn`; this can silently reduce benchmark fidelity unless strict mode is enabled.
+- `EvalRunner` default non-strict mode can score against `expectedOutput` without executing a real target; useful for fixture checks but can be mistaken for end-to-end validation.
+- There are several one-line re-export shim files (`runner/eval-runner.ts`, `scorers/{deterministic,llm-judge,composite}.ts`) that exist for compatibility; any surface cleanup would require a clear deprecation plan.
+- README auto-generated overview values in this package can drift from current source/test counts and should be refreshed when docs are regenerated.
 
-- `full`: no required/recommended failures
-- `partial`: all required pass, some recommended fail
-- `minimal`: some required pass
-- `none`: no required tests pass
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
----
-
-## 8. Prompt Evaluation and Optimization Subsystems
-
-### 8.1 Prompt Experiment (`prompt-experiment/prompt-experiment.ts`)
-
-`PromptExperiment` runs A/B (or A/B/C/...) system prompt comparisons.
-
-Flow:
-
-1. For each variant, invoke model for each dataset entry
-2. score outputs with provided scorers
-3. compute per-variant aggregates (`avgScore`, `passRate`, latency, cost)
-4. run pairwise **paired t-tests** over per-entry score differences
-5. determine best variant and whether winner is statistically significant
-6. output structured report + markdown renderer
-
-Runtime controls:
-
-- bounded concurrency with semaphore
-- abort support
-- progress callback per variant
-
-### 8.2 Prompt Version Store (`prompt-optimizer/prompt-version-store.ts`)
-
-Persistence layer over a LangGraph `BaseStore`:
-
-- save version (+ optional eval scores)
-- activate/deactivate
-- rollback (creates new active version from target content)
-- compare versions (line-level added/removed + score delta when available)
-- list prompt keys and versions
-
-### 8.3 Prompt Optimizer (`prompt-optimizer/prompt-optimizer.ts`)
-
-Iterative optimization loop:
-
-1. load active prompt version by `promptKey`
-2. evaluate baseline prompt on dataset
-3. build meta-prompt from scorer averages + worst failures
-4. ask `metaModel` to generate candidate rewrites
-5. evaluate each candidate with `evalModel` + scorers
-6. accept best candidate only if `improvement >= minImprovement`
-7. persist accepted version and continue until stop condition
-
-Exit reasons:
-
-- `improved`
-- `no_improvement`
-- `max_rounds`
-- `aborted`
-- `error`
-
----
-
-## 9. Feature Summary
-
-| Area | Features | Main Files |
-|---|---|---|
-| Dataset | Immutable dataset, filtering, deterministic sampling, JSON/JSONL/CSV loading | `dataset/eval-dataset.ts` |
-| Enhanced runner | Concurrency limits, abort, progress callbacks, strict/non-strict target policies, regression checks, report formatters | `runner/enhanced-runner.ts` |
-| Deterministic scoring | Schema, keyword, latency, cost scoring | `scorers/deterministic-enhanced.ts` |
-| LLM judging | configurable criteria judge + 5-dim validated judge with retries and usage tracking | `scorers/llm-judge-enhanced.ts`, `scorers/llm-judge-scorer.ts` |
-| Registry | Built-in and custom scorer factory registration | `scorers/scorer-registry.ts` |
-| Domain quality | SQL/code/analysis/ops/general domain scoring with deterministic + LLM hybrid | `scorers/domain-scorer.ts`, `scorers/domain-scorer/*` |
-| Benchmarks | reusable suites, baseline checks, run comparison, self-correction and learning-curve scenarios | `benchmarks/*` |
-| Contracts | adapter conformance builder/runner/reporter + built-in contracts | `contracts/*` |
-| Prompt experimentation | multi-variant prompt testing with paired significance testing | `prompt-experiment/prompt-experiment.ts` |
-| Prompt optimization | iterative rewrite/eval/store loop with version history | `prompt-optimizer/*` |
-
----
-
-## 10. How to Use (Current APIs)
-
-### 10.1 Enhanced evaluation runner (recommended for new code)
-
-```ts
-import {
-  EvalDataset,
-  EvalRunner,
-  createKeywordScorer,
-  createLLMJudge,
-  reportToMarkdown,
-} from '@dzupagent/evals';
-
-const dataset = EvalDataset.from([
-  { id: 't1', input: 'Write a sum function', expectedOutput: 'function sum' },
-  { id: 't2', input: 'Write a multiply function', expectedOutput: 'function multiply' },
-]);
-
-const keywordScorer = createKeywordScorer({
-  id: 'keywords',
-  required: ['function'],
-  forbidden: ['var'],
-});
-
-const judge = createLLMJudge({
-  id: 'judge',
-  criteria: 'Correctness and clarity',
-  llm: async (prompt) => myJudgeModel(prompt),
-});
-
-const runner = new EvalRunner({
-  scorers: [keywordScorer, judge],
-  concurrency: 4,
-  target: async (input) => {
-    const output = await myGenerationTarget(input);
-    return { output };
-  },
-});
-
-const report = await runner.evaluateDataset(dataset);
-console.log(reportToMarkdown(report));
-```
-
-### 10.2 Regression gate in CI
-
-```ts
-const baseline = new Map<string, number>([
-  ['keywords', 0.85],
-  ['judge', 0.72],
-]);
-
-const result = await runner.regressionCheck(dataset, baseline);
-if (!result.passed) {
-  throw new Error(result.regressions.join('\n'));
-}
-```
-
-Use `ciMode: true` in runner config if you want `regressionCheck` to throw automatically.
-
-### 10.3 Benchmark suites
-
-```ts
-import { runBenchmark, CODE_GEN_SUITE, createBenchmarkWithJudge } from '@dzupagent/evals';
-
-const cfg = createBenchmarkWithJudge({
-  llm: async (prompt) => myJudgeModel(prompt),
-});
-
-const benchmark = await runBenchmark(
-  CODE_GEN_SUITE,
-  async (input) => myGenerationTarget(input),
-  cfg,
-);
-
-console.log(benchmark.passedBaseline, benchmark.scores, benchmark.regressions);
-```
-
-### 10.4 Contract testing for adapters
-
-```ts
-import {
-  runContractSuite,
-  VECTOR_STORE_CONTRACT,
-  complianceToMarkdown,
-} from '@dzupagent/evals';
-
-const report = await runContractSuite({
-  suite: VECTOR_STORE_CONTRACT,
-  adapter: myVectorStoreAdapter,
-  testTimeoutMs: 30_000,
-});
-
-console.log(report.complianceLevel, report.compliancePercent);
-console.log(complianceToMarkdown(report));
-```
-
-### 10.5 Domain-aware scoring
-
-```ts
-import { DomainScorer } from '@dzupagent/evals';
-
-const scorer = new DomainScorer({
-  domain: 'code',
-  model: myLangChainChatModel, // optional but recommended for llm criteria
-  passThreshold: 0.6,
-});
-
-const result = await scorer.score({
-  input: 'Write a secure login handler',
-  output: generatedCode,
-});
-
-console.log(result.aggregateScore, result.domain, result.criterionResults);
-```
-
-### 10.6 Prompt A/B experiment
-
-```ts
-import { PromptExperiment, EvalDataset, createKeywordScorer } from '@dzupagent/evals';
-
-const experiment = new PromptExperiment({
-  model: myLangChainChatModel,
-  scorers: [createKeywordScorer({ required: ['function'] })],
-  concurrency: 3,
-});
-
-const report = await experiment.run(
-  [
-    { id: 'a', name: 'Baseline', systemPrompt: 'You are helpful.' },
-    { id: 'b', name: 'Strict', systemPrompt: 'You are concise and strict about correctness.' },
-  ],
-  EvalDataset.from([{ id: '1', input: 'Write a TS add function' }]),
-);
-
-console.log(report.bestVariant, report.significantWinner);
-console.log(report.toMarkdown());
-```
-
-### 10.7 Prompt optimization loop
-
-```ts
-import { PromptOptimizer, PromptVersionStore } from '@dzupagent/evals';
-
-const versionStore = new PromptVersionStore({
-  store: myLangGraphBaseStore,
-});
-
-const optimizer = new PromptOptimizer({
-  metaModel: myMetaModel,
-  evalModel: myEvalModel,
-  scorers: myScorers,
-  versionStore,
-  maxCandidates: 3,
-  maxRounds: 3,
-  minImprovement: 0.02,
-});
-
-const result = await optimizer.optimize({
-  promptKey: 'assistant/system',
-  dataset: myEvalDataset,
-});
-
-console.log(result.improved, result.exitReason, result.scoreImprovement);
-```
-
----
-
-## 11. Extension Points
-
-1. **Custom scorers**
-   Implement `Scorer<EvalInput>` and pass into `EvalRunner`, `PromptExperiment`, or `PromptOptimizer`.
-
-2. **Custom scorer registry entries**
-   Register factories via `ScorerRegistry.register(type, description, factory)`.
-
-3. **Custom benchmark suites**
-   Create `BenchmarkSuite` objects with domain-specific datasets and thresholds.
-
-4. **Custom contract suites**
-   Use `ContractSuiteBuilder` with required/recommended/optional tests for new adapter types.
-
-5. **Custom domain configs**
-   `DomainScorer` supports custom criteria and weight overrides.
-
----
-
-## 12. Design Notes and Current Tradeoffs
-
-- The package keeps both legacy and enhanced APIs; this supports compatibility but increases surface area.
-- `EvalRunner` default non-strict mode can run without a target by using `expectedOutput`, useful for static regression checks but not a full system test.
-- Benchmark deterministic scoring is intentionally lightweight and heuristic; use LLM judge mode for higher-fidelity benchmarking.
-- Prompt subsystems depend on LangChain model/store abstractions (`BaseChatModel`, `BaseStore`).
-- Contract suites are implementation-agnostic by checking minimal interface shapes instead of importing concrete adapter types.
-
----
-
-## 13. Test Coverage Footprint
-
-`src/__tests__` includes focused coverage for:
-
-- dataset parsing/filter/sampling behavior
-- enhanced and legacy runners
-- enhanced deterministic and LLM scorers
-- scorer registry behavior
-- benchmark execution/comparison and LLM judge fallbacks
-- self-correction and learning-curve suites
-- contract suites and compliance reporting
-- domain scorer helpers/config logic
-- prompt experiment flow
-
-This gives strong behavior-level confidence for the current architecture.
-
----
-
-## 14. Feature-to-Test Traceability
-
-This section maps implemented features to the test files that currently validate them.
-
-| Feature Area | What Is Covered | Related Tests |
-|---|---|---|
-| Legacy deterministic/LLM/composite scorers | mode behavior, parsing/failure paths, weighted composition | `src/__tests__/scorers.test.ts` |
-| Legacy suite runner (`runEvalSuite`) | per-case scoring, aggregate score, pass rate, empty cases | `src/__tests__/eval-runner.test.ts`, `src/__tests__/scorers.test.ts` |
-| `EvalDataset` creation/parsing/filtering/sampling | `from`, `fromJSON`, `fromJSONL`, `fromCSV`, tag/id filtering, deterministic sampling, metadata/tags | `src/__tests__/dataset.test.ts`, `src/__tests__/dataset-and-registry-coverage.test.ts` |
-| Enhanced deterministic scorers | JSON schema validation, keyword semantics, latency/cost interpolation, criterion breakdown, IDs/duration | `src/__tests__/enhanced-scorers.test.ts`, `src/__tests__/deterministic-enhanced-scorers.test.ts` |
-| Enhanced configurable LLM judge (`createLLMJudge`) | criteria modes, weighted aggregates, prompt template usage, retries/fallback, score clamping | `src/__tests__/enhanced-scorers.test.ts`, `src/__tests__/deterministic-enhanced-scorers.test.ts` |
-| 5-dim LLM judge (`LlmJudgeScorer`) | Zod schema validation, dimension weighting, retries, fallback, token/cost tracking, prompt content expectations, benchmark integration | `src/__tests__/llm-judge-scorer.test.ts`, `src/__tests__/dataset-and-registry-coverage.test.ts` |
-| Scorer registry | built-in types, registration/unregistration, factory creation behavior, missing dependency behavior | `src/__tests__/scorer-registry.test.ts`, `src/__tests__/dataset-and-registry-coverage.test.ts` |
-| Domain scorer modules | config cloning/normalization, helper parsing, deterministic domain checks, auto-detect/public contracts | `src/__tests__/domain-scorer-modules.test.ts` |
-| Enhanced runner (`EvalRunner`) | target vs expected-output behavior, strict mode, missing-target policies, concurrency bounds, abort flow, progress callback, regression checks | `src/__tests__/eval-runner-enhanced.test.ts`, `src/__tests__/enhanced-runner-coverage.test.ts` |
-| Enhanced report formatters | markdown/json/CI annotation generation incl. edge cases | `src/__tests__/eval-runner-enhanced.test.ts`, `src/__tests__/enhanced-runner-coverage.test.ts` |
-| Benchmark runner (`runBenchmark`, `compareBenchmarks`) | suite execution, baseline regressions, strict mode for llm-judge, compare deltas, structure validation | `src/__tests__/benchmarks.test.ts`, `src/__tests__/benchmark-runner-coverage.test.ts` |
-| Benchmark LLM-judge integration | no-LLM heuristic fallback, strict mode, real LLM judge path, mixed scorer suites, helper config | `src/__tests__/benchmark-llm-judge.test.ts`, `src/__tests__/llm-judge-scorer.test.ts` |
-| Self-correction benchmark suite | scenario integrity, categories/difficulty metadata, baseline compatibility and scoring expectations | `src/__tests__/self-correction-benchmark.test.ts` |
-| Learning-curve benchmark suite | quality pattern handling, simulated run generation, store accumulation, improving-trend calculation, suite wrapper | `src/__tests__/learning-curve-benchmark.test.ts` |
-| Contract framework core | suite builder semantics, timing wrapper, runner filtering/timeouts, compliance calculation, report formatting | `src/__tests__/contracts.test.ts` |
-| Built-in sandbox contract behavior | required/recommended/optional checks, adapter behavior and custom extension suite | `src/__tests__/sandbox-contracts.test.ts`, `src/__tests__/contracts.test.ts` |
-| Built-in vector-store contract behavior | vector-store conformance and behavior checks, custom extension suite | `src/__tests__/vectorstore-contracts.test.ts`, `src/__tests__/contracts.test.ts` |
-| Prompt experiment subsystem | end-to-end experiment execution, variant comparison reporting | `src/__tests__/prompt-experiment.test.ts` |
-
-## 15. Current Coverage Gaps / Risk Notes
-
-- **Prompt optimizer and version store** (`src/prompt-optimizer/*`): there is currently no dedicated `__tests__` module for `PromptOptimizer` and `PromptVersionStore`.
-- **Domain scorer integration depth**: domain scorer helper/config logic is tested, but full multi-domain LLM integration behavior is less extensively covered than deterministic/helper paths.
-- **Embedding/LLM provider built-in contracts**: core contract framework is tested broadly (`contracts.test.ts`), but there are fewer standalone behavioral test modules compared to sandbox/vector-store.
-
-If feature changes are made in these areas, add targeted tests first to keep regression risk low.

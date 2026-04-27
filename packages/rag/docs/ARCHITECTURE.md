@@ -1,491 +1,194 @@
 # @dzupagent/rag Architecture
 
-Last updated: 2026-04-03  
-Scope: `packages/rag` in this monorepo
+## Scope
+`@dzupagent/rag` is the RAG package in `dzupagent/packages/rag`. The current implementation covers:
+
+- Chunk generation and chunk-quality scoring (`SmartChunker`)
+- Retrieval orchestration over injected vector/keyword search (`HybridRetriever`)
+- Context assembly and prompt shaping (`ContextAssembler`)
+- End-to-end ingest/retrieve/assemble orchestration (`RagPipeline`)
+- Optional source-quality re-ranking wrapper (`QualityBoostedRetriever`)
+- Citation metadata and formatting (`CitationTracker`)
+- Optional memory bridge (`RagMemoryNamespace`)
+- Corpus lifecycle manager (`CorpusManager` + corpus types)
+- Filesystem context ranking utility (`FolderContextGenerator`)
+- Qdrant integration path: per-tenant collections via `QdrantAdapter` (`qdrant-factory.ts`)
+- Qdrant integration path: single shared collection with `tenantId` filtering (`providers/qdrant.ts`)
+
+Build output is ESM (`dist/index.js` + `dist/index.d.ts`) via `tsup`.
+
+## Responsibilities
+The package is responsible for reusable framework-level RAG primitives, not app-specific product logic.
+
+Primary responsibilities:
+
+- Convert raw text into chunked units with metadata and quality scores.
+- Retrieve relevant chunks in `vector`, `keyword`, or `hybrid` mode.
+- Fuse vector and keyword results using Reciprocal Rank Fusion (RRF).
+- Apply optional quality-based score boosting.
+- Enforce token budgets during retrieval and context assembly.
+- Assemble source-aware context text, citations, and system prompts.
+- Provide tenant/session scoped ingestion and retrieval orchestration.
+- Provide optional convenience adapters for Qdrant-backed deployments.
+- Provide a lightweight corpus registry API on top of vector storage.
+
+## Structure
+Current package layout:
+
+- `src/index.ts`: public export surface, including canonical aliases (`RagRetriever`, `RagContextAssembler`, `ChunkingPipeline`).
+- `src/types.ts`: shared config and data contracts (`RagPipelineConfig`, `RetrievalResult`, `AssembledContext`, etc.).
+- `src/chunker.ts`: `SmartChunker` + default chunking config + quality metrics logic.
+- `src/retriever.ts`: `HybridRetriever` + quality strategy hooks + RRF + token budget filtering.
+- `src/quality-retriever.ts`: wrapper retriever for external source-quality maps.
+- `src/assembler.ts`: `ContextAssembler` for source-mode-aware context construction.
+- `src/pipeline.ts`: `RagPipeline` orchestration and tenant retriever cache.
+- `src/citation-tracker.ts`: source registration and citation generation/formatting.
+- `src/memory-namespace.ts`: memory service bridge (duck-typed interface).
+- `src/corpus-types.ts`: corpus contracts and errors.
+- `src/corpus-manager.ts`: in-process corpus lifecycle manager.
+- `src/folder-context-generator.ts`: folder scoring and cached context snapshot generation.
+- `src/qdrant-factory.ts`: `createQdrantRagPipeline` and `ensureTenantCollection` (per-tenant collection strategy).
+- `src/providers/qdrant.ts`: dynamic Qdrant loader, single-collection vector store, retriever wiring, and `QdrantCorpusStore` facade.
+- `src/__tests__/*.test.ts`: unit/deep/coverage/integration-style tests for all major modules.
+- `README.md`: package usage overview and examples.
+- `vitest.config.ts`: Node test environment, single-fork execution, coverage thresholds.
+
+## Runtime and Control Flow
+### 1. Ingestion (`RagPipeline.ingest`)
+
+1. Merge default and per-call chunking config.
+2. Chunk source text via `SmartChunker.chunkText(text, sourceId)`.
+3. Optionally embed chunk texts in batches using `embeddingProvider.embed(...)`.
+4. Upsert vectors into collection `${collectionPrefix}${tenantId}` via injected `VectorStore`.
+5. Persist metadata (`source_id`, `session_id`, `chunk_index`, `quality_score`, `token_count`, plus caller metadata).
+6. Return `IngestResult` with timing counters.
+
+### 2. Retrieval (`RagPipeline.retrieve` -> `HybridRetriever.retrieve`)
+
+1. Select tenant-scoped retriever instance from cache (or create one).
+2. Build filter with `session_id` and convert to `@dzupagent/core` metadata filter.
+3. Execute configured mode: `vector` embeds and runs vector search, `keyword` runs keyword callback search, and `hybrid` runs both and fuses with RRF (`k=60`).
+4. Optionally apply quality boosting (chunk/source blend).
+5. Sort by score and apply token-budget truncation.
+6. Return `RetrievalResult` with `searchMode`, chunks, token count, and query latency.
+
+### 3. Assembly (`RagPipeline.assembleContext` -> `ContextAssembler.assembleContext`)
+
+1. Retrieve chunks with retrieval budget from `maxTokens` or default token budget.
+2. Resolve source metadata (provided map or auto-built defaults).
+3. Build context pieces by source mode: `off` excludes source content, `insights` uses source summaries, and `full` uses retrieved chunk text.
+4. Sort context pieces (insights first, then score-desc).
+5. Apply assembly token budget (drops lowest-ranked `full` chunks first).
+6. Produce `AssembledContext` with `systemPrompt`, `contextText`, `citations`, `totalTokens`, and `sourceBreakdown`.
+
+### 4. Corpus flow (`CorpusManager`)
+
+1. `createCorpus` provisions a vector collection and registers in-memory corpus metadata.
+2. `ingestSource` chunks and upserts via `SemanticStore`; tracks chunk IDs by corpus/source.
+3. `invalidateSource` / `reIngestSource` remove and replace source chunks.
+4. `search` runs semantic retrieval against corpus collection.
+5. `deleteCorpus` removes registry state and backing collection.
+
+### 5. Qdrant wiring strategies
+
+- Strategy A (`qdrant-factory.ts`): one collection per tenant (`rag_<tenantId>` by default), using `QdrantAdapter` from `@dzupagent/core`.
+- Strategy B (`providers/qdrant.ts`): one shared collection with mandatory `tenantId` payload filtering in queries.
+
+## Key APIs and Types
+Public exports are from `src/index.ts`.
+
+Core runtime APIs:
+
+- `SmartChunker`, `DEFAULT_CHUNKING_CONFIG`
+- `HybridRetriever`, `DEFAULT_RETRIEVAL_CONFIG`
+- `ContextAssembler`
+- `RagPipeline`, `DEFAULT_PIPELINE_CONFIG`
+- `QualityBoostedRetriever`
+- `CitationTracker`
+- `RagMemoryNamespace`
+- `CorpusManager`
+- `FolderContextGenerator`
+- `createQdrantRagPipeline`, `ensureTenantCollection`
+- `QdrantVectorStore`, `QdrantCorpusStore`, `createQdrantRetriever`, `loadQdrantClient`
 
-## Purpose
+Canonical aliases:
 
-`@dzupagent/rag` provides a modular Retrieval-Augmented Generation (RAG) stack with:
+- `RagRetriever` -> `HybridRetriever`
+- `RagContextAssembler` -> `ContextAssembler`
+- `ChunkingPipeline` -> `SmartChunker`
 
-- text chunking (`SmartChunker`)
-- retrieval (`HybridRetriever`, optional `QualityBoostedRetriever`)
-- context assembly and prompt building (`ContextAssembler`)
-- orchestration (`RagPipeline`)
-- optional memory bridge (`RagMemoryNamespace`)
-- citation utilities (`CitationTracker`)
+Key contracts:
 
-The package is designed around dependency injection: embedding and vector DB behavior come from `@dzupagent/core` interfaces supplied by the caller.
+- Pipeline config/data: `RagPipelineConfig`, `IngestOptions`, `IngestResult`, `RetrievalResult`, `AssembledContext`
+- Retrieval contracts: `VectorSearchFn`, `KeywordSearchFn`, `VectorSearchHit`, `KeywordSearchHit`, `ScoredChunk`
+- Assembly contracts: `SourceMeta`, `AssemblyOptions`, `CitationResult`, `SourceContextBreakdown`
+- Corpus contracts: `Corpus`, `CorpusConfig`, `CorpusSource`, `CorpusStats`, `CorpusScoredDocument`
+- Qdrant contracts: `QdrantRagConfig`, `QdrantVectorStoreConfig`, `QdrantRetrieverConfig`, `QdrantRetrieverWiring`
 
-## Public Surface
+## Dependencies
+`package.json` currently defines:
 
-Exports are defined in `src/index.ts`.
+Runtime dependencies:
 
-| Export | Kind | Responsibility |
-|---|---|---|
-| `SmartChunker`, `DEFAULT_CHUNKING_CONFIG` | class/value | Boundary-aware chunk splitting and chunk quality scoring |
-| `HybridRetriever`, `DEFAULT_RETRIEVAL_CONFIG` | class/value | Vector/keyword/hybrid retrieval + optional quality boost + token-budget trimming |
-| `QualityBoostedRetriever` | class | Post-retrieval reranking using external source quality map |
-| `ContextAssembler` | class | Build context text, citations, source breakdown, grounded/extended prompts |
-| `RagPipeline`, `DEFAULT_PIPELINE_CONFIG` | class/value | End-to-end ingest/retrieve/assemble orchestration |
-| `CitationTracker` | class | Track source metadata and produce/formats citations |
-| `RagMemoryNamespace` | class | Store/search/delete chunks through a MemoryService-like API |
-| `types.ts` exports | types | Shared configs and data contracts |
+- `@dzupagent/core`: provides vector-store and embedding interfaces plus concrete adapters (used directly).
+- `@dzupagent/memory`: declared runtime dependency (RAG memory bridge uses a duck-typed interface and does not import concrete runtime symbols from this package).
 
-## High-Level Architecture
+Peer dependencies:
 
-```text
-Ingest path
------------
-Raw text
-  -> SmartChunker.chunkText()
-  -> EmbeddingProvider.embed()           (injected dependency)
-  -> VectorStore.upsert()                (injected dependency)
+- `@langchain/core` (required peer).
+- `@qdrant/js-client-rest` (optional peer; dynamically imported by `providers/qdrant.ts`).
+- `zod` (required peer).
 
-Query path
-----------
-User query
-  -> HybridRetriever.retrieve()
-      -> embedQuery() + vectorSearch()   (and optional keywordSearch())
-      -> optional quality boosting
-      -> token-budget trim
-  -> RetrievalResult
-  -> ContextAssembler.assembleContext()
-      -> contextText + citations + prompt + breakdown
-```
+Dev dependencies include `typescript`, `tsup`, `vitest`, and local peer-test alignment for `@langchain/core`.
 
-## External Dependencies and Contracts
+## Integration Points
+Framework integration seams:
 
-`RagPipeline` expects:
+- `RagPipelineDeps.embeddingProvider`: any `EmbeddingProvider` from `@dzupagent/core` contract.
+- `RagPipelineDeps.vectorStore`: any `VectorStore` from `@dzupagent/core` contract.
+- `RagPipelineDeps.keywordSearch`: optional lexical search function.
+- `RagMemoryNamespace`: plug-in memory service implementing `put/get` (+ optional `search/delete`).
 
-- `embeddingProvider: EmbeddingProvider`
-  - `embed(texts: string[]): Promise<number[][]>`
-  - `embedQuery(text: string): Promise<number[]>`
-- `vectorStore: VectorStore`
-  - pipeline currently uses `upsert()` and `search()` directly
-- optional `keywordSearch(query, filter, limit)` callback for lexical retrieval
+Qdrant integration seams:
 
-The package itself stores and reads retrieval metadata with these canonical keys:
+- `createQdrantRagPipeline(config)`: fast path for per-tenant collection strategy.
+- `ensureTenantCollection(adapter, tenantId, options)`: startup collection provisioning helper.
+- `createQdrantRetriever(config)`: returns vector/keyword function adapters for `HybridRetriever`.
+- `QdrantCorpusStore`: adapts shared-collection Qdrant strategy to `VectorStore` for `CorpusManager`.
 
-- `source_id`
-- `session_id`
-- `chunk_index`
-- `quality_score`
-- optional: `source_title`, `source_url`, `source_quality`, `sourceQuality`, `domain_authority`
+## Testing and Observability
+Test surface under `src/__tests__` covers:
 
-## Component Details
+- Chunking behavior and quality scoring (`chunker-*`, `minimal-chunker`).
+- Retrieval modes, RRF fusion, quality boosting (`retriever`, `quality-retriever*`, `pipeline-memory-retriever`).
+- Assembly behavior and prompt generation (`assembler*`).
+- Pipeline ingest/retrieve/assembly/cache/delete behavior (`pipeline.unit`, `pipeline-deep`, `pipeline-coverage`, `rag.integration`).
+- Qdrant strategy modules (`qdrant-factory`, `qdrant-provider`).
+- Corpus lifecycle and errors (`corpus-manager`, `corpus-types`).
+- Memory namespace and folder context generator (`memory-namespace`, `folder-context-generator`).
+- Public export contract (`public-exports`).
 
-## 1) SmartChunker (`src/chunker.ts`)
+Test runtime setup:
 
-### What it does
+- Vitest in Node environment with single-fork execution (`pool: 'forks'`, `singleFork: true`) and elevated heap.
+- Coverage thresholds: statements/lines 70, branches/functions 60.
 
-- Splits source text into overlapping chunks.
-- Uses configurable boundary-aware breakpoints (headers, paragraphs, sentence markers, list markers, code fences).
-- Adds metadata and a computed quality score for each chunk.
+Observability currently in code:
 
-### Key config
+- `RagPipeline` returns timing fields (`embeddingTimeMs`, `storageTimeMs`, `queryTimeMs`) in operation results.
+- `QdrantCorpusStore.healthCheck()` returns vector-store health status.
+- No built-in metrics emitter, tracer, or structured logger is implemented in this package.
 
-- `targetTokens` (default `1200`)
-- `overlapFraction` (default `0.15`)
-- `respectBoundaries` (default `true`)
+## Risks and TODOs
+Current code-level risks and implementation notes:
 
-### Output
+- `README.md` examples are partially drifted from current signatures/field names; source APIs should be treated as authoritative until examples are refreshed.
+- `CorpusManager` registry state is in-memory only and does not survive process restarts.
+- `QdrantCorpusStore.count()` intentionally returns `0` (no real per-collection count call implemented).
+- `QdrantCorpusStore.delete()` metadata-filter delete path is broad for the logical collection and does not translate arbitrary `VectorDeleteFilter` clauses.
+- `RagMemoryNamespace.searchChunks()` uses position-based synthetic scores because `MemoryServiceLike.search` does not carry native score fields.
+- Two Qdrant multi-tenant strategies coexist (per-tenant collections and shared collection with filter); deployments should choose one strategy intentionally.
 
-`ChunkResult[]` with:
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
-- `id`: `${sourceId}:${chunkIndex}`
-- `text`
-- `tokenCount` (`estimateTokens` from `@dzupagent/core`)
-- `quality` (`0..1`)
-- offsets + boundary type metadata
-
-### Quality model
-
-`computeChunkQuality()` blends:
-
-- content density
-- meaningful sentence count
-- token ratio vs target
-- trailing-chunk position penalty
-- boilerplate pattern detection
-
-It also reports vocabulary diversity and structure signals.
-
-## 2) HybridRetriever (`src/retriever.ts`)
-
-### What it does
-
-- Supports retrieval modes: `vector`, `keyword`, `hybrid`.
-- Uses Reciprocal Rank Fusion (RRF, default `k=60`) for hybrid mode.
-- Optionally applies quality-based score adjustment.
-- Enforces a token budget greedily from highest score downward.
-
-### Retrieval modes
-
-- `vector`: embed query, call injected vector search
-- `keyword`: call injected keyword search
-- `hybrid`: run both and fuse by RRF
-
-### Quality boosting model
-
-- Blend: `chunkQuality * chunkWeight + sourceQuality * sourceWeight`
-- Convert to boost factor around midpoint with ±15% range
-- Built-in resolution order for source quality:
-  1. configured async provider (`sourceQuality.provider`)
-  2. chunk metadata (`sourceQuality` fields)
-  3. configured fallback (`sourceQuality.fallback`) or `0.5`
-
-### Important behavior
-
-- `topK` is clamped to `[1, 100]`.
-- If token budget is exceeded, lower-ranked chunks are dropped.
-- First chunk is always kept even when larger than budget.
-
-## 3) QualityBoostedRetriever (`src/quality-retriever.ts`)
-
-### What it does
-
-- Wraps an existing `HybridRetriever`.
-- Disables base retriever quality boosting for this call.
-- Re-scores using caller-provided `sourceQualities: Record<sourceId, score>`.
-- Filters by optional `minScore`.
-
-### Formula
-
-`finalScore = rawScore * (chunkWeight * chunkQuality + sourceWeight * sourceQuality)`
-
-Defaults: `chunkWeight=0.6`, `sourceWeight=0.4`, `minScore=0.0`.
-
-## 4) ContextAssembler (`src/assembler.ts`)
-
-### What it does
-
-- Builds LLM-ready context from retrieval results + per-source metadata.
-- Supports source context modes:
-  - `off`: source excluded
-  - `insights`: use provided source summary (if length >= 20)
-  - `full`: include retrieved chunk text
-- Produces:
-  - `contextText` with numbered source entries
-  - `citations` with snippets
-  - `sourceBreakdown` with token/chunk usage per source
-  - grounded system prompt (default) or extended prompt
-
-### Token budget behavior
-
-- Insights and full chunks are combined and sorted (`insights` first, then score desc).
-- When over budget, lowest-ranked `full` chunks are dropped first.
-- Insights are preserved preferentially.
-
-## 5) RagPipeline (`src/pipeline.ts`)
-
-### What it does
-
-Top-level orchestrator wiring `SmartChunker`, `HybridRetriever`, and `ContextAssembler` with injected provider/store dependencies.
-
-### Main operations
-
-- `ingest(text, options)`
-  - chunk text
-  - embed chunk texts in batches (`embedding.batchSize`)
-  - upsert vector entries into tenant collection (`collectionPrefix + tenantId`)
-- `retrieve(query, { sessionId, tenantId, ...retrievalOverrides })`
-  - routes query to tenant-specific cached retriever
-  - builds metadata filter (currently from `sessionId`)
-- `assembleContext(query, options)`
-  - retrieve + assemble in one call
-  - supports caller-provided source metadata and assembly options
-
-### Tenant isolation
-
-- One retriever instance cached per `tenantId`.
-- Collection name derived by prefix + tenant.
-- `disposeTenant()` and `disposeAll()` clear cache.
-
-## 6) RagMemoryNamespace (`src/memory-namespace.ts`)
-
-### What it does
-
-- Bridges chunk storage to a generic `MemoryServiceLike` contract.
-- Validates required scope keys (for example `tenantId`, `sessionId`).
-- Provides:
-  - `storeChunks()`
-  - `getChunks()`
-  - `searchChunks()` (if memory service supports search)
-  - `deleteBySource()` (if memory service supports delete)
-  - `getChunkCount()`
-
-### Design notes
-
-- Uses duck typing, no hard runtime dependency on a specific memory implementation.
-- Filters out records that do not match expected chunk shape.
-
-## 7) CitationTracker (`src/citation-tracker.ts`)
-
-### What it does
-
-- Maintains source metadata registry.
-- Generates deduplicated citations by `(sourceId, chunkIndex)` from retrieval output.
-- Provides formatting helpers:
-  - inline citation `[N]`
-  - reference list with optional URLs
-
-## End-to-End Data Flow
-
-## Ingestion flow
-
-1. Caller invokes `pipeline.ingest(text, options)` with required `sourceId`, `sessionId`, `tenantId`.
-2. Text is chunked into `ChunkResult[]`.
-3. If `autoEmbed !== false`, chunk texts are embedded in batches.
-4. Vector entries are written to `vectorStore.upsert(collectionName, entries)` with metadata fields.
-5. `IngestResult` returns chunk counts/tokens and timing metrics.
-
-## Retrieval flow
-
-1. Caller invokes `pipeline.retrieve(query, { sessionId, tenantId, ... })`.
-2. Pipeline retrieves/creates tenant-specific retriever.
-3. Retriever performs vector/keyword/hybrid search.
-4. Optional quality boosting adjusts scores.
-5. Token budget trims output list.
-6. `RetrievalResult` returned with `chunks`, `totalTokens`, `searchMode`, `queryTimeMs`.
-
-## Assembly flow
-
-1. Caller invokes `pipeline.assembleContext(query, options)`.
-2. Pipeline runs retrieval using `maxTokens` as retrieval budget.
-3. `ContextAssembler` merges retrieved chunks with source metadata/context modes.
-4. Returns `AssembledContext` with prompt, context text, citations, and source breakdown.
-
-## Feature Matrix
-
-| Feature | Where | Description | How to enable |
-|---|---|---|---|
-| Boundary-aware chunking | `SmartChunker` | Splits near semantic boundaries when possible | `respectBoundaries: true` |
-| Overlap chunking | `SmartChunker` | Preserves context continuity between chunks | tune `overlapFraction` |
-| Chunk quality scoring | `SmartChunker` | Computes per-chunk quality score used downstream | automatic |
-| Vector retrieval | `HybridRetriever` | Semantic search via embeddings | provide `embedQuery` + `vectorSearch` |
-| Keyword retrieval | `HybridRetriever` | Lexical/FTS retrieval path | provide `keywordSearch` |
-| Hybrid retrieval (RRF) | `HybridRetriever` | Fuses vector + keyword ranking | set mode `hybrid` |
-| Built-in quality boost | `HybridRetriever` | Adjusts relevance by chunk/source quality | `qualityBoosting: true` |
-| External quality boost | `QualityBoostedRetriever` | Re-ranks by external source quality map | wrap base retriever |
-| Context mode control | `ContextAssembler` | Source-level `off`/`insights`/`full` behavior | provide `SourceMeta.contextMode` |
-| Prompt templates | `ContextAssembler` | Custom grounded/extended prompt templates | `groundedTemplate` / `extendedTemplate` |
-| Citation helpers | `CitationTracker` | Inline/reference list formatting | register sources + generate citations |
-| Memory namespace bridge | `RagMemoryNamespace` | Store/search/delete chunks in memory service | provide `MemoryServiceLike` |
-
-## Test Coverage
-
-This section maps implemented features to the current test suite in
-`packages/rag/src/__tests__`.
-
-## Test Suite Map
-
-| Test file | Primary scope |
-|---|---|
-| `chunker-quality.test.ts` | `SmartChunker` chunking behavior + quality scoring heuristics |
-| `retriever.test.ts` | `HybridRetriever` modes, RRF, metadata parsing, budgeting, timing |
-| `rag.integration.test.ts` | Public retriever surface, hybrid fusion integration path |
-| `quality-retriever.test.ts` | `QualityBoostedRetriever` boosting and option pass-through |
-| `assembler.test.ts` | `ContextAssembler` modes, budgeting, citations, prompt builders |
-| `citation-tracker.test.ts` | `CitationTracker` source registry + citation formatting |
-| `memory-namespace.test.ts` | `RagMemoryNamespace` CRUD/search/scope behavior |
-| `pipeline-memory-retriever.test.ts` | `RagPipeline` tenant collection isolation + source-quality strategy behavior in `HybridRetriever` |
-
-Notes:
-
-- `chunker.test.ts` and `minimal-chunker.test.ts` are placeholders (`export {}`) and are excluded in `vitest.config.ts`.
-
-## Feature-to-Test Matrix
-
-| Feature | Main tests covering it | What is verified |
-|---|---|---|
-| Boundary-aware chunking | `chunker-quality.test.ts` (`boundary detection`) | header and paragraph breakpoints, token boundary fallback |
-| Overlap + chunk metadata | `chunker-quality.test.ts` (`chunkText`) | sequential IDs/indexes, overlapping offsets, token counts |
-| Trailing tiny-chunk merge | `chunker-quality.test.ts` (`trailing chunk merge`) | tiny tail is merged into predecessor |
-| Chunk quality scoring | `chunker-quality.test.ts` (`computeChunkQuality`) | meaningful content scoring, boilerplate penalty, diversity/structure metrics, score clamping |
-| Vector retrieval mode | `retriever.test.ts` (`vector mode`) | ranking, `vectorScore` mapping, `embedQuery` invocation |
-| Keyword retrieval mode | `retriever.test.ts` (`keyword mode`) | keyword path, `keywordScore` mapping, behavior without keyword function |
-| Hybrid retrieval (RRF) | `retriever.test.ts` (`hybrid mode (RRF)`), `rag.integration.test.ts` | shared-hit boosting, mixed-source fused rankings |
-| Retrieval budget + limits | `retriever.test.ts` (`token budget enforcement`, `topK clamping`) | first-chunk guarantee, token trimming, `topK` clamped to 1..100 |
-| Retrieval metadata parsing | `retriever.test.ts` (`metadata parsing`) | source fields and `source_quality` numeric/string normalization path |
-| Built-in source quality strategy | `pipeline-memory-retriever.test.ts` (`HybridRetriever source quality boosting`) | metadata fallback, provider precedence, provider error fallback, configured fallback |
-| External quality boosting | `quality-retriever.test.ts` | map-based score changes, custom weights, `minScore` filter, descending order |
-| Disable double boosting | `quality-retriever.test.ts` | wrapper sets `qualityBoosting: false` on base retriever |
-| Context modes (`off/insights/full`) | `assembler.test.ts` (`context modes`) | exclusion of `off`, summary-only `insights`, summary length guard, ordering |
-| Assembly token budgeting | `assembler.test.ts` (`token budget`) | low-score full chunks dropped first, insights preserved |
-| Prompt generation | `assembler.test.ts` (`buildGroundedPrompt`, `buildExtendedPrompt`) | no-source behavior, template replacement, source section rendering |
-| Citations in assembled context | `assembler.test.ts` (`citations`) | snippet length, title fallback, numbered context format |
-| Source breakdown accounting | `assembler.test.ts` (`source breakdown`) | per-source chunk/token aggregation |
-| Citation utility behavior | `citation-tracker.test.ts` | source registration overwrite behavior, dedupe by `sourceId+chunkIndex`, inline/ref list formatting |
-| Memory namespace scope + storage | `memory-namespace.test.ts`, `pipeline-memory-retriever.test.ts` | required scope validation, record shape filtering, search/delete capability checks |
-| Tenant collection isolation | `pipeline-memory-retriever.test.ts` | different tenants resolve to distinct vector collections |
-
-## Coverage Gaps and Risks
-
-Current implementation has meaningful coverage, but these gaps remain:
-
-- `RagPipeline.ingest()` happy path and edge cases are not directly unit-tested in `packages/rag` (chunking + embedding + vector upsert contract assertions).
-- `RagPipeline.assembleContext()` orchestration path is not directly unit-tested end-to-end (retrieve + assemble coupling).
-- Re-ingestion cleanup behavior is not covered (and currently pipeline is upsert-only).
-- There is no test explicitly guarding short-input/high-overlap chunker termination; current suite run still reports worker OOM (`ERR_WORKER_OUT_OF_MEMORY`).
-
-## How To Use
-
-## 1) Create a pipeline
-
-```ts
-import { RagPipeline } from '@dzupagent/rag'
-import type { EmbeddingProvider, VectorStore } from '@dzupagent/core'
-
-const embeddingProvider: EmbeddingProvider = /* your provider */
-const vectorStore: VectorStore = /* your adapter */
-
-const rag = new RagPipeline(
-  {
-    chunking: { targetTokens: 500, overlapFraction: 0.1, respectBoundaries: true },
-    retrieval: { mode: 'hybrid', topK: 8, qualityBoosting: true, tokenBudget: 3000 },
-  },
-  {
-    embeddingProvider,
-    vectorStore,
-    keywordSearch: async (query, filter, limit) => {
-      // Return [{ id, score, text, metadata }]
-      return []
-    },
-  },
-)
-```
-
-## 2) Ingest a document
-
-```ts
-const ingest = await rag.ingest(longText, {
-  sourceId: 'doc-001',
-  sessionId: 'session-abc',
-  tenantId: 'tenant-x',
-  metadata: {
-    source_title: 'Platform Runbook',
-    source_url: 'https://docs.example.com/runbook',
-    source_quality: 0.9,
-  },
-})
-
-console.log(ingest.totalChunks, ingest.totalTokens)
-```
-
-## 3) Retrieve chunks only
-
-```ts
-const retrieval = await rag.retrieve('How do I rotate API keys?', {
-  sessionId: 'session-abc',
-  tenantId: 'tenant-x',
-  mode: 'hybrid',
-  topK: 5,
-  tokenBudget: 1200,
-})
-
-for (const chunk of retrieval.chunks) {
-  console.log(chunk.id, chunk.score, chunk.sourceId)
-}
-```
-
-## 4) Retrieve + assemble context for an LLM
-
-```ts
-const sourceMetadata = new Map([
-  ['doc-001', {
-    sourceId: 'doc-001',
-    title: 'Platform Runbook',
-    url: 'https://docs.example.com/runbook',
-    contextMode: 'full' as const,
-  }],
-  ['doc-002', {
-    sourceId: 'doc-002',
-    title: 'Release Notes Summary',
-    contextMode: 'insights' as const,
-    summary: 'High-level notes from recent release cycles ...',
-  }],
-])
-
-const assembled = await rag.assembleContext('What changed in incident handling?', {
-  sessionId: 'session-abc',
-  tenantId: 'tenant-x',
-  maxTokens: 2000,
-  sourceMetadata,
-})
-
-console.log(assembled.systemPrompt)
-console.log(assembled.citations)
-```
-
-## 5) Optional: external source-quality reranking
-
-```ts
-import { HybridRetriever, QualityBoostedRetriever } from '@dzupagent/rag'
-
-const baseRetriever = new HybridRetriever({
-  mode: 'hybrid',
-  topK: 10,
-  qualityBoosting: false,
-  qualityWeights: { chunk: 0.6, source: 0.4 },
-  tokenBudget: 2000,
-  embedQuery: async (q) => /* vector */ [],
-  vectorSearch: async (vec, filter, limit) => /* vector hits */ [],
-  keywordSearch: async (q, filter, limit) => /* keyword hits */ [],
-})
-
-const boostedRetriever = new QualityBoostedRetriever(baseRetriever, {
-  chunkWeight: 0.6,
-  sourceWeight: 0.4,
-  minScore: 0.1,
-})
-
-const boosted = await boostedRetriever.retrieve(
-  'question',
-  { session_id: 'session-abc' },
-  { 'doc-001': 1.0, 'doc-legacy': 0.3 },
-)
-```
-
-## 6) Optional: use memory namespace bridge
-
-```ts
-import { RagMemoryNamespace } from '@dzupagent/rag'
-
-const memoryNs = new RagMemoryNamespace(memoryService, {
-  namespace: 'rag-chunks',
-  scopeKeys: ['tenantId', 'sessionId'],
-})
-
-await memoryNs.storeChunks(ingest.chunks, {
-  tenantId: 'tenant-x',
-  sessionId: 'session-abc',
-})
-
-const storedChunks = await memoryNs.getChunks({
-  tenantId: 'tenant-x',
-  sessionId: 'session-abc',
-})
-```
-
-## Current Limitations and Caveats
-
-These are implementation-accurate caveats as of this snapshot:
-
-- `SmartChunker` currently has a short-input/high-overlap loop risk that can trigger worker OOM in tests (`chunker-quality.test.ts` does not complete reliably in full run).
-- `RagPipeline.ingest()` is upsert-only; re-ingesting a source with fewer chunks can leave stale vectors unless caller performs explicit cleanup.
-- `RagPipeline.retrieve()` currently filters by `session_id` only; tenant separation is achieved by collection name, not by metadata filter.
-- `RagPipelineConfig.embedding` and `RagPipelineConfig.vectorStore` fields are mostly descriptive in current code; runtime behavior is controlled by injected dependencies.
-- `RetrievalConfig.reranker` and `IngestOptions.autoSummarize` are defined in types but not operationally used in current implementation.
-- `README.md` examples are not fully aligned with current method signatures and options; prefer this architecture document + `src/types.ts` for integration.
-
-## Test Status Snapshot
-
-Command executed:
-
-- `yarn workspace @dzupagent/rag test`
-
-Observed outcome:
-
-- 7 test files passed (`78` tests passed)
-- 1 unhandled worker error: `ERR_WORKER_OUT_OF_MEMORY`
-- overall command exit code: `1`

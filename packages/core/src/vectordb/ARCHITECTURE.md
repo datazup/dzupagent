@@ -1,9 +1,9 @@
 # VectorDB Architecture (`packages/core/src/vectordb`)
 
 ## Scope
-This document covers the vector subsystem in `packages/core/src/vectordb` and immediate package-level integration points in `packages/core/src/index.ts`, `packages/core/src/registry/vector-semantic-search.ts`, and `packages/core/src/events/event-types.ts`.
+This document describes the vector database subsystem under `packages/core/src/vectordb`.
 
-Code in scope:
+Implementation files in scope:
 - `types.ts`
 - `embedding-types.ts`
 - `filter-utils.ts`
@@ -11,19 +11,15 @@ Code in scope:
 - `semantic-store.ts`
 - `auto-detect.ts`
 - `index.ts`
-- `embeddings/openai-embedding.ts`
-- `embeddings/voyage-embedding.ts`
-- `embeddings/cohere-embedding.ts`
-- `embeddings/ollama-embedding.ts`
-- `embeddings/custom-embedding.ts`
-- `adapters/qdrant-adapter.ts`
-- `adapters/pinecone-adapter.ts`
-- `adapters/pgvector-adapter.ts`
-- `adapters/chroma-adapter.ts`
-- `adapters/turbopuffer-adapter.ts`
-- `adapters/lancedb-adapter.ts`
+- `embeddings/*`
+- `adapters/*`
 
-Tests in scope:
+Package-level integration references in scope:
+- `packages/core/src/index.ts` (package root re-exports)
+- `packages/core/src/registry/vector-semantic-search.ts` (consumer of `SemanticStore`)
+- `packages/core/src/events/event-types.ts` (event types only)
+
+Test files in scope:
 - `src/vectordb/__tests__/types.test.ts`
 - `src/vectordb/__tests__/in-memory-vector-store.test.ts`
 - `src/vectordb/__tests__/semantic-store.test.ts`
@@ -36,181 +32,205 @@ Tests in scope:
 - `src/__tests__/lancedb-adapter.test.ts`
 
 ## Responsibilities
-The module provides a provider-agnostic vector layer with three main responsibilities:
+The subsystem provides a provider-agnostic vector/search abstraction plus concrete adapter implementations.
 
-1. Define stable vector and embedding contracts.
-2. Implement multiple vector and embedding providers.
-3. Provide a text-first semantic wrapper (`SemanticStore`) over vector operations.
+Primary responsibilities:
+- Define stable vector contracts (`VectorStore`, query/filter/result types, collection config).
+- Define stable embedding contracts (`EmbeddingProvider`) and provider factories.
+- Provide text-first semantic operations via `SemanticStore` (embed + upsert/search).
+- Implement concrete `VectorStore` adapters:
+  - `InMemoryVectorStore`
+  - `QdrantAdapter`
+  - `PineconeAdapter`
+  - `PgVectorAdapter`
+  - `ChromaDBAdapter`
+  - `TurbopufferAdapter`
+  - `LanceDBAdapter`
+- Provide env-driven detection helpers for embeddings and vector provider metadata.
 
-Operational responsibilities:
-- Collection lifecycle management.
-- Vector upsert, similarity search, and deletion.
-- Metadata filter normalization and adapter translation.
-- Basic health reporting via `healthCheck()`.
-- Environment-based provider auto-detection helpers.
+Non-responsibilities in current code:
+- No direct event emission from vectordb classes.
+- No centralized telemetry/metrics wiring beyond per-adapter `healthCheck()` results.
+- No production adapter auto-instantiation in `createAutoSemanticStore` (it always uses in-memory store).
 
 ## Structure
-Core contracts and orchestration:
-- `types.ts`: `VectorStore` and shared vector/filter/query contracts.
+Core contracts and utilities:
+- `types.ts`: vector contracts and metadata filter AST.
 - `embedding-types.ts`: `EmbeddingProvider` contract.
-- `filter-utils.ts`: `cosineSimilarity` and `evaluateFilter`.
-- `in-memory-vector-store.ts`: in-process `VectorStore` implementation.
-- `semantic-store.ts`: text input/output wrapper around `EmbeddingProvider + VectorStore`.
-- `auto-detect.ts`: environment-based embedding/provider detection utilities.
-- `index.ts`: vectordb barrel exports.
+- `filter-utils.ts`: `cosineSimilarity` and `evaluateFilter` for local evaluation.
 
-Embedding implementations:
-- `createOpenAIEmbedding`.
-- `createVoyageEmbedding`.
-- `createCohereEmbedding`.
-- `createOllamaEmbedding`.
-- `createCustomEmbedding`.
+Core orchestration:
+- `semantic-store.ts`: `SemanticStore` wrapping `EmbeddingProvider + VectorStore`.
+- `auto-detect.ts`:
+  - `createAutoEmbeddingProvider`
+  - `detectVectorProvider`
+  - `createAutoSemanticStore`
 
-Vector adapters:
-- `QdrantAdapter`.
-- `PineconeAdapter`.
-- `PgVectorAdapter`.
-- `ChromaDBAdapter`.
-- `TurbopufferAdapter`.
-- `LanceDBAdapter`.
+Embedding providers (`embeddings/*`):
+- `createOpenAIEmbedding`
+- `createVoyageEmbedding`
+- `createCohereEmbedding`
+- `createOllamaEmbedding`
+- `createCustomEmbedding`
+
+Vector adapters (`adapters/*`):
+- `QdrantAdapter` + `translateQdrantFilter`
+- `PineconeAdapter` + `translatePineconeFilter`
+- `PgVectorAdapter`
+- `ChromaDBAdapter`
+- `TurbopufferAdapter` + `translateTurbopufferFilter`
+- `LanceDBAdapter` + `translateLanceDBFilter`
+
+Public export surface:
+- `src/vectordb/index.ts` exports all of the above.
+- `src/index.ts` re-exports most vectordb APIs, but not LanceDB symbols.
 
 ## Runtime and Control Flow
-Semantic write path:
-1. Caller sends `Document[]` to `SemanticStore.upsert(collection, docs)`.
-2. `EmbeddingProvider.embed(texts)` runs once for the batch.
-3. Results are mapped to `VectorEntry[]`.
-4. `VectorStore.upsert(collection, entries)` persists vectors.
+Semantic write flow:
+1. Caller invokes `SemanticStore.upsert(collection, docs)`.
+2. `EmbeddingProvider.embed(texts)` is called once per batch.
+3. Documents are converted to `VectorEntry[]` (`id`, `vector`, `metadata`, `text`).
+4. `VectorStore.upsert(collection, entries)` persists data in the selected backend.
 
-Semantic query path:
+Semantic search flow:
 1. Caller invokes `SemanticStore.search(collection, queryText, limit, filter?)`.
-2. `EmbeddingProvider.embedQuery(queryText)` generates query vector.
-3. `VectorStore.search` runs similarity search.
-4. `SemanticStore` maps provider output to `ScoredDocument[]`.
+2. `EmbeddingProvider.embedQuery(queryText)` produces query vector.
+3. `VectorStore.search` executes similarity search.
+4. Results are mapped to `ScoredDocument[]`; missing text is normalized to `''`.
 
-Collection bootstrap path:
+Collection bootstrap flow:
 1. Caller invokes `SemanticStore.ensureCollection(collection, config?)`.
-2. Store existence is checked via `collectionExists`.
-3. If missing, collection is created using provided config or embedding defaults.
+2. Store is checked via `collectionExists`.
+3. If absent, `createCollection` is called with:
+   - `dimensions` from config or `embedding.dimensions`
+   - `metric` defaulting to `'cosine'`
 
-Delete path:
-1. Caller passes `{ ids: string[] }` or `{ filter: MetadataFilter }`.
-2. `SemanticStore.delete` forwards to `VectorStore.delete` unchanged.
+Delete flow:
+1. Caller invokes `SemanticStore.delete(collection, filter)`.
+2. Filter is forwarded unchanged (`{ ids }` or `{ filter: MetadataFilter }`).
 
-Auto-detect path:
-1. `createAutoEmbeddingProvider` resolves provider from env priority.
-2. `detectVectorProvider` resolves backend metadata from env priority.
-3. `createAutoSemanticStore` creates `SemanticStore` with detected embedding and `InMemoryVectorStore`.
+Auto-detect flow:
+1. `createAutoEmbeddingProvider` selects provider by env priority:
+   - `VOYAGE_API_KEY` -> Voyage
+   - `OPENAI_API_KEY` -> OpenAI
+   - `COHERE_API_KEY` -> Cohere
+   - otherwise throws.
+2. `detectVectorProvider` returns provider metadata by env priority:
+   - explicit `VECTOR_PROVIDER`
+   - `QDRANT_URL`
+   - `TURBOPUFFER_API_KEY`
+   - `PINECONE_API_KEY`
+   - `LANCEDB_URI`
+   - fallback `'memory'`.
+3. `createAutoSemanticStore` builds `SemanticStore` with detected embedding and `InMemoryVectorStore`.
 
 ## Key APIs and Types
-Primary types:
-- `DistanceMetric = 'cosine' | 'euclidean' | 'dot_product'`.
-- `CollectionConfig`.
-- `VectorEntry`.
-- `VectorQuery`.
-- `VectorSearchResult`.
-- `VectorDeleteFilter`.
-- `MetadataFilter`.
-- `VectorStoreHealth`.
-- `EmbeddingProvider`.
-- `EmbeddingProviderConfig`.
-- `SemanticStoreConfig`.
-- `Document`.
-- `ScoredDocument`.
+Core vector contracts (`types.ts`):
+- `DistanceMetric = 'cosine' | 'euclidean' | 'dot_product'`
+- `CollectionConfig`
+- `VectorEntry`
+- `VectorQuery`
+- `VectorSearchResult`
+- `VectorDeleteFilter`
+- `MetadataFilter`
+- `VectorStoreHealth`
+- `VectorStore` interface
 
-Primary interfaces and classes:
-- `VectorStore`.
-- `InMemoryVectorStore`.
-- `SemanticStore`.
-- `QdrantAdapter`.
-- `PineconeAdapter`.
-- `PgVectorAdapter`.
-- `ChromaDBAdapter`.
-- `TurbopufferAdapter`.
-- `LanceDBAdapter`.
+Embedding contracts (`embedding-types.ts`):
+- `EmbeddingProvider`
+- `EmbeddingProviderConfig`
 
-Factory and utility APIs:
-- `createOpenAIEmbedding`.
-- `createVoyageEmbedding`.
-- `createCohereEmbedding`.
-- `createOllamaEmbedding`.
-- `createCustomEmbedding`.
-- `createAutoEmbeddingProvider`.
-- `detectVectorProvider`.
-- `createAutoSemanticStore`.
-- `cosineSimilarity`.
-- `evaluateFilter`.
-- `translateQdrantFilter`.
-- `translatePineconeFilter`.
-- `translateTurbopufferFilter`.
-- `translateLanceDBFilter`.
+Semantic wrapper (`semantic-store.ts`):
+- `SemanticStore`
+- `SemanticStoreConfig`
+- `Document`
+- `ScoredDocument`
 
-Current adapter behavior notes:
-- Qdrant: REST API with optional `api-key` header; `contains` is translated as exact match.
-- Pinecone: control-plane plus data-plane host lookup; `contains` maps to `$eq`; `minScore` is filtered client-side.
-- pgvector: uses injected `queryFn`; identifier sanitization plus parameterized values.
-- ChromaDB: caches collection UUIDs; converts distance to score using `1 - distance`.
-- Turbopuffer: namespace-based storage, batched upserts, retry on HTTP 429.
-- LanceDB: async factory with dynamic import and extra methods `buildFTSIndex`, `upsertArrowTable`, `searchAsArrow`, `getConfig`.
+Auto-detection (`auto-detect.ts`):
+- `createAutoEmbeddingProvider`
+- `detectVectorProvider`
+- `createAutoSemanticStore`
+- `AutoDetectResult`
+
+Adapters and translation helpers:
+- `QdrantAdapter`, `translateQdrantFilter`
+- `PineconeAdapter`, `translatePineconeFilter`
+- `PgVectorAdapter`
+- `ChromaDBAdapter`
+- `TurbopufferAdapter`, `translateTurbopufferFilter`
+- `LanceDBAdapter`, `translateLanceDBFilter`
+
+Adapter-specific API extensions:
+- `LanceDBAdapter.create(...)` async factory with dynamic optional dependency loading.
+- `LanceDBAdapter.createFromConnection(...)` test/internal constructor path.
+- LanceDB-only methods: `buildFTSIndex`, `upsertArrowTable`, `searchAsArrow`, `getConfig`.
 
 ## Dependencies
-Package dependencies relevant to this module:
-- `@dzupagent/context`.
-- `@dzupagent/memory`.
-- `@dzupagent/runtime-contracts`.
+Internal package dependencies used by this subsystem:
+- `../../errors/forge-error.js` (LanceDB adapter uses `ForgeError`).
 
-Peer dependencies relevant to this module:
-- `@lancedb/lancedb` (optional, required for `LanceDBAdapter.create`).
-- `apache-arrow` (optional, used by LanceDB Arrow paths).
+`@dzupagent/core` package dependencies relevant here:
+- `@dzupagent/agent-types`
+- `@dzupagent/runtime-contracts`
 
-Runtime dependencies:
-- `globalThis.fetch` for HTTP-based adapters and embedding providers.
-- Environment variables for auto-detection in `auto-detect.ts`.
+Optional peer dependencies used directly by vectordb code:
+- `@lancedb/lancedb` (required at runtime for `LanceDBAdapter.create`)
+- `apache-arrow` (optional runtime path for Arrow helpers in LanceDB adapter)
 
-Internal dependencies:
-- `adapters/lancedb-adapter.ts` uses `ForgeError` from `src/errors/forge-error.ts`.
+Runtime platform dependencies:
+- `globalThis.fetch` for all HTTP embeddings/adapters (`Qdrant`, `Pinecone`, `ChromaDB`, `Turbopuffer`, and cloud embedding providers).
+- `process.env` for provider auto-detection and default LanceDB URI resolution.
 
 ## Integration Points
 Package exports:
-- `src/vectordb/index.ts` exports all vectordb contracts/adapters including LanceDB.
-- `src/index.ts` re-exports most vectordb APIs, including Turbopuffer.
-- `src/index.ts` currently does not re-export LanceDB symbols.
-- `src/stable.ts` is facade-only and does not expose vectordb.
-- `src/advanced.ts` mirrors `src/index.ts`.
+- `src/vectordb/index.ts` is the canonical vectordb barrel and includes LanceDB exports.
+- `src/index.ts` re-exports vectordb APIs including Turbopuffer, but currently omits LanceDB exports/types.
 
 Registry integration:
-- `src/registry/vector-semantic-search.ts` depends on `SemanticStore`.
-- Indexing and deletion in `VectorStoreSemanticSearch` are fire-and-forget and intentionally non-fatal.
+- `src/registry/vector-semantic-search.ts` consumes `SemanticStore`.
+- `VectorStoreSemanticSearch` indexes registered agents into `agent_registry` collection.
+- Index/remove operations are fire-and-forget and intentionally non-fatal.
 
 Event model integration:
-- `src/events/event-types.ts` defines vector event payloads.
-- `src/vectordb` code does not emit these events directly.
+- `src/events/event-types.ts` defines vector-related event payloads (`vector:search_completed`, `vector:upsert_completed`, `vector:embedding_completed`, `vector:error`).
+- Current vectordb implementations do not emit these events directly.
 
 ## Testing and Observability
-Testing coverage is extensive at unit level for contracts, filters, semantic orchestration, adapter translation, error handling, and provider detection.
+Coverage shape (unit tests):
+- Type contracts and filter AST compatibility.
+- `cosineSimilarity`/`evaluateFilter` behavior and edge cases.
+- `InMemoryVectorStore` lifecycle, query semantics, include flags, and dimension validation.
+- `SemanticStore` orchestration (`ensureCollection`, batched embed, search mapping, delete delegation).
+- Embedding providers:
+  - request shape
+  - result ordering
+  - model/dimension defaults
+  - HTTP error handling
+  - provider detection precedence.
+- Adapter tests for Qdrant/Pinecone/PgVector/Chroma/Turbopuffer/LanceDB:
+  - request/SQL generation
+  - filter translation
+  - score/minScore handling
+  - health checks
+  - auth header behavior
+  - provider precedence checks (`detectVectorProvider`) for Turbopuffer/LanceDB.
 
-Covered areas:
-- Core types and filter semantics.
-- In-memory store correctness and dimension validation.
-- Semantic wrapper behavior (`ensureCollection`, batch embed, query, delete).
-- Embedding providers and auto-detection precedence.
-- Adapter-specific request/response mapping, filtering, and health behavior.
-- Turbopuffer rate-limit retry behavior.
-- pgvector SQL generation and injection-safety expectations.
-- LanceDB dynamic dependency and Arrow fallback behavior.
-
-Observability in module:
-- Built-in observability is limited to `VectorStore.healthCheck()`.
-- No direct logging, metrics emission, or event-bus instrumentation exists in `src/vectordb`.
+Observability currently in code:
+- Standardized `healthCheck()` on all `VectorStore` implementations.
+- No built-in logging hooks, metrics emitter, or event bus emission inside vectordb classes.
 
 ## Risks and TODOs
-- `createAutoSemanticStore` ignores detected vector backend and always uses `InMemoryVectorStore`.
-- `SemanticStoreConfig.defaultCollection` exists but is not used by `SemanticStore`.
-- Export surface mismatch: LanceDB is exported from `src/vectordb/index.ts` but not re-exported from package root `src/index.ts`.
-- `TurbopufferAdapter.search` hardcodes cosine distance mapping and does not use collection metric.
-- `PgVectorAdapter` currently creates cosine ivfflat index and uses cosine scoring path regardless of `CollectionConfig.metric`.
-- `contains` semantics differ by backend, so behavior is not portable across all adapters.
-- LanceDB config fields `hybridSearch` and `vectorWeight` are accepted/stored but not applied in `search` execution.
-- Vector event types are defined centrally but not emitted by vectordb implementations.
+- `createAutoSemanticStore` ignores `detectVectorProvider` output and always wires `InMemoryVectorStore`; this can hide misconfiguration in production-like environments.
+- `SemanticStoreConfig.defaultCollection` exists but is not used by `SemanticStore` methods.
+- Root package export mismatch: LanceDB exports exist in `src/vectordb/index.ts` but are not re-exported from `src/index.ts`.
+- `TurbopufferAdapter.search` hardcodes cosine metric mapping in request body (`distance_metric` uses cosine constant), not the collection metric.
+- `PgVectorAdapter.createCollection` always builds cosine `ivfflat` index (`vector_cosine_ops`) regardless of requested `CollectionConfig.metric`.
+- Filter semantics are not portable for `contains` across adapters:
+  - Qdrant/Pinecone/Turbopuffer degrade to exact/equality-like behavior.
+  - PgVector/Chroma/LanceDB use substring-like semantics.
+- LanceDB config fields `hybridSearch` and `vectorWeight` are persisted in config but not used in `search` decision logic.
+- Vectordb event types are defined globally but not emitted from vectordb runtime paths.
 
 ## Changelog
-- 2026-04-16: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+

@@ -1,7 +1,7 @@
 # Protocol Architecture (`packages/core/src/protocol`)
 
 ## Scope
-This document covers the protocol subsystem implemented in `packages/core/src/protocol`:
+This document covers the protocol subsystem in `packages/core/src/protocol`:
 
 - `message-types.ts`
 - `message-schemas.ts`
@@ -17,182 +17,200 @@ This document covers the protocol subsystem implemented in `packages/core/src/pr
 - `a2a-push-notification.ts`
 - `index.ts`
 
-It also references package-level integration and contract points in:
+It also references integration/export surfaces in:
 
 - `packages/core/src/index.ts`
 - `packages/core/src/facades/orchestration.ts`
-- `packages/core/src/events/agent-bus.ts`
-- `packages/core/src/errors/error-codes.ts`
-- `packages/core/src/errors/forge-error.ts`
 - `packages/core/package.json`
-- `packages/core/vitest.config.ts`
+- protocol tests under `packages/core/src/protocol/__tests__`
 
 ## Responsibilities
-The protocol module is the transport boundary for inter-agent messages in `@dzupagent/core`. Its current responsibilities are:
+The protocol module provides transport-agnostic messaging and adapter wiring for inter-agent communication in `@dzupagent/core`.
 
-- Define a protocol-agnostic envelope (`ForgeMessage`) and payload union (`ForgePayload`).
-- Validate message URIs, payloads, metadata, and envelope shape at runtime using Zod.
-- Provide factory utilities for message IDs, request/response/error creation, TTL checks, and non-throwing validation.
-- Provide serialization/deserialization (`JSONSerializer`) with `Uint8Array` support.
-- Define a generic adapter interface (`ProtocolAdapter`) with connect/send/stream/subscribe/health lifecycle.
-- Implement two concrete transport paths:
-- `InternalAdapter` for in-process routing over `AgentBus`.
-- `A2AClientAdapter` for HTTP JSON-RPC + SSE against A2A agents.
-- Route outbound messages by URI scheme via `ProtocolRouter`.
-- Bridge messages between adapters/protocols with optional translation (`ProtocolBridge`).
-- Provide A2A utilities:
-- JSON-RPC request/response helpers and validators.
-- Task push-notification registration and delivery service.
+Current responsibilities are:
+
+- Define message envelope and payload contracts (`ForgeMessage`, `ForgePayload`, protocol/type discriminators).
+- Validate envelope and payload shape at runtime with Zod schemas.
+- Create IDs/messages/responses/errors and check TTL viability.
+- Serialize and deserialize messages to/from `Uint8Array` with binary payload support.
+- Define the common adapter contract (`ProtocolAdapter`) and health/send/stream/subscribe lifecycle.
+- Implement concrete adapters:
+  - `InternalAdapter` for in-process delivery over `AgentBus`.
+  - `A2AClientAdapter` for JSON-RPC HTTP + SSE streaming against A2A endpoints.
+- Route messages to scheme-specific adapters via `ProtocolRouter`.
+- Bridge and optionally translate payloads between adapters via `ProtocolBridge`.
+- Provide A2A helper utilities:
+  - JSON-RPC constants/factories/validators.
+  - In-memory push notification registration and delivery with retry.
 
 ## Structure
-The implementation is split by concern:
+Implementation structure by concern:
 
-| Area | Files | Notes |
-| --- | --- | --- |
-| Core message model | `message-types.ts`, `message-schemas.ts`, `message-factory.ts` | Envelope, payload union, validation, factory helpers |
-| Transport contract | `adapter.ts` | Shared adapter interface and health/send option types |
-| In-process transport | `internal-adapter.ts` | Channel-based request/response and stream routing over `AgentBus` |
-| Remote A2A transport | `a2a-client-adapter.ts`, `a2a-sse-stream.ts` | JSON-RPC `tasks/send` and `/tasks/{id}/stream` SSE updates |
-| Routing and bridging | `protocol-router.ts`, `protocol-bridge.ts` | URI scheme dispatch and protocol translation helpers |
-| Serialization boundary | `serialization.ts` | JSON bytes in/out, schema validation on decode |
-| A2A utility support | `a2a-json-rpc.ts`, `a2a-push-notification.ts` | Server/client helpers and webhook push delivery |
-| Public surface | `index.ts` | Barrel exports for protocol APIs/types |
+- Message model and validation:
+  - `message-types.ts`
+  - `message-schemas.ts`
+  - `message-factory.ts`
+- Serialization:
+  - `serialization.ts`
+- Adapter contract and routing:
+  - `adapter.ts`
+  - `protocol-router.ts`
+  - `protocol-bridge.ts`
+- Concrete transports:
+  - `internal-adapter.ts`
+  - `a2a-client-adapter.ts`
+  - `a2a-sse-stream.ts`
+- A2A support utilities:
+  - `a2a-json-rpc.ts`
+  - `a2a-push-notification.ts`
+- Public exports:
+  - `index.ts`
 
 ## Runtime and Control Flow
-1. Message creation and validation:
-- Callers typically create envelopes with `createForgeMessage()` (default protocol `internal`).
-- Optional runtime checks happen through `validateForgeMessage()` or during deserialize.
+1. Message creation and validation
+- Callers build envelopes via `createForgeMessage()` (default protocol: `internal`).
+- `createResponse()` and `createErrorResponse()` derive reply envelopes.
+- Runtime checks use `validateForgeMessage()` or schema validation during deserialize.
 
-2. Adapter selection:
-- `ProtocolRouter.route()` and `routeStream()` parse `message.to` scheme (`forge://`, `a2a://`, etc.).
-- The router forwards to the registered adapter for that scheme, or `defaultAdapter` if configured.
-- Missing adapter throws `ForgeError` with `MESSAGE_ROUTING_FAILED`.
+2. Adapter resolution and routing
+- `ProtocolRouter` extracts URI scheme from `message.to` (text before `://`).
+- It dispatches to a registered adapter for that scheme, or `defaultAdapter` if provided.
+- Missing adapter raises `ForgeError` with `MESSAGE_ROUTING_FAILED`.
 
-3. Internal transport flow:
-- `InternalAdapter.send()` computes target channel from URI (`extractAgentId`, strips `@version` suffix).
-- It publishes request payload on `AgentBus` and waits on `__response:<message.id>`.
-- Response resolves when a handler publishes to that channel; otherwise timeout/abort raises `PROTOCOL_TIMEOUT` or `PROTOCOL_SEND_FAILED`.
-- `InternalAdapter.stream()` uses `__stream:<message.id>` and yields until `stream_end`.
+3. Internal adapter flow
+- `InternalAdapter.send()` extracts target agent from URI (`extractAgentId()` strips optional `@version` suffix).
+- It publishes a message payload to `AgentBus` and waits on `__response:<message.id>`.
+- Timeout yields `PROTOCOL_TIMEOUT`; abort yields `PROTOCOL_SEND_FAILED`.
+- `stream()` publishes once and yields buffered messages from `__stream:<message.id>` until `stream_end`.
 
-4. A2A unary flow:
-- `A2AClientAdapter.send()` translates `ForgePayload` to A2A parts and POSTs JSON-RPC `tasks/send`.
-- It retries recoverable failures (network/5xx) with exponential backoff.
-- Successful task result is translated back to a Forge `response` with `metadata.a2aTaskId` and `metadata.a2aTaskState`.
+4. A2A unary flow
+- `A2AClientAdapter.send()` converts Forge payload to A2A message parts.
+- It POSTs JSON-RPC `tasks/send` to resolved base URL.
+- It retries recoverable failures (`5xx`/network) with exponential backoff.
+- Result is converted back to Forge response payload and enriched metadata (`a2aTaskId`, `a2aTaskState`).
 
-5. A2A streaming flow:
-- `A2AClientAdapter.stream()` calls `send()` first and yields the initial response.
-- If state is non-terminal, it opens SSE via `streamA2ATask()`.
-- SSE events are parsed by `parseSSEEvents()` and mapped to `stream_chunk`, `stream_end`, or `error` Forge messages.
-- Reconnect uses `Last-Event-ID` and bounded retry attempts.
+5. A2A stream flow
+- `A2AClientAdapter.stream()` calls `send()` first and yields that response.
+- If task is not terminal (`completed`/`failed`/`canceled`), it calls `streamA2ATask()`.
+- `streamA2ATask()` opens `/tasks/{taskId}/stream`, parses SSE frames, supports reconnection and `Last-Event-ID`, and emits Forge `stream_chunk`/`stream_end`/`error` messages.
 
-6. Bridge flow:
-- `ProtocolBridge.bridge()` optionally transforms then forces `protocol` to target adapter protocol and sends via target adapter.
-- `ProtocolBridge.start(pattern)` subscribes on source adapter and forwards source-to-target.
-- Static helpers `mcpToA2A()` and `a2aToMcp()` handle common payload translations (`tool_call <-> task`, text/json/error -> `tool_result`).
+6. Bridge flow
+- `ProtocolBridge.bridge()` applies optional transform and forces `protocol` to target adapter protocol before forwarding.
+- `start(pattern)` subscribes on source adapter and forwards source messages to target adapter.
+- Static translators cover common conversions:
+  - `mcpToA2A()` maps `tool_call` to `task`.
+  - `a2aToMcp()` maps `task`/`text`/`json`/`error` to `tool_result`.
 
-7. Serialization flow:
-- `JSONSerializer.serialize()` converts envelope to UTF-8 JSON bytes (with `__uint8:` base64 markers for binary payload data).
-- `deserialize()` parses bytes, revives binary data, validates with `ForgeMessageSchema`, and throws `SERIALIZATION_FAILED` on invalid input.
+7. Serialization flow
+- `JSONSerializer.serialize()` encodes envelope as UTF-8 JSON.
+- `Uint8Array` values are encoded as `__uint8:<base64>` marker strings.
+- `deserialize()` parses JSON, revives binary fields, validates against `ForgeMessageSchema`, and throws `SERIALIZATION_FAILED` on parse/validation errors.
 
 ## Key APIs and Types
-Primary exports from `src/protocol/index.ts` and re-exported by `src/index.ts`:
+Primary protocol exports (`src/protocol/index.ts`):
 
-- Message model:
-- `ForgeMessage`, `ForgePayload`, `ForgeProtocol`, `ForgeMessageMetadata`
-- `ForgeMessageSchema`, `ForgePayloadSchema`, `ForgeMessageUriSchema`
-- Message helpers:
-- `createMessageId()`
-- `createForgeMessage()`
-- `createResponse()`
-- `createErrorResponse()`
-- `isMessageAlive()`
-- `validateForgeMessage()`
+- Message types and schemas:
+  - `ForgeMessage`, `ForgePayload`, `ForgeProtocol`, `ForgeMessageMetadata`, `ForgeMessageId`
+  - `ForgeMessageSchema`, `ForgePayloadSchema`, `ForgeMessageMetadataSchema`, `ForgeMessageUriSchema`
+- Factory helpers:
+  - `createMessageId()`
+  - `createForgeMessage()`
+  - `createResponse()`
+  - `createErrorResponse()`
+  - `isMessageAlive()`
+  - `validateForgeMessage()`
 - Adapter contract:
-- `ProtocolAdapter`, `SendOptions`, `AdapterHealthStatus`, `Subscription`
-- Adapters:
-- `InternalAdapter`
-- `A2AClientAdapter`
-- Router and bridge:
-- `ProtocolRouter`
-- `ProtocolBridge`
-- `ProtocolBridge.mcpToA2A()`
-- `ProtocolBridge.a2aToMcp()`
-- A2A streaming and JSON-RPC:
-- `streamA2ATask()`
-- `parseSSEEvents()`
-- `JSON_RPC_ERRORS`, `A2A_ERRORS`
-- `createJsonRpcSuccess()`, `createJsonRpcError()`
-- `validateJsonRpcRequest()`, `validateJsonRpcBatch()`
-- Serialization and notifications:
-- `JSONSerializer`, `defaultSerializer`
-- `PushNotificationService`
+  - `ProtocolAdapter`, `AdapterState`, `AdapterHealthStatus`, `SendOptions`, `MessageHandler`, `Subscription`
+- Concrete adapters and router:
+  - `InternalAdapter`, `extractAgentId`
+  - `A2AClientAdapter`
+  - `ProtocolRouter`
+- Bridge:
+  - `ProtocolBridge`
+  - `ProtocolBridge.mcpToA2A()`
+  - `ProtocolBridge.a2aToMcp()`
+- A2A streaming/JSON-RPC:
+  - `streamA2ATask()`
+  - `parseSSEEvents()`
+  - `JSON_RPC_ERRORS`, `A2A_ERRORS`
+  - `createJsonRpcError()`, `createJsonRpcSuccess()`
+  - `validateJsonRpcRequest()`, `validateJsonRpcBatch()`
+- Serialization and push notifications:
+  - `JSONSerializer`, `defaultSerializer`, `MessageSerializer`
+  - `PushNotificationService` and related config/result/event types
 
 ## Dependencies
-Protocol-specific direct dependencies in code:
+Direct protocol-module dependencies:
 
-- External:
-- `zod` (`message-schemas.ts`)
-- `node:crypto` (`message-factory.ts` for `randomUUID`)
-- `fetch`, `Response`, `ReadableStream`, `AbortController` globals (`a2a-*`)
+- External libraries/runtime:
+  - `zod` (schema validation)
+  - `node:crypto` (`randomUUID` for message IDs)
+  - platform APIs: `fetch`, `Response`, `ReadableStream`, `AbortController`, `TextEncoder`, `TextDecoder`, `Buffer`
 - Internal package modules:
-- `../events/agent-bus.js` (`InternalAdapter`)
-- `../errors/forge-error.js` and `../errors/error-codes.js` (typed error behavior)
+  - `../events/agent-bus.js` (in-process transport)
+  - `../errors/forge-error.js` and `../errors/error-codes.js` (error model)
 
-Package-level dependency context (`packages/core/package.json`):
+Package-level context (`packages/core/package.json`):
 
-- Runtime deps: `@dzupagent/context`, `@dzupagent/memory`, `@dzupagent/runtime-contracts`
-- Peer deps include `zod` (required by protocol schemas) and other optional runtime integrations.
+- Runtime dependencies: `@dzupagent/agent-types`, `@dzupagent/runtime-contracts`
+- Peer dependency used by this module: `zod`
 
 ## Integration Points
-Within `@dzupagent/core`:
+Inside `@dzupagent/core`:
 
-- Root exports (`src/index.ts`) expose the full protocol API surface.
-- Facade exports (`src/facades/orchestration.ts`) expose a curated subset:
-- Includes message helpers, `InternalAdapter`, `ProtocolRouter`, `A2AClientAdapter`, `streamA2ATask`, `parseSSEEvents`, `ProtocolBridge`.
-- Excludes some protocol utilities (for example `JSONSerializer`, JSON-RPC helpers, and push notifications), which remain available from root/advanced.
+- Root barrel (`src/index.ts`) re-exports the full protocol surface, including:
+  - schemas, adapters, router, bridge
+  - serialization APIs
+  - A2A JSON-RPC helpers
+  - push notification service
+- Orchestration facade (`src/facades/orchestration.ts`) re-exports a curated subset:
+  - includes message factories, `InternalAdapter`, `ProtocolRouter`, `A2AClientAdapter`, SSE helpers, and `ProtocolBridge`
+  - does not export protocol schemas, serializer APIs, JSON-RPC helpers, or push notification APIs
 
-Cross-module contracts:
+Cross-module runtime seam:
 
-- `InternalAdapter` uses `AgentBus` channel semantics from `src/events/agent-bus.ts`.
-- Protocol failures are standardized as `ForgeError` with protocol-related codes (`PROTOCOL_*`, `MESSAGE_ROUTING_FAILED`, `SERIALIZATION_FAILED`).
-- URI validation intentionally allows non-`forge://` schemes to support cross-protocol routing.
+- `InternalAdapter` depends on `AgentBus` publish/subscribe channel behavior.
+- Protocol failures are normalized as `ForgeError` with protocol/routing/serialization codes.
+- URI scheme flexibility in `ForgeMessageUriSchema` allows non-`forge://` transport routing (`a2a`, `mcp`, `http`, `https`, `ws`, `wss`, `grpc`).
 
 ## Testing and Observability
-Protocol test coverage is concentrated in:
+Protocol test coverage exists in:
 
-- `src/protocol/__tests__/protocol.test.ts`
-- `src/protocol/__tests__/adapters.test.ts`
-- `src/protocol/__tests__/bridge.test.ts`
-- `src/protocol/__tests__/serialization.test.ts`
-- `src/protocol/__tests__/a2a-sse.test.ts`
-- `src/protocol/__tests__/a2a-json-rpc.test.ts`
-- `src/protocol/__tests__/a2a-push-notification.test.ts`
+- `protocol.test.ts`
+- `adapters.test.ts`
+- `bridge.test.ts`
+- `serialization.test.ts`
+- `a2a-sse.test.ts`
+- `a2a-json-rpc.test.ts`
+- `a2a-push-notification.test.ts`
 
-Current tests verify:
+Covered behaviors include:
 
-- All payload variants and schema validity rules.
-- Strict envelope validation with metadata passthrough behavior.
-- Internal adapter routing, timeout, and version-suffix stripping.
-- Router adapter selection/default fallback behavior.
-- A2A client translation, retry/backoff, timeout, and abort handling.
-- SSE parsing, stream conversion, reconnection, and adapter stream integration.
+- Envelope/payload/schema validation across payload variants.
+- Message ID/factory/response/error helper behavior.
+- Internal adapter request/response, stream, timeout, and URI parsing.
+- Router scheme dispatch, fallback behavior, and error paths.
+- A2A adapter connect/send/stream flows, retry/backoff, timeout, and abort handling.
+- SSE parsing, event mapping, reconnection, and stream termination handling.
 - Bridge translation and forwarding behavior.
-- JSON-RPC validation and helper factories.
-- Push notification registration/filtering/retry semantics.
-- Serializer round-trips (including binary payload).
+- JSON serialization round-trips including binary payload handling.
+- JSON-RPC request/batch validation and response factories.
+- Push notification registration, filtering, retry, and delivery outcomes.
 
-Observability in this module today:
+Observability in this module is lightweight:
 
-- Adapters expose `health()` state snapshots.
-- Protocol code itself does not emit metrics/events directly; observability is mainly via adapter state and upstream logging/error handling.
+- `health()` is exposed per adapter (`InternalAdapter` and `A2AClientAdapter`).
+- No dedicated metrics emitter in protocol files; observability is primarily via health state and surfaced errors.
 
 ## Risks and TODOs
-- `ProtocolBridge.start()` is implemented as source-to-target forwarding only, while comments describe bidirectional behavior; clarify intent or add reverse wiring.
-- `A2AClientAdapter` maps Forge `binary` payloads to A2A `file` parts with only `mimeType` (no binary body), which can drop payload data across protocol boundary.
-- `A2AClientAdapter.connect()` depends on configured `baseUrl`; without it, agent-card check is attempted against an empty base path.
-- `PushNotificationService` keeps registrations in memory only; process restarts lose subscription state.
-- `InternalAdapter.stream()` creates per-wait timeout timers without explicit cancellation bookkeeping after successful wakeups; worth tightening for long-lived/high-volume streams.
-- `a2a-sse-stream.ts` includes an unused `StreamEndSignal` type, indicating stale internal path that can be removed or wired.
+Current code-level risks or cleanup items:
+
+- `ProtocolBridge.start()` implementation is one-way source subscription forwarding, while comments describe “bidirectional” bridging.
+- `A2AClientAdapter` binary translation drops binary bytes (`binary` maps to `file` part with only `mimeType`).
+- `A2AClientAdapter.connect()` builds URL from optional `baseUrl`; when omitted, it probes `/.well-known/agent.json` on an empty base path.
+- `InternalAdapter.stream()` allocates timeout timers per wait cycle without explicit timer cleanup bookkeeping after resolve.
+- `a2a-sse-stream.ts` defines `StreamEndSignal`, but the current stream reader returns directly on terminal events and does not throw this signal.
+- `PushNotificationService` stores registrations in memory only; restarts drop task subscription state.
 
 ## Changelog
-- 2026-04-16: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js

@@ -1,300 +1,182 @@
 # Correction Module Architecture (`packages/codegen/src/correction`)
 
-## Overview
+## Scope
 
-This folder implements a self-correction subsystem for generated code in `@dzupagent/codegen`.
+This document covers the correction subsystem implemented in:
 
-It provides:
+- `packages/codegen/src/correction/correction-types.ts`
+- `packages/codegen/src/correction/self-correction-loop.ts`
+- `packages/codegen/src/correction/reflection-node.ts`
+- `packages/codegen/src/correction/lesson-extractor.ts`
+- `packages/codegen/src/correction/index.ts`
 
-1. An iterative correction orchestrator (`SelfCorrectionLoop`)
-2. Optional LLM-based diagnosis (`ReflectionNode`)
-3. Reusable lesson extraction (`LessonExtractor`)
-4. A typed contract surface for dependency injection and eventing (`correction-types.ts`)
+It also references package-level exports and tests inside `packages/codegen` that exercise this subsystem.
 
-Core loop shape:
+## Responsibilities
 
-`Evaluate -> Diagnose/Reflect -> Revise -> Verify`
+The correction subsystem provides an interface-driven, iterative fix loop over a VFS snapshot (`Record<string, string>`):
 
-The module is intentionally interface-driven so you can plug in your own evaluator/fixer and run it in different environments (local, CI, sandbox, mocked tests).
+1. Run injected evaluation logic (`CodeEvaluator`) against generated code.
+2. Build structured diagnosis (`Reflection`) either from an LLM (`ReflectionNode`) or a heuristic fallback.
+3. Apply injected fix logic (`CodeFixer`) and track changed files and token usage.
+4. Repeat under explicit termination guards (`maxIterations`, `maxCostCents`, acceptance criteria).
+5. Optionally extract reusable lessons (`LessonExtractor`) from successful correction history.
+6. Emit lifecycle events through callbacks (`onIteration`, `onFixed`, `onExhausted`).
 
-## Design Goals
+The module does not run lint/tests/typecheck itself and does not persist lessons; both are delegated to integrators.
 
-1. Keep correction logic decoupled from concrete test/lint/sandbox implementations.
-2. Preserve full iteration history for observability and post-run learning.
-3. Support both LLM-enabled and heuristic-only execution modes.
-4. Enforce bounded execution with iteration and cost guards.
-5. Return structured lessons that can be persisted by higher-level memory systems.
+## Structure
 
-## Module Inventory
+| File | Role | Main exports |
+| --- | --- | --- |
+| `correction-types.ts` | Shared contracts/config/event payloads | `ErrorCategory`, `EvaluationResult`, `Reflection`, `CorrectionIteration`, `CorrectionResult`, `CorrectionContext`, `Lesson`, `CodeEvaluator`, `CodeFixer`, `SelfCorrectionConfig`, `DEFAULT_CORRECTION_CONFIG`, `CorrectionIterationEvent`, `CorrectionFixedEvent`, `CorrectionExhaustedEvent` |
+| `self-correction-loop.ts` | Loop orchestrator and stop conditions | `SelfCorrectionLoop`, `CorrectionEventListeners`, `SelfCorrectionDeps` |
+| `reflection-node.ts` | Structured LLM reflection + parsing fallback | `ReflectionNode`, `ReflectionSchema`, `ReflectionNodeConfig`, `ReflectionResult` |
+| `lesson-extractor.ts` | Lesson extraction (LLM or heuristics) | `LessonExtractor`, `LessonExtractorConfig`, `LessonExtractionResult` |
+| `index.ts` | Submodule barrel | Re-exports all correction types/classes |
 
-| File | Responsibility | Key Exports |
-|---|---|---|
-| `correction-types.ts` | Shared contracts and config defaults | `ErrorCategory`, `EvaluationResult`, `Reflection`, `CorrectionResult`, `CodeEvaluator`, `CodeFixer`, `DEFAULT_CORRECTION_CONFIG` |
-| `self-correction-loop.ts` | Orchestration engine for iterative fix cycles | `SelfCorrectionLoop`, `CorrectionEventListeners`, `SelfCorrectionDeps` |
-| `reflection-node.ts` | Structured LLM critique and root-cause diagnosis | `ReflectionNode`, `ReflectionSchema`, `ReflectionNodeConfig` |
-| `lesson-extractor.ts` | Post-fix lesson extraction (LLM or heuristic) | `LessonExtractor`, `LessonExtractorConfig` |
-| `index.ts` | Local barrel for this folder | Re-exports all correction APIs |
+Top-level exposure:
 
-Top-level package re-export:
+- `packages/codegen/src/index.ts` re-exports the complete correction API block under the package root (`@dzupagent/codegen`).
 
-- `packages/codegen/src/index.ts` re-exports the full correction API surface.
+## Runtime and Control Flow
 
-## Data Model
+`SelfCorrectionLoop.run(generatedCode, context)` flow:
 
-Primary types are defined in `correction-types.ts`:
+1. Initialize `currentVfs`, `iterations`, `totalTokens`, `totalCostCents`, and start timer.
+2. For `i = 0 .. maxIterations - 1`:
+   - Evaluate via `evaluator.evaluate(currentVfs, context)`.
+   - If acceptable (`passed`, quality above threshold, and no lint errors):
+     - Record success iteration with `reflection = null`.
+     - Optionally extract lessons via `lessonExtractor.extract(...)`.
+     - Emit `onFixed` and return `CorrectionResult` with `wasFixed = true`.
+   - Build reflection:
+     - Preferred: `reflectionNode.reflect(currentVfs, evaluation)` when enabled and provided.
+     - Fallback: `buildFallbackReflection(evaluation)` classification from error text.
+   - Enforce pre-fix cost guard (`totalCostCents >= maxCostCents` breaks loop).
+   - Apply fix via `fixer.fix(currentVfs, reflection, context)` and update `currentVfs`.
+   - Record iteration and emit `onIteration`.
+   - Enforce post-fix cost guard.
+3. After loop exits without early success:
+   - If last iteration modified files, run one final evaluation pass.
+   - If final pass is acceptable, emit `onFixed` and return success.
+4. Otherwise emit `onExhausted` and return failure result.
 
-- `ErrorCategory`: canonical issue taxonomy (`syntax_error`, `type_error`, `logic_error`, `missing_import`, `api_misuse`, `test_failure`, `lint_violation`, `runtime_error`)
-- `EvaluationResult`: output from evaluator (pass/fail, lint/test details, quality score, optional raw output)
-- `Reflection`: structured diagnosis used by fixer
-- `CorrectionIteration`: per-iteration audit record (evaluation, reflection, VFS snapshot, file edits, token usage, duration)
-- `CorrectionResult`: final run result (final code, history, aggregate tokens/cost, fixed/not-fixed, lessons)
-- `CorrectionContext`: optional plan/tech-stack/prior-lessons/system-prompt hints
-- `Lesson`: reusable rule extracted from successful fixes
+Behavioral details from implementation:
 
-Dependency inversion contracts:
+- Cost estimate uses `estimateCost(tokens) = ((inputTokens + outputTokens) / 1000) * 0.3` (cents).
+- `LessonExtractor.extract(...)` token usage is currently not merged into `CorrectionResult.totalTokens` or `totalCostCents`.
+- Fallback reflection categories are inferred from regex patterns over lint/test error text.
 
-- `CodeEvaluator.evaluate(vfs, context) -> EvaluationResult`
-- `CodeFixer.fix(vfs, reflection, context) -> { vfs, filesModified, tokensUsed }`
+## Key APIs and Types
 
-## Runtime Flow
+Core loop APIs:
 
-High-level sequence inside `SelfCorrectionLoop.run(...)`:
+- `new SelfCorrectionLoop(deps, config?)`
+- `loop.run(generatedCode, context?) => Promise<CorrectionResult>`
+- `SelfCorrectionDeps`: `{ evaluator, fixer, reflectionNode?, lessonExtractor?, listeners? }`
 
-1. Initialize loop state (`currentVfs`, `iterations`, token/cost counters).
-2. For up to `maxIterations`:
-   1. Evaluate current VFS.
-   2. If acceptable, emit iteration + fixed event, optionally extract lessons, return success.
-   3. Build reflection:
-      - LLM reflection via `ReflectionNode.reflect(...)` when enabled and provided.
-      - Heuristic fallback reflection otherwise.
-   4. Enforce pre-fix cost guard.
-   5. Apply fix via injected `CodeFixer`.
-   6. Record iteration, emit iteration event.
-   7. Enforce post-fix cost guard.
-3. If loop exits without success, run one final verification pass if last iteration modified files.
-4. If still not acceptable, emit exhausted event and return failure.
+Correction contracts:
 
-Acceptance criteria (`isAcceptable`):
+- `CodeEvaluator.evaluate(vfs, context?) => Promise<EvaluationResult>`
+- `CodeFixer.fix(vfs, reflection, context?) => Promise<{ vfs; filesModified; tokensUsed }>`
 
-- `evaluation.passed === true`
-- `evaluation.qualityScore >= qualityThreshold`
-- `evaluation.lintErrors.length === 0`
+Reflection:
 
-### Fallback Behavior
+- `new ReflectionNode({ registry, modelTier?, systemPrompt? })`
+- `reflect(vfs, evaluation) => Promise<{ reflection; tokensUsed }>`
+- `ReflectionSchema` (Zod): validates `rootCause`, `affectedFiles`, `suggestedFix`, `confidence`, `category`, optional `additionalContext`.
 
-When no LLM reflection is available:
+Lesson extraction:
 
-- `buildFallbackReflection(...)` classifies category by regex over lint/test errors.
-- File paths are extracted from error text.
-- Confidence defaults to `0.5`.
+- `new LessonExtractor({ registry?, modelTier? })`
+- `extract(iterations, context?) => Promise<{ lessons; tokensUsed }>`
+- LLM mode runs when `registry` exists; otherwise heuristic templates per `ErrorCategory`.
 
-This enables deterministic correction runs in test or offline environments.
+Defaults:
 
-## Component Details
+- `DEFAULT_CORRECTION_CONFIG`:
+  - `maxIterations: 3`
+  - `maxCostCents: 50`
+  - `qualityThreshold: 70`
+  - `enableReflection: true`
+  - `enableLessonExtraction: true`
 
-## 1) `SelfCorrectionLoop`
+## Dependencies
 
-Main features:
+Direct code dependencies used by this module:
 
-1. Iterative fix orchestration with configurable guards
-2. Full iteration history retention
-3. Optional reflection and lesson extraction stages
-4. Event callbacks (`onIteration`, `onFixed`, `onExhausted`)
-5. Final verification pass after loop exhaustion (when a fix was attempted)
+- `@dzupagent/core`
+  - `TokenUsage` type in loop/types/extractor.
+  - `ModelRegistry`, `ModelTier`, and `extractTokenUsage` for LLM nodes.
+- `@langchain/core/messages`
+  - `SystemMessage`, `HumanMessage` for LLM prompts in `ReflectionNode` and `LessonExtractor`.
+- `zod`
+  - Runtime schema validation for `ReflectionSchema`.
 
-Token/cost accounting:
+Package-level context from `packages/codegen/package.json`:
 
-- Aggregates tokens from reflection + fixer calls.
-- Uses `estimateCost(...)` with a rough blended estimate (`$0.003 / 1K tokens` => `0.3` cents per `1K`).
-- Aborts when `totalCostCents >= maxCostCents`.
+- Runtime deps include `@dzupagent/core` and `@dzupagent/adapter-types`.
+- `@langchain/core`, `@langchain/langgraph`, and `zod` are peer dependencies (with local dev dependencies for tests/builds).
 
-Current behavior note:
+## Integration Points
 
-- `LessonExtractor.extract(...)` token usage is not currently added to `CorrectionResult.totalTokens` or `totalCostCents`; only returned lessons are used.
+Within `@dzupagent/codegen`:
 
-## 2) `ReflectionNode`
+1. Export surface:
+   - Correction classes/types are re-exported from `packages/codegen/src/index.ts`.
+2. Quality coupling by contract:
+   - Correction acceptance depends on `EvaluationResult.qualityScore` and `qualityThreshold`, but correction does not directly import quality scorer modules.
+3. VFS coupling by data shape:
+   - Inputs/outputs are plain VFS snapshots (`Record<string, string>`), not tied to `VirtualFS` class internals.
 
-Main features:
+Cross-package usage in current repository scan:
 
-1. Zod-validated structured diagnosis schema (`ReflectionSchema`).
-2. Prompt composition with:
-   - lint/type errors
-   - test failures/errors
-   - quality score
-   - optional raw output (truncated)
-   - source file snippets (up to 30 files, 3000 chars/file)
-3. Robust response parsing:
-   - primary path: parse JSON and validate
-   - fallback path: regex-based extraction and category guessing
-4. Token extraction via `extractTokenUsage(...)`.
-
-Why this matters:
-
-- Downstream fixer receives stable structured fields even when model output is noisy.
-- Fallback parsing keeps the loop functional under malformed model responses.
-
-## 3) `LessonExtractor`
-
-Main features:
-
-1. Two operating modes:
-   - LLM mode: if `registry` provided, generate contextual lessons.
-   - Heuristic mode: category-template rules without LLM dependency.
-2. Frequency tracking by error category.
-3. Category normalization for model outputs.
-4. Safe fallback to heuristics on JSON/parse failures.
+- No non-test package files outside `packages/codegen` currently import `SelfCorrectionLoop`, `ReflectionNode`, or `LessonExtractor` directly.
+- This makes the subsystem presently a reusable exported primitive with test-backed behavior, rather than a wired production runtime path in this repo snapshot.
 
-Heuristic templates include rules for all `ErrorCategory` values, ensuring minimal lesson coverage even without model access.
-
-## Configuration
-
-`DEFAULT_CORRECTION_CONFIG`:
-
-- `maxIterations: 3`
-- `maxCostCents: 50`
-- `qualityThreshold: 70`
-- `enableReflection: true`
-- `enableLessonExtraction: true`
-
-Per-run context (`CorrectionContext`) can carry plan/stack metadata and prompt overrides.
-
-## Usage Examples
-
-## 1) Minimal (heuristic reflection, no LLM)
-
-```ts
-import { SelfCorrectionLoop, type CodeEvaluator, type CodeFixer } from '@dzupagent/codegen'
+## Testing and Observability
 
-const evaluator: CodeEvaluator = {
-  async evaluate(vfs) {
-    return {
-      passed: false,
-      lintErrors: ['Cannot find module "./x"'],
-      qualityScore: 40,
-      testResults: { passed: 0, failed: 1, errors: ['suite failed'], failedTests: [] },
-    }
-  },
-}
+Primary test suites in `packages/codegen/src/__tests__`:
 
-const fixer: CodeFixer = {
-  async fix(vfs, reflection) {
-    const next = { ...vfs }
-    // apply deterministic fix based on reflection
-    return { vfs: next, filesModified: ['src/app.ts'], tokensUsed: { model: '', inputTokens: 0, outputTokens: 0 } }
-  },
-}
+- `self-correction-loop.test.ts`
+- `self-correction-loop-extended.test.ts`
+- `lesson-extractor-and-reflection.test.ts`
 
-const loop = new SelfCorrectionLoop(
-  { evaluator, fixer },
-  { enableReflection: false, qualityThreshold: 70, maxIterations: 3 },
-)
+Coverage focus in tests includes:
 
-const result = await loop.run({ 'src/app.ts': '/* generated */' })
-```
+1. Success paths and multi-iteration correction paths.
+2. Max-iteration and max-cost termination behavior.
+3. Acceptance criteria edge cases (`passed`, lint errors, quality threshold).
+4. Fallback reflection classification and file-path extraction.
+5. ReflectionNode parsing for valid JSON and malformed model output.
+6. LessonExtractor heuristic mode, LLM mode, and fallback behavior.
+7. Event callbacks payloads (`onIteration`, `onFixed`, `onExhausted`).
+8. VFS immutability and cumulative mutation behavior across iterations.
 
-## 2) Full LLM-assisted correction
+Observability in implementation:
 
-```ts
-import {
-  SelfCorrectionLoop,
-  ReflectionNode,
-  LessonExtractor,
-  type CodeEvaluator,
-  type CodeFixer,
-} from '@dzupagent/codegen'
+- Callback-only event hooks (no built-in event bus wiring in this module):
+  - `onIteration(event)`
+  - `onFixed(event)`
+  - `onExhausted(event)`
+- Per-iteration and total duration metrics (`durationMs`, `totalDurationMs`) are included in result/event payloads.
 
-const reflectionNode = new ReflectionNode({ registry: modelRegistry, modelTier: 'codegen' })
-const lessonExtractor = new LessonExtractor({ registry: modelRegistry, modelTier: 'chat' })
+## Risks and TODOs
 
-const loop = new SelfCorrectionLoop(
-  { evaluator, fixer, reflectionNode, lessonExtractor },
-  { maxIterations: 5, maxCostCents: 100, qualityThreshold: 75 },
-)
+1. Cost-model accuracy:
+   - `estimateCost` is a fixed blended approximation and does not model provider/model-specific pricing.
+2. Incomplete token accounting:
+   - Lesson extraction token usage is returned by `LessonExtractor` but not folded into `CorrectionResult.totalTokens`/`totalCostCents`.
+3. Reflection fallback brittleness:
+   - Regex-based fallback parsing can misclassify categories or extract noisy file paths from unstructured model output.
+4. Prompt budget pressure:
+   - `ReflectionNode` may include up to 30 files with up to 3000 chars each, which can still be expensive for large VFS states.
+5. Current integration depth:
+   - No direct non-test consumers in this repository currently wire correction runtime classes, so drift risk between exported API and real production usage exists.
+6. Version constant drift outside this folder:
+   - `packages/codegen/src/index.ts` exports `dzupagent_CODEGEN_VERSION = '0.1.0'` while package version is `0.2.0`; this can mislead runtime/version reporting for integrators.
 
-const result = await loop.run(initialVfs, {
-  techStack: { language: 'typescript', framework: 'express' },
-  priorLessons: persistedLessons,
-})
-```
+## Changelog
 
-## 3) Event-driven observability
-
-```ts
-const loop = new SelfCorrectionLoop({
-  evaluator,
-  fixer,
-  listeners: {
-    onIteration: (e) => logger.info({ e }, 'correction iteration'),
-    onFixed: (e) => logger.info({ e }, 'correction fixed'),
-    onExhausted: (e) => logger.warn({ e }, 'correction exhausted'),
-  },
-})
-```
-
-## Use Cases
-
-1. Post-generation validation/fix pipeline in agentic codegen workflows.
-2. CI auto-remediation loops for lint/type/test regressions.
-3. Structured root-cause analysis before creating follow-up fix prompts.
-4. Building a memory of recurring failure patterns via extracted lessons.
-5. Running deterministic correction in constrained environments (heuristic-only mode).
-
-## References In Other Packages
-
-Direct findings across the monorepo:
-
-1. Export surface availability:
-   - `packages/codegen/src/index.ts` re-exports all correction APIs.
-2. Runtime import of `@dzupagent/codegen` in server package:
-   - `packages/server/src/runtime/tool-resolver.ts` dynamically imports `@dzupagent/codegen` for git tool resolution (not correction classes directly).
-3. Project template dependency:
-   - `packages/create-dzupagent/src/templates/codegen.ts` includes `@dzupagent/codegen` in scaffolded dependencies.
-4. Evals package dynamic import:
-   - `packages/evals/src/__tests__/sandbox-contracts.test.ts` dynamically imports `@dzupagent/codegen` for sandbox contract tests.
-5. Documentation cross-reference:
-   - `packages/core/src/llm/ARCHITECTURE.md` references `reflection-node.ts` and `lesson-extractor.ts`.
-
-Important note:
-
-- No direct runtime imports of `SelfCorrectionLoop`, `ReflectionNode`, or `LessonExtractor` were found outside `packages/codegen` tests at the time of this analysis.
-
-## Test Coverage
-
-Validated test suites for this module:
-
-- `src/__tests__/self-correction-loop.test.ts` (`23` tests)
-- `src/__tests__/self-correction-loop-extended.test.ts` (`29` tests)
-- `src/__tests__/lesson-extractor-and-reflection.test.ts` (`39` tests)
-
-Total executed correction tests: `91` (all passing).
-
-Executed commands:
-
-```bash
-cd packages/codegen && yarn test src/__tests__/self-correction-loop.test.ts src/__tests__/self-correction-loop-extended.test.ts src/__tests__/lesson-extractor-and-reflection.test.ts
-cd packages/codegen && yarn vitest run --coverage --coverage.include='src/correction/**/*.ts' src/__tests__/self-correction-loop.test.ts src/__tests__/self-correction-loop-extended.test.ts src/__tests__/lesson-extractor-and-reflection.test.ts
-```
-
-Focused coverage (`src/correction/**/*.ts`):
-
-| File | Statements | Branches | Functions | Lines |
-|---|---:|---:|---:|---:|
-| `correction-types.ts` | 100% | 100% | 100% | 100% |
-| `lesson-extractor.ts` | 99.26% | 75% | 100% | 99.26% |
-| `reflection-node.ts` | 97.72% | 89.74% | 100% | 97.72% |
-| `self-correction-loop.ts` | 98.87% | 96.49% | 100% | 98.87% |
-| **All correction files** | **98.95%** | **88.23%** | **100%** | **98.95%** |
-
-Observed remaining uncovered spots from focused report:
-
-- `lesson-extractor.ts`: lines `216-217` (error handling branch in JSON parse fallback)
-- `reflection-node.ts`: lines around `158-159`, `183-184` (overflow and JSON parse fallback branches)
-- `self-correction-loop.ts`: lines `202-205` (event path in final-verification success branch)
-
-## Risks / Improvement Opportunities
-
-1. Lesson extraction token/cost usage is currently not aggregated into `CorrectionResult`.
-2. Reflection prompt can become large for broad VFS snapshots (30 files x 3000 chars); additional prioritization by changed files may improve signal/cost.
-3. Cost model is intentionally coarse; model-tier-specific pricing hooks could improve budget accuracy.
-4. Lesson persistence is intentionally external; add a first-class persistence adapter if runtime learning is required.
-
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js

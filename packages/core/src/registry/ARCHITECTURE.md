@@ -1,192 +1,178 @@
 # Registry Architecture (`packages/core/src/registry`)
 
 ## Scope
-This document covers the registry module implemented under `packages/core/src/registry` in `@dzupagent/core`.
+This document covers the registry subsystem implemented in `packages/core/src/registry` within `@dzupagent/core`.
 
-Included in scope:
-- registry domain types and the `AgentRegistry` contract
-- the in-memory registry implementation (`InMemoryRegistry`)
-- capability taxonomy and matching utilities
-- semantic search providers shipped in this package (`KeywordFallbackSearch`, `VectorStoreSemanticSearch`)
-- module-level integration inside `@dzupagent/core`
+In scope:
+- Registry contracts and models in `types.ts`
+- In-process registry implementation in `in-memory-registry.ts`
+- Capability taxonomy and matcher utilities
+- Semantic search provider interfaces and implementations in `semantic-search.ts` and `vector-semantic-search.ts`
+- Registry exports and direct integration points inside `packages/core/src`
 
 Out of scope:
-- server-side persistence implementations outside this directory
-- API gateway/HTTP route behavior from other packages
+- Any persistent registry implementation outside this folder
+- HTTP/API delivery in other packages
 
 ## Responsibilities
-The registry module is responsible for:
-- managing agent lifecycle in memory (`register`, `update`, `deregister`, `list`, `evictExpired`)
-- exposing typed discovery APIs with capability/tag/health/SLA scoring
-- tracking and updating per-agent health snapshots
-- emitting typed registry events to local subscribers and optionally to `DzupEventBus`
-- providing reusable capability hierarchy utilities (`STANDARD_CAPABILITIES`, `CapabilityMatcher`, `compareSemver`)
-- providing pluggable semantic-search provider implementations (keyword fallback and vector-store-backed)
+The module currently provides:
+- Typed agent registration and lifecycle management (`register`, `update`, `deregister`, `evictExpired`)
+- Agent discovery with weighted scoring over capabilities, tags, health, and SLA data
+- Health snapshot tracking (`getHealth`, `updateHealth`)
+- Registry event emission to local subscribers and optional forwarding to `DzupEventBus`
+- Reusable capability utilities:
+  - standard capability tree (`STANDARD_CAPABILITIES`)
+  - hierarchy/wildcard matching (`CapabilityMatcher`)
+  - numeric semantic version comparison (`compareSemver`)
+- Pluggable semantic search provider contracts plus two implementations:
+  - TF-IDF-like keyword fallback
+  - vector-backed search via `SemanticStore`
 
 ## Structure
-| File | Purpose |
-| --- | --- |
-| `types.ts` | Core contract and domain types (`RegisteredAgent`, `DiscoveryQuery`, `RegistryEvent`, `AgentRegistry`, etc.). |
-| `in-memory-registry.ts` | Default in-process `AgentRegistry` implementation, including scoring, filtering, event emission, and TTL eviction. |
-| `capability-taxonomy.ts` | Built-in hierarchical capability catalog plus lookup helpers. |
-| `capability-matcher.ts` | Hierarchy-aware capability scoring, wildcard matching, and numeric semver comparison. |
-| `semantic-search.ts` | `SemanticSearchProvider` interface and TF-IDF-style keyword fallback implementation. |
-| `vector-semantic-search.ts` | `SemanticSearchProvider` backed by `SemanticStore` (`vectordb`). |
-| `index.ts` | Barrel exports for the registry module. |
-| `__tests__/registry.test.ts` | Unit tests for registry behaviors, matcher, taxonomy, and event bus forwarding. |
-| `__tests__/semantic-search.test.ts` | Unit tests for keyword semantic search indexing/scoring/removal. |
-| `__tests__/vector-semantic-search.test.ts` | Unit tests for vector semantic provider behavior and failure handling. |
+- `types.ts`: core contracts and domain types (`RegisteredAgent`, `DiscoveryQuery`, `RegistryEvent`, `AgentRegistry`, `RegistryStats`, etc.)
+- `in-memory-registry.ts`: `AgentRegistry` implementation backed by in-memory `Map`, including scoring, filters, event fanout, and TTL eviction
+- `capability-taxonomy.ts`: hierarchical standard capability catalog with lookup helpers
+- `capability-matcher.ts`: capability hierarchy scoring, wildcard suffix matching, and `compareSemver`
+- `semantic-search.ts`: `SemanticSearchProvider` contract and `KeywordFallbackSearch`
+- `vector-semantic-search.ts`: `VectorStoreSemanticSearch` implementation using `SemanticStore`
+- `index.ts`: barrel exports for the registry surface
+- `__tests__/registry.test.ts`: lifecycle, scoring, events, matcher, taxonomy, identity field passthrough
+- `__tests__/semantic-search.test.ts`: keyword index/search/remove behavior
+- `__tests__/vector-semantic-search.test.ts`: vector provider behavior and failure tolerance
 
 ## Runtime and Control Flow
-### Registration and Deregistration
-1. `register(input)` validates required fields (`name`, `description`, non-empty `capabilities`).
-2. ID is generated as `agent-${Date.now().toString(36)}-${counter.toString(36)}`.
-3. Agent is stored with default `health.status = 'unknown'`.
-4. `registry:agent_registered` is emitted.
-5. `deregister(agentId, reason)` removes the record and emits `registry:agent_deregistered`.
+1. Registration path:
+- `register` validates `name`, `description`, and non-empty `capabilities`.
+- It generates an ID with `agent-${Date.now().toString(36)}-${counter.toString(36)}`.
+- It stores a new `RegisteredAgent` with default `health.status = 'unknown'`.
+- It emits `registry:agent_registered`.
 
-### Update and Health
-1. `update(agentId, changes)` builds a new object (spread-based immutable update pattern).
-2. New capabilities emit `registry:capability_added` events per new capability name.
-3. If any fields changed, `registry:agent_updated` is emitted with changed field names.
-4. `updateHealth(agentId, patch)` merges health and emits `registry:health_changed` only when status changes.
+2. Update path:
+- `update` reads the existing agent and rebuilds a new object via spread updates.
+- Field updates are tracked in `changedFields`.
+- When capabilities are replaced, newly introduced capability names trigger `registry:capability_added`.
+- If any field changed, it emits `registry:agent_updated`.
 
-### Discovery and Scoring
-Filtering (pre-score):
-- `healthFilter`
-- `protocols`
-
-Per-agent score breakdown:
-- `capabilityScore`
-- `tagScore`
-- `healthAdjustment`
-- `slaScore`
-
-Final score formula:
+3. Discovery path:
+- `discover` applies pre-score filters for `healthFilter` and `protocols`.
+- Per-agent scoring uses:
+  - `capabilityScore` from `capabilityPrefix` / `capabilityExact` matching
+  - `tagScore` from capability tags
+  - `healthAdjustment` from status map
+  - `slaScore` from comparable SLA fields
+- Final score is:
 ```text
 matchScore = capabilityScore * 0.4 + tagScore * 0.2 + healthAdjustment * 0.3 + slaScore * 0.1
 ```
+- Results are sorted descending by `matchScore`, then paginated with `limit`/`offset` defaults (`10`/`0`).
+- If query is effectively unfiltered, zero-score agents are still included.
 
-Scoring details from code:
-- `capabilityPrefix` uses `CapabilityMatcher.match(...)` and keeps best capability score.
-- `capabilityExact` can enforce `minVersion` using numeric `compareSemver`.
-- no capability query defaults `capabilityScore` to `1.0`.
-- no tag query defaults `tagScore` to `1.0`.
-- health adjustment mapping: `healthy=1.0`, `degraded=0.5`, `unknown=0.3`, `unhealthy=0.1`.
-- SLA scoring starts at `1.0`; it is reduced only when comparable SLA fields are present.
+4. Health and lifecycle path:
+- `updateHealth` merges patch data and emits `registry:health_changed` only when status changes.
+- `deregister` removes agent and emits `registry:agent_deregistered`.
+- `evictExpired` removes entries where `registeredAt + ttlMs < now` and emits deregistration with `ttl_expired`.
 
-Pagination:
-- default `limit=10`, `offset=0`
-- sorted by descending `matchScore`
+5. Event fanout path:
+- `subscribe` stores filter+handler entries.
+- `emitRegistryEvent` notifies matching subscribers; handler exceptions are swallowed.
+- When `eventBus` is configured, the event is also emitted on `DzupEventBus`.
 
-### Subscriptions and Event Fanout
-- Local subscribers register via `subscribe(filter, handler)`.
-- Filters can target `eventTypes`, `agentIds`, and capability name (for `registry:capability_added`).
-- Handler failures are swallowed (non-fatal).
-- If configured with `eventBus`, events are forwarded as `DzupEvent`.
-
-### TTL Eviction
-- `evictExpired()` checks `registeredAt + ttlMs` for each agent.
-- expired agents are removed and emit `registry:agent_deregistered` with reason `ttl_expired`.
-
-### Semantic Providers (Standalone)
-- `KeywordFallbackSearch` indexes agent text (`name`, `description`, capability names/descriptions/tags`) and ranks via TF-IDF-style scoring.
-- `VectorStoreSemanticSearch` delegates embedding/search to `SemanticStore` using collection `agent_registry`.
-- vector index/remove operations are fire-and-forget and intentionally non-fatal.
-- current `InMemoryRegistry.discover()` does not call a semantic provider directly.
+6. Semantic provider path (separate from `discover`):
+- `KeywordFallbackSearch` tokenizes agent text (name, description, capabilities, tags) and scores query relevance with TF-IDF-like logic.
+- `VectorStoreSemanticSearch` indexes/searches collection `agent_registry` through `SemanticStore`.
+- Vector `indexAgent` and `removeAgent` are fire-and-forget and intentionally non-fatal.
 
 ## Key APIs and Types
-### Primary interface
-`AgentRegistry` defines:
-- `register(input)`
-- `deregister(agentId, reason?)`
-- `update(agentId, changes)`
-- `discover(query)`
-- `getAgent(agentId)`
-- `getHealth(agentId)`
-- `updateHealth(agentId, healthPatch)`
-- `subscribe(filter, handler)`
-- `listAgents(limit?, offset?)`
-- `registerFromCard(cardUrl)`
-- `evictExpired()`
-- `stats()`
-
-### Core domain types
-- `RegisteredAgent`
-- `RegisterAgentInput`
-- `DiscoveryQuery`
-- `DiscoveryResult` / `DiscoveryResultPage`
-- `ScoreBreakdown`
-- `AgentHealth`, `AgentHealthStatus`
-- `AgentSLA`
-- `RegistryStats`
-- `RegistryEvent` and `RegistryEventType`
-- `RegistrySubscriptionFilter`
-
-### Capability helpers
-- `STANDARD_CAPABILITIES`
-- `isStandardCapability(name)`
-- `getCapabilityDescription(name)`
-- `listStandardCapabilities()`
-- `CapabilityMatcher.match(query, candidate)`
-- `CapabilityMatcher.matchesPattern(pattern, capability)`
-- `compareSemver(a, b)`
-
-### Semantic interfaces
-- `SemanticSearchProvider`
-- `KeywordFallbackSearch`
-- `createKeywordFallbackSearch()`
-- `VectorStoreSemanticSearch`
+- Primary interface:
+  - `AgentRegistry`
+  - `AgentRegistryConfig`
+- Core models:
+  - `RegisteredAgent`
+  - `RegisterAgentInput`
+  - `AgentHealth`, `AgentHealthStatus`
+  - `AgentSLA`
+  - `AgentAuthentication`
+  - `DeregistrationReason`
+- Discovery contracts:
+  - `DiscoveryQuery`
+  - `DiscoveryResult`
+  - `DiscoveryResultPage`
+  - `ScoreBreakdown`
+- Events and subscriptions:
+  - `RegistryEventType`
+  - `RegistryEvent`
+  - `RegistrySubscriptionFilter`
+- Registry metrics:
+  - `RegistryStats`
+- Capability utilities:
+  - `STANDARD_CAPABILITIES`
+  - `isStandardCapability`
+  - `getCapabilityDescription`
+  - `listStandardCapabilities`
+  - `CapabilityMatcher`
+  - `compareSemver`
+- Semantic search surface:
+  - `SemanticSearchProvider`
+  - `KeywordFallbackSearch`
+  - `createKeywordFallbackSearch`
+  - `VectorStoreSemanticSearch`
 
 ## Dependencies
-Direct internal dependencies used by registry source files:
-- `../identity/index.js` for `ForgeCapability` and `ForgeIdentityRef` type usage in registry models
-- `../events/event-bus.js` and `../events/event-types.js` for optional bus forwarding
-- `../errors/forge-error.js` for structured registry errors
-- `../vectordb/semantic-store.js` for vector-backed semantic provider
+Internal dependencies in this module:
+- `../errors/forge-error.js` for typed registry errors
+- `../events/event-bus.js` and `../events/event-types.js` for optional bus forwarding type compatibility
+- `../identity/index.js` for `ForgeCapability` and `ForgeIdentityRef` typing in registry models
+- `../vectordb/semantic-store.js` for vector-backed semantic search
 
-Runtime dependency profile:
-- registry files do not import third-party packages directly
-- vector semantic search depends on caller-supplied `SemanticStore` configuration (embedding provider + vector store + collection lifecycle)
+External dependency posture:
+- Registry source files do not import third-party libraries directly.
+- Vector-backed semantic search depends on a caller-provided `SemanticStore` (embedding provider + vector store + collection setup).
 
 ## Integration Points
-- Module exports are provided by `src/registry/index.ts` and re-exported from `src/index.ts`.
-- `CapabilityMatcher` is reused by identity authorization components:
-  - `src/identity/capability-checker.ts`
-  - `src/identity/delegation-manager.ts`
-- Registry event names are part of the global event union in `src/events/event-types.ts`.
-- `InMemoryRegistry` can bridge events into shared observability/event pipelines through injected `DzupEventBus`.
-- Semantic provider implementations integrate with the `vectordb` subsystem but are currently separate from `discover()` execution.
+- Export wiring:
+  - `src/registry/index.ts` is re-exported by `src/index.ts`.
+  - `InMemoryRegistry`, matcher/taxonomy helpers, and semantic providers are available from the core root export surface.
+- Event model integration:
+  - Registry event names are included in the global `DzupEvent` union (`src/events/event-types.ts`).
+  - `InMemoryRegistry` can emit into shared event pipelines through injected `DzupEventBus`.
+- Identity integration:
+  - `CapabilityMatcher` is reused by `src/identity/capability-checker.ts` and `src/identity/delegation-manager.ts`.
+- Flow contract integration:
+  - `src/flow/handle-types.ts` references registry-backed resolution as a source for available handles/tools.
+- Semantic integration:
+  - Semantic providers integrate with `src/vectordb/*`, but `InMemoryRegistry.discover` currently does not call semantic providers.
 
 ## Testing and Observability
-Automated tests in scope:
+Registry-focused tests:
 - `src/registry/__tests__/registry.test.ts`
 - `src/registry/__tests__/semantic-search.test.ts`
 - `src/registry/__tests__/vector-semantic-search.test.ts`
 - `src/__tests__/registry-idcounter.test.ts`
 
-Current tested behaviors include:
-- validation, registration lifecycle, immutable update behavior, and deletion
-- capability matching, wildcard behavior, and numeric semver comparisons
-- discovery filtering/scoring/pagination across capability/tags/health/protocol/SLA paths
-- health transitions and event emission
-- TTL eviction
-- stats aggregation
-- event subscription filtering and optional `DzupEventBus` forwarding
-- identity/URI passthrough fields on registration
-- semantic indexing/search/removal for both keyword and vector providers
+Verified behaviors in current tests include:
+- Input validation and lifecycle operations (`register`, `update`, `deregister`)
+- Numeric semver comparison and hierarchical/wildcard capability matching
+- Discovery filters and score ordering across capability/tags/health/protocol/SLA
+- Pagination and empty-query behavior
+- Health transition events, capability-added events, and event subscription filtering
+- TTL eviction and stats aggregation
+- Event bus forwarding when registry is constructed with `eventBus`
+- Identity/URI persistence in registry records
+- Keyword and vector semantic indexing/search/removal behavior, including non-throwing vector failure paths
+- Per-instance ID counter behavior (`registry-idcounter`)
 
 Observability posture:
-- registry emits typed domain events and can forward them to shared event infrastructure
-- no built-in metrics collector or tracing instrumentation exists inside `src/registry`
+- Registry emits typed domain events and supports optional forwarding to `DzupEventBus`.
+- No module-local metrics/tracing collector is implemented in `src/registry`.
 
 ## Risks and TODOs
-- `DiscoveryQuery.semanticQuery` is defined but not used in `InMemoryRegistry.discover()` scoring/filtering.
-- `registerFromCard()` in `InMemoryRegistry` always throws (`REGISTRY_CARD_FETCH_FAILED`); card-based onboarding is not implemented in this module.
-- `update()` treats `undefined` as “no change”, so optional fields cannot be explicitly cleared via update.
-- returned agent objects are shallow copies; nested structures (for example arrays/objects under capabilities/metadata) are not deeply cloned.
-- generated IDs are process-local (`timestamp + instance counter`), so independent registry instances can produce colliding IDs in the same millisecond.
-- vector semantic indexing/deletion intentionally swallows async failures, which avoids hard failures but also hides indexing errors unless callers instrument the underlying store.
+- `DiscoveryQuery.semanticQuery` exists in the type contract but is not consumed by `InMemoryRegistry.discover`.
+- `registerFromCard` in `InMemoryRegistry` is intentionally unimplemented and always throws `REGISTRY_CARD_FETCH_FAILED`.
+- `update` cannot clear optional fields via `undefined`; `undefined` is treated as "no change."
+- Returned objects are shallow copies; nested arrays/objects are not deeply cloned.
+- ID generation is process-local timestamp + counter and can collide across separate registry instances in the same millisecond.
+- `VectorStoreSemanticSearch` intentionally swallows async indexing/deletion failures, so indexing drift can go unnoticed unless instrumentation exists around `SemanticStore`.
 
 ## Changelog
-- 2026-04-16: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+

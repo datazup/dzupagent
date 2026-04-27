@@ -1,272 +1,171 @@
 # `@dzupagent/core` Config Architecture
 
 ## Scope
-This document describes the architecture of `packages/core/src/config`:
+This document covers the config subsystem in `packages/core/src/config`:
 - `config-loader.ts`
 - `config-schema.ts`
 - `container.ts`
 - `index.ts`
 
-It covers features, control flow, usage patterns, references from other packages, and current test coverage.
+It describes what is currently implemented in this folder and how it is exposed through `@dzupagent/core`, `@dzupagent/core/advanced`, and `@dzupagent/core/quick-start`.
 
-## Purpose
-The config module provides three capabilities:
-1. Layered runtime configuration resolution (`defaults -> file -> env -> runtime`).
-2. Lightweight structural validation and typed lookup helpers.
-3. A minimal dependency-injection container (`ForgeContainer`) used by quick-start bootstrapping.
+## Responsibilities
+The config subsystem has two distinct responsibilities:
 
-## File Responsibilities
+1. Runtime configuration assembly and validation
+- Defines `ForgeConfig` and default values (`DEFAULT_CONFIG`).
+- Loads partial config from JSON file (`loadFileConfig`) and `DZIP_*` environment variables (`loadEnvConfig`).
+- Merges config layers by priority (`mergeConfigs`) and provides a convenience orchestrator (`resolveConfig`).
+- Validates config shape (`validateConfig`) and offers typed dot-path reads (`getConfigValue`).
+- Normalizes provider structured-output defaults using LLM helper utilities.
 
-### `config-loader.ts`
-Main orchestration for configuration data:
-- Defines `ForgeConfig` and related types.
-- Defines `DEFAULT_CONFIG`.
-- Loads env-derived partial config (`loadEnvConfig`).
-- Loads file-derived partial config (`loadFileConfig`).
-- Merges prioritized layers (`mergeConfigs`).
-- Resolves final config (`resolveConfig`).
+2. Lightweight service container
+- Provides `ForgeContainer` and `createContainer` for lazy singleton service wiring.
+- Used by quick-start bootstrap code (`createQuickAgent`) to register `eventBus` and `registry`.
 
-### `config-schema.ts`
-Validation and value-access helpers:
-- `validateConfig(config)` returns `{ valid, errors }`.
-- `getConfigValue(config, path, fallback)` resolves dot-path values safely.
+## Structure
+- `config-loader.ts`
+  - Types: `ProviderConfig`, `RateLimitConfig`, `ForgeConfig`, `ConfigLayer`
+  - Constants: `DEFAULT_CONFIG`
+  - Helpers: `deepMerge`, `tryParseJson`, provider normalization helpers
+  - Public API: `loadEnvConfig`, `loadFileConfig`, `mergeConfigs`, `resolveConfig`
 
-### `container.ts`
-Service registry with lazy singleton semantics:
-- `ForgeContainer.register(name, factory)`
-- `ForgeContainer.get(name)`
-- `ForgeContainer.has(name)`
-- `ForgeContainer.list()`
-- `ForgeContainer.reset()`
-- `createContainer()` constructor helper
+- `config-schema.ts`
+  - Validation helpers: `isPlainObject`, `pushIf`
+  - Strategy allowlist for structured output
+  - Public API: `validateConfig`, `getConfigValue`
 
-### `index.ts`
-Public barrel for this module.
+- `container.ts`
+  - Internal `Factory<T>` type
+  - `ForgeContainer` class with registration, lookup, listing, and reset
+  - Public API: `createContainer`
 
-## Data Model
+- `index.ts`
+  - Re-exports config loader APIs/types plus schema helpers.
 
-### `ForgeConfig`
-`ForgeConfig` is intentionally broad enough to support framework-level defaults while allowing custom extension:
-- `providers: ProviderConfig[]`
-- `models: { chat; codegen; reasoning }`
-- `memory: { store; connectionString? }`
-- `mcp: { id; url; transport }[]`
-- `security: { riskClassification; secretsScanning; outputSanitization }`
-- `server: { port; corsOrigins; rateLimit }`
-- `plugins: string[]`
-- `custom: Record<string, unknown>`
+## Runtime and Control Flow
+Config resolution flow (`resolveConfig`):
 
-### `DEFAULT_CONFIG`
-Safe baseline defaults are provided for all top-level config domains:
-- No providers/plugins/MCP entries.
-- In-memory storage.
-- Security booleans enabled.
-- Server defaults: port `3000`, localhost CORS, and default rate-limit window.
+1. Start with an implicit defaults layer (`priority: 10`, empty config object).
+2. If `options.configFile` is provided, load JSON via `loadFileConfig` and add as file layer (`priority: 20`).
+3. Always load env overrides via `loadEnvConfig` and add env layer (`priority: 30`).
+4. If `options.runtimeOverrides` is provided, add runtime layer (`priority: 40`).
+5. Call `mergeConfigs(...layers)`; layers are sorted by numeric priority, not call order.
+6. Return normalized merged `ForgeConfig`.
 
-## Feature Breakdown
-
-### 1) Layered Resolution
-`resolveConfig()` builds layers with fixed priorities:
-- `defaults`: `10`
-- `file`: `20` (if `options.configFile` is provided)
-- `env`: `30` (always evaluated)
-- `runtime`: `40` (if `options.runtimeOverrides` is provided)
-
-`mergeConfigs()` sorts by `priority` before merge, so caller argument order does not affect precedence.
-
-### 2) Deep Merge Semantics
-`deepMerge()` behavior:
-- Plain objects are recursively merged.
-- Arrays are replaced, not concatenated.
+Merge semantics (`deepMerge` used by `mergeConfigs`):
+- Plain objects are merged recursively.
+- Arrays are replaced by higher-priority arrays (not concatenated).
 - `undefined` source values are ignored.
 
-Implication: high-priority layers can surgically override object leaves, but list-like settings (`plugins`, `providers`, etc.) replace lower-priority lists entirely.
+Provider normalization behavior:
+- Provider entries are normalized in `loadEnvConfig`, `loadFileConfig`, and once more on final merge result.
+- If `structuredOutputDefaults` is omitted for known providers, defaults are inferred through `getStructuredOutputDefaultsForProviderName`.
+- Explicit provider capabilities are normalized with `normalizeStructuredOutputCapabilities`.
 
-### 3) Environment Variable Mapping
-`loadEnvConfig()` supports:
-- `DZIP_PROVIDERS` (JSON array)
-- `DZIP_MODEL_CHAT`
-- `DZIP_MODEL_CODEGEN`
-- `DZIP_MODEL_REASONING`
-- `DZIP_MEMORY_STORE` (`postgres | in-memory`)
-- `DZIP_MEMORY_CONN`
-- `DZIP_PORT`
-- `DZIP_CORS_ORIGINS` (comma-separated)
-- `DZIP_PLUGINS` (comma-separated)
-- `DZIP_SECURITY_RISK_CLASSIFICATION`
-- `DZIP_SECURITY_SECRETS_SCANNING`
-- `DZIP_SECURITY_OUTPUT_SANITIZATION`
+Validation behavior:
+- `loadFileConfig` validates parsed file JSON via `validateConfig`; invalid file config is dropped (`{}`).
+- `resolveConfig` does not perform a final validation pass after env/runtime merges.
 
-Design detail: when only part of a composite setting is provided (for example one model tier), remaining values are filled from defaults.
+DI container flow (`ForgeContainer`):
+- `register(name, factory)` stores factory and invalidates cached instance for that name.
+- `get(name)` returns cached instance if present; otherwise executes factory once and caches result.
+- `reset()` clears instance cache but keeps factory registrations.
 
-### 4) File Loading and Validation
-`loadFileConfig(filePath)`:
-- Reads JSON.
-- Requires top-level plain object.
-- Validates structure via `validateConfig`.
-- Returns `{}` on parse/read/validation failure.
+## Key APIs and Types
+Primary APIs:
+- `DEFAULT_CONFIG: ForgeConfig`
+- `loadEnvConfig(): Partial<ForgeConfig>`
+- `loadFileConfig(filePath: string): Promise<Partial<ForgeConfig>>`
+- `mergeConfigs(...layers: ConfigLayer[]): ForgeConfig`
+- `resolveConfig(options?): Promise<ForgeConfig>`
+- `validateConfig(config: unknown): { valid: boolean; errors: string[] }`
+- `getConfigValue<T>(config: ForgeConfig, path: string, fallback: T): T`
+- `ForgeContainer`
+- `createContainer(): ForgeContainer`
 
-This makes config files fail-closed instead of partially applying invalid data.
+Config model details:
+- `ForgeConfig.providers`: `ProviderConfig[]` with optional `apiKey`, `baseUrl`, `priority`, and `structuredOutputDefaults`.
+- `ForgeConfig.models`: `{ chat; codegen; reasoning }` string model IDs.
+- `ForgeConfig.memory.store`: `'postgres' | 'in-memory'`.
+- `ForgeConfig.server`: `port`, `corsOrigins`, and `rateLimit`.
+- Additional top-level domains: `mcp`, `security`, `plugins`, `custom`.
 
-### 5) Schema Validation
-`validateConfig` performs shape/type checks for key fields:
-- `providers` is array and each item includes `provider: string`.
-- `models.*` entries are strings.
-- `memory.store` is one of allowed values.
-- `server.port` is numeric and in `0..65535`.
-- `server.corsOrigins` is array when present.
-- `plugins` is array when present.
+Environment inputs currently parsed by `loadEnvConfig`:
+- `DZIP_PROVIDERS` (JSON)
+- `DZIP_MODEL_CHAT`, `DZIP_MODEL_CODEGEN`, `DZIP_MODEL_REASONING`
+- `DZIP_MEMORY_STORE`, `DZIP_MEMORY_CONN`
+- `DZIP_PORT`, `DZIP_CORS_ORIGINS`
+- `DZIP_PLUGINS`
+- `DZIP_SECURITY_RISK_CLASSIFICATION`, `DZIP_SECURITY_SECRETS_SCANNING`, `DZIP_SECURITY_OUTPUT_SANITIZATION`
 
-Validation is partial-friendly: `{}` is valid.
+## Dependencies
+Internal dependencies inside `@dzupagent/core`:
+- `config-loader.ts` depends on `config-schema.ts` and `llm/structured-output-capabilities.ts`.
+- `config-schema.ts` depends on config types from `config-loader.ts` and `StructuredOutputStrategy` from `llm/model-config.ts`.
+- `quick-start` facade depends on `container.ts` and selected config exports for public API exposure.
 
-### 6) Typed Config Lookup
-`getConfigValue<T>(config, path, fallback)`:
-- Traverses dot-path segments.
-- Returns fallback for missing/null/invalid traversal.
-- Preserves caller-provided type contract through generic fallback.
+External/runtime dependencies used directly in config module:
+- Node.js `fs/promises` (`readFile`) for file config loading.
+- `process.env` for environment configuration.
 
-### 7) DI Container
-`ForgeContainer` is intentionally minimal:
-- Lazy singleton instantiation on first `get`.
-- Re-registering service invalidates cached instance for that key.
-- Missing dependency access throws with clear error.
-- `reset` clears instance cache while preserving registrations (good for tests).
+Package-level dependency posture from `package.json`:
+- No additional third-party package is required specifically by `src/config/*`.
+- `zod` is a peer dependency for the package, but this config module currently performs manual validation logic rather than Zod-based schema parsing.
 
-## Flow
+## Integration Points
+Public export surface:
+- Root entrypoint (`src/index.ts`) re-exports config APIs (`DEFAULT_CONFIG`, loaders, merge/resolve, schema helpers, and config types) and re-exports `ForgeContainer`/`createContainer`.
+- `src/advanced.ts` mirrors root via `export * from './index.js'`.
+- `src/facades/quick-start.ts` re-exports `ForgeContainer`, `createContainer`, and selected config APIs (`DEFAULT_CONFIG`, `resolveConfig`, `mergeConfigs`, plus `ForgeConfig`/`ProviderConfig` types).
 
-```text
-resolveConfig(options)
-  -> start from DEFAULT_CONFIG baseline via merge engine
-  -> if configFile provided: loadFileConfig(configFile)
-       -> read JSON
-       -> validateConfig
-       -> valid ? parsed partial : {}
-  -> loadEnvConfig() from DZIP_* vars
-  -> append runtimeOverrides (if provided)
-  -> mergeConfigs(layers sorted by priority ascending)
-  -> return ForgeConfig
-```
+Direct in-package usage:
+- `createQuickAgent` uses `createContainer()` directly to wire `eventBus` and `registry` singletons.
 
-## Usage Examples
+Test-driven integration checks:
+- `src/__tests__/facades.test.ts` verifies quick-start facade exports config helpers and container APIs.
+- `src/__tests__/facade-quick-start.test.ts` and `src/__tests__/w15-b1-facades.test.ts` exercise container behavior through facade imports.
 
-### A) Full resolution with file + runtime override
-```ts
-import { resolveConfig } from '@dzupagent/core'
+## Testing and Observability
+Primary config test files:
+- `src/__tests__/config-loader.test.ts`
+- `src/__tests__/config.test.ts`
 
-const config = await resolveConfig({
-  configFile: './dzip.config.json',
-  runtimeOverrides: {
-    server: {
-      port: 8081,
-      corsOrigins: ['https://app.example.com'],
-      rateLimit: { maxRequests: 300, windowMs: 60_000 },
-    },
-  },
-})
-```
+What is covered:
+- `DZIP_*` env parsing and fallback behavior.
+- File-load success and failure paths (missing file, invalid JSON, non-object JSON).
+- Merge precedence and deep-merge behavior.
+- Provider structured-output default hydration/normalization for known providers.
+- `resolveConfig` precedence across defaults/file/env/runtime.
+- Validation accept/reject cases and typed value lookup.
 
-### B) Deterministic layer merge
-```ts
-import { mergeConfigs, type ConfigLayer } from '@dzupagent/core'
+Container/facade coverage:
+- Unregistered `get` error path.
+- Singleton caching behavior.
+- Re-registration invalidating cache.
+- `has`, `list`, `reset`, and dependency resolution through factory callbacks.
 
-const fileLayer: ConfigLayer = {
-  name: 'file',
-  priority: 20,
-  config: { plugins: ['./plugins/file.js'] },
-}
+Observability notes:
+- The config module itself does not emit metrics, logs, or events.
+- Observability for config-related behavior is currently indirect, via higher-level tests and consumer instrumentation.
 
-const runtimeLayer: ConfigLayer = {
-  name: 'runtime',
-  priority: 40,
-  config: { plugins: ['./plugins/runtime.js'] },
-}
+## Risks and TODOs
+1. Post-merge validation gap
+- `resolveConfig` does not re-run `validateConfig` on the final merged output.
+- Invalid runtime/env values can propagate (for example, `DZIP_PORT` parses via `Number(...)` without rejecting `NaN`).
 
-const resolved = mergeConfigs(runtimeLayer, fileLayer)
-// resolved.plugins === ['./plugins/runtime.js']
-```
+2. Error visibility gap in file loading
+- `loadFileConfig` swallows parse/read/validation failures and returns `{}`.
+- This fail-closed behavior is safe but opaque for troubleshooting without external logging.
 
-### C) Safe dot-path lookup
-```ts
-import { getConfigValue, DEFAULT_CONFIG } from '@dzupagent/core'
+3. Partial schema checks
+- `validateConfig` covers key structure and selected constraints, but it is not a full semantic validator for every nested field/domain.
 
-const port = getConfigValue(DEFAULT_CONFIG, 'server.port', 3000)
-const missing = getConfigValue(DEFAULT_CONFIG, 'security.nonexistent', false)
-```
+4. Documentation drift risk in README facade list
+- Package README quick-start “Key exports” list still mentions memory/context helpers that are no longer re-exported by quick-start code.
+- The source of truth is `src/facades/quick-start.ts`; docs should stay aligned with that file.
 
-### D) Container wiring
-```ts
-import { createContainer } from '@dzupagent/core/quick-start'
-import { createEventBus, ModelRegistry } from '@dzupagent/core'
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-04-26: rewritten from current `src/config` implementation, root/facade exports, and active tests in `packages/core`.
 
-const container = createContainer()
-  .register('eventBus', () => createEventBus())
-  .register('registry', () => new ModelRegistry())
-
-const bus = container.get('eventBus')
-const registry = container.get('registry')
-```
-
-## References and Usage Across Packages
-
-### Internal to `core`
-- Re-exported from root API in `packages/core/src/index.ts`.
-- Re-exported via `packages/core/src/facades/quick-start.ts`.
-- `createQuickAgent()` uses `createContainer()` directly.
-
-### Other packages in this monorepo
-Current state from repository search:
-- No non-`core` package imports `resolveConfig`, `mergeConfigs`, `loadEnvConfig`, `loadFileConfig`, `validateConfig`, `getConfigValue`, or `createContainer` from `@dzupagent/core`.
-- Some packages define local config interfaces independently (for example server CLI and adapter-local rate limiting).
-
-Interpretation: the config subsystem is currently a public/shared API surface but primarily exercised in `core` itself (plus external consumers outside this monorepo).
-
-## Test Coverage
-
-## Executed test runs
-1. `yarn workspace @dzupagent/core test src/__tests__/config.test.ts src/__tests__/config-loader.test.ts src/__tests__/facades.test.ts`
-- Result: `88/88` tests passed.
-
-2. Scoped coverage run:
-`yarn workspace @dzupagent/core test:coverage src/__tests__/config.test.ts src/__tests__/config-loader.test.ts src/__tests__/facades.test.ts --coverage.include=src/config/**/*.ts --coverage.include=src/facades/quick-start.ts`
-- Result: passed.
-
-## File-level coverage (scoped run)
-- `src/config/config-loader.ts`: `100%` statements, `90.19%` branches, `100%` functions, `100%` lines.
-- `src/config/config-schema.ts`: `100%` statements/branches/functions/lines.
-- `src/config/container.ts`: `87.69%` statements, `71.42%` branches/functions, `87.69%` lines.
-- `src/facades/quick-start.ts`: `100%` statements/lines/functions, `77.77%` branches.
-
-## What is well-covered
-- Env var parsing and fallback behavior.
-- File-loading happy path + malformed/missing file behavior.
-- Merge precedence and array replacement semantics.
-- Validation for major schema branches.
-- Resolution precedence (`defaults < file < env < runtime`).
-- Quick-start integration path that verifies container wiring.
-
-## Remaining coverage gaps (notably in `container.ts`)
-Uncovered branches correspond to:
-- Cached instance retrieval branch (`get` when instance already exists).
-- Error branch when requesting unregistered service.
-- `list()` and `reset()` utility methods.
-
-These are small but meaningful unit-test opportunities.
-
-## Behavioral Notes and Risks
-1. Merged output is not re-validated in `resolveConfig`.
-- `loadFileConfig` validates file input, but env/runtime layers can still inject structurally invalid values.
-- Example: `DZIP_PORT=abc` yields `Number('abc')` => `NaN` and is not rejected at resolve time.
-
-2. Validation coverage is structural, not semantic.
-- Example: providers are checked for `provider` string, but not for provider-specific requirements (API key presence, supported provider IDs).
-
-3. Array replacement is explicit.
-- This is predictable and tested, but consumers expecting additive merges must compose arrays before passing high-priority overrides.
-
-## Suggested Next Tests
-1. Add dedicated `container.test.ts` covering singleton caching, missing-service error, `list`, and `reset`.
-2. Add a `resolveConfig` test that feeds invalid env/runtime values and asserts desired behavior (either fail-fast or documented permissiveness).
-3. Add tests for edge parsing of env booleans and numeric fields (`'TRUE'`, whitespace, non-integer ports) to lock parsing policy.
-
-## Summary
-`packages/core/src/config` is a compact, deterministic configuration subsystem with clear precedence rules and strong base test coverage, especially around loading/merging/validation. The main architectural gap is post-merge validation of env/runtime-influenced values, and the main test gap is complete branch coverage of container utility behavior.

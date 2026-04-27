@@ -1,190 +1,188 @@
 # @dzupagent/agent-adapters Architecture
 
 ## Scope
-This document describes the current architecture of `@dzupagent/agent-adapters` in `packages/agent-adapters`, based on the implementation under `src/`, package metadata, and existing tests.
+This document covers the current implementation of `@dzupagent/agent-adapters` in `packages/agent-adapters`, based on:
+- `src/` runtime code and exports.
+- `package.json`, `tsup.config.ts`, `vitest.config.ts`.
+- Existing package docs under `docs/`.
 
-Included in scope:
-- Adapter implementations and the unified adapter contract/event model.
-- Registry, routing, fallback execution, and orchestration layers.
-- Session/state/persistence, output shaping, policy/approval/recovery, and HTTP transport.
-- Plugin/MCP/tool integration surfaces and `.dzupagent` capability loading.
+Included:
+- Provider adapters and event normalization.
+- Routing/registry and fallback execution.
+- Orchestration, workflow, recovery, policy, approval, guardrails.
+- HTTP/plugin/MCP/integration boundaries.
+- Session/persistence/learning/dzupagent-UCL surfaces.
 - Test and observability surfaces in this package.
 
-Out of scope:
-- Internal architecture of other packages (`@dzupagent/core`, `@dzupagent/agent`, etc.) beyond how this package consumes them.
+Excluded:
+- Internal implementation details of upstream packages (`@dzupagent/core`, `@dzupagent/agent`, `@dzupagent/adapter-types`) beyond integration points used here.
 
 ## Responsibilities
-`@dzupagent/agent-adapters` is the execution and orchestration bridge between DzupAgent and provider-specific agent runtimes.
+`@dzupagent/agent-adapters` is the provider integration and orchestration layer between app/runtime callers and concrete provider backends.
 
-Primary responsibilities:
-- Normalize heterogeneous provider runtimes (SDK and CLI) behind `AgentCLIAdapter`.
-- Standardize streamed execution state through unified `AgentEvent` variants.
-- Route tasks to providers and handle fallback/circuit-breaker-aware failover.
-- Provide orchestration patterns: single-run facade, parallel, race, supervisor, map-reduce, contract-net, and workflow DSL.
-- Apply operational controls: guardrails, approval gates, cost tracking/optimization, recovery strategies, and tracing.
-- Expose framework-neutral integration surfaces (HTTP handler, plugin API, tool wrappers, MCP sharing, execution port bridge).
-- Load and project `.dzupagent` skills/memory/agent definitions into runtime prompts and metadata.
+Current responsibilities:
+- Normalize execution behind `AgentCLIAdapter` and canonical `AgentEvent`/`AgentStreamEvent` contracts.
+- Provide built-in adapters: Claude, Codex, Gemini CLI, Gemini SDK, Qwen, Crush, Goose, OpenRouter, OpenAI.
+- Route tasks and perform sequential fallback with circuit-breaker-aware gating (`ProviderAdapterRegistry`).
+- Expose a high-level facade (`OrchestratorFacade`) for `run`, `chat`, `parallel`, `race`, `supervisor`, `mapReduce`, and `bid`.
+- Provide workflow and orchestration primitives (`AdapterWorkflow`, `ParallelExecutor`, `SupervisorOrchestrator`, `MapReduceOrchestrator`, `ContractNetOrchestrator`).
+- Apply operational controls: approval, guardrails, policy compilation/conformance, recovery strategies, and cost tracking.
+- Provide integration adapters for HTTP, plugin lifecycle, execution ports, and MCP tool/binding management.
+- Support `.dzupagent` file-based skill/memory/agent loading and enrichment.
 
 ## Structure
-Top-level source modules:
-- `src/types.ts`: re-exports `@dzupagent/adapter-types` as the canonical contract.
-- `src/index.ts`: public API barrel with all exports.
-- `src/<provider>/`: provider adapters (`claude`, `codex`, `gemini`, `qwen`, `crush`, `goose`, `openrouter`).
-- `src/base/`: shared CLI adapter base class (`BaseCliAdapter`).
-- `src/registry/` and `src/context/`: registry, routers, event bridge, context-aware routing/injection.
-- `src/facade/`: high-level orchestrator facade (`OrchestratorFacade`, `createOrchestrator`).
-- `src/orchestration/`: `ParallelExecutor`, `SupervisorOrchestrator`, `MapReduceOrchestrator`, `ContractNetOrchestrator`.
-- `src/workflow/`: workflow DSL builder/runtime, template resolution, validation.
-- `src/session/` and `src/persistence/`: session registry, conversation compression/compaction, checkpointing, run lifecycle.
-- `src/middleware/`, `src/guardrails/`, `src/approval/`, `src/recovery/`, `src/policy/`: operational governance stack.
-- `src/output/` and `src/streaming/`: structured output validation and stream formatting.
-- `src/observability/`: tracing and tracing middleware.
-- `src/http/`: framework-neutral HTTP handler, request schemas, rate limiting.
-- `src/plugin/`, `src/integration/`, `src/mcp/`: plugin loading, tool wrapping, MCP bridging and MCP adapter config management.
-- `src/skills/` and `src/dzupagent/`: skill compilation/projection/versioning/telemetry and `.dzupagent` file/memory/agent import/sync/load.
-- `src/testing/`: A/B runner utilities.
-- `src/utils/`: process spawning, event normalization, provider helpers, URL validation, batched event emission, error aliases.
+Current source layout:
+- `src/index.ts`: root barrel export for published package API.
+- `src/types.ts`: compatibility re-export from `@dzupagent/adapter-types`.
+- `src/providers.ts`, `src/orchestration.ts`, `src/workflow.ts`, `src/recovery.ts`, `src/learning.ts`, `src/persistence.ts`, `src/http.ts`: plane-specific barrels in source.
+- `src/<provider>/`: provider implementations (`claude`, `codex`, `gemini`, `qwen`, `crush`, `goose`, `openrouter`, `openai`).
+- `src/registry/`: registry, routers, event-bus bridge.
+- `src/facade/`: `OrchestratorFacade` and factory.
+- `src/orchestration/`: supervisor/parallel/map-reduce/contract-net implementations.
+- `src/workflow/`: workflow DSL, compilation to `PipelineRuntime`, validation/template resolution.
+- `src/session/`: workflow session state, checkpointer, compression/compaction.
+- `src/persistence/` and `src/runs/`: file checkpoint/run persistence, run JSONL event store.
+- `src/middleware/`: memory enrichment, cost tracking/optimization/models, sanitizer, middleware pipeline.
+- `src/approval/`, `src/guardrails/`, `src/recovery/`, `src/policy/`: control-plane modules.
+- `src/http/`: framework-agnostic handler + schemas + rate limiter.
+- `src/integration/`, `src/plugin/`, `src/mcp/`: execution bridge, plugin SDK/loader, MCP management/tool sharing.
+- `src/skills/`, `src/dzupagent/`, `src/ucl/`: skill projection/telemetry/versioning and `.dzupagent` loaders.
+- `src/observability/`, `src/streaming/`: tracing and stream formatting.
+- `src/output/`: structured-output validation adapters.
+- `src/__tests__/` and `src/dzupagent/__tests__/`: package tests.
+
+Packaging/build structure:
+- Build entry is `src/index.ts` (`tsup.config.ts`).
+- Package `exports` currently exposes only `"."` -> `dist/index.js` / `dist/index.d.ts`.
+- Plane barrels are real source modules but are not currently declared package subpath exports.
 
 ## Runtime and Control Flow
-Core run path (`OrchestratorFacade.run`):
-1. Build `AgentInput` + `TaskDescriptor` from prompt/options.
-2. Optionally enrich with `.dzupagent` skills and memory (`applyDzupAgentEnrichment`).
-3. Optionally compile/enforce provider policy (`compilePolicyForProvider` + `PolicyConformanceChecker`).
-4. Execute via `ProviderAdapterRegistry.executeWithFallback`.
-5. Wrap stream with `EventBusBridge`, optional `CostTrackingMiddleware`, optional `AdapterGuardrails`, optional `AdapterApprovalGate`.
-6. Consume events and require an `adapter:completed` terminal event to return success.
+Primary run flow (`OrchestratorFacade.run`):
+1. Build `AgentInput` and `TaskDescriptor` from prompt/options.
+2. Apply optional `.dzupagent` enrichment.
+3. Compile/apply optional policy overrides (`compilePolicyForProvider`) and conformance checks.
+4. Execute through `ProviderAdapterRegistry.executeWithFallback`.
+5. Bridge events to bus (`EventBusBridge`) and apply post-stream wrappers (cost tracking, guardrails).
+6. Optionally gate stream via `AdapterApprovalGate`.
+7. Require terminal `adapter:completed`; otherwise fail with `ADAPTER_EXECUTION_FAILED`.
 
-Registry fallback path (`ProviderAdapterRegistry.executeWithFallback`):
-1. Resolve healthy providers (`disabled` filtered, circuit breaker `canExecute`).
-2. Route using current `TaskRoutingStrategy`.
-3. Build ordered provider list: primary, decision fallbacks, remaining healthy.
-4. Try each provider sequentially until explicit `adapter:completed` is observed.
-5. On failure, record breaker failure, emit provider failure event, and continue.
-6. If all fail, throw `ALL_ADAPTERS_EXHAUSTED`.
+Registry fallback flow (`ProviderAdapterRegistry.executeWithFallbackWithRaw`):
+1. Compute healthy provider set (registered, enabled, breaker permits execution).
+2. Route task via active `TaskRoutingStrategy`.
+3. Build ordered provider chain: primary -> explicit fallback providers -> remaining healthy providers.
+4. Stream provider events, tracking terminal completion/failure signals.
+5. Record breaker success/failure and emit registry/provider events on the event bus.
+6. Synthesize failure events for non-terminal streams.
+7. Throw `ALL_ADAPTERS_EXHAUSTED` when no provider completes.
 
-Multi-turn chat path (`OrchestratorFacade.chat` + `SessionRegistry.executeMultiTurn`):
-1. Resolve/create workflow session.
-2. Optionally prepend conversation handoff context and compressed history.
-3. Reuse provider session IDs when available (`resumeSessionId`).
-4. Execute with fallback through registry.
-5. Persist provider session links, conversation entries, and usage counters.
+Multi-turn chat flow (`OrchestratorFacade.chatWithRaw`):
+1. Resolve/create workflow session ID in `SessionRegistry`.
+2. Build per-turn input and adapter options.
+3. Optionally apply `.dzupagent` enrichment and policy overrides.
+4. Execute via `SessionRegistry.executeMultiTurnWithRaw` against registry.
+5. Bridge and wrap stream similarly to `run`.
 
-Orchestration engines:
-- `ParallelExecutor`: `first-wins`, `all`, `best-of-n`, with cancellation/timeout handling.
-- `SupervisorOrchestrator`: decomposition + dependency-aware delegated execution with bounded concurrency.
-- `MapReduceOrchestrator`: chunk -> map via registry -> reduce, with per-chunk stats.
-- `ContractNetOrchestrator`: bid generation/scoring, winner execution, ranked fallback bidders.
-- `AdapterWorkflow`: declarative pipeline compiled to `PipelineRuntime` (`@dzupagent/agent`), supporting `step`, `parallel`, `branch`, `transform`, `loop`.
+Workflow DSL flow (`AdapterWorkflow`):
+1. `AdapterWorkflowBuilder` collects step/parallel/branch/transform/loop nodes.
+2. `WorkflowValidator` validates graph and template usage.
+3. Workflow compiles to `PipelineDefinition` + node handlers.
+4. `PipelineRuntime` (`@dzupagent/agent`) executes compiled graph.
+5. Step execution delegates to registry fallback execution and emits workflow lifecycle events.
 
-Recovery flow (`AdapterRecoveryCopilot`):
-1. Execute attempt and trace decisions/events.
-2. On failure, select strategy (`retry-same-provider`, `retry-different-provider`, `increase-budget`, `simplify-task`, `escalate-human`, `abort`).
-3. For cross-provider retries, inject partial-progress handoff (`CrossProviderHandoff`).
-4. Apply exponential backoff/jitter between attempts.
-5. Return success, escalation outcome, cancellation event, or exhausted failure result.
-
-Provider execution modes:
-- SDK-backed: `ClaudeAgentAdapter`, `CodexAdapter`, `GeminiSDKAdapter`.
-- CLI-backed via `BaseCliAdapter`: `GeminiCLIAdapter`, `QwenAdapter`, `CrushAdapter`, `GooseAdapter`.
-- HTTP-backed: `OpenRouterAdapter` (SSE parsing over `fetch`).
+Recovery flow (`AdapterRecoveryCopilot` family):
+1. Capture execution traces/events (`ExecutionTraceCapture`).
+2. Select policy strategy (`RecoveryPolicySelector`, `RECOVERY_POLICIES`).
+3. Retry same/different provider, adjust budgets/prompts, handoff context, or escalate.
+4. Return structured success/failure/cancelled result and optional escalation summary.
 
 ## Key APIs and Types
-Core contracts (from `@dzupagent/adapter-types`, re-exported by this package):
-- `AgentCLIAdapter`
-- `AgentInput`
-- `AgentEvent` union (`adapter:started`, `adapter:message`, `adapter:tool_call`, `adapter:tool_result`, `adapter:stream_delta`, `adapter:completed`, `adapter:failed`, `recovery:cancelled`, `adapter:memory_recalled`, `adapter:skills_compiled`)
-- `TaskDescriptor`, `RoutingDecision`, `TaskRoutingStrategy`
-- `AdapterProviderId = 'claude' | 'codex' | 'gemini' | 'gemini-sdk' | 'qwen' | 'crush' | 'goose' | 'openrouter'`
+Core contracts (re-exported via `src/types.ts`):
+- `AdapterProviderId`, `AgentCLIAdapter`, `AgentInput`, `TaskDescriptor`.
+- `AgentEvent`, `AgentStreamEvent`, and event variants.
+- `TaskRoutingStrategy`, `RoutingDecision`, `HealthStatus`, `TokenUsage`.
 
 Primary runtime APIs:
-- `ProviderAdapterRegistry`: adapter registration, health, fallback execution, circuit-breaker recording, router configuration.
-- `OrchestratorFacade` / `createOrchestrator`: `run`, `chat`, `parallel`, `race`, `supervisor`, `mapReduce`, `bid`, `shutdown`, `getCostReport`.
-- Routers: `TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter`, `CapabilityRouter`, `ContextAwareRouter`, `LearningRouter`, `CostOptimizationEngine`.
-- Workflow/session/persistence: `defineWorkflow`, `AdapterWorkflowBuilder`, `SessionRegistry`, `WorkflowCheckpointer`, `FileCheckpointStore`, `RunManager`.
-- Governance: `AdapterGuardrails`, `AdapterApprovalGate`, `AdapterRecoveryCopilot`, policy compiler/conformance APIs.
-- Transport/integration: `AdapterHttpHandler`, `createAdapterPlugin`, `AdapterPluginLoader`, `AgentIntegrationBridge`, `RegistryExecutionPort`, `MCPToolSharingBridge`, `InMemoryMcpAdapterManager`.
-- Skill/projection APIs: `SkillProjector`, `AdapterSkillRegistry`, provider skill compilers, version stores, telemetry, capability matrix builder.
-- `.dzupagent` APIs: workspace resolution, config loading, importer/syncer, skill/memory/agent loaders.
+- `ProviderAdapterRegistry` (registering, routing, fallback execution, health/circuit state).
+- `OrchestratorFacade` and `createOrchestrator`.
+- Routers: `TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter`, `CapabilityRouter`, `LearningRouter`, `ContextAwareRouter`.
+- Orchestration engines: `ParallelExecutor`, `SupervisorOrchestrator`, `MapReduceOrchestrator`, `ContractNetOrchestrator`.
+- Workflow/session: `AdapterWorkflowBuilder`/`defineWorkflow`, `SessionRegistry`, `WorkflowCheckpointer`, `ConversationCompressor`.
+- Recovery/control: `AdapterRecoveryCopilot`, `AdapterApprovalGate`, `AdapterGuardrails`, policy compiler + conformance checker.
+- Transport/integration: `AdapterHttpHandler`, `EventBusBridge`, `RegistryExecutionPort`, plugin APIs, MCP manager/tool sharing bridge.
+- Persistence and logging: `FileCheckpointStore`, `RunManager`, `RunEventStore`, `runLogRoot`.
 
-Provider capability snapshot (as implemented):
-- `claude`: resume+fork supported; SDK-backed.
-- `codex`: resume supported; SDK-backed; no fork.
-- `gemini`: CLI adapter with resume support.
-- `gemini-sdk`: streaming API adapter; no resume.
-- `qwen`: CLI adapter with resume support.
-- `crush`: CLI adapter; resume unsupported.
-- `goose`: CLI adapter with resume support.
-- `openrouter`: HTTP adapter; resume unsupported.
+Provider capability policy surface:
+- `PROVIDER_CATALOG` + helpers (`getMonitorableProviders`, `getProductProviders`, `getProviderCapabilities`).
+- `registerProductionAdapters` / `registerExperimentalAdapters` enforce catalog-driven product vs experimental registration.
 
 ## Dependencies
-Declared package dependencies (`package.json`):
+Declared runtime dependencies:
 - `@dzupagent/adapter-types`
 - `@dzupagent/agent`
+- `@dzupagent/agent-types`
 - `@dzupagent/core`
 
 Peer dependencies:
-- `@langchain/core` (type-level/compat surface)
-- `zod` (HTTP request schema validation)
+- `@langchain/core`
+- `zod`
 
 Optional dependencies:
 - `@anthropic-ai/claude-agent-sdk`
 - `@openai/codex-sdk`
 
-Dynamic/runtime optional imports used by implementation:
-- `@google/generative-ai` in `GeminiSDKAdapter`.
-
-External runtime prerequisites:
-- CLI binaries in `PATH` for CLI adapters: `gemini`, `qwen`, `crush`, `goose`.
-- Node.js platform APIs (`child_process`, `fs/promises`, `fetch`, streams, crypto).
-
-Build/test toolchain:
-- `tsup` (ESM + d.ts output from `src/index.ts`)
-- `typescript` (`NodeNext`, strict mode)
-- `vitest` (node environment, coverage thresholds configured)
+Runtime/tooling notes from implementation:
+- `GeminiSDKAdapter` dynamically imports `@google/generative-ai` (runtime optional, not declared in `package.json`).
+- CLI-backed adapters depend on external binaries (`gemini`, `qwen`, `crush`, `goose`) being available in `PATH`.
+- Build uses `tsup` (ESM + d.ts) with entry `src/index.ts`; workspace `@dzupagent/*` and optional SDKs are externalized.
+- Testing uses Vitest in Node environment with configured coverage thresholds (statements/lines 70, branches/functions 60).
 
 ## Integration Points
+Event bus integration:
+- `EventBusBridge` maps adapter stream events to `DzupEventBus` events.
+- Includes tool-call/result/error emission and terminal event run correlation (`executionRunId` handling).
+
 HTTP integration (`AdapterHttpHandler`):
-- Routes: `POST /run`, `POST /supervisor`, `POST /parallel`, `POST /bid`, `POST /approve/:id`, `GET /health`, `GET /health/detailed`, `GET /cost`.
-- Supports optional auth (`tokenValidator` or API key), rate limiting, SSE streaming responses (`StreamingHandler`).
+- Endpoints: `POST /run`, `POST /supervisor`, `POST /parallel`, `POST /bid`, `POST /approve/:id`, `GET /health`, `GET /health/detailed`, `GET /cost`.
+- Supports token/API-key auth hooks, optional rate limiting, JSON or streaming responses, and Zod request validation.
+
+Agent/runtime integration:
+- `RegistryExecutionPort` implements `ProviderExecutionPort` over registry fallback execution.
+- `AgentIntegrationBridge` and `AdapterAsToolWrapper` expose adapter runs as tool-like invocations.
 
 Plugin integration:
-- `createAdapterPlugin` provides DzupPlugin-compatible lifecycle wiring around registry/event bridge/cost/session subsystems.
-- `defineAdapterPlugin` and `AdapterPluginLoader` support third-party adapter plugin discovery and registration.
-
-Execution/tool bridge integration:
-- `RegistryExecutionPort` implements `ProviderExecutionPort` (`@dzupagent/agent`) over registry fallback execution.
-- `AgentIntegrationBridge` and `AdapterAsToolWrapper` expose adapters as tool-callable units, including routed composite tools.
+- `createAdapterPlugin` wires registry/event bridge/cost/session subsystems into plugin lifecycle.
+- `defineAdapterPlugin` and `AdapterPluginLoader` support plugin definition/loading patterns.
 
 MCP integration:
-- `MCPToolSharingBridge` shares tools across adapters and can emit provider-specific tool config payloads.
-- `InMemoryMcpAdapterManager` manages MCP server definitions, per-provider bindings, and effective config resolution.
+- `MCPToolSharingBridge` shares and projects tools across providers.
+- `InMemoryMcpAdapterManager` manages server registry, provider bindings, connectivity tests, and effective config resolution.
 
 `.dzupagent` integration:
-- `WorkspaceResolver`, `loadDzupAgentConfig`, file/memory/agent loaders, importer, and syncer provide a file-based capability/memory layer consumed by `OrchestratorFacade`.
+- `WorkspaceResolver`, config loaders, importer/syncer, and UCL loaders integrate file-based skill/memory/agent definitions into execution enrichment.
 
 ## Testing and Observability
 Testing:
-- Test framework: Vitest (`environment: node`).
-- Test corpus: 109 files under `src/__tests__/`.
-- Coverage configuration includes thresholds (`statements/lines 70`, `branches/functions 60`).
-- Coverage breadth includes adapters, routing, orchestration, workflow runtime, HTTP schemas/handler, plugin/MCP integration, approval/recovery policies, dzupagent sync/import/load paths, and utility behavior.
+- Test runner: Vitest (`vitest.config.ts`).
+- Current package test file count: 131 `*.test.ts` files under `src/__tests__/` and `src/dzupagent/__tests__/`.
+- Coverage config includes broad `src/**/*.ts` with test/index exclusions and threshold gates.
+- Test suites cover adapter behavior, routing/fallback, orchestration patterns, workflow DSL, recovery/approval/guardrails, HTTP handler/schemas, MCP/plugin/integration surfaces, and persistence/session/dzupagent loaders.
 
-Observability and runtime telemetry:
-- `EventBusBridge` maps adapter-level events to `DzupEventBus` events.
-- `AdapterTracer` and `createTracingMiddleware` emit span-style timing and lifecycle metadata.
-- `StreamingHandler` converts event streams to SSE/JSONL/NDJSON with progress modeling.
-- `CostTrackingMiddleware` emits budget warnings/exceeded events and aggregates provider cost/tokens.
-- `AdapterGuardrails` emits stuck/budget warnings and guardrail violations.
-- `RunManager` provides run lifecycle accounting and aggregate stats.
-- `BatchedEventEmitter` batches non-critical bus events while preserving immediate emission for critical event classes.
+Observability surfaces:
+- `EventBusBridge` emits lifecycle/tool/progress events to core event bus.
+- `AdapterTracer` and tracing middleware add span/event instrumentation.
+- `CostTrackingMiddleware` tracks usage/cost and emits budget-related events.
+- `StreamingHandler` serializes stream output for SSE/JSONL/NDJSON formats.
+- `RunEventStore` persists raw + normalized + artifact event logs and run summaries.
+- Recovery trace capture stores execution traces and decisions for post-failure analysis.
 
 ## Risks and TODOs
-- `DzupAgentSyncer.planSync('codex')` is intentionally unimplemented and returns a warning-only plan (`Codex sync is not yet implemented`).
-- Resume support is provider-specific; `GeminiSDKAdapter`, `OpenRouterAdapter`, and `CrushAdapter` reject `resumeSession`.
-- `http/request-schemas.ts` provider enum excludes `'gemini-sdk'` even though `'gemini-sdk'` is a valid `AdapterProviderId`; HTTP validation currently cannot target that provider directly.
-- `GeminiSDKAdapter` dynamically imports `@google/generative-ai`, but this package does not declare it in dependencies/optionalDependencies; runtime setup must install it explicitly.
-- Provider policy conformance is uneven by design: many controls degrade to middleware enforcement (tool policies, native budget/network/approval toggles) depending on provider.
-- Architecture drift guard currently tests `packages/agent-adapters/ARCHITECTURE.md` (`src/__tests__/architecture-doc.test.ts`), not `packages/agent-adapters/docs/ARCHITECTURE.md`.
+- Package docs describe subpath API tiers (`docs/api-surface.md`), but `package.json` currently exports only the root entrypoint.
+- `RunRequestSchema` provider enum excludes valid adapter IDs such as `openai` and `gemini-sdk`, limiting direct HTTP selection.
+- `PROVIDER_CATALOG` does not include an `openai` entry, so catalog-driven product/experimental registration paths can skip it.
+- `normalizeEvent` handles `openrouter` but not `openai`; OpenAI raw payload normalization is currently absent in this utility.
+- `GeminiSDKAdapter` requires `@google/generative-ai` at runtime but this dependency is not declared in package metadata.
+- `src/__tests__/architecture-doc.test.ts` asserts headings in root `packages/agent-adapters/ARCHITECTURE.md`, not this `docs/ARCHITECTURE.md`, so this document is not guarded by that test.
 
 ## Changelog
-- 2026-04-16: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+

@@ -1,355 +1,168 @@
-# Self-Correction Module Architecture (`packages/agent/src/self-correction`)
+# Self-Correction Architecture (`packages/agent/src/self-correction`)
 
 ## Scope
+This module contains quality control, failure analysis, and learning helpers used by `@dzupagent/agent` runtimes. The scope is limited to code under `src/self-correction` plus the direct hooks it exposes into pipeline and recovery surfaces.
 
-This folder implements the self-correction and self-learning subsystem for `@dzupagent/agent`.
+Implemented surfaces in this folder:
+- Iterative refinement and node wrapping: `reflection-loop.ts`, `iteration-controller.ts`, `self-correcting-node.ts`, `output-refinement.ts`
+- Failure detection and diagnosis: `pipeline-stuck-detector.ts`, `error-detector.ts`, `root-cause-analyzer.ts`, `verification-protocol.ts`, `strategy-selector.ts`
+- Learning persistence and retrieval: `adaptive-prompt-enricher.ts`, `trajectory-calibrator.ts`, `post-run-analyzer.ts`, `feedback-collector.ts`, `recovery-feedback.ts`, `learning-dashboard.ts`, `performance-optimizer.ts`, `specialist-registry.ts`
+- Runtime bridges: `self-learning-hook.ts`, `self-learning-runtime.ts`, `langgraph-middleware.ts`, `observability-bridge.ts`
+- Export barrel: `index.ts`
 
-It covers four major concerns:
+This document does not describe generic guardrails in `src/guardrails` or orchestration internals outside direct integration points.
 
-- iterative output quality improvement
-- failure detection, diagnosis, and strategy adaptation
-- memory-backed learning across runs
-- middleware/runtime integration for pipeline and LangGraph execution
+## Responsibilities
+- Refine generated outputs using model-based critique loops and stop conditions.
+- Detect stuck/failure patterns at pipeline level and normalize error signals.
+- Provide recovery and strategy-selection memory based on historical outcomes.
+- Persist run learnings (lessons/rules/trajectories/feedback) through `BaseStore` namespaces.
+- Wrap pipeline and LangGraph execution with best-effort learning hooks.
+- Expose analytics-oriented read models (`LearningDashboardService`, `AgentPerformanceOptimizer`) for downstream product/runtime consumers.
 
-This module is exposed both:
+## Structure
+- `reflection-loop.ts`: drafter/critic iterative loop with score parsing (`parseCriticResponse`) and budget/quality/no-improvement exits.
+- `iteration-controller.ts`: non-LLM decision logic for plateau/diminishing/cost-prohibitive stopping.
+- `self-correcting-node.ts`: wraps a `NodeExecutor`; skips refinement on error/empty output; returns `SelfCorrectingResult` metadata.
+- `output-refinement.ts`: domain-aware (`sql|code|analysis|ops|general`) refinement loop with regression guard and domain auto-detection.
+- `pipeline-stuck-detector.ts`: cross-node stuck detection using failure windows, repeated output hashes, and global retry caps.
+- `error-detector.ts`: typed error aggregation/correlation with source-based severities and recovery hints.
+- `root-cause-analyzer.ts`: heuristic + LLM JSON diagnosis with robust fallback.
+- `verification-protocol.ts`: `single|vote|debate|consensus` verification strategies using Jaccard clustering.
+- `adaptive-prompt-enricher.ts`: reads rules/errors/lessons/baselines from store and builds bounded markdown enrichment blocks.
+- `trajectory-calibrator.ts`: records step rewards, computes baselines, detects suboptimal deviations, stores/prunes run trajectories.
+- `post-run-analyzer.ts`: consolidates run analysis into lessons/rules/trajectory/history records.
+- `strategy-selector.ts`: records fix outcomes and recommends `targeted|contextual|regenerative` based on historical rates.
+- `specialist-registry.ts`: category/risk-driven tuning for model tier, reflection depth, quality thresholds, and verification strategy.
+- `performance-optimizer.ts`: sliding-window optimization decisions plus optional persist/load.
+- `feedback-collector.ts`: approval feedback capture, action-item extraction, and conversion to lesson/rule-compatible shapes.
+- `learning-dashboard.ts`: read-only dashboard aggregation across namespaces.
+- `recovery-feedback.ts`: optional persistence of recovery lessons for `RecoveryCopilot`.
+- `observability-bridge.ts`: threshold-based correction signals from latency/cost/error/token usage.
+- `self-learning-hook.ts`: event callback bridge for `PipelineRuntimeEvent` with internal metrics.
+- `self-learning-runtime.ts`: wrapper around `PipelineRuntime` that wires selected self-learning modules.
+- `langgraph-middleware.ts`: equivalent best-effort bridge for LangGraph node functions.
+- `index.ts`: local barrel exports.
 
-- locally via [`index.ts`](./index.ts)
-- package-wide via [`packages/agent/src/index.ts`](../index.ts)
+## Runtime and Control Flow
+1. Pipeline-native refinement path:
+- `createSelfCorrectingExecutor(...)` wraps an existing pipeline `NodeExecutor`.
+- Wrapped executor runs original node first.
+- If no error and non-empty output, `ReflectionLoop.execute(...)` runs iterative critique/revision.
+- Iteration summaries are replayed into `AdaptiveIterationController` to compute cost/score metadata.
+- Returns original node shape plus refinement metadata (`refinementIterations`, `scoreHistory`, `exitReason`, `refinementCostCents`).
 
-## Design Principles
+2. `SelfLearningRuntime` pipeline wrapper:
+- Constructor receives `PipelineRuntimeConfig` + `SelfLearningConfig`.
+- Optionally instantiates `PipelineStuckDetector`, `TrajectoryCalibrator`, `AdaptivePromptEnricher`, `ErrorDetectionOrchestrator`, `ObservabilityCorrectionBridge`, `PostRunAnalyzer`.
+- Builds a `SelfLearningPipelineHook` and chains it with any existing `pipelineConfig.onEvent`.
+- Delegates execution/resume/cancel/state to underlying `PipelineRuntime`.
+- After `execute()`/`resume()`, `enrichResult()` attaches hook metrics and optionally calls `PostRunAnalyzer.analyze(...)`.
 
-Across almost all components, the same design principles are used:
+3. LangGraph path:
+- `LangGraphLearningMiddleware.wrapNode(nodeId, fn)` wraps each node.
+- Before node call: optional enrichment is injected into `systemPromptAddendum` or `_learningContext`.
+- After node success: optional trajectory step record + observability metric.
+- After node failure: error is recorded, original error is rethrown.
+- `onPipelineStart()` resets run trackers; `onPipelineEnd()` runs post-run analysis summary.
 
-- Best-effort learning: store/learning failures should not break the main execution path.
-- Sidecar architecture: most modules are adapters around existing runtime behavior, not replacements for core pipeline execution.
-- Stateless APIs over persisted memory: module behavior is deterministic from inputs plus persisted history in `BaseStore` namespaces.
-- Optional composition: almost every component can be used independently.
+4. Recovery feedback loop:
+- `RecoveryCopilot` (outside this folder) can consume `RecoveryFeedback`.
+- `recover()` retrieves similar lessons before planning and records outcome after execution.
 
-## Module Inventory
+5. Direct pipeline runtime hooks (outside this folder but consumed here):
+- `PipelineRuntime` reads `stuckDetector` and `trajectoryCalibrator` hooks from `PipelineRuntimeConfig`.
+- Stuck/calibration events are emitted as `PipelineRuntimeEvent` and can be consumed by `SelfLearningPipelineHook`.
 
-### Quality and Refinement
+## Key APIs and Types
+- Refinement:
+- `ReflectionLoop.execute(task, initialDraft?, scoreFn?)`
+- `AdaptiveIterationController.decide(score, costCents)`
+- `createSelfCorrectingExecutor(originalExecutor, drafter, config)`
+- `OutputRefinementLoop.refine({ task, output, ... })`
 
-- [`reflection-loop.ts`](./reflection-loop.ts)
-  - Drafter/critic iterative refinement loop using two chat models.
-  - Exit reasons: `quality_met`, `max_iterations`, `budget_exhausted`, `no_improvement`, `error`.
+- Failure/verification:
+- `PipelineStuckDetector.recordNodeFailure|recordNodeOutput|recordRetry`
+- `ErrorDetectionOrchestrator.recordError|recordQualityScore`
+- `RootCauseAnalyzer.analyze(params)`
+- `VerificationProtocol.verify(agents, judge, task, riskClass)`
+- `StrategySelector.recommend(...)` and `recordOutcome(...)`
 
-- [`iteration-controller.ts`](./iteration-controller.ts)
-  - Cost/quality-aware stopping policy with plateau and diminishing-returns detection.
+- Learning/persistence:
+- `AdaptivePromptEnricher.enrich(...)`
+- `TrajectoryCalibrator.recordStep|detectSuboptimal|storeTrajectory|getNodeBaseline`
+- `PostRunAnalyzer.analyze(run)`
+- `FeedbackCollector.recordPlanFeedback|recordPublishFeedback|getStats`
+- `RecoveryFeedback.recordOutcome|retrieveSimilar|getSuccessRate`
+- `LearningDashboardService.getDashboard()`
+- `AgentPerformanceOptimizer.recordExecution|getRecommendation|persist|load`
+- `SpecialistRegistry.getConfig|getNodeConfig|setOverride`
 
-- [`self-correcting-node.ts`](./self-correcting-node.ts)
-  - Wraps any `NodeExecutor` with `ReflectionLoop` and emits enriched node results.
+- Runtime bridges:
+- `SelfLearningPipelineHook.createEventHandler|getMetrics`
+- `SelfLearningRuntime.execute|resume|getLearningMetrics`
+- `LangGraphLearningMiddleware.wrapNode|onPipelineStart|onPipelineEnd|recommendFixStrategy`
+- `ObservabilityCorrectionBridge.recordNodeMetric|getSignals|summarize`
 
-- [`output-refinement.ts`](./output-refinement.ts)
-  - Domain-aware (sql/code/analysis/ops/general) critique+refine loop.
-  - Regression-safe: keeps original output if refinement degrades score.
+## Dependencies
+External runtime dependencies used in this module:
+- `@langchain/core`
+- `@langchain/langgraph` (mainly `BaseStore` typing and store contract)
+- Node `crypto` (`pipeline-stuck-detector.ts` output hashing)
 
-### Error, Verification, and Recovery Signals
+Internal package dependencies touched by this folder:
+- `../pipeline/*` types/runtime (`PipelineRuntime`, `PipelineRuntimeEvent`, `NodeExecutor`)
+- `../recovery/recovery-types.js` (`FailureType`) and recovery integration via `RecoveryCopilot`
+- `@dzupagent/core` type imports in `self-learning-runtime.ts`
+- `specialist-registry` model tier types consumed by `performance-optimizer`
 
-- [`error-detector.ts`](./error-detector.ts)
-  - Aggregates typed error events (`stuck_detector`, `timeout`, `resource_exhaustion`, etc.) with severities and correlations.
-
-- [`root-cause-analyzer.ts`](./root-cause-analyzer.ts)
-  - Heuristic + LLM root cause analysis; falls back safely to heuristics when parse/invoke fails.
-
-- [`verification-protocol.ts`](./verification-protocol.ts)
-  - Multi-agent verification strategies: `single`, `vote`, `debate`, `consensus`.
-
-- [`pipeline-stuck-detector.ts`](./pipeline-stuck-detector.ts)
-  - Pipeline-level stuck detection from node failures, repeated identical outputs, and retry budgets.
-
-- [`recovery-feedback.ts`](./recovery-feedback.ts)
-  - Persists and retrieves recovery lessons used by `RecoveryCopilot`.
-
-- [`strategy-selector.ts`](./strategy-selector.ts)
-  - Chooses fix escalation path (`targeted`, `contextual`, `regenerative`) from historical outcomes.
-
-### Learning Data Plane
-
-- [`adaptive-prompt-enricher.ts`](./adaptive-prompt-enricher.ts)
-  - Builds node-specific prompt addenda from rules/errors/lessons/baselines.
-
-- [`trajectory-calibrator.ts`](./trajectory-calibrator.ts)
-  - Tracks node quality trajectories and flags suboptimal runs versus historical baselines.
-
-- [`post-run-analyzer.ts`](./post-run-analyzer.ts)
-  - Consolidates run outcomes into lessons/rules/trajectory records.
-
-- [`feedback-collector.ts`](./feedback-collector.ts)
-  - Converts approval-gate user feedback into actionable lessons/rules.
-
-- [`learning-dashboard.ts`](./learning-dashboard.ts)
-  - Read-only aggregator for dashboard/monitoring payloads.
-
-- [`performance-optimizer.ts`](./performance-optimizer.ts)
-  - Suggests model tier/reflection/budget adjustments from execution history.
-
-- [`specialist-registry.ts`](./specialist-registry.ts)
-  - Feature-category and risk-class policy registry (model tier, reflection depth, verification strategy).
-
-### Runtime and Middleware Integration
-
-- [`self-learning-hook.ts`](./self-learning-hook.ts)
-  - Event-driven hook for `PipelineRuntimeEvent` dispatch and run metrics.
-
-- [`self-learning-runtime.ts`](./self-learning-runtime.ts)
-  - Composition wrapper around `PipelineRuntime` that wires enrichers, detectors, analyzers, and hook chaining.
-
-- [`langgraph-middleware.ts`](./langgraph-middleware.ts)
-  - Equivalent integration surface for LangGraph node functions (`wrapNode`, `onPipelineStart`, `onPipelineEnd`).
-
-### Barrel
-
-- [`index.ts`](./index.ts)
-  - Local export barrel for all self-correction/self-learning primitives.
-
-## Feature Matrix
-
-| Feature | Primary Components | Description |
-|---|---|---|
-| Drafter/Critic refinement | `ReflectionLoop`, `createSelfCorrectingExecutor` | Iterative scoring and revision with budget/quality stop conditions. |
-| Cost-aware stopping | `AdaptiveIterationController` | Stops based on target met, budget pressure, plateau, diminishing returns. |
-| Domain-aware polish | `OutputRefinementLoop` | Domain-specific critiques and non-destructive acceptance policy. |
-| Failure aggregation | `ErrorDetectionOrchestrator` | Normalizes errors, severity, recovery hints, and temporal correlation. |
-| Root-cause diagnosis | `RootCauseAnalyzer` | LLM diagnosis with JSON parsing hardening and heuristic fallback. |
-| Multi-agent validation | `VerificationProtocol` | Vote/consensus protocols and risk-to-strategy mapping. |
-| Cross-node stuck detection | `PipelineStuckDetector` | Detects retry storms, repeated output loops, and runaway retries. |
-| Recovery memory | `RecoveryFeedback` | Stores outcome lessons for future strategy boosting. |
-| Strategy adaptation | `StrategySelector` | Historical success-rate based strategy recommendation. |
-| Prompt enrichment | `AdaptivePromptEnricher` | Injects rules/warnings/lessons/baselines into node prompt context. |
-| Trajectory baselining | `TrajectoryCalibrator` | Baseline comparison for step-level quality drift/suboptimal events. |
-| Run consolidation | `PostRunAnalyzer` | Persists trajectories, lessons, and rules from completed runs. |
-| Human feedback capture | `FeedbackCollector` | Approval/rejection feedback extraction and conversion to learning artifacts. |
-| Dashboard aggregation | `LearningDashboardService` | API-ready trends and overview metrics from learning namespaces. |
-| Auto-tuning hints | `AgentPerformanceOptimizer` | Model/reflection/token-budget recommendations from observed history. |
-| Category routing policy | `SpecialistRegistry` | Per-category defaults + risk adjustments + optional runtime overrides. |
-| Pipeline integration | `SelfLearningRuntime`, `SelfLearningPipelineHook` | Runtime wrapper and callback dispatch for native pipeline engine. |
-| LangGraph integration | `LangGraphLearningMiddleware` | Same learning lifecycle for LangGraph node execution. |
-
-## End-to-End Flows
-
-## 1) Native Pipeline Runtime + Self-Learning Runtime
-
-1. `SelfLearningRuntime` is constructed with `PipelineRuntimeConfig` and `SelfLearningConfig`.
-2. It creates optional modules (`PipelineStuckDetector`, `TrajectoryCalibrator`, `AdaptivePromptEnricher`, `PostRunAnalyzer`, `ObservabilityCorrectionBridge`).
-3. It creates a `SelfLearningPipelineHook` and chains its event handler with any existing `pipelineConfig.onEvent`.
-4. On `execute()` or `resume()`, pipeline events feed hook metrics and callbacks.
-5. After completion/failure, `enrichResult()` runs post-run analysis best-effort and returns `SelfLearningRunResult`.
-
-Runtime touchpoints in pipeline engine:
-
-- `stuckDetector` integration in [`pipeline-runtime.ts`](../pipeline/pipeline-runtime.ts)
-- `trajectoryCalibrator` integration in [`pipeline-runtime.ts`](../pipeline/pipeline-runtime.ts)
-- self-learning runtime event types in [`pipeline-runtime-types.ts`](../pipeline/pipeline-runtime-types.ts)
-
-## 2) LangGraph Middleware Learning Loop
-
-1. Wrap each node with `middleware.wrapNode(nodeId, fn)`.
-2. Before execution, middleware attempts enrichment and injects content into `systemPromptAddendum` or `_learningContext`.
-3. After success, middleware records trajectory + observability metrics.
-4. On failure, middleware records error detector signal, then rethrows original error.
-5. `onPipelineEnd()` runs `PostRunAnalyzer` and returns summary of lessons/rules created.
-
-This gives a parallel self-learning path for LangGraph users without requiring `PipelineRuntime`.
-
-## 3) Recovery Feedback Loop
-
-1. `RecoveryCopilot` optionally receives `RecoveryFeedback`.
-2. Before plan creation, it loads similar lessons via `retrieveSimilar()`.
-3. Strategy confidences are adjusted by historical outcomes.
-4. After execution, it writes a new `RecoveryLesson` via `recordOutcome()`.
-
-Integration point: [`packages/agent/src/recovery/recovery-copilot.ts`](../recovery/recovery-copilot.ts)
-
-## Store Namespace Model
-
-Common namespaces used by this folder (defaults; many are configurable):
-
-- `lessons`
-- `rules`
-- `errors`
-- `trajectories/runs`
-- `trajectories/steps/<nodeId>`
-- `post_run/{history,lessons,rules,trajectories}`
+Store namespace patterns actually used by implementations include:
+- `lessons`, `rules`, `errors`, `trajectories/*`, `post_run/*`
 - `strategy-selector/outcomes/<nodeId>/<errorType>`
 - `recovery/lessons`
 - `self_correction/feedback/records`
-- `performance_optimizer/optimizer_state`
+- `performance_optimizer` (state key: `optimizer_state`)
+- `specialist-registry/overrides`
 
-Namespacing behavior:
+## Integration Points
+- Package exports:
+- Re-exported from `src/self-correction/index.ts`.
+- Re-exported from package root `src/index.ts` under the self-correction section.
 
-- `LangGraphLearningMiddleware` prefixes with `tenantId` when provided.
-- `SelfLearningRuntime` uses `namespace` (default `['self-learning']`) and appends domain suffixes.
+- Pipeline runtime integration:
+- `src/pipeline/pipeline-runtime-types.ts` includes optional `stuckDetector` and `trajectoryCalibrator` config hooks.
+- `src/pipeline/pipeline-runtime.ts` calls these hooks and emits stuck/calibration events.
 
-## Usage Examples
+- Recovery integration:
+- `src/recovery/recovery-copilot.ts` accepts optional `RecoveryFeedback` and calls `retrieveSimilar` + `recordOutcome`.
 
-## 1) Iterative refinement for a plain text task
+- Agent integration:
+- `src/agent/tool-loop-learning.ts` uses `SpecialistRegistry` for feature/risk-based config lookup.
 
-```ts
-import { ReflectionLoop } from '@dzupagent/agent'
+- LangGraph integration:
+- `LangGraphLearningMiddleware` is a standalone adapter for node wrapping when not using `PipelineRuntime`.
 
-const loop = new ReflectionLoop(drafterModel, criticModel, {
-  maxIterations: 3,
-  qualityThreshold: 0.85,
-  costBudgetCents: 40,
-})
+## Testing and Observability
+Current self-correction-focused tests under `src/__tests__` include:
+- Core loops and wrappers: `reflection-loop.test.ts`, `iteration-controller.test.ts`, `self-correcting-node.test.ts`, `output-refinement-deep.test.ts`
+- Runtime bridges: `self-learning-runtime.test.ts`, `self-learning-hook.test.ts`, `langgraph-middleware.test.ts`, `self-learning-integration.test.ts`
+- Failure/strategy modules: `error-detector.test.ts`, `pipeline-stuck-detector.test.ts`, `root-cause-analyzer.test.ts`, `verification-protocol.test.ts`, `strategy-selector.test.ts`, `observability-bridge.test.ts`
+- Learning/persistence modules: `adaptive-prompt-enricher.test.ts`, `trajectory-calibrator.test.ts`, `trajectory-calibrator-branches.test.ts`, `post-run-analyzer.test.ts`, `feedback-collector.test.ts`, `learning-dashboard.test.ts`, `performance-optimizer.test.ts`, `recovery-feedback-deep.test.ts`, `self-correction-deep.test.ts`
 
-const result = await loop.execute('Write a rollout plan for zero-downtime migrations')
-console.log(result.finalOutput)
-console.log(result.exitReason)
-```
+Observability surfaces in code:
+- `PipelineRuntimeEvent` consumption via `SelfLearningPipelineHook` (counts nodes, stuck detections, recoveries, enrichments).
+- `ObservabilityCorrectionBridge` signal generation and markdown summary.
+- `PostRunAnalyzer` generated run summary text and persisted analysis history.
+- `LearningDashboardService` query model for downstream API/UI dashboards.
 
-## 2) Wrap a pipeline node with self-correction
+## Risks and TODOs
+- `SelfLearningRuntime` currently initializes `_observabilityBridge` and `_learningConfig` as reserved/internal fields; observability output is not propagated into `SelfLearningRunResult`.
+- `SelfLearningRuntime` hook enrichment runs on `pipeline:node_started` callback and increments metrics, but no direct prompt injection path into `PipelineRuntime` node execution context is implemented in this wrapper.
+- `SelfLearningRuntime` records trajectory steps with placeholder `runId: 'current'` and `qualityScore: 1.0` on node completion callbacks; richer score/cost capture depends on additional wiring.
+- `LangGraphLearningMiddleware` keeps a `nodeScores` map used by `onPipelineEnd`, but wrapped node execution does not currently populate per-node scores.
+- `StrategySelector.getHistoricalRates(nodeId)` without `errorType` returns empty by design because namespace enumeration is unavailable via `BaseStore` API.
+- `OutputRefinementLoop` is exported and tested, but it is not auto-wired by `SelfLearningRuntime` or `LangGraphLearningMiddleware`; adoption remains opt-in.
 
-```ts
-import { createSelfCorrectingExecutor } from '@dzupagent/agent'
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
-const wrappedExecutor = createSelfCorrectingExecutor(nodeExecutor, drafterModel, {
-  critic: criticModel,
-  qualityThreshold: 0.8,
-  maxIterations: 3,
-  minImprovement: 0.02,
-})
-```
-
-## 3) Run native pipeline with self-learning runtime wrapper
-
-```ts
-import { SelfLearningRuntime } from '@dzupagent/agent'
-
-const runtime = new SelfLearningRuntime(
-  {
-    definition,
-    nodeExecutor,
-    onEvent: (e) => console.log(e.type),
-  },
-  {
-    store,
-    taskType: 'crud',
-    riskClass: 'standard',
-    enableLearning: true,
-  },
-)
-
-const run = await runtime.execute({ input: 'Create user profile feature' })
-console.log(run.learningMetrics)
-console.log(run.analysis?.summary)
-```
-
-## 4) LangGraph node wrapping + pipeline end analysis
-
-```ts
-import { LangGraphLearningMiddleware } from '@dzupagent/agent'
-
-const middleware = new LangGraphLearningMiddleware({
-  store,
-  tenantId: 'tenant-a',
-  taskType: 'dashboard',
-  riskClass: 'sensitive',
-})
-
-const wrappedNode = middleware.wrapNode('generate', generateNode)
-
-await middleware.onPipelineStart('run-42')
-const out = await wrappedNode(state)
-const summary = await middleware.onPipelineEnd({
-  runId: 'run-42',
-  overallScore: 0.91,
-  approved: true,
-})
-```
-
-## 5) Capture rejection feedback and turn it into reusable rules
-
-```ts
-import { FeedbackCollector } from '@dzupagent/agent'
-
-const collector = new FeedbackCollector({ store })
-
-const record = await collector.recordPublishFeedback({
-  runId: 'run-7',
-  approved: false,
-  feedback: 'Must add input validation. Should include retry logic.',
-  featureCategory: 'crud',
-  riskClass: 'standard',
-})
-
-const rules = collector.feedbackToRules(record)
-// persist `rules` into your rules namespace for future enrichment
-```
-
-## References in Other Packages
-
-Direct class-level self-correction consumption is mainly inside `@dzupagent/agent`, but there are important cross-package references and usage paths:
-
-- `@dzupagent/codegen`
-  - Uses `PipelineRuntime` from `@dzupagent/agent` in [`packages/codegen/src/pipeline/pipeline-executor.ts`](../../../codegen/src/pipeline/pipeline-executor.ts).
-  - This means codegen workflows can leverage runtime config surfaces that include stuck/calibration hooks from self-correction types.
-
-- `@dzupagent/agent-adapters`
-  - Also uses `PipelineRuntime` in [`packages/agent-adapters/src/workflow/adapter-workflow.ts`](../../../agent-adapters/src/workflow/adapter-workflow.ts).
-  - Adapter workflows inherit the same pipeline runtime extension points.
-
-- `@dzupagent/evals`
-  - Includes benchmark suites that mirror self-correction and post-run learning behavior:
-  - [`packages/evals/src/benchmarks/suites/self-correction.ts`](../../../evals/src/benchmarks/suites/self-correction.ts)
-  - [`packages/evals/src/benchmarks/suites/learning-curve.ts`](../../../evals/src/benchmarks/suites/learning-curve.ts)
-
-Within `@dzupagent/agent`, explicit integration points are:
-
-- package export surface in [`packages/agent/src/index.ts`](../index.ts)
-- runtime type/config hooks in [`packages/agent/src/pipeline/pipeline-runtime-types.ts`](../pipeline/pipeline-runtime-types.ts)
-- runtime execution hooks in [`packages/agent/src/pipeline/pipeline-runtime.ts`](../pipeline/pipeline-runtime.ts)
-- tool-loop specialist routing in [`packages/agent/src/agent/tool-loop-learning.ts`](../agent/tool-loop-learning.ts)
-- recovery feedback wiring in [`packages/agent/src/recovery/recovery-copilot.ts`](../recovery/recovery-copilot.ts)
-
-## Test Coverage
-
-Self-correction module behavior is heavily tested in `packages/agent/src/__tests__` with 20 targeted/integration files and about 490 `it(...)` cases.
-
-### Coverage by module
-
-| Module | Test File | Approx `it(...)` Count | Highlights |
-|---|---|---:|---|
-| `AdaptivePromptEnricher` | `adaptive-prompt-enricher.test.ts` | 17 | source ordering, filtering, token budget truncation |
-| `ErrorDetectionOrchestrator` | `error-detector.test.ts` | 31 | source severity mapping, correlation windows, history behavior |
-| `FeedbackCollector` | `feedback-collector.test.ts` | 37 | extraction keywords, stats aggregation, record retention |
-| `AdaptiveIterationController` | `iteration-controller.test.ts` | 23 | plateau/diminishing/cost-prohibitive/target exits |
-| `LangGraphLearningMiddleware` | `langgraph-middleware.test.ts` | 29 | wrap semantics, best-effort failures, lifecycle behavior |
-| `LearningDashboardService` | `learning-dashboard.test.ts` | 31 | trend math, overview counts, store-failure resilience |
-| `ObservabilityCorrectionBridge` | `observability-bridge.test.ts` | 34 | thresholds, severities, sliding-window error rate |
-| `AgentPerformanceOptimizer` | `performance-optimizer.test.ts` | 28 | tier upgrade/downgrade, reflection policy, persistence |
-| `PipelineStuckDetector` | `pipeline-stuck-detector.test.ts` | 21 | node failures, identical outputs, retry ceilings |
-| `PostRunAnalyzer` | `post-run-analyzer.test.ts` | 17 | lesson/rule generation, baseline comparison, history retrieval |
-| `ReflectionLoop` + parser | `reflection-loop.test.ts` | 16 | critic parsing, exit reasons, scoring behavior |
-| `RootCauseAnalyzer` | `root-cause-analyzer.test.ts` | 23 | heuristic categories, parse fallback, context handling |
-| `createSelfCorrectingExecutor` | `self-correcting-node.test.ts` | 12 | wrapper behavior, metadata, passthrough/error semantics |
-| `SelfLearningPipelineHook` | `self-learning-hook.test.ts` | 37 | event dispatch map, metrics, callback isolation |
-| `SelfLearningRuntime` | `self-learning-runtime.test.ts` | 24 | module wiring, toggles, result enrichment, handler chaining |
-| `SpecialistRegistry` | `specialist-registry.test.ts` | 29 | defaults, risk adjustments, overrides, node-level config |
-| `StrategySelector` | `strategy-selector.test.ts` | 15 | recommendation logic, thresholds, attempt suggestions |
-| `TrajectoryCalibrator` | `trajectory-calibrator.test.ts` | 16 | baseline computation, suboptimal detection, pruning |
-| `VerificationProtocol` | `verification-protocol.test.ts` | 21 | similarity, vote/consensus behavior, strategy mapping |
-| Cross-component loop | `self-learning-integration.test.ts` | 29 | multi-run learning, tenant isolation, dashboard + feedback integration |
-
-### Coverage gaps
-
-- No dedicated unit test file currently targets `OutputRefinementLoop`.
-- No dedicated unit test file currently targets `RecoveryFeedback`.
-
-Both modules are exported and documented, but their behavior currently relies on code inspection and indirect architecture intent rather than direct automated tests.
-
-## Current Integration Status Notes
-
-- `SelfLearningRuntime` creates `_observabilityBridge` but currently does not expose or consume it deeply in `enrichResult()`.
-- `OutputRefinementLoop` is implemented and exported, but is not currently wired into default runtime paths.
-- `RecoveryFeedback` is an optional dependency path through `RecoveryCopilot`, not a default always-on path.
-
-## Summary
-
-`self-correction` is a broad, modular subsystem that mixes runtime quality control, reliability signals, and persistent learning. The strongest parts today are:
-
-- robust event-driven integration (`SelfLearningRuntime`, `LangGraphLearningMiddleware`)
-- comprehensive store-backed learning data model (`PostRunAnalyzer`, `AdaptivePromptEnricher`, `TrajectoryCalibrator`)
-- strong test depth on most components
-
-The main follow-up opportunity is to add direct tests and first-class runtime wiring for `OutputRefinementLoop` and `RecoveryFeedback` to make the module surface uniformly exercised.

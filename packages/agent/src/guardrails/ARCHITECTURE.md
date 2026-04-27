@@ -1,276 +1,151 @@
 # `src/guardrails` Architecture
 
-This document describes the current implementation in `packages/agent/src/guardrails` as of **April 4, 2026**.
+## Scope
+This document covers `packages/agent/src/guardrails` inside `@dzupagent/agent`.
+
+Included files:
+- `guardrail-types.ts`
+- `iteration-budget.ts`
+- `stuck-detector.ts`
+- `cascading-timeout.ts`
+
+Primary consumers are in `src/agent` (`run-engine.ts`, `tool-loop.ts`, `streaming-run.ts`, `dzip-agent.ts`) plus package exports from `src/index.ts`.
+
+## Responsibilities
+The guardrails module provides runtime primitives used to constrain and observe agent execution.
+
+- Budget accounting and limits through `IterationBudget` (tokens, cost, iterations).
+- Tool deny-list checks through `blockedTools` and runtime blocking via `blockTool`.
+- Stuck-loop detection through `StuckDetector` (repeated calls, error bursts, idle heuristics).
+- Hierarchical timeout utility through `CascadingTimeout`.
+- Shared guardrail contracts through `GuardrailConfig`, `BudgetState`, and `BudgetWarning`.
+
+It does not run the full agent loop by itself; execution control stays in `src/agent`.
+
+## Structure
+| File | What it implements |
+| --- | --- |
+| `guardrail-types.ts` | `GuardrailConfig`, `BudgetState`, `BudgetWarning` |
+| `iteration-budget.ts` | `IterationBudget` class (accounting, warnings, hard limits, blocked tools, shared-state fork) |
+| `stuck-detector.ts` | `StuckDetector`, `StuckStatus`, and `StuckDetectorConfig` re-export |
+| `cascading-timeout.ts` | `CascadingTimeout` and `CascadingTimeoutConfig` |
+
+Export surface:
+- Re-exported from `src/index.ts` as public package APIs.
+- `StuckDetectorConfig` is imported from `@dzupagent/agent-types` and re-exported by `stuck-detector.ts`.
+
+## Runtime and Control Flow
+1. Run-state setup in `src/agent/run-engine.ts`:
+- `prepareRunState()` creates `IterationBudget` only when `config.guardrails` exists.
+- `prepareRunState()` creates `StuckDetector` by default, even when `guardrails` is absent.
+- `StuckDetector` is disabled only when `guardrails.stuckDetector === false`.
+
+2. Non-stream loop in `src/agent/tool-loop.ts` (`runToolLoop()`):
+- Checks `budget.isExceeded()` before each model call.
+- Records `budget.recordIteration()` and `budget.recordUsage()` and emits warnings.
+- Checks `budget.isToolBlocked(toolName)` before invoking tools.
+- Calls `stuckDetector.recordToolCall(...)` and `stuckDetector.recordError(...)` during tool execution.
+- Uses staged stuck escalation:
+- Stage 1 behavior: block repeated tool when budget exists.
+- Stage 2 behavior: inject stuck nudge system message.
+- Stage 3 behavior: terminate with `stopReason = 'stuck'` and return `StuckError`.
+- Calls idle check with `stuckDetector.recordIteration(toolCalls.length)` after tool-call handling.
+
+3. Stream path in `src/agent/streaming-run.ts` and `executeStreamingToolCall()`:
+- Reuses the same run-state `IterationBudget` and `StuckDetector`.
+- Emits stream events for guardrail signals (`budget_warning`, `stuck`, `done` stop reasons).
+- Applies blocked-tool checks and stuck/error handling during tool execution.
+
+4. Output filtering behavior:
+- `guardrails.outputFilter` is applied in non-stream `executeGenerateRun()`.
+- Native `stream()` completion path does not apply `outputFilter`.
+
+5. Child budget behavior:
+- `DzupAgent.createChildBudget()` creates `new IterationBudget(config.guardrails).fork()`.
+- `IterationBudget.fork()` shares budget state and emitted-threshold tracking by reference.
+
+## Key APIs and Types
+`GuardrailConfig` (`guardrail-types.ts`):
+- `maxTokens?: number`
+- `maxCostCents?: number`
+- `maxIterations?: number`
+- `blockedTools?: string[]`
+- `budgetWarnings?: number[]` (default threshold behavior in `IterationBudget` is `[0.7, 0.9]`)
+- `outputFilter?: (output: string) => Promise<string | null>`
+- `stuckDetector?: Partial<StuckDetectorConfig> | false`
+
+`IterationBudget` (`iteration-budget.ts`):
+- `recordUsage(usage: TokenUsage): BudgetWarning[]`
+- `recordIteration(): BudgetWarning[]`
+- `isExceeded(): { exceeded: boolean; reason?: string }`
+- `isToolBlocked(toolName: string): boolean`
+- `blockTool(toolName: string): void`
+- `getState(): Readonly<BudgetState>`
+- `fork(): IterationBudget`
+
+`StuckDetector` (`stuck-detector.ts`):
+- `recordToolCall(name: string, input: unknown): StuckStatus`
+- `recordError(error: Error): StuckStatus`
+- `recordIteration(toolCallsThisIteration: number): StuckStatus`
+- `reset(): void`
+- `lastToolCalls` getter
+- Defaults: `maxRepeatCalls=3`, `maxErrorsInWindow=5`, `errorWindowMs=60_000`, `maxIdleIterations=3`
+
+`CascadingTimeout` (`cascading-timeout.ts`):
+- `static create(totalMs: number, reserveMs?: number): CascadingTimeout`
+- `fork(childMs?: number): CascadingTimeout`
+- `signal`, `remainingMs`, `expired`
+- `abort(reason?: string): void`
+- `dispose(): void`
+
+## Dependencies
+Direct module-level dependencies:
+- `iteration-budget.ts` uses `calculateCostCents` and `TokenUsage` from `@dzupagent/core`.
+- `iteration-budget.ts` uses local `GuardrailConfig`, `BudgetState`, and `BudgetWarning`.
+- `stuck-detector.ts` uses Node `crypto` (`createHash`).
+- `stuck-detector.ts` uses `StuckDetectorConfig` from `@dzupagent/agent-types`.
+- `cascading-timeout.ts` uses built-in `AbortController`, `AbortSignal`, and timers.
+
+Package-level context (`packages/agent/package.json`):
+- Runtime dependencies include `@dzupagent/core` and `@dzupagent/agent-types`, which are part of this module chain.
+
+## Integration Points
+Internal integration points:
+- `src/agent/agent-types.ts`: `DzupAgentConfig.guardrails?: GuardrailConfig`.
+- `src/agent/run-engine.ts`: creates budget/detector, applies `outputFilter`, threads guardrails into execution.
+- `src/agent/tool-loop.ts`: enforces limits, warnings, blocked tools, and stuck escalation.
+- `src/agent/streaming-run.ts`: enforces corresponding guardrail behavior in stream mode.
+- `src/agent/dzip-agent.ts`: exposes `createChildBudget()` for shared parent/child budgeting.
+- `src/recovery/recovery-copilot.ts`: consumes `StuckStatus` for recovery triggering.
+- `src/index.ts`: publishes guardrail classes/types in package public API.
+
+External usage:
+- Callers configure guardrails through `DzupAgentConfig.guardrails`.
+- Callers can import `IterationBudget`, `StuckDetector`, and `CascadingTimeout` directly from `@dzupagent/agent`.
+
+## Testing and Observability
+Guardrail-focused tests in `src/__tests__` include:
+- `cascading-timeout.test.ts`
+- `stuck-detector.test.ts`
+- `stuck-detector-deep.test.ts`
+- `stuck-detector-integration.test.ts`
+- `stuck-recovery.test.ts`
+- `tool-loop-core.test.ts`
+- `tool-loop-deep.test.ts`
+- `run-engine.test.ts`
+- `stream-tool-guardrail-parity.test.ts`
+
+Observability signals tied to guardrails:
+- Stream emits `budget_warning`, `stuck`, and `done` stop-reason events.
+- Event bus emits `agent:stuck_detected` from non-stream and stream execution paths.
+- Budget threshold crossings are surfaced through warning callbacks/events.
+
+## Risks and TODOs
+- Idle stuck detection is difficult to trigger in the default tool-loop path because `recordIteration()` is called only after non-empty tool-call turns; tests explicitly document this and use mocks for that branch.
+- `outputFilter` is applied in `generate()` result assembly but not in native `stream()` completion.
+- `IterationBudget.blockTool()` mutates `GuardrailConfig.blockedTools` in place; shared-config callers need to treat this as mutable runtime state.
+- `CascadingTimeout` is an exported utility with tests, but it is not wired into agent run-engine timeout orchestration by default.
+
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
 
-## 1. Scope
-
-This folder provides runtime safety primitives for `@dzupagent/agent`:
-
-1. `IterationBudget` for token/cost/iteration limits and warnings.
-2. `StuckDetector` for no-progress loop detection.
-3. `CascadingTimeout` for parent/child timeout trees.
-4. Guardrail contracts (`GuardrailConfig`, `BudgetState`, `BudgetWarning`).
-
-These primitives are consumed by the agent runtime (`src/agent/*`) and re-used as design patterns by `@dzupagent/agent-adapters`.
-
-## 2. File Map
-
-| File | Responsibility |
-|---|---|
-| `guardrail-types.ts` | Type contracts for guardrail configuration and budget state |
-| `iteration-budget.ts` | Tracks cumulative usage, emits warning thresholds, enforces hard limits, blocks tools |
-| `stuck-detector.ts` | Detects repeated tool calls, error bursts, and idle iterations |
-| `cascading-timeout.ts` | Builds hierarchical abortable deadlines with reserve time |
-
-## 3. Feature Breakdown
-
-### 3.1 `GuardrailConfig` (`guardrail-types.ts`)
-
-Primary guardrail knobs:
-
-1. `maxTokens`, `maxCostCents`, `maxIterations` for hard limits.
-2. `blockedTools` for explicit tool deny-list.
-3. `budgetWarnings` threshold array (`[0.7, 0.9]` default in `IterationBudget`).
-4. `outputFilter(output) => Promise<string | null>` for final-output post-processing.
-5. `stuckDetector` as either:
-   - `Partial<StuckDetectorConfig>` to override defaults, or
-   - `false` to disable stuck detection.
-
-### 3.2 `IterationBudget` (`iteration-budget.ts`)
-
-Core behaviors:
-
-1. Tracks cumulative state:
-   - `totalInputTokens`, `totalOutputTokens`, `totalCostCents`, `llmCalls`, `iterations`.
-2. Records usage via `recordUsage(TokenUsage)` using `calculateCostCents` from `@dzupagent/core`.
-3. Records loop progress via `recordIteration()`.
-4. Emits threshold warnings only once per `(metric, threshold)` using `emittedThresholds`.
-5. Enforces hard-stop semantics with `isExceeded()` using `>=` comparisons.
-6. Supports runtime dynamic tool blocking:
-   - `isToolBlocked(toolName)`
-   - `blockTool(toolName)`
-7. Supports shared accounting via `fork()`:
-   - child and parent share the same `BudgetState` reference and threshold memory.
-
-### 3.3 `StuckDetector` (`stuck-detector.ts`)
-
-Detection heuristics:
-
-1. **Repeated identical tool call**:
-   - compares last `maxRepeatCalls` entries using `toolName + sha256(input)` prefix hash.
-2. **Error burst in sliding window**:
-   - `maxErrorsInWindow` inside `errorWindowMs`.
-3. **Idle loop detection**:
-   - consecutive `recordIteration(0)` up to `maxIdleIterations`.
-
-Default config:
-
-1. `maxRepeatCalls: 3`
-2. `maxErrorsInWindow: 5`
-3. `errorWindowMs: 60_000`
-4. `maxIdleIterations: 3`
-
-Operational details:
-
-1. `recordToolCall()` resets idle counter.
-2. `recordIteration(toolCallsThisIteration)` updates `lastToolCalls`.
-3. `reset()` clears all tracked state.
-
-### 3.4 `CascadingTimeout` (`cascading-timeout.ts`)
-
-Design:
-
-1. Each timeout node owns an `AbortController` and absolute deadline.
-2. Parent abort cascades to children; child abort does not propagate upward.
-3. Child deadline is constrained by `remaining(parent) - reserveMs`.
-4. Default `reserveMs` is `1000ms`.
-
-Important runtime guarantees:
-
-1. `fork(childMs)` never exceeds parent available time.
-2. `remainingMs` clamps to `>= 0`.
-3. `dispose()` clears timers/listeners recursively (leak prevention).
-4. Timers call `.unref()` when available to avoid keeping Node alive.
-
-## 4. Runtime Flow
-
-### 4.1 Non-stream `generate()` flow
-
-1. `prepareRunState()` creates:
-   - `IterationBudget` when `config.guardrails` exists.
-   - `StuckDetector` unless `guardrails.stuckDetector === false`.
-2. `runToolLoop()` enforces loop-level guardrails:
-   - pre-iteration hard-limit check via `budget.isExceeded()`
-   - iteration accounting and warnings via `budget.recordIteration()`
-   - usage accounting and warnings via `budget.recordUsage()`
-3. Tool execution path checks:
-   - blocked tools before invocation (`budget.isToolBlocked()`).
-   - stuck signals after invocation/error.
-4. Stuck escalation inside loop:
-   - stage 1: block repeated tool (`budget.blockTool(tool)`), emit nudge.
-   - stage 2: inject system nudge message.
-   - stage 3: stop with `stopReason = 'stuck'` and `StuckError`.
-5. `executeGenerateRun()` applies `guardrails.outputFilter` to final content.
-
-### 4.2 Stream flow
-
-1. Stream path uses the same prepared guardrail objects (`IterationBudget`, `StuckDetector`).
-2. Emits `budget_warning` events when threshold warnings trigger.
-3. Emits `stuck` events and eventually `done { stopReason: 'stuck' }` when detector trips.
-4. Streaming tool calls also enforce dynamic blocked-tool behavior.
-5. Current behavior difference: output filtering is applied in `generate()` path, not in native `stream()` done-content assembly.
-
-## 5. Usage Examples
-
-### 5.1 Basic guardrails with `DzupAgent`
-
-```ts
-import { DzupAgent } from '@dzupagent/agent'
-
-const agent = new DzupAgent({
-  id: 'safe-coder',
-  instructions: 'Write safe, concise changes.',
-  model: myModel,
-  guardrails: {
-    maxIterations: 12,
-    maxTokens: 120_000,
-    maxCostCents: 75,
-    blockedTools: ['rm_rf', 'prod_write'],
-    budgetWarnings: [0.6, 0.8, 0.95],
-  },
-})
-```
-
-### 5.2 Output filtering
-
-```ts
-const agent = new DzupAgent({
-  id: 'sanitized-agent',
-  instructions: 'Never expose secrets.',
-  model: myModel,
-  guardrails: {
-    outputFilter: async (output) => {
-      const redacted = output.replace(/api[_-]?key\s*:\s*\S+/gi, 'api_key: [REDACTED]')
-      return redacted
-    },
-  },
-})
-```
-
-### 5.3 Disable stuck detection
-
-```ts
-const agent = new DzupAgent({
-  id: 'no-stuck-heuristics',
-  instructions: 'Long-running exploration mode.',
-  model: myModel,
-  guardrails: {
-    maxIterations: 50,
-    stuckDetector: false,
-  },
-})
-```
-
-### 5.4 Direct budget sharing across parent/child logic
-
-```ts
-import { IterationBudget } from '@dzupagent/agent'
-
-const parentBudget = new IterationBudget({ maxTokens: 200_000, maxIterations: 30 })
-const childBudget = parentBudget.fork()
-
-parentBudget.recordIteration()
-childBudget.recordIteration()
-
-// Shared state: total iterations now reflect both calls.
-console.log(parentBudget.getState().iterations) // 2
-```
-
-### 5.5 Cascading timeout tree
-
-```ts
-import { CascadingTimeout } from '@dzupagent/agent'
-
-const root = CascadingTimeout.create(30_000, 1_000)
-const child = root.fork(10_000)
-
-await runChildTask({ signal: child.signal })
-
-// If root aborts, child.signal aborts automatically.
-```
-
-## 6. References in Other Packages
-
-### 6.1 Internal `@dzupagent/agent` usage
-
-Guardrails are integrated primarily in:
-
-1. `src/agent/run-engine.ts`
-   - constructs budget/detector from `DzupAgentConfig.guardrails`
-   - applies `outputFilter` in `generate()` flow.
-2. `src/agent/tool-loop.ts`
-   - hard limits, warnings, blocked tools, and stuck escalation.
-3. `src/agent/dzip-agent.ts`
-   - stream-loop budget/stuck events and stop-reason telemetry.
-4. `src/recovery/recovery-copilot.ts`
-   - consumes `StuckStatus` to trigger recovery plan creation.
-5. `src/templates/template-composer.ts` and `src/presets/*`
-   - propagate policy-like guardrail defaults (`max*` fields).
-
-### 6.2 `@dzupagent/agent-adapters` (pattern adaptation)
-
-`packages/agent-adapters/src/guardrails/adapter-guardrails.ts` explicitly adapts these patterns to adapter event streams:
-
-1. `AdapterStuckDetector` mirrors the same repeated-call/error/idle heuristics.
-2. `AdapterGuardrails` enforces iteration/token/cost/duration/tool-block checks on `AgentEvent` streams.
-3. `OrchestratorFacade` maps compiled policy `guardrails.maxIterations` into adapter input `maxTurns`.
-
-### 6.3 Server and UI surfaces
-
-1. `packages/server` stores and renders `guardrails` as generic metadata (`Record<string, unknown>`) for agent definitions and docs.
-2. `packages/playground` displays configured guardrails in the inspector panel and typed API models.
-
-These packages mostly transport/display guardrail settings rather than executing `src/guardrails` classes directly.
-
-## 7. Test Coverage
-
-### 7.1 Focused verification run
-
-Executed on **April 4, 2026**:
-
-```bash
-yarn workspace @dzupagent/agent test:coverage -- \
-  src/__tests__/stuck-detector.test.ts \
-  src/__tests__/cascading-timeout.test.ts \
-  src/__tests__/stuck-recovery.test.ts \
-  src/__tests__/token-usage.test.ts
-```
-
-Result highlights:
-
-1. 4 test files, 48 tests passed.
-2. Coverage report for `src/guardrails`:
-   - Statements: **88.88%**
-   - Branches: **87.32%**
-   - Functions: **89.28%**
-   - Lines: **88.88%**
-3. Per-file:
-   - `cascading-timeout.ts`: **99.32% lines**
-   - `stuck-detector.ts`: **98.33% lines**
-   - `iteration-budget.ts`: **70.54% lines**
-
-Note: command exits non-zero because package-level global coverage thresholds apply to the whole package, while this run intentionally scoped tests to guardrail-related files.
-
-### 7.2 What is covered well
-
-1. Repeated-call, error-window, idle-loop stuck detection.
-2. Stuck recovery escalation stages in tool loop (block tool, nudge, abort).
-3. Timeout tree semantics (reserve budget, cascading abort, disposal, abort reason).
-4. Stream budget warning emission using real provider token metadata.
-
-### 7.3 Current coverage gaps
-
-1. `iteration-budget.ts` is partially covered:
-   - no dedicated unit test file for all threshold permutations and fork-sharing edge cases.
-2. Output filtering parity is only explicit in generate-path behavior; native streaming path does not apply the same final-output filter logic.
-3. `GuardrailConfig` is primarily a type contract; runtime validation of malformed config values is not centralized in this module.

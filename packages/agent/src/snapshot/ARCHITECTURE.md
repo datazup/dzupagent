@@ -1,337 +1,162 @@
-# Snapshot Module Architecture (`src/snapshot`)
+# `src/snapshot` Architecture
 
-## 1) Scope and Intent
+## Scope
+This document covers only `packages/agent/src/snapshot`.
 
-This folder contains the "enhanced snapshot" and "enhanced message serialization" utilities for `@dzupagent/agent`:
-
-- [`agent-snapshot.ts`](./agent-snapshot.ts): tamper-evident agent state snapshots with optional message compression.
-- [`serialized-message.ts`](./serialized-message.ts): provider-agnostic message normalization + migration.
-
-Design intent:
-
-- Portable state for checkpointing/debug/audit.
-- Backward/interop support for mixed message formats (LangChain/OpenAI/legacy/plain).
-- Minimal runtime dependencies (`node:crypto`, `node:zlib` only in snapshot hashing/compression path).
-
----
-
-## 2) Public API Surface
-
-Exported via [`packages/agent/src/index.ts`](../index.ts):
-
-- Snapshot API:
-  - `createSnapshot(params)`
-  - `verifySnapshot(snapshot)`
-  - `compressSnapshot(snapshot)`
-  - `decompressSnapshot(snapshot)`
-  - `AgentStateSnapshot`
-  - `CreateSnapshotParams`
-- Message API:
-  - `serializeMessage(msg)`
-  - `migrateMessages(msgs)`
-  - `SerializedMessage`
-  - `MultimodalContent`
-
-Implementation references:
-
-- Snapshot exports: [`../index.ts:155`](../index.ts#L155)
-- Message exports: [`../index.ts:167`](../index.ts#L167)
-
----
-
-## 3) Data Contracts
-
-### 3.1 `AgentStateSnapshot` contract
-
-Defined in [`agent-snapshot.ts:13`](./agent-snapshot.ts#L13).
-
-Key fields:
-
-- `schemaVersion: '1.0.0'` (fixed literal)
-- `agentId`, `agentName`
-- `messages: unknown[]`
-- Optional run state: `budgetState`, `config`, `toolNames`, `workingMemory`, `metadata`
-- Integrity + metadata: `contentHash`, `createdAt`
-- Storage marker: `compressed?: boolean`
-
-Important detail:
-
-- Hash input excludes `contentHash` and `createdAt`, but includes `compressed` and all semantic fields ([`agent-snapshot.ts:53`](./agent-snapshot.ts#L53)).
-
-### 3.2 `SerializedMessage` contract
-
-Defined in [`serialized-message.ts:21`](./serialized-message.ts#L21).
-
-Key fields:
-
-- `role`: `'system' | 'user' | 'assistant' | 'tool'`
-- `content`: `string | MultimodalContent[]`
-- Optional:
-  - `toolCalls[]` with `{ id, name, arguments }`
-  - `toolCallId`
-  - `metadata`
-
-`MultimodalContent` currently supports:
-
-- text block: `{ type: 'text'; text: string }`
-- image block: `{ type: 'image'; url: string; mimeType?: string }`
-
----
-
-## 4) Feature Analysis
-
-## 4.1 Snapshot Integrity and Tamper Detection
-
-Core flow:
-
-1. `createSnapshot` computes SHA-256 hash over deterministic JSON ([`agent-snapshot.ts:71`](./agent-snapshot.ts#L71)).
-2. It sets `schemaVersion: '1.0.0'` and `createdAt = new Date().toISOString()`.
-3. `verifySnapshot` recomputes hash from payload and compares to `contentHash` ([`agent-snapshot.ts:87`](./agent-snapshot.ts#L87)).
-
-What this guarantees:
-
-- Detects mutation of hashed fields (`messages`, `agentId`, etc.).
-
-What it does not guarantee:
-
-- No signature/authentication (integrity only, not author identity).
-- No replay prevention metadata.
-
-### 4.2 Snapshot Compression / Decompression
-
-`compressSnapshot` behavior ([`agent-snapshot.ts:108`](./agent-snapshot.ts#L108)):
-
-- Idempotent on already compressed snapshot (`compressed === true` returns same object).
-- Serializes `messages` JSON, gzips, base64-encodes.
-- Replaces `messages` with single-element array: `[base64String]`.
-- Sets `compressed: true`.
-- Recomputes `contentHash`.
-- Preserves original `createdAt`.
-
-`decompressSnapshot` behavior ([`agent-snapshot.ts:144`](./agent-snapshot.ts#L144)):
-
-- If not compressed: returns snapshot unchanged.
-- Expects `messages[0]` to be a base64 string; throws if not string.
-- Gunzip + parse into original `messages` array.
-- Returns new uncompressed snapshot with recomputed hash.
-- Preserves original `createdAt`.
-
-### 4.3 Message Normalization and Migration
-
-`serializeMessage` unifies multiple input shapes into `SerializedMessage` ([`serialized-message.ts:182`](./serialized-message.ts#L182)):
-
-- Null/undefined -> `{ role: 'user', content: '' }`
-- LangChain-style (`_getType`) objects
-- Plain objects (OpenAI/legacy/mixed)
-- String/primitive fallback
-
-Normalization helpers:
-
-- Role normalization (`human -> user`, `ai -> assistant`, `function -> tool`) ([`serialized-message.ts:59`](./serialized-message.ts#L59)).
-- Content normalization:
-  - strings pass through
-  - arrays normalized to multimodal blocks
-  - OpenAI `image_url` block mapped to internal `image`
-  - unknown blocks/stringifiable values downgraded to text blocks ([`serialized-message.ts:80`](./serialized-message.ts#L80))
-- Tool-call extraction:
-  - supports `toolCalls` and OpenAI `tool_calls`
-  - arguments accepted as object or parsed from JSON string
-  - parse failures become `{ raw: <string> }` ([`serialized-message.ts:132`](./serialized-message.ts#L132))
-
-Batch migration:
-
-- `migrateMessages(old)` is a map over `serializeMessage` ([`serialized-message.ts:261`](./serialized-message.ts#L261)).
-
----
-
-## 5) End-to-End Flow
-
-### 5.1 Snapshot flow (runtime/persistence)
-
-1. Build a normalized message list (optional: with `serializeMessage`/`migrateMessages`).
-2. Call `createSnapshot` with runtime state.
-3. Optionally call `compressSnapshot` before storing/transferring.
-4. On load, call `verifySnapshot`.
-5. If compressed, call `decompressSnapshot` before runtime rehydration/inspection.
-
-### 5.2 Message migration flow
-
-1. Receive old or heterogeneous message payloads.
-2. Run `migrateMessages` once at boundary.
-3. Downstream logic uses only `SerializedMessage` contract.
-
----
-
-## 6) Usage Examples
-
-### 6.1 Create + verify + compress
-
-```ts
-import {
-  createSnapshot,
-  verifySnapshot,
-  compressSnapshot,
-  decompressSnapshot,
-} from '@dzupagent/agent'
-
-const snapshot = createSnapshot({
-  agentId: 'agent-42',
-  agentName: 'SupportAgent',
-  messages: [{ role: 'user', content: 'Summarize ticket #123' }],
-  budgetState: { tokensUsed: 1800, costCents: 12, iterations: 4 },
-  toolNames: ['search', 'read_file'],
-  metadata: { runId: 'run-abc' },
-})
-
-if (!verifySnapshot(snapshot)) throw new Error('Integrity check failed')
-
-const stored = compressSnapshot(snapshot)
-// persist `stored`...
-
-const loaded = decompressSnapshot(stored)
-if (!verifySnapshot(loaded)) throw new Error('Snapshot tampered in transit')
-```
-
-### 6.2 Normalize mixed message formats
-
-```ts
-import { migrateMessages } from '@dzupagent/agent'
-
-const mixed = [
-  { role: 'system', content: 'You are helpful.' },
-  { role: 'human', content: 'Find docs for this API.' }, // legacy role
-  {
-    role: 'assistant',
-    content: 'Calling tool...',
-    tool_calls: [{ id: 'c1', function: { name: 'search', arguments: '{"q":"api docs"}' } }],
-  },
-  { role: 'tool', content: 'results...', tool_call_id: 'c1' },
-  {
-    role: 'user',
-    content: [{ type: 'image_url', image_url: { url: 'https://example.com/screenshot.png' } }],
-  },
-]
-
-const normalized = migrateMessages(mixed)
-```
-
-### 6.3 LangChain-style message support
-
-```ts
-import { serializeMessage } from '@dzupagent/agent'
-
-const langChainLike = {
-  _getType: () => 'ai',
-  content: 'I will inspect the repo.',
-  tool_calls: [{ id: 'tc_1', name: 'read_file', args: { path: 'README.md' } }],
-}
-
-const msg = serializeMessage(langChainLike)
-// msg.role === 'assistant'
-// msg.toolCalls?.[0].arguments.path === 'README.md'
-```
-
----
-
-## 7) Primary Use Cases
-
-- **Checkpoint portability**: persist minimal agent state across storage/process boundaries.
-- **Audit trails**: detect post-capture mutations via `contentHash`.
-- **Transmission/storage optimization**: compress large message history while preserving verification semantics.
-- **Interop migration**: normalize legacy/LangChain/OpenAI message formats into one contract before further processing.
-- **Multimodal conversation archival**: represent text + image inputs in a provider-agnostic envelope.
-
----
-
-## 8) References in Other Packages and Usage
-
-Repository snapshot date for this analysis: **April 4, 2026**.
-
-Observed references:
-
-- Public re-export in `@dzupagent/agent` entrypoint:
-  - [`packages/agent/src/index.ts:155`](../index.ts#L155)
-  - [`packages/agent/src/index.ts:167`](../index.ts#L167)
-- Public API mention in package README:
-  - [`packages/agent/README.md:120`](../../README.md#L120)
-- Direct implementation usage currently found only in local tests:
-  - [`packages/agent/src/__tests__/agent-snapshot.test.ts`](../__tests__/agent-snapshot.test.ts)
-  - [`packages/agent/src/__tests__/serialized-message.test.ts`](../__tests__/serialized-message.test.ts)
-
-Not found (via repository-wide symbol search):
-
-- No direct imports of `createSnapshot`, `verifySnapshot`, `compressSnapshot`, `decompressSnapshot`, `serializeMessage`, or `migrateMessages` from other workspace packages at this time.
-
-Interpretation:
-
-- This module is currently a **published utility surface** with local validation and external availability, but no in-repo downstream runtime adoption yet outside `@dzupagent/agent` tests/docs.
-
----
-
-## 9) Test Coverage and Validation
-
-Executed commands:
-
-- `yarn workspace @dzupagent/agent test src/__tests__/agent-snapshot.test.ts src/__tests__/serialized-message.test.ts`
-  - Result: **2 files passed, 22 tests passed**
-- `yarn workspace @dzupagent/agent test:coverage -- src/__tests__/agent-snapshot.test.ts src/__tests__/serialized-message.test.ts --coverage.include=src/snapshot/*.ts --coverage.thresholds.lines=0 --coverage.thresholds.functions=0 --coverage.thresholds.statements=0 --coverage.thresholds.branches=0 --coverage.reporter=text --coverage.reporter=json`
-  - Result (scoped to snapshot files):
-    - Statements: **93.82%**
-    - Branches: **69.86%**
-    - Functions: **100%**
-    - Lines: **93.82%**
-
-Per-file:
-
+In scope:
 - `agent-snapshot.ts`
-  - Stmts/Lines: **98.85%**
-  - Branches: **90.9%**
-  - Uncovered statements: lines **151-152** (error path for invalid compressed message format).
 - `serialized-message.ts`
-  - Stmts/Lines: **90.49%**
-  - Branches: **66.12%**
-  - Uncovered statements include fallback/error-normalization branches (e.g. defaults/fallback mappings and metadata branches): lines
-    **73, 91-92, 113-117, 121, 123-127, 151, 153, 159-160, 162-163, 219-220, 223-224, 248-249**.
+- Public export wiring in `packages/agent/src/index.ts`
+- Snapshot/message tests under `packages/agent/src/__tests__`
 
-### 9.1 Covered behavior matrix
+Out of scope:
+- Legacy serializer internals in `src/agent/agent-state.ts` (except compatibility notes)
+- Replay internals under `src/replay/*`
 
-- Snapshot creation: schema/hash/timestamp generation.
-- Hash verification:
-  - valid snapshot success
-  - tampered messages failure
-  - tampered `agentId` failure
-- Compression lifecycle:
-  - compress/decompress round-trip
-  - idempotent compress
-  - decompress no-op for uncompressed input
-  - `createdAt` preservation across transformations
-- Message serialization:
-  - standard roles + tool calls
-  - OpenAI `tool_calls`
-  - new-style `toolCalls`
-  - tool message `tool_call_id`
-  - multimodal blocks + OpenAI `image_url`
-  - role alias normalization (`human`, `ai`, `function`)
-  - LangChain-style `_getType`
-  - null/undefined/string inputs
-- Message migration:
-  - mixed legacy arrays
-  - empty arrays
-  - serialized-message round-trip stability
+## Responsibilities
+The snapshot module provides two concrete utility surfaces:
+- Snapshot creation, integrity verification, and transport compression via `agent-snapshot.ts`.
+- Message normalization/migration across mixed wire formats via `serialized-message.ts`.
 
-### 9.2 Notable residual gaps
+Specifically, it:
+- Produces `AgentStateSnapshot` objects with generated `schemaVersion`, `createdAt`, and SHA-256 `contentHash`.
+- Verifies tamper evidence by recomputing hash over semantic fields.
+- Compresses/decompresses snapshot `messages` using `gzip` plus base64 encoding.
+- Normalizes heterogeneous message inputs (plain objects, LangChain message objects, primitive inputs) into one `SerializedMessage` shape.
+- Normalizes role aliases and tool-call formats from multiple provider conventions.
 
-- Explicit tests for `decompressSnapshot` invalid payload exception (`messages[0]` non-string).
-- Additional branch tests for lesser-used fallbacks in `serialized-message.ts`, especially:
-  - unknown roles defaulting to `user`
-  - non-string/non-object content coercion paths
-  - malformed JSON tool argument fallback to `{ raw: ... }`
-  - metadata population via legacy `name` fields in all paths.
+## Structure
+Directory files:
+- `agent-snapshot.ts`
+- `serialized-message.ts`
+- `ARCHITECTURE.md`
 
----
+`agent-snapshot.ts` internals:
+- `AgentStateSnapshot`
+- `CreateSnapshotParams`
+- `computeHash(...)` (internal)
+- `createSnapshot(...)`
+- `verifySnapshot(...)`
+- `compressSnapshot(...)`
+- `decompressSnapshot(...)`
 
-## 10) Compatibility Notes
+`serialized-message.ts` internals:
+- `MultimodalContent`
+- `SerializedMessage`
+- `LegacyMessage` (internal helper type)
+- `normalizeRole(...)` (internal)
+- `normalizeContent(...)` (internal)
+- `extractToolCalls(...)` (internal)
+- `serializeMessage(...)`
+- `migrateMessages(...)`
 
-- `schemaVersion` is fixed at `'1.0.0'`; there is no version negotiation/migration logic yet.
-- This module co-exists with legacy state serialization in [`../agent/agent-state.ts`](../agent/agent-state.ts) (older role/content model), and can be treated as the richer forward-facing format.
+## Runtime and Control Flow
+Snapshot path:
+1. `createSnapshot(params)` computes `contentHash` from a deterministic object containing agent identity, messages, optional state fields, and `compressed`.
+2. It returns a snapshot with fixed `schemaVersion: '1.0.0'` and `createdAt` set to `new Date().toISOString()`.
+3. `verifySnapshot(snapshot)` recomputes the same hash input and compares to `snapshot.contentHash`.
+
+Compression path:
+1. `compressSnapshot(snapshot)` returns early when `snapshot.compressed` is already true.
+2. Otherwise it serializes `snapshot.messages` to JSON, applies `gzipSync`, encodes base64, and stores it as `messages: [base64]`.
+3. It sets `compressed: true`, recomputes `contentHash`, and keeps original `createdAt`.
+
+Decompression path:
+1. `decompressSnapshot(snapshot)` returns unchanged when `compressed` is falsy.
+2. For compressed input, it expects `messages[0]` to be a base64 string; otherwise it throws.
+3. It gunzips and parses the message array, clears `compressed`, recomputes hash, and preserves `createdAt`.
+
+Message normalization path:
+1. `serializeMessage(msg)` handles `null`/`undefined`, primitives, LangChain-like objects with `_getType`, and plain objects.
+2. Roles are normalized (`human -> user`, `ai -> assistant`, `function -> tool`; unknown defaults to `user`).
+3. Content is normalized to string or multimodal blocks (`text`, `image`, OpenAI `image_url` mapping).
+4. Tool calls are normalized from `toolCalls` and `tool_calls` variants, with fallback IDs (`call_<idx>`) and argument parsing fallback (`{ raw: <string> }` on invalid JSON).
+5. `migrateMessages(old)` maps an array through `serializeMessage`.
+
+## Key APIs and Types
+Snapshot APIs:
+- `createSnapshot(params: CreateSnapshotParams): AgentStateSnapshot`
+- `verifySnapshot(snapshot: AgentStateSnapshot): boolean`
+- `compressSnapshot(snapshot: AgentStateSnapshot): AgentStateSnapshot & { compressed: true }`
+- `decompressSnapshot(snapshot: AgentStateSnapshot): AgentStateSnapshot`
+
+Snapshot types:
+- `AgentStateSnapshot`
+- `CreateSnapshotParams`
+
+Message APIs:
+- `serializeMessage(msg: unknown): SerializedMessage`
+- `migrateMessages(old: unknown[]): SerializedMessage[]`
+
+Message types:
+- `SerializedMessage`
+- `MultimodalContent`
+
+Wire-shape constraints in current code:
+- `schemaVersion` is a literal `'1.0.0'`.
+- Snapshot `messages` are typed as `unknown[]`.
+- Compressed snapshots store `messages` as a single base64 entry.
+- `SerializedMessage.content` is `string | MultimodalContent[]`.
+
+## Dependencies
+Direct runtime imports inside this module:
+- `node:crypto` (`createHash`)
+- `node:zlib` (`gzipSync`, `gunzipSync`)
+
+No local package modules are imported by `src/snapshot/*`.
+
+Package dependency context (`packages/agent/package.json`):
+- Module code itself uses only Node built-ins.
+- Compatibility is designed for peer ecosystem types (`@langchain/core`) and schema tooling (`zod`) consumed elsewhere in the package.
+
+## Integration Points
+Public API integration:
+- Re-exported from `packages/agent/src/index.ts` as:
+- Enhanced snapshot exports (`createSnapshot`, `verifySnapshot`, `compressSnapshot`, `decompressSnapshot`, `AgentStateSnapshot`, `CreateSnapshotParams`)
+- Enhanced message exports (`serializeMessage`, `migrateMessages`, `SerializedMessage`, `MultimodalContent`)
+
+Compatibility integration:
+- `src/index.ts` also exports legacy `serializeMessages`/`deserializeMessages` and legacy snapshot/message types from `src/agent/agent-state.ts`.
+- This keeps both legacy and enhanced serialization contracts available to consumers.
+
+Current in-repo usage:
+- No runtime imports of `src/snapshot/*` from other production modules were found.
+- Primary active consumers in this repo are the snapshot/serialization test suites.
+
+## Testing and Observability
+Snapshot-focused test files:
+- `src/__tests__/agent-snapshot.test.ts`
+- `src/__tests__/agent-snapshot-extended.test.ts`
+- `src/__tests__/serialized-message.test.ts`
+- `src/__tests__/serialized-message-deep.test.ts`
+- `src/__tests__/serialized-message-branches.test.ts`
+
+Current coverage themes from these tests:
+- Hash generation and tamper detection across all hashed fields (`agentId`, `agentName`, `messages`, `budgetState`, `config`, `toolNames`, `workingMemory`, `metadata`).
+- Compression/decompression round-trips for empty histories, large histories, multimodal content, and tool-call-heavy transcripts.
+- Idempotency of `compressSnapshot` and of repeated serialization/migration.
+- Role/content normalization branches, OpenAI/LangChain/new-style tool-call parsing, fallback IDs, and invalid JSON argument fallback behavior.
+- Passthrough behavior for unknown/future message fields during snapshot round-trip.
+
+Observability:
+- No direct logging/metrics/event-bus emission is implemented in `src/snapshot/*`.
+- Integrity visibility is provided by `verifySnapshot(...)` return value and decompress-time thrown errors for invalid compressed message format.
+
+## Risks and TODOs
+Current risks:
+- Hashes provide tamper evidence but not authenticated provenance (no signing/identity binding).
+- `schemaVersion` is fixed to `'1.0.0'` and there is no built-in migration dispatcher.
+- Hash stability depends on deterministic `JSON.stringify` output over provided objects.
+- `messages: unknown[]` allows persistence of unvalidated payload shapes.
+- Compression/decompression is synchronous and can become expensive on very large payloads.
+- OpenAI `image_url` blocks without a string `url` are currently dropped during normalization.
+
+Potential TODOs aligned with current implementation:
+- Add explicit schema-version migration helpers when version evolution is needed.
+- Add optional signature support for authenticity guarantees.
+- Add async compression/decompression alternatives for latency-sensitive paths.
+- Decide long-term direction for enhanced vs legacy serializer exports and deprecation policy.
+
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
