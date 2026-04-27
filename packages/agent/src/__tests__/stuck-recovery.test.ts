@@ -417,3 +417,134 @@ describe('StuckError', () => {
     expect(l3.recoveryAction).toBe('loop_aborted')
   })
 })
+
+// ---------- recoverFromCheckpoint (opt-in) ----------
+
+import { SystemMessage } from '@langchain/core/messages'
+
+describe('Checkpoint-aware stuck recovery (opt-in)', () => {
+  it('skips stage 2 nudge when recoverFromCheckpoint returns restored=true', async () => {
+    const detector = new StuckDetector({ maxRepeatCalls: 1 })
+    const budget = new IterationBudget({ maxTokens: 1_000_000 })
+    const stuckEvents: number[] = []
+    const recovered: Array<{ toolName: string; checkpointId?: string }> = []
+    const recoverHook = vi.fn(async () => ({
+      restored: true,
+      checkpointId: 'cp-42',
+      nudge: new SystemMessage('Recovered from checkpoint cp-42; continuing.'),
+    }))
+
+    // Two distinct stuck events trigger stage 1 then stage 2.
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'search', args: { q: 'x' } }]),
+      aiWithToolCalls([{ name: 'search2', args: { q: 'x' } }]),
+      // After recovery the loop should still allow normal completion.
+      new AIMessage('done'),
+    ])
+
+    const result = await runToolLoop(
+      model,
+      [new HumanMessage('find')],
+      [mockTool('search'), mockTool('search2')],
+      {
+        maxIterations: 10,
+        stuckDetector: detector,
+        budget,
+        onStuck: (_toolName, stage) => stuckEvents.push(stage),
+        recoverFromCheckpoint: recoverHook,
+        onCheckpointRecovered: (info) => recovered.push(info),
+      },
+    )
+
+    expect(recoverHook).toHaveBeenCalledTimes(1)
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]!.checkpointId).toBe('cp-42')
+
+    // Standard nudge must NOT have been injected (recovery short-circuits it).
+    const standardNudge = result.messages.find(
+      (m) => m._getType() === 'system'
+        && typeof m.content === 'string'
+        && m.content.includes('You appear to be stuck'),
+    )
+    expect(standardNudge).toBeUndefined()
+
+    // Recovery nudge IS appended.
+    const recoveryNudge = result.messages.find(
+      (m) => m._getType() === 'system'
+        && typeof m.content === 'string'
+        && m.content.includes('Recovered from checkpoint'),
+    )
+    expect(recoveryNudge).toBeDefined()
+
+    // After successful recovery the loop must run to natural completion.
+    expect(result.stopReason).not.toBe('stuck')
+  })
+
+  it('falls back to standard nudge when recoverFromCheckpoint returns restored=false', async () => {
+    const detector = new StuckDetector({ maxRepeatCalls: 1 })
+    const budget = new IterationBudget({ maxTokens: 1_000_000 })
+    const recoverHook = vi.fn(async () => ({ restored: false }))
+
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'search', args: { q: 'x' } }]),
+      aiWithToolCalls([{ name: 'search2', args: { q: 'x' } }]),
+      aiWithToolCalls([{ name: 'search3', args: { q: 'x' } }]),
+      new AIMessage('gave up'),
+    ])
+
+    const result = await runToolLoop(
+      model,
+      [new HumanMessage('find')],
+      [mockTool('search'), mockTool('search2'), mockTool('search3')],
+      {
+        maxIterations: 10,
+        stuckDetector: detector,
+        budget,
+        recoverFromCheckpoint: recoverHook,
+      },
+    )
+
+    expect(recoverHook).toHaveBeenCalledTimes(1)
+    const standardNudge = result.messages.find(
+      (m) => m._getType() === 'system'
+        && typeof m.content === 'string'
+        && m.content.includes('You appear to be stuck'),
+    )
+    expect(standardNudge).toBeDefined()
+    // Stage 3 still aborts the loop after fallback.
+    expect(result.stopReason).toBe('stuck')
+  })
+
+  it('treats thrown errors from recoverFromCheckpoint as a failed recovery', async () => {
+    const detector = new StuckDetector({ maxRepeatCalls: 1 })
+    const recoverHook = vi.fn(async () => {
+      throw new Error('store offline')
+    })
+
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 's1', args: { q: 'x' } }]),
+      aiWithToolCalls([{ name: 's2', args: { q: 'x' } }]),
+      new AIMessage('gave up'),
+    ])
+
+    const result = await runToolLoop(
+      model,
+      [new HumanMessage('find')],
+      [mockTool('s1'), mockTool('s2')],
+      {
+        maxIterations: 5,
+        stuckDetector: detector,
+        budget: new IterationBudget({ maxTokens: 1_000_000 }),
+        recoverFromCheckpoint: recoverHook,
+      },
+    )
+
+    expect(recoverHook).toHaveBeenCalledTimes(1)
+    const standardNudge = result.messages.find(
+      (m) => m._getType() === 'system'
+        && typeof m.content === 'string'
+        && m.content.includes('You appear to be stuck'),
+    )
+    expect(standardNudge).toBeDefined()
+  })
+})
