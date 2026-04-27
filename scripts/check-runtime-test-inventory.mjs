@@ -7,7 +7,6 @@ const packagesDir = join(repoRoot, 'packages')
 
 const runtimePackageDenylist = new Set([
   'create-dzupagent',
-  'playground',
   'test-utils',
   'testing',
   'runtime-contracts',
