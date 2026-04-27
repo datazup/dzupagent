@@ -1,337 +1,160 @@
 # @dzupagent/express Architecture
 
-Last analyzed: April 4, 2026
+## Scope
+`@dzupagent/express` is the Express transport layer for DzupAgent runtime surfaces. In the current codebase, this package provides two HTTP integration families:
 
-## Purpose and Scope
+- Agent chat routing via `createAgentRouter(...)` with SSE streaming (`/chat`), sync JSON (`/chat/sync`), and health (`/health`).
+- MCP JSON-RPC routing via `createMcpRouter(...)` with optional helper discovery endpoints (`/mcp/tools`, `/mcp/resources`, `/mcp/resource-templates`) plus request-context auth utilities.
 
-`@dzupagent/express` exposes `DzupAgent` instances over HTTP using Express, with:
+The package does not own agent planning/execution internals, MCP protocol core types, or application-level auth policy. It adapts Express request/response primitives to interfaces from `@dzupagent/agent` and `@dzupagent/core`.
 
-- Streaming chat over Server-Sent Events (SSE).
-- Synchronous JSON chat responses.
-- Health inspection for configured agents.
-- Lifecycle hooks for auth, observability, and error handling.
+## Responsibilities
+- Register Express routes that validate request shape, resolve an agent/server target, and map results to HTTP responses.
+- Bridge `AsyncGenerator<AgentStreamEvent>` streams to Server-Sent Events using `SSEHandler` and `SSEWriter`.
+- Expose lifecycle hook points around agent and MCP request handling (`before*`, `after*`, `onError`).
+- Provide request-context auth helpers for MCP routes (`createMcpRequestContextAuth`, context getters/setters, credential extraction).
+- Keep transport concerns minimal and reusable, leaving domain behavior to consuming apps and core runtime packages.
 
-This package is intentionally thin. It adapts `@dzupagent/agent` to Express request/response primitives without introducing application-specific logic.
+## Structure
+Current package layout:
 
-## Module Map
+- `src/index.ts`: public barrel exports.
+- `src/agent-router.ts`: `createAgentRouter`, async route wrapper, agent resolution.
+- `src/sse-handler.ts`: `SSEWriter` low-level stream writer and `SSEHandler` high-level stream bridge.
+- `src/mcp-router.ts`: `createMcpRouter` JSON-RPC endpoint + optional listing endpoints.
+- `src/mcp-context.ts`: MCP credential extraction, request-context storage, and auth middleware factory.
+- `src/types.ts`: exported TypeScript contracts for all router, SSE, and MCP surfaces.
+- `src/__tests__/*.test.ts`: route/unit/integration coverage, including SSE edge cases and MCP flows.
+- `README.md`: usage overview (currently emphasizes agent routing; MCP additions are newer than README narrative).
+- `package.json`, `tsup.config.ts`, `tsconfig.json`: packaging/build/typecheck setup.
 
-- `src/index.ts`
-  - Public entrypoint. Re-exports router factory, SSE classes, and types.
-- `src/agent-router.ts`
-  - Router factory and route handlers (`/chat`, `/chat/sync`, `/health`).
-- `src/sse-handler.ts`
-  - SSE protocol adapter (`SSEHandler`) and low-level writer (`SSEWriter`).
-- `src/types.ts`
-  - Public TypeScript contracts (`AgentRouterConfig`, `SSEHandlerConfig`, request/response payload types).
-- `src/__tests__/*.test.ts`
-  - Unit and integration coverage for route registration, SSE behavior, and mounted-app flows.
+## Runtime and Control Flow
+### Agent streaming flow (`POST {basePath}/chat`)
+1. Route validates `body.message` as non-empty string; invalid input returns `400`.
+2. Router resolves target agent by `agentName`; if missing/unknown it falls back to first configured agent; empty agent map returns `503`.
+3. Optional `hooks.beforeAgent(req, agentName)` runs.
+4. Message is wrapped as `HumanMessage` and passed to `agent.stream(...)` with `AbortController.signal`.
+5. `SSEHandler.streamAgent(...)`:
+- Initializes SSE response headers (`text/event-stream`, keep-alive headers).
+- Iterates agent stream and maps event types (`text`, `tool_call`, `tool_result`, `error`, `budget_warning`, `stuck`, `done`) into SSE frames.
+- Tracks aggregate `content` and `toolCalls`, emits final `done` event, closes stream.
+6. Optional `hooks.afterAgent(req, agentName, result)` runs with `AgentResult`.
+7. Errors trigger `hooks.onError`; router returns JSON `500` if headers not sent, otherwise writes fallback SSE data and closes.
 
-## Public API Surface
+### Agent sync flow (`POST {basePath}/chat/sync`)
+1. Same validation and agent-resolution path as streaming route.
+2. Optional `beforeAgent` hook runs.
+3. Route calls `agent.generate([HumanMessage])`.
+4. Response maps to JSON payload: `content`, token usage totals, `toolCalls`, and measured `durationMs`.
+5. Optional `afterAgent` hook runs with raw `GenerateResult`.
+6. Errors call `onError` and return JSON `500`.
 
-Exported from `src/index.ts`:
+### Agent health flow (`GET {basePath}/health`)
+- Returns `{ status: 'ok', agents: string[], count: number }` based on configured agent map.
 
+### MCP flow (`POST {basePath}`; default `/mcp`)
+1. `createMcpRouter` validates request body with `isMCPRequest`.
+2. Invalid body returns JSON-RPC error envelope (`400`, code `-32600`, id `null`).
+3. Router resolves server instance from static `server` or request-scoped resolver function.
+4. Optional `hooks.beforeRequest(req, request)` runs.
+5. Calls `server.handleRequest(request)`.
+6. Optional `hooks.afterRequest(req, request, response)` runs.
+7. If response is `null` (notification), returns `204`; otherwise returns JSON response envelope.
+8. Errors call `hooks.onError(req, error, requestId)` and return JSON-RPC internal error (`500`, code `-32603`).
+
+### MCP helper endpoints
+Controlled by `config.expose` flags (all default `true`):
+- `GET {basePath}/tools` -> `{ tools: server.listTools() }`
+- `GET {basePath}/resources` -> `{ resources: server.listResources?.() ?? [] }`
+- `GET {basePath}/resource-templates` -> `{ resourceTemplates: server.listResourceTemplates?.() ?? [] }`
+
+### MCP request-context auth flow
+`createMcpRequestContextAuth(...)` middleware:
+1. Extract credential from bearer token and/or configured header (default `x-mcp-api-key`).
+2. On missing credential: `401` unauthorized payload (or custom `onAuthFailure`).
+3. Resolve context via `resolveContext(credential, req)`.
+4. On invalid credential: same failure path.
+5. On success: store context on request symbol, optionally call custom assigner, then `next()`.
+
+## Key APIs and Types
+Primary exports from `src/index.ts`:
+
+- Agent transport:
 - `createAgentRouter(config: AgentRouterConfig): Router`
 - `SSEHandler`
 - `SSEWriter`
-- `SSEEvent`, `SSEHandlerConfig`, `AgentResult`, `ChatRequestBody`, `AgentRouterConfig`
+- MCP transport/context:
+- `createMcpRouter(config: MCPRouterConfig): Router`
+- `createMcpRequestContextAuth(config)`
+- `extractMcpCredential(req, options?)`
+- `setMcpRequestContext(req, context)`
+- `getMcpRequestContext(req)`
+- `requireMcpRequestContext(req, message?)`
+
+Important type contracts from `src/types.ts`:
+
+- `AgentRouterConfig`: `{ agents, auth?, sse?, hooks?, basePath? }`
+- `ChatRequestBody`: `{ message, agentName?, conversationId?, model?, configurable? }`
+- `AgentResult`: `{ content, usage?, cost?, toolCalls, durationMs }`
+- `SSEHandlerConfig`: formatter/headers/keepAlive and lifecycle callbacks (`onDisconnect`, `onComplete`, `onError`)
+- `MCPRequestHandler`: minimal handler contract (`handleRequest`, `listTools`, optional resource listing)
+- `MCPRouterConfig`: server/auth/basePath/exposure toggles + request hooks
+- `MCPRequestContextAuthConfig<TContext>`: context resolution/assignment and auth failure behavior
+
+## Dependencies
+Runtime/package dependencies:
+
+- Direct runtime deps:
+- `@dzupagent/agent` (agent types and runtime interaction for `/chat` routes)
+- `@dzupagent/core` (MCP request typing/validation and server compatibility)
+- Peer dependency:
+- `express >=4.18.0` (host framework)
+
+Build/tooling:
+
+- `tsup` for ESM build output from `src/index.ts` to `dist/`
+- TypeScript `NodeNext`, strict mode, and declaration/source map emission
+- Vitest for unit/integration tests
+
+Notable imported transitive surface:
+
+- `@langchain/core/messages` (`HumanMessage`) in `agent-router.ts` to shape agent input.
+
+## Integration Points
+- Host Express app composes parser/auth middleware and mounts routers:
+- `app.use(express.json())`
+- `app.use(createAgentRouter(...))`
+- `app.use(createMcpRouter(...))`
+- Router-level `auth` in config can gate package-owned routes, but most apps still combine it with broader app middleware.
+- Hooks are the primary observability/integration seam:
+- Agent hooks: `beforeAgent`, `afterAgent`, `onError`
+- MCP hooks: `beforeRequest`, `afterRequest`, `onError`
+- Request-scoped MCP server resolution supports tenant-aware behavior (`server: (req) => MCPRequestHandler`).
+- Request-context helper functions provide a transport-safe way to attach and read auth-derived context without mutating route signatures.
+
+## Testing and Observability
+Current test files in `src/__tests__`:
+
+- `agent-router.test.ts`: route registration, basePath wiring, request validation, error handling, health endpoint, agent fallback behavior.
+- `express.integration.test.ts`: mounted Express integration for auth middleware, sync/chat endpoints, hooks, and SSE response envelope behavior.
+- `sse-handler.test.ts`: SSE header setup, event mapping, disconnect handling, writer semantics, custom formatter/headers.
+- `sse-backpressure.test.ts`: low-level `SSEWriter` behavior under `res.write()` backpressure signals, timer behavior, idempotency, and connection-state edge cases.
+- `mcp-context.test.ts`: credential extraction, success path context assignment, default/custom auth-failure behavior.
+- `mcp-router.test.ts`: JSON-RPC happy paths, helper endpoints, invalid payload handling, notification `204`, server-thrown errors, and request-scoped server resolution.
+
+Observability surfaces in runtime:
+
+- Agent/MCP hooks for request tracing, metrics, auditing, and error capture.
+- `SSEHandlerConfig` callbacks (`onDisconnect`, `onComplete`, `onError`) for stream lifecycle instrumentation.
+- No built-in logger dependency; observability is intentionally callback-driven.
+
+## Risks and TODOs
+- README drift: `README.md` documents agent routes only and does not describe MCP router/context APIs now exported from `index.ts`.
+- `ChatRequestBody` contains `conversationId`, `model`, and `configurable`, but `createAgentRouter` currently ignores these fields when calling `agent.generate`/`agent.stream`.
+- `AgentResult` includes `usage` and `cost`, but streaming path currently never populates these values from `AgentStreamEvent` data.
+- Streaming error fallback in `createAgentRouter` writes raw `data: { error }` when headers are already sent, which differs from standard `event: error` framing used by `SSEWriter`.
+- `SSEWriter.startKeepAlive()` can be called multiple times; tests document behavior but writer does not explicitly guard against timer replacement/leak.
+
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
 
-Reference: `src/index.ts:1-9`.
-
-## Runtime Architecture
-
-### Core Components
-
-1. `createAgentRouter` (`src/agent-router.ts`)
-   - Builds an Express `Router`.
-   - Optionally applies `config.auth` middleware at router scope.
-   - Resolves target agent by `agentName`, with fallback to first configured agent.
-
-2. `SSEHandler` (`src/sse-handler.ts`)
-   - Initializes SSE headers and stream writer.
-   - Bridges async `AgentStreamEvent` stream into SSE events.
-   - Tracks aggregate stream result (`content`, `toolCalls`, `durationMs`).
-
-3. `SSEWriter` (`src/sse-handler.ts`)
-   - Formats and writes SSE frames.
-   - Sends keepalive comments at configurable intervals.
-   - Owns stream shutdown (`end()`) and connection liveness checks.
-
-### Endpoint Contracts
-
-`createAgentRouter` registers:
-
-- `POST {basePath}/chat`
-  - Streaming SSE endpoint.
-  - Requires `body.message` string.
-  - Uses `agent.stream()` with `AbortController` tied to client disconnect.
-- `POST {basePath}/chat/sync`
-  - Non-streaming JSON endpoint.
-  - Requires `body.message` string.
-  - Uses `agent.generate()`.
-- `GET {basePath}/health`
-  - Returns `status`, `agents`, and `count`.
-
-Reference: `src/agent-router.ts:41-171`.
-
-## Request Flows
-
-### 1) Streaming Flow (`POST /chat`)
-
-1. Validate `body.message` (`400` on failure).
-2. Resolve agent (`503` if no configured agent).
-3. Run `hooks.beforeAgent`.
-4. Create `HumanMessage` from request text.
-5. Start agent stream (`agent.stream(messages, { signal })`).
-6. `SSEHandler.streamAgent` maps each agent event to SSE output.
-7. On completion, emit `done` SSE event with aggregate result and close stream.
-8. Run `hooks.afterAgent` with `AgentResult`.
-9. On error:
-   - Call `hooks.onError`.
-   - If SSE started, write fallback `data: {"error": ...}` and end.
-   - Else respond with `500` JSON.
-
-Reference: `src/agent-router.ts:52-103`, `src/sse-handler.ts:149-283`.
-
-### 2) Synchronous Flow (`POST /chat/sync`)
-
-1. Validate `message`.
-2. Resolve agent.
-3. Run `hooks.beforeAgent`.
-4. Call `agent.generate(messages)`.
-5. Map `GenerateResult` to API JSON (`content`, token usage totals, tool call count, duration).
-6. Run `hooks.afterAgent` with raw `GenerateResult`.
-7. Return JSON payload.
-8. On error, call `hooks.onError` and return `500` JSON.
-
-Reference: `src/agent-router.ts:106-159`.
-
-### 3) Health Flow (`GET /health`)
-
-1. Enumerate configured agent keys.
-2. Return:
-   - `status: "ok"`
-   - `agents: string[]`
-   - `count: number`
-
-Reference: `src/agent-router.ts:162-168`.
-
-## SSE Protocol and Event Mapping
-
-### Headers and Transport Behavior
-
-`SSEHandler.initStream()` sets:
-
-- `Content-Type: text/event-stream`
-- `Cache-Control: no-cache`
-- `Connection: keep-alive`
-- `X-Accel-Buffering: no`
-
-Then `SSEWriter.startKeepAlive()` emits `: keepalive\n\n` (default every `15000ms`).
-
-Reference: `src/sse-handler.ts:123-137`, `src/sse-handler.ts:43-50`.
-
-### Agent Event -> SSE Event
-
-`SSEHandler.streamAgent()` maps `AgentStreamEvent` values as follows:
-
-- `text` -> `event: chunk`, `data: { content }`
-- `tool_call` -> `event: tool_call`, `data: { name, args }`
-- `tool_result` -> `event: tool_result`, `data: { name, result }`
-- `error` -> `event: error`, `data: { message }`
-- `budget_warning` -> `event: budget_warning`, `data: { message }`
-- `stuck` -> `event: stuck`, `data: passthrough`
-- `done` -> does not directly forward `done` payload fields; final aggregate is emitted later via `writer.writeDone(result)`
-
-Reference: `src/sse-handler.ts:178-237`, `src/sse-handler.ts:269-272`.
-
-## Feature Catalog
-
-### Multi-agent routing with deterministic fallback
-
-- Supports multiple named agents.
-- If requested `agentName` is missing, falls back to first configured agent key.
-- Enables single endpoint for many specialized agents.
-
-Reference: `src/agent-router.ts:13-29`.
-
-### Lifecycle hooks for app integration
-
-- `beforeAgent(req, agentName)`
-- `afterAgent(req, agentName, result)`
-- `onError(req, error)`
-
-Typical uses: structured logging, tracing, rate-limit accounting, persistence.
-
-Reference: `src/types.ts:77-84`, `src/agent-router.ts:70`, `src/agent-router.ts:87`, `src/agent-router.ts:90`, `src/agent-router.ts:123`, `src/agent-router.ts:142`, `src/agent-router.ts:152`.
-
-### Router-level auth attachment
-
-- Optional `config.auth` middleware can gate all package routes.
-- Works with upstream app middleware composition.
-
-Reference: `src/agent-router.ts:47-49`.
-
-### Streaming resilience primitives
-
-- Keepalive pings to reduce idle proxy disconnects.
-- Client disconnect detection via `req.on('close')`.
-- Attempts to stop underlying async generator via `agentStream.return(...)`.
-
-Reference: `src/sse-handler.ts:163-176`.
-
-### Low-level SSE primitives for custom routes
-
-- `SSEHandler.initStream()` for setup.
-- `SSEWriter` for direct manual writes.
-- Custom frame formatting via `formatEvent`.
-
-Reference: `src/sse-handler.ts:36-101`, `src/types.ts:36-47`.
-
-## Usage Examples
-
-### Minimal mounting
-
-```ts
-import express from 'express'
-import { createAgentRouter } from '@dzupagent/express'
-import { DzupAgent } from '@dzupagent/agent'
-
-const app = express()
-app.use(express.json())
-
-const agent = new DzupAgent({ id: 'support', model: 'gpt-4.1-mini' })
-
-app.use('/api/agent', createAgentRouter({
-  agents: { support: agent },
-}))
-```
-
-### With auth + hooks + tuned SSE keepalive
-
-```ts
-app.use('/api/agent', createAgentRouter({
-  basePath: '/v1',
-  agents: { support: agentA, research: agentB },
-  auth: (req, res, next) => {
-    if (req.headers.authorization !== `Bearer ${process.env.API_TOKEN}`) {
-      res.status(401).json({ error: 'Unauthorized' })
-      return
-    }
-    next()
-  },
-  sse: {
-    keepAliveMs: 10_000,
-    onDisconnect: (req) => logger.info({ path: req.path }, 'client disconnected'),
-  },
-  hooks: {
-    beforeAgent: (req, agentName) => logger.info({ agentName, path: req.path }, 'agent start'),
-    afterAgent: (req, agentName, result) => saveRun(req, agentName, result),
-    onError: (req, error) => logger.error({ err: error, path: req.path }, 'agent route error'),
-  },
-}))
-```
-
-### Manual SSE endpoint using `SSEHandler`
-
-```ts
-import { SSEHandler } from '@dzupagent/express'
-
-const sse = new SSEHandler({ keepAliveMs: 20_000 })
-
-app.get('/events', (req, res) => {
-  const writer = sse.initStream(res)
-  writer.write({ type: 'status', data: { ok: true } })
-  writer.writeChunk('hello')
-  writer.writeDone({ content: 'hello', toolCalls: 0, durationMs: 5 })
-  writer.end()
-})
-```
-
-## Cross-Package References and Usage in This Monorepo
-
-### Runtime dependencies
-
-- Depends on `@dzupagent/agent` for `DzupAgent`, `GenerateResult`, and `AgentStreamEvent`.
-- Depends on Express as peer dependency (`>=4.18.0`).
-- Package metadata: `package.json:20-26`.
-
-### In-repo adoption status (as of April 4, 2026)
-
-- No non-doc runtime package in `packages/*` imports `@dzupagent/express` directly.
-- Primary references are documentation and migration guidance:
-  - `docs/packages/express.md`
-  - `docs/guides/migration-from-custom.md`
-  - `docs/README.md` package index
-- `packages/core/src/hooks/ARCHITECTURE.md` explicitly notes that express router hooks are separate from core `AgentHooks`.
-
-Reference scan command used:
-
-```bash
-rg -n "@dzupagent/express|createAgentRouter\\(" packages docs --glob '!**/dist/**'
-```
-
-## Test Coverage
-
-Verification commands run on April 4, 2026:
-
-```bash
-yarn workspace @dzupagent/express test
-yarn workspace @dzupagent/express test -- --coverage
-```
-
-Result summary:
-
-- Test files: `3` passed
-- Tests: `6` passed
-- Duration: ~1.3s
-
-Coverage (Vitest v8):
-
-- All files: `77.20%` statements, `56.00%` branches, `84.21%` functions, `77.20%` lines
-- `agent-router.ts`: `73.84%` statements, `46.67%` branches, `100%` functions
-- `sse-handler.ts`: `81.69%` statements, `61.76%` branches, `87.50%` functions
-- `index.ts`: `0%` (re-export barrel is not directly tested)
-
-### What tests currently cover
-
-- Route registration and `basePath` behavior.
-  - `src/__tests__/agent-router.test.ts`
-- SSE header initialization and basic stream mapping (`chunk`, `tool_call`, `done`).
-  - `src/__tests__/sse-handler.test.ts`
-- Mounted Express integration behavior:
-  - Auth gating.
-  - `/health` JSON payload.
-  - `/chat/sync` response mapping.
-  - `/chat` streaming headers and event presence.
-  - Hook invocation expectations.
-  - `src/__tests__/express.integration.test.ts`
-
-### Notably under-tested paths
-
-- Streaming route validation errors (`400`, `503`) and streaming exception fallback path (`res.headersSent` branch).
-  - `src/agent-router.ts:55-64`, `src/agent-router.ts:93-101`
-- Sync route negative paths (`400`, `503`, `500`).
-  - `src/agent-router.ts:109-118`, `src/agent-router.ts:151-157`
-- SSE disconnect and error hook branches.
-  - `src/sse-handler.ts:163-176`, `src/sse-handler.ts:239-258`
-- `budget_warning` and `stuck` event forwarding branches.
-  - `src/sse-handler.ts:223-236`
-
-## Design Notes and Current Gaps
-
-1. `ChatRequestBody` includes `conversationId`, `model`, and `configurable`, but router handlers currently only use `message` and `agentName`.
-   - `src/types.ts:58-63` vs `src/agent-router.ts:72-82`, `src/agent-router.ts:125-128`.
-
-2. Streaming aggregate fields `usage` and `cost` are present in `AgentResult` but are not currently populated in `SSEHandler.streamAgent`.
-   - `src/sse-handler.ts:159-160`, `src/sse-handler.ts:248-254`, `src/sse-handler.ts:261-267`.
-
-3. `done` event details from agent stream (`stopReason`, `hitIterationLimit`) are consumed for content fallback only, not exposed in final SSE `done` payload.
-   - `src/sse-handler.ts:206-217`, `src/sse-handler.ts:271`.
-
-4. Streaming error fallback in router writes raw `data:` frame without `event: error`, which differs from normal `SSEWriter` output format.
-   - `src/agent-router.ts:93-95`.
-
-5. Client disconnect is observed in both router and SSE handler (`req.on('close')` in both places). Behavior is correct but duplicated.
-   - `src/agent-router.ts:76-78`, `src/sse-handler.ts:164-168`.
-
-These are not necessarily defects for all deployments, but they are important for consumers expecting strict protocol and telemetry parity with `@dzupagent/agent`.

@@ -1,359 +1,163 @@
 # @dzupagent/scraper Architecture
 
 ## Scope
+This document covers the current implementation of `@dzupagent/scraper` in `packages/scraper`.
 
-This document describes the current architecture of `@dzupagent/scraper` in:
+Included sources:
+- `src/` runtime modules and public exports
+- `src/__tests__/` Vitest suites
+- `package.json` package contract and dependencies
+- `README.md` usage-facing package description
 
-- `packages/scraper/src`
-- test coverage in `packages/scraper/src/__tests__`
-- monorepo integration references as of **April 4, 2026**
+This package provides scraping and extraction primitives. It does not implement app-level crawling pipelines, persistence, queueing, or telemetry backends.
 
-It focuses on:
+## Responsibilities
+`@dzupagent/scraper` is responsible for:
+- Orchestrating URL scraping through `http`, `browser`, or `auto` mode via `WebScraper`
+- Fetching HTML with retry, robots policy checks, user-agent rotation, and redirect handling via `HttpFetcher`
+- Fetching rendered pages via pooled Puppeteer instances via `BrowserPool`
+- Converting HTML into normalized text and metadata via `ContentExtractor`
+- Exposing a DzupAgent-compatible connector tool descriptor via `WebScraper.asTool()` and `normalizeScraperTool`
 
-- feature inventory
-- runtime flow and control decisions
-- public usage patterns
-- references from other packages/docs
-- validated test and coverage status
+The package returns a normalized `FetchResult` shape across HTTP and browser paths.
 
-## Package Role In DzupAgent
+## Structure
+Top-level package layout:
+- `src/index.ts`: public export surface
+- `src/types.ts`: config and result contracts (`ScraperConfig`, `FetchResult`, etc.)
+- `src/scraper.ts`: `WebScraper` orchestration and tool adapter
+- `src/http-fetcher.ts`: HTTP transport, retries, robots parsing/evaluation
+- `src/browser-pool.ts`: optional Puppeteer integration with pooling and idle shutdown
+- `src/content-extractor.ts`: regex-based HTML cleanup and metadata extraction
+- `src/connector-contract.ts`: scraper-specific alias/wrapper over `@dzupagent/core` connector contract
+- `src/__tests__/*.test.ts`: unit and deep behavior coverage for all modules
+- `docs/ARCHITECTURE.md`: this document
 
-`@dzupagent/scraper` is a scraping + extraction runtime that provides:
+Build and packaging:
+- `tsup.config.ts`: ESM build from `src/index.ts`, declaration output, Node 20 target
+- `package.json`: single export entrypoint (`.`), dist-only publish files
 
-1. HTTP-first scraping with retries, robots handling, and extraction.
-2. Browser scraping (Puppeteer-based) for JS-heavy pages.
-3. Content normalization into a consistent `FetchResult`.
-4. Tool-adapter output (`asTool()`) for agent tool loops.
+## Runtime and Control Flow
+Primary flow (`WebScraper.scrape(url, options)`):
+1. Merge default scraper config with call-level extraction overrides.
+2. Route by `ScraperConfig.mode`:
+- `http`: call `HttpFetcher.fetch`.
+- `browser`: call `BrowserPool.fetch` (lazy pool creation).
+- `auto`: try HTTP first, then fallback to browser only when HTTP result is not considered sufficient or HTTP throws a non-robots error.
 
-Main entrypoint exports are defined in `src/index.ts`.
+Auto-mode decision in current code:
+- Accept HTTP result only when `status >= 200 && status < 400 && text.length > 100`.
+- Otherwise fallback to browser mode.
+- If HTTP throws `RobotsDisallowedError`, propagate the error and do not fallback.
 
-## Public API Surface
+Batch flow (`WebScraper.scrapeMany`):
+1. Split URL list by `concurrency` (default `5`).
+2. Run each batch with `Promise.allSettled`.
+3. Return successful `FetchResult` items as-is.
+4. Convert failures into synthetic `FetchResult` entries (`status: 0`, error message in `text`, `method: 'http'`).
 
-### Classes
+HTTP flow (`HttpFetcher.fetch`):
+1. `fetchWithRetry` executes outbound request with timeout and rotating user-agent.
+2. Optional robots check loads and caches `/robots.txt` per origin (10-minute TTL).
+3. Retry on status `429/502/503/504` with exponential backoff and jitter.
+4. Parse response body and run `ContentExtractor.extract` with merged extraction options.
+5. Return `FetchResult` including `html`, metadata, and `method: 'http'`.
 
-- `WebScraper` (`src/scraper.ts`)
-- `HttpFetcher` (`src/http-fetcher.ts`)
-- `BrowserPool` (`src/browser-pool.ts`)
-- `ContentExtractor` (`src/content-extractor.ts`)
+Browser flow (`BrowserPool.fetch`):
+1. Acquire page from pool (reuse existing browser if idle, launch up to `maxConcurrency`, otherwise wait for slot).
+2. Navigate with `waitUntil: 'networkidle2'` and configurable timeout.
+3. Optionally `waitForSelector` (non-fatal if selector wait fails).
+4. Extract HTML and run `ContentExtractor`.
+5. Release page; start idle-close timer when browser has no active pages.
 
-### Contracts and Types
+Tool flow (`WebScraper.asTool().invoke`):
+1. Convert tool input schema fields (`extractMode`, `cleanHtml`, `maxLength`) into extraction options.
+2. Call `scrape(url, extractionOptions)`.
+3. Return JSON string including URL, metadata, text, status, method, duration.
+4. Exclude `html` and `contentType` from tool response payload.
 
-- `normalizeScraperTool`, `ScraperConnectorTool` (`src/connector-contract.ts`)
-- `ScraperConfig`, `BrowserPoolConfig`, `HttpFetcherConfig`, `ExtractionConfig`, `FetchResult`, `ScraperToolSchema` (`src/types.ts`)
-- `ExtractedContent` (`src/content-extractor.ts`)
-
-## Feature Inventory
-
-### 1) Multi-mode scraping orchestration (`WebScraper`)
-
-Implemented in `src/scraper.ts`.
-
-- `mode: 'http'`: always HTTP fetcher.
-- `mode: 'browser'`: always browser pool.
-- `mode: 'auto'` (default): HTTP first, browser fallback when:
-  - HTTP fails (except robots policy block), or
-  - HTTP status is not `2xx/3xx`, or
-  - extracted text is too short (`<= 100` chars).
-
-Additional behavior:
-
-- `scrapeMany(urls, { concurrency })`: batch processing with `Promise.allSettled`.
-- failed entries return synthetic `FetchResult` with `status: 0` and error message in `text`.
-- `destroy()`: disposes browser resources.
-
-### 2) HTTP fetch with policy and resilience (`HttpFetcher`)
-
-Implemented in `src/http-fetcher.ts`.
-
-- Retry policy:
-  - retryable status codes: `429`, `502`, `503`, `504`
-  - exponential backoff with jitter (0-25%)
-  - abort timeout uses `AbortController`
-  - no retry on `AbortError`
-- robots support:
-  - optional `respectRobotsTxt` (default `true`)
-  - per-origin robots cache (TTL 10 minutes)
-  - supports `Allow`/`Disallow`, wildcard and user-agent matching
-- user-agent rotation:
-  - round-robin from defaults or caller-provided list
-- redirect behavior:
-  - native follow when `followRedirects: true`
-  - manual hop handling when `followRedirects: false` with `maxRedirects`
-- extraction:
-  - always runs `ContentExtractor.extract(..., { mode: 'all', cleanHtml: true, ...overrides })`
-  - returns `FetchResult` including raw `html`
-
-### 3) Browser resource pool (`BrowserPool`)
-
-Implemented in `src/browser-pool.ts`.
-
-- Optional peer dependency loading:
-  - attempts `puppeteer-extra` + stealth plugin first (when enabled)
-  - falls back to plain `puppeteer`
-  - throws descriptive install error when unavailable
-- Pool behavior:
-  - one page per browser instance (isolation-first design)
-  - max active browser count enforced via `maxConcurrency`
-  - at-capacity waiting via polling (100ms interval, 30s timeout)
-  - idle browser auto-close via `idleTimeoutMs`
-- Browser launch defaults include hardened/container-friendly args.
-- Supports `PUPPETEER_EXECUTABLE_PATH` override.
-- `fetch(url)` returns same `FetchResult` shape as HTTP mode.
-
-### 4) HTML cleaning and metadata extraction (`ContentExtractor`)
-
-Implemented in `src/content-extractor.ts`.
-
-- Metadata extraction:
-  - `title` from `<title>`, fallback first `<h1>`
-  - `description` from `meta[name="description"]`
-  - `author` from `meta[name="author"]` or `meta[property="article:author"]`
-  - `publishedDate` from `article:published_time`, `meta[name="date"]`, or `og:published_time`
-- Text extraction:
-  - can run in clean mode (`cleanHtml: true`) or raw tag-strip mode
-  - strips boilerplate/noise elements and comments
-  - decodes named + numeric entities
-  - whitespace/newline normalization
-  - optional `maxLength` truncation
-- Metadata-only mode (`mode: 'metadata'`) skips text extraction.
-
-### 5) Tool contract support (`asTool` + `normalizeScraperTool`)
-
-Implemented in `src/scraper.ts` and `src/connector-contract.ts`.
-
-- `WebScraper.asTool()` provides a generic object contract:
-  - `id`, `name`, `description`, `schema`, `invoke(input)`
-- `normalizeScraperTool()` ensures stable `id` (defaults to name).
-- Output is JSON stringified and intentionally excludes raw `html` and `contentType`.
-
-## Runtime Flow
-
-### Single URL (`WebScraper.scrape`)
-
-1. Merge default/config/override extraction options.
-2. Switch by mode.
-3. HTTP mode:
-   - fetch URL
-   - enforce robots policy if enabled
-   - retry/backoff as needed
-   - extract content and metadata
-4. Browser mode:
-   - lazy-create pool
-   - acquire page
-   - navigate + optional selector wait
-   - extract content
-   - release page
-5. Auto mode:
-   - try HTTP first
-   - if robust result, return
-   - else fallback to browser
-   - if robots policy blocks HTTP, do not bypass with browser
-
-### Batch URLs (`WebScraper.scrapeMany`)
-
-1. Split into fixed-size batches (`concurrency`, default 5).
-2. Execute batch in parallel with `Promise.allSettled`.
-3. Normalize both success/failure into `FetchResult[]`.
-4. Continue until all batches complete.
-
-## Data Model and Config Semantics
-
-### Input Configuration
-
+## Key APIs and Types
+Public exports from `src/index.ts`:
+- Types:
 - `ScraperConfig`
-  - global mode/timeouts and module-specific configs
-- `HttpFetcherConfig`
-  - retry, robots, redirects, user-agents
 - `BrowserPoolConfig`
-  - concurrency, stealth, launch behavior
+- `HttpFetcherConfig`
 - `ExtractionConfig`
-  - extraction mode, cleaning toggle, max length
+- `FetchResult`
+- `ScraperToolSchema`
+- `ExtractedContent`
+- Connector contract:
+- `normalizeScraperTool`
+- `ScraperConnectorTool`
+- Classes:
+- `HttpFetcher`
+- `ContentExtractor`
+- `BrowserPool`
+- `WebScraper`
 
-### Output Contract (`FetchResult`)
+Notable semantics:
+- `ScraperConfig.mode`: `'browser' | 'http' | 'auto'`
+- `FetchResult.method`: `'browser' | 'http'`
+- `ScraperToolSchema.extractMode`: `'text' | 'html' | 'metadata' | 'all'`
 
-Uniform shape across HTTP and browser paths:
+## Dependencies
+Runtime dependencies:
+- `@dzupagent/core`: used for base connector tool normalization in `connector-contract.ts`
 
-- URL/status/content-type
-- normalized text + metadata
-- optional raw HTML
-- duration
-- method discriminator (`http` or `browser`)
+Peer dependencies (all optional, required for browser mode):
+- `puppeteer`
+- `puppeteer-extra`
+- `puppeteer-extra-plugin-stealth`
 
-This consistency is what allows `WebScraper` mode switching without changing downstream consumers.
+Dev/build dependencies:
+- `typescript`
+- `tsup`
+- `vitest`
 
-## Usage Examples
+Platform assumptions:
+- Node.js 20+ (from tsup target and native `fetch`/`AbortController` usage)
+- Browser scraping relies on Puppeteer runtime availability and launch environment compatibility
 
-### 1) Basic auto-mode scraping
+## Integration Points
+Internal integration seams:
+- `normalizeScraperTool` delegates ID normalization and base contract shaping to `normalizeBaseConnectorTool` from `@dzupagent/core`.
+- `WebScraper.asTool()` exposes a tool descriptor consumable by DzupAgent tool loops.
 
-```ts
-import { WebScraper } from '@dzupagent/scraper'
+Consumer-facing integration:
+- Consumers typically instantiate `WebScraper` and call `scrape`, `scrapeMany`, or `asTool`.
+- `README.md` shows integration into `DzupAgent` tools (`tools: [scraper.asTool()]`).
 
-const scraper = new WebScraper({ mode: 'auto', timeout: 30_000 })
-const result = await scraper.scrape('https://example.com/article')
+Cross-package usage in this monorepo is mostly documented rather than directly imported in source modules outside `packages/scraper`.
 
-console.log(result.method, result.status)
-console.log(result.title)
-console.log(result.text.slice(0, 500))
+## Testing and Observability
+Test coverage shape:
+- Unit and deep tests exist for all major modules under `src/__tests__/`.
+- Test files include:
+- HTTP behavior (`http-fetcher.test.ts`, `http-fetcher-deep.test.ts`, `robots-and-fetcher.test.ts`, `scraper-http-contract-deep.test.ts`)
+- Browser pool behavior (`browser-pool.test.ts`, `w15-j2-edges.test.ts` sections)
+- Extraction behavior (`content-extractor.test.ts`, `content-extractor-deep.test.ts`)
+- WebScraper orchestration/tool contract (`scraper-integration.test.ts`, `scraper-deep.test.ts`, `scraper-options.test.ts`, `scraper-tool.contract.test.ts`, `connector-contract-deep.test.ts`)
 
-await scraper.destroy()
-```
+Observed verification characteristics:
+- Tests validate option propagation, fallback behavior, redirects, robots parsing, retries, schema shape, and output field inclusion/exclusion.
+- Browser tests rely heavily on module mocking rather than launching a real browser.
 
-### 2) Batch scrape with bounded parallelism
+Observability in runtime code:
+- No built-in logging, tracing, or metrics hooks are present in package runtime modules.
+- Error visibility is primarily through thrown errors and `FetchResult` error text in `scrapeMany` fail-normalization paths.
 
-```ts
-const results = await scraper.scrapeMany(
-  ['https://a.com', 'https://b.com', 'https://c.com'],
-  { concurrency: 2, cleanHtml: true, mode: 'text' },
-)
+## Risks and TODOs
+Current risks from code and package contract:
+- `ContentExtractor` is regex-based and can mis-handle complex or malformed HTML patterns compared with DOM parsing.
+- `BrowserPool` waits for capacity using polling (`100ms`) with a fixed wait timeout (`30s`), which may be inefficient under heavy contention.
+- `scrapeMany` encodes failures as `method: 'http'` even when browser mode was configured, which can blur failure attribution.
+- Optional Puppeteer peer dependencies mean browser mode can fail at runtime if consumers do not install peers.
+- Package has `test` but no `test:coverage` script in `package.json`, limiting standardized per-package coverage gating from package scripts.
+- Runtime has no explicit instrumentation hooks, making production diagnosis dependent on caller-level logging.
 
-for (const r of results) {
-  if (r.status === 0) {
-    console.error(`Failed ${r.url}: ${r.text}`)
-    continue
-  }
-  console.log(`OK ${r.url} (${r.method})`)
-}
-```
+Doc-to-code drift note:
+- `README.md` references `result.content` in one quick-start example, but `FetchResult` currently exposes `text` (not `content`).
 
-### 3) Tool usage in an agent
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
-```ts
-import { DzupAgent } from '@dzupagent/agent'
-import { WebScraper } from '@dzupagent/scraper'
-
-const scraper = new WebScraper({ mode: 'auto' })
-const agent = new DzupAgent({
-  tools: [scraper.asTool()],
-})
-```
-
-### 4) Low-level direct HTTP fetcher
-
-```ts
-import { HttpFetcher } from '@dzupagent/scraper'
-
-const fetcher = new HttpFetcher({
-  respectRobotsTxt: true,
-  maxRetries: 3,
-  retryDelayMs: 1000,
-})
-
-const data = await fetcher.fetch('https://example.com')
-console.log(data.status, data.title)
-```
-
-### 5) Low-level browser pool
-
-```ts
-import { BrowserPool } from '@dzupagent/scraper'
-
-const pool = new BrowserPool({ maxConcurrency: 2, stealth: true })
-const data = await pool.fetch('https://example.com', {
-  waitFor: '.article',
-  timeout: 30_000,
-})
-
-await pool.destroy()
-```
-
-## Monorepo References and Usage
-
-### Runtime imports from other packages
-
-Current status: **no direct runtime imports from sibling packages** were found.
-
-Search used:
-
-- `rg -n "@dzupagent/scraper|WebScraper|web_scraper" packages --glob '!packages/scraper/**'`
-
-Result: no matches in non-scraper package source.
-
-### Monorepo-level references that do exist
-
-1. Docs hub lists scraper package:
-   - `docs/README.md`
-2. Dedicated package docs and examples:
-   - `docs/packages/scraper.md`
-3. Migration guide includes scraper adoption and `scraper.asTool()` integration:
-   - `docs/guides/migration-from-custom.md`
-4. Runtime test inventory marks `scraper` as runtime-critical:
-   - `scripts/check-runtime-test-inventory.mjs`
-
-### Contract compatibility with `@dzupagent/agent`
-
-- `WebScraper.asTool()` returns `{ name/id, description, schema, invoke }`.
-- `@dzupagent/agent` tool loop accepts JSON-schema-like tool schemas (`packages/agent/src/agent/tool-loop.ts`).
-- `createForgeTool` in `@dzupagent/agent` follows a similar conceptual tool shape (`packages/agent/src/tools/create-tool.ts`), so scraper tool descriptors fit expected orchestration semantics.
-
-## Test Coverage Analysis
-
-Validation command run:
-
-- `yarn workspace @dzupagent/scraper test --coverage`
-
-Observed result:
-
-- 6 test files
-- 90 tests
-- all passing
-
-### Test suites
-
-- `content-extractor.test.ts`
-- `http-fetcher.test.ts`
-- `robots-and-fetcher.test.ts`
-- `scraper-options.test.ts`
-- `scraper-integration.test.ts`
-- `scraper-tool.contract.test.ts`
-
-### Coverage snapshot (V8)
-
-Overall:
-
-- Statements: **78.83%**
-- Branches: **86.85%**
-- Functions: **94.11%**
-- Lines: **78.83%**
-
-Per file:
-
-| File | Statements | Branches | Functions | Lines |
-| --- | ---: | ---: | ---: | ---: |
-| `browser-pool.ts` | 18.51% (50/270) | 0% (0/1) | 0% (0/1) | 18.51% (50/270) |
-| `connector-contract.ts` | 100% (22/22) | 100% (2/2) | 100% (1/1) | 100% (22/22) |
-| `content-extractor.ts` | 99.51% (204/205) | 94.87% (37/39) | 100% (7/7) | 99.51% (204/205) |
-| `http-fetcher.ts` | 95.30% (284/298) | 82.60% (76/92) | 92.85% (13/14) | 95.30% (284/298) |
-| `index.ts` | 100% (10/10) | 100% | 100% | 100% (10/10) |
-| `scraper.ts` | 99.11% (224/226) | 90.24% (37/41) | 100% (11/11) | 99.11% (224/226) |
-| `types.ts` | 100% (89/89) | 100% | 100% | 100% (89/89) |
-
-### Main uncovered areas
-
-1. `browser-pool.ts` is largely untested (lines 51-270 uncovered).
-2. `http-fetcher.ts` uncovered areas:
-   - manual redirect branch (`followRedirects: false` path)
-   - invalid URL path handling in robots evaluator
-   - specific user-agent group matching branch in robots selector
-3. `scraper.ts` uncovered lazy pool creation lines (test mocking bypasses constructor path).
-4. `content-extractor.ts` has a minor uncovered branch around self-closing cleanup replacement logic.
-
-## Quality Notes and Constraints
-
-### Strengths
-
-- Clear modular split between orchestration, transport, extraction, and tool contract.
-- Strong unit/integration coverage for HTTP + orchestration + extractor behavior.
-- Good policy stance with explicit robots handling and no robots bypass fallback.
-- Optional heavy dependencies (Puppeteer) are truly optional through dynamic imports.
-
-### Current constraints / risks
-
-1. Browser mode behavior has minimal direct test coverage.
-2. `ExtractionConfig.mode` includes `'html'` and `'all'`, but extractor returns text + metadata only; raw HTML currently comes from fetch result payload, not extractor mode semantics.
-3. Browser pool wait loop uses polling and timeout callback patterns that are not currently validated by tests.
-
-### Recommended test expansion (high value)
-
-1. Add dedicated `browser-pool.test.ts` with mocked Puppeteer launcher/page objects.
-2. Add HTTP redirect-manual tests (`followRedirects: false`) and non-wildcard robots user-agent group matching tests.
-3. Add one `WebScraper` test that exercises real `getOrCreateBrowserPool()` path without monkey patching `browserPool`.

@@ -25,8 +25,11 @@ packages/
   evals/          — Evaluation: scorers, LLM judge, benchmarks
   testing/        — Test infra: recorder, mock models
   test-utils/     — Shared test utilities
-  playground/     — Maintenance-only Vue 3 debug UI; do not add new product features here
   create-dzupagent/ — CLI scaffolder
+
+Note: playground features have moved to `apps/codev-app`; the debug UI is no
+longer maintained in this repo. Design tokens are owned by the
+`@dzup-ui/core` package in `shared-kit/` and are not part of the framework.
 
 ## Quality Gates
 ```bash
@@ -41,15 +44,17 @@ yarn verify
 ## Build and Dev Orchestration
 - Root scripts are Turbo-powered for dependency-aware task execution and caching.
 - Use `yarn build`, `yarn typecheck`, `yarn lint`, and `yarn test` from repo root.
-- Use `yarn dev` for parallel package dev tasks, or run a package directly (for example: `yarn workspace @dzupagent/playground dev`).
+- Use `yarn dev` for parallel package dev tasks, or run a package directly (for example: `yarn workspace @dzupagent/agent dev`).
 - Keep package-local `build` scripts on `tsup` and package-local `typecheck` scripts on `tsc --noEmit`.
 
 ## Product Feature Boundary
-New product capabilities should not be added to `packages/server` or `packages/playground`.
+New product capabilities should not be added to `packages/server`. The former
+`packages/playground` is no longer maintained in this repo; its operator UX has
+moved to `apps/codev-app`.
 
 DzupAgent should provide reusable framework primitives. Application-specific capabilities belong in the consuming app, starting with `apps/codev-app` in the shared workspace. Route features such as multi-workspace/project/task orchestration, subtasks, personas, prompt templates, workflow DSLs, memory policy, multi-tenant filtering, adapter orchestration, and operator UX to Codev unless the user explicitly asks for framework maintenance.
 
-Allowed `server` and `playground` work:
+Allowed `server` work:
 - compatibility fixes
 - security fixes
 - test repairs
@@ -58,7 +63,7 @@ Allowed `server` and `playground` work:
 
 Not allowed by default:
 - new HTTP product APIs in `packages/server`
-- new operator UX in `packages/playground`
+- new operator UX in any framework package (use `apps/codev-app`)
 - Codev-specific semantics in framework packages
 
 ## LLM/Automation Execution Flow

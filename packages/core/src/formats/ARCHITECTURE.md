@@ -1,294 +1,134 @@
 # `@dzupagent/core` Formats Architecture
 
 ## Scope
+`src/formats` is a format/contract utility layer inside `@dzupagent/core`. It owns:
+- Agent card validation contracts (`agent-card-types.ts`).
+- Tool and structured-output schema adapters (`tool-format-adapters.ts`, `structured-output-contract.ts`, `structured-output-retry.ts`, `openai-function-types.ts`).
+- AGENTS.md v2 parse/generate/legacy mapping (`agents-md-types.ts`, `agents-md-parser-v2.ts`).
+- The local public surface aggregator (`index.ts`).
 
-This folder defines format contracts and conversion utilities for:
+The folder is computation-only (string/schema transforms, parsing, validation, retry state transitions). It does not own transport, storage, or process I/O.
 
-1. Agent identity metadata (`AgentCardV2`)
-2. Tool schema interop (Zod, JSON Schema, OpenAI function/tool, MCP descriptor subset)
-3. `AGENTS.md` v2 parse/generate + backward compatibility mapping
+## Responsibilities
+- Provide strongly typed contracts for agent metadata and tool schema exchange.
+- Normalize Zod/JSON-schema conversions and OpenAI/MCP-compatible tool definitions.
+- Prepare provider-aware structured-output schema contracts:
+  - schema naming,
+  - envelope handling for non-object top-level outputs,
+  - OpenAI-safe schema stripping,
+  - schema hash/preview/summary metadata.
+- Provide reusable structured parse retry loops for both non-streaming and streaming invoke patterns.
+- Parse and regenerate AGENTS.md v2 documents and bridge to legacy `AgentsMdConfig`.
 
-It is a pure TypeScript utility layer (no I/O, no network calls), and is re-exported through `@dzupagent/core`.
-
-## File Map
-
+## Structure
 - `index.ts`
-  - Aggregates and re-exports all public types/functions from this folder.
+  - Re-exports all format APIs/types from this directory.
 - `agent-card-types.ts`
-  - `AgentCardV2` type model + Zod validation schema + validation helper.
+  - `AgentCardV2` interfaces, `AgentCardV2Schema`, and `validateAgentCard`.
 - `openai-function-types.ts`
-  - Type-only OpenAI function/tool contracts.
+  - OpenAI function/tool TypeScript contracts.
 - `tool-format-adapters.ts`
-  - Canonical tool schema descriptor and conversion functions.
+  - Canonical `ToolSchemaDescriptor`, Zod<->JSON schema adapters, OpenAI/MCP adapters, structured-output schema descriptors, and error context enrichment helpers.
+- `structured-output-contract.ts`
+  - Strategy/provider resolution and `prepareStructuredOutputSchemaContract`.
+- `structured-output-retry.ts`
+  - Generic structured parse retry loops and standardized correction/exhaustion messages.
 - `agents-md-types.ts`
-  - Type-only model for `AGENTS.md` v2 document structure.
+  - AGENTS.md v2 document/type model.
 - `agents-md-parser-v2.ts`
-  - Parser, generator, and legacy-compat converter for `AGENTS.md` v2.
+  - Front matter + markdown section parser, generator, and v2->legacy adapter.
 - `__tests__/formats.test.ts`
-  - End-to-end unit tests for all public exports in this folder.
-
-## Public API Surface
-
-## 1) Agent Card v2 Validation
-
-### Exports
-
-- `AgentCardV2Schema`
-- `validateAgentCard(data: unknown): AgentCardValidationResult`
-- Types: `AgentCardV2`, `AgentCardCapability`, `AgentCardSkill`, `AgentAuthScheme`, `AgentCardAuthentication`, `AgentCardSLA`, `AgentCardProvider`, `ContentMode`
-
-### Feature Description
-
-- Defines an A2A-style Agent Card contract.
-- Enforces required fields (`name`, `description`, `url`) and structured optional metadata.
-- Normalizes validation into a safe result object (`valid`, `card`, `errors`).
-
-### Validation Flow
-
-1. Caller passes arbitrary `unknown` input.
-2. `AgentCardV2Schema.safeParse` validates and type-checks.
-3. Success path:
-   - Returns `{ valid: true, card }`.
-4. Failure path:
-   - Converts Zod issues into readable strings (`path: message`).
-   - Returns `{ valid: false, errors }`.
-
-### Usage Example
-
-```ts
-import { validateAgentCard } from '@dzupagent/core'
-
-const result = validateAgentCard({
-  name: 'CodeAgent',
-  description: 'Reviews pull requests',
-  url: 'https://example.com/agent',
-  defaultInputModes: ['text'],
-  defaultOutputModes: ['text', 'file'],
-})
-
-if (!result.valid) {
-  console.error(result.errors)
-} else {
-  console.log(result.card?.name)
-}
-```
-
-## 2) Tool Schema Format Adapters
-
-### Exports
-
-- `zodToJsonSchema`
-- `jsonSchemaToZod`
-- `toOpenAIFunction`
-- `toOpenAITool`
-- `fromOpenAIFunction`
-- `toMCPToolDescriptor`
-- `fromMCPToolDescriptor`
-- Types: `ToolSchemaDescriptor`, `MCPToolDescriptorCompat`, `OpenAIFunctionDefinition`, `OpenAIToolDefinition`
-
-### Feature Description
-
-- Uses `ToolSchemaDescriptor` as canonical representation for tool metadata:
-  - `name`
-  - `description`
-  - `inputSchema`
-  - optional `outputSchema`
-- Provides lightweight adapters between internal tool schema and external API shapes.
-- Implements a pragmatic subset conversion of Zod/JSON-Schema for common tool inputs.
-
-### Conversion Flow
-
-1. Schema bridge:
-   - `zodToJsonSchema` converts a subset of Zod nodes into JSON Schema objects.
-   - `jsonSchemaToZod` converts JSON Schema back into Zod validators.
-2. OpenAI bridge:
-   - `toOpenAIFunction` maps canonical descriptor to OpenAI function format.
-   - `toOpenAITool` wraps function in OpenAI tool envelope (`type: 'function'`).
-   - `fromOpenAIFunction` maps OpenAI function back to canonical descriptor.
-3. MCP bridge:
-   - `toMCPToolDescriptor` maps canonical descriptor to MCP-compatible subset.
-   - `fromMCPToolDescriptor` maps MCP subset back to canonical descriptor.
-
-### Usage Example
-
-```ts
-import { z } from 'zod'
-import { zodToJsonSchema, toOpenAITool, type ToolSchemaDescriptor } from '@dzupagent/core'
-
-const input = z.object({
-  query: z.string(),
-  limit: z.number().optional(),
-})
-
-const tool: ToolSchemaDescriptor = {
-  name: 'search_docs',
-  description: 'Searches documentation',
-  inputSchema: zodToJsonSchema(input),
-}
-
-const openaiTool = toOpenAITool(tool)
-```
-
-### Notes / Boundaries
-
-- Zod support intentionally covers common nodes (`object`, `string`, `number`, `boolean`, `array`, `enum`, `optional`).
-- Unsupported/unknown nodes degrade to broad shapes (`{}` or `z.unknown()`), favoring compatibility over strict failure.
-
-## 3) `AGENTS.md` v2 Parse/Generate/Legacy Bridge
-
-### Exports
-
-- `parseAgentsMdV2(content: string): AgentsMdDocument`
-- `generateAgentsMd(doc: AgentsMdDocument): string`
-- `toLegacyConfig(doc: AgentsMdDocument): AgentsMdConfig`
-- Types: `AgentsMdDocument`, `AgentsMdMetadata`, `AgentsMdCapability`, `AgentsMdMemoryConfig`, `AgentsMdSecurityConfig`
-
-### Feature Description
-
-- Parses a v2 shape with:
-  - YAML front matter (metadata)
-  - `## Capabilities`
-  - `## Memory`
-  - `## Security` (allowed/blocked tools)
-- Generates markdown back from structured model.
-- Converts to legacy `AgentsMdConfig` for compatibility with older systems.
-
-### Parser Flow
-
-1. `parseFrontMatter`:
-   - Detects leading `--- ... ---`.
-   - Parses simple flat YAML key/value pairs and inline arrays.
-2. `parseMarkdownSections`:
-   - Splits content by `##` headings.
-3. Section extractors:
-   - Capabilities: bullet list, supports `Name: Description` and `Name — Description`.
-   - Memory: `namespaces` + `maxRecords`, supports bullet-style namespace list.
-   - Security: supports subsection headings (`### Allowed Tools`, `### Blocked Tools`) and legacy `!tool` deny markers.
-4. Assembles `AgentsMdDocument`.
-
-### Generator Flow
-
-1. Writes YAML front matter from metadata.
-2. Conditionally emits `Capabilities`, `Memory`, and `Security` sections.
-3. Produces deterministic markdown sections for round-trip use.
-
-### Legacy Mapping Flow
-
-1. Initializes `AgentsMdConfig` with empty `instructions` and `rules`.
-2. Maps:
-   - `metadata.description` -> instruction
-   - each capability -> instruction string
-   - security allow/block lists -> `allowedTools` / `blockedTools`
-3. Returns compatibility payload for existing v1-style consumers.
-
-### Usage Example
-
-```ts
-import { parseAgentsMdV2, generateAgentsMd, toLegacyConfig } from '@dzupagent/core'
-
-const doc = parseAgentsMdV2(`---
-name: Reviewer
-description: Reviews code
-tags: [quality, lint]
----
-
-## Capabilities
-- Lint: Analyze lint issues
-
-## Security
-### Allowed Tools
-- eslint
-### Blocked Tools
-- rm
-`)
-
-const md = generateAgentsMd(doc)
-const legacy = toLegacyConfig(doc)
-```
-
-## Integration and Real Usage in Monorepo
-
-## Re-export Boundary
-
-- `packages/core/src/index.ts` re-exports this folder's APIs so consumers import from `@dzupagent/core`.
-
-## Runtime References Outside `core`
-
-- Confirmed active cross-package runtime usage:
-  - `packages/agent/src/structured/structured-output-engine.ts`
-    - imports `describeStructuredOutputSchema` from `@dzupagent/core`
-    - used to render canonical JSON Schema plus a stable `schemaHash` into the fallback structured-output prompt (`buildSchemaPrompt`).
-
-## Current Non-usage (as of this analysis)
-
-- `parseAgentsMdV2`, `generateAgentsMd`, `toLegacyConfig`:
-  - currently validated by tests and exported, but no runtime call sites found outside this folder.
-- `AgentCardV2Schema` / `validateAgentCard`:
-  - exported and tested, but not used by server A2A route path yet.
-  - server currently uses its local card model in `packages/server/src/a2a/agent-card.ts`.
-- OpenAI/MCP adapter conversion helpers:
-  - exported and tested; no external runtime call site in non-test packages detected.
-
-## Relationship to Adjacent Modules
-
-- `packages/core/src/mcp/mcp-tool-bridge.ts` includes its own internal `jsonSchemaToZod` / `zodToJsonSchema` logic for MCP-to-LangChain bridging.
-- This creates partial conceptual overlap with `formats/tool-format-adapters.ts`, but they currently target different descriptor types and execution paths.
-
-## Test Coverage
-
-## Test Suite
-
-- Primary file: `packages/core/src/formats/__tests__/formats.test.ts`
-- Focused execution command used:
-  - `yarn workspace @dzupagent/core test src/formats/__tests__/formats.test.ts`
-- Result:
-  - `1` test file passed
-  - `41` tests passed
-  - `0` failures
-
-## Coverage Snapshot (Focused Run)
-
-Command used:
-
-- `yarn workspace @dzupagent/core test:coverage src/formats/__tests__/formats.test.ts`
-
-Outcome:
-
-- Formats files received high local coverage.
-- Command exits non-zero because package-level global thresholds apply to all `src/**/*.ts`, not just formats.
-
-Per-file coverage for `src/formats/*` from `coverage-summary.json`:
-
-- `agent-card-types.ts`
-  - statements/lines/functions/branches: `100% / 100% / 100% / 100%`
-- `agents-md-parser-v2.ts`
-  - statements/lines/functions/branches: `97.34% / 97.34% / 100% / 71.13%`
-- `tool-format-adapters.ts`
-  - statements/lines/functions/branches: `96.13% / 96.13% / 100% / 88.09%`
-
-## Coverage Gaps (Behavioral)
-
-- `agents-md-parser-v2.ts`
-  - limited branch coverage for less-common parsing paths, such as edge subsection handling and fallback capability formatting.
-- `tool-format-adapters.ts`
-  - limited branch coverage for unsupported/unknown schema node fallbacks and sparse schema edge cases.
-
-## Recommended Next Tests
-
-1. `AGENTS.md` front matter edge cases:
-   - multi-line YAML values, nested objects, and ambiguous `---` delimiters.
-2. Adapter fallback behavior:
-   - explicit assertions for unsupported Zod nodes and unknown JSON Schema `type`.
-3. Runtime integration tests:
-   - server A2A card validation with `AgentCardV2Schema`.
-   - direct OpenAI/MCP adapter use in production flow tests.
-
-## Quality Observations
-
-1. Strong points:
-   - Clear separation of type contracts and conversion utilities.
-   - Extensive positive + negative tests in a single cohesive suite.
-   - Backward compatibility path provided (`toLegacyConfig`) to reduce migration risk.
-2. Risks / tradeoffs:
-   - Lightweight YAML parser is intentionally limited; complex YAML constructs are out of scope.
-   - Similar schema-conversion logic exists elsewhere (`mcp-tool-bridge`), which may drift if behavior evolves independently.
+  - Primary formats suite.
+- `../__tests__/w15-h2-branch-coverage.test.ts`
+  - Additional branch-oriented tests for parser and adapters.
+
+## Runtime and Control Flow
+1. Consumers import format helpers via `@dzupagent/core` (re-exported in `src/index.ts`) or `src/formats/index.ts`.
+2. For structured-output flows:
+   - `resolveStructuredOutputCapabilities` determines preferred strategy/provider.
+   - `prepareStructuredOutputSchemaContract` derives request/response schemas, optional envelope, schema name, hash, preview, and summary.
+   - Callers execute model invocation and parsing; on retry they use correction prompts from `buildStructuredOutputCorrectionPrompt`.
+   - On terminal failure they build canonical errors via `buildStructuredOutputExhaustedError` and `attachStructuredOutputErrorContext`.
+3. For AGENTS.md flows:
+   - `parseAgentsMdV2` parses optional front matter and known markdown sections.
+   - `generateAgentsMd` writes a normalized document.
+   - `toLegacyConfig` maps parsed v2 data into legacy `AgentsMdConfig`.
+4. For tool schema interop:
+   - Convert Zod/JSON schema as needed (`zodToJsonSchema`, `jsonSchemaToZod`, `toStructuredOutputJsonSchema`).
+   - Map tool descriptors to OpenAI/MCP wire shapes and back.
+
+## Key APIs and Types
+- Agent card:
+  - `AgentCardV2Schema`
+  - `validateAgentCard(data)`
+  - `AgentCardV2`, `AgentCardValidationResult`
+- Tool/schema adapters:
+  - `zodToJsonSchema`, `jsonSchemaToZod`
+  - `toOpenAIFunction`, `toOpenAITool`, `fromOpenAIFunction`
+  - `toMCPToolDescriptor`, `fromMCPToolDescriptor`
+  - `ToolSchemaDescriptor`, `MCPToolDescriptorCompat`
+- Structured-output schema contract:
+  - `toOpenAISafeSchema`, `toStructuredOutputJsonSchema`, `describeStructuredOutputSchema`
+  - `buildStructuredOutputSchemaName`
+  - `detectStructuredOutputStrategy`, `resolveStructuredOutputCapabilities`, `resolveStructuredOutputSchemaProvider`, `shouldAttemptNativeStructuredOutput`
+  - `prepareStructuredOutputSchemaContract`, `unwrapStructuredEnvelope`
+  - `StructuredOutputSchemaDescriptor`, `StructuredOutputSchemaSummary`, `StructuredOutputSchemaContract`
+- Structured retry loop:
+  - `executeStructuredParseLoop`, `executeStructuredParseStreamLoop`
+  - `buildStructuredOutputCorrectionPrompt`, `buildStructuredOutputExhaustedError`, `isStructuredOutputExhaustedErrorMessage`
+  - `StructuredParseLoopResult` and related loop input/output types
+- AGENTS.md v2:
+  - `parseAgentsMdV2`, `generateAgentsMd`, `toLegacyConfig`
+  - `AgentsMdDocument`, `AgentsMdMetadata`, `AgentsMdMemoryConfig`, `AgentsMdSecurityConfig`
+
+## Dependencies
+- External:
+  - `zod` for validation and schema conversion.
+- Node built-in:
+  - `node:crypto` (`createHash`) for stable schema hash generation.
+- Internal type/runtime dependencies:
+  - `../llm/model-config.ts` for `StructuredOutputModelCapabilities`/strategy types.
+  - `../skills/agents-md-parser.ts` type import (`AgentsMdConfig`) for legacy bridge.
+- Package-level context:
+  - `@dzupagent/core` exports this module through the root entrypoint.
+  - `@dzupagent/core` declares `zod` and LangChain packages as peers; formats itself only directly imports `zod`.
+
+## Integration Points
+- `packages/core/src/index.ts`
+  - Re-exports formats APIs/types to the package root.
+- `packages/agent/src/structured/structured-output-engine.ts`
+  - Uses schema contract and retry/error helpers from this module for multi-strategy structured extraction.
+- `packages/agent/src/agent/structured-generate.ts`
+  - Uses the same schema contract and retry/error helpers for DzupAgent structured generation path.
+- Tests in `packages/agent/src/__tests__/structured-output.test.ts`
+  - Exercise structured-output capability and schema descriptor behavior with `@dzupagent/core` exports.
+- No verified runtime callsites outside tests for:
+  - `AgentCardV2Schema`/`validateAgentCard`.
+  - AGENTS.md v2 parser/generator/legacy bridge.
+  - OpenAI/MCP tool adapter pair (`toOpenAIFunction`/`toMCPToolDescriptor` family).
+
+## Testing and Observability
+- Tests covering this directory:
+  - `src/formats/__tests__/formats.test.ts` (primary feature and contract coverage).
+  - `src/__tests__/w15-h2-branch-coverage.test.ts` (extra branch-path coverage for AGENTS.md parser and tool adapters).
+- Package test runner:
+  - Vitest (`packages/core/vitest.config.ts`, Node environment, v8 coverage, coverage include on `src/**/*.ts` with test/index exclusions).
+- Observability characteristics:
+  - `src/formats` has no logger/event bus of its own.
+  - It contributes structured diagnostic payload fields through `attachStructuredOutputErrorContext` (schema hash, preview, summary, category, provider/model metadata) that downstream runtimes emit/log.
+
+## Risks and TODOs
+- `agents-md-parser-v2.ts` uses a deliberately lightweight YAML parser:
+  - Flat key/value + inline array support only.
+  - Nested YAML objects, anchors, and multiline semantics are out of scope.
+- `zodToJsonSchema`/`jsonSchemaToZod` are intentionally partial conversions:
+  - Unsupported Zod/JSON-schema constructs degrade to broad fallbacks (`{}` / `z.unknown()`).
+- Structured-output OpenAI safety stripping removes numeric/string/array constraints for request schema compatibility:
+  - Correctness then depends on response-side validation (`responseSchema`) by caller paths.
+- Schema conversion overlap exists with `src/mcp/mcp-tool-bridge.ts` internal converter helpers:
+  - Behavior drift risk between formats adapters and MCP bridge conversion logic.
+- `attachStructuredOutputErrorContext` mutates and augments `Error` instances via `Object.assign`:
+  - Consumers should not assume plain `Error` shape only.
+
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js

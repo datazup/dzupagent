@@ -1,8 +1,7 @@
 # Prompt Architecture (`packages/core/src/prompt`)
 
 ## Scope
-This document describes the prompt subsystem implemented in:
-
+This document describes the prompt subsystem implemented under `packages/core/src/prompt`:
 - `template-types.ts`
 - `template-engine.ts`
 - `template-resolver.ts`
@@ -10,304 +9,135 @@ This document describes the prompt subsystem implemented in:
 - `prompt-fragments.ts`
 - `fragment-composer.ts`
 
-It covers features, flow, usage patterns, in-repo references, and current test coverage.
+It is based on current local code in `packages/core/src`, package exports in `packages/core/src/index.ts` and `packages/core/package.json`, plus existing tests in `packages/core/src/__tests__`.
+
+## Responsibilities
+The prompt subsystem currently owns five concrete responsibilities:
+- Define prompt template contracts (`TemplateVariable`, `TemplateContext`, `StoredTemplate`, resolve/bulk query types, and `ResolvedPrompt`).
+- Render template strings with a lightweight engine (`{{var}}`, `{{#if}}`, `{{#unless}}`, `{{#each}}`, `{{> partial}}`).
+- Normalize runtime context for rendering (`flattenContext`) including camelCase to snake_case aliasing and delimiter escaping by default.
+- Resolve stored templates from a pluggable `PromptStore`, with optional `PromptCache` short-circuiting.
+- Provide reusable static prompt fragments and an advanced fragment composition utility (dependencies, conflicts, conditions, priority ordering, and token-budget trimming).
+
+## Structure
+Current module layout and intent:
+- `template-types.ts`
+- Purpose: shared type contracts for the resolver/store/cache boundary.
+- `template-engine.ts`
+- Purpose: rendering and static analysis helpers (`resolveTemplate`, `flattenContext`, `extractVariables`, `validateTemplate`).
+- `template-resolver.ts`
+- Purpose: runtime orchestration around store lookup and template application, plus `PromptStore` interface and `ResolutionLevel` type.
+- `template-cache.ts`
+- Purpose: in-memory TTL cache keyed by `type|category` with general fallback `type|` and bulk preload.
+- `prompt-fragments.ts`
+- Purpose: canned instruction fragments and simple ordered concatenation via `composeFragments(...names)`.
+- `fragment-composer.ts`
+- Purpose: advanced composition API (`composeAdvancedFragments`) and static fragment validation (`validateFragments`).
+
+## Runtime and Control Flow
+### Template rendering flow (`resolveTemplate`)
+1. `flattenContext` converts each context value to string form and writes both original key and snake_case alias.
+2. Values are escaped for `{{`/`}}` delimiters unless key is explicitly listed in `rawVariables`.
+3. Declared variable metadata is applied (`required`, `defaultValue`, `strictMode`).
+4. Control-flow pass runs in this order: partials, `#each`, `#if`/`{{else}}`, `#unless`.
+5. Remaining `{{var}}` placeholders are replaced from the flattened map.
+6. Unresolved placeholders are removed (replaced with empty string).
+
+### Template resolve flow (`PromptResolver.resolve`)
+1. If `templateId` exists and hierarchy includes `override`, resolver queries `store.findTemplate` with explicit override.
+2. If unresolved and cache is provided, resolver checks `cache.get(type, category)` and returns immediately on hit.
+3. If still unresolved, resolver calls `store.findTemplate(query)` once.
+4. On hit, resolver applies `resolveTemplate(template.content, context, { variables })` and returns `{ content, config }`.
+5. On miss, resolver returns `{ content: '', config: {} }`.
+
+### Cache lifecycle (`PromptCache`)
+1. `preload(store, query)` calls `store.findAllTemplates(query)`.
+2. Cache map is rebuilt; first template seen wins for `type|category` and fallback `type|` keys.
+3. `loadedAt` timestamp is updated.
+4. `get(type, category?)` returns `null` when cache is expired or empty, else category-specific then general fallback.
+
+### Advanced fragment flow (`composeAdvancedFragments`)
+1. Filter by optional fragment conditions.
+2. Resolve dependencies transitively (emits warnings for cycles and condition-excluded dependencies).
+3. Resolve conflicts by priority (higher/equal priority fragment keeps inclusion).
+4. Sort by descending priority, then original declaration order.
+5. Apply approximate budget trimming (4 chars/token heuristic) and return diagnostics (`included`, `excluded`, `warnings`).
+
+## Key APIs and Types
+Publicly exported from `@dzupagent/core` root barrel (`src/index.ts`):
+- Template engine:
+- `resolveTemplate(template, context, options?)`
+- `flattenContext(context, rawVariables?)`
+- `extractVariables(template)`
+- `validateTemplate(template, declaredVariables, standardVariables?)`
+- Resolver and cache:
+- `PromptResolver`
+- `PromptCache`
+- `PromptStore` (type)
+- `ResolutionLevel` (type)
+- Prompt contracts:
+- `TemplateVariable`
+- `TemplateContext`
+- `StoredTemplate`
+- `ResolvedPrompt`
+- `PromptResolveQuery`
+- `BulkPromptQuery`
+- Fragment APIs:
+- `PROMPT_FRAGMENTS` and `FRAGMENT_*` constants
+- `composeFragments(...names)`
+- `composeAdvancedFragments(fragments, options?)`
+- `validateFragments(fragments)`
+- `ComposableFragment` and `ComposeResult` (types)
+
+Note: prompt APIs are exported from the root entrypoint; they are not currently re-exported from the `orchestration`, `quick-start`, or `security` facade subpaths.
+
+## Dependencies
+Internal dependencies inside this module are file-local imports only:
+- `template-resolver.ts` depends on `template-engine.ts`, `template-types.ts`, and `template-cache.ts` types.
+- `template-cache.ts` depends on `template-types.ts` and `PromptStore` type from `template-resolver.ts`.
+- `template-engine.ts`, `prompt-fragments.ts`, and `fragment-composer.ts` have no external package imports.
+
+External package dependencies for this subsystem are effectively inherited from `@dzupagent/core`; prompt files themselves do not directly import LangChain, Zod, or other third-party libraries.
+
+## Integration Points
+Current in-repo integration points are:
+- Package API boundary:
+- `packages/core/src/index.ts` re-exports all prompt APIs for consumers of `@dzupagent/core`.
+- Consumer boundary:
+- runtime integration is designed through `PromptStore` (`findTemplate`, `findAllTemplates`) supplied by consuming packages/apps.
+- In-module usage:
+- prompt implementation files primarily call each other; prompt utilities are not currently wired through a dedicated facade entrypoint.
+
+Based on current `packages/core/src` references, prompt APIs are primarily validated through direct tests and root-barrel exports rather than broad cross-module runtime usage inside `@dzupagent/core`.
+
+## Testing and Observability
+Testing currently present in `packages/core`:
+- `src/__tests__/template-engine.test.ts` covers:
+- `flattenContext` conversions and camelCase/snake_case aliasing.
+- variable substitution behavior, defaults, strict-mode required checks.
+- control-flow directives (`#if`, `#unless`, `#each`) and partial handling.
+- `extractVariables` behavior including control keyword filtering.
+- `validateTemplate` behavior for undeclared/unused/standard variables.
+
+Current visible gap:
+- no dedicated test files were found for:
+- `template-resolver.ts`
+- `template-cache.ts`
+- `fragment-composer.ts`
+- `prompt-fragments.ts`
+
+Observability:
+- this subsystem does not emit events or metrics directly.
+- diagnostics are returned via pure function results (for example, `ComposeResult.warnings` and `validateTemplate` output).
+
+## Risks and TODOs
+Current code-level risks and follow-ups:
+- `ResolutionLevel` and `hierarchy` are modeled in `PromptResolver`, but non-override hierarchy traversal is delegated to `PromptStore.findTemplate(query)` rather than explicitly iterated in resolver logic.
+- `PromptCache.preload` assumes incoming templates are already ordered by priority; first-seen wins with no internal ranking.
+- `resolveTemplate` `#each` uses comma-split string semantics after flattening; list items containing commas cannot be represented losslessly.
+- missing partials render as HTML-comment text (`<!-- partial "..." not found -->`), which may leak markers into model prompts unless callers sanitize or pre-validate.
+- prompt module tests are currently concentrated in `template-engine`; resolver/cache/fragment composer behavior has no direct unit tests in this package.
+
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
-## Why This Module Exists
-The prompt module provides reusable prompt-building primitives for DzupAgent runtimes:
-
-- deterministic template rendering (`{{var}}`, control flow, partials)
-- hierarchical template lookup through pluggable storage
-- caching for high-frequency prompt resolution paths
-- reusable prompt fragments for code-generation/system-prompt assembly
-- advanced fragment orchestration (dependencies, conflicts, token budget)
-
-## Module Responsibilities
-
-| File | Responsibility |
-| --- | --- |
-| `template-types.ts` | Prompt/template contracts (`TemplateVariable`, `TemplateContext`, store query/response types). |
-| `template-engine.ts` | String rendering engine: context flattening, control flow, interpolation, variable extraction and validation. |
-| `template-resolver.ts` | Runtime resolver that fetches a `StoredTemplate` from a `PromptStore` and applies `template-engine`. |
-| `template-cache.ts` | TTL cache + bulk preload for `type|category` and fallback `type|` lookups. |
-| `prompt-fragments.ts` | Canonical static prompt fragments + simple composition helper. |
-| `fragment-composer.ts` | Advanced composition: dependency resolution, conflict arbitration, conditionals, token budget trimming. |
-
-## Feature Set
-
-### 1. Typed prompt contracts
-`template-types.ts` defines the API boundary for prompt resolution and storage:
-
-- author-time declarations: `TemplateVariable`
-- runtime context: `TemplateContext`
-- storage payload: `StoredTemplate`
-- lookup query types: `PromptResolveQuery`, `BulkPromptQuery`
-- output contract: `ResolvedPrompt`
-
-This keeps the renderer generic and storage-agnostic.
-
-### 2. Template rendering engine
-`resolveTemplate()` in `template-engine.ts` supports:
-
-- direct placeholders: `{{name}}`
-- control flow blocks:
-  - `{{#if var}}...{{/if}}`
-  - `{{#unless var}}...{{/unless}}`
-  - `{{#each items}}...{{this}}...{{/each}}`
-- partial includes: `{{> partial_name}}`
-- required/default variable handling via `TemplateVariable[]`
-- optional strict mode to throw on missing required vars
-
-### 3. Context normalization for template ergonomics
-`flattenContext()` converts arbitrary values to string-friendly values and maps keys twice:
-
-- original key (`userName`)
-- snake alias (`user_name`)
-
-This allows templates to use either style without duplicate context wiring.
-
-### 4. Template static analysis
-`extractVariables()` and `validateTemplate()` support authoring-time checks:
-
-- find used placeholders
-- detect undeclared placeholders
-- detect required variables declared but not used
-- allow approved "standard" variables without per-template declaration
-
-### 5. Hierarchical prompt resolution
-`PromptResolver` provides a runtime path that can support override/user/tenant/builtin resolution via `PromptStore`.
-
-Current behavior in resolver class:
-
-1. optional explicit override (`templateId`)
-2. optional cache read (`PromptCache`)
-3. store lookup (`findTemplate`)
-4. rendering via `resolveTemplate`
-5. empty fallback (`{ content: '', config: {} }`)
-
-### 6. TTL cache + bulk preload
-`PromptCache` can preload templates in bulk (`findAllTemplates`) and serve fast lookups by:
-
-- exact `type|category`
-- fallback `type|` (general)
-
-Cache invalidation is coarse-grained and TTL-based (`loadedAt + ttlMs`).
-
-### 7. Reusable prompt fragments
-`prompt-fragments.ts` ships policy/system fragments (core principles, security checklist, scope boundary, verification mindset, etc.) and a simple string composer.
-
-### 8. Advanced fragment composition
-`composeAdvancedFragments()` adds production controls missing in simple concatenation:
-
-- condition predicates
-- transitive dependency inclusion
-- conflict handling (higher priority wins)
-- stable ordering by priority + declaration order
-- approximate token-budget trimming
-- diagnostic output (`included`, `excluded`, `warnings`)
-
-## Execution Flows
-
-### Flow A: Template rendering
-1. Caller provides template string + `TemplateContext`.
-2. `flattenContext()` converts values to strings and adds camel/snake aliases.
-3. Optional declared variables apply defaults / required checks.
-4. Control-flow prepass resolves partials, `#each`, `#if`, `#unless`.
-5. Remaining `{{var}}` placeholders are substituted.
-6. Unresolved placeholders become empty string.
-
-### Flow B: Resolver path with cache
-1. Caller calls `PromptResolver.resolve(query, context, cache?)`.
-2. If `query.templateId` exists, resolver attempts explicit template override.
-3. If unresolved and cache provided, resolver checks `cache.get(query.type, query.category)`.
-4. If still unresolved, resolver calls `store.findTemplate(query)`.
-5. On template hit, resolver applies template and returns `{ content, config }`.
-6. On miss, returns empty prompt payload.
-
-### Flow C: Cache preload
-1. Caller invokes `cache.preload(store, { types, tenantId?, userId? })`.
-2. Cache calls `store.findAllTemplates(query)`.
-3. For each result, first-seen template wins for:
-   - category key (`type|category`)
-   - general fallback (`type|`)
-4. Cache stamps `loadedAt` for TTL checks.
-
-### Flow D: Advanced fragment composition
-1. Candidate fragment set is received.
-2. Conditions filter initial candidates.
-3. Dependencies are resolved transitively (warnings on cycles).
-4. Conflicts are resolved by priority.
-5. Remaining fragments are ordered and token-budget trimmed.
-6. Output includes content and diagnostic metadata.
-
-## Public API (via `@dzupagent/core`)
-Exported from `packages/core/src/index.ts`:
-
-- fragments/constants: `FRAGMENT_*`, `PROMPT_FRAGMENTS`, `composeFragments`
-- advanced composer: `composeAdvancedFragments`, `validateFragments`
-- engine: `resolveTemplate`, `extractVariables`, `validateTemplate`, `flattenContext`
-- resolver/cache: `PromptResolver`, `PromptCache`
-- types: `TemplateVariable`, `TemplateContext`, `StoredTemplate`, `ResolvedPrompt`, `PromptResolveQuery`, `BulkPromptQuery`, `PromptStore`, `ResolutionLevel`
-
-## Cross-Package References and Usage
-
-### `@dzupagent/core`
-- Prompt API is exported centrally in `packages/core/src/index.ts`.
-- Mentioned in package docs:
-  - `packages/core/README.md`
-  - `packages/core/docs/ARCHITECTURE.md`
-
-### Other packages (current in-repo state)
-- No direct runtime imports of core prompt APIs (`PromptResolver`, `PromptCache`, `resolveTemplate`, fragment composers) were found outside `packages/core/**`.
-- `packages/agent-adapters` contains a separate workflow-specific resolver (`packages/agent-adapters/src/workflow/template-resolver.ts`) used by `adapter-workflow.ts`. That resolver is independent and narrower (`{{prev}}`, `{{state.x}}`) than core's generic engine.
-
-Implication: prompt module is currently an exported platform capability with strong local implementation, but limited cross-package runtime adoption in this repository snapshot.
-
-## Usage Examples
-
-### Example 1: Render a template with control flow and partials
-```ts
-import { resolveTemplate } from '@dzupagent/core'
-
-const template = `
-{{> intro}}
-{{#if user_name}}Hello {{user_name}}!{{else}}Hello there!{{/if}}
-{{#each tags}}- {{this}}\n{{/each}}
-`
-
-const rendered = resolveTemplate(
-  template,
-  { userName: 'Nina', tags: ['core', 'prompt'] },
-  { partials: { intro: 'System: Be concise.' } },
-)
-
-// Renders user_name from camelCase context alias and expands list.
-```
-
-### Example 2: Validate template authoring contracts
-```ts
-import { validateTemplate, type TemplateVariable } from '@dzupagent/core'
-
-const declared: TemplateVariable[] = [
-  { name: 'task', description: 'Task to execute', required: true },
-  { name: 'language', description: 'Output language', required: false, defaultValue: 'en' },
-]
-
-const result = validateTemplate('Do: {{task}} using {{tool}}', declared)
-
-// result.valid === true/false
-// result.undeclaredVariables contains ['tool']
-// result.errors contains required-but-unused declaration issues
-```
-
-### Example 3: Compose policy fragments with token budget
-```ts
-import { composeAdvancedFragments, type ComposableFragment } from '@dzupagent/core'
-
-const fragments: ComposableFragment[] = [
-  { id: 'core', content: 'Core rules...', priority: 100 },
-  { id: 'security', content: 'Security checks...', priority: 90, dependencies: ['core'] },
-  { id: 'verbose', content: 'Very long explanations...', priority: 10, conflicts: ['concise'] },
-  { id: 'concise', content: 'Keep output concise.', priority: 80, conflicts: ['verbose'] },
-]
-
-const composed = composeAdvancedFragments(fragments, { maxTokens: 80 })
-
-// composed.content => selected/ordered fragments joined by separators
-// composed.warnings => budget/conflict/dependency notes
-```
-
-### Example 4: Plug `PromptResolver` into a custom store + cache
-```ts
-import {
-  PromptResolver,
-  PromptCache,
-  type PromptStore,
-  type PromptResolveQuery,
-  type BulkPromptQuery,
-  type StoredTemplate,
-} from '@dzupagent/core'
-
-class InMemoryPromptStore implements PromptStore {
-  constructor(private templates: StoredTemplate[]) {}
-
-  async findTemplate(query: PromptResolveQuery): Promise<StoredTemplate | null> {
-    if (query.templateId) {
-      return this.templates.find(t => t.id === query.templateId) ?? null
-    }
-    return this.templates.find(t => t.type === query.type && (!query.category || t.category === query.category)) ?? null
-  }
-
-  async findAllTemplates(query: BulkPromptQuery): Promise<StoredTemplate[]> {
-    return this.templates.filter(t => query.types.includes(t.type))
-  }
-}
-
-const store = new InMemoryPromptStore([
-  {
-    id: 't1',
-    type: 'planner',
-    category: 'default',
-    content: 'Plan for {{feature}}',
-    variables: [{ name: 'feature', description: 'Feature name', required: true }],
-    config: { temperature: 0.2 },
-  },
-])
-
-const resolver = new PromptResolver(store)
-const cache = new PromptCache(5 * 60 * 1000)
-await cache.preload(store, { types: ['planner'] })
-
-const prompt = await resolver.resolve({ type: 'planner', category: 'default' }, { feature: 'agent retries' }, cache)
-```
-
-## Testing and Coverage
-
-### Executed checks
-- Ran focused prompt test file:
-  - `yarn workspace @dzupagent/core test src/__tests__/template-engine.test.ts`
-  - Result: `35/35` tests passed.
-
-### Coverage evidence (prompt module)
-From `packages/core/coverage/coverage-summary.json` after running:
-`yarn workspace @dzupagent/core test:coverage src/__tests__/template-engine.test.ts`
-
-Prompt aggregate:
-
-- lines: `29.11%` (`207/711`)
-- statements: `29.11%` (`207/711`)
-- functions: `63.64%` (`7/11`)
-- branches: `90.14%` (`64/71`)
-
-Per file:
-
-- `template-engine.ts`: lines `100%`, functions `100%`, statements `100%`, branches `95.52%`
-- `fragment-composer.ts`: `0%`
-- `prompt-fragments.ts`: `0%`
-- `template-cache.ts`: `0%`
-- `template-resolver.ts`: `0%`
-
-Notes:
-
-- Coverage command exits non-zero due package-level global thresholds when only one test file is run.
-- Prompt engine has strong direct unit coverage; resolver/cache/fragment layers currently lack dedicated tests.
-
-## Known Constraints and Gaps
-
-- `PromptResolver.hierarchy` is modeled in types/defaults, but resolver currently delegates most hierarchy behavior to `PromptStore.findTemplate(query)` rather than iterating levels itself (except explicit override gate).
-- Cache preload assumes store results are already priority-sorted (first match wins).
-- `#each` currently operates on comma-split flattened values; list elements containing commas are not represented losslessly.
-- Partial-miss behavior inserts an HTML comment marker string; consumers expecting pure prompt text may want an alternate strategy.
-
-## Recommended Next Coverage Additions
-
-1. `template-resolver.test.ts`
-- verify override path, cache-hit short-circuit, store fallback, empty-result fallback.
-
-2. `template-cache.test.ts`
-- verify TTL expiry, category/general fallback semantics, preload precedence rules.
-
-3. `fragment-composer.test.ts`
-- verify dependency resolution, conflict eviction, cycle warnings, token budget trimming behavior.
-
-4. `prompt-fragments.test.ts`
-- verify stable fragment key map and simple composition ordering.

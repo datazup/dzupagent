@@ -1,281 +1,146 @@
 # Hooks Architecture (`packages/core/src/hooks`)
 
 ## Scope
-This document describes the hook subsystem implemented in:
-
+This document covers the hook subsystem in `packages/core/src/hooks`:
 - `hook-types.ts`
 - `hook-runner.ts`
 - `index.ts`
 
-It covers features, execution flow, usage patterns, cross-package references, and current test coverage.
+It describes the implemented hook contracts, execution helpers, exports, and current in-repo integration state for `@dzupagent/core`.
 
-## Why This Module Exists
-The hooks module provides a typed lifecycle extension surface for agent runs, tools, pipeline phases, approvals, and budget events.
+## Responsibilities
+The hooks module provides three responsibilities:
+- Define a typed lifecycle contract (`AgentHooks`) and shared invocation context (`HookContext`).
+- Execute hook functions with error isolation (`runHooks`) and safe value transformation (`runModifierHook`).
+- Merge hook sets from multiple providers (for example app hooks plus plugin hooks) into executable arrays (`mergeHooks`).
 
-Design intent:
+## Structure
+- `hook-types.ts`
+Defines:
+- `HookContext` with `agentId`, `runId`, optional `eventBus`, and free-form `metadata`.
+- `AgentHooks` lifecycle surface for run, tool, pipeline, approval, and budget callbacks.
 
-- let consumers observe and customize lifecycle behavior without changing core runtime logic
-- isolate hook failures so agent execution can continue
-- support both non-mutating hooks and mutating hooks (input/result transformation)
-- support merging hooks from multiple sources (for example plugins + app-level config)
+- `hook-runner.ts`
+Defines:
+- `runHooks(...)`: sequential fan-out executor for non-mutating hooks.
+- `runModifierHook<T>(...)`: single-hook transformer with pass-through fallback.
+- `mergeHooks<T>(...)`: utility that converts multiple partial hook objects into per-key arrays.
 
-## Module Responsibilities
+- `index.ts`
+Barrel export for `AgentHooks`, `HookContext`, and hook runner helpers.
 
-| File | Responsibility |
-| --- | --- |
-| `hook-types.ts` | Defines `HookContext` and the `AgentHooks` lifecycle contract. |
-| `hook-runner.ts` | Implements execution helpers: `runHooks`, `runModifierHook`, `mergeHooks`. |
-| `index.ts` | Barrel export for hook types + runner utilities. |
+## Runtime and Control Flow
+1. Hook registration happens outside this module (for example via plugin objects exposing `hooks?: Partial<AgentHooks>`).
+2. A caller selects a lifecycle hook key and collects functions.
+3. `runHooks` executes each hook in order; failures are caught and converted into `hook:error` events when an event bus exists.
+4. For transform-style points, `runModifierHook` executes one hook and returns:
+- transformed value when hook returns non-`undefined`
+- original value when hook is missing, returns `undefined`, or throws
+5. `mergeHooks` is used to aggregate hook objects into `Record<key, fn[]>` so callers can apply consistent sequencing.
 
-## Feature Set
+Current state in repository code:
+- The utilities are implemented and exported from `@dzupagent/core` and `@dzupagent/core/orchestration`.
+- `PluginRegistry.getHooks()` aggregates plugin hook objects.
+- There are no non-test call sites currently invoking `runHooks` or `runModifierHook`; execution wiring is consumer-owned at this stage.
 
-### 1. Typed lifecycle contract (`AgentHooks`)
-`AgentHooks` defines optional async hooks grouped by lifecycle:
-
-- Run lifecycle
-  - `onRunStart(ctx)`
-  - `onRunComplete(ctx, result)`
-  - `onRunError(ctx, error)`
-- Tool lifecycle
-  - `beforeToolCall(toolName, input, ctx)` (can modify input)
-  - `afterToolCall(toolName, input, result, ctx)` (can modify result)
-  - `onToolError(toolName, error, ctx)`
-- Pipeline lifecycle
-  - `onPhaseChange(phase, previousPhase, ctx)`
-  - `onApprovalRequired(plan, ctx)`
-- Budget lifecycle
-  - `onBudgetWarning(level, usage, ctx)`
-  - `onBudgetExceeded(reason, usage, ctx)`
-
-### 2. Shared context object (`HookContext`)
-Each lifecycle hook can receive a consistent context payload:
-
-- `agentId`
-- `runId`
-- `eventBus?`
+## Key APIs and Types
+- `interface HookContext`
+Fields:
+- `agentId: string`
+- `runId: string`
+- `eventBus?: DzupEventBus`
 - `metadata: Record<string, unknown>`
 
-This enables hooks to correlate operations by run and emit events through the same bus.
+- `interface AgentHooks`
+Hook groups:
+- Run lifecycle: `onRunStart`, `onRunComplete`, `onRunError`
+- Tool lifecycle: `beforeToolCall`, `afterToolCall`, `onToolError`
+- Pipeline lifecycle: `onPhaseChange`, `onApprovalRequired`
+- Budget lifecycle: `onBudgetWarning`, `onBudgetExceeded`
 
-### 3. Sequential execution with error isolation (`runHooks`)
-`runHooks(...)` executes a list of hook functions in order. If one throws:
+- `runHooks(hooks, eventBus, hookName, ...args): Promise<void>`
+Behavior:
+- no-op when `hooks` is `undefined`
+- skips `undefined` entries
+- executes sequentially
+- catches throw, emits `{ type: 'hook:error', hookName, message }`, then continues
 
-- error is caught
-- optional event bus emits `{ type: 'hook:error', hookName, message }`
-- remaining hooks still run
+- `runModifierHook<T>(hook, eventBus, hookName, currentValue, ...args): Promise<T>`
+Behavior:
+- returns `currentValue` when hook is missing
+- returns transformed value when hook returns concrete value
+- returns `currentValue` when hook returns `undefined` or throws
+- emits `hook:error` on throw when `eventBus` is present
 
-This gives at-least-attempted fan-out semantics, rather than fail-fast semantics.
+- `mergeHooks<T>(...hookSets)`
+Behavior:
+- ignores `undefined` hook sets
+- ignores non-function values
+- accumulates functions per key in insertion order
+- returns a partial key-to-array map suitable for iteration
 
-### 4. Modifier hook semantics (`runModifierHook`)
-`runModifierHook<T>(...)` allows controlled transformation of a value:
+## Dependencies
+Direct internal dependencies in this module:
+- `../events/event-bus.js`
+`runHooks` and `runModifierHook` accept `DzupEventBus` for error event emission.
+- `../events/event-types.js`
+`AgentHooks` references `BudgetUsage` for budget callback payloads.
 
-- if hook is missing: returns original `currentValue`
-- if hook returns `undefined`/`void`: pass-through original value
-- if hook returns a concrete value: replace current value
-- if hook throws: emit `hook:error` and keep original value
+Package-level context:
+- `@dzupagent/core` depends on `@dzupagent/agent-types` and `@dzupagent/runtime-contracts` (package metadata).
+- Hook module itself does not import external runtime libraries directly.
 
-This is designed for safe mutation points such as tool input/result post-processing.
+## Integration Points
+Inside `packages/core`:
+- Root exports:
+- `src/index.ts` exports `AgentHooks`, `HookContext`, `runHooks`, `runModifierHook`, `mergeHooks`.
+- Facade exports:
+- `src/facades/orchestration.ts` exports the same hook surface.
+- `src/facades/quick-start.ts` exports `AgentHooks` type only.
 
-### 5. Multi-source composition (`mergeHooks`)
-`mergeHooks(...)` accepts multiple partial hook objects and merges them key-by-key into arrays.
+Plugin subsystem:
+- `src/plugin/plugin-types.ts`: `DzupPlugin` includes `hooks?: Partial<AgentHooks>`.
+- `src/plugin/plugin-registry.ts`: `getHooks(): Partial<AgentHooks>[]` aggregates hook sets from registered plugins.
 
-Example outcome:
+Cross-package type use:
+- `packages/agent/src/approval/approval-types.ts` and `approval-gate.ts` import `HookContext` for approval condition typing.
 
-- input: `[{ onRunStart: fnA }, { onRunStart: fnB, onToolError: fnC }]`
-- output: `{ onRunStart: [fnA, fnB], onToolError: [fnC] }`
+Event model integration:
+- `hook:error` is part of the `DzupEvent` union in `src/events/event-types.ts`.
 
-This lets call sites execute all registered handlers for a lifecycle stage.
+## Testing and Observability
+Hook execution tests in `packages/core`:
+- `src/__tests__/hook-runner.test.ts`
+Covers:
+- ordered execution
+- skip-undefined behavior
+- undefined hook list no-op
+- continue-on-error behavior
+- `hook:error` emission including non-`Error` throws
+- modifier pass-through and transform behavior
+- `mergeHooks` aggregation behavior
 
-### 6. Event model integration
-`hook-runner.ts` integrates with the event model by emitting `hook:error`, which is part of `DzupEvent` in `packages/core/src/events/event-types.ts`.
+Facade-level coverage:
+- `src/__tests__/facade-orchestration.test.ts` validates hook runner behavior through orchestration exports.
+- `src/__tests__/w15-b1-facades.test.ts` verifies facade surfaces (including hook exports) continue to work in broader facade test suites.
 
-## Execution Flow
+Observability path:
+- Hook failures emit `hook:error` through `DzupEventBus` when a bus is provided.
+- No additional metrics or tracing are emitted directly by the hook runner module.
 
-### Flow A: Non-modifying hook fan-out
-1. Caller builds/collects hook list for a lifecycle point.
-2. Caller invokes `runHooks(hooks, eventBus, hookName, ...args)`.
-3. Runner iterates hooks sequentially.
-4. Each hook receives the same argument list.
-5. Failures are converted to `hook:error`; execution continues.
-6. Caller resumes normal runtime path.
+## Risks and TODOs
+- Runtime adoption gap:
+No non-test runtime call sites currently execute `runHooks` / `runModifierHook`; consumers must wire lifecycle invocation explicitly.
 
-### Flow B: Modifier hook transform
-1. Caller has a current value (`currentValue`) and optional modifier hook.
-2. Caller invokes `runModifierHook(hook, eventBus, hookName, currentValue, ...args)`.
-3. Hook executes once.
-4. Return handling:
-   - concrete value -> replace
-   - `undefined` -> pass-through
-   - throw -> emit `hook:error`, pass-through
-5. Caller uses returned value for downstream logic.
+- Type ergonomics:
+Runner signatures use generic `(...args: never[])` hook function arrays and cast at invocation time. This keeps implementation simple but is less ergonomic for strict typed composition.
 
-### Flow C: Composition from multiple providers
-1. Collect partial hook sets (for example plugin hooks + local hooks).
-2. Merge via `mergeHooks(...)`.
-3. For each lifecycle key, run corresponding array through `runHooks`.
-4. For modifier keys, invoke each function in explicit pipeline order or use `runModifierHook` per stage.
+- Modifier hook shape constraint:
+`afterToolCall` currently models `result` as `string` and return as `Promise<string | void>`. If tool result shapes widen in runtime consumers, this interface may need to generalize.
 
-## Current In-Repo Integration State
-As of this analysis, the hook utilities are fully implemented in `core` but not yet wired into the primary `@dzupagent/agent` runtime loop via direct calls to `runHooks` / `runModifierHook`.
+- Error payload minimalism:
+`hook:error` emits `hookName` and message only; stack and structured cause data are intentionally omitted.
 
-Observed state:
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
 
-- `runHooks`, `runModifierHook`, `mergeHooks`
-  - exported from `@dzupagent/core`
-  - exported from `@dzupagent/core/orchestration`
-  - no direct runtime call sites outside `hook-runner.ts` itself
-- plugin system supports hook declaration/collection
-  - `DzupPlugin.hooks?: Partial<AgentHooks>`
-  - `PluginRegistry.getHooks(): Partial<AgentHooks>[]`
-  - but no in-repo caller currently consumes `getHooks()` to execute lifecycle hooks
-
-Implication: the subsystem is available as infrastructure/API surface, but full end-to-end lifecycle execution wiring appears incomplete in current runtime paths.
-
-## Cross-Package References and Usage
-
-### `@dzupagent/core`
-- Re-exported from `packages/core/src/index.ts`
-- Re-exported from orchestration facade: `packages/core/src/facades/orchestration.ts`
-- `AgentHooks` type is used by plugin contracts in:
-  - `packages/core/src/plugin/plugin-types.ts`
-  - `packages/core/src/plugin/plugin-registry.ts`
-
-### `@dzupagent/agent`
-- `HookContext` is imported for approval condition typing:
-  - `packages/agent/src/approval/approval-types.ts`
-  - `packages/agent/src/approval/approval-gate.ts`
-- This is a type-level dependency (approval context), not invocation of core hook runner utilities.
-
-### `@dzupagent/otel`
-- Consumes `hook:error` at event-model level:
-  - `packages/otel/src/event-metric-map/empty-events.ts`
-  - `packages/otel/src/__tests__/otel-bridge.test.ts`
-- Behavior: `hook:error` is recognized but intentionally mapped to no metrics.
-
-### `@dzupagent/express`
-- Contains its own router hooks (`beforeAgent`, `afterAgent`, `onError`) in `packages/express/src/types.ts`.
-- These are Express-router lifecycle hooks, separate from `AgentHooks` in `core/hooks`.
-
-## Usage Examples
-
-### Example 1: Run lifecycle fan-out (`runHooks`)
-```ts
-import { createEventBus, runHooks, type HookContext, type AgentHooks } from '@dzupagent/core'
-
-const eventBus = createEventBus()
-
-const ctx: HookContext = {
-  agentId: 'planner',
-  runId: 'run-123',
-  eventBus,
-  metadata: { tenantId: 't-1' },
-}
-
-const hooks: Array<AgentHooks['onRunStart']> = [
-  async (c) => {
-    c.eventBus?.emit({ type: 'agent:started', agentId: c.agentId, runId: c.runId })
-  },
-  async () => {
-    // Any thrown error becomes hook:error and does not abort the run
-    throw new Error('telemetry backend unavailable')
-  },
-]
-
-await runHooks(hooks as Array<((...args: never[]) => Promise<void>) | undefined>, eventBus, 'onRunStart', ctx)
-```
-
-### Example 2: Tool result transformation (`runModifierHook`)
-```ts
-import { runModifierHook, type AgentHooks } from '@dzupagent/core'
-
-const redactSecrets: AgentHooks['afterToolCall'] = async (_tool, _input, result) => {
-  return result.replaceAll(/api[_-]?key\s*=\s*\S+/gi, 'api_key=[REDACTED]')
-}
-
-const original = 'status=ok api_key=abcd1234'
-const transformed = await runModifierHook(
-  redactSecrets as ((...args: never[]) => Promise<string | void>),
-  undefined,
-  'afterToolCall',
-  original,
-  'shell.exec',
-  {},
-  original,
-  { agentId: 'a1', runId: 'r1', metadata: {} },
-)
-
-// transformed => "status=ok api_key=[REDACTED]"
-```
-
-### Example 3: Merge plugin + app hooks (`mergeHooks`)
-```ts
-import { mergeHooks, runHooks, type AgentHooks, type HookContext } from '@dzupagent/core'
-
-const pluginHooks: Partial<AgentHooks> = {
-  onRunStart: async (ctx) => {
-    console.log(`[plugin] run start ${ctx.runId}`)
-  },
-}
-
-const appHooks: Partial<AgentHooks> = {
-  onRunStart: async (ctx) => {
-    console.log(`[app] run start ${ctx.runId}`)
-  },
-}
-
-const merged = mergeHooks<AgentHooks>(pluginHooks, appHooks)
-
-const ctx: HookContext = { agentId: 'a1', runId: 'r1', metadata: {} }
-const runStartHooks = merged.onRunStart as Array<((ctx: HookContext) => Promise<void>)> | undefined
-
-await runHooks(
-  runStartHooks as Array<((...args: never[]) => Promise<void>) | undefined>,
-  undefined,
-  'onRunStart',
-  ctx,
-)
-```
-
-## Testing and Coverage
-
-### Dedicated tests for `packages/core/src/hooks`
-Current status:
-
-- no hook-focused test file exists under `packages/core/src/__tests__`
-- no direct test assertions against `runHooks`, `runModifierHook`, or `mergeHooks`
-
-### Observed indirect test signals
-- `hook:error` event behavior is covered indirectly in OTel tests:
-  - `packages/otel/src/__tests__/otel-bridge.test.ts`
-  - `packages/otel/src/__tests__/event-metric-map.test.ts`
-
-### Coverage evidence
-From `packages/core/coverage/coverage-summary.json`:
-
-- `packages/core/src/hooks/hook-runner.ts`
-  - lines: `33.78%` (`25/74`)
-  - functions: `0%` (`0/3`)
-  - statements: `33.78%` (`25/74`)
-- `hook-types.ts` and `index.ts`
-  - mostly type/barrel definitions, and do not appear as meaningful executable runtime coverage targets
-
-Interpretation:
-
-- the hook runtime utility is currently under-tested relative to its API intent
-- the event type (`hook:error`) has downstream compatibility checks, but core execution semantics are not directly validated
-
-## Gaps and Recommended Next Tests
-
-High-value tests to add in `packages/core/src/__tests__/hook-runner.test.ts`:
-
-1. `runHooks` executes all hooks in order.
-2. `runHooks` continues after a thrown error.
-3. `runHooks` emits `hook:error` with expected `hookName` + message.
-4. `runModifierHook` pass-through on missing hook.
-5. `runModifierHook` pass-through on `undefined` return.
-6. `runModifierHook` replacement on concrete return.
-7. `runModifierHook` error path emits `hook:error` and returns original value.
-8. `mergeHooks` combines multiple partial sets and preserves insertion order.
-
-## Summary
-The hooks module is a cleanly scoped extension layer with strong type contracts and safe failure behavior. The main architectural limitation today is adoption: hook execution utilities and plugin hook aggregation are exported and ready, but not yet wired through the main agent runtime path in this repository.

@@ -1,304 +1,153 @@
 # Middleware Architecture (`packages/core/src/middleware`)
 
 ## Scope
-This document analyzes the middleware subsystem implemented in:
+This document covers the middleware subsystem in `@dzupagent/core` under:
 
-- `types.ts`
-- `cost-tracking.ts`
-- `cost-attribution.ts`
-- `langfuse.ts`
+- `src/middleware/types.ts`
+- `src/middleware/cost-tracking.ts`
+- `src/middleware/cost-attribution.ts`
+- `src/middleware/langfuse.ts`
 
-It covers features, execution flow, usage patterns, cross-package references, and current test coverage.
+It also references direct runtime consumers in `packages/agent` and `packages/server` where those consumers define real behavior for the `AgentMiddleware` contract.
 
-## Why This Module Exists
-The middleware module is the extension and observability surface between agent runtime behavior and operational concerns:
+## Responsibilities
+The middleware module has four concrete responsibilities:
 
-- behavior interception (`AgentMiddleware` hooks around model/tool execution)
-- lightweight per-call cost estimation (`calculateCostCents`)
-- in-memory multi-dimensional cost aggregation (`CostAttributionCollector`)
-- optional Langfuse callback integration (`createLangfuseHandler`)
+- Define the core middleware hook contract (`AgentMiddleware`) used by agent runtimes.
+- Provide deterministic token-cost estimation helpers (`calculateCostCents`, `getModelCosts`) and a persistence interface contract (`CostTracker`).
+- Aggregate per-call costs into multi-dimensional reports (`CostAttributionCollector`).
+- Provide optional Langfuse callback handler creation via lazy import (`createLangfuseHandler`) without a hard dependency.
 
-This keeps `@dzupagent/core` reusable while allowing higher layers (`@dzupagent/agent`, `@dzupagent/server`) to opt into middleware, tracing, and cost controls.
+## Structure
+| File | Main exports | Purpose |
+| --- | --- | --- |
+| `types.ts` | `AgentMiddleware` | Hook contract for model wrapping, tool result wrapping, pre-run setup, and middleware-provided tools. |
+| `cost-tracking.ts` | `calculateCostCents`, `getModelCosts`, `CostTracker` | Model pricing table and cost calculation primitive in integer cents. |
+| `cost-attribution.ts` | `CostAttributionCollector`, `CostAttribution*` report types | In-memory recording and aggregation by agent, tool, run, and model. |
+| `langfuse.ts` | `createLangfuseHandler`, `LangfuseConfig`, `LangfuseHandlerOptions` | Optional Langfuse callback handler factory with dynamic `langfuse-langchain` import. |
 
-## Module Responsibilities
+Export surfaces in `@dzupagent/core`:
 
-| File | Responsibility |
-| --- | --- |
-| `types.ts` | Defines the `AgentMiddleware` contract consumed by runtimes. |
-| `cost-tracking.ts` | Defines known model pricing table, `calculateCostCents`, and `CostTracker` interface. |
-| `cost-attribution.ts` | Implements `CostAttributionCollector` and reporting types (`CostReport`, `CostBucket`). |
-| `langfuse.ts` | Provides lazy/dynamic Langfuse callback handler creation for LangChain. |
+- Root export (`src/index.ts`) re-exports all middleware APIs including Langfuse helpers.
+- Orchestration facade (`src/facades/orchestration.ts`) re-exports middleware contract and cost-attribution/cost-tracking APIs, but not `createLangfuseHandler`.
 
-## Feature Set
+## Runtime and Control Flow
+1. Middleware declaration:
+- Consumers construct `AgentMiddleware[]` in application/runtime code or plugin wiring.
 
-### 1. Agent middleware contract (`types.ts`)
-`AgentMiddleware` defines a minimal, optional hook set:
+2. Runtime integration in `packages/agent`:
+- `DzupAgent` builds `AgentMiddlewareRuntime` with `config.middleware`.
+- `resolveTools()` appends middleware-provided tools after base tools.
+- `runBeforeAgentHooks()` executes each `beforeAgent` with `{}` and swallows hook errors.
+- `invokeModel()` uses the first middleware that defines `wrapModelCall`; otherwise falls back to `model.invoke`.
+- `transformToolResult()` pipelines all `wrapToolCall` handlers in registration order and ignores wrapper errors.
 
-- `name: string` (required identifier)
-- `tools?: StructuredToolInterface[]` (inject tools)
-- `beforeAgent?` (pre-run hook)
-- `wrapModelCall?` (model invocation override)
-- `wrapToolCall?` (tool-result transform hook)
+3. Cost calculation usage:
+- `calculateCostCents` is called by:
+- `packages/agent/src/guardrails/iteration-budget.ts` for cumulative budget tracking.
+- `packages/agent/src/agent/run-engine.ts` when emitting `llm:invoked` events.
+- `packages/server/src/runtime/dzip-agent-run-executor.ts` for final run `costCents`.
 
-Important runtime semantics (as currently implemented by `@dzupagent/agent`):
+4. Attribution collector flow:
+- `CostAttributionCollector.record()` merges explicit entry values with optional collector context defaults.
+- `getReport()` computes totals and buckets (`byAgent`, `byTool`, `byRun`, `byModel`) on demand from in-memory entries.
+- `reset()` clears entries only.
 
-- `beforeAgent` hooks are executed sequentially; errors are swallowed.
-- `wrapModelCall` is **single-winner**: first middleware that defines it takes control.
-- `wrapToolCall` is **pipeline-style**: all wrappers run in registration order.
-- middleware errors in `beforeAgent` and `wrapToolCall` are non-fatal.
+5. Langfuse handler flow:
+- `createLangfuseHandler()` returns `null` unless enabled and keys are present.
+- When configured, it dynamically imports `langfuse-langchain` and instantiates `CallbackHandler`.
+- Import/construction failure is treated as non-fatal and returns `null`.
 
-### 2. Cost calculation primitives (`cost-tracking.ts`)
-`cost-tracking.ts` provides:
+## Key APIs and Types
+`AgentMiddleware` (`types.ts`):
 
-- `MODEL_COSTS` map (input/output cents per 1M tokens)
-- `calculateCostCents(usage)`
-- `getModelCosts(modelName)`
-- `CostTracker` interface for pluggable persistence implementations
+- `name: string`.
+- `tools?: StructuredToolInterface[]`.
+- `beforeAgent?(state): Promise<Partial<Record<string, unknown>>>`.
+- `wrapModelCall?(model, messages, config): Promise<BaseMessage>`.
+- `wrapToolCall?(toolName, input, result): Promise<string>`.
 
-Cost formula:
+Observed runtime semantics (implemented in `packages/agent/src/agent/middleware-runtime.ts`):
 
-- input cost: `(inputTokens / 1_000_000) * inputRate`
-- output cost: `(outputTokens / 1_000_000) * outputRate`
-- final cost: `Math.ceil(inputCost + outputCost)`
+- `beforeAgent` return values are currently ignored.
+- first `wrapModelCall` wins.
+- all `wrapToolCall` handlers are chained.
+- errors in `beforeAgent` / `wrapToolCall` are swallowed.
 
-Behavioral notes:
+`cost-tracking.ts`:
 
-- unknown model names use `MODEL_COSTS.default`
-- `Math.ceil` guarantees integer cents, potentially rounding tiny values up to `1`
+- `calculateCostCents(usage: TokenUsage): number`.
+- `getModelCosts(modelName): { input: number; output: number } | null`.
+- `CostTracker.trackUsage({ tenantId, userId, usage, context }): Promise<void>` interface.
+- Pricing source: local `MODEL_COSTS` table (cents per 1M tokens) with default fallback for unknown models.
 
-### 3. Cost attribution collector (`cost-attribution.ts`)
-`CostAttributionCollector` records and aggregates cost entries with dimensions:
+`cost-attribution.ts`:
 
-- agent (`byAgent`)
-- tool (`byTool`)
-- run (`byRun`)
-- model (`byModel`)
-- global totals (`totalCostCents`, `totalTokens`)
+- `CostAttribution` entry: `agentId`, optional `toolName`/`runId`, `costCents`, token split (`input`, `output`, `total`), `model`, `timestamp`.
+- `CostAttributionCollector` methods: `record`, `getReport`, `getAgentCost`, `getRunCost`, `setContext`, `reset`.
+- Buckets accumulate `costCents`, total tokens, and call count.
 
-Key capabilities:
+`langfuse.ts`:
 
-- context-based tagging (`setContext`) for `agentId`, `runId`, `toolName`
-- explicit entry values override context values
-- convenience queries: `getAgentCost(agentId)`, `getRunCost(runId)`
-- `reset()` clears all recorded entries
+- `LangfuseConfig`: `publicKey`, `secretKey`, optional `baseUrl`, optional `enabled`.
+- `LangfuseHandlerOptions`: `sessionId`, `userId`, `metadata`, `tags`.
+- `createLangfuseHandler(config, options): Promise<unknown | null>`.
 
-### 4. Optional Langfuse handler (`langfuse.ts`)
-`createLangfuseHandler(config, options)`:
+## Dependencies
+Internal dependencies inside `@dzupagent/core`:
 
-- returns `null` when disabled/misconfigured
-- dynamically imports `langfuse-langchain`
-- returns `new CallbackHandler({...})` when import/config are valid
-- catches import/runtime errors and returns `null`
+- `cost-tracking.ts` imports `TokenUsage` from `src/llm/invoke.ts`.
+- No middleware file depends on other core subsystems at runtime besides that type linkage.
 
-Design intent:
+External dependencies:
 
-- no hard dependency on Langfuse package in core
-- consumers can install Langfuse only where needed
+- `types.ts` depends on `@langchain/core` types (`BaseMessage`, `BaseChatModel`, `StructuredToolInterface`).
+- `langfuse.ts` uses dynamic runtime import of `langfuse-langchain` (optional consumer-installed package).
 
-## Runtime Flow
+Package-level context (`packages/core/package.json`):
 
-### Flow A: Middleware in `DzupAgent` execution
-1. `DzupAgent` builds `AgentMiddlewareRuntime` from `config.middleware`.
-2. `prepareRunState(...)` resolves tools through middleware (`runtime.resolveTools(...)`).
-3. `prepareRunState(...)` runs `runtime.runBeforeAgentHooks()`.
-4. model invocation uses `runtime.invokeModel(...)`:
-   - first `wrapModelCall` wins, otherwise `model.invoke(...)`.
-5. each tool result is passed through `runtime.transformToolResult(...)` sequentially.
-6. transformed output is written back into the message/tool loop.
+- `@langchain/core` is a peer dependency, matching middleware type usage.
+- `langfuse-langchain` is not listed as a direct dependency, consistent with lazy optional loading.
 
-Primary implementation references:
+## Integration Points
+Primary integrations:
 
-- `packages/agent/src/agent/dzip-agent.ts`
-- `packages/agent/src/agent/middleware-runtime.ts`
-- `packages/agent/src/agent/run-engine.ts`
+- Agent runtime: `packages/agent/src/agent/middleware-runtime.ts`, `dzip-agent.ts`, and `run-engine.ts`.
+- Plugin system: `packages/core/src/plugin/plugin-types.ts` and `plugin-registry.ts` allow plugins to contribute `AgentMiddleware[]`.
+- Sub-agent config typing: `packages/core/src/subagent/subagent-types.ts` includes `middleware?: AgentMiddleware[]`.
+- Cost consumers: `packages/agent/src/guardrails/iteration-budget.ts` and `packages/server/src/runtime/dzip-agent-run-executor.ts`.
 
-### Flow B: Cost estimation in agent/server paths
-1. token usage is produced or estimated per run/call.
-2. `calculateCostCents(usage)` is invoked.
-3. resulting cents feed budget checks or run result metadata.
+Current non-integrated or weakly integrated points:
 
-Current in-repo usages:
+- `SubAgentConfig.middleware` is type-level only; `subagent-spawner.ts` does not apply middleware at runtime.
+- `CostAttributionCollector` is exported and tested but has no direct wired consumer in `packages/agent` or `packages/server`.
+- `createLangfuseHandler` is exported and documented, but no direct in-repo runtime call site currently uses it.
 
-- `packages/agent/src/guardrails/iteration-budget.ts` (running budget)
-- `packages/server/src/runtime/dzip-agent-run-executor.ts` (run output cost)
+## Testing and Observability
+Direct tests in scope:
 
-### Flow C: Attribution aggregation
-1. caller records `CostAttribution` events into `CostAttributionCollector`.
-2. collector merges with active context defaults.
-3. `getReport()` aggregates totals and per-dimension buckets.
-4. caller consumes report for reporting/billing dashboards.
-
-Current in-repo status:
-
-- collector is exported and tested in `@dzupagent/core`
-- no direct runtime integration found in `@dzupagent/agent` or `@dzupagent/server`
-
-### Flow D: Langfuse callbacks
-1. consumer calls `createLangfuseHandler(...)`.
-2. if non-null, returned handler is passed into model callback plumbing.
-3. LangChain emits trace events through handler.
-
-Current in-repo status:
-
-- helper is exported from `@dzupagent/core`
-- no direct in-repo runtime call sites found
-
-## Cross-Package References and Usage
-
-### `AgentMiddleware` references
-- `packages/agent/src/agent/agent-types.ts`: runtime config accepts `middleware?: AgentMiddleware[]`.
-- `packages/agent/src/agent/middleware-runtime.ts`: concrete execution semantics.
-- `packages/core/src/plugin/plugin-types.ts`: plugins can contribute middleware.
-- `packages/core/src/plugin/plugin-registry.ts`: aggregates plugin middleware via `getMiddleware()`.
-- `packages/core/src/subagent/subagent-types.ts`: `SubAgentConfig` includes optional middleware field.
-
-Observed integration detail:
-
-- `SubAgentConfig.middleware` is currently type-level only; `subagent-spawner.ts` does not apply it.
-
-### Cost tracking references
-- `packages/agent/src/guardrails/iteration-budget.ts`: updates cumulative budget with `calculateCostCents`.
-- `packages/server/src/runtime/dzip-agent-run-executor.ts`: computes run `costCents` for executor result.
-
-### Cost attribution references
-- exported in `packages/core/src/index.ts` and `packages/core/src/facades/orchestration.ts`
-- directly tested in `packages/core/src/middleware/__tests__/cost-attribution.test.ts`
-- no direct usage in `agent`/`server` runtime paths
-
-### Langfuse references
-- exported in `packages/core/src/index.ts`
-- documented in `packages/core/README.md`
-- no direct usage in runtime packages found
-
-## Usage Examples
-
-### Example 1: Define middleware for tools + model + tool-result transform
-```ts
-import { AIMessage } from '@langchain/core/messages'
-import type { AgentMiddleware } from '@dzupagent/core'
-
-export const auditMiddleware: AgentMiddleware = {
-  name: 'audit',
-
-  beforeAgent: async (_state) => {
-    // initialize per-run state or emit telemetry
-    return {}
-  },
-
-  wrapModelCall: async (_model, _messages, config) => {
-    // Optional override (first middleware with wrapModelCall wins)
-    return new AIMessage({ content: `intercepted by ${String(config?.agentId ?? 'unknown')}` })
-  },
+- `src/middleware/__tests__/cost-attribution.test.ts` covers collector recording, aggregation buckets, context behavior, reset, and totals.
 
-  wrapToolCall: async (toolName, _input, result) => {
-    return `[tool:${toolName}] ${result}`
-  },
-}
-```
+Indirect behavior coverage in adjacent packages:
 
-### Example 2: Estimate cost for a usage record
-```ts
-import { calculateCostCents, getModelCosts, type TokenUsage } from '@dzupagent/core'
+- `packages/agent/src/__tests__/middleware-runtime.test.ts` validates runtime semantics for hook execution, wrapper precedence, tool result chaining, and fault tolerance.
 
-const usage: TokenUsage = {
-  model: 'gpt-5-mini',
-  inputTokens: 12_000,
-  outputTokens: 2_000,
-}
+Current testing gaps in this scope:
 
-const costCents = calculateCostCents(usage)
-const pricing = getModelCosts('gpt-5-mini')
-```
+- No dedicated unit tests for `cost-tracking.ts` pricing/default behavior and rounding semantics.
+- No dedicated unit tests for `langfuse.ts` enabled/disabled paths and dynamic-import failure handling.
 
-### Example 3: Aggregate attribution by agent/run/model/tool
-```ts
-import { CostAttributionCollector } from '@dzupagent/core'
+Observability characteristics:
 
-const collector = new CostAttributionCollector({ agentId: 'planner', runId: 'run-42' })
-collector.setContext({ toolName: 'edit_file' })
+- Middleware module itself does not emit logs or metrics.
+- It enables observability indirectly through cost calculation used in event emission and optional Langfuse callback creation.
 
-collector.record({
-  agentId: '', // falls back to context agentId
-  model: 'claude-sonnet-4-6',
-  costCents: 6,
-  tokens: { input: 2000, output: 500, total: 2500 },
-  timestamp: new Date(),
-})
+## Risks and TODOs
+- `AgentMiddleware.beforeAgent` return type suggests state mutation, but current runtime ignores returned partial state; either wire merge semantics or narrow the contract docs/types.
+- `CostAttributionCollector.reset()` clears entries but keeps context; comment says it resets context overrides, but implementation does not. Align docs/comments with behavior or reset context explicitly.
+- `createLangfuseHandler` returns `unknown | null`, which keeps core decoupled but weakens type safety for consumers; consider a light typed callback interface if coupling constraints allow.
+- `MODEL_COSTS` is static and local; model naming drift across providers can silently fall back to default pricing.
+- `packages/core/README.md` middleware examples are partially stale (`calculateCostCents(usage, modelId)` and per-1K wording) versus current API/units.
 
-const report = collector.getReport()
-console.log(report.byAgent['planner']?.costCents)
-console.log(report.byTool['edit_file']?.calls)
-```
-
-### Example 4: Attach Langfuse callback when available
-```ts
-import { createLangfuseHandler } from '@dzupagent/core'
-
-const handler = await createLangfuseHandler(
-  {
-    enabled: true,
-    publicKey: process.env['LANGFUSE_PUBLIC_KEY'] ?? '',
-    secretKey: process.env['LANGFUSE_SECRET_KEY'] ?? '',
-    baseUrl: process.env['LANGFUSE_HOST'],
-  },
-  {
-    sessionId: 'run-42',
-    userId: 'user-1',
-    tags: ['prod', 'agent'],
-  },
-)
-
-// If not null, pass into your LangChain model/chain callback config.
-```
-
-## Test Coverage
-
-### Direct tests in `packages/core`
-- `packages/core/src/middleware/__tests__/cost-attribution.test.ts`
-  - 14 tests
-  - covers recording, aggregation (`byAgent`, `byTool`, `byRun`, `byModel`), totals,
-    context behavior, constructor defaults, and reset semantics
-
-Executed check:
-
-- `cd packages/core && yarn test src/middleware/__tests__/cost-attribution.test.ts`
-  - result: 14/14 passing
-
-### Related integration tests in `packages/agent`
-Middleware runtime semantics are validated in agent tests:
-
-- `packages/agent/src/__tests__/middleware-runtime.test.ts` (5 tests)
-- `packages/agent/src/__tests__/middleware-hooks.test.ts` (2 tests)
-- `packages/agent/src/__tests__/dzip-agent-run-parity.test.ts` (4 tests)
-
-Executed check:
-
-- `cd packages/agent && yarn test src/__tests__/middleware-runtime.test.ts src/__tests__/middleware-hooks.test.ts src/__tests__/dzip-agent-run-parity.test.ts`
-  - result: 11/11 passing
-
-### Coverage status summary for middleware files
-From a targeted coverage run in `packages/core`:
-
-- `cost-attribution.ts`: effectively covered by dedicated tests
-- `cost-tracking.ts`: no direct tests
-- `langfuse.ts`: no direct tests
-- `types.ts`: type-only surface (runtime coverage not meaningful)
-
-Note:
-
-- `yarn test:coverage src/middleware/__tests__/cost-attribution.test.ts` generated file-level coverage data,
-  but command exited non-zero due package-wide global coverage thresholds.
-
-## Current Gaps / Risks
-
-1. `beforeAgent` return values are currently ignored by runtime.
-The `AgentMiddleware` type suggests state mutation (`Promise<Partial<...>>`), but `AgentMiddlewareRuntime.runBeforeAgentHooks()` invokes hooks with `{}` and does not merge returned values.
-
-2. No first-party tests for `cost-tracking.ts` pricing behavior.
-Model table correctness, rounding behavior, and unknown-model fallback are currently unverified by direct unit tests.
-
-3. No first-party tests for `langfuse.ts` dynamic import paths.
-Enabled/disabled config behavior and import-failure fallback are not currently validated by tests.
-
-4. `SubAgentConfig.middleware` is not applied in subagent execution path.
-The type accepts middleware, but `SubAgentSpawner` does not consume it.
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js

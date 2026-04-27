@@ -1,269 +1,164 @@
-# Presets Architecture (`src/presets`)
+# Presets Architecture
 
-## 1. Scope and Intent
+## Scope
+This document describes `packages/agent/src/presets` in `@dzupagent/agent`.
 
-The `src/presets` module provides a lightweight preset system for bootstrapping `DzupAgent` configurations from reusable profiles.
-
-It is intentionally small and currently includes:
-
-1. A preset data model (`AgentPreset`, `PresetRuntimeDeps`)
-2. Four built-in preset definitions (RAG chat, research, summarization, QA)
-3. A config factory (`buildConfigFromPreset`)
-4. A simple runtime registry (`PresetRegistry`)
-
-This module does not execute agents directly; it prepares configuration payloads used by `new DzupAgent(config)`.
-
-## 2. Module Map
-
+Files in scope:
 - `types.ts`
-  - Defines preset schema (`AgentPreset`) and runtime dependencies (`PresetRuntimeDeps`).
 - `built-in.ts`
-  - Defines built-in constants:
-    - `RAGChatPreset`
-    - `ResearchPreset`
-    - `SummarizerPreset`
-    - `QAPreset`
 - `factory.ts`
-  - Contains `buildConfigFromPreset`, `PresetRegistry`, and `createDefaultPresetRegistry`.
 - `index.ts`
-  - Barrel export for public API.
 
-## 3. Data Model and Feature Surface
+Repository context used for this refresh:
+- `packages/agent/src/index.ts` (public export wiring)
+- `packages/agent/src/__tests__/presets.factory.test.ts`
+- `packages/agent/src/__tests__/presets.built-in.test.ts`
+- `packages/agent/package.json`
+- `packages/agent/README.md`
 
-### 3.1 `AgentPreset`
+Out of scope:
+- Full `DzupAgent` runtime internals, except where preset output fields are consumed by existing config surfaces.
 
-`AgentPreset` fields and current behavior:
+## Responsibilities
+The presets module provides a small declarative layer for packaging reusable agent defaults and converting them into runtime config objects.
 
-| Field | Purpose | Runtime status |
-|---|---|---|
-| `name` | Preset identifier | Used by registry and output config (`name`, `id`) |
-| `description` | Human-readable explanation | Metadata only in current factory/runtime path |
-| `instructions` | Baseline system instructions | Used in output config unless overridden |
-| `toolNames` | Expected tool allowlist by name | Used to filter provided runtime tools |
-| `guardrails.maxIterations` | Loop iteration cap | Mapped to output `guardrails.maxIterations` |
-| `guardrails.maxCostCents` | Cost budget | Mapped to output `guardrails.maxCostCents` |
-| `guardrails.maxTokens` | Token budget | Mapped to output `guardrails.maxTokens` |
-| `memoryProfile` | Memory budget profile | Mapped to output `memoryProfile` |
-| `selfCorrection` | Self-reflection metadata | Declared but not consumed by `buildConfigFromPreset` |
-| `defaultModelTier` | Preferred model tier metadata | Declared but not consumed by `buildConfigFromPreset` |
+Current responsibilities in code:
+- Define a preset contract (`AgentPreset`) and runtime dependency envelope (`PresetRuntimeDeps`).
+- Ship built-in presets (`RAGChatPreset`, `ResearchPreset`, `SummarizerPreset`, `QAPreset`) plus `BUILT_IN_PRESETS`.
+- Materialize a runtime config object from a preset (`buildConfigFromPreset`).
+- Provide an in-memory registry (`PresetRegistry`) and a preloaded registry factory (`createDefaultPresetRegistry`).
 
-### 3.2 `PresetRuntimeDeps`
+Behavior implemented today:
+- `instructions`, `guardrails`, and `memoryProfile` support override precedence via `deps.overrides`.
+- Tools are allowlisted by `preset.toolNames` when both `deps.tools` and non-empty `toolNames` are present.
+- `selfCorrection` is translated into runtime `selfLearning` unless `overrides.selfLearning` is provided.
+- `defaultModelTier` is copied through as an output hint.
 
-`PresetRuntimeDeps` carries runtime objects for materializing a full agent config:
+## Structure
+`types.ts`
+- `AgentPreset`: declarative preset shape.
+- `PresetRuntimeDeps`: model/tools/memory/eventBus bundle plus override surface.
 
-- `model` (required)
-- `tools` (optional, then filtered by `preset.toolNames`)
-- `memory` (optional)
-- `eventBus` (optional)
-- `overrides` (optional partial override of `instructions`, `guardrails`, `memoryProfile`)
+`built-in.ts`
+- Defines four built-in constants:
+- `RAGChatPreset`
+- `ResearchPreset`
+- `SummarizerPreset`
+- `QAPreset`
+- Exposes `BUILT_IN_PRESETS` as readonly aggregation.
 
-`overrides` is intentionally narrow and does not include fields such as `model`, `tools`, or `selfCorrection`.
+`factory.ts`
+- Defines `PresetConfig` (factory output type).
+- Implements `buildConfigFromPreset(preset, deps)`.
+- Implements `PresetRegistry` (`register`, `get`, `list`, `listNames`).
+- Implements `createDefaultPresetRegistry()` to preload `BUILT_IN_PRESETS`.
 
-## 4. Built-in Presets (Current Catalog)
+`index.ts`
+- Re-exports types, factory APIs, and built-in presets for package-level consumption.
 
-### 4.1 `RAGChatPreset` (`name: "rag-chat"`)
+## Runtime and Control Flow
+Typical flow:
+1. Caller selects a preset (direct constant or lookup via `PresetRegistry`).
+2. Caller supplies `PresetRuntimeDeps` (required: `model`).
+3. `buildConfigFromPreset()` resolves fields:
+- `instructions = overrides.instructions ?? preset.instructions`
+- `guardrails = { ...preset.guardrails, ...overrides.guardrails }`
+- `memoryProfile = overrides.memoryProfile ?? preset.memoryProfile`
+4. Tool filtering runs only when `deps.tools` exists and `preset.toolNames.length > 0`.
+- Named tools are retained only if `tool.name` is in `preset.toolNames`.
+- Nameless tools pass through unchanged.
+5. `selfLearning` resolution:
+- If `overrides.selfLearning` exists, it wins.
+- Else if `preset.selfCorrection?.enabled`, map to `{ enabled: true, maxIterations: maxReflectionIterations }`.
+- Else `selfLearning` stays `undefined`.
+6. Factory returns `PresetConfig` with generated id format `preset-${preset.name}-${Date.now()}` and passthrough references for `model`, `tools`, `memory`, and `eventBus`.
 
-- Goal: conversational retrieval with citations
-- Tool contract: `rag_query`
-- Guardrails: `maxIterations: 5`, `maxCostCents: 20`
-- Memory profile: `balanced`
-- Characteristics: short-loop, retrieval-only default
+Built-in preset inventory:
+- `rag-chat`: retrieval Q/A with citations, `toolNames: ['rag_query']`, balanced memory, modest guardrails.
+- `research`: multi-step research profile, broad tool allowlist, largest budgets among built-ins, self-correction enabled, `defaultModelTier: 'reasoning'`.
+- `summarizer`: low-cost summarization profile, minimal memory, `rag_query` + `generate_content` tools.
+- `qa`: focused indexed-source QA with citations, `rag_query`, moderate budgets.
 
-### 4.2 `ResearchPreset` (`name: "research"`)
+## Key APIs and Types
+`AgentPreset` (`types.ts`)
+- Core fields: `name`, `description`, `instructions`, `toolNames`, `guardrails.maxIterations`.
+- Optional fields: `guardrails.maxCostCents`, `guardrails.maxTokens`, `memoryProfile`, `selfCorrection`, `defaultModelTier`.
 
-- Goal: multi-step autonomous research and report synthesis
-- Tool contract: `web_search`, `ingest_source`, `rag_query`, `create_note`, `generate_content`, `synthesize_report`
-- Guardrails: `maxIterations: 20`, `maxCostCents: 100`, `maxTokens: 100000`
-- Memory profile: `balanced`
-- Self-correction metadata: enabled with threshold hints
-- Characteristics: largest budget, broadest tool set
+`PresetRuntimeDeps` (`types.ts`)
+- Required: `model`.
+- Optional: `tools`, `memory`, `eventBus`.
+- Optional `overrides`:
+- `instructions`
+- `guardrails`
+- `memoryProfile`
+- `selfLearning` (`enabled`, `maxIterations`)
 
-### 4.3 `SummarizerPreset` (`name: "summarizer"`)
+`PresetConfig` (`factory.ts`)
+- Returned object includes:
+- Identity/prompt: `id`, `name`, `instructions`
+- Runtime wiring: `model`, `tools`, `memory`, `eventBus`
+- Execution hints/settings: `guardrails`, `memoryProfile`, `selfLearning`, `defaultModelTier`
 
-- Goal: summarize retrieved material without hallucination
-- Tool contract: `rag_query`, `generate_content`
-- Guardrails: `maxIterations: 5`, `maxCostCents: 10`
-- Memory profile: `minimal`
-- Characteristics: cost-focused summarization profile
+Factory and registry APIs (`factory.ts`)
+- `buildConfigFromPreset(preset, deps): PresetConfig`
+- `new PresetRegistry()`
+- `PresetRegistry.register(preset)`
+- `PresetRegistry.get(name)`
+- `PresetRegistry.list()`
+- `PresetRegistry.listNames()`
+- `createDefaultPresetRegistry()`
 
-### 4.4 `QAPreset` (`name: "qa"`)
+## Dependencies
+Module-local dependencies (`src/presets/*`):
+- Internal imports only (`./types.js`, `./built-in.js`, `./factory.js`).
+- No direct imports from `@dzupagent/core`, `@dzupagent/context`, `@dzupagent/memory`, `@langchain/*`, or `zod`.
 
-- Goal: focused question answering over indexed sources with citations
-- Tool contract: `rag_query`
-- Guardrails: `maxIterations: 8`, `maxCostCents: 30`
-- Memory profile: `balanced`
-- Characteristics: deeper than summarizer, narrower than research
+Package-level dependency context (`packages/agent/package.json`):
+- Runtime deps: `@dzupagent/adapter-types`, `@dzupagent/agent-types`, `@dzupagent/context`, `@dzupagent/core`, `@dzupagent/memory`, `@dzupagent/memory-ipc`.
+- Peer deps: `@langchain/core`, `@langchain/langgraph`, `zod`.
+- Presets code does not directly bind to these peer/runtime packages, but is exported through the package root.
 
-## 5. Runtime Flow
+## Integration Points
+Public export surface:
+- `src/presets/index.ts` is re-exported from `src/index.ts` under the `// --- Presets ---` section.
+- Package root export map exposes only `dist/index.js`, so presets are consumed through package root exports.
 
-Preset-to-runtime flow in current implementation:
+Config compatibility with `DzupAgentConfig`:
+- `instructions`, `model`, `tools`, `memory`, `eventBus`, `guardrails`, `memoryProfile`, and `selfLearning` align with fields present on `DzupAgentConfig`.
+- `defaultModelTier` is currently a preset output hint and is not a `DzupAgentConfig` field in `agent-types.ts`.
 
-1. Select a preset object (built-in constant or registry lookup).
-2. Gather runtime dependencies (`model`, optional `tools`, `memory`, `eventBus`).
-3. Call `buildConfigFromPreset(preset, deps)`.
-4. Factory resolves fields:
-   - `instructions = overrides.instructions ?? preset.instructions`
-   - `guardrails = { ...preset.guardrails, ...overrides.guardrails }`
-   - `memoryProfile = overrides.memoryProfile ?? preset.memoryProfile`
-5. Factory filters `deps.tools` by `preset.toolNames`:
-   - if a tool has a `name`, it must be listed in `toolNames`
-   - tools without a `name` are kept
-6. Factory returns config object with generated id `preset-${preset.name}-${Date.now()}`.
-7. Caller passes resulting config to `new DzupAgent(...)`.
-8. During execution, `DzupAgent` and `run-engine` consume:
-   - `guardrails.maxIterations` as loop limit candidate
-   - `guardrails.maxTokens` / `maxCostCents` via `IterationBudget`
-   - `memoryProfile` via `AgentMemoryContextLoader` memory-profile resolution
+Runtime consumers of compatible fields:
+- `guardrails` is consumed by run/tool-loop guardrail wiring.
+- `memoryProfile` is consumed by memory context loading (`AgentMemoryContextLoader` profile resolution path).
+- `selfLearning` is consumed by run-engine learning hook setup (`createToolLoopLearningHook`).
 
-## 6. Usage Examples
+Intra-package call sites:
+- `buildConfigFromPreset` is exercised in tests and exported publicly.
+- No non-test runtime module in `packages/agent/src` currently calls `buildConfigFromPreset` directly.
 
-## 6.1 Basic built-in preset
+## Testing and Observability
+Preset tests in `packages/agent/src/__tests__`:
+- `presets.factory.test.ts`
+- Validates id shape, field mapping, override precedence, guardrail merge behavior, tool filtering (including nameless tool pass-through), self-correction mapping, `defaultModelTier`, return shape, and registry semantics.
+- `presets.built-in.test.ts`
+- Validates shared preset contract, per-preset invariants, and `BUILT_IN_PRESETS` uniqueness/completeness.
 
-```ts
-import {
-  DzupAgent,
-  RAGChatPreset,
-  buildConfigFromPreset,
-  type DzupAgentConfig,
-} from '@dzupagent/agent'
+Observability status:
+- `src/presets` emits no telemetry/events itself.
+- Observable effects are indirect through downstream runtime behavior once returned config is used by agent execution layers.
 
-const cfg = buildConfigFromPreset(RAGChatPreset, {
-  model: chatModel,
-  tools: [ragQueryTool, webSearchTool], // webSearchTool is filtered out
-  memory,
-  eventBus,
-})
+## Risks and TODOs
+- Type looseness at preset boundary:
+- `model`, `tools`, `memory`, and `eventBus` are typed as `unknown` in preset types and output config. This keeps factory generic but shifts strict typing to call sites.
 
-const agent = new DzupAgent(cfg as DzupAgentConfig)
-```
+- Tool allowlist gap for nameless tools:
+- Filtering keeps tools without `name`, which preserves compatibility but weakens strict allowlisting semantics.
 
-## 6.2 Override instructions and budgets
+- Generated id collision risk:
+- `Date.now()`-based ids can collide for same-preset invocations in the same millisecond.
 
-```ts
-import {
-  DzupAgent,
-  ResearchPreset,
-  buildConfigFromPreset,
-  type DzupAgentConfig,
-} from '@dzupagent/agent'
+- `defaultModelTier` not consumed by `DzupAgentConfig` directly:
+- Preset factory carries this hint forward, but current agent config type has no dedicated `defaultModelTier` property.
 
-const cfg = buildConfigFromPreset(ResearchPreset, {
-  model: reasoningModel,
-  tools: [webSearchTool, ingestSourceTool, ragQueryTool, createNoteTool, generateContentTool, synthesizeReportTool],
-  overrides: {
-    instructions: `${ResearchPreset.instructions}\n\nPrefer peer-reviewed and primary sources.`,
-    guardrails: { maxCostCents: 60, maxIterations: 12 },
-    memoryProfile: 'memory-heavy',
-  },
-})
-
-const agent = new DzupAgent(cfg as DzupAgentConfig)
-```
-
-## 6.3 Custom presets with registry
-
-```ts
-import {
-  PresetRegistry,
-  buildConfigFromPreset,
-  DzupAgent,
-  type AgentPreset,
-  type DzupAgentConfig,
-} from '@dzupagent/agent'
-
-const registry = new PresetRegistry()
-
-const triagePreset: AgentPreset = {
-  name: 'incident-triage',
-  description: 'Incident triage and initial diagnosis',
-  instructions: 'You triage incidents, classify severity, and propose immediate mitigation.',
-  toolNames: ['search_incidents', 'query_metrics', 'create_ticket'],
-  guardrails: { maxIterations: 6, maxCostCents: 25 },
-  memoryProfile: 'minimal',
-}
-
-registry.register(triagePreset)
-
-const preset = registry.get('incident-triage')
-if (!preset) throw new Error('Preset not found')
-
-const cfg = buildConfigFromPreset(preset, { model: chatModel, tools })
-const agent = new DzupAgent(cfg as DzupAgentConfig)
-```
-
-## 6.4 About `createDefaultPresetRegistry()`
-
-```ts
-import { createDefaultPresetRegistry, RAGChatPreset } from '@dzupagent/agent'
-
-const registry = createDefaultPresetRegistry()
-registry.register(RAGChatPreset) // required today; default registry starts empty
-```
-
-## 7. Cross-Package References and Usage
-
-Observed usage in this monorepo:
-
-1. `@dzupagent/agent` public API exports preset symbols via `packages/agent/src/index.ts`.
-2. No runtime code in other workspace packages currently imports:
-   - `buildConfigFromPreset`
-   - `PresetRegistry`
-   - `createDefaultPresetRegistry`
-   - built-in preset constants (`RAGChatPreset`, `ResearchPreset`, `SummarizerPreset`, `QAPreset`)
-3. API documentation references are generated under `docs/api/agent/src/*` (Typedoc output).
-4. `packages/create-dzupagent/src/presets.ts` is a separate scaffolding preset system and does not consume `packages/agent/src/presets`.
-
-Implication: the preset module is currently a published surface with low in-repo runtime adoption.
-
-## 8. Test Coverage Status
-
-### 8.1 Direct tests
-
-There are currently no dedicated tests targeting `src/presets/*` in `packages/agent/src/__tests__`.
-
-### 8.2 Coverage evidence
-
-From `packages/agent/coverage/coverage-summary.json`:
-
-- `src/presets/built-in.ts`:
-  - lines: `0%` (`0/69`)
-  - functions: `0%`
-  - branches: `0%`
-- `src/presets/factory.ts`:
-  - lines: `0%` (`0/66`)
-  - functions: `0%`
-  - branches: `0%`
-
-### 8.3 Indirectly related tests
-
-`src/__tests__/memory-profiles.test.ts` validates memory profile resolution in `agent/memory-profiles.ts`, which is conceptually related to `preset.memoryProfile`, but does not exercise preset factory wiring.
-
-## 9. Gaps and Recommendations
-
-Current architectural gaps:
-
-1. `createDefaultPresetRegistry()` returns an empty registry despite the name suggesting built-ins.
-2. `AgentPreset.selfCorrection` and `AgentPreset.defaultModelTier` are not mapped into generated config.
-3. `buildConfigFromPreset` returns `Record<string, unknown>` rather than `DzupAgentConfig`, which weakens compile-time safety for callers.
-4. No contract tests validate tool filtering, override precedence, or built-in preset integrity.
-
-Recommended tests to add:
-
-1. `presets.factory.test.ts`
-   - validates override precedence for instructions/guardrails/memoryProfile
-   - validates tool filtering behavior (allowed, disallowed, nameless tool objects)
-   - validates output id/name/guardrail mapping
-2. `presets.registry.test.ts`
-   - validates register/get/list/listNames semantics
-   - validates default registry behavior explicitly (empty vs expected built-ins)
-3. `presets.built-in.test.ts`
-   - snapshots or asserts stable built-in contracts (names, required toolNames, minimum guardrail fields)
-
-Potential evolution options:
-
-1. Auto-register built-ins in `createDefaultPresetRegistry()`.
-2. Change `buildConfigFromPreset` return type to `DzupAgentConfig` (or `Pick<DzupAgentConfig, ...>`).
-3. Decide whether `selfCorrection` and `defaultModelTier` are:
-   - strictly metadata, or
-   - first-class runtime config fields with explicit wiring.
-
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.

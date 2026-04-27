@@ -1,420 +1,164 @@
 # MCP Architecture (`packages/core/src/mcp`)
 
-Last updated: 2026-04-03
-
 ## Scope
+This document describes the MCP implementation in `@dzupagent/core` under `packages/core/src/mcp` and its public exports via `packages/core/src/index.ts`.
+
+Included in scope:
+- MCP client transport and tool invocation (`mcp-client.ts`)
+- MCP/LangChain tool schema bridge (`mcp-tool-bridge.ts`)
+- Deferred tool loading (`deferred-loader.ts`)
+- In-process MCP JSON-RPC server (`mcp-server.ts`)
+- MCP resources and sampling helpers (`mcp-resources.ts`, `mcp-sampling.ts`)
+- Reliability, security, registry, manager, and pooling primitives (`mcp-reliability.ts`, `mcp-security.ts`, `mcp-registry-types.ts`, `mcp-manager.ts`, `mcp-connection-pool.ts`)
+- MCP type surfaces (`mcp-types.ts`, `mcp-resource-types.ts`, `mcp-sampling-types.ts`)
+
+Out of scope:
+- HTTP/SSE route wiring in other packages (for example `packages/server`)
+- Product-level MCP governance and UI flows in consuming applications
+
+## Responsibilities
+The MCP subsystem in `@dzupagent/core` is responsible for:
+
+- Connecting to external MCP servers over `http`, `sse`, and `stdio`.
+- Discovering tool descriptors and invoking tools with non-fatal error results.
+- Converting MCP tool schemas into LangChain tools and converting LangChain tools back to MCP descriptors.
+- Reducing tool-schema context pressure via deferred loading.
+- Exposing local tools/resources/sampling through a transport-agnostic JSON-RPC MCP server.
+- Providing optional composition primitives for reliability (heartbeat/circuit-breaker/cache), lifecycle management (in-memory registry manager), and connection pooling.
+- Hardening stdio execution inputs (executable path validation and env sanitization).
+
+## Structure
+`src/mcp` modules are split by concern:
+
+- `mcp-types.ts`: core client/tool/status transport and result types.
+- `mcp-client.ts`: multi-transport client (`MCPClient`) with discovery, invoke, status, and deferred/eager split.
+- `mcp-tool-bridge.ts`: MCP <-> LangChain conversion (`mcpToolToLangChain`, `mcpToolsToLangChain`, `langChainToolToMcp`).
+- `deferred-loader.ts`: context-budget-based deferred tool loader (`DeferredToolLoader`).
+- `mcp-server.ts`: transport-agnostic JSON-RPC MCP server (`DzupAgentMCPServer`) for tools/resources/sampling.
+- `mcp-resource-types.ts` + `mcp-resources.ts`: resource DTOs and client for `resources/list`, `resources/templates/list`, `resources/read`, subscribe/unsubscribe.
+- `mcp-sampling-types.ts` + `mcp-sampling.ts`: sampling DTOs, LLM invoke adapter, and registration helper for `sampling/createMessage`.
+- `mcp-security.ts`: stdio executable/env guardrails.
+- `mcp-reliability.ts`: reliability manager with heartbeat, circuit-breakers, and discovery cache.
+- `mcp-registry-types.ts`: Zod-backed MCP registry/profile schemas.
+- `mcp-manager.ts`: `McpManager` interface and `InMemoryMcpManager` implementation with event-bus emission.
+- `mcp-connection-pool.ts`: connection reuse/retry/backoff and tool descriptor cache.
+- `index.ts`: local MCP barrel (client/bridge/deferred/server/resources/sampling and related types).
+
+Export notes:
+- `src/index.ts` exports most MCP surfaces (client/bridge/deferred/server/resources/sampling/reliability/manager/registry/security).
+- `src/mcp/index.ts` is narrower and does not export `mcp-reliability`, `mcp-manager`, `mcp-registry-types`, `mcp-security`, or `mcp-connection-pool`.
+- `mcp-connection-pool.ts` is present in source and tested, but is not re-exported from `src/index.ts` or `src/mcp/index.ts`.
+
+## Runtime and Control Flow
+1. Client discovery and invocation:
+- Call `MCPClient.addServer(config)`.
+- `connect(serverId)` chooses transport and runs `tools/list` discovery.
+- Discovered tools are split into eager vs deferred by `maxEagerTools`.
+- Agent/tooling resolves eager tools via `mcpToolsToLangChain(client)`.
+- Runtime calls `client.invokeTool(name, args)`, routed to `tools/call` over matching transport.
+- Failures are returned as `MCPToolResult { isError: true }` instead of throwing at callsites.
+
+2. Deferred loading path:
+- `DeferredToolLoader.maxEagerTools` estimates budget from `contextWindowTokens * maxToolBudgetRatio / tokensPerTool`.
+- `getDeferredToolSummary()` exposes names/descriptions for prompt awareness.
+- On demand, `loadTool(name)` promotes one deferred descriptor to eager and returns a LangChain tool.
+
+3. Server-side exposure path:
+- `DzupAgentMCPServer` registers tools/resources/templates at construction or runtime.
+- `handleRequest()` validates JSON-RPC envelope (`isMCPRequest`) and dispatches methods.
+- Supported methods: `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/templates/list`, `resources/read`, `sampling/createMessage`.
+- Notifications (no `id`) execute handlers but return `null` response.
+
+4. Resource and sampling helper paths:
+- `MCPResourceClient` wraps transport `sendRequest` and optional notifications API.
+- `createSamplingHandler(llmInvoke, config)` converts MCP sampling requests to model invocation, clamps token limits, and maps stop reasons back to MCP values.
+
+5. Optional operations layer:
+- `InMemoryMcpManager` stores server/profile definitions and emits `mcp:*` events on mutation/test outcomes.
+- `McpConnectionPool` wraps `MCPClient` for retry/backoff and descriptor cache TTL.
+- `McpReliabilityManager` tracks health/circuit state and heartbeat polling independently from `MCPClient`.
+
+## Key APIs and Types
+Primary runtime classes/functions in this directory:
+- `MCPClient`
+- `DeferredToolLoader`
+- `mcpToolToLangChain()`, `mcpToolsToLangChain()`, `langChainToolToMcp()`
+- `DzupAgentMCPServer`, `isMCPRequest()`
+- `MCPResourceClient`
+- `createSamplingHandler()`, `registerSamplingHandler()`
+- `McpReliabilityManager`
+- `InMemoryMcpManager`
+- `McpConnectionPool`, `hashServerConfig()`, `calculateBackoff()`
+- `validateMcpExecutablePath()`, `sanitizeMcpEnv()`
+
+Publicly exported from `@dzupagent/core`:
+- `MCPClient`, `DeferredToolLoader`, bridge/server/resources/sampling APIs and related types.
+- `McpReliabilityManager`, `InMemoryMcpManager`, registry schemas/types, and security helpers.
+- `McpConnectionPool` and its helpers are currently internal (not exported from package entrypoints).
+
+Core type contracts:
+- Connection/tool core: `MCPServerConfig`, `MCPToolDescriptor`, `MCPToolResult`, `MCPServerStatus`.
+- Server protocol: `MCPRequest`, `MCPResponse`, `MCPServerOptions`, `MCPExposedTool`, `MCPExposedResource`, `MCPExposedResourceTemplate`.
+- Resources: `MCPResource`, `MCPResourceTemplate`, `MCPResourceContent`, `ResourceSubscription`.
+- Sampling: `MCPSamplingRequest`, `MCPSamplingResponse`, `SamplingHandler`, `LLMInvokeFn`.
+- Registry/manager: `McpServerDefinition`, `McpProfile`, `McpServerPatch`, `McpTestResult`, `McpManager`.
+- Reliability/pooling: `McpServerHealth`, `McpReliabilityConfig`, `McpConnectionPoolConfig`.
+
+## Dependencies
+External/runtime dependencies used by this subsystem:
+- `@langchain/core/tools`: structured tool wrappers for MCP bridge.
+- `zod`: schema conversion and registry schema definitions.
+- Node built-ins: `node:child_process` (stdio transport), `node:crypto` (config hashing).
+
+Internal package dependencies used by MCP modules:
+- `../llm/circuit-breaker.js` (reliability)
+- `../utils/backoff.js` (connection pool retry adapter)
+- `../errors/forge-error.js` (security validation errors)
+- `../events/event-bus.js` types (manager event emission)
+
+Package-level metadata:
+- `@dzupagent/core` publishes MCP APIs from the main entry point (`src/index.ts` -> `dist/index.js`).
+- Peer deps (`@langchain/core`, `@langchain/langgraph`, `zod`, and optional LanceDB/Arrow) are declared at package level in `package.json`.
+
+## Integration Points
+Inside `@dzupagent/core`:
+- `src/index.ts` re-exports MCP APIs and types for consumers.
+- `src/flow/handle-types.ts` defines `McpToolHandle` contracts aligned with MCP tool invocation semantics.
+
+Cross-package patterns (consumer-owned wiring):
+- Transport layers can delegate JSON-RPC handling to `DzupAgentMCPServer.handleRequest()`.
+- Agents/runtimes can bridge discovered tools into LangChain tool loops via `mcpToolsToLangChain(client)`.
+- Runtime operators can compose `InMemoryMcpManager` and `McpReliabilityManager` around `MCPClient` from public exports.
+- `McpConnectionPool` composition is currently source-internal unless a new public export is added.
+
+## Testing and Observability
+Focused MCP tests under `src/mcp/__tests__`:
+- `mcp-server.test.ts`: initialize capabilities, tools/resources/sampling methods, notification semantics, request validation.
+- `mcp-resources.test.ts`: resource list/template/read/subscribe/unsubscribe/dispose behavior.
+- `mcp-sampling.test.ts`: model selection, token clamping/budget checks, stop-reason mapping, registration lifecycle.
+
+Additional MCP coverage under `src/__tests__`:
+- `mcp-client-stdio-exit.test.ts`: stdio exit-code gating and partial-stdout failure handling.
+- `mcp-connection-pool.test.ts`: hashing, backoff behavior, retries, cache TTL, dispose/release semantics.
+- `mcp-manager.test.ts`: manager CRUD/profile lifecycle and emitted `mcp:*` events.
+- `mcp-reliability.test.ts`: health/circuit/cache/heartbeat lifecycle.
+- `mcp-security.test.ts`: path/env sanitization constraints.
+- `plugin-mcp-deep.test.ts`: broader integration-style MCP flows in a larger plugin test suite.
+
+Observability hooks currently present in code:
+- `InMemoryMcpManager` emits typed `mcp:*` events onto `DzupEventBus` for add/update/remove/enable/disable/test outcomes.
+- `MCPClient.getStatus()` provides per-server connection state, tool counts, and last error text.
+- Reliability and pool layers expose explicit health/retry/circuit/cache query methods for diagnostics.
+
+## Risks and TODOs
+Current code-level risks and gaps:
+- `MCPClient` stdio transport is request-spawn based (`spawnWithStdin` per operation), not a persistent session transport; this can be expensive under high call volume.
+- `sse` transport currently routes through the same request path as HTTP (`discoverViaSse -> discoverViaHttp`), so SSE stream semantics are not implemented in this module.
+- `MCPClient` is intentionally non-throwing on many failures; callers must consistently inspect `MCPToolResult.isError` and status fields to avoid silent degradation.
+- `McpConnectionPool` and `McpReliabilityManager` are standalone helpers and are not wired automatically into `MCPClient`; adopters must compose them explicitly.
+- `src/mcp/index.ts` exposes a subset of MCP modules; consumers expecting one-stop MCP exports should prefer `@dzupagent/core` root exports (`src/index.ts`).
+- `InMemoryMcpManager` is in-memory only and test-focused; no persistent manager backend is provided in this directory.
+
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
-This document describes the MCP implementation in `@dzupagent/core` under:
-
-- `packages/core/src/mcp/*`
-- related exports in `packages/core/src/index.ts`
-- direct usage references in other packages (`server`, `agent-adapters`)
-
-It covers:
-
-- features and responsibilities
-- runtime flow (discovery, invocation, deferred loading, resources, sampling)
-- usage patterns and examples
-- cross-package integration points
-- current test coverage and gaps
-
-## High-Level Design
-
-The MCP subsystem is split into focused layers:
-
-1. Transport-facing client layer: connect to MCP servers, discover tools, invoke tools.
-2. Schema bridge layer: convert MCP tools to LangChain tools and back.
-3. Server exposure layer: expose local tools through MCP JSON-RPC (`tools/list`, `tools/call`).
-4. Resource + Sampling protocol helpers: MCP resources and MCP sampling.
-5. Reliability + Security primitives: heartbeat/circuit-breaker/cache and stdio hardening.
-6. Deferred loading helper: keep prompt/context budget bounded for large tool catalogs.
-
-Design intent is resilience-first:
-
-- connection and invocation errors are mostly non-fatal and returned as results where possible
-- optional composition (for example, reliability manager is standalone and not hard-wired into `MCPClient`)
-- graceful degradation when MCP servers are unavailable
-
-## Module Map
-
-| File | Responsibility | Key Exports |
-| --- | --- | --- |
-| `mcp-client.ts` | Connect/discover/invoke across `http`, `sse`, `stdio`; tracks eager vs deferred tools per server | `MCPClient` |
-| `deferred-loader.ts` | Budget-based lazy tool loading wrapper for LangChain integration | `DeferredToolLoader`, `DeferredLoaderConfig` |
-| `mcp-tool-bridge.ts` | MCP JSON schema <-> Zod conversion and MCP <-> LangChain tool conversion | `mcpToolToLangChain`, `mcpToolsToLangChain`, `langChainToolToMcp` |
-| `mcp-server.ts` | Lightweight in-process MCP JSON-RPC server for tools | `DzupAgentMCPServer` and request/response/tool types |
-| `mcp-resources.ts` | MCP resources protocol (`list`, `templates/list`, `read`, `subscribe`) | `MCPResourceClient`, `MCPResourceClientConfig` |
-| `mcp-resource-types.ts` | Resource DTOs and subscription handler types | `MCPResource*` types |
-| `mcp-sampling.ts` | Sampling handler factory + registration helper for `sampling/createMessage` | `createSamplingHandler`, `registerSamplingHandler` |
-| `mcp-sampling-types.ts` | Sampling request/response/model-preference types | `MCPSampling*` types |
-| `mcp-reliability.ts` | Server health, heartbeats, per-server circuit breakers, discovery cache TTL | `McpReliabilityManager` and reliability types |
-| `mcp-security.ts` | Hardening for stdio server launch (path validation + env sanitization) | `validateMcpExecutablePath`, `sanitizeMcpEnv` |
-| `mcp-types.ts` | Shared MCP client/tool/status type model | `MCPServerConfig`, `MCPToolDescriptor`, etc. |
-| `index.ts` | MCP-folder level barrel | most MCP exports (but not reliability/security) |
-
-Note on exports:
-
-- Full public API is re-exported from `packages/core/src/index.ts`, including reliability/security/resources/sampling.
-- `packages/core/src/mcp/index.ts` exports core/client/server/resources/sampling pieces but does not export reliability/security.
-
-## Core Features
-
-### 1) Multi-Transport MCP Client
-
-`MCPClient` manages a set of server connections and supports:
-
-- add/connect/disconnect lifecycle
-- parallel `connectAll()`
-- tool discovery over:
-  - `http`: POST JSON-RPC to `.../tools/list`
-  - `sse`: currently implemented via same POST path as HTTP
-  - `stdio`: child process spawn + JSON line parsing
-- non-fatal tool invocation (`invokeTool`) returning `MCPToolResult` with `isError` instead of hard failure
-- status introspection (`getStatus`, `hasConnections`)
-
-### 2) Deferred Loading
-
-Two cooperating controls exist:
-
-- per-server eager cap in `MCPServerConfig.maxEagerTools` (applied in `MCPClient.connect`)
-- budget helper in `DeferredToolLoader`:
-  - computes `maxEagerTools` from context budget
-  - returns eager LangChain tools
-  - provides deferred tool summary text
-  - lazily promotes named deferred tools on demand
-
-### 3) MCP <-> LangChain Bridge
-
-`mcp-tool-bridge.ts` handles:
-
-- JSON-schema-like MCP parameter mapping to Zod
-- generation of LangChain `tool(...)` wrappers that call `client.invokeTool`
-- mapping MCP multi-content output into textual tool return content
-- reverse conversion from LangChain tool Zod schema back to MCP descriptor (for exposing tools)
-
-### 4) Embedded MCP Server
-
-`DzupAgentMCPServer` provides a small JSON-RPC surface:
-
-- `tools/list`
-- `tools/call`
-
-Behavior:
-
-- dynamic runtime registration (`registerTool`, `unregisterTool`)
-- JSON-RPC-compatible result/error envelopes
-- internal error codes:
-  - method not found: `-32601`
-  - invalid params: `-32602`
-  - internal error: `-32000`
-
-### 5) Resource Protocol Client
-
-`MCPResourceClient` implements:
-
-- `resources/list`
-- `resources/templates/list`
-- `resources/read`
-- `resources/subscribe` + best-effort `resources/unsubscribe`
-- update notifications via `notifications/resources/updated`
-
-It tracks active subscriptions and supports `dispose()` for cleanup.
-
-### 6) Sampling Protocol Helpers
-
-Sampling features:
-
-- `createSamplingHandler(llmInvoke, config)`:
-  - clamps `maxTokens` to configured `maxAllowedTokens`
-  - optional budget ceiling enforcement
-  - model selection from `modelPreferences.hints` fallback to `defaultModel`
-  - MCP message conversion to invoke format
-  - stop reason normalization
-- `registerSamplingHandler(onRequest, handler)`:
-  - binds handler to `sampling/createMessage`
-  - supports unregister guard
-
-### 7) Reliability Composition Layer
-
-`McpReliabilityManager` is independent from `MCPClient` and adds:
-
-- health snapshots per server
-- failure/success tracking
-- per-server circuit breaker wrapping
-- heartbeat polling loop support
-- tool discovery cache with TTL and invalidation
-
-This keeps reliability optional and composable without forcing a specific runtime policy.
-
-### 8) Security Hardening for `stdio`
-
-`mcp-security.ts` protects process execution path:
-
-- blocks empty paths, shell metacharacters, and path traversal patterns
-- sanitizes server-provided env overrides to block dangerous vars (`LD_PRELOAD`, `NODE_OPTIONS`, `PATH`, etc.)
-
-These checks are applied in `MCPClient.spawnWithStdin(...)` before spawning child processes.
-
-## End-to-End Flows
-
-### A) Discovery and Invocation Flow
-
-```text
-addServer -> connect/connectAll
-  -> discoverTools (http|sse|stdio)
-  -> split tools into eager/deferred
-  -> mcpToolToLangChain for eager tools
-  -> agent invokes tool
-  -> invokeTool -> executeToolCall (transport-specific)
-  -> MCPToolResult mapped to tool output
-```
-
-### B) Deferred Tool Promotion Flow
-
-```text
-connect() discovers N tools
-if N > maxEagerTools:
-  eager = first maxEagerTools
-  deferred = remainder
-
-agent requests deferred tool by name
-  -> DeferredToolLoader.loadTool(name)
-  -> MCPClient.loadDeferredTool(name)
-  -> descriptor promoted deferred -> eager
-  -> converted to LangChain tool and cached
-```
-
-### C) Resource Subscription Flow
-
-```text
-subscribeToResource(uri, handler)
-  -> send resources/subscribe
-  -> register notifications/resources/updated callback
-notification(uri)
-  -> readResource(uri)
-  -> invoke registered handler(uri, content)
-unsubscribe/dispose
-  -> send resources/unsubscribe (best-effort)
-```
-
-### D) Sampling Flow
-
-```text
-registerSamplingHandler(onRequest, handler)
-  -> onRequest("sampling/createMessage", wrappedHandler)
-server sends sampling/createMessage
-  -> createSamplingHandler wrapper validates/clamps/selects model
-  -> llmInvoke(messages, options)
-  -> MCP sampling response returned
-```
-
-## Usage Examples
-
-### 1) Connect to external MCP servers and use tools in LangChain
-
-```ts
-import { MCPClient, mcpToolsToLangChain } from '@dzupagent/core'
-
-const client = new MCPClient()
-client.addServer({
-  id: 'local-tools',
-  name: 'Local Tools',
-  url: 'http://localhost:8787',
-  transport: 'http',
-  timeoutMs: 10_000,
-  maxEagerTools: 20,
-})
-
-await client.connectAll()
-
-const tools = mcpToolsToLangChain(client)
-// pass tools to your LangGraph/LangChain agent
-```
-
-### 2) Use deferred loading to protect context budget
-
-```ts
-import { MCPClient, DeferredToolLoader } from '@dzupagent/core'
-
-const client = new MCPClient()
-// ... add/connect servers ...
-
-const loader = new DeferredToolLoader(client, {
-  contextWindowTokens: 128_000,
-  maxToolBudgetRatio: 0.1,
-  tokensPerTool: 150,
-})
-
-const eagerTools = loader.getEagerTools()
-const deferredSummary = loader.getDeferredToolSummary()
-
-// Later, if the model requests a deferred tool:
-const maybeTool = loader.loadTool('large_catalog_search')
-```
-
-### 3) Expose local handlers as an MCP server
-
-```ts
-import { DzupAgentMCPServer } from '@dzupagent/core'
-
-const server = new DzupAgentMCPServer({
-  name: 'dzupagent-tools',
-  version: '1.0.0',
-})
-
-server.registerTool({
-  name: 'echo',
-  description: 'Echo back input',
-  inputSchema: {
-    type: 'object',
-    properties: { text: { type: 'string' } },
-    required: ['text'],
-  },
-  handler: async (args) => String(args['text'] ?? ''),
-})
-
-const response = await server.handleRequest({
-  jsonrpc: '2.0',
-  id: '1',
-  method: 'tools/call',
-  params: { name: 'echo', arguments: { text: 'hello' } },
-})
-```
-
-### 4) Consume resources from MCP resource endpoints
-
-```ts
-import { MCPResourceClient } from '@dzupagent/core'
-
-const resources = new MCPResourceClient({
-  sendRequest: (method, params) => transport.send(method, params),
-  onNotification: (method, handler) => transport.on(method, handler),
-})
-
-const list = await resources.listResources()
-if (list[0]) {
-  const content = await resources.readResource(list[0].uri)
-}
-
-const sub = resources.subscribeToResource('file:///tmp/config.json', (uri, updated) => {
-  console.log(uri, updated)
-})
-// sub.unsubscribe()
-```
-
-### 5) Handle MCP sampling requests through your LLM function
-
-```ts
-import { createSamplingHandler, registerSamplingHandler } from '@dzupagent/core'
-
-const samplingHandler = createSamplingHandler(
-  async (messages, options) => {
-    const text = await myModel.generate(messages, options)
-    return { content: text, model: options?.model ?? 'default-model', stopReason: 'endTurn' }
-  },
-  { defaultModel: 'gpt-4.1-mini', maxAllowedTokens: 4096 },
-)
-
-const registration = registerSamplingHandler(transport.onRequest, samplingHandler)
-// registration.unregister()
-```
-
-### 6) Add reliability management
-
-```ts
-import { McpReliabilityManager } from '@dzupagent/core'
-
-const reliability = new McpReliabilityManager({
-  heartbeatIntervalMs: 30_000,
-  maxHeartbeatFailures: 3,
-  discoveryCacheTtlMs: 300_000,
-})
-
-reliability.registerServer('local-tools')
-reliability.startHeartbeat('local-tools', async () => {
-  // implement lightweight ping against your MCP server
-  return true
-})
-```
-
-## Referenced in Other Packages
-
-### `packages/server`: runtime MCP tool resolution
-
-Primary integration: `packages/server/src/runtime/tool-resolver.ts`
-
-- dynamically imports `MCPClient` and `mcpToolToLangChain` from `@dzupagent/core`
-- parses MCP selector tokens from `toolNames`:
-  - `mcp:*` -> all configured MCP servers
-  - `mcp:<server>` -> single server
-  - `mcp:<server>:<tool>` -> single tool on server
-- reads `metadata.mcpServers`, validates policy, connects servers, resolves eager tools, returns cleanup callback (`disconnectAll`)
-
-Related integration test:
-
-- `packages/server/src/__tests__/mcp-integration.test.ts` (30 tests)
-
-### `packages/agent-adapters`: tool-sharing bridge
-
-Primary integration: `packages/agent-adapters/src/mcp/mcp-tool-sharing.ts`
-
-- uses `DzupAgentMCPServer` from core as internal MCP transport surface
-- adapter bridge registers shared tools on server and delegates JSON-RPC `tools/list`/`tools/call`
-- builds provider-specific config forms (Claude in-process MCP, Codex dynamic tools, CLI prompt injection)
-
-Related integration test:
-
-- `packages/agent-adapters/src/__tests__/mcp-tool-sharing.test.ts` (19 tests)
-
-## Test Coverage (Current)
-
-### Executed during this analysis
-
-Commands run:
-
-- `yarn workspace @dzupagent/core test src/mcp/__tests__/mcp-resources.test.ts src/mcp/__tests__/mcp-sampling.test.ts src/__tests__/mcp-security.test.ts src/__tests__/mcp-reliability.test.ts`
-- `yarn workspace @dzupagent/server test src/__tests__/mcp-integration.test.ts`
-- `yarn workspace @dzupagent/agent-adapters test src/__tests__/mcp-tool-sharing.test.ts`
-
-Observed results:
-
-- Core MCP-focused tests: 68 passed
-- Server MCP integration tests: 30 passed
-- Agent-adapters MCP bridge tests: 19 passed
-
-### Feature-to-test mapping
-
-| Feature area | Direct tests | Coverage notes |
-| --- | --- | --- |
-| Resource list/read/templates/subscribe lifecycle | `packages/core/src/mcp/__tests__/mcp-resources.test.ts` | Strong direct unit coverage for happy path + fallback + notification-triggered updates + unsubscribe/dispose |
-| Sampling handler + registration | `packages/core/src/mcp/__tests__/mcp-sampling.test.ts` | Direct coverage for model selection, token clamp, budget rejection, image placeholder mapping, stop-reason mapping, unregister behavior |
-| Stdio security hardening | `packages/core/src/__tests__/mcp-security.test.ts` | Direct coverage for path validation and blocked env var sanitization |
-| Reliability manager behavior | `packages/core/src/__tests__/mcp-reliability.test.ts` | Extensive direct coverage: heartbeat, circuit transitions, cache TTL, cleanup, idempotency |
-| Server-side MCP tool exposure (`DzupAgentMCPServer`) | `packages/agent-adapters/src/__tests__/mcp-tool-sharing.test.ts` | Indirect/integration coverage through bridge delegation (`tools/list`, `tools/call`) |
-| Resolver-driven consumption in server package | `packages/server/src/__tests__/mcp-integration.test.ts` | Integration coverage for selector parsing, discovery filtering, deferred eager cap behavior, tool invocation path, cleanup callbacks |
-
-## Gaps and Risks
-
-Current tests are strong for resources/sampling/reliability/security, but there are notable unit gaps in `packages/core/src/mcp`:
-
-- no direct unit tests for `mcp-client.ts` transport implementations (`http`, `sse`, `stdio`) and error/timeout behavior at client level
-- no direct unit tests for `mcp-tool-bridge.ts` schema conversion edge cases
-- no direct unit tests for `deferred-loader.ts` cache/promotion/summary behavior
-- no direct unit tests for `mcp-server.ts` JSON-RPC error envelopes and registry lifecycle in isolation
-
-Recommended next additions:
-
-1. Add `mcp-client.test.ts` with mocked `fetch` and mocked child process spawn for stdio.
-2. Add `mcp-tool-bridge.test.ts` for JSON-schema-to-Zod and Zod-to-MCP roundtrip cases.
-3. Add `deferred-loader.test.ts` for budget math, cache hits, deferred promotion.
-4. Add `mcp-server.test.ts` for request validation, missing tools, handler throw paths.
-
-## Practical Notes for Contributors
-
-- Prefer importing from `@dzupagent/core` root export rather than internal file paths.
-- For production use, pair `MCPClient` with:
-  - explicit `maxEagerTools`
-  - metadata policy controls in server runtime
-  - `McpReliabilityManager` for heartbeat/circuit/cache orchestration
-- For `stdio` servers, avoid shell-like command strings in `url`; pass executable path and use `args`.
-- Treat resource subscribe/unsubscribe as best-effort and design handlers to tolerate missed updates.

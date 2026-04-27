@@ -1,91 +1,87 @@
 # Events Architecture (`packages/core/src/events`)
 
-Last updated: 2026-04-03
-
 ## Scope
+This document covers the event subsystem implemented in `@dzupagent/core` under `src/events`:
 
-This document covers the event subsystem in `@dzupagent/core` under:
+- `event-types.ts`
+- `event-bus.ts`
+- `agent-bus.ts`
+- `degraded-operation.ts`
+- `tool-event-correlation.ts`
+- `index.ts`
 
-- `packages/core/src/events/event-types.ts`
-- `packages/core/src/events/event-bus.ts`
-- `packages/core/src/events/agent-bus.ts`
-- `packages/core/src/events/degraded-operation.ts`
-- `packages/core/src/events/index.ts`
+It also describes in-repo integrations inside `packages/core` (facades, protocol, persistence, plugin, registry, and security modules) that consume these event primitives.
 
-It also maps how these APIs are used across other packages (`agent`, `agent-adapters`, `server`, `otel`, `test-utils`) and summarizes direct + integration test coverage.
+## Responsibilities
+The events subsystem provides three distinct responsibilities:
 
-## Goals
+- Define the canonical typed event contract (`DzupEvent`) used across core runtime features.
+- Provide a fail-soft typed pub/sub bus (`DzupEventBus`) for lifecycle, telemetry, policy, workflow, and operational events.
+- Provide a channel-based peer message bus (`AgentBus`) used by protocol internals for in-process request/response and streaming coordination.
 
-The events subsystem provides three distinct communication contracts:
+Supporting responsibilities:
 
-1. `DzupEventBus`: typed, in-process publish/subscribe for framework lifecycle events.
-2. `DzupEvent`: a discriminated union contract for all supported event payloads.
-3. `AgentBus`: channel-based peer messaging used by internal protocol routing.
+- Emit standardized degraded-mode signals via `emitDegradedOperation(...)`.
+- Enforce non-empty terminal tool run correlation IDs via `requireTerminalToolExecutionRunId(...)`.
 
-`emitDegradedOperation()` is a helper to standardize degraded-mode signaling.
-
-## Module Map
-
-| File | Responsibility | Key Exports |
+## Structure
+| File | Purpose | Main exports |
 | --- | --- | --- |
-| `event-types.ts` | Canonical event schema (`DzupEvent` union + helper types) | `DzupEvent`, `DzupEventOf`, `BudgetUsage`, `ToolStatSummary` |
-| `event-bus.ts` | Typed bus implementation with `on`, `once`, `onAny`, fire-and-forget error isolation | `createEventBus`, `DzupEventBus` |
-| `agent-bus.ts` | Channel-based agent-to-agent message bus with history and subscriber management | `AgentBus`, `AgentMessage`, `AgentMessageHandler` |
-| `degraded-operation.ts` | Helper emitting `system:degraded` event with timestamp/recoverable flags | `emitDegradedOperation` |
-| `index.ts` | Folder-level barrel for event bus + event types + degraded helper | same as above (excluding `AgentBus`) |
+| `event-types.ts` | Canonical discriminated union for framework events | `DzupEvent`, `DzupEventOf`, `BudgetUsage`, `ToolStatSummary` |
+| `event-bus.ts` | Typed in-process event bus with typed listeners and wildcard listeners | `DzupEventBus`, `createEventBus` |
+| `agent-bus.ts` | Channel pub/sub bus for agent-to-agent in-process messaging, with bounded history | `AgentBus`, `AgentMessage`, `AgentMessageHandler` |
+| `degraded-operation.ts` | Convenience emitter for degraded subsystem state | `emitDegradedOperation` |
+| `tool-event-correlation.ts` | Guardrail for terminal tool-event run correlation IDs | `requireTerminalToolExecutionRunId`, `TerminalToolEventType`, `TerminalToolExecutionRunIdOptions` |
+| `index.ts` | Events-folder barrel | `createEventBus`, event types, degraded helper, tool correlation helper |
 
-## Public API Surface
+Export notes from current code:
 
-### `DzupEvent` and `DzupEventOf`
+- Package root (`src/index.ts`) exports both `DzupEventBus` APIs and `AgentBus`.
+- `src/events/index.ts` does not export `AgentBus`.
+- `src/facades/orchestration.ts` exports both `createEventBus` and `AgentBus`.
+- `src/facades/quick-start.ts` exports `createEventBus` and event types, not `AgentBus`.
 
-- `DzupEvent` is a discriminated union keyed by `type`.
-- `DzupEventOf<T>` extracts a specific event payload by `type`.
-- Current event variants: **85**.
+## Runtime and Control Flow
+1. `DzupEventBus` flow:
+- Producers call `emit(event)`.
+- Type-specific handlers registered via `on(type, handler)` run first.
+- Wildcard handlers from `onAny(handler)` run for all events.
+- Handler failures are isolated (sync throw and async rejection are caught and logged through `defaultLogger.error`).
 
-Event categories (from `event-types.ts`):
+2. `AgentBus` flow:
+- Producers call `publish(fromAgent, channel, payload)`.
+- Subscribers registered per-channel/per-agent via `subscribe(channel, agentId, handler)` receive messages.
+- Messages are appended to bounded history (`maxHistory`, default `100`) before dispatch.
+- Handler failures are isolated and logged.
 
-| Category | Event count |
-| --- | ---: |
-| Agent lifecycle | 6 |
-| Tool lifecycle | 3 |
-| Memory | 5 |
-| Budget | 2 |
-| Pipeline | 2 |
-| Approval | 3 |
-| MCP | 2 |
-| Provider | 3 |
-| Identity | 5 |
-| Registry | 5 |
-| Protocol | 6 |
-| Pipeline Runtime | 13 |
-| Security | 8 |
-| Vector Store | 4 |
-| Telemetry | 3 |
-| Delegation | 5 |
-| Supervisor | 4 |
-| Hooks / plugins | 2 |
-| Quality metrics feedback loop | 3 |
-| Degraded operation | 1 |
+3. Degraded signaling flow:
+- Callers use `emitDegradedOperation(eventBus, subsystem, reason, recoverable?)`.
+- Helper emits a `system:degraded` event with `timestamp: Date.now()` and `recoverable` defaulting to `true`.
 
-### `createEventBus()` / `DzupEventBus`
+4. Terminal tool correlation flow:
+- Terminal tool event producers call `requireTerminalToolExecutionRunId(...)`.
+- Function accepts direct `executionRunId` or fallback value.
+- Empty/whitespace values are normalized away.
+- Throws if neither value resolves to a non-empty ID.
 
-`DzupEventBus` methods:
+Protocol integration detail in current code:
+
+- `src/protocol/internal-adapter.ts` uses `AgentBus` channels keyed by extracted target agent IDs, and uses correlation channels (`__response:<id>`, `__stream:<id>`) for replies and streams.
+
+## Key APIs and Types
+`DzupEvent` (`event-types.ts`):
+
+- Large discriminated union keyed by `type`.
+- Includes categories implemented in current file: agent lifecycle, tool lifecycle, LLM/audit, memory, budget, pipeline, approvals, human-contact, adapter interactions, MCP server lifecycle, provider state, registry, identity, protocol, pipeline runtime, security, vector, telemetry, delegation, supervisor, hooks/plugins, quality loop, degraded/system operations, agent progress, recovery, execution ledger, persona registry, scheduler, skill lifecycle, workflow domain, run lifecycle/outcome scoring, mailbox, API keys, and flow compiler lifecycle.
+
+`DzupEventBus` (`event-bus.ts`):
 
 - `emit(event: DzupEvent): void`
-- `on(type, handler): () => void`
-- `once(type, handler): () => void`
-- `onAny(handler): () => void`
+- `on<T extends DzupEvent['type']>(type: T, handler: (event: DzupEventOf<T>) => void | Promise<void>): () => void`
+- `once<T extends DzupEvent['type']>(type: T, handler: ...): () => void`
+- `onAny(handler: (event: DzupEvent) => void | Promise<void>): () => void`
 
-Behavioral contract:
-
-- Strongly typed per-event handlers (`on('tool:called', e => e.toolName)`).
-- Multiple handlers supported per event type.
-- Handler errors are isolated/logged (sync and async rejections).
-- `emit` does not return completion status and does not await handlers.
-
-### `AgentBus`
-
-`AgentBus` is separate from `DzupEventBus`:
+`AgentBus` (`agent-bus.ts`):
 
 - `publish(fromAgent, channel, payload)`
 - `subscribe(channel, agentId, handler)`
@@ -95,309 +91,65 @@ Behavioral contract:
 - `listChannels()`
 - `listSubscribers(channel)`
 
-Design intent:
+Tool-event correlation helper (`tool-event-correlation.ts`):
 
-- point-to-point or topic-style in-process collaboration between agents
-- last-N message history (`maxHistory`, default 100)
-- per-channel subscription tables keyed by `agentId`
+- `requireTerminalToolExecutionRunId(options)` for `tool:result` / `tool:error` enforcement.
 
-### `emitDegradedOperation()`
+## Dependencies
+Direct module-level dependencies inside `src/events`:
 
-Standard helper for optional subsystem failure signaling:
+- `event-types.ts` imports `ForgeErrorCode` type from `src/errors/error-codes.ts`.
+- `event-bus.ts` and `agent-bus.ts` use `defaultLogger` from `src/utils/logger.ts`.
+- `degraded-operation.ts` depends on `DzupEventBus` type.
+- `tool-event-correlation.ts` has no external package dependencies.
 
-- emits `type: 'system:degraded'`
-- sets `timestamp: Date.now()`
-- defaults `recoverable = true`
-
-## Export Surfaces
-
-- Package root exports all event APIs including `AgentBus`:
-  - `packages/core/src/index.ts`
-- Facades:
-  - `packages/core/src/facades/orchestration.ts` exports `createEventBus`, event types, and `AgentBus`.
-  - `packages/core/src/facades/quick-start.ts` exports `createEventBus` and event types.
-- Folder barrel:
-  - `packages/core/src/events/index.ts` exports `createEventBus`, event types, `emitDegradedOperation`.
-  - `AgentBus` is **not** re-exported from the folder barrel; it is exported from package root and orchestration facade.
-
-## Runtime Flow
-
-### A) Core event flow (`DzupEventBus`)
-
-```text
-Producer module emits DzupEvent
-  -> event-bus dispatch by exact type
-  -> exact handlers execute
-  -> wildcard handlers (onAny) execute
-  -> handler errors logged, bus remains healthy
-```
-
-Common downstream sinks:
-
-- `EventLogSink` (persistent/replay log capture)
-- `OTelBridge` (metrics + span events)
-- `InMemoryEventGateway` (SSE/WS fan-out)
-- `TraceCapture` (replay timeline)
-- `ComplianceAuditLogger` / incident responders
-
-### B) Internal protocol flow (`AgentBus`)
-
-```text
-InternalAdapter.send(message)
-  -> extract target agent id from URI
-  -> AgentBus.publish(to target channel)
-  -> target handler responds on correlation channel
-  -> sender resolves response or times out
-```
-
-This flow is used for in-process protocol routing, not telemetry/event observability.
-
-### C) Degraded operation signaling
-
-```text
-Optional subsystem unavailable
-  -> emitDegradedOperation(eventBus, subsystem, reason, recoverable?)
-  -> system:degraded event
-  -> observers can warn, adapt behavior, or escalate
-```
-
-## Internal Core Consumers
+Package-level context:
 
-Representative `@dzupagent/core` consumers of the events APIs:
-
-- `persistence/event-log.ts`
-  - `EventLogSink.attach()` uses `onAny` to persist all events per run.
-- `security/audit/audit-logger.ts`
-  - subscribes via `onAny`, converts selected event types to compliance audit entries.
-- `security/monitor/safety-monitor.ts`
-  - subscribes to `tool:error` and `memory:written`, emits `safety:*` events.
-- `plugin/plugin-registry.ts`
-  - wires plugin-declared event handlers through `eventBus.on(...)` and emits `plugin:registered`.
-- `registry/in-memory-registry.ts`
-  - forwards registry events into the shared `DzupEventBus` when configured.
-- `protocol/internal-adapter.ts`
-  - uses `AgentBus` for in-process message routing with timeout and correlation channels.
+- `@dzupagent/core` has no additional runtime npm dependency specifically for the events subsystem.
+- The subsystem is implemented as in-process TypeScript logic with no transport/storage dependency required by default.
 
-## Cross-Package References and Usage
+## Integration Points
+In-scope integrations in `packages/core`:
 
-The events subsystem is a central contract across the monorepo.
+- `src/protocol/internal-adapter.ts`: uses `AgentBus` as in-process transport backbone.
+- `src/persistence/event-log.ts`: `EventLogSink` captures all emitted events via `onAny` into an `EventLogStore`.
+- `src/security/audit/audit-logger.ts`: subscribes with `onAny` and records selected event types into `ComplianceAuditStore`.
+- `src/security/monitor/safety-monitor.ts`: attaches to `tool:error` and `memory:written`; emits `safety:*` events.
+- `src/plugin/plugin-registry.ts`: registers plugin-declared handlers on `DzupEventBus`; emits `plugin:registered`.
+- `src/registry/in-memory-registry.ts`: forwards registry events into optional `DzupEventBus`.
+- `src/facades/quick-start.ts`: `createQuickAgent()` constructs and registers `eventBus` in DI container.
 
-### Package-level footprint (static reference count)
+Public API integration surfaces in this package:
 
-Reference pattern used: `createEventBus|DzupEventBus|DzupEvent|AgentBus|emitDegradedOperation`.
+- Root entry (`src/index.ts`) and `orchestration` facade expose `AgentBus`.
+- Root entry, `orchestration`, and `quick-start` expose `createEventBus` and event types.
 
-- `agent-adapters`: 55 files
-- `server`: 37 files
-- `otel`: 20 files
-- `agent`: 17 files
-- `test-utils`: 1 file
-- plus small compatibility references (`memory`, `codegen`, `cache`)
-
-### `@dzupagent/agent`
+## Testing and Observability
+Direct tests in `packages/core/src/__tests__`:
 
-- `approval/approval-gate.ts`
-  - emits `approval:requested`, waits for `approval:granted`/`approval:rejected`.
-- `replay/trace-capture.ts`
-  - uses `onAny` to capture full event timelines for replay/debugging.
+- `event-bus.test.ts`: typed delivery, filtering by type, unsubscribe behavior, `once`, `onAny`, handler error isolation, multi-handler dispatch.
+- `agent-bus.test.ts`: publish/subscribe behavior, channel isolation, unsubscribe/unsubscribeAll, bounded history, channel/subscriber listing, sync/async error isolation.
+- `degraded-operation.test.ts`: verifies `system:degraded` payload and default `recoverable` behavior.
+- `tool-event-correlation.test.ts`: verifies direct/fallback run ID resolution and throw path.
+- `event-bus-flow.test.ts`: validates flow-compiler event lifecycle and ordering through `DzupEventBus`.
+- `event-log.test.ts`: validates `EventLogSink` capture from event bus into in-memory log.
+- `w15-h2-branch-coverage.test.ts`: additional branch coverage for bus edge cases (no handlers, wildcard unsubscribe, async rejection logging, set semantics).
 
-### `@dzupagent/agent-adapters`
+Facade-level verification in scope:
 
-- `registry/event-bus-bridge.ts`
-  - maps adapter events (`adapter:*`) to core `DzupEvent` variants.
-- `middleware/cost-tracking.ts`
-  - emits `budget:warning` / `budget:exceeded`.
-- `approval/adapter-approval.ts`
-  - approval lifecycle events.
-- `persistence/run-manager.ts`, `output/structured-output.ts`, `orchestration/*`
-  - extensive event emission; some flows cast custom event shapes into `DzupEventBus.emit` for forward compatibility.
+- `facade-quick-start.test.ts`, `facade-orchestration.test.ts`, and `facades.test.ts` verify events APIs are exported and usable through curated subpath facades.
 
-### `@dzupagent/server`
+Observability characteristics:
 
-- `events/event-gateway.ts`
-  - subscribes to `onAny`, wraps events as envelopes, supports filtered fan-out and backpressure policies.
-- `routes/events.ts`
-  - streams filtered events over SSE.
-- `ws/event-bridge.ts`
-  - forwards events to websocket clients by run or type filters.
-- `cli/trace-printer.ts`
-  - onAny subscriber for human-readable live trace output.
-- `security/incident-response.ts`
-  - monitors event stream and executes incident playbooks.
-- `app.ts`
-  - wires `eventBus` into server runtime and event gateway by default.
+- Both buses are fail-soft and log handler errors via `defaultLogger` (`console.error` by default).
+- Event persistence/inspection is available through `InMemoryEventLog` + `EventLogSink` integration.
 
-### `@dzupagent/otel`
+## Risks and TODOs
+- `DzupEvent` is a large union maintained manually in one file. Drift risk is mainly schema governance and discoverability, not missing basic tests.
+- `event-bus.ts` comments mention microtask execution, but handlers run inline; only async rejections are caught asynchronously. Comment/behavior alignment remains a maintenance risk.
+- `EventLogSink` intentionally uses a minimal `EventBusLike` and fire-and-forget appends; append failures are swallowed by design, so log-write failures are not surfaced to callers.
+- `registry/in-memory-registry.ts` forwards registry events with `event as DzupEvent`; this cast bypasses compile-time validation of exact event payload shape at the forwarding point.
 
-- `otel-bridge.ts`
-  - core bridge from `DzupEventBus` to metrics/spans.
-- `event-metric-map.ts`
-  - maps every `DzupEvent['type']` to metric extraction rules (`satisfies Record<...>`).
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
-### `@dzupagent/test-utils`
-
-- `test-helpers.ts`
-  - `createTestEventBus()` captures all events via `onAny`.
-  - `waitForEvent()` helper provides deterministic typed event waiting.
-
-### Compatibility references (no hard dependency)
-
-- `@dzupagent/memory` `adaptive-retriever.ts`
-  - defines a local emitter interface structurally compatible with `DzupEventBus`.
-- `@dzupagent/codegen`
-  - uses callback listeners for correction events (explicitly avoids direct coupling to core bus).
-- `@dzupagent/cache`
-  - supports hit/miss callbacks that can emit to event buses externally.
-
-## Usage Examples
-
-### 1) Basic typed usage
-
-```ts
-import { createEventBus } from '@dzupagent/core'
-
-const bus = createEventBus()
-
-const unsubTool = bus.on('tool:called', (event) => {
-  console.log('Tool:', event.toolName)
-})
-
-bus.emit({ type: 'tool:called', toolName: 'read_file', input: { path: 'README.md' } })
-unsubTool()
-```
-
-### 2) One-shot and wildcard subscribers
-
-```ts
-const unsubOnce = bus.once('mcp:connected', (event) => {
-  console.log(`Connected to ${event.serverName}`)
-})
-
-const unsubAll = bus.onAny((event) => {
-  console.log(`[event] ${event.type}`)
-})
-
-// later
-unsubOnce()
-unsubAll()
-```
-
-### 3) Degraded mode signaling
-
-```ts
-import { emitDegradedOperation } from '@dzupagent/core'
-
-emitDegradedOperation(
-  bus,
-  'memory-ipc',
-  'peer dependency not installed',
-  false,
-)
-```
-
-### 4) AgentBus for in-process peer messaging
-
-```ts
-import { AgentBus } from '@dzupagent/core'
-
-const agentBus = new AgentBus({ maxHistory: 200 })
-
-const unsub = agentBus.subscribe('code-review', 'agent-b', (msg) => {
-  console.log(msg.from, msg.payload)
-})
-
-agentBus.publish('agent-a', 'code-review', { files: ['src/index.ts'] })
-unsub()
-```
-
-### 5) Event capture for testing
-
-```ts
-import { createTestEventBus, waitForEvent } from '@dzupagent/test-utils'
-
-const { bus, events } = createTestEventBus()
-
-const pending = waitForEvent(bus, 'approval:requested')
-bus.emit({ type: 'approval:requested', runId: 'run-1', plan: {} })
-
-const evt = await pending
-console.log(evt.runId) // run-1
-console.log(events.length) // 1
-```
-
-## Test Coverage
-
-## Direct coverage in `@dzupagent/core`
-
-### Files and test counts
-
-- `src/__tests__/event-bus.test.ts`: 7 tests
-- `src/__tests__/degraded-operation.test.ts`: 2 tests
-- `src/__tests__/event-log.test.ts`: 16 tests (includes `EventLogSink` integration with `DzupEventBus`)
-
-Focused run executed:
-
-- Command: `yarn workspace @dzupagent/core test -- event-bus degraded-operation event-log`
-- Result: **3 test files, 25 tests passed**.
-
-### Behavior directly covered
-
-- typed subscription delivery
-- type mismatch filtering
-- unsubscribe semantics
-- `once()` semantics
-- wildcard `onAny()` delivery
-- sync handler throw isolation
-- multiple handlers same event type
-- degraded event emission + default recoverability
-- event log sequencing, retention, clear/reset
-- `EventLogSink` bus capture and detach behavior
-
-## Coverage adjacent to events subsystem
-
-- `protocol/__tests__/adapters.test.ts`
-  - exercises `AgentBus` through `InternalAdapter` routing, response channel correlation, timeout, unsubscribe behavior.
-- `__tests__/facades.test.ts`
-  - verifies export wiring includes `AgentBus`.
-
-## Integration coverage in other packages
-
-- `agent/src/__tests__/approval-gate.test.ts`
-  - approval event wait/timeout flow.
-- `agent-adapters/src/__tests__/event-bus-bridge.test.ts`
-  - adapter event -> `DzupEvent` mapping correctness.
-- `server/src/__tests__/event-gateway.test.ts`
-  - filtering, envelope semantics, overflow behavior.
-- `server/src/__tests__/event-bridge.test.ts`
-  - websocket forwarding with run filters.
-- `otel/src/__tests__/otel-bridge.test.ts`
-  - metrics emitted from runtime events.
-- `otel/src/__tests__/event-metric-map.test.ts`
-  - validates mapping coverage/shape across full event map.
-
-High-level test footprint (files referencing core event APIs in `__tests__`):
-
-- `agent-adapters`: 29
-- `server`: 22
-- `otel`: 12
-- `core`: 8
-- `agent`: 7
-
-## Gaps and Risks
-
-1. `AgentBus` has no dedicated unit test file in `packages/core/src/__tests__`; it is covered indirectly via protocol adapter tests.
-2. `event-types.ts` has no direct schema drift test inside `core`; coverage is mostly indirect through `otel` mapping tests and downstream compilation.
-3. Several adapter modules cast non-core event shapes into `DzupEventBus.emit` for compatibility; this is flexible but can hide schema drift at compile time.
-4. `event-bus.ts` docs mention asynchronous microtask handler execution, but current implementation invokes handlers inline and only async-catches returned promises. If strict async dispatch is required, implementation/docs should be aligned.
-5. `emitDegradedOperation()` currently has no known runtime consumers outside its direct tests.
-
-## Design Notes
-
-- Event bus is intentionally fail-soft: handler failures should not cascade into run failures.
-- The event schema has become a platform contract shared by observability, transport fan-out, tracing, and governance modules.
-- `AgentBus` and `DzupEventBus` are intentionally separate abstractions:
-  - `DzupEventBus`: typed lifecycle/telemetry domain events.
-  - `AgentBus`: channel-oriented request/reply transport for in-process protocol paths.
-
-## Summary
-
-`packages/core/src/events` is a core control-plane contract for DzupAgent. It combines a large typed event schema (`DzupEvent`), a fail-soft typed bus (`DzupEventBus`), and a separate channel bus (`AgentBus`) used by internal protocol routing. The subsystem is heavily integrated across `agent`, `agent-adapters`, `server`, and `otel`, with strong integration test coverage and solid direct tests for core bus/log/degraded behavior, while `AgentBus` direct unit coverage and strict schema/dispatch contract checks remain the main opportunities for hardening.

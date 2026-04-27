@@ -1,274 +1,197 @@
-# Tools Module Architecture (`packages/agent/src/tools`)
+# Tools Architecture (`packages/agent/src/tools`)
 
-## 1. Scope
-
-This folder contains two primitives that define how tool contracts are created and evolved in `@dzupagent/agent`:
+## Scope
+This document covers the tool-related code in `packages/agent/src/tools` within `@dzupagent/agent`:
 
 - `create-tool.ts`
-  - `createForgeTool(...)`: factory for LangChain `StructuredToolInterface` tools.
 - `tool-schema-registry.ts`
-  - `ToolSchemaRegistry`: in-memory registry for versioned JSON schemas, compatibility checks, and docs generation.
+- `human-contact-tool.ts`
+- `agent-as-tool.ts`
 
-These utilities are exported from `packages/agent/src/index.ts` and are part of the public package API.
+It also references direct in-package integrations that consume this folder:
 
-## 2. Design Goals
+- public exports in `src/index.ts`
+- `DzupAgent.asTool()` in `src/agent/dzip-agent.ts`
+- tool argument validation hooks in `src/agent/tool-loop.ts`
+- tests under `src/__tests__` and `src/tools/*.test.ts`
 
-- Provide a simple way to create strongly typed, LangChain-compatible tools from Zod schemas.
-- Keep tool execution contract explicit:
-  - input validation (via LangChain + schema),
-  - optional output validation,
-  - deterministic model-facing output.
-- Support schema lifecycle management for tools:
-  - versioning,
-  - backward-compat checks,
-  - generated markdown docs.
+## Responsibilities
+The tools module currently provides four distinct responsibilities:
 
-## 3. Component A: `createForgeTool`
+1. Preserve backward compatibility for tool creation APIs.
+- `create-tool.ts` re-exports `createForgeTool` and `ForgeToolConfig` from `@dzupagent/core` and is marked deprecated for direct imports from this package.
 
-### 3.1 Public Contract
+2. Provide a built-in human-in-the-loop tool.
+- `human-contact-tool.ts` builds a LangChain `StructuredToolInterface` named `human_contact`.
+- It standardizes request payloads for approval, clarification, input request, escalation, and custom modes.
+- It persists pending requests via a pluggable store interface and optionally triggers a pause callback.
 
-`createForgeTool<TInput, TOutput>(config: ForgeToolConfig<TInput, TOutput>): StructuredToolInterface`
+3. Provide a versioned schema registry utility.
+- `tool-schema-registry.ts` stores per-tool versioned schema entries, resolves latest versions, performs backward-compatibility checks, and can generate markdown docs from current registry state.
 
-`ForgeToolConfig` fields:
+4. Adapt an agent instance into a callable tool.
+- `agent-as-tool.ts` wraps a minimal agent surface (`id`, `description`, `generate`) into a structured tool that accepts `{ task, context? }` and returns the agent response text.
+- This helper is used by `DzupAgent.asTool()` rather than being exported publicly from `src/index.ts`.
 
-- `id`: tool name exposed to the model.
-- `description`: capability description for tool selection/planning.
-- `inputSchema`: Zod schema used as the LangChain tool schema.
-- `outputSchema?`: optional Zod schema to validate runtime output.
-- `execute(input)`: async implementation.
-- `toModelOutput?(output)`: optional formatter for final model-visible string.
+## Structure
+| File | Role | Public Export |
+|---|---|---|
+| `create-tool.ts` | Deprecated compatibility re-export of `createForgeTool` from `@dzupagent/core` | Yes (via `src/index.ts`) |
+| `human-contact-tool.ts` | Built-in human-contact tool factory plus pending-contact store abstractions | Yes (via `src/index.ts`) |
+| `tool-schema-registry.ts` | In-memory schema registry with compatibility and docs generation | Yes (via `src/index.ts`) |
+| `agent-as-tool.ts` | Internal helper used by `DzupAgent.asTool()` | No direct package-root export |
 
-### 3.2 Runtime Flow
+Related tests:
 
-1. Caller defines `inputSchema` and `execute`.
-2. `createForgeTool` wraps `execute` via LangChain `tool(...)`.
-3. On invocation:
-   - execute `config.execute(input)`,
-   - if `outputSchema` exists, validate `result` with `outputSchema.parse(result)`,
-   - if `toModelOutput` exists, return formatted string,
-   - otherwise:
-     - return raw string if result is already a string,
-     - else return `JSON.stringify(result)`.
+- `src/__tests__/create-tool-deep.test.ts`
+- `src/__tests__/tool-schema-registry.test.ts`
+- `src/__tests__/tool-schema-registry-deep.test.ts`
+- `src/tools/human-contact-tool.test.ts`
+- `src/__tests__/dzip-agent.test.ts` (`asTool()` coverage)
+- `src/__tests__/orchestrator-patterns.test.ts` and `src/__tests__/supervisor.test.ts` (supervisor usage of `asTool()`)
 
-### 3.3 Behavior Notes
+## Runtime and Control Flow
+### `createForgeTool` compatibility path
+1. Consumers import `createForgeTool` from `@dzupagent/agent`.
+2. `src/tools/create-tool.ts` forwards directly to `@dzupagent/core`.
+3. Runtime behavior (validation/serialization) is owned by `@dzupagent/core`, not this folder.
 
-- Output validation is opt-in (`outputSchema`).
-- Validation failure throws from Zod parse (no internal fallback).
-- Default serialization is JSON for non-string outputs.
-- `toModelOutput` lets tools hide large payloads from the model while still returning structured data internally.
+### Human contact tool flow (`createHumanContactTool`)
+1. Caller creates the tool with optional `defaultChannel`, `pendingStore`, and `onPause`.
+2. Tool invocation validates input against the Zod schema (`mode`, optional `question/context/channel/timeoutHours/fallback/data`).
+3. A `contactId` is generated (`randomUUID`), channel is resolved (`input.channel` -> `defaultChannel` -> `'in-app'`), and timeout is converted into an ISO timestamp when set.
+4. `buildRequest(...)` maps mode-specific fields into a `HumanContactRequest`.
+5. A `PendingHumanContact` is saved through `PendingContactStore`.
+6. `onPause` is called when provided.
+7. Tool returns a JSON string containing `contactId`, `status: "pending"`, channel, and a `resumeWith` URL template.
 
-### 3.4 Example: Typed Tool with Structured Output
+Current implementation details:
 
-```ts
-import { createForgeTool } from '@dzupagent/agent'
-import { z } from 'zod'
+- `runId` is currently hardcoded as `'unknown'` inside the tool.
+- User-profile channel preference resolution is documented as a future step and is not implemented.
 
-const searchTool = createForgeTool({
-  id: 'search-docs',
-  description: 'Search docs by query',
-  inputSchema: z.object({
-    query: z.string(),
-    limit: z.number().int().positive().default(5),
-  }),
-  outputSchema: z.object({
-    total: z.number(),
-    hits: z.array(z.object({
-      title: z.string(),
-      url: z.string().url(),
-    })),
-  }),
-  execute: async ({ query, limit }) => {
-    const hits = await doSearch(query, limit)
-    return { total: hits.length, hits }
-  },
-  toModelOutput: (output) => `${output.total} results found`,
-})
-```
+### Agent-as-tool flow (`agentAsTool`)
+1. `DzupAgent.asTool()` calls `agentAsTool({ id, description, generate })`.
+2. `agentAsTool` dynamically imports `zod`, `@langchain/core/tools`, and `HumanMessage`.
+3. The produced tool name is `agent-${id}`.
+4. On invoke, it builds one `HumanMessage` with `task` and optional formatted context block, calls `generate(...)`, and returns `GenerateResult.content`.
 
-## 4. Component B: `ToolSchemaRegistry`
+### Schema registry flow (`ToolSchemaRegistry`)
+1. `register(entry)` inserts or replaces an entry by `(name, version)` and sorts versions with numeric dot-split comparison.
+2. `get(name, version?)` returns a specific version or latest version.
+3. `checkBackwardCompat(name, oldVersion, newVersion)` compares `inputSchema` trees and reports breaking changes.
+4. `generateDocs()` emits markdown with latest schema per tool and lists all versions when multiple exist.
 
-### 4.1 Data Model
+Compatibility checks currently enforce:
 
-`ToolSchemaEntry`:
+- field removals are breaking
+- type changes are breaking
+- newly added required fields are breaking when the field did not exist in the old schema
+- array item incompatibilities are breaking
 
-- `name`, `version`, `description`
-- `inputSchema` (JSON Schema-like object)
-- optional `outputSchema`
-- `registeredAt` (ISO timestamp)
+## Key APIs and Types
+### `create-tool.ts`
+- `createForgeTool` (re-export from `@dzupagent/core`)
+- `ForgeToolConfig` (re-exported type)
 
-`CompatCheckResult`:
+### `human-contact-tool.ts`
+- `createHumanContactTool(config?: HumanContactToolConfig): StructuredToolInterface`
+- `HumanContactInput` (inferred from Zod input schema)
+- `HumanContactToolConfig`
+- `PendingContactStore`
+- `InMemoryPendingContactStore`
 
-- `compatible: boolean`
-- `breaking: string[]`
+### `tool-schema-registry.ts`
+- `ToolSchemaRegistry`
+- `ToolSchemaEntry`
+- `CompatCheckResult`
 
-### 4.2 Registry Operations
+### `agent-as-tool.ts` (internal)
+- `agentAsTool(ctx: AgentAsToolContext): Promise<StructuredToolInterface>`
+- `AgentAsToolContext`
 
-1. `register(entry)`
-   - stores first version,
-   - replaces same-version entries,
-   - sorts versions by a semver-like numeric comparator.
-2. `get(name, version?)`
-   - specific version if provided,
-   - otherwise latest version.
-3. `list()`
-   - returns all entries across all tools.
-4. `checkBackwardCompat(name, oldVersion, newVersion)`
-   - loads both versions,
-   - recursively checks input schema changes,
-   - returns explicit breaking-change list.
-5. `generateDocs()`
-   - emits markdown with latest schema per tool plus version list.
+## Dependencies
+Direct dependencies used by this folder:
 
-### 4.3 Compatibility Rules Implemented
+- `@langchain/core/tools` (`tool`, `StructuredToolInterface`)
+- `@langchain/core/messages` (`HumanMessage` via dynamic import in `agent-as-tool.ts`)
+- `zod` (schema definitions)
+- `node:crypto` (`randomUUID` for contact and resume tokens)
+- `@dzupagent/core`
+  - `createForgeTool` and `ForgeToolConfig` re-export source
+  - human-contact domain types (`ContactType`, `ContactChannel`, `HumanContactRequest`, `PendingHumanContact`)
 
-The compatibility checker reports breaking changes for:
+Package-level context (`packages/agent/package.json`):
 
-- field removal,
-- type changes,
-- new required fields that did not exist previously,
-- incompatible array item schema changes.
+- peer deps include `@langchain/core`, `@langchain/langgraph`, and `zod`
+- `@dzupagent/core` is a direct dependency, which is required for `createForgeTool` re-export and human-contact types
 
-It allows:
+## Integration Points
+1. Package root exports.
+- `src/index.ts` exports `createForgeTool`, `createHumanContactTool`, `InMemoryPendingContactStore`, and `ToolSchemaRegistry` from this folder.
 
-- adding optional fields,
-- adding fields without requiring them.
+2. Agent runtime exposure.
+- `DzupAgent.asTool()` delegates to `agentAsTool(...)` in this folder.
+- Supervisor orchestration paths rely on `asTool()` to expose specialist agents as tools.
 
-### 4.4 Example: Versioning and Compat Check
+3. Tool loop argument validation.
+- `src/agent/tool-loop.ts` attempts to extract JSON-schema-like shapes from tool schemas for validation/repair.
+- Commented behavior explicitly accounts for schemas from `createForgeTool` or raw JSON-schema-like objects.
 
-```ts
-import { ToolSchemaRegistry } from '@dzupagent/agent'
+4. Mailbox tool design alignment.
+- `src/mailbox/mail-tools.ts` follows the same LangChain structured tool factory pattern and references `createHumanContactTool` in comments, but is a separate module.
 
-const registry = new ToolSchemaRegistry()
+## Testing and Observability
+Current tests in this package exercise tool behavior as follows:
 
-registry.register({
-  name: 'read_file',
-  version: '1.0.0',
-  description: 'Read a text file',
-  inputSchema: {
-    type: 'object',
-    properties: { path: { type: 'string' } },
-    required: ['path'],
-  },
-  registeredAt: new Date().toISOString(),
-})
+1. `createForgeTool` behavior (`src/__tests__/create-tool-deep.test.ts`).
+- string passthrough
+- JSON serialization of object outputs
+- output schema validation success/failure
+- `toModelOutput` override
+- error propagation
 
-registry.register({
-  name: 'read_file',
-  version: '1.1.0',
-  description: 'Read a text file with optional encoding',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      path: { type: 'string' },
-      encoding: { type: 'string' },
-    },
-    required: ['path'],
-  },
-  registeredAt: new Date().toISOString(),
-})
+2. `ToolSchemaRegistry` behavior (`tool-schema-registry.test.ts`, `tool-schema-registry-deep.test.ts`).
+- register/get/list semantics
+- version sorting and replacement
+- compatibility outcomes for removals, type changes, required-field additions, and arrays
+- docs generation content and ordering
 
-const compat = registry.checkBackwardCompat('read_file', '1.0.0', '1.1.0')
-// compat.compatible === true
-// compat.breaking === []
+3. `createHumanContactTool` behavior (`src/tools/human-contact-tool.test.ts`).
+- mode-specific request shaping
+- channel fallback behavior
+- timeout/default handling
+- pending-store CRUD behavior
+- `onPause` invocation and error propagation
+- response payload metadata (`status`, `resumeWith`, etc.)
 
-const docs = registry.generateDocs()
-```
+4. `agentAsTool` behavior through `DzupAgent.asTool()` tests (`src/__tests__/dzip-agent.test.ts`) and supervisor orchestration tests.
 
-## 5. End-to-End Flow with Agent Runtime
+Observability characteristics:
 
-`createForgeTool` output integrates directly with `runToolLoop(...)` in `packages/agent/src/agent/tool-loop.ts`:
+- No dedicated logger/metrics hooks are emitted from this folder.
+- `human_contact` returns structured JSON payloads suitable for external telemetry pipelines.
+- `ToolSchemaRegistry` is in-memory only; no persistence or event stream is emitted by default.
 
-1. Tool is created with `name`, `description`, `schema`.
-2. Agent loop receives tool calls from model.
-3. If `validateToolArgs` is enabled:
-   - tool-loop extracts JSON schema from `tool.schema`,
-   - validates/repairs arguments before invocation.
-4. Tool `invoke(...)` executes and returns model-visible content.
+## Risks and TODOs
+1. `human-contact-tool.ts` currently hardcodes `runId = 'unknown'`.
+- Resume URLs include this placeholder, so production wiring must inject real run identity outside this module or extend the API.
 
-Important integration detail:
+2. Human channel preference step is not implemented.
+- The comments describe a user-profile preference stage, but channel resolution currently only uses input override and config default.
 
-- `tool-loop.ts` accepts schema objects directly and also attempts Zod conversion (`jsonSchema()`), so tools created by `createForgeTool` align with arg-repair path used by the loop.
+3. Default pending-contact store is process-local memory.
+- `InMemoryPendingContactStore` has no TTL sweeper, durability, or cross-process coordination.
 
-## 6. References in Other Packages
+4. `ToolSchemaRegistry` version ordering is simple numeric dot-split.
+- It does not implement full semver prerelease/build semantics.
 
-### 6.1 Direct Consumers of `createForgeTool`
+5. Compatibility checks target input schemas only.
+- `checkBackwardCompat` does not evaluate output schema compatibility.
 
-- `packages/connectors-browser/src/browser-connector.ts`
-  - builds 5 tools:
-    - `browser-crawl-site`
-    - `browser-capture-screenshot`
-    - `browser-extract-forms`
-    - `browser-extract-elements`
-    - `browser-extract-a11y-tree`
-  - uses `toModelOutput` selectively to compress large payload exposure.
-- `packages/connectors-documents/src/document-connector.ts`
-  - builds:
-    - `parse-document`
-    - `chunk-document`
-  - uses model-facing summary output for chunking (`"N chunks created"`).
+6. `createForgeTool` behavior is delegated.
+- This package’s tests cover the behavior through the re-export, but implementation ownership is in `@dzupagent/core`; changes there can alter behavior without edits in this folder.
 
-### 6.2 Related Pattern (Conceptual)
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
-- `packages/scraper/src/scraper.ts`
-  - does not import `createForgeTool`,
-  - explicitly follows the same descriptor shape (`name`, `description`, `schema`, `invoke`) via `asTool()`.
-
-### 6.3 `ToolSchemaRegistry` Usage Status
-
-- No runtime usage in other packages was found in source code.
-- Current usage is local to `@dzupagent/agent` tests and export surface.
-- It is effectively an available utility API, not yet wired into connector registration pipelines.
-
-## 7. Test Coverage Analysis
-
-Executed targeted suites:
-
-- `yarn workspace @dzupagent/agent test src/__tests__/tool-schema-registry.test.ts src/__tests__/parallel-tool-loop.test.ts`
-- `yarn workspace @dzupagent/connectors-browser test src/__tests__/browser-connector.integration.test.ts`
-- `yarn workspace @dzupagent/connectors-documents test src/__tests__/document-connector.integration.test.ts`
-
-Observed passing tests:
-
-- `tool-schema-registry.test.ts`: 12 tests
-- `parallel-tool-loop.test.ts`: 11 tests
-- `browser-connector.integration.test.ts`: 3 tests
-- `document-connector.integration.test.ts`: 3 tests
-
-### 7.1 Covered
-
-- `ToolSchemaRegistry`:
-  - register/get/list behavior,
-  - latest-version resolution,
-  - compatibility checks for optional addition, field removal, type change, missing versions,
-  - markdown docs generation with multi-version listing.
-- `createForgeTool` (indirectly via connector integration):
-  - generated tools have expected names/descriptions,
-  - generated tools are invokable through public connector APIs.
-- Agent loop integration:
-  - schema-driven argument repair and validation path works in sequential and parallel execution.
-
-### 7.2 Gaps / Risks
-
-- No direct unit test file for `createForgeTool` itself.
-  - Missing explicit assertions for:
-    - output schema parse failure behavior,
-    - fallback `JSON.stringify` behavior for object outputs,
-    - `toModelOutput` precedence over default serialization.
-- Compatibility checker edge cases not explicitly tested:
-  - optional field becoming required (existing property),
-  - non-standard semver strings,
-  - deeper nested mixed object/array schema transitions.
-
-## 8. Typical Use Cases
-
-- Build connector/tool packages with consistent LangChain-compatible contracts.
-- Keep tool interfaces strongly typed in TypeScript using Zod inference.
-- Gate tool response shape with output schema validation before model exposure.
-- Version schemas for governance and release notes (`ToolSchemaRegistry.generateDocs()`).
-- Detect breaking input schema changes before upgrading shared tools across packages.
-
-## 9. Practical Recommendations
-
-- Add dedicated tests for `createForgeTool` in `packages/agent/src/__tests__/create-tool.test.ts`.
-- If schema governance becomes central, wire `ToolSchemaRegistry` into connector/tool registration lifecycle (build-time or startup-time checks).
-- Consider extending compatibility rules to flag optional->required transitions as breaking.

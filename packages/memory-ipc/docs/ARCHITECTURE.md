@@ -1,351 +1,228 @@
 # @dzupagent/memory-ipc Architecture
 
-## Purpose
-`@dzupagent/memory-ipc` is the memory interoperability layer for DzupAgent. It standardizes how memory is represented, exchanged, selected, and analyzed using Apache Arrow tables and Arrow IPC.
+## Scope
+`@dzupagent/memory-ipc` is a framework package that standardizes in-memory and over-the-wire memory exchange using Apache Arrow tables and Arrow IPC. The package lives at `packages/memory-ipc` and currently includes:
 
-At a high level, the package provides:
-- A canonical Arrow `MemoryFrame` schema (22 columns)
-- Bidirectional mapping between object records and Arrow tables
-- Transport helpers (IPC bytes, base64 wrappers, MCP handlers, A2A artifacts)
-- Vectorized selection/scoring and memory-budget utilities
-- Cross-framework adapters (Mastra, LangGraph, Mem0, Letta, MCP-KG)
-- Optional analytics via DuckDB-WASM
-- Shared-memory and blackboard primitives for multi-agent coordination
+- Canonical memory frame schema (`src/schema.ts`) and row-oriented conversion helpers (`src/frame-builder.ts`, `src/frame-reader.ts`)
+- Arrow IPC and base64 transport helpers (`src/ipc-serializer.ts`)
+- Columnar scoring/filtering/ranking operations and token-budgeted selection (`src/columnar-ops.ts`, `src/token-budget.ts`, `src/phase-memory-selection.ts`)
+- Cache delta and overlap analysis utilities (`src/cache-delta.ts`, `src/memory-aware-compress.ts`)
+- Shared-memory and coordination primitives (`src/shared-memory-channel.ts`, `src/blackboard.ts`)
+- Protocol/integration layers (memory service extension, MCP transport handlers, A2A artifact wrapper)
+- Cross-framework adapters (`src/adapters/*`) and optional SQL analytics via DuckDB-WASM (`src/analytics/*`)
+- Additional Arrow frame families for tool results, codegen, evals, and entity graphs (`src/frames/*`)
 
-## Design Goals
-- Columnar interoperability: all systems converge on one schema.
-- Efficient transport: Arrow IPC stream format for compact binary transfer.
-- Non-fatal operations: most helpers degrade gracefully instead of throwing.
-- Extensible boundaries: adapters, frame variants, and analytics are pluggable.
-- Optional heavy deps: DuckDB integration is optional peer dependency.
+The package build exports only `src/index.ts` through `dist` (ESM + d.ts), as configured in `tsup.config.ts` and `package.json`.
 
-## Package Layout
-- `src/schema.ts`: Canonical `MEMORY_FRAME_SCHEMA` and metadata.
-- `src/frame-builder.ts`: Object records -> Arrow `Table`.
-- `src/frame-reader.ts`: Arrow `Table` -> object records and filters.
-- `src/ipc-serializer.ts`: Arrow IPC and base64 helpers.
-- `src/columnar-ops.ts`: Vectorized scoring/filtering/ranking operations.
-- `src/token-budget.ts`: Budgeted memory selection + allocator.
-- `src/phase-memory-selection.ts`: Conversation-phase-aware selection.
-- `src/cache-delta.ts`: Frame diffing for cache/refreeze decisions.
-- `src/memory-aware-compress.ts`: Jaccard overlap duplicate analysis.
-- `src/shared-memory-channel.ts`: `SharedArrayBuffer` slot channel.
-- `src/memory-service-ext.ts`: Adds Arrow import/export to MemoryService-like APIs.
-- `src/mcp-memory-transport.ts`: MCP-safe Zod schemas + handlers.
-- `src/a2a-memory-artifact.ts`: Agent-to-agent transfer wrapper + sanitization.
-- `src/blackboard.ts`: In-memory Arrow blackboard with writer ACL.
-- `src/adapters/*`: Cross-framework conversion adapters + registry.
-- `src/analytics/*`: DuckDB engine + prebuilt analytical query facade.
-- `src/frames/*`: Specialized non-memory frame schemas/builders.
-- `src/index.ts`: Public API surface.
+## Responsibilities
+Primary responsibilities implemented in current code:
 
-## Canonical MemoryFrame Schema
-Schema version: `1` in schema metadata (`memory_frame_version=1`).
+- Define the canonical memory frame contract used across components.
+- Convert record-shaped memory data to/from Arrow `Table` efficiently.
+- Serialize/deserialize memory frames to Arrow IPC bytes and text-safe base64.
+- Provide reusable, non-fatal batch utilities for scoring, filtering, selection, and similarity.
+- Provide import/export bridges for higher-level protocols:
+  - MemoryService-like APIs (`extendMemoryServiceWithArrow`)
+  - MCP request/response handlers (`handleExportMemory`, `handleImportMemory`, `handleMemorySchema`)
+  - A2A artifact envelope (`createMemoryArtifact`, `parseMemoryArtifact`, `sanitizeForExport`)
+- Provide adapter surface for external memory ecosystems (Mastra, LangGraph, Mem0, Letta, MCP KG).
+- Provide optional analytics on Arrow tables through DuckDB-WASM when peer dependency is installed.
 
-### Columns (22)
-1. `id`
-2. `namespace` (dictionary-encoded)
-3. `key`
-4. `scope_tenant`
-5. `scope_project`
-6. `scope_agent`
-7. `scope_session`
-8. `text`
-9. `payload_json`
-10. `system_created_at` (Int64 ms)
-11. `system_expired_at` (Int64 ms, nullable)
-12. `valid_from` (Int64 ms)
-13. `valid_until` (Int64 ms, nullable)
-14. `decay_strength`
-15. `decay_half_life_ms`
-16. `decay_last_accessed_at` (Int64 ms)
-17. `decay_access_count` (Int64)
-18. `agent_id` (dictionary-encoded)
-19. `category` (dictionary-encoded)
-20. `importance`
-21. `provenance_source` (dictionary-encoded)
-22. `is_active`
+Non-responsibilities (based on code boundaries):
 
-### Mapping conventions
-- Known value fields (`text`, `_temporal`, `_decay`, `_provenance`, `_agent`, `category`/`type`, `importance`) map to dedicated columns.
-- Unknown fields are serialized into `payload_json` (overflow bucket).
-- `is_active` is derived from expiration status (`system_expired_at === null` in builder flow).
+- No persistence backend ownership (storage is delegated to caller services/adapters).
+- No network server or transport daemon.
+- No workflow orchestration or app-level authorization policy beyond local writer checks in `ArrowBlackboard`.
 
-## Core Data Flow
+## Structure
+Top-level source structure:
 
-### 1) Build -> IPC -> Read
-1. Domain record objects are added via `FrameBuilder.add(value, meta)`.
-2. Builder emits an Arrow table (`build`) or IPC (`toIPC`).
-3. Consumer deserializes (`deserializeFromIPC` / `FrameReader.fromIPC`).
-4. `FrameReader.toRecords()` reconstructs conventional memory shapes.
+- `src/index.ts`: package public API exports.
+- `src/schema.ts`: canonical memory frame schema constants.
+- `src/frame-builder.ts`: `FrameBuilder` and input metadata/value types.
+- `src/frame-reader.ts`: `FrameReader` and reconstructed `FrameRecord` type.
+- `src/ipc-serializer.ts`: Arrow IPC + base64 helpers.
+- `src/columnar-ops.ts`: pure vectorized operations over Arrow tables.
+- `src/token-budget.ts`: budget scoring/selection and `TokenBudgetAllocator`.
+- `src/phase-memory-selection.ts`: phase-aware namespace/category multipliers.
+- `src/cache-delta.ts`: table-delta/refreeze heuristic.
+- `src/memory-aware-compress.ts`: Jaccard overlap duplicate detection.
+- `src/shared-memory-channel.ts`: `SharedArrayBuffer` + Atomics slot channel.
+- `src/blackboard.ts`: `ArrowBlackboard` append/read coordination map.
+- `src/memory-service-ext.ts`: Arrow import/export extension for MemoryService-like interfaces.
+- `src/mcp-memory-transport.ts`: Zod schemas and MCP-friendly handlers.
+- `src/a2a-memory-artifact.ts`: artifact create/parse/sanitize.
+- `src/adapters/*`: adapter interfaces, helpers, and built-in adapters.
+- `src/analytics/*`: DuckDB engine and canned analytics queries.
+- `src/frames/*`: specialized frame schemas/builders.
+- `src/__tests__/**`: package tests.
 
-### 2) Selection and budgeting
-1. Compute score signals (`computeCompositeScore`, phase multipliers, PageRank, etc.).
-2. Estimate token costs (`batchTokenEstimate`).
-3. Greedy selection under budget (`selectByTokenBudget`, `selectMemoriesByBudget`, `phaseWeightedSelection`).
+Canonical memory frame schema (`MEMORY_FRAME_SCHEMA`) currently has 22 fields and schema metadata `memory_frame_version=1`.
 
-### 3) Transport boundaries
-- IPC/raw bytes: `serializeToIPC` + optional base64 wrappers.
-- MCP tool transport: `handleExportMemory`, `handleImportMemory`, `handleMemorySchema`.
-- A2A envelope transport: `createMemoryArtifact`, `parseMemoryArtifact`.
-- Shared memory transport: `SharedMemoryChannel` slot handles over `SharedArrayBuffer`.
+## Runtime and Control Flow
+Core runtime flows implemented by the package:
 
-## Feature Inventory
+1. Build and read memory frame
+- Caller accumulates records via `FrameBuilder.add()` / `addBatch()`.
+- `FrameBuilder.build()` creates Arrow `Table`; `toIPC()` serializes directly.
+- Consumer wraps table in `FrameReader` or constructs from IPC/shared buffer.
+- `FrameReader.toRecords()` reconstructs value/meta shape including `_temporal`, `_decay`, `_provenance`, and payload overflow.
 
-### Record <-> Arrow conversion
-- `FrameBuilder`: append/addBatch APIs, single-use `build`, IPC/shared-buffer convenience methods.
-- `FrameReader`: namespace listing, typed column access, reconstruction and filters (`filterByNamespace`, `filterActive`, `filterByDecayAbove`, `filterByAgent`).
+2. IPC transport
+- `serializeToIPC(table, { format })` writes Arrow stream/file format.
+- `ipcToBase64` / `base64ToIPC` bridge binary into string transports.
+- `deserializeFromIPC` restores a table.
+- Error handling is intentionally non-throwing in serializer helpers (returns empty bytes/table/string on failures).
 
-### IPC serialization
-- `serializeToIPC`, `deserializeFromIPC`, `ipcToBase64`, `base64ToIPC`.
-- Deliberately non-fatal behavior:
-- serialization failure -> empty `Uint8Array`
-- deserialization failure -> empty table
-- base64 failure -> empty string/bytes
+3. Selection and budgeting
+- `computeCompositeScore`, `batchTokenEstimate`, and selectors (`selectByTokenBudget`, `selectMemoriesByBudget`, `phaseWeightedSelection`) rank and pick rows under budget.
+- `TokenBudgetAllocator.rebalance()` computes memory vs conversation/system/tool/response slots and returns selected indices.
 
-### Columnar operations
-- Filtering: `findWeakIndices`, `temporalMask`, `applyMask`, `takeRows`, `partitionByNamespace`
-- Scoring/ranking: `computeCompositeScore`, `rankByPageRank`, `applyHubDampeningBatch`
-- Cost/similarity: `batchTokenEstimate`, `batchCosineSimilarity`
-- Retrieval under budget: `selectByTokenBudget`
+4. Service/protocol adapters
+- `extendMemoryServiceWithArrow()` wraps `get/search/put/(optional delete)` service methods with frame and IPC import/export helpers.
+- `handleExportMemory()` and `handleImportMemory()` implement MCP-transport-safe schema-validated payload handling (`arrow_ipc` or `json`).
+- `createMemoryArtifact()` and `parseMemoryArtifact()` wrap/unwrap Arrow IPC for A2A-style memory exchange.
 
-### Token budget + phase-aware selection
-- `selectMemoriesByBudget`: score/token efficiency greedy selector.
-- `TokenBudgetAllocator`: splits global context budget across system/tool/conversation/memory/response reserve.
-- `phaseWeightedSelection`: namespace/category multipliers by phase (`planning`, `coding`, `debugging`, `reviewing`, `general`).
+5. Concurrent/coordination utilities
+- `SharedMemoryChannel` writes IPC bytes into slot-managed shared memory using CAS and atomics state transitions.
+- `ArrowBlackboard` enforces per-table designated writer identity and tracks `writeSeq`/`lastWriteAt` snapshots.
 
-### Cache and compression helpers
-- `computeFrameDelta`: detects added/removed/modified rows using ID sets + FNV-1a hash of `text + payload_json`.
-- `batchOverlapAnalysis`: classifies incoming observations as novel vs duplicate using Jaccard overlap.
+## Key APIs and Types
+Public API is exported from `src/index.ts`. Major surfaces:
 
-### Shared memory / coordination
-- `SharedMemoryChannel`: lock-free slot state machine with atomics (`FREE`, `WRITING`, `READY`, `CLAIMED`).
-- `ArrowBlackboard`: named tables with designated writer policy and append+read snapshots.
+- Schema and contracts
+  - `MEMORY_FRAME_SCHEMA`, `MEMORY_FRAME_COLUMNS`, `MEMORY_FRAME_VERSION`, `MEMORY_FRAME_FIELD_COUNT`
+  - `MemoryFrameColumn`
 
-### Integration adapters
-- Registry: `createAdapterRegistry`, `createDefaultRegistry`.
-- Built-ins:
-- `MastraAdapter`
-- `LangGraphAdapter`
-- `Mem0Adapter`
-- `LettaAdapter` (+ `lettaCoreToWorkingMemory`, `workingMemoryToLettaCore`)
-- `MCPKGAdapter` (+ `flattenMCPKG`, `reconstructMCPKG`)
+- Frame conversion
+  - `FrameBuilder`, `FrameReader`
+  - `FrameScope`, `FrameTemporal`, `FrameDecay`, `FrameProvenance`, `FrameRecordMeta`, `FrameRecordValue`, `FrameRecord`
 
-### Service and protocol transport
-- `extendMemoryServiceWithArrow` for MemoryService-like objects (`get`, `search`, `put`, optional `delete`).
-- Merge strategies: `upsert`, `append`, `replace`.
-- MCP layer with explicit Zod schemas for request/response validation.
-- A2A artifact wrapper with optional sanitization (`redactColumns`, `excludeNamespaces`, `stripPayload`).
+- IPC helpers
+  - `serializeToIPC`, `deserializeFromIPC`, `ipcToBase64`, `base64ToIPC`
+  - `SerializeOptions`
 
-### Analytics
-- `DuckDBEngine` (optional `@duckdb/duckdb-wasm` peer dependency): single-table and multi-table SQL.
-- `MemoryAnalytics` prebuilt queries:
-- `decayTrends`
-- `namespaceStats`
-- `expiringMemories`
-- `agentPerformance`
-- `usagePatterns`
-- `duplicateCandidates`
-- `custom`
+- Columnar and budget operations
+  - `findWeakIndices`, `batchDecayUpdate`, `temporalMask`, `applyMask`, `partitionByNamespace`, `computeCompositeScore`, `batchTokenEstimate`, `selectByTokenBudget`, `rankByPageRank`, `applyHubDampeningBatch`, `batchCosineSimilarity`, `takeRows`
+  - `selectMemoriesByBudget`, `TokenBudgetAllocator`
+  - `phaseWeightedSelection`, `PHASE_NAMESPACE_WEIGHTS`, `PHASE_CATEGORY_WEIGHTS`
+  - `CompositeScoreWeights`, `ScoredRecord`, `TokenBudgetAllocation`, `TokenBudgetAllocatorConfig`, `ConversationPhase`
 
-### Extended frame families
-- `ToolResultFrameBuilder` + `TOOL_RESULT_SCHEMA`
-- `CodegenFrameBuilder` + `CODEGEN_FRAME_SCHEMA`
-- `EvalFrameBuilder` + `EVAL_FRAME_SCHEMA`
-- `EntityGraphFrameBuilder` + `ENTITY_GRAPH_SCHEMA`
+- Delta/compression
+  - `computeFrameDelta`, `FrameDelta`
+  - `batchOverlapAnalysis`, `OverlapAnalysis`
 
-## How To Use
+- Shared memory/blackboard
+  - `SharedMemoryChannel`, `SharedMemoryChannelOptions`, `SlotHandle`
+  - `ArrowBlackboard`, `BlackboardConfig`, `BlackboardTableDef`, `BlackboardSnapshot`
 
-### 1) Build and read a MemoryFrame
-```ts
-import { FrameBuilder, FrameReader } from '@dzupagent/memory-ipc'
+- Service and protocol bridges
+  - `extendMemoryServiceWithArrow`, `ExportFrameOptions`, `ImportFrameResult`, `ImportStrategy`, `MemoryServiceLike`, `MemoryServiceArrowExtension`
+  - MCP schemas + handlers + dependency types
+  - A2A memory artifact types and sanitization options
 
-const builder = new FrameBuilder()
-builder.add(
-  {
-    text: 'Use PostgreSQL for transactional data',
-    _temporal: { systemCreatedAt: Date.now(), validFrom: Date.now() },
-    _decay: { strength: 0.9, halfLifeMs: 86_400_000 },
-    _provenance: { createdBy: 'agent://planner', source: 'decision-log' },
-    category: 'decision',
-    importance: 0.85,
-    customTag: 'db', // goes to payload_json
-  },
-  {
-    id: 'mem-1',
-    namespace: 'decisions',
-    key: 'db-choice',
-    scope: { tenant: 't1', project: 'p1', agent: 'planner' },
-  },
-)
+- Adapters and analytics
+  - Adapter registry interfaces and helpers
+  - Built-in adapter classes (Mastra, LangGraph, Mem0, Letta, MCPKG)
+  - `DuckDBEngine`, `MemoryAnalytics` and analytics result types
 
-const table = builder.build()
-const records = new FrameReader(table).toRecords()
-```
+- Extended frames
+  - `TOOL_RESULT_SCHEMA`/`ToolResultFrameBuilder`
+  - `CODEGEN_FRAME_SCHEMA`/`CodegenFrameBuilder`
+  - `EVAL_FRAME_SCHEMA`/`EvalFrameBuilder`
+  - `ENTITY_GRAPH_SCHEMA`/`EntityGraphFrameBuilder`
 
-### 2) Serialize and transfer over wire
-```ts
-import { serializeToIPC, deserializeFromIPC, ipcToBase64, base64ToIPC } from '@dzupagent/memory-ipc'
+Important export nuance:
 
-const ipc = serializeToIPC(table)
-const payload = ipcToBase64(ipc) // send over JSON transport
+- `createDefaultRegistry()` exists in `src/adapters/index.ts` but is not re-exported from package root `src/index.ts`; package-root consumers currently get `createAdapterRegistry()` and can instantiate/register adapters themselves.
 
-const restored = deserializeFromIPC(base64ToIPC(payload))
-```
+## Dependencies
+From `package.json`:
 
-### 3) Retrieve memories within a token budget
-```ts
-import { selectMemoriesByBudget } from '@dzupagent/memory-ipc'
+Runtime dependencies:
 
-const selected = selectMemoriesByBudget(table, 3000, {
-  minScore: 0.2,
-  phaseWeights: { decisions: 1.8, lessons: 1.4 },
-})
+- `apache-arrow` `^19.0.0`: core table/schema/vector/IPC operations.
+- `zod` `^4.3.6`: MCP input/output schema validation.
 
-const rowIndices = selected.map((s) => s.rowIndex)
-```
+Peer dependency (optional):
 
-### 4) Use phase-aware retrieval
-```ts
-import { phaseWeightedSelection } from '@dzupagent/memory-ipc'
+- `@duckdb/duckdb-wasm >=1.29.0`: required only for analytics classes under `src/analytics/*`.
 
-const selection = phaseWeightedSelection(table, 'debugging', 2000)
-```
+Behavioral dependency note:
 
-### 5) Extend a MemoryService-like implementation
-```ts
-import { extendMemoryServiceWithArrow } from '@dzupagent/memory-ipc'
+- Analytics module dynamically imports DuckDB and throws a descriptive `DuckDBUnavailableError` when peer dependency is missing.
 
-const memoryWithArrow = extendMemoryServiceWithArrow(memoryService)
+Build/test toolchain:
 
-const exported = await memoryWithArrow.exportIPC('decisions', { tenant: 't1' })
-await memoryWithArrow.importIPC('decisions', { tenant: 't2' }, exported, 'upsert')
-```
+- `tsup`, `typescript`, `vitest`.
+- `tsup` builds ESM + d.ts to `dist/` targeting Node 20.
 
-### 6) Plug into MCP handlers
-```ts
-import { handleExportMemory, handleImportMemory, handleMemorySchema } from '@dzupagent/memory-ipc'
+## Integration Points
+Implemented integration boundaries:
 
-const exportResult = await handleExportMemory(
-  { namespace: 'decisions', format: 'arrow_ipc', limit: 100 },
-  { exportFrame: deps.exportFrame },
-)
+- Memory service integration
+  - `extendMemoryServiceWithArrow(memoryService)` wraps service implementations exposing `get/search/put` (+ optional `delete`).
+  - Supports import strategies: `upsert`, `append`, `replace`.
 
-const importResult = await handleImportMemory(
-  {
-    data: exportResult.data,
-    format: exportResult.format,
-    namespace: 'decisions',
-    merge_strategy: 'upsert',
-  },
-  { importFrame: deps.importFrame },
-)
+- MCP layer integration
+  - `handleExportMemory(input, deps)` expects dependency `exportFrame(ns, scope, opts)`.
+  - `handleImportMemory(input, deps)` expects dependency `importFrame(ns, scope, table, strategy)`.
+  - `handleMemorySchema()` emits memory frame field metadata.
 
-const schema = handleMemorySchema()
-```
+- External memory ecosystems
+  - Built-in adapters for `mastra`, `langgraph`, `mem0`, `letta`, and `mcp-knowledge-graph`.
+  - Registry pattern enables custom adapter registration.
 
-### 7) Use built-in adapters
-```ts
-import { createDefaultRegistry } from '@dzupagent/memory-ipc'
+- Worker-thread/agent-process sharing
+  - `SharedMemoryChannel` uses `SharedArrayBuffer` + atomics for slot/state-managed exchange.
+  - Default contract is single producer writer unless `multiWriter` is explicitly enabled and externally coordinated.
 
-const registry = createDefaultRegistry()
-const adapter = registry.get('langgraph')
-if (!adapter) throw new Error('Adapter missing')
+- A2A artifact exchange
+  - `createMemoryArtifact` and `parseMemoryArtifact` package Arrow IPC in a fixed artifact envelope (`dzupagent_memory_batch`).
 
-const table = adapter.toFrame(langGraphItems)
-const restored = adapter.fromFrame(table)
-```
+## Testing and Observability
+Testing surface (Vitest):
 
-### 8) Create and sanitize A2A artifacts
-```ts
-import { createMemoryArtifact, parseMemoryArtifact, sanitizeForExport } from '@dzupagent/memory-ipc'
+- Test config in `vitest.config.ts` (`environment: node`, 30s timeout).
+- Coverage thresholds configured at package level:
+  - statements: 60
+  - branches: 50
+  - functions: 50
+  - lines: 60
+- Test suites cover core modules, adapters, analytics, transport, branch/error paths, and integration round-trips (`src/__tests__/**`).
 
-const { table: safeTable } = sanitizeForExport(table, {
-  redactColumns: ['text', 'payload_json'],
-  excludeNamespaces: ['secrets'],
-})
+Observability currently in code:
 
-const artifact = createMemoryArtifact(safeTable, 'agent://source')
-const parsed = parseMemoryArtifact(artifact)
-```
+- No dedicated logging/metrics emitter inside package runtime modules.
+- Some functions include measurable output fields:
+  - `batchOverlapAnalysis` returns `analysisMs`.
+  - `DuckDBEngine.query/queryMulti` return `executionMs` and `rowCount`.
+  - MCP and import APIs return structured counters (`imported/skipped/conflicts`, warnings).
+- Error strategy is mixed by layer:
+  - computational/serialization helpers often fail-safe with empty/default results.
+  - coordination primitives (`SharedMemoryChannel`, `ArrowBlackboard`) throw explicit errors for invalid operations.
 
-### 9) Shared-memory channel between threads/workers
-```ts
-import { SharedMemoryChannel } from '@dzupagent/memory-ipc'
+## Risks and TODOs
+Current implementation risks or sharp edges visible in code:
 
-const channel = new SharedMemoryChannel({ maxBytes: 64 * 1024 * 1024, maxSlots: 16 })
-const handle = channel.writeTable(table)
+- Schema docstring drift
+  - `schema.ts` file header says “21-column schema” while actual schema defines 22 fields.
 
-const workerSide = new SharedMemoryChannel({ existingBuffer: channel.sharedBuffer, maxSlots: 16 })
-const readBack = workerSide.readTable(handle)
-workerSide.release(handle)
-```
+- Package root export gap for default adapter registry
+  - `createDefaultRegistry()` exists but is not exported from package root `index.ts`, which may surprise consumers expecting one-call built-in registration.
 
-### 10) Run SQL analytics
-```ts
-import { MemoryAnalytics } from '@dzupagent/memory-ipc'
+- Non-fatal fallbacks can hide failures
+  - `ipc-serializer` and several columnar helpers swallow errors and return empty/default values, which is robust for runtime safety but can mask upstream misuse without additional caller-side checks.
 
-const analytics = await MemoryAnalytics.create()
-const stats = await analytics.namespaceStats(table)
-await analytics.close()
-```
+- `SharedMemoryChannel` wrap-around allocator does not include overwrite protection
+  - Writer wraps `next_write_offset` when full; safety depends on caller slot lifecycle discipline (`release`) and external coordination in multi-writer/cross-process scenarios.
 
-## Extensibility Guidance
+- Replace import strategy strictness
+  - `replace` in memory service extension requires both `delete` support and existing records with recoverable keys; otherwise it throws.
 
-### Add a new adapter
-1. Implement `MemoryFrameAdapter<TExternal>`.
-2. Keep `toFrame`/`fromFrame` non-throwing and skip malformed rows.
-3. Implement `canAdapt` and `validate` for shape diagnostics.
-4. Register with `createAdapterRegistry()` or add to a custom default registry.
+- Environment assumptions
+  - `performance.now()`, `TextEncoder`/`TextDecoder`, `Buffer`, and `SharedArrayBuffer` are used directly; package targets Node 20 but non-Node runtimes need compatibility checks.
 
-### Add a new frame family
-1. Define a `Schema` in `src/frames/<name>-frame.ts`.
-2. Add a builder that converts domain entries to `tableFromArrays`.
-3. Export through `src/frames/index.ts` and root `src/index.ts`.
-4. Add tests for schema field count + round-trip expectations.
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
-## Operational Notes and Constraints
-- `FrameBuilder` is single-use after `build()`.
-- `SharedMemoryChannel` allocator is simple bump+wrap; comments explicitly note single-writer assumption for safe wrap behavior.
-- Most APIs swallow internal errors and return safe defaults; callers should validate outputs (`numRows`, byte length) for strict workflows.
-- `replace` import strategy in `extendMemoryServiceWithArrow` requires `delete()` support.
-- DuckDB analytics require optional peer dependency `@duckdb/duckdb-wasm`.
-
-## Test Posture
-The package has broad unit and integration coverage, with focused tests per feature area.
-
-### Feature-to-Test Coverage Matrix
-| Feature Area | Primary Implementation | Related Tests | What Is Covered |
-|---|---|---|---|
-| Canonical schema + metadata | `src/schema.ts` | `src/__tests__/schema.test.ts` | Field count (22), required vs nullable columns, version metadata, exported column constants. |
-| Builder/reader conversion | `src/frame-builder.ts`, `src/frame-reader.ts` | `src/__tests__/round-trip.test.ts` | `add`, `addBatch`, single-use `build`, overflow-to-`payload_json`, filters, record reconstruction. |
-| IPC and base64 transport | `src/ipc-serializer.ts` | `src/__tests__/round-trip.test.ts`, `src/__tests__/memory-ipc.integration.test.ts` | Arrow IPC serialization/deserialization, base64 round-trips, invalid-data non-fatal behavior. |
-| Columnar ops (masking/scoring/ranking) | `src/columnar-ops.ts` | `src/__tests__/columnar-ops.test.ts` | Weak decay detection, temporal filtering, masking, namespace partitioning, composite score, token estimate, budget selection, PageRank, hub dampening, cosine similarity, row extraction. |
-| Budget and phase selection | `src/token-budget.ts`, `src/phase-memory-selection.ts` | `src/__tests__/token-budget.test.ts`, `src/__tests__/phase-memory-selection.test.ts` | Greedy selection under budget, score/token efficiency ordering, allocator rebalance, phase namespace/category weighting behavior. |
-| Cache delta + overlap compression | `src/cache-delta.ts`, `src/memory-aware-compress.ts` | `src/__tests__/cache-delta.test.ts`, `src/__tests__/memory-aware-compress.test.ts` | Added/removed/modified detection with thresholding, Jaccard duplicate/novel classification and threshold sensitivity. |
-| Shared memory channel | `src/shared-memory-channel.ts` | `src/__tests__/shared-memory-channel.test.ts` | Slot lifecycle, write/read/release, max slot bounds, oversized payload rejection, reuse after release, cross-instance access through `existingBuffer`. |
-| MemoryService extension | `src/memory-service-ext.ts` | `src/__tests__/memory-service-ext.test.ts` | `exportFrame`, `importFrame`, `exportIPC`, `importIPC`, query/limit behavior, merge strategies (`upsert`/`append`/`replace`), delete requirement for replace. |
-| MCP transport handlers | `src/mcp-memory-transport.ts` | `src/__tests__/mcp-memory-transport.test.ts`, `src/__tests__/memory-ipc.integration.test.ts` | Export/import handler behavior for `arrow_ipc` and `json`, malformed input handling, schema descriptor output, dependency call wiring. |
-| A2A artifact + sanitization | `src/a2a-memory-artifact.ts` | `src/__tests__/a2a-memory-artifact.test.ts` | Artifact envelope integrity, temporal metadata calculation, parse round-trip, redaction, namespace exclusion, payload stripping. |
-| Blackboard coordination | `src/blackboard.ts` | `src/__tests__/blackboard.test.ts` | Writer authorization, append concatenation, read snapshots, update sequence tracking, cleanup via `dispose`. |
-| Adapter registry | `src/adapters/adapter-interface.ts`, `src/adapters/index.ts` | `src/__tests__/adapters/adapter-registry.test.ts` | Empty/default registry behavior, registration/lookup, override semantics, built-in adapter presence. |
-| Adapter conversion behavior | `src/adapters/*.ts` | `src/__tests__/adapters/langgraph-adapter.test.ts`, `src/__tests__/adapters/mastra-adapter.test.ts`, `src/__tests__/adapters/mem0-adapter.test.ts`, `src/__tests__/adapters/letta-adapter.test.ts`, `src/__tests__/adapters/mcp-kg-adapter.test.ts`, `src/__tests__/adapters/frame-columns.test.ts` | `canAdapt`, `validate`, `toFrame`, `fromFrame`, payload handling, round-trips, helper transforms (`flattenMCPKG`/`reconstructMCPKG`, Letta core conversions). |
-| Analytics engine + query facade | `src/analytics/duckdb-engine.ts`, `src/analytics/memory-analytics.ts` | `src/__tests__/analytics/duckdb-engine.test.ts` | Registration/unregistration lifecycle, single/multi-table query flow, cleanup on error, SQL generation behavior in analytics facade methods. |
-| Extended frame builders | `src/frames/*.ts` | `src/__tests__/frames.test.ts` | Schema field counts and row mapping for tool-result, codegen, eval, entity-graph frame families, plus hash stability checks for codegen hashing. |
-
-### Integration-Level Coverage
-- `src/__tests__/memory-ipc.integration.test.ts` validates cross-module interoperability through the public exports (`src/index.ts`) for build/read/transport/schema flows.
-
-### Coverage Notes For Feature Updates
-- For any feature update in this package, add or update tests in the closest domain test file listed above.
-- If behavior crosses domains (for example, builder + transport + adapter), add an integration assertion in `src/__tests__/memory-ipc.integration.test.ts`.
-- Keep non-fatal fallback behavior explicitly tested when changing serialization, selection, or adapter parsing logic.
-
-## Build and Validation Commands
-From repository root:
-- `yarn build --filter=@dzupagent/memory-ipc`
-- `yarn typecheck --filter=@dzupagent/memory-ipc`
-- `yarn lint --filter=@dzupagent/memory-ipc`
-- `yarn test --filter=@dzupagent/memory-ipc`
-
-If package API changes impact docs or consumers, follow monorepo guidance in `AGENTS.md` and run broader checks before merge.

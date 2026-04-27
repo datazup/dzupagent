@@ -1,37 +1,75 @@
-# Context Runtime Architecture (`packages/core/src/context`)
-
-Last updated: 2026-04-03
+# Context Architecture (`packages/core/src/context`)
 
 ## Scope
+This document covers the context module inside `@dzupagent/core` at:
 
-This document describes the context runtime persistence module in:
+- `src/context/run-context-transfer.ts`
+- exports in `src/index.ts`
+- module tests in `src/__tests__/run-context-transfer.test.ts`
 
-- `packages/core/src/context/run-context-transfer.ts`
-- related exports in `packages/core/src/index.ts`
-- direct runtime usage in `packages/server/src/runtime/run-worker.ts`
-- related tests in `packages/core/src/__tests__/run-context-transfer.test.ts` and `packages/server/src/__tests__/e2e-run-pipeline.test.ts`
+In the current codebase, `src/context` contains one runtime module: `RunContextTransfer`.
 
-This module is intentionally small: it provides persistent storage and retrieval for cross-intent context snapshots between runs.
+## Responsibilities
+`RunContextTransfer` provides persistent cross-intent context handoff for a run session:
 
-## What This Module Does
+- Save a serialized context snapshot per `sessionId + intent`.
+- Load a context snapshot for an exact prior intent.
+- Resolve a prior context for a new intent through deterministic intent chains.
+- List and clear stored contexts for a session.
+- Enforce staleness filtering (`maxAgeMs`) when loading.
 
-`RunContextTransfer` persists lightweight context snapshots keyed by `session + intent`, then resolves the best prior context for a new intent using a deterministic chain.
+This module is storage-focused. It does not extract or inject conversational context itself; it persists and retrieves snapshots that other layers can consume.
 
-It bridges:
+## Structure
+Current file layout in this scope:
 
-- `@dzupagent/context` extraction/injection logic (`ContextTransferService`)
-- durable or semi-durable storage via LangGraph `BaseStore`
-- run lifecycle integration in server worker execution
+- `run-context-transfer.ts`
+- `ARCHITECTURE.md`
 
-In short:
+Key symbols in `run-context-transfer.ts`:
 
-1. A completed run saves context (`save`).
-2. A future run in the same session requests relevant prior context (`loadForIntent`).
-3. Context is injected into run metadata (`priorContext`) by `run-worker`.
+- `PersistedIntentContext` (persisted payload contract)
+- `RunContextTransferConfig` (store + optional namespace/TTL)
+- `INTENT_CONTEXT_CHAINS` (static fallback order across intents)
+- `RunContextTransfer` (runtime API)
 
-## Public Surface
+Internal constants:
 
-## Types
+- `DEFAULT_NAMESPACE_PREFIX = ['_run_context']`
+- `DEFAULT_MAX_AGE_MS = 24 * 60 * 60 * 1000`
+- `SEARCH_PAGE_SIZE = 100`
+- `MAX_SEARCH_PAGES = 1000`
+
+## Runtime and Control Flow
+1. Construction:
+- `new RunContextTransfer({ store, namespacePrefix?, maxAgeMs? })` stores config and applies defaults.
+
+2. Save path:
+- `save(sessionId, context)` writes to namespace `[...namespacePrefix, sessionId]`.
+- Key format: `intent:${context.fromIntent}`.
+- `transferredAt` is normalized to `Date.now()` when missing/falsy.
+- Re-saving the same `sessionId + fromIntent` overwrites previous value.
+
+3. Direct load path:
+- `load(sessionId, fromIntent)` paginates over `store.search(...)` until it finds key `intent:${fromIntent}`.
+- Returns `null` when key is missing, missing `transferredAt`, or record age exceeds `maxAgeMs`.
+- Returns `PersistedIntentContext` when found and fresh.
+
+4. Intent-chain load path:
+- `loadForIntent(sessionId, currentIntent)` reads `INTENT_CONTEXT_CHAINS[currentIntent]`.
+- It calls `load(...)` in chain order and returns the first non-stale context.
+- Unknown intents (or intents without configured chain) return `null`.
+
+5. Session maintenance:
+- `listContexts(sessionId)` returns valid-looking records (`fromIntent` and `transferredAt` present).
+- `clear(sessionId)` deletes all keys found in the session namespace.
+
+6. Search guardrails:
+- `findContextItem(...)` and `searchAllContextItems(...)` cap traversal at 1000 pages.
+- If exceeded, methods throw explicit errors instead of looping indefinitely.
+
+## Key APIs and Types
+Primary interface:
 
 - `PersistedIntentContext`
   - `fromIntent: string`
@@ -42,276 +80,83 @@ In short:
   - `transferredAt: number`
   - `tokenEstimate: number`
 
+Configuration:
+
 - `RunContextTransferConfig`
   - `store: BaseStore` (required)
-  - `namespacePrefix?: string[]` (default `['_run_context']`)
-  - `maxAgeMs?: number` (default `24h`)
+  - `namespacePrefix?: string[]`
+  - `maxAgeMs?: number`
 
-## Constants
+Routing constant:
 
-- `INTENT_CONTEXT_CHAINS: Record<string, string[]>`
-  - `edit_feature <- [generate_feature, create_feature]`
-  - `configure <- [generate_feature, create_feature, edit_feature]`
-  - `create_template <- [generate_feature]`
-  - `generate_feature <- [configure]`
+- `INTENT_CONTEXT_CHAINS`
+  - `edit_feature -> ['generate_feature', 'create_feature']`
+  - `configure -> ['generate_feature', 'create_feature', 'edit_feature']`
+  - `create_template -> ['generate_feature']`
+  - `generate_feature -> ['configure']`
 
-## Class
+Class methods:
 
-- `RunContextTransfer`
-  - `save(sessionId, context): Promise<void>`
-  - `load(sessionId, fromIntent): Promise<PersistedIntentContext | null>`
-  - `loadForIntent(sessionId, currentIntent): Promise<PersistedIntentContext | null>`
-  - `listContexts(sessionId): Promise<PersistedIntentContext[]>`
-  - `clear(sessionId): Promise<void>`
+- `save(sessionId, context): Promise<void>`
+- `load(sessionId, fromIntent): Promise<PersistedIntentContext | null>`
+- `loadForIntent(sessionId, currentIntent): Promise<PersistedIntentContext | null>`
+- `listContexts(sessionId): Promise<PersistedIntentContext[]>`
+- `clear(sessionId): Promise<void>`
 
-## Storage Model
+## Dependencies
+Direct runtime dependency in this module:
 
-Namespace and key scheme:
+- `BaseStore` from `@langchain/langgraph` (type import)
 
-- Namespace: `[...namespacePrefix, sessionId]`
-- Key: `intent:${fromIntent}`
-- Value: serialized `PersistedIntentContext`
+Package-level dependency context (`packages/core/package.json`):
 
-Implications:
+- `@langchain/langgraph` is a peer dependency for consumers.
+- `@langchain/langgraph` is also present as a dev dependency for local tests/build.
 
-- One context snapshot per `session + fromIntent`.
-- Re-saving the same `fromIntent` overwrites previous value.
-- Sessions are isolated by namespace.
+No other imports are used by `run-context-transfer.ts`.
 
-## Runtime Flow
+## Integration Points
+In-package integration:
 
-### 1) Save Path (end of run)
+- Re-exported from `src/index.ts`:
+  - values: `RunContextTransfer`, `INTENT_CONTEXT_CHAINS`
+  - types: `RunContextTransferConfig`, `PersistedIntentContext`
 
-```text
-run-worker completed
-  -> build PersistedIntentContext
-  -> RunContextTransfer.save(sessionId, context)
-      -> namespace = [...prefix, sessionId]
-      -> key = intent:${context.fromIntent}
-      -> store.put(namespace, key, value)
-```
+Cross-package usage currently visible in the repository:
 
-Behavior:
+- `packages/server/src/runtime/run-worker.ts` accepts optional `contextTransfer?: RunContextTransfer` and calls `loadForIntent(...)` before execution.
+- The same worker performs best-effort persistence after execution and records context-transfer log entries.
+- `packages/server/src/__tests__/e2e-run-pipeline.test.ts` includes end-to-end scenarios proving save-on-run-1 and load-on-run-2 behavior.
 
-- `transferredAt` is normalized to `Date.now()` if missing.
-- Save is best-effort in run-worker; failures are logged and do not fail the run.
+Related but separate context layer:
 
-### 2) Load Path (start of run)
+- `@dzupagent/context` is responsible for extracting/injecting context content; this module only persists and resolves snapshots.
 
-```text
-run-worker before execution
-  -> currentIntent resolved
-  -> RunContextTransfer.loadForIntent(sessionId, currentIntent)
-      -> chain = INTENT_CONTEXT_CHAINS[currentIntent]
-      -> for priorIntent in chain:
-           load(sessionId, priorIntent)
-             -> search key in namespace (paged)
-             -> reject if missing/stale/no transferredAt
-             -> return first valid context
-  -> if found: metadata.priorContext = context
-```
+## Testing and Observability
+Module tests (`src/__tests__/run-context-transfer.test.ts`) cover:
 
-Behavior:
+- Save/load roundtrip.
+- Missing-context and stale-context behavior.
+- `loadForIntent` chain success/failure and unknown intents.
+- Multi-record pagination (>100 records) for load/list/clear.
+- Session namespace isolation.
+- Baseline assertions on `INTENT_CONTEXT_CHAINS` entries.
 
-- Returns first non-stale match in chain order.
-- Unknown intents or intents without chain return `null`.
-- Loading is best-effort in run-worker; failures are logged and run still continues.
+Integration tests (`packages/server/src/__tests__/e2e-run-pipeline.test.ts`) validate worker-level context transfer behavior across sequential runs.
 
-### 3) Paging and Safety Guards
+Observability in this module itself:
 
-Both read helpers page through store search:
+- No internal metrics/events are emitted from `RunContextTransfer`.
+- On operational failures, it throws explicit bounded-search errors; callers decide how to handle/report them.
 
-- page size: `100`
-- maximum pages: `1000`
+## Risks and TODOs
+- Intent routing is hardcoded in `INTENT_CONTEXT_CHAINS`; changing flow semantics requires code changes.
+- `load()` and session scans rely on paged `search` instead of direct key-get; this may be inefficient on some `BaseStore` implementations.
+- Stale records are filtered at read time but not auto-pruned.
+- Saved records are cast from store values (`unknown as PersistedIntentContext`) with minimal runtime shape validation.
+- Context retention is one record per `session + intent`; there is no built-in version history.
 
-Guardrails:
-
-- `findContextItem` throws if page limit exceeded while searching for a key.
-- `searchAllContextItems` throws if page limit exceeded while listing/clearing.
-
-This prevents unbounded loops against misbehaving stores.
-
-## Integration in Other Packages
-
-## Export Path
-
-`@dzupagent/core` re-exports this module from:
-
-- `packages/core/src/index.ts` (`RunContextTransfer`, `INTENT_CONTEXT_CHAINS`, and related types)
-
-## Server Runtime Usage
-
-Direct runtime consumption is in `packages/server/src/runtime/run-worker.ts`:
-
-- Optional dependency: `contextTransfer?: RunContextTransfer`
-- Pre-execution:
-  - resolves `sessionId` from `job.metadata.sessionId` else falls back to `runId`
-  - resolves intent from `job.metadata.intent`, then `agent.metadata.intent`
-  - calls `loadForIntent`
-  - injects `priorContext` into `metadata` when found
-- Post-execution success:
-  - derives summary from output
-  - sources `decisions`, `relevantFiles`, `workingState` from executor metadata
-  - sets `tokenEstimate = tokenUsage.input + tokenUsage.output`
-  - calls `save`
-
-## `@dzupagent/context` Relationship
-
-`RunContextTransfer` handles persistence only.
-
-`ContextTransferService` (`@dzupagent/context`) handles:
-
-- extraction from message history
-- relevance/scoping rules
-- formatting injected `SystemMessage`
-- message injection into new conversation
-
-Common architecture pattern:
-
-1. Use `ContextTransferService.extractContext(...)` at run end.
-2. Persist selected fields via `RunContextTransfer.save(...)`.
-3. On next run, `RunContextTransfer.loadForIntent(...)`.
-4. Convert persisted payload back to `IntentContext` and call `injectContext(...)`.
-
-## Usage Examples
-
-### Example A: Minimal Persistence API
-
-```ts
-import { InMemoryStore } from '@langchain/langgraph'
-import { RunContextTransfer } from '@dzupagent/core'
-
-const store = new InMemoryStore()
-const transfer = new RunContextTransfer({ store, maxAgeMs: 24 * 60 * 60 * 1000 })
-
-await transfer.save('session-1', {
-  fromIntent: 'generate_feature',
-  summary: 'Implemented auth flow',
-  decisions: ['Use JWT', 'Use PostgreSQL'],
-  relevantFiles: ['src/auth/login.ts'],
-  workingState: { milestone: 'auth-v1' },
-  transferredAt: Date.now(),
-  tokenEstimate: 420,
-})
-
-const prior = await transfer.loadForIntent('session-1', 'edit_feature')
-// prior is either the first chain match or null
-```
-
-### Example B: Worker Integration (actual runtime pattern)
-
-```ts
-import { InMemoryStore } from '@langchain/langgraph'
-import { RunContextTransfer } from '@dzupagent/core'
-import { startRunWorker } from '@dzupagent/server'
-
-const contextTransfer = new RunContextTransfer({ store: new InMemoryStore() })
-
-startRunWorker({
-  runQueue,
-  runStore,
-  agentStore,
-  eventBus,
-  modelRegistry,
-  runExecutor,
-  contextTransfer,
-})
-```
-
-### Example C: Bridge Back to Message Injection
-
-```ts
-import { ContextTransferService, type IntentContext } from '@dzupagent/context'
-import { RunContextTransfer } from '@dzupagent/core'
-
-const transferService = new ContextTransferService()
-const persisted = await runContextTransfer.loadForIntent(sessionId, 'edit_feature')
-
-if (persisted) {
-  const intentContext: IntentContext = {
-    ...persisted,
-    toIntent: 'edit_feature',
-  }
-  const enrichedMessages = transferService.injectContext(intentContext, targetMessages)
-}
-```
-
-## Feature Analysis
-
-## Strengths
-
-- Small, focused API with clear responsibility boundaries.
-- Store-agnostic via `BaseStore` interface.
-- Deterministic chain ordering for context selection.
-- Built-in staleness filtering (`maxAgeMs`) to avoid carrying old state indefinitely.
-- Session-level isolation through namespaced keys.
-- Read/list/clear pagination avoids partial visibility when many intent snapshots exist.
-
-## Constraints and Tradeoffs
-
-- Hardcoded `INTENT_CONTEXT_CHAINS` requires code change to alter routing.
-- Stale records are ignored but not auto-pruned (storage can retain expired entries).
-- `search`-based lookup can be more expensive than direct key retrieval depending on store backend.
-- One snapshot per `intent` per session (no historical versions).
-- Current app factory wiring in `packages/server/src/app.ts` does not expose `contextTransfer` in `ForgeServerConfig`, so usage is currently through direct `startRunWorker(...)` wiring.
-
-## Test Coverage
-
-## Core Module Tests
-
-Test file: `packages/core/src/__tests__/run-context-transfer.test.ts`
-
-Covered behaviors:
-
-- save + load happy path
-- missing context returns `null`
-- stale context filtering via `maxAgeMs`
-- intent chain resolution (`loadForIntent`)
-- unknown/unmatched intent behavior
-- list all contexts for session
-- clear all contexts for session
-- pagination beyond 100 entries (load/list/clear)
-- session isolation
-- chain constant sanity checks
-
-Focused run command (executed):
-
-```bash
-yarn workspace @dzupagent/core test src/__tests__/run-context-transfer.test.ts
-```
-
-Result:
-
-- 1 test file passed
-- 11/11 tests passed
-
-## Module-Level Coverage Snapshot
-
-Focused coverage run command (executed):
-
-```bash
-yarn workspace @dzupagent/core test:coverage src/__tests__/run-context-transfer.test.ts
-```
-
-Observed coverage for `src/context/run-context-transfer.ts`:
-
-- statements: `97.66%`
-- branches: `88.23%`
-- functions: `100%`
-- lines: `97.66%`
-- uncovered lines: `152-153`, `168-169` (page-limit overflow error branches)
-
-Note:
-
-- The coverage command exits non-zero because package-level global thresholds apply across all files when only one test file is run. The module-level numbers above are still valid for this target file.
-
-## Cross-Package Validation
-
-Integration coverage in `packages/server/src/__tests__/e2e-run-pipeline.test.ts` verifies:
-
-- context is saved after run 1
-- context is loaded for run 2 when intent chain matches
-- no load log appears when no matching prior intent exists
-
-This confirms runtime wiring behavior for `startRunWorker(..., contextTransfer)` beyond unit-level core tests.
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-04-26: rewritten from current `packages/core` implementation and tests.
 

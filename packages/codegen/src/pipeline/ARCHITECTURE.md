@@ -1,408 +1,244 @@
 # `packages/codegen/src/pipeline` Architecture
 
 ## Scope
-This folder contains the codegen pipeline primitives and runtime compatibility executor:
+This document covers the pipeline subsystem under `packages/codegen/src/pipeline`:
 
-- `gen-pipeline-builder.ts` — fluent configuration builder for codegen phases.
-- `phase-types.ts` — shared type contracts for codegen generation/fix/review state.
-- `pipeline-executor.ts` — runtime-backed phase executor with DAG validation, retries, timeouts, conditions, checkpoint/progress callbacks.
-- `guardrail-gate.ts` — pass/fail gate around `GuardrailEngine` reports.
-- `budget-gate.ts` — cost budget pre-flight gate per phase.
-- `skill-resolver.ts` — resolves skill names and injects content into phase state.
-- `phase-conditions.ts` — composable condition predicates for phase execution.
-- `fix-escalation.ts` — escalating fix strategy selection for repeated failures.
+- `gen-pipeline-builder.ts`
+- `phase-types.ts`
+- `pipeline-executor.ts`
+- `guardrail-gate.ts`
+- `budget-gate.ts`
+- `skill-resolver.ts`
+- `phase-conditions.ts`
+- `fix-escalation.ts`
 
-All of these are publicly exported from `packages/codegen/src/index.ts`.
+It describes the current implementation in `@dzupagent/codegen` and its exported surface from `src/index.ts`.
 
-## What This Module Solves
-This folder provides a layered pipeline system for code generation workflows:
+## Responsibilities
+The subsystem has two primary responsibilities:
 
-1. A configuration layer (`GenPipelineBuilder`) that captures phase intent.
-2. A runtime execution layer (`PipelineExecutor`) that executes phase functions on mutable shared state.
-3. Optional policy gates (guardrails, budget).
-4. Optional prompt context enrichment (skills).
-5. Reusable orchestration helpers (conditions, escalation).
+1. Define pipeline configuration contracts for codegen workflows.
+2. Execute runtime phase lists with dependency ordering, retries, timeouts, optional gates, and state handoff.
 
-The key architectural choice is that `PipelineExecutor` now delegates execution to `@dzupagent/agent` `PipelineRuntime` while preserving a simple `PhaseConfig[]` API for codegen callers.
+Concretely:
 
-## Public API
+- `GenPipelineBuilder` provides a fluent way to collect codegen-oriented phase definitions (`generation`, `subagent`, `validation`, `fix`, `review`, `guardrail`).
+- `PipelineExecutor` runs executable phases (`PhaseConfig`) with:
+  - topological dependency ordering,
+  - optional `condition` checks,
+  - retry policies (`immediate` or `backoff`),
+  - timeout enforcement,
+  - optional budget checks,
+  - optional skill resolution/injection,
+  - optional guardrail blocking,
+  - progress/checkpoint callbacks.
 
-### Builder and phase contracts
+Support utilities provide focused policy behavior:
 
-- `GenPipelineBuilder`
+- `runGuardrailGate` and `summarizeGateResult`
+- `runBudgetGate`
+- `resolveSkills`/`resolveAndInjectSkills`
+- condition combinators (`hasKey`, `previousSucceeded`, `stateEquals`, `hasFilesMatching`, `allOf`, `anyOf`)
+- fix escalation defaults and strategy lookup (`DEFAULT_ESCALATION`, `getEscalationStrategy`)
+
+## Structure
+### Builder and type layer
+- `gen-pipeline-builder.ts` defines `PipelinePhase` and `GenPipelineBuilder`.
+- `phase-types.ts` defines codegen-centric state/type contracts (`BaseGenState`, generation/subagent/validation/fix/review configs).
+
+### Runtime executor layer
+- `pipeline-executor.ts` defines:
+  - `ExecutorConfig`
+  - runtime `PhaseConfig`
+  - `PhaseResult`
+  - `PipelineExecutionResult`
+  - `PipelineExecutor`
+
+### Gate and helper layer
+- `guardrail-gate.ts` wraps `GuardrailEngine` reports into pass/fail gate semantics.
+- `budget-gate.ts` adapts external budget checks into a unified gate result.
+- `skill-resolver.ts` resolves skill text from `SkillRegistry` / `SkillLoader` and injects it into state.
+- `phase-conditions.ts` provides reusable predicates.
+- `fix-escalation.ts` provides multi-attempt fix strategy presets.
+
+### Export boundaries
+Publicly exported from package root (`src/index.ts`):
+
+- Builder: `GenPipelineBuilder`, `PipelinePhase`
+- Fix escalation: `DEFAULT_ESCALATION`, `getEscalationStrategy`, related types
+- Codegen phase contracts: `BaseGenState`, `GenPhaseConfig`, `SubAgentPhaseConfig`, `ValidationPhaseConfig`, `FixPhaseConfig`, `ReviewPhaseConfig`
+- Runtime executor: `PipelineExecutor`, `ExecutorConfig`, `ExecutorPhaseConfig`, `PhaseResult`, `PipelineExecutionResult`
+- Gates/helpers: `runGuardrailGate`, `summarizeGateResult`, `GuardrailGateConfig`, `GuardrailGateResult`, `runBudgetGate`, `BudgetGateConfig`, `BudgetGateResult`, and condition helpers
+
+Not exported from package root:
+
+- `skill-resolver.ts` symbols (`resolveSkills`, `resolveAndInjectSkills`, etc.) remain internal module APIs.
+
+## Runtime and Control Flow
+`PipelineExecutor.execute(phases, initialState)` performs:
+
+1. **Sort and validate dependencies**
+- Runs internal topological sort over `dependsOn`.
+- Throws on cycles or unknown dependency IDs.
+
+2. **Initialize execution state**
+- Clones `initialState` to mutable local `state`.
+- Tracks completed phase IDs and per-phase `PhaseResult` entries.
+
+3. **Per-phase execution**
+- Verifies dependencies were completed.
+- Evaluates optional `condition`; if false, marks phase `skipped`, sets `state.__phase_<id>_skipped = true`, and continues.
+- Runs optional budget gate before execution.
+  - Stores budget snapshot at `state.__phase_<id>_budget`.
+  - If over budget, records phase failure and stops pipeline.
+- Resolves optional phase skills if `phase.skills` is present and `ExecutorConfig.skillResolver` is configured.
+  - Injects `__skills_<phase>`, `__skills_prompt_<phase>`, and optional `__skill_context`.
+- Executes phase with timeout and optional retries.
+  - `retryStrategy: 'backoff'` uses `calculateBackoff` from `@dzupagent/core`.
+- Merges phase output into shared state via `Object.assign`.
+- Marks completion with `state.__phase_<id>_completed = true`.
+- Optionally evaluates guardrails using `guardrailGate` + `buildGuardrailContext`.
+  - Stores summary at `state.__phase_<id>_guardrail`.
+  - On blocking violations, records a failed phase and stops.
+- Emits progress (`onProgress`) and successful checkpoint (`onCheckpoint`).
+
+4. **Finalize result**
+- Returns aggregate status (`completed` or `failed`), ordered phase results, total duration, and final state snapshot.
+
+Behavior details worth calling out:
+
+- Any failed/timeout phase stops subsequent execution.
+- A phase can be marked `timeout` when timeout race wins.
+- `onCheckpoint` is called only for successful phases.
+- Guardrail gating is conditional: both `guardrailGate` and `buildGuardrailContext` must be provided, and the context builder must return a context.
+
+## Key APIs and Types
+### `gen-pipeline-builder.ts`
 - `PipelinePhase`
-- `BaseGenState`
-- `GenPhaseConfig` (from `phase-types.ts`)
+- `GenPipelineBuilder.withGuardrails(config)`
+- `GenPipelineBuilder.addPhase(...)`
+- `GenPipelineBuilder.addSubAgentPhase(...)`
+- `GenPipelineBuilder.addValidationPhase(...)`
+- `GenPipelineBuilder.addFixPhase(...)`
+- `GenPipelineBuilder.addReviewPhase(...)`
+- `GenPipelineBuilder.getPhases()/getPhase()/getPhaseNames()/getGenerationPhases()`
+
+### `phase-types.ts`
+- `PhaseConfig` (exported at package root as `GenPhaseConfig`)
 - `SubAgentPhaseConfig`
 - `ValidationPhaseConfig`
 - `FixPhaseConfig`
 - `ReviewPhaseConfig`
-
-### Executor and runtime outputs
-
-- `PipelineExecutor`
-- `ExecutorConfig`
-- `ExecutorPhaseConfig`
-- `PhaseResult`
-- `PipelineExecutionResult`
-
-### Gates and orchestration helpers
-
-- `runGuardrailGate`
-- `summarizeGateResult`
-- `runBudgetGate`
-- `hasKey`, `previousSucceeded`, `stateEquals`, `hasFilesMatching`, `allOf`, `anyOf`
-- `DEFAULT_ESCALATION`, `getEscalationStrategy`
-
-## Architectural Model
-
-### 1. Two phase models intentionally coexist
-
-- `PipelinePhase` in `gen-pipeline-builder.ts` is configuration-first and codegen-domain-specific (`generation|subagent|validation|fix|review|guardrail`).
-- `PhaseConfig` in `pipeline-executor.ts` is execution-first (`id`, `execute`, `dependsOn`, `condition`, retries/timeouts).
-
-This separation keeps the builder ergonomic while allowing runtime mechanics to evolve independently.
-
-### 2. Compatibility runtime strategy
-
-`PipelineExecutor` translates `PhaseConfig[]` into a minimal `PipelineDefinition`:
-
-- creates transform nodes from sorted phases,
-- wires sequential edges,
-- runs via `PipelineRuntime`.
-
-This keeps codegen on the canonical runtime while preserving legacy caller shape.
-
-### 3. State-based coordination
-
-Phases communicate through one mutable state object. Executor writes control markers:
-
-- `__phase_<id>_completed`
-- `__phase_<id>_skipped`
-- `__phase_<id>_guardrail`
-- `__phase_<id>_budget`
-- `__skills_<phase>`
-- `__skills_prompt_<phase>`
-- `__skill_context`
-
-This allows later conditions/gates/prompts to use prior phase outcomes.
-
-## Feature Breakdown
-
-### `gen-pipeline-builder.ts`
-
-- Fluent phase appending: generation, subagent, validation, fix, review.
-- Guardrail phase registration via `withGuardrails()` and retrievable config via `getGuardrailConfig()`.
-- Query helpers: `getPhases()`, `getPhase()`, `getPhaseNames()`, `getGenerationPhases()`.
-- Defaults:
-  - validation name: `validate`
-  - fix name: `fix`, attempts: `3`, escalation: `DEFAULT_ESCALATION`
-  - review name: `review`, `autoApprove=false`
-
-Design note:
-
-- It does not compile to executable graph topology by itself.
-
-### `phase-types.ts`
-
-- Declares reusable codegen workflow shapes:
-  - generation/subagent configs,
-  - validation/fix/review configs,
-  - `BaseGenState` shared state envelope.
-- Strongly typed domain fields for fix/testing/validation context.
-
-Design note:
-
-- This is a type contract layer, not runtime behavior.
+- `BaseGenState`
 
 ### `pipeline-executor.ts`
-
-Core runtime behaviors:
-
-- Topological sort with cycle and unknown-dependency detection.
-- Conditional execution (`condition(state)`), skip markers.
-- Retry loop with optional exponential backoff (`1s`, `2s`, `4s`... capped at `30s`).
-- Per-phase timeout support with fallback to executor defaults.
-- Optional `onProgress` and `onCheckpoint` callbacks.
-- Optional skill resolution/injection before phase execution.
-- Optional budget gate before phase execution.
-- Optional guardrail gate after successful phase execution.
-- Output/state merging via `Object.assign(state, phaseOutput)`.
-
-Important behavior notes:
-
-- A failed phase causes overall `PipelineRuntime` completion state to be non-completed, so result status is `failed`.
-- Budget gate failure is recorded as phase `failed` (not `skipped`).
-- Guardrail failure is treated as phase failure and blocks checkpoint callback.
-- Although dependencies are validated and sorted, emitted runtime edges are sequential between sorted nodes.
+- `ExecutorConfig`
+- `PhaseConfig` (exported as `ExecutorPhaseConfig`)
+- `PhaseResult`
+- `PipelineExecutionResult`
+- `PipelineExecutor`
 
 ### `guardrail-gate.ts`
-
-- Wraps `GuardrailEngine.evaluate(context)` to produce a gate-level pass/fail.
-- Modes:
-  - normal: errors block, warnings do not.
-  - strict: errors and warnings both block.
-- Optional reporter formatting passthrough.
-- `summarizeGateResult()` formats concise failure reasons with top violation list.
+- `GuardrailGateConfig`
+- `GuardrailGateResult`
+- `runGuardrailGate(config, context)`
+- `summarizeGateResult(result)`
 
 ### `budget-gate.ts`
-
-- Thin adapter around caller-provided `checkBudget(workflowRunId, budgetLimitCents)`.
-- Converts external `withinBudget` to local `passed` shape.
-- Intended to run before every phase in executor.
-
-### `skill-resolver.ts`
-
-- Resolution precedence:
-  1. registry (`SkillRegistry.get`) first,
-  2. loader (`SkillLoader.loadSkillContent`) fallback.
-- Missing/failed lookups are skipped and warned.
-- Prompt section formatter produces:
-  - `## Active Skills`
-  - `### <skill-name>` sections with raw content.
-- Injection sanitizes phase name for state keys.
+- `BudgetGateConfig`
+- `BudgetGateResult`
+- `runBudgetGate(config)`
 
 ### `phase-conditions.ts`
-
-Provides small composable predicates:
-
-- existence/completion/value checks (`hasKey`, `previousSucceeded`, `stateEquals`),
-- pattern scan over `files` (`hasFilesMatching`),
-- combinators (`allOf`, `anyOf`).
+- `hasKey(key)`
+- `previousSucceeded(phaseId)`
+- `stateEquals(key, value)`
+- `hasFilesMatching(pattern)`
+- `allOf(...conditions)`
+- `anyOf(...conditions)`
 
 ### `fix-escalation.ts`
+- `EscalationStrategy`
+- `EscalationConfig`
+- `DEFAULT_ESCALATION`
+- `getEscalationStrategy(attempt, config?)`
 
-- Encodes multi-attempt corrective strategy escalation:
-  - `targeted` (default),
-  - `expanded` (full VFS + plan context),
-  - `escalated` (reasoning tier + broader rewrite guidance).
-- `getEscalationStrategy()` clamps attempts to last strategy.
+### Internal-only helper APIs (`skill-resolver.ts`)
+- `SkillResolverConfig`
+- `ResolvedSkill`
+- `resolveSkills(...)`
+- `formatResolvedSkillsPrompt(...)`
+- `injectSkillsIntoState(...)`
+- `resolveAndInjectSkills(...)`
 
-## Execution Flow
+## Dependencies
+### Internal package dependencies
+- `../guardrails/*` for guardrail engine/report/context types.
+- `../quality/quality-types.js` in builder/type contracts.
 
-`PipelineExecutor.execute(phases, initialState)`:
+### Cross-package dependencies
+- `@dzupagent/core`
+  - `ModelTier`, `SubAgentConfig`, `SkillRegistry`, `SkillLoader`, `SkillResolutionContext`
+  - `calculateBackoff` used by executor backoff retries
+- `@langchain/core`
+  - `StructuredToolInterface` and `BaseMessage` for pipeline and state typing
 
-1. Topologically sort phases.
-2. Build compatibility `PipelineDefinition` nodes from sorted phases.
-3. Start `PipelineRuntime.execute()` with shared state copy.
-4. For each node:
-   - resolve phase from `nodeMap`,
-   - verify dependencies completed,
-   - evaluate `condition`,
-   - run budget gate (if configured),
-   - resolve/inject skills (if configured),
-   - execute with timeout + retries,
-   - merge output into state,
-   - run guardrail gate (if configured),
-   - mark completion and call checkpoint callback.
-5. Aggregate per-phase results and return final status/state/duration.
+### Package metadata constraints
+From `packages/codegen/package.json`:
 
-## Usage Examples
+- runtime deps: `@dzupagent/core`, `@dzupagent/adapter-types`
+- peer deps relevant to pipeline types/usage: `@langchain/core`, `@langchain/langgraph`, `zod`
 
-### 1. Build codegen phase configuration
+## Integration Points
+### Package root integration
+`src/index.ts` re-exports pipeline APIs as part of `@dzupagent/codegen` public surface. Consumers can build phase configs and execute custom runtime phases without importing from deep paths.
 
-```ts
-import { GenPipelineBuilder, DEFAULT_ESCALATION } from '@dzupagent/codegen'
+### Guardrails integration
+`PipelineExecutor` accepts a `GuardrailGateConfig` and caller-provided `buildGuardrailContext` function. This keeps guardrail policy definitions in `src/guardrails/*` while pipeline owns execution-time gating decisions.
 
-const pipelineConfig = new GenPipelineBuilder()
-  .addPhase({
-    name: 'generate-backend',
-    promptType: 'backend',
-    skills: ['typescript', 'security-best-practices'],
-  })
-  .addValidationPhase({
-    dimensions: ['correctness', 'type-safety'],
-    threshold: 85,
-  })
-  .addFixPhase({
-    maxAttempts: DEFAULT_ESCALATION.maxAttempts,
-    escalation: DEFAULT_ESCALATION,
-  })
-  .addReviewPhase({ autoApprove: false })
+### Budget integration
+Budget policy is externalized via injected `checkBudget(workflowRunId, budgetLimitCents)` function. The pipeline module does not implement ledger persistence.
 
-const phases = pipelineConfig.getPhases()
-```
+### Skills integration
+Skill resolution is pluggable via optional `SkillRegistry` and `SkillLoader` from `@dzupagent/core`. Phase skill strings are resolved at execution-time and written into state for downstream phase logic.
 
-### 2. Execute runtime phases with dependencies/retries
+### State contract integration
+The executor uses a generic `Record<string, unknown>` state. The codegen-specific `BaseGenState` contract in `phase-types.ts` provides a stronger typed model for callers that implement codegen workflows.
 
-```ts
-import { PipelineExecutor, type ExecutorPhaseConfig } from '@dzupagent/codegen'
+## Testing and Observability
+### Test coverage in this package
+Pipeline behavior is covered by focused suites in `src/__tests__`, including:
 
-const executor = new PipelineExecutor({
-  defaultTimeoutMs: 120_000,
-  defaultMaxRetries: 1,
-  onProgress: (phaseId, progress) => {
-    console.log(`[${phaseId}] progress=${progress}`)
-  },
-})
+- `pipeline-executor.test.ts`
+- `pipeline-executor-extended.test.ts`
+- `pipeline-components.test.ts`
+- `gen-pipeline-builder.test.ts`
+- `phase-conditions.test.ts`
+- `fix-escalation.test.ts`
+- `budget-gate.test.ts`
+- `skill-resolver.test.ts`
 
-const phases: ExecutorPhaseConfig[] = [
-  {
-    id: 'plan',
-    name: 'Plan',
-    execute: async (state) => ({ ...state, plan: 'v1' }),
-  },
-  {
-    id: 'generate',
-    name: 'Generate',
-    dependsOn: ['plan'],
-    retryStrategy: 'backoff',
-    maxRetries: 2,
-    condition: (state) => state['plan'] !== undefined,
-    execute: async (state) => ({ generated: true, plan: state['plan'] }),
-  },
-]
+These tests exercise ordering, retries, timeout outcomes, conditional skipping, callback behavior, gate failures, skill resolution/injection behavior, and builder defaults.
 
-const result = await executor.execute(phases, { runId: 'r-1' })
-```
+### Built-in observability signals
+The subsystem exposes runtime signals through:
 
-### 3. Add budget + guardrail + skills in one executor
+- `PhaseResult[]` with status/duration/retry/error metadata
+- `totalDurationMs` and final `status` in `PipelineExecutionResult`
+- state markers and gate snapshots (`__phase_*`, `__skills_*`, `__skill_context`)
+- callback hooks:
+  - `onProgress(phaseId, progress)`
+  - `onCheckpoint(phaseId, state)`
 
-```ts
-import {
-  PipelineExecutor,
-  type GuardrailGateConfig,
-  type SkillResolverConfig,
-  type BudgetGateConfig,
-} from '@dzupagent/codegen'
+Operational note: unresolved skills produce `console.warn` messages in `resolveSkills`.
 
-const guardrailGate: GuardrailGateConfig = {
-  engine: guardrailEngine,
-  strictMode: false,
-  reporter: guardrailReporter,
-}
+## Risks and TODOs
+- Builder and executor are intentionally separate models. `PipelinePhase.skipCondition` does not automatically map to executor `PhaseConfig.condition`; callers must bridge this explicitly.
+- Timeout handling uses a race and does not cancel user phase code cooperatively; long-running work may continue outside the timeout winner path.
+- Budget and guardrail checks are all-or-stop gates in executor flow; there is no native partial continuation strategy after a failed gate.
+- `skill-resolver.ts` is internal-only (not package-root exported). External consumers relying on root exports cannot directly call those helpers.
+- The executor state bag is flexible but untyped at runtime (`Record<string, unknown>`), so key collisions (`__phase_*`, custom outputs) remain caller-managed.
 
-const skillResolver: SkillResolverConfig = {
-  registry: skillRegistry,
-  loader: skillLoader,
-}
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
-const budgetGate: BudgetGateConfig = {
-  workflowRunId: 'wf-123',
-  budgetLimitCents: 500,
-  checkBudget: async (runId, limit) => executionLedger.checkBudget(runId, limit),
-}
-
-const executor = new PipelineExecutor({
-  guardrailGate,
-  buildGuardrailContext: (_phaseId, state) => buildContextFromState(state),
-  skillResolver,
-  skillResolutionContext: {
-    agentId: 'codegen-agent',
-    projectRoot: '/workspace/repo',
-    skills: [],
-  },
-  budgetGate,
-})
-
-const result = await executor.execute(
-  [
-    {
-      id: 'gen',
-      name: 'Generate',
-      skills: ['repo-conventions'],
-      execute: async () => ({ filesGenerated: 4 }),
-    },
-  ],
-  {},
-)
-```
-
-## Common Use Cases
-
-- Multi-phase feature generation with deterministic step ordering.
-- Validation/fix loops with escalating strategy strength.
-- Cost-aware generation with hard stop when budget is exceeded.
-- Guardrail-enforced generation for architecture/security constraints.
-- Skill-augmented prompt assembly per phase.
-- CI agent workflows that require checkpoints and partial progress events.
-
-## References and Usage Across Packages
-
-### Direct symbol usage (code scan)
-Current monorepo scan shows:
-
-- direct imports of `pipeline/*` symbols are currently inside `@dzupagent/codegen` tests and internal wiring,
-- no direct runtime imports of `GenPipelineBuilder` or `PipelineExecutor` from other packages.
-
-### Package-level `@dzupagent/codegen` consumers
-Other packages do import `@dzupagent/codegen`, but for non-pipeline capabilities:
-
-- `packages/server/src/runtime/tool-resolver.ts` dynamically imports codegen for git tools (`createGitTools`, `GitExecutor`).
-- `packages/evals/src/__tests__/sandbox-contracts.test.ts` conditionally imports sandbox implementations.
-- `packages/create-dzupagent/src/templates/codegen.ts` declares `@dzupagent/codegen` as template dependency.
-
-Implication:
-
-- `src/pipeline` is a public API surface intended for external/domain consumption, but currently has limited in-repo cross-package runtime adoption.
-
-## Test Coverage
-
-### Targeted suites executed
-Executed focused pipeline suites:
-
-- `src/__tests__/pipeline-components.test.ts`
-- `src/__tests__/pipeline-executor.test.ts`
-- `src/__tests__/pipeline-executor-extended.test.ts`
-- `src/__tests__/budget-gate.test.ts`
-
-Result:
-
-- 4 files passed
-- 94 tests passed
-
-### Per-file coverage (`packages/codegen/coverage/coverage-summary.json`)
-
-- `pipeline/budget-gate.ts`: lines 100%, statements 100%, functions 100%, branches 100%
-- `pipeline/fix-escalation.ts`: lines 100%, statements 100%, functions 100%, branches 50%
-- `pipeline/gen-pipeline-builder.ts`: lines 100%, statements 100%, functions 100%, branches 100%
-- `pipeline/guardrail-gate.ts`: lines 100%, statements 100%, functions 100%, branches 92.3%
-- `pipeline/phase-conditions.ts`: lines 100%, statements 100%, functions 100%, branches 100%
-- `pipeline/pipeline-executor.ts`: lines 93.2%, statements 93.2%, functions 100%, branches 86.25%
-- `pipeline/skill-resolver.ts`: lines 100%, statements 100%, functions 100%, branches 100%
-
-Coverage caveat:
-
-- `phase-types.ts` is a type-only contract module and is not represented in runtime coverage metrics.
-- The focused coverage command fails package-global thresholds (expected), but pipeline module metrics are still valid and high-signal.
-
-### What is well-tested
-
-- Builder defaults and fluent behavior.
-- Escalation strategy selection and clamping.
-- Predicate truth tables (`allOf`/`anyOf` empty edge cases included).
-- Skill resolution precedence, formatting, state injection, and loader-failure fallback.
-- Guardrail gate strict/normal semantics and summary rendering.
-- Executor ordering, dependency validation, cycle detection, timeout/retry paths, callbacks, state propagation, and failure short-circuiting.
-- Budget gate behavior and executor integration.
-
-### Remaining gaps (highest value)
-
-- `pipeline-executor.ts`: low-covered branches around:
-  - unmet dependency skip path in runtime node execution,
-  - skills branch when configured phases include `skills` (executor-level integration path).
-- `fix-escalation.ts`: fallback branch for pathological configs (for example empty strategy arrays) is not directly exercised.
-- `guardrail-gate.ts`: some blocking-filter branches remain partially uncovered.
-
-## Design Strengths
-
-- Clear separation between config DSL and runtime execution.
-- Pragmatic compatibility bridge onto canonical `PipelineRuntime`.
-- Strong extension hooks for budget, guardrails, skills, retries, checkpoints.
-- High focused test depth for operational behavior.
-
-## Limitations and Risks
-
-- Builder output is not directly executable without domain mapping to executor/runtime phase functions.
-- Builder `skipCondition` and executor `condition` are separate concepts; no automatic bridge is provided.
-- Timeout currently races execution; it does not cancel in-flight phase work.
-- Runtime graph is serialized sequentially after topo sort, so no native parallel branch execution in this layer.
-- Missing skill resolution config silently results in no skill injection even if phase declares skills.
-
-## Recommended Next Steps
-
-1. Add one executor integration test that exercises `skills` inside `PipelineExecutor` (not only resolver unit tests).
-2. Add one explicit unmet-dependency runtime test that forces the skip branch deterministically.
-3. Add abort-signal propagation to `PhaseConfig.execute` for real timeout cancellation semantics.
-4. If needed, add adapter utility to transform `GenPipelineBuilder` output directly into executable `ExecutorPhaseConfig[]`.
-5. Update `packages/codegen/README.md` pipeline snippet to match current `GenPipelineBuilder` API shape.

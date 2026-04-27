@@ -1,317 +1,154 @@
-# `@dzupagent/connectors-browser` Architecture
+# @dzupagent/connectors-browser Architecture
 
-## 1. Purpose and Scope
+## Scope
+`@dzupagent/connectors-browser` provides Playwright-powered browser tooling for DzupAgent. In the current codebase (`packages/connectors-browser`), it covers:
+- A connector factory (`createBrowserConnector`) that builds five browser tools.
+- Browser lifecycle and auth helpers (`BrowserManager`, `AuthHandler`).
+- Crawl and extraction primitives (`PageCrawler`, link/url helpers, form/element/a11y/screenshot extractors).
+- Tool-contract adapters (`normalizeBrowserTool`, `normalizeBrowserTools`) for `StructuredToolInterface` interop.
 
-`@dzupagent/connectors-browser` provides Playwright-backed browser automation primitives and wraps them as agent-ready tools for DzupAgent.
+Current non-goals in this package:
+- Long-lived shared browser state across tool calls.
+- Cross-origin crawl traversal.
+- Runtime orchestration or persistence layers outside this library.
 
-Primary responsibilities:
+## Responsibilities
+- Expose a stable package entrypoint through `src/index.ts`.
+- Build agent-usable tools with `createForgeTool` from `@dzupagent/core`.
+- Manage Playwright launch/context/teardown and optional login bootstrap.
+- Crawl same-origin pages with bounded BFS and configurable include/exclude pattern filters.
+- Extract structured webpage data (forms, interactive elements, accessibility signals, screenshots).
+- Keep model-facing payload size bounded (`MAX_RESULT_LENGTH = 8000` for large JSON tool responses).
 
-- Create a ready-to-register browser toolset via `createBrowserConnector(...)`.
-- Provide low-level APIs for browser lifecycle (`BrowserManager`), auth (`AuthHandler`), crawling (`PageCrawler`), and page extraction (`extractForms`, `extractInteractiveElements`, `extractAccessibilityTree`, `captureScreenshot`).
-- Normalize browser tools into a connector-friendly shape (`normalizeBrowserTool`, `normalizeBrowserTools`).
+## Structure
+Package files:
+- `package.json`: ESM package (`type: module`), scripts (`build`, `typecheck`, `lint`, `test`), runtime dep on `@dzupagent/core`, peer deps on `playwright` and `zod`.
+- `README.md`: usage examples and exported API summary.
+- `tsup.config.ts`: builds `src/index.ts` to ESM + types for Node 20.
+- `docs/ARCHITECTURE.md`: package architecture reference.
 
-Out of scope:
+Source layout:
+- `src/index.ts`: public exports.
+- `src/browser-connector.ts`: connector config type + 5 tool definitions.
+- `src/connector-contract.ts`: normalization helpers for tool contracts.
+- `src/types.ts`: shared data contracts.
+- `src/browser/browser-manager.ts`: browser launch/newContext/close wrapper.
+- `src/browser/auth-handler.ts`: credential and cookie auth helpers.
+- `src/crawler/page-crawler.ts`: BFS crawl generator and SPA wait behavior.
+- `src/crawler/link-extractor.ts`: link discovery from anchors/hash routes/SPA surfaces.
+- `src/crawler/url-utils.ts`: hash-route detection, URL normalization, origin/pattern checks.
+- `src/extraction/form-extractor.ts`: HTML form and field extraction.
+- `src/extraction/element-extractor.ts`: interactive element and ARIA extraction.
+- `src/extraction/accessibility-tree.ts`: DOM-walk-based accessibility tree extraction.
+- `src/extraction/screenshot-capture.ts`: JPEG capture with full-page clipping cap.
+- `src/__tests__/*`: Vitest suite for connector flows and helpers.
 
-- Persistent browser/session state across tool calls.
-- Cross-domain crawling (crawler is same-origin constrained).
-- Runtime orchestration in other packages (this package exports tools; orchestration happens in agent consumers).
+## Runtime and Control Flow
+Tool invocation flow (`createBrowserConnector`):
+1. Validate input with tool-specific Zod schemas.
+2. Create session via internal `createBrowserSession(config)`:
+- `BrowserManager.launch({ headless })`
+- `BrowserManager.newContext(...)`
+- Optional `AuthHandler.loginWithCredentials(...)` on a temporary page.
+3. Execute tool behavior:
+- `browser-crawl-site`: run `PageCrawler.crawl(startUrl)` and summarize each page.
+- `browser-capture-screenshot`: visit URL, capture screenshot, return base64 JSON payload.
+- `browser-extract-forms` / `browser-extract-elements` / `browser-extract-a11y-tree`: visit URL and return extractor output JSON.
+4. Return error strings on failures (`Error: ...`) instead of throwing.
+5. Always close browser manager in `finally`.
 
-## 2. Package Topology
+Crawler control flow (`PageCrawler`):
+1. Start BFS queue at `{ url: startUrl, depth: 0 }`.
+2. Enforce `maxPages` and `maxDepth`; skip visited URLs.
+3. Apply include/exclude glob-like patterns (`matchesPattern`).
+4. Navigate page:
+- Hash-route URL: navigate to base URL and then set `window.location.hash`.
+- Regular URL: `goto(..., waitUntil: 'domcontentloaded')`.
+5. Wait for SPA readiness (best-effort `networkidle`, loading-indicator check, content readiness check).
+6. Extract links, accessibility tree, screenshot, forms, and interactive elements in parallel.
+7. Yield `CrawlResult`; enqueue newly discovered links at `depth + 1`.
+8. On crawl failure, log warning and continue queue processing.
 
-Source root: `packages/connectors-browser/src`
-
-- `index.ts`: public exports.
-- `browser-connector.ts`: main connector factory and tool definitions.
-- `connector-contract.ts`: normalization helpers for LangChain `StructuredToolInterface`.
-- `browser/browser-manager.ts`: browser launch/context/close lifecycle.
-- `browser/auth-handler.ts`: username/password and cookie auth helpers.
-- `crawler/page-crawler.ts`: BFS crawl engine with SPA-aware waiting.
-- `crawler/link-extractor.ts`: anchor/hash-route/SPA route discovery.
-- `crawler/url-utils.ts`: URL normalization/origin checks/pattern matching.
-- `extraction/form-extractor.ts`: form and field metadata extraction.
-- `extraction/element-extractor.ts`: interactive element/ARIA extraction.
-- `extraction/accessibility-tree.ts`: accessibility node extraction via DOM role/name heuristics.
-- `extraction/screenshot-capture.ts`: JPEG capture with height clipping.
-- `__tests__/`: unit and integration-oriented tests.
-
-Build/runtime metadata:
-
-- ESM package, built with `tsup` from `src/index.ts`.
-- Runtime dependency: `@dzupagent/agent`.
-- Peer dependencies: `playwright`, `zod`.
-
-## 3. Public API Surface
-
-Exported from `src/index.ts`:
-
-1. Connector factory and config:
-- `createBrowserConnector(config?)`
-- `BrowserConnectorConfig`
-
-2. Contract helpers:
+## Key APIs and Types
+Primary exports:
+- `createBrowserConnector(config?: BrowserConnectorConfig)`
 - `normalizeBrowserTool(...)`
 - `normalizeBrowserTools(...)`
-- `BrowserConnectorTool` type
-
-3. Browser/auth:
 - `BrowserManager`
 - `AuthHandler`
-
-4. Crawl helpers:
 - `PageCrawler`
 - `extractLinks(...)`
 - `normalizeUrl(...)`
 - `isSameOrigin(...)`
 - `matchesPattern(...)`
 - `isHashRoute(...)`
-
-5. Extraction helpers:
-- `extractAccessibilityTree(...)`
-- `captureScreenshot(...)`
 - `extractForms(...)`
 - `extractInteractiveElements(...)`
+- `extractAccessibilityTree(...)`
+- `captureScreenshot(...)`
+
+Connector tool IDs (current):
+- `browser-crawl-site`
+- `browser-capture-screenshot`
+- `browser-extract-forms`
+- `browser-extract-elements`
+- `browser-extract-a11y-tree`
+
+Important types:
+- `BrowserConnectorConfig`
+- `CrawlOptions`
+- `CrawlResult`
+- `AuthCredentials`
+- `BrowserLaunchOptions`
+- `FormInfo`, `FormField`
+- `ElementInfo`
+- `AccessibilityNode`
+- `ScreenshotResult`
+
+## Dependencies
+Runtime dependencies:
+- `@dzupagent/core` (Forge tool creation + base connector normalization).
+
+Peer dependencies:
+- `playwright >=1.50.0`
+- `zod >=4.0.0`
+
+Development dependencies:
+- `playwright`, `vitest`, `tsup`, `typescript`.
+
+Behavioral dependency notes:
+- Playwright is dynamically imported in `BrowserManager.launch`, delaying hard dependency load until runtime usage.
+- Tool schemas and validation are implemented with `zod` inside `browser-connector.ts`.
+
+## Integration Points
+- Agent consumers register `createBrowserConnector(...)` output directly in tool lists.
+- Connector consumers expecting `BaseConnectorTool` can normalize returned tools through `normalizeBrowserTools`.
+- Consumers can bypass tool wrappers and use primitives (`BrowserManager`, `PageCrawler`, extractors) directly.
+- The package exposes library APIs only; no internal HTTP endpoints, queues, or storage integrations exist here.
+
+## Testing and Observability
+Current automated tests cover:
+- Connector surface and error handling: `browser-connector-tools.test.ts`.
+- Public integration behavior and entrypoint exports: `browser-connector.integration.test.ts`.
+- Contract normalization helpers: `connector-contract.test.ts`.
+- Browser lifecycle behavior: `browser-manager.test.ts`.
+- Auth flows: `auth-handler.test.ts`.
+- BFS crawl behavior and limits: `page-crawler.test.ts`.
+- Link/url utility behavior: `link-extractor.test.ts`, `url-utils.test.ts`.
+- Extractor behavior and screenshot clipping: `extraction.test.ts`, `screenshot-capture.test.ts`.
+
+Observability currently in code:
+- No dedicated telemetry/tracing subsystem in this package.
+- Crawl runtime failures are logged with `console.warn`.
+- Tool failures are surfaced as string error outputs for model/tool-call compatibility.
+
+## Risks and TODOs
+- `createBrowserSession` passes `headless` into `BrowserManager.newContext(...)`, but `newContext` only consumes `viewport` and `proxy`; this option is effectively ignored at context creation.
+- Tool output truncation is character-based and can cut JSON payloads mid-structure, which can make outputs unparsable for downstream strict JSON consumers.
+- `matchesPattern` converts glob-like patterns to regex without escaping regex metacharacters outside `*`/`?`, so some literal URLs can match unexpectedly.
+- Observability is minimal (`console.warn` only); diagnosing flaky browser environments may require higher-level instrumentation outside this package.
+- Accessibility extraction is DOM-heuristic based, not Playwright accessibility tree API based; role/name fidelity can vary by app markup quality.
+
+## Changelog
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 
-6. Domain types:
-- `CrawlOptions`, `CrawlResult`
-- `AccessibilityNode`, `FormInfo`, `FormField`, `ElementInfo`
-- `AuthCredentials`, `ScreenshotResult`, `BrowserLaunchOptions`
-
-## 4. Feature Catalog
-
-### 4.1 Agent Tool Factory (`createBrowserConnector`)
-
-`createBrowserConnector` builds five tool instances:
-
-1. `browser-crawl-site`
-2. `browser-capture-screenshot`
-3. `browser-extract-forms`
-4. `browser-extract-elements`
-5. `browser-extract-a11y-tree`
-
-Behavioral characteristics:
-
-- Stateless execution model: each tool call opens a fresh browser session and closes it in `finally`.
-- Optional auth bootstrapping (`config.auth`) is applied per call.
-- Input validation uses `zod` schemas.
-- Tool outputs are string-oriented for model integration.
-- Structured JSON outputs are truncated to `MAX_RESULT_LENGTH = 8000` characters to cap context size.
-
-### 4.2 Browser Lifecycle (`BrowserManager`)
-
-Capabilities:
-
-- Lazy Playwright import (`import('playwright')`) to avoid eager module load cost.
-- `launch(opts)` with default `headless: true`.
-- `newContext(opts)` with default viewport `1280x720` and optional proxy.
-- Idempotent `close()` and relaunch support.
-
-### 4.3 Authentication (`AuthHandler`)
-
-Supported flows:
-
-- Credential login with configurable selectors, SPA-hydration wait (`waitForFunction`), field detection/fill, submit heuristics, and completion detection via URL changes or post-login DOM indicators.
-- Cookie-based login (`loginWithCookies`).
-- Heuristic login-page detection (`isLoginPage`) by password input presence.
-
-### 4.4 Crawl Engine (`PageCrawler`)
-
-Core model:
-
-- BFS queue over `{ url, depth }`.
-- Stop conditions: `maxPages`, `maxDepth`.
-- Include/exclude pattern filtering.
-- Same visited-set deduplication.
-- Per-page extraction bundle: links, accessibility tree, screenshot, forms, and interactive elements.
-
-SPA-aware behavior:
-
-- Hash route handling (`/#/`, `/#!/`) with base navigation + hash mutation.
-- Smart wait strategy: attempts `networkidle` with timeout, checks visible loading indicators, and verifies meaningful main content before extraction.
-
-### 4.5 Link Discovery (`extractLinks`)
-
-Multi-source route discovery:
-
-- Traditional anchors (`a[href]`).
-- Hash-route patterns (`#/`, `#!/`).
-- SPA route heuristics (Vue router exposure, nav links, data attributes).
-
-Filtering/normalization:
-
-- Skip `javascript:`, `mailto:`, `tel:`, and plain anchors.
-- Normalize relative/absolute URLs.
-- Keep SPA hash routes, strip non-route hash anchors.
-- Restrict to same-origin URLs.
-- Deduplicate results.
-
-### 4.6 Data Extraction Helpers
-
-- `extractForms(page)`: forms, method/action, field metadata, labels, required flags, select options.
-- `extractInteractiveElements(page)`: role/label/enabled/visible/location/ARIA map for interactive elements.
-- `extractAccessibilityTree(page)`: role+name+state oriented node list with depth and optional value/description/state flags.
-- `captureScreenshot(page, fullPage?)`: JPEG output (`quality: 80`), full-page height cap at `viewportHeight * 3`, and return shape `{ buffer, mimeType, width, height }`.
-
-## 5. Runtime Flow
-
-### 5.1 High-Level Tool Invocation Flow
-
-```text
-Agent invokes tool
-  -> createBrowserSession(config)
-      -> BrowserManager.launch()
-      -> BrowserManager.newContext()
-      -> optional AuthHandler.loginWithCredentials()
-  -> tool-specific page action (crawl/screenshot/extraction)
-  -> stringify (and possibly truncate) result
-  -> BrowserManager.close() in finally
-```
-
-### 5.2 Crawl Flow (`browser-crawl-site`)
-
-```text
-Input schema validated
-  -> merge config.crawlOptions with per-call overrides
-  -> new PageCrawler(context, mergedOptions)
-  -> for await crawler.crawl(startUrl):
-       collect summary for each page
-  -> return JSON summary string (truncated if >8k chars)
-```
-
-### 5.3 Direct API Flow (without tool wrappers)
-
-```text
-BrowserManager.launch()
-  -> context = BrowserManager.newContext()
-  -> page = context.newPage()
-  -> page.goto(...)
-  -> call extraction helpers as needed
-  -> close page/context via BrowserManager.close()
-```
-
-## 6. Usage Examples
-
-### 6.1 Register Tools in DzupAgent
-
-```ts
-import { DzupAgent } from '@dzupagent/agent'
-import { createBrowserConnector } from '@dzupagent/connectors-browser'
-
-const browserTools = createBrowserConnector({
-  headless: true,
-  crawlOptions: { maxPages: 20, maxDepth: 2 },
-})
-
-const agent = new DzupAgent({
-  name: 'web-auditor',
-  model: chatModel,
-  tools: [...browserTools],
-})
-```
-
-### 6.2 Invoke a Specific Tool Programmatically
-
-```ts
-import { createBrowserConnector, normalizeBrowserTools } from '@dzupagent/connectors-browser'
-
-const tools = createBrowserConnector({ headless: true })
-const normalized = normalizeBrowserTools(tools)
-
-const crawlTool = normalized.find((t) => t.id === 'browser-crawl-site')
-if (!crawlTool) throw new Error('crawl tool missing')
-
-const output = await crawlTool.invoke({
-  startUrl: 'https://example.com',
-  maxPages: 5,
-  maxDepth: 1,
-})
-
-console.log(output)
-```
-
-### 6.3 Use Low-Level APIs Directly
-
-```ts
-import {
-  BrowserManager,
-  extractForms,
-  extractInteractiveElements,
-} from '@dzupagent/connectors-browser'
-
-const manager = new BrowserManager()
-await manager.launch({ headless: true })
-
-try {
-  const context = await manager.newContext()
-  const page = await context.newPage()
-  await page.goto('https://example.com', { waitUntil: 'domcontentloaded' })
-
-  const [forms, elements] = await Promise.all([
-    extractForms(page),
-    extractInteractiveElements(page),
-  ])
-
-  console.log({ forms: forms.length, elements: elements.length })
-  await page.close()
-} finally {
-  await manager.close()
-}
-```
-
-## 7. Cross-Package References in This Monorepo
-
-Analysis date: `2026-04-04`
-
-Searches across `packages/**`, `docs/**`, and root `README.md` found:
-
-- No direct imports of `@dzupagent/connectors-browser` outside this package.
-- No other workspace `package.json` currently declares `@dzupagent/connectors-browser` as a dependency.
-- No external references to `createBrowserConnector` or tool ids (`browser-crawl-site`, etc.) outside this package.
-
-Interpretation:
-
-- The package is currently self-contained and not yet wired into another workspace package.
-- Its current in-repo usage is test-driven and documentation-driven rather than cross-package runtime integration.
-
-## 8. Test Coverage and Validation
-
-Executed commands:
-
-- `yarn workspace @dzupagent/connectors-browser test`
-- `yarn workspace @dzupagent/connectors-browser vitest run --coverage`
-
-Result:
-
-- Test files: `7`
-- Total tests: `76`
-- Status: all passing
-
-Coverage snapshot (v8):
-
-- Overall: `63.62%` statements, `70.32%` branches, `65.11%` functions, `63.62%` lines
-- Strongly covered modules:
-- `browser/browser-manager.ts`: `100%` across metrics.
-- `crawler/url-utils.ts`: `96.92%` statements, `93.33%` branches.
-- `extraction/form-extractor.ts`: `100%` statements/lines.
-- Lower-coverage hotspots:
-- `crawler/page-crawler.ts`: `8.29%` statements, `0%` branches/functions.
-- `browser-connector.ts`: `46.11%` statements, `7.69%` functions.
-- `crawler/link-extractor.ts`: `67.02%` statements, `58.62%` branches.
-
-Coverage interpretation:
-
-- Helper modules are well tested with mocked browser/document surfaces.
-- End-to-end behavior of crawl orchestration (`PageCrawler`) and full connector tool execution paths (`browser-connector`) has limited coverage and is the primary testing gap.
-
-## 9. Risks and Improvement Opportunities
-
-1. `PageCrawler` runtime paths are under-tested.
-- Add focused tests for BFS queue behavior, include/exclude filters, max depth/page limits, and hash-route transitions.
-
-2. Connector tool lifecycle/error paths are under-tested.
-- Add tests asserting session cleanup on thrown errors and tool output truncation behavior.
-
-3. DOM heuristics are framework-dependent.
-- Add fixtures for multiple real SPA patterns (Vue/React/Next/Angular) to reduce false negatives in route/auth extraction.
-
-4. No in-repo consumer integration currently.
-- Add an integration example in another package (or an adapter test harness) to validate contract stability across package boundaries.
