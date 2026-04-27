@@ -25,7 +25,7 @@
  */
 import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import type { ForgeServerConfig } from '../app.js'
+import type { ForgeServerConfig } from '../composition/types.js'
 import type { Run, RunStatus, LogEntry, RunJournalEntry } from '@dzupagent/core'
 import { injectTraceContext } from '@dzupagent/core'
 import {

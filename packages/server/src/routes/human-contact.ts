@@ -8,7 +8,7 @@
  * back to running and stores the response in run metadata.
  */
 import { Hono } from 'hono'
-import type { ForgeServerConfig } from '../app.js'
+import type { ForgeServerConfig } from '../composition/types.js'
 import { requireOwnedRun } from './run-guard.js'
 
 export function createHumanContactRoutes(config: ForgeServerConfig): Hono {

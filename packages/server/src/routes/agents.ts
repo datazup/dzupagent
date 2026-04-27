@@ -12,7 +12,7 @@
  * - `/api/agents/*`
  */
 import { Hono } from 'hono'
-import type { ForgeServerConfig } from '../app.js'
+import type { ForgeServerConfig } from '../composition/types.js'
 import { AgentDefinitionService } from '../services/agent-definition-service.js'
 import { AgentCreateSchema, parseIntBounded, validateBodyCompat } from './schemas.js'
 
