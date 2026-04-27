@@ -24,6 +24,7 @@ const ALL_PROVIDERS: AdapterProviderId[] = [
   'crush',
   'goose',
   'openrouter',
+  'openai',
 ]
 
 // ---------------------------------------------------------------------------
@@ -294,9 +295,9 @@ describe('compilePolicyForProvider', () => {
 // ---------------------------------------------------------------------------
 
 describe('compilePolicyForAll', () => {
-  it('should return entries for all 8 providers', () => {
+  it('should return entries for all 9 providers', () => {
     const results = compilePolicyForAll({})
-    expect(results.size).toBe(8)
+    expect(results.size).toBe(9)
     for (const provider of ALL_PROVIDERS) {
       expect(results.has(provider)).toBe(true)
     }
@@ -452,7 +453,7 @@ describe('PolicyConformanceChecker', () => {
 
   describe('approvalRequired', () => {
     it('should produce a warning for providers without approval support', () => {
-      const noApproval: AdapterProviderId[] = ['gemini', 'gemini-sdk', 'qwen', 'crush', 'goose', 'openrouter']
+      const noApproval: AdapterProviderId[] = ['gemini', 'gemini-sdk', 'qwen', 'crush', 'goose', 'openrouter', 'openai']
       for (const provider of noApproval) {
         const result = compileAndCheck(provider, { approvalRequired: true })
         const violation = result.violations.find((v) => v.field === 'approvalRequired')
@@ -519,7 +520,7 @@ describe('PolicyConformanceChecker', () => {
 
   describe('maxBudgetUsd', () => {
     it('should produce a warning for providers without budget support', () => {
-      const noBudget: AdapterProviderId[] = ['codex', 'gemini', 'gemini-sdk', 'qwen', 'crush', 'goose', 'openrouter']
+      const noBudget: AdapterProviderId[] = ['codex', 'gemini', 'gemini-sdk', 'qwen', 'crush', 'goose', 'openrouter', 'openai']
       for (const provider of noBudget) {
         const result = compileAndCheck(provider, { maxBudgetUsd: 1.0 })
         const violation = result.violations.find((v) => v.field === 'maxBudgetUsd')

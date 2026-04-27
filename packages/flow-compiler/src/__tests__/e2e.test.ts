@@ -392,3 +392,46 @@ describe('prepareFlowInputFromDocument', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// D5 — codev-runtime compile target
+// ---------------------------------------------------------------------------
+
+describe('compile() — codev-runtime target', () => {
+  it('codev.* refs do not trigger UNRESOLVED_TOOL_REF when target is codev-runtime', async () => {
+    // Empty resolver — knows nothing about codev.* tools
+    const resolver = makeResolver([])
+    const compiler = createFlowCompiler({ toolResolver: resolver, target: 'codev-runtime' })
+    const input: FlowNode = makeActionJson('codev.planning.create_manifest')
+    const result = await compiler.compile(input)
+    // Should succeed — codev.* is externally resolved
+    expect('errors' in result).toBe(false)
+    if (!('errors' in result)) {
+      expect(result.target).toBe('skill-chain')
+    }
+  })
+
+  it('codev.* refs DO trigger UNRESOLVED_TOOL_REF with default target (no codev-runtime)', async () => {
+    const resolver = makeResolver([])
+    // No target specified — default behaviour
+    const compiler = createFlowCompiler({ toolResolver: resolver })
+    const input: FlowNode = makeActionJson('codev.intake.normalize')
+    const result = await compiler.compile(input)
+    expect('errors' in result).toBe(true)
+    if ('errors' in result) {
+      expect(result.errors.some(e => e.code === 'UNRESOLVED_TOOL_REF')).toBe(true)
+    }
+  })
+
+  it('non-codev.* unresolved refs still raise UNRESOLVED_TOOL_REF with codev-runtime target', async () => {
+    const resolver = makeResolver([])
+    const compiler = createFlowCompiler({ toolResolver: resolver, target: 'codev-runtime' })
+    // Use a non-codev namespace ref that the resolver does not know about
+    const input: FlowNode = makeActionJson('external.some_tool')
+    const result = await compiler.compile(input)
+    expect('errors' in result).toBe(true)
+    if ('errors' in result) {
+      expect(result.errors.some(e => e.code === 'UNRESOLVED_TOOL_REF')).toBe(true)
+    }
+  })
+})

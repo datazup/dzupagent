@@ -9,6 +9,7 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 import type { EvalScorer, EvalSuite } from '@dzupagent/eval-contracts'
+import { EvalOrchestrator } from '@dzupagent/evals'
 
 function req(
   app: ReturnType<typeof createForgeApp>,
@@ -64,6 +65,7 @@ function createBaseConfig(overrides: Partial<ForgeServerConfig> = {}): ForgeServ
         'toy-suite': toySuite,
       },
       executeTarget: async (input) => input.toUpperCase(),
+      orchestratorFactory: (deps) => new EvalOrchestrator(deps),
     },
     ...overrides,
   }
@@ -78,6 +80,7 @@ describe('eval metrics precedence wiring', () => {
           'toy-suite': toySuite,
         },
         executeTarget: async (input) => input.toUpperCase(),
+        orchestratorFactory: (deps) => new EvalOrchestrator(deps),
         metrics: evalMetrics,
       },
     }))
@@ -108,6 +111,7 @@ describe('eval metrics precedence wiring', () => {
           'toy-suite': toySuite,
         },
         executeTarget: async (input) => input.toUpperCase(),
+        orchestratorFactory: (deps) => new EvalOrchestrator(deps),
       },
     }))
 
@@ -138,6 +142,7 @@ describe('eval metrics precedence wiring', () => {
         executeTarget: async () => {
           throw new DOMException('Eval run cancelled', 'AbortError')
         },
+        orchestratorFactory: (deps) => new EvalOrchestrator(deps),
         metrics: evalMetrics,
       },
     }))

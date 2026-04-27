@@ -8,6 +8,21 @@ import {
 } from '@dzupagent/core'
 import { InMemoryRunTraceStore } from '../persistence/run-trace-store.js'
 
+function makeAuthTraceConfig(keyId: string, ownerId: string): ForgeServerConfig {
+  const traceStore = new InMemoryRunTraceStore()
+  return {
+    runStore: new InMemoryRunStore(),
+    agentStore: new InMemoryAgentStore(),
+    eventBus: createEventBus(),
+    modelRegistry: new ModelRegistry(),
+    traceStore,
+    auth: {
+      mode: 'api-key',
+      validateKey: async (_k: string) => ({ id: keyId, ownerId, role: 'operator' }),
+    },
+  }
+}
+
 function createTestConfig(): ForgeServerConfig {
   const traceStore = new InMemoryRunTraceStore()
   return {
@@ -102,5 +117,39 @@ describe('Run trace routes — GET /api/runs/:id/messages', () => {
     expect(res.status).toBe(200)
     const data = await res.json() as { data: { steps: unknown[] } }
     expect(data.data.steps).toHaveLength(2) // steps 0, 1
+  })
+})
+
+// ---------------------------------------------------------------------------
+// MJ-SEC-02: owner isolation — /messages must reject cross-owner reads.
+// ---------------------------------------------------------------------------
+describe('MJ-SEC-02: owner isolation on /messages', () => {
+  it('returns 404 on /messages when run belongs to a different owner', async () => {
+    const cfg = makeAuthTraceConfig('key-A', 'owner-A')
+    await cfg.agentStore.save({ id: 'ag1', name: 'A', instructions: '', modelTier: 'chat' })
+    const run = await cfg.runStore.create({ agentId: 'ag1', input: 'hi', ownerId: 'owner-B', tenantId: 'owner-B' })
+    const traceStore = cfg.traceStore as InMemoryRunTraceStore
+    traceStore.startTrace(run.id, 'ag1')
+    traceStore.addStep(run.id, { timestamp: 1000, type: 'user_input', content: 'hello' })
+    traceStore.completeTrace(run.id)
+    const res = await createForgeApp(cfg).request(`/api/runs/${run.id}/messages`, {
+      headers: { Authorization: 'Bearer tok' },
+    })
+    expect(res.status).toBe(404)
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('NOT_FOUND')
+  })
+
+  it('returns 200 on /messages when run owner matches requesting key', async () => {
+    const cfg = makeAuthTraceConfig('owner-A', 'owner-A')
+    await cfg.agentStore.save({ id: 'ag2', name: 'A', instructions: '', modelTier: 'chat' })
+    const run = await cfg.runStore.create({ agentId: 'ag2', input: 'hi', ownerId: 'owner-A', tenantId: 'owner-A' })
+    const traceStore = cfg.traceStore as InMemoryRunTraceStore
+    traceStore.startTrace(run.id, 'ag2')
+    traceStore.addStep(run.id, { timestamp: 1000, type: 'user_input', content: 'hello' })
+    traceStore.completeTrace(run.id)
+    const res = await createForgeApp(cfg).request(`/api/runs/${run.id}/messages`, {
+      headers: { Authorization: 'Bearer tok' },
+    })
+    expect(res.status).toBe(200)
   })
 })

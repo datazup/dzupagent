@@ -11,9 +11,9 @@ describe('ARCHITECTURE.md', () => {
     const content = readArchitectureDoc()
 
     expect(content).toContain('# @dzupagent/agent-adapters Architecture')
-    expect(content).toContain('## 2. High-Level Architecture')
-    expect(content).toContain('## 6. Feature Inventory by Subsystem')
-    expect(content).toContain('## 8. How To Use')
+    expect(content).toContain('## Responsibilities')
+    expect(content).toContain('## Structure')
+    expect(content).toContain('## Runtime and Control Flow')
   })
 
   it('documents critical runtime components and routing', () => {
@@ -30,14 +30,11 @@ describe('ARCHITECTURE.md', () => {
     expect(content).toContain('ContextAwareRouter')
   })
 
-  it('includes a related tests map for feature coverage', () => {
+  it('includes testing and observability coverage information', () => {
     const content = readArchitectureDoc()
 
-    expect(content).toContain('## 13. Test Coverage Map')
-    expect(content).toContain('adapter-registry.test.ts')
-    expect(content).toContain('parallel-executor.test.ts')
-    expect(content).toContain('adapter-http-handler.test.ts')
-    expect(content).toContain('adapter-recovery.test.ts')
-    expect(content).toContain('architecture-doc.test.ts')
+    expect(content).toContain('## Testing and Observability')
+    expect(content).toContain('Vitest')
+    expect(content).toContain('src/**/*.test.ts')
   })
 })

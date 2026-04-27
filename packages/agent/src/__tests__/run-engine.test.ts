@@ -9,6 +9,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { DzupAgentConfig, GenerateOptions, GenerateResult } from '../agent/agent-types.js'
 import type { ToolLoopResult, StopReason, ToolStat } from '../agent/tool-loop.js'
+import type * as ToolLoopModule from '../agent/tool-loop.js'
 
 // ---------------------------------------------------------------------------
 // Mocks — vi.hoisted ensures these are available during vi.mock hoisting
@@ -24,9 +25,16 @@ const {
   mockCreateToolLoopLearningHook: vi.fn(),
 }))
 
-vi.mock('../agent/tool-loop.js', () => ({
-  runToolLoop: mockRunToolLoop,
-}))
+// MJ-AGENT-02: streaming bridge now delegates to `executeSingleToolCall`
+// from tool-loop.js, so the mock must preserve the real implementations of
+// every other export (only `runToolLoop` is replaced with a spy).
+vi.mock('../agent/tool-loop.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof ToolLoopModule>()
+  return {
+    ...actual,
+    runToolLoop: mockRunToolLoop,
+  }
+})
 
 vi.mock('../agent/message-utils.js', () => ({
   extractFinalAiMessageContent: mockExtractFinalAiMessageContent,

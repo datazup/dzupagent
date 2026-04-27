@@ -228,7 +228,7 @@ describe('VectorStore contract tests', () => {
     beforeEach(async () => {
       adapter = await createCoreInMemoryVectorStore();
       available = adapter !== null;
-    }, 30_000);
+    });
 
     afterEach(async () => {
       if (adapter && typeof (adapter as Record<string, unknown>)['close'] === 'function') {

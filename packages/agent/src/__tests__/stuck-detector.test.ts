@@ -64,3 +64,75 @@ describe('StuckDetector', () => {
     expect(detector.recordToolCall('read_file', { x: 1 }).stuck).toBe(false)
   })
 })
+
+// ===========================================================================
+// Progress-hash detection
+// ===========================================================================
+
+describe('StuckDetector — progress-hash detection', () => {
+  // Helper: produce one full window of 5 distinct tool calls.
+  // Tool sequence: a, b, c, d, e
+  function oneSequence(detector: StuckDetector): void {
+    detector.recordToolCall('tool_a', {})
+    detector.recordToolCall('tool_b', {})
+    detector.recordToolCall('tool_c', {})
+    detector.recordToolCall('tool_d', {})
+    detector.recordToolCall('tool_e', {})
+  }
+
+  it('is not stuck after fewer than 3 identical sequences', () => {
+    const det = new StuckDetector()
+    // Two full repetitions of [a,b,c,d,e] should NOT trigger stuck
+    oneSequence(det)
+    const lastOfSecond: ReturnType<typeof det.recordToolCall>[] = []
+    det.recordToolCall('tool_a', {})
+    det.recordToolCall('tool_b', {})
+    det.recordToolCall('tool_c', {})
+    det.recordToolCall('tool_d', {})
+    lastOfSecond.push(det.recordToolCall('tool_e', {}))
+    // Only 2 full identical windows recorded — not stuck yet
+    expect(lastOfSecond[0]!.stuck).toBe(false)
+  })
+
+  it('detects stuck after exactly 3 identical sequences of 5 tools', () => {
+    const det = new StuckDetector()
+    oneSequence(det)
+    oneSequence(det)
+    // Third repetition — the last call of the third window should trigger
+    det.recordToolCall('tool_a', {})
+    det.recordToolCall('tool_b', {})
+    det.recordToolCall('tool_c', {})
+    det.recordToolCall('tool_d', {})
+    const result = det.recordToolCall('tool_e', {})
+    expect(result.stuck).toBe(true)
+    expect(result.reason).toContain('tool_a')
+  })
+
+  it('resets detection when a different tool breaks the sequence', () => {
+    const det = new StuckDetector()
+    oneSequence(det)
+    oneSequence(det)
+    // Inject a different tool before completing the third window
+    det.recordToolCall('tool_a', {})
+    det.recordToolCall('tool_b', {})
+    det.recordToolCall('DIFFERENT', {}) // breaks the pattern
+    det.recordToolCall('tool_d', {})
+    const result = det.recordToolCall('tool_e', {})
+    // Window is now [b, DIFFERENT, d, e, ...] — not stuck
+    expect(result.stuck).toBe(false)
+  })
+
+  it('changing any one tool in the window breaks the hash match', () => {
+    const det = new StuckDetector()
+    // Two windows of [a,b,c,d,e]
+    oneSequence(det)
+    oneSequence(det)
+    // Start the third but swap tool_c for tool_X
+    det.recordToolCall('tool_a', {})
+    det.recordToolCall('tool_b', {})
+    det.recordToolCall('tool_X', {}) // changed
+    det.recordToolCall('tool_d', {})
+    const result = det.recordToolCall('tool_e', {})
+    expect(result.stuck).toBe(false)
+  })
+})

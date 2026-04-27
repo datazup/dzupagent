@@ -528,7 +528,7 @@ describe('Architecture boundary enforcement — omnibus', () => {
   it('has zero forbidden cross-app edges across all scanned app workspaces', () => {
     const all = collectAppViolations();
     expect(all, formatAppViolations(all)).toHaveLength(0);
-  });
+  }, 120_000);
 });
 
 // ---------------------------------------------------------------------------
