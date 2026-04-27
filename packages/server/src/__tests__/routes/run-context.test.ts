@@ -14,6 +14,28 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 
+function makeAuthConfig(
+  keyId: string,
+  ownerId: string,
+  base: Partial<ForgeServerConfig> = {},
+): ForgeServerConfig {
+  return {
+    runStore: new InMemoryRunStore(),
+    agentStore: new InMemoryAgentStore(),
+    eventBus: createEventBus(),
+    modelRegistry: new ModelRegistry(),
+    auth: {
+      mode: 'api-key',
+      validateKey: async (_k: string) => ({ id: keyId, ownerId, role: 'operator' }),
+    },
+    ...base,
+  }
+}
+
+function bearerGet(app: ReturnType<typeof createForgeApp>, path: string): Promise<Response> {
+  return app.request(path, { headers: { Authorization: 'Bearer tok' } })
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -383,5 +405,45 @@ describe('GET /api/runs/:id/context', () => {
     // Must parse cleanly back to a Date
     const parsed = new Date(body.data.compressionStats.lastAt as string)
     expect(Number.isNaN(parsed.getTime())).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// MJ-SEC-02: owner isolation — /context and /token-report must reject
+// requests from a different owner/tenant.
+// ---------------------------------------------------------------------------
+describe('MJ-SEC-02: owner isolation on /context and /token-report', () => {
+  it('returns 404 on /context when run belongs to a different owner', async () => {
+    const cfg = makeAuthConfig('key-A', 'owner-A')
+    await cfg.agentStore.save({ id: 'ag1', name: 'A', instructions: '', modelTier: 'chat' })
+    const run = await cfg.runStore.create({ agentId: 'ag1', input: 'hi', ownerId: 'owner-B', tenantId: 'owner-B' })
+    const res = await bearerGet(createForgeApp(cfg), `/api/runs/${run.id}/context`)
+    expect(res.status).toBe(404)
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('NOT_FOUND')
+  })
+
+  it('returns 200 on /context when run owner matches requesting key', async () => {
+    const cfg = makeAuthConfig('owner-A', 'owner-A')
+    await cfg.agentStore.save({ id: 'ag2', name: 'A', instructions: '', modelTier: 'chat' })
+    const run = await cfg.runStore.create({ agentId: 'ag2', input: 'hi', ownerId: 'owner-A', tenantId: 'owner-A' })
+    const res = await bearerGet(createForgeApp(cfg), `/api/runs/${run.id}/context`)
+    expect(res.status).toBe(200)
+  })
+
+  it('returns 404 on /token-report when run belongs to a different owner', async () => {
+    const cfg = makeAuthConfig('key-A', 'owner-A')
+    await cfg.agentStore.save({ id: 'ag3', name: 'A', instructions: '', modelTier: 'chat' })
+    const run = await cfg.runStore.create({ agentId: 'ag3', input: 'hi', ownerId: 'owner-B', tenantId: 'owner-B' })
+    const res = await bearerGet(createForgeApp(cfg), `/api/runs/${run.id}/token-report`)
+    expect(res.status).toBe(404)
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('NOT_FOUND')
+  })
+
+  it('returns 200 on /token-report when run owner matches requesting key', async () => {
+    const cfg = makeAuthConfig('owner-A', 'owner-A')
+    await cfg.agentStore.save({ id: 'ag4', name: 'A', instructions: '', modelTier: 'chat' })
+    const run = await cfg.runStore.create({ agentId: 'ag4', input: 'hi', ownerId: 'owner-A', tenantId: 'owner-A' })
+    const res = await bearerGet(createForgeApp(cfg), `/api/runs/${run.id}/token-report`)
+    expect(res.status).toBe(200)
   })
 })

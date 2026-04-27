@@ -219,6 +219,33 @@ describe('lowerSkillChain', () => {
     const { warnings } = lowerSkillChain({ ast, resolved })
     expect(warnings.some((w) => w.includes('Redundant single-child'))).toBe(true)
   })
+
+  it('lowering memory node emits a step with type __memory__ in skillName', () => {
+    const resolved = new Map<string, ResolvedTool>()
+    // memory produces a step — combine with action so chain is non-empty on its own,
+    // but here the memory step itself is sufficient
+    const ast: FlowNode = {
+      type: 'sequence',
+      nodes: [
+        {
+          type: 'memory',
+          operation: 'write',
+          tier: 'session',
+          key: 'userPref',
+        },
+        makeAction('skill:a'),
+      ],
+    }
+    const { artifact } = lowerSkillChain({ ast, resolved })
+    const memStep = artifact.steps.find((s) => s.skillName.startsWith('__memory__'))
+    expect(memStep).toBeDefined()
+    expect(memStep?.skillName).toBe('__memory__write_session_userpref')
+    expect(typeof memStep?.stateTransformer).toBe('function')
+    // Verify stateTransformer preserves existing state and injects memoryOp
+    const transformed = memStep!.stateTransformer!({ existingKey: 'val' })
+    expect(transformed['existingKey']).toBe('val')
+    expect(transformed['__memoryOp']).toEqual({ operation: 'write', tier: 'session', key: 'userPref' })
+  })
 })
 
 // ---------------------------------------------------------------------------

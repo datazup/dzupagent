@@ -601,3 +601,44 @@ describe('RagPipeline (unit) — retriever cache lifecycle', () => {
     expect(() => pipeline.disposeAll()).not.toThrow()
   })
 })
+
+// ===========================================================================
+// deleteBySourceId
+// ===========================================================================
+
+describe('RagPipeline (unit) — deleteBySourceId', () => {
+  it('calls vectorStore.delete with source_id filter and correct collection', async () => {
+    const deps = createMockDeps()
+    ;(deps.vectorStore as unknown as { count: ReturnType<typeof vi.fn> }).count = vi.fn(async () => 5)
+    ;(deps.vectorStore as unknown as { delete: ReturnType<typeof vi.fn> }).delete = vi.fn(async () => {})
+    const pipeline = new RagPipeline({}, deps)
+    await pipeline.deleteBySourceId('src-abc', 'tenant1')
+    const deleteFn = (deps.vectorStore as unknown as { delete: ReturnType<typeof vi.fn> }).delete
+    expect(deleteFn).toHaveBeenCalledWith('rag_tenant1', {
+      filter: { field: 'source_id', op: 'eq', value: 'src-abc' },
+    })
+  })
+
+  it('returns the count of deleted chunks (before - after)', async () => {
+    const deps = createMockDeps()
+    let callCount = 0
+    ;(deps.vectorStore as unknown as { count: ReturnType<typeof vi.fn> }).count = vi.fn(async () => {
+      // First call returns 8, second call returns 5 (3 deleted)
+      callCount++
+      return callCount === 1 ? 8 : 5
+    })
+    ;(deps.vectorStore as unknown as { delete: ReturnType<typeof vi.fn> }).delete = vi.fn(async () => {})
+    const pipeline = new RagPipeline({}, deps)
+    const deleted = await pipeline.deleteBySourceId('src-xyz', 'tenant1')
+    expect(deleted).toBe(3)
+  })
+
+  it('returns 0 when no chunks match (before === after)', async () => {
+    const deps = createMockDeps()
+    ;(deps.vectorStore as unknown as { count: ReturnType<typeof vi.fn> }).count = vi.fn(async () => 4)
+    ;(deps.vectorStore as unknown as { delete: ReturnType<typeof vi.fn> }).delete = vi.fn(async () => {})
+    const pipeline = new RagPipeline({}, deps)
+    const deleted = await pipeline.deleteBySourceId('src-none', 'tenant1')
+    expect(deleted).toBe(0)
+  })
+})

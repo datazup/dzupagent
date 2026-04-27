@@ -76,9 +76,8 @@ describe('Enrichment metrics route', () => {
 
     expect(status).toBe(404)
     const error = json['error'] as Record<string, unknown>
-    expect(error['code']).toBe('RUN_NOT_FOUND')
+    expect(error['code']).toBe('NOT_FOUND')
     expect(typeof error['message']).toBe('string')
-    expect(error['message']).toContain('does-not-exist')
   })
 
   it('handles metrics with missing/undefined phases gracefully', async () => {
