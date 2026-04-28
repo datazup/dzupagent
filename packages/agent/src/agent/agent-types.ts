@@ -17,7 +17,12 @@ import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type { MemoryService } from '@dzupagent/memory'
 import type { MessageManagerConfig } from '@dzupagent/context'
 import type { ConversationPhase, FrozenSnapshot } from '@dzupagent/context'
-import type { ToolStat, StopReason, ToolLoopTracer } from './tool-loop.js'
+import type {
+  ToolResultScanFailureMode,
+  ToolStat,
+  StopReason,
+  ToolLoopTracer,
+} from './tool-loop.js'
 import type { ToolArgValidatorConfig } from './tool-arg-validator.js'
 import type { StuckError } from './stuck-error.js'
 import type { GuardrailConfig } from '../guardrails/guardrail-types.js'
@@ -249,6 +254,7 @@ export interface DzupAgentConfig {
    * | `governance`          | `toolGovernance`         |
    * | `safetyMonitor`       | `safetyMonitor`          |
    * | `scanToolResults`     | `scanToolResults`        |
+   * | `scanFailureMode`     | `scanFailureMode`        |
    * | `timeouts`            | `toolTimeouts`           |
    * | `tracer`              | `tracer`                 |
    * | `agentId`             | `agentId`                |
@@ -340,6 +346,17 @@ export interface ToolExecutionConfig {
    * Forwarded to {@link ToolLoopConfig.scanToolResults}.
    */
   scanToolResults?: boolean
+
+  /**
+   * Controls scanner-exception behavior for tool result scanning.
+   *
+   * Defaults to `fail-open` for backwards compatibility. Set to
+   * `fail-closed` for production or untrusted presets that must withhold
+   * tool output when the safety scanner itself fails.
+   *
+   * Forwarded to {@link ToolLoopConfig.scanFailureMode}.
+   */
+  scanFailureMode?: ToolResultScanFailureMode
 
   /**
    * Per-tool execution timeouts in milliseconds. Forwarded to

@@ -28,6 +28,7 @@ import { rehydrateMessagesFromJournal } from './resume-utils.js'
 import {
   runToolLoop,
   type StopReason,
+  type ToolResultScanFailureMode,
   type ToolLoopTracer,
   type ToolStat,
 } from './tool-loop.js'
@@ -137,6 +138,7 @@ export interface StreamingToolPolicyOptions {
   toolTimeouts?: Record<string, number>
   safetyMonitor?: SafetyMonitor
   scanToolResults?: boolean
+  scanFailureMode?: ToolResultScanFailureMode
   tracer?: ToolLoopTracer
   agentId?: string
   runId?: string
@@ -272,6 +274,9 @@ export async function executeGenerateRun(
         : {}),
       ...(toolExec?.scanToolResults !== undefined
         ? { scanToolResults: toolExec.scanToolResults }
+        : {}),
+      ...(toolExec?.scanFailureMode !== undefined
+        ? { scanFailureMode: toolExec.scanFailureMode }
         : {}),
       ...(toolExec?.timeouts !== undefined
         ? { toolTimeouts: toolExec.timeouts }
@@ -752,7 +757,46 @@ export async function executeStreamingToolCall(params: {
           }
         }
       } catch {
-        // Non-fatal: safety scan failure must not abort the run
+        policy.eventBus?.emit({
+          type: 'safety:violation',
+          category: 'tool_result_scanner_failure',
+          severity: policy.scanFailureMode === 'fail-closed' ? 'critical' : 'warning',
+          ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
+          message: 'Tool result safety scanner failed',
+        } as never)
+
+        if (policy.scanFailureMode === 'fail-closed') {
+          const blockedContent = '[blocked: tool result safety scanner failed]'
+          const durationMs = Date.now() - startMs
+          params.statTracker.record(toolName, durationMs)
+          params.onToolLatency?.(toolName, durationMs, 'scanner-failure')
+          emitToolError(policy, {
+            toolName,
+            toolCallId,
+            durationMs,
+            inputMetadataKeys: validatedKeys,
+            errorCode: 'TOOL_EXECUTION_FAILED',
+            errorMessage: 'Tool result safety scanner failed; output withheld',
+            status: 'error',
+          })
+          if (span) {
+            try {
+              span.setAttribute('durationMs', durationMs)
+              span.setAttribute('scannerFailure', true)
+              span.end()
+            } catch {
+              // Tracer failures must not abort the streaming loop
+            }
+          }
+          return {
+            message: new ToolMessage({
+              content: blockedContent,
+              tool_call_id: toolCallId,
+              name: toolName,
+            }),
+            eventResult: blockedContent,
+          }
+        }
       }
     }
 
