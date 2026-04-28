@@ -16,12 +16,10 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
   extractTokenUsage,
   ForgeError,
-  requireTerminalToolExecutionRunId,
   type TokenUsage,
   type ToolGovernance,
   type SafetyMonitor,
   type DzupEventBus,
-  type ForgeErrorCode,
 } from '@dzupagent/core'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type { CompressResult } from '@dzupagent/context'
@@ -29,10 +27,18 @@ import type { IterationBudget } from '../guardrails/iteration-budget.js'
 import type { StuckDetector, StuckStatus } from '../guardrails/stuck-detector.js'
 import { StuckError } from './stuck-error.js'
 import {
-  validateAndRepairToolArgs,
-  formatSchemaHint,
   type ToolArgValidatorConfig,
 } from './tool-arg-validator.js'
+import {
+  emitToolCalled,
+  emitToolError,
+  emitToolResult,
+  extractInputMetadataKeys,
+  invokeWithOptionalTimeout,
+  maybeValidateArgs,
+  resolveValidatorConfig,
+  statusFromError,
+} from './tool-lifecycle-policy.js'
 // Note: parallel-executor.ts still exports the standalone semaphore
 // primitive (executeToolsParallel) for callers that want raw parallel
 // dispatch without the policy stack. The tool-loop's parallel path was
@@ -713,188 +719,6 @@ export async function runToolLoop(
 // ---------- Canonical tool lifecycle telemetry (RF-AGENT-05) ----------
 
 /**
- * Extract the top-level keys of a tool input object.
- *
- * Records ONLY the metadata keys — never the values — so emitting
- * `tool:called` / `tool:result` / `tool:error` events cannot leak
- * secrets, PII, or raw arguments into the audit trail.
- */
-function extractInputMetadataKeys(input: unknown): string[] {
-  if (input == null || typeof input !== 'object') return []
-  if (Array.isArray(input)) return []
-  return Object.keys(input as Record<string, unknown>)
-}
-
-/**
- * Outcome status for a terminal tool lifecycle event.
- */
-type ToolLifecycleStatus = 'success' | 'error' | 'timeout' | 'denied'
-
-/**
- * Detect the canonical status from a thrown error. Used to label
- * `tool:error` events as `'timeout'` vs generic `'error'` so consumers
- * can branch without parsing message text.
- */
-function statusFromError(err: unknown): Extract<ToolLifecycleStatus, 'error' | 'timeout'> {
-  const msg = err instanceof Error ? err.message : String(err)
-  return /timed out after \d+ms/.test(msg) ? 'timeout' : 'error'
-}
-
-/**
- * Emit a canonical `tool:called` event.
- *
- * Side-effect-only — never throws (event-bus failures must not abort
- * the run). Also bridges to {@link ToolGovernance.audit} when the
- * governance layer is wired so legacy auditHandler consumers continue
- * to receive notifications.
- */
-function emitToolCalled(
-  config: ToolLoopConfig,
-  args: {
-    toolName: string
-    toolCallId: string
-    input: Record<string, unknown>
-    inputMetadataKeys: string[]
-  },
-): void {
-  const { toolName, toolCallId, input, inputMetadataKeys } = args
-  try {
-    config.eventBus?.emit({
-      type: 'tool:called',
-      toolName,
-      input,
-      toolCallId,
-      inputMetadataKeys,
-      ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
-      ...(config.runId !== undefined
-        ? { runId: config.runId, executionRunId: config.runId }
-        : {}),
-    } as never)
-  } catch {
-    // Telemetry must never abort the loop
-  }
-
-  // Bridge to ToolGovernance.audit for legacy auditHandler consumers.
-  if (config.toolGovernance) {
-    void config.toolGovernance.audit({
-      toolName,
-      input,
-      callerAgent: config.agentId ?? 'unknown',
-      timestamp: Date.now(),
-      allowed: true,
-    }).catch(() => { /* non-fatal */ })
-  }
-}
-
-/**
- * Emit a canonical `tool:result` event for a successful invocation.
- */
-function emitToolResult(
-  config: ToolLoopConfig,
-  args: {
-    toolName: string
-    toolCallId: string
-    durationMs: number
-    inputMetadataKeys: string[]
-    output: unknown
-  },
-): void {
-  const { toolName, toolCallId, durationMs, inputMetadataKeys, output } = args
-  try {
-    const executionRunId = requireTerminalToolExecutionRunId({
-      eventType: 'tool:result',
-      toolName,
-      executionRunId: config.runId,
-    })
-    config.eventBus?.emit({
-      type: 'tool:result',
-      toolName,
-      durationMs,
-      toolCallId,
-      inputMetadataKeys,
-      status: 'success',
-      executionRunId,
-      ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
-      ...(config.runId !== undefined ? { runId: config.runId } : {}),
-    } as never)
-  } catch {
-    // Telemetry must never abort the loop
-  }
-
-  if (config.toolGovernance) {
-    void config.toolGovernance.auditResult({
-      toolName,
-      output,
-      callerAgent: config.agentId ?? 'unknown',
-      durationMs,
-      success: true,
-      timestamp: Date.now(),
-    }).catch(() => { /* non-fatal */ })
-  }
-}
-
-/**
- * Emit a canonical `tool:error` event for any non-success terminal
- * outcome (`error`, `timeout`, `denied`).
- */
-function emitToolError(
-  config: ToolLoopConfig,
-  args: {
-    toolName: string
-    toolCallId: string
-    durationMs: number
-    inputMetadataKeys: string[]
-    errorCode: ForgeErrorCode
-    errorMessage: string
-    status: Exclude<ToolLifecycleStatus, 'success'>
-  },
-): void {
-  const {
-    toolName,
-    toolCallId,
-    durationMs,
-    inputMetadataKeys,
-    errorCode,
-    errorMessage,
-    status,
-  } = args
-  try {
-    const executionRunId = requireTerminalToolExecutionRunId({
-      eventType: 'tool:error',
-      toolName,
-      executionRunId: config.runId,
-    })
-    config.eventBus?.emit({
-      type: 'tool:error',
-      toolName,
-      errorCode,
-      message: errorMessage,
-      errorMessage,
-      durationMs,
-      toolCallId,
-      inputMetadataKeys,
-      status,
-      executionRunId,
-      ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
-      ...(config.runId !== undefined ? { runId: config.runId } : {}),
-    } as never)
-  } catch {
-    // Telemetry must never abort the loop
-  }
-
-  if (config.toolGovernance) {
-    void config.toolGovernance.auditResult({
-      toolName,
-      output: errorMessage,
-      callerAgent: config.agentId ?? 'unknown',
-      durationMs,
-      success: false,
-      timestamp: Date.now(),
-    }).catch(() => { /* non-fatal */ })
-  }
-}
-
-/**
  * Best-effort parse of a tool's raw result into a plain object.
  * Returns `null` when the value is not (or cannot be coerced into) an
  * object record. Never throws.
@@ -997,76 +821,6 @@ interface ToolCallResult {
 }
 
 type StatGetter = (name: string) => { calls: number; errors: number; totalMs: number }
-
-/**
- * Resolve the validator config from the ToolLoopConfig convenience union.
- */
-function resolveValidatorConfig(
-  cfg: boolean | ToolArgValidatorConfig | undefined,
-): ToolArgValidatorConfig | null {
-  if (!cfg) return null
-  if (cfg === true) return { autoRepair: true }
-  return cfg
-}
-
-/**
- * Try to extract a JSON-schema-like object from a StructuredToolInterface.
- * LangChain tools expose `.schema` which is typically a Zod schema; the
- * underlying JSON schema is available via `.jsonSchema` or `._def` depending
- * on the Zod version.
- */
-function extractJsonSchema(tool: StructuredToolInterface): Record<string, unknown> | null {
-  const schema = (tool as StructuredToolInterface & { schema?: unknown }).schema
-  if (!schema) return null
-
-  // Zod v4 uses .jsonSchema; Zod v3 uses ._def / .shape() — we try the
-  // most common approaches. If none work, validation is skipped for this tool.
-  if (typeof schema === 'object' && schema !== null) {
-    // Already a JSON schema object (e.g., from createForgeTool or raw schemas)
-    const s = schema as Record<string, unknown>
-    if (s.properties || s.type) return s
-
-    // Zod schema — try to convert
-    const zodSchema = schema as { jsonSchema?: () => Record<string, unknown> }
-    if (typeof zodSchema.jsonSchema === 'function') {
-      try {
-        return zodSchema.jsonSchema() as Record<string, unknown>
-      } catch {
-        // Ignore
-      }
-    }
-  }
-  return null
-}
-
-/**
- * Validate and possibly repair args for a single tool call.
- * Returns the (possibly modified) args and any validation error message.
- */
-function maybeValidateArgs(
-  tc: ToolCall,
-  tool: StructuredToolInterface,
-  validatorCfg: ToolArgValidatorConfig | null,
-): { args: Record<string, unknown>; validationError?: string } {
-  if (!validatorCfg) return { args: tc.args }
-
-  const jsonSchema = extractJsonSchema(tool)
-  if (!jsonSchema) return { args: tc.args }
-
-  const result = validateAndRepairToolArgs(tc.args, jsonSchema, validatorCfg)
-
-  if (result.valid && result.repairedArgs) {
-    return { args: result.repairedArgs as Record<string, unknown> }
-  }
-
-  if (!result.valid) {
-    const hint = formatSchemaHint(jsonSchema)
-    const errMsg = `Validation failed for tool "${tc.name}": ${result.errors.join('; ')}.\n${hint}`
-    return { args: tc.args, validationError: errMsg }
-  }
-
-  return { args: tc.args }
-}
 
 /**
  * Execute a single tool call with validation, stuck detection, and stat tracking.
@@ -1627,39 +1381,4 @@ async function executeToolCallsParallel(
   }
 
   return ordered.map(r => r.result)
-}
-
-// ---------- Tool timeout enforcement (GA-02) ----------
-
-/**
- * Invoke a tool and optionally race it against a timeout.
- *
- * When `timeoutMs` is falsy (`undefined`, `null`, or `0`), the invocation
- * runs unbounded (preserves the prior behaviour). When a positive
- * `timeoutMs` is provided, the promise is raced against a timer and
- * rejects with `Error("Tool \"<name>\" timed out after <ms>ms")` if the
- * timer wins. The timer is cleared in either branch so it never leaks.
- */
-async function invokeWithOptionalTimeout<T>(
-  toolName: string,
-  timeoutMs: number | undefined,
-  invoke: () => Promise<T>,
-): Promise<T> {
-  if (!timeoutMs || timeoutMs <= 0) {
-    return invoke()
-  }
-
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`Tool "${toolName}" timed out after ${timeoutMs}ms`)),
-      timeoutMs,
-    )
-  })
-
-  try {
-    return await Promise.race([invoke(), timeoutPromise])
-  } finally {
-    if (timer !== undefined) clearTimeout(timer)
-  }
 }

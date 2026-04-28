@@ -73,6 +73,20 @@ function createStreamingModel(responses: AIMessage[]): BaseChatModel {
   return model as unknown as BaseChatModel
 }
 
+function createInvokeModel(responses: AIMessage[]): BaseChatModel {
+  let invokeIdx = 0
+  const model: Record<string, unknown> = {
+    invoke: vi.fn(async (_msgs: BaseMessage[]) => {
+      const resp = responses[invokeIdx] ?? responses.at(-1) ?? new AIMessage('done')
+      invokeIdx++
+      return resp
+    }),
+    bindTools: vi.fn().mockReturnThis(),
+    model: 'mock-invoke-model',
+  }
+  return model as unknown as BaseChatModel
+}
+
 function mockTool(
   name: string,
   invoke?: (args: Record<string, unknown>) => Promise<string> | string,
@@ -130,11 +144,185 @@ async function drainStream(
   return events
 }
 
+function firstStreamToolResult(events: AgentStreamEvent[]): string | undefined {
+  const event = events.find((e) => e.type === 'tool_result')
+  return event?.type === 'tool_result' ? event.data.result : undefined
+}
+
+function generatedToolContents(
+  result: Awaited<ReturnType<DzupAgent['generate']>>,
+): string[] {
+  return result.messages
+    .filter((m) => m._getType() === 'tool')
+    .map((m) => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+}
+
 // ===========================================================================
 // stream tool guardrail — MJ-AGENT-02
 // ===========================================================================
 
 describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', () => {
+  describe('RF-002 shared lifecycle policy coverage', () => {
+    it('covers successful tool result shaping in stream and generate modes', async () => {
+      const { tool: streamTool } = mockTool('search', () => 'hits: 42')
+      const { tool: generateTool } = mockTool('search', () => 'hits: 42')
+
+      const streamAgent = new DzupAgent(
+        baseConfig({
+          model: createStreamingModel([
+            aiWithToolCall('search', { q: 'x' }, 'tc_ok'),
+            new AIMessage('done'),
+          ]),
+          tools: [streamTool],
+        }),
+      )
+      const generateAgent = new DzupAgent(
+        baseConfig({
+          model: createInvokeModel([
+            aiWithToolCall('search', { q: 'x' }, 'tc_ok'),
+            new AIMessage('done'),
+          ]),
+          tools: [generateTool],
+        }),
+      )
+
+      const streamEvents = await drainStream(streamAgent, [new HumanMessage('search')])
+      const generateResult = await generateAgent.generate([new HumanMessage('search')])
+
+      expect(firstStreamToolResult(streamEvents)).toBe('hits: 42')
+      expect(generatedToolContents(generateResult)).toContain('hits: 42')
+    })
+
+    it('covers validation failure shaping in stream and generate modes', async () => {
+      const schema = {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+        required: ['path'],
+        additionalProperties: false,
+      } as Record<string, unknown>
+      const { tool: streamTool, invokeFn: streamInvoke } = mockTool(
+        'readFile',
+        () => 'contents',
+        schema,
+      )
+      const { tool: generateTool, invokeFn: generateInvoke } = mockTool(
+        'readFile',
+        () => 'contents',
+        schema,
+      )
+
+      const streamAgent = new DzupAgent(
+        baseConfig({
+          model: createStreamingModel([
+            aiWithToolCall('readFile', {}, 'tc_validation'),
+            new AIMessage('done'),
+          ]),
+          tools: [streamTool],
+          toolExecution: { argumentValidator: { autoRepair: false } },
+        }),
+      )
+      const generateAgent = new DzupAgent(
+        baseConfig({
+          model: createInvokeModel([
+            aiWithToolCall('readFile', {}, 'tc_validation'),
+            new AIMessage('done'),
+          ]),
+          tools: [generateTool],
+          toolExecution: { argumentValidator: { autoRepair: false } },
+        }),
+      )
+
+      const streamEvents = await drainStream(streamAgent, [new HumanMessage('read')])
+      const generateResult = await generateAgent.generate([new HumanMessage('read')])
+
+      expect(streamInvoke).not.toHaveBeenCalled()
+      expect(generateInvoke).not.toHaveBeenCalled()
+      expect(firstStreamToolResult(streamEvents)).toBe('[validation error]')
+      expect(generatedToolContents(generateResult).some((content) =>
+        content.startsWith('Validation failed for tool "readFile"'),
+      )).toBe(true)
+    })
+
+    it('covers timeout status shaping in stream and generate modes', async () => {
+      const slow = () =>
+        new Promise<string>((resolve) => setTimeout(() => resolve('done'), 1000))
+      const { tool: streamTool } = mockTool('slowTool', slow)
+      const { tool: generateTool } = mockTool('slowTool', slow)
+
+      const streamAgent = new DzupAgent(
+        baseConfig({
+          model: createStreamingModel([
+            aiWithToolCall('slowTool', {}, 'tc_timeout'),
+            new AIMessage('handled'),
+          ]),
+          tools: [streamTool],
+          toolExecution: { timeouts: { slowTool: 5 } },
+        }),
+      )
+      const generateAgent = new DzupAgent(
+        baseConfig({
+          model: createInvokeModel([
+            aiWithToolCall('slowTool', {}, 'tc_timeout'),
+            new AIMessage('handled'),
+          ]),
+          tools: [generateTool],
+          toolExecution: { timeouts: { slowTool: 5 } },
+        }),
+      )
+
+      const streamEvents = await drainStream(streamAgent, [new HumanMessage('go')])
+      const generateResult = await generateAgent.generate([new HumanMessage('go')])
+
+      expect(firstStreamToolResult(streamEvents)).toMatch(/^\[error: .*timed out after \d+ms\]$/)
+      expect(generatedToolContents(generateResult).some((content) =>
+        /^Error executing tool "slowTool": .*timed out after \d+ms$/.test(content),
+      )).toBe(true)
+    })
+
+    it('covers governance denial shaping in stream and generate modes', async () => {
+      const { tool: streamTool, invokeFn: streamInvoke } = mockTool(
+        'deploy',
+        () => 'deployed!',
+      )
+      const { tool: generateTool, invokeFn: generateInvoke } = mockTool(
+        'deploy',
+        () => 'deployed!',
+      )
+      const governance = new ToolGovernance({ blockedTools: ['deploy'] })
+
+      const streamAgent = new DzupAgent(
+        baseConfig({
+          model: createStreamingModel([
+            aiWithToolCall('deploy', {}, 'tc_denied'),
+            new AIMessage('handled'),
+          ]),
+          tools: [streamTool],
+          toolExecution: { governance },
+        }),
+      )
+      const generateAgent = new DzupAgent(
+        baseConfig({
+          model: createInvokeModel([
+            aiWithToolCall('deploy', {}, 'tc_denied'),
+            new AIMessage('handled'),
+          ]),
+          tools: [generateTool],
+          toolExecution: { governance },
+        }),
+      )
+
+      const streamEvents = await drainStream(streamAgent, [new HumanMessage('deploy')])
+      const generateResult = await generateAgent.generate([new HumanMessage('deploy')])
+
+      expect(streamInvoke).not.toHaveBeenCalled()
+      expect(generateInvoke).not.toHaveBeenCalled()
+      expect(firstStreamToolResult(streamEvents)).toMatch(/^\[blocked/)
+      expect(generatedToolContents(generateResult).some((content) =>
+        content.startsWith('[blocked]'),
+      )).toBe(true)
+    })
+  })
+
   // -------------------------------------------------------------------------
   // Governance: blocked tool — same outcome as generate()
   // -------------------------------------------------------------------------
