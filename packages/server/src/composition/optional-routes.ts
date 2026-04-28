@@ -257,6 +257,10 @@ function mountMailboxAndClusterRoutes(app: Hono, { runtimeConfig }: OptionalRout
 }
 
 function mountOpenAICompatRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+  if (runtimeConfig.openai?.enabled !== true) {
+    return
+  }
+
   // Apply OpenAI auth middleware to all /v1/* routes (separate from /api/* auth)
   app.use('/v1/*', openaiAuthMiddleware(runtimeConfig.openai?.auth))
 

@@ -69,7 +69,7 @@ Public package entrypoints:
 - Always mounted core routes: `/api/health`, `/api/runs`, `/api/agent-definitions`, `/api/agents` (compat alias), approvals/human-contact/enrichment routes, plus conditional `/api/registry`, `/api/keys`, `/api/approvals`, run trace routes.
 - Optional routes from integration config: memory, deploy, learning, benchmarks, evals, playground, A2A, triggers/schedules, prompts/personas/presets/marketplace, reflections, mailbox/clusters.
 - Events route is mounted by default via optional route layer (`/api/events/stream`) using the resolved event gateway.
-- OpenAI-compatible routes are always mounted under `/v1/*` (`/v1/chat/completions`, `/v1/models`) with separate OpenAI auth middleware.
+- OpenAI-compatible routes mount under `/v1/*` (`/v1/chat/completions`, `/v1/models`) only when `openai.enabled: true` is configured, with separate OpenAI auth middleware.
 
 5. Plugin mounting:
 - Built-in route plugins can mount `/api/mcp`, `/api/skills`, `/api/workflows` based on config.
