@@ -6,6 +6,7 @@
  */
 import { eq, and } from 'drizzle-orm'
 import { triggerConfigs } from '../persistence/drizzle-schema.js'
+import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
 
 export type TriggerType = 'cron' | 'webhook' | 'chain'
 
@@ -84,9 +85,6 @@ export class InMemoryTriggerStore implements TriggerStore {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDrizzle = any
-
 interface TriggerRow {
   id: string
   type: string
@@ -104,7 +102,7 @@ interface TriggerRow {
  * Drizzle-backed trigger store for persistent trigger storage.
  */
 export class DrizzleTriggerStore implements TriggerStore {
-  constructor(private readonly db: AnyDrizzle) {}
+  constructor(private readonly db: DrizzleStoreDatabase) {}
 
   async save(
     trigger: Omit<TriggerConfigRecord, 'createdAt' | 'updatedAt'>,
@@ -115,7 +113,7 @@ export class DrizzleTriggerStore implements TriggerStore {
     const existing = await this.get(trigger.id)
 
     if (existing) {
-      const [row] = await this.db
+      const rows = await this.db
         .update(triggerConfigs)
         .set({
           type: trigger.type,
@@ -128,11 +126,13 @@ export class DrizzleTriggerStore implements TriggerStore {
           updatedAt: now,
         })
         .where(eq(triggerConfigs.id, trigger.id))
-        .returning()
-      return this.rowToRecord(row as TriggerRow)
+        .returning() as TriggerRow[]
+      const row = rows[0]
+      if (!row) throw new Error(`Failed to update trigger ${trigger.id}`)
+      return this.rowToRecord(row)
     }
 
-    const [row] = await this.db
+    const rows = await this.db
       .insert(triggerConfigs)
       .values({
         id: trigger.id,
@@ -146,9 +146,11 @@ export class DrizzleTriggerStore implements TriggerStore {
         createdAt: now,
         updatedAt: now,
       })
-      .returning()
+      .returning() as TriggerRow[]
+    const row = rows[0]
+    if (!row) throw new Error(`Failed to insert trigger ${trigger.id}`)
 
-    return this.rowToRecord(row as TriggerRow)
+    return this.rowToRecord(row)
   }
 
   async list(filter?: { agentId?: string; enabled?: boolean }): Promise<TriggerConfigRecord[]> {
@@ -161,9 +163,9 @@ export class DrizzleTriggerStore implements TriggerStore {
     }
 
     const query = this.db.select().from(triggerConfigs)
-    const rows: TriggerRow[] = conditions.length > 0
+    const rows = (conditions.length > 0
       ? await query.where(and(...conditions))
-      : await query
+      : await query) as TriggerRow[]
 
     return rows.map((r) => this.rowToRecord(r))
   }
