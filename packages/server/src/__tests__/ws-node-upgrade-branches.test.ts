@@ -2,7 +2,8 @@
  * Branch coverage tests for createNodeWsUpgradeHandler and createPathUpgradeGuard.
  *
  * Covers: destroySocketOnReject false path, shouldHandleRequest async returning true,
- * attach error triggering onAttachError, missing req.url, query strings, path with trailing slash.
+ * explicit unsafe dev mode, attach error triggering onAttachError, missing
+ * req.url, query strings, path with trailing slash.
  */
 import { describe, it, expect, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
@@ -90,6 +91,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
     const handler = createNodeWsUpgradeHandler({
       wss: { handleUpgrade },
       manager,
+      allowUnsafeUnauthenticated: true,
       onAttachError: ({ error }) => { errors.push(error) },
     })
 
@@ -113,6 +115,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
     const handler = createNodeWsUpgradeHandler({
       wss: { handleUpgrade },
       manager,
+      allowUnsafeUnauthenticated: true,
     })
 
     expect(() => handler({ url: '/ws' } as never, new MockSocket() as never, Buffer.alloc(0))).not.toThrow()
@@ -165,7 +168,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
     expect(registry.get(ws)?.runIds).toEqual(['async-resolved'])
   })
 
-  it('handler without shouldHandleRequest defaults to allowed', async () => {
+  it('explicit unsafe dev mode proceeds without shouldHandleRequest or scope resolver', async () => {
     const bus = createEventBus()
     const bridge = new EventBridge(bus)
     const manager = new WSSessionManager(bridge, new WSClientScopeRegistry())
@@ -176,6 +179,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
     const handler = createNodeWsUpgradeHandler({
       wss: { handleUpgrade },
       manager,
+      allowUnsafeUnauthenticated: true,
     })
 
     handler({ url: '/ws' } as never, new MockSocket() as never, Buffer.alloc(0))
