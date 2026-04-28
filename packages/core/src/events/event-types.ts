@@ -48,7 +48,8 @@ export type DzupEvent =
   | {
       type: 'tool:called'
       toolName: string
-      input: unknown
+      /** @deprecated Raw input values are not emitted by default. Use inputMetadataKeys. */
+      input?: unknown
       executionRunId?: string
       /** Owning agent (when provided by the caller). */
       agentId?: string

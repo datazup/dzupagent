@@ -109,6 +109,7 @@ describe('Tool Loop — RF-AGENT-05 canonical lifecycle events', () => {
     expect(called.runId).toBe('run_xyz')
     expect(called.executionRunId).toBe('run_xyz')
     expect(called.inputMetadataKeys).toEqual(['path', 'apiKey'])
+    expect(called).not.toHaveProperty('input')
 
     const terminal = events[1]!
     expect(terminal.type).toBe('tool:result')
@@ -143,28 +144,20 @@ describe('Tool Loop — RF-AGENT-05 canonical lifecycle events', () => {
       runId: 'run_secrets',
     })
 
-    // The canonical metadata fields (inputMetadataKeys, agentId, runId,
-    // toolCallId, status, durationMs, message, errorCode) must never
-    // contain the secret string. The legacy `input` field may still
-    // carry full args for backward compatibility — that field is the
-    // legacy surface, not part of the canonical metadata contract.
     for (const e of events) {
       if (e.type !== 'tool:called') continue
       // inputMetadataKeys must hold KEYS only.
       expect(e.inputMetadataKeys).toEqual(['username', 'password'])
+      expect(e).not.toHaveProperty('input')
       const keysJson = JSON.stringify(e.inputMetadataKeys)
       expect(keysJson).not.toContain(secret)
       expect(keysJson).not.toContain('alice')
     }
 
-    // tool:result/tool:error MUST NOT carry raw input values at all
-    // (no `input` field).
     for (const e of events) {
-      if (e.type === 'tool:result' || e.type === 'tool:error') {
-        const serialized = JSON.stringify(e)
-        expect(serialized).not.toContain(secret)
-        expect(serialized).not.toContain('alice')
-      }
+      const serialized = JSON.stringify(e)
+      expect(serialized).not.toContain(secret)
+      expect(serialized).not.toContain('alice')
     }
   })
 
@@ -310,8 +303,10 @@ describe('Tool Loop — RF-AGENT-05 canonical lifecycle events', () => {
     expect(onToolCall.mock.calls[0]![0]).toMatchObject({
       toolName: 'safe_tool',
       callerAgent: 'agent_gov',
+      inputMetadataKeys: ['foo'],
       allowed: true,
     })
+    expect(onToolCall.mock.calls[0]![0].input).toBeUndefined()
 
     expect(onToolResult).toHaveBeenCalledTimes(1)
     expect(onToolResult.mock.calls[0]![0]).toMatchObject({

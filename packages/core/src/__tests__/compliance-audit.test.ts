@@ -267,6 +267,40 @@ describe('ComplianceAuditLogger', () => {
     expect(denied!.result).toBe('denied')
   })
 
+  it('redacts legacy tool input values before storing audit details', async () => {
+    const store = new InMemoryAuditStore()
+    const logger = new ComplianceAuditLogger({ store })
+    const bus = createEventBus()
+    const secret = 'sk-live-secret-do-not-store'
+
+    logger.attach(bus)
+
+    bus.emit({
+      type: 'tool:called',
+      toolName: 'deploy',
+      agentId: 'agent-1',
+      runId: 'run-1',
+      toolCallId: 'call-1',
+      input: { token: secret, region: 'eu' },
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const entries = await store.search({})
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.action).toBe('tool.called')
+    expect(entries[0]!.details).toMatchObject({
+      toolName: 'deploy',
+      agentId: 'agent-1',
+      runId: 'run-1',
+      toolCallId: 'call-1',
+      inputMetadataKeys: ['token', 'region'],
+      inputRedacted: true,
+    })
+    expect(entries[0]!.details).not.toHaveProperty('input')
+    expect(JSON.stringify(entries[0])).not.toContain(secret)
+  })
+
   it('attach ignores non-security events', async () => {
     const store = new InMemoryAuditStore()
     const logger = new ComplianceAuditLogger({ store })
