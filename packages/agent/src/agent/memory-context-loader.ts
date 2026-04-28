@@ -9,6 +9,9 @@ import { resolveArrowMemoryConfig } from './memory-profiles.js'
 type AgentMemoryService = NonNullable<DzupAgentConfig['memory']>
 type ResolvedArrowMemoryConfig = NonNullable<ReturnType<typeof resolveArrowMemoryConfig>>
 
+const ARROW_FAILURE_FALLBACK_MAX_TOKENS = 4_000
+const FALLBACK_CHARS_PER_TOKEN = 4
+
 interface ArrowMemoryRecord {
   value: Record<string, unknown>
   meta: {
@@ -139,12 +142,59 @@ export class AgentMemoryContextLoader {
           tokensBefore,
           tokensAfter: 0,
         })
+        return await this.loadBoundedStandardMemoryContext(
+          memory,
+          namespace,
+          scope,
+          messages,
+          resolvedArrowConfig,
+        )
       }
     }
 
+    return await this.loadStandardMemoryContext(memory, namespace, scope)
+  }
+
+  private async loadStandardMemoryContext(
+    memory: AgentMemoryService,
+    namespace: string,
+    scope: Record<string, string>,
+  ): Promise<{ context: string | null }> {
     const records = await memory.get(namespace, scope)
     const context = memory.formatForPrompt(records) || null
     return { context }
+  }
+
+  private async loadBoundedStandardMemoryContext(
+    memory: AgentMemoryService,
+    namespace: string,
+    scope: Record<string, string>,
+    messages: BaseMessage[],
+    arrowCfg: ResolvedArrowMemoryConfig,
+  ): Promise<{ context: string | null }> {
+    const memoryBudget = this.computeMemoryBudget(messages, arrowCfg).memoryBudget
+    const fallbackBudget = Math.min(
+      memoryBudget,
+      ARROW_FAILURE_FALLBACK_MAX_TOKENS,
+    )
+
+    if (fallbackBudget <= 0) {
+      return { context: null }
+    }
+
+    const records = await memory.get(namespace, scope)
+    const maxCharsPerItem = Math.max(
+      1,
+      Math.floor((fallbackBudget * FALLBACK_CHARS_PER_TOKEN) / 10),
+    )
+    const context = memory.formatForPrompt(records, {
+      maxItems: 10,
+      maxCharsPerItem,
+    }) || null
+
+    return {
+      context: this.boundContextToTokenBudget(context, fallbackBudget),
+    }
   }
 
   /**
@@ -173,6 +223,63 @@ export class AgentMemoryContextLoader {
     return namespace.length > 64 ? `${namespace.slice(0, 64)}...` : namespace
   }
 
+  private computeMemoryBudget(
+    messages: BaseMessage[],
+    arrowCfg: ResolvedArrowMemoryConfig,
+  ): {
+    memoryBudget: number
+    totalBudget: number
+    maxMemoryFraction: number
+    minResponseReserve: number
+    systemPromptTokens: number
+    conversationTokens: number
+  } {
+    const totalBudget = arrowCfg.totalBudget ?? 128_000
+    const maxMemoryFraction = arrowCfg.maxMemoryFraction ?? 0.3
+    const minResponseReserve = arrowCfg.minResponseReserve ?? 4_000
+    const systemPromptTokens = estimateTokens(this.config.instructions)
+    const conversationTokens = this.config.estimateConversationTokens(messages)
+    const remaining = totalBudget - systemPromptTokens - conversationTokens - minResponseReserve
+    const memoryBudget = Math.max(0, Math.min(
+      Math.floor(remaining),
+      Math.floor(totalBudget * maxMemoryFraction),
+    ))
+
+    return {
+      memoryBudget,
+      totalBudget,
+      maxMemoryFraction,
+      minResponseReserve,
+      systemPromptTokens,
+      conversationTokens,
+    }
+  }
+
+  private boundContextToTokenBudget(
+    context: string | null,
+    memoryBudget: number,
+  ): string | null {
+    if (!context) return null
+    if (estimateTokens(context) <= memoryBudget) return context
+
+    let low = 0
+    let high = Math.min(context.length, memoryBudget * FALLBACK_CHARS_PER_TOKEN)
+    let best = ''
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2)
+      const candidate = context.slice(0, mid)
+      if (estimateTokens(candidate) <= memoryBudget) {
+        best = candidate
+        low = mid + 1
+      } else {
+        high = mid - 1
+      }
+    }
+
+    return best.trimEnd() || null
+  }
+
   private async loadArrowMemoryContext(
     memory: AgentMemoryService,
     namespace: string,
@@ -196,16 +303,14 @@ export class AgentMemoryContextLoader {
       return { context: null, frame }
     }
 
-    const totalBudget = arrowCfg.totalBudget ?? 128_000
-    const maxMemoryFraction = arrowCfg.maxMemoryFraction ?? 0.3
-    const minResponseReserve = arrowCfg.minResponseReserve ?? 4_000
-    const systemPromptTokens = estimateTokens(this.config.instructions)
-    const conversationTokens = this.config.estimateConversationTokens(messages)
-    const remaining = totalBudget - systemPromptTokens - conversationTokens - minResponseReserve
-    const memoryBudget = Math.max(0, Math.min(
-      Math.floor(remaining),
-      Math.floor(totalBudget * maxMemoryFraction),
-    ))
+    const {
+      memoryBudget,
+      totalBudget,
+      maxMemoryFraction,
+      minResponseReserve,
+      systemPromptTokens,
+      conversationTokens,
+    } = this.computeMemoryBudget(messages, arrowCfg)
 
     if (memoryBudget <= 0) {
       const tokensBefore = systemPromptTokens + conversationTokens

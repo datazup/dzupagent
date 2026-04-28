@@ -9,7 +9,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import { createEventBus } from '@dzupagent/core'
+import { createEventBus, estimateTokens } from '@dzupagent/core'
 
 import {
   AgentMemoryContextLoader,
@@ -119,6 +119,65 @@ describe('QF-AGENT-07 — Arrow runtime failure fallback', () => {
     const detailEvent = onFallbackDetail.mock.calls[0]![0]
     expect(detailEvent.namespace.length).toBeLessThanOrEqual(67) // 64 chars + "..."
     expect(detailEvent.namespace.endsWith('...')).toBe(true)
+  })
+
+  it('keeps fallback context within the Arrow memory budget when many records exist', async () => {
+    const records = Array.from({ length: 150 }, (_, i) => ({
+      text: `fallback-${i} ${'oversized-memory '.repeat(250)}`,
+    }))
+    const memory = {
+      get: vi.fn(async () => records),
+      formatForPrompt: vi.fn((
+        input: Array<Record<string, unknown>>,
+        options?: { maxItems?: number; maxCharsPerItem?: number },
+      ) => {
+        const maxItems = options?.maxItems ?? input.length
+        const maxCharsPerItem = options?.maxCharsPerItem ?? Number.MAX_SAFE_INTEGER
+        return [
+          '## Memory Context',
+          ...input.slice(0, maxItems).map((record) => {
+            const text = String(record['text'] ?? '')
+            return `- ${text.slice(0, maxCharsPerItem)}`
+          }),
+        ].join('\n')
+      }),
+      put: vi.fn(async () => undefined),
+    }
+    const onFallbackDetail = vi.fn<(event: FallbackDetailEvent) => void>()
+
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'system instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      arrowMemory: {
+        currentPhase: 'general',
+        totalBudget: 2_000,
+        maxMemoryFraction: 0.1,
+        minResponseReserve: 0,
+      },
+      estimateConversationTokens: () => 0,
+      loadArrowRuntime: async () => {
+        throw new Error('Arrow IPC bridge unavailable')
+      },
+      onFallbackDetail,
+    })
+
+    const result = await loader.load([new HumanMessage('hi')])
+
+    expect(onFallbackDetail).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'arrow_runtime_failure' }),
+    )
+    expect(memory.formatForPrompt).toHaveBeenCalledWith(
+      records,
+      expect.objectContaining({
+        maxItems: 10,
+        maxCharsPerItem: expect.any(Number),
+      }),
+    )
+    expect(result.context).not.toBeNull()
+    expect(estimateTokens(result.context!)).toBeLessThanOrEqual(200)
+    expect(result.context).not.toContain('fallback-10')
   })
 })
 
