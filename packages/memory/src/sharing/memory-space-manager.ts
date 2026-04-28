@@ -247,8 +247,8 @@ export class MemorySpaceManager {
   async listSpaces(agentUri?: string): Promise<SharedMemorySpace[]> {
     const raw = await this.memoryService.get(SPACES_NAMESPACE, SPACE_SCOPE)
     const spaces = raw
-      .filter(isSpaceRecord)
-      .map(toSpace)
+      .map(decodeSpace)
+      .filter(isDecoded)
 
     if (!agentUri) return spaces
     return spaces.filter(s => s.participants.some(p => p.agentUri === agentUri))
@@ -299,7 +299,11 @@ export class MemorySpaceManager {
     if (raw.length === 0) {
       throw new Error(`Pending request not found: ${requestId}`)
     }
-    const pending = raw[0] as unknown as PendingShareRequest
+    const record = raw[0]
+    const pending = record ? decodePending(record) : null
+    if (!pending) {
+      throw new Error(`Pending request not found: ${requestId}`)
+    }
 
     const space = await this.loadSpace(pending.request.spaceId)
     if (!space) {
@@ -358,8 +362,8 @@ export class MemorySpaceManager {
   async listPendingRequests(spaceId: string): Promise<PendingShareRequest[]> {
     const raw = await this.memoryService.get(PENDING_NAMESPACE, PENDING_SCOPE)
     return raw
-      .filter(isPendingRecord)
-      .map(toPending)
+      .map(decodePending)
+      .filter(isDecoded)
       .filter(p => p.request.spaceId === spaceId && p.status === 'pending')
   }
 
@@ -549,8 +553,8 @@ export class MemorySpaceManager {
     const raw = await this.memoryService.get(SPACES_NAMESPACE, SPACE_SCOPE, spaceId)
     if (raw.length === 0) return null
     const record = raw[0]
-    if (!record || !isSpaceRecord(record)) return null
-    return toSpace(record)
+    if (!record) return null
+    return decodeSpace(record)
   }
 
   private async saveSpace(space: SharedMemorySpace): Promise<void> {
@@ -739,24 +743,179 @@ function keyFromValue(value: Record<string, unknown>, fallbackIndex: number): st
   return `record-${fallbackIndex}`
 }
 
-function isSpaceRecord(record: Record<string, unknown>): boolean {
-  return typeof record['id'] === 'string' && typeof record['name'] === 'string' && typeof record['owner'] === 'string'
-}
-
-function toSpace(record: Record<string, unknown>): SharedMemorySpace {
-  return record as unknown as SharedMemorySpace
-}
-
-function isPendingRecord(record: Record<string, unknown>): boolean {
-  return typeof record['id'] === 'string' && record['request'] != null && typeof record['status'] === 'string'
-}
-
-function toPending(record: Record<string, unknown>): PendingShareRequest {
-  return record as unknown as PendingShareRequest
-}
-
 function hasFields(obj: unknown): obj is { fields: Record<string, unknown> } {
   return typeof obj === 'object' && obj !== null && 'fields' in obj && typeof (obj as Record<string, unknown>)['fields'] === 'object'
+}
+
+function decodeSpace(record: Record<string, unknown>): SharedMemorySpace | null {
+  const id = record['id']
+  const name = record['name']
+  const owner = record['owner']
+  const participantsValue = record['participants']
+  const conflictResolution = record['conflictResolution']
+  const createdAt = record['createdAt']
+
+  if (
+    typeof id !== 'string' ||
+    typeof name !== 'string' ||
+    typeof owner !== 'string' ||
+    !Array.isArray(participantsValue) ||
+    !isConflictStrategy(conflictResolution) ||
+    !isIsoTimestamp(createdAt)
+  ) {
+    return null
+  }
+
+  const participants: SharedMemorySpace['participants'] = []
+  for (const participantValue of participantsValue) {
+    const participant = decodeParticipant(participantValue)
+    if (!participant) return null
+    participants.push(participant)
+  }
+
+  const space: SharedMemorySpace = {
+    id,
+    name,
+    owner,
+    participants,
+    conflictResolution,
+    createdAt,
+  }
+
+  if ('retentionPolicy' in record) {
+    const retentionPolicy = decodeRetentionPolicy(record['retentionPolicy'])
+    if (!retentionPolicy) return null
+    space.retentionPolicy = retentionPolicy
+  }
+
+  return space
+}
+
+function decodeParticipant(value: unknown): SharedMemorySpace['participants'][number] | null {
+  if (!isRecord(value)) return null
+  const agentUri = value['agentUri']
+  const permission = value['permission']
+  const joinedAt = value['joinedAt']
+
+  if (typeof agentUri !== 'string' || !isSpacePermission(permission) || !isIsoTimestamp(joinedAt)) {
+    return null
+  }
+
+  return { agentUri, permission, joinedAt }
+}
+
+function decodeRetentionPolicy(value: unknown): RetentionPolicy | null {
+  if (!isRecord(value)) return null
+
+  const policy: RetentionPolicy = {}
+  if ('maxAgeMs' in value) {
+    const maxAgeMs = value['maxAgeMs']
+    if (!isNonNegativeFiniteNumber(maxAgeMs)) return null
+    policy.maxAgeMs = maxAgeMs
+  }
+  if ('maxRecords' in value) {
+    const maxRecords = value['maxRecords']
+    if (typeof maxRecords !== 'number' || !Number.isSafeInteger(maxRecords) || maxRecords < 0) return null
+    policy.maxRecords = maxRecords
+  }
+
+  return policy
+}
+
+function decodePending(record: Record<string, unknown>): PendingShareRequest | null {
+  const id = record['id']
+  const request = decodeShareRequest(record['request'])
+  const status = record['status']
+  const createdAt = record['createdAt']
+
+  if (
+    typeof id !== 'string' ||
+    !request ||
+    !isShareRequestStatus(status) ||
+    !isIsoTimestamp(createdAt)
+  ) {
+    return null
+  }
+
+  const pending: PendingShareRequest = {
+    id,
+    request,
+    status,
+    createdAt,
+  }
+
+  if ('reviewedBy' in record) {
+    const reviewedBy = record['reviewedBy']
+    if (typeof reviewedBy !== 'string') return null
+    pending.reviewedBy = reviewedBy
+  }
+  if ('reviewedAt' in record) {
+    const reviewedAt = record['reviewedAt']
+    if (!isIsoTimestamp(reviewedAt)) return null
+    pending.reviewedAt = reviewedAt
+  }
+
+  return pending
+}
+
+function decodeShareRequest(value: unknown): MemoryShareRequest | null {
+  if (!isRecord(value)) return null
+
+  const from = value['from']
+  const spaceId = value['spaceId']
+  const key = value['key']
+  const requestValue = value['value']
+  const mode = value['mode']
+
+  if (
+    typeof from !== 'string' ||
+    typeof spaceId !== 'string' ||
+    typeof key !== 'string' ||
+    !isRecord(requestValue) ||
+    !isShareMode(mode)
+  ) {
+    return null
+  }
+
+  return {
+    from,
+    spaceId,
+    key,
+    value: requestValue,
+    mode,
+  }
+}
+
+function isDecoded<T>(value: T | null): value is T {
+  return value !== null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isSpacePermission(value: unknown): value is SpacePermission {
+  return value === 'read' || value === 'read-write' || value === 'admin'
+}
+
+function isConflictStrategy(value: unknown): value is ConflictStrategy {
+  return value === 'lww' || value === 'manual' || value === 'crdt'
+}
+
+function isShareMode(value: unknown): value is MemoryShareRequest['mode'] {
+  return value === 'push' || value === 'pull-request' || value === 'subscribe'
+}
+
+function isShareRequestStatus(value: unknown): value is PendingShareRequest['status'] {
+  return value === 'pending' || value === 'approved' || value === 'rejected'
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value))
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 
 function extractCreatedAt(record: Record<string, unknown>): number {
