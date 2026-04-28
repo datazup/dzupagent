@@ -108,8 +108,24 @@ export type { IdentityMiddlewareConfig } from './middleware/identity.js'
 export { capabilityGuard } from './middleware/capability-guard.js'
 
 // --- RBAC ---
-export { rbacMiddleware, rbacGuard, hasPermission, DEFAULT_ROLE_PERMISSIONS } from './middleware/rbac.js'
-export type { ForgeRole, ForgePermission, RBACConfig } from './middleware/rbac.js'
+export {
+  rbacMiddleware,
+  rbacGuard,
+  hasPermission,
+  resolveRoutePermission,
+  DEFAULT_ADMIN_ONLY_PATHS,
+  DEFAULT_ROUTE_PERMISSIONS,
+  DEFAULT_ROLE_PERMISSIONS,
+} from './middleware/rbac.js'
+export type {
+  ForgeRole,
+  ForgePermission,
+  ForgePermissionAction,
+  ForgePermissionResource,
+  RBACConfig,
+  ResolvedRoutePermission,
+  RoutePermissionPolicy,
+} from './middleware/rbac.js'
 export { tenantScopeMiddleware, getTenantId } from './middleware/tenant-scope.js'
 export type { TenantScopeConfig } from './middleware/tenant-scope.js'
 

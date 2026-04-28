@@ -74,8 +74,52 @@ export default app
 ```ts
 const app = createForgeApp({
   ...baseConfig,
-  auth: { apiKeys: [process.env.DZIP_API_KEY!] },
+  auth: {
+    mode: 'api-key',
+    validateKey: async (key) => {
+      return key === process.env.DZIP_API_KEY
+        ? { id: 'admin-key', role: 'admin' }
+        : null
+    },
+  },
   rateLimit: { capacity: 60, refillRate: 1 },
+})
+```
+
+When auth is enabled, global RBAC is enabled unless `rbac: false` is set.
+RBAC denies unknown `/api/*` management route groups by default. Built-in
+high-risk groups such as `/api/keys`, `/api/registry`, `/api/triggers`,
+`/api/schedules`, `/api/deploy`, `/api/evals`, `/api/benchmarks`,
+`/api/prompts`, `/api/personas`, `/api/marketplace`, `/api/mailbox`,
+`/api/clusters`, and `/api/mcp` require the `admin` role. Health routes under
+`/api/health` remain public to auth/RBAC for readiness checks.
+
+Hosts that mount custom route plugins under `/api/*` should add an explicit
+RBAC route policy and matching role permissions instead of relying on
+pass-through behavior:
+
+```ts
+const app = createForgeApp({
+  ...baseConfig,
+  auth,
+  rbac: {
+    extractRole: (c) => {
+      const apiKey = c.get('apiKey') as { role?: string } | undefined
+      return apiKey?.role === 'admin' ? 'admin' : 'operator'
+    },
+    routePermissions: {
+      '/api/custom-plugin': { resource: 'settings', action: 'read' },
+    },
+    customPermissions: {
+      operator: [{ resource: 'settings', action: 'read' }],
+    },
+  },
+  routePlugins: [
+    {
+      prefix: '/api/custom-plugin',
+      createRoutes: () => customPluginRoutes,
+    },
+  ],
 })
 ```
 
