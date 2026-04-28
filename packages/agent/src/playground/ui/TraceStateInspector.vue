@@ -46,14 +46,6 @@ function isExpanded(key: string): boolean {
   return expandedKeys.value.has(key)
 }
 
-/** Handle keyboard activation */
-function handleKeydown(e: KeyboardEvent, key: string): void {
-  if (e.key === 'Enter' || e.key === ' ') {
-    e.preventDefault()
-    toggleKey(key)
-  }
-}
-
 /** Computed diff rows sorted by change type then key name */
 const diffRows = computed(() => computeDiffRows(props.stateBefore, props.stateAfter))
 
@@ -108,16 +100,14 @@ function rowBorderClasses(changeType: ChangeType): string {
       class="overflow-hidden rounded-md border border-l-4"
       :class="[traceUiStyles.divider, rowBorderClasses(row.changeType)]"
     >
-      <!-- Row header (clickable) -->
-      <div
-        class="flex cursor-pointer items-center gap-2.5 px-3 py-2 transition-colors"
+      <!-- Row header action -->
+      <button
+        type="button"
+        class="flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
         :class="traceUiStyles.interactiveMuted"
-        role="button"
-        :tabindex="0"
         :aria-expanded="isExpanded(row.key)"
         :aria-label="`Key ${row.key}, ${row.changeType}`"
         @click="toggleKey(row.key)"
-        @keydown="handleKeydown($event, row.key)"
       >
         <!-- Expand indicator -->
         <span
@@ -138,7 +128,7 @@ function rowBorderClasses(changeType: ChangeType): string {
         >
           {{ row.changeType }}
         </span>
-      </div>
+      </button>
 
       <!-- Expanded detail -->
       <div
