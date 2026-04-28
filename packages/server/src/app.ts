@@ -13,6 +13,7 @@
  *   modelRegistry: registry,
  *   runStore: new InMemoryRunStore(),
  *   agentStore: new InMemoryAgentStore(),
+ *   auth: { mode: 'none' }, // local development or legacy compatibility only
  * })
  *
  * export default { port: 4000, fetch: app.fetch }
@@ -35,7 +36,7 @@ import {
 } from './composition/utils.js'
 import { attachSafetyMonitor } from './composition/safety.js'
 import { buildRuntimeBootstrap } from './composition/runtime-config.js'
-import { applyMiddleware } from './composition/middleware.js'
+import { applyMiddleware, assertExplicitFrameworkApiAuth } from './composition/middleware.js'
 import { mountCoreRoutes } from './composition/core-routes.js'
 import {
   mountOptionalRoutes,
@@ -59,6 +60,13 @@ export type {
   ForgeTransportConfig,
   ForgeRuntimeConfig,
   ForgeIntegrationsConfig,
+  ForgeRouteFamiliesConfig,
+  ForgeMemoryRouteFamilyConfig,
+  ForgeCompatibilityRouteFamilyConfig,
+  ForgeEvaluationRouteFamilyConfig,
+  ForgeAdapterRouteFamilyConfig,
+  ForgeAutomationRouteFamilyConfig,
+  ForgeControlPlaneRouteFamilyConfig,
   ForgeSecurityConfig,
   ConsolidationConfig,
   MailDeliveryConfig,
@@ -68,6 +76,7 @@ export type {
 export type { HttpConnectorProfile } from './runtime/tool-resolver.js'
 
 export function createForgeApp(config: ForgeServerConfig): Hono {
+  assertExplicitFrameworkApiAuth(config)
   warnIfUnboundedInMemoryRetention(config)
 
   const app = new Hono()
@@ -88,18 +97,20 @@ export function createForgeApp(config: ForgeServerConfig): Hono {
   // Middleware: CORS, auth, RBAC, rate limit, shutdown guard, metrics, error.
   const { effectiveAuth } = applyMiddleware(app, runtimeConfig)
 
-  // Always-mounted routes (health, runs, agents, approvals, etc.).
+  // Always-mounted routes are generic framework primitives or compatibility
+  // aliases. New product-control-plane routes should be owned by consuming apps
+  // and mounted through `routePlugins` or app-level Hono composition.
   mountCoreRoutes(app, runtimeConfig)
 
-  // Conditional routes gated on capability config (memory, deploy, evals,
-  // A2A, triggers, schedules, prompts, personas, presets, marketplace,
-  // reflections, mailbox+clusters, OpenAI compat, etc.).
+  // Conditional routes are existing compatibility/maintenance surfaces or
+  // generic framework primitives gated on injected capability config.
   mountOptionalRoutes(app, { runtimeConfig, effectiveAuth, eventGateway })
 
   // --- Auto-register notification channels from env vars ---
   registerEnvNotificationChannels(runtimeConfig)
 
-  // Built-in route plugins + host-supplied plugins.
+  // Built-in route plugin seams plus host-supplied plugins. This is the
+  // forward-path extension point for app-owned product routes.
   mountAllRoutePlugins(app, runtimeConfig, eventGateway)
 
   // Prometheus `/metrics` endpoint (only when collector is Prometheus).

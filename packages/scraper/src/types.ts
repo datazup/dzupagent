@@ -1,3 +1,5 @@
+import type { OutboundUrlSecurityPolicy } from '@dzupagent/core'
+
 /** Configuration for the WebScraper */
 export interface ScraperConfig {
   /** Use browser pool (requires puppeteer) or HTTP-only mode */
@@ -10,6 +12,8 @@ export interface ScraperConfig {
   extraction?: ExtractionConfig
   /** Default timeout in ms (default: 30000) */
   timeout?: number
+  /** Shared outbound URL policy for HTTP and browser fetches. */
+  urlPolicy?: OutboundUrlSecurityPolicy
 }
 
 /** Configuration for the Puppeteer browser pool */
@@ -26,6 +30,8 @@ export interface BrowserPoolConfig {
   launchArgs?: string[]
   /** Path to Chrome/Chromium executable */
   executablePath?: string
+  /** Outbound URL policy. Defaults to public HTTPS destinations only. */
+  urlPolicy?: OutboundUrlSecurityPolicy
 }
 
 /** Configuration for the HTTP fetcher */
@@ -42,6 +48,8 @@ export interface HttpFetcherConfig {
   followRedirects: boolean
   /** Max redirect hops (default: 5) */
   maxRedirects: number
+  /** Outbound URL policy. Defaults to public HTTPS destinations only. */
+  urlPolicy?: OutboundUrlSecurityPolicy
 }
 
 /** Configuration for content extraction from HTML */

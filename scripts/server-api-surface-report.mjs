@@ -6,7 +6,9 @@ const repoRoot = path.resolve(import.meta.dirname, '..')
 const workspaceRoot = path.resolve(repoRoot, '..')
 const serverIndexPath = path.join(repoRoot, 'packages', 'server', 'src', 'index.ts')
 const configPath = path.join(repoRoot, 'config', 'server-api-tiers.json')
+const publicAllowlistPath = path.join(repoRoot, 'config', 'public-api-allowlists.json')
 const outputPath = path.join(repoRoot, 'docs', 'SERVER_API_SURFACE_INDEX.md')
+const publicOutputPath = path.join(repoRoot, 'docs', 'PUBLIC_API_SURFACE_ALLOWLISTS.md')
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, 'utf8'))
@@ -56,19 +58,80 @@ function summarizeBySource(entries) {
   }))
 }
 
+function ruleMatches(source, rule) {
+  if (rule.match === 'exact') return source === rule.pattern
+  if (rule.match === 'prefix') return source.startsWith(rule.pattern)
+  return false
+}
+
 function matchRule(source, rules) {
   const matches = rules.filter((rule) => {
-    if (rule.match === 'exact') return source === rule.pattern
-    if (rule.match === 'prefix') return source.startsWith(rule.pattern)
-    return false
+    return ruleMatches(source, rule)
   })
 
-  if (matches.length !== 1) {
-    const formatted = matches.map((rule) => `${rule.match}:${rule.pattern}`).join(', ') || '(none)'
-    throw new Error(`Expected exactly one tier rule for ${source}, got ${formatted}`)
+  if (matches.length === 0) {
+    throw new Error(`Unreviewed root export source: ${source}. Add it to config/server-api-tiers.json before exposing it from @dzupagent/server.`)
+  }
+
+  if (matches.length > 1) {
+    const formatted = matches.map((rule) => `${rule.match}:${rule.pattern}`).join(', ')
+    throw new Error(`Ambiguous tier rules for ${source}: ${formatted}`)
   }
 
   return matches[0]
+}
+
+function classifyRootSource(source, packageConfig) {
+  const stableMatches = packageConfig.stableRoot.filter((rule) => ruleMatches(source, rule))
+  if (stableMatches.length > 0) {
+    return {
+      rootClass: 'stable',
+      rule: stableMatches[0],
+    }
+  }
+
+  const transitionalMatches = packageConfig.transitionalRoot.filter((rule) => ruleMatches(source, rule))
+  if (transitionalMatches.length > 0) {
+    return {
+      rootClass: 'deprecated-transitional',
+      rule: transitionalMatches[0],
+    }
+  }
+
+  throw new Error(`${packageConfig.packageName}: unreviewed root export source ${source}. Add it to stableRoot or transitionalRoot before exposing it from the root barrel.`)
+}
+
+function readPackageExports(packageDir) {
+  const packageJson = readJson(path.join(repoRoot, packageDir, 'package.json'))
+  return Object.keys(packageJson.exports ?? {})
+}
+
+function inventoryPackageRoot(packageConfig) {
+  const rootText = readFileSync(path.join(repoRoot, packageConfig.rootIndex), 'utf8')
+  const entries = summarizeBySource(parseServerIndex(rootText))
+  const inventory = entries.map((entry) => {
+    const classification = classifyRootSource(entry.source, packageConfig)
+    return {
+      ...entry,
+      rootClass: classification.rootClass,
+      matchedRule: `${classification.rule.match}:${classification.rule.pattern}`,
+    }
+  })
+
+  const packageExports = readPackageExports(packageConfig.packageDir)
+  const missingSubpaths = Object.keys(packageConfig.subpaths ?? {}).filter((subpath) => !packageExports.includes(subpath))
+
+  if (missingSubpaths.length > 0) {
+    throw new Error(`${packageConfig.packageName}: package.json is missing configured subpaths: ${missingSubpaths.join(', ')}`)
+  }
+
+  return {
+    packageName: packageConfig.packageName,
+    rootIndex: packageConfig.rootIndex,
+    inventory,
+    subpaths: packageConfig.subpaths ?? {},
+    migrationWindow: packageConfig.migrationWindow,
+  }
 }
 
 function collectFiles(rootDir, predicate, results = []) {
@@ -253,11 +316,10 @@ function buildMarkdown({ inventory, rootUsage, generatedOn }) {
   return `${lines.join('\n')}\n`
 }
 
-function main() {
-  const config = readJson(configPath)
+function serverInventoryFromTierConfig(config) {
   const serverIndex = readFileSync(serverIndexPath, 'utf8')
   const entries = summarizeBySource(parseServerIndex(serverIndex))
-  const inventory = entries.map((entry) => {
+  return entries.map((entry) => {
     const rule = matchRule(entry.source, config.rules)
     return {
       source: entry.source,
@@ -268,6 +330,103 @@ function main() {
       reason: rule.reason,
     }
   })
+}
+
+function serverAsAllowlistPackage(serverInventory) {
+  const packageExports = readPackageExports('packages/server')
+  const requiredSubpaths = ['./ops', './runtime', './compat']
+  const missingSubpaths = requiredSubpaths.filter((subpath) => !packageExports.includes(subpath))
+  if (missingSubpaths.length > 0) {
+    throw new Error(`@dzupagent/server: package.json is missing configured subpaths: ${missingSubpaths.join(', ')}`)
+  }
+
+  return {
+    packageName: '@dzupagent/server',
+    rootIndex: 'packages/server/src/index.ts',
+    inventory: serverInventory.map((entry) => ({
+      source: entry.source,
+      exportNames: entry.exportNames,
+      rootClass: serverRootClass(entry),
+      matchedRule: `${entry.tier}/${entry.area}/${entry.recommendedRootExposure}`,
+    })),
+    subpaths: {
+      './ops': 'operational diagnostics and scorecards',
+      './runtime': 'run workers, executors, trace stores, and control-plane helpers',
+      './compat': 'OpenAI-compatible HTTP surface'
+    },
+    migrationWindow: 'Root transitional exports remain available through 0.x with migration to ops/runtime/compat before a future 1.0 root contraction.',
+  }
+}
+
+function serverRootClass(entry) {
+  if (entry.recommendedRootExposure === 'keep-root') return 'stable'
+  if (entry.recommendedRootExposure === 'candidate-subpath') return 'deprecated-transitional'
+  if (entry.recommendedRootExposure === 'remove-root') return 'internal-only-candidate'
+
+  throw new Error(`Unreviewed @dzupagent/server root exposure for ${entry.source}: ${entry.recommendedRootExposure}`)
+}
+
+function buildPublicAllowlistMarkdown({ packages, generatedOn }) {
+  const lines = []
+  lines.push('# Public API Surface Allowlists')
+  lines.push('')
+  lines.push(`Date: ${generatedOn}`)
+  lines.push('')
+  lines.push('Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.')
+  lines.push('')
+  lines.push('## Policy')
+  lines.push('')
+  lines.push('- `stable` root exports are the semver-facing root package API.')
+  lines.push('- `deprecated-transitional` root exports remain available for compatibility during the 0.x migration window and should move to explicit subpaths in new code.')
+  lines.push('- `internal-only-candidate` root exports are accidental or implementation-oriented exposures that remain temporarily visible only for staged removal.')
+  lines.push('- New consumers should prefer the listed subpaths for domain-specific imports.')
+  lines.push('- Every current root export source must match exactly one allowlist rule; unreviewed sources fail `yarn check:server-api-surface`.')
+  lines.push('')
+
+  for (const packageInfo of packages) {
+    const stableCount = packageInfo.inventory.filter((row) => row.rootClass === 'stable').length
+    const transitionalCount = packageInfo.inventory.filter((row) => row.rootClass === 'deprecated-transitional').length
+    const internalOnlyCount = packageInfo.inventory.filter((row) => row.rootClass === 'internal-only-candidate').length
+    lines.push(`## ${packageInfo.packageName}`)
+    lines.push('')
+    lines.push(`Root index: \`${packageInfo.rootIndex}\``)
+    lines.push('')
+    lines.push(`- Stable root sources: \`${stableCount}\``)
+    lines.push(`- Deprecated transitional root sources: \`${transitionalCount}\``)
+    lines.push(`- Internal-only root candidates: \`${internalOnlyCount}\``)
+    lines.push(`- Migration window: ${packageInfo.migrationWindow}`)
+    lines.push('')
+    lines.push('### Stable Subpaths')
+    lines.push('')
+    const subpaths = Object.entries(packageInfo.subpaths)
+    if (subpaths.length === 0) {
+      lines.push('No stable subpaths configured.')
+    } else {
+      lines.push('| Subpath | Purpose |')
+      lines.push('| --- | --- |')
+      for (const [subpath, purpose] of subpaths) {
+        lines.push(`| \`${packageInfo.packageName}${subpath.slice(1)}\` | ${purpose} |`)
+      }
+    }
+    lines.push('')
+    lines.push('### Root Allowlist')
+    lines.push('')
+    lines.push('| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |')
+    lines.push('| --- | --- | ---: | --- | --- |')
+    for (const row of packageInfo.inventory) {
+      const sampleExports = row.exportNames.slice(0, 4).map((name) => `\`${name}\``).join(', ')
+      lines.push(`| \`${row.rootClass}\` | \`${row.source}\` | ${row.exportNames.length} | \`${row.matchedRule}\` | ${sampleExports} |`)
+    }
+    lines.push('')
+  }
+
+  return `${lines.join('\n')}\n`
+}
+
+function main() {
+  const config = readJson(configPath)
+  const publicAllowlists = readJson(publicAllowlistPath)
+  const inventory = serverInventoryFromTierConfig(config)
 
   const exportLookup = new Map()
   for (const row of inventory) {
@@ -299,6 +458,11 @@ function main() {
   })
   const generatedOn = new Date().toISOString().slice(0, 10)
   const content = buildMarkdown({ inventory, rootUsage, generatedOn })
+  const publicPackages = [
+    ...publicAllowlists.packages.map(inventoryPackageRoot),
+    serverAsAllowlistPackage(inventory),
+  ]
+  const publicContent = buildPublicAllowlistMarkdown({ packages: publicPackages, generatedOn })
 
   if (process.argv.includes('--check')) {
     const committed = existsSync(outputPath) ? readFileSync(outputPath, 'utf8') : ''
@@ -306,12 +470,20 @@ function main() {
       console.error('SERVER_API_SURFACE_INDEX.md is stale. Run: yarn docs:server-api-surface')
       process.exit(1)
     }
+    const publicCommitted = existsSync(publicOutputPath) ? readFileSync(publicOutputPath, 'utf8') : ''
+    if (publicCommitted !== publicContent) {
+      console.error('PUBLIC_API_SURFACE_ALLOWLISTS.md is stale. Run: yarn docs:server-api-surface')
+      process.exit(1)
+    }
     console.log('SERVER_API_SURFACE_INDEX.md is up to date.')
+    console.log('PUBLIC_API_SURFACE_ALLOWLISTS.md is up to date.')
     return
   }
 
   writeFileSync(outputPath, content, 'utf8')
+  writeFileSync(publicOutputPath, publicContent, 'utf8')
   console.log(`Wrote ${path.relative(repoRoot, outputPath)}`)
+  console.log(`Wrote ${path.relative(repoRoot, publicOutputPath)}`)
 }
 
 main()

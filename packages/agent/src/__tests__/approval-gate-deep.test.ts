@@ -116,23 +116,43 @@ describe('ApprovalGate - extended', () => {
   })
 
   describe('timeout behavior', () => {
-    it('emits approval:rejected event on timeout', async () => {
+    it('emits approval:timed_out event on timeout', async () => {
       const bus = createEventBus()
-      const rejections: unknown[] = []
-      bus.on('approval:rejected', (e) => rejections.push(e))
+      const timeouts: unknown[] = []
+      bus.on('approval:timed_out', (e) => timeouts.push(e))
 
       const gate = new ApprovalGate({ mode: 'required', timeoutMs: 30 }, bus)
       await gate.waitForApproval('run-timeout', 'slow')
 
-      expect(rejections.length).toBeGreaterThanOrEqual(1)
-      const rej = rejections.find((r) => (r as Record<string, unknown>)['runId'] === 'run-timeout') as Record<string, unknown>
-      expect(rej).toBeDefined()
-      expect(rej['reason']).toContain('timed out')
+      expect(timeouts.length).toBeGreaterThanOrEqual(1)
+      const timeout = timeouts.find((r) => (r as Record<string, unknown>)['runId'] === 'run-timeout') as Record<string, unknown>
+      expect(timeout).toBeDefined()
+      expect(timeout['timeoutMs']).toBe(30)
     })
 
-    it('no timeout when timeoutMs is not set', async () => {
+    it('uses default bounded behavior when timeoutMs is not set', async () => {
       const bus = createEventBus()
+      const events: unknown[] = []
+      bus.on('approval:requested', (e) => events.push(e))
+
       const gate = new ApprovalGate({ mode: 'required' }, bus)
+
+      const resultPromise = gate.waitForApproval('run-default-timeout', 'plan')
+      setTimeout(() => {
+        bus.emit({ type: 'approval:granted', runId: 'run-default-timeout' })
+      }, 10)
+
+      const result = await resultPromise
+      expect(result).toBe('approved')
+
+      const evt = events[0] as Record<string, unknown>
+      const request = evt['request'] as Record<string, unknown>
+      expect(request['timeoutAt']).toBeDefined()
+    })
+
+    it('allows unbounded waits only when durable resume is explicit', async () => {
+      const bus = createEventBus()
+      const gate = new ApprovalGate({ mode: 'required', durableResume: true }, bus)
 
       // Start waiting but resolve quickly via event
       const resultPromise = gate.waitForApproval('run-no-timeout', 'plan')
@@ -143,6 +163,28 @@ describe('ApprovalGate - extended', () => {
 
       const result = await resultPromise
       expect(result).toBe('approved')
+    })
+
+    it('cancels approval waits via AbortSignal', async () => {
+      const bus = createEventBus()
+      const cancellations: unknown[] = []
+      bus.on('approval:cancelled', (e) => cancellations.push(e))
+
+      const gate = new ApprovalGate({ mode: 'required', timeoutMs: 500 }, bus)
+      const controller = new AbortController()
+      const resultPromise = gate.waitForApproval('run-cancelled', 'plan', undefined, {
+        signal: controller.signal,
+      })
+
+      setTimeout(() => controller.abort('run shutdown'), 10)
+
+      await expect(resultPromise).resolves.toBe('cancelled')
+      expect(cancellations).toHaveLength(1)
+      expect(cancellations[0]).toMatchObject({
+        type: 'approval:cancelled',
+        runId: 'run-cancelled',
+        reason: 'run shutdown',
+      })
     })
   })
 
@@ -248,12 +290,12 @@ describe('ApprovalGate - extended', () => {
       expect(request['timeoutAt']).toBeDefined()
     })
 
-    it('does not include timeoutAt when no timeout', async () => {
+    it('does not include timeoutAt for explicit durable resume waits', async () => {
       const bus = createEventBus()
       const events: unknown[] = []
       bus.on('approval:requested', (e) => events.push(e))
 
-      const gate = new ApprovalGate({ mode: 'required' }, bus)
+      const gate = new ApprovalGate({ mode: 'required', durableResume: true }, bus)
 
       const p = gate.waitForApproval('run-nt', 'plan')
       setTimeout(() => bus.emit({ type: 'approval:granted', runId: 'run-nt' }), 10)

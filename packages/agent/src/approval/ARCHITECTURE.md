@@ -17,13 +17,17 @@ The approval module provides a focused human-in-the-loop gate:
 - publish a structured approval request event on `DzupEventBus`
 - optionally notify an external webhook about the approval request
 - wait for matching `approval:granted` or `approval:rejected` events
-- enforce optional timeout behavior and emit timeout-driven rejection telemetry
+- enforce bounded timeout behavior by default
+- allow parent run cancellation/shutdown to abandon pending approval waits
+- emit distinct timeout and cancellation telemetry
 
 ## Structure
 - `approval-types.ts`
   - `ApprovalMode = 'auto' | 'required' | 'conditional'`
-  - `ApprovalConfig` with `mode`, optional `condition`, optional `timeoutMs`, optional `webhookUrl`, optional `channel`
-  - `ApprovalResult = 'approved' | 'rejected' | 'timeout'`
+  - `DEFAULT_APPROVAL_TIMEOUT_MS = 300_000`
+  - `ApprovalConfig` with `mode`, optional `condition`, optional `timeoutMs`, optional `durableResume`, optional `webhookUrl`, optional `channel`
+  - `ApprovalWaitOptions` with optional `AbortSignal`
+  - `ApprovalResult = 'approved' | 'rejected' | 'timeout' | 'cancelled'`
 - `approval-gate.ts`
   - `ApprovalGate` class
   - `waitForApproval(runId, plan, ctx?)`
@@ -39,7 +43,7 @@ The approval module provides a focused human-in-the-loop gate:
 2. For non-auto paths, it builds an `ApprovalRequest` payload:
    - generates `contactId` via `randomUUID()`
    - sets `channel` to configured value or `'in-app'`
-   - computes `timeoutAt` from `timeoutMs` when configured
+   - computes `timeoutAt` from the effective timeout
    - maps `plan` into request data:
      - string plan -> `data.question = <plan>`
      - non-string plan -> default question plus JSON-stringified context
@@ -49,31 +53,48 @@ The approval module provides a focused human-in-the-loop gate:
 5. Subscribes to:
    - `approval:granted` with matching `runId` -> resolves `'approved'`
    - `approval:rejected` with matching `runId` -> resolves `'rejected'`
-6. If `timeoutMs` is set and no decision arrives in time:
-   - emits `approval:rejected` with timeout reason
+6. If the caller passes `options.signal`, aborting the signal:
+   - unsubscribes the waiter from approval events
+   - clears any active timeout
+   - emits `approval:cancelled`
+   - resolves `'cancelled'`
+7. If no decision arrives before the effective timeout:
+   - emits `approval:timed_out`
    - resolves `'timeout'`
-7. On resolve, listeners are unsubscribed for the current waiter.
+8. On resolve, listeners are unsubscribed for the current waiter.
+
+`required` and approval-needed `conditional` waits are bounded by default. If
+`timeoutMs` is omitted, the gate uses `DEFAULT_APPROVAL_TIMEOUT_MS` (5 minutes).
+Set `durableResume: true` only when pending approval requests are persisted in
+an external store/resume adapter and another runtime can safely resume or
+abandon them after process restart. In that mode, omitting `timeoutMs` produces
+an intentionally unbounded in-process wait.
 
 ## Key APIs and Types
 - `ApprovalGate`
   - constructor: `(config: ApprovalConfig, eventBus: DzupEventBus)`
-  - method: `waitForApproval(runId: string, plan: unknown, ctx?: HookContext): Promise<ApprovalResult>`
+  - method: `waitForApproval(runId: string, plan: unknown, ctx?: HookContext, options?: ApprovalWaitOptions): Promise<ApprovalResult>`
 - `ApprovalConfig`
   - `mode: ApprovalMode`
   - `condition?: (plan: unknown, ctx: HookContext) => boolean | Promise<boolean>`
   - `timeoutMs?: number`
+  - `durableResume?: boolean`
   - `webhookUrl?: string`
   - `channel?: ContactChannel`
+- `ApprovalWaitOptions`
+  - `signal?: AbortSignal`
 - `ApprovalMode`
   - `'auto' | 'required' | 'conditional'`
 - `ApprovalResult`
-  - `'approved' | 'rejected' | 'timeout'`
+  - `'approved' | 'rejected' | 'timeout' | 'cancelled'`
 
 Event payload expectations come from `@dzupagent/core` (`DzupEvent` union):
 
 - `approval:requested` supports `runId`, `plan`, optional `contactId`, optional `channel`, optional `request`
 - `approval:granted` supports `runId`, optional `approvedBy`
 - `approval:rejected` supports `runId`, optional `reason`
+- `approval:timed_out` supports `runId`, optional `contactId`, and `timeoutMs`
+- `approval:cancelled` supports `runId`, optional `contactId`, and optional `reason`
 
 ## Dependencies
 Direct dependencies in this module:
@@ -114,7 +135,8 @@ Primary tests in `packages/agent`:
 - `src/__tests__/approval-gate-deep.test.ts`
   - conditional edge cases (missing condition, missing context)
   - event payload shape (`contactId`, `channel`, `request`, `timeoutAt`)
-  - timeout rejection event emission
+  - default bounded wait behavior
+  - timeout and cancellation event emission
   - webhook failure non-blocking behavior
   - concurrent approvals with run-id correlation
 - `src/__tests__/recovery-executor.test.ts`
@@ -123,11 +145,13 @@ Primary tests in `packages/agent`:
 Observability characteristics:
 
 - approval decisions are fully event-driven through `DzupEventBus`
-- timeout emits a concrete `approval:rejected` event before returning `'timeout'`
+- timeout emits a concrete `approval:timed_out` event before returning `'timeout'`
+- run cancellation/shutdown can abort the wait through `ApprovalWaitOptions.signal`, emitting `approval:cancelled` before returning `'cancelled'`
 - approval request payload includes `contactId` and optional structured request metadata for downstream tracing
 
 ## Risks and TODOs
 - `conditional` mode currently requires `ctx` to evaluate `condition`; if callers omit `ctx`, flow falls through to full approval wait. This is intentional in code but easy to misconfigure.
+- `durableResume: true` only changes the in-process timeout behavior; the caller still owns the external approval store/resume adapter.
 - webhook delivery is best-effort:
   - no response status validation
   - no retry/backoff
@@ -136,6 +160,6 @@ Observability characteristics:
 - timeout uses `setTimeout` per wait call; large concurrent waits can increase timer/listener volume.
 
 ## Changelog
+- 2026-04-28: approval waits made bounded by default, explicit durable-resume opt-in added, and cancellation/timeout events split.
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 - 2026-04-26: rewritten to reflect current `src/approval` runtime, event payloads, recovery integration, and approval-related test coverage.
-

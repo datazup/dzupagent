@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { SlackNotificationChannel } from '../notifications/channels/slack-channel.js'
 import { EmailWebhookNotificationChannel } from '../notifications/channels/email-webhook-channel.js'
+import { WebhookChannel } from '../notifications/channels/webhook-channel.js'
 import { Notifier } from '../notifications/notifier.js'
 import type { Notification } from '../notifications/notifier.js'
 
@@ -99,6 +100,7 @@ describe('EmailWebhookNotificationChannel', () => {
   it('sends correct JSON payload to webhook URL', async () => {
     const channel = new EmailWebhookNotificationChannel({
       webhookUrl: 'https://email.example.com/send',
+      urlPolicy: { resolveDns: false },
     })
 
     const notification = makeNotification()
@@ -122,6 +124,7 @@ describe('EmailWebhookNotificationChannel', () => {
     const channel = new EmailWebhookNotificationChannel({
       webhookUrl: 'https://email.example.com/send',
       secret: 'my-secret-token',
+      urlPolicy: { resolveDns: false },
     })
 
     await channel.send(makeNotification())
@@ -134,12 +137,52 @@ describe('EmailWebhookNotificationChannel', () => {
   it('omits Authorization header when no secret', async () => {
     const channel = new EmailWebhookNotificationChannel({
       webhookUrl: 'https://email.example.com/send',
+      urlPolicy: { resolveDns: false },
     })
 
     await channel.send(makeNotification())
 
     const [, options] = mockFetch.mock.calls[0]!
     expect(options.headers['Authorization']).toBeUndefined()
+  })
+})
+
+describe('WebhookChannel outbound URL policy', () => {
+  let mockFetch: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    mockFetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    vi.stubGlobal('fetch', mockFetch)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('rejects private webhook destinations before fetching', async () => {
+    const channel = new WebhookChannel({
+      url: 'https://127.0.0.1/hook',
+    })
+
+    await expect(channel.send(makeNotification())).rejects.toThrow('Outbound URL rejected')
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('revalidates webhook redirects before following them', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('', {
+      status: 302,
+      headers: { location: 'https://127.0.0.1/hook' },
+    }))
+
+    const channel = new WebhookChannel({
+      url: 'https://hooks.example.com/start',
+      urlPolicy: {
+        lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+      },
+    })
+
+    await expect(channel.send(makeNotification())).rejects.toThrow('Outbound URL rejected')
+    expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 })
 

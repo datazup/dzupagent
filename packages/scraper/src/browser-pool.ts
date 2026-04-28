@@ -1,5 +1,6 @@
 import type { BrowserPoolConfig, FetchResult, ExtractionConfig } from './types.js'
 import { ContentExtractor } from './content-extractor.js'
+import { validateOutboundUrl } from '@dzupagent/core'
 
 const DEFAULT_CONFIG: BrowserPoolConfig = {
   maxConcurrency: 3,
@@ -138,6 +139,10 @@ export class BrowserPool {
     url: string,
     options?: { timeout?: number; waitFor?: string; extraction?: Partial<ExtractionConfig> },
   ): Promise<FetchResult> {
+    const validation = await validateOutboundUrl(url, this.config.urlPolicy)
+    if (!validation.ok) {
+      throw new Error(`Outbound URL rejected: ${validation.reason}`)
+    }
     const timeout = options?.timeout ?? 30_000
     const startTime = Date.now()
     const page = await this.acquire()

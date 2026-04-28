@@ -24,6 +24,7 @@ The `src/security` module provides composable primitives for:
 - Runtime safety monitoring with built-in rules and optional custom rules.
 - Memory poisoning defense (homoglyph normalization, encoded payload detection, bulk-fact guardrails).
 - Data classification and classification-aware output redaction helpers.
+- Shared outbound URL validation for SSRF-sensitive fetch surfaces. The default policy allows public HTTPS destinations only, rejects loopback/private/link-local literal and DNS-resolved IPs, and requires explicit host/IP allowlists for trusted internal deployments.
 - Input content scanning used by skill persistence (`skills/skill-manager.ts` imports `scanContent` from `security/content-sanitizer.ts`).
 
 ## Structure
@@ -31,6 +32,7 @@ Current `src/security` layout:
 
 - `risk-classifier.ts`: creates `RiskClassifier` and classification logic.
 - `tool-permission-tiers.ts`: default tool names grouped by risk tier.
+- `outbound-url-policy.ts`: shared public-destination URL validator and secure fetch wrapper that revalidates redirect hops.
 - `secrets-scanner.ts`: `scanForSecrets` and `redactSecrets`.
 - `pii-detector.ts`: `detectPII` and `redactPII`.
 - `output-pipeline.ts`: `OutputPipeline` and `createDefaultPipeline`.
@@ -96,6 +98,13 @@ Risk classification:
 - `createRiskClassifier(config?)`
 - `RiskTier`, `RiskClassification`, `RiskClassifierConfig`, `RiskClassifier`
 - `DEFAULT_AUTO_APPROVE_TOOLS`, `DEFAULT_LOG_TOOLS`, `DEFAULT_REQUIRE_APPROVAL_TOOLS`
+
+Outbound URL policy:
+- `validateOutboundUrl(url, policy?)`
+- `validateOutboundUrlSyntax(url, policy?)`
+- `fetchWithOutboundUrlPolicy(url, init?, options?)`
+- `isPublicIpAddress(address)`
+- `OutboundUrlSecurityPolicy`
 
 Secrets and PII:
 - `scanForSecrets(content)`, `redactSecrets(content)`
@@ -203,4 +212,3 @@ Current risks and open improvement targets visible from implementation:
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

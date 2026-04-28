@@ -49,6 +49,20 @@ export {
   DEFAULT_REQUIRE_APPROVAL_TOOLS,
 } from './tool-permission-tiers.js'
 
+// --- Outbound URL policy ---
+export {
+  fetchWithOutboundUrlPolicy,
+  isPublicIpAddress,
+  validateOutboundUrl,
+  validateOutboundUrlSyntax,
+} from './outbound-url-policy.js'
+export type {
+  OutboundUrlPolicyResult,
+  OutboundUrlResolvedAddress,
+  OutboundUrlSecurityPolicy,
+  SecureFetchOptions,
+} from './outbound-url-policy.js'
+
 // --- Monitor ---
 export { createSafetyMonitor, getBuiltInRules } from './monitor/index.js'
 export type {

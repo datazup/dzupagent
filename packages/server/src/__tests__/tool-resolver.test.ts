@@ -127,6 +127,45 @@ describe('tool-resolver', { timeout: 30_000 }, () => {
     expect(result.warnings.some((w) => w.includes('GitHub tools requested'))).toBe(true)
   })
 
+  it('ignores GitHub tokens supplied through run metadata', async () => {
+    const result = await resolveAgentTools({
+      toolNames: ['github_get_file'],
+      metadata: { githubToken: 'ghp-unsafe' },
+      env: {},
+    })
+
+    expect(result.unresolved).toContain('github_get_file')
+    expect(result.warnings.some((w) => w.includes('Ignoring metadata.githubToken'))).toBe(true)
+    expect(result.warnings.join('\n')).not.toContain('ghp-unsafe')
+  })
+
+  it('resolves GitHub tools from an environment-backed server-side profile', async () => {
+    const result = await resolveAgentTools({
+      toolNames: ['github_get_file'],
+      metadata: { githubProfile: 'release', githubToken: 'ghp-unsafe' },
+      githubConnectorProfiles: {
+        release: { envVar: 'GITHUB_RELEASE_TOKEN' },
+      },
+      env: { GITHUB_RELEASE_TOKEN: 'ghp-profile' },
+    })
+
+    expect(result.tools.map((t) => t.name)).toContain('github_get_file')
+    expect(result.unresolved).not.toContain('github_get_file')
+    expect(result.warnings.some((w) => w.includes('Ignoring metadata.githubToken'))).toBe(true)
+  })
+
+  it('ignores Slack tokens supplied through run metadata', async () => {
+    const result = await resolveAgentTools({
+      toolNames: ['slack_send_message'],
+      metadata: { slackToken: 'xoxb-unsafe' },
+      env: {},
+    })
+
+    expect(result.unresolved).toContain('slack_send_message')
+    expect(result.warnings.some((w) => w.includes('Ignoring metadata.slackToken'))).toBe(true)
+    expect(result.warnings.join('\n')).not.toContain('xoxb-unsafe')
+  })
+
   it('resolves connector:github category syntax and warns on missing token', async () => {
     const result = await resolveCached({
       toolNames: ['connector:github'],
@@ -170,6 +209,9 @@ describe('tool-resolver', { timeout: 30_000 }, () => {
             { ...fastFailMcpServer, id: 'my-server' },
           ],
         },
+        env: {
+          DZIP_MCP_ALLOWED_HTTP_HOSTS: 'localhost:9999',
+        },
       })
 
       // Server won't actually connect (no real server), but the mcp: token
@@ -186,6 +228,9 @@ describe('tool-resolver', { timeout: 30_000 }, () => {
           mcpServers: [
             fastFailMcpServer,
           ],
+        },
+        env: {
+          DZIP_MCP_ALLOWED_HTTP_HOSTS: 'localhost:9999',
         },
       })
 
@@ -238,8 +283,31 @@ describe('tool-resolver', { timeout: 30_000 }, () => {
       })
 
       expect(result.unresolved).not.toContain('mcp:my-server')
-      expect(result.warnings.some((w) => w.includes('not in DZIP_MCP_ALLOWED_HTTP_HOSTS'))).toBe(true)
+      expect(result.warnings.some((w) => w.includes('https') || w.includes('blocked.example'))).toBe(true)
       expect(result.warnings.some((w) => w.includes('no servers configured'))).toBe(true)
+    })
+
+    it('ignores metadata-defined MCP env and headers', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['mcp:my-server'],
+        metadata: {
+          mcpServers: [
+            {
+              ...fastFailMcpServer,
+              id: 'my-server',
+              env: { TOKEN: 'mcp-secret' },
+              headers: { authorization: 'Bearer mcp-secret' },
+            },
+          ],
+        },
+        env: {
+          DZIP_MCP_ALLOWED_HTTP_HOSTS: 'localhost:9999',
+        },
+      })
+
+      expect(result.unresolved).not.toContain('mcp:my-server')
+      expect(result.warnings.some((w) => w.includes('metadata credential fields were ignored'))).toBe(true)
+      expect(result.warnings.join('\n')).not.toContain('mcp-secret')
     })
   })
 
@@ -369,7 +437,7 @@ describe('tool-resolver', { timeout: 30_000 }, () => {
         },
         httpConnectorProfiles: {
           'public-api': {
-            baseUrl: 'https://api.example.com',
+            baseUrl: 'https://93.184.216.34',
             headers: { Authorization: 'Bearer server-secret' },
           },
         },
@@ -408,7 +476,7 @@ describe('tool-resolver', { timeout: 30_000 }, () => {
 
       expect(result.tools.map((t) => t.name)).not.toContain('http_request')
       expect(result.unresolved).toContain('http_request')
-      expect(result.warnings.some((w) => w.includes('private, loopback, or link-local'))).toBe(true)
+      expect(result.warnings.some((w) => w.includes('https') || w.includes('not a public IP address'))).toBe(true)
     })
 
     it('allows private HTTP connector origins when explicitly allowlisted by profile', async () => {
@@ -432,7 +500,7 @@ describe('tool-resolver', { timeout: 30_000 }, () => {
       const result = await resolveAgentTools({
         toolNames: ['http_request'],
         metadata: {
-          httpBaseUrl: 'https://api.example.com',
+          httpBaseUrl: 'https://93.184.216.34',
           httpHeaders: { Authorization: 'Bearer unsafe' },
         },
         allowUnsafeMetadataHttpConnector: true,

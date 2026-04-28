@@ -49,10 +49,10 @@ const LONG_BODY = 'L'.repeat(300)
 describe('W23-B3 HttpFetcher — redirect follow semantics', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('passes redirect: "follow" to native fetch when followRedirects is true', async () => {
-    let sawFollow = false
+  it('uses manual redirect mode when followRedirects is true so hops can be revalidated', async () => {
+    let sawManual = false
     const fetchMock = vi.fn(async (_url: string | URL, opts?: RequestInit) => {
-      if (opts?.redirect === 'follow') sawFollow = true
+      if (opts?.redirect === 'manual') sawManual = true
       return makeResponse(`<html><body>${LONG_BODY}</body></html>`, {
         url: 'https://example.com/final',
       })
@@ -61,7 +61,7 @@ describe('W23-B3 HttpFetcher — redirect follow semantics', () => {
 
     const fetcher = new HttpFetcher({ respectRobotsTxt: false, maxRetries: 0, followRedirects: true })
     const result = await fetcher.fetch('https://example.com/start')
-    expect(sawFollow).toBe(true)
+    expect(sawManual).toBe(true)
     expect(result.url).toBe('https://example.com/final')
   })
 

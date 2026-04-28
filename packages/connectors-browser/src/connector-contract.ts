@@ -8,12 +8,17 @@ export type BrowserConnectorTool<Input = unknown, Output = unknown> = BaseConnec
 export function normalizeBrowserTool<Input = unknown, Output = unknown>(
   tool: StructuredToolInterface,
 ): BrowserConnectorTool<Input, Output> {
-  return normalizeBaseConnectorTool<Input, Output>({
+  const normalized = normalizeBaseConnectorTool<Input, Output>({
     name: tool.name,
     description: tool.description,
     schema: tool.schema,
     invoke: async (input: Input) => tool.invoke(input),
   })
+  return {
+    ...normalized,
+    invoke: async (input: Input, context?: { signal?: AbortSignal }) =>
+      tool.invoke(input, context),
+  } as unknown as BrowserConnectorTool<Input, Output>
 }
 
 export function normalizeBrowserTools<Input = unknown, Output = unknown>(

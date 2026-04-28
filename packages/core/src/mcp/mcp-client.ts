@@ -14,6 +14,7 @@ import type {
   MCPServerStatus,
 } from './mcp-types.js'
 import { validateMcpExecutablePath, sanitizeMcpEnv } from './mcp-security.js'
+import { fetchWithOutboundUrlPolicy } from '../security/outbound-url-policy.js'
 
 // ---------------------------------------------------------------------------
 // Connection
@@ -276,7 +277,7 @@ export class MCPClient {
     const timer = setTimeout(() => controller.abort(), timeout)
 
     try {
-      const response = await fetch(`${config.url}/tools/list`, {
+      const response = await fetchWithOutboundUrlPolicy(`${config.url}/tools/list`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -284,6 +285,8 @@ export class MCPClient {
         },
         body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1 }),
         signal: controller.signal,
+      }, {
+        policy: config.urlPolicy,
       })
 
       if (!response.ok) {
@@ -376,7 +379,7 @@ export class MCPClient {
         const timer = setTimeout(() => controller.abort(), timeout)
 
         try {
-          const response = await fetch(`${config.url}/tools/call`, {
+          const response = await fetchWithOutboundUrlPolicy(`${config.url}/tools/call`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -384,6 +387,8 @@ export class MCPClient {
             },
             body: JSON.stringify(request),
             signal: controller.signal,
+          }, {
+            policy: config.urlPolicy,
           })
 
           if (!response.ok) {

@@ -123,8 +123,8 @@ Within `packages/core`:
 
 Cross-package runtime consumers:
 
-- `packages/agent/src/agent/dzip-agent.ts`: resolves tiered models through `getModelWithFallback`, applies provider success/failure feedback.
-- `packages/agent/src/agent/streaming-run.ts`: records provider success/failure around `model.stream(...)` path and uses token extraction fallback behavior.
+- `packages/agent/src/agent/dzip-agent.ts`: resolves tiered models through selection-time `getModelWithFallback`, applies provider success/failure feedback, and uses `getModelFallbackCandidates` only when explicit run-level failover is enabled.
+- `packages/agent/src/agent/streaming-run.ts`: records provider success/failure around `model.stream(...)` path, supports opt-in pre-yield stream-open failover, and uses token extraction fallback behavior.
 - `packages/server/src/runtime/default-run-executor.ts`: resolves fallback model, invokes through `invokeWithTimeout`, logs usage, and updates provider health.
 - `packages/server/src/routes/health.ts` and `packages/server/src/scorecard/integration-scorecard.ts`: surface `getProviderHealth()` output.
 
@@ -142,6 +142,7 @@ Observability surfaces:
 
 - `InvokeOptions.onUsage` provides usage events to caller-owned telemetry/logging.
 - `ModelRegistry.getProviderHealth()` exposes breaker state per provider.
+- `ModelRegistry.getModelWithFallback()` is selection-time fallback only; `getModelFallbackCandidates()` exposes the ordered provider chain for callers that implement an explicit run-level retry/failover policy.
 - Downstream integrations (notably server run executor) already log usage/provider data and can report degraded provider health.
 
 ## Risks and TODOs
@@ -155,4 +156,3 @@ Observability surfaces:
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

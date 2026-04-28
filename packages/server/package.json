@@ -15,6 +15,14 @@
     "./ops": {
       "import": "./dist/ops.js",
       "types": "./dist/ops.d.ts"
+    },
+    "./runtime": {
+      "import": "./dist/runtime.js",
+      "types": "./dist/runtime.d.ts"
+    },
+    "./compat": {
+      "import": "./dist/compat.js",
+      "types": "./dist/compat.d.ts"
     }
   },
   "scripts": {

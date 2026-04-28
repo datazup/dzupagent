@@ -129,8 +129,45 @@ const reviewTool = agent.asTool({ description: 'Run code review' })
 ### Security
 
 - `AgentAuth` -- agent credential management and message signing
+- `createProductionToolGovernancePreset(options)` -- opt-in production preset
+  that wires tool governance, safety scanning, fail-closed scanner behavior,
+  argument validation, per-tool timeouts, permission policy, event bus
+  telemetry, tracer propagation, and durable run IDs into `toolExecution`.
+- `withProductionToolGovernancePreset(config, options)` -- convenience helper
+  that applies the production preset to an existing `DzupAgentConfig`.
 
-**Types:** `AgentCredential`, `SignedAgentMessage`, `AgentAuthConfig`
+**Types:** `AgentCredential`, `SignedAgentMessage`, `AgentAuthConfig`,
+`ProductionToolGovernancePresetOptions`, `ProductionToolGovernancePreset`
+
+Legacy `DzupAgent` defaults remain compatible: tool governance controls are
+available as primitives, but they are not enabled unless callers pass
+`toolExecution` or use the production preset. The production preset defaults to
+fail-closed scanning and a default-deny permission policy when no allowlist or
+custom policy is provided.
+
+```ts
+import {
+  DzupAgent,
+  withProductionToolGovernancePreset,
+} from '@dzupagent/agent'
+
+const config = withProductionToolGovernancePreset(
+  {
+    id: 'operator',
+    instructions: 'Operate approved tools only.',
+    model: chatModel,
+    tools: [readFileTool, deployTool],
+  },
+  {
+    runId: executionRunId,
+    allowedToolNames: ['read_file', 'deploy'],
+    approvalRequiredToolNames: ['deploy'],
+    timeouts: { read_file: 10_000, deploy: 60_000 },
+  },
+)
+
+const agent = new DzupAgent(config)
+```
 
 ### Templates
 

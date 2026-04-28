@@ -35,7 +35,7 @@ export function normalizeConnectorTool<Input = unknown, Output = unknown>(
   const toModelOutput = 'toModelOutput' in tool && typeof tool.toModelOutput === 'function'
     ? tool.toModelOutput as (output: Output) => string
     : undefined
-  return normalizeBaseConnectorTool<Input, Output>({
+  const normalized = normalizeBaseConnectorTool<Input, Output>({
     ...( id !== undefined ? { id } : {}),
     name: tool.name,
     description: tool.description,
@@ -43,6 +43,11 @@ export function normalizeConnectorTool<Input = unknown, Output = unknown>(
     invoke: async (input: Input) => tool.invoke(input),
     ...(toModelOutput !== undefined ? { toModelOutput } : {}),
   })
+  return {
+    ...normalized,
+    invoke: async (input: Input, context?: { signal?: AbortSignal }) =>
+      tool.invoke(input, context),
+  } as unknown as ConnectorTool<Input, Output>
 }
 
 export function normalizeConnectorTools<Input = unknown, Output = unknown>(

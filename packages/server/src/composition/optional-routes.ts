@@ -1,5 +1,11 @@
 /**
  * Mounts the optional REST surface that depends on capability config flags.
+ * These route families are frozen as framework primitives or compatibility /
+ * maintenance surfaces. New product-control-plane concepts such as workspaces,
+ * projects, tasks, operator dashboards, or Codev-specific UX belong in the
+ * consuming app and should integrate through `routePlugins` or app-owned Hono
+ * composition instead of expanding this file.
+ *
  * Each helper here is a pure side-effect on the Hono app — no return values,
  * no shared state with the rest of the composition pipeline beyond
  * `runtimeConfig`, the resolved `effectiveAuth`, and `eventGateway`.
@@ -8,12 +14,14 @@
  * sequence, since some hosts depend on the registration order
  * (Hono routes are first-match per method).
  */
-import type { Hono } from 'hono'
+import { Hono } from 'hono'
 
 import type { ForgeServerConfig } from './types.js'
 import type { EventGateway } from '../events/event-gateway.js'
 import type { AuthConfig } from '../middleware/auth.js'
 import type { MailboxStore } from '@dzupagent/agent'
+import type { ServerRoutePlugin } from '../route-plugin.js'
+import { mountRoutePlugins } from './route-plugins.js'
 
 import { createMemoryRoutes } from '../routes/memory.js'
 import { createMemoryBrowseRoutes } from '../routes/memory-browse.js'
@@ -64,19 +72,73 @@ export interface OptionalRoutesContext {
 }
 
 export function mountOptionalRoutes(app: Hono, ctx: OptionalRoutesContext): void {
-  mountMemoryRoutes(app, ctx)
-  mountEventRoutes(app, ctx)
-  mountDeployRoutes(app, ctx)
-  mountLearningRoutes(app, ctx)
-  mountBenchmarkRoutes(app, ctx)
-  mountEvalRoutes(app, ctx)
-  mountPlaygroundRoute(app, ctx)
-  mountA2ARoutes(app, ctx)
-  mountTriggerScheduleRoutes(app, ctx)
-  mountConfigStoreRoutes(app, ctx)
-  mountReflectionRoutes(app, ctx)
-  mountMailboxAndClusterRoutes(app, ctx)
-  mountOpenAICompatRoutes(app, ctx)
+  mountRoutePlugins(app, buildOptionalRoutePlugins(ctx), ctx.runtimeConfig)
+}
+
+export function buildOptionalRoutePlugins(ctx: OptionalRoutesContext): ServerRoutePlugin<ForgeServerConfig>[] {
+  const plugins: ServerRoutePlugin<ForgeServerConfig>[] = []
+
+  if (ctx.runtimeConfig.memoryService || ctx.runtimeConfig.memoryHealth) {
+    plugins.push(createOptionalRouteFamilyPlugin('memory', (app) => mountMemoryRoutes(app, ctx)))
+  }
+
+  plugins.push(createOptionalRouteFamilyPlugin('events', (app) => mountEventRoutes(app, ctx)))
+
+  if (ctx.runtimeConfig.deploy) {
+    plugins.push(createOptionalRouteFamilyPlugin('deploy', (app) => mountDeployRoutes(app, ctx)))
+  }
+  if (ctx.runtimeConfig.learning) {
+    plugins.push(createOptionalRouteFamilyPlugin('learning', (app) => mountLearningRoutes(app, ctx)))
+  }
+  if (ctx.runtimeConfig.benchmark) {
+    plugins.push(createOptionalRouteFamilyPlugin('benchmarks', (app) => mountBenchmarkRoutes(app, ctx)))
+  }
+  if (ctx.runtimeConfig.evals) {
+    plugins.push(createOptionalRouteFamilyPlugin('evals', (app) => mountEvalRoutes(app, ctx)))
+  }
+  if (ctx.runtimeConfig.playground) {
+    plugins.push(createOptionalRouteFamilyPlugin('playground', (app) => mountPlaygroundRoute(app, ctx)))
+  }
+  if (ctx.runtimeConfig.a2a) {
+    plugins.push(createOptionalRouteFamilyPlugin('a2a', (app) => mountA2ARoutes(app, ctx)))
+  }
+  if (ctx.runtimeConfig.triggerStore || ctx.runtimeConfig.scheduleStore) {
+    plugins.push(createOptionalRouteFamilyPlugin('automation', (app) => mountTriggerScheduleRoutes(app, ctx)))
+  }
+  if (
+    ctx.runtimeConfig.promptStore
+    || ctx.runtimeConfig.personaStore
+    || ctx.runtimeConfig.presetRegistry
+    || ctx.runtimeConfig.catalogStore
+  ) {
+    plugins.push(createOptionalRouteFamilyPlugin('config-stores', (app) => mountConfigStoreRoutes(app, ctx)))
+  }
+  if (ctx.runtimeConfig.reflectionStore) {
+    plugins.push(createOptionalRouteFamilyPlugin('reflections', (app) => mountReflectionRoutes(app, ctx)))
+  }
+
+  plugins.push(createOptionalRouteFamilyPlugin('mailbox-clusters', (app) => mountMailboxAndClusterRoutes(app, ctx)))
+
+  if (ctx.runtimeConfig.openai?.enabled === true) {
+    plugins.push(createOptionalRouteFamilyPlugin('openai-compat', (app) => mountOpenAICompatRoutes(app, ctx)))
+  }
+
+  return plugins
+}
+
+function createOptionalRouteFamilyPlugin(
+  name: string,
+  mount: (app: Hono) => void,
+): ServerRoutePlugin<ForgeServerConfig> {
+  return {
+    family: name,
+    prefix: '',
+    createRoutes: () => {
+      const familyApp = new Hono()
+      mount(familyApp)
+      return familyApp
+    },
+  }
 }
 
 function mountMemoryRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
@@ -277,16 +339,21 @@ function mountOpenAICompatRoutes(app: Hono, { runtimeConfig }: OptionalRoutesCon
 
 /**
  * Mount the Prometheus `/metrics` endpoint when the configured collector is a
- * {@link PrometheusMetricsCollector}. Other collectors (e.g. NoopMetricsCollector)
- * skip this route.
+ * {@link PrometheusMetricsCollector} and a framework-level access policy is
+ * configured. Other collectors (e.g. NoopMetricsCollector) skip this route.
  */
 export function mountPrometheusMetricsRoute(app: Hono, runtimeConfig: ForgeServerConfig): void {
-  // TODO(security): `/metrics` is currently mounted on the public app and
-  // bypasses auth. For production deployments this should be exposed on an
-  // internal-only port (e.g. a separate Hono listener bound to 127.0.0.1) or
-  // protected by an IP allow-list. Until then, operators are expected to
-  // block `/metrics` at the ingress/load-balancer layer.
-  if (runtimeConfig.metrics && runtimeConfig.metrics instanceof PrometheusMetricsCollector) {
-    app.route('/metrics', createMetricsRoute({ collector: runtimeConfig.metrics }))
+  if (!(runtimeConfig.metrics instanceof PrometheusMetricsCollector)) {
+    return
   }
+
+  const access = runtimeConfig.prometheusMetrics?.access
+  if (!access || access.mode === 'disabled') {
+    return
+  }
+
+  app.route('/metrics', createMetricsRoute({
+    collector: runtimeConfig.metrics,
+    access,
+  }))
 }

@@ -36,6 +36,10 @@ export function buildRuntimeBootstrap(config: ForgeServerConfig): RuntimeBootstr
       fallback: fallbackRunExecutor,
       ...(config.httpConnectorProfiles ? { httpConnectorProfiles: config.httpConnectorProfiles } : {}),
       ...(config.defaultHttpConnectorProfile ? { defaultHttpConnectorProfile: config.defaultHttpConnectorProfile } : {}),
+      ...(config.githubConnectorProfiles ? { githubConnectorProfiles: config.githubConnectorProfiles } : {}),
+      ...(config.defaultGithubConnectorProfile ? { defaultGithubConnectorProfile: config.defaultGithubConnectorProfile } : {}),
+      ...(config.slackConnectorProfiles ? { slackConnectorProfiles: config.slackConnectorProfiles } : {}),
+      ...(config.defaultSlackConnectorProfile ? { defaultSlackConnectorProfile: config.defaultSlackConnectorProfile } : {}),
       ...(config.allowUnsafeMetadataHttpConnector !== undefined
         ? { allowUnsafeMetadataHttpConnector: config.allowUnsafeMetadataHttpConnector }
         : {}),

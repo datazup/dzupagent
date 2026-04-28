@@ -21,10 +21,9 @@ describe('HttpFetcher - redirect handling', () => {
     vi.restoreAllMocks()
   })
 
-  it('follows redirects when followRedirects is true (default fetch behavior)', async () => {
+  it('uses manual redirect mode so redirect hops can be revalidated', async () => {
     const fetchMock = vi.fn(async (_url: string | URL, opts?: RequestInit) => {
-      // When redirect: 'follow', fetch auto-follows. Simulate final response.
-      expect(opts?.redirect).toBe('follow')
+      expect(opts?.redirect).toBe('manual')
       return makeResponse('<html><body>' + 'R'.repeat(120) + '</body></html>', {
         url: 'https://example.com/final',
       })

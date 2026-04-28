@@ -2,13 +2,19 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const scriptPath = fileURLToPath(new URL('../check-domain-boundaries.mjs', import.meta.url))
 
-function createRepo({ alphaPackageJson = {}, alphaSource = '', packageBoundaryRules = [] } = {}) {
+function createRepo({
+  alphaPackageJson = {},
+  alphaSource = '',
+  packageBoundaryRules = [],
+  serverRouteBoundaries,
+  serverRouteFiles = [],
+} = {}) {
   const repoRoot = mkdtempSync(join(tmpdir(), 'domain-boundaries-'))
   mkdirSync(join(repoRoot, 'config'), { recursive: true })
   mkdirSync(join(repoRoot, 'packages', 'alpha', 'src'), { recursive: true })
@@ -30,6 +36,7 @@ function createRepo({ alphaPackageJson = {}, alphaSource = '', packageBoundaryRu
     JSON.stringify(
       {
         packageBoundaryRules,
+        ...(serverRouteBoundaries ? { serverRouteBoundaries } : {}),
         layerGraph: {
           layers: [
             { id: 1, name: 'base', packages: ['beta'] },
@@ -59,6 +66,12 @@ function createRepo({ alphaPackageJson = {}, alphaSource = '', packageBoundaryRu
     JSON.stringify({ name: '@dzupagent/beta', private: true }, null, 2),
   )
   writeFileSync(join(repoRoot, 'packages', 'alpha', 'src', 'index.ts'), alphaSource, 'utf8')
+
+  for (const routeFile of serverRouteFiles) {
+    const fullPath = join(repoRoot, routeFile)
+    mkdirSync(dirname(fullPath), { recursive: true })
+    writeFileSync(fullPath, 'export const route = true\n', 'utf8')
+  }
 
   return repoRoot
 }
@@ -146,6 +159,48 @@ test('fails declared forbidden package pairs even when layer rules allow the sou
     assert.notEqual(result.status, 0)
   } finally {
     rmSync(allowedRepoRoot, { recursive: true, force: true })
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test('fails newly added server route files without a boundary classification', () => {
+  const repoRoot = createRepo({
+    serverRouteFiles: ['packages/server/src/routes/projects.ts'],
+    serverRouteBoundaries: {
+      routeFileClassifications: {
+        'framework-primitive': {
+          rationale: 'Existing reusable framework route primitives.',
+          files: [],
+        },
+      },
+    },
+  })
+
+  try {
+    const result = runDomainBoundaryCheckResult(repoRoot)
+    assert.ifError(result.error)
+    assert.notEqual(result.status, 0)
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test('allows server route files with declared maintenance or framework rationale', () => {
+  const repoRoot = createRepo({
+    serverRouteFiles: ['packages/server/src/routes/runs.ts'],
+    serverRouteBoundaries: {
+      routeFileClassifications: {
+        'framework-primitive': {
+          rationale: 'Existing reusable framework route primitives.',
+          files: ['packages/server/src/routes/runs.ts'],
+        },
+      },
+    },
+  })
+
+  try {
+    assert.doesNotThrow(() => runDomainBoundaryCheck(repoRoot))
+  } finally {
     rmSync(repoRoot, { recursive: true, force: true })
   }
 })

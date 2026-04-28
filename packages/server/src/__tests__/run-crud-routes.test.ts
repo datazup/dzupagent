@@ -124,6 +124,49 @@ describe('POST /api/runs', () => {
     expect(body.data.metadata?.['version']).toBe('1.0')
   })
 
+  it('strips connector and MCP secrets before persisting run metadata', async () => {
+    const res = await req(app, 'POST', '/api/runs', {
+      agentId: 'agent-1',
+      input: 'task',
+      metadata: {
+        environment: 'test',
+        githubToken: 'ghp-secret',
+        slackToken: 'xoxb-secret',
+        httpHeaders: { Authorization: 'Bearer secret' },
+        httpProfile: 'public-api',
+        githubProfile: 'release',
+        slackProfile: 'ops',
+        mcpServers: [
+          {
+            id: 'mcp-1',
+            url: 'https://mcp.example.com',
+            env: { TOKEN: 'mcp-secret' },
+            headers: { authorization: 'Bearer mcp-secret' },
+          },
+        ],
+      },
+    })
+    expect(res.status).toBe(201)
+
+    const body = (await res.json()) as { data: { id: string; metadata?: Record<string, unknown> } }
+    const persisted = await config.runStore.get(body.data.id)
+    const responseSerialized = JSON.stringify(body)
+    const persistedSerialized = JSON.stringify(persisted)
+
+    expect(body.data.metadata?.['environment']).toBe('test')
+    expect(body.data.metadata?.['httpProfile']).toBe('public-api')
+    expect(body.data.metadata?.['githubProfile']).toBe('release')
+    expect(body.data.metadata?.['slackProfile']).toBe('ops')
+    expect(responseSerialized).not.toContain('ghp-secret')
+    expect(responseSerialized).not.toContain('xoxb-secret')
+    expect(responseSerialized).not.toContain('Bearer secret')
+    expect(responseSerialized).not.toContain('mcp-secret')
+    expect(persistedSerialized).not.toContain('ghp-secret')
+    expect(persistedSerialized).not.toContain('xoxb-secret')
+    expect(persistedSerialized).not.toContain('Bearer secret')
+    expect(persistedSerialized).not.toContain('mcp-secret')
+  })
+
   it('emits agent:started event after creating a run', async () => {
     const events: Array<{ type: string }> = []
     config.eventBus.onAny((e) => events.push(e as { type: string }))
@@ -173,6 +216,25 @@ describe('GET /api/runs', () => {
     const body = (await res.json()) as { data: unknown[]; count: number }
     expect(body.data).toHaveLength(2)
     expect(body.count).toBe(2)
+  })
+
+  it('redacts legacy secret metadata from list responses', async () => {
+    await config.runStore.create({
+      agentId: 'agent-alpha',
+      input: 'legacy',
+      metadata: {
+        githubToken: 'ghp-legacy',
+        httpHeaders: { authorization: 'Bearer legacy' },
+        mcpServers: [{ id: 'mcp', url: 'https://mcp.example.com', env: { TOKEN: 'legacy-mcp' } }],
+      },
+    })
+
+    const res = await app.request('/api/runs')
+    expect(res.status).toBe(200)
+    const serialized = JSON.stringify(await res.json())
+    expect(serialized).not.toContain('ghp-legacy')
+    expect(serialized).not.toContain('Bearer legacy')
+    expect(serialized).not.toContain('legacy-mcp')
   })
 
   it('200 — returns empty list when no runs exist', async () => {
@@ -296,6 +358,25 @@ describe('GET /api/runs/:id', () => {
 
     const body = (await res.json()) as { data: { status: string } }
     expect(body.data.status).toBe('running')
+  })
+
+  it('redacts legacy secret metadata from read responses', async () => {
+    const run = await config.runStore.create({
+      agentId: 'agent-1',
+      input: 'legacy',
+      metadata: {
+        slackToken: 'xoxb-legacy',
+        httpHeaders: { authorization: 'Bearer legacy-read' },
+        mcpServers: [{ id: 'mcp', url: 'https://mcp.example.com', headers: { authorization: 'Bearer mcp-read' } }],
+      },
+    })
+
+    const res = await app.request(`/api/runs/${run.id}`)
+    expect(res.status).toBe(200)
+    const serialized = JSON.stringify(await res.json())
+    expect(serialized).not.toContain('xoxb-legacy')
+    expect(serialized).not.toContain('Bearer legacy-read')
+    expect(serialized).not.toContain('Bearer mcp-read')
   })
 
   it('404 — returns NOT_FOUND for unknown run id', async () => {

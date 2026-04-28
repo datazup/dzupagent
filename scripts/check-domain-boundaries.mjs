@@ -23,6 +23,9 @@
  *   7. Production src/** imports from sibling @dzupagent/* workspace packages
  *      must not violate config/architecture-boundaries.json
  *      packageBoundaryRules forbidden package pairs.
+ *   8. Production files under packages/server/src/routes/** must be declared
+ *      in the serverRouteBoundaries policy with a maintenance/compatibility,
+ *      generic framework primitive, or route-plugin host-seam rationale.
  *
  * Usage:
  *   node scripts/check-domain-boundaries.mjs
@@ -55,6 +58,13 @@ const SOURCE_IMPORT_MANIFEST_FIELDS = [
   'peerDependencies',
   'optionalDependencies',
 ]
+
+const SERVER_ROUTE_BOUNDARY_CATEGORIES = new Set([
+  'compatibility-maintenance',
+  'framework-primitive',
+  'route-plugin-host-seam',
+  'internal-support',
+])
 
 /**
  * Run ripgrep and return matching lines (empty array = no matches).
@@ -622,6 +632,120 @@ const packagePairBoundaryViolations = collectPackagePairBoundaryViolations(
 )
 
 // ---------------------------------------------------------------------------
+// Section 10 — Server route product-boundary classification check
+// ---------------------------------------------------------------------------
+
+function collectServerRouteBoundaryViolations() {
+  const routesDir = join(repoRoot, 'packages', 'server', 'src', 'routes')
+  if (!existsSync(routesDir)) return []
+
+  const routeFiles = listProductionSourceFiles(routesDir)
+    .map((file) => file.replace(repoRoot + '/', ''))
+    .sort()
+
+  if (routeFiles.length === 0) return []
+
+  const policy = architectureConfig.serverRouteBoundaries
+  const violations = []
+  if (!policy || typeof policy !== 'object') {
+    return routeFiles.map((file) => ({
+      type: 'missing-policy',
+      file,
+    }))
+  }
+
+  const routeFileClassifications = policy.routeFileClassifications
+  if (!routeFileClassifications || typeof routeFileClassifications !== 'object' || Array.isArray(routeFileClassifications)) {
+    return routeFiles.map((file) => ({
+      type: 'missing-policy',
+      file,
+    }))
+  }
+
+  const declaredFiles = new Map()
+
+  for (const [category, entry] of Object.entries(routeFileClassifications)) {
+    if (!SERVER_ROUTE_BOUNDARY_CATEGORIES.has(category)) {
+      violations.push({
+        type: 'invalid-category',
+        category,
+      })
+      continue
+    }
+
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      violations.push({
+        type: 'invalid-entry',
+        category,
+      })
+      continue
+    }
+
+    if (typeof entry.rationale !== 'string' || entry.rationale.trim().length < 20) {
+      violations.push({
+        type: 'missing-rationale',
+        category,
+      })
+    }
+
+    if (!Array.isArray(entry.files)) {
+      violations.push({
+        type: 'invalid-files',
+        category,
+      })
+      continue
+    }
+
+    for (const file of entry.files) {
+      if (typeof file !== 'string' || !file.startsWith('packages/server/src/routes/')) {
+        violations.push({
+          type: 'invalid-file-entry',
+          category,
+          file,
+        })
+        continue
+      }
+
+      if (declaredFiles.has(file)) {
+        violations.push({
+          type: 'duplicate-file',
+          file,
+          firstCategory: declaredFiles.get(file),
+          category,
+        })
+        continue
+      }
+
+      declaredFiles.set(file, category)
+    }
+  }
+
+  const actualRouteFiles = new Set(routeFiles)
+  for (const file of routeFiles) {
+    if (!declaredFiles.has(file)) {
+      violations.push({
+        type: 'unclassified-route-file',
+        file,
+      })
+    }
+  }
+
+  for (const [file, category] of declaredFiles.entries()) {
+    if (!actualRouteFiles.has(file)) {
+      violations.push({
+        type: 'stale-classification',
+        file,
+        category,
+      })
+    }
+  }
+
+  return violations
+}
+
+const serverRouteBoundaryViolations = collectServerRouteBoundaryViolations()
+
+// ---------------------------------------------------------------------------
 // Reporting
 // ---------------------------------------------------------------------------
 
@@ -756,8 +880,52 @@ if (packagePairBoundaryViolations.length > 0) {
   console.error()
 }
 
+if (serverRouteBoundaryViolations.length > 0) {
+  failed = true
+  console.error('SERVER ROUTE PRODUCT-BOUNDARY VIOLATIONS')
+  console.error('========================================')
+  console.error('Production files under packages/server/src/routes/** must be declared in')
+  console.error('config/architecture-boundaries.json serverRouteBoundaries.routeFileClassifications.')
+  console.error('Allowed categories are:')
+  console.error('  - compatibility-maintenance')
+  console.error('  - framework-primitive')
+  console.error('  - route-plugin-host-seam')
+  console.error('  - internal-support')
+  console.error()
+
+  for (const v of serverRouteBoundaryViolations) {
+    if (v.type === 'missing-policy') {
+      console.error(`  MISSING POLICY: ${v.file}`)
+    } else if (v.type === 'invalid-category') {
+      console.error(`  INVALID CATEGORY: ${v.category}`)
+    } else if (v.type === 'invalid-entry') {
+      console.error(`  INVALID ENTRY: ${v.category} must be an object.`)
+    } else if (v.type === 'missing-rationale') {
+      console.error(`  MISSING RATIONALE: ${v.category} needs a non-empty rationale.`)
+    } else if (v.type === 'invalid-files') {
+      console.error(`  INVALID FILES: ${v.category}.files must be an array.`)
+    } else if (v.type === 'invalid-file-entry') {
+      console.error(`  INVALID FILE ENTRY: ${v.category} declares ${String(v.file)}`)
+    } else if (v.type === 'duplicate-file') {
+      console.error(`  DUPLICATE: ${v.file} declared as ${v.firstCategory} and ${v.category}`)
+    } else if (v.type === 'unclassified-route-file') {
+      console.error(`  UNCLASSIFIED ROUTE FILE: ${v.file}`)
+    } else if (v.type === 'stale-classification') {
+      console.error(`  STALE CLASSIFICATION: ${v.file} (${v.category}) no longer exists.`)
+    }
+  }
+
+  console.error()
+  console.error('How to fix:')
+  console.error('  - Prefer moving new product-control-plane routes into the consuming app.')
+  console.error('  - Use routePlugins or app-owned Hono composition for app/product routes.')
+  console.error('  - Only add a server route file when it is framework primitive, compatibility/maintenance,')
+  console.error('    a route-plugin host seam, or internal support; then classify it with a rationale.')
+  console.error()
+}
+
 if (failed) {
   process.exitCode = 1
 } else {
-  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, runtime cycles, undeclared source imports, or package-pair boundary violations found.')
+  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, runtime cycles, undeclared source imports, package-pair boundary violations, or unclassified server route files found.')
 }

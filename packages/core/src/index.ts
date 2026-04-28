@@ -37,6 +37,7 @@ export { createManifest, serializeManifest } from './plugin/plugin-manifest.js'
 
 // --- LLM ---
 export { ModelRegistry } from './llm/model-registry.js'
+export type { ModelFallbackCandidate } from './llm/model-registry.js'
 export type {
   KnownLLMProvider,
   LLMProviderConfig,
@@ -266,6 +267,18 @@ export { McpServerDefinitionSchema, McpProfileSchema } from './mcp/mcp-registry-
 export type { McpServerDefinition, McpProfile, McpServerInput, McpServerPatch, McpTestResult } from './mcp/mcp-registry-types.js'
 // MCP Security
 export { validateMcpExecutablePath, sanitizeMcpEnv } from './mcp/mcp-security.js'
+export {
+  fetchWithOutboundUrlPolicy,
+  isPublicIpAddress,
+  validateOutboundUrl,
+  validateOutboundUrlSyntax,
+} from './security/outbound-url-policy.js'
+export type {
+  OutboundUrlPolicyResult,
+  OutboundUrlResolvedAddress,
+  OutboundUrlSecurityPolicy,
+  SecureFetchOptions,
+} from './security/outbound-url-policy.js'
 // MCP Resources
 export { MCPResourceClient } from './mcp/mcp-resources.js'
 export type { MCPResourceClientConfig } from './mcp/mcp-resources.js'
