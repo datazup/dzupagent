@@ -110,11 +110,11 @@ describe('lowerPipelineLoop', () => {
     const ast = forEach('$.items', 'item', action('items.process'))
 
     // Resolved side-table:
-    //   - the action is at path "root.body.nodes[0]"
+    //   - the action is at path "root.body[0]"
     //     (lowerForEach calls lowerSequence(node.body, ctx, "root.body")
-    //      which maps child idx 0 to "root.body.nodes[0]")
+    //      which maps child idx 0 to "root.body[0]")
     const resolved = buildResolved(resolver, [
-      { nodePath: 'root.body.nodes[0]', toolRef: 'items.process' },
+      { nodePath: 'root.body[0]', toolRef: 'items.process' },
     ])
 
     const { artifact, warnings } = lowerPipelineLoop({
@@ -175,8 +175,8 @@ describe('lowerPipelineLoop', () => {
     )
 
     const resolved = buildResolved(resolver, [
-      { nodePath: 'root.body.nodes[0]', toolRef: 'items.fetch' },
-      { nodePath: 'root.body.nodes[1]', toolRef: 'items.transform' },
+      { nodePath: 'root.body[0]', toolRef: 'items.fetch' },
+      { nodePath: 'root.body[1]', toolRef: 'items.transform' },
     ])
 
     const { artifact, warnings } = lowerPipelineLoop({
@@ -222,8 +222,8 @@ describe('lowerPipelineLoop', () => {
 
     const resolved = buildResolved(resolver, [
       // path: root.then[0] = for_each node — no lookup needed for for_each itself
-      // path: root.then[0].body.nodes[0] = the action inside the body
-      { nodePath: 'root.then.nodes[0].body.nodes[0]', toolRef: 'tasks.run' },
+      // path: root.then[0].body[0] = the action inside the body
+      { nodePath: 'root.then[0].body[0]', toolRef: 'tasks.run' },
     ])
 
     // We don't assert exact node paths for the branch sub-case (path building
@@ -249,7 +249,6 @@ describe('lowerPipelineLoop', () => {
     expect(loopNodes.length).toBeGreaterThanOrEqual(1)
 
     const loop = loopNodes[0] as LoopNode
-    // The body action lowered as a stub (unresolved path) — 1 body node regardless
     expect(loop.bodyNodeIds).toHaveLength(1)
 
     // The outer GateNode is the entry
@@ -257,10 +256,7 @@ describe('lowerPipelineLoop', () => {
     expect(gateNode).toBeDefined()
     expect(artifact!.entryNodeId).toBe(gateNode!.id)
 
-    // Warnings may include a stub warning for the unresolved action path
-    // (because the path "root.then.nodes[0].body.nodes[0]" doesn't match
-    // what lowerBranch actually generates). That is expected and acceptable.
-    expect(Array.isArray(warnings!)).toBe(true)
+    expect(warnings).toEqual([])
   })
 
   // ---------------------------------------------------------------------------
@@ -289,7 +285,7 @@ describe('lowerPipelineLoop', () => {
     const idGen = makeIdGen()
     const ast = forEach('$.items', 'x', action('svc.run'))
     const resolved = buildResolved(resolver, [
-      { nodePath: 'root.body.nodes[0]', toolRef: 'svc.run' },
+      { nodePath: 'root.body[0]', toolRef: 'svc.run' },
     ])
 
     const { artifact } = lowerPipelineLoop({

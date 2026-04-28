@@ -29,6 +29,7 @@ import type {
   RouteNode,
 } from '@dzupagent/flow-ast'
 import type { SkillChain, SkillChainStep, SkillHandle } from '@dzupagent/core'
+import type { LoweringMode } from './_shared.js'
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -37,6 +38,11 @@ import type { SkillChain, SkillChainStep, SkillHandle } from '@dzupagent/core'
 export interface LowerSkillChainInput {
   ast: FlowNode
   resolved: Map<string, ResolvedTool>
+  /**
+   * Defaults to executable lowering. Diagnostic lowering may use unresolved
+   * action refs as best-effort SkillChain step names with warnings.
+   */
+  mode?: LoweringMode
   /**
    * Human-readable name for the emitted chain.
    * Defaults to `"flow"` when not provided.
@@ -51,7 +57,14 @@ export function lowerSkillChain(input: LowerSkillChainInput): {
   const warnings: string[] = []
   const steps: SkillChainStep[] = []
 
-  walkNode(input.ast, 'root', input.resolved, steps, warnings)
+  walkNode(
+    input.ast,
+    'root',
+    input.resolved,
+    input.mode ?? 'executable',
+    steps,
+    warnings,
+  )
 
   if (steps.length === 0) {
     throw new Error(
@@ -75,6 +88,7 @@ function walkNode(
   node: FlowNode,
   path: string,
   resolved: Map<string, ResolvedTool>,
+  mode: LoweringMode,
   steps: SkillChainStep[],
   warnings: string[],
 ): void {
@@ -91,29 +105,29 @@ function walkNode(
         // In practice this cannot happen because i < node.nodes.length, but we
         // must satisfy the compiler.
         if (child === undefined) continue
-        walkNode(child, `${path}.nodes[${i}]`, resolved, steps, warnings)
+        walkNode(child, `${path}.nodes[${i}]`, resolved, mode, steps, warnings)
       }
       return
     }
 
     case 'action': {
-      const step = lowerAction(node, path, resolved, warnings)
+      const step = lowerAction(node, path, resolved, mode, warnings)
       steps.push(step)
       return
     }
 
     case 'branch': {
-      walkBranch(node, path, resolved, steps, warnings)
+      walkBranch(node, path, resolved, mode, steps, warnings)
       return
     }
 
     case 'parallel': {
-      walkParallel(node, path, resolved, steps, warnings)
+      walkParallel(node, path, resolved, mode, steps, warnings)
       return
     }
 
     case 'approval': {
-      walkApproval(node, path, resolved, steps, warnings)
+      walkApproval(node, path, resolved, mode, steps, warnings)
       return
     }
 
@@ -123,12 +137,12 @@ function walkNode(
     }
 
     case 'persona': {
-      walkPersona(node, path, resolved, steps, warnings)
+      walkPersona(node, path, resolved, mode, steps, warnings)
       return
     }
 
     case 'route': {
-      walkRoute(node, path, resolved, steps, warnings)
+      walkRoute(node, path, resolved, mode, steps, warnings)
       return
     }
 
@@ -188,15 +202,21 @@ function lowerAction(
   node: ActionNode,
   path: string,
   resolved: Map<string, ResolvedTool>,
+  mode: LoweringMode,
   warnings: string[],
 ): SkillChainStep {
   const rt = resolved.get(path)
 
   if (rt === undefined) {
-    // Semantic stage should have caught this; emit a warning and use the raw
-    // toolRef so the chain can still be constructed for diagnostic purposes.
+    const message = `Action at "${path}" has no resolved tool entry for "${node.toolRef}"`
+    if (mode === 'executable') {
+      throw new Error(
+        `${message}; executable lowering rejects unresolved semantic references.`,
+      )
+    }
+
     warnings.push(
-      `Action at "${path}" has no resolved tool entry — using toolRef "${node.toolRef}" as skillName.`,
+      `${message} — using toolRef as diagnostic skillName.`,
     )
     return { skillName: node.toolRef }
   }
@@ -231,6 +251,7 @@ function walkBranch(
   node: BranchNode,
   path: string,
   resolved: Map<string, ResolvedTool>,
+  mode: LoweringMode,
   steps: SkillChainStep[],
   warnings: string[],
 ): void {
@@ -242,14 +263,14 @@ function walkBranch(
   for (let i = 0; i < node.then.length; i++) {
     const child = node.then[i]
     if (child === undefined) continue
-    walkNode(child, `${path}.then[${i}]`, resolved, steps, warnings)
+    walkNode(child, `${path}.then[${i}]`, resolved, mode, steps, warnings)
   }
 
   if (node.else !== undefined) {
     for (let i = 0; i < node.else.length; i++) {
       const child = node.else[i]
       if (child === undefined) continue
-      walkNode(child, `${path}.else[${i}]`, resolved, steps, warnings)
+      walkNode(child, `${path}.else[${i}]`, resolved, mode, steps, warnings)
     }
   }
 }
@@ -263,6 +284,7 @@ function walkParallel(
   node: ParallelNode,
   path: string,
   resolved: Map<string, ResolvedTool>,
+  mode: LoweringMode,
   steps: SkillChainStep[],
   warnings: string[],
 ): void {
@@ -277,7 +299,14 @@ function walkParallel(
     for (let i = 0; i < branch.length; i++) {
       const child = branch[i]
       if (child === undefined) continue
-      walkNode(child, `${path}.branches[${bIdx}][${i}]`, resolved, steps, warnings)
+      walkNode(
+        child,
+        `${path}.branches[${bIdx}][${i}]`,
+        resolved,
+        mode,
+        steps,
+        warnings,
+      )
     }
   }
 }
@@ -292,6 +321,7 @@ function walkApproval(
   node: ApprovalNode,
   path: string,
   resolved: Map<string, ResolvedTool>,
+  mode: LoweringMode,
   steps: SkillChainStep[],
   warnings: string[],
 ): void {
@@ -300,7 +330,7 @@ function walkApproval(
   for (let i = 0; i < node.onApprove.length; i++) {
     const child = node.onApprove[i]
     if (child === undefined) continue
-    walkNode(child, `${path}.onApprove[${i}]`, resolved, steps, warnings)
+    walkNode(child, `${path}.onApprove[${i}]`, resolved, mode, steps, warnings)
   }
 
   // Mark the first newly-appended approval step for HITL suspension.
@@ -354,6 +384,7 @@ function walkPersona(
   node: PersonaNode,
   path: string,
   resolved: Map<string, ResolvedTool>,
+  mode: LoweringMode,
   steps: SkillChainStep[],
   warnings: string[],
 ): void {
@@ -365,7 +396,7 @@ function walkPersona(
   for (let i = 0; i < node.body.length; i++) {
     const child = node.body[i]
     if (child === undefined) continue
-    walkNode(child, `${path}.body[${i}]`, resolved, steps, warnings)
+    walkNode(child, `${path}.body[${i}]`, resolved, mode, steps, warnings)
   }
 }
 
@@ -376,6 +407,7 @@ function walkRoute(
   node: RouteNode,
   path: string,
   resolved: Map<string, ResolvedTool>,
+  mode: LoweringMode,
   steps: SkillChainStep[],
   warnings: string[],
 ): void {
@@ -388,7 +420,7 @@ function walkRoute(
   for (let i = 0; i < node.body.length; i++) {
     const child = node.body[i]
     if (child === undefined) continue
-    walkNode(child, `${path}.body[${i}]`, resolved, steps, warnings)
+    walkNode(child, `${path}.body[${i}]`, resolved, mode, steps, warnings)
   }
 }
 

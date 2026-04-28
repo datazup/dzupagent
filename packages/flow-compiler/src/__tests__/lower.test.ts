@@ -48,6 +48,7 @@ describe('lowerSkillChain', () => {
   it('uses custom name when provided', () => {
     const resolved = new Map<string, ResolvedTool>()
     resolved.set('root.nodes[0]', makeSkillRt('skill:a'))
+    resolved.set('root.nodes[1]', makeSkillRt('skill:b'))
 
     const ast: FlowNode = {
       type: 'sequence',
@@ -78,10 +79,18 @@ describe('lowerSkillChain', () => {
     expect(() => lowerSkillChain({ ast, resolved })).toThrow(/for_each/)
   })
 
-  it('emits warning and uses toolRef as skillName when unresolved', () => {
+  it('throws in executable mode when an action is unresolved', () => {
     const resolved = new Map<string, ResolvedTool>()
     const ast: FlowNode = makeAction('skill:unknown')
-    const { artifact, warnings } = lowerSkillChain({ ast, resolved })
+    expect(() => lowerSkillChain({ ast, resolved })).toThrow(
+      /executable lowering rejects unresolved semantic references/,
+    )
+  })
+
+  it('emits warning and uses toolRef as skillName when unresolved in diagnostic mode', () => {
+    const resolved = new Map<string, ResolvedTool>()
+    const ast: FlowNode = makeAction('skill:unknown')
+    const { artifact, warnings } = lowerSkillChain({ ast, resolved, mode: 'diagnostic' })
     expect(artifact.steps[0]?.skillName).toBe('skill:unknown')
     expect(warnings.some((w) => w.includes('no resolved tool'))).toBe(true)
   })
@@ -198,6 +207,7 @@ describe('lowerSkillChain', () => {
 
   it('lowering complete emits warning when result is set', () => {
     const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root.nodes[0]', makeSkillRt('skill:a'))
     // complete produces no steps by itself — combine with action to avoid empty chain error
     const ast: FlowNode = {
       type: 'sequence',
@@ -212,6 +222,7 @@ describe('lowerSkillChain', () => {
 
   it('sequence with single child emits redundant-wrapper warning', () => {
     const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root.nodes[0]', makeSkillRt('skill:a'))
     const ast: FlowNode = {
       type: 'sequence',
       nodes: [makeAction('skill:a')],
@@ -222,6 +233,7 @@ describe('lowerSkillChain', () => {
 
   it('lowering memory node emits a step with type __memory__ in skillName', () => {
     const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root.nodes[1]', makeSkillRt('skill:a'))
     // memory produces a step — combine with action so chain is non-empty on its own,
     // but here the memory step itself is sufficient
     const ast: FlowNode = {
@@ -271,6 +283,7 @@ describe('lowerPipelineFlat', () => {
 
   it('uses default name when not provided', () => {
     const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root', makeSkillRt('skill:a'))
     const ast: FlowNode = makeAction('skill:a')
     const { artifact } = lowerPipelineFlat({
       ast,
@@ -283,6 +296,7 @@ describe('lowerPipelineFlat', () => {
 
   it('uses custom name and version when provided', () => {
     const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root', makeSkillRt('skill:a'))
     const ast: FlowNode = makeAction('skill:a')
     const { artifact } = lowerPipelineFlat({
       ast,
@@ -298,6 +312,7 @@ describe('lowerPipelineFlat', () => {
 
   it('sets entryNodeId to the first node', () => {
     const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root', makeSkillRt('skill:a'))
     const ast: FlowNode = makeAction('skill:a')
     const { artifact } = lowerPipelineFlat({
       ast,
@@ -340,14 +355,39 @@ describe('lowerPipelineFlat', () => {
       condition: 'flag',
       then: [makeAction('skill:a')],
     }
+    const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root.then[0]', makeSkillRt('skill:a'))
     const { artifact } = lowerPipelineFlat({
       ast,
-      resolved: new Map(),
+      resolved,
       resolvedPersonas: new Map(),
       _idGen: nextId,
     })
     const condEdge = artifact.edges.find((e) => e.type === 'conditional')
     expect(condEdge).toBeDefined()
+  })
+
+  it('rejects unresolved actions by default', () => {
+    const ast: FlowNode = makeAction('skill:missing')
+    expect(() => lowerPipelineFlat({
+      ast,
+      resolved: new Map(),
+      resolvedPersonas: new Map(),
+      _idGen: nextId,
+    })).toThrow(/executable lowering rejects unresolved semantic references/)
+  })
+
+  it('emits unresolved action stubs in diagnostic mode', () => {
+    const ast: FlowNode = makeAction('skill:missing')
+    const { artifact, warnings } = lowerPipelineFlat({
+      ast,
+      resolved: new Map(),
+      resolvedPersonas: new Map(),
+      _idGen: nextId,
+      mode: 'diagnostic',
+    })
+    expect(artifact.nodes[0]?.type).toBe('tool')
+    expect(warnings.some((w) => w.includes('diagnostic stub'))).toBe(true)
   })
 })
 
@@ -363,22 +403,26 @@ describe('lowerPipelineLoop', () => {
       as: 'item',
       body: [makeAction('skill:process')],
     }
+    const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root.body[0]', makeSkillRt('skill:process'))
     const { artifact, warnings } = lowerPipelineLoop({
       ast,
-      resolved: new Map(),
+      resolved,
       resolvedPersonas: new Map(),
       idGen: nextId,
     })
     const loop = artifact.nodes.find((n) => n.type === 'loop')
     expect(loop).toBeDefined()
-    expect(warnings).toHaveLength(1) // unresolved stub warning
+    expect(warnings).toHaveLength(0)
   })
 
   it('uses provided id when given', () => {
     const ast: FlowNode = makeAction('skill:a')
+    const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root', makeSkillRt('skill:a'))
     const { artifact } = lowerPipelineLoop({
       ast,
-      resolved: new Map(),
+      resolved,
       resolvedPersonas: new Map(),
       idGen: nextId,
       id: 'custom-pipeline-id',
@@ -388,14 +432,39 @@ describe('lowerPipelineLoop', () => {
 
   it('uses default name and version when not provided', () => {
     const ast: FlowNode = makeAction('skill:a')
+    const resolved = new Map<string, ResolvedTool>()
+    resolved.set('root', makeSkillRt('skill:a'))
     const { artifact } = lowerPipelineLoop({
       ast,
-      resolved: new Map(),
+      resolved,
       resolvedPersonas: new Map(),
       idGen: nextId,
     })
     expect(artifact.name).toBe('flow-pipeline')
     expect(artifact.version).toBe('0.0.0')
+  })
+
+  it('rejects unresolved actions by default', () => {
+    const ast: FlowNode = makeAction('skill:missing')
+    expect(() => lowerPipelineLoop({
+      ast,
+      resolved: new Map(),
+      resolvedPersonas: new Map(),
+      idGen: nextId,
+    })).toThrow(/executable lowering rejects unresolved semantic references/)
+  })
+
+  it('emits unresolved action stubs in diagnostic mode', () => {
+    const ast: FlowNode = makeAction('skill:missing')
+    const { artifact, warnings } = lowerPipelineLoop({
+      ast,
+      resolved: new Map(),
+      resolvedPersonas: new Map(),
+      idGen: nextId,
+      mode: 'diagnostic',
+    })
+    expect(artifact.nodes[0]?.type).toBe('tool')
+    expect(warnings.some((w) => w.includes('diagnostic stub'))).toBe(true)
   })
 
   it('throws when AST produces no nodes', () => {

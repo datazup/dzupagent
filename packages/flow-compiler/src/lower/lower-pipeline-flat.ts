@@ -18,7 +18,7 @@ import type { FlowNode, ResolvedTool } from '@dzupagent/flow-ast'
 import type { PipelineDefinition } from '@dzupagent/core'
 
 import { lowerNodeToPipeline } from './_shared.js'
-import type { LowerPipelineContext } from './_shared.js'
+import type { LoweringMode, LowerPipelineContext } from './_shared.js'
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -46,6 +46,11 @@ export interface LowerPipelineFlatInput {
    * @internal
    */
   _idGen?: () => string
+  /**
+   * Defaults to executable lowering. Diagnostic lowering may emit unresolved
+   * action stubs with warnings for authoring tools and tests.
+   */
+  mode?: LoweringMode
 }
 
 export function lowerPipelineFlat(input: LowerPipelineFlatInput): {
@@ -55,6 +60,7 @@ export function lowerPipelineFlat(input: LowerPipelineFlatInput): {
   const ctx: LowerPipelineContext = {
     resolved: input.resolved,
     resolvedPersonas: input.resolvedPersonas,
+    mode: input.mode ?? 'executable',
     allowForEach: false,
     idGen: input._idGen,
   }

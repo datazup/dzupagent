@@ -262,16 +262,26 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
       let artifact: unknown
       let warnings: string[]
       if (target === 'skill-chain') {
-        const out = lowerSkillChain({ ast, resolved })
+        const out = lowerSkillChain({ ast, resolved, mode: 'executable' })
         artifact = out.artifact
         warnings = out.warnings
       } else if (target === 'workflow-builder') {
-        const out = lowerPipelineFlat({ ast, resolved, resolvedPersonas })
+        const out = lowerPipelineFlat({
+          ast,
+          resolved,
+          resolvedPersonas,
+          mode: 'executable',
+        })
         artifact = out.artifact
         warnings = out.warnings
       } else {
         // target === 'pipeline'
-        const out = lowerPipelineLoop({ ast, resolved, resolvedPersonas })
+        const out = lowerPipelineLoop({
+          ast,
+          resolved,
+          resolvedPersonas,
+          mode: 'executable',
+        })
         artifact = out.artifact
         warnings = out.warnings
       }

@@ -155,13 +155,26 @@ describe('lowerSkillChain', () => {
     expect(warnings[0]).toContain('"root"')
   })
 
-  it('unresolved action emits warning and uses toolRef as skillName', () => {
-    const resolver = makeResolver([])
+  it('unresolved action throws in executable mode', () => {
+    const ast = action('unknown.tool')
+    const resolved = new Map<string, ResolvedTool>()
+
+    expect(() => lowerSkillChain({ ast, resolved, name: 'partial' })).toThrow(
+      /executable lowering rejects unresolved semantic references/,
+    )
+  })
+
+  it('unresolved action emits warning and uses toolRef as skillName in diagnostic mode', () => {
     const ast = action('unknown.tool')
     // Deliberately empty resolved map — simulates a semantic-stage miss
     const resolved = new Map<string, ResolvedTool>()
 
-    const { artifact, warnings } = lowerSkillChain({ ast, resolved, name: 'partial' })
+    const { artifact, warnings } = lowerSkillChain({
+      ast,
+      resolved,
+      name: 'partial',
+      mode: 'diagnostic',
+    })
 
     expect(artifact.steps).toHaveLength(1)
     expect(artifact.steps[0]?.skillName).toBe('unknown.tool')
