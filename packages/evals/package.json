@@ -19,7 +19,8 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@dzupagent/core": "0.2.0"
+    "@dzupagent/core": "0.2.0",
+    "@dzupagent/eval-contracts": "0.2.0"
   },
   "peerDependencies": {
     "zod": ">=4.0.0"

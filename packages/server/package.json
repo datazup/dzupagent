@@ -48,6 +48,11 @@
     "bullmq": "^5.0.0",
     "postgres": "^3.4.0"
   },
+  "optionalDependencies": {
+    "@dzupagent/codegen": "0.2.0",
+    "@dzupagent/connectors": "0.2.0",
+    "@dzupagent/memory": "0.2.0"
+  },
   "peerDependenciesMeta": {
     "bullmq": {
       "optional": true
