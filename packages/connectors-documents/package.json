@@ -14,7 +14,7 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
     "@dzupagent/core": "0.2.0",

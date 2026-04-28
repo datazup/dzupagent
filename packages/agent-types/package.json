@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsup",
     "lint": "eslint src/",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
