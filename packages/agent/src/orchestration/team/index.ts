@@ -45,3 +45,13 @@ export type {
   TeamRuntimeTracer,
   TeamOTelSpanLike,
 } from './team-runtime.js'
+
+export { SharedWorkspace } from './team-workspace.js'
+export type {
+  WorkspaceSubscriber,
+  TeamAgentRole,
+  TeamAgentStatus,
+  TeamSpawnedAgent,
+  TeamAgentRunResult,
+  TeamRunResult,
+} from './team-workspace.js'

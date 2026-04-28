@@ -20,7 +20,7 @@ import { bench, describe, expect } from 'vitest'
 import { DzupAgent } from '../../../agent/dzip-agent.js'
 import { TeamRuntime } from '../team-runtime.js'
 import type { ParticipantDefinition, TeamDefinition } from '../team-definition.js'
-import type { SpawnedAgent } from '../../../playground/types.js'
+import type { TeamSpawnedAgent as SpawnedAgent } from '../team-workspace.js'
 
 // ---------------------------------------------------------------------------
 // Minimal, allocation-cheap stubs

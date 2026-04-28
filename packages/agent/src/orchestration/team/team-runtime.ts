@@ -28,10 +28,13 @@
 import { HumanMessage } from '@langchain/core/messages'
 import { AgentOrchestrator } from '../orchestrator.js'
 import { ContractNetManager } from '../contract-net/contract-net-manager.js'
-import { SharedWorkspace } from '../../playground/shared-workspace.js'
 import { concatMerge, type MergeStrategyFn } from '../merge-strategies.js'
-import type { SpawnedAgent, TeamRunResult } from '../../playground/types.js'
 import type { DzupAgent } from '../../agent/dzip-agent.js'
+import {
+  SharedWorkspace,
+  type TeamRunResult,
+  type TeamSpawnedAgent as SpawnedAgent,
+} from './team-workspace.js'
 import type {
   CoordinatorPattern,
   ParticipantDefinition,
