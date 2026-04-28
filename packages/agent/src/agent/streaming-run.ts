@@ -361,6 +361,9 @@ export async function* streamRun(
           ...(toolExec.scanToolResults !== undefined
             ? { scanToolResults: toolExec.scanToolResults }
             : {}),
+          ...(toolExec.scanFailureMode !== undefined
+            ? { scanFailureMode: toolExec.scanFailureMode }
+            : {}),
           ...(toolExec.tracer !== undefined ? { tracer: toolExec.tracer } : {}),
           // agentId / runId mirror the executeGenerateRun fallback: when
           // `toolExecution` is provided, fall back to the surrounding agent

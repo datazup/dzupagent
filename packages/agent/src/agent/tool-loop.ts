@@ -80,6 +80,8 @@ export type StopReason =
    */
   | 'approval_pending'
 
+export type ToolResultScanFailureMode = 'fail-open' | 'fail-closed'
+
 export interface ToolLoopConfig {
   maxIterations: number
   budget?: IterationBudget
@@ -263,6 +265,21 @@ export interface ToolLoopConfig {
    * to opt out of scanning (e.g., when upstream scanning already happened).
    */
   scanToolResults?: boolean
+
+  /**
+   * Controls what happens when {@link safetyMonitor.scanContent} itself
+   * throws while scanning a tool result.
+   *
+   * - `fail-open` preserves the legacy behavior: emit a sanitized
+   *   `safety:violation` event when possible, then continue with the tool
+   *   result.
+   * - `fail-closed` withholds the tool result, emits a terminal
+   *   `tool:error`, and returns a safe scanner-failure marker to the
+   *   conversation.
+   *
+   * Defaults to `fail-open` for backwards compatibility.
+   */
+  scanFailureMode?: ToolResultScanFailureMode
 
   /**
    * Optional event bus. When present, the tool loop emits lifecycle events
@@ -1074,7 +1091,46 @@ async function executeSingleToolCall(
           return { message }
         }
       } catch {
-        // Non-fatal: safety scan failure must not abort the run
+        config.eventBus?.emit({
+          type: 'safety:violation',
+          category: 'tool_result_scanner_failure',
+          severity: config.scanFailureMode === 'fail-closed' ? 'critical' : 'warning',
+          ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
+          message: 'Tool result safety scanner failed',
+        } as never)
+
+        if (config.scanFailureMode === 'fail-closed') {
+          resultStr = '[blocked: tool result safety scanner failed]'
+          config.onToolResult?.(toolName, resultStr)
+          message = new ToolMessage({
+            content: resultStr,
+            tool_call_id: toolCallId,
+            name: toolName,
+          })
+          const durationMs = Date.now() - startMs
+          stat.calls++
+          stat.totalMs += durationMs
+          config.onToolLatency?.(toolName, durationMs, 'scanner-failure')
+          emitToolError(config, {
+            toolName,
+            toolCallId,
+            durationMs,
+            inputMetadataKeys: validatedKeys,
+            errorCode: 'TOOL_EXECUTION_FAILED',
+            errorMessage: 'Tool result safety scanner failed; output withheld',
+            status: 'error',
+          })
+          if (span) {
+            try {
+              span.setAttribute('durationMs', durationMs)
+              span.setAttribute('scannerFailure', true)
+              span.end()
+            } catch {
+              // Tracer failures must not abort the tool loop
+            }
+          }
+          return { message }
+        }
       }
     }
 

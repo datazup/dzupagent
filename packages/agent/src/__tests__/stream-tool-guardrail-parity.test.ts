@@ -33,6 +33,7 @@ import {
   createEventBus,
   createSafetyMonitor,
   ToolGovernance,
+  type SafetyMonitor,
   type DzupEvent,
 } from '@dzupagent/core'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
@@ -211,6 +212,14 @@ function createTokenPlugin(
     shouldHalt: ReturnType<typeof vi.fn>
   }
   return plugin
+}
+
+function createThrowingSafetyMonitor(): SafetyMonitor {
+  return {
+    scanContent: vi.fn(() => {
+      throw new Error('scanner exploded with raw tool output: secret=abc123')
+    }),
+  } as unknown as SafetyMonitor
 }
 
 // ===========================================================================
@@ -876,6 +885,129 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
       if (toolResult?.type === 'tool_result') {
         expect(toolResult.data.result).toBe('[blocked: unsafe tool output]')
       }
+    })
+
+    it('fails closed on scanner exceptions in stream and generate modes', async () => {
+      const blockedResult = '[blocked: tool result safety scanner failed]'
+      const rawToolOutput = 'raw unsafe output that must not reach the model'
+
+      const { tool: streamTool } = mockTool('fetch_untrusted', () => rawToolOutput)
+      const streamBus = createEventBus()
+      const streamPolicyEvents: DzupEvent[] = []
+      streamBus.onAny((event) => {
+        if (event.type === 'tool:error' || event.type === 'safety:violation') {
+          streamPolicyEvents.push(event)
+        }
+      })
+
+      const streamAgent = new DzupAgent(
+        baseConfig({
+          model: createStreamingModel([
+            aiWithToolCall('fetch_untrusted', {}, 'tc_stream_scan_failure'),
+            new AIMessage('summary'),
+          ]),
+          tools: [streamTool],
+          eventBus: streamBus,
+          toolExecution: {
+            safetyMonitor: createThrowingSafetyMonitor(),
+            scanFailureMode: 'fail-closed',
+            agentId: 'stream-agent',
+            runId: 'stream-scan-failure-run',
+          },
+        }),
+      )
+
+      const { tool: generateTool } = mockTool('fetch_untrusted', () => rawToolOutput)
+      const generateBus = createEventBus()
+      const generatePolicyEvents: DzupEvent[] = []
+      generateBus.onAny((event) => {
+        if (event.type === 'tool:error' || event.type === 'safety:violation') {
+          generatePolicyEvents.push(event)
+        }
+      })
+
+      const generateAgent = new DzupAgent(
+        baseConfig({
+          model: createInvokeModel([
+            aiWithToolCall('fetch_untrusted', {}, 'tc_generate_scan_failure'),
+            new AIMessage('summary'),
+          ]),
+          tools: [generateTool],
+          eventBus: generateBus,
+          toolExecution: {
+            safetyMonitor: createThrowingSafetyMonitor(),
+            scanFailureMode: 'fail-closed',
+            agentId: 'generate-agent',
+            runId: 'generate-scan-failure-run',
+          },
+        }),
+      )
+
+      const streamEvents = await drainStream(streamAgent, [new HumanMessage('fetch')])
+      const generateResult = await generateAgent.generate([new HumanMessage('fetch')])
+
+      expect(firstStreamToolResult(streamEvents)).toBe(blockedResult)
+      expect(generatedToolContents(generateResult)).toContain(blockedResult)
+      expect(generatedToolContents(generateResult)).not.toContain(rawToolOutput)
+
+      const streamToolError = streamPolicyEvents.find((e) => e.type === 'tool:error')
+      const generateToolError = generatePolicyEvents.find((e) => e.type === 'tool:error')
+      expect(streamToolError).toMatchObject({
+        type: 'tool:error',
+        status: 'error',
+        errorCode: 'TOOL_EXECUTION_FAILED',
+        errorMessage: 'Tool result safety scanner failed; output withheld',
+      })
+      expect(generateToolError).toMatchObject({
+        type: 'tool:error',
+        status: 'error',
+        errorCode: 'TOOL_EXECUTION_FAILED',
+        errorMessage: 'Tool result safety scanner failed; output withheld',
+      })
+
+      for (const event of [...streamPolicyEvents, ...generatePolicyEvents]) {
+        expect(JSON.stringify(event)).not.toContain('secret=abc123')
+      }
+    })
+
+    it('defaults scanner exceptions to fail-open while emitting sanitized safety telemetry', async () => {
+      const rawToolOutput = 'plain tool output'
+      const { tool } = mockTool('fetch_default', () => rawToolOutput)
+      const bus = createEventBus()
+      const policyEvents: DzupEvent[] = []
+      bus.onAny((event) => {
+        if (event.type === 'tool:error' || event.type === 'safety:violation') {
+          policyEvents.push(event)
+        }
+      })
+
+      const agent = new DzupAgent(
+        baseConfig({
+          model: createStreamingModel([
+            aiWithToolCall('fetch_default', {}, 'tc_default_scan_failure'),
+            new AIMessage('summary'),
+          ]),
+          tools: [tool],
+          eventBus: bus,
+          toolExecution: {
+            safetyMonitor: createThrowingSafetyMonitor(),
+            agentId: 'stream-agent',
+            runId: 'stream-default-scan-failure-run',
+          },
+        }),
+      )
+
+      const events = await drainStream(agent, [new HumanMessage('fetch')])
+
+      expect(firstStreamToolResult(events)).toBe(rawToolOutput)
+      expect(policyEvents.some((event) => event.type === 'tool:error')).toBe(false)
+      expect(policyEvents).toContainEqual(expect.objectContaining({
+        type: 'safety:violation',
+        category: 'tool_result_scanner_failure',
+        severity: 'warning',
+        message: 'Tool result safety scanner failed',
+      }))
+      expect(JSON.stringify(policyEvents)).not.toContain('secret=abc123')
     })
   })
 
