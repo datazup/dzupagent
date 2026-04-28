@@ -9,7 +9,13 @@
 import { computed } from 'vue'
 import type { TimelineNode } from '../../replay/replay-types.js'
 import type { NodeMetrics } from '../../replay/replay-inspector.js'
-import { formatMs } from './utils.js'
+import {
+  formatMs,
+  getNodeStatus,
+  getTraceStatusStyles,
+  traceToneStyles,
+  traceUiStyles,
+} from './utils.js'
 
 /** Component props */
 interface Props {
@@ -25,25 +31,21 @@ const props = withDefaults(defineProps<Props>(), {
 
 /** Visual status label */
 const statusLabel = computed(() => {
-  if (props.node.isError) return 'Error'
-  if (props.node.durationMs !== undefined && props.node.durationMs > 0) return 'Success'
-  if (props.node.type.endsWith(':started') || props.node.type.includes('running')) return 'Running'
-  return 'Pending'
+  switch (getNodeStatus(props.node)) {
+    case 'error':
+      return 'Error'
+    case 'success':
+      return 'Success'
+    case 'running':
+      return 'Running'
+    case 'pending':
+      return 'Pending'
+  }
 })
 
 /** Status badge color classes */
 const statusClasses = computed(() => {
-  const status = statusLabel.value
-  switch (status) {
-    case 'Error':
-      return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-    case 'Success':
-      return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
-    case 'Running':
-      return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-    default:
-      return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
-  }
+  return getTraceStatusStyles(getNodeStatus(props.node)).badge
 })
 
 /** Extract error message from node data */
@@ -77,17 +79,18 @@ const formattedData = computed(() => {
 
 <template>
   <div
-    class="flex flex-col gap-4 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900"
+    class="flex flex-col gap-4 p-4"
+    :class="traceUiStyles.panel"
     role="region"
     :aria-label="`Details for node ${node.nodeId ?? node.type}`"
   >
     <!-- Header -->
     <div class="flex items-start justify-between gap-3">
       <div class="min-w-0 flex-1">
-        <h3 class="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+        <h3 class="truncate text-sm font-semibold" :class="traceUiStyles.textPrimary">
           {{ node.nodeId ?? `Event #${node.index}` }}
         </h3>
-        <p class="mt-0.5 font-mono text-xs text-gray-500 dark:text-gray-400">
+        <p class="mt-0.5 font-mono text-xs" :class="traceUiStyles.textMuted">
           {{ node.type }}
         </p>
       </div>
@@ -104,8 +107,8 @@ const formattedData = computed(() => {
       v-if="node.durationMs !== undefined || node.latencyMs !== undefined"
       class="flex items-center gap-2"
     >
-      <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Duration:</span>
-      <span class="font-mono text-sm font-medium text-gray-900 dark:text-gray-100">
+      <span class="text-xs font-medium" :class="traceUiStyles.textMuted">Duration:</span>
+      <span class="font-mono text-sm font-medium" :class="traceUiStyles.textPrimary">
         {{ formatMs(node.durationMs ?? node.latencyMs ?? 0) }}
       </span>
     </div>
@@ -116,14 +119,14 @@ const formattedData = computed(() => {
       class="flex flex-wrap gap-4"
     >
       <div v-if="node.tokenUsage !== undefined" class="flex items-center gap-1.5">
-        <span class="text-xs text-gray-500 dark:text-gray-400">Tokens:</span>
-        <span class="font-mono text-xs font-medium text-gray-800 dark:text-gray-200">
+        <span class="text-xs" :class="traceUiStyles.textMuted">Tokens:</span>
+        <span class="font-mono text-xs font-medium" :class="traceUiStyles.textSecondary">
           {{ node.tokenUsage.toLocaleString() }}
         </span>
       </div>
       <div v-if="node.costCents !== undefined" class="flex items-center gap-1.5">
-        <span class="text-xs text-gray-500 dark:text-gray-400">Cost:</span>
-        <span class="font-mono text-xs font-medium text-gray-800 dark:text-gray-200">
+        <span class="text-xs" :class="traceUiStyles.textMuted">Cost:</span>
+        <span class="font-mono text-xs font-medium" :class="traceUiStyles.textSecondary">
           ${{ (node.costCents / 100).toFixed(4) }}
         </span>
       </div>
@@ -132,11 +135,12 @@ const formattedData = computed(() => {
     <!-- Error message -->
     <div
       v-if="node.isError && errorMessage"
-      class="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950"
+      class="rounded-md p-3"
+      :class="traceToneStyles.danger.panel"
       role="alert"
     >
-      <p class="mb-1 text-xs font-semibold text-red-800 dark:text-red-200">Error</p>
-      <p class="text-xs text-red-700 dark:text-red-300">
+      <p class="mb-1 text-xs font-semibold" :class="traceToneStyles.danger.textStrong">Error</p>
+      <p class="text-xs" :class="traceToneStyles.danger.textStrong">
         {{ errorMessage }}
       </p>
     </div>
@@ -144,10 +148,11 @@ const formattedData = computed(() => {
     <!-- Retry count from metrics -->
     <div
       v-if="metrics && metrics.retryCount > 0"
-      class="flex items-center gap-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 dark:border-yellow-800 dark:bg-yellow-950"
+      class="flex items-center gap-2 rounded-md px-3 py-2"
+      :class="traceToneStyles.warning.panel"
     >
-      <span class="text-xs font-medium text-yellow-800 dark:text-yellow-200">Retries:</span>
-      <span class="font-mono text-xs font-bold text-yellow-900 dark:text-yellow-100">
+      <span class="text-xs font-medium" :class="traceToneStyles.warning.textStrong">Retries:</span>
+      <span class="font-mono text-xs font-bold" :class="traceToneStyles.warning.textStrong">
         {{ metrics.retryCount }}
       </span>
     </div>
@@ -155,29 +160,30 @@ const formattedData = computed(() => {
     <!-- Metrics summary -->
     <div
       v-if="metrics"
-      class="grid grid-cols-2 gap-3 rounded-md bg-gray-50 p-3 dark:bg-gray-800"
+      class="grid grid-cols-2 gap-3 p-3"
+      :class="traceUiStyles.panelMuted"
     >
       <div>
-        <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Events</p>
-        <p class="font-mono text-sm font-medium text-gray-900 dark:text-gray-100">
+        <p class="text-[10px] uppercase tracking-wider" :class="traceUiStyles.textMuted">Events</p>
+        <p class="font-mono text-sm font-medium" :class="traceUiStyles.textPrimary">
           {{ metrics.eventCount }}
         </p>
       </div>
       <div>
-        <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Total Duration</p>
-        <p class="font-mono text-sm font-medium text-gray-900 dark:text-gray-100">
+        <p class="text-[10px] uppercase tracking-wider" :class="traceUiStyles.textMuted">Total Duration</p>
+        <p class="font-mono text-sm font-medium" :class="traceUiStyles.textPrimary">
           {{ formatMs(metrics.totalDurationMs) }}
         </p>
       </div>
       <div>
-        <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Errors</p>
-        <p class="font-mono text-sm font-medium" :class="metrics.errorCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'">
+        <p class="text-[10px] uppercase tracking-wider" :class="traceUiStyles.textMuted">Errors</p>
+        <p class="font-mono text-sm font-medium" :class="metrics.errorCount > 0 ? traceToneStyles.danger.text : traceUiStyles.textPrimary">
           {{ metrics.errorCount }}
         </p>
       </div>
       <div>
-        <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Retries</p>
-        <p class="font-mono text-sm font-medium" :class="metrics.retryCount > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-900 dark:text-gray-100'">
+        <p class="text-[10px] uppercase tracking-wider" :class="traceUiStyles.textMuted">Retries</p>
+        <p class="font-mono text-sm font-medium" :class="metrics.retryCount > 0 ? traceToneStyles.warning.text : traceUiStyles.textPrimary">
           {{ metrics.retryCount }}
         </p>
       </div>
@@ -185,11 +191,12 @@ const formattedData = computed(() => {
 
     <!-- Raw node data -->
     <div>
-      <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+      <p class="mb-1.5 text-[10px] font-semibold uppercase tracking-wider" :class="traceUiStyles.textMuted">
         Node Data
       </p>
       <pre
-        class="max-h-64 overflow-auto rounded-md bg-gray-50 p-3 font-mono text-xs leading-relaxed text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+        class="max-h-64 overflow-auto p-3 font-mono text-xs leading-relaxed"
+        :class="[traceUiStyles.panelMuted, traceUiStyles.textSecondary]"
       >{{ formattedData }}</pre>
     </div>
   </div>

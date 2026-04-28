@@ -18,6 +18,12 @@ import {
   getBottleneckNodes,
   getErrorEventTypes,
   formatValue,
+  traceUiStyles,
+  traceToneStyles,
+  getTraceStatusTone,
+  getTraceStatusStyles,
+  getTraceChangeTone,
+  getTraceChangeStyles,
 } from '../playground/ui/utils.js'
 
 // ---------------------------------------------------------------------------
@@ -89,6 +95,40 @@ describe('getNodeStatus', () => {
 
   it('error takes priority over success duration', () => {
     expect(getNodeStatus(makeNode({ isError: true, durationMs: 500 }))).toBe('error')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// trace UI style adapter
+// ---------------------------------------------------------------------------
+
+describe('trace UI style adapter', () => {
+  it('maps node statuses to semantic trace tones', () => {
+    expect(getTraceStatusTone('error')).toBe('danger')
+    expect(getTraceStatusTone('success')).toBe('success')
+    expect(getTraceStatusTone('running')).toBe('warning')
+    expect(getTraceStatusTone('pending')).toBe('neutral')
+  })
+
+  it('returns centralized classes for node status treatments', () => {
+    expect(getTraceStatusStyles('error')).toBe(traceToneStyles.danger)
+    expect(getTraceStatusStyles('success')).toBe(traceToneStyles.success)
+    expect(getTraceStatusStyles('running').badge).toContain('yellow')
+    expect(getTraceStatusStyles('pending').bar).toBe(traceToneStyles.neutral.bar)
+  })
+
+  it('maps state diff change types to semantic trace tones', () => {
+    expect(getTraceChangeTone('added')).toBe('success')
+    expect(getTraceChangeTone('removed')).toBe('danger')
+    expect(getTraceChangeTone('modified')).toBe('warning')
+    expect(getTraceChangeTone('unchanged')).toBe('neutral')
+  })
+
+  it('centralizes shared surface, border, selected, and muted text primitives', () => {
+    expect(traceUiStyles.panel).toContain('border')
+    expect(traceUiStyles.selected).toContain('border-blue')
+    expect(traceUiStyles.textMuted).toContain('text-gray')
+    expect(getTraceChangeStyles('removed').panel).toBe(traceToneStyles.danger.panel)
   })
 })
 

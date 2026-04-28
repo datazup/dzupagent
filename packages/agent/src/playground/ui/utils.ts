@@ -16,12 +16,127 @@ import type { NodeMetrics, ReplaySummary } from '../../replay/replay-inspector.j
 
 export type NodeStatus = 'error' | 'success' | 'running' | 'pending'
 export type ChangeType = 'added' | 'removed' | 'modified' | 'unchanged'
+export type TraceTone = 'danger' | 'success' | 'warning' | 'neutral'
 
 export interface DiffRow {
   key: string
   changeType: ChangeType
   before: unknown
   after: unknown
+}
+
+export interface TraceToneStyles {
+  badge: string
+  dot: string
+  bar: string
+  text: string
+  textStrong: string
+  panel: string
+  borderLeft: string
+}
+
+// ---------------------------------------------------------------------------
+// Trace UI style adapter
+// ---------------------------------------------------------------------------
+
+/**
+ * Centralized visual primitives for the framework-internal trace UI.
+ *
+ * The Vue SFCs are not a public design-system surface, but keeping semantic
+ * treatments behind this small adapter makes the components compatible with a
+ * future token swap without changing their props, emits, or rendering logic.
+ */
+export const traceUiStyles = {
+  panel: 'rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900',
+  panelMuted: 'rounded-md bg-gray-50 dark:bg-gray-800',
+  panelSubtle: 'rounded-md border border-gray-200 dark:border-gray-700',
+  tableHeader: 'border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800',
+  tableRow: 'border-b border-gray-100 last:border-b-0 dark:border-gray-800',
+  divider: 'border-gray-200 dark:border-gray-700',
+  dividerSubtle: 'border-gray-100 dark:border-gray-800',
+  selected: 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-950',
+  interactive: 'border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-gray-700 dark:hover:bg-gray-900',
+  interactiveMuted: 'hover:bg-gray-50 dark:hover:bg-gray-800',
+  track: 'bg-gray-100 dark:bg-gray-800',
+  textPrimary: 'text-gray-900 dark:text-gray-100',
+  textSecondary: 'text-gray-800 dark:text-gray-200',
+  textMuted: 'text-gray-500 dark:text-gray-400',
+  textSubtle: 'text-gray-600 dark:text-gray-400',
+  textDisabled: 'text-gray-400 dark:text-gray-500',
+  badgeNeutral: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+} as const
+
+export const traceToneStyles: Record<TraceTone, TraceToneStyles> = {
+  danger: {
+    badge: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+    dot: 'bg-red-500',
+    bar: 'bg-red-500',
+    text: 'text-red-600 dark:text-red-400',
+    textStrong: 'text-red-800 dark:text-red-200',
+    panel: 'border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950',
+    borderLeft: 'border-l-red-500',
+  },
+  success: {
+    badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200',
+    dot: 'bg-emerald-500',
+    bar: 'bg-emerald-500',
+    text: 'text-emerald-600 dark:text-emerald-400',
+    textStrong: 'text-emerald-800 dark:text-emerald-200',
+    panel: 'border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950',
+    borderLeft: 'border-l-emerald-500',
+  },
+  warning: {
+    badge: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+    dot: 'bg-yellow-500',
+    bar: 'bg-yellow-500',
+    text: 'text-yellow-600 dark:text-yellow-400',
+    textStrong: 'text-yellow-800 dark:text-yellow-200',
+    panel: 'border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950',
+    borderLeft: 'border-l-yellow-500',
+  },
+  neutral: {
+    badge: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+    dot: 'bg-gray-400',
+    bar: 'bg-gray-400',
+    text: 'text-gray-600 dark:text-gray-400',
+    textStrong: 'text-gray-900 dark:text-gray-100',
+    panel: 'border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800',
+    borderLeft: 'border-l-transparent',
+  },
+}
+
+export function getTraceStatusTone(status: NodeStatus): TraceTone {
+  switch (status) {
+    case 'error':
+      return 'danger'
+    case 'success':
+      return 'success'
+    case 'running':
+      return 'warning'
+    case 'pending':
+      return 'neutral'
+  }
+}
+
+export function getTraceStatusStyles(status: NodeStatus): TraceToneStyles {
+  return traceToneStyles[getTraceStatusTone(status)]
+}
+
+export function getTraceChangeTone(changeType: ChangeType): TraceTone {
+  switch (changeType) {
+    case 'added':
+      return 'success'
+    case 'removed':
+      return 'danger'
+    case 'modified':
+      return 'warning'
+    case 'unchanged':
+      return 'neutral'
+  }
+}
+
+export function getTraceChangeStyles(changeType: ChangeType): TraceToneStyles {
+  return traceToneStyles[getTraceChangeTone(changeType)]
 }
 
 // ---------------------------------------------------------------------------

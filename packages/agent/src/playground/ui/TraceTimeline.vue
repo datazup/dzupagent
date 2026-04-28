@@ -12,7 +12,15 @@
  */
 import { computed } from 'vue'
 import type { TimelineNode } from '../../replay/replay-types.js'
-import { formatMs } from './utils.js'
+import {
+  barWidthPercent,
+  formatMs,
+  getMaxDuration,
+  getNodeStatus,
+  getTotalDuration,
+  getTraceStatusStyles,
+  traceUiStyles,
+} from './utils.js'
 
 /** Component props */
 interface Props {
@@ -36,66 +44,35 @@ const emit = defineEmits<{
 
 /** Maximum duration across all nodes (used to scale bar widths) */
 const maxDuration = computed(() => {
-  let max = 0
-  for (const node of props.timeline) {
-    const d = node.durationMs ?? node.latencyMs ?? 0
-    if (d > max) max = d
-  }
-  return max || 1
+  return getMaxDuration(props.timeline)
 })
 
 /** Total pipeline duration in ms */
 const totalDuration = computed(() => {
-  if (props.timeline.length < 2) return 0
-  const first = props.timeline[0]
-  const last = props.timeline[props.timeline.length - 1]
-  if (!first || !last) return 0
-  return last.timestamp - first.timestamp
+  return getTotalDuration(props.timeline)
 })
 
 /** Determine the visual status of a node */
 function nodeStatus(node: TimelineNode): 'error' | 'success' | 'running' | 'pending' {
-  if (node.isError) return 'error'
-  if (node.durationMs !== undefined && node.durationMs > 0) return 'success'
-  if (node.type.endsWith(':started') || node.type.includes('running')) return 'running'
-  return 'pending'
+  return getNodeStatus(node)
 }
 
 /** Bar color classes based on status */
 function barClasses(node: TimelineNode): string {
-  const status = nodeStatus(node)
-  switch (status) {
-    case 'error':
-      return 'bg-red-500'
-    case 'success':
-      return 'bg-emerald-500'
-    case 'running':
-      return 'bg-yellow-500'
-    case 'pending':
-      return 'bg-gray-400'
-  }
+  return getTraceStatusStyles(nodeStatus(node)).bar
 }
 
 /** Status dot color classes */
 function dotClasses(node: TimelineNode): string {
   const status = nodeStatus(node)
-  switch (status) {
-    case 'error':
-      return 'bg-red-500'
-    case 'success':
-      return 'bg-emerald-500'
-    case 'running':
-      return 'bg-yellow-500 animate-pulse'
-    case 'pending':
-      return 'bg-gray-400'
-  }
+  const pulseClass = status === 'running' ? ' animate-pulse' : ''
+  return `${getTraceStatusStyles(status).dot}${pulseClass}`
 }
 
 /** Bar width as a percentage string */
 function barWidth(node: TimelineNode): string {
   const d = node.durationMs ?? node.latencyMs ?? 0
-  const pct = Math.max((d / maxDuration.value) * 100, 2)
-  return `${pct}%`
+  return barWidthPercent(d, maxDuration.value)
 }
 
 /** Handle row click */
@@ -128,7 +105,8 @@ function isSelected(node: TimelineNode): boolean {
     <!-- Empty state -->
     <div
       v-if="timeline.length === 0"
-      class="flex items-center justify-center py-8 text-sm text-gray-500"
+      class="flex items-center justify-center py-8 text-sm"
+      :class="traceUiStyles.textMuted"
     >
       No timeline data available.
     </div>
@@ -142,8 +120,8 @@ function isSelected(node: TimelineNode): boolean {
       class="group flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 transition-colors"
       :class="[
         isSelected(node)
-          ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-950'
-          : 'border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-gray-700 dark:hover:bg-gray-900',
+          ? traceUiStyles.selected
+          : traceUiStyles.interactive,
       ]"
       :aria-selected="isSelected(node)"
       :aria-label="`Node ${node.nodeId ?? node.type}, status ${nodeStatus(node)}, duration ${formatMs(node.durationMs ?? 0)}`"
@@ -158,18 +136,18 @@ function isSelected(node: TimelineNode): boolean {
       />
 
       <!-- Node ID / type label -->
-      <span class="w-36 shrink-0 truncate text-xs font-medium text-gray-900 dark:text-gray-100">
+      <span class="w-36 shrink-0 truncate text-xs font-medium" :class="traceUiStyles.textPrimary">
         {{ node.nodeId ?? node.type }}
       </span>
 
       <!-- Type badge -->
-      <span class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+      <span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider" :class="traceUiStyles.badgeNeutral">
         {{ node.type }}
       </span>
 
       <!-- Duration bar -->
       <div class="flex min-w-0 flex-1 items-center gap-2">
-        <div class="h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+        <div class="h-2 flex-1 overflow-hidden rounded-full" :class="traceUiStyles.track">
           <div
             class="h-full rounded-full transition-all"
             :class="barClasses(node)"
@@ -180,7 +158,8 @@ function isSelected(node: TimelineNode): boolean {
         <!-- Duration label -->
         <span
           v-if="showDurations"
-          class="w-16 shrink-0 text-right font-mono text-[11px] text-gray-500 dark:text-gray-400"
+          class="w-16 shrink-0 text-right font-mono text-[11px]"
+          :class="traceUiStyles.textMuted"
         >
           {{ formatMs(node.durationMs ?? node.latencyMs ?? 0) }}
         </span>
@@ -190,12 +169,13 @@ function isSelected(node: TimelineNode): boolean {
     <!-- Total duration footer -->
     <div
       v-if="timeline.length > 0"
-      class="mt-2 flex items-center justify-between border-t border-gray-200 px-3 pt-2 dark:border-gray-700"
+      class="mt-2 flex items-center justify-between border-t px-3 pt-2"
+      :class="traceUiStyles.divider"
     >
-      <span class="text-xs text-gray-500 dark:text-gray-400">
+      <span class="text-xs" :class="traceUiStyles.textMuted">
         {{ timeline.length }} node{{ timeline.length === 1 ? '' : 's' }}
       </span>
-      <span class="font-mono text-xs font-medium text-gray-700 dark:text-gray-300">
+      <span class="font-mono text-xs font-medium" :class="traceUiStyles.textSecondary">
         Total: {{ formatMs(totalDuration) }}
       </span>
     </div>
