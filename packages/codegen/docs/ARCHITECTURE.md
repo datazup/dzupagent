@@ -93,6 +93,9 @@ Representative entry points exported from `src/index.ts`:
 - Pipeline: `GenPipelineBuilder`, `PipelineExecutor`, `PhaseConfig` variants, `DEFAULT_ESCALATION`, `runGuardrailGate`, `runBudgetGate`.
 - Correction: `SelfCorrectionLoop`, `ReflectionNode`, `LessonExtractor`, `SelfCorrectionConfig`, `CorrectionResult`.
 - VFS/workspace: `VirtualFS`, `CopyOnWriteVFS`, patch helpers, `WorkspaceRunner`, `LocalWorkspace`, `SandboxedWorkspace`, `WorkspaceFactory`.
+  `LocalWorkspace` accepts relative workspace paths only; absolute paths,
+  `..` traversal, symlink escapes, unsafe globs, and command `cwd` escapes are
+  rejected before filesystem or command execution.
 - Sandbox: `SandboxProtocol`, `SandboxProtocolV2`, `createSandbox`, provider classes (Docker/E2B/Fly/Mock/K8s/WASM), security tier/profile helpers.
 - Quality/validation: `QualityScorer`, builtin quality dimensions, import/contract validators, `ConventionGate`.
 - Guardrails: `GuardrailEngine`, `GuardrailReporter`, builtin rule factories.

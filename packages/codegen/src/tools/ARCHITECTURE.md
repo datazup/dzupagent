@@ -56,6 +56,8 @@ Implementation split between `tool(...)` and `DynamicStructuredTool`:
 ### 1) `write_file`
 - Input: `{ filePath, content }`.
 - If `context.workspace` exists, writes immediately via `workspace.writeFile(...)`.
+- Workspace-backed writes rely on `Workspace` path containment; `LocalWorkspace`
+  rejects absolute paths and root escapes before the write.
 - Otherwise, returns a JSON payload describing a successful write intent; caller must apply state mutation externally.
 - Output shape:
   - Success: `{ action: 'write_file', filePath, size, success: true }`
@@ -67,6 +69,8 @@ Implementation split between `tool(...)` and `DynamicStructuredTool`:
   - If passed `CodegenToolContext`, prefers `workspace`; otherwise uses `context.vfs`.
   - If passed `VirtualFS`, uses it directly.
 - Reads file, applies edits sequentially, writes modified content back only if at least one edit succeeds.
+- In workspace mode, path-containment errors are returned as explicit errors
+  instead of being masked as missing files.
 - Returns plain text status (not JSON), including partial-failure summaries.
 
 ### 3) `multi_edit`
@@ -213,4 +217,3 @@ Observability characteristics in implementation:
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
