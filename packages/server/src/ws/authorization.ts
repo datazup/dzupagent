@@ -10,7 +10,10 @@ export interface WSClientScope {
   agentIds?: string[]
   /** Event types the client is allowed to subscribe to. */
   eventTypes?: DzupEvent['type'][]
-  /** If true, bypass scope checks. Intended for trusted operators. */
+  /**
+   * If true, bypass scope checks. Intended for trusted operators only; do not
+   * use this as a shortcut for unauthenticated production WebSocket clients.
+   */
   canSubscribeAll?: boolean
 }
 

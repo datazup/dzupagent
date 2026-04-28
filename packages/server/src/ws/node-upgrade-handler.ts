@@ -19,7 +19,9 @@ export interface NodeWsUpgradeHandlerOptions {
   manager: WSSessionManager
   /**
    * Resolve WS client scope from Node request context.
-   * If omitted, manager.resolveScope may still handle it.
+   * Production helpers require either this resolver or `shouldHandleRequest`.
+   * If omitted, manager.resolveScope may still handle it after an explicit
+   * guard has accepted the upgrade.
    */
   resolveScopeFromRequest?: (
     req: IncomingMessage,
@@ -40,6 +42,13 @@ export interface NodeWsUpgradeHandlerOptions {
    */
   onAttachError?: (ctx: { req: IncomingMessage; ws: WSClient; error: unknown }) => void
   /**
+   * Explicitly keep the legacy unauthenticated allow-all upgrade behavior.
+   *
+   * This is intended only for local development and tests. Production callers
+   * should provide `shouldHandleRequest` and/or `resolveScopeFromRequest`.
+   */
+  allowUnsafeUnauthenticated?: boolean
+  /**
    * Destroy raw socket when rejecting request (default: true).
    */
   destroySocketOnReject?: boolean
@@ -51,18 +60,32 @@ export interface NodeWsUpgradeHandlerOptions {
 export function createNodeWsUpgradeHandler(options: NodeWsUpgradeHandlerOptions):
   (req: IncomingMessage, socket: Duplex, head: Buffer) => void {
   const destroySocketOnReject = options.destroySocketOnReject ?? true
+  const hasExplicitUpgradeGuard = Boolean(
+    options.shouldHandleRequest
+      || options.resolveScopeFromRequest
+      || options.allowUnsafeUnauthenticated,
+  )
+
+  const reject = (req: IncomingMessage, socket: Duplex, reason: string): void => {
+    options.onRejected?.({ req, reason })
+    if (destroySocketOnReject && typeof (socket as { destroy?: () => void }).destroy === 'function') {
+      ;(socket as { destroy: () => void }).destroy()
+    }
+  }
 
   return (req, socket, head) => {
     void (async () => {
+      if (!hasExplicitUpgradeGuard) {
+        reject(req, socket, 'missing_upgrade_guard')
+        return
+      }
+
       const allowed = options.shouldHandleRequest
         ? await options.shouldHandleRequest(req)
         : true
 
       if (!allowed) {
-        options.onRejected?.({ req, reason: 'request_not_allowed' })
-        if (destroySocketOnReject && typeof (socket as { destroy?: () => void }).destroy === 'function') {
-          ;(socket as { destroy: () => void }).destroy()
-        }
+        reject(req, socket, 'request_not_allowed')
         return
       }
 

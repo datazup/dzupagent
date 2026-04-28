@@ -108,6 +108,16 @@ This enables:
 - `GET/POST /api/memory/*`
 - `GET /api/memory-browse/*`
 
+### 5. Attach WebSocket upgrades safely
+
+`createNodeWsUpgradeHandler` and `createWsServer().attach()` reject upgrades by
+default unless callers provide an explicit request guard, a scope resolver, or a
+path guard through `createWsServer({ server: { path: '/ws' } })`.
+
+The legacy unauthenticated allow-all behavior is still available for local
+development and tests with `allowUnsafeUnauthenticated: true`. Do not enable
+that option for production helpers.
+
 ## Default Routes
 
 - `GET /api/health`

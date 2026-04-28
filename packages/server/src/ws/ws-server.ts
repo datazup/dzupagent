@@ -55,8 +55,9 @@ export interface WSServerConfig {
   wss?: NodeWebSocketServerLike
   /**
    * Expected URL path for WebSocket upgrades. Requests with any other pathname
-   * are rejected before the upgrade. Defaults to accepting all paths when
-   * omitted.
+   * are rejected before the upgrade. When omitted, callers must provide
+   * `shouldHandleRequest`, `resolveScopeFromRequest`, or the explicit unsafe
+   * development opt-in.
    */
   path?: string
   /**
@@ -76,6 +77,12 @@ export interface WSServerConfig {
   onRejected?: (ctx: { req: IncomingMessage; reason: string }) => void
   /** Called when `attach()` fails after a successful upgrade. */
   onAttachError?: (ctx: { req: IncomingMessage; ws: WSClient; error: unknown }) => void
+  /**
+   * Explicitly allow legacy unauthenticated upgrades without a path guard,
+   * request guard, or scope resolver. Intended only for local development and
+   * tests.
+   */
+  allowUnsafeUnauthenticated?: boolean
   /** Forwarded to {@link createNodeWsUpgradeHandler}. */
   destroySocketOnReject?: boolean
 }
@@ -162,6 +169,7 @@ export function createWsServer(options: CreateWsServerOptions): WsServerHandle {
       shouldHandleRequest: composedGuard,
       onRejected: serverConfig.onRejected,
       onAttachError: serverConfig.onAttachError,
+      allowUnsafeUnauthenticated: serverConfig.allowUnsafeUnauthenticated,
       destroySocketOnReject: serverConfig.destroySocketOnReject,
     })
 
