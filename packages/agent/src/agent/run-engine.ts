@@ -5,9 +5,7 @@ import {
   calculateCostCents,
   estimateTokens,
   ForgeError,
-  requireTerminalToolExecutionRunId,
   type DzupEventBus,
-  type ForgeErrorCode,
   type RunJournalEntry,
   type SafetyMonitor,
   type ToolGovernance,
@@ -34,10 +32,18 @@ import {
   type ToolStat,
 } from './tool-loop.js'
 import {
-  validateAndRepairToolArgs,
-  formatSchemaHint,
   type ToolArgValidatorConfig,
 } from './tool-arg-validator.js'
+import {
+  emitToolCalled,
+  emitToolError,
+  emitToolResult,
+  extractInputMetadataKeys,
+  invokeWithOptionalTimeout,
+  maybeValidateArgs,
+  resolveValidatorConfig,
+  statusFromError,
+} from './tool-lifecycle-policy.js'
 import { ReflectionAnalyzer } from '../reflection/reflection-analyzer.js'
 import { buildWorkflowEventsFromToolStats } from '../reflection/learning-bridge.js'
 
@@ -495,254 +501,6 @@ export function createToolStatTracker(): ToolStatTracker {
 
 // ---------- Streaming policy stack helpers (MJ-AGENT-02) ----------
 
-type StreamingLifecycleStatus = 'success' | 'error' | 'timeout' | 'denied'
-
-function streamingExtractInputMetadataKeys(input: unknown): string[] {
-  if (input == null || typeof input !== 'object') return []
-  if (Array.isArray(input)) return []
-  return Object.keys(input as Record<string, unknown>)
-}
-
-function streamingStatusFromError(
-  err: unknown,
-): Extract<StreamingLifecycleStatus, 'error' | 'timeout'> {
-  const msg = err instanceof Error ? err.message : String(err)
-  return /timed out after \d+ms/.test(msg) ? 'timeout' : 'error'
-}
-
-function streamingResolveValidatorConfig(
-  cfg: boolean | ToolArgValidatorConfig | undefined,
-): ToolArgValidatorConfig | null {
-  if (!cfg) return null
-  if (cfg === true) return { autoRepair: true }
-  return cfg
-}
-
-function streamingExtractJsonSchema(
-  tool: StructuredToolInterface,
-): Record<string, unknown> | null {
-  const schema = (tool as StructuredToolInterface & { schema?: unknown }).schema
-  if (!schema) return null
-
-  if (typeof schema === 'object' && schema !== null) {
-    const s = schema as Record<string, unknown>
-    if (s.properties || s.type) return s
-
-    const zodSchema = schema as { jsonSchema?: () => Record<string, unknown> }
-    if (typeof zodSchema.jsonSchema === 'function') {
-      try {
-        return zodSchema.jsonSchema() as Record<string, unknown>
-      } catch {
-        // Ignore
-      }
-    }
-  }
-  return null
-}
-
-function streamingMaybeValidateArgs(
-  toolName: string,
-  args: Record<string, unknown>,
-  tool: StructuredToolInterface,
-  validatorCfg: ToolArgValidatorConfig | null,
-): { args: Record<string, unknown>; validationError?: string } {
-  if (!validatorCfg) return { args }
-
-  const jsonSchema = streamingExtractJsonSchema(tool)
-  if (!jsonSchema) return { args }
-
-  const result = validateAndRepairToolArgs(args, jsonSchema, validatorCfg)
-
-  if (result.valid && result.repairedArgs) {
-    return { args: result.repairedArgs as Record<string, unknown> }
-  }
-
-  if (!result.valid) {
-    const hint = formatSchemaHint(jsonSchema)
-    const errMsg = `Validation failed for tool "${toolName}": ${result.errors.join('; ')}.\n${hint}`
-    return { args, validationError: errMsg }
-  }
-
-  return { args }
-}
-
-function streamingEmitToolCalled(
-  policy: StreamingToolPolicyOptions | undefined,
-  args: {
-    toolName: string
-    toolCallId: string
-    input: Record<string, unknown>
-    inputMetadataKeys: string[]
-  },
-): void {
-  if (!policy) return
-  const { toolName, toolCallId, input, inputMetadataKeys } = args
-  try {
-    policy.eventBus?.emit({
-      type: 'tool:called',
-      toolName,
-      input,
-      toolCallId,
-      inputMetadataKeys,
-      ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
-      ...(policy.runId !== undefined
-        ? { runId: policy.runId, executionRunId: policy.runId }
-        : {}),
-    } as never)
-  } catch {
-    // Telemetry must never abort the loop
-  }
-
-  if (policy.toolGovernance) {
-    void policy.toolGovernance
-      .audit({
-        toolName,
-        input,
-        callerAgent: policy.agentId ?? 'unknown',
-        timestamp: Date.now(),
-        allowed: true,
-      })
-      .catch(() => {
-        /* non-fatal */
-      })
-  }
-}
-
-function streamingEmitToolResult(
-  policy: StreamingToolPolicyOptions | undefined,
-  args: {
-    toolName: string
-    toolCallId: string
-    durationMs: number
-    inputMetadataKeys: string[]
-    output: unknown
-  },
-): void {
-  if (!policy) return
-  const { toolName, toolCallId, durationMs, inputMetadataKeys, output } = args
-  try {
-    const executionRunId = requireTerminalToolExecutionRunId({
-      eventType: 'tool:result',
-      toolName,
-      executionRunId: policy.runId,
-    })
-    policy.eventBus?.emit({
-      type: 'tool:result',
-      toolName,
-      durationMs,
-      toolCallId,
-      inputMetadataKeys,
-      status: 'success',
-      executionRunId,
-      ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
-      ...(policy.runId !== undefined ? { runId: policy.runId } : {}),
-    } as never)
-  } catch {
-    // Telemetry must never abort the loop
-  }
-
-  if (policy.toolGovernance) {
-    void policy.toolGovernance
-      .auditResult({
-        toolName,
-        output,
-        callerAgent: policy.agentId ?? 'unknown',
-        durationMs,
-        success: true,
-        timestamp: Date.now(),
-      })
-      .catch(() => {
-        /* non-fatal */
-      })
-  }
-}
-
-function streamingEmitToolError(
-  policy: StreamingToolPolicyOptions | undefined,
-  args: {
-    toolName: string
-    toolCallId: string
-    durationMs: number
-    inputMetadataKeys: string[]
-    errorCode: ForgeErrorCode
-    errorMessage: string
-    status: Exclude<StreamingLifecycleStatus, 'success'>
-  },
-): void {
-  if (!policy) return
-  const {
-    toolName,
-    toolCallId,
-    durationMs,
-    inputMetadataKeys,
-    errorCode,
-    errorMessage,
-    status,
-  } = args
-  try {
-    const executionRunId = requireTerminalToolExecutionRunId({
-      eventType: 'tool:error',
-      toolName,
-      executionRunId: policy.runId,
-    })
-    policy.eventBus?.emit({
-      type: 'tool:error',
-      toolName,
-      errorCode,
-      message: errorMessage,
-      errorMessage,
-      durationMs,
-      toolCallId,
-      inputMetadataKeys,
-      status,
-      executionRunId,
-      ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
-      ...(policy.runId !== undefined ? { runId: policy.runId } : {}),
-    } as never)
-  } catch {
-    // Telemetry must never abort the loop
-  }
-
-  if (policy.toolGovernance) {
-    void policy.toolGovernance
-      .auditResult({
-        toolName,
-        output: errorMessage,
-        callerAgent: policy.agentId ?? 'unknown',
-        durationMs,
-        success: false,
-        timestamp: Date.now(),
-      })
-      .catch(() => {
-        /* non-fatal */
-      })
-  }
-}
-
-async function streamingInvokeWithOptionalTimeout<T>(
-  toolName: string,
-  timeoutMs: number | undefined,
-  invoke: () => Promise<T>,
-): Promise<T> {
-  if (!timeoutMs || timeoutMs <= 0) {
-    return invoke()
-  }
-
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`Tool "${toolName}" timed out after ${timeoutMs}ms`)),
-      timeoutMs,
-    )
-  })
-
-  try {
-    return await Promise.race([invoke(), timeoutPromise])
-  } finally {
-    if (timer !== undefined) clearTimeout(timer)
-  }
-}
-
 export async function executeStreamingToolCall(params: {
   toolCall: StreamingToolCall
   toolMap: Map<string, StructuredToolInterface>
@@ -770,7 +528,7 @@ export async function executeStreamingToolCall(params: {
   const { toolCall, policy } = params
   const toolName = toolCall.name
   const toolCallId = toolCall.id ?? `call_${Date.now()}`
-  const inputMetadataKeys = streamingExtractInputMetadataKeys(toolCall.args)
+  const inputMetadataKeys = extractInputMetadataKeys(toolCall.args)
 
   // Permission policy check (MC-GA03 / mirrors tool-loop.ts ~937-955).
   // Throws TOOL_PERMISSION_DENIED so the streaming bridge can surface
@@ -778,7 +536,7 @@ export async function executeStreamingToolCall(params: {
   // matching the non-streaming path's observable surface exactly.
   if (policy?.toolPermissionPolicy && policy.agentId) {
     if (!policy.toolPermissionPolicy.hasPermission(policy.agentId, toolName)) {
-      streamingEmitToolError(policy, {
+      emitToolError(policy, {
         toolName,
         toolCallId,
         durationMs: 0,
@@ -796,7 +554,7 @@ export async function executeStreamingToolCall(params: {
   }
 
   if (params.budget?.isToolBlocked(toolName)) {
-    streamingEmitToolError(policy, {
+    emitToolError(policy, {
       toolName,
       toolCallId,
       durationMs: 0,
@@ -823,7 +581,7 @@ export async function executeStreamingToolCall(params: {
     const access = policy.toolGovernance.checkAccess(toolName, toolCall.args)
     if (!access.allowed) {
       const reason = access.reason ?? 'Tool access denied'
-      streamingEmitToolError(policy, {
+      emitToolError(policy, {
         toolName,
         toolCallId,
         durationMs: 0,
@@ -862,16 +620,15 @@ export async function executeStreamingToolCall(params: {
   // Argument validation (mirrors tool-loop.ts ~1056-1078). Failures
   // surface a `[validation error]` marker so the streaming bridge
   // emits the same downstream signal as the non-streaming executor.
-  const validatorCfg = streamingResolveValidatorConfig(policy?.validateToolArgs)
-  const { args: validatedArgs, validationError } = streamingMaybeValidateArgs(
-    toolName,
-    toolCall.args,
+  const validatorCfg = resolveValidatorConfig(policy?.validateToolArgs)
+  const { args: validatedArgs, validationError } = maybeValidateArgs(
+    toolCall,
     tool,
     validatorCfg,
   )
 
   if (validationError) {
-    streamingEmitToolError(policy, {
+    emitToolError(policy, {
       toolName,
       toolCallId,
       durationMs: 0,
@@ -890,9 +647,9 @@ export async function executeStreamingToolCall(params: {
     }
   }
 
-  const validatedKeys = streamingExtractInputMetadataKeys(validatedArgs)
+  const validatedKeys = extractInputMetadataKeys(validatedArgs)
 
-  streamingEmitToolCalled(policy, {
+  emitToolCalled(policy, {
     toolName,
     toolCallId,
     input: validatedArgs,
@@ -907,7 +664,7 @@ export async function executeStreamingToolCall(params: {
   let errorMsg: string | undefined
 
   try {
-    const result = await streamingInvokeWithOptionalTimeout(
+    const result = await invokeWithOptionalTimeout(
       toolName,
       policy?.toolTimeouts?.[toolName],
       () => tool.invoke(validatedArgs),
@@ -938,7 +695,7 @@ export async function executeStreamingToolCall(params: {
           const durationMs = Date.now() - startMs
           params.statTracker.record(toolName, durationMs)
           params.onToolLatency?.(toolName, durationMs, 'unsafe-result')
-          streamingEmitToolError(policy, {
+          emitToolError(policy, {
             toolName,
             toolCallId,
             durationMs,
@@ -975,7 +732,7 @@ export async function executeStreamingToolCall(params: {
     params.statTracker.record(toolName, durationMs)
     params.onToolLatency?.(toolName, durationMs)
 
-    streamingEmitToolResult(policy, {
+    emitToolResult(policy, {
       toolName,
       toolCallId,
       durationMs,
@@ -1029,8 +786,8 @@ export async function executeStreamingToolCall(params: {
     params.statTracker.record(toolName, durationMs, errorMsg)
     params.onToolLatency?.(toolName, durationMs, errorMsg)
 
-    const lifecycleStatus = streamingStatusFromError(error)
-    streamingEmitToolError(policy, {
+    const lifecycleStatus = statusFromError(error)
+    emitToolError(policy, {
       toolName,
       toolCallId,
       durationMs,
