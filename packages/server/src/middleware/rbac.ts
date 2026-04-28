@@ -8,9 +8,63 @@ import type { MiddlewareHandler } from 'hono'
 
 export type ForgeRole = 'admin' | 'operator' | 'viewer' | 'agent'
 
+export type ForgePermissionResource =
+  | 'agents'
+  | 'runs'
+  | 'tools'
+  | 'approvals'
+  | 'settings'
+  | 'events'
+  | 'memory'
+  | 'registry'
+  | 'apiKeys'
+  | 'triggers'
+  | 'schedules'
+  | 'deploy'
+  | 'evals'
+  | 'benchmarks'
+  | 'learning'
+  | 'prompts'
+  | 'personas'
+  | 'presets'
+  | 'marketplace'
+  | 'reflections'
+  | 'mailbox'
+  | 'clusters'
+  | 'mcp'
+  | 'skills'
+  | 'workflows'
+  | (string & {})
+  | '*'
+
+export type ForgePermissionAction =
+  | 'create'
+  | 'read'
+  | 'update'
+  | 'delete'
+  | 'execute'
+  | '*'
+
 export interface ForgePermission {
-  resource: 'agents' | 'runs' | 'tools' | 'approvals' | 'settings' | '*'
-  action: 'create' | 'read' | 'update' | 'delete' | 'execute' | '*'
+  resource: ForgePermissionResource
+  action: ForgePermissionAction
+}
+
+export type RoutePermissionPolicy =
+  | {
+      /** Resource checked through the role permission map. */
+      resource: ForgePermissionResource
+      /** Override the HTTP-method-derived action for this route prefix. */
+      action?: ForgePermissionAction
+    }
+  | {
+      /** Require `role === 'admin'` regardless of the permission map. */
+      adminOnly: true
+    }
+
+export interface ResolvedRoutePermission {
+  prefix: string
+  policy: RoutePermissionPolicy
 }
 
 export interface RBACConfig {
@@ -29,6 +83,13 @@ export interface RBACConfig {
    * Defaults to {@link DEFAULT_ADMIN_ONLY_PATHS}.
    */
   adminOnlyPaths?: string[]
+  /**
+   * Additional or overriding route-prefix policies.
+   *
+   * Hosts mounting route plugins under `/api/*` should add an entry here
+   * and, when using resource policies, grant matching customPermissions.
+   */
+  routePermissions?: Record<string, RoutePermissionPolicy>
 }
 
 /**
@@ -39,9 +100,36 @@ export interface RBACConfig {
  * `role === 'admin'` by the default rbacMiddleware configuration.
  */
 export const DEFAULT_ADMIN_ONLY_PATHS: string[] = [
+  '/api/keys',
+  '/api/registry',
+  '/api/triggers',
+  '/api/schedules',
+  '/api/deploy',
+  '/api/evals',
+  '/api/benchmarks',
+  '/api/prompts',
+  '/api/personas',
+  '/api/marketplace',
+  '/api/mailbox',
   '/api/mcp',
   '/api/clusters',
 ]
+
+export const DEFAULT_ROUTE_PERMISSIONS: Record<string, RoutePermissionPolicy> = {
+  '/api/agent-definitions': { resource: 'agents' },
+  '/api/agents': { resource: 'agents' },
+  '/api/runs': { resource: 'runs' },
+  '/api/approvals': { resource: 'approvals' },
+  '/api/events': { resource: 'events', action: 'read' },
+  '/api/tools': { resource: 'tools' },
+  '/api/memory': { resource: 'memory' },
+  '/api/memory-browse': { resource: 'memory', action: 'read' },
+  '/api/learning': { resource: 'learning' },
+  '/api/reflections': { resource: 'reflections' },
+  '/api/presets': { resource: 'presets' },
+  '/api/skills': { resource: 'skills' },
+  '/api/workflows': { resource: 'workflows' },
+}
 
 /**
  * Default role permissions.
@@ -83,8 +171,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<ForgeRole, ForgePermission[]> = {
  */
 export function hasPermission(
   role: ForgeRole,
-  resource: ForgePermission['resource'],
-  action: ForgePermission['action'],
+  resource: ForgePermissionResource,
+  action: ForgePermissionAction,
   customPermissions?: Partial<Record<ForgeRole, ForgePermission[]>>,
 ): boolean {
   const permissions = customPermissions?.[role] ?? DEFAULT_ROLE_PERMISSIONS[role]
@@ -97,25 +185,40 @@ export function hasPermission(
   )
 }
 
-/** Map a URL path segment to a resource name. */
-function pathToResource(path: string): ForgePermission['resource'] | undefined {
-  const resourceMap: Record<string, ForgePermission['resource']> = {
-    agents: 'agents',
-    runs: 'runs',
-    tools: 'tools',
-    approve: 'approvals',
-    reject: 'approvals',
+function pathMatchesPrefix(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(`${prefix}/`)
+}
+
+function normalizeRoutePermissions(
+  adminOnlyPaths: readonly string[],
+  routePermissions?: Record<string, RoutePermissionPolicy>,
+): ResolvedRoutePermission[] {
+  const policies: Record<string, RoutePermissionPolicy> = {
+    ...DEFAULT_ROUTE_PERMISSIONS,
   }
-  const segments = path.replace(/^\/api\//, '').split('/')
-  for (const segment of segments) {
-    if (segment in resourceMap) return resourceMap[segment]
+  for (const prefix of adminOnlyPaths) {
+    policies[prefix] = { adminOnly: true }
   }
-  return undefined
+  if (routePermissions) {
+    for (const [prefix, policy] of Object.entries(routePermissions)) {
+      policies[prefix] = policy
+    }
+  }
+  return Object.entries(policies)
+    .map(([prefix, policy]) => ({ prefix, policy }))
+    .sort((a, b) => b.prefix.length - a.prefix.length)
+}
+
+export function resolveRoutePermission(
+  path: string,
+  policies: readonly ResolvedRoutePermission[] = normalizeRoutePermissions(DEFAULT_ADMIN_ONLY_PATHS),
+): ResolvedRoutePermission | undefined {
+  return policies.find(({ prefix }) => pathMatchesPrefix(path, prefix))
 }
 
 /** Map an HTTP method to an action. */
-function methodToAction(method: string): ForgePermission['action'] {
-  const map: Record<string, ForgePermission['action']> = {
+function methodToAction(method: string): ForgePermissionAction {
+  const map: Record<string, ForgePermissionAction> = {
     GET: 'read',
     POST: 'create',
     PATCH: 'update',
@@ -134,9 +237,10 @@ function methodToAction(method: string): ForgePermission['action'] {
  */
 export function rbacMiddleware(config: RBACConfig): MiddlewareHandler {
   const adminOnlyPaths = config.adminOnlyPaths ?? DEFAULT_ADMIN_ONLY_PATHS
+  const routePermissions = normalizeRoutePermissions(adminOnlyPaths, config.routePermissions)
   return async (c, next) => {
     // Health endpoints bypass RBAC
-    if (c.req.path.startsWith('/api/health')) {
+    if (pathMatchesPrefix(c.req.path, '/api/health')) {
       return next()
     }
 
@@ -150,31 +254,37 @@ export function rbacMiddleware(config: RBACConfig): MiddlewareHandler {
 
     c.set('forgeRole' as never, role as never)
 
-    // MC-S02: admin-only path prefixes are enforced before the generic
-    // resource check so MCP/cluster routes reject non-admins even if the
-    // permission map would otherwise let them through.
-    if (role !== 'admin') {
-      for (const prefix of adminOnlyPaths) {
-        if (c.req.path.startsWith(prefix)) {
-          return c.json(
-            {
-              error: {
-                code: 'FORBIDDEN',
-                message: `Role '${role}' cannot access admin-only endpoint '${prefix}'`,
-              },
-            },
-            403,
-          )
-        }
+    const routePermission = resolveRoutePermission(c.req.path, routePermissions)
+    if (!routePermission) {
+      return c.json(
+        {
+          error: {
+            code: 'FORBIDDEN',
+            message: `No RBAC policy is configured for endpoint '${c.req.path}'`,
+          },
+        },
+        403,
+      )
+    }
+
+    const { prefix, policy } = routePermission
+    if ('adminOnly' in policy) {
+      if (role === 'admin') {
+        return next()
       }
+      return c.json(
+        {
+          error: {
+            code: 'FORBIDDEN',
+            message: `Role '${role}' cannot access admin-only endpoint '${prefix}'`,
+          },
+        },
+        403,
+      )
     }
 
-    const resource = pathToResource(c.req.path)
-    if (!resource) {
-      return next()
-    }
-
-    const action = methodToAction(c.req.method)
+    const resource = policy.resource
+    const action = policy.action ?? methodToAction(c.req.method)
     if (!hasPermission(role, resource, action, config.customPermissions)) {
       return c.json(
         {
