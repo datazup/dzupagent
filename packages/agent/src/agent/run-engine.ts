@@ -409,13 +409,10 @@ export async function executeGenerateRun(
     toolStats: result.toolStats,
   })
 
-  let content = extractFinalAiMessageContent(result.messages)
-  if (params.config.guardrails?.outputFilter && content) {
-    const filtered = await params.config.guardrails.outputFilter(content)
-    if (filtered !== null) {
-      content = filtered
-    }
-  }
+  const content = await applyOutputFilter(
+    params.config,
+    extractFinalAiMessageContent(result.messages),
+  )
 
   await params.maybeUpdateSummary(result.messages, params.runState.memoryFrame)
 
@@ -455,6 +452,18 @@ export async function executeGenerateRun(
     // for runs that never compacted.
     ...(compressionLog.length > 0 ? { compressionLog } : {}),
   }
+}
+
+export async function applyOutputFilter(
+  config: DzupAgentConfig,
+  content: string,
+): Promise<string> {
+  if (!config.guardrails?.outputFilter || !content) {
+    return content
+  }
+
+  const filtered = await config.guardrails.outputFilter(content)
+  return filtered === null ? content : filtered
 }
 
 export function emitStopReasonTelemetry(
