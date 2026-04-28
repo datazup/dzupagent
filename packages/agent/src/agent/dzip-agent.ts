@@ -64,6 +64,7 @@ import {
   generateStructured as generateStructuredRun,
   extractJsonFromText,
 } from './structured-generate.js'
+import { maybeWriteBackMemory as maybeWriteBackMemoryFinalizer } from './agent-finalizers.js'
 
 // Re-export for backward compatibility — tests and external consumers
 // import `extractJsonFromText` from `dzip-agent.js`.
@@ -626,31 +627,10 @@ export class DzupAgent {
   }
 
   private async maybeWriteBackMemory(content: string): Promise<void> {
-    if (
-      this.config.memoryWriteBack === false ||
-      !this.config.memory ||
-      !this.config.memoryNamespace ||
-      !this.config.memoryScope ||
-      !content
-    ) return
-    try {
-      const now = Date.now()
-      const key = now.toString()
-      await this.config.memory.put(
-        this.config.memoryNamespace,
-        this.config.memoryScope,
-        key,
-        {
-          text: content,
-          agentId: this.id,
-          timestamp: now,
-          ...(this.config.ttlMs !== undefined
-            ? { expiresAt: now + this.config.ttlMs }
-            : {}),
-        },
-      )
-    } catch {
-      // write-back failures are non-fatal
-    }
+    await maybeWriteBackMemoryFinalizer({
+      agentId: this.id,
+      config: this.config,
+      content,
+    })
   }
 }
