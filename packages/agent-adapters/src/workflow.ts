@@ -5,6 +5,7 @@
  */
 
 export {
+  ADAPTER_WORKFLOW_OWNERSHIP,
   AdapterWorkflowBuilder,
   AdapterWorkflow,
   defineWorkflow,
