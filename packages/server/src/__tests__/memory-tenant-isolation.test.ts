@@ -350,37 +350,57 @@ describe('Memory import — tenant isolation (MJ-SEC-04)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Memory analytics — tenant isolation (MJ-SEC-04)', () => {
-  it('overrides spoofed scope on analytics endpoints', async () => {
+  it.each([
+    ['/api/memory/analytics/decay-trends?window=day', 'decay-trends'],
+    ['/api/memory/analytics/namespace-stats', 'namespace-stats'],
+    ['/api/memory/analytics/expiring?horizonMs=86400000', 'expiring'],
+    ['/api/memory/analytics/agent-performance', 'agent-performance'],
+    ['/api/memory/analytics/usage-patterns?bucketMs=3600000', 'usage-patterns'],
+    ['/api/memory/analytics/duplicates?prefixLength=50', 'duplicates'],
+  ])('overrides spoofed scope on %s (%s)', async (endpoint) => {
     const memoryService = createTrackingMemoryService()
-    await memoryService.put('lessons', { tenantId: 'tenant-a' }, 'a-1', { text: 'A1' })
-    await memoryService.put('lessons', { tenantId: 'tenant-b' }, 'b-1', { text: 'B1' })
+    await memoryService.put(
+      'lessons',
+      { tenantId: 'tenant-a', ownerId: 'owner-a' },
+      'a-1',
+      { text: 'A1' },
+    )
+    await memoryService.put(
+      'lessons',
+      { tenantId: 'tenant-b', ownerId: 'owner-b' },
+      'b-1',
+      { text: 'B1' },
+    )
+    memoryService.calls.length = 0
 
     const app = createForgeApp(
       createAuthedConfig(memoryService, {
-        keys: { 'token-a': { id: 'k-a', tenantId: 'tenant-a' } },
+        keys: {
+          'token-a': { id: 'k-a', tenantId: 'tenant-a', ownerId: 'owner-a' },
+        },
       }),
     )
 
-    // Tenant A queries analytics with a spoofed tenant-b scope. Even if
-    // DuckDB-WASM is not installed, the route always invokes
-    // arrowMemory.exportFrame() to build the input table. We assert the
-    // exportFrame call carries the authenticated tenantId, regardless of
-    // whether the analytics layer ultimately succeeds.
-    const spoofed = encodeURIComponent(JSON.stringify({ tenantId: 'tenant-b' }))
+    // Tenant A queries analytics with spoofed tenant-b/owner-b scope. Even if
+    // DuckDB-WASM is not installed, the route invokes arrowMemory.exportFrame()
+    // to build the input table. We assert the frame read uses auth-derived
+    // scope, regardless of whether analytics ultimately succeeds.
+    const spoofed = encodeURIComponent(
+      JSON.stringify({ tenantId: 'tenant-b', ownerId: 'owner-b' }),
+    )
+    const separator = endpoint.includes('?') ? '&' : '?'
     await reqAuthed(
       app,
       'GET',
-      `/api/memory/analytics/namespace-stats?namespace=lessons&scope=${spoofed}`,
+      `${endpoint}${separator}namespace=lessons&scope=${spoofed}`,
       'token-a',
     )
 
-    // We use search/get tracking — the arrow extension layers on top of the
-    // plain memory service, so we look at all calls and confirm no tenant-b
-    // scope was issued during analytics.
-    const tenantBCalls = memoryService.calls.filter(
-      (c) => c.scope['tenantId'] === 'tenant-b',
-    )
-    // Only the seed put for tenant-b recorded earlier — no read calls.
-    expect(tenantBCalls.every((c) => c.op === 'put')).toBe(true)
+    const reads = memoryService.calls.filter((c) => c.op === 'get' || c.op === 'search')
+    expect(reads.length).toBeGreaterThan(0)
+    expect(reads.every((c) => c.scope['tenantId'] === 'tenant-a')).toBe(true)
+    expect(reads.every((c) => c.scope['ownerId'] === 'owner-a')).toBe(true)
+    expect(reads.some((c) => c.scope['tenantId'] === 'tenant-b')).toBe(false)
+    expect(reads.some((c) => c.scope['ownerId'] === 'owner-b')).toBe(false)
   })
 })
