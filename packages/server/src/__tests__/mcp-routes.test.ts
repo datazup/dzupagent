@@ -64,7 +64,7 @@ describe('MCP routes', () => {
     const res = await req(app, 'POST', '/api/mcp/servers', {
       id: 'test-server',
       transport: 'http',
-      endpoint: 'http://localhost:3000',
+      endpoint: 'https://mcp.example.com',
       enabled: true,
     })
     expect(res.status).toBe(201)
@@ -85,13 +85,13 @@ describe('MCP routes', () => {
     await req(app, 'POST', '/api/mcp/servers', {
       id: 'dup',
       transport: 'http',
-      endpoint: 'http://localhost:3000',
+      endpoint: 'https://mcp.example.com',
       enabled: true,
     })
     const res = await req(app, 'POST', '/api/mcp/servers', {
       id: 'dup',
       transport: 'http',
-      endpoint: 'http://localhost:3001',
+      endpoint: 'https://mcp-2.example.com',
       enabled: true,
     })
     expect(res.status).toBe(409)
@@ -101,7 +101,7 @@ describe('MCP routes', () => {
     await mcpManager.addServer({
       id: 'srv-1',
       transport: 'http',
-      endpoint: 'http://localhost:3000',
+      endpoint: 'https://mcp.example.com',
       enabled: true,
     })
     const res = await req(app, 'GET', '/api/mcp/servers/srv-1')
@@ -121,7 +121,7 @@ describe('MCP routes', () => {
     await mcpManager.addServer({
       id: 'rm-me',
       transport: 'http',
-      endpoint: 'http://localhost:3000',
+      endpoint: 'https://mcp.example.com',
       enabled: true,
     })
     const res = await req(app, 'DELETE', '/api/mcp/servers/rm-me')
@@ -136,7 +136,7 @@ describe('MCP routes', () => {
     await mcpManager.addServer({
       id: 'test-srv',
       transport: 'http',
-      endpoint: 'http://localhost:3000',
+      endpoint: 'https://mcp.example.com',
       enabled: true,
     })
     const res = await req(app, 'POST', '/api/mcp/servers/test-srv/test')
@@ -150,7 +150,7 @@ describe('MCP routes', () => {
     await mcpManager.addServer({
       id: 'dis-srv',
       transport: 'http',
-      endpoint: 'http://localhost:3000',
+      endpoint: 'https://mcp.example.com',
       enabled: false,
     })
     const res = await req(app, 'POST', '/api/mcp/servers/dis-srv/enable')
@@ -163,7 +163,7 @@ describe('MCP routes', () => {
     await mcpManager.addServer({
       id: 'en-srv',
       transport: 'http',
-      endpoint: 'http://localhost:3000',
+      endpoint: 'https://mcp.example.com',
       enabled: true,
     })
     const res = await req(app, 'POST', '/api/mcp/servers/en-srv/disable')
@@ -176,7 +176,7 @@ describe('MCP routes', () => {
     await mcpManager.addServer({
       id: 'patch-srv',
       transport: 'http',
-      endpoint: 'http://localhost:3000',
+      endpoint: 'https://mcp.example.com',
       enabled: true,
     })
     const res = await req(app, 'PATCH', '/api/mcp/servers/patch-srv', {
@@ -260,7 +260,7 @@ describe('MCP routes', () => {
       const res = await req(app, 'POST', '/api/mcp/servers', {
         id: 'env-srv',
         transport: 'http',
-        endpoint: 'http://localhost:3000',
+        endpoint: 'https://mcp.example.com',
         enabled: true,
         env: { MY_TOKEN: 'super-secret', OTHER: 'also-secret' },
       })
@@ -278,7 +278,7 @@ describe('MCP routes', () => {
       const res = await req(app, 'POST', '/api/mcp/servers', {
         id: 'hdr-srv',
         transport: 'http',
-        endpoint: 'http://localhost:3000',
+        endpoint: 'https://mcp.example.com',
         enabled: true,
         headers: {
           authorization: 'Bearer secret',
@@ -301,7 +301,7 @@ describe('MCP routes', () => {
       await mcpManager.addServer({
         id: 'get-redact',
         transport: 'http',
-        endpoint: 'http://localhost:3000',
+        endpoint: 'https://mcp.example.com',
         enabled: true,
         env: { TOKEN: 'sensitive' },
         headers: { authorization: 'Bearer xyz' },
@@ -322,7 +322,7 @@ describe('MCP routes', () => {
       await mcpManager.addServer({
         id: 'list-redact',
         transport: 'http',
-        endpoint: 'http://localhost:3000',
+        endpoint: 'https://mcp.example.com',
         enabled: true,
         env: { SECRET: 'val' },
         headers: { authorization: 'Bearer abc' },
@@ -349,7 +349,7 @@ describe('MCP routes', () => {
       await mcpManager.addServer({
         id: 'patch-redact',
         transport: 'http',
-        endpoint: 'http://localhost:3000',
+        endpoint: 'https://mcp.example.com',
         enabled: true,
       })
       const res = await req(app, 'PATCH', '/api/mcp/servers/patch-redact', {
@@ -371,7 +371,7 @@ describe('MCP routes', () => {
       await req(app, 'POST', '/api/mcp/servers', {
         id: 'stored-real',
         transport: 'http',
-        endpoint: 'http://localhost:3000',
+        endpoint: 'https://mcp.example.com',
         enabled: true,
         env: { MY_TOKEN: 'real-secret' },
         headers: { authorization: 'Bearer real' },
@@ -383,21 +383,86 @@ describe('MCP routes', () => {
     })
   })
 
+  // --- RF-009: HTTP/SSE endpoint URL policy ---
+
+  describe('HTTP/SSE URL policy (RF-009)', () => {
+    it('allows public HTTP/SSE endpoints at registration', async () => {
+      const res = await req(app, 'POST', '/api/mcp/servers', {
+        id: 'public-sse',
+        transport: 'sse',
+        endpoint: 'https://mcp-public.example.com/sse',
+        enabled: true,
+      })
+      expect(res.status).toBe(201)
+    })
+
+    it('rejects private HTTP endpoints at registration', async () => {
+      const res = await req(app, 'POST', '/api/mcp/servers', {
+        id: 'private-http',
+        transport: 'http',
+        endpoint: 'http://192.168.1.10:8080/mcp',
+        enabled: true,
+      })
+      expect(res.status).toBe(403)
+      const json = await res.json() as { error: { code: string; message: string } }
+      expect(json.error.code).toBe('FORBIDDEN')
+      expect(json.error.message).toContain('URL policy')
+    })
+
+    it('rejects private HTTP endpoints on patch', async () => {
+      const server = await mcpManager.addServer({
+        id: 'patch-private',
+        transport: 'http',
+        endpoint: 'https://safe.example.com',
+        enabled: true,
+      })
+      const res = await req(app, 'PATCH', `/api/mcp/servers/${server.id}`, {
+        endpoint: 'http://10.0.0.5:3000/mcp',
+      })
+      expect(res.status).toBe(403)
+    })
+
+    it('allows private HTTP endpoints when the host is explicitly allowlisted', async () => {
+      const guardedApp = createForgeApp({
+        ...createTestConfig(mcpManager),
+        mcpAllowedHttpHosts: ['localhost'],
+      })
+      const res = await req(guardedApp, 'POST', '/api/mcp/servers', {
+        id: 'allowed-local',
+        transport: 'http',
+        endpoint: 'http://localhost:3000/mcp',
+        enabled: true,
+      })
+      expect(res.status).toBe(201)
+    })
+
+    it('revalidates persisted HTTP definitions before test connections', async () => {
+      await mcpManager.addServer({
+        id: 'persisted-private',
+        transport: 'http',
+        endpoint: 'http://127.0.0.1:3000/mcp',
+        enabled: true,
+      })
+      const res = await req(app, 'POST', '/api/mcp/servers/persisted-private/test')
+      expect(res.status).toBe(403)
+    })
+  })
+
   // --- MJ-SEC-03: stdio executable re-validation on PATCH ---
 
   describe('PATCH /api/mcp/servers/:id stdio allowlist re-validation (MJ-SEC-03)', () => {
     it('allows PATCH that changes a non-stdio server endpoint when no stdio involved', async () => {
-      const server = await mcpManager.addServer({ id: 'http-srv', transport: 'http', endpoint: 'http://old' })
+      const server = await mcpManager.addServer({ id: 'http-srv', transport: 'http', endpoint: 'https://old.example.com' })
       const guardedApp = createForgeApp({
         ...createTestConfig(mcpManager),
         mcpAllowedExecutables: [],
       })
-      const res = await req(guardedApp, 'PATCH', `/api/mcp/servers/${server.id}`, { endpoint: 'http://new' })
+      const res = await req(guardedApp, 'PATCH', `/api/mcp/servers/${server.id}`, { endpoint: 'https://new.example.com' })
       expect(res.status).toBe(200)
     })
 
     it('rejects PATCH that changes transport to stdio when endpoint is not in allowlist', async () => {
-      const server = await mcpManager.addServer({ id: 'srv-change', transport: 'http', endpoint: 'http://x' })
+      const server = await mcpManager.addServer({ id: 'srv-change', transport: 'http', endpoint: 'https://x.example.com' })
       const guardedApp = createForgeApp({
         ...createTestConfig(mcpManager),
         mcpAllowedExecutables: ['npx'],
@@ -412,7 +477,7 @@ describe('MCP routes', () => {
     })
 
     it('allows PATCH that changes transport to stdio when endpoint is in allowlist', async () => {
-      const server = await mcpManager.addServer({ id: 'srv-ok', transport: 'http', endpoint: 'http://x' })
+      const server = await mcpManager.addServer({ id: 'srv-ok', transport: 'http', endpoint: 'https://x.example.com' })
       const guardedApp = createForgeApp({
         ...createTestConfig(mcpManager),
         mcpAllowedExecutables: ['npx', 'node'],

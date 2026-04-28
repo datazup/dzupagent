@@ -1,4 +1,5 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import { validateMcpHttpEndpoint } from '../security/mcp-url-policy.js'
 
 // ---------------------------------------------------------------------------
 // Tool Profiles
@@ -302,18 +303,9 @@ function extractMcpServers(
         continue
       }
     } else {
-      try {
-        const parsedUrl = new URL(url)
-        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-          warnings.push(`Ignoring MCP server "${id}" because URL protocol must be http/https for ${transport}.`)
-          continue
-        }
-        if (policy.allowedHttpHosts && !policy.allowedHttpHosts.has(parsedUrl.host.toLowerCase())) {
-          warnings.push(`Ignoring MCP server "${id}" because host "${parsedUrl.host}" is not in DZIP_MCP_ALLOWED_HTTP_HOSTS.`)
-          continue
-        }
-      } catch {
-        warnings.push(`Ignoring MCP server "${id}" because URL "${url}" is invalid.`)
+      const result = validateMcpHttpEndpoint(url, transport, { allowedHosts: policy.allowedHttpHosts })
+      if (!result.ok) {
+        warnings.push(`Ignoring MCP server "${id}" because ${result.reason}`)
         continue
       }
     }
