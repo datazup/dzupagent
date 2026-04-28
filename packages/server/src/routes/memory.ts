@@ -9,7 +9,7 @@
  * These routes bridge the MCP memory transport handlers from
  * @dzupagent/memory-ipc into the Hono REST API.
  */
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import {
   handleExportMemory,
   handleImportMemory,
@@ -124,35 +124,34 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
   /**
    * Helper: parse namespace/scope from query params and export as Arrow Table.
    */
-  async function getMemoryTableFromQuery(c: {
-    req: { query(name: string): string | undefined }
-  }) {
+  async function getMemoryTableFromQuery(c: Context) {
     const namespace = c.req.query('namespace') ?? 'lessons'
-    let scope: Record<string, string> = {}
+    let parsedScope: Record<string, string> = {}
     const scopeStr = c.req.query('scope')
     if (scopeStr) {
       try {
         const parsed: unknown = JSON.parse(scopeStr)
         if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          scope = parsed as Record<string, string>
+          parsedScope = parsed as Record<string, string>
         }
       } catch {
         // Use empty scope on parse failure
       }
     }
+    const scope = applyAuthoritativeScope(c, parsedScope, tenantScope)
     return arrowMemory.exportFrame(namespace, scope, { limit: 10_000 })
   }
 
   // GET /analytics/decay-trends?window=hour|day|week&namespace=...&scope=...
   app.get('/analytics/decay-trends', async (c) => {
     try {
+      const table = await getMemoryTableFromQuery(c)
       const analytics = await getAnalytics()
       const window = c.req.query('window')
       const bucketSize: 'hour' | 'day' | 'week' =
         window === 'hour' || window === 'day' || window === 'week'
           ? window
           : 'day'
-      const table = await getMemoryTableFromQuery(c)
       const result = await analytics.decayTrends(table, bucketSize)
       return c.json({ data: analyticsResultToJson(result) })
     } catch (err: unknown) {
@@ -169,8 +168,8 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
   // GET /analytics/namespace-stats?namespace=...&scope=...
   app.get('/analytics/namespace-stats', async (c) => {
     try {
-      const analytics = await getAnalytics()
       const table = await getMemoryTableFromQuery(c)
+      const analytics = await getAnalytics()
       const result = await analytics.namespaceStats(table)
       return c.json({ data: analyticsResultToJson(result) })
     } catch (err: unknown) {
@@ -195,8 +194,8 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
       )
     }
     try {
-      const analytics = await getAnalytics()
       const table = await getMemoryTableFromQuery(c)
+      const analytics = await getAnalytics()
       const result = await analytics.expiringMemories(table, horizonMs)
       return c.json({ data: analyticsResultToJson(result) })
     } catch (err: unknown) {
@@ -213,8 +212,8 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
   // GET /analytics/agent-performance?namespace=...&scope=...
   app.get('/analytics/agent-performance', async (c) => {
     try {
-      const analytics = await getAnalytics()
       const table = await getMemoryTableFromQuery(c)
+      const analytics = await getAnalytics()
       const result = await analytics.agentPerformance(table)
       return c.json({ data: analyticsResultToJson(result) })
     } catch (err: unknown) {
@@ -239,8 +238,8 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
       )
     }
     try {
-      const analytics = await getAnalytics()
       const table = await getMemoryTableFromQuery(c)
+      const analytics = await getAnalytics()
       const result = await analytics.usagePatterns(table, bucketMs)
       return c.json({ data: analyticsResultToJson(result) })
     } catch (err: unknown) {
@@ -265,8 +264,8 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
       )
     }
     try {
-      const analytics = await getAnalytics()
       const table = await getMemoryTableFromQuery(c)
+      const analytics = await getAnalytics()
       const result = await analytics.duplicateCandidates(table, prefixLength)
       return c.json({ data: analyticsResultToJson(result) })
     } catch (err: unknown) {
