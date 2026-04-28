@@ -1,17 +1,26 @@
-import type { AgentExecutionSpec, ModelRegistry, RunStore, MetricsCollector } from '@dzupagent/core'
+import type { AgentExecutionSpec, ModelRegistry, RunContextTransfer, RunStore, MetricsCollector } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
-import type { RunContextTransfer, PersistedIntentContext } from '@dzupagent/core'
-import { withForgeContext, type ForgeTraceContext } from '@dzupagent/otel'
+import { extractTraceContext } from '@dzupagent/core'
+import type { ForgeTraceContext } from '@dzupagent/otel'
+import type { CompressionLogEntry, RunReflectionStore } from '@dzupagent/agent'
 import type { RunQueue } from '../queue/run-queue.js'
 import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
 import type { ExecutableAgentResolver } from '../services/executable-agent-resolver.js'
-import { extractTraceContext } from '@dzupagent/core'
-import { isStructuredResult, isRecord } from './utils.js'
-import { reportRetrievalFeedback, type RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
 import type { ResourceQuotaManager } from '../security/resource-quota.js'
 import { createInputGuard, type InputGuard, type InputGuardConfig } from '../security/input-guard.js'
-import type { RunReflectionStore, ReflectionSummary, CompressionLogEntry } from '@dzupagent/agent'
+import { type RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
+import {
+  dispatchExecutionStage,
+  persistCancellation,
+  persistFailure,
+  persistTerminalSuccess,
+  recordTelemetryStage,
+  runAdmissionStage,
+  runPostRunLearningStage,
+  throwIfAborted,
+  waitForRunApproval,
+} from './run-worker-stages.js'
 
 export interface RunExecutionContext {
   runId: string
@@ -169,59 +178,6 @@ export interface RunOutcomeAnalyzerLike {
   ): Promise<unknown>
 }
 
-async function waitForApprovalDecision(
-  eventBus: DzupEventBus,
-  runId: string,
-  timeoutMs: number,
-): Promise<{ approved: boolean; reason?: string }> {
-  return new Promise((resolve) => {
-    const unsubGrant = eventBus.on('approval:granted', (event) => {
-      if (event.runId !== runId) return
-      unsubGrant()
-      unsubReject()
-      clearTimeout(timer)
-      resolve({ approved: true })
-    })
-
-    const unsubReject = eventBus.on('approval:rejected', (event) => {
-      if (event.runId !== runId) return
-      unsubGrant()
-      unsubReject()
-      clearTimeout(timer)
-      resolve({ approved: false, reason: event.reason })
-    })
-
-    const timer = setTimeout(() => {
-      unsubGrant()
-      unsubReject()
-      resolve({ approved: false, reason: `Approval timed out after ${timeoutMs}ms` })
-    }, timeoutMs)
-  })
-}
-
-/** Check if the signal is aborted and throw if so. */
-function throwIfAborted(signal: AbortSignal): void {
-  if (signal.aborted) {
-    throw new DOMException('Run cancelled', 'AbortError')
-  }
-}
-
-async function closeTraceWithTerminalStep(
-  traceStore: RunTraceStore | undefined,
-  runId: string,
-  status: 'failed' | 'cancelled' | 'rejected',
-  details?: Record<string, unknown>,
-): Promise<void> {
-  if (!traceStore) return
-  await traceStore.addStep(runId, {
-    timestamp: Date.now(),
-    type: 'system',
-    content: { status },
-    metadata: details,
-  })
-  await traceStore.completeTrace(runId)
-}
-
 /**
  * Start the queue worker that transitions queued runs to terminal states.
  */
@@ -243,8 +199,6 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
     const startedAt = Date.now()
     options.shutdown?.trackRun(job.runId)
 
-    // Extract trace context from run metadata for log correlation.
-    // Declared before try/catch so traceId is available in error handlers.
     let traceId: string | undefined
     let forgeTraceContext: ForgeTraceContext | undefined
     try {
@@ -263,88 +217,25 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         }
       }
     } catch {
-      // Trace extraction is non-fatal
+      // Trace extraction is non-fatal.
     }
 
     try {
       throwIfAborted(signal)
 
-      const agent = await executableAgentResolver.resolve(job.agentId)
-      if (!agent) {
-        await options.runStore.update(job.runId, {
-          status: 'failed',
-          error: `Agent "${job.agentId}" not found`,
-          completedAt: new Date(),
-        })
-        options.eventBus.emit({
-          type: 'agent:failed',
-          agentId: job.agentId,
-          runId: job.runId,
-          errorCode: 'REGISTRY_AGENT_NOT_FOUND',
-          message: `Agent "${job.agentId}" not found`,
-        })
-        return
-      }
+      const admission = await runAdmissionStage({
+        job,
+        inputGuard,
+        runStore: options.runStore,
+        eventBus: options.eventBus,
+        traceStore: options.traceStore,
+        resolveAgent: (agentId) => executableAgentResolver.resolve(agentId),
+      })
+      if (admission.rejected) return
 
-      // MC-S03: Scan the untrusted run input before any executor work.
-      // Rejections terminate the run in `'rejected'` status; redactions
-      // overwrite `jobInput` (used below in place of `job.input`) so that
-      // the executor, trace store, and run record all observe the same
-      // sanitized payload.
-      let jobInput: unknown = job.input
-      if (inputGuard) {
-        const guardResult = await inputGuard.scan(job.input)
-        if (!guardResult.allowed) {
-          const reason = guardResult.reason ?? 'Rejected by input guard'
-          await options.runStore.update(job.runId, {
-            status: 'rejected',
-            error: reason,
-            completedAt: new Date(),
-          })
-          await options.runStore.addLog(job.runId, {
-            level: 'warn',
-            phase: 'security',
-            message: `Input guard rejected run: ${reason}`,
-            data: {
-              violations: guardResult.violations?.map((v) => ({
-                category: v.category,
-                severity: v.severity,
-                action: v.action,
-              })),
-            },
-          })
-          options.eventBus.emit({
-            type: 'agent:failed',
-            agentId: job.agentId,
-            runId: job.runId,
-            errorCode: 'POLICY_DENIED',
-            message: reason,
-          })
-          await closeTraceWithTerminalStep(
-            options.traceStore,
-            job.runId,
-            'rejected',
-            { reason, guardedBy: 'input-guard' },
-          )
-          return
-        }
-        if (guardResult.redactedInput !== undefined) {
-          jobInput = guardResult.redactedInput
-          // Persist the redacted input on the run record so that any
-          // downstream consumer (UI, analyzer, replay) sees the sanitized
-          // payload — not the raw PII.
-          await options.runStore.update(job.runId, { input: jobInput })
-          await options.runStore.addLog(job.runId, {
-            level: 'info',
-            phase: 'security',
-            message: 'Input guard redacted PII in run input',
-          })
-        }
-      }
-
+      const { agent, input: jobInput } = admission
       await options.runStore.update(job.runId, { status: 'running' })
 
-      // --- Start trace (optional) ---
       if (options.traceStore) {
         await options.traceStore.startTrace(job.runId, job.agentId)
         await options.traceStore.addStep(job.runId, {
@@ -363,547 +254,84 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       })
       options.eventBus.emit({ type: 'agent:started', agentId: job.agentId, runId: job.runId })
 
-      if (agent.approval === 'required') {
-        const timeoutMs = typeof job.metadata?.['approvalTimeoutMs'] === 'number'
-          ? Number(job.metadata['approvalTimeoutMs'])
-          : 60_000
-
-        await options.runStore.update(job.runId, {
-          status: 'awaiting_approval',
-          plan: { input: jobInput, metadata: job.metadata },
-        })
-        await options.runStore.addLog(job.runId, {
-          level: 'info',
-          phase: 'approval',
-          message: 'Awaiting approval before execution',
-          data: { timeoutMs },
-        })
-        options.eventBus.emit({ type: 'approval:requested', runId: job.runId, plan: { input: jobInput } })
-
-        const decision = await waitForApprovalDecision(options.eventBus, job.runId, timeoutMs)
-        if (!decision.approved) {
-          await options.runStore.update(job.runId, {
-            status: 'rejected',
-            error: decision.reason ?? 'Rejected by policy',
-            completedAt: new Date(),
-          })
-          await options.runStore.addLog(job.runId, {
-            level: 'warn',
-            phase: 'approval',
-            message: `Run rejected before execution: ${decision.reason ?? 'no reason provided'}`,
-          })
-          options.eventBus.emit({
-            type: 'agent:failed',
-            agentId: job.agentId,
-            runId: job.runId,
-            errorCode: 'APPROVAL_REJECTED',
-            message: decision.reason ?? 'Run rejected by approval policy',
-          })
-          await closeTraceWithTerminalStep(
-            options.traceStore,
-            job.runId,
-            'rejected',
-            { reason: decision.reason ?? 'Run rejected by approval policy' },
-          )
-          return
-        }
-
-        await options.runStore.update(job.runId, { status: 'running' })
-        await options.runStore.addLog(job.runId, {
-          level: 'info',
-          phase: 'approval',
-          message: 'Approval granted, proceeding with execution',
-        })
-      }
-
-      // Check cancellation before starting expensive executor work
-      throwIfAborted(signal)
-
-      // --- Load prior cross-intent context (optional) ---
-      let enrichedMetadata = job.metadata
-      if (options.contextTransfer) {
-        try {
-          const sessionId = resolveSessionId(job)
-          const currentIntent = resolveIntent(job, agent)
-          if (currentIntent && currentIntent !== 'unknown') {
-            const priorContext = await options.contextTransfer.loadForIntent(sessionId, currentIntent)
-            if (priorContext) {
-              enrichedMetadata = { ...(job.metadata ?? {}), priorContext }
-              await options.runStore.addLog(job.runId, {
-                level: 'info',
-                phase: 'context-transfer',
-                message: `Loaded prior context from intent "${priorContext.fromIntent}"`,
-                data: { fromIntent: priorContext.fromIntent, tokenEstimate: priorContext.tokenEstimate },
-              })
-            }
-          }
-        } catch (_err) {
-          // Context loading is best-effort — never block the run
-          await options.runStore.addLog(job.runId, {
-            level: 'warn',
-            phase: 'context-transfer',
-            message: 'Failed to load prior context',
-            data: { error: _err instanceof Error ? _err.message : String(_err) },
-          }).catch(() => { /* swallow nested failure */ })
-        }
-      }
-
-      const executeRun = () => options.runExecutor({
-        runId: job.runId,
-        agentId: job.agentId,
-        input: jobInput,
-        metadata: enrichedMetadata,
+      const approved = await waitForRunApproval({
         agent,
+        job,
+        input: jobInput,
         runStore: options.runStore,
         eventBus: options.eventBus,
-        modelRegistry: options.modelRegistry,
-        signal,
+        traceStore: options.traceStore,
       })
-      const execution = forgeTraceContext
-        ? await withForgeContext(forgeTraceContext, executeRun)
-        : await executeRun()
+      if (!approved) return
 
-      // Guard: don't overwrite terminal state if cancelled during execution
+      throwIfAborted(signal)
+      const execution = await dispatchExecutionStage({
+        workerOptions: options,
+        job,
+        agent,
+        input: jobInput,
+        signal,
+        forgeTraceContext,
+      })
+
+      // Guard: don't overwrite terminal state if cancelled during execution.
       throwIfAborted(signal)
 
-      const output = isStructuredResult(execution) ? execution.output : execution
-      const tokenUsage = isStructuredResult(execution) ? execution.tokenUsage : undefined
-      const costCents = isStructuredResult(execution) ? execution.costCents : undefined
-      const metadata = isStructuredResult(execution) ? execution.metadata : undefined
-      const additionalLogs = isStructuredResult(execution) ? execution.logs ?? [] : []
-      // Session Y: when the executor returns a GenerateResult-style result with
-      // a non-empty compressionLog, merge it into run.metadata.compressionLog so
-      // downstream consumers (telemetry, replay UI) can inspect compression
-      // events without reading intermediate agent state. Only merged when at
-      // least one entry exists — empty lists are treated as "no compression".
-      const compressionLog = isStructuredResult(execution) && execution.compressionLog && execution.compressionLog.length > 0
-        ? execution.compressionLog
-        : undefined
-      const mergedMetadata = metadata || compressionLog
-        ? {
-            ...(metadata ?? {}),
-            ...(compressionLog ? { compressionLog } : {}),
-          }
-        : undefined
-
-      const durationMs = Date.now() - startedAt
-      // Session Q: a clean halt surfaced by the executor (e.g. token exhaustion
-      // via `run:halted:token-exhausted`) is NOT a failure — it is a distinct
-      // terminal state. We detect it via the `halted:true` metadata flag
-      // emitted by dzip-agent-run-executor.ts and map it to the formal
-      // 'halted' RunStatus. The `metadata.halted` flag is preserved so older
-      // readers that predate Session Q continue to work.
-      const halted = metadata != null
-        && typeof metadata === 'object'
-        && (metadata as Record<string, unknown>)['halted'] === true
-
-      // Session W: if the executor persisted a tokenLifecycleReport in
-      // metadata, promote it to output.tokenLifecycle so clients get full
-      // phase breakdown in a single REST call without reading /context.
-      // Only merged when `output` is itself a plain object — scalar outputs
-      // (strings, numbers) pass through unchanged.
-      const tokenLifecycleForOutput = isRecord(metadata) && isRecord(metadata['tokenLifecycleReport'])
-        ? metadata['tokenLifecycleReport']
-        : undefined
-      const finalOutput = tokenLifecycleForOutput && isRecord(output)
-        ? { ...output, tokenLifecycle: tokenLifecycleForOutput }
-        : output
-
-      await options.runStore.update(job.runId, {
-        status: halted ? 'halted' : 'completed',
-        output: finalOutput,
-        ...(tokenUsage ? { tokenUsage } : {}),
-        ...(typeof costCents === 'number' ? { costCents } : {}),
-        ...(mergedMetadata ? { metadata: { ...(job.metadata ?? {}), ...mergedMetadata } } : {}),
-        completedAt: new Date(),
+      const terminal = await persistTerminalSuccess({
+        runStore: options.runStore,
+        traceStore: options.traceStore,
+        job,
+        execution,
+        startedAt,
+        traceId,
       })
 
-      // --- MC-S01: record actual token usage against the quota manager ---
-      // Feeding real consumption back into the sliding window ensures the
-      // next admission check (in `handleCreateRun`) sees an up-to-date total
-      // for the caller's key. `recordUsage` is synchronous and non-throwing
-      // in the in-memory implementation; this block defends against
-      // alternate backends that might surface errors.
-      if (options.resourceQuota && tokenUsage) {
-        const totalTokens = (tokenUsage.input ?? 0) + (tokenUsage.output ?? 0)
-        const keyId = typeof job.metadata?.['ownerId'] === 'string'
-          ? (job.metadata['ownerId'] as string)
-          : typeof job.metadata?.['tenantId'] === 'string'
-            ? (job.metadata['tenantId'] as string)
-            : undefined
-        if (keyId && totalTokens > 0) {
-          try {
-            options.resourceQuota.recordUsage(keyId, totalTokens)
-          } catch (err) {
-            await options.runStore.addLog(job.runId, {
-              level: 'warn',
-              phase: 'quota',
-              message: 'Failed to record token usage against quota manager',
-              data: { error: err instanceof Error ? err.message : String(err) },
-            }).catch(() => { /* swallow */ })
-          }
-        }
-      }
-
-      // --- Record output step and complete trace (optional) ---
-      if (options.traceStore) {
-        await options.traceStore.addStep(job.runId, {
-          timestamp: Date.now(),
-          type: 'output',
-          content: output,
-          metadata: {
-            ...(tokenUsage ? { tokenUsage } : {}),
-            ...(typeof costCents === 'number' ? { costCents } : {}),
-            durationMs,
-          },
-          durationMs,
-        })
-        await options.traceStore.completeTrace(job.runId)
-      }
-
-      await options.runStore.addLog(job.runId, {
-        level: 'info',
-        phase: 'run',
-        message: 'Run completed',
-        data: { durationMs, ...(traceId ? { traceId } : {}) },
+      await runPostRunLearningStage({
+        workerOptions: options,
+        job,
+        agent,
+        input: jobInput,
+        output: execution.output,
+        tokenUsage: execution.tokenUsage,
+        metadata: execution.metadata,
+        additionalLogs: execution.additionalLogs,
+        durationMs: terminal.durationMs,
       })
-      if (additionalLogs.length > 0) {
-        await options.runStore.addLogs(job.runId, additionalLogs.map(log => ({
-          level: log.level,
-          phase: log.phase,
-          message: log.message,
-          data: log.data,
-        })))
-      }
-      // --- Reflection scoring (optional) ---
-      if (options.reflector) {
-        try {
-          const errorCount = additionalLogs.filter(l => l.level === 'error').length
-          const retryCount = additionalLogs.filter(l =>
-            l.phase === 'retry' || l.message.toLowerCase().includes('retry'),
-          ).length
-
-          // Extract tool call info from logs if available
-          const toolCalls = additionalLogs
-            .filter(l => l.phase === 'tool_call' && l.data && typeof l.data === 'object')
-            .map(l => {
-              const d = l.data as Record<string, unknown>
-              return {
-                name: typeof d['toolName'] === 'string' ? d['toolName'] : 'unknown',
-                success: d['success'] !== false,
-                durationMs: typeof d['durationMs'] === 'number' ? d['durationMs'] : undefined,
-              }
-            })
-
-          const reflectionInput: ReflectionInput = {
-            input: job.input,
-            output,
-            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-            tokenUsage,
-            durationMs,
-            errorCount,
-            retryCount,
-          }
-
-          const reflectionScore = options.reflector.score(reflectionInput)
-
-          // Merge reflection score into run metadata
-          const existingRun = await options.runStore.get(job.runId)
-          const existingMeta = (existingRun?.metadata ?? {}) as Record<string, unknown>
-          await options.runStore.update(job.runId, {
-            metadata: { ...existingMeta, reflectionScore },
-          })
-
-          await options.runStore.addLog(job.runId, {
-            level: 'info',
-            phase: 'reflection',
-            message: `Run quality score: ${reflectionScore.overall.toFixed(3)}`,
-            data: {
-              overall: reflectionScore.overall,
-              dimensions: reflectionScore.dimensions,
-              flags: reflectionScore.flags,
-            },
-          })
-
-          // --- Persist reflection summary (optional) ---
-          if (options.reflectionStore) {
-            try {
-              const toolCallLogs = additionalLogs.filter(
-                l => l.phase === 'tool_call' && l.data && typeof l.data === 'object',
-              )
-              const summary: ReflectionSummary = {
-                runId: job.runId,
-                completedAt: new Date(),
-                durationMs,
-                totalSteps: additionalLogs.length,
-                toolCallCount: toolCallLogs.length,
-                errorCount,
-                patterns: [],
-                qualityScore: reflectionScore.overall,
-              }
-              await options.reflectionStore.save(summary)
-            } catch (_saveErr) {
-              // Reflection store persistence is non-fatal — never block completion
-              await options.runStore.addLog(job.runId, {
-                level: 'warn',
-                phase: 'reflection',
-                message: 'Failed to persist reflection summary',
-                data: { error: _saveErr instanceof Error ? _saveErr.message : String(_saveErr) },
-              }).catch(() => { /* swallow nested failure */ })
-            }
-          }
-
-          // --- Retrieval feedback: closed loop from reflection → weight learning ---
-          if (options.retrievalFeedback) {
-            reportRetrievalFeedback(
-              options.retrievalFeedback,
-              (job.metadata ?? {}) as Record<string, unknown>,
-              reflectionScore,
-            )
-          }
-
-          // --- Auto-escalate model tier on consecutive low scores ---
-          if (options.escalationPolicy) {
-            const currentTier = (job.metadata?.['modelTier'] as string) ?? 'chat'
-            const intent = resolveIntent(job, agent)
-            const escalationKey = `${job.agentId}:${intent ?? 'default'}`
-            const escalation = options.escalationPolicy.recordScore(
-              escalationKey,
-              reflectionScore.overall,
-              currentTier,
-            )
-
-            if (escalation.shouldEscalate && options.agentStore.save) {
-              try {
-                const agentDef = await options.agentStore.get(job.agentId)
-                if (agentDef) {
-                  await options.agentStore.save({
-                    ...agentDef,
-                    metadata: {
-                      ...agentDef.metadata,
-                      modelTier: escalation.toTier,
-                    },
-                  })
-                }
-                options.eventBus.emit({
-                  type: 'registry:agent_updated',
-                  agentId: job.agentId,
-                  fields: ['metadata.modelTier'],
-                })
-                await options.runStore.addLog(job.runId, {
-                  level: 'info',
-                  phase: 'escalation',
-                  message: `Model tier escalated: ${escalation.fromTier} -> ${escalation.toTier} (${escalation.reason})`,
-                  data: {
-                    fromTier: escalation.fromTier,
-                    toTier: escalation.toTier,
-                    consecutiveLowScores: escalation.consecutiveLowScores,
-                    escalationKey,
-                  },
-                })
-              } catch (escalationError) {
-                await options.runStore.addLog(job.runId, {
-                  level: 'warn',
-                  phase: 'escalation',
-                  message: 'Model tier escalation failed',
-                  data: { error: escalationError instanceof Error ? escalationError.message : String(escalationError) },
-                }).catch(() => { /* swallow nested failure */ })
-              }
-            }
-          }
-        } catch (_reflErr) {
-          // Reflection is best-effort — never block the completion
-          await options.runStore.addLog(job.runId, {
-            level: 'warn',
-            phase: 'reflection',
-            message: 'Failed to compute reflection score',
-            data: { error: _reflErr instanceof Error ? _reflErr.message : String(_reflErr) },
-          }).catch(() => { /* swallow nested failure */ })
-        }
-      }
-
-      // --- Run outcome analyzer (closed-loop self-improvement) ---
-      if (options.runOutcomeAnalyzer) {
-        try {
-          const outputText = typeof output === 'string'
-            ? output
-            : output && typeof output === 'object' && 'message' in output && typeof (output as { message?: unknown }).message === 'string'
-              ? (output as { message: string }).message
-              : JSON.stringify(output ?? '')
-          const inputText = typeof job.input === 'string'
-            ? job.input
-            : JSON.stringify(job.input ?? '')
-          const analysis = await options.runOutcomeAnalyzer.analyze(job.runId, {
-            agentId: job.agentId,
-            input: inputText,
-            output: outputText,
-          })
-          // Success log — confirms run:scored was emitted on the event bus.
-          // `analysis` is typed as `unknown` via the structural interface, so
-          // we narrow defensively before surfacing score/passed.
-          const summary = (analysis && typeof analysis === 'object')
-            ? analysis as { score?: unknown; passed?: unknown }
-            : null
-          const score = typeof summary?.score === 'number' ? summary.score : undefined
-          const passed = typeof summary?.passed === 'boolean' ? summary.passed : undefined
-          await options.runStore.addLog(job.runId, {
-            level: 'info',
-            phase: 'run-outcome',
-            message: score !== undefined
-              ? `Run outcome scored: ${score.toFixed(3)} (${passed ? 'pass' : 'fail'})`
-              : 'Run outcome analyzer completed',
-            data: {
-              ...(score !== undefined ? { score } : {}),
-              ...(passed !== undefined ? { passed } : {}),
-            },
-          }).catch(() => { /* swallow nested failure */ })
-        } catch (_analyzerErr) {
-          // Scoring is best-effort — never block the completion path.
-          await options.runStore.addLog(job.runId, {
-            level: 'warn',
-            phase: 'run-outcome',
-            message: 'Run outcome analyzer failed',
-            data: { error: _analyzerErr instanceof Error ? _analyzerErr.message : String(_analyzerErr) },
-          }).catch(() => { /* swallow nested failure */ })
-        }
-      }
-
-      // --- Save cross-intent context after successful run (optional) ---
-      if (options.contextTransfer) {
-        try {
-          const sessionId = resolveSessionId(job)
-          const intent = resolveIntent(job, agent)
-          if (intent && intent !== 'unknown') {
-            const outputSummary = typeof output === 'string'
-              ? output.slice(0, 500)
-              : typeof output === 'object' && output !== null && 'summary' in output
-                ? String((output as Record<string, unknown>).summary).slice(0, 500)
-                : 'Run completed'
-
-            const relevantFiles: string[] =
-              (metadata?.['relevantFiles'] as string[] | undefined)
-              ?? (job.metadata?.['relevantFiles'] as string[] | undefined)
-              ?? []
-
-            const workingState: Record<string, unknown> =
-              (metadata?.['workingState'] as Record<string, unknown> | undefined)
-              ?? (job.metadata?.['workingState'] as Record<string, unknown> | undefined)
-              ?? {}
-
-            const persistedContext: PersistedIntentContext = {
-              fromIntent: intent,
-              summary: outputSummary,
-              decisions: (metadata?.['decisions'] as string[] | undefined) ?? [],
-              relevantFiles,
-              workingState,
-              transferredAt: Date.now(),
-              tokenEstimate: (tokenUsage?.input ?? 0) + (tokenUsage?.output ?? 0),
-            }
-
-            await options.contextTransfer.save(sessionId, persistedContext)
-            await options.runStore.addLog(job.runId, {
-              level: 'info',
-              phase: 'context-transfer',
-              message: `Saved context for intent "${intent}"`,
-              data: { tokenEstimate: persistedContext.tokenEstimate },
-            })
-          }
-        } catch (_err) {
-          // Context saving is best-effort — never block the completion
-          await options.runStore.addLog(job.runId, {
-            level: 'warn',
-            phase: 'context-transfer',
-            message: 'Failed to save context after run',
-            data: { error: _err instanceof Error ? _err.message : String(_err) },
-          }).catch(() => { /* swallow nested failure */ })
-        }
-      }
 
       options.eventBus.emit({
         type: 'agent:completed',
         agentId: job.agentId,
         runId: job.runId,
-        durationMs,
+        durationMs: terminal.durationMs,
       })
 
-      // --- Run completion metrics ---
-      const tierLabel = (job.metadata?.['modelTier'] as string) || 'unknown'
-      options.metrics?.increment('forge_run_completed_total', { tier: tierLabel })
-      options.metrics?.observe('forge_run_duration_ms', durationMs, { tier: tierLabel })
+      await recordTelemetryStage({
+        workerOptions: options,
+        job,
+        durationMs: terminal.durationMs,
+        tokenUsage: execution.tokenUsage,
+      })
     } catch (error) {
-      // If cancelled via AbortSignal, set cancelled status instead of failed
       if (signal.aborted) {
-        const run = await options.runStore.get(job.runId)
-        // Only update if not already in a terminal state
-        if (run && !['completed', 'failed', 'cancelled', 'rejected', 'halted'].includes(run.status)) {
-          await options.runStore.update(job.runId, {
-            status: 'cancelled',
-            error: 'Cancelled by user',
-            completedAt: new Date(),
-          })
-          await options.runStore.addLog(job.runId, {
-            level: 'warn',
-            phase: 'run',
-            message: 'Run cancelled',
-          })
-          options.eventBus.emit({
-            type: 'agent:failed',
-            agentId: job.agentId,
-            runId: job.runId,
-            errorCode: 'AGENT_ABORTED',
-            message: 'Cancelled by user',
-          })
-          await closeTraceWithTerminalStep(options.traceStore, job.runId, 'cancelled', { reason: 'Cancelled by user' })
-        }
+        await persistCancellation({
+          runStore: options.runStore,
+          eventBus: options.eventBus,
+          traceStore: options.traceStore,
+          job,
+        })
         return
       }
 
-      const message = error instanceof Error ? error.message : String(error)
-      await options.runStore.update(job.runId, {
-        status: 'failed',
-        error: message,
-        completedAt: new Date(),
+      await persistFailure({
+        runStore: options.runStore,
+        eventBus: options.eventBus,
+        traceStore: options.traceStore,
+        job,
+        error,
+        traceId,
       })
-      await options.runStore.addLog(job.runId, {
-        level: 'error',
-        phase: 'run',
-        message: 'Run failed',
-        data: { error: message, ...(traceId ? { traceId } : {}) },
-      })
-      options.eventBus.emit({
-        type: 'agent:failed',
-        agentId: job.agentId,
-        runId: job.runId,
-        errorCode: 'INTERNAL_ERROR',
-        message,
-      })
-      await closeTraceWithTerminalStep(options.traceStore, job.runId, 'failed', { error: message })
     } finally {
       options.shutdown?.untrackRun(job.runId)
     }
   })
-}
-
-// ---------------------------------------------------------------------------
-// Helpers for cross-intent context transfer
-// ---------------------------------------------------------------------------
-
-/** Derive a session identifier from the job metadata, falling back to runId. */
-function resolveSessionId(job: { runId: string; metadata?: Record<string, unknown> }): string {
-  const fromMeta = job.metadata?.['sessionId']
-  return typeof fromMeta === 'string' && fromMeta.length > 0 ? fromMeta : job.runId
-}
-
-/** Derive the current intent from job/agent metadata. */
-function resolveIntent(
-  job: { metadata?: Record<string, unknown> },
-  agent: AgentExecutionSpec,
-): string | undefined {
-  const fromJob = job.metadata?.['intent']
-  if (typeof fromJob === 'string' && fromJob.length > 0) return fromJob
-
-  const fromAgent = agent.metadata?.['intent']
-  if (typeof fromAgent === 'string' && fromAgent.length > 0) return fromAgent
-
-  return undefined
 }
