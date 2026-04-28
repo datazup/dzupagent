@@ -10,6 +10,7 @@ import {
   validateAndRepairToolArgs,
   type ToolArgValidatorConfig,
 } from './tool-arg-validator.js'
+import { isToolTimeoutError, ToolTimeoutError } from './tool-timeout-error.js'
 
 export interface ToolLifecyclePolicyContext {
   eventBus?: DzupEventBus
@@ -34,8 +35,7 @@ export function extractInputMetadataKeys(input: unknown): string[] {
 export function statusFromError(
   err: unknown,
 ): Extract<ToolLifecycleStatus, 'error' | 'timeout'> {
-  const msg = err instanceof Error ? err.message : String(err)
-  return /timed out after \d+ms/.test(msg) ? 'timeout' : 'error'
+  return isToolTimeoutError(err) ? 'timeout' : 'error'
 }
 
 export function resolveValidatorConfig(
@@ -258,7 +258,7 @@ export async function invokeWithOptionalTimeout<T>(
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`Tool "${toolName}" timed out after ${timeoutMs}ms`)),
+      () => reject(new ToolTimeoutError(toolName, timeoutMs)),
       timeoutMs,
     )
   })

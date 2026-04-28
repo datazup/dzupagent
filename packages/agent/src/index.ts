@@ -26,6 +26,11 @@ export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory
 export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
 export { runToolLoop } from './agent/tool-loop.js'
 export type { ToolLoopConfig, ToolLoopResult, ToolStat, StopReason } from './agent/tool-loop.js'
+export {
+  TOOL_TIMEOUT_ERROR_CODE,
+  ToolTimeoutError,
+  isToolTimeoutError,
+} from './agent/tool-timeout-error.js'
 
 // --- RunHandle ---
 export type {

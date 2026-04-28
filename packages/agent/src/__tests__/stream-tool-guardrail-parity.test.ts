@@ -554,6 +554,46 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
         expect(toolResult.data.result).toMatch(/timed out after \d+ms/)
       }
     })
+
+    it('does not mark timeout-looking thrown messages as timeout lifecycle errors', async () => {
+      const { tool } = mockTool('slowTool', () => {
+        throw new Error('remote text said Tool "slowTool" timed out after 5ms')
+      })
+      const model = createStreamingModel([
+        aiWithToolCall('slowTool', {}, 'tc_misleading'),
+        new AIMessage('handled'),
+      ])
+
+      const bus = createEventBus()
+      const policyEvents: DzupEvent[] = []
+      bus.on('tool:error', (e) => policyEvents.push(e))
+
+      const agent = new DzupAgent(
+        baseConfig({
+          model,
+          tools: [tool],
+          eventBus: bus,
+          toolExecution: {
+            agentId: 'stream-agent',
+            runId: 'stream-run-timeout-looking-error',
+          },
+        }),
+      )
+
+      const events = await drainStream(agent, [new HumanMessage('go')])
+
+      const toolResult = events.find((e) => e.type === 'tool_result')
+      expect(toolResult).toBeDefined()
+      if (toolResult?.type === 'tool_result') {
+        expect(toolResult.data.result).toContain('timed out after 5ms')
+      }
+
+      expect(policyEvents).toHaveLength(1)
+      expect((policyEvents[0] as Record<string, unknown>).status).toBe('error')
+      expect((policyEvents[0] as Record<string, unknown>).errorCode).toBe(
+        'TOOL_EXECUTION_FAILED',
+      )
+    })
   })
 
   // -------------------------------------------------------------------------

@@ -15,6 +15,11 @@ import {
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { runToolLoop } from '../agent/tool-loop.js'
+import {
+  invokeWithOptionalTimeout,
+  statusFromError,
+} from '../agent/tool-lifecycle-policy.js'
+import { ToolTimeoutError } from '../agent/tool-timeout-error.js'
 
 /** Tool that sleeps `delayMs` before resolving with `result`. */
 function slowTool(name: string, delayMs: number, result = 'ok'): StructuredToolInterface {
@@ -195,5 +200,43 @@ describe('ToolLoopConfig.toolTimeouts (parallel path)', () => {
       m => m._getType() === 'tool' && m.content === 'fast-result',
     )
     expect(fastMsg).toBeDefined()
+  })
+})
+
+describe('typed tool timeout classification', () => {
+  it('rejects per-tool deadline races with ToolTimeoutError metadata', async () => {
+    await expect(
+      invokeWithOptionalTimeout(
+        'slowTool',
+        5,
+        async () => new Promise<string>(() => {}),
+      ),
+    ).rejects.toMatchObject({
+      name: 'ToolTimeoutError',
+      code: 'TOOL_TIMEOUT',
+      toolName: 'slowTool',
+      timeoutMs: 5,
+      message: 'Tool "slowTool" timed out after 5ms',
+    })
+
+    try {
+      await invokeWithOptionalTimeout(
+        'slowTool',
+        5,
+        async () => new Promise<string>(() => {}),
+      )
+      throw new Error('expected timeout')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ToolTimeoutError)
+      expect(statusFromError(err)).toBe('timeout')
+    }
+  })
+
+  it('does not classify timeout-looking user errors as lifecycle timeouts', () => {
+    const misleadingError = new Error(
+      'upstream returned text: Tool "slowTool" timed out after 5ms',
+    )
+
+    expect(statusFromError(misleadingError)).toBe('error')
   })
 })
