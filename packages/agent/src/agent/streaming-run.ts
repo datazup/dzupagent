@@ -161,7 +161,7 @@ export async function* streamRun(
   let llmCalls = 0
 
   const finalizeRun = async (
-    stopReason: 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'stuck',
+    stopReason: 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'stuck' | 'approval_pending',
     content?: string,
   ) => {
     emitStopReasonTelemetry(ctx.config, ctx.agentId, {
@@ -383,6 +383,12 @@ export async function* streamRun(
       yield {
         type: 'tool_result',
         data: { name: toolCall.name, result: execution.eventResult },
+      }
+
+      if (execution.approvalPending) {
+        await finalizeRun('approval_pending')
+        yield { type: 'done', data: { stopReason: 'approval_pending' } }
+        return
       }
 
       if (execution.stuckReason && execution.stuckRecovery) {

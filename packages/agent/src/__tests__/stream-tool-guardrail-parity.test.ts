@@ -428,6 +428,62 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
   })
 
   // -------------------------------------------------------------------------
+  // Governance: approval-required tool — same hard gate as generate()
+  // -------------------------------------------------------------------------
+
+  describe('toolExecution.governance — approval-required tools', () => {
+    it('halts with approval_pending, emits approval:requested, and does not invoke the tool', async () => {
+      const { tool, invokeFn } = mockTool('migrate_db', () => 'migrated!')
+      const model = createStreamingModel([
+        aiWithToolCall('migrate_db', { dryRun: false }, 'tc_mig'),
+        new AIMessage('should-not-be-reached'),
+      ])
+
+      const bus = createEventBus()
+      const events: unknown[] = []
+      bus.on('approval:requested', (e) => events.push(e))
+
+      const governance = new ToolGovernance({
+        approvalRequired: ['migrate_db'],
+      })
+
+      const agent = new DzupAgent(
+        baseConfig({
+          model,
+          tools: [tool],
+          eventBus: bus,
+          toolExecution: {
+            governance,
+            runId: 'stream-run-approval-123',
+          },
+        }),
+      )
+
+      const streamEvents = await drainStream(agent, [new HumanMessage('migrate it')])
+
+      expect(invokeFn).not.toHaveBeenCalled()
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        type: 'approval:requested',
+        runId: 'stream-run-approval-123',
+        plan: { toolName: 'migrate_db', args: { dryRun: false } },
+      })
+
+      const streamToolResult = streamEvents.find((e) => e.type === 'tool_result')
+      expect(streamToolResult).toBeDefined()
+      if (streamToolResult?.type === 'tool_result') {
+        expect(streamToolResult.data.result).toMatch(/^\[approval_pending/)
+      }
+
+      const done = streamEvents.findLast((e) => e.type === 'done')
+      expect(done).toBeDefined()
+      if (done?.type === 'done') {
+        expect(done.data.stopReason).toBe('approval_pending')
+      }
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // Permission policy: denied tool throws TOOL_PERMISSION_DENIED
   // -------------------------------------------------------------------------
 
