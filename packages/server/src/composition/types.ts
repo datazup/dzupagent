@@ -236,7 +236,15 @@ export interface ForgeIntegrationsConfig {
   mailDelivery?: MailDeliveryConfig
   clusterStore?: ClusterStore
   catalogStore?: CatalogStore
+  /** OpenAI-compatible `/v1/*` HTTP compatibility surface. */
   openai?: {
+    /**
+     * Mount `/v1/chat/completions` and `/v1/models`.
+     *
+     * Defaults to false so createForgeApp hosts expose the compatibility API
+     * only when they explicitly opt in.
+     */
+    enabled?: boolean
     auth?: OpenAIAuthConfig
   }
   promptFeedbackLoop?: PromptFeedbackLoop | PromptFeedbackLoopLike

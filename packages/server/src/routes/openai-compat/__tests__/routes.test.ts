@@ -44,7 +44,7 @@ function createTestConfig(overrides: Partial<ForgeServerConfig> = {}): ForgeServ
     agentStore: new InMemoryAgentStore(),
     eventBus: createEventBus(),
     modelRegistry: new ModelRegistry(),
-    openai: { auth: { enabled: false } },
+    openai: { enabled: true, auth: { enabled: false } },
     ...overrides,
   }
 }
@@ -680,7 +680,7 @@ describe('OpenAI-compatible routes', () => {
       const authedApp = createForgeApp(
         createTestConfig({
           agentStore,
-          openai: { auth: { enabled: true } },
+          openai: { enabled: true, auth: { enabled: true } },
         }),
       )
 
@@ -706,6 +706,7 @@ describe('OpenAI-compatible routes', () => {
         createTestConfig({
           agentStore,
           openai: {
+            enabled: true,
             auth: {
               enabled: true,
               validateKey: async (key) => key === 'test-key-123' ? { userId: 'u1' } : null,
@@ -732,6 +733,7 @@ describe('OpenAI-compatible routes', () => {
         createTestConfig({
           agentStore,
           openai: {
+            enabled: true,
             auth: {
               enabled: true,
               validateKey: async (key) => key === 'test-key-123' ? { userId: 'u1' } : null,
@@ -757,6 +759,7 @@ describe('OpenAI-compatible routes', () => {
         createTestConfig({
           agentStore,
           openai: {
+            enabled: true,
             auth: {
               enabled: true,
               validateKey: async (key) => key === 'test-key-123' ? { userId: 'u1' } : null,
