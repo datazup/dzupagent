@@ -10,6 +10,15 @@
  *   3. semanticResolve — tool/persona ref resolution  (errors: stage 3, halts)
  *   4. routeTarget + lower — emit artifact            (errors: stage 4)
  *
+ * Workflow ownership boundary:
+ *   The flow compiler is the canonical owner of FlowDocument/FlowNode
+ *   authoring semantics and lowering. Adapter-oriented fluent workflows in
+ *   `@dzupagent/agent-adapters` remain a compatibility DSL that shares only
+ *   the `@dzupagent/core` `PipelineDefinition` runtime contract; provider
+ *   routing, prompt templating, adapter retry policy, adapter loop execution,
+ *   adapter parallel merge, and adapter workflow events are not compiler
+ *   semantics.
+ *
  * Since Wave 11 `compile()` is always asynchronous. Sync resolvers pay a
  * single unconditional microtask per compile — a negligible cost relative to
  * parse + shape-validate + lower. See ADR `DECISIONS_WAVE_11.md`.

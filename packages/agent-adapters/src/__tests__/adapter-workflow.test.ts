@@ -3,6 +3,7 @@ import { createEventBus } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 
 import {
+  ADAPTER_WORKFLOW_OWNERSHIP,
   defineWorkflow,
   AdapterWorkflowBuilder,
   AdapterWorkflow,
@@ -215,6 +216,43 @@ describe('AdapterWorkflowBuilder', () => {
     expect(definition.metadata?.['runtime']).toBe('PipelineRuntime')
   })
 
+  it('documents adapter workflow ownership against flow compiler', () => {
+    expect(ADAPTER_WORKFLOW_OWNERSHIP).toMatchObject({
+      owner: 'agent-adapters',
+      canonicalContract: '@dzupagent/core:PipelineDefinition',
+      runtime: '@dzupagent/agent:PipelineRuntime',
+      flowCompilerDependency: 'none',
+    })
+    expect(ADAPTER_WORKFLOW_OWNERSHIP.equivalentConstructs).toEqual([
+      'sequential-step-order',
+      'conditional-branch-targets',
+    ])
+    expect(ADAPTER_WORKFLOW_OWNERSHIP.adapterOwnedConstructs).toEqual(
+      expect.arrayContaining([
+        'provider-routing',
+        'parallel-merge-strategy',
+        'loop-iteration-policy',
+        'adapter-workflow-events',
+      ]),
+    )
+  })
+
+  it('stamps ownership metadata on the shared pipeline contract', () => {
+    const workflow = defineWorkflow({ id: 'ownership-wf' })
+      .step({ id: 'a', prompt: 'Step A' })
+      .build()
+
+    const definition = workflow.toPipelineDefinition()
+    expect(definition.metadata).toMatchObject({
+      source: 'AdapterWorkflowBuilder',
+      runtime: 'PipelineRuntime',
+      workflowOwnership: 'agent-adapters',
+      canonicalContract: '@dzupagent/core:PipelineDefinition',
+      flowCompilerDependency: 'none',
+    })
+    expect(definition.tags).toContain('adapter-workflow-compat')
+  })
+
   it('returns isolated pipeline definition clones', () => {
     const workflow = defineWorkflow({ id: 'clone-wf' })
       .step({ id: 'a', prompt: 'Step A' })
@@ -286,6 +324,80 @@ describe('AdapterWorkflowBuilder', () => {
       expect(nodeIds.has(edge.sourceNodeId)).toBe(true)
       expect(nodeIds.has(edge.targetNodeId)).toBe(true)
     }
+  })
+
+  it('keeps step order and branch targets equivalent at the pipeline edge boundary', () => {
+    const workflow = defineWorkflow({ id: 'edge-contract-wf' })
+      .step({ id: 'first', prompt: 'First' })
+      .step({ id: 'second', prompt: 'Second' })
+      .branch(() => 'left', {
+        left: [{ id: 'left-step', prompt: 'Left' }],
+        right: [{ id: 'right-step', prompt: 'Right' }],
+      })
+      .build()
+
+    const definition = workflow.toPipelineDefinition()
+    const nodeIds = new Set(definition.nodes.map((node) => node.id))
+    const nodeByName = new Map(definition.nodes.map((node) => [node.name, node]))
+    const first = nodeByName.get('linear:first')
+    const second = nodeByName.get('linear:second')
+
+    expect(first).toBeDefined()
+    expect(second).toBeDefined()
+    expect(definition.edges).toContainEqual({
+      type: 'sequential',
+      sourceNodeId: first?.id,
+      targetNodeId: second?.id,
+    })
+
+    const conditional = definition.edges.find((edge) => edge.type === 'conditional')
+    expect(conditional?.type).toBe('conditional')
+    if (!conditional || conditional.type !== 'conditional') {
+      throw new Error('Expected a conditional branch edge')
+    }
+    expect(Object.keys(conditional.branches).sort()).toEqual(['left', 'right'])
+    for (const branchTarget of Object.values(conditional.branches)) {
+      expect(nodeIds.has(branchTarget)).toBe(true)
+    }
+  })
+
+  it('keeps parallel merge, loops, and events as adapter-owned semantics', async () => {
+    const registry = createRegistry([createMockAdapter('claude')])
+    const events: AdapterWorkflowEvent[] = []
+    const workflow = defineWorkflow({ id: 'adapter-owned-wf' })
+      .parallel(
+        [
+          { id: 'one', prompt: 'One' },
+          { id: 'two', prompt: 'Two' },
+        ],
+        'concat',
+      )
+      .loop({
+        id: 'repeat',
+        maxIterations: 1,
+        condition: (state) => state['repeat_iteration'] === undefined,
+        steps: [{ id: 'inside-loop', prompt: 'Loop' }],
+      })
+      .build()
+
+    const definition = workflow.toPipelineDefinition()
+    expect(definition.nodes.every((node) => node.type === 'transform')).toBe(true)
+    expect(definition.nodes.map((node) => node.name)).toEqual(
+      expect.arrayContaining(['parallel', 'loop:repeat']),
+    )
+    expect(definition.nodes.some((node) => ['fork', 'join', 'loop'].includes(node.type))).toBe(false)
+
+    const result = await workflow.run(registry, { onEvent: (event) => events.push(event) })
+    expect(result.success).toBe(true)
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        'parallel:started',
+        'parallel:completed',
+        'step:started',
+        'workflow:completed',
+      ]),
+    )
+    expect(events.some((event) => event.type.startsWith('flow:compile_'))).toBe(false)
   })
 })
 

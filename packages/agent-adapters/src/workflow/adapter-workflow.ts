@@ -5,6 +5,22 @@
  * Supports sequential steps, parallel fan-out, conditional branching,
  * state transforms, per-step retries, and preferred-provider routing.
  *
+ * Ownership model:
+ * - `@dzupagent/flow-compiler` owns FlowDocument/FlowNode parsing,
+ *   semantic resolution, target routing, and graph lowering for authored
+ *   flows.
+ * - `AdapterWorkflowBuilder` owns the provider-oriented compatibility DSL in
+ *   this package. It does not import the flow compiler; its shared contract is
+ *   the `@dzupagent/core` `PipelineDefinition` executed by `PipelineRuntime`.
+ * - Equivalence is guaranteed only at that pipeline contract boundary: step
+ *   order is represented by sequential edges, and branch choices are
+ *   represented by conditional edges whose targets are compiled step nodes.
+ * - Parallel merge, loop iteration, adapter routing, retries, prompt
+ *   templating, and workflow events are intentionally adapter-owned runtime
+ *   semantics. Flow compiler parallel/loop/event semantics are not treated as
+ *   equivalent unless a future migration routes this builder through the
+ *   compiler explicitly.
+ *
  * @example
  * ```ts
  * const workflow = defineWorkflow({ id: 'incident-response' })
@@ -148,6 +164,29 @@ export type AdapterWorkflowEvent =
   | { type: 'workflow:completed'; workflowId: string; durationMs: number; version?: string | undefined }
   | { type: 'step:skipped'; workflowId: string; stepId: string }
   | { type: 'workflow:failed'; workflowId: string; error: string }
+
+/**
+ * Machine-readable statement of workflow ownership. This keeps the boundary
+ * testable without adding a runtime package edge to `@dzupagent/flow-compiler`.
+ */
+export const ADAPTER_WORKFLOW_OWNERSHIP = {
+  owner: 'agent-adapters',
+  canonicalContract: '@dzupagent/core:PipelineDefinition',
+  runtime: '@dzupagent/agent:PipelineRuntime',
+  flowCompilerDependency: 'none',
+  equivalentConstructs: [
+    'sequential-step-order',
+    'conditional-branch-targets',
+  ],
+  adapterOwnedConstructs: [
+    'provider-routing',
+    'prompt-templating',
+    'parallel-merge-strategy',
+    'loop-iteration-policy',
+    'adapter-workflow-events',
+    'retry-and-timeout-policy',
+  ],
+} as const
 
 // ---------------------------------------------------------------------------
 // Internal node types
@@ -790,6 +829,9 @@ function compileAdapterWorkflow(
     metadata: {
       source: 'AdapterWorkflowBuilder',
       runtime: 'PipelineRuntime',
+      workflowOwnership: ADAPTER_WORKFLOW_OWNERSHIP.owner,
+      canonicalContract: ADAPTER_WORKFLOW_OWNERSHIP.canonicalContract,
+      flowCompilerDependency: ADAPTER_WORKFLOW_OWNERSHIP.flowCompilerDependency,
     },
     tags: ['adapter-workflow-compat'],
   }

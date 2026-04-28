@@ -259,7 +259,7 @@ export type {
 } from './guardrails/adapter-guardrails.js'
 
 // --- Workflow DSL ---
-export { AdapterWorkflowBuilder, AdapterWorkflow, defineWorkflow, typedStep } from './workflow/adapter-workflow.js'
+export { ADAPTER_WORKFLOW_OWNERSHIP, AdapterWorkflowBuilder, AdapterWorkflow, defineWorkflow, typedStep } from './workflow/adapter-workflow.js'
 export type {
   AdapterWorkflowConfig,
   AdapterStepConfig,
