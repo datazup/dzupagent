@@ -287,7 +287,16 @@ async function resolveAction(node: ActionNode, path: string, ctx: WalkContext): 
     // The runtime will wire these at execution time, so we never emit
     // UNRESOLVED_TOOL_REF for them when compiling for this target.
     if (ctx.target === 'codev-runtime' && node.toolRef.startsWith('codev.')) {
-      // Mark as externally resolved — no error, no local registry lookup.
+      ctx.resolved.set(path, {
+        ref: node.toolRef,
+        kind: 'skill',
+        inputSchema: {},
+        handle: {
+          ref: node.toolRef,
+          external: true,
+          target: 'codev-runtime',
+        },
+      })
     } else {
       const hit = await resolveToolRef(ctx.toolResolver, node.toolRef, node.type, path, ctx.errors)
       if (hit === INFRA_FAILURE) {

@@ -137,8 +137,16 @@ describe('lowerNodeToPipeline — action', () => {
     expect(result.nodes[0]?.type).toBe('agent')
   })
 
-  it('emits a stub ToolNode with warning when ref is unresolved', () => {
+  it('throws in executable mode when ref is unresolved', () => {
     const ctx = makeCtx()
+    const node = makeAction('skill:unknown')
+    expect(() => lowerNodeToPipeline(node, ctx, 'root')).toThrow(
+      /executable lowering rejects unresolved semantic references/,
+    )
+  })
+
+  it('emits a stub ToolNode with warning in diagnostic mode when ref is unresolved', () => {
+    const ctx = makeCtx({ mode: 'diagnostic' })
     const node = makeAction('skill:unknown')
     const result = lowerNodeToPipeline(node, ctx, 'root')
     expect(result.nodes).toHaveLength(1)
@@ -208,7 +216,7 @@ describe('lowerNodeToPipeline — sequence', () => {
 describe('lowerNodeToPipeline — branch', () => {
   it('produces a GateNode and a conditional edge', () => {
     const ctx = makeCtx()
-    ctx.resolved.set('root.then.nodes[0]', makeSkillRt('skill:a'))
+    ctx.resolved.set('root.then[0]', makeSkillRt('skill:a'))
     const node: FlowNode = {
       type: 'branch',
       condition: 'x > 0',
@@ -223,6 +231,8 @@ describe('lowerNodeToPipeline — branch', () => {
 
   it('includes both then and else nodes when else is present', () => {
     const ctx = makeCtx()
+    ctx.resolved.set('root.then[0]', makeSkillRt('skill:a'))
+    ctx.resolved.set('root.else[0]', makeSkillRt('skill:b'))
     const node: FlowNode = {
       type: 'branch',
       condition: 'flag',
@@ -236,6 +246,7 @@ describe('lowerNodeToPipeline — branch', () => {
 
   it('omits else branch when not present', () => {
     const ctx = makeCtx()
+    ctx.resolved.set('root.then[0]', makeSkillRt('skill:a'))
     const node: FlowNode = {
       type: 'branch',
       condition: 'flag',
@@ -254,6 +265,8 @@ describe('lowerNodeToPipeline — branch', () => {
 describe('lowerNodeToPipeline — parallel', () => {
   it('produces a ForkNode and a JoinNode', () => {
     const ctx = makeCtx()
+    ctx.resolved.set('root.branches[0][0]', makeSkillRt('skill:a'))
+    ctx.resolved.set('root.branches[1][0]', makeSkillRt('skill:b'))
     const node: FlowNode = {
       type: 'parallel',
       branches: [
@@ -270,6 +283,8 @@ describe('lowerNodeToPipeline — parallel', () => {
 
   it('emits sequential edges from fork to each branch entry', () => {
     const ctx = makeCtx()
+    ctx.resolved.set('root.branches[0][0]', makeSkillRt('skill:a'))
+    ctx.resolved.set('root.branches[1][0]', makeSkillRt('skill:b'))
     const node: FlowNode = {
       type: 'parallel',
       branches: [
@@ -339,6 +354,7 @@ describe('lowerNodeToPipeline — complete', () => {
 describe('lowerNodeToPipeline — persona', () => {
   it('produces a SuspendNode and body nodes', () => {
     const ctx = makeCtx()
+    ctx.resolved.set('root.body[0]', makeSkillRt('skill:explain'))
     const node: FlowNode = {
       type: 'persona',
       personaId: 'coach',
@@ -352,6 +368,7 @@ describe('lowerNodeToPipeline — persona', () => {
 
   it('emits warning when persona is not in resolvedPersonas', () => {
     const ctx = makeCtx()
+    ctx.resolved.set('root.body[0]', makeSkillRt('skill:a'))
     const node: FlowNode = {
       type: 'persona',
       personaId: 'expert',
@@ -369,6 +386,7 @@ describe('lowerNodeToPipeline — persona', () => {
 describe('lowerNodeToPipeline — route', () => {
   it('produces a SuspendNode and body nodes', () => {
     const ctx = makeCtx()
+    ctx.resolved.set('root.body[0]', makeSkillRt('skill:run'))
     const node: FlowNode = {
       type: 'route',
       strategy: 'capability',
@@ -399,6 +417,7 @@ describe('lowerNodeToPipeline — for_each', () => {
 
   it('produces a LoopNode when allowForEach=true', () => {
     const ctx = makeCtx({ allowForEach: true })
+    ctx.resolved.set('root.body[0]', makeSkillRt('skill:process'))
     const node: FlowNode = {
       type: 'for_each',
       source: 'items',
@@ -418,6 +437,7 @@ describe('lowerNodeToPipeline — for_each', () => {
 describe('lowerNodeToPipeline — approval', () => {
   it('produces a GateNode of gateType approval', () => {
     const ctx = makeCtx()
+    ctx.resolved.set('root.onApprove[0]', makeSkillRt('skill:proceed'))
     const node: FlowNode = {
       type: 'approval',
       question: 'Proceed?',
@@ -431,6 +451,8 @@ describe('lowerNodeToPipeline — approval', () => {
 
   it('includes both onApprove and onReject branches', () => {
     const ctx = makeCtx()
+    ctx.resolved.set('root.onApprove[0]', makeSkillRt('skill:proceed'))
+    ctx.resolved.set('root.onReject[0]', makeSkillRt('skill:abort'))
     const node: FlowNode = {
       type: 'approval',
       question: 'Proceed?',

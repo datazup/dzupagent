@@ -96,12 +96,12 @@ function makeResolver(skillNames: string[]) {
  * _shared.ts calls lowerSequence with parentPath, then calls
  * lowerNodeToPipeline(child, ctx, `${parentPath}.nodes[${idx}]`).
  * When lowerBranch calls lowerSequence(node.then, ctx, `${path}.then`),
- * actions inside get path `root.then.nodes[0]`, etc.
+ * actions inside get path `root.then[0]`, etc.
  * When lowerParallel calls lowerSequence(branch, ctx, `${path}.branches[${bIdx}]`),
- * actions inside get path `root.branches[0].nodes[0]`, etc.
+ * actions inside get path `root.branches[0][0]`, etc.
  *
  * In the gold-file test the branch is the top-level node (path = 'root'),
- * and the parallel is inside the then-branch (path = 'root.then.nodes[0]').
+ * and the parallel is inside the then-branch (path = 'root.then[0]').
  */
 function buildResolved(
   resolver: ReturnType<typeof makeResolver>,
@@ -159,20 +159,20 @@ describe('lowerPipelineFlat', () => {
      * lowerPipelineFlat calls lowerNodeToPipeline(ast, ctx, 'root')
      *   -> lowerBranch: path='root'
      *     -> lowerSequence(node.then, ctx, 'root.then')
-     *       -> lowerNodeToPipeline(parallel, ctx, 'root.then.nodes[0]')
-     *         -> lowerParallel: path='root.then.nodes[0]'
-     *           -> lowerSequence(branch[0], ctx, 'root.then.nodes[0].branches[0]')
-     *             -> lowerNodeToPipeline(action('svc.alpha'), ctx, 'root.then.nodes[0].branches[0].nodes[0]')
-     *           -> lowerSequence(branch[1], ctx, 'root.then.nodes[0].branches[1]')
-     *             -> lowerNodeToPipeline(action('svc.beta'), ctx, 'root.then.nodes[0].branches[1].nodes[0]')
+     *       -> lowerNodeToPipeline(parallel, ctx, 'root.then[0]')
+     *         -> lowerParallel: path='root.then[0]'
+     *           -> lowerSequence(branch[0], ctx, 'root.then[0].branches[0]')
+     *             -> lowerNodeToPipeline(action('svc.alpha'), ctx, 'root.then[0].branches[0][0]')
+     *           -> lowerSequence(branch[1], ctx, 'root.then[0].branches[1]')
+     *             -> lowerNodeToPipeline(action('svc.beta'), ctx, 'root.then[0].branches[1][0]')
      */
     const resolved = buildResolved(resolver, [
       {
-        nodePath: 'root.then.nodes[0].branches[0].nodes[0]',
+        nodePath: 'root.then[0].branches[0][0]',
         toolRef: 'svc.alpha',
       },
       {
-        nodePath: 'root.then.nodes[0].branches[1].nodes[0]',
+        nodePath: 'root.then[0].branches[1][0]',
         toolRef: 'svc.beta',
       },
     ])
@@ -319,7 +319,19 @@ describe('lowerPipelineFlat', () => {
     ).toThrow(/router-contract violation/)
   })
 
-  it('unresolved action emits warning and stubs a ToolNode', () => {
+  it('unresolved action throws in executable mode', () => {
+    const ast = action('unknown.tool')
+    const resolved = new Map<string, ResolvedTool>()
+
+    expect(() => lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      _idGen: makeIdGen('w'),
+    })).toThrow(/executable lowering rejects unresolved semantic references/)
+  })
+
+  it('unresolved action emits warning and stubs a ToolNode in diagnostic mode', () => {
     const ast = action('unknown.tool')
     const resolved = new Map<string, ResolvedTool>()
 
@@ -328,6 +340,7 @@ describe('lowerPipelineFlat', () => {
       resolved,
       resolvedPersonas: new Map(),
       _idGen: makeIdGen('w'),
+      mode: 'diagnostic',
     })
 
     expect(artifact.nodes).toHaveLength(1)
@@ -357,8 +370,8 @@ describe('lowerPipelineFlat', () => {
     const resolver = makeResolver(['path.yes', 'path.no'])
     const ast = branch('flag', [action('path.yes')], [action('path.no')])
     const resolved = buildResolved(resolver, [
-      { nodePath: 'root.then.nodes[0]', toolRef: 'path.yes' },
-      { nodePath: 'root.else.nodes[0]', toolRef: 'path.no' },
+      { nodePath: 'root.then[0]', toolRef: 'path.yes' },
+      { nodePath: 'root.else[0]', toolRef: 'path.no' },
     ])
 
     const { artifact } = lowerPipelineFlat({

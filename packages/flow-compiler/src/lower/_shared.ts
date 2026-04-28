@@ -53,6 +53,11 @@ export interface LowerPipelineContext {
   resolved: Map<string, ResolvedTool>
   resolvedPersonas: Map<string, string>
   /**
+   * Executable lowering is fail-closed: unresolved semantic references must not
+   * become runtime nodes. Diagnostic lowering keeps best-effort stub emission.
+   */
+  mode?: LoweringMode
+  /**
    * lower-pipeline-flat passes false; lower-pipeline-loop passes true.
    * When false, encountering a for_each node throws a router-contract error.
    */
@@ -79,6 +84,8 @@ export interface LowerPipelineResult {
   edges: PipelineEdge[]
   warnings: string[]
 }
+
+export type LoweringMode = 'executable' | 'diagnostic'
 
 // ---------------------------------------------------------------------------
 // Narrowing helpers — cast ResolvedTool.handle by kind
@@ -131,6 +138,10 @@ export function asAgentHandle(rt: ResolvedTool): AgentHandle {
 
 function freshId(ctx: LowerPipelineContext): string {
   return ctx.idGen !== undefined ? ctx.idGen() : crypto.randomUUID()
+}
+
+function loweringMode(ctx: LowerPipelineContext): LoweringMode {
+  return ctx.mode ?? 'executable'
 }
 
 function seqEdge(sourceNodeId: string, targetNodeId: string): SequentialEdge {
@@ -250,12 +261,20 @@ function lowerSequence(
   ctx: LowerPipelineContext,
   parentPath: string,
 ): LowerPipelineResult {
+  return lowerChildren(children, ctx, (idx) => `${parentPath}.nodes[${idx}]`)
+}
+
+function lowerChildren(
+  children: FlowNode[],
+  ctx: LowerPipelineContext,
+  childPath: (idx: number) => string,
+): LowerPipelineResult {
   if (children.length === 0) {
     return { nodes: [], edges: [], warnings: [] }
   }
 
   const parts: LowerPipelineResult[] = children.map((child, idx) =>
-    lowerNodeToPipeline(child, ctx, `${parentPath}.nodes[${idx}]`),
+    lowerNodeToPipeline(child, ctx, childPath(idx)),
   )
 
   const merged = mergeResults(parts)
@@ -287,10 +306,13 @@ function lowerAction(
   const rt = ctx.resolved.get(path)
 
   if (rt === undefined) {
-    // Semantic stage should have already caught unresolved refs. Emit a warning
-    // and produce a stub ToolNode so downstream lowerers can still proceed.
+    const message = `lower/action: no resolved tool at path '${path}' (toolRef='${node.toolRef}')`
+    if (loweringMode(ctx) === 'executable') {
+      throw new Error(`${message}; executable lowering rejects unresolved semantic references`)
+    }
+
     warnings.push(
-      `lower/action: no resolved tool at path '${path}' (toolRef='${node.toolRef}'); emitting stub`,
+      `${message}; emitting diagnostic stub`,
     )
     const stub: ToolNode = {
       id: freshId(ctx),
@@ -341,7 +363,11 @@ function lowerForEach(
   }
 
   // Lower the body nodes as a sequence
-  const bodyResult = lowerSequence(node.body, ctx, `${path}.body`)
+  const bodyResult = lowerChildren(
+    node.body,
+    ctx,
+    (idx) => `${path}.body[${idx}]`,
+  )
   const bodyNodeIds = bodyResult.nodes.map((n) => n.id)
 
   const loopNode: LoopNode = {
@@ -380,10 +406,14 @@ function lowerBranch(
     condition: node.condition,
   }
 
-  const thenResult = lowerSequence(node.then, ctx, `${path}.then`)
+  const thenResult = lowerChildren(
+    node.then,
+    ctx,
+    (idx) => `${path}.then[${idx}]`,
+  )
   const elseResult =
     node.else !== undefined
-      ? lowerSequence(node.else, ctx, `${path}.else`)
+      ? lowerChildren(node.else, ctx, (idx) => `${path}.else[${idx}]`)
       : { nodes: [], edges: [], warnings: [] }
 
   const thenFirst = thenResult.nodes[0]
@@ -453,7 +483,11 @@ function lowerParallel(
     const branch = node.branches[bIdx]
     if (branch === undefined) continue
 
-    const branchResult = lowerSequence(branch, ctx, `${path}.branches[${bIdx}]`)
+    const branchResult = lowerChildren(
+      branch,
+      ctx,
+      (idx) => `${path}.branches[${bIdx}][${idx}]`,
+    )
     allNodes.push(...branchResult.nodes)
     allEdges.push(...branchResult.edges)
     warnings.push(...branchResult.warnings)
@@ -491,10 +525,18 @@ function lowerApproval(
     condition: node.question,
   }
 
-  const approveResult = lowerSequence(node.onApprove, ctx, `${path}.onApprove`)
+  const approveResult = lowerChildren(
+    node.onApprove,
+    ctx,
+    (idx) => `${path}.onApprove[${idx}]`,
+  )
   const rejectResult =
     node.onReject !== undefined
-      ? lowerSequence(node.onReject, ctx, `${path}.onReject`)
+      ? lowerChildren(
+          node.onReject,
+          ctx,
+          (idx) => `${path}.onReject[${idx}]`,
+        )
       : { nodes: [], edges: [], warnings: [] }
 
   const approveFirst = approveResult.nodes[0]
@@ -569,7 +611,11 @@ function lowerPersona(
     resumeCondition: `persona__${node.personaId}__activated`,
   }
 
-  const bodyResult = lowerSequence(node.body, ctx, `${path}.body`)
+  const bodyResult = lowerChildren(
+    node.body,
+    ctx,
+    (idx) => `${path}.body[${idx}]`,
+  )
   warnings.push(...bodyResult.warnings)
 
   const firstBodyNode = bodyResult.nodes[0]
@@ -604,7 +650,11 @@ function lowerRoute(
     resumeCondition: `route__${node.strategy}__resolved`,
   }
 
-  const bodyResult = lowerSequence(node.body, ctx, `${path}.body`)
+  const bodyResult = lowerChildren(
+    node.body,
+    ctx,
+    (idx) => `${path}.body[${idx}]`,
+  )
   const firstBodyNode = bodyResult.nodes[0]
   const edges: PipelineEdge[] = [...bodyResult.edges]
   if (firstBodyNode !== undefined) {
