@@ -112,6 +112,18 @@ describe('HTTP connector — branch coverage', () => {
     })
   })
 
+  describe('baseUrl validation', () => {
+    it('rejects non-http base URL protocols at connector creation', () => {
+      expect(() => createHTTPConnector({ baseUrl: 'file:///etc/passwd' })).toThrow(
+        'baseUrl protocol must be http or https',
+      )
+    })
+
+    it('rejects invalid base URLs at connector creation', () => {
+      expect(() => createHTTPConnector({ baseUrl: 'not a url' })).toThrow()
+    })
+  })
+
   // -------------------------------------------------------------------------
   // SSRF guard: URL origin enforcement
   // -------------------------------------------------------------------------

@@ -56,8 +56,31 @@ describe('GitExecutor', () => {
     it('accepts custom configuration', () => {
       const executor = new GitExecutor({
         cwd: '/test/repo',
+        allowedRoots: ['/test'],
         timeoutMs: 5000,
         maxBuffer: 1024,
+      })
+      expect(executor).toBeDefined()
+    })
+
+    it('rejects cwd outside configured allowed roots', () => {
+      expect(() => new GitExecutor({
+        cwd: '/etc',
+        allowedRoots: ['/test/repo'],
+      })).toThrow('allowed workspace root')
+    })
+
+    it('rejects traversal outside configured allowed roots', () => {
+      expect(() => new GitExecutor({
+        cwd: '/test/repo/../outside',
+        allowedRoots: ['/test/repo'],
+      })).toThrow('allowed workspace root')
+    })
+
+    it('accepts cwd inside configured allowed roots', () => {
+      const executor = new GitExecutor({
+        cwd: '/test/repo/subdir',
+        allowedRoots: ['/test/repo'],
       })
       expect(executor).toBeDefined()
     })

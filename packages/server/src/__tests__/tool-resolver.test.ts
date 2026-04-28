@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
+import { resolve } from 'node:path'
 import { resolveAgentTools, ToolResolutionError, getToolProfileConfig } from '../runtime/tool-resolver.js'
 import type { ToolProfile, ToolResolverContext, ToolResolverResult } from '../runtime/tool-resolver.js'
 
@@ -354,6 +355,156 @@ describe('tool-resolver', { timeout: 30_000 }, () => {
       const result = await resolveAgentTools({})
       expect(result.tools).toEqual([])
       expect(result.activated).toEqual([])
+    })
+  })
+
+  describe('HTTP connector profiles', () => {
+    it('resolves HTTP connector tools from a server-side profile', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['http_request'],
+        metadata: {
+          httpProfile: 'public-api',
+          httpBaseUrl: 'http://127.0.0.1:1',
+          httpHeaders: { Authorization: 'Bearer unsafe' },
+        },
+        httpConnectorProfiles: {
+          'public-api': {
+            baseUrl: 'https://api.example.com',
+            headers: { Authorization: 'Bearer server-secret' },
+          },
+        },
+        env: {},
+      })
+
+      expect(result.tools.map((t) => t.name)).toContain('http_request')
+      expect(result.unresolved).not.toContain('http_request')
+      expect(result.warnings.some((w) => w.includes('unsafe metadata'))).toBe(false)
+    })
+
+    it('rejects metadata-controlled HTTP base URL and headers by default', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['http_request'],
+        metadata: {
+          httpBaseUrl: 'https://api.example.com',
+          httpHeaders: { Authorization: 'Bearer unsafe' },
+        },
+        env: {},
+      })
+
+      expect(result.tools.map((t) => t.name)).not.toContain('http_request')
+      expect(result.unresolved).toContain('http_request')
+      expect(result.warnings.some((w) => w.includes('Ignoring metadata.httpBaseUrl/httpHeaders'))).toBe(true)
+    })
+
+    it('rejects private HTTP connector origins unless allowlisted by profile', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['http_request'],
+        httpConnectorProfiles: {
+          internal: { baseUrl: 'http://169.254.169.254/latest' },
+        },
+        defaultHttpConnectorProfile: 'internal',
+        env: {},
+      })
+
+      expect(result.tools.map((t) => t.name)).not.toContain('http_request')
+      expect(result.unresolved).toContain('http_request')
+      expect(result.warnings.some((w) => w.includes('private, loopback, or link-local'))).toBe(true)
+    })
+
+    it('allows private HTTP connector origins when explicitly allowlisted by profile', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['http_request'],
+        httpConnectorProfiles: {
+          internal: {
+            baseUrl: 'http://127.0.0.1:8080/api',
+            allowedHosts: ['127.0.0.1:8080'],
+          },
+        },
+        defaultHttpConnectorProfile: 'internal',
+        env: {},
+      })
+
+      expect(result.tools.map((t) => t.name)).toContain('http_request')
+      expect(result.unresolved).not.toContain('http_request')
+    })
+
+    it('supports clearly named unsafe metadata compatibility opt-in', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['http_request'],
+        metadata: {
+          httpBaseUrl: 'https://api.example.com',
+          httpHeaders: { Authorization: 'Bearer unsafe' },
+        },
+        allowUnsafeMetadataHttpConnector: true,
+        env: {},
+      })
+
+      expect(result.tools.map((t) => t.name)).toContain('http_request')
+      expect(result.unresolved).not.toContain('http_request')
+      expect(result.warnings.some((w) => w.includes('unsafe metadata-controlled HTTP connector'))).toBe(true)
+    })
+  })
+
+  describe('Git workspace profiles', () => {
+    it('denies unsafe absolute metadata cwd outside the selected workspace root', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['git_status'],
+        metadata: { cwd: '/etc' },
+        gitWorkspaceProfiles: {
+          default: { root: resolve('/tmp/dzupagent-git-root') },
+        },
+        allowUnsafeMetadataGitCwd: true,
+      })
+
+      expect(result.tools.map((t) => t.name)).not.toContain('git_status')
+      expect(result.unresolved).toContain('git_status')
+      expect(result.warnings.some((w) => w.includes('escapes the selected workspace root'))).toBe(true)
+    })
+
+    it('denies unsafe traversal metadata cwd outside the selected workspace root', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['git_status'],
+        metadata: { cwd: '../outside' },
+        gitWorkspaceProfiles: {
+          default: { root: resolve('/tmp/dzupagent-git-root/project') },
+        },
+        allowUnsafeMetadataGitCwd: true,
+      })
+
+      expect(result.tools.map((t) => t.name)).not.toContain('git_status')
+      expect(result.unresolved).toContain('git_status')
+      expect(result.warnings.some((w) => w.includes('escapes the selected workspace root'))).toBe(true)
+    })
+
+    it('resolves read-only Git tools for an allowed server-side workspace profile', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['git_status', 'git_diff'],
+        metadata: { gitWorkspace: 'repo-a', cwd: '/etc' },
+        gitWorkspaceProfiles: {
+          'repo-a': { root: resolve('/tmp/dzupagent-git-root/repo-a') },
+        },
+      })
+
+      expect(result.tools.map((t) => t.name).sort()).toEqual(['git_diff', 'git_status'])
+      expect(result.unresolved).toEqual([])
+      expect(result.warnings.some((w) => w.includes('Ignoring metadata.cwd'))).toBe(true)
+    })
+
+    it('keeps mutating Git tools present but denied without explicit host policy', async () => {
+      const result = await resolveAgentTools({
+        toolNames: ['git_commit'],
+        gitWorkspaceProfiles: {
+          default: { root: resolve('/tmp/dzupagent-git-root/repo-a') },
+        },
+      })
+
+      const commitTool = result.tools.find((t) => t.name === 'git_commit')
+      expect(commitTool).toBeDefined()
+
+      const raw = await commitTool!.invoke({ message: 'test: denied' })
+      const parsed = JSON.parse(String(raw)) as { policy?: string; success?: boolean }
+      expect(parsed.policy).toBe('git_mutation_denied')
+      expect(parsed.success).toBe(false)
     })
   })
 

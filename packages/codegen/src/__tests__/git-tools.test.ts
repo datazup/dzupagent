@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { formatGitContext, type GitContext } from '../git/git-middleware.js'
+import { createGitBranchTool, createGitCommitTool } from '../git/git-tools.js'
+import type { GitExecutor } from '../git/git-executor.js'
 import {
   transitionState,
   getNextAction,
@@ -49,6 +51,72 @@ describe('formatGitContext', () => {
     expect(output).toContain('feature/add-auth')
     expect(output).toContain('modified src/auth.ts')
     expect(output).toContain('Recent commits')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Git tool policy
+// ---------------------------------------------------------------------------
+
+describe('Git tool policy', () => {
+  function makeExecutor(): GitExecutor {
+    return {
+      add: vi.fn(async () => undefined),
+      addAll: vi.fn(async () => undefined),
+      status: vi.fn(async () => ({
+        branch: 'main',
+        ahead: 0,
+        behind: 0,
+        clean: false,
+        files: [{ path: 'src/a.ts', status: 'modified', staged: true }],
+      })),
+      commit: vi.fn(async () => ({
+        hash: 'abc123',
+        message: 'test: commit',
+        filesChanged: 1,
+      })),
+      listBranches: vi.fn(async () => [{ name: 'main', current: true }]),
+      createBranch: vi.fn(async () => undefined),
+      switchBranch: vi.fn(async () => undefined),
+    } as unknown as GitExecutor
+  }
+
+  it('denies git_commit unless mutating tools are explicitly allowed', async () => {
+    const executor = makeExecutor()
+    const commitTool = createGitCommitTool(executor)
+
+    const raw = await commitTool.invoke({ message: 'test: denied' })
+    const parsed = JSON.parse(String(raw)) as { policy?: string; success?: boolean }
+
+    expect(parsed.policy).toBe('git_mutation_denied')
+    expect(parsed.success).toBe(false)
+    expect(executor.commit).not.toHaveBeenCalled()
+  })
+
+  it('allows git_commit when host policy enables mutations', async () => {
+    const executor = makeExecutor()
+    const commitTool = createGitCommitTool(executor, { allowMutatingTools: true })
+
+    const raw = await commitTool.invoke({ message: 'test: allowed' })
+    const parsed = JSON.parse(String(raw)) as { success?: boolean; hash?: string }
+
+    expect(parsed.success).toBe(true)
+    expect(parsed.hash).toBe('abc123')
+    expect(executor.commit).toHaveBeenCalledWith('test: allowed')
+  })
+
+  it('allows branch listing but denies branch mutation without host policy', async () => {
+    const executor = makeExecutor()
+    const branchTool = createGitBranchTool(executor)
+
+    const listRaw = await branchTool.invoke({ action: 'list' })
+    expect(JSON.parse(String(listRaw))).toEqual([{ name: 'main', current: true }])
+
+    const switchRaw = await branchTool.invoke({ action: 'switch', name: 'feature/a' })
+    const parsed = JSON.parse(String(switchRaw)) as { policy?: string; success?: boolean }
+    expect(parsed.policy).toBe('git_mutation_denied')
+    expect(parsed.success).toBe(false)
+    expect(executor.switchBranch).not.toHaveBeenCalled()
   })
 })
 
