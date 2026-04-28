@@ -1,96 +1,143 @@
+# Code Quality Audit
+
 ## Findings
 
-### CODE-001 - High - Server is accumulating product capability surfaces despite the package boundary
+### CODE-001 - High - Drizzle persistence boundaries repeatedly erase schema types with `any`
 
-Impact: `packages/server` is supposed to remain compatibility, tests, examples, and maintenance-oriented, but it still owns many product-shaped control-plane surfaces. That raises review cost, spreads app concerns across framework server code, and makes future Codev/product behavior harder to isolate from reusable framework primitives.
+Impact: Persistent stores can drift from Drizzle schema contracts without TypeScript catching it. These classes perform writes, reads, and row-to-domain conversion for scheduled jobs, triggers, mailbox DLQ, A2A tasks, and related runtime state, so a column rename, nullable-field change, or row shape mismatch can compile and fail only in runtime paths.
 
-Evidence: The repository guideline says not to add new product features to `packages/server` or `packages/playground`, and explicitly names workspaces, projects, tasks, personas, prompt templates, workflow DSLs, memory policies, multi-tenant filtering, adapter orchestration, and Codev operator UX as app-owned concerns (`AGENTS.md:8`, `AGENTS.md:11`, `AGENTS.md:15`). Current server composition still mounts prompts, personas, presets, marketplace, learning, deploy, evals, triggers, schedules, mailbox, clusters, A2A, OpenAI compatibility, and memory routes from one optional-route layer (`packages/server/src/composition/optional-routes.ts:66`, `packages/server/src/composition/optional-routes.ts:177`, `packages/server/src/composition/optional-routes.ts:189`, `packages/server/src/composition/optional-routes.ts:219`, `packages/server/src/composition/optional-routes.ts:259`). `createForgeApp` advertises this as one aggregate server entrypoint and starts closed-loop subscribers and schedulers in the same composition path (`packages/server/src/app.ts:69`, `packages/server/src/app.ts:93`, `packages/server/src/app.ts:107`, `packages/server/src/app.ts:110`).
+Evidence: `packages/server/src/triggers/trigger-store.ts:87` disables `@typescript-eslint/no-explicit-any` and defines `type AnyDrizzle = any`, then injects it into `DrizzleTriggerStore` at `packages/server/src/triggers/trigger-store.ts:106`. The same pattern exists in `packages/server/src/schedules/schedule-store.ts:86`, `packages/server/src/persistence/drizzle-dlq-store.ts:21`, and `packages/server/src/a2a/drizzle-a2a-task-store.ts:27`. The A2A store even defines a typed `DrizzleA2ADatabase` at `packages/server/src/a2a/drizzle-a2a-task-store.ts:20`, but the constructor still takes `AnyDrizzle` at `packages/server/src/a2a/drizzle-a2a-task-store.ts:60`.
 
-Remediation: Freeze `packages/server` to framework compatibility and maintenance work. For each product-shaped surface, document whether it is a stable framework primitive, a compatibility shim, or a migration candidate to the consuming app. New feature requests for personas, prompts, task orchestration, memory policy, and operator UX should land in the product app or in smaller reusable packages, with server routes acting only as thin adapters.
+Remediation: Replace local `AnyDrizzle` aliases with a shared typed DB interface derived from the repository's Drizzle schema, or with narrow per-store interfaces that model only the operations each store uses. Keep row conversion behind explicit parser/mapper functions and add type-level compile tests for representative store methods.
 
-### CODE-002 - High - Run worker lifecycle logic is concentrated in one large closure with many terminal-state invariants
+### CODE-002 - Medium - Streaming and non-streaming tool execution duplicate the same policy stack
 
-Impact: The run worker owns security scanning, approval, trace lifecycle, context transfer, executor dispatch, quota accounting, reflection, escalation, outcome analysis, context persistence, metrics, cancellation, and error handling in one callback. This is a maintainability risk because small changes in one concern can affect terminal-state transitions, logs, trace completion, or post-run side effects.
+Impact: The agent tool path has two near-parallel implementations for timeout classification, schema extraction, argument validation, lifecycle event emission, stuck detection, and result/error shaping. Any future fix to approval, telemetry, timeout, validation, or governance behavior must be patched twice, which increases regression risk between `generate()` and streaming execution.
 
-Evidence: `startRunWorker` registers one queue callback at `packages/server/src/runtime/run-worker.ts:242`. Inside that callback it resolves trace context (`packages/server/src/runtime/run-worker.ts:250`), applies input guard rejection/redaction (`packages/server/src/runtime/run-worker.ts:294`), starts traces (`packages/server/src/runtime/run-worker.ts:347`), handles approval waits (`packages/server/src/runtime/run-worker.ts:366`), loads cross-intent context (`packages/server/src/runtime/run-worker.ts:422`), executes the run (`packages/server/src/runtime/run-worker.ts:451`), writes terminal completion or halt state (`packages/server/src/runtime/run-worker.ts:512`), records quota usage (`packages/server/src/runtime/run-worker.ts:527`), appends trace output (`packages/server/src/runtime/run-worker.ts:548`), computes reflection and escalation (`packages/server/src/runtime/run-worker.ts:578`, `packages/server/src/runtime/run-worker.ts:665`), invokes outcome analysis (`packages/server/src/runtime/run-worker.ts:725`), saves context (`packages/server/src/runtime/run-worker.ts:771`), and finally handles cancellation/failure (`packages/server/src/runtime/run-worker.ts:833`). The same file is 909 lines according to the current line-count scan, making it one of the server hotspots.
+Evidence: The non-streaming path in `packages/agent/src/agent/tool-loop.ts` defines timeout classification at `packages/agent/src/agent/tool-loop.ts:738`, event emitters starting at `packages/agent/src/agent/tool-loop.ts:751`, approval handling at `packages/agent/src/agent/tool-loop.ts:1134`, parallel execution ordering at `packages/agent/src/agent/tool-loop.ts:1593`, and timeout racing at `packages/agent/src/agent/tool-loop.ts:1643`. The streaming path repeats equivalent helpers in `packages/agent/src/agent/run-engine.ts:500`, `packages/agent/src/agent/run-engine.ts:506`, `packages/agent/src/agent/run-engine.ts:513`, `packages/agent/src/agent/run-engine.ts:521`, and timeout handling at `packages/agent/src/agent/run-engine.ts:722`.
 
-Remediation: Do not do a broad style rewrite. Extract only around stable invariants: input admission, approval gate, trace writer, post-completion enrichment, and failure finalization. Add focused tests before each extraction that assert terminal-state behavior for completed, halted, rejected, cancelled, and failed runs.
+Remediation: Extract a shared tool execution policy module that accepts mode-specific adapters for message construction and event output. Keep a focused parity test that runs the same tool scenarios through streaming and non-streaming execution and asserts identical lifecycle statuses.
 
-### CODE-003 - Medium - Drizzle run trace step indexing is race-prone
+### CODE-003 - Medium - Timeout detection depends on parsing human-readable error messages
 
-Impact: Concurrent `addStep` calls for the same run can read the same `totalSteps` value, insert duplicate `stepIndex` values, and then both write the same incremented total. That corrupts replay ordering and can make paginated trace consumers miss or duplicate steps.
+Impact: Timeout classification is a fragile invariant. If an error message changes, is localized, is wrapped by another layer, or comes from a tool with a similar string, the lifecycle status can silently flip between `timeout` and generic `error`, which affects event consumers and retry/circuit-breaker logic.
 
-Evidence: `DrizzleRunTraceStore.addStep` reads the current trace header row and derives `stepIndex` from `trace.totalSteps` (`packages/server/src/persistence/drizzle-run-trace-store.ts:52`, `packages/server/src/persistence/drizzle-run-trace-store.ts:61`). It then inserts the step and separately updates `runTraces.totalSteps` (`packages/server/src/persistence/drizzle-run-trace-store.ts:62`, `packages/server/src/persistence/drizzle-run-trace-store.ts:72`). There is no transaction, row lock, atomic increment, uniqueness constraint enforcement in this method, or retry on conflict. Existing tests cover sequential indexing for in-memory and Drizzle stores, including `packages/server/src/persistence/__tests__/drizzle-run-trace-store.test.ts:311` and `packages/server/src/__tests__/run-trace-lifecycle.test.ts:352`, but the inspected test search did not show concurrent same-run `addStep` coverage.
+Evidence: `packages/agent/src/agent/tool-loop.ts:738` classifies timeouts with `/timed out after \d+ms/.test(msg)`, while `packages/agent/src/agent/run-engine.ts:506` repeats the same message regex. Both timeout helpers construct the message string themselves at `packages/agent/src/agent/tool-loop.ts:1655` and `packages/agent/src/agent/run-engine.ts:734`, coupling classification to text formatting instead of a typed error.
 
-Remediation: Make trace-step append atomic. Options include a transaction with row-level locking, a database-side increment/returning pattern, or storing steps with a generated sequence and deriving order by insertion metadata. Add a concurrent same-run test that runs `Promise.all` over multiple `addStep` calls and asserts unique contiguous indices.
+Remediation: Introduce a `ToolTimeoutError` or `ForgeError` code for timeout failures and classify by `instanceof` or error code. Keep the message for humans, but make lifecycle status derive from typed metadata.
 
-### CODE-004 - Medium - Compile route has duplicated artifact-persistence logic and hard-coded provider identity
+### CODE-004 - Medium - Several runtime modules are large enough to hide unrelated responsibilities and invariants
 
-Impact: Compile artifacts are persisted through multiple branches with duplicated payload construction. The hard-coded `providerId: 'claude'` makes compile output look provider-specific even when the compiler route is framework-owned and not necessarily backed by Claude. Future changes to compile artifact metadata can drift between JSON and SSE branches.
+Impact: Large files concentrate multiple behaviors, making review and regression testing harder. This is true maintainability risk rather than formatting noise because the largest files mix policy decisions, event emission, state transitions, parsing/validation, and fallback behavior.
 
-Evidence: The in-process SSE branch appends compile artifacts at `packages/server/src/routes/compile.ts:427` and hard-codes `providerId: 'claude'` at `packages/server/src/routes/compile.ts:436`. The JSON branch repeats a similar `appendArtifact` block at `packages/server/src/routes/compile.ts:497` and hard-codes the same provider at `packages/server/src/routes/compile.ts:500`. The tests assert run id, path, action, artifact type, and metadata target in `packages/server/src/routes/__tests__/compile-persistence.test.ts:169` and `packages/server/src/routes/__tests__/compile-persistence.test.ts:290`, but the inspected assertions do not pin or justify provider identity.
+Evidence: Static line counts show `packages/agent/src/agent/tool-loop.ts` at 1,665 lines, `packages/flow-ast/src/validate.ts` at 1,522 lines, `packages/agent-adapters/src/recovery/adapter-recovery.ts` at 1,281 lines, `packages/agent/src/agent/run-engine.ts` at 1,070 lines, and `packages/agent/src/pipeline/pipeline-runtime.ts` at 1,024 lines. In `tool-loop.ts`, the same file owns core loop config (`packages/agent/src/agent/tool-loop.ts:77`), lifecycle event emission (`packages/agent/src/agent/tool-loop.ts:751`), governance/approval handling (`packages/agent/src/agent/tool-loop.ts:1134`), parallel scheduling (`packages/agent/src/agent/tool-loop.ts:1554`), and timeout racing (`packages/agent/src/agent/tool-loop.ts:1643`). In `validate.ts`, the file implements a hand-rolled schema surface and every node validator in one module (`packages/flow-ast/src/validate.ts:1`, `packages/flow-ast/src/validate.ts:510`, `packages/flow-ast/src/validate.ts:554`).
 
-Remediation: Extract a single `persistCompileArtifact` helper that accepts `runId`, `CompileSuccess`, and the run event store. Use a neutral provider/source id such as `dzupagent-compiler` unless a real provider id is supplied by config. Cover both JSON and SSE branches through the helper tests so metadata drift is caught once.
+Remediation: Split by responsibility, not by arbitrary line count. Good first candidates are shared tool lifecycle helpers, timeout/error helpers, flow node validators grouped by node family, and adapter recovery terminal-result builders. Preserve public exports while moving internals behind package-private modules.
 
-### CODE-005 - Medium - Drizzle-backed stores repeatedly erase database type information with `AnyDrizzle`
+### CODE-005 - Medium - Coverage gates do not cover all runtime packages and zero-test detection is package-level only
 
-Impact: Multiple persistence stores accept `any` database clients and then cast rows manually. That weakens the strict TypeScript boundary around schema evolution: renamed columns, nullable changes, and row-shape mismatches will not be caught at compile time in the mapper layer where they matter most.
+Impact: The repo has meaningful quality gates, but they leave blind spots. File-level untested code can accumulate inside packages that have any tests, and packages without `test:coverage` scripts are excluded from the workspace coverage gate entirely.
 
-Evidence: The server composition type exports `AnyDrizzle = any` with a lint suppression (`packages/server/src/composition/types.ts:72`, `packages/server/src/composition/types.ts:75`). The same pattern is repeated in `DrizzleRunTraceStore` (`packages/server/src/persistence/drizzle-run-trace-store.ts:17`, `packages/server/src/persistence/drizzle-run-trace-store.ts:24`), `DrizzleTriggerStore` (`packages/server/src/triggers/trigger-store.ts:87`, `packages/server/src/triggers/trigger-store.ts:106`), and `DrizzleScheduleStore` (`packages/server/src/schedules/schedule-store.ts:86`, `packages/server/src/schedules/schedule-store.ts:103`). The current scan also found the pattern in Drizzle A2A, mailbox, DLQ, cluster, reflection, and deployment history stores.
+Evidence: `scripts/check-runtime-test-inventory.mjs:127` only fails packages whose total test count is zero. A static inventory found 655 production source files without a same-name or nearby `__tests__` match, concentrated in `packages/core` (134), `packages/server` (97), `packages/agent` (91), `packages/codegen` (60), `packages/memory` (36), and `packages/agent-adapters` (36). Examples with no direct test match include `packages/codegen/src/sandbox/e2b-sandbox.ts`, `packages/codegen/src/sandbox/fly-sandbox.ts`, `packages/code-edit-kit/src/atomic-multi-edit.tool.ts`, and `packages/memory/src/sharing/memory-space-manager.ts`. `scripts/check-workspace-coverage.mjs:70` discovers only packages with a `test:coverage` script, and `coverage-thresholds.json:8` tracks a subset explicitly; packages such as `@dzupagent/flow-ast`, `@dzupagent/flow-compiler`, `@dzupagent/app-tools`, and `@dzupagent/code-edit-kit` have normal `test` scripts but no `test:coverage` script (`packages/flow-ast/package.json:17`, `packages/app-tools/package.json:17`, `packages/code-edit-kit/package.json:17`).
 
-Remediation: Introduce a narrow typed DB interface per store or a shared generic store DB alias that preserves the table operations used by Drizzle. Where table schema objects exist, use `typeof table.$inferSelect` for row mappers, as `DrizzleRunTraceStore` partially does for selected row types. Keep one explicit escape hatch only at the composition boundary if full Drizzle client typing would overcouple the public server config.
+Remediation: Add a file-level critical-source inventory for high-risk packages and require explicit waivers for untested runtime files above a complexity threshold. Add `test:coverage` scripts or explicit coverage waivers for runtime packages that currently sit outside the coverage gate.
 
-### CODE-006 - Medium - Plugin registration has no lifecycle cleanup and discovery contains a dead source branch
+### CODE-006 - Medium - Stored memory-sharing records are trusted after shallow shape checks
 
-Impact: Plugin event handlers are registered permanently, so a plugin cannot be unloaded, reloaded, or disposed without leaving subscriptions behind. The discovery model also advertises an `npm` source that current discovery never produces, which is a small dead-contract smell for consumers expecting npm discovery behavior.
+Impact: Shared memory spaces and pending share requests are persisted as generic records and later cast into domain objects. The current guards check only a few top-level fields, so corrupted or older records with malformed participants, requests, permissions, or retention policy can flow into permission checks and writes.
 
-Evidence: `PluginRegistry.register` subscribes each plugin event handler through `this.eventBus.on(...)` but discards the returned unsubscribe function (`packages/core/src/plugin/plugin-registry.ts:43`, `packages/core/src/plugin/plugin-registry.ts:47`). The registry stores plugins by name but exposes only `has`, `listPlugins`, `getMiddleware`, `getHooks`, and `get`; there is no unregister/dispose path in the class (`packages/core/src/plugin/plugin-registry.ts:55`, `packages/core/src/plugin/plugin-registry.ts:59`, `packages/core/src/plugin/plugin-registry.ts:87`). `DiscoveredPlugin.source` includes `'npm'` (`packages/core/src/plugin/plugin-discovery.ts:21`, `packages/core/src/plugin/plugin-discovery.ts:24`), while `discoverPlugins` only pushes `builtin` and `local` sources (`packages/core/src/plugin/plugin-discovery.ts:98`, `packages/core/src/plugin/plugin-discovery.ts:121`). `resolvePluginOrder` indexes by name in a `Map`, so duplicate discovered names collapse to the last entry before sorting (`packages/core/src/plugin/plugin-discovery.ts:142`, `packages/core/src/plugin/plugin-discovery.ts:143`).
+Evidence: `MemorySpaceManager.create` stores a full `SharedMemorySpace` by casting it to `Record<string, unknown>` at `packages/memory/src/sharing/memory-space-manager.ts:121`. `reviewPullRequest` casts the first stored pending record directly to `PendingShareRequest` at `packages/memory/src/sharing/memory-space-manager.ts:302`. The helpers at `packages/memory/src/sharing/memory-space-manager.ts:742` and `packages/memory/src/sharing/memory-space-manager.ts:750` validate only `id`, `name`, `owner`, `request`, and `status`, then `toSpace` and `toPending` cast the full object at `packages/memory/src/sharing/memory-space-manager.ts:746` and `packages/memory/src/sharing/memory-space-manager.ts:754`.
 
-Remediation: Track unsubscribe handles per plugin and add an explicit `unregister` or `dispose` method. Decide whether npm discovery is in scope; if not, remove `'npm'` from the current source union until implemented. Detect duplicate discovered plugin names before `resolvePluginOrder` overwrites them.
+Remediation: Replace shallow predicates with full runtime decoders for `SharedMemorySpace` and `PendingShareRequest`, including participant permissions, request shape, timestamps, and optional policies. Add tests for malformed stored records and backward-compatible migrations.
+
+### CODE-007 - Low - A2A task list says it batch-loads messages but still executes one query per task
+
+Impact: The comment and implementation disagree, and future maintainers may assume list performance has already been addressed. This is a maintainability and scalability trap in a route-facing persistent store.
+
+Evidence: `packages/server/src/a2a/drizzle-a2a-task-store.ts:174` says `Batch-load messages for all tasks`, but the implementation loops over rows and performs a separate `select().from(a2aTaskMessages).where(eq(...))` for each row at `packages/server/src/a2a/drizzle-a2a-task-store.ts:176`.
+
+Remediation: Either implement actual batch loading with an `IN` query grouped by `taskId`, or change the comment and add a limit/justification test so the N+1 behavior is explicit.
+
+### CODE-008 - Low - Flow lowering can continue with stub tool nodes after a missing semantic resolution
+
+Impact: This keeps downstream compilation alive after an invariant violation, but it can also make failures harder to localize because a missing semantic resolution becomes a warning plus a synthetic tool node. That is useful for best-effort diagnostics, but fragile if any caller treats lowered output as executable.
+
+Evidence: `packages/flow-compiler/src/lower/_shared.ts:289` notes that the semantic stage should already have caught unresolved refs, then emits a warning and creates a stub `ToolNode` at `packages/flow-compiler/src/lower/_shared.ts:295`.
+
+Remediation: Make the behavior mode-explicit: diagnostic lowering may emit stubs, executable lowering should fail closed. Add tests that prove unresolved actions cannot reach executable runtime paths unless a caller explicitly requests best-effort output.
+
+### CODE-009 - Low - A generated timestamped Vitest config artifact is checked into the source tree
+
+Impact: The file is not part of the package source contract and embeds an absolute local path. It adds noise to audits and file discovery, and it can confuse tooling that scans package roots for config files.
+
+Evidence: `packages/flow-ast/vitest.config.ts.timestamp-1776633817137-64c36d7a19afd.mjs:1` is a generated JavaScript copy of the Vitest config. It imports Vitest through an absolute file URL at `packages/flow-ast/vitest.config.ts.timestamp-1776633817137-64c36d7a19afd.mjs:2` and carries an inline sourcemap with absolute workspace paths at `packages/flow-ast/vitest.config.ts.timestamp-1776633817137-64c36d7a19afd.mjs:13`.
+
+Remediation: Remove the artifact and add `*.timestamp-*.mjs` or the exact Vitest temporary pattern to `.gitignore` if this can be regenerated by local tooling.
+
+### CODE-010 - Info - Some package test scripts still allow empty suites even where tests now exist
+
+Impact: This is not a current zero-test failure for the inspected packages, but it weakens future regression detection: a bad test glob, moved test directory, or accidental deletion could still exit successfully.
+
+Evidence: `packages/connectors-documents/package.json:17`, `packages/connectors-browser/package.json:17`, `packages/eval-contracts/package.json:17`, and `packages/agent-types/package.json:20` use `vitest run --passWithNoTests`. Current source does contain tests for `connectors-documents` and `connectors-browser`, so this is a guardrail weakness rather than proof of missing tests.
+
+Remediation: Remove `--passWithNoTests` from packages that intentionally maintain tests. Keep it only for truly type-only packages, and document those package-level exceptions in the runtime test inventory denylist or a test-policy file.
+
+### CODE-011 - Info - Root barrel files remain very broad public surfaces
+
+Impact: Broad root exports increase accidental API commitments and make refactors more expensive. This is lower severity because the repo already has a server API surface report, but the current source still exposes many route, persistence, deploy, security, and compatibility internals through package roots.
+
+Evidence: `packages/server/src/index.ts:16` starts route exports and continues through persistence, middleware, queues, deployment, security, and docs until the version export at `packages/server/src/index.ts:536`. `packages/core/src/index.ts:9` similarly aggregates config, errors, events, plugin, LLM, prompt, security, tools, and telemetry exports through `packages/core/src/index.ts:807`. The server package has only the root and `./ops` subpath in `packages/server/package.json:10`, so most public surface remains root-based.
+
+Remediation: Continue moving operational and unstable surfaces behind explicit subpaths, with deprecation windows for root exports. Keep the existing `server-api-surface-report` check as the compatibility ledger, but pair it with an allowlist that distinguishes stable root API from transitional exports.
+
+## Scope Reviewed
+
+Reviewed current source and configuration for the code quality domain in the `dzupagent` Yarn workspace. The review started from `context/repo-snapshot.md` from the prepared audit pack, then selectively inspected source/config files under `packages/*`, root quality scripts, and package manifests.
+
+The review focused on type-unsafety, duplication, complexity hotspots, zero-test and coverage-gate blind spots, dead/stale code artifacts, and fragile invariants. Generated dependency directories and old audit artifacts were not used as evidence for findings. I did not run build, typecheck, lint, tests, or coverage.
+
+## Strengths
+
+The repository has a strong baseline of quality automation: root `verify` chains runtime test inventory, drift checks, domain-boundary checks, terminal tool event guards, build, typecheck, lint, and tests (`package.json:29`). There are also focused scripts for coverage, server API surface tracking, package tiers, capability matrix freshness, and waiver expiry.
+
+The codebase already contains many targeted tests, especially in `packages/server`, `packages/agent`, `packages/agent-adapters`, `packages/codegen`, and connector packages. Several recent hardening decisions are visible in source, including durable `executionRunId` checks, approval gating, memory/context package boundary comments, and server API surface tooling.
+
+The strongest quality pattern is explicit invariant tooling where it exists: `check-terminal-tool-event-guards`, `check-domain-boundaries`, `check-workspace-coverage`, and the package-scoped scripts give future work concrete gates rather than relying only on review discipline.
+
+## Open Questions Or Assumptions
+
+I treated `packages/server` and `packages/playground` as maintenance surfaces per the repository guidance, so server findings are framed as maintenance/code-quality risks rather than invitations to add new product capability there.
+
+The zero-test inventory is a static heuristic based on same-name or nearby test files. It can miss broad integration tests that cover a source file indirectly, so the finding is about guardrail precision and review visibility, not a claim that those files are entirely untested.
+
+No runtime validation was run for this audit. Findings are based on source inspection, package manifests, and static shell inventory only.
+
+## Recommended Next Actions
+
+1. Replace `AnyDrizzle` in the server persistence stores with typed DB interfaces and add compile-level store contract checks.
+2. Extract shared tool execution lifecycle helpers from `tool-loop.ts` and `run-engine.ts`, then add streaming/non-streaming parity tests for timeout, approval, validation, and telemetry cases.
+3. Introduce typed timeout errors and remove message-regex timeout classification.
+4. Extend quality gates with file-level critical-source test inventory and add coverage scripts or explicit waivers for runtime packages outside the current coverage gate.
+5. Remove the timestamped Vitest artifact and tighten ignore rules for generated temporary config files.
 
 ## Finding Manifest
 
 ```json
 {
   "domain": "code quality",
-  "counts": { "critical": 0, "high": 2, "medium": 4, "low": 0, "info": 0 },
+  "counts": { "critical": 0, "high": 1, "medium": 5, "low": 3, "info": 2 },
   "findings": [
-    { "id": "CODE-001", "severity": "high", "title": "Server is accumulating product capability surfaces despite the package boundary", "file": "packages/server/src/composition/optional-routes.ts" },
-    { "id": "CODE-002", "severity": "high", "title": "Run worker lifecycle logic is concentrated in one large closure with many terminal-state invariants", "file": "packages/server/src/runtime/run-worker.ts" },
-    { "id": "CODE-003", "severity": "medium", "title": "Drizzle run trace step indexing is race-prone", "file": "packages/server/src/persistence/drizzle-run-trace-store.ts" },
-    { "id": "CODE-004", "severity": "medium", "title": "Compile route has duplicated artifact-persistence logic and hard-coded provider identity", "file": "packages/server/src/routes/compile.ts" },
-    { "id": "CODE-005", "severity": "medium", "title": "Drizzle-backed stores repeatedly erase database type information with AnyDrizzle", "file": "packages/server/src/composition/types.ts" },
-    { "id": "CODE-006", "severity": "medium", "title": "Plugin registration has no lifecycle cleanup and discovery contains a dead source branch", "file": "packages/core/src/plugin/plugin-registry.ts" }
+    { "id": "CODE-001", "severity": "high", "title": "Drizzle persistence boundaries repeatedly erase schema types with any", "file": "packages/server/src/triggers/trigger-store.ts" },
+    { "id": "CODE-002", "severity": "medium", "title": "Streaming and non-streaming tool execution duplicate the same policy stack", "file": "packages/agent/src/agent/tool-loop.ts" },
+    { "id": "CODE-003", "severity": "medium", "title": "Timeout detection depends on parsing human-readable error messages", "file": "packages/agent/src/agent/tool-loop.ts" },
+    { "id": "CODE-004", "severity": "medium", "title": "Several runtime modules are large enough to hide unrelated responsibilities and invariants", "file": "packages/agent/src/agent/tool-loop.ts" },
+    { "id": "CODE-005", "severity": "medium", "title": "Coverage gates do not cover all runtime packages and zero-test detection is package-level only", "file": "scripts/check-runtime-test-inventory.mjs" },
+    { "id": "CODE-006", "severity": "medium", "title": "Stored memory-sharing records are trusted after shallow shape checks", "file": "packages/memory/src/sharing/memory-space-manager.ts" },
+    { "id": "CODE-007", "severity": "low", "title": "A2A task list says it batch-loads messages but still executes one query per task", "file": "packages/server/src/a2a/drizzle-a2a-task-store.ts" },
+    { "id": "CODE-008", "severity": "low", "title": "Flow lowering can continue with stub tool nodes after a missing semantic resolution", "file": "packages/flow-compiler/src/lower/_shared.ts" },
+    { "id": "CODE-009", "severity": "low", "title": "A generated timestamped Vitest config artifact is checked into the source tree", "file": "packages/flow-ast/vitest.config.ts.timestamp-1776633817137-64c36d7a19afd.mjs" },
+    { "id": "CODE-010", "severity": "info", "title": "Some package test scripts still allow empty suites even where tests now exist", "file": "packages/connectors-documents/package.json" },
+    { "id": "CODE-011", "severity": "info", "title": "Root barrel files remain very broad public surfaces", "file": "packages/server/src/index.ts" }
   ]
 }
 ```
-
-## Scope Reviewed
-
-This is a current-code baseline review for the code quality domain, using the prepared snapshot at `../audit/full-dzupagent-2026-04-27/run-001/codex-prep/context/repo-snapshot.md` as the starting point. I then selectively inspected live source under `packages/server`, `packages/core`, `packages/agent-adapters`, and `packages/flow-ast` to verify concrete findings.
-
-The review focused on maintainability risks called out by the domain brief: type-unsafety, duplication, complexity hotspots, zero-test files/packages, dead code, and fragile invariants. I avoided generated output, dependencies, `audit/`, `out/`, `dist/`, and old audit artifacts. I did not run `yarn build`, `yarn typecheck`, `yarn lint`, `yarn test`, or runtime validation commands for this document.
-
-## Strengths
-
-- The repo has explicit guardrails for package-scoped validation and cross-package gates in `AGENTS.md:36`, including package filters, full `yarn verify`, connector-specific checks, and docs regeneration guidance.
-- The prepared snapshot shows a broad workspace quality surface: `yarn verify`, `verify:strict`, domain-boundary checks, runtime test inventory, package tier checks, server API surface checks, coverage gates, and terminal tool event guards are all wired as root scripts.
-- Server coverage is not shallow. The live tree includes focused tests for route families, WebSocket support, OpenAI compatibility, persistence stores, run lifecycle, compile routes, and service-level behavior under `packages/server/src/__tests__`, `packages/server/src/routes/__tests__`, `packages/server/src/persistence/__tests__`, and adjacent module test folders.
-- Several previously risky subprocess paths are already hardened. `packages/server/src/routes/spawn-compiler-bridge.ts:115` captures child exit code and explicitly buffers `result` frames until a clean exit is observed, which is the right invariant for protocol-driven subprocesses.
-- `packages/flow-ast` is not a true zero-test package even though its tests live under `packages/flow-ast/test` rather than `src/__tests__`; the current package contains parser/validator tests and checkpoint-node tests.
-
-## Open Questions Or Assumptions
-
-- I treated the product feature boundary as authoritative because it is in the repo-local `AGENTS.md` and was included in the task context.
-- I did not classify sparse direct imports as dead code by itself because this monorepo has public package exports, compatibility subpaths, and route/plugin extension surfaces.
-- I did not count `packages/flow-ast` as zero-test despite the snapshot-style `src` inventory because live tests exist under `packages/flow-ast/test`.
-- I did not run the repo's validation suite, so any test status described here is based on source/test inspection only, not a fresh pass/fail result.
-
-## Recommended Next Actions
-
-1. Start with `CODE-003`: make Drizzle trace step appends atomic and add a concurrent same-run test. This is narrow, high-confidence, and protects replay correctness.
-2. Extract compile artifact persistence for `CODE-004`, replacing the hard-coded provider id with a neutral compiler source id and covering JSON/SSE branches through one helper.
-3. Define a `packages/server` product-boundary ledger for `CODE-001`: classify each optional route as stable framework primitive, compatibility shim, or product migration candidate.
-4. When touching run execution next, extract one bounded concern from `run-worker.ts` with terminal-state tests before and after the change.
-5. Replace repeated `AnyDrizzle` aliases incrementally in stores being edited for other work; avoid a cross-repo typing churn pass.
-6. Add plugin unregister/dispose handling before any hot-reload or long-lived plugin-host work.
