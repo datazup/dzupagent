@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 const scriptPath = fileURLToPath(new URL('../check-domain-boundaries.mjs', import.meta.url))
 
-function createRepo({ alphaPackageJson = {}, alphaSource = '' } = {}) {
+function createRepo({ alphaPackageJson = {}, alphaSource = '', packageBoundaryRules = [] } = {}) {
   const repoRoot = mkdtempSync(join(tmpdir(), 'domain-boundaries-'))
   mkdirSync(join(repoRoot, 'config'), { recursive: true })
   mkdirSync(join(repoRoot, 'packages', 'alpha', 'src'), { recursive: true })
@@ -29,6 +29,7 @@ function createRepo({ alphaPackageJson = {}, alphaSource = '' } = {}) {
     join(repoRoot, 'config', 'architecture-boundaries.json'),
     JSON.stringify(
       {
+        packageBoundaryRules,
         layerGraph: {
           layers: [
             { id: 1, name: 'base', packages: ['beta'] },
@@ -63,7 +64,15 @@ function createRepo({ alphaPackageJson = {}, alphaSource = '' } = {}) {
 }
 
 function runDomainBoundaryCheck(repoRoot) {
-  return execFileSync('node', [scriptPath], {
+  return execFileSync(process.execPath, [scriptPath], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+}
+
+function runDomainBoundaryCheckResult(repoRoot) {
+  return spawnSync(process.execPath, [scriptPath], {
     cwd: repoRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -115,6 +124,28 @@ test('ignores scaffold template strings that contain generated imports', () => {
   try {
     assert.doesNotThrow(() => runDomainBoundaryCheck(repoRoot))
   } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test('fails declared forbidden package pairs even when layer rules allow the source import', () => {
+  const allowedRepoRoot = createRepo({
+    alphaPackageJson: { dependencies: { '@dzupagent/beta': '0.2.0' } },
+    alphaSource: "import { thing } from '@dzupagent/beta'\nvoid thing\n",
+  })
+  const repoRoot = createRepo({
+    alphaPackageJson: { dependencies: { '@dzupagent/beta': '0.2.0' } },
+    alphaSource: "import { thing } from '@dzupagent/beta'\nvoid thing\n",
+    packageBoundaryRules: [{ importer: 'alpha', forbidden: ['beta'] }],
+  })
+
+  try {
+    assert.doesNotThrow(() => runDomainBoundaryCheck(allowedRepoRoot))
+    const result = runDomainBoundaryCheckResult(repoRoot)
+    assert.ifError(result.error)
+    assert.notEqual(result.status, 0)
+  } finally {
+    rmSync(allowedRepoRoot, { recursive: true, force: true })
     rmSync(repoRoot, { recursive: true, force: true })
   }
 })
