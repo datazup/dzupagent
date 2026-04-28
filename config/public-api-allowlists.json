@@ -1,0 +1,146 @@
+{
+  "packages": [
+    {
+      "packageName": "@dzupagent/core",
+      "packageDir": "packages/core",
+      "rootIndex": "packages/core/src/index.ts",
+      "stableRoot": [
+        { "match": "prefix", "pattern": "./config/" },
+        { "match": "prefix", "pattern": "./errors/" },
+        { "match": "prefix", "pattern": "./events/" },
+        { "match": "prefix", "pattern": "./hooks/" },
+        { "match": "prefix", "pattern": "./plugin/" },
+        { "match": "prefix", "pattern": "./llm/" },
+        { "match": "prefix", "pattern": "./prompt/" },
+        { "match": "prefix", "pattern": "./security/" },
+        { "match": "prefix", "pattern": "./facades/" },
+        { "match": "exact", "pattern": "<local>:dzupagent_CORE_VERSION" }
+      ],
+      "transitionalRoot": [
+        { "match": "prefix", "pattern": "./context/" },
+        { "match": "prefix", "pattern": "./concurrency/" },
+        { "match": "prefix", "pattern": "./flow/" },
+        { "match": "prefix", "pattern": "./formats/" },
+        { "match": "prefix", "pattern": "./i18n/" },
+        { "match": "prefix", "pattern": "./identity/" },
+        { "match": "prefix", "pattern": "./middleware/" },
+        { "match": "prefix", "pattern": "./persistence/" },
+        { "match": "prefix", "pattern": "./router/" },
+        { "match": "prefix", "pattern": "./streaming/" },
+        { "match": "prefix", "pattern": "./subagent/" },
+        { "match": "prefix", "pattern": "./skills/" },
+        { "match": "prefix", "pattern": "./workflow/" },
+        { "match": "prefix", "pattern": "./agent/" },
+        { "match": "prefix", "pattern": "./mcp/" },
+        { "match": "prefix", "pattern": "./observability/" },
+        { "match": "prefix", "pattern": "./orchestration/" },
+        { "match": "prefix", "pattern": "./output/" },
+        { "match": "prefix", "pattern": "./pipeline/" },
+        { "match": "prefix", "pattern": "./protocol/" },
+        { "match": "prefix", "pattern": "./registry/" },
+        { "match": "prefix", "pattern": "./tools/" },
+        { "match": "prefix", "pattern": "./telemetry/" },
+        { "match": "prefix", "pattern": "./utils/" },
+        { "match": "prefix", "pattern": "./vectordb/" }
+      ],
+      "subpaths": {
+        "./stable": "stable root facade",
+        "./advanced": "transitional broad compatibility facade",
+        "./quick-start": "stable quick-start facade",
+        "./orchestration": "workflow and orchestration facade",
+        "./security": "security facade",
+        "./facades": "namespace facade index"
+      },
+      "migrationWindow": "Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction."
+    },
+    {
+      "packageName": "@dzupagent/agent",
+      "packageDir": "packages/agent",
+      "rootIndex": "packages/agent/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./agent/dzip-agent.js" },
+        { "match": "exact", "pattern": "./agent/agent-factory.js" },
+        { "match": "exact", "pattern": "./agent/agent-types.js" },
+        { "match": "prefix", "pattern": "./workflow/" },
+        { "match": "prefix", "pattern": "./approval/" },
+        { "match": "exact", "pattern": "./guardrails/iteration-budget.js" },
+        { "match": "exact", "pattern": "./guardrails/guardrail-types.js" },
+        { "match": "exact", "pattern": "./tools/create-tool.js" },
+        { "match": "exact", "pattern": "./agent/run-handle-types.js" },
+        { "match": "exact", "pattern": "<local>:dzupagent_AGENT_VERSION" }
+      ],
+      "transitionalRoot": [
+        { "match": "prefix", "pattern": "./agent/" },
+        { "match": "prefix", "pattern": "./guardrails/" },
+        { "match": "prefix", "pattern": "./orchestration/" },
+        { "match": "prefix", "pattern": "./context/" },
+        { "match": "prefix", "pattern": "./tools/" },
+        { "match": "prefix", "pattern": "./streaming/" },
+        { "match": "prefix", "pattern": "./templates/" },
+        { "match": "prefix", "pattern": "./pipeline/" },
+        { "match": "prefix", "pattern": "./security/" },
+        { "match": "prefix", "pattern": "./playground/" },
+        { "match": "prefix", "pattern": "./reflection/" },
+        { "match": "prefix", "pattern": "./recovery/" },
+        { "match": "prefix", "pattern": "./replay/" },
+        { "match": "prefix", "pattern": "./instructions/" },
+        { "match": "prefix", "pattern": "./self-correction/" },
+        { "match": "prefix", "pattern": "./snapshot/" },
+        { "match": "prefix", "pattern": "./structured/" },
+        { "match": "prefix", "pattern": "./presets/" },
+        { "match": "prefix", "pattern": "./skill-chain-executor/" },
+        { "match": "prefix", "pattern": "./cluster/" },
+        { "match": "prefix", "pattern": "./mailbox/" },
+        { "match": "prefix", "pattern": "./observability/" },
+        { "match": "exact", "pattern": "./token-lifecycle-wiring.js" }
+      ],
+      "subpaths": {
+        "./runtime": "agent runtime, run handles, pipeline runtime, and observability",
+        "./workflow": "workflow, orchestration, delegation, and skill-chain execution",
+        "./tools": "tools, approval, guardrails, and tool schema registry",
+        "./compat": "legacy and fast-moving compatibility surface"
+      },
+      "migrationWindow": "Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction."
+    },
+    {
+      "packageName": "@dzupagent/codegen",
+      "packageDir": "packages/codegen",
+      "rootIndex": "packages/codegen/src/index.ts",
+      "stableRoot": [
+        { "match": "prefix", "pattern": "./vfs/" },
+        { "match": "prefix", "pattern": "./generation/" },
+        { "match": "prefix", "pattern": "./git/" },
+        { "match": "exact", "pattern": "<local>:dzupagent_CODEGEN_VERSION" }
+      ],
+      "transitionalRoot": [
+        { "match": "prefix", "pattern": "./sandbox/" },
+        { "match": "prefix", "pattern": "./quality/" },
+        { "match": "prefix", "pattern": "./adaptation/" },
+        { "match": "prefix", "pattern": "./contract/" },
+        { "match": "prefix", "pattern": "./context/" },
+        { "match": "prefix", "pattern": "./pipeline/" },
+        { "match": "prefix", "pattern": "./tools/" },
+        { "match": "prefix", "pattern": "./validation/" },
+        { "match": "prefix", "pattern": "./repomap/" },
+        { "match": "prefix", "pattern": "./chunking/" },
+        { "match": "prefix", "pattern": "./search/" },
+        { "match": "prefix", "pattern": "./guardrails/" },
+        { "match": "prefix", "pattern": "./streaming/" },
+        { "match": "prefix", "pattern": "./workspace/" },
+        { "match": "prefix", "pattern": "./conventions/" },
+        { "match": "prefix", "pattern": "./pr/" },
+        { "match": "prefix", "pattern": "./ci/" },
+        { "match": "prefix", "pattern": "./review/" },
+        { "match": "prefix", "pattern": "./correction/" },
+        { "match": "prefix", "pattern": "./migration/" }
+      ],
+      "subpaths": {
+        "./vfs": "virtual filesystem, snapshots, patches, and workspace filesystem",
+        "./tools": "code editing tools, git helpers, and workspace adapters",
+        "./runtime": "generation, sandbox, pipeline, guardrails, and quality runtime",
+        "./compat": "preview and transitional subsystems"
+      },
+      "migrationWindow": "Root transitional exports remain available through 0.x with migration to vfs/tools/runtime/compat before a future 1.0 root contraction."
+    }
+  ]
+}
