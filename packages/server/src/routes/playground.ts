@@ -20,6 +20,19 @@ import { resolve, extname, sep } from 'node:path'
 export interface PlaygroundRouteConfig {
   /** Absolute path to the built playground dist/ directory */
   distDir: string
+  /** HTML response hardening for the playground SPA. Pass `false` to disable. */
+  securityHeaders?: PlaygroundSecurityHeadersConfig | false
+}
+
+export interface PlaygroundSecurityHeadersConfig {
+  /** Defaults to `DENY`; pass `false` to disable. */
+  xFrameOptions?: string | false
+  /** Defaults to a self-hosted asset CSP with `frame-ancestors 'none'`; pass `false` to disable. */
+  contentSecurityPolicy?: string | false
+  /** Defaults to `nosniff`; pass `false` to disable. */
+  xContentTypeOptions?: string | false
+  /** Defaults to `no-referrer`; pass `false` to disable. */
+  referrerPolicy?: string | false
 }
 
 /** Map file extensions to MIME types */
@@ -59,6 +72,7 @@ function resolveWithinRoot(rootDir: string, ...segments: string[]): string | nul
 
 export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono {
   const app = new Hono()
+  const htmlSecurityHeaders = resolvePlaygroundSecurityHeaders(config.securityHeaders)
 
   /**
    * Resolve a request path to a relative file path within distDir.
@@ -71,11 +85,17 @@ export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono {
       await stat(filePath)
       const content = await readFile(filePath)
       const ext = extname(filePath)
+      const headers = new Headers({
+        'Content-Type': getMimeType(ext),
+        'Cache-Control': cacheControl,
+      })
+      if (ext === '.html') {
+        for (const [name, value] of htmlSecurityHeaders) {
+          headers.set(name, value)
+        }
+      }
       return new Response(content, {
-        headers: {
-          'Content-Type': getMimeType(ext),
-          'Cache-Control': cacheControl,
-        },
+        headers,
       })
     } catch {
       return null
@@ -121,4 +141,24 @@ export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono {
   })
 
   return app
+}
+
+function resolvePlaygroundSecurityHeaders(
+  config?: PlaygroundSecurityHeadersConfig | false,
+): Array<[string, string]> {
+  if (config === false) {
+    return []
+  }
+
+  const headers: Array<[string, string | false | undefined]> = [
+    ['X-Frame-Options', config?.xFrameOptions ?? 'DENY'],
+    [
+      'Content-Security-Policy',
+      config?.contentSecurityPolicy
+        ?? "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'",
+    ],
+    ['X-Content-Type-Options', config?.xContentTypeOptions ?? 'nosniff'],
+    ['Referrer-Policy', config?.referrerPolicy ?? 'no-referrer'],
+  ]
+  return headers.flatMap(([name, value]) => typeof value === 'string' ? [[name, value]] : [])
 }

@@ -39,6 +39,35 @@ describe('playground routes', () => {
     expect(res.headers.get('content-type')).toContain('text/html')
   })
 
+  it('adds clickjacking and CSP protection to HTML responses', async () => {
+    const app = createTestApp()
+    const res = await app.request('/playground/')
+
+    expect(res.headers.get('x-frame-options')).toBe('DENY')
+    expect(res.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
+    expect(res.headers.get('content-security-policy')).toContain("default-src 'self'")
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer')
+  })
+
+  it('allows hosts to override or disable playground HTML security headers', async () => {
+    const app = new Hono()
+    app.route('/playground', createPlaygroundRoutes({
+      distDir: testDir,
+      securityHeaders: {
+        xFrameOptions: false,
+        contentSecurityPolicy: "default-src 'none'",
+        referrerPolicy: 'same-origin',
+      },
+    }))
+
+    const res = await app.request('/playground/')
+
+    expect(res.headers.get('x-frame-options')).toBeNull()
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'")
+    expect(res.headers.get('referrer-policy')).toBe('same-origin')
+  })
+
   it('serves static JS assets with correct MIME and cache headers', async () => {
     const app = createTestApp()
     const res = await app.request('/playground/assets/main.js')

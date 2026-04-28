@@ -45,6 +45,70 @@ describe('composition/middleware', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
+  it('adds safe default security headers without removing CORS headers', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({ corsOrigins: 'https://app.example.com' }))
+    app.get('/api/health', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api/health', {
+      headers: { Origin: 'https://app.example.com' },
+    })
+
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer')
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://app.example.com')
+  })
+
+  it('allows hosts to override and disable individual security headers', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({
+      securityHeaders: {
+        xContentTypeOptions: false,
+        referrerPolicy: 'same-origin',
+        additionalHeaders: {
+          'Permissions-Policy': 'geolocation=()',
+        },
+      },
+    }))
+    app.get('/api/health', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api/health')
+
+    expect(res.headers.get('x-content-type-options')).toBeNull()
+    expect(res.headers.get('referrer-policy')).toBe('same-origin')
+    expect(res.headers.get('permissions-policy')).toBe('geolocation=()')
+  })
+
+  it('allows hosts to disable security headers entirely', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({ securityHeaders: false }))
+    app.get('/api/health', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api/health')
+
+    expect(res.headers.get('x-content-type-options')).toBeNull()
+    expect(res.headers.get('referrer-policy')).toBeNull()
+  })
+
+  it('keeps auth middleware behavior while adding security headers to auth errors', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({
+      auth: {
+        mode: 'api-key',
+        validateKey: async () => null,
+      },
+    }))
+    app.get('/api/runs', (c) => c.json({ runs: [] }))
+
+    const res = await app.request('/api/runs')
+    const body = await res.json() as { error: { code: string } }
+
+    expect(res.status).toBe(401)
+    expect(body.error.code).toBe('UNAUTHORIZED')
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer')
+  })
+
   it('returns 503 from POST /api/runs while shutdown is draining', async () => {
     const shutdown = new GracefulShutdown({
       drainTimeoutMs: 1_000,

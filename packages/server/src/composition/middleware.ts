@@ -3,12 +3,13 @@
  * from `app.ts`:
  *
  *   1. CORS (always; warn on wildcard)
- *   2. Auth (`/api/*`) — when `config.auth` is provided
- *   3. RBAC  (`/api/*`) — chained after auth unless explicitly disabled
- *   4. Rate limiter (`/api/*`) — when `config.rateLimit` is provided
- *   5. Shutdown guard for `POST /api/runs` — when `config.shutdown` is provided
- *   6. Request metrics (all paths) — when `config.metrics` is provided
- *   7. Global `onError` handler (always)
+ *   2. Security headers (all paths) — unless explicitly disabled
+ *   3. Auth (`/api/*`) — when `config.auth` is provided
+ *   4. RBAC  (`/api/*`) — chained after auth unless explicitly disabled
+ *   5. Rate limiter (`/api/*`) — when `config.rateLimit` is provided
+ *   6. Shutdown guard for `POST /api/runs` — when `config.shutdown` is provided
+ *   7. Request metrics (all paths) — when `config.metrics` is provided
+ *   8. Global `onError` handler (always)
  *
  * The function returns the resolved `effectiveAuth` (with `apiKeyStore` wired
  * into the validateKey callback when applicable) so downstream consumers
@@ -17,7 +18,7 @@
 import type { Hono } from 'hono'
 import { cors } from 'hono/cors'
 
-import type { ForgeServerConfig } from './types.js'
+import type { ForgeServerConfig, SecurityHeadersConfig } from './types.js'
 import { authMiddleware, type AuthConfig } from '../middleware/auth.js'
 import { rbacMiddleware, type ForgeRole, type RBACConfig } from '../middleware/rbac.js'
 import { rateLimiterMiddleware } from '../middleware/rate-limiter.js'
@@ -29,6 +30,7 @@ export interface ComposedMiddleware {
 
 export function applyMiddleware(app: Hono, config: ForgeServerConfig): ComposedMiddleware {
   applyCors(app, config)
+  applySecurityHeaders(app, config)
   const effectiveAuth = applyAuthAndRbac(app, config)
   applyRateLimit(app, config)
   applyShutdownGuard(app, config)
@@ -54,6 +56,44 @@ function applyCors(app: Hono, config: ForgeServerConfig): void {
       '[ForgeServer] WARNING: CORS is open to all origins (*). Set corsOrigins in ForgeServerConfig for production deployments.',
     )
   }
+}
+
+function applySecurityHeaders(app: Hono, config: ForgeServerConfig): void {
+  if (config.securityHeaders === false) {
+    return
+  }
+
+  const headers = resolveSecurityHeaders(config.securityHeaders)
+  app.use('*', async (c, next) => {
+    await next()
+    for (const [name, value] of headers) {
+      c.header(name, value)
+    }
+  })
+}
+
+function resolveSecurityHeaders(config?: SecurityHeadersConfig): Array<[string, string]> {
+  const defaults: Array<[string, string | false | undefined]> = [
+    ['X-Content-Type-Options', config?.xContentTypeOptions ?? 'nosniff'],
+    ['Referrer-Policy', config?.referrerPolicy ?? 'no-referrer'],
+    ['X-Frame-Options', config?.xFrameOptions],
+    ['Content-Security-Policy', config?.contentSecurityPolicy],
+  ]
+
+  const headers = new Map<string, string>()
+  for (const [name, value] of defaults) {
+    if (typeof value === 'string') {
+      headers.set(name, value)
+    }
+  }
+  for (const [name, value] of Object.entries(config?.additionalHeaders ?? {})) {
+    if (value === false || value === undefined) {
+      headers.delete(name)
+    } else {
+      headers.set(name, value)
+    }
+  }
+  return [...headers.entries()]
 }
 
 function applyAuthAndRbac(app: Hono, config: ForgeServerConfig): AuthConfig | undefined {
