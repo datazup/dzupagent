@@ -158,7 +158,22 @@ export interface ForgeTransportConfig {
   /** Optional Postgres API key store. When provided alongside auth.mode='api-key', validate is wired automatically. */
   apiKeyStore?: PostgresApiKeyStore
   corsOrigins?: string | string[]
+  /** Safe default HTTP response headers. Pass `false` to disable, or override individual headers. */
+  securityHeaders?: SecurityHeadersConfig | false
   rateLimit?: Partial<RateLimiterConfig>
+}
+
+export interface SecurityHeadersConfig {
+  /** Defaults to `nosniff`; pass `false` to disable. */
+  xContentTypeOptions?: string | false
+  /** Defaults to `no-referrer`; pass `false` to disable. */
+  referrerPolicy?: string | false
+  /** Optional global clickjacking guard for API hosts. */
+  xFrameOptions?: string | false
+  /** Optional global CSP for API hosts. */
+  contentSecurityPolicy?: string | false
+  /** Additional explicit headers; pass `false` to suppress a header from this map. */
+  additionalHeaders?: Record<string, string | false | undefined>
 }
 
 /**
