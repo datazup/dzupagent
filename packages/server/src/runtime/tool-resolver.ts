@@ -14,6 +14,19 @@ export interface ToolProfileConfig {
   description: string
 }
 
+export interface HttpConnectorProfile {
+  /** Server-side base URL for the HTTP connector. */
+  baseUrl: string
+  /** Server-side headers or secret-resolved header values for this profile. */
+  headers?: Record<string, string>
+  /** Optional method allowlist passed to the connector. */
+  allowedMethods?: Array<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'>
+  /** Optional request timeout passed to the connector. */
+  timeoutMs?: number
+  /** Private/loopback/link-local hosts explicitly allowed for this profile. */
+  allowedHosts?: string[]
+}
+
 const TOOL_PROFILE_CONFIGS: Record<ToolProfile, ToolProfileConfig> = {
   default: {
     enabledCategories: ['git'],
@@ -60,6 +73,15 @@ export interface ToolResolverContext {
   toolProfile?: ToolProfile
   metadata?: Record<string, unknown>
   env?: NodeJS.ProcessEnv
+  /** Server-owned HTTP connector profiles keyed by profile name. */
+  httpConnectorProfiles?: Record<string, HttpConnectorProfile>
+  /** Default server-owned HTTP connector profile. Defaults to "default". */
+  defaultHttpConnectorProfile?: string
+  /**
+   * Unsafe compatibility escape hatch for legacy callers that passed
+   * metadata.httpBaseUrl/httpHeaders. Keep false for untrusted runs.
+   */
+  allowUnsafeMetadataHttpConnector?: boolean
 }
 
 export type ToolSource = 'git' | 'connector' | 'mcp' | 'custom'
@@ -118,6 +140,77 @@ function getErrorCode(error: unknown): string | undefined {
   if (typeof error !== 'object' || error === null) return undefined
   const maybeCode = (error as { code?: unknown }).code
   return typeof maybeCode === 'string' ? maybeCode : undefined
+}
+
+function parseCsvSet(value: string | undefined): string[] | undefined {
+  if (!value) return undefined
+  const entries = value.split(',').map((entry) => entry.trim()).filter(Boolean)
+  return entries.length ? entries : undefined
+}
+
+function selectHttpConnectorProfile(context: ToolResolverContext): {
+  profile?: HttpConnectorProfile
+  profileName?: string
+  warnings: string[]
+} {
+  const warnings: string[] = []
+  const profileName = typeof context.metadata?.['httpProfile'] === 'string' && context.metadata['httpProfile'].trim()
+    ? context.metadata['httpProfile'].trim()
+    : context.defaultHttpConnectorProfile ?? 'default'
+
+  const configuredProfile = context.httpConnectorProfiles?.[profileName]
+  if (configuredProfile) {
+    return { profile: configuredProfile, profileName, warnings }
+  }
+
+  if (context.httpConnectorProfiles && Object.keys(context.httpConnectorProfiles).length > 0) {
+    warnings.push(`HTTP connector profile "${profileName}" is not configured.`)
+    return { warnings }
+  }
+
+  const envBaseUrl = context.env?.['DZIP_HTTP_BASE_URL']
+  if (envBaseUrl) {
+    return {
+      profile: {
+        baseUrl: envBaseUrl,
+        allowedHosts: parseCsvSet(context.env?.['DZIP_HTTP_ALLOWED_HOSTS']),
+      },
+      profileName: 'env:DZIP_HTTP_BASE_URL',
+      warnings,
+    }
+  }
+
+  if (context.allowUnsafeMetadataHttpConnector) {
+    const metadataBaseUrl = typeof context.metadata?.['httpBaseUrl'] === 'string'
+      ? context.metadata['httpBaseUrl']
+      : undefined
+    if (metadataBaseUrl) {
+      const headerRecord = context.metadata?.['httpHeaders']
+      const headers = (headerRecord && typeof headerRecord === 'object' && !Array.isArray(headerRecord))
+        ? Object.fromEntries(
+            Object.entries(headerRecord)
+              .filter(([, v]) => typeof v === 'string') as Array<[string, string]>,
+          )
+        : undefined
+
+      warnings.push('Using unsafe metadata-controlled HTTP connector configuration.')
+      return {
+        profile: {
+          baseUrl: metadataBaseUrl,
+          headers,
+          allowedHosts: parseCsvSet(context.env?.['DZIP_HTTP_ALLOWED_HOSTS']),
+        },
+        profileName: 'unsafe-metadata',
+        warnings,
+      }
+    }
+  } else if (context.metadata?.['httpBaseUrl'] || context.metadata?.['httpHeaders']) {
+    warnings.push(
+      'Ignoring metadata.httpBaseUrl/httpHeaders for HTTP connector; configure httpConnectorProfiles or set allowUnsafeMetadataHttpConnector.',
+    )
+  }
+
+  return { warnings }
 }
 
 function isModuleNotFoundError(error: unknown): boolean {
@@ -631,33 +724,48 @@ export async function resolveAgentTools(
   // HTTP connector
   const enabledHttp = pickEnabled(requested, HTTP_TOOL_NAMES, 'http')
   if (enabledHttp.length > 0 && connectors) {
-    const baseUrl = (typeof context.metadata?.['httpBaseUrl'] === 'string' && context.metadata['httpBaseUrl'])
-      || context.env?.['DZIP_HTTP_BASE_URL']
+    const {
+      profile: httpProfile,
+      profileName: httpProfileName,
+      warnings: profileWarnings,
+    } = selectHttpConnectorProfile(context)
+    warnings.push(...profileWarnings)
 
-    if (!baseUrl) {
-      warnings.push('HTTP connector requested but no base URL provided (metadata.httpBaseUrl or DZIP_HTTP_BASE_URL).')
-    } else if (typeof connectors['createHTTPConnector'] === 'function') {
-      const headerRecord = context.metadata?.['httpHeaders']
-      const headers = (headerRecord && typeof headerRecord === 'object' && !Array.isArray(headerRecord))
-        ? Object.fromEntries(
-            Object.entries(headerRecord)
-              .filter(([, v]) => typeof v === 'string') as Array<[string, string]>,
-          )
-        : undefined
-
-      const httpTools = (connectors['createHTTPConnector'] as (
-        cfg: { baseUrl: string; headers?: Record<string, string> },
-      ) => StructuredToolInterface[])({ baseUrl, headers })
-      for (const t of httpTools) {
-        if (enabledHttp.includes(t.name)) {
-          tools.push(t)
-          activated.push({ name: t.name, source: 'connector' })
-          unresolved.delete(t.name)
+    if (!httpProfile) {
+      warnings.push('HTTP connector requested but no server-side HTTP connector profile or DZIP_HTTP_BASE_URL is configured.')
+    } else {
+      const policy = validateMcpHttpEndpoint(
+        httpProfile.baseUrl,
+        'http',
+        { allowedHosts: httpProfile.allowedHosts },
+      )
+      if (!policy.ok) {
+        warnings.push(`HTTP connector profile "${httpProfileName ?? 'unknown'}" rejected: ${policy.reason}`)
+      } else if (typeof connectors['createHTTPConnector'] === 'function') {
+        const httpTools = (connectors['createHTTPConnector'] as (
+          cfg: {
+            baseUrl: string
+            headers?: Record<string, string>
+            allowedMethods?: Array<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'>
+            timeoutMs?: number
+          },
+        ) => StructuredToolInterface[])({
+          baseUrl: httpProfile.baseUrl,
+          headers: httpProfile.headers,
+          allowedMethods: httpProfile.allowedMethods,
+          timeoutMs: httpProfile.timeoutMs,
+        })
+        for (const t of httpTools) {
+          if (enabledHttp.includes(t.name)) {
+            tools.push(t)
+            activated.push({ name: t.name, source: 'connector' })
+            unresolved.delete(t.name)
+          }
         }
+        unresolved.delete('http')
+        unresolved.delete('http:*')
+        unresolved.delete('connector:http')
       }
-      unresolved.delete('http')
-      unresolved.delete('http:*')
-      unresolved.delete('connector:http')
     }
   }
 
