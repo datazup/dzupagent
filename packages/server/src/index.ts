@@ -9,7 +9,7 @@
 
 // --- App ---
 export { createForgeApp } from './app.js'
-export type { ForgeServerConfig, ConsolidationConfig, MailDeliveryConfig } from './app.js'
+export type { ForgeServerConfig, ConsolidationConfig, MailDeliveryConfig, HttpConnectorProfile } from './app.js'
 export type { ServerRoutePlugin } from './route-plugin.js'
 
 // --- Routes ---

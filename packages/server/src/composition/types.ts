@@ -68,7 +68,7 @@ import type { Notifier } from '../notifications/notifier.js'
 import type { MailRateLimiterConfig } from '../notifications/mail-rate-limiter.js'
 import type { PostgresApiKeyStore } from '../persistence/api-key-store.js'
 import type { PlaygroundRouteConfig } from '../routes/playground.js'
-import type { HttpConnectorProfile } from '../runtime/tool-resolver.js'
+import type { GitWorkspaceProfile, HttpConnectorProfile } from '../runtime/tool-resolver.js'
 
 // Drizzle DB clients are opaque at this layer — we intentionally avoid a
 // hard dependency on `drizzle-orm/postgres-js` here.
@@ -217,11 +217,20 @@ export interface ForgeIntegrationsConfig {
   httpConnectorProfiles?: Record<string, HttpConnectorProfile>
   /** Default HTTP connector profile name used by built-in tool resolution. */
   defaultHttpConnectorProfile?: string
+  /** Server-owned Git workspace profiles keyed by profile name. */
+  gitWorkspaceProfiles?: Record<string, GitWorkspaceProfile>
+  /** Default Git workspace profile name used by built-in tool resolution. */
+  defaultGitWorkspaceProfile?: string
   /**
    * Unsafe compatibility escape hatch for legacy run metadata HTTP connector
    * configuration. Keep disabled for untrusted run metadata.
    */
   allowUnsafeMetadataHttpConnector?: boolean
+  /**
+   * Unsafe compatibility escape hatch for legacy metadata.cwd Git tool
+   * selection. The cwd remains root-contained by the selected workspace.
+   */
+  allowUnsafeMetadataGitCwd?: boolean
   skillRegistry?: AdapterSkillRegistry
   coreSkillRegistry?: SkillRegistry
   workflowRegistry?: WorkflowRegistry

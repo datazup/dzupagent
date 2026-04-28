@@ -6,7 +6,7 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { resolve } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 import type {
   GitExecutorConfig,
   GitStatusResult,
@@ -26,6 +26,11 @@ const execFileAsync = promisify(execFile)
 const DEFAULTS = {
   timeoutMs: 30_000,
   maxBuffer: 10 * 1024 * 1024,
+}
+
+function isInsideRoot(path: string, root: string): boolean {
+  const rel = relative(root, path)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +57,10 @@ export class GitExecutor {
 
   constructor(config?: GitExecutorConfig) {
     this.cwd = resolve(config?.cwd ?? process.cwd())
+    const allowedRoots = config?.allowedRoots?.map((root) => resolve(root)) ?? []
+    if (allowedRoots.length > 0 && !allowedRoots.some((root) => isInsideRoot(this.cwd, root))) {
+      throw new Error('Git cwd must be inside an allowed workspace root.')
+    }
     this.timeoutMs = config?.timeoutMs ?? DEFAULTS.timeoutMs
     this.maxBuffer = config?.maxBuffer ?? DEFAULTS.maxBuffer
   }

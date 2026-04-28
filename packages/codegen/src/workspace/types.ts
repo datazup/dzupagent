@@ -39,10 +39,24 @@ export interface WorkspaceOptions {
   }
 }
 
+/** Error thrown when a workspace path would escape its configured root. */
+export class WorkspacePathSecurityError extends Error {
+  constructor(
+    public readonly attemptedPath: string,
+    public readonly workspaceRoot: string,
+  ) {
+    super(
+      `Workspace path rejected: paths must be relative and stay within workspace root "${workspaceRoot}".`,
+    )
+    this.name = 'WorkspacePathSecurityError'
+  }
+}
+
 /**
  * @experimental
  * Unified abstraction over file system operations and command execution.
- * All paths are relative to rootDir unless absolute.
+ * File paths, globs, and command working directories are relative to rootDir.
+ * Absolute paths and traversal outside rootDir are rejected.
  */
 export interface Workspace {
   readonly rootDir: string

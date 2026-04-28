@@ -19,8 +19,20 @@ export interface HTTPConnectorConfig {
   timeoutMs?: number
 }
 
+function parseHttpBaseUrl(baseUrl: string): URL {
+  const parsed = new URL(baseUrl)
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`HTTP connector baseUrl protocol must be http or https, got "${parsed.protocol}".`)
+  }
+  if (!parsed.hostname) {
+    throw new Error('HTTP connector baseUrl host is required.')
+  }
+  return parsed
+}
+
 export function createHTTPConnector(config: HTTPConnectorConfig): DynamicStructuredTool[] {
   const methods = config.allowedMethods ?? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+  const base = parseHttpBaseUrl(config.baseUrl)
 
   return [
     new DynamicStructuredTool({
@@ -37,8 +49,7 @@ export function createHTTPConnector(config: HTTPConnectorConfig): DynamicStructu
           return `Error: Method ${method} not allowed. Allowed: ${methods.join(', ')}`
         }
 
-        const base = new URL(config.baseUrl)
-        const url = new URL(path, config.baseUrl)
+        const url = new URL(path, base)
 
         // Prevent SSRF: reject paths that escape the configured base origin
         if (url.origin !== base.origin) {

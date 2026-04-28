@@ -65,6 +65,8 @@ export interface GitCommitResult {
 export interface GitExecutorConfig {
   /** Working directory (default: process.cwd()) */
   cwd?: string
+  /** Allowed workspace roots. When provided, cwd must resolve inside one of these roots. */
+  allowedRoots?: string[]
   /** Git command timeout in milliseconds (default 30_000) */
   timeoutMs?: number
   /** Maximum output buffer size in bytes (default 10MB) */

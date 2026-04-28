@@ -32,7 +32,19 @@ export function buildRuntimeBootstrap(config: ForgeServerConfig): RuntimeBootstr
 
   const fallbackRunExecutor = createDefaultRunExecutor(config.modelRegistry)
   const effectiveRunExecutor =
-    config.runExecutor ?? createDzupAgentRunExecutor({ fallback: fallbackRunExecutor })
+    config.runExecutor ?? createDzupAgentRunExecutor({
+      fallback: fallbackRunExecutor,
+      ...(config.httpConnectorProfiles ? { httpConnectorProfiles: config.httpConnectorProfiles } : {}),
+      ...(config.defaultHttpConnectorProfile ? { defaultHttpConnectorProfile: config.defaultHttpConnectorProfile } : {}),
+      ...(config.allowUnsafeMetadataHttpConnector !== undefined
+        ? { allowUnsafeMetadataHttpConnector: config.allowUnsafeMetadataHttpConnector }
+        : {}),
+      ...(config.gitWorkspaceProfiles ? { gitWorkspaceProfiles: config.gitWorkspaceProfiles } : {}),
+      ...(config.defaultGitWorkspaceProfile ? { defaultGitWorkspaceProfile: config.defaultGitWorkspaceProfile } : {}),
+      ...(config.allowUnsafeMetadataGitCwd !== undefined
+        ? { allowUnsafeMetadataGitCwd: config.allowUnsafeMetadataGitCwd }
+        : {}),
+    })
 
   const controlPlaneService = new AgentControlPlaneService({
     agentStore: config.agentStore,
