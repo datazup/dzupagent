@@ -109,9 +109,9 @@ export async function maybeWriteBackMemory(
     !config.memoryScope ||
     !content
   ) return
+  const now = Date.now()
+  const key = now.toString()
   try {
-    const now = Date.now()
-    const key = now.toString()
     await config.memory.put(
       config.memoryNamespace,
       config.memoryScope,
@@ -125,7 +125,18 @@ export async function maybeWriteBackMemory(
           : {}),
       },
     )
+    config.eventBus?.emit({
+      type: 'memory:written',
+      namespace: config.memoryNamespace,
+      key,
+    })
   } catch {
+    config.eventBus?.emit({
+      type: 'memory:error',
+      namespace: config.memoryNamespace,
+      key,
+      message: 'Memory write-back failed',
+    })
     // write-back failures are non-fatal
   }
 }

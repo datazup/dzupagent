@@ -5,6 +5,7 @@
  * to MemoryService after a successful generate() / launch() / stream() run.
  */
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
+import { createEventBus, type DzupEvent } from '@dzupagent/core'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
@@ -54,6 +55,36 @@ describe('DzupAgent memory write-back (P9)', () => {
       agentId: 'test-agent',
     })
     expect(typeof (putCall[3] as { timestamp: unknown }).timestamp).toBe('number')
+  })
+
+  it('generate() emits sanitized memory:written metadata after write-back succeeds', async () => {
+    const memory = createMemoryService()
+    const model = createModel('final answer')
+    const eventBus = createEventBus()
+    const events: DzupEvent[] = []
+    eventBus.onAny((event) => events.push(event))
+
+    const agent = new DzupAgent({
+      id: 'event-agent',
+      instructions: 'Base instructions',
+      model: model as never,
+      memory: memory as never,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      eventBus,
+    })
+
+    await agent.generate([new HumanMessage('hello')])
+
+    const written = events.find((event) => event.type === 'memory:written')
+    expect(written).toEqual({
+      type: 'memory:written',
+      namespace: 'facts',
+      key: memory.put.mock.calls[0]![2],
+    })
+    expect(written).not.toHaveProperty('scope')
+    expect(written).not.toHaveProperty('record')
+    expect(written).not.toHaveProperty('text')
   })
 
   it('generate() skips write-back when memoryWriteBack is false', async () => {
@@ -127,6 +158,41 @@ describe('DzupAgent memory write-back (P9)', () => {
     const result = await agent.generate([new HumanMessage('hi')])
     expect(result.content).toBe('still works')
     expect(memory.put).toHaveBeenCalledTimes(1)
+  })
+
+  it('generate() emits sanitized memory:error metadata when write-back fails', async () => {
+    const memory = createMemoryService()
+    memory.put.mockImplementation(async () => {
+      throw new Error('backend leaked final answer')
+    })
+    const model = createModel('still works')
+    const eventBus = createEventBus()
+    const events: DzupEvent[] = []
+    eventBus.onAny((event) => events.push(event))
+
+    const agent = new DzupAgent({
+      id: 'put-throws-event',
+      instructions: 'Base',
+      model: model as never,
+      memory: memory as never,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      eventBus,
+    })
+
+    const result = await agent.generate([new HumanMessage('hi')])
+
+    expect(result.content).toBe('still works')
+    const error = events.find((event) => event.type === 'memory:error')
+    expect(error).toEqual({
+      type: 'memory:error',
+      namespace: 'facts',
+      key: memory.put.mock.calls[0]![2],
+      message: 'Memory write-back failed',
+    })
+    expect(error).not.toHaveProperty('scope')
+    expect(error).not.toHaveProperty('record')
+    expect(error).not.toHaveProperty('text')
   })
 
   it('runInBackground() (via launch()) writes back content', async () => {
