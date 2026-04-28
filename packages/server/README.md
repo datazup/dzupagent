@@ -138,7 +138,69 @@ const app = createForgeApp({
 
 When configured, playground assets are served at `/playground`.
 
-### 4. Add memory routes (optional)
+### 4. Configure HTTP connector profiles
+
+The built-in `http_request` tool uses server-side HTTP connector profiles. Run
+metadata no longer supplies `metadata.httpBaseUrl` or `metadata.httpHeaders` by
+default because run metadata is commonly persisted and may be user-controlled.
+
+```ts
+const app = createForgeApp({
+  ...baseConfig,
+  httpConnectorProfiles: {
+    default: {
+      baseUrl: 'https://api.example.com',
+      headers: { Authorization: `Bearer ${process.env.EXAMPLE_API_TOKEN}` },
+      allowedMethods: ['GET', 'POST'],
+    },
+    internalStatus: {
+      baseUrl: 'http://127.0.0.1:8080/status',
+      allowedHosts: ['127.0.0.1:8080'],
+    },
+  },
+  defaultHttpConnectorProfile: 'default',
+})
+```
+
+Public HTTP and HTTPS origins are accepted by default. Private, loopback, and
+link-local origins must be explicitly listed in the selected profile's
+`allowedHosts`. Legacy metadata-driven HTTP connector configuration is available
+only through `allowUnsafeMetadataHttpConnector: true`; do not enable it for
+untrusted run metadata.
+
+### 5. Configure Git workspace profiles
+
+Built-in Git tools run inside server-selected workspace roots. Run metadata no
+longer controls the Git cwd by default; use `metadata.gitWorkspace` only to pick
+a named server-side profile.
+
+```ts
+const app = createForgeApp({
+  ...baseConfig,
+  gitWorkspaceProfiles: {
+    default: {
+      root: '/srv/dzupagent/workspaces/main-repo',
+    },
+    releaseRepo: {
+      root: '/srv/dzupagent/workspaces/release-repo',
+      allowMutatingTools: true,
+    },
+  },
+  defaultGitWorkspaceProfile: 'default',
+})
+```
+
+Read-only tools such as `git_status`, `git_diff`, and `git_log` remain
+available for configured workspaces. Mutating tools such as `git_commit` and
+branch create/switch return a policy denial unless the selected profile sets
+`allowMutatingTools: true`, which should be wired to the host's approval or
+governance flow.
+
+Legacy `metadata.cwd` compatibility is available only with
+`allowUnsafeMetadataGitCwd: true`, and the requested cwd must still resolve
+inside the selected workspace root. Do not enable it for untrusted run metadata.
+
+### 6. Add memory routes (optional)
 
 ```ts
 const app = createForgeApp({
@@ -152,7 +214,7 @@ This enables:
 - `GET/POST /api/memory/*`
 - `GET /api/memory-browse/*`
 
-### 5. Attach WebSocket upgrades safely
+### 7. Attach WebSocket upgrades safely
 
 `createNodeWsUpgradeHandler` and `createWsServer().attach()` reject upgrades by
 default unless callers provide an explicit request guard, a scope resolver, or a
