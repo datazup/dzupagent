@@ -275,9 +275,9 @@ export interface ToolLoopConfig {
    *
    * When a tool is invoked, the promise returned by `tool.invoke()` is
    * raced against a timer set to the configured value. If the timer fires
-   * first, the call rejects with `Error("Tool \"<name>\" timed out after
-   * <ms>ms")` and the surrounding loop records the failure exactly as it
-   * would for any other tool error (stuck detection, stats, latency
+   * first, the call rejects with `ToolTimeoutError("Tool \"<name>\" timed
+   * out after <ms>ms")` and the surrounding loop records the failure exactly
+   * as it would for any other tool error (stuck detection, stats, latency
    * callback, surfaced in the conversation as a `Tool error` message).
    *
    * Enforces {@link ToolGovernanceConfig.maxExecutionMs} semantics at the
