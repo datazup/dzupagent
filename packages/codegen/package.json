@@ -8,6 +8,22 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./vfs": {
+      "import": "./dist/vfs.js",
+      "types": "./dist/vfs.d.ts"
+    },
+    "./tools": {
+      "import": "./dist/tools.js",
+      "types": "./dist/tools.d.ts"
+    },
+    "./runtime": {
+      "import": "./dist/runtime.js",
+      "types": "./dist/runtime.d.ts"
+    },
+    "./compat": {
+      "import": "./dist/compat.js",
+      "types": "./dist/compat.d.ts"
     }
   },
   "scripts": {

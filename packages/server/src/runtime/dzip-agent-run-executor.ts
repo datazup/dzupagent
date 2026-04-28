@@ -11,6 +11,7 @@ import type { RunExecutor, RunExecutorResult } from './run-worker.js'
 import {
   resolveAgentTools,
   type CustomToolResolver,
+  type ConnectorTokenProfile,
   type GitWorkspaceProfile,
   type HttpConnectorProfile,
   type ToolResolverOptions,
@@ -55,6 +56,14 @@ export interface DzupAgentRunExecutorOptions {
   httpConnectorProfiles?: Record<string, HttpConnectorProfile>
   /** Default HTTP connector profile name. */
   defaultHttpConnectorProfile?: string
+  /** Server-owned GitHub connector token profiles keyed by profile name. */
+  githubConnectorProfiles?: Record<string, ConnectorTokenProfile>
+  /** Default GitHub connector profile name. */
+  defaultGithubConnectorProfile?: string
+  /** Server-owned Slack connector token profiles keyed by profile name. */
+  slackConnectorProfiles?: Record<string, ConnectorTokenProfile>
+  /** Default Slack connector profile name. */
+  defaultSlackConnectorProfile?: string
   /** Server-owned Git workspace profiles keyed by profile name. */
   gitWorkspaceProfiles?: Record<string, GitWorkspaceProfile>
   /** Default Git workspace profile name. */
@@ -120,6 +129,14 @@ export function createDzupAgentRunExecutor(
           ...(options?.httpConnectorProfiles ? { httpConnectorProfiles: options.httpConnectorProfiles } : {}),
           ...(options?.defaultHttpConnectorProfile
             ? { defaultHttpConnectorProfile: options.defaultHttpConnectorProfile }
+            : {}),
+          ...(options?.githubConnectorProfiles ? { githubConnectorProfiles: options.githubConnectorProfiles } : {}),
+          ...(options?.defaultGithubConnectorProfile
+            ? { defaultGithubConnectorProfile: options.defaultGithubConnectorProfile }
+            : {}),
+          ...(options?.slackConnectorProfiles ? { slackConnectorProfiles: options.slackConnectorProfiles } : {}),
+          ...(options?.defaultSlackConnectorProfile
+            ? { defaultSlackConnectorProfile: options.defaultSlackConnectorProfile }
             : {}),
           ...(options?.allowUnsafeMetadataHttpConnector !== undefined
             ? { allowUnsafeMetadataHttpConnector: options.allowUnsafeMetadataHttpConnector }

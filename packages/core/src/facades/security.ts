@@ -33,6 +33,22 @@ export {
 } from '../security/tool-permission-tiers.js'
 
 // ---------------------------------------------------------------------------
+// Outbound URL policy
+// ---------------------------------------------------------------------------
+export {
+  fetchWithOutboundUrlPolicy,
+  isPublicIpAddress,
+  validateOutboundUrl,
+  validateOutboundUrlSyntax,
+} from '../security/outbound-url-policy.js'
+export type {
+  OutboundUrlPolicyResult,
+  OutboundUrlResolvedAddress,
+  OutboundUrlSecurityPolicy,
+  SecureFetchOptions,
+} from '../security/outbound-url-policy.js'
+
+// ---------------------------------------------------------------------------
 // Secrets scanning
 // ---------------------------------------------------------------------------
 export { scanForSecrets, redactSecrets } from '../security/secrets-scanner.js'

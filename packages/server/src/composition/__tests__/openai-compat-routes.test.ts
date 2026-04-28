@@ -24,6 +24,8 @@ function createTestConfig(overrides: Partial<ForgeServerConfig> = {}): ForgeServ
     agentStore: new InMemoryAgentStore(),
     eventBus: createEventBus(),
     modelRegistry: new ModelRegistry(),
+    auth: { mode: 'none' },
+    corsOrigins: 'https://app.example.com',
     ...overrides,
   }
 }

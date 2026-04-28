@@ -24,6 +24,16 @@ export type {
 } from './agent/agent-types.js'
 export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory-profiles.js'
 export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
+export {
+  createAllowlistPermissionPolicy,
+  createProductionToolGovernancePreset,
+  withProductionToolGovernancePreset,
+} from './agent/production-tool-governance-preset.js'
+export type {
+  ProductionToolGovernancePreset,
+  ProductionToolGovernancePresetOptions,
+  ProductionToolPermissionOptions,
+} from './agent/production-tool-governance-preset.js'
 export { runToolLoop } from './agent/tool-loop.js'
 export type { ToolLoopConfig, ToolLoopResult, ToolStat, StopReason } from './agent/tool-loop.js'
 export {
@@ -207,7 +217,13 @@ export type {
 
 // --- Approval ---
 export { ApprovalGate } from './approval/approval-gate.js'
-export type { ApprovalConfig, ApprovalMode, ApprovalResult } from './approval/approval-types.js'
+export {
+  DEFAULT_APPROVAL_TIMEOUT_MS,
+  type ApprovalConfig,
+  type ApprovalMode,
+  type ApprovalResult,
+  type ApprovalWaitOptions,
+} from './approval/approval-types.js'
 
 // --- Tool Registry ---
 export { DynamicToolRegistry } from './agent/tool-registry.js'

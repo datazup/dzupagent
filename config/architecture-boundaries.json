@@ -67,6 +67,91 @@
       "packageName": "textflow-rag"
     }
   ],
+  "serverRouteBoundaries": {
+    "description": "packages/server route files are frozen as framework/runtime compatibility infrastructure. New product-control-plane routes belong in consuming apps and should integrate through ServerRoutePlugin or app-owned Hono composition instead of expanding packages/server.",
+    "routeFileClassifications": {
+      "framework-primitive": {
+        "rationale": "Generic DzupAgent runtime primitives that framework hosts can reuse across products.",
+        "files": [
+          "packages/server/src/routes/agents.ts",
+          "packages/server/src/routes/analytics-handler.ts",
+          "packages/server/src/routes/api-keys.ts",
+          "packages/server/src/routes/approval.ts",
+          "packages/server/src/routes/approvals.ts",
+          "packages/server/src/routes/capabilities.ts",
+          "packages/server/src/routes/enrichment-metrics.ts",
+          "packages/server/src/routes/events.ts",
+          "packages/server/src/routes/health.ts",
+          "packages/server/src/routes/human-contact.ts",
+          "packages/server/src/routes/memory-browse.ts",
+          "packages/server/src/routes/memory-health.ts",
+          "packages/server/src/routes/memory-sync.ts",
+          "packages/server/src/routes/memory-tenant-scope.ts",
+          "packages/server/src/routes/memory.ts",
+          "packages/server/src/routes/metrics.ts",
+          "packages/server/src/routes/registry.ts",
+          "packages/server/src/routes/routing-stats.ts",
+          "packages/server/src/routes/run-context.ts",
+          "packages/server/src/routes/run-guard.ts",
+          "packages/server/src/routes/run-trace.ts",
+          "packages/server/src/routes/runs.ts",
+          "packages/server/src/routes/schemas.ts"
+        ]
+      },
+      "compatibility-maintenance": {
+        "rationale": "Existing optional or compatibility route surfaces kept source-compatible for framework hosts; not the forward path for new product features.",
+        "files": [
+          "packages/server/src/routes/a2a.ts",
+          "packages/server/src/routes/a2a/helpers.ts",
+          "packages/server/src/routes/a2a/index.ts",
+          "packages/server/src/routes/a2a/jsonrpc-handlers.ts",
+          "packages/server/src/routes/a2a/jsonrpc-route.ts",
+          "packages/server/src/routes/a2a/message-routes.ts",
+          "packages/server/src/routes/a2a/task-routes.ts",
+          "packages/server/src/routes/a2a/well-known.ts",
+          "packages/server/src/routes/benchmarks.ts",
+          "packages/server/src/routes/clusters.ts",
+          "packages/server/src/routes/deploy.ts",
+          "packages/server/src/routes/evals.ts",
+          "packages/server/src/routes/learning.ts",
+          "packages/server/src/routes/mailbox.ts",
+          "packages/server/src/routes/marketplace.ts",
+          "packages/server/src/routes/openai-compat/auth-middleware.ts",
+          "packages/server/src/routes/openai-compat/completion-mapper.ts",
+          "packages/server/src/routes/openai-compat/completions.ts",
+          "packages/server/src/routes/openai-compat/index.ts",
+          "packages/server/src/routes/openai-compat/models-route.ts",
+          "packages/server/src/routes/openai-compat/request-mapper.ts",
+          "packages/server/src/routes/openai-compat/types.ts",
+          "packages/server/src/routes/personas.ts",
+          "packages/server/src/routes/playground.ts",
+          "packages/server/src/routes/presets.ts",
+          "packages/server/src/routes/prompts.ts",
+          "packages/server/src/routes/reflections.ts",
+          "packages/server/src/routes/schedules.ts",
+          "packages/server/src/routes/triggers.ts"
+        ]
+      },
+      "route-plugin-host-seam": {
+        "rationale": "Route families mounted through server plugin seams or app-selected framework capabilities; consuming apps own product-specific route composition.",
+        "files": [
+          "packages/server/src/routes/compile-input.ts",
+          "packages/server/src/routes/compile-result-event.ts",
+          "packages/server/src/routes/compile.ts",
+          "packages/server/src/routes/mcp.ts",
+          "packages/server/src/routes/skills.ts",
+          "packages/server/src/routes/spawn-compiler-bridge.ts",
+          "packages/server/src/routes/workflows.ts"
+        ]
+      },
+      "internal-support": {
+        "rationale": "Shared route support modules that do not create product-control-plane endpoints by themselves.",
+        "files": [
+          "packages/server/src/routes/route-error.ts"
+        ]
+      }
+    }
+  },
   "layerGraph": {
     "description": "Directed acyclic layer graph for @dzupagent packages. Each package is assigned exactly one layer. A package may only depend on packages in lower-numbered layers (or share a layer for sibling type-only contracts). Tier metadata for each package lives in config/package-tiers.json — do not duplicate it here.",
     "layers": [

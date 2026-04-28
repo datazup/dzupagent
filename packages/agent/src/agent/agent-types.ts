@@ -269,6 +269,42 @@ export interface DzupAgentConfig {
    * `SafetyMonitor` instance via either field.
    */
   toolExecution?: ToolExecutionConfig
+
+  /**
+   * Opt-in run-level provider retry/failover policy.
+   *
+   * This is intentionally distinct from `ModelRegistry.getModelWithFallback`,
+   * which only chooses an initial provider before a run starts. When enabled
+   * for a tier-based model, transient invocation failures can be retried on
+   * another selectable provider from the registry's fallback chain.
+   *
+   * Retries after tool results are blocked by default because the previous
+   * phase may have executed side-effecting tools. Set
+   * `allowRetryAfterToolResults` only for hosts that can prove the phase is
+   * idempotent or otherwise retry-safe.
+   */
+  providerFailover?: ProviderFailoverPolicy
+}
+
+/** Explicit run-level provider retry/failover policy. */
+export interface ProviderFailoverPolicy {
+  /** Enable invocation-time retry/failover. Defaults to false. */
+  enabled?: boolean
+  /**
+   * Maximum provider attempts for one model turn. Defaults to 2 when enabled.
+   * The value is capped by the number of selectable providers.
+   */
+  maxAttempts?: number
+  /**
+   * Retry after tool results are already present in the transcript.
+   * Defaults to false to avoid duplicating side-effecting tool work.
+   */
+  allowRetryAfterToolResults?: boolean
+  /**
+   * Optional retry classifier. Defaults to the core transient-error detector.
+   * Return false to surface the error without trying another provider.
+   */
+  shouldRetry?: (error: Error) => boolean
 }
 
 /**
@@ -306,7 +342,9 @@ export type ToolTracer = ToolLoopTracer
  *
  * Each field is optional; omitting any field preserves the legacy default.
  * The bundle is passed through to {@link ToolLoopConfig} during
- * `generate()` / `stream()` execution.
+ * `generate()` / `stream()` execution and is enforced by the internal
+ * policy-enabled tool execution stage. That keeps scheduling/model-turn
+ * kernels narrow while preserving the public `DzupAgent` config surface.
  */
 export interface ToolExecutionConfig {
   /**

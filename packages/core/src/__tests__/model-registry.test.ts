@@ -414,6 +414,22 @@ describe('ModelRegistry', () => {
     expect(result.provider).toBe('anthropic')
   })
 
+  it('exposes selectable provider candidates for explicit run-level failover', () => {
+    registry.addProvider(makeProvider({ provider: 'anthropic', priority: 1 }))
+    registry.addProvider(makeProvider({ provider: 'openai', priority: 2, apiKey: 'oai' }))
+
+    const candidates = registry.getModelFallbackCandidates('chat')
+
+    expect(candidates.map(candidate => ({
+      provider: candidate.provider,
+      modelName: candidate.modelName,
+      modelProvider: (candidate.model as unknown as Record<string, unknown>)['_provider'],
+    }))).toEqual([
+      { provider: 'anthropic', modelName: 'claude-haiku', modelProvider: 'anthropic' },
+      { provider: 'openai', modelName: 'claude-haiku', modelProvider: 'openai' },
+    ])
+  })
+
   it('throws ForgeError when all providers are exhausted', () => {
     // No providers at all
     expect(() => registry.getModelWithFallback('chat')).toThrow(ForgeError)

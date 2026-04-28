@@ -37,6 +37,10 @@ import {
 } from '@dzupagent/agent'
 import { streamRunHandleToSSE } from '../streaming/sse-streaming-adapter.js'
 import { RunCreateSchema, parseIntBounded, validateBodyCompat } from './schemas.js'
+import {
+  sanitizeRunForResponse,
+  sanitizeRunMetadataForPersistence,
+} from '../security/run-metadata-secrets.js'
 
 // ---------------------------------------------------------------------------
 // Owner-scope helpers
@@ -232,7 +236,8 @@ export async function handleCreateRun(
     }
   }
 
-  const mergedMetadata: Record<string, unknown> = { ...(body.metadata ?? {}), ...routingMetadata }
+  const sanitizedRequestMetadata = sanitizeRunMetadataForPersistence(body.metadata) ?? {}
+  const mergedMetadata: Record<string, unknown> = { ...sanitizedRequestMetadata, ...routingMetadata }
 
   // MC-S01: project the per-key `maxTokensPerRun` onto `guardrails.maxTokens`
   // so the executor enforces the same ceiling that the quota admission
@@ -288,7 +293,7 @@ export async function handleCreateRun(
       }, 503)
     }
 
-    const metadata = body.metadata ?? {}
+    const metadata = run.metadata ?? {}
     const priorityRaw = typeof metadata['priority'] === 'number' ? metadata['priority'] : 5
     const priority = Number.isFinite(priorityRaw) ? Math.max(0, Math.floor(priorityRaw)) : 5
 
@@ -307,12 +312,12 @@ export async function handleCreateRun(
       data: { jobId: job.id, priority },
     })
 
-    return c.json({ data: run, queue: { accepted: true, jobId: job.id, priority } }, 202)
+    return c.json({ data: sanitizeRunForResponse(run), queue: { accepted: true, jobId: job.id, priority } }, 202)
   }
 
   eventBus.emit({ type: 'agent:started', agentId: run.agentId, runId: run.id })
 
-  return c.json({ data: run }, 201)
+  return c.json({ data: sanitizeRunForResponse(run) }, 201)
 }
 
 /** GET /api/runs — paginated list with owner-scoped filter. */
@@ -369,7 +374,7 @@ export async function handleListRuns(
       })
     : visible.length
 
-  return c.json({ data: visible, count: visible.length, total })
+  return c.json({ data: visible.map(sanitizeRunForResponse), count: visible.length, total })
 }
 
 /** GET /api/runs/:id — fetch a single owned run. */
@@ -379,7 +384,7 @@ export async function handleGetRun(
 ): Promise<Response> {
   const run = await loadOwnedRun(c, config)
   if (run instanceof Response) return run
-  return c.json({ data: run })
+  return c.json({ data: sanitizeRunForResponse(run) })
 }
 
 /** POST /api/runs/:id/cancel — abort a running/queued run. */
@@ -405,7 +410,7 @@ export async function handleCancelRun(
   await runStore.update(run.id, { status: 'cancelled', completedAt: new Date() })
   eventBus.emit({ type: 'agent:failed', agentId: run.agentId, runId: run.id, errorCode: 'AGENT_ABORTED', message: 'Cancelled by user' })
 
-  return c.json({ data: { ...run, status: 'cancelled' } })
+  return c.json({ data: sanitizeRunForResponse({ ...run, status: 'cancelled' }) })
 }
 
 /** POST /api/runs/:id/pause — cooperatively pause a run. */
@@ -555,7 +560,7 @@ export async function handleResumeRun(
     const priority = Number.isFinite(priorityRaw) ? Math.max(0, Math.floor(priorityRaw)) : 5
 
     const resumedMetadata: Record<string, unknown> = {
-      ...(run.metadata ?? {}),
+      ...(sanitizeRunMetadataForPersistence(run.metadata ?? undefined) ?? {}),
       _resume: {
         ...(resumeToken !== undefined ? { resumeToken } : {}),
         ...(checkpoint !== undefined ? { checkpoint } : {}),

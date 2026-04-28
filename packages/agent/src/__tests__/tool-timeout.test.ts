@@ -46,6 +46,37 @@ function fastTool(name: string, result = 'ok'): StructuredToolInterface {
   } as unknown as StructuredToolInterface
 }
 
+function cancellableTool(
+  name: string,
+  onAbort: (signal: AbortSignal) => void,
+): StructuredToolInterface {
+  return {
+    name,
+    description: `Cancellable ${name}`,
+    schema: {} as never,
+    lc_namespace: [] as string[],
+    invoke: vi.fn(async (
+      _args: Record<string, unknown>,
+      config?: { signal?: AbortSignal },
+    ) => {
+      const signal = config?.signal
+      if (!signal) {
+        throw new Error('missing AbortSignal')
+      }
+      if (signal.aborted) {
+        onAbort(signal)
+        throw signal.reason
+      }
+      await new Promise<never>((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          onAbort(signal)
+          reject(signal.reason)
+        }, { once: true })
+      })
+    }),
+  } as unknown as StructuredToolInterface
+}
+
 /** Build an AIMessage carrying tool_calls. */
 function aiWithToolCalls(
   calls: Array<{ name: string; args: Record<string, unknown> }>,
@@ -155,6 +186,35 @@ describe('ToolLoopConfig.toolTimeouts (sequential path)', () => {
       m => m._getType() === 'tool' && m.content === 'finished',
     )
     expect(toolMsg).toBeDefined()
+  })
+
+  it('passes an AbortSignal and aborts it before surfacing timeout', async () => {
+    const onAbort = vi.fn()
+    const tool = cancellableTool('cancellableSlow', onAbort)
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'cancellableSlow', args: {} }]),
+      new AIMessage('Handled'),
+    ])
+
+    const result = await runToolLoop(
+      model,
+      [new HumanMessage('run')],
+      [tool],
+      {
+        maxIterations: 5,
+        toolTimeouts: { cancellableSlow: 5 },
+      },
+    )
+
+    expect(onAbort).toHaveBeenCalledTimes(1)
+    const abortedSignal = onAbort.mock.calls[0]?.[0] as AbortSignal | undefined
+    expect(abortedSignal?.aborted).toBe(true)
+    expect(abortedSignal?.reason).toBeInstanceOf(ToolTimeoutError)
+    expect(result.messages.some(
+      m => m._getType() === 'tool'
+        && typeof m.content === 'string'
+        && m.content.includes('Tool "cancellableSlow" timed out after 5ms'),
+    )).toBe(true)
   })
 })
 

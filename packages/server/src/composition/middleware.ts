@@ -2,7 +2,7 @@
  * Middleware composition for the Hono app. Encapsulates the legacy ordering
  * from `app.ts`:
  *
- *   1. CORS (always; warn on wildcard)
+ *   1. CORS (only when explicitly configured)
  *   2. Security headers (all paths) — unless explicitly disabled
  *   3. Auth (`/api/*`) — when `config.auth` is provided
  *   4. RBAC  (`/api/*`) — chained after auth unless explicitly disabled
@@ -28,6 +28,30 @@ export interface ComposedMiddleware {
   effectiveAuth: AuthConfig | undefined
 }
 
+const FRAMEWORK_API_AUTH_WARNING =
+  '[ForgeServer] WARNING: Framework /api/* routes are running without authentication. Set auth.mode="api-key" for production, or auth.mode="none" only for local development or legacy compatibility.'
+
+const PRODUCTION_FRAMEWORK_API_AUTH_ERROR =
+  '[ForgeServer] Refusing to start production framework /api/* routes without explicit auth. Configure auth: { mode: "api-key", ... } for production, or auth: { mode: "none" } only for an intentional development/compatibility opt-out.'
+
+const WILDCARD_CORS_WARNING =
+  '[ForgeServer] WARNING: CORS is open to all origins (*). This is intended only for local development or legacy compatibility.'
+
+const WILDCARD_CORS_ERROR =
+  '[ForgeServer] Refusing wildcard CORS in production without allowWildcardCors=true. Configure corsOrigins with an explicit allow-list, disable CORS by omitting corsOrigins, or opt into compatibility with allowWildcardCors.'
+
+export function assertExplicitFrameworkApiAuth(config: ForgeServerConfig): void {
+  if (config.auth) {
+    return
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(PRODUCTION_FRAMEWORK_API_AUTH_ERROR)
+  }
+
+  console.warn(FRAMEWORK_API_AUTH_WARNING)
+}
+
 export function applyMiddleware(app: Hono, config: ForgeServerConfig): ComposedMiddleware {
   applyCors(app, config)
   applySecurityHeaders(app, config)
@@ -41,21 +65,42 @@ export function applyMiddleware(app: Hono, config: ForgeServerConfig): ComposedM
 }
 
 function applyCors(app: Hono, config: ForgeServerConfig): void {
+  const origin = resolveCorsOrigin(config)
+  if (!origin) {
+    return
+  }
+
   app.use('*', cors({
-    origin: config.corsOrigins ?? '*',
+    origin,
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
   }))
 
-  // Warn operators when CORS is left wide open. We keep the permissive
-  // default for backwards compatibility but flag it so production
-  // deployments set an explicit allow-list via `corsOrigins`.
-  const corsValue = config.corsOrigins ?? '*'
-  if (corsValue === '*' || !config.corsOrigins) {
-    console.warn(
-      '[ForgeServer] WARNING: CORS is open to all origins (*). Set corsOrigins in ForgeServerConfig for production deployments.',
-    )
+  if (isWildcardCorsOrigin(origin)) {
+    console.warn(WILDCARD_CORS_WARNING)
   }
+}
+
+function resolveCorsOrigin(config: ForgeServerConfig): string | string[] | undefined {
+  const origin = config.corsOrigins ?? (config.allowWildcardCors ? '*' : undefined)
+  if (!origin) {
+    return undefined
+  }
+
+  const origins = Array.isArray(origin) ? origin : [origin]
+  const hasWildcard = origins.includes('*')
+  if (hasWildcard && process.env.NODE_ENV === 'production' && !config.allowWildcardCors) {
+    throw new Error(WILDCARD_CORS_ERROR)
+  }
+  if (hasWildcard && origins.length > 1) {
+    throw new Error('[ForgeServer] Invalid CORS configuration: wildcard (*) cannot be combined with explicit origins.')
+  }
+
+  return origin
+}
+
+function isWildcardCorsOrigin(origin: string | string[]): boolean {
+  return Array.isArray(origin) ? origin.includes('*') : origin === '*'
 }
 
 function applySecurityHeaders(app: Hono, config: ForgeServerConfig): void {
@@ -99,6 +144,10 @@ function resolveSecurityHeaders(config?: SecurityHeadersConfig): Array<[string, 
 function applyAuthAndRbac(app: Hono, config: ForgeServerConfig): AuthConfig | undefined {
   if (!config.auth) {
     return undefined
+  }
+
+  if (config.auth.mode === 'none') {
+    console.warn(FRAMEWORK_API_AUTH_WARNING)
   }
 
   let effectiveAuth: AuthConfig = config.auth

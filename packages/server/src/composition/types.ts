@@ -68,7 +68,8 @@ import type { Notifier } from '../notifications/notifier.js'
 import type { MailRateLimiterConfig } from '../notifications/mail-rate-limiter.js'
 import type { PostgresApiKeyStore } from '../persistence/api-key-store.js'
 import type { PlaygroundRouteConfig } from '../routes/playground.js'
-import type { GitWorkspaceProfile, HttpConnectorProfile } from '../runtime/tool-resolver.js'
+import type { ConnectorTokenProfile, GitWorkspaceProfile, HttpConnectorProfile } from '../runtime/tool-resolver.js'
+import type { MetricsAccessControl } from '../routes/metrics.js'
 
 // Drizzle DB clients are opaque at this layer — we intentionally avoid a
 // hard dependency on `drizzle-orm/postgres-js` here.
@@ -153,12 +154,26 @@ export interface ForgeCoreConfig {
  * HTTP transport / authentication / rate limiting concerns.
  */
 export interface ForgeTransportConfig {
+  /**
+   * Framework `/api/*` authentication mode.
+   *
+   * Production hosts must configure this explicitly. Use `mode: 'api-key'`
+   * for production deployments. `mode: 'none'` is an intentional local
+   * development or legacy compatibility opt-out and emits a startup warning.
+   */
   auth?: AuthConfig
   /** Optional RBAC config (MC-S02). Defaults to API-key role extraction; pass `false` to disable. */
   rbac?: RBACConfig | false
   /** Optional Postgres API key store. When provided alongside auth.mode='api-key', validate is wired automatically. */
   apiKeyStore?: PostgresApiKeyStore
+  /**
+   * Explicit browser origins allowed by CORS. Omit to disable CORS headers.
+   * Wildcard (`'*'`) is allowed in development, but production requires
+   * `allowWildcardCors: true` for legacy compatibility.
+   */
   corsOrigins?: string | string[]
+  /** Compatibility opt-in that enables wildcard CORS. Do not use for credentialed browser-token deployments. */
+  allowWildcardCors?: boolean
   /** Safe default HTTP response headers. Pass `false` to disable, or override individual headers. */
   securityHeaders?: SecurityHeadersConfig | false
   rateLimit?: Partial<RateLimiterConfig>
@@ -185,6 +200,14 @@ export interface ForgeRuntimeConfig {
   runExecutor?: RunExecutor
   shutdown?: GracefulShutdown
   metrics?: MetricsCollector
+  /**
+   * Prometheus `/metrics` endpoint exposure policy. The endpoint is not mounted
+   * unless this is configured, so public scraping requires an explicit
+   * `unsafe-public` opt-in.
+   */
+  prometheusMetrics?: {
+    access: MetricsAccessControl
+  }
   eventGateway?: EventGateway
   consolidation?: ConsolidationConfig
   router?: CostAwareRouter
@@ -193,21 +216,42 @@ export interface ForgeRuntimeConfig {
   journal?: RunJournal
 }
 
-/**
- * Optional integrations and feature toggles that mount additional routes.
- */
-export interface ForgeIntegrationsConfig {
+/** Memory and run-history route family config. */
+export interface ForgeMemoryRouteFamilyConfig {
   memoryService?: MemoryServiceLike
   memoryHealth?: MemoryHealthRouteConfig
   traceStore?: RunTraceStore
   tokenLifecycleRegistry?: TokenLifecycleRegistry
+}
+
+/** Compatibility and deployment route family config. */
+export interface ForgeCompatibilityRouteFamilyConfig {
   playground?: PlaygroundRouteConfig
   deploy?: DeployRouteConfig
+  /** OpenAI-compatible `/v1/*` HTTP compatibility surface. */
+  openai?: {
+    /**
+     * Mount `/v1/chat/completions` and `/v1/models`.
+     *
+     * Defaults to false so createForgeApp hosts expose the compatibility API
+     * only when they explicitly opt in.
+     */
+    enabled?: boolean
+    auth?: OpenAIAuthConfig
+  }
+}
+
+/** Learning, evaluation, and benchmark route family config. */
+export interface ForgeEvaluationRouteFamilyConfig {
   learning?: LearningRouteConfig
   benchmark?: BenchmarkRouteConfig
   evals?: EvalRouteConfig
   evalOrchestrator?: EvalOrchestratorLike
   benchmarkOrchestrator?: BenchmarkOrchestratorLike
+}
+
+/** Adapter, MCP, skill, workflow, and compile route family config. */
+export interface ForgeAdapterRouteFamilyConfig {
   mcpManager?: McpManager
   /** Allowlist for stdio MCP server registration. */
   mcpAllowedExecutables?: string[]
@@ -217,6 +261,14 @@ export interface ForgeIntegrationsConfig {
   httpConnectorProfiles?: Record<string, HttpConnectorProfile>
   /** Default HTTP connector profile name used by built-in tool resolution. */
   defaultHttpConnectorProfile?: string
+  /** Server-owned GitHub connector token profiles keyed by profile name. */
+  githubConnectorProfiles?: Record<string, ConnectorTokenProfile>
+  /** Default GitHub connector profile name used by built-in tool resolution. */
+  defaultGithubConnectorProfile?: string
+  /** Server-owned Slack connector token profiles keyed by profile name. */
+  slackConnectorProfiles?: Record<string, ConnectorTokenProfile>
+  /** Default Slack connector profile name used by built-in tool resolution. */
+  defaultSlackConnectorProfile?: string
   /** Server-owned Git workspace profiles keyed by profile name. */
   gitWorkspaceProfiles?: Record<string, GitWorkspaceProfile>
   /** Default Git workspace profile name used by built-in tool resolution. */
@@ -236,7 +288,10 @@ export interface ForgeIntegrationsConfig {
   workflowRegistry?: WorkflowRegistry
   skillStepResolver?: SkillStepResolver
   compile?: CompileRouteConfig
-  routePlugins?: ServerRoutePlugin[]
+}
+
+/** A2A, trigger, and schedule route family config. */
+export interface ForgeAutomationRouteFamilyConfig {
   a2a?: {
     agentCardConfig: AgentCardConfig
     taskStore?: A2ATaskStore
@@ -246,6 +301,10 @@ export interface ForgeIntegrationsConfig {
   triggerStore?: TriggerStore
   scheduleStore?: ScheduleStore
   onScheduleTrigger?: ScheduleRouteConfig['onManualTrigger']
+}
+
+/** Prompt, persona, preset, marketplace, reflection, mailbox, and cluster config. */
+export interface ForgeControlPlaneRouteFamilyConfig {
   promptStore?: PromptStore
   personaStore?: PersonaStore
   notifier?: Notifier
@@ -255,20 +314,34 @@ export interface ForgeIntegrationsConfig {
   mailDelivery?: MailDeliveryConfig
   clusterStore?: ClusterStore
   catalogStore?: CatalogStore
-  /** OpenAI-compatible `/v1/*` HTTP compatibility surface. */
-  openai?: {
-    /**
-     * Mount `/v1/chat/completions` and `/v1/models`.
-     *
-     * Defaults to false so createForgeApp hosts expose the compatibility API
-     * only when they explicitly opt in.
-     */
-    enabled?: boolean
-    auth?: OpenAIAuthConfig
-  }
   promptFeedbackLoop?: PromptFeedbackLoop | PromptFeedbackLoopLike
   learningEventProcessor?: LearningEventProcessor | LearningEventProcessorLike
   approvalStore?: ApprovalStateStore
+}
+
+/**
+ * Feature-family compatibility surface for existing createForgeApp callers.
+ * New product-owned route families should prefer `routePlugins` or app-level
+ * Hono composition instead of adding fields here.
+ */
+export interface ForgeRouteFamiliesConfig
+  extends ForgeMemoryRouteFamilyConfig,
+    ForgeCompatibilityRouteFamilyConfig,
+    ForgeEvaluationRouteFamilyConfig,
+    ForgeAdapterRouteFamilyConfig,
+    ForgeAutomationRouteFamilyConfig,
+    ForgeControlPlaneRouteFamilyConfig {}
+
+/**
+ * Optional integrations and feature toggles that mount additional routes.
+ */
+export interface ForgeIntegrationsConfig extends ForgeRouteFamiliesConfig {
+  /**
+   * Host-supplied route plugins. This is the server-owned extension seam for
+   * app/product routes; new product-control-plane endpoints should be composed
+   * by the consuming app instead of added as built-in packages/server routes.
+   */
+  routePlugins?: ServerRoutePlugin<ForgeServerConfig>[]
 }
 
 /**

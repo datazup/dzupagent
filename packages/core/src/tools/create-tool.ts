@@ -31,10 +31,25 @@ export interface ForgeToolConfig<
   inputSchema: TInput
   /** Optional Zod schema for validating outputs */
   outputSchema?: TOutput
-  /** The tool's execution function */
-  execute: (input: z.infer<TInput>) => Promise<z.infer<TOutput>>
+  /**
+   * The tool's execution function.
+   *
+   * `context.signal` is aborted when the surrounding run is cancelled or
+   * when a per-tool timeout fires. Tools that perform cancellable I/O should
+   * pass this signal to fetch, subprocess, SDK, or polling APIs. Tools that
+   * cannot interrupt underlying work may ignore it; the runtime will still
+   * enforce the observable deadline.
+   */
+  execute: (
+    input: z.infer<TInput>,
+    context: ToolExecutionContext,
+  ) => Promise<z.infer<TOutput>>
   /** Optional: transform rich output into a model-friendly string */
   toModelOutput?: (output: z.infer<TOutput>) => string
+}
+
+export interface ToolExecutionContext {
+  signal: AbortSignal
 }
 
 /**
@@ -46,8 +61,10 @@ export function createForgeTool<
   TOutput extends z.ZodType = z.ZodType<string>,
 >(config: ForgeToolConfig<TInput, TOutput>): StructuredToolInterface {
   const built = tool(
-    async (input: z.infer<TInput>) => {
-      const result = await config.execute(input)
+    async (input: z.infer<TInput>, runtimeConfig?: { signal?: AbortSignal }) => {
+      const result = await config.execute(input, {
+        signal: runtimeConfig?.signal ?? new AbortController().signal,
+      })
 
       // Validate output if schema provided
       if (config.outputSchema) {

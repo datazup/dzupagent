@@ -37,6 +37,7 @@ import {
 } from './tool-arg-validator.js'
 import {
   emitToolCalled,
+  emitToolCancellationRequested,
   emitToolError,
   emitToolResult,
   extractInputMetadataKeys,
@@ -143,6 +144,7 @@ export interface StreamingToolPolicyOptions {
   agentId?: string
   runId?: string
   eventBus?: DzupEventBus
+  signal?: AbortSignal
 }
 
 export async function prepareRunState(
@@ -528,12 +530,14 @@ export async function executeStreamingToolCall(params: {
   ) => Promise<string>
   onToolLatency?: (name: string, durationMs: number, error?: string) => void
   statTracker: ToolStatTracker
+  /** Parent run cancellation signal; threaded to the per-tool invocation signal. */
+  signal?: AbortSignal
   /**
    * MJ-AGENT-02 — optional public policy bundle. When present, the
    * streaming executor enforces the SAME governance, permission,
    * validation, timeout, safety, and tracing controls as the
-   * sequential tool-loop path (`executeSingleToolCall` in
-   * `tool-loop.ts`). When `undefined`, the executor preserves the
+   * non-streaming policy-enabled tool execution stage. When `undefined`,
+   * the executor preserves the
    * pre-MJ-AGENT-02 "lite" surface (budget block + tool existence)
    * for backwards-compatible callers that didn't thread
    * `toolExecution` through DzupAgentConfig.
@@ -700,7 +704,19 @@ export async function executeStreamingToolCall(params: {
     const result = await invokeWithOptionalTimeout(
       toolName,
       policy?.toolTimeouts?.[toolName],
-      () => tool.invoke(validatedArgs),
+      ({ signal }) => tool.invoke(validatedArgs, { signal }),
+      {
+        signal: policy?.signal ?? params.signal,
+        onCancelRequested: (reason) => emitToolCancellationRequested(policy, {
+          toolName,
+          toolCallId,
+          inputMetadataKeys: validatedKeys,
+          reason,
+          ...(reason === 'timeout' && policy?.toolTimeouts?.[toolName] !== undefined
+            ? { timeoutMs: policy.toolTimeouts[toolName] }
+            : {}),
+        }),
+      },
     )
     const rawResult = typeof result === 'string' ? result : JSON.stringify(result)
     let transformedResult = await params.transformToolResult(
@@ -864,7 +880,9 @@ export async function executeStreamingToolCall(params: {
       toolCallId,
       durationMs,
       inputMetadataKeys: validatedKeys,
-      errorCode: lifecycleStatus === 'timeout' ? 'TOOL_TIMEOUT' : 'TOOL_EXECUTION_FAILED',
+      errorCode: lifecycleStatus === 'timeout'
+        ? 'TOOL_TIMEOUT'
+        : 'TOOL_EXECUTION_FAILED',
       errorMessage: errorMsg,
       status: lifecycleStatus,
     })

@@ -11,6 +11,15 @@ This package currently provides:
 
 Boundary note from repo guidance:
 - `packages/server` is maintained as framework/runtime compatibility infrastructure, not the primary landing zone for new application product features.
+- New product-control-plane concepts such as workspaces, projects, tasks/subtasks,
+  tenant-specific dashboards, Codev operator UX, personas/prompt-template product
+  flows, or app-specific memory policy controls should be owned by consuming apps
+  such as `apps/codev-app`.
+- App-owned routes should integrate through `ServerRoutePlugin` or through the
+  consuming app's own Hono composition around `createForgeApp`.
+- `yarn check:domain-boundaries` enforces this by requiring every production
+  file under `packages/server/src/routes/**` to be classified in
+  `config/architecture-boundaries.json`.
 
 ## Responsibilities
 Primary responsibilities implemented in this package:
@@ -57,7 +66,12 @@ Public package entrypoints:
 - Start prompt feedback and learning event processors when injected.
 
 3. Middleware stack (`applyMiddleware`):
-- CORS (`*`) with warning when open wildcard/default is used.
+- CORS only when configured. Omitted `corsOrigins` emits no CORS headers;
+  production wildcard CORS requires the explicit `allowWildcardCors`
+  compatibility opt-in.
+- Framework `/api/*` auth mode assertion before app startup: `NODE_ENV=production`
+  requires explicit `auth`; `auth: { mode: 'none' }` is a warned
+  development/compatibility opt-out.
 - `/api/*` auth (when configured), with optional API key store auto-wiring.
 - `/api/*` RBAC by default (can disable via `rbac: false`).
 - `/api/*` rate limiting (when configured).
@@ -66,15 +80,22 @@ Public package entrypoints:
 - Global error handler.
 
 4. Route mounting:
-- Always mounted core routes: `/api/health`, `/api/runs`, `/api/agent-definitions`, `/api/agents` (compat alias), approvals/human-contact/enrichment routes, plus conditional `/api/registry`, `/api/keys`, `/api/approvals`, run trace routes.
-- Optional routes from integration config: memory, deploy, learning, benchmarks, evals, playground, A2A, triggers/schedules, prompts/personas/presets/marketplace, reflections, mailbox/clusters.
+- Always mounted core routes are generic framework primitives or compatibility
+  aliases: `/api/health`, `/api/runs`, `/api/agent-definitions`,
+  `/api/agents` (compat alias), approvals/human-contact/enrichment routes, plus
+  conditional `/api/registry`, `/api/keys`, `/api/approvals`, run trace routes.
+- Optional routes from integration config are frozen as generic framework
+  primitives or compatibility/maintenance surfaces: memory, deploy, learning,
+  benchmarks, evals, playground, A2A, triggers/schedules,
+  prompts/personas/presets/marketplace, reflections, mailbox/clusters.
 - Events route is mounted by default via optional route layer (`/api/events/stream`) using the resolved event gateway.
 - OpenAI-compatible routes mount under `/v1/*` (`/v1/chat/completions`, `/v1/models`) only when `openai.enabled: true` is configured, with separate OpenAI auth middleware.
 
 5. Plugin mounting:
 - Built-in route plugins can mount `/api/mcp`, `/api/skills`, `/api/workflows` based on config.
 - Compile route plugin is always mounted under `/api/workflows`.
-- Host-supplied `routePlugins` are mounted after built-ins.
+- Host-supplied `routePlugins` are mounted after built-ins and are the forward
+  path for app-owned product route integration.
 
 6. Metrics endpoint:
 - `/metrics` is mounted only when metrics collector is `PrometheusMetricsCollector`.
@@ -87,6 +108,14 @@ Run lifecycle path (configured queue mode):
 App factory and configuration:
 - `createForgeApp(config: ForgeServerConfig): Hono`.
 - `ForgeServerConfig` is composed from `ForgeCoreConfig`, `ForgeTransportConfig`, `ForgeRuntimeConfig`, `ForgeIntegrationsConfig`, and `ForgeSecurityConfig` in `src/composition/types.ts`.
+- Optional route-facing config is further split into feature-family contracts:
+  `ForgeMemoryRouteFamilyConfig`, `ForgeCompatibilityRouteFamilyConfig`,
+  `ForgeEvaluationRouteFamilyConfig`, `ForgeAdapterRouteFamilyConfig`,
+  `ForgeAutomationRouteFamilyConfig`, and
+  `ForgeControlPlaneRouteFamilyConfig`.
+- `mountOptionalRoutes` adapts existing `ForgeServerConfig` optional fields into
+  `ServerRoutePlugin` instances, preserving source compatibility while keeping
+  new product route families on the `routePlugins` seam.
 
 Notable route factories:
 - Core: `createRunRoutes`, `createRunContextRoutes`, `createAgentDefinitionRoutes`, `createApprovalRoutes`, `createHealthRoutes`.
@@ -133,6 +162,29 @@ Common integration seams exposed by this package:
 - Platform adapters for Lambda/Vercel/Cloudflare host runtimes.
 - Operational integration through doctor/scorecard (`@dzupagent/server/ops`).
 
+## App-Owned Route Migration
+
+When a route is product-specific rather than a reusable framework primitive:
+- Implement the route in the consuming app package, using that app's storage,
+  tenancy, authorization, and UX contracts.
+- Mount it beside `createForgeApp` or pass a `ServerRoutePlugin` through
+  `routePlugins` when the route should share server middleware and lifecycle.
+- Define product route config in the consuming app. Do not expand
+  `ForgeServerConfig` for Codev workspaces, projects, tasks/subtasks, operator
+  dashboards, tenant-specific UX, or similar product control planes.
+- Add RBAC route permissions for `/api/*` plugin prefixes instead of relying on
+  pass-through behavior.
+- Keep any existing server route compatible until a separate deprecation task
+  removes or redirects it.
+
+Server route additions require updating
+`config/architecture-boundaries.json` under `serverRouteBoundaries` with one of
+these classifications:
+- `framework-primitive`: generic runtime/framework capability.
+- `compatibility-maintenance`: existing optional or compatibility route surface.
+- `route-plugin-host-seam`: route-plugin or app-selected host seam.
+- `internal-support`: helper module that does not create product endpoints.
+
 ## Testing and Observability
 Testing setup:
 - Test runner: Vitest (`vitest.config.ts`), Node environment, 60s timeouts.
@@ -151,16 +203,27 @@ Observability mechanisms in code:
   - `/api/health` (liveness)
   - `/api/health/ready` (run store, agent store, model registry, queue/shutdown state)
   - `/api/health/metrics` (JSON metric snapshot)
-- Optional Prometheus endpoint: `/metrics` when using `PrometheusMetricsCollector`.
+- Optional Prometheus endpoint: `/metrics` when using `PrometheusMetricsCollector`
+  and explicit `prometheusMetrics.access` protection.
 - Run pipeline instrumentation:
   - run logs persisted via `runStore.addLog`
   - lifecycle events emitted on shared event bus
   - optional run trace persistence (`RunTraceStore`)
   - optional routing and HTTP metrics increments.
 
+Prometheus metrics exposure:
+- `/metrics` is disabled by default, even when the collector can render
+  Prometheus text. Hosts must configure `prometheusMetrics.access`.
+- Recommended production controls are `mode: 'token'` for Prometheus bearer
+  tokens or `mode: 'middleware'` for host-injected IP, host, listener, or
+  platform guards.
+- `mode: 'unsafe-public'` is an explicit development/compatibility escape hatch
+  for unauthenticated scraping.
+- Ingress blocking and private network policy remain defense in depth; the
+  framework-level route guard is the primary control.
+
 ## Risks and TODOs
 Current risks and explicit TODO markers in code:
-- `/metrics` exposure risk: `composition/optional-routes.ts` contains a TODO noting `/metrics` is currently mounted on the public app and bypasses auth; production hardening is expected at ingress/internal binding.
 - Version drift risk:
   - `package.json` version is `0.2.0`.
   - `src/routes/health.ts` liveness payload still returns `version: '0.1.0'`.

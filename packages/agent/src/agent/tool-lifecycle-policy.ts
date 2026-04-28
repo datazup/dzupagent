@@ -10,7 +10,12 @@ import {
   validateAndRepairToolArgs,
   type ToolArgValidatorConfig,
 } from './tool-arg-validator.js'
-import { isToolTimeoutError, ToolTimeoutError } from './tool-timeout-error.js'
+import {
+  isToolCancellationError,
+  isToolTimeoutError,
+  ToolCancellationError,
+  ToolTimeoutError,
+} from './tool-timeout-error.js'
 
 export interface ToolLifecyclePolicyContext {
   eventBus?: DzupEventBus
@@ -19,7 +24,13 @@ export interface ToolLifecyclePolicyContext {
   runId?: string
 }
 
-export type ToolLifecycleStatus = 'success' | 'error' | 'timeout' | 'denied'
+export type ToolLifecycleStatus =
+  | 'success'
+  | 'error'
+  | 'timeout'
+  | 'denied'
+  | 'cancel_requested'
+  | 'cancelled'
 
 export interface ToolCallArgs {
   name: string
@@ -34,8 +45,10 @@ export function extractInputMetadataKeys(input: unknown): string[] {
 
 export function statusFromError(
   err: unknown,
-): Extract<ToolLifecycleStatus, 'error' | 'timeout'> {
-  return isToolTimeoutError(err) ? 'timeout' : 'error'
+): Extract<ToolLifecycleStatus, 'error' | 'timeout' | 'cancelled'> {
+  if (isToolTimeoutError(err)) return 'timeout'
+  if (isToolCancellationError(err)) return 'cancelled'
+  return 'error'
 }
 
 export function resolveValidatorConfig(
@@ -247,26 +260,100 @@ export function emitToolError(
   }
 }
 
+export function emitToolCancellationRequested(
+  context: ToolLifecyclePolicyContext | undefined,
+  args: {
+    toolName: string
+    toolCallId: string
+    inputMetadataKeys: string[]
+    reason: 'timeout' | 'run_cancelled'
+    timeoutMs?: number
+  },
+): void {
+  if (!context) return
+  const { toolName, toolCallId, inputMetadataKeys, reason, timeoutMs } = args
+  try {
+    context.eventBus?.emit({
+      type: 'tool:cancel_requested',
+      toolName,
+      toolCallId,
+      inputMetadataKeys,
+      status: 'cancel_requested',
+      reason,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      ...(context.agentId !== undefined ? { agentId: context.agentId } : {}),
+      ...(context.runId !== undefined
+        ? { runId: context.runId, executionRunId: context.runId }
+        : {}),
+    } as never)
+  } catch {
+    // Telemetry must never abort the loop.
+  }
+}
+
+export interface ToolInvocationContext {
+  signal: AbortSignal
+}
+
+export type CancellableToolInvoker<T> = (context: ToolInvocationContext) => Promise<T>
+
 export async function invokeWithOptionalTimeout<T>(
   toolName: string,
   timeoutMs: number | undefined,
-  invoke: () => Promise<T>,
+  invoke: CancellableToolInvoker<T>,
+  options: {
+    signal?: AbortSignal
+    onCancelRequested?: (reason: 'timeout' | 'run_cancelled') => void
+  } = {},
 ): Promise<T> {
-  if (!timeoutMs || timeoutMs <= 0) {
-    return invoke()
+  if (options.signal?.aborted) {
+    options.onCancelRequested?.('run_cancelled')
+    throw new ToolCancellationError(toolName)
   }
 
+  const controller = new AbortController()
+  const signal = controller.signal
   let timer: ReturnType<typeof setTimeout> | undefined
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new ToolTimeoutError(toolName, timeoutMs)),
-      timeoutMs,
-    )
+  let parentAbortHandler: (() => void) | undefined
+  let abortKind: 'timeout' | 'run_cancelled' | undefined
+
+  const failForAbort = (reason: 'timeout' | 'run_cancelled'): Error => {
+    return reason === 'timeout'
+      ? new ToolTimeoutError(toolName, timeoutMs ?? 0)
+      : new ToolCancellationError(toolName)
+  }
+
+  const abortPromise = new Promise<never>((_, reject) => {
+    const requestAbort = (reason: 'timeout' | 'run_cancelled') => {
+      if (abortKind !== undefined) return
+      abortKind = reason
+      options.onCancelRequested?.(reason)
+      controller.abort(failForAbort(reason))
+      reject(failForAbort(reason))
+    }
+
+    if (timeoutMs && timeoutMs > 0) {
+      timer = setTimeout(() => requestAbort('timeout'), timeoutMs)
+    }
+
+    if (options.signal) {
+      parentAbortHandler = () => requestAbort('run_cancelled')
+      options.signal.addEventListener('abort', parentAbortHandler, { once: true })
+    }
   })
 
   try {
-    return await Promise.race([invoke(), timeoutPromise])
+    const invokePromise = invoke({ signal }).catch((err: unknown) => {
+      if (abortKind !== undefined) {
+        throw failForAbort(abortKind)
+      }
+      throw err
+    })
+    return await Promise.race([invokePromise, abortPromise])
   } finally {
     if (timer !== undefined) clearTimeout(timer)
+    if (options.signal && parentAbortHandler) {
+      options.signal.removeEventListener('abort', parentAbortHandler)
+    }
   }
 }

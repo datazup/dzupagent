@@ -19,10 +19,20 @@ export interface BaseConnectorTool<Input = unknown, Output = unknown> {
   description: string
   /** JSON Schema describing the tool's input parameters */
   schema: unknown
-  /** Execute the tool with the given input */
-  invoke(input: Input): Promise<Output>
+  /**
+   * Execute the tool with the given input.
+   *
+   * `context.signal` is aborted when the surrounding run is cancelled or a
+   * per-tool timeout fires. Implementations that cannot interrupt underlying
+   * work may ignore it; callers still enforce an observational deadline.
+   */
+  invoke(input: Input, context?: BaseConnectorToolExecutionContext): Promise<Output>
   /** Optional: convert tool output to a string for model consumption */
   toModelOutput?: ((output: Output) => string) | undefined
+}
+
+export interface BaseConnectorToolExecutionContext {
+  signal?: AbortSignal
 }
 
 /**
@@ -49,7 +59,7 @@ export function normalizeBaseConnectorTool<Input = unknown, Output = unknown>(
     name: string
     description: string
     schema: unknown
-    invoke(input: Input): Promise<Output>
+    invoke(input: Input, context?: BaseConnectorToolExecutionContext): Promise<Output>
     toModelOutput?: (output: Output) => string
   },
 ): BaseConnectorTool<Input, Output> {
@@ -58,7 +68,8 @@ export function normalizeBaseConnectorTool<Input = unknown, Output = unknown>(
     name: tool.name,
     description: tool.description,
     schema: tool.schema,
-    invoke: async (input: Input) => tool.invoke(input),
+    invoke: async (input: Input, context?: BaseConnectorToolExecutionContext) =>
+      tool.invoke(input, context),
   }
 
   if (typeof tool.toModelOutput === 'function') {
@@ -77,7 +88,7 @@ export function normalizeBaseConnectorTools<Input = unknown, Output = unknown>(
     name: string
     description: string
     schema: unknown
-    invoke(input: Input): Promise<Output>
+    invoke(input: Input, context?: BaseConnectorToolExecutionContext): Promise<Output>
     toModelOutput?: (output: Output) => string
   }>,
 ): BaseConnectorTool<Input, Output>[] {

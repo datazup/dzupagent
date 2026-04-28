@@ -67,6 +67,11 @@ function makeServerConfig(overrides: Partial<MCPServerConfig> = {}): MCPServerCo
     name: 'Server 1',
     url: 'http://localhost:9999',
     transport: 'http',
+    urlPolicy: {
+      allowHttp: true,
+      allowedHosts: ['localhost', 'localhost:9999'],
+      resolveDns: false,
+    },
     ...overrides,
   }
 }

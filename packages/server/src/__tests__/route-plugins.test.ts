@@ -9,7 +9,7 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 
-function createTestConfig(routePlugins: ServerRoutePlugin[] = []): ForgeServerConfig {
+function createTestConfig(routePlugins: ServerRoutePlugin<ForgeServerConfig>[] = []): ForgeServerConfig {
   return {
     runStore: new InMemoryRunStore(),
     agentStore: new InMemoryAgentStore(),
@@ -48,6 +48,8 @@ describe('Route plugins', () => {
     const onMountConfig = onMount.mock.calls[0]?.[0] as ForgeServerConfig
     expect(onMountConfig.runStore).toBeDefined()
     expect(onMountConfig.runExecutor).toBeDefined()
+    expect(onMount.mock.calls[0]?.[1]).toMatchObject({ serverConfig: onMountConfig })
+    expect(createRoutes.mock.calls[0]?.[0]).toMatchObject({ serverConfig: onMountConfig })
   })
 
   it('skips plugin mount when prefix does not start with slash', async () => {

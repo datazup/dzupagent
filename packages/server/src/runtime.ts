@@ -34,7 +34,9 @@ export type {
   ToolResolverOptions,
   ToolSource,
   CustomToolResolver,
+  ConnectorTokenProfile,
   HttpConnectorProfile,
+  GitWorkspaceProfile,
   ToolProfile,
   ToolProfileConfig,
 } from './runtime/tool-resolver.js'

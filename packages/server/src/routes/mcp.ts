@@ -75,12 +75,11 @@ export function createMcpRoutes(
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
 
-  function validateHttpServerInput(server: Pick<McpServerInput, 'transport' | 'endpoint'>):
-  | Response
-  | undefined {
+  async function validateHttpServerInput(server: Pick<McpServerInput, 'transport' | 'endpoint'>):
+  Promise<Response | undefined> {
     if (server.transport !== 'http' && server.transport !== 'sse') return undefined
 
-    const result = validateMcpHttpEndpoint(server.endpoint, server.transport, {
+    const result = await validateMcpHttpEndpoint(server.endpoint, server.transport, {
       allowedHosts: config.mcpAllowedHttpHosts,
     })
     if (result.ok) return undefined
@@ -145,7 +144,7 @@ export function createMcpRoutes(
       }
     }
 
-    const urlPolicyError = validateHttpServerInput(body)
+    const urlPolicyError = await validateHttpServerInput(body)
     if (urlPolicyError) return urlPolicyError
 
     try {
@@ -224,7 +223,7 @@ export function createMcpRoutes(
     const effectiveHttpTransport = patch.transport ?? existing.transport
     if (effectiveHttpTransport === 'http' || effectiveHttpTransport === 'sse') {
       const effectiveEndpoint = patch.endpoint ?? existing.endpoint
-      const urlPolicyError = validateHttpServerInput({
+      const urlPolicyError = await validateHttpServerInput({
         transport: effectiveHttpTransport,
         endpoint: effectiveEndpoint,
       })
@@ -312,7 +311,7 @@ export function createMcpRoutes(
         )
       }
 
-      const urlPolicyError = validateHttpServerInput(server)
+      const urlPolicyError = await validateHttpServerInput(server)
       if (urlPolicyError) return urlPolicyError
 
       const result = await config.mcpManager!.testServer(id)

@@ -7,7 +7,7 @@ import type { Hono } from 'hono'
 
 import type { ForgeServerConfig } from './types.js'
 import type { EventGateway } from '../events/event-gateway.js'
-import type { ServerRoutePlugin } from '../route-plugin.js'
+import type { ServerRoutePlugin, ServerRoutePluginContext } from '../route-plugin.js'
 import { createMcpRoutes } from '../routes/mcp.js'
 import { createSkillRoutes } from '../routes/skills.js'
 import { createWorkflowRoutes } from '../routes/workflows.js'
@@ -16,8 +16,8 @@ import { createCompileRoutes, type CompileRouteConfig } from '../routes/compile.
 export function buildBuiltInRoutePlugins(
   config: ForgeServerConfig,
   eventGateway: EventGateway,
-): ServerRoutePlugin[] {
-  const plugins: ServerRoutePlugin[] = []
+): ServerRoutePlugin<ForgeServerConfig>[] {
+  const plugins: ServerRoutePlugin<ForgeServerConfig>[] = []
   const effectiveCompileConfig: CompileRouteConfig | undefined =
     config.compile?.personaResolver || !config.personaStore
       ? {
@@ -78,20 +78,21 @@ export function buildBuiltInRoutePlugins(
 
 export function mountRoutePlugins(
   app: Hono,
-  plugins: readonly ServerRoutePlugin[],
+  plugins: readonly ServerRoutePlugin<ForgeServerConfig>[],
   serverConfig: ForgeServerConfig,
 ): void {
+  const context: ServerRoutePluginContext<ForgeServerConfig> = { serverConfig }
   for (const plugin of plugins) {
-    if (!plugin.prefix.startsWith('/')) {
+    if (plugin.prefix !== '' && !plugin.prefix.startsWith('/')) {
       console.warn(
         `[ForgeServer] Skipping route plugin with invalid prefix "${plugin.prefix}". Prefix must start with '/'.`,
       )
       continue
     }
 
-    const subApp = plugin.createRoutes() as Parameters<typeof app.route>[1]
+    const subApp = plugin.createRoutes(context) as Parameters<typeof app.route>[1]
     app.route(plugin.prefix, subApp)
-    plugin.onMount?.(serverConfig)
+    plugin.onMount?.(serverConfig, context)
   }
 }
 

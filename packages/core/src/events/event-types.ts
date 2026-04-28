@@ -73,6 +73,18 @@ export type DzupEvent =
       status?: 'success'
     }
   | {
+      type: 'tool:cancel_requested'
+      toolName: string
+      executionRunId?: string
+      agentId?: string
+      runId?: string
+      toolCallId?: string
+      inputMetadataKeys?: string[]
+      status?: 'cancel_requested'
+      reason: 'timeout' | 'run_cancelled'
+      timeoutMs?: number
+    }
+  | {
       type: 'tool:error'
       toolName: string
       errorCode: ForgeErrorCode
@@ -84,7 +96,7 @@ export type DzupEvent =
       inputMetadataKeys?: string[]
       durationMs?: number
       /** Outcome discriminator. */
-      status?: 'error' | 'timeout' | 'denied'
+      status?: 'error' | 'timeout' | 'denied' | 'cancelled'
       /** Alias for `message` to match the canonical contract field name. */
       errorMessage?: string
     }
@@ -116,6 +128,8 @@ export type DzupEvent =
   | { type: 'approval:requested'; runId: string; plan: unknown; contactId?: string; channel?: string; request?: unknown }
   | { type: 'approval:granted'; runId: string; approvedBy?: string }
   | { type: 'approval:rejected'; runId: string; reason?: string }
+  | { type: 'approval:timed_out'; runId: string; contactId?: string; timeoutMs: number }
+  | { type: 'approval:cancelled'; runId: string; contactId?: string; reason?: string }
   // --- Human Contact ---
   | { type: 'human_contact:requested'; runId: string; contactId: string; contactType: string; channel: string }
   | { type: 'human_contact:responded'; runId: string; contactId: string; response: unknown }
@@ -137,6 +151,33 @@ export type DzupEvent =
   | { type: 'provider:failed'; tier: string; provider: string; message: string }
   | { type: 'provider:circuit_opened'; provider: string }
   | { type: 'provider:circuit_closed'; provider: string }
+  | {
+      type: 'provider:run_attempt'
+      agentId: string
+      attempt: number
+      maxAttempts: number
+      provider: string
+      model: string
+      phase: 'invoke' | 'stream'
+    }
+  | {
+      type: 'provider:run_failure'
+      agentId: string
+      attempt: number
+      provider: string
+      model: string
+      phase: 'invoke' | 'stream'
+      reason: string
+      retrying: boolean
+    }
+  | {
+      type: 'provider:run_selected'
+      agentId: string
+      attempt: number
+      provider: string
+      model: string
+      phase: 'invoke' | 'stream'
+    }
   // --- Adapter Registry ---
   | { type: 'adapter_registry:provider_registered'; providerId: string; name: string }
   | { type: 'adapter_registry:provider_deregistered'; providerId: string; reason: string }

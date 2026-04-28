@@ -67,7 +67,8 @@ This file is type-only. It models request and response contracts for contact mod
 
 ## Key APIs and Types
 ### Connector contract
-- `BaseConnectorTool<Input, Output>`: `{ id, name, description, schema, invoke, toModelOutput? }`.
+- `BaseConnectorTool<Input, Output>`: `{ id, name, description, schema, invoke(input, context?), toModelOutput? }`.
+- `BaseConnectorToolExecutionContext`: optional `{ signal?: AbortSignal }` passed by agent runtimes for per-call cancellation.
 - `isBaseConnectorTool(value)`: type guard for structural conformance.
 - `normalizeBaseConnectorTool(...)` / `normalizeBaseConnectorTools(...)`: normalization helpers with `id` fallback.
 
@@ -76,6 +77,12 @@ This file is type-only. It models request and response contracts for contact mod
   - `id`, `description`, `inputSchema`, `execute` required.
   - `outputSchema`, `toModelOutput` optional.
 - `createForgeTool(config)`: creates a LangChain structured tool wrapper with input/output handling.
+- `execute(input, context)` receives a `ToolExecutionContext` with `signal: AbortSignal`. Tool authors should pass it to cancellable I/O. Existing one-argument tools remain valid; if a tool ignores the signal, agent timeouts still enforce the observable result deadline but cannot stop the underlying operation.
+
+### Cancellation migration notes
+- New or updated tools should accept the execution context and wire `context.signal` into APIs such as `fetch`, subprocess runners, database clients, SDK calls, or polling loops whenever those APIs support cancellation.
+- Connector normalizers preserve the context when wrapping LangChain tools, so framework-created tools can observe run cancellation and per-tool timeout aborts.
+- Tools that cannot honor cancellation should document that they are observational-deadline only: the agent will return a timeout/cancelled result while the underlying side effect may continue externally.
 
 ### Governance
 - `ToolGovernanceConfig`:
@@ -138,6 +145,7 @@ Not directly tested in dedicated files:
 Observability characteristics:
 - `ToolGovernance` exposes push-style audit hooks (`ToolAuditHandler`) but does not own persistence/transport.
 - `ToolStatsTracker` exposes pull-style stats/ranking APIs and emits no events or metrics by itself.
+- Agent lifecycle telemetry distinguishes `tool:cancel_requested` from terminal `tool:error` statuses of `timeout` or `cancelled` where the runtime can infer the cause.
 
 ## Risks and TODOs
 - `ToolGovernanceConfig.maxExecutionMs` is declared but not enforced in `ToolGovernance`; callers must enforce execution timeouts separately.
@@ -151,4 +159,3 @@ Observability characteristics:
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

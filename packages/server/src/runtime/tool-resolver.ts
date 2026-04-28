@@ -28,6 +28,13 @@ export interface HttpConnectorProfile {
   allowedHosts?: string[]
 }
 
+export interface ConnectorTokenProfile {
+  /** Server-owned token value. Prefer envVar in production hosts. */
+  token?: string
+  /** Environment variable name resolved by the server at execution time. */
+  envVar?: string
+}
+
 export interface GitWorkspaceProfile {
   /** Server-side repository/workspace root for built-in Git tools. */
   root: string
@@ -85,6 +92,14 @@ export interface ToolResolverContext {
   httpConnectorProfiles?: Record<string, HttpConnectorProfile>
   /** Default server-owned HTTP connector profile. Defaults to "default". */
   defaultHttpConnectorProfile?: string
+  /** Server-owned GitHub connector token profiles keyed by profile name. */
+  githubConnectorProfiles?: Record<string, ConnectorTokenProfile>
+  /** Default GitHub connector profile. Defaults to "default". */
+  defaultGithubConnectorProfile?: string
+  /** Server-owned Slack connector token profiles keyed by profile name. */
+  slackConnectorProfiles?: Record<string, ConnectorTokenProfile>
+  /** Default Slack connector profile. Defaults to "default". */
+  defaultSlackConnectorProfile?: string
   /** Server-owned Git workspace profiles keyed by profile name. */
   gitWorkspaceProfiles?: Record<string, GitWorkspaceProfile>
   /** Default server-owned Git workspace profile. Defaults to "default". */
@@ -287,6 +302,40 @@ function selectHttpConnectorProfile(context: ToolResolverContext): {
   return { warnings }
 }
 
+function resolveTokenProfile(
+  kind: 'GitHub' | 'Slack',
+  profiles: Record<string, ConnectorTokenProfile> | undefined,
+  selectedProfile: unknown,
+  defaultProfile: string | undefined,
+  env: NodeJS.ProcessEnv | undefined,
+  fallbackEnvVar: 'GITHUB_TOKEN' | 'SLACK_BOT_TOKEN',
+): { token?: string; profileName?: string; warnings: string[] } {
+  const warnings: string[] = []
+  const profileName = typeof selectedProfile === 'string' && selectedProfile.trim()
+    ? selectedProfile.trim()
+    : defaultProfile ?? 'default'
+
+  const configuredProfile = profiles?.[profileName]
+  if (configuredProfile) {
+    const token = configuredProfile.token ?? (
+      configuredProfile.envVar ? env?.[configuredProfile.envVar] : undefined
+    )
+    if (token) return { token, profileName, warnings }
+    warnings.push(`${kind} connector profile "${profileName}" has no resolvable token.`)
+    return { profileName, warnings }
+  }
+
+  if (profiles && Object.keys(profiles).length > 0) {
+    warnings.push(`${kind} connector profile "${profileName}" is not configured.`)
+    return { warnings }
+  }
+
+  const token = env?.[fallbackEnvVar]
+  if (token) return { token, profileName: `env:${fallbackEnvVar}`, warnings }
+
+  return { warnings }
+}
+
 function isModuleNotFoundError(error: unknown): boolean {
   const code = getErrorCode(error)
   const message = error instanceof Error ? error.message : String(error)
@@ -407,16 +456,10 @@ function parseMcpMetadataPolicy(env: NodeJS.ProcessEnv | undefined): McpMetadata
   }
 }
 
-function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const entries = Object.entries(value).filter(([, v]) => typeof v === 'string') as Array<[string, string]>
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined
-}
-
-function extractMcpServers(
+async function extractMcpServers(
   metadata: Record<string, unknown> | undefined,
   policy: McpMetadataPolicy,
-): { servers: McpServerEntry[]; warnings: string[] } {
+): Promise<{ servers: McpServerEntry[]; warnings: string[] }> {
   const warnings: string[] = []
   if (!metadata) return { servers: [], warnings }
   const raw = metadata['mcpServers']
@@ -477,7 +520,7 @@ function extractMcpServers(
         continue
       }
     } else {
-      const result = validateMcpHttpEndpoint(url, transport, { allowedHosts: policy.allowedHttpHosts })
+      const result = await validateMcpHttpEndpoint(url, transport, { allowedHosts: policy.allowedHttpHosts })
       if (!result.ok) {
         warnings.push(`Ignoring MCP server "${id}" because ${result.reason}`)
         continue
@@ -505,11 +548,12 @@ function extractMcpServers(
       url,
       transport,
       args,
-      env: normalizeStringRecord(record['env']),
-      headers: normalizeStringRecord(record['headers']),
       timeoutMs,
       maxEagerTools,
     })
+    if (record['env'] !== undefined || record['headers'] !== undefined) {
+      warnings.push(`MCP server "${id}" metadata credential fields were ignored; use server-side MCP profiles or secret references.`)
+    }
   }
 
   return { servers, warnings }
@@ -544,7 +588,7 @@ async function resolveMcpTools(
   for (const pat of mcpPatterns) resolved.push(pat.token)
 
   const mcpPolicy = parseMcpMetadataPolicy(context.env)
-  const { servers, warnings: policyWarnings } = extractMcpServers(context.metadata, mcpPolicy)
+  const { servers, warnings: policyWarnings } = await extractMcpServers(context.metadata, mcpPolicy)
   warnings.push(...policyWarnings)
   if (servers.length === 0) {
     warnings.push('MCP tools requested but no servers configured in metadata.mcpServers.')
@@ -559,7 +603,7 @@ async function resolveMcpTools(
   }
 
   const MCPClientCtor = corePkg['MCPClient'] as new () => {
-    addServer(config: McpServerEntry & { name: string }): unknown
+    addServer(config: McpServerEntry & { name: string; urlPolicy?: unknown }): unknown
     connect(serverId: string): Promise<boolean>
     getEagerTools(): Array<{ name: string; serverId: string; description: string; inputSchema: Record<string, unknown> }>
     disconnectAll(): Promise<void>
@@ -595,6 +639,9 @@ async function resolveMcpTools(
       args: s.args,
       env: s.env,
       headers: s.headers,
+      urlPolicy: {
+        allowedHosts: mcpPolicy.allowedHttpHosts,
+      },
       timeoutMs: s.timeoutMs,
       maxEagerTools: s.maxEagerTools,
     })
@@ -767,11 +814,21 @@ export async function resolveAgentTools(
   // GitHub connector
   const enabledGithub = pickEnabled(requested, GITHUB_TOOL_NAMES, 'github')
   if (enabledGithub.length > 0 && connectors) {
-    const token = (typeof context.metadata?.['githubToken'] === 'string' && context.metadata['githubToken'])
-      || context.env?.['GITHUB_TOKEN']
+    if (typeof context.metadata?.['githubToken'] === 'string') {
+      warnings.push('Ignoring metadata.githubToken for GitHub connector; configure githubConnectorProfiles or GITHUB_TOKEN.')
+    }
+    const { token, warnings: profileWarnings } = resolveTokenProfile(
+      'GitHub',
+      context.githubConnectorProfiles,
+      context.metadata?.['githubProfile'],
+      context.defaultGithubConnectorProfile,
+      context.env,
+      'GITHUB_TOKEN',
+    )
+    warnings.push(...profileWarnings)
 
     if (!token) {
-      warnings.push('GitHub tools requested but no token provided (metadata.githubToken or GITHUB_TOKEN).')
+      warnings.push('GitHub tools requested but no server-side token profile or GITHUB_TOKEN is configured.')
     } else if (typeof connectors['createGitHubConnector'] === 'function') {
       const ghTools = (connectors['createGitHubConnector'] as (
         cfg: { token: string; enabledTools?: string[] },
@@ -792,11 +849,21 @@ export async function resolveAgentTools(
   // Slack connector
   const enabledSlack = pickEnabled(requested, SLACK_TOOL_NAMES, 'slack')
   if (enabledSlack.length > 0 && connectors) {
-    const token = (typeof context.metadata?.['slackToken'] === 'string' && context.metadata['slackToken'])
-      || context.env?.['SLACK_BOT_TOKEN']
+    if (typeof context.metadata?.['slackToken'] === 'string') {
+      warnings.push('Ignoring metadata.slackToken for Slack connector; configure slackConnectorProfiles or SLACK_BOT_TOKEN.')
+    }
+    const { token, warnings: profileWarnings } = resolveTokenProfile(
+      'Slack',
+      context.slackConnectorProfiles,
+      context.metadata?.['slackProfile'],
+      context.defaultSlackConnectorProfile,
+      context.env,
+      'SLACK_BOT_TOKEN',
+    )
+    warnings.push(...profileWarnings)
 
     if (!token) {
-      warnings.push('Slack tools requested but no token provided (metadata.slackToken or SLACK_BOT_TOKEN).')
+      warnings.push('Slack tools requested but no server-side token profile or SLACK_BOT_TOKEN is configured.')
     } else if (typeof connectors['createSlackConnector'] === 'function') {
       const slackTools = (connectors['createSlackConnector'] as (
         cfg: { token: string; enabledTools?: string[] },
@@ -827,7 +894,7 @@ export async function resolveAgentTools(
     if (!httpProfile) {
       warnings.push('HTTP connector requested but no server-side HTTP connector profile or DZIP_HTTP_BASE_URL is configured.')
     } else {
-      const policy = validateMcpHttpEndpoint(
+      const policy = await validateMcpHttpEndpoint(
         httpProfile.baseUrl,
         'http',
         httpProfile.allowedHosts ? { allowedHosts: httpProfile.allowedHosts } : undefined,

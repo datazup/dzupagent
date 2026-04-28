@@ -14,6 +14,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { AgentStreamEvent, DzupAgentConfig } from '../agent/agent-types.js'
 
@@ -48,6 +49,34 @@ function createTransientFailingStreamModel(): BaseChatModel {
   return model as unknown as BaseChatModel
 }
 
+function createFailingInvokeModel(message = '429 rate_limit exceeded'): BaseChatModel {
+  const model: Record<string, unknown> = {
+    invoke: vi.fn(async () => {
+      throw new Error(message)
+    }),
+    bindTools: vi.fn().mockReturnThis(),
+  }
+  return model as unknown as BaseChatModel
+}
+
+function createToolRequestModel(toolName: string): BaseChatModel {
+  let calls = 0
+  const model: Record<string, unknown> = {
+    invoke: vi.fn(async () => {
+      calls++
+      if (calls === 1) {
+        return new AIMessage({
+          content: '',
+          tool_calls: [{ id: 'call_1', name: toolName, args: {} }],
+        })
+      }
+      throw new Error('429 rate_limit exceeded after tool')
+    }),
+    bindTools: vi.fn().mockReturnThis(),
+  }
+  return model as unknown as BaseChatModel
+}
+
 function createMidStreamFailingModel(): BaseChatModel {
   const model: Record<string, unknown> = {
     invoke: vi.fn(),
@@ -65,6 +94,7 @@ interface MockRegistry {
   getModel: ReturnType<typeof vi.fn>
   getModelByName: ReturnType<typeof vi.fn>
   getModelWithFallback: ReturnType<typeof vi.fn>
+  getModelFallbackCandidates: ReturnType<typeof vi.fn>
   recordProviderSuccess: ReturnType<typeof vi.fn>
   recordProviderFailure: ReturnType<typeof vi.fn>
 }
@@ -74,9 +104,37 @@ function createMockRegistry(model: BaseChatModel, provider = 'mock-provider'): M
     getModel: vi.fn(() => model),
     getModelByName: vi.fn(() => model),
     getModelWithFallback: vi.fn(() => ({ model, provider })),
+    getModelFallbackCandidates: vi.fn(() => ([{ model, provider, modelName: provider + '-model' }])),
     recordProviderSuccess: vi.fn(),
     recordProviderFailure: vi.fn(),
   }
+}
+
+function createFailoverRegistry(
+  primary: BaseChatModel,
+  secondary: BaseChatModel,
+): MockRegistry {
+  return {
+    getModel: vi.fn(() => primary),
+    getModelByName: vi.fn(() => primary),
+    getModelWithFallback: vi.fn(() => ({ model: primary, provider: 'primary' })),
+    getModelFallbackCandidates: vi.fn(() => [
+      { model: primary, provider: 'primary', modelName: 'primary-model' },
+      { model: secondary, provider: 'secondary', modelName: 'secondary-model' },
+    ]),
+    recordProviderSuccess: vi.fn(),
+    recordProviderFailure: vi.fn(),
+  }
+}
+
+function mockTool(name: string): StructuredToolInterface {
+  return {
+    name,
+    description: `Mock tool ${name}`,
+    schema: {} as never,
+    lc_namespace: [] as string[],
+    invoke: vi.fn(async () => 'tool ok'),
+  } as unknown as StructuredToolInterface
 }
 
 function minimalConfig(overrides: Partial<DzupAgentConfig> = {}): DzupAgentConfig {
@@ -108,6 +166,7 @@ describe('DzupAgent provider fallback — selection-time only', () => {
       getModel: vi.fn(),
       getModelByName: vi.fn(),
       getModelWithFallback: vi.fn(() => ({ model: goodModel, provider: 'secondary' })),
+      getModelFallbackCandidates: vi.fn(),
       recordProviderSuccess: vi.fn(),
       recordProviderFailure: vi.fn(),
     }
@@ -131,6 +190,7 @@ describe('DzupAgent provider fallback — selection-time only', () => {
       getModel: vi.fn(),
       getModelByName: vi.fn(),
       getModelWithFallback: vi.fn(() => ({ model: goodModel, provider: 'secondary' })),
+      getModelFallbackCandidates: vi.fn(),
       recordProviderSuccess: vi.fn(),
       recordProviderFailure: vi.fn(),
     }
@@ -244,5 +304,106 @@ describe('DzupAgent — breaker state consistency between generate() and stream(
     for (const call of registry.recordProviderSuccess.mock.calls) {
       expect(call[0]).toBe('primary')
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Opt-in run-level failover
+// ---------------------------------------------------------------------------
+
+describe('DzupAgent provider failover — opt-in run-level wrapper', () => {
+  it('retries a transient generate invocation on the next provider and emits attempt events', async () => {
+    const primary = createFailingInvokeModel()
+    const secondary = createSucceedingStreamModel('secondary ok')
+    const registry = createFailoverRegistry(primary, secondary)
+    const eventBus = { emit: vi.fn() }
+
+    const agent = new DzupAgent(minimalConfig({
+      registry: registry as never,
+      eventBus: eventBus as never,
+      providerFailover: { enabled: true, maxAttempts: 2 },
+    }))
+
+    const result = await agent.generate([new HumanMessage('hi')])
+
+    expect(result.content).toBe('secondary ok')
+    expect(primary.invoke).toHaveBeenCalledTimes(1)
+    expect(secondary.invoke).toHaveBeenCalledTimes(1)
+    expect(registry.recordProviderFailure).toHaveBeenCalledWith('primary', expect.any(Error))
+    expect(registry.recordProviderSuccess).toHaveBeenCalledWith('secondary')
+    expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'provider:run_failure',
+      attempt: 1,
+      provider: 'primary',
+      model: 'primary-model',
+      reason: expect.stringMatching(/rate_limit/),
+      retrying: true,
+    }))
+    expect(eventBus.emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'provider:run_selected',
+      attempt: 2,
+      provider: 'secondary',
+      model: 'secondary-model',
+    }))
+  })
+
+  it('does not retry a model failure after tool results by default', async () => {
+    const primary = createToolRequestModel('side_effect')
+    const secondary = createSucceedingStreamModel('should not run')
+    const registry = createFailoverRegistry(primary, secondary)
+    const tool = mockTool('side_effect')
+
+    const agent = new DzupAgent(minimalConfig({
+      registry: registry as never,
+      tools: [tool],
+      providerFailover: { enabled: true, maxAttempts: 2 },
+      maxIterations: 2,
+    }))
+
+    await expect(agent.generate([new HumanMessage('run tool')])).rejects.toThrow(
+      /rate_limit/,
+    )
+
+    expect(tool.invoke).toHaveBeenCalledTimes(1)
+    expect(primary.invoke).toHaveBeenCalledTimes(2)
+    expect(secondary.invoke).not.toHaveBeenCalled()
+  })
+
+  it('fails over streaming when the stream open fails before yielding chunks', async () => {
+    const primary = createTransientFailingStreamModel()
+    const secondary = createSucceedingStreamModel('stream fallback')
+    const registry = createFailoverRegistry(primary, secondary)
+
+    const agent = new DzupAgent(minimalConfig({
+      registry: registry as never,
+      providerFailover: { enabled: true, maxAttempts: 2 },
+    }))
+
+    const events = await consume(agent.stream([new HumanMessage('hi')]))
+
+    expect(events.find(e => e.type === 'text')?.data.content).toBe('stream fallback')
+    expect(primary.stream).toHaveBeenCalledTimes(1)
+    expect(secondary.stream).toHaveBeenCalledTimes(1)
+    expect(registry.recordProviderFailure).toHaveBeenCalledWith('primary', expect.any(Error))
+    expect(registry.recordProviderSuccess).toHaveBeenCalledWith('secondary')
+  })
+
+  it('does not replay a stream on another provider after a chunk was yielded', async () => {
+    const primary = createMidStreamFailingModel()
+    const secondary = createSucceedingStreamModel('should not stream')
+    const registry = createFailoverRegistry(primary, secondary)
+
+    const agent = new DzupAgent(minimalConfig({
+      registry: registry as never,
+      providerFailover: { enabled: true, maxAttempts: 2 },
+    }))
+
+    await expect(consume(agent.stream([new HumanMessage('hi')]))).rejects.toThrow(
+      /overloaded/,
+    )
+
+    expect(primary.stream).toHaveBeenCalledTimes(1)
+    expect(secondary.stream).not.toHaveBeenCalled()
+    expect(registry.recordProviderFailure).toHaveBeenCalledWith('primary', expect.any(Error))
   })
 })

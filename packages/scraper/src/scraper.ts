@@ -28,7 +28,10 @@ export class WebScraper {
 
   constructor(config?: Partial<ScraperConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config }
-    this.httpFetcher = new HttpFetcher(this.config.http)
+    this.httpFetcher = new HttpFetcher({
+      ...this.config.http,
+      ...(this.config.urlPolicy ? { urlPolicy: this.config.urlPolicy } : {}),
+    })
   }
 
   /** Fetch and extract content from a URL */
@@ -223,7 +226,10 @@ export class WebScraper {
   /** Lazily create the browser pool */
   private getOrCreateBrowserPool(): BrowserPool {
     if (!this.browserPool) {
-      this.browserPool = new BrowserPool(this.config.browser)
+      this.browserPool = new BrowserPool({
+        ...this.config.browser,
+        ...(this.config.urlPolicy ? { urlPolicy: this.config.urlPolicy } : {}),
+      })
     }
     return this.browserPool
   }

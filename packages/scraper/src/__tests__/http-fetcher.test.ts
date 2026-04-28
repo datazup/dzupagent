@@ -22,7 +22,7 @@ describe('HttpFetcher', () => {
     `
     vi.stubGlobal('fetch', vi.fn(async () => makeResponse(html)))
 
-    const fetcher = new HttpFetcher({ respectRobotsTxt: false })
+    const fetcher = new HttpFetcher({ respectRobotsTxt: false, urlPolicy: { resolveDns: false } })
     const result = await fetcher.fetch('https://example.com', {
       extraction: { mode: 'text', cleanHtml: true, maxLength: 10 },
     })
@@ -44,7 +44,7 @@ describe('HttpFetcher', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const fetcher = new HttpFetcher({ respectRobotsTxt: true, maxRetries: 0 })
+    const fetcher = new HttpFetcher({ respectRobotsTxt: true, maxRetries: 0, urlPolicy: { resolveDns: false } })
 
     await expect(
       fetcher.fetch('https://example.com/private/page'),
@@ -66,11 +66,45 @@ describe('HttpFetcher', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const fetcher = new HttpFetcher({ respectRobotsTxt: true, maxRetries: 0 })
+    const fetcher = new HttpFetcher({ respectRobotsTxt: true, maxRetries: 0, urlPolicy: { resolveDns: false } })
     const result = await fetcher.fetch('https://example.com/public/page')
 
     expect(result.status).toBe(200)
     expect(result.title).toBe('Allowed')
     expect(result.text.length).toBeGreaterThan(0)
+  })
+
+  it('rejects private destinations before fetching', async () => {
+    const fetchMock = vi.fn(async () => makeResponse('<html></html>'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const fetcher = new HttpFetcher({ respectRobotsTxt: false, maxRetries: 0 })
+
+    await expect(fetcher.fetch('https://127.0.0.1/private')).rejects.toThrow('Outbound URL rejected')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('revalidates redirects before following them', async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      if (String(url) === 'https://example.com/start') {
+        return makeResponse('', {
+          status: 302,
+          headers: { location: 'https://169.254.169.254/latest/meta-data' },
+        })
+      }
+      return makeResponse('<html></html>')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const fetcher = new HttpFetcher({
+      respectRobotsTxt: false,
+      maxRetries: 0,
+      urlPolicy: {
+        lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+      },
+    })
+
+    await expect(fetcher.fetch('https://example.com/start')).rejects.toThrow('Outbound URL rejected')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

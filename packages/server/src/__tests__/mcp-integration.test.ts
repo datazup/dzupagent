@@ -167,7 +167,7 @@ function makeContext(
   return {
     toolNames,
     metadata: { mcpServers },
-    ...(env !== undefined ? { env } : {}),
+    env: env ?? { DZIP_MCP_ALLOWED_HTTP_HOSTS: 'mock:8000' },
   }
 }
 
@@ -235,6 +235,20 @@ beforeEach(() => {
         invokeTool(...args: unknown[]) {
           return (mockClient.invokeTool as Function).apply(mockClient, args)
         }
+      },
+      validateOutboundUrl: async (url: string, policy?: { allowedHosts?: Iterable<string> }) => {
+        const parsed = new URL(url)
+        const allowedHosts = new Set(Array.from(policy?.allowedHosts ?? []))
+        if (allowedHosts.has(parsed.hostname) || allowedHosts.has(parsed.host)) {
+          return { ok: true, url: parsed, resolvedAddresses: [] }
+        }
+        if (parsed.hostname === '127.0.0.1') {
+          return { ok: false, reason: `URL host "${parsed.hostname}" is not a public IP address.` }
+        }
+        if (parsed.protocol !== 'https:' && parsed.hostname !== 'mock') {
+          return { ok: false, reason: 'URL protocol must be https unless trusted HTTP is explicitly allowed.' }
+        }
+        return { ok: true, url: parsed, resolvedAddresses: [] }
       },
       mcpToolToLangChain: (descriptor: MCPToolDescriptor, client: unknown) => {
         // client is the proxy instance, but we use mockClient directly
@@ -841,11 +855,11 @@ describe('MCP integration with tool-resolver', { timeout: 60_000 }, () => {
       mockClient.registerBackend(server)
 
       const result = await resolveAgentTools(
-        makeContext(['mcp:private'], [{ id: 'private', url: 'http://127.0.0.1:9999/mcp' }]),
+        makeContext(['mcp:private'], [{ id: 'private', url: 'https://127.0.0.1:9999/mcp' }]),
       )
 
       expect(result.tools).toHaveLength(0)
-      expect(result.warnings.some(w => w.includes('private, loopback, or link-local'))).toBe(true)
+      expect(result.warnings.some(w => w.includes('not a public IP address'))).toBe(true)
     })
 
     it('allows private metadata MCP HTTP URLs when explicitly allowlisted', async () => {

@@ -30,6 +30,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
   attachStructuredOutputCapabilities,
+  isTransientError,
   type ModelTier,
   type StructuredOutputModelCapabilities,
 } from '@dzupagent/core'
@@ -72,6 +73,12 @@ export { extractJsonFromText }
 
 const MODEL_TIERS: Set<string> = new Set(['chat', 'reasoning', 'codegen', 'embedding'])
 
+interface ProviderAttempt {
+  provider: string
+  modelName: string
+  model: BaseChatModel
+}
+
 function resolveStructuredOutputCapabilities(
   model: BaseChatModel,
 ): StructuredOutputModelCapabilities | undefined {
@@ -92,6 +99,7 @@ export class DzupAgent {
    *  used. `undefined` when the caller supplied a concrete model or when
    *  a model was resolved by name (no fallback chain in play). */
   private readonly resolvedProvider: string | undefined
+  private readonly resolvedTier: ModelTier | undefined
   private readonly instructionResolver: AgentInstructionResolver
   private readonly memoryContextLoader: AgentMemoryContextLoader
   private readonly middlewareRuntime: AgentMiddlewareRuntime
@@ -106,6 +114,7 @@ export class DzupAgent {
     const resolved = this.resolveModel(config)
     this.resolvedModel = resolved.model
     this.resolvedProvider = resolved.provider
+    this.resolvedTier = resolved.tier
 
     // Initialize mailbox when configured
     if (config.mailbox) {
@@ -195,19 +204,20 @@ export class DzupAgent {
    * Runs the full ReAct tool-calling loop with guardrails, context
    * compression, and middleware hooks.
    *
-   * ## Provider fallback semantics — selection-time only
+   * ## Provider fallback semantics
    *
    * When constructed with a tier-based model (e.g. `model: 'codegen'`),
    * the agent resolves a provider once via
    * `ModelRegistry.getModelWithFallback`. Open-circuit providers are
    * skipped at that selection step. After that, the chosen provider is
-   * fixed for the lifetime of the agent: per-call success/failure is
-   * recorded against the same circuit breaker (so subsequent agent
-   * constructions skip a degraded provider), but **the agent does not
-   * switch providers mid-run on a transient failure**. Same-run failover
-   * is intentionally out of scope; if your application needs it, build a
-   * higher-level retry/orchestration layer that constructs a fresh agent
-   * after a failure.
+   * fixed for the default path: per-call success/failure is recorded
+   * against the same circuit breaker so subsequent agent constructions
+   * skip a degraded provider.
+   *
+   * Same-run provider retry/failover is a separate opt-in wrapper
+   * controlled by `providerFailover`. It retries only according to that
+   * explicit policy, and it blocks retry after tool results unless the
+   * host declares that phase retry-safe.
    *
    * The same model applies to {@link stream}: native streaming records
    * outcomes against the same circuit breaker as `generate`, keeping
@@ -234,7 +244,7 @@ export class DzupAgent {
       options,
       runState,
       invokeModel: (model, preparedMessages) =>
-        this.invokeModelWithMiddleware(model, preparedMessages),
+        this.invokeModelWithMiddleware(model, preparedMessages, runState.tools),
       transformToolResult: (toolName, input, result) =>
         this.transformToolResultWithMiddleware(toolName, input, result),
       maybeUpdateSummary: (allMessages, memoryFrame) =>
@@ -279,16 +289,17 @@ export class DzupAgent {
    *
    * Yields text chunks, tool calls/results, budget warnings, and done/error events.
    *
-   * ## Provider fallback semantics — selection-time only
+   * ## Provider fallback semantics
    *
    * Mirrors {@link generate}: the provider is fixed at agent construction
    * via `ModelRegistry.getModelWithFallback` (open-circuit providers are
    * skipped at that selection step). Native streaming success/failure is
    * recorded against the **same** circuit breaker the non-streaming path
    * uses, so breaker state stays consistent between `generate` and
-   * `stream`. There is no same-run provider failover — a transient
-   * stream failure surfaces to the caller; it does not transparently
-   * retry against another provider.
+   * `stream`. Same-run stream retry/failover is only attempted when
+   * `providerFailover` is enabled, before any stream chunk has been
+   * yielded, and before tool results unless the host declares the phase
+   * retry-safe.
    *
    * Thin wrapper over {@link streamRun} — see `streaming-run.ts`.
    */
@@ -302,7 +313,9 @@ export class DzupAgent {
         config: this.config,
         resolvedModel: this.resolvedModel,
         resolvedProvider: this.resolvedProvider,
+        resolvedTier: this.resolvedTier,
         registry: this.config.registry,
+        getProviderAttempts: (tools) => this.getProviderAttempts(tools),
         prepareMessages: (inputMessages) => this.prepareMessages(inputMessages),
         getTools: () => this.getTools(),
         bindTools: (model, tools) => this.bindTools(model, tools),
@@ -375,12 +388,12 @@ export class DzupAgent {
    */
   private resolveModel(
     config: DzupAgentConfig,
-  ): { model: BaseChatModel; provider: string | undefined } {
+  ): { model: BaseChatModel; provider: string | undefined; tier: ModelTier | undefined } {
     const attachCapabilities = (model: BaseChatModel): BaseChatModel =>
       attachStructuredOutputCapabilities(model, config.structuredOutputCapabilities)
 
     if (typeof config.model !== 'string') {
-      return { model: attachCapabilities(config.model), provider: undefined }
+      return { model: attachCapabilities(config.model), provider: undefined, tier: undefined }
     }
 
     if (!config.registry) {
@@ -393,13 +406,80 @@ export class DzupAgent {
       const { model, provider } = config.registry.getModelWithFallback(
         config.model as ModelTier,
       )
-      return { model: attachCapabilities(model), provider }
+      return { model: attachCapabilities(model), provider, tier: config.model as ModelTier }
     }
 
     return {
       model: attachCapabilities(config.registry.getModelByName(config.model)),
       provider: undefined,
+      tier: undefined,
     }
+  }
+
+  private getProviderAttempts(
+    tools: StructuredToolInterface[],
+  ): ProviderAttempt[] {
+    if (
+      !this.config.providerFailover?.enabled
+      || !this.config.registry
+      || !this.resolvedTier
+    ) {
+      return []
+    }
+
+    const maxAttempts = Math.max(1, this.config.providerFailover.maxAttempts ?? 2)
+    const registry = this.config.registry as unknown as {
+      getModelFallbackCandidates: (tier: ModelTier) => ProviderAttempt[]
+    }
+    return registry
+      .getModelFallbackCandidates(this.resolvedTier)
+      .slice(0, maxAttempts)
+      .map(candidate => ({
+        ...candidate,
+        model: this.bindTools(
+          attachStructuredOutputCapabilities(
+            candidate.model,
+            this.config.structuredOutputCapabilities,
+          ),
+          tools,
+        ),
+      }))
+  }
+
+  private hasToolResults(messages: BaseMessage[]): boolean {
+    return messages.some(message => message._getType() === 'tool')
+  }
+
+  private shouldRunFailover(error: Error, messages: BaseMessage[]): boolean {
+    const policy = this.config.providerFailover
+    if (!policy?.enabled) return false
+    if (this.hasToolResults(messages) && !policy.allowRetryAfterToolResults) {
+      return false
+    }
+    return policy.shouldRetry?.(error) ?? isTransientError(error)
+  }
+
+  private emitProviderAttempt(event: {
+    type: 'provider:run_attempt' | 'provider:run_failure' | 'provider:run_selected'
+    attempt: number
+    maxAttempts?: number
+    provider: string
+    model: string
+    phase: 'invoke' | 'stream'
+    reason?: string
+    retrying?: boolean
+  }): void {
+    this.config.eventBus?.emit({
+      type: event.type,
+      agentId: this.id,
+      attempt: event.attempt,
+      provider: event.provider,
+      model: event.model,
+      phase: event.phase,
+      ...(event.maxAttempts !== undefined ? { maxAttempts: event.maxAttempts } : {}),
+      ...(event.reason !== undefined ? { reason: event.reason } : {}),
+      ...(event.retrying !== undefined ? { retrying: event.retrying } : {}),
+    } as never)
   }
 
   private getTools(): StructuredToolInterface[] {
@@ -597,7 +677,13 @@ export class DzupAgent {
   private async invokeModelWithMiddleware(
     model: BaseChatModel,
     messages: BaseMessage[],
+    tools: StructuredToolInterface[] = [],
   ): Promise<BaseMessage> {
+    const attempts = this.getProviderAttempts(tools)
+    if (attempts.length > 1) {
+      return this.invokeModelWithProviderFailover(attempts, messages)
+    }
+
     try {
       const result = await this.middlewareRuntime.invokeModel(model, messages)
       // Feed the provider's circuit breaker a success signal. No-op when
@@ -616,6 +702,56 @@ export class DzupAgent {
       }
       throw err
     }
+  }
+
+  private async invokeModelWithProviderFailover(
+    attempts: ProviderAttempt[],
+    messages: BaseMessage[],
+  ): Promise<BaseMessage> {
+    let lastError: unknown
+
+    for (let index = 0; index < attempts.length; index++) {
+      const attempt = attempts[index]!
+      const attemptNumber = index + 1
+      this.emitProviderAttempt({
+        type: 'provider:run_attempt',
+        attempt: attemptNumber,
+        maxAttempts: attempts.length,
+        provider: attempt.provider,
+        model: attempt.modelName,
+        phase: 'invoke',
+      })
+
+      try {
+        const result = await this.middlewareRuntime.invokeModel(attempt.model, messages)
+        this.config.registry?.recordProviderSuccess(attempt.provider)
+        this.emitProviderAttempt({
+          type: 'provider:run_selected',
+          attempt: attemptNumber,
+          provider: attempt.provider,
+          model: attempt.modelName,
+          phase: 'invoke',
+        })
+        return result
+      } catch (err) {
+        lastError = err
+        const asError = err instanceof Error ? err : new Error(String(err))
+        this.config.registry?.recordProviderFailure(attempt.provider, asError)
+        const retrying = index < attempts.length - 1 && this.shouldRunFailover(asError, messages)
+        this.emitProviderAttempt({
+          type: 'provider:run_failure',
+          attempt: attemptNumber,
+          provider: attempt.provider,
+          model: attempt.modelName,
+          phase: 'invoke',
+          reason: asError.message,
+          retrying,
+        })
+        if (!retrying) break
+      }
+    }
+
+    throw lastError
   }
 
   private async transformToolResultWithMiddleware(

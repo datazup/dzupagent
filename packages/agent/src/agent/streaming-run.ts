@@ -21,6 +21,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
   extractTokenUsage,
   estimateTokens,
+  isTransientError,
   type TokenUsage,
   type ModelRegistry,
 } from '@dzupagent/core'
@@ -61,6 +62,7 @@ export interface StreamRunContext {
    * instance or a model resolved by name (no fallback chain in play).
    */
   resolvedProvider?: string | undefined
+  resolvedTier?: string | undefined
   /**
    * Registry used to resolve {@link resolvedProvider}. Required to thread
    * native-stream outcomes back to the circuit breaker via
@@ -68,11 +70,16 @@ export interface StreamRunContext {
    * `resolvedProvider` is also `undefined`.
    */
   registry?: ModelRegistry | undefined
+  getProviderAttempts?: (tools: StructuredToolInterface[]) => ProviderAttempt[]
   prepareMessages: (messages: BaseMessage[]) => Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }>
   getTools: () => StructuredToolInterface[]
   bindTools: (model: BaseChatModel, tools: StructuredToolInterface[]) => BaseChatModel
   runBeforeAgentHooks: () => Promise<void>
-  invokeModelWithMiddleware: (model: BaseChatModel, messages: BaseMessage[]) => Promise<BaseMessage>
+  invokeModelWithMiddleware: (
+    model: BaseChatModel,
+    messages: BaseMessage[],
+    tools?: StructuredToolInterface[],
+  ) => Promise<BaseMessage>
   transformToolResultWithMiddleware: (
     toolName: string,
     input: Record<string, unknown>,
@@ -80,6 +87,120 @@ export interface StreamRunContext {
   ) => Promise<string>
   maybeUpdateSummary: (messages: BaseMessage[], memoryFrame?: unknown) => Promise<void>
   maybeWriteBackMemory: (content: string) => Promise<void>
+}
+
+type StreamableModel = BaseChatModel & {
+  stream: (msgs: BaseMessage[]) => Promise<AsyncIterable<AIMessage>>
+}
+
+interface ProviderAttempt {
+  provider: string
+  modelName: string
+  model: BaseChatModel
+}
+
+function hasToolResults(messages: BaseMessage[]): boolean {
+  return messages.some(message => message._getType() === 'tool')
+}
+
+function shouldRunStreamFailover(
+  ctx: StreamRunContext,
+  error: Error,
+  messages: BaseMessage[],
+): boolean {
+  const policy = ctx.config.providerFailover
+  if (!policy?.enabled) return false
+  if (hasToolResults(messages) && !policy.allowRetryAfterToolResults) {
+    return false
+  }
+  return policy.shouldRetry?.(error) ?? isTransientError(error)
+}
+
+function emitProviderRunEvent(
+  ctx: StreamRunContext,
+  event: {
+    type: 'provider:run_attempt' | 'provider:run_failure' | 'provider:run_selected'
+    attempt: number
+    maxAttempts?: number
+    provider: string
+    model: string
+    phase: 'stream'
+    reason?: string
+    retrying?: boolean
+  },
+): void {
+  ctx.config.eventBus?.emit({
+    type: event.type,
+    agentId: ctx.agentId,
+    attempt: event.attempt,
+    provider: event.provider,
+    model: event.model,
+    phase: event.phase,
+    ...(event.maxAttempts !== undefined ? { maxAttempts: event.maxAttempts } : {}),
+    ...(event.reason !== undefined ? { reason: event.reason } : {}),
+    ...(event.retrying !== undefined ? { retrying: event.retrying } : {}),
+  } as never)
+}
+
+async function openStreamWithProviderFailover(
+  ctx: StreamRunContext,
+  attempts: ProviderAttempt[],
+  messages: BaseMessage[],
+): Promise<{
+  stream: AsyncIterable<AIMessage>
+  provider: string
+  modelName: string
+  attempt: number
+}> {
+  let lastError: unknown
+
+  for (let index = 0; index < attempts.length; index++) {
+    const candidate = attempts[index]!
+    const attemptNumber = index + 1
+    emitProviderRunEvent(ctx, {
+      type: 'provider:run_attempt',
+      attempt: attemptNumber,
+      maxAttempts: attempts.length,
+      provider: candidate.provider,
+      model: candidate.modelName,
+      phase: 'stream',
+    })
+
+    try {
+      const streamable = candidate.model as StreamableModel
+      const stream = await streamable.stream(messages)
+      emitProviderRunEvent(ctx, {
+        type: 'provider:run_selected',
+        attempt: attemptNumber,
+        provider: candidate.provider,
+        model: candidate.modelName,
+        phase: 'stream',
+      })
+      return {
+        stream,
+        provider: candidate.provider,
+        modelName: candidate.modelName,
+        attempt: attemptNumber,
+      }
+    } catch (err) {
+      lastError = err
+      const asError = err instanceof Error ? err : new Error(String(err))
+      ctx.registry?.recordProviderFailure(candidate.provider, asError)
+      const retrying = index < attempts.length - 1 && shouldRunStreamFailover(ctx, asError, messages)
+      emitProviderRunEvent(ctx, {
+        type: 'provider:run_failure',
+        attempt: attemptNumber,
+        provider: candidate.provider,
+        model: candidate.modelName,
+        phase: 'stream',
+        reason: asError.message,
+        retrying,
+      })
+      if (!retrying) break
+    }
+  }
+
+  throw lastError
 }
 
 /**
@@ -130,7 +251,7 @@ export async function* streamRun(
       options: optionsWithUsage,
       runState,
       invokeModel: (model, preparedMessages) =>
-        ctx.invokeModelWithMiddleware(model, preparedMessages),
+        ctx.invokeModelWithMiddleware(model, preparedMessages, runState.tools),
       transformToolResult: (toolName, input, result) =>
         ctx.transformToolResultWithMiddleware(toolName, input, result),
       maybeUpdateSummary: (allMessages, memoryFrame) =>
@@ -154,9 +275,7 @@ export async function* streamRun(
     return
   }
 
-  const streamModel = runState.model as BaseChatModel & {
-    stream: (msgs: BaseMessage[]) => Promise<AsyncIterable<AIMessage>>
-  }
+  const streamModel = runState.model as StreamableModel
   const allMessages = [...runState.preparedMessages]
   const toolStats = createToolStatTracker()
   let llmCalls = 0
@@ -215,14 +334,28 @@ export async function* streamRun(
     // the next agent construction (or wherever else `getModelWithFallback`
     // is consulted).
     let stream: AsyncIterable<AIMessage>
-    try {
-      stream = await streamModel.stream(allMessages)
-    } catch (err) {
-      if (ctx.resolvedProvider && ctx.registry) {
-        const asError = err instanceof Error ? err : new Error(String(err))
-        ctx.registry.recordProviderFailure(ctx.resolvedProvider, asError)
+    let activeProvider = ctx.resolvedProvider
+    let activeModelName = (runState.model as BaseChatModel & { model?: string }).model
+      ?? ctx.resolvedProvider
+      ?? 'unknown'
+    let activeAttempt = 1
+    const attempts = ctx.getProviderAttempts?.(runState.tools) ?? []
+    if (attempts.length > 1) {
+      const opened = await openStreamWithProviderFailover(ctx, attempts, allMessages)
+      stream = opened.stream
+      activeProvider = opened.provider
+      activeModelName = opened.modelName
+      activeAttempt = opened.attempt
+    } else {
+      try {
+        stream = await streamModel.stream(allMessages)
+      } catch (err) {
+        if (ctx.resolvedProvider && ctx.registry) {
+          const asError = err instanceof Error ? err : new Error(String(err))
+          ctx.registry.recordProviderFailure(ctx.resolvedProvider, asError)
+        }
+        throw err
       }
-      throw err
     }
     llmCalls += 1
 
@@ -239,14 +372,25 @@ export async function* streamRun(
       }
     } catch (err) {
       streamThrew = true
-      if (ctx.resolvedProvider && ctx.registry) {
+      if (activeProvider && ctx.registry) {
         const asError = err instanceof Error ? err : new Error(String(err))
-        ctx.registry.recordProviderFailure(ctx.resolvedProvider, asError)
+        ctx.registry.recordProviderFailure(activeProvider, asError)
+        if (ctx.config.providerFailover?.enabled) {
+          emitProviderRunEvent(ctx, {
+            type: 'provider:run_failure',
+            attempt: activeAttempt,
+            provider: activeProvider,
+            model: activeModelName,
+            phase: 'stream',
+            reason: asError.message,
+            retrying: false,
+          })
+        }
       }
       throw err
     } finally {
-      if (!streamThrew && ctx.resolvedProvider && ctx.registry) {
-        ctx.registry.recordProviderSuccess(ctx.resolvedProvider)
+      if (!streamThrew && activeProvider && ctx.registry) {
+        ctx.registry.recordProviderSuccess(activeProvider)
       }
     }
 
@@ -257,8 +401,7 @@ export async function* streamRun(
     allMessages.push(fullResponse)
 
     {
-      const modelName = (runState.model as BaseChatModel & { model?: string }).model
-      const realUsage = extractTokenUsage(fullResponse, modelName ?? undefined)
+      const realUsage = extractTokenUsage(fullResponse, activeModelName)
       const hasRealUsage = realUsage.inputTokens > 0 || realUsage.outputTokens > 0
       const usage: TokenUsage = hasRealUsage
         ? realUsage
@@ -377,6 +520,7 @@ export async function* streamRun(
           ...(ctx.config.eventBus !== undefined
             ? { eventBus: ctx.config.eventBus }
             : {}),
+          ...(options?.signal !== undefined ? { signal: options.signal } : {}),
         }
       : undefined
 
@@ -401,11 +545,12 @@ export async function* streamRun(
             })
           },
           statTracker: toolStats,
+          ...(options?.signal !== undefined ? { signal: options.signal } : {}),
           ...(streamingPolicy ? { policy: streamingPolicy } : {}),
         })
       } catch (err) {
-        // executeSingleToolCall throws on permission denial
-        // (TOOL_PERMISSION_DENIED). Match the non-streaming path's
+        // The policy-enabled tool execution stage throws on permission
+        // denial (TOOL_PERMISSION_DENIED). Match the non-streaming path's
         // behaviour: surface the error to the caller and end the run.
         const message = err instanceof Error ? err.message : String(err)
         yield { type: 'error', data: { message } }

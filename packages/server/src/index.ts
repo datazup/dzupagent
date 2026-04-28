@@ -9,8 +9,20 @@
 
 // --- App ---
 export { createForgeApp } from './app.js'
-export type { ForgeServerConfig, ConsolidationConfig, MailDeliveryConfig, HttpConnectorProfile } from './app.js'
-export type { ServerRoutePlugin } from './route-plugin.js'
+export type {
+  ForgeServerConfig,
+  ForgeRouteFamiliesConfig,
+  ForgeMemoryRouteFamilyConfig,
+  ForgeCompatibilityRouteFamilyConfig,
+  ForgeEvaluationRouteFamilyConfig,
+  ForgeAdapterRouteFamilyConfig,
+  ForgeAutomationRouteFamilyConfig,
+  ForgeControlPlaneRouteFamilyConfig,
+  ConsolidationConfig,
+  MailDeliveryConfig,
+} from './app.js'
+// Route plugins are the public server extension seam for app-owned product routes.
+export type { ServerRoutePlugin, ServerRoutePluginContext } from './route-plugin.js'
 
 // --- Routes ---
 export { createRunRoutes } from './routes/runs.js'
@@ -43,7 +55,7 @@ export type { EventRouteConfig } from './routes/events.js'
 export { createWorkflowRoutes } from './routes/workflows.js'
 export type { WorkflowRouteConfig } from './routes/workflows.js'
 export { createMetricsRoute } from './routes/metrics.js'
-export type { MetricsRouteConfig } from './routes/metrics.js'
+export type { MetricsAccessControl, MetricsRouteConfig } from './routes/metrics.js'
 
 // --- Metrics ---
 export { PrometheusMetricsCollector } from './metrics/prometheus-collector.js'
@@ -451,6 +463,9 @@ export type {
   ToolResolverOptions,
   ToolSource,
   CustomToolResolver,
+  ConnectorTokenProfile,
+  HttpConnectorProfile,
+  GitWorkspaceProfile,
   ToolProfile,
   ToolProfileConfig,
 } from './runtime/tool-resolver.js'

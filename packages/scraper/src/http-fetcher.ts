@@ -1,5 +1,6 @@
 import type { HttpFetcherConfig, FetchResult, ExtractionConfig } from './types.js'
 import { ContentExtractor } from './content-extractor.js'
+import { fetchWithOutboundUrlPolicy, validateOutboundUrl } from '@dzupagent/core'
 
 const DEFAULT_USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -110,7 +111,7 @@ export class HttpFetcher {
           }
         }
 
-        const response = await fetch(currentUrl, {
+        const response = await fetchWithOutboundUrlPolicy(currentUrl, {
           headers: {
             'User-Agent': userAgent,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -118,13 +119,15 @@ export class HttpFetcher {
             'Accept-Encoding': 'gzip, deflate',
           },
           signal: controller.signal,
-          redirect: this.config.followRedirects ? 'follow' : 'manual',
+        }, {
+          policy: this.config.urlPolicy,
+          maxRedirects: this.config.maxRedirects,
+          followRedirects: this.config.followRedirects,
         })
 
         clearTimeout(timeoutId)
 
-        // Handle manual redirect following (when followRedirects is false
-        // we still need to handle it manually with hop limit)
+        // Preserve the historical no-follow mode response behavior.
         if (!this.config.followRedirects && isRedirect(response.status)) {
           const location = response.headers.get('location')
           if (location && redirectCount < this.config.maxRedirects) {
@@ -194,11 +197,19 @@ export class HttpFetcher {
     let rules: RobotsRules | null = null
     try {
       const robotsUrl = `${origin}/robots.txt`
-      const response = await fetch(robotsUrl, {
+      const validation = await validateOutboundUrl(robotsUrl, this.config.urlPolicy)
+      if (!validation.ok) {
+        this.robotsCache.set(origin, { fetchedAt: now, rules: null })
+        return null
+      }
+      const response = await fetchWithOutboundUrlPolicy(validation.url, {
         headers: {
           'User-Agent': this.userAgents[0] ?? DEFAULT_USER_AGENTS[0]!,
           'Accept': 'text/plain,*/*;q=0.5',
         },
+      }, {
+        policy: this.config.urlPolicy,
+        maxRedirects: this.config.maxRedirects,
       })
       if (response.ok) {
         rules = parseRobots(await response.text())

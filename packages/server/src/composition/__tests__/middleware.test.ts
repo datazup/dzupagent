@@ -12,9 +12,10 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 
-import { applyMiddleware } from '../middleware.js'
+import { applyMiddleware, assertExplicitFrameworkApiAuth } from '../middleware.js'
 import { GracefulShutdown } from '../../lifecycle/graceful-shutdown.js'
 import type { ForgeServerConfig } from '../types.js'
+import { createForgeApp } from '../../app.js'
 
 function baseConfig(overrides: Partial<ForgeServerConfig> = {}): ForgeServerConfig {
   return {
@@ -28,21 +29,122 @@ function baseConfig(overrides: Partial<ForgeServerConfig> = {}): ForgeServerConf
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
 })
 
 describe('composition/middleware', () => {
-  it('warns when CORS is left open to all origins', () => {
+  it('does not emit CORS headers by default', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const app = new Hono()
     applyMiddleware(app, baseConfig())
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('CORS is open to all origins'))
+    app.get('/api/health', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api/health', {
+      headers: { Origin: 'https://app.example.com' },
+    })
+
+    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    expect(res.headers.get('access-control-allow-headers')).toBeNull()
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('CORS is open to all origins'))
   })
 
   it('does not warn when corsOrigins is set to an explicit allow-list', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const app = new Hono()
-    applyMiddleware(app, baseConfig({ corsOrigins: 'https://app.example.com' }))
+    applyMiddleware(app, baseConfig({
+      auth: { mode: 'api-key', validateKey: async () => null },
+      corsOrigins: 'https://app.example.com',
+    }))
     expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('allows configured CORS allow-list origins', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({ corsOrigins: 'https://app.example.com' }))
+    app.get('/api/health', (c) => c.json({ ok: true }))
+
+    const allowed = await app.request('/api/health', {
+      headers: { Origin: 'https://app.example.com' },
+    })
+    const denied = await app.request('/api/health', {
+      headers: { Origin: 'https://evil.example.com' },
+    })
+
+    expect(allowed.headers.get('access-control-allow-origin')).toBe('https://app.example.com')
+    expect(denied.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  it('supports wildcard CORS only with an explicit compatibility opt-in', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({ allowWildcardCors: true }))
+    app.get('/api/health', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api/health', {
+      headers: { Origin: 'https://app.example.com' },
+    })
+
+    expect(res.headers.get('access-control-allow-origin')).toBe('*')
+    expect(res.headers.get('access-control-allow-credentials')).toBeNull()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('CORS is open to all origins'))
+  })
+
+  it('rejects production wildcard CORS without the compatibility opt-in', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+
+    expect(() => createForgeApp(baseConfig({
+      auth: { mode: 'api-key', validateKey: async () => null },
+      corsOrigins: '*',
+    }))).toThrow(/Refusing wildcard CORS in production/)
+  })
+
+  it('answers CORS preflight for configured allow-list origins', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({ corsOrigins: ['https://app.example.com'] }))
+    app.post('/api/runs', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api/runs', {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://app.example.com',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'Authorization, Content-Type',
+      },
+    })
+
+    expect(res.status).toBe(204)
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://app.example.com')
+    expect(res.headers.get('access-control-allow-methods')).toContain('POST')
+    expect(res.headers.get('access-control-allow-headers')).toContain('Authorization')
+  })
+
+  it('warns when framework /api routes are created without explicit auth outside production', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    assertExplicitFrameworkApiAuth(baseConfig())
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('/api/* routes are running without authentication'))
+  })
+
+  it('throws a startup error when production framework /api routes omit auth', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    expect(() => createForgeApp(baseConfig({ corsOrigins: 'https://app.example.com' })))
+      .toThrow(/Refusing to start production framework \/api\/\* routes without explicit auth/)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('allows explicit auth none as a development or compatibility opt-out with a warning', () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    expect(() => createForgeApp(baseConfig({
+      auth: { mode: 'none' },
+      corsOrigins: 'https://app.example.com',
+    }))).not.toThrow()
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('auth.mode="none" only for local development'))
   })
 
   it('adds safe default security headers without removing CORS headers', async () => {

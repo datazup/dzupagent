@@ -4,6 +4,10 @@
  *
  * Uses `fetch()` directly — no email SDK dependency.
  */
+import {
+  fetchWithOutboundUrlPolicy,
+  type OutboundUrlSecurityPolicy,
+} from '@dzupagent/core'
 import type { Notification, NotificationChannel } from '../notifier.js'
 
 export interface EmailWebhookNotificationChannelConfig {
@@ -12,6 +16,8 @@ export interface EmailWebhookNotificationChannelConfig {
   secret?: string
   /** Timeout in ms (default: 5000) */
   timeoutMs?: number
+  /** Outbound URL policy. Defaults to public HTTPS destinations only. */
+  urlPolicy?: OutboundUrlSecurityPolicy
 }
 
 export class EmailWebhookNotificationChannel implements NotificationChannel {
@@ -19,11 +25,13 @@ export class EmailWebhookNotificationChannel implements NotificationChannel {
   private readonly webhookUrl: string
   private readonly secret: string | undefined
   private readonly timeoutMs: number
+  private readonly urlPolicy: OutboundUrlSecurityPolicy | undefined
 
   constructor(config: EmailWebhookNotificationChannelConfig) {
     this.webhookUrl = config.webhookUrl
     this.secret = config.secret
     this.timeoutMs = config.timeoutMs ?? 5000
+    this.urlPolicy = config.urlPolicy
   }
 
   async send(notification: Notification): Promise<void> {
@@ -42,11 +50,13 @@ export class EmailWebhookNotificationChannel implements NotificationChannel {
       headers['Authorization'] = `Bearer ${this.secret}`
     }
 
-    await fetch(this.webhookUrl, {
+    await fetchWithOutboundUrlPolicy(this.webhookUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(this.timeoutMs),
+    }, {
+      policy: this.urlPolicy,
     })
   }
 }

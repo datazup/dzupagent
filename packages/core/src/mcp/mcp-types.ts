@@ -1,3 +1,5 @@
+import type { OutboundUrlSecurityPolicy } from '../security/outbound-url-policy.js'
+
 /**
  * MCP (Model Context Protocol) type definitions.
  *
@@ -26,6 +28,8 @@ export interface MCPServerConfig {
   timeoutMs?: number
   /** Headers to send with HTTP/SSE requests */
   headers?: Record<string, string>
+  /** Outbound URL policy for HTTP/SSE requests. Defaults to public HTTPS only. */
+  urlPolicy?: OutboundUrlSecurityPolicy
   /** Maximum number of tools to load eagerly (rest deferred) */
   maxEagerTools?: number
 }

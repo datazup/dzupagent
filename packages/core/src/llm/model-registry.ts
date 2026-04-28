@@ -46,6 +46,12 @@ function isTemperatureUnsupported(modelName: string): boolean {
   return false
 }
 
+export interface ModelFallbackCandidate {
+  provider: string
+  modelName: string
+  model: BaseChatModel
+}
+
 /**
  * Default model factory — creates ChatAnthropic or ChatOpenAI instances
  * based on the provider type.
@@ -317,10 +323,12 @@ export class ModelRegistry {
   }
 
   /**
-   * Get a model with automatic fallback across providers.
+   * Get a model with selection-time fallback across providers.
    *
    * Iterates providers in priority order, skipping those whose circuit
-   * breaker is open. Returns the first successfully created model.
+   * breaker is open. Returns the first successfully created model. This
+   * method does not retry a failed `model.invoke()` / `model.stream()` call;
+   * it only selects an available provider before invocation starts.
    *
    * Use `recordProviderSuccess()` / `recordProviderFailure()` after
    * invocation to update circuit breaker state.
@@ -356,6 +364,60 @@ export class ModelRegistry {
         breaker.recordFailure()
       }
     }
+
+    throw new ForgeError({
+      code: 'ALL_PROVIDERS_EXHAUSTED',
+      message: `No provider available for tier "${tier}". Tried: ${errors.join('; ')}`,
+      recoverable: false,
+      suggestion: 'Check provider API keys, service status, and circuit breaker configuration',
+      context: { tier, errors },
+    })
+  }
+
+  /**
+   * Return all currently selectable providers for a tier in priority order.
+   *
+   * Like {@link getModelWithFallback}, this is a selection-time operation:
+   * open circuits and factory errors are filtered before invocation. Callers
+   * that implement explicit run-level retry/failover can use this candidate
+   * chain to attempt a different provider after a transient invocation error.
+   */
+  getModelFallbackCandidates(
+    tier: ModelTier,
+    overrides?: ModelOverrides,
+  ): ModelFallbackCandidate[] {
+    const errors: string[] = []
+    const candidates: ModelFallbackCandidate[] = []
+
+    for (const provider of this.providers) {
+      const spec = provider.models[tier]
+      if (!spec) continue
+
+      const breaker = this.getBreaker(provider.provider)
+      if (!breaker.canExecute()) {
+        errors.push(`${provider.provider}: circuit open`)
+        continue
+      }
+
+      try {
+        const model = this.decorateStructuredOutputCapabilities(
+          this.factory(provider, spec, overrides),
+          provider,
+          spec,
+        )
+        candidates.push({
+          model,
+          provider: provider.provider,
+          modelName: overrides?.model ?? spec.name,
+        })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        errors.push(`${provider.provider}: ${msg}`)
+        breaker.recordFailure()
+      }
+    }
+
+    if (candidates.length > 0) return candidates
 
     throw new ForgeError({
       code: 'ALL_PROVIDERS_EXHAUSTED',

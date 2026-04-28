@@ -13,7 +13,7 @@
  * @example
  * ```ts
  * const gate = new ApprovalGate(
- *   { mode: 'required', timeoutMs: 300_000 },
+ *   { mode: 'required' },
  *   eventBus,
  * )
  * const result = await gate.waitForApproval(runId, plan)
@@ -22,7 +22,12 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { DzupEventBus, HookContext, ApprovalRequest, ContactChannel } from '@dzupagent/core'
-import type { ApprovalConfig, ApprovalResult } from './approval-types.js'
+import {
+  DEFAULT_APPROVAL_TIMEOUT_MS,
+  type ApprovalConfig,
+  type ApprovalResult,
+  type ApprovalWaitOptions,
+} from './approval-types.js'
 
 export class ApprovalGate {
   constructor(
@@ -38,6 +43,7 @@ export class ApprovalGate {
     runId: string,
     plan: unknown,
     ctx?: HookContext,
+    options: ApprovalWaitOptions = {},
   ): Promise<ApprovalResult> {
     if (this.config.mode === 'auto') return 'approved'
 
@@ -50,13 +56,14 @@ export class ApprovalGate {
     // Build a HumanContactRequest (approval mode) for structured tracing
     const contactId = randomUUID()
     const channel: ContactChannel = this.config.channel ?? 'in-app'
+    const timeoutMs = this.getEffectiveTimeoutMs()
     const approvalRequest: ApprovalRequest = {
       contactId,
       runId,
       type: 'approval',
       channel,
-      timeoutAt: this.config.timeoutMs
-        ? new Date(Date.now() + this.config.timeoutMs).toISOString()
+      timeoutAt: timeoutMs !== undefined
+        ? new Date(Date.now() + timeoutMs).toISOString()
         : undefined,
       data: {
         question: typeof plan === 'string' ? plan : 'Approve this action?',
@@ -64,6 +71,16 @@ export class ApprovalGate {
           ? JSON.stringify(plan)
           : undefined,
       },
+    }
+
+    if (options.signal?.aborted) {
+      this.eventBus.emit({
+        type: 'approval:cancelled',
+        runId,
+        contactId,
+        reason: this.abortReason(options.signal),
+      } as never)
+      return 'cancelled'
     }
 
     // Emit approval request (includes the structured request for tracing)
@@ -86,14 +103,19 @@ export class ApprovalGate {
     // Wait for approval/rejection event
     return new Promise<ApprovalResult>((resolve) => {
       let resolved = false
+      let timeoutHandle: ReturnType<typeof setTimeout> | undefined
 
-      const cleanup = () => { resolved = true }
+      const cleanup = () => {
+        resolved = true
+        if (timeoutHandle) clearTimeout(timeoutHandle)
+        options.signal?.removeEventListener('abort', onAbort)
+        unsubGrant()
+        unsubReject()
+      }
 
       const unsubGrant = this.eventBus.on('approval:granted', (event) => {
         if (event.runId === runId && !resolved) {
           cleanup()
-          unsubGrant()
-          unsubReject()
           resolve('approved')
         }
       })
@@ -101,29 +123,54 @@ export class ApprovalGate {
       const unsubReject = this.eventBus.on('approval:rejected', (event) => {
         if (event.runId === runId && !resolved) {
           cleanup()
-          unsubGrant()
-          unsubReject()
           resolve('rejected')
         }
       })
 
+      const onAbort = () => {
+        if (!resolved) {
+          cleanup()
+          this.eventBus.emit({
+            type: 'approval:cancelled',
+            runId,
+            contactId,
+            reason: this.abortReason(options.signal),
+          } as never)
+          resolve('cancelled')
+        }
+      }
+
+      options.signal?.addEventListener('abort', onAbort, { once: true })
+
       // Timeout
-      if (this.config.timeoutMs) {
-        setTimeout(() => {
+      if (timeoutMs !== undefined) {
+        timeoutHandle = setTimeout(() => {
           if (!resolved) {
             cleanup()
-            unsubGrant()
-            unsubReject()
             this.eventBus.emit({
-              type: 'approval:rejected',
+              type: 'approval:timed_out',
               runId,
-              reason: `Approval timed out after ${this.config.timeoutMs}ms`,
-            })
+              contactId,
+              timeoutMs,
+            } as never)
             resolve('timeout')
           }
-        }, this.config.timeoutMs)
+        }, timeoutMs)
       }
     })
+  }
+
+  private getEffectiveTimeoutMs(): number | undefined {
+    if (this.config.timeoutMs !== undefined) return this.config.timeoutMs
+    if (this.config.durableResume) return undefined
+    return DEFAULT_APPROVAL_TIMEOUT_MS
+  }
+
+  private abortReason(signal?: AbortSignal): string {
+    const reason = signal?.reason
+    if (reason instanceof Error) return reason.message
+    if (typeof reason === 'string') return reason
+    return 'approval wait cancelled'
   }
 
   private async notifyWebhook(
