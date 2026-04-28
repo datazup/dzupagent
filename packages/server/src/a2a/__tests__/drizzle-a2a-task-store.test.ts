@@ -8,10 +8,80 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { Hono } from 'hono'
+import { DrizzleA2ATaskStore } from '../drizzle-a2a-task-store.js'
 import { InMemoryA2ATaskStore } from '../task-handler.js'
 import type { A2ATask, A2ATaskStore } from '../task-handler.js'
 import { createA2ARoutes } from '../../routes/a2a.js'
 import { buildAgentCard } from '../agent-card.js'
+
+interface DrizzleCallLog {
+  op: string
+  fn: string
+  args: unknown[]
+}
+
+function makeDrizzleChain(terminal: unknown, onCall: (fn: string, args: unknown[]) => void): Record<string, unknown> {
+  const handler: ProxyHandler<() => unknown> = {
+    get(_target, prop: string) {
+      if (prop === 'then') {
+        return (onFulfilled: (value: unknown) => unknown) =>
+          Promise.resolve(terminal).then(onFulfilled)
+      }
+      return (...args: unknown[]) => {
+        onCall(prop, args)
+        return makeDrizzleChain(terminal, onCall)
+      }
+    },
+  }
+
+  return new Proxy(function proxyFn() {}, handler)
+}
+
+function buildDrizzleMockDb(selectSequence: unknown[][], log: DrizzleCallLog[] = []): Record<string, unknown> {
+  const selectQueue = [...selectSequence]
+
+  return {
+    select: vi.fn(() => makeDrizzleChain(selectQueue.shift() ?? [], (fn, args) => {
+      log.push({ op: 'select', fn, args })
+    })),
+    insert: vi.fn(() => makeDrizzleChain([], (fn, args) => {
+      log.push({ op: 'insert', fn, args })
+    })),
+    update: vi.fn(() => makeDrizzleChain([], (fn, args) => {
+      log.push({ op: 'update', fn, args })
+    })),
+  }
+}
+
+function makeTaskRow(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 'task-1',
+    agentName: 'test-agent',
+    state: 'submitted',
+    input: 'hello',
+    output: null,
+    error: null,
+    metadata: null,
+    pushNotificationConfig: null,
+    artifacts: [],
+    ownerId: null,
+    tenantId: 'default',
+    createdAt: new Date('2026-04-01T00:00:00Z'),
+    updatedAt: new Date('2026-04-01T00:00:00Z'),
+    ...overrides,
+  }
+}
+
+function makeMessageRow(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 1,
+    taskId: 'task-1',
+    role: 'user',
+    parts: [{ type: 'text', text: 'hello' }],
+    createdAt: new Date('2026-04-01T00:00:00Z'),
+    ...overrides,
+  }
+}
 
 function createTestApp(store: A2ATaskStore) {
   const agentCard = buildAgentCard({
@@ -172,6 +242,58 @@ describe('A2A task store contract (InMemory)', () => {
     })
 
     expect(await store.setPushConfig('nonexistent', { url: 'http://x' })).toBeNull()
+  })
+})
+
+describe('DrizzleA2ATaskStore list() batching', () => {
+  it('returns [] without querying messages when no task rows match', async () => {
+    const db = buildDrizzleMockDb([[]])
+    const store = new DrizzleA2ATaskStore(db)
+
+    await expect(store.list()).resolves.toEqual([])
+    expect(db.select).toHaveBeenCalledTimes(1)
+  })
+
+  it('batch-loads messages once and preserves listed task ordering', async () => {
+    const db = buildDrizzleMockDb([
+      [
+        makeTaskRow({ id: 'task-1', input: 'first' }),
+        makeTaskRow({ id: 'task-2', input: 'second' }),
+        makeTaskRow({ id: 'task-3', input: 'third' }),
+      ],
+      [
+        makeMessageRow({
+          id: 1,
+          taskId: 'task-2',
+          role: 'agent',
+          parts: [{ type: 'text', text: 'task 2 reply' }],
+        }),
+        makeMessageRow({
+          id: 2,
+          taskId: 'task-1',
+          role: 'user',
+          parts: [{ type: 'text', text: 'task 1 prompt' }],
+        }),
+        makeMessageRow({
+          id: 3,
+          taskId: 'task-1',
+          role: 'agent',
+          parts: [{ type: 'text', text: 'task 1 reply' }],
+        }),
+      ],
+    ])
+    const store = new DrizzleA2ATaskStore(db)
+
+    const tasks = await store.list()
+
+    expect(db.select).toHaveBeenCalledTimes(2)
+    expect(tasks.map((task) => task.id)).toEqual(['task-1', 'task-2', 'task-3'])
+    expect(tasks[0]?.messages.map((message) => message.parts[0]?.text)).toEqual([
+      'task 1 prompt',
+      'task 1 reply',
+    ])
+    expect(tasks[1]?.messages.map((message) => message.parts[0]?.text)).toEqual(['task 2 reply'])
+    expect(tasks[2]?.messages).toEqual([])
   })
 })
 

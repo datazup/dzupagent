@@ -356,18 +356,18 @@ describe('DrizzleA2ATaskStore', () => {
       expect(await store.list()).toEqual([])
     })
 
-    it('fetches messages for each task', async () => {
+    it('batch-loads messages for listed tasks', async () => {
       const db = buildMockDb({
         selectSequence: [
           [makeTaskRow({ id: 't1' }), makeTaskRow({ id: 't2' })],
-          [makeMessageRow({ taskId: 't1' })],
-          [makeMessageRow({ taskId: 't2', id: 2 })],
+          [makeMessageRow({ taskId: 't1' }), makeMessageRow({ taskId: 't2', id: 2 })],
         ],
       })
       const store = new DrizzleA2ATaskStore(db)
 
       const tasks = await store.list()
 
+      expect(db.select).toHaveBeenCalledTimes(2)
       expect(tasks).toHaveLength(2)
       expect(tasks[0]!.messages).toHaveLength(1)
       expect(tasks[1]!.messages).toHaveLength(1)

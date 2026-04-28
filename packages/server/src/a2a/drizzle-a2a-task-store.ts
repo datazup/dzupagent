@@ -4,7 +4,7 @@
  * Implements the same {@link A2ATaskStore} interface as the in-memory store
  * but persists tasks, messages, and artifacts in PostgreSQL via Drizzle ORM.
  */
-import { eq, and, desc } from 'drizzle-orm'
+import { eq, and, desc, inArray } from 'drizzle-orm'
 import { a2aTasks, a2aTaskMessages } from '../persistence/drizzle-schema.js'
 import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
 import type {
@@ -158,19 +158,26 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
       ? await query.where(and(...conditions))
       : await query) as TaskRow[]
 
-    // Batch-load messages for all tasks
-    const tasks: A2ATask[] = []
-    for (const row of rows) {
-      const messages = await this.db
-        .select()
-        .from(a2aTaskMessages)
-        .where(eq(a2aTaskMessages.taskId, row.id))
-        .orderBy(a2aTaskMessages.id) as MessageRow[]
+    if (rows.length === 0) return []
 
-      tasks.push(this.rowToTask(row, messages))
+    const taskIds = rows.map((row) => row.id)
+    const messages = await this.db
+      .select()
+      .from(a2aTaskMessages)
+      .where(inArray(a2aTaskMessages.taskId, taskIds))
+      .orderBy(a2aTaskMessages.id) as MessageRow[]
+
+    const messagesByTaskId = new Map<string, MessageRow[]>()
+    for (const message of messages) {
+      const taskMessages = messagesByTaskId.get(message.taskId)
+      if (taskMessages) {
+        taskMessages.push(message)
+      } else {
+        messagesByTaskId.set(message.taskId, [message])
+      }
     }
 
-    return tasks
+    return rows.map((row) => this.rowToTask(row, messagesByTaskId.get(row.id) ?? []))
   }
 
   async appendMessage(id: string, message: A2ATaskMessage): Promise<A2ATask | null> {
