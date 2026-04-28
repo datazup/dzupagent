@@ -18,7 +18,7 @@ import type {
   TeamRuntimeTracer,
 } from '../team-runtime.js'
 import type { ParticipantDefinition, TeamDefinition } from '../team-definition.js'
-import type { SpawnedAgent } from '../../../playground/types.js'
+import type { TeamSpawnedAgent as SpawnedAgent } from '../team-workspace.js'
 
 // ---------------------------------------------------------------------------
 // Mock tracer

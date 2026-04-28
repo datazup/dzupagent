@@ -360,7 +360,7 @@ export type {
 // --- Playground ---
 export { AgentPlayground } from './playground/playground.js'
 export type { PlaygroundConfig } from './playground/playground.js'
-export { SharedWorkspace } from './playground/shared-workspace.js'
+export { SharedWorkspace } from './orchestration/team/team-workspace.js'
 export { TeamCoordinator } from './playground/team-coordinator.js'
 export type {
   AgentRole,
@@ -388,6 +388,13 @@ export type {
   TeamRuntimeTracer,
   TeamOTelSpanLike,
 } from './orchestration/team/team-runtime.js'
+export type {
+  WorkspaceSubscriber,
+  TeamAgentRole,
+  TeamAgentStatus,
+  TeamSpawnedAgent,
+  TeamAgentRunResult,
+} from './orchestration/team/team-workspace.js'
 export type {
   CoordinatorPattern as TeamCoordinatorPattern,
   ParticipantDefinition,

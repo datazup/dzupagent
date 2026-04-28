@@ -13,7 +13,7 @@ import type { BaseMessage } from '@langchain/core/messages'
 import { DzupAgent } from '../../../agent/dzip-agent.js'
 import { TeamRuntime } from '../team-runtime.js'
 import type { ParticipantDefinition, TeamDefinition } from '../team-definition.js'
-import type { SpawnedAgent } from '../../../playground/types.js'
+import type { TeamSpawnedAgent as SpawnedAgent } from '../team-workspace.js'
 
 function createMockModel(shouldThrow: boolean): {
   model: BaseChatModel
