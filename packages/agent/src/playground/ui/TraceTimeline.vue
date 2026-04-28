@@ -6,7 +6,7 @@
  * Each node renders as a horizontal bar whose width is proportional to
  * its duration relative to the longest node. Bars are color-coded by
  * status: green for success, red for error, yellow for running, and
- * gray for pending. Clicking a node emits the `select-node` event.
+ * gray for pending. Activating a node button emits the `select-node` event.
  *
  * The total pipeline duration is displayed at the bottom.
  */
@@ -38,7 +38,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  /** Emitted when a node row is clicked */
+  /** Emitted when a node row is activated */
   'select-node': [nodeId: string]
 }>()
 
@@ -75,18 +75,10 @@ function barWidth(node: TimelineNode): string {
   return barWidthPercent(d, maxDuration.value)
 }
 
-/** Handle row click */
+/** Handle row activation */
 function handleSelect(node: TimelineNode): void {
   const id = node.nodeId ?? `event-${String(node.index)}`
   emit('select-node', id)
-}
-
-/** Handle keyboard activation */
-function handleKeydown(e: KeyboardEvent, node: TimelineNode): void {
-  if (e.key === 'Enter' || e.key === ' ') {
-    e.preventDefault()
-    handleSelect(node)
-  }
 }
 
 /** Check if a node is currently selected */
@@ -116,54 +108,57 @@ function isSelected(node: TimelineNode): boolean {
       v-for="node in timeline"
       :key="node.index"
       role="listitem"
-      :tabindex="0"
-      class="group flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2 transition-colors"
-      :class="[
-        isSelected(node)
-          ? traceUiStyles.selected
-          : traceUiStyles.interactive,
-      ]"
-      :aria-selected="isSelected(node)"
-      :aria-label="`Node ${node.nodeId ?? node.type}, status ${nodeStatus(node)}, duration ${formatMs(node.durationMs ?? 0)}`"
-      @click="handleSelect(node)"
-      @keydown="handleKeydown($event, node)"
+      class="group"
     >
-      <!-- Status dot -->
-      <span
-        class="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-        :class="dotClasses(node)"
-        aria-hidden="true"
-      />
-
-      <!-- Node ID / type label -->
-      <span class="w-36 shrink-0 truncate text-xs font-medium" :class="traceUiStyles.textPrimary">
-        {{ node.nodeId ?? node.type }}
-      </span>
-
-      <!-- Type badge -->
-      <span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider" :class="traceUiStyles.badgeNeutral">
-        {{ node.type }}
-      </span>
-
-      <!-- Duration bar -->
-      <div class="flex min-w-0 flex-1 items-center gap-2">
-        <div class="h-2 flex-1 overflow-hidden rounded-full" :class="traceUiStyles.track">
-          <div
-            class="h-full rounded-full transition-all"
-            :class="barClasses(node)"
-            :style="{ width: barWidth(node) }"
-          />
-        </div>
-
-        <!-- Duration label -->
+      <button
+        type="button"
+        class="flex w-full cursor-pointer items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+        :class="[
+          isSelected(node)
+            ? traceUiStyles.selected
+            : traceUiStyles.interactive,
+        ]"
+        :aria-current="isSelected(node) ? 'true' : undefined"
+        :aria-label="`Node ${node.nodeId ?? node.type}, status ${nodeStatus(node)}, duration ${formatMs(node.durationMs ?? 0)}`"
+        @click="handleSelect(node)"
+      >
+        <!-- Status dot -->
         <span
-          v-if="showDurations"
-          class="w-16 shrink-0 text-right font-mono text-[11px]"
-          :class="traceUiStyles.textMuted"
-        >
-          {{ formatMs(node.durationMs ?? node.latencyMs ?? 0) }}
+          class="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+          :class="dotClasses(node)"
+          aria-hidden="true"
+        />
+
+        <!-- Node ID / type label -->
+        <span class="w-36 shrink-0 truncate text-xs font-medium" :class="traceUiStyles.textPrimary">
+          {{ node.nodeId ?? node.type }}
         </span>
-      </div>
+
+        <!-- Type badge -->
+        <span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider" :class="traceUiStyles.badgeNeutral">
+          {{ node.type }}
+        </span>
+
+        <!-- Duration bar -->
+        <div class="flex min-w-0 flex-1 items-center gap-2">
+          <div class="h-2 flex-1 overflow-hidden rounded-full" :class="traceUiStyles.track">
+            <div
+              class="h-full rounded-full transition-all"
+              :class="barClasses(node)"
+              :style="{ width: barWidth(node) }"
+            />
+          </div>
+
+          <!-- Duration label -->
+          <span
+            v-if="showDurations"
+            class="w-16 shrink-0 text-right font-mono text-[11px]"
+            :class="traceUiStyles.textMuted"
+          >
+            {{ formatMs(node.durationMs ?? node.latencyMs ?? 0) }}
+          </span>
+        </div>
+      </button>
     </div>
 
     <!-- Total duration footer -->
