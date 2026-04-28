@@ -13,7 +13,101 @@
     "memory-ipc",
     "rag"
   ],
+  "criticalSourceFiles": [
+    {
+      "package": "agent",
+      "path": "src/agent/run-engine.ts",
+      "coveredBy": [
+        "src/__tests__/run-engine.test.ts",
+        "src/__tests__/run-engine-resume.test.ts"
+      ]
+    },
+    {
+      "package": "agent",
+      "path": "src/approval/approval-gate.ts",
+      "coveredBy": [
+        "src/__tests__/approval-gate.test.ts",
+        "src/__tests__/approval-gate-deep.test.ts"
+      ]
+    },
+    {
+      "package": "agent",
+      "path": "src/pipeline/pipeline-runtime.ts",
+      "coveredBy": [
+        "src/__tests__/pipeline-runtime.test.ts",
+        "src/__tests__/pipeline-runtime.cancel-timeout-retry.test.ts"
+      ]
+    },
+    {
+      "package": "agent-adapters",
+      "path": "src/base/base-cli-adapter.ts",
+      "coveredBy": [
+        "src/__tests__/base-cli-adapter-artifact-watcher.test.ts",
+        "src/__tests__/cli-smoke.test.ts"
+      ]
+    },
+    {
+      "package": "agent-adapters",
+      "path": "src/codex/codex-adapter.ts",
+      "coveredBy": [
+        "src/__tests__/codex-adapter.test.ts",
+        "src/__tests__/codex-adapter-deep.test.ts"
+      ]
+    },
+    {
+      "package": "core",
+      "path": "src/mcp/mcp-client.ts",
+      "coveredBy": [
+        "src/__tests__/mcp-client-stdio-exit.test.ts",
+        "src/__tests__/mcp-reliability.test.ts"
+      ]
+    },
+    {
+      "package": "core",
+      "path": "src/security/policy/policy-evaluator.ts",
+      "coveredBy": [
+        "src/__tests__/policy-engine.test.ts",
+        "src/__tests__/security-policy-engine.test.ts"
+      ]
+    },
+    {
+      "package": "connectors-browser",
+      "path": "src/browser-connector.ts",
+      "coveredBy": [
+        "src/__tests__/browser-connector.integration.test.ts",
+        "src/__tests__/browser-connector-tools.test.ts"
+      ]
+    },
+    {
+      "package": "connectors-documents",
+      "path": "src/parse-document.ts",
+      "coveredBy": [
+        "src/__tests__/parse-document.test.ts",
+        "src/__tests__/parse-document-extended.test.ts"
+      ]
+    },
+    {
+      "package": "scraper",
+      "path": "src/scraper.ts",
+      "coveredBy": [
+        "src/__tests__/scraper-integration.test.ts",
+        "src/__tests__/scraper-deep.test.ts"
+      ]
+    }
+  ],
   "packages": {
+    "adapter-rules": {
+      "waiver": {
+        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
+    "adapter-types": {
+      "waiver": {
+        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
     "agent": {
       "thresholds": {
         "statements": 80,
@@ -38,6 +132,30 @@
         "lines": 85
       }
     },
+    "agent-types": {
+      "waiver": {
+        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
+    "app-tools": {
+      "waiver": {
+        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
+    "cache": {
+      "waiver": {
+        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
+    "code-edit-kit": {
+      "waiver": {
+        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
     "core": {
       "thresholds": {
         "statements": 80,
@@ -60,6 +178,18 @@
         "lines": 70
       }
     },
+    "connectors-browser": {
+      "waiver": {
+        "reason": "Browser connector has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory until coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
+    "connectors-documents": {
+      "waiver": {
+        "reason": "Document connector has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory until coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
     "context": {
       "waiver": {
         "reason": "Coverage baseline is not published yet; this package remains on the staged adoption list.",
@@ -72,12 +202,48 @@
         "until": "2026-06-30"
       }
     },
+    "eval-contracts": {
+      "waiver": {
+        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
     "evals": {
       "thresholds": {
         "statements": 70,
         "branches": 75,
         "functions": 75,
         "lines": 70
+      }
+    },
+    "express": {
+      "waiver": {
+        "reason": "Express compatibility package has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
+    "flow-ast": {
+      "waiver": {
+        "reason": "Flow AST package has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
+    "flow-compiler": {
+      "waiver": {
+        "reason": "Flow compiler package has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
+    "flow-dsl": {
+      "waiver": {
+        "reason": "Flow DSL package has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
+    "hitl-kit": {
+      "waiver": {
+        "reason": "Type-focused HITL kit has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
+        "until": "2026-07-31"
       }
     },
     "memory-ipc": {
@@ -102,6 +268,18 @@
         "branches": 85,
         "functions": 85,
         "lines": 90
+      }
+    },
+    "runtime-contracts": {
+      "waiver": {
+        "reason": "Runtime contracts package has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
+        "until": "2026-07-31"
+      }
+    },
+    "scraper": {
+      "waiver": {
+        "reason": "Scraper package has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory until coverage baselines are added.",
+        "until": "2026-07-31"
       }
     },
     "server": {

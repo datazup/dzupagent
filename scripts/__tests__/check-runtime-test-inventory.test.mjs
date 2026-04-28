@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 
-const scriptPath = fileURLToPath(new URL('../check-runtime-test-inventory.mjs', import.meta.url));
+import { runRuntimeTestInventory } from '../check-runtime-test-inventory.mjs';
 
 function makeRepo(structure) {
   const root = mkdtempSync(path.join(tmpdir(), 'dzupagent-runtime-inventory-'));
@@ -17,6 +15,14 @@ function makeRepo(structure) {
     mkdirSync(path.join(packageRoot, 'src'), { recursive: true });
     writeFileSync(path.join(packageRoot, 'src', 'index.ts'), 'export {};');
 
+    if (pkg.sourceFiles) {
+      for (const relativeFile of pkg.sourceFiles) {
+        const filePath = path.join(packageRoot, relativeFile);
+        mkdirSync(path.dirname(filePath), { recursive: true });
+        writeFileSync(filePath, 'export {};');
+      }
+    }
+
     if (pkg.testFiles) {
       for (const relativeFile of pkg.testFiles) {
         const filePath = path.join(packageRoot, relativeFile);
@@ -24,6 +30,13 @@ function makeRepo(structure) {
         writeFileSync(filePath, 'export {};');
       }
     }
+  }
+
+  if (structure.config) {
+    writeFileSync(
+      path.join(root, 'coverage-thresholds.json'),
+      JSON.stringify(structure.config, null, 2),
+    );
   }
 
   return root;
@@ -39,14 +52,12 @@ test('counts top-level test directory files toward runtime package inventory', (
   });
 
   try {
-    const output = execFileSync('node', [scriptPath], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const report = runRuntimeTestInventory({ repoRoot });
+    const entry = report.summary.find((row) => row.name === 'flow-compiler');
 
-    assert.match(output, /flow-compiler: 1 test file/);
-    assert.match(output, /Zero-test runtime package gate passed/);
+    assert.equal(report.exitCode, 0);
+    assert.equal(entry?.testCount, 1);
+    assert.equal(report.zeroTestFailing.length, 0);
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
   }
@@ -62,14 +73,106 @@ test('strict mode counts integration-style files under top-level test directorie
   });
 
   try {
-    const output = execFileSync('node', [scriptPath, '--strict-integration'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const report = runRuntimeTestInventory({ repoRoot, strictIntegration: true });
+    const entry = report.summary.find((row) => row.name === 'core');
 
-    assert.match(output, /core: 1 test file, 1 integration-style test/);
-    assert.match(output, /Strict integration-style runtime package gate passed/);
+    assert.equal(report.exitCode, 0);
+    assert.equal(entry?.testCount, 1);
+    assert.equal(entry?.integrationStyleTestCount, 1);
+    assert.equal(report.integrationFailing.length, 0);
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('passes critical source files with declared test coverage', () => {
+  const repoRoot = makeRepo({
+    packages: {
+      core: {
+        sourceFiles: ['src/security/policy-engine.ts'],
+        testFiles: ['src/__tests__/policy-engine.test.ts'],
+      },
+    },
+    config: {
+      criticalSourceFiles: [
+        {
+          package: 'core',
+          path: 'src/security/policy-engine.ts',
+          coveredBy: ['src/__tests__/policy-engine.test.ts'],
+        },
+      ],
+    },
+  });
+
+  try {
+    const report = runRuntimeTestInventory({ repoRoot });
+    const entry = report.criticalSourceCoverage[0];
+
+    assert.equal(report.exitCode, 0);
+    assert.equal(entry.status, 'pass');
+    assert.match(entry.message, /declared coverage via src\/__tests__\/policy-engine.test.ts/);
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('fails critical source files without direct, declared, or waived coverage', () => {
+  const repoRoot = makeRepo({
+    packages: {
+      core: {
+        sourceFiles: ['src/security/policy-engine.ts'],
+        testFiles: ['src/__tests__/other.test.ts'],
+      },
+    },
+    config: {
+      criticalSourceFiles: [
+        {
+          package: 'core',
+          path: 'src/security/policy-engine.ts',
+        },
+      ],
+    },
+  });
+
+  try {
+    const report = runRuntimeTestInventory({ repoRoot });
+    assert.equal(report.exitCode, 1);
+    assert.equal(report.criticalSourceFailing.length, 1);
+    assert.match(report.criticalSourceFailing[0].message, /missing direct or declared test coverage/);
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('honors critical source waivers with reasons', () => {
+  const repoRoot = makeRepo({
+    packages: {
+      core: {
+        sourceFiles: ['src/security/policy-engine.ts'],
+        testFiles: ['src/__tests__/other.test.ts'],
+      },
+    },
+    config: {
+      criticalSourceFiles: [
+        {
+          package: 'core',
+          path: 'src/security/policy-engine.ts',
+          waiver: {
+            reason: 'covered by higher-level security policy integration suite in the next baseline',
+            until: '2099-01-01',
+          },
+        },
+      ],
+    },
+  });
+
+  try {
+    const report = runRuntimeTestInventory({ repoRoot });
+    const entry = report.criticalSourceCoverage[0];
+
+    assert.equal(report.exitCode, 0);
+    assert.equal(entry.status, 'waived');
+    assert.match(entry.message, /waived until 2099-01-01: covered by higher-level security policy integration suite/);
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
   }

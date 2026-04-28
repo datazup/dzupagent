@@ -87,6 +87,27 @@ export function discoverTrackedPackages(repoRoot) {
     .sort()
 }
 
+export function discoverPackagesWithTestButNoCoverage(repoRoot) {
+  const packagesDir = join(repoRoot, 'packages')
+  if (!fileExists(packagesDir)) return []
+
+  return readdirSync(packagesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => {
+      const packageJsonPath = join(packagesDir, name, 'package.json')
+      if (!fileExists(packageJsonPath)) return false
+      try {
+        const pkg = readJson(packageJsonPath)
+        const scripts = pkg?.scripts && typeof pkg.scripts === 'object' ? pkg.scripts : {}
+        return Boolean(scripts.test) && !scripts['test:coverage']
+      } catch {
+        return false
+      }
+    })
+    .sort()
+}
+
 export function getCoverageSummaryPath(repoRoot, packageName) {
   return join(repoRoot, 'packages', packageName, 'coverage', COVERAGE_SUMMARY_NAME)
 }
@@ -204,6 +225,7 @@ export function runCoverageGate({
   const config = loadCoverageThresholdConfig(repoRoot, configPath)
   const discovered = discoverTrackedPackages(repoRoot)
   const tracked = new Set([...discovered, ...(config.trackedPackages ?? [])])
+  const testWithoutCoverage = discoverPackagesWithTestButNoCoverage(repoRoot)
   const packages = packageFilter && packageFilter.length > 0
     ? packageFilter.filter((name) => typeof name === 'string' && name.trim().length > 0)
     : [...tracked].sort()
@@ -273,6 +295,30 @@ export function runCoverageGate({
         packageName,
         status: 'missing',
         message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  if (!packageFilter || packageFilter.length === 0) {
+    for (const packageName of testWithoutCoverage) {
+      if (tracked.has(packageName)) continue
+
+      const rule = resolvePackageRule(config, packageName)
+      if (isActiveWaiver(rule.waiver)) {
+        rows.push({
+          packageName,
+          status: 'waived',
+          message: rule.waiver.until
+            ? `test script lacks test:coverage; waived until ${rule.waiver.until}: ${rule.waiver.reason}`
+            : `test script lacks test:coverage; waived: ${rule.waiver.reason}`,
+        })
+        continue
+      }
+
+      rows.push({
+        packageName,
+        status: 'missing',
+        message: 'package has test script but no test:coverage script and is not listed in trackedPackages or waived',
       })
     }
   }
