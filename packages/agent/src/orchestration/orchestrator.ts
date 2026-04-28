@@ -8,6 +8,7 @@
  * - Debate: Multiple proposers, judge selects best
  */
 import { HumanMessage } from '@langchain/core/messages'
+import type { StructuredToolInterface } from '@langchain/core/tools'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { OrchestrationError } from './orchestration-error.js'
 import { ContractNetManager } from './contract-net/contract-net-manager.js'
@@ -70,6 +71,44 @@ export type MergeFn = (results: string[]) => string | Promise<string>
 
 const defaultMerge: MergeFn = (results) =>
   results.map((r, i) => `--- Agent ${i + 1} ---\n${r}`).join('\n\n')
+
+function recordCircuitBreakerFailure(
+  circuitBreaker: AgentCircuitBreaker,
+  agentId: string,
+  error: unknown,
+): void {
+  const msg = error instanceof Error ? error.message : String(error)
+  if (msg.toLowerCase().includes('timeout')) {
+    circuitBreaker.recordTimeout(agentId)
+    return
+  }
+
+  // Non-timeout invocation failures still indicate specialist health issues.
+  // Feed them through the generic failure path instead of silently ignoring them.
+  circuitBreaker.recordFailure(agentId)
+}
+
+function instrumentSpecialistTool(
+  tool: StructuredToolInterface,
+  specialistId: string,
+  circuitBreaker: AgentCircuitBreaker | undefined,
+): StructuredToolInterface {
+  if (!circuitBreaker) return tool
+
+  const originalInvoke = tool.invoke.bind(tool)
+  tool.invoke = (async (...args: Parameters<typeof tool.invoke>) => {
+    try {
+      const result = await originalInvoke(...args)
+      circuitBreaker.recordSuccess(specialistId)
+      return result
+    } catch (err: unknown) {
+      recordCircuitBreakerFailure(circuitBreaker, specialistId, err)
+      throw err
+    }
+  }) as typeof tool.invoke
+
+  return tool
+}
 
 export class AgentOrchestrator {
   /**
@@ -135,6 +174,8 @@ export class AgentOrchestrator {
               : String(outcome.reason)
             if (msg.toLowerCase().includes('timeout')) {
               options.circuitBreaker.recordTimeout(agentId)
+            } else {
+              options.circuitBreaker.recordFailure(agentId)
             }
           }
         }
@@ -328,7 +369,11 @@ export class AgentOrchestrator {
 
     // Convert each specialist into a LangChain tool
     const specialistTools = await Promise.all(
-      specialists.map(s => s.asTool()),
+      specialists.map(async (s) => instrumentSpecialistTool(
+        await s.asTool(),
+        s.id,
+        circuitBreaker,
+      )),
     )
 
     const availableSpecialists = specialists.map(s => s.id)
@@ -354,13 +399,6 @@ export class AgentOrchestrator {
         { signal },
       )
 
-      // Record success for all available specialists on successful completion
-      if (circuitBreaker) {
-        for (const id of availableSpecialists) {
-          circuitBreaker.recordSuccess(id)
-        }
-      }
-
       if (returnLegacy) {
         return result.content
       }
@@ -371,15 +409,6 @@ export class AgentOrchestrator {
         filteredSpecialists,
       }
     } catch (err: unknown) {
-      // Record timeout for specialists if the error looks like a timeout
-      if (circuitBreaker) {
-        const msg = err instanceof Error ? err.message : String(err)
-        if (msg.toLowerCase().includes('timeout')) {
-          for (const id of availableSpecialists) {
-            circuitBreaker.recordTimeout(id)
-          }
-        }
-      }
       throw err
     }
   }
