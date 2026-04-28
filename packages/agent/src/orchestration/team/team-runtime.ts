@@ -48,6 +48,8 @@ import type {
   AgentBreakerState,
 } from './supervision-policy.js'
 
+const DEFAULT_MAX_PARALLEL_PARTICIPANTS = 5
+
 // Recommended model constants — exported for downstream wiring code that needs
 // to align participant/router/governance choices with the framework defaults.
 /** Cheap, fast model for routing and bid evaluation. */
@@ -222,12 +224,44 @@ export class TeamRuntime {
   constructor(options: TeamRuntimeOptions) {
     this.definition = options.definition
     this.policies = options.policies ?? {}
+    this.validateExecutionPolicy()
     this.resolveParticipant = options.resolveParticipant
     this.emitEvent = options.onEvent ?? (() => {})
     this.generateRunId =
       options.generateRunId ?? (() => globalThis.crypto.randomUUID())
     this.tracer = options.tracer
     this.supervisionPolicy = options.supervisionPolicy
+  }
+
+  private validateExecutionPolicy(): void {
+    const execution = this.policies.execution
+    if (!execution) return
+
+    if (execution.timeoutMs !== undefined) {
+      throw new Error(
+        "TeamRuntime execution policy field 'timeoutMs' is not supported yet",
+      )
+    }
+    if (execution.retryOnFailure !== undefined) {
+      throw new Error(
+        "TeamRuntime execution policy field 'retryOnFailure' is not supported yet",
+      )
+    }
+    if (execution.maxRetries !== undefined) {
+      throw new Error(
+        "TeamRuntime execution policy field 'maxRetries' is not supported yet",
+      )
+    }
+
+    const maxParallel = execution.maxParallelParticipants
+    if (
+      maxParallel !== undefined &&
+      (!Number.isInteger(maxParallel) || maxParallel < 1)
+    ) {
+      throw new Error(
+        "TeamRuntime execution policy field 'maxParallelParticipants' must be a positive integer",
+      )
+    }
   }
 
   /**
@@ -662,9 +696,8 @@ export class TeamRuntime {
   /**
    * Peer-to-peer pattern — parallel fan-out, policy-governed merge.
    *
-   * Delegates to `AgentOrchestrator.parallel` with concurrency subject to
-   * `ExecutionPolicy.maxParallelParticipants` (bound in the merge function
-   * scope via `Promise.allSettled` fan-out).
+   * Runs participants with concurrency subject to
+   * `ExecutionPolicy.maxParallelParticipants`.
    */
   private async runPeerToPeer(task: string, runId: string): Promise<TeamRunResult> {
     const startTime = Date.now()
@@ -677,8 +710,10 @@ export class TeamRuntime {
     const merge: MergeStrategyFn = concatMerge
     const results: TeamRunResult['agentResults'] = []
 
-    const settled = await Promise.allSettled(
-      spawned.map(async (entry) => {
+    const settled = await this.mapSettledWithConcurrency(
+      spawned,
+      this.resolveMaxParallelParticipants(),
+      async (entry) => {
         const t0 = Date.now()
         const res = await entry.spawned.agent.generate([new HumanMessage(task)])
         return {
@@ -687,7 +722,7 @@ export class TeamRuntime {
           content: res.content,
           durationMs: Date.now() - t0,
         }
-      }),
+      },
     )
 
     const successContents: string[] = []
@@ -950,6 +985,43 @@ export class TeamRuntime {
     // Blackboard uses a simple round count. If an explicit policy knob is
     // ever added, hook it here; for now default to 3 (matches playground).
     return 3
+  }
+
+  private resolveMaxParallelParticipants(): number {
+    return (
+      this.policies.execution?.maxParallelParticipants ??
+      DEFAULT_MAX_PARALLEL_PARTICIPANTS
+    )
+  }
+
+  private async mapSettledWithConcurrency<T, R>(
+    items: readonly T[],
+    concurrency: number,
+    mapper: (item: T, index: number) => Promise<R>,
+  ): Promise<Array<PromiseSettledResult<R>>> {
+    const settled: Array<PromiseSettledResult<R>> = new Array(items.length)
+    let nextIndex = 0
+
+    const worker = async (): Promise<void> => {
+      while (true) {
+        const index = nextIndex
+        nextIndex += 1
+        if (index >= items.length) return
+
+        try {
+          settled[index] = {
+            status: 'fulfilled',
+            value: await mapper(items[index]!, index),
+          }
+        } catch (reason: unknown) {
+          settled[index] = { status: 'rejected', reason }
+        }
+      }
+    }
+
+    const workerCount = Math.min(concurrency, items.length)
+    await Promise.all(Array.from({ length: workerCount }, () => worker()))
+    return settled
   }
 
   // -------------------------------------------------------------------------
