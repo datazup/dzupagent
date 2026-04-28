@@ -682,6 +682,8 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
       // Provenance must carry the durable runId we threaded in.
       expect((called as Record<string, unknown>).runId).toBe('stream-run-42')
       expect((called as Record<string, unknown>).agentId).toBe('stream-agent')
+      expect((called as Record<string, unknown>).inputMetadataKeys).toEqual(['q'])
+      expect(called).not.toHaveProperty('input')
       expect((result as Record<string, unknown>).status).toBe('success')
     })
   })

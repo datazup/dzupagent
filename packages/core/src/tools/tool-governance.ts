@@ -34,7 +34,9 @@ export interface ToolAuditHandler {
 
 export interface ToolAuditEntry {
   toolName: string
+  /** @deprecated Raw input values are not recorded by default. Use inputMetadataKeys. */
   input: unknown
+  inputMetadataKeys?: string[]
   callerAgent: string
   timestamp: number
   allowed: boolean

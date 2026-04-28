@@ -52,6 +52,27 @@ function eventToResult(eventType: string): AuditResult {
   return 'success'
 }
 
+function inputMetadataKeys(input: unknown): string[] {
+  if (input == null || typeof input !== 'object' || Array.isArray(input)) return []
+  return Object.keys(input as Record<string, unknown>)
+}
+
+function auditDetailsForEvent(event: Record<string, unknown> & { type: string }): Record<string, unknown> {
+  const { type: _type, ...details } = event
+
+  if (event.type !== 'tool:called') return details
+
+  const sanitized = { ...details }
+  if ('input' in sanitized) {
+    if (!Array.isArray(sanitized.inputMetadataKeys)) {
+      sanitized.inputMetadataKeys = inputMetadataKeys(sanitized.input)
+    }
+    delete sanitized.input
+    sanitized.inputRedacted = true
+  }
+  return sanitized
+}
+
 export class ComplianceAuditLogger {
   private readonly store: ComplianceAuditStore
   private unsubscribe: (() => void) | undefined
@@ -71,8 +92,7 @@ export class ComplianceAuditLogger {
       const action = eventToAuditAction(event.type)
       if (!action) return
 
-      // Extract details from the event, excluding 'type'
-      const { type: _type, ...details } = event as Record<string, unknown> & { type: string }
+      const details = auditDetailsForEvent(event as Record<string, unknown> & { type: string })
 
       // Fire-and-forget — audit failures are non-fatal
       void this.record({

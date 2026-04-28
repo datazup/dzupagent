@@ -103,12 +103,11 @@ export function emitToolCalled(
   },
 ): void {
   if (!context) return
-  const { toolName, toolCallId, input, inputMetadataKeys } = args
+  const { toolName, toolCallId, inputMetadataKeys } = args
   try {
     context.eventBus?.emit({
       type: 'tool:called',
       toolName,
-      input,
       toolCallId,
       inputMetadataKeys,
       ...(context.agentId !== undefined ? { agentId: context.agentId } : {}),
@@ -121,14 +120,16 @@ export function emitToolCalled(
   }
 
   if (context.toolGovernance) {
+    const auditEntry = {
+      toolName,
+      input: undefined,
+      inputMetadataKeys,
+      callerAgent: context.agentId ?? 'unknown',
+      timestamp: Date.now(),
+      allowed: true,
+    }
     void context.toolGovernance
-      .audit({
-        toolName,
-        input,
-        callerAgent: context.agentId ?? 'unknown',
-        timestamp: Date.now(),
-        allowed: true,
-      })
+      .audit(auditEntry)
       .catch(() => {
         /* non-fatal */
       })
