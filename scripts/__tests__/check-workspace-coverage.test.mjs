@@ -21,7 +21,7 @@ function makeWorkspace(structure) {
       JSON.stringify({
         name: `@dzupagent/${name}`,
         private: true,
-        scripts: { 'test:coverage': 'vitest run --coverage' },
+        scripts: data.scripts ?? { 'test:coverage': 'vitest run --coverage' },
       }, null, 2),
     )
 
@@ -145,6 +145,59 @@ test('fails when coverage summary is missing', () => {
     assert.equal(report.exitCode, 1)
     assert.equal(report.totals.missing, 1)
     assert.match(report.rows[0].message, /missing coverage summary/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('fails packages with test but no test:coverage unless tracked or waived', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: {
+      alpha: {
+        scripts: { test: 'vitest run' },
+        summary: null,
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.equal(report.exitCode, 1)
+    assert.equal(report.totals.missing, 1)
+    assert.match(report.rows[0].message, /test script but no test:coverage/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('honors waivers for packages with test but no test:coverage', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: {
+      alpha: {
+        scripts: { test: 'vitest run' },
+        summary: null,
+      },
+    },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          waiver: {
+            reason: 'coverage runner not available for this package yet',
+            until: '2099-01-01',
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.equal(report.exitCode, 0)
+    assert.equal(report.totals.waived, 1)
+    assert.equal(report.rows[0].status, 'waived')
+    assert.match(report.rows[0].message, /test script lacks test:coverage; waived/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
