@@ -162,9 +162,17 @@ export async function* streamRun(
   let llmCalls = 0
 
   const finalizeRun = async (
-    stopReason: 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'stuck' | 'approval_pending',
+    stopReason: 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'stuck' | 'approval_pending' | 'token_exhausted',
     content?: string,
   ) => {
+    if (stopReason === 'token_exhausted') {
+      ctx.config.eventBus?.emit({
+        type: 'run:halted:token-exhausted',
+        agentId: ctx.agentId,
+        iterations: llmCalls,
+        reason: 'token_exhausted',
+      })
+    }
     emitStopReasonTelemetry(ctx.config, ctx.agentId, {
       stopReason,
       llmCalls,
@@ -274,6 +282,34 @@ export async function* streamRun(
           yield { type: 'budget_warning', data: { message: warning.message } }
         }
       }
+    }
+
+    // Token lifecycle auto-compression — invoked AFTER usage has been
+    // recorded for the full streamed response and BEFORE halt/tool checks.
+    // This mirrors the non-streaming tool loop so compressed histories are
+    // adopted before any subsequent tool/model turn.
+    if (tokenPlugin) {
+      try {
+        const compressResult = await tokenPlugin.maybeCompress(
+          allMessages,
+          runState.model,
+          null,
+        )
+        if (compressResult.compressed) {
+          allMessages.length = 0
+          allMessages.push(...compressResult.messages)
+        }
+      } catch {
+        // Compression is best-effort and must not abort an active stream.
+      }
+    }
+
+    // Token lifecycle halt check — evaluated after compression adoption but
+    // before tool execution, matching generate() parity for exhausted tokens.
+    if (tokenPlugin?.shouldHalt()) {
+      await finalizeRun('token_exhausted')
+      yield { type: 'done', data: { stopReason: 'token_exhausted' } }
+      return
     }
 
     const toolCalls = fullResponse.tool_calls as Array<{

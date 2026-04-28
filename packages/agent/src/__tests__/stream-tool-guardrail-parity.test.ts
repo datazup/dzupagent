@@ -24,6 +24,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   AIMessage,
   HumanMessage,
+  SystemMessage,
   type BaseMessage,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
@@ -40,6 +41,7 @@ import type {
   AgentStreamEvent,
   DzupAgentConfig,
 } from '../agent/agent-types.js'
+import type { AgentLoopPlugin } from '../token-lifecycle-wiring.js'
 
 // ---------------------------------------------------------------------------
 // Helpers — streaming-capable mock model
@@ -65,6 +67,25 @@ function createStreamingModel(responses: AIMessage[]): BaseChatModel {
       streamIdx++
       // Yield once so the native-stream branch sees a single chunk that
       // also serves as the final fullResponse with tool_calls preserved.
+      yield resp
+    }),
+    bindTools: vi.fn().mockReturnThis(),
+    model: 'mock-stream-model',
+  }
+  return model as unknown as BaseChatModel
+}
+
+function createCapturingStreamingModel(
+  responses: AIMessage[],
+  calls: BaseMessage[][],
+): BaseChatModel {
+  let streamIdx = 0
+  const model: Record<string, unknown> = {
+    invoke: vi.fn(async (_msgs: BaseMessage[]) => responses.at(-1) ?? new AIMessage('done')),
+    stream: vi.fn(async function* (msgs: BaseMessage[]) {
+      calls.push([...msgs])
+      const resp = responses[streamIdx] ?? responses.at(-1) ?? new AIMessage('done')
+      streamIdx++
       yield resp
     }),
     bindTools: vi.fn().mockReturnThis(),
@@ -162,11 +183,117 @@ function generatedToolContents(
     .map((m) => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
 }
 
+function createTokenPlugin(
+  overrides: Partial<AgentLoopPlugin> = {},
+): AgentLoopPlugin & {
+  onUsage: ReturnType<typeof vi.fn>
+  maybeCompress: ReturnType<typeof vi.fn>
+  shouldHalt: ReturnType<typeof vi.fn>
+} {
+  const plugin = {
+    onUsage: vi.fn(),
+    trackPhase: vi.fn(),
+    maybeCompress: vi.fn(async (messages: BaseMessage[]) => ({
+      messages,
+      summary: null,
+      compressed: false,
+    })),
+    shouldHalt: vi.fn(() => false),
+    status: 'ok',
+    hooks: null,
+    manager: null,
+    reset: vi.fn(),
+    cleanup: vi.fn(),
+    ...overrides,
+  } as unknown as AgentLoopPlugin & {
+    onUsage: ReturnType<typeof vi.fn>
+    maybeCompress: ReturnType<typeof vi.fn>
+    shouldHalt: ReturnType<typeof vi.fn>
+  }
+  return plugin
+}
+
 // ===========================================================================
 // stream tool guardrail — MJ-AGENT-02
 // ===========================================================================
 
 describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', () => {
+  describe('RF-021 token lifecycle — native streaming parity', () => {
+    it('adopts compressed messages before the next streamed model turn', async () => {
+      const calls: BaseMessage[][] = []
+      const { tool } = mockTool('lookup', () => 'tool output')
+      const compressedHistory = [
+        new SystemMessage('compressed-history'),
+        aiWithToolCall('lookup', { q: 'x' }, 'tc_compress'),
+      ]
+      const plugin = createTokenPlugin({
+        maybeCompress: vi.fn(async (messages: BaseMessage[]) => ({
+          messages: compressedHistory,
+          summary: 'compressed-history',
+          compressed: messages.some((message) => message._getType() === 'ai'),
+        })),
+      })
+
+      const agent = new DzupAgent(
+        baseConfig({
+          model: createCapturingStreamingModel([
+            aiWithToolCall('lookup', { q: 'x' }, 'tc_compress'),
+            new AIMessage('done'),
+          ], calls),
+          tools: [tool],
+          tokenLifecyclePlugin: plugin,
+        }),
+      )
+
+      const events = await drainStream(agent, [new HumanMessage('lookup')])
+
+      expect(doneContent(events)).toBe('done')
+      expect(plugin.onUsage).toHaveBeenCalled()
+      expect(plugin.maybeCompress).toHaveBeenCalled()
+      expect(plugin.onUsage.mock.invocationCallOrder[0]).toBeLessThan(
+        plugin.maybeCompress.mock.invocationCallOrder[0]!,
+      )
+      expect(calls).toHaveLength(2)
+      expect(calls[1]?.[0]?.content).toBe('compressed-history')
+      expect(calls[1]?.some((message) => message._getType() === 'human')).toBe(false)
+      expect(calls[1]?.some((message) => message._getType() === 'tool')).toBe(true)
+    })
+
+    it('halts on token exhaustion before invoking a streamed tool call', async () => {
+      const { tool, invokeFn } = mockTool('expensiveTool', () => 'should not run')
+      const plugin = createTokenPlugin({
+        shouldHalt: vi.fn(() => true),
+      })
+
+      const agent = new DzupAgent(
+        baseConfig({
+          model: createStreamingModel([
+            aiWithToolCall('expensiveTool', {}, 'tc_exhausted'),
+            new AIMessage('should-not-be-reached'),
+          ]),
+          tools: [tool],
+          tokenLifecyclePlugin: plugin,
+        }),
+      )
+
+      const events = await drainStream(agent, [new HumanMessage('run tool')])
+
+      expect(invokeFn).not.toHaveBeenCalled()
+      expect(plugin.onUsage).toHaveBeenCalledTimes(1)
+      expect(plugin.maybeCompress).toHaveBeenCalledTimes(1)
+      expect(plugin.shouldHalt).toHaveBeenCalledTimes(1)
+      expect(plugin.maybeCompress.mock.invocationCallOrder[0]).toBeLessThan(
+        plugin.shouldHalt.mock.invocationCallOrder[0]!,
+      )
+      expect(events.some((event) => event.type === 'tool_call')).toBe(false)
+      const done = events.findLast((event) => event.type === 'done')
+      expect(done).toBeDefined()
+      if (done?.type === 'done') {
+        expect(done.data.stopReason).toBe('token_exhausted')
+      }
+    })
+  })
+
   describe('RF-002 shared lifecycle policy coverage', () => {
     it('covers successful tool result shaping in stream and generate modes', async () => {
       const { tool: streamTool } = mockTool('search', () => 'hits: 42')
