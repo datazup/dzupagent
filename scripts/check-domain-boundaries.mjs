@@ -20,6 +20,9 @@
  *      must be declared in dependencies, peerDependencies, or
  *      optionalDependencies. Type-only imports are not exempt because emitted
  *      declaration files still expose the package contract.
+ *   7. Production src/** imports from sibling @dzupagent/* workspace packages
+ *      must not violate config/architecture-boundaries.json
+ *      packageBoundaryRules forbidden package pairs.
  *
  * Usage:
  *   node scripts/check-domain-boundaries.mjs
@@ -162,6 +165,12 @@ try {
 const layerGraph = architectureConfig.layerGraph
 if (!layerGraph || !Array.isArray(layerGraph.layers)) {
   console.error('config/architecture-boundaries.json is missing a layerGraph.layers array.')
+  process.exit(2)
+}
+
+const packageBoundaryRules = architectureConfig.packageBoundaryRules ?? []
+if (!Array.isArray(packageBoundaryRules)) {
+  console.error('config/architecture-boundaries.json packageBoundaryRules must be an array when present.')
   process.exit(2)
 }
 
@@ -539,6 +548,80 @@ function collectSourceImportManifestViolations(packages) {
 const sourceImportManifestViolations = collectSourceImportManifestViolations(workspacePackages)
 
 // ---------------------------------------------------------------------------
+// Section 9 — Declared package-pair source import boundary check
+// ---------------------------------------------------------------------------
+
+function buildForbiddenPackagePairRules(rules) {
+  const forbiddenByImporter = new Map()
+
+  for (const rule of rules) {
+    if (!rule || typeof rule.importer !== 'string' || !Array.isArray(rule.forbidden)) {
+      console.error('config/architecture-boundaries.json packageBoundaryRules entries must include importer and forbidden[].')
+      process.exit(2)
+    }
+
+    const importerShortName = shortNameOf(rule.importer)
+    const forbidden = forbiddenByImporter.get(importerShortName) ?? new Set()
+    for (const depShortName of rule.forbidden) {
+      if (typeof depShortName !== 'string') {
+        console.error('config/architecture-boundaries.json packageBoundaryRules forbidden entries must be strings.')
+        process.exit(2)
+      }
+      forbidden.add(shortNameOf(depShortName))
+    }
+
+    forbiddenByImporter.set(importerShortName, forbidden)
+  }
+
+  return forbiddenByImporter
+}
+
+function collectPackagePairBoundaryViolations(packages, rules) {
+  const forbiddenByImporter = buildForbiddenPackagePairRules(rules)
+  if (forbiddenByImporter.size === 0) return []
+
+  const workspacePackageNames = new Set(packages.map((pkg) => pkg.name).filter(Boolean))
+  const violations = []
+
+  for (const pkg of packages) {
+    if (!pkg.name) continue
+    const importerShortName = shortNameOf(pkg.name)
+    const forbiddenDeps = forbiddenByImporter.get(importerShortName)
+    if (!forbiddenDeps) continue
+
+    const sourceFiles = listProductionSourceFiles(join(pkg.root, 'src'))
+
+    for (const file of sourceFiles) {
+      const source = readFileSync(file, 'utf8')
+      for (const sourceImport of collectDzupSourceImports(source)) {
+        if (sourceImport.packageName === pkg.name) continue
+        if (!workspacePackageNames.has(sourceImport.packageName)) continue
+
+        const depShortName = shortNameOf(sourceImport.packageName)
+        if (!forbiddenDeps.has(depShortName)) continue
+
+        violations.push({
+          importer: pkg.name,
+          importerShortName,
+          dep: sourceImport.packageName,
+          depShortName,
+          specifier: sourceImport.specifier,
+          file: file.replace(repoRoot + '/', ''),
+          line: sourceImport.line,
+        })
+      }
+    }
+  }
+
+  return violations
+}
+
+const packagePairBoundaryViolations = collectPackagePairBoundaryViolations(
+  workspacePackages,
+  packageBoundaryRules,
+)
+
+// ---------------------------------------------------------------------------
 // Reporting
 // ---------------------------------------------------------------------------
 
@@ -652,8 +735,29 @@ if (sourceImportManifestViolations.length > 0) {
   console.error()
 }
 
+if (packagePairBoundaryViolations.length > 0) {
+  failed = true
+  console.error('PACKAGE-PAIR BOUNDARY VIOLATIONS')
+  console.error('================================')
+  console.error('Production src/** imports from sibling @dzupagent/* workspace packages')
+  console.error('must not violate packageBoundaryRules declared in')
+  console.error('config/architecture-boundaries.json.\n')
+
+  for (const v of packagePairBoundaryViolations) {
+    console.error(`  FORBIDDEN: ${v.importer} (${v.importerShortName}) imports ${v.dep} (${v.depShortName})`)
+    console.error(`  FILE:      ${v.file}:${v.line}`)
+    console.error(`  SOURCE:    ${v.specifier}`)
+    console.error()
+  }
+
+  console.error('How to fix:')
+  console.error('  - Move the dependency behind a lower-level shared contract package.')
+  console.error('  - Or update packageBoundaryRules only if the architecture decision changed.')
+  console.error()
+}
+
 if (failed) {
   process.exitCode = 1
 } else {
-  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, runtime cycles, or undeclared source imports found.')
+  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, runtime cycles, undeclared source imports, or package-pair boundary violations found.')
 }
