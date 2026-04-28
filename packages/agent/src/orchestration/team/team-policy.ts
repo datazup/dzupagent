@@ -8,15 +8,30 @@
  * ephemeral/sandboxed to persistent/live by swapping policy objects.
  */
 
-/** Controls how participants are scheduled and retried. */
+/** Controls the supported participant scheduling subset for TeamRuntime. */
 export interface ExecutionPolicy {
-  /** Max number of participants running concurrently (default: 5). */
+  /** Max number of peer participants running concurrently (default: 5). */
   maxParallelParticipants?: number
-  /** Hard timeout for the entire team run. */
+  /**
+   * Reserved for a future hard timeout around an entire team run.
+   *
+   * TeamRuntime does not support this field yet and rejects policies that set
+   * it, so callers do not accidentally assume timeout isolation exists.
+   */
   timeoutMs?: number
-  /** Whether to retry failed participants. */
+  /**
+   * Reserved for future participant retry support.
+   *
+   * TeamRuntime does not support retries yet and rejects policies that set
+   * this field.
+   */
   retryOnFailure?: boolean
-  /** Maximum retry attempts per participant (when retryOnFailure is true). */
+  /**
+   * Reserved for future participant retry support.
+   *
+   * TeamRuntime does not support retries yet and rejects policies that set
+   * this field.
+   */
   maxRetries?: number
 }
 
