@@ -41,7 +41,7 @@ Public exports from `src/index.ts` include:
 - Connector/toolkit contracts and normalization helpers.
 - GitHub, HTTP, Slack, Database connectors and related types.
 - Unified SQL APIs: `createSQLConnector`, `createSQLTools`, `BaseSQLConnector`, `generateDDL`, all 8 adapters, and SQL types.
-- `dzupagent_CONNECTORS_VERSION` constant (currently `'0.1.0'`).
+- `dzupagent_CONNECTORS_VERSION` constant (currently `'0.2.0'`).
 
 `src/index.ts` currently does not export:
 
@@ -211,7 +211,7 @@ Observability in implementation:
 - SQL tool/query results include truncation and row metadata where applicable.
 
 ## Risks and TODOs
-- Version drift risk: `src/index.ts` exports `dzupagent_CONNECTORS_VERSION = '0.1.0'` while package version is `0.2.0`.
+- Version constant is aligned: `src/index.ts` exports `dzupagent_CONNECTORS_VERSION = '0.2.0'`, matching package version `0.2.0`.
 - Export-surface ambiguity: resolver modules are implemented and tested but not exported via package root barrel.
 - Read-only policy inconsistency across DB paths: enforcement differs between `src/database` and SQL adapters/tools.
 - Mixed output contracts: connector tools return a mix of plain text and JSON strings, complicating uniform downstream parsing.
@@ -220,4 +220,3 @@ Observability in implementation:
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

@@ -9,6 +9,7 @@
  */
 import { computed } from 'vue'
 import type { ReplaySummary } from '../../replay/replay-inspector.js'
+import { formatMs } from './utils.js'
 
 /** Component props */
 interface Props {
@@ -50,13 +51,6 @@ const errorEventTypes = computed(() => {
   types.sort((a, b) => b.count - a.count)
   return types
 })
-
-/** Format milliseconds to a human-readable string */
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`
-  return `${(ms / 60_000).toFixed(1)}m`
-}
 
 /** Format cost in cents to dollars */
 function formatCost(cents: number): string {

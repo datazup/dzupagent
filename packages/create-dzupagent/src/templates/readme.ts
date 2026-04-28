@@ -133,7 +133,7 @@ export function generateReadme(options: ReadmeOptions): string {
 function formatFeatureName(slug: string): string {
   const names: Record<string, string> = {
     auth: 'Authentication',
-    dashboard: 'Dashboard UI',
+    dashboard: 'Dashboard API',
     billing: 'Billing (Stripe)',
     teams: 'Team Management',
     ai: 'AI / LLM Integration',

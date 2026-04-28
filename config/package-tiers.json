@@ -258,7 +258,7 @@
   },
   "@dzupagent/testing": {
     "tier": 3,
-    "status": "tooling",
+    "status": "parked",
     "roadmapDriver": false,
     "owners": [
       "apps/ai-saas-starter-kit",
@@ -267,7 +267,7 @@
   },
   "@dzupagent/test-utils": {
     "tier": 3,
-    "status": "tooling",
+    "status": "parked",
     "roadmapDriver": false,
     "owners": [
       "apps/ai-saas-starter-kit",

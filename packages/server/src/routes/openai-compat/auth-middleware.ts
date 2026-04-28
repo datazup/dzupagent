@@ -69,8 +69,9 @@ export function openaiAuthMiddleware(config?: OpenAIAuthConfig): MiddlewareHandl
       )
     }
 
-    // Extract the token from "Bearer <token>"
-    const token = authHeader.startsWith('Bearer ')
+    // Extract the token from "Bearer <token>"; RFC 9110 auth schemes are
+    // case-insensitive, but non-Bearer schemes must still fail closed.
+    const token = authHeader.slice(0, 7).toLowerCase() === 'bearer '
       ? authHeader.slice(7).trim()
       : ''
 

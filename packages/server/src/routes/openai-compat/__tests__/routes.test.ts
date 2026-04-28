@@ -726,5 +726,55 @@ describe('OpenAI-compatible routes', () => {
       // Should not be 401 - either 200 (success) or another non-auth error
       expect(res.status).not.toBe(401)
     })
+
+    it('should pass through with a lowercase bearer scheme', async () => {
+      const authedApp = createForgeApp(
+        createTestConfig({
+          agentStore,
+          openai: {
+            auth: {
+              enabled: true,
+              validateKey: async (key) => key === 'test-key-123' ? { userId: 'u1' } : null,
+            },
+          },
+        }),
+      )
+
+      const res = await authedApp.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'bearer test-key-123',
+        },
+        body: JSON.stringify(makeCompletionBody()),
+      })
+
+      expect(res.status).not.toBe(401)
+    })
+
+    it('should pass through with a mixed-case Bearer scheme', async () => {
+      const authedApp = createForgeApp(
+        createTestConfig({
+          agentStore,
+          openai: {
+            auth: {
+              enabled: true,
+              validateKey: async (key) => key === 'test-key-123' ? { userId: 'u1' } : null,
+            },
+          },
+        }),
+      )
+
+      const res = await authedApp.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'bEaReR test-key-123',
+        },
+        body: JSON.stringify(makeCompletionBody()),
+      })
+
+      expect(res.status).not.toBe(401)
+    })
   })
 })

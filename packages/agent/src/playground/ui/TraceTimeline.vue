@@ -12,6 +12,7 @@
  */
 import { computed } from 'vue'
 import type { TimelineNode } from '../../replay/replay-types.js'
+import { formatMs } from './utils.js'
 
 /** Component props */
 interface Props {
@@ -95,12 +96,6 @@ function barWidth(node: TimelineNode): string {
   const d = node.durationMs ?? node.latencyMs ?? 0
   const pct = Math.max((d / maxDuration.value) * 100, 2)
   return `${pct}%`
-}
-
-/** Format milliseconds to a human-readable string */
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`
-  return `${(ms / 1000).toFixed(2)}s`
 }
 
 /** Handle row click */

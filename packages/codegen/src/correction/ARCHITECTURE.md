@@ -175,7 +175,7 @@ Observability in implementation:
 5. Current integration depth:
    - No direct non-test consumers in this repository currently wire correction runtime classes, so drift risk between exported API and real production usage exists.
 6. Version constant drift outside this folder:
-   - `packages/codegen/src/index.ts` exports `dzupagent_CODEGEN_VERSION = '0.1.0'` while package version is `0.2.0`; this can mislead runtime/version reporting for integrators.
+   - `packages/codegen/src/index.ts` exports `dzupagent_CODEGEN_VERSION = '0.2.0'`, matching the package version for runtime/version reporting.
 
 ## Changelog
 

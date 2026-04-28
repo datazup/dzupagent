@@ -25,6 +25,12 @@ import { PostgresApiKeyStore, type ApiKeyRecord } from '../persistence/api-key-s
 
 type DB = PostgresJsDatabase<Record<string, never>>
 
+/** API key display names are bounded to 128 characters after trimming. */
+const MAX_API_KEY_NAME_LENGTH = 128
+/** API key expirations are bounded to one year, expressed in whole seconds. */
+const MAX_API_KEY_EXPIRES_IN_SECONDS = 60 * 60 * 24 * 365
+const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001F\u007F]/
+
 export interface ApiKeyRoutesConfig {
   /** Optional pre-built store. If omitted, a fresh one is created from `db`. */
   store?: PostgresApiKeyStore
@@ -45,6 +51,55 @@ interface IdentityLike {
 interface ApiKeyCtxLike {
   ownerId?: string
   id?: string
+}
+
+function badRequest(message: string) {
+  return { error: { code: 'BAD_REQUEST', message } }
+}
+
+function validateApiKeyName(value: unknown): { ok: true; value: string } | { ok: false; message: string } {
+  if (typeof value !== 'string') {
+    return { ok: false, message: 'name is required' }
+  }
+
+  const name = value.trim()
+  if (name.length === 0) {
+    return { ok: false, message: 'name must not be empty' }
+  }
+
+  if (name.length > MAX_API_KEY_NAME_LENGTH) {
+    return {
+      ok: false,
+      message: `name must be at most ${MAX_API_KEY_NAME_LENGTH} characters`,
+    }
+  }
+
+  if (CONTROL_CHARACTER_PATTERN.test(name)) {
+    return { ok: false, message: 'name must not contain control characters' }
+  }
+
+  return { ok: true, value: name }
+}
+
+function validateExpiresIn(value: unknown): { ok: true; value: number | undefined } | { ok: false; message: string } {
+  if (value === undefined) {
+    return { ok: true, value: undefined }
+  }
+
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    !Number.isInteger(value) ||
+    value <= 0 ||
+    value > MAX_API_KEY_EXPIRES_IN_SECONDS
+  ) {
+    return {
+      ok: false,
+      message: `expiresIn must be a positive integer no greater than ${MAX_API_KEY_EXPIRES_IN_SECONDS} seconds`,
+    }
+  }
+
+  return { ok: true, value }
 }
 
 /**
@@ -107,21 +162,24 @@ export function createApiKeyRoutes(config: ApiKeyRoutesConfig | DB): Hono {
 
   // --- Create key -------------------------------------------------------
   app.post('/', async (c) => {
-    let body: { name?: string; tier?: string; expiresIn?: number }
+    let body: { name?: unknown; tier?: string; expiresIn?: unknown }
     try {
-      body = await c.req.json<{ name?: string; tier?: string; expiresIn?: number }>()
+      body = await c.req.json<{ name?: unknown; tier?: string; expiresIn?: unknown }>()
     } catch {
       return c.json(
-        { error: { code: 'BAD_REQUEST', message: 'Invalid JSON body' } },
+        badRequest('Invalid JSON body'),
         400,
       )
     }
 
-    if (!body.name || typeof body.name !== 'string') {
-      return c.json(
-        { error: { code: 'BAD_REQUEST', message: 'name is required' } },
-        400,
-      )
+    const name = validateApiKeyName(body.name)
+    if (!name.ok) {
+      return c.json(badRequest(name.message), 400)
+    }
+
+    const expiresIn = validateExpiresIn(body.expiresIn)
+    if (!expiresIn.ok) {
+      return c.json(badRequest(expiresIn.message), 400)
     }
 
     const tier = body.tier ?? 'standard'
@@ -140,8 +198,8 @@ export function createApiKeyRoutes(config: ApiKeyRoutesConfig | DB): Hono {
 
     const ownerId = resolveOwnerId(c)
 
-    const result = await store.create(ownerId, body.name, tier, {
-      expiresIn: typeof body.expiresIn === 'number' ? body.expiresIn : undefined,
+    const result = await store.create(ownerId, name.value, tier, {
+      expiresIn: expiresIn.value,
     })
 
     return c.json(
@@ -168,7 +226,8 @@ export function createApiKeyRoutes(config: ApiKeyRoutesConfig | DB): Hono {
   app.delete('/:id', async (c) => {
     const id = c.req.param('id')
     const existing = await store.get(id)
-    if (!existing) {
+    const ownerId = resolveOwnerId(c)
+    if (!existing || existing.ownerId !== ownerId) {
       return c.json(
         { error: { code: 'NOT_FOUND', message: 'API key not found' } },
         404,
@@ -182,7 +241,8 @@ export function createApiKeyRoutes(config: ApiKeyRoutesConfig | DB): Hono {
   app.post('/:id/rotate', async (c) => {
     const id = c.req.param('id')
     const existing = await store.get(id)
-    if (!existing) {
+    const ownerId = resolveOwnerId(c)
+    if (!existing || existing.ownerId !== ownerId) {
       return c.json(
         { error: { code: 'NOT_FOUND', message: 'API key not found' } },
         404,
@@ -197,8 +257,12 @@ export function createApiKeyRoutes(config: ApiKeyRoutesConfig | DB): Hono {
 
     let expiresIn: number | undefined
     try {
-      const body = await c.req.json<{ expiresIn?: number }>()
-      if (typeof body.expiresIn === 'number') expiresIn = body.expiresIn
+      const body = await c.req.json<{ expiresIn?: unknown }>()
+      const validatedExpiresIn = validateExpiresIn(body.expiresIn)
+      if (!validatedExpiresIn.ok) {
+        return c.json(badRequest(validatedExpiresIn.message), 400)
+      }
+      expiresIn = validatedExpiresIn.value
     } catch {
       // body is optional for rotate
     }

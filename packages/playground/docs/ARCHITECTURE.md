@@ -88,7 +88,7 @@ Relevant dependency/runtime surfaces in active implementations:
 Current integration points tied to “playground” behavior:
 
 - Server optional route composition (`mountOptionalRoutes`) mounts `/playground` when configured.
-- Server README and root README still reference running/building `@dzupagent/playground`.
+- Root README still references running `@dzupagent/playground`, but the server route fallback now describes `/playground` as a static asset host configured through `runtimeConfig.playground.distDir`.
 - Server architecture docs currently contain references to old `packages/playground/src/*` paths.
 - Agent package exports playground runtime primitives via its public index.
 

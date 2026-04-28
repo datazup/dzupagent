@@ -103,7 +103,7 @@ Representative entry points exported from `src/index.ts`:
 
 Notable API reality check:
 
-- `dzupagent_CODEGEN_VERSION` is currently exported as `'0.1.0'` in `src/index.ts` while `package.json` version is `0.2.0`.
+- `dzupagent_CODEGEN_VERSION` is exported as `'0.2.0'` in `src/index.ts`, matching `package.json`.
 
 ## Dependencies
 Runtime/internal dependency roles:

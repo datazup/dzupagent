@@ -40,8 +40,8 @@ export function authMiddleware(apiKey: string) {
 
   dashboard: {
     slug: 'dashboard',
-    name: 'Dashboard',
-    description: 'Admin dashboard UI with agent monitoring',
+    name: 'Dashboard API',
+    description: 'Backend dashboard routes for agent monitoring',
     dependencies: {
       '@dzupagent/server': '^0.2.0',
     },

@@ -77,8 +77,8 @@ Five built-in presets provide higher-level starting points on top of the templat
 | Preset | Template | Description |
 |--------|----------|-------------|
 | `minimal` | `minimal` | Bare-bones single-agent setup with no extras. |
-| `starter` | `full-stack` | Base full-stack template with auth and dashboard enabled. |
-| `full` | `production-saas-agent` | Production SaaS setup with auth, dashboard, billing, teams, and AI overlays. |
+| `starter` | `full-stack` | Base full-stack template with auth and Dashboard API routes enabled. |
+| `full` | `production-saas-agent` | Production SaaS setup with auth, Dashboard API routes, billing, teams, and AI overlays. |
 | `api-only` | `server` | Backend-only server flow with auth defaults and no frontend. |
 | `research` | `research` | Research-focused flow for search and synthesis workloads. |
 

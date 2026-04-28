@@ -173,7 +173,7 @@ Potential drift between runtime constant and package version metadata.
 
 Evidence:
 
-1. `dzupagent_CONNECTORS_VERSION = '0.1.0'` is hardcoded in `src/index.ts`.
+1. `dzupagent_CONNECTORS_VERSION = '0.2.0'` is hardcoded in `src/index.ts`.
 
 ## 5. Suggested Features (Prioritized)
 
@@ -338,4 +338,3 @@ The package has strong breadth and a solid foundation, especially in the unified
 2. Unify duplicate database paths.
 3. Standardize tool output contracts and resilience behavior.
 4. Align docs and dependency strategy with real implementation scale.
-

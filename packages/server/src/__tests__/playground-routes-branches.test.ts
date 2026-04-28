@@ -100,7 +100,10 @@ describe('playground routes branch coverage', () => {
     const res = await app.request('/pg/any-spa-path')
     expect(res.status).toBe(404)
     const text = await res.text()
-    expect(text).toContain('Playground not built')
+    expect(text).toContain('/playground is a static asset host')
+    expect(text).toContain('runtimeConfig.playground.distDir')
+    expect(text).toContain("build the consuming app's playground assets")
+    expect(text).not.toContain('yarn workspace @dzupagent/playground build')
   })
 
   it('SPA fallback serves index.html for multi-level routes', async () => {
