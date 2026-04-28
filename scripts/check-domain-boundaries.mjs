@@ -16,13 +16,17 @@
  *      dependency on a tier-3 tooling/parked package.
  *   5. The runtime dependency graph (packages/<pkg>/package.json
  *      dependencies + peerDependencies) must be acyclic.
+ *   6. Production src/** imports from sibling @dzupagent/* workspace packages
+ *      must be declared in dependencies, peerDependencies, or
+ *      optionalDependencies. Type-only imports are not exempt because emitted
+ *      declaration files still expose the package contract.
  *
  * Usage:
  *   node scripts/check-domain-boundaries.mjs
  */
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const repoRoot = process.cwd()
@@ -41,6 +45,12 @@ const FORBIDDEN_IMPORTS = [
   '@dzupagent/persona-registry',
   '@dzupagent/scheduler',
   '@dzupagent/execution-ledger',
+]
+
+const SOURCE_IMPORT_MANIFEST_FIELDS = [
+  'dependencies',
+  'peerDependencies',
+  'optionalDependencies',
 ]
 
 /**
@@ -113,10 +123,16 @@ function listWorkspacePackages() {
     out.push({
       dir,
       name: pkgJson.name,
+      root: join(packagesDir, dir),
       runtimeDeps: {
         ...(pkgJson.dependencies || {}),
         ...(pkgJson.peerDependencies || {}),
       },
+      sourceDeclaredDeps: Object.fromEntries(
+        SOURCE_IMPORT_MANIFEST_FIELDS.flatMap((field) =>
+          Object.keys(pkgJson[field] || {}).map((depName) => [depName, field]),
+        ),
+      ),
     })
   }
   return out
@@ -332,6 +348,197 @@ const dependencyGraph = buildDependencyGraph(workspacePackages)
 const cycles = findCycles(dependencyGraph)
 
 // ---------------------------------------------------------------------------
+// Section 8 — Source import -> package manifest check
+// ---------------------------------------------------------------------------
+
+function isProductionSourceFile(filePath) {
+  if (!/\.(?:c|m)?[jt]sx?$/.test(filePath)) return false
+  if (/\.d\.[cm]?ts$/.test(filePath)) return false
+  if (/(?:^|\/)__tests__(?:\/|$)/.test(filePath)) return false
+  if (/\.(?:test|spec)\.(?:c|m)?[jt]sx?$/.test(filePath)) return false
+  return true
+}
+
+function listProductionSourceFiles(srcDir) {
+  if (!existsSync(srcDir)) return []
+  const files = []
+
+  function walk(dir) {
+    for (const entry of readdirSync(dir)) {
+      const fullPath = join(dir, entry)
+      const stat = statSync(fullPath)
+      if (stat.isDirectory()) {
+        if (entry === 'dist' || entry === 'node_modules' || entry === '__tests__') continue
+        walk(fullPath)
+      } else if (stat.isFile() && isProductionSourceFile(fullPath.replaceAll('\\', '/'))) {
+        files.push(fullPath)
+      }
+    }
+  }
+
+  walk(srcDir)
+  return files
+}
+
+function maskCommentsAndTemplatesPreserveLines(source) {
+  const chars = [...source]
+  let state = 'code'
+  let escaped = false
+
+  for (let index = 0; index < chars.length; index += 1) {
+    const char = chars[index]
+    const next = chars[index + 1]
+
+    if (state === 'lineComment') {
+      if (char === '\n') {
+        state = 'code'
+      } else {
+        chars[index] = ' '
+      }
+      continue
+    }
+
+    if (state === 'blockComment') {
+      if (char === '*' && next === '/') {
+        chars[index] = ' '
+        chars[index + 1] = ' '
+        index += 1
+        state = 'code'
+      } else if (char !== '\n') {
+        chars[index] = ' '
+      }
+      continue
+    }
+
+    if (state === 'template') {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '`') {
+        state = 'code'
+      }
+      if (char !== '\n') chars[index] = ' '
+      continue
+    }
+
+    if (state === 'singleQuote' || state === 'doubleQuote') {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (
+        (state === 'singleQuote' && char === "'")
+        || (state === 'doubleQuote' && char === '"')
+      ) {
+        state = 'code'
+      }
+      continue
+    }
+
+    if (char === '/' && next === '/') {
+      chars[index] = ' '
+      chars[index + 1] = ' '
+      index += 1
+      state = 'lineComment'
+      continue
+    }
+    if (char === '/' && next === '*') {
+      chars[index] = ' '
+      chars[index + 1] = ' '
+      index += 1
+      state = 'blockComment'
+      continue
+    }
+    if (char === '`') {
+      chars[index] = ' '
+      state = 'template'
+      escaped = false
+      continue
+    }
+    if (char === "'") {
+      state = 'singleQuote'
+      escaped = false
+      continue
+    }
+    if (char === '"') {
+      state = 'doubleQuote'
+      escaped = false
+    }
+  }
+
+  return chars.join('')
+}
+
+function sourceLineAt(source, index) {
+  return source.slice(0, index).split('\n').length
+}
+
+function workspacePackageNameFromSpecifier(specifier) {
+  if (!specifier.startsWith('@dzupagent/')) return null
+  const parts = specifier.split('/')
+  if (parts.length < 2) return null
+  return `${parts[0]}/${parts[1]}`
+}
+
+function collectDzupSourceImports(source) {
+  const stripped = maskCommentsAndTemplatesPreserveLines(source)
+  const imports = []
+  const patterns = [
+    /\bimport\s+(?:type\s+)?(?:[^'";]+?\s+from\s*)?['"](@dzupagent\/[^'"]+)['"]/g,
+    /\bexport\s+(?:type\s+)?[^'";]+?\s+from\s*['"](@dzupagent\/[^'"]+)['"]/g,
+    /\bimport\s*\(\s*['"](@dzupagent\/[^'"]+)['"]\s*\)/g,
+    /\brequire(?:\.resolve)?\s*\(\s*['"](@dzupagent\/[^'"]+)['"]\s*\)/g,
+  ]
+
+  for (const pattern of patterns) {
+    let match
+    while ((match = pattern.exec(stripped)) !== null) {
+      imports.push({
+        packageName: workspacePackageNameFromSpecifier(match[1]),
+        specifier: match[1],
+        line: sourceLineAt(stripped, match.index),
+      })
+    }
+  }
+
+  return imports.filter((entry) => entry.packageName !== null)
+}
+
+function collectSourceImportManifestViolations(packages) {
+  const workspacePackageNames = new Set(packages.map((pkg) => pkg.name).filter(Boolean))
+  const violations = []
+
+  for (const pkg of packages) {
+    if (!pkg.name) continue
+    const sourceFiles = listProductionSourceFiles(join(pkg.root, 'src'))
+
+    for (const file of sourceFiles) {
+      const source = readFileSync(file, 'utf8')
+      for (const sourceImport of collectDzupSourceImports(source)) {
+        if (sourceImport.packageName === pkg.name) continue
+        if (!workspacePackageNames.has(sourceImport.packageName)) continue
+        if (Object.prototype.hasOwnProperty.call(pkg.sourceDeclaredDeps, sourceImport.packageName)) {
+          continue
+        }
+
+        violations.push({
+          importer: pkg.name,
+          dep: sourceImport.packageName,
+          specifier: sourceImport.specifier,
+          file: file.replace(repoRoot + '/', ''),
+          line: sourceImport.line,
+        })
+      }
+    }
+  }
+
+  return violations
+}
+
+const sourceImportManifestViolations = collectSourceImportManifestViolations(workspacePackages)
+
+// ---------------------------------------------------------------------------
 // Reporting
 // ---------------------------------------------------------------------------
 
@@ -423,9 +630,30 @@ if (cycles.length > 0) {
   console.error()
 }
 
-if (failed) {
-  process.exit(1)
+if (sourceImportManifestViolations.length > 0) {
+  failed = true
+  console.error('SOURCE IMPORT MANIFEST DEPENDENCY VIOLATIONS')
+  console.error('================================================')
+  console.error('Production src/** imports from sibling @dzupagent/* workspace packages')
+  console.error(`must be declared in one of: ${SOURCE_IMPORT_MANIFEST_FIELDS.join(', ')}.`)
+  console.error('Type-only imports are not exempt because emitted declaration files expose')
+  console.error('the imported package contract.\n')
+
+  for (const v of sourceImportManifestViolations) {
+    console.error(`  MISSING: ${v.importer} imports ${v.dep}`)
+    console.error(`  FILE:    ${v.file}:${v.line}`)
+    console.error(`  SOURCE:  ${v.specifier}`)
+    console.error()
+  }
+
+  console.error('How to fix:')
+  console.error('  - Add the sibling package to dependencies, peerDependencies, or optionalDependencies.')
+  console.error('  - Or route the import through an already-declared framework contract.')
+  console.error()
 }
 
-console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, or runtime cycles found.')
-process.exit(0)
+if (failed) {
+  process.exitCode = 1
+} else {
+  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, runtime cycles, or undeclared source imports found.')
+}
