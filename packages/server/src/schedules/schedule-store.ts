@@ -7,6 +7,7 @@
  */
 import { eq, and } from 'drizzle-orm'
 import { scheduleConfigs } from '../persistence/drizzle-schema.js'
+import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
 
 export interface ScheduleRecord {
   id: string
@@ -83,9 +84,6 @@ export class InMemoryScheduleStore implements ScheduleStore {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDrizzle = any
-
 interface ScheduleRow {
   id: string
   name: string
@@ -101,7 +99,7 @@ interface ScheduleRow {
  * Drizzle-backed schedule store for persistent schedule storage.
  */
 export class DrizzleScheduleStore implements ScheduleStore {
-  constructor(private readonly db: AnyDrizzle) {}
+  constructor(private readonly db: DrizzleStoreDatabase) {}
 
   async save(
     schedule: Omit<ScheduleRecord, 'createdAt' | 'updatedAt'>,
@@ -112,7 +110,7 @@ export class DrizzleScheduleStore implements ScheduleStore {
     const existing = await this.get(schedule.id)
 
     if (existing) {
-      const [row] = await this.db
+      const rows = await this.db
         .update(scheduleConfigs)
         .set({
           name: schedule.name,
@@ -123,11 +121,13 @@ export class DrizzleScheduleStore implements ScheduleStore {
           updatedAt: now,
         })
         .where(eq(scheduleConfigs.id, schedule.id))
-        .returning()
-      return this.rowToRecord(row as ScheduleRow)
+        .returning() as ScheduleRow[]
+      const row = rows[0]
+      if (!row) throw new Error(`Failed to update schedule ${schedule.id}`)
+      return this.rowToRecord(row)
     }
 
-    const [row] = await this.db
+    const rows = await this.db
       .insert(scheduleConfigs)
       .values({
         id: schedule.id,
@@ -139,9 +139,11 @@ export class DrizzleScheduleStore implements ScheduleStore {
         createdAt: now,
         updatedAt: now,
       })
-      .returning()
+      .returning() as ScheduleRow[]
+    const row = rows[0]
+    if (!row) throw new Error(`Failed to insert schedule ${schedule.id}`)
 
-    return this.rowToRecord(row as ScheduleRow)
+    return this.rowToRecord(row)
   }
 
   async list(filter?: { enabled?: boolean }): Promise<ScheduleRecord[]> {
@@ -151,9 +153,9 @@ export class DrizzleScheduleStore implements ScheduleStore {
     }
 
     const query = this.db.select().from(scheduleConfigs)
-    const rows: ScheduleRow[] = conditions.length > 0
+    const rows = (conditions.length > 0
       ? await query.where(and(...conditions))
-      : await query
+      : await query) as ScheduleRow[]
 
     return rows.map((r) => this.rowToRecord(r))
   }

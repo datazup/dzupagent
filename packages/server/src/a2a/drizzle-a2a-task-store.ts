@@ -6,6 +6,7 @@
  */
 import { eq, and, desc } from 'drizzle-orm'
 import { a2aTasks, a2aTaskMessages } from '../persistence/drizzle-schema.js'
+import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
 import type {
   A2ATask,
   A2ATaskState,
@@ -15,22 +16,6 @@ import type {
   A2ATaskArtifact,
   A2ATaskPushConfig,
 } from './task-handler.js'
-
-/** Minimal Drizzle database interface used by the store. */
-export interface DrizzleA2ADatabase {
-  select: () => ReturnType<typeof createSelectProxy>
-  insert: (table: unknown) => { values: (values: unknown) => { returning: () => Promise<unknown[]> } }
-  update: (table: unknown) => { set: (values: unknown) => { where: (condition: unknown) => { returning: () => Promise<unknown[]> } } }
-  query?: unknown
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDrizzle = any
-
- 
-function createSelectProxy(): never {
-  throw new Error('Type-only helper')
-}
 
 /**
  * Deliver a push notification to the task's configured URL.
@@ -57,7 +42,7 @@ async function deliverPushNotification(task: A2ATask): Promise<void> {
 }
 
 export class DrizzleA2ATaskStore implements A2ATaskStore {
-  constructor(private readonly db: AnyDrizzle) {}
+  constructor(private readonly db: DrizzleStoreDatabase) {}
 
   async create(
     task: Omit<A2ATask, 'id' | 'createdAt' | 'updatedAt' | 'messages' | 'artifacts'>,
@@ -65,7 +50,7 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
     const id = crypto.randomUUID()
     const now = new Date()
 
-    const [row] = await this.db
+    const rows = await this.db
       .insert(a2aTasks)
       .values({
         id,
@@ -83,9 +68,11 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
         createdAt: now,
         updatedAt: now,
       })
-      .returning()
+      .returning() as TaskRow[]
+    const row = rows[0]
+    if (!row) throw new Error(`Failed to insert A2A task ${id}`)
 
-    return this.rowToTask(row as TaskRow, [])
+    return this.rowToTask(row, [])
   }
 
   async get(id: string): Promise<A2ATask | null> {
@@ -93,18 +80,18 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
       .select()
       .from(a2aTasks)
       .where(eq(a2aTasks.id, id))
-      .limit(1)
+      .limit(1) as TaskRow[]
 
-    const row = rows[0] as TaskRow | undefined
+    const row = rows[0]
     if (!row) return null
 
     const messages = await this.db
       .select()
       .from(a2aTaskMessages)
       .where(eq(a2aTaskMessages.taskId, id))
-      .orderBy(a2aTaskMessages.id)
+      .orderBy(a2aTaskMessages.id) as MessageRow[]
 
-    return this.rowToTask(row, messages as MessageRow[])
+    return this.rowToTask(row, messages)
   }
 
   async update(
@@ -123,18 +110,18 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
       .update(a2aTasks)
       .set(setValues)
       .where(eq(a2aTasks.id, id))
-      .returning()
+      .returning() as TaskRow[]
 
-    const row = rows[0] as TaskRow | undefined
+    const row = rows[0]
     if (!row) return null
 
     const messages = await this.db
       .select()
       .from(a2aTaskMessages)
       .where(eq(a2aTaskMessages.taskId, id))
-      .orderBy(a2aTaskMessages.id)
+      .orderBy(a2aTaskMessages.id) as MessageRow[]
 
-    const task = this.rowToTask(row, messages as MessageRow[])
+    const task = this.rowToTask(row, messages)
 
     // Push notification on terminal states
     if (updates.state === 'completed' || updates.state === 'failed') {
@@ -167,9 +154,9 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
       .from(a2aTasks)
       .orderBy(desc(a2aTasks.createdAt))
 
-    const rows: TaskRow[] = conditions.length > 0
+    const rows = (conditions.length > 0
       ? await query.where(and(...conditions))
-      : await query
+      : await query) as TaskRow[]
 
     // Batch-load messages for all tasks
     const tasks: A2ATask[] = []
@@ -178,9 +165,9 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
         .select()
         .from(a2aTaskMessages)
         .where(eq(a2aTaskMessages.taskId, row.id))
-        .orderBy(a2aTaskMessages.id)
+        .orderBy(a2aTaskMessages.id) as MessageRow[]
 
-      tasks.push(this.rowToTask(row, messages as MessageRow[]))
+      tasks.push(this.rowToTask(row, messages))
     }
 
     return tasks
@@ -241,18 +228,18 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
         updatedAt: new Date(),
       })
       .where(eq(a2aTasks.id, id))
-      .returning()
+      .returning() as TaskRow[]
 
-    const row = rows[0] as TaskRow | undefined
+    const row = rows[0]
     if (!row) return null
 
     const messages = await this.db
       .select()
       .from(a2aTaskMessages)
       .where(eq(a2aTaskMessages.taskId, id))
-      .orderBy(a2aTaskMessages.id)
+      .orderBy(a2aTaskMessages.id) as MessageRow[]
 
-    return this.rowToTask(row, messages as MessageRow[])
+    return this.rowToTask(row, messages)
   }
 
   private rowToTask(row: TaskRow, messages: MessageRow[]): A2ATask {

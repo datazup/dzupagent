@@ -17,9 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm'
 import type { MailMessage } from '@dzupagent/agent'
 import { agentMailbox, agentMailDlq } from './drizzle-schema.js'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDrizzle = any
+import type { DrizzleStoreDatabase } from './drizzle-store-types.js'
 
 /** Initial backoff delay before first retry (30 seconds). */
 export const DLQ_INITIAL_BACKOFF_MS = 30_000
@@ -71,7 +69,7 @@ export function dlqRowToMessage(row: DlqRow): MailMessage {
  * atomic enqueue+delete semantics should wrap calls externally.
  */
 export class DrizzleDlqStore {
-  constructor(private readonly db: AnyDrizzle) {}
+  constructor(private readonly db: DrizzleStoreDatabase) {}
 
   /**
    * Enqueue a message for later redelivery.
@@ -108,12 +106,12 @@ export class DrizzleDlqStore {
    * `nextRetryAt` ASC so oldest-due rows drain first.
    */
   async drain(limit = 100, now: number = Date.now()): Promise<DlqRow[]> {
-    const rows: DlqRow[] = await this.db
+    const rows = await this.db
       .select()
       .from(agentMailDlq)
       .where(and(isNull(agentMailDlq.deadAt), lte(agentMailDlq.nextRetryAt, now)))
       .orderBy(asc(agentMailDlq.nextRetryAt))
-      .limit(limit)
+      .limit(limit) as DlqRow[]
     return rows
   }
 
@@ -121,11 +119,11 @@ export class DrizzleDlqStore {
    * List all dead rows for a given recipient (for UI / manual inspection).
    */
   async listDead(recipientId: string): Promise<DlqRow[]> {
-    const rows: DlqRow[] = await this.db
+    const rows = await this.db
       .select()
       .from(agentMailDlq)
       .where(and(eq(agentMailDlq.toAgent, recipientId), sql`${agentMailDlq.deadAt} IS NOT NULL`))
-      .orderBy(asc(agentMailDlq.createdAt))
+      .orderBy(asc(agentMailDlq.createdAt)) as DlqRow[]
     return rows
   }
 
@@ -136,11 +134,11 @@ export class DrizzleDlqStore {
    * Returns `true` if the row was found and redelivered, `false` otherwise.
    */
   async redeliver(id: string): Promise<boolean> {
-    const rows: DlqRow[] = await this.db
+    const rows = await this.db
       .select()
       .from(agentMailDlq)
       .where(eq(agentMailDlq.id, id))
-      .limit(1)
+      .limit(1) as DlqRow[]
 
     const row = rows[0]
     if (!row) return false
@@ -191,11 +189,11 @@ export class DrizzleDlqStore {
    * Returns `true` if the row was marked dead by this call.
    */
   async recordAttempt(id: string, now: number = Date.now()): Promise<boolean> {
-    const rows: DlqRow[] = await this.db
+    const rows = await this.db
       .select()
       .from(agentMailDlq)
       .where(eq(agentMailDlq.id, id))
-      .limit(1)
+      .limit(1) as DlqRow[]
     const row = rows[0]
     if (!row) return false
 
