@@ -43,7 +43,7 @@ vi.mock('../features.js', () => ({
   listFeatures: vi.fn(() => [
     { slug: 'auth', name: 'Auth', description: 'Authentication' },
     { slug: 'memory', name: 'Memory', description: 'Memory store' },
-    { slug: 'dashboard', name: 'Dashboard', description: 'Admin dashboard' },
+    { slug: 'dashboard', name: 'Dashboard API', description: 'Backend dashboard routes' },
   ]),
 }))
 
@@ -61,7 +61,7 @@ vi.mock('../presets.js', () => ({
     {
       name: 'starter',
       label: 'Starter',
-      description: 'Base template with auth and dashboard',
+      description: 'Base template with auth and Dashboard API routes',
       template: 'full-stack',
       features: ['auth', 'dashboard'],
       database: 'postgres',

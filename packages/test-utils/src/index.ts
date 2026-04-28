@@ -40,4 +40,4 @@ export type {
   McpPublisherCompatibilitySuiteOptions,
 } from './mcp-compatibility.js'
 
-export const dzupagent_TEST_UTILS_VERSION = '0.1.0'
+export const dzupagent_TEST_UTILS_VERSION = '0.2.0'

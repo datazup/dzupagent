@@ -143,9 +143,8 @@ Observability outputs include:
 - `streaming-run.ts` builds and passes a `policy` object into `executeStreamingToolCall(...)`, but `executeStreamingToolCall` in `run-engine.ts` currently does not accept/use that policy object. This is a drift risk for native streaming policy parity.
 - `GenerateResult` defines optional `learnings`, but `executeGenerateRun(...)` currently does not populate that field. Self-learning setup is partially initialized without result projection.
 - `agent-finalizers.ts` duplicates summary and memory write-back behavior that currently also exists as private methods in `DzupAgent`. This raises maintenance drift risk unless one path is made canonical.
-- `src/index.ts` exports `dzupagent_AGENT_VERSION = '0.1.0'` while `packages/agent/package.json` is `0.2.0`. This version-surface mismatch can mislead consumers.
+- `src/index.ts` exports `dzupagent_AGENT_VERSION = '0.2.0'`, matching `packages/agent/package.json`.
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 - 2026-04-26: refreshed against current `packages/agent/src/agent` implementation (runtime flow, policy surfaces, stop reasons, run-handle integration, testing, and observability).
-

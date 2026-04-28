@@ -97,7 +97,7 @@ Main exported runtime APIs from `src/index.ts`:
   - type: `OTelPluginConfig`
 
 Current version constants in code:
-- `src/index.ts`: `dzupagent_OTEL_VERSION = '0.1.0'`
+- `src/index.ts`: `dzupagent_OTEL_VERSION = '0.2.0'`
 - `src/otel-plugin.ts`: plugin `version: '0.1.0'`
 
 ## Dependencies
@@ -154,7 +154,7 @@ Operational observability traits of the package itself:
 ## Risks and TODOs
 Current code-level risks and drift to track:
 - version drift across package surfaces:
-  - `package.json` is `0.2.0`, while exported constant and plugin version are `0.1.0`
+  - `package.json` and the exported constant are `0.2.0`; the plugin manifest version remains `0.1.0`
   - README also documents different version values
 - documentation/runtime mismatch in a few areas:
   - `SafetyMonitor.attach` comment says `tool:result` scans output, but implementation resets failure counters only
@@ -171,4 +171,3 @@ Current code-level risks and drift to track:
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

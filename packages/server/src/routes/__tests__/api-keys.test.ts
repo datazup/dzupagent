@@ -45,6 +45,16 @@ function buildApp(store: PostgresApiKeyStore): Hono {
   return app
 }
 
+function buildScopedApp(store: PostgresApiKeyStore, ownerId: string): Hono {
+  const app = new Hono()
+  app.use('*', async (c, next) => {
+    c.set('identity' as never, { id: ownerId } as never)
+    return next()
+  })
+  app.route('/api/keys', createApiKeyRoutes({ store }))
+  return app
+}
+
 describe('API key routes', () => {
   let store: PostgresApiKeyStore
   let app: Hono
@@ -90,6 +100,38 @@ describe('API key routes', () => {
     expect(store.create).not.toHaveBeenCalled()
   })
 
+  it('POST /api/keys trims the key name before creation', async () => {
+    const rawKey = 'd'.repeat(64)
+    const record = buildRecord({ name: 'trimmed-key' })
+    ;(store.create as ReturnType<typeof vi.fn>).mockResolvedValue({ key: rawKey, record })
+
+    const res = await app.request('/api/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: '  trimmed-key  ' }),
+    })
+
+    expect(res.status).toBe(201)
+    expect(store.create).toHaveBeenCalledWith('anonymous', 'trimmed-key', 'standard', { expiresIn: undefined })
+  })
+
+  it.each([
+    ['blank after trimming', { name: '   ' }, 'name must not be empty'],
+    ['longer than 128 characters', { name: 'a'.repeat(129) }, 'name must be at most 128 characters'],
+    ['containing control characters', { name: 'bad\nname' }, 'name must not contain control characters'],
+  ])('POST /api/keys rejects names that are %s', async (_caseName, payload, message) => {
+    const res = await app.request('/api/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: { message: string } }
+    expect(body.error.message).toBe(message)
+    expect(store.create).not.toHaveBeenCalled()
+  })
+
   it('GET /api/keys returns 200 with an array of records (no hash)', async () => {
     const records = [
       buildRecord({ id: 'k1', name: 'first' }),
@@ -112,10 +154,21 @@ describe('API key routes', () => {
     ;(store.get as ReturnType<typeof vi.fn>).mockResolvedValue(buildRecord({ id: 'k1' }))
     ;(store.revoke as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
 
-    const res = await app.request('/api/keys/k1', { method: 'DELETE' })
+    const scopedApp = buildScopedApp(store, 'owner-1')
+    const res = await scopedApp.request('/api/keys/k1', { method: 'DELETE' })
 
     expect(res.status).toBe(204)
     expect(store.revoke).toHaveBeenCalledWith('k1')
+  })
+
+  it('DELETE /api/keys/:id returns 404 when the key belongs to another owner', async () => {
+    ;(store.get as ReturnType<typeof vi.fn>).mockResolvedValue(buildRecord({ id: 'k1', ownerId: 'owner-2' }))
+
+    const scopedApp = buildScopedApp(store, 'owner-1')
+    const res = await scopedApp.request('/api/keys/k1', { method: 'DELETE' })
+
+    expect(res.status).toBe(404)
+    expect(store.revoke).not.toHaveBeenCalled()
   })
 
   it('DELETE /api/keys/:id returns 404 when the key is unknown', async () => {
@@ -230,6 +283,28 @@ describe('API key routes — expiresIn and rotate', () => {
     expect(body.expiresAt).toBeDefined()
   })
 
+  it.each([
+    ['zero', 0],
+    ['negative', -1],
+    ['fractional', 1.5],
+    ['infinite', Number.POSITIVE_INFINITY],
+    ['over one year', 31_536_001],
+    ['not numeric', '3600'],
+  ])('POST /api/keys rejects %s expiresIn values', async (_caseName, expiresIn) => {
+    const store = buildStore()
+    const app = buildApp(store)
+    const res = await app.request('/api/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'expiring', expiresIn }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: { message: string } }
+    expect(body.error.message).toBe('expiresIn must be a positive integer no greater than 31536000 seconds')
+    expect(store.create).not.toHaveBeenCalled()
+  })
+
   it('POST /api/keys/:id/rotate returns 404 for unknown key', async () => {
     const store = buildStore()
     ;(store.get as Mock).mockResolvedValue(null)
@@ -244,11 +319,23 @@ describe('API key routes — expiresIn and rotate', () => {
     const store = buildStore()
     ;(store.get as Mock).mockResolvedValue(buildRecord({ revokedAt: new Date() }))
 
-    const app = buildApp(store)
+    const app = buildScopedApp(store, 'owner-1')
     const res = await app.request('/api/keys/key-uuid-1/rotate', { method: 'POST' })
 
     expect(res.status).toBe(400)
     expect(store.revoke).not.toHaveBeenCalled()
+  })
+
+  it('POST /api/keys/:id/rotate returns 404 when the key belongs to another owner', async () => {
+    const store = buildStore()
+    ;(store.get as Mock).mockResolvedValue(buildRecord({ ownerId: 'owner-2' }))
+
+    const app = buildScopedApp(store, 'owner-1')
+    const res = await app.request('/api/keys/key-uuid-1/rotate', { method: 'POST' })
+
+    expect(res.status).toBe(404)
+    expect(store.revoke).not.toHaveBeenCalled()
+    expect(store.create).not.toHaveBeenCalled()
   })
 
   it('POST /api/keys/:id/rotate atomically revokes old key and creates a new one', async () => {
@@ -260,7 +347,7 @@ describe('API key routes — expiresIn and rotate', () => {
     const newRecord = buildRecord({ id: 'new-id', name: 'my-key', rateLimitTier: 'premium' })
     ;(store.create as Mock).mockResolvedValue({ key: newRawKey, record: newRecord })
 
-    const app = buildApp(store)
+    const app = buildScopedApp(store, 'owner-1')
     const res = await app.request('/api/keys/old-id/rotate', { method: 'POST' })
 
     expect(res.status).toBe(201)
@@ -282,7 +369,7 @@ describe('API key routes — expiresIn and rotate', () => {
     const newRecord = buildRecord({ id: 'new-2' })
     ;(store.create as Mock).mockResolvedValue({ key: 'j'.repeat(64), record: newRecord })
 
-    const app = buildApp(store)
+    const app = buildScopedApp(store, 'owner-1')
     const res = await app.request('/api/keys/key-uuid-1/rotate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -294,6 +381,24 @@ describe('API key routes — expiresIn and rotate', () => {
       expiresIn: 86400,
       metadata: {},
     })
+  })
+
+  it('POST /api/keys/:id/rotate rejects invalid expiresIn before rotating', async () => {
+    const store = buildStore()
+    ;(store.get as Mock).mockResolvedValue(buildRecord())
+
+    const app = buildScopedApp(store, 'owner-1')
+    const res = await app.request('/api/keys/key-uuid-1/rotate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expiresIn: 31_536_001 }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: { message: string } }
+    expect(body.error.message).toBe('expiresIn must be a positive integer no greater than 31536000 seconds')
+    expect(store.revoke).not.toHaveBeenCalled()
+    expect(store.create).not.toHaveBeenCalled()
   })
 })
 

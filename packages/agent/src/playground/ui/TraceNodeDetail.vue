@@ -9,6 +9,7 @@
 import { computed } from 'vue'
 import type { TimelineNode } from '../../replay/replay-types.js'
 import type { NodeMetrics } from '../../replay/replay-inspector.js'
+import { formatMs } from './utils.js'
 
 /** Component props */
 interface Props {
@@ -44,12 +45,6 @@ const statusClasses = computed(() => {
       return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
   }
 })
-
-/** Format milliseconds to a human-readable string */
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`
-  return `${(ms / 1000).toFixed(2)}s`
-}
 
 /** Extract error message from node data */
 const errorMessage = computed(() => {

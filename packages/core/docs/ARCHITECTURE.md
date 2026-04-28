@@ -158,7 +158,7 @@ Observability mechanisms in package code:
 
 ## Risks and TODOs
 Code/documentation drift visible in the current local codebase:
-- `src/index.ts` exports `dzupagent_CORE_VERSION = '0.1.0'` while `package.json` version is `0.2.0`.
+- `src/index.ts` exports `dzupagent_CORE_VERSION = '0.2.0'`, matching the `package.json` version.
 - `tsup.config.ts` still includes entries for removed files (`src/memory-ipc.ts`, `src/facades/memory.ts`).
 - `README.md` still references `@dzupagent/core/memory`, but that subpath is not present in `package.json` exports.
 - In-module architecture docs under `src/**/ARCHITECTURE.md` likely contain stale examples tied to removed memory facade paths.

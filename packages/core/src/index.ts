@@ -804,4 +804,4 @@ export { calculateBackoff } from './utils/backoff.js'
 export type { BackoffConfig } from './utils/backoff.js'
 
 // --- Version ---
-export const dzupagent_CORE_VERSION = '0.1.0'
+export const dzupagent_CORE_VERSION = '0.2.0'

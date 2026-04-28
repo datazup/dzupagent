@@ -27,7 +27,7 @@ export const presets: Record<PresetName, PresetConfig> = {
   starter: {
     name: 'starter',
     label: 'Starter',
-    description: 'Base template with auth and dashboard',
+    description: 'Base template with auth and Dashboard API routes',
     template: 'full-stack',
     features: ['auth', 'dashboard'],
     database: 'postgres',
@@ -36,7 +36,7 @@ export const presets: Record<PresetName, PresetConfig> = {
   full: {
     name: 'full',
     label: 'Full',
-    description: 'Full stack with auth, dashboard, billing, teams, and AI',
+    description: 'Full stack with auth, Dashboard API routes, billing, teams, and AI',
     template: 'production-saas-agent',
     features: ['auth', 'dashboard', 'billing', 'teams', 'ai'],
     database: 'postgres',

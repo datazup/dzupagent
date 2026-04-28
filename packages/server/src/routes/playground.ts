@@ -110,7 +110,14 @@ export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono {
     if (response) {
       return response
     }
-    return c.text('Playground not built. Run: yarn workspace @dzupagent/playground build', 404)
+    return c.text(
+      [
+        '/playground is a static asset host, but index.html was not found.',
+        'Configure runtimeConfig.playground.distDir to a built playground dist directory,',
+        "or build the consuming app's playground assets and point distDir there.",
+      ].join(' '),
+      404
+    )
   })
 
   return app

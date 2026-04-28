@@ -74,7 +74,7 @@ export function generateEnvExample(options: EnvExampleOptions): string {
 
   if (options.features.includes('dashboard')) {
     lines.push(
-      '# Dashboard',
+      '# Dashboard API',
       'CORS_ORIGINS=http://localhost:3000',
       '',
     )

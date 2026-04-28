@@ -164,9 +164,8 @@ Current risks and explicit TODO markers in code:
 - Version drift risk:
   - `package.json` version is `0.2.0`.
   - `src/routes/health.ts` liveness payload still returns `version: '0.1.0'`.
-  - `src/index.ts` exports `dzupagent_SERVER_VERSION = '0.1.0'`.
+  - `src/index.ts` exports `dzupagent_SERVER_VERSION = '0.2.0'`, matching `package.json`.
 - Export-map mismatch risk: source has `runtime.ts` and `compat.ts` facades, but current `package.json` `exports` exposes only `.` and `./ops`; consumers expecting subpath imports for runtime/compat will not resolve unless export map is extended.
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

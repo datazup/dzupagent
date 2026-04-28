@@ -117,11 +117,10 @@ Observability surfaces:
 - Replay subsystem captures event traces and exposes replay/inspection utilities.
 
 ## Risks and TODOs
-- Version drift exists: `package.json` is `0.2.0` while exported constant `dzupagent_AGENT_VERSION` is `0.1.0`.
+- Version constant is aligned: `package.json` is `0.2.0` and exported constant `dzupagent_AGENT_VERSION` is `0.2.0`.
 - Documentation/API drift exists: README quick-start still uses outdated config and call shapes (`systemPrompt`, `iterationBudget`, string-based `generate(...)`).
 - Delegation aggregation risk remains: `DelegatingSupervisor` keys aggregated results by `specialistId`, and `PlanningAgent.executePlan()` reads by `specialistId`, which can collide when multiple plan nodes at the same level target one specialist.
 - Root API surface is very large and mixed-stability, which increases maintenance and documentation drift risk.
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

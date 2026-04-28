@@ -80,4 +80,4 @@ export { createOTelPlugin } from './otel-plugin.js'
 export type { OTelPluginConfig } from './otel-plugin.js'
 
 // --- Version ---
-export const dzupagent_OTEL_VERSION = '0.1.0'
+export const dzupagent_OTEL_VERSION = '0.2.0'

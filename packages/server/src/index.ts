@@ -533,4 +533,4 @@ export { streamRunHandleToSSE } from './streaming/sse-streaming-adapter.js'
 export type { SSEStreamLike, StreamRunHandleToSSEOptions } from './streaming/sse-streaming-adapter.js'
 
 // --- Version ---
-export const dzupagent_SERVER_VERSION = '0.1.0'
+export const dzupagent_SERVER_VERSION = '0.2.0'

@@ -132,7 +132,7 @@ Observability notes:
 - Package does not emit telemetry; observability is intentionally local and test-driven (call logs, captured events, captured response state).
 
 ## Risks and TODOs
-- Version drift risk: [`package.json`](../package.json) is `0.2.0`, while `dzupagent_TEST_UTILS_VERSION` in [`src/index.ts`](../src/index.ts) is currently `0.1.0`.
+- Version constant is aligned: [`package.json`](../package.json) is `0.2.0`, and `dzupagent_TEST_UTILS_VERSION` in [`src/index.ts`](../src/index.ts) is currently `0.2.0`.
 - ESM/CJS compatibility risk: [`llm-recorder.ts`](../src/llm-recorder.ts) uses `require('node:fs')` in `listFixtures()`, which may be fragile in strict ESM execution contexts.
 - Fixture collision risk: default hash uses message content only; tests with identical prompts across scenarios share fixture names unless `hashInput` or scenario-specific paths are used.
 - MCP helper coupling: `mcp-compatibility.ts` imports Vitest globals directly, so the module is test-runner-coupled and not reusable outside Vitest without adaptation.
@@ -140,4 +140,3 @@ Observability notes:
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

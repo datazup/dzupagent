@@ -8,6 +8,8 @@
  * and gray for unchanged.
  */
 import { computed, ref } from 'vue'
+import type { ChangeType } from './utils.js'
+import { computeDiffRows, formatValue } from './utils.js'
 
 /** Component props */
 interface Props {
@@ -18,17 +20,6 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-
-/** Change type for a single key */
-type ChangeType = 'added' | 'removed' | 'modified' | 'unchanged'
-
-/** A single diff entry for display */
-interface DiffRow {
-  key: string
-  changeType: ChangeType
-  before: unknown
-  after: unknown
-}
 
 /** Set of expanded keys */
 const expandedKeys = ref<Set<string>>(new Set())
@@ -57,57 +48,8 @@ function handleKeydown(e: KeyboardEvent, key: string): void {
   }
 }
 
-/** Deep equality check using JSON serialization */
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true
-  if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) {
-    return false
-  }
-  try {
-    return JSON.stringify(a) === JSON.stringify(b)
-  } catch {
-    return false
-  }
-}
-
 /** Computed diff rows sorted by change type then key name */
-const diffRows = computed<DiffRow[]>(() => {
-  const allKeys = new Set([
-    ...Object.keys(props.stateBefore),
-    ...Object.keys(props.stateAfter),
-  ])
-
-  const rows: DiffRow[] = []
-
-  for (const key of allKeys) {
-    const inBefore = key in props.stateBefore
-    const inAfter = key in props.stateAfter
-
-    if (!inBefore && inAfter) {
-      rows.push({ key, changeType: 'added', before: undefined, after: props.stateAfter[key] })
-    } else if (inBefore && !inAfter) {
-      rows.push({ key, changeType: 'removed', before: props.stateBefore[key], after: undefined })
-    } else if (inBefore && inAfter) {
-      const changed = !deepEqual(props.stateBefore[key], props.stateAfter[key])
-      rows.push({
-        key,
-        changeType: changed ? 'modified' : 'unchanged',
-        before: props.stateBefore[key],
-        after: props.stateAfter[key],
-      })
-    }
-  }
-
-  // Sort: changed items first, then alphabetically
-  const order: Record<ChangeType, number> = { added: 0, removed: 1, modified: 2, unchanged: 3 }
-  rows.sort((a, b) => {
-    const diff = order[a.changeType] - order[b.changeType]
-    if (diff !== 0) return diff
-    return a.key.localeCompare(b.key)
-  })
-
-  return rows
-})
+const diffRows = computed(() => computeDiffRows(props.stateBefore, props.stateAfter))
 
 /** Count of changed keys */
 const changeCount = computed(() =>
@@ -142,17 +84,6 @@ function rowBorderClasses(changeType: ChangeType): string {
   }
 }
 
-/** Format a value for display */
-function formatValue(value: unknown): string {
-  if (value === undefined) return 'undefined'
-  if (value === null) return 'null'
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
 </script>
 
 <template>
