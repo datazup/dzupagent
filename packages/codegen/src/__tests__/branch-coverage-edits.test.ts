@@ -12,7 +12,7 @@ import { VirtualFS } from '../vfs/virtual-fs.js'
 import { createEditFileTool } from '../tools/edit-file.tool.js'
 import { createWriteFileTool } from '../tools/write-file.tool.js'
 import { quickSyntaxCheck } from '../tools/lint-validator.js'
-import type { Workspace } from '../workspace/types.js'
+import { WorkspacePathSecurityError, type Workspace } from '../workspace/types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -96,6 +96,23 @@ describe('createEditFileTool — branch coverage', () => {
     expect(result).toContain('File not found')
   })
 
+  it('returns workspace path denial instead of masking it as not-found', async () => {
+    const ws = {
+      ...makeFakeWorkspace({}),
+      readFile: async () => {
+        throw new WorkspacePathSecurityError('../secret.txt', '/tmp/fake-ws')
+      },
+    } as Workspace
+
+    const result = await callEditTool({ workspace: ws }, {
+      filePath: '../secret.txt',
+      edits: [{ oldText: 'a', newText: 'b' }],
+    })
+
+    expect(result).toContain('Workspace path rejected')
+    expect(result).not.toContain('File not found')
+  })
+
   it('handles neither workspace nor vfs gracefully', async () => {
     const result = await callEditTool({}, {
       filePath: 'src/a.ts',
@@ -171,6 +188,21 @@ describe('createWriteFileTool — branch coverage', () => {
     const parsed = JSON.parse(raw) as { success: boolean; error: string }
     expect(parsed.success).toBe(false)
     expect(parsed.error).toContain('write blew up')
+  })
+
+  it('surfaces workspace path denial from write_file', async () => {
+    const ws = {
+      ...makeFakeWorkspace({}),
+      writeFile: async () => {
+        throw new WorkspacePathSecurityError('/tmp/secret.txt', '/tmp/fake-ws')
+      },
+    } as Workspace
+    const tool = createWriteFileTool({ workspace: ws })
+    const raw = await invokeWrite(tool, { filePath: '/tmp/secret.txt', content: 'x' })
+    const parsed = JSON.parse(raw) as { success: boolean; error: string }
+
+    expect(parsed.success).toBe(false)
+    expect(parsed.error).toContain('Workspace path rejected')
   })
 
   it('handles non-Error workspace write throws (string rejection)', async () => {

@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, mkdir, writeFile, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import { LocalWorkspace } from '../local-workspace.js'
-import type { WorkspaceOptions } from '../types.js'
+import { WorkspacePathSecurityError, type WorkspaceOptions } from '../types.js'
 
 describe('LocalWorkspace', () => {
   let tempDir: string
@@ -40,6 +40,32 @@ describe('LocalWorkspace', () => {
     await expect(ws.readFile('does-not-exist.txt')).rejects.toThrow()
   })
 
+  it('readFile rejects absolute paths', async () => {
+    await expect(ws.readFile(join(tempDir, 'hello.txt'))).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+  })
+
+  it('readFile rejects traversal outside root', async () => {
+    await expect(ws.readFile('../outside.txt')).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+  })
+
+  it('readFile rejects symlink escapes outside root', async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), `lw-outside-${randomUUID()}-`))
+    try {
+      await writeFile(join(outsideDir, 'secret.txt'), 'secret', 'utf-8')
+      await symlink(join(outsideDir, 'secret.txt'), join(tempDir, 'linked-secret.txt'))
+
+      await expect(ws.readFile('linked-secret.txt')).rejects.toBeInstanceOf(
+        WorkspacePathSecurityError,
+      )
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true })
+    }
+  })
+
   // ---- writeFile ----------------------------------------------------------
 
   it('writeFile creates a new file', async () => {
@@ -52,6 +78,31 @@ describe('LocalWorkspace', () => {
     await ws.writeFile('deep/nested/dir/file.ts', 'export const x = 1')
     const content = await readFile(join(tempDir, 'deep/nested/dir/file.ts'), 'utf-8')
     expect(content).toBe('export const x = 1')
+  })
+
+  it('writeFile rejects absolute paths', async () => {
+    await expect(ws.writeFile(join(tempDir, 'output.txt'), 'created')).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+  })
+
+  it('writeFile rejects traversal outside root', async () => {
+    await expect(ws.writeFile('../outside.txt', 'created')).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+  })
+
+  it('writeFile rejects symlinked parent directories outside root', async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), `lw-outside-${randomUUID()}-`))
+    try {
+      await symlink(outsideDir, join(tempDir, 'linked-dir'))
+
+      await expect(ws.writeFile('linked-dir/new.txt', 'created')).rejects.toBeInstanceOf(
+        WorkspacePathSecurityError,
+      )
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true })
+    }
   })
 
   // ---- listFiles ----------------------------------------------------------
@@ -74,6 +125,15 @@ describe('LocalWorkspace', () => {
     expect(files).not.toContain('src/lib/c.js')
   })
 
+  it('listFiles rejects absolute and traversal globs', async () => {
+    await expect(ws.listFiles('/tmp/**/*.ts')).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+    await expect(ws.listFiles('../*.ts')).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+  })
+
   // ---- search (builtin) ---------------------------------------------------
 
   it('search finds text matches across files', async () => {
@@ -83,6 +143,15 @@ describe('LocalWorkspace', () => {
     expect(results.length).toBe(1)
     expect(results[0]!.matchText).toBe('const bar')
     expect(results[0]!.line).toBe(2)
+  })
+
+  it('search rejects absolute and traversal globs', async () => {
+    await expect(ws.search('const', { glob: '/tmp/**/*.ts' })).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+    await expect(ws.search('const', { glob: '../*.ts' })).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
   })
 
   // ---- runCommand ---------------------------------------------------------
@@ -106,6 +175,28 @@ describe('LocalWorkspace', () => {
     expect(result.stderr).toContain('not in the allowed commands list')
   })
 
+  it('runCommand rejects cwd outside root', async () => {
+    await expect(ws.runCommand('echo', ['hello'], { cwd: '../outside' })).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+    await expect(ws.runCommand('echo', ['hello'], { cwd: tmpdir() })).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+  })
+
+  it('runCommand rejects symlinked cwd outside root', async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), `lw-outside-${randomUUID()}-`))
+    try {
+      await symlink(outsideDir, join(tempDir, 'linked-dir'))
+
+      await expect(ws.runCommand('echo', ['hello'], { cwd: 'linked-dir' })).rejects.toBeInstanceOf(
+        WorkspacePathSecurityError,
+      )
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true })
+    }
+  })
+
   // ---- exists -------------------------------------------------------------
 
   it('exists returns true for an existing file', async () => {
@@ -115,5 +206,28 @@ describe('LocalWorkspace', () => {
 
   it('exists returns false for a missing path', async () => {
     expect(await ws.exists('ghost.txt')).toBe(false)
+  })
+
+  it('exists rejects absolute and traversal paths', async () => {
+    await expect(ws.exists(join(tempDir, 'present.txt'))).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+    await expect(ws.exists('../present.txt')).rejects.toBeInstanceOf(
+      WorkspacePathSecurityError,
+    )
+  })
+
+  it('exists rejects symlink escapes outside root', async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), `lw-outside-${randomUUID()}-`))
+    try {
+      await writeFile(join(outsideDir, 'secret.txt'), 'secret', 'utf-8')
+      await symlink(join(outsideDir, 'secret.txt'), join(tempDir, 'linked-secret.txt'))
+
+      await expect(ws.exists('linked-secret.txt')).rejects.toBeInstanceOf(
+        WorkspacePathSecurityError,
+      )
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true })
+    }
   })
 })
