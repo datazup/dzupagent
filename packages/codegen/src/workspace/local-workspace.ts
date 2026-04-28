@@ -4,11 +4,18 @@
  * Uses Node fs.promises for file I/O, child_process.execFile for commands,
  * and optionally shells out to ripgrep for search.
  */
-import { readFile, writeFile, mkdir, readdir, access } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, readdir, access, realpath } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
 import { execFile as execFileCb } from 'node:child_process'
 import { resolve, relative, isAbsolute, dirname } from 'node:path'
 
-import type { Workspace, WorkspaceOptions, SearchResult, CommandResult } from './types.js'
+import {
+  WorkspacePathSecurityError,
+  type Workspace,
+  type WorkspaceOptions,
+  type SearchResult,
+  type CommandResult,
+} from './types.js'
 
 // ---------------------------------------------------------------------------
 // Glob-to-regex helper (supports *, **, ?)
@@ -95,32 +102,74 @@ function parseRipgrepJson(stdout: string): SearchResult[] {
 export class LocalWorkspace implements Workspace {
   readonly rootDir: string
   readonly options: WorkspaceOptions
+  private readonly rootRealDir: string
 
   constructor(options: WorkspaceOptions) {
     this.rootDir = resolve(options.rootDir)
+    try {
+      this.rootRealDir = realpathSync(this.rootDir)
+    } catch {
+      this.rootRealDir = this.rootDir
+    }
     this.options = options
   }
 
   // ---- path helpers -------------------------------------------------------
 
+  private assertContainedAbsolute(
+    absPath: string,
+    attemptedPath: string,
+    rootDir = this.rootDir,
+  ): void {
+    const rel = relative(rootDir, absPath)
+    if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return
+    throw new WorkspacePathSecurityError(attemptedPath, this.rootDir)
+  }
+
   private resolvePath(p: string): string {
-    if (isAbsolute(p)) return p
-    return resolve(this.rootDir, p)
+    if (isAbsolute(p)) {
+      throw new WorkspacePathSecurityError(p, this.rootDir)
+    }
+
+    const abs = resolve(this.rootDir, p)
+    this.assertContainedAbsolute(abs, p)
+    return abs
+  }
+
+  private assertSafeGlob(glob: string): void {
+    if (isAbsolute(glob) || glob.split(/[\\/]+/).includes('..')) {
+      throw new WorkspacePathSecurityError(glob, this.rootDir)
+    }
+  }
+
+  private async assertRealPathContained(absPath: string, attemptedPath: string): Promise<void> {
+    const resolvedRealPath = await realpath(absPath)
+    this.assertContainedAbsolute(resolvedRealPath, attemptedPath, this.rootRealDir)
   }
 
   // ---- Workspace interface ------------------------------------------------
 
   async readFile(path: string): Promise<string> {
-    return readFile(this.resolvePath(path), 'utf-8')
+    const abs = this.resolvePath(path)
+    await this.assertRealPathContained(abs, path)
+    return readFile(abs, 'utf-8')
   }
 
   async writeFile(path: string, content: string): Promise<void> {
     const abs = this.resolvePath(path)
     await mkdir(dirname(abs), { recursive: true })
+    await this.assertRealPathContained(dirname(abs), path)
+    try {
+      await this.assertRealPathContained(abs, path)
+    } catch (error) {
+      const code = (error as { code?: string }).code
+      if (code !== 'ENOENT') throw error
+    }
     await writeFile(abs, content, 'utf-8')
   }
 
   async listFiles(glob: string): Promise<string[]> {
+    this.assertSafeGlob(glob)
     const regex = globToRegex(glob)
     const allFiles = await this.walkDir(this.rootDir)
     return allFiles.filter((f) => regex.test(f)).sort()
@@ -130,6 +179,10 @@ export class LocalWorkspace implements Workspace {
     query: string,
     options?: { glob?: string; maxResults?: number },
   ): Promise<SearchResult[]> {
+    if (options?.glob) {
+      this.assertSafeGlob(options.glob)
+    }
+
     const maxResults = options?.maxResults ?? this.options.search?.maxResults ?? 200
     const provider = this.options.search?.provider ?? 'ripgrep'
 
@@ -161,6 +214,9 @@ export class LocalWorkspace implements Workspace {
     const timeoutMs =
       options?.timeoutMs ?? this.options.command?.timeoutMs ?? 30_000
     const cwd = options?.cwd ? this.resolvePath(options.cwd) : this.rootDir
+    if (options?.cwd) {
+      await this.assertRealPathContained(cwd, options.cwd)
+    }
 
     return new Promise<CommandResult>((resolvePromise) => {
       const child = execFileCb(
@@ -191,10 +247,13 @@ export class LocalWorkspace implements Workspace {
   }
 
   async exists(path: string): Promise<boolean> {
+    const abs = this.resolvePath(path)
     try {
-      await access(this.resolvePath(path))
+      await access(abs)
+      await this.assertRealPathContained(abs, path)
       return true
-    } catch {
+    } catch (error) {
+      if (error instanceof WorkspacePathSecurityError) throw error
       return false
     }
   }
@@ -210,7 +269,11 @@ export class LocalWorkspace implements Workspace {
           // entry.parentPath is available in Node 20.12+ (same as entry.path)
           const parentDir = (entry as { parentPath?: string }).parentPath ?? dir
           const fullPath = resolve(parentDir, entry.name)
-          results.push(relative(this.rootDir, fullPath))
+          this.assertContainedAbsolute(fullPath, fullPath)
+          const workspacePath = relative(this.rootDir, fullPath)
+          if (!workspacePath.startsWith('..') && !isAbsolute(workspacePath)) {
+            results.push(workspacePath)
+          }
         }
       }
     } catch {

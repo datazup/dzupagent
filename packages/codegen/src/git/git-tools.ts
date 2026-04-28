@@ -10,16 +10,32 @@ import { tool } from '@langchain/core/tools'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { GitExecutor } from './git-executor.js'
 
+export interface GitToolPolicy {
+  /** Explicit host-side approval/governance decision for mutating Git actions. */
+  allowMutatingTools?: boolean
+}
+
+function mutationDenied(action: string): string {
+  return JSON.stringify({
+    error: `${action} is disabled by Git tool policy. Enable an explicit host approval/governance policy before using mutating Git tools.`,
+    success: false,
+    policy: 'git_mutation_denied',
+  })
+}
+
 /**
  * Create all git tools bound to a GitExecutor instance.
  */
-export function createGitTools(executor: GitExecutor): StructuredToolInterface[] {
+export function createGitTools(
+  executor: GitExecutor,
+  policy: GitToolPolicy = {},
+): StructuredToolInterface[] {
   return [
     createGitStatusTool(executor),
     createGitDiffTool(executor),
-    createGitCommitTool(executor),
+    createGitCommitTool(executor, policy),
     createGitLogTool(executor),
-    createGitBranchTool(executor),
+    createGitBranchTool(executor, policy),
   ]
 }
 
@@ -106,10 +122,14 @@ export function createGitDiffTool(executor: GitExecutor) {
 // git_commit
 // ---------------------------------------------------------------------------
 
-export function createGitCommitTool(executor: GitExecutor) {
+export function createGitCommitTool(executor: GitExecutor, policy: GitToolPolicy = {}) {
   return tool(
     async ({ message, paths, addAll }) => {
       try {
+        if (!policy.allowMutatingTools) {
+          return mutationDenied('git_commit')
+        }
+
         // Stage files
         if (addAll) {
           await executor.addAll()
@@ -187,7 +207,7 @@ export function createGitLogTool(executor: GitExecutor) {
 // git_branch
 // ---------------------------------------------------------------------------
 
-export function createGitBranchTool(executor: GitExecutor) {
+export function createGitBranchTool(executor: GitExecutor, policy: GitToolPolicy = {}) {
   return tool(
     async ({ action, name, startPoint }) => {
       try {
@@ -197,6 +217,9 @@ export function createGitBranchTool(executor: GitExecutor) {
             return JSON.stringify(branches)
           }
           case 'create': {
+            if (!policy.allowMutatingTools) {
+              return mutationDenied('git_branch create')
+            }
             if (!name) {
               return JSON.stringify({ error: 'Branch name is required for create action' })
             }
@@ -204,6 +227,9 @@ export function createGitBranchTool(executor: GitExecutor) {
             return JSON.stringify({ success: true, action: 'created', branch: name })
           }
           case 'switch': {
+            if (!policy.allowMutatingTools) {
+              return mutationDenied('git_branch switch')
+            }
             if (!name) {
               return JSON.stringify({ error: 'Branch name is required for switch action' })
             }

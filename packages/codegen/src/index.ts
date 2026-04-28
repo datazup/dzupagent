@@ -431,7 +431,12 @@ export { mergeCodegenStreams } from './streaming/index.js'
 
 // --- Workspace ---
 export type { SearchResult, CommandResult, WorkspaceOptions, Workspace } from './workspace/index.js'
-export { LocalWorkspace, SandboxedWorkspace, WorkspaceFactory } from './workspace/index.js'
+export {
+  LocalWorkspace,
+  SandboxedWorkspace,
+  WorkspaceFactory,
+  WorkspacePathSecurityError,
+} from './workspace/index.js'
 
 // Placeholder export to make the package valid
 export const dzupagent_CODEGEN_VERSION = '0.2.0'

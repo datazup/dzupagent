@@ -8,7 +8,13 @@ import {
 } from '@dzupagent/core'
 import { TokenLifecycleManager, createTokenBudget } from '@dzupagent/context'
 import type { RunExecutor, RunExecutorResult } from './run-worker.js'
-import { resolveAgentTools, type CustomToolResolver, type ToolResolverOptions } from './tool-resolver.js'
+import {
+  resolveAgentTools,
+  type CustomToolResolver,
+  type GitWorkspaceProfile,
+  type HttpConnectorProfile,
+  type ToolResolverOptions,
+} from './tool-resolver.js'
 import { isStructuredResult } from './utils.js'
 import type { TokenLifecycleLike } from '../routes/run-context.js'
 
@@ -45,6 +51,18 @@ export interface DzupAgentRunExecutorOptions {
   resolvePolicy?: ToolResolverOptions['resolvePolicy']
   /** Optional registry to register the per-run TokenLifecycleManager into. */
   tokenLifecycleRegistry?: Map<string, TokenLifecycleLike>
+  /** Server-owned HTTP connector profiles keyed by profile name. */
+  httpConnectorProfiles?: Record<string, HttpConnectorProfile>
+  /** Default HTTP connector profile name. */
+  defaultHttpConnectorProfile?: string
+  /** Server-owned Git workspace profiles keyed by profile name. */
+  gitWorkspaceProfiles?: Record<string, GitWorkspaceProfile>
+  /** Default Git workspace profile name. */
+  defaultGitWorkspaceProfile?: string
+  /** Unsafe legacy compatibility for metadata.httpBaseUrl/httpHeaders. */
+  allowUnsafeMetadataHttpConnector?: boolean
+  /** Unsafe legacy compatibility for metadata.cwd, root-contained by selected workspace. */
+  allowUnsafeMetadataGitCwd?: boolean
   /** Model context window size (tokens). Default: 200_000 */
   contextWindowTokens?: number
   /** Reserved output tokens. Default: 4_096 */
@@ -99,6 +117,20 @@ export function createDzupAgentRunExecutor(
           toolNames: ctx.agent.tools,
           metadata: ctx.metadata,
           env: process.env,
+          ...(options?.httpConnectorProfiles ? { httpConnectorProfiles: options.httpConnectorProfiles } : {}),
+          ...(options?.defaultHttpConnectorProfile
+            ? { defaultHttpConnectorProfile: options.defaultHttpConnectorProfile }
+            : {}),
+          ...(options?.allowUnsafeMetadataHttpConnector !== undefined
+            ? { allowUnsafeMetadataHttpConnector: options.allowUnsafeMetadataHttpConnector }
+            : {}),
+          ...(options?.gitWorkspaceProfiles ? { gitWorkspaceProfiles: options.gitWorkspaceProfiles } : {}),
+          ...(options?.defaultGitWorkspaceProfile
+            ? { defaultGitWorkspaceProfile: options.defaultGitWorkspaceProfile }
+            : {}),
+          ...(options?.allowUnsafeMetadataGitCwd !== undefined
+            ? { allowUnsafeMetadataGitCwd: options.allowUnsafeMetadataGitCwd }
+            : {}),
         },
         options?.toolResolver,
         { resolvePolicy: options?.resolvePolicy },

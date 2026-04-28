@@ -15,6 +15,7 @@ import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import type { VirtualFS } from '../vfs/virtual-fs.js'
 import type { CodegenToolContext } from './tool-context.js'
+import { WorkspacePathSecurityError } from '../workspace/types.js'
 
 const editEntrySchema = z.object({
   oldText: z.string().describe('Exact text to find (must match precisely including whitespace)'),
@@ -55,7 +56,10 @@ export function createEditFileTool(vfsOrContext: VirtualFS | CodegenToolContext)
       if (workspace) {
         try {
           content = await workspace.readFile(filePath)
-        } catch {
+        } catch (error) {
+          if (error instanceof WorkspacePathSecurityError) {
+            return `Error: ${error.message}`
+          }
           content = null
         }
       } else if (vfs) {
@@ -94,7 +98,12 @@ export function createEditFileTool(vfsOrContext: VirtualFS | CodegenToolContext)
 
       // Write the modified content — prefer workspace, fall back to VFS
       if (workspace) {
-        await workspace.writeFile(filePath, current)
+        try {
+          await workspace.writeFile(filePath, current)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          return `Error: ${message}`
+        }
       } else if (vfs) {
         vfs.write(filePath, current)
       }

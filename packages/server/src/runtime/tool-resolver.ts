@@ -1,4 +1,5 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { validateMcpHttpEndpoint } from '../security/mcp-url-policy.js'
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,13 @@ export interface HttpConnectorProfile {
   timeoutMs?: number
   /** Private/loopback/link-local hosts explicitly allowed for this profile. */
   allowedHosts?: string[]
+}
+
+export interface GitWorkspaceProfile {
+  /** Server-side repository/workspace root for built-in Git tools. */
+  root: string
+  /** Explicit host-side policy allowing mutating Git tools such as commit or branch switch. */
+  allowMutatingTools?: boolean
 }
 
 const TOOL_PROFILE_CONFIGS: Record<ToolProfile, ToolProfileConfig> = {
@@ -77,11 +85,20 @@ export interface ToolResolverContext {
   httpConnectorProfiles?: Record<string, HttpConnectorProfile>
   /** Default server-owned HTTP connector profile. Defaults to "default". */
   defaultHttpConnectorProfile?: string
+  /** Server-owned Git workspace profiles keyed by profile name. */
+  gitWorkspaceProfiles?: Record<string, GitWorkspaceProfile>
+  /** Default server-owned Git workspace profile. Defaults to "default". */
+  defaultGitWorkspaceProfile?: string
   /**
    * Unsafe compatibility escape hatch for legacy callers that passed
    * metadata.httpBaseUrl/httpHeaders. Keep false for untrusted runs.
    */
   allowUnsafeMetadataHttpConnector?: boolean
+  /**
+   * Unsafe compatibility escape hatch for legacy callers that passed metadata.cwd.
+   * The selected cwd is still required to stay inside the selected workspace root.
+   */
+  allowUnsafeMetadataGitCwd?: boolean
 }
 
 export type ToolSource = 'git' | 'connector' | 'mcp' | 'custom'
@@ -148,6 +165,61 @@ function parseCsvSet(value: string | undefined): string[] | undefined {
   return entries.length ? entries : undefined
 }
 
+function isInsideRoot(path: string, root: string): boolean {
+  const rel = relative(root, path)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
+function selectGitWorkspace(context: ToolResolverContext): {
+  cwd?: string
+  allowedRoots?: string[]
+  allowMutatingTools: boolean
+  profileName?: string
+  warnings: string[]
+} {
+  const warnings: string[] = []
+  const profileName = typeof context.metadata?.['gitWorkspace'] === 'string' && context.metadata['gitWorkspace'].trim()
+    ? context.metadata['gitWorkspace'].trim()
+    : context.defaultGitWorkspaceProfile ?? 'default'
+
+  const hasProfiles = context.gitWorkspaceProfiles && Object.keys(context.gitWorkspaceProfiles).length > 0
+  const configuredProfile = context.gitWorkspaceProfiles?.[profileName]
+
+  if (hasProfiles && !configuredProfile) {
+    warnings.push(`Git workspace profile "${profileName}" is not configured.`)
+    return { allowMutatingTools: false, warnings }
+  }
+
+  const root = resolve(configuredProfile?.root ?? process.cwd())
+  let cwd = root
+
+  const metadataCwd = typeof context.metadata?.['cwd'] === 'string'
+    ? context.metadata['cwd']
+    : undefined
+
+  if (metadataCwd && context.allowUnsafeMetadataGitCwd) {
+    const requestedCwd = resolve(root, metadataCwd)
+    if (!isInsideRoot(requestedCwd, root)) {
+      warnings.push('Ignoring metadata.cwd for Git tools because it escapes the selected workspace root.')
+      return { allowMutatingTools: false, warnings }
+    }
+    warnings.push('Using unsafe metadata-controlled Git cwd within the selected workspace root.')
+    cwd = requestedCwd
+  } else if (metadataCwd) {
+    warnings.push(
+      'Ignoring metadata.cwd for Git tools; configure gitWorkspaceProfiles or set allowUnsafeMetadataGitCwd.',
+    )
+  }
+
+  return {
+    cwd,
+    allowedRoots: [root],
+    allowMutatingTools: configuredProfile?.allowMutatingTools === true,
+    profileName,
+    warnings,
+  }
+}
+
 function selectHttpConnectorProfile(context: ToolResolverContext): {
   profile?: HttpConnectorProfile
   profileName?: string
@@ -170,10 +242,11 @@ function selectHttpConnectorProfile(context: ToolResolverContext): {
 
   const envBaseUrl = context.env?.['DZIP_HTTP_BASE_URL']
   if (envBaseUrl) {
+    const allowedHosts = parseCsvSet(context.env?.['DZIP_HTTP_ALLOWED_HOSTS'])
     return {
       profile: {
         baseUrl: envBaseUrl,
-        allowedHosts: parseCsvSet(context.env?.['DZIP_HTTP_ALLOWED_HOSTS']),
+        ...(allowedHosts ? { allowedHosts } : {}),
       },
       profileName: 'env:DZIP_HTTP_BASE_URL',
       warnings,
@@ -194,11 +267,12 @@ function selectHttpConnectorProfile(context: ToolResolverContext): {
         : undefined
 
       warnings.push('Using unsafe metadata-controlled HTTP connector configuration.')
+      const allowedHosts = parseCsvSet(context.env?.['DZIP_HTTP_ALLOWED_HOSTS'])
       return {
         profile: {
           baseUrl: metadataBaseUrl,
-          headers,
-          allowedHosts: parseCsvSet(context.env?.['DZIP_HTTP_ALLOWED_HOSTS']),
+          ...(headers ? { headers } : {}),
+          ...(allowedHosts ? { allowedHosts } : {}),
         },
         profileName: 'unsafe-metadata',
         warnings,
@@ -242,18 +316,11 @@ async function importFirstAvailable(paths: string[]): Promise<Record<string, unk
 }
 
 async function resolveGitFactory(): Promise<{
-  createGitTools: ((executor: unknown) => StructuredToolInterface[]) | null
-  GitExecutor: (new (cfg?: { cwd?: string }) => unknown) | null
+  createGitTools: ((executor: unknown, policy?: { allowMutatingTools?: boolean }) => StructuredToolInterface[]) | null
+  GitExecutor: (new (cfg?: { cwd?: string; allowedRoots?: string[] }) => unknown) | null
 }> {
-  const pkg = await importFirstAvailable(['@dzupagent/codegen'])
-  if (pkg && typeof pkg['createGitTools'] === 'function' && typeof pkg['GitExecutor'] === 'function') {
-    return {
-      createGitTools: pkg['createGitTools'] as (executor: unknown) => StructuredToolInterface[],
-      GitExecutor: pkg['GitExecutor'] as new (cfg?: { cwd?: string }) => unknown,
-    }
-  }
-
-  // Dev-only monorepo fallbacks — only resolve when package isn't published
+  // Prefer monorepo source during local development/tests; packaged builds fall
+  // back to @dzupagent/codegen when the source path is unavailable.
   const toolsMod = await importFirstAvailable(['../../../codegen/src/git/git-tools.ts'])
   const execMod = await importFirstAvailable(['../../../codegen/src/git/git-executor.ts'])
   if (
@@ -262,8 +329,22 @@ async function resolveGitFactory(): Promise<{
     && typeof execMod['GitExecutor'] === 'function'
   ) {
     return {
-      createGitTools: toolsMod['createGitTools'] as (executor: unknown) => StructuredToolInterface[],
-      GitExecutor: execMod['GitExecutor'] as new (cfg?: { cwd?: string }) => unknown,
+      createGitTools: toolsMod['createGitTools'] as (
+        executor: unknown,
+        policy?: { allowMutatingTools?: boolean },
+      ) => StructuredToolInterface[],
+      GitExecutor: execMod['GitExecutor'] as new (cfg?: { cwd?: string; allowedRoots?: string[] }) => unknown,
+    }
+  }
+
+  const pkg = await importFirstAvailable(['@dzupagent/codegen'])
+  if (pkg && typeof pkg['createGitTools'] === 'function' && typeof pkg['GitExecutor'] === 'function') {
+    return {
+      createGitTools: pkg['createGitTools'] as (
+        executor: unknown,
+        policy?: { allowMutatingTools?: boolean },
+      ) => StructuredToolInterface[],
+      GitExecutor: pkg['GitExecutor'] as new (cfg?: { cwd?: string; allowedRoots?: string[] }) => unknown,
     }
   }
 
@@ -637,22 +718,34 @@ export async function resolveAgentTools(
   if (wantGit) {
     const { createGitTools, GitExecutor } = await resolveGitFactory()
     if (createGitTools && GitExecutor) {
-      const cwd = typeof context.metadata?.['cwd'] === 'string'
-        ? context.metadata['cwd']
-        : process.cwd()
-      const gitExec = new GitExecutor({ cwd })
-      const gitTools = createGitTools(gitExec)
-      const enabledGit = pickEnabled(requested, GIT_TOOL_NAMES, 'git')
-      for (const t of gitTools) {
-        if (enabledGit.length === 0 || enabledGit.includes(t.name)) {
-          tools.push(t)
-          activated.push({ name: t.name, source: 'git' })
-          unresolved.delete(t.name)
+      const gitWorkspace = selectGitWorkspace(context)
+      warnings.push(...gitWorkspace.warnings)
+
+      if (gitWorkspace.cwd && gitWorkspace.allowedRoots) {
+        try {
+          const gitExec = new GitExecutor({
+            cwd: gitWorkspace.cwd,
+            allowedRoots: gitWorkspace.allowedRoots,
+          })
+          const gitTools = createGitTools(gitExec, {
+            allowMutatingTools: gitWorkspace.allowMutatingTools,
+          })
+          const enabledGit = pickEnabled(requested, GIT_TOOL_NAMES, 'git')
+          for (const t of gitTools) {
+            if (enabledGit.length === 0 || enabledGit.includes(t.name)) {
+              tools.push(t)
+              activated.push({ name: t.name, source: 'git' })
+              unresolved.delete(t.name)
+            }
+          }
+          unresolved.delete('git')
+          unresolved.delete('git:*')
+          unresolved.delete('connector:git')
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          warnings.push(`Git tools requested but workspace policy rejected the cwd: ${message}`)
         }
       }
-      unresolved.delete('git')
-      unresolved.delete('git:*')
-      unresolved.delete('connector:git')
     } else {
       warnings.push('Git tools requested but @dzupagent/codegen is not available at runtime.')
     }
@@ -737,11 +830,17 @@ export async function resolveAgentTools(
       const policy = validateMcpHttpEndpoint(
         httpProfile.baseUrl,
         'http',
-        { allowedHosts: httpProfile.allowedHosts },
+        httpProfile.allowedHosts ? { allowedHosts: httpProfile.allowedHosts } : undefined,
       )
       if (!policy.ok) {
         warnings.push(`HTTP connector profile "${httpProfileName ?? 'unknown'}" rejected: ${policy.reason}`)
       } else if (typeof connectors['createHTTPConnector'] === 'function') {
+        const httpConfig = {
+          baseUrl: httpProfile.baseUrl,
+          ...(httpProfile.headers ? { headers: httpProfile.headers } : {}),
+          ...(httpProfile.allowedMethods ? { allowedMethods: httpProfile.allowedMethods } : {}),
+          ...(httpProfile.timeoutMs !== undefined ? { timeoutMs: httpProfile.timeoutMs } : {}),
+        }
         const httpTools = (connectors['createHTTPConnector'] as (
           cfg: {
             baseUrl: string
@@ -749,12 +848,7 @@ export async function resolveAgentTools(
             allowedMethods?: Array<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'>
             timeoutMs?: number
           },
-        ) => StructuredToolInterface[])({
-          baseUrl: httpProfile.baseUrl,
-          headers: httpProfile.headers,
-          allowedMethods: httpProfile.allowedMethods,
-          timeoutMs: httpProfile.timeoutMs,
-        })
+        ) => StructuredToolInterface[])(httpConfig)
         for (const t of httpTools) {
           if (enabledHttp.includes(t.name)) {
             tools.push(t)

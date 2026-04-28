@@ -65,6 +65,7 @@ export type {
   PromptFeedbackLoopLike,
   LearningEventProcessorLike,
 } from './composition/types.js'
+export type { HttpConnectorProfile } from './runtime/tool-resolver.js'
 
 export function createForgeApp(config: ForgeServerConfig): Hono {
   warnIfUnboundedInMemoryRetention(config)
