@@ -553,6 +553,28 @@ describe('MemorySpaceManager', () => {
         expect(event.status).toBe('approved')
       }
     })
+
+    it('treats malformed persisted pending requests as not found', async () => {
+      const space = await manager.create({ name: 'test', owner: OWNER_URI })
+      const pendingRecords = new Map<string, Record<string, unknown>>()
+      pendingRecords.set('bad-request', {
+        id: 'bad-request',
+        request: {
+          from: AGENT_A,
+          spaceId: space.id,
+          key: 'k1',
+          value: 'not-an-object',
+          mode: 'pull-request',
+        },
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      })
+      mock.records.set(`__pending_shares:${JSON.stringify({ _ns: '__pending_shares' })}`, pendingRecords)
+
+      await expect(
+        manager.reviewPullRequest('bad-request', OWNER_URI, true),
+      ).rejects.toThrow('Pending request not found: bad-request')
+    })
   })
 
   // -----------------------------------------------------------------------
@@ -578,6 +600,37 @@ describe('MemorySpaceManager', () => {
       const all = await manager.listSpaces()
       expect(all).toHaveLength(2)
     })
+
+    it('ignores persisted spaces with malformed participant and policy data', async () => {
+      const validSpace = await manager.create({
+        name: 'valid',
+        owner: OWNER_URI,
+        retentionPolicy: { maxRecords: 5, maxAgeMs: 1000 },
+      })
+      const spacesKey = `__spaces:${JSON.stringify({ _ns: '__spaces' })}`
+      mock.records.get(spacesKey)!.set('bad-participant', {
+        id: 'bad-participant',
+        name: 'bad participant',
+        owner: OWNER_URI,
+        participants: [{ agentUri: AGENT_A, permission: 'owner', joinedAt: new Date().toISOString() }],
+        conflictResolution: 'lww',
+        createdAt: new Date().toISOString(),
+      })
+      mock.records.get(spacesKey)!.set('bad-policy', {
+        id: 'bad-policy',
+        name: 'bad policy',
+        owner: OWNER_URI,
+        participants: [{ agentUri: AGENT_A, permission: 'read', joinedAt: new Date().toISOString() }],
+        retentionPolicy: { maxRecords: -1 },
+        conflictResolution: 'lww',
+        createdAt: new Date().toISOString(),
+      })
+
+      const spaces = await manager.listSpaces()
+
+      expect(spaces.map(space => space.id)).toEqual([validSpace.id])
+      expect(spaces[0]!.retentionPolicy).toEqual({ maxRecords: 5, maxAgeMs: 1000 })
+    })
   })
 
   // -----------------------------------------------------------------------
@@ -595,6 +648,87 @@ describe('MemorySpaceManager', () => {
       const loaded = await manager.getSpace(space.id)
       expect(loaded).toBeDefined()
       expect(loaded!.id).toBe(space.id)
+    })
+
+    it('returns undefined for persisted spaces with malformed timestamps', async () => {
+      mock.records.set(`__spaces:${JSON.stringify({ _ns: '__spaces' })}`, new Map([
+        ['bad-timestamp', {
+          id: 'bad-timestamp',
+          name: 'bad timestamp',
+          owner: OWNER_URI,
+          participants: [{ agentUri: OWNER_URI, permission: 'admin', joinedAt: 'not-a-date' }],
+          conflictResolution: 'lww',
+          createdAt: new Date().toISOString(),
+        }],
+      ]))
+
+      await expect(manager.getSpace('bad-timestamp')).resolves.toBeUndefined()
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // listPendingRequests
+  // -----------------------------------------------------------------------
+
+  describe('listPendingRequests', () => {
+    it('decodes pending requests and ignores malformed stored records', async () => {
+      const space = await manager.create({ name: 'test', owner: OWNER_URI })
+      const createdAt = new Date().toISOString()
+      const pendingRecords = new Map<string, Record<string, unknown>>()
+      pendingRecords.set('valid-request', {
+        id: 'valid-request',
+        request: {
+          from: AGENT_A,
+          spaceId: space.id,
+          key: 'k1',
+          value: { text: 'proposed' },
+          mode: 'pull-request',
+        },
+        status: 'pending',
+        createdAt,
+      })
+      pendingRecords.set('bad-status', {
+        id: 'bad-status',
+        request: {
+          from: AGENT_A,
+          spaceId: space.id,
+          key: 'k2',
+          value: { text: 'bad' },
+          mode: 'pull-request',
+        },
+        status: 'waiting',
+        createdAt,
+      })
+      pendingRecords.set('bad-created-at', {
+        id: 'bad-created-at',
+        request: {
+          from: AGENT_A,
+          spaceId: space.id,
+          key: 'k3',
+          value: { text: 'bad' },
+          mode: 'pull-request',
+        },
+        status: 'pending',
+        createdAt: 'not-a-date',
+      })
+      mock.records.set(`__pending_shares:${JSON.stringify({ _ns: '__pending_shares' })}`, pendingRecords)
+
+      const pending = await manager.listPendingRequests(space.id)
+
+      expect(pending).toEqual([
+        {
+          id: 'valid-request',
+          request: {
+            from: AGENT_A,
+            spaceId: space.id,
+            key: 'k1',
+            value: { text: 'proposed' },
+            mode: 'pull-request',
+          },
+          status: 'pending',
+          createdAt,
+        },
+      ])
     })
   })
 
