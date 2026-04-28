@@ -11,6 +11,7 @@ import type { BaseMessage } from '@langchain/core/messages'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { AgentOrchestrator } from '../orchestration/orchestrator.js'
 import { OrchestrationError } from '../orchestration/orchestration-error.js'
+import { AgentCircuitBreaker } from '../orchestration/circuit-breaker.js'
 
 /**
  * Create a mock BaseChatModel that returns a sequence of AIMessage responses.
@@ -56,6 +57,19 @@ function createAgent(id: string, description: string, model: BaseChatModel): Dzu
     instructions: `You are ${id}.`,
     model,
   })
+}
+
+function createThrowingModel(message: string): BaseChatModel {
+  return {
+    invoke: vi.fn(async () => {
+      throw new Error(message)
+    }),
+    bindTools: vi.fn(function (this: BaseChatModel, _tools: unknown[]) {
+      return this
+    }),
+    _modelType: () => 'base_chat_model',
+    _llmType: () => 'mock',
+  } as unknown as BaseChatModel
 }
 
 describe('AgentOrchestrator.supervisor', () => {
@@ -230,6 +244,53 @@ describe('AgentOrchestrator.supervisor', () => {
     const result = await AgentOrchestrator.supervisor(manager, [specialist], 'Do stuff')
     expect(typeof result).toBe('string')
     expect(result).toBe('Legacy result')
+  })
+
+  it('does not record specialist success when manager finishes without invoking that specialist', async () => {
+    const managerModel = createMockModel([{ content: 'No delegation needed.' }])
+    const specModel = createMockModel([{ content: 'unused' }])
+    const manager = createAgent('manager', 'Orchestrates work', managerModel)
+    const specialist = createAgent('unused', 'Unused specialist', specModel)
+    const breaker = new AgentCircuitBreaker({ failureThreshold: 2 })
+    breaker.recordFailure('unused')
+
+    const result = await AgentOrchestrator.supervisor({
+      manager,
+      specialists: [specialist],
+      task: 'Answer directly',
+      circuitBreaker: breaker,
+    })
+
+    expect(result.content).toBe('No delegation needed.')
+    expect(specModel.invoke).not.toHaveBeenCalled()
+
+    breaker.recordFailure('unused')
+    expect(breaker.getState('unused')).toBe('open')
+  })
+
+  it('records non-timeout specialist rejection through the generic failure path', async () => {
+    const managerModel = createMockModel([
+      {
+        content: '',
+        tool_calls: [{ id: 'call_1', name: 'agent-flaky', args: { task: 'Do specialist work' } }],
+      },
+      {
+        content: 'Recovered after specialist failure.',
+      },
+    ])
+    const manager = createAgent('manager', 'Orchestrates work', managerModel)
+    const specialist = createAgent('flaky', 'Flaky specialist', createThrowingModel('plain rejection'))
+    const breaker = new AgentCircuitBreaker({ failureThreshold: 1 })
+
+    const result = await AgentOrchestrator.supervisor({
+      manager,
+      specialists: [specialist],
+      task: 'Use flaky specialist',
+      circuitBreaker: breaker,
+    })
+
+    expect(result.content).toBe('Recovered after specialist failure.')
+    expect(breaker.getState('flaky')).toBe('open')
   })
 })
 

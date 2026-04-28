@@ -321,6 +321,18 @@ describe('AgentOrchestrator.parallel', () => {
 
       expect(breaker.getState('tout')).toBe('open')
     })
+
+    it('records generic failure on circuit breaker for non-timeout agent errors', async () => {
+      const breaker = new AgentCircuitBreaker({ failureThreshold: 1 })
+      const failingAgent = createAgentWithModel('fail', createMockModel([{ content: 'never' }], true))
+
+      await AgentOrchestrator.parallel([failingAgent], 'input', undefined, {
+        circuitBreaker: breaker,
+        mergeStrategy: new UsePartialMergeStrategy(),
+      })
+
+      expect(breaker.getState('fail')).toBe('open')
+    })
   })
 })
 
@@ -509,9 +521,10 @@ describe('AgentOrchestrator.supervisor', () => {
       ).rejects.toThrow('All specialists filtered by circuit breaker')
     })
 
-    it('records timeout on breaker when manager error contains "timeout"', async () => {
+    it('does not attribute manager timeout to specialists that were not invoked', async () => {
       const manager = createAgentWithModel('mgr', createTimeoutModel())
-      const spec = createAgentWithModel('spec', createMockModel([{ content: 'ok' }]))
+      const specModel = createMockModel([{ content: 'ok' }])
+      const spec = createAgentWithModel('spec', specModel)
 
       const breaker = new AgentCircuitBreaker({ failureThreshold: 1 })
 
@@ -524,7 +537,8 @@ describe('AgentOrchestrator.supervisor', () => {
         }),
       ).rejects.toThrow('timeout')
 
-      expect(breaker.getState('spec')).toBe('open')
+      expect(specModel.invoke).not.toHaveBeenCalled()
+      expect(breaker.getState('spec')).toBe('closed')
     })
   })
 })
