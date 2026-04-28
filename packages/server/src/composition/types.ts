@@ -195,6 +195,8 @@ export interface ForgeIntegrationsConfig {
   mcpManager?: McpManager
   /** Allowlist for stdio MCP server registration. */
   mcpAllowedExecutables?: string[]
+  /** Allowlist for private/loopback/link-local MCP HTTP/SSE hosts. */
+  mcpAllowedHttpHosts?: string[]
   skillRegistry?: AdapterSkillRegistry
   coreSkillRegistry?: SkillRegistry
   workflowRegistry?: WorkflowRegistry

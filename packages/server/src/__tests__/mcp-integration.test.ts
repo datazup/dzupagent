@@ -162,10 +162,12 @@ function makeDescriptor(
 function makeContext(
   toolNames: string[],
   mcpServers: Array<{ id: string; name?: string; url: string; transport?: string; timeoutMs?: number; maxEagerTools?: number }>,
+  env?: NodeJS.ProcessEnv,
 ): ToolResolverContext {
   return {
     toolNames,
     metadata: { mcpServers },
+    ...(env !== undefined ? { env } : {}),
   }
 }
 
@@ -829,6 +831,40 @@ describe('MCP integration with tool-resolver', { timeout: 60_000 }, () => {
 
       expect(result.warnings.some(w => w.includes('no servers configured'))).toBe(true)
       expect(result.tools).toHaveLength(0)
+    })
+
+    it('rejects private metadata MCP HTTP URLs before connecting', async () => {
+      const server = new MockMcpServer({
+        id: 'private',
+        tools: [makeDescriptor('private_tool', 'private')],
+      })
+      mockClient.registerBackend(server)
+
+      const result = await resolveAgentTools(
+        makeContext(['mcp:private'], [{ id: 'private', url: 'http://127.0.0.1:9999/mcp' }]),
+      )
+
+      expect(result.tools).toHaveLength(0)
+      expect(result.warnings.some(w => w.includes('private, loopback, or link-local'))).toBe(true)
+    })
+
+    it('allows private metadata MCP HTTP URLs when explicitly allowlisted', async () => {
+      const server = new MockMcpServer({
+        id: 'allowed-private',
+        tools: [makeDescriptor('allowed_private_tool', 'allowed-private')],
+      })
+      mockClient.registerBackend(server)
+
+      const result = await resolveAgentTools(
+        makeContext(
+          ['mcp:allowed-private'],
+          [{ id: 'allowed-private', url: 'http://localhost:9999/mcp' }],
+          { DZIP_MCP_ALLOWED_HTTP_HOSTS: 'localhost' },
+        ),
+      )
+
+      expect(result.tools).toHaveLength(1)
+      expect(result.tools[0].name).toBe('allowed_private_tool')
     })
 
     it('bare mcp token resolves all servers', async () => {

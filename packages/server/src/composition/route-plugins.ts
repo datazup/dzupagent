@@ -38,6 +38,9 @@ export function buildBuiltInRoutePlugins(
         ...(config.mcpAllowedExecutables !== undefined
           ? { mcpAllowedExecutables: config.mcpAllowedExecutables }
           : {}),
+        ...(config.mcpAllowedHttpHosts !== undefined
+          ? { mcpAllowedHttpHosts: config.mcpAllowedHttpHosts }
+          : {}),
       }),
     })
   }

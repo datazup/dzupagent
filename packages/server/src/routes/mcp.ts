@@ -20,6 +20,7 @@ import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
 import { sanitizeError } from './route-error.js'
 import { McpServerSchema, validateBodyCompat } from './schemas.js'
+import { validateMcpHttpEndpoint } from '../security/mcp-url-policy.js'
 import type {
   McpServerInput,
   McpServerPatch,
@@ -70,9 +71,30 @@ function redactMcpDefinition(
 }
 
 export function createMcpRoutes(
-  config: Pick<ForgeServerConfig, 'mcpManager' | 'mcpAllowedExecutables'>,
+  config: Pick<ForgeServerConfig, 'mcpManager' | 'mcpAllowedExecutables' | 'mcpAllowedHttpHosts'>,
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
+
+  function validateHttpServerInput(server: Pick<McpServerInput, 'transport' | 'endpoint'>):
+  | Response
+  | undefined {
+    if (server.transport !== 'http' && server.transport !== 'sse') return undefined
+
+    const result = validateMcpHttpEndpoint(server.endpoint, server.transport, {
+      allowedHosts: config.mcpAllowedHttpHosts,
+    })
+    if (result.ok) return undefined
+
+    return Response.json(
+      {
+        error: {
+          code: 'FORBIDDEN',
+          message: `MCP ${server.transport.toUpperCase()} endpoint rejected by URL policy: ${result.reason}`,
+        },
+      },
+      { status: 403 },
+    )
+  }
 
   // Guard: return 503 if mcpManager is not configured (checked per-request)
   app.use('*', async (c, next) => {
@@ -123,6 +145,9 @@ export function createMcpRoutes(
       }
     }
 
+    const urlPolicyError = validateHttpServerInput(body)
+    if (urlPolicyError) return urlPolicyError
+
     try {
       const server = await config.mcpManager!.addServer(body)
       return c.json({ data: redactMcpDefinition(server) }, 201)
@@ -165,11 +190,18 @@ export function createMcpRoutes(
       )
     }
 
+    const existing = await config.mcpManager!.getServer(id)
+    if (!existing) {
+      return c.json(
+        { error: { code: 'NOT_FOUND', message: `MCP server "${id}" not found` } },
+        404,
+      )
+    }
+
     // MJ-SEC-03: validate stdio executable allowlist on patch.
     // A patch may change transport to stdio or change the endpoint of an
     // existing stdio server — both must be gated.
     if (patch.transport === 'stdio' || patch.endpoint !== undefined) {
-      const existing = await config.mcpManager!.getServer(id)
       const effectiveTransport = patch.transport ?? existing?.transport
       if (effectiveTransport === 'stdio') {
         const effectiveEndpoint = patch.endpoint ?? existing?.endpoint ?? ''
@@ -187,6 +219,16 @@ export function createMcpRoutes(
           )
         }
       }
+    }
+
+    const effectiveHttpTransport = patch.transport ?? existing.transport
+    if (effectiveHttpTransport === 'http' || effectiveHttpTransport === 'sse') {
+      const effectiveEndpoint = patch.endpoint ?? existing.endpoint
+      const urlPolicyError = validateHttpServerInput({
+        transport: effectiveHttpTransport,
+        endpoint: effectiveEndpoint,
+      })
+      if (urlPolicyError) return urlPolicyError
     }
 
     try {
@@ -262,6 +304,17 @@ export function createMcpRoutes(
   app.post('/servers/:id/test', async (c) => {
     const id = c.req.param('id')
     try {
+      const server = await config.mcpManager!.getServer(id)
+      if (!server) {
+        return c.json(
+          { error: { code: 'NOT_FOUND', message: `MCP server "${id}" not found` } },
+          404,
+        )
+      }
+
+      const urlPolicyError = validateHttpServerInput(server)
+      if (urlPolicyError) return urlPolicyError
+
       const result = await config.mcpManager!.testServer(id)
       return c.json({ data: result })
     } catch (err) {
