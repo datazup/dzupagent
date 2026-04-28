@@ -9,7 +9,15 @@
  */
 import { computed } from 'vue'
 import type { ReplaySummary } from '../../replay/replay-inspector.js'
-import { formatMs } from './utils.js'
+import {
+  formatCost,
+  formatMs,
+  getBottleneckNodes,
+  getErrorEventTypes,
+  getFailedNodeCount,
+  traceToneStyles,
+  traceUiStyles,
+} from './utils.js'
 
 /** Component props */
 interface Props {
@@ -24,39 +32,18 @@ const passedCount = computed(() => props.summary.nodeCount - failedNodeCount.val
 
 /** Number of nodes that had at least one error */
 const failedNodeCount = computed(() => {
-  let count = 0
-  for (const metrics of Object.values(props.summary.nodeMetrics)) {
-    if (metrics.errorCount > 0) count++
-  }
-  return count
+  return getFailedNodeCount(props.summary)
 })
 
 /** Top 3 bottleneck nodes sorted by total duration descending */
 const bottleneckNodes = computed(() => {
-  const entries = Object.values(props.summary.nodeMetrics)
-    .filter(m => m.totalDurationMs > 0)
-    .sort((a, b) => b.totalDurationMs - a.totalDurationMs)
-    .slice(0, 3)
-  return entries
+  return getBottleneckNodes(props.summary)
 })
 
 /** Event types that contain errors, sorted by count descending */
 const errorEventTypes = computed(() => {
-  const types: Array<{ type: string; count: number }> = []
-  for (const [type, count] of Object.entries(props.summary.eventTypeCounts)) {
-    if (type.endsWith(':failed') || type.endsWith(':error') || type.includes('retry') || type.includes('recovery')) {
-      types.push({ type, count })
-    }
-  }
-  types.sort((a, b) => b.count - a.count)
-  return types
+  return getErrorEventTypes(props.summary)
 })
-
-/** Format cost in cents to dollars */
-function formatCost(cents: number): string {
-  if (cents === 0) return '$0.00'
-  return `$${(cents / 100).toFixed(4)}`
-}
 
 /** Width percentage for bottleneck bar relative to the longest duration */
 function bottleneckBarWidth(durationMs: number): string {
@@ -73,10 +60,10 @@ function bottleneckBarWidth(durationMs: number): string {
   >
     <!-- Run ID header -->
     <div class="flex items-center justify-between">
-      <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+      <h3 class="text-sm font-semibold" :class="traceUiStyles.textPrimary">
         Trace Summary
       </h3>
-      <span class="font-mono text-xs text-gray-500 dark:text-gray-400">
+      <span class="font-mono text-xs" :class="traceUiStyles.textMuted">
         {{ summary.runId }}
       </span>
     </div>
@@ -84,43 +71,43 @@ function bottleneckBarWidth(durationMs: number): string {
     <!-- Stats grid -->
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <!-- Total events -->
-      <div class="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
-        <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Events</p>
-        <p class="mt-1 font-mono text-xl font-bold text-gray-900 dark:text-gray-100">
+      <div class="p-3" :class="traceUiStyles.panel">
+        <p class="text-[10px] uppercase tracking-wider" :class="traceUiStyles.textMuted">Events</p>
+        <p class="mt-1 font-mono text-xl font-bold" :class="traceUiStyles.textPrimary">
           {{ summary.totalEvents }}
         </p>
       </div>
 
       <!-- Nodes -->
-      <div class="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
-        <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Nodes</p>
-        <p class="mt-1 font-mono text-xl font-bold text-gray-900 dark:text-gray-100">
+      <div class="p-3" :class="traceUiStyles.panel">
+        <p class="text-[10px] uppercase tracking-wider" :class="traceUiStyles.textMuted">Nodes</p>
+        <p class="mt-1 font-mono text-xl font-bold" :class="traceUiStyles.textPrimary">
           {{ summary.nodeCount }}
         </p>
         <div class="mt-1 flex gap-2 text-[10px]">
-          <span class="text-emerald-600 dark:text-emerald-400">{{ passedCount }} passed</span>
+          <span :class="traceToneStyles.success.text">{{ passedCount }} passed</span>
           <span
             v-if="failedNodeCount > 0"
-            class="text-red-600 dark:text-red-400"
+            :class="traceToneStyles.danger.text"
           >{{ failedNodeCount }} failed</span>
         </div>
       </div>
 
       <!-- Duration -->
-      <div class="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
-        <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Duration</p>
-        <p class="mt-1 font-mono text-xl font-bold text-gray-900 dark:text-gray-100">
+      <div class="p-3" :class="traceUiStyles.panel">
+        <p class="text-[10px] uppercase tracking-wider" :class="traceUiStyles.textMuted">Duration</p>
+        <p class="mt-1 font-mono text-xl font-bold" :class="traceUiStyles.textPrimary">
           {{ formatMs(summary.totalDurationMs) }}
         </p>
       </div>
 
       <!-- Tokens / Cost -->
-      <div class="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
-        <p class="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Tokens / Cost</p>
-        <p class="mt-1 font-mono text-xl font-bold text-gray-900 dark:text-gray-100">
+      <div class="p-3" :class="traceUiStyles.panel">
+        <p class="text-[10px] uppercase tracking-wider" :class="traceUiStyles.textMuted">Tokens / Cost</p>
+        <p class="mt-1 font-mono text-xl font-bold" :class="traceUiStyles.textPrimary">
           {{ summary.totalTokens.toLocaleString() }}
         </p>
-        <p class="mt-0.5 font-mono text-xs text-gray-500 dark:text-gray-400">
+        <p class="mt-0.5 font-mono text-xs" :class="traceUiStyles.textMuted">
           {{ formatCost(summary.totalCostCents) }}
         </p>
       </div>
@@ -133,21 +120,23 @@ function bottleneckBarWidth(durationMs: number): string {
     >
       <div
         v-if="summary.errorCount > 0"
-        class="flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 dark:border-red-800 dark:bg-red-950"
+        class="flex items-center gap-1.5 rounded-full px-3 py-1"
+        :class="traceToneStyles.danger.panel"
         role="status"
       >
-        <span class="inline-block h-2 w-2 rounded-full bg-red-500" aria-hidden="true" />
-        <span class="text-xs font-medium text-red-800 dark:text-red-200">
+        <span class="inline-block h-2 w-2 rounded-full" :class="traceToneStyles.danger.dot" aria-hidden="true" />
+        <span class="text-xs font-medium" :class="traceToneStyles.danger.textStrong">
           {{ summary.errorCount }} error{{ summary.errorCount === 1 ? '' : 's' }}
         </span>
       </div>
       <div
         v-if="summary.recoveryCount > 0"
-        class="flex items-center gap-1.5 rounded-full border border-yellow-200 bg-yellow-50 px-3 py-1 dark:border-yellow-800 dark:bg-yellow-950"
+        class="flex items-center gap-1.5 rounded-full px-3 py-1"
+        :class="traceToneStyles.warning.panel"
         role="status"
       >
-        <span class="inline-block h-2 w-2 rounded-full bg-yellow-500" aria-hidden="true" />
-        <span class="text-xs font-medium text-yellow-800 dark:text-yellow-200">
+        <span class="inline-block h-2 w-2 rounded-full" :class="traceToneStyles.warning.dot" aria-hidden="true" />
+        <span class="text-xs font-medium" :class="traceToneStyles.warning.textStrong">
           {{ summary.recoveryCount }} recovery attempt{{ summary.recoveryCount === 1 ? '' : 's' }}
         </span>
       </div>
@@ -155,7 +144,7 @@ function bottleneckBarWidth(durationMs: number): string {
 
     <!-- Bottleneck nodes -->
     <div v-if="bottleneckNodes.length > 0">
-      <h4 class="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+      <h4 class="mb-2 text-xs font-semibold uppercase tracking-wider" :class="traceUiStyles.textMuted">
         Bottleneck Nodes
       </h4>
       <div class="flex flex-col gap-2">
@@ -164,19 +153,20 @@ function bottleneckBarWidth(durationMs: number): string {
           :key="metrics.nodeId"
           class="flex items-center gap-3"
         >
-          <span class="w-5 shrink-0 text-right font-mono text-xs font-bold text-gray-400 dark:text-gray-500">
+          <span class="w-5 shrink-0 text-right font-mono text-xs font-bold" :class="traceUiStyles.textDisabled">
             #{{ idx + 1 }}
           </span>
-          <span class="w-32 shrink-0 truncate font-mono text-xs font-medium text-gray-900 dark:text-gray-100">
+          <span class="w-32 shrink-0 truncate font-mono text-xs font-medium" :class="traceUiStyles.textPrimary">
             {{ metrics.nodeId }}
           </span>
-          <div class="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+          <div class="h-2 min-w-0 flex-1 overflow-hidden rounded-full" :class="traceUiStyles.track">
             <div
-              class="h-full rounded-full bg-orange-500 transition-all"
+              class="h-full rounded-full transition-all"
+              :class="traceToneStyles.warning.bar"
               :style="{ width: bottleneckBarWidth(metrics.totalDurationMs) }"
             />
           </div>
-          <span class="w-16 shrink-0 text-right font-mono text-xs text-gray-600 dark:text-gray-400">
+          <span class="w-16 shrink-0 text-right font-mono text-xs" :class="traceUiStyles.textSubtle">
             {{ formatMs(metrics.totalDurationMs) }}
           </span>
         </div>
@@ -185,17 +175,17 @@ function bottleneckBarWidth(durationMs: number): string {
 
     <!-- Error event types -->
     <div v-if="errorEventTypes.length > 0">
-      <h4 class="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+      <h4 class="mb-2 text-xs font-semibold uppercase tracking-wider" :class="traceUiStyles.textMuted">
         Error Summary
       </h4>
-      <div class="overflow-hidden rounded-md border border-gray-200 dark:border-gray-700">
+      <div class="overflow-hidden" :class="traceUiStyles.panelSubtle">
         <table class="w-full text-xs" role="table" aria-label="Error event type counts">
           <thead>
-            <tr class="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
-              <th class="px-3 py-1.5 text-left font-semibold text-gray-600 dark:text-gray-400">
+            <tr class="border-b" :class="traceUiStyles.tableHeader">
+              <th class="px-3 py-1.5 text-left font-semibold" :class="traceUiStyles.textSubtle">
                 Event Type
               </th>
-              <th class="px-3 py-1.5 text-right font-semibold text-gray-600 dark:text-gray-400">
+              <th class="px-3 py-1.5 text-right font-semibold" :class="traceUiStyles.textSubtle">
                 Count
               </th>
             </tr>
@@ -204,12 +194,13 @@ function bottleneckBarWidth(durationMs: number): string {
             <tr
               v-for="entry in errorEventTypes"
               :key="entry.type"
-              class="border-b border-gray-100 last:border-b-0 dark:border-gray-800"
+              class="border-b"
+              :class="traceUiStyles.tableRow"
             >
-              <td class="px-3 py-1.5 font-mono text-gray-800 dark:text-gray-200">
+              <td class="px-3 py-1.5 font-mono" :class="traceUiStyles.textSecondary">
                 {{ entry.type }}
               </td>
-              <td class="px-3 py-1.5 text-right font-mono font-medium text-red-600 dark:text-red-400">
+              <td class="px-3 py-1.5 text-right font-mono font-medium" :class="traceToneStyles.danger.text">
                 {{ entry.count }}
               </td>
             </tr>
@@ -220,14 +211,15 @@ function bottleneckBarWidth(durationMs: number): string {
 
     <!-- Event type breakdown -->
     <div>
-      <h4 class="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+      <h4 class="mb-2 text-xs font-semibold uppercase tracking-wider" :class="traceUiStyles.textMuted">
         Event Types
       </h4>
       <div class="flex flex-wrap gap-1.5">
         <span
           v-for="(count, type) in summary.eventTypeCounts"
           :key="type"
-          class="inline-flex items-center gap-1 rounded bg-gray-100 px-2 py-0.5 font-mono text-[10px] text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+          class="inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-[10px]"
+          :class="traceUiStyles.badgeNeutral"
         >
           {{ type }}
           <span class="font-bold">{{ count }}</span>

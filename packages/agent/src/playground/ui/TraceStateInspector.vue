@@ -9,7 +9,13 @@
  */
 import { computed, ref } from 'vue'
 import type { ChangeType } from './utils.js'
-import { computeDiffRows, formatValue } from './utils.js'
+import {
+  computeDiffRows,
+  formatValue,
+  getTraceChangeStyles,
+  traceToneStyles,
+  traceUiStyles,
+} from './utils.js'
 
 /** Component props */
 interface Props {
@@ -58,30 +64,12 @@ const changeCount = computed(() =>
 
 /** Badge classes per change type */
 function changeClasses(changeType: ChangeType): string {
-  switch (changeType) {
-    case 'added':
-      return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
-    case 'removed':
-      return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-    case 'modified':
-      return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-    case 'unchanged':
-      return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-  }
+  return getTraceChangeStyles(changeType).badge
 }
 
 /** Row border classes per change type */
 function rowBorderClasses(changeType: ChangeType): string {
-  switch (changeType) {
-    case 'added':
-      return 'border-l-emerald-500'
-    case 'removed':
-      return 'border-l-red-500'
-    case 'modified':
-      return 'border-l-yellow-500'
-    case 'unchanged':
-      return 'border-l-transparent'
-  }
+  return getTraceChangeStyles(changeType).borderLeft
 }
 
 </script>
@@ -94,10 +82,10 @@ function rowBorderClasses(changeType: ChangeType): string {
   >
     <!-- Summary header -->
     <div class="flex items-center justify-between px-1">
-      <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+      <h3 class="text-sm font-semibold" :class="traceUiStyles.textPrimary">
         State Changes
       </h3>
-      <span class="text-xs text-gray-500 dark:text-gray-400">
+      <span class="text-xs" :class="traceUiStyles.textMuted">
         {{ changeCount }} change{{ changeCount === 1 ? '' : 's' }} across {{ diffRows.length }} key{{ diffRows.length === 1 ? '' : 's' }}
       </span>
     </div>
@@ -105,9 +93,10 @@ function rowBorderClasses(changeType: ChangeType): string {
     <!-- Empty state -->
     <div
       v-if="diffRows.length === 0"
-      class="flex items-center justify-center rounded-md border border-gray-200 py-6 dark:border-gray-700"
+      class="flex items-center justify-center py-6"
+      :class="traceUiStyles.panelSubtle"
     >
-      <p class="text-sm text-gray-500 dark:text-gray-400">
+      <p class="text-sm" :class="traceUiStyles.textMuted">
         No state data to compare.
       </p>
     </div>
@@ -116,12 +105,13 @@ function rowBorderClasses(changeType: ChangeType): string {
     <div
       v-for="row in diffRows"
       :key="row.key"
-      class="overflow-hidden rounded-md border border-gray-200 border-l-4 dark:border-gray-700"
-      :class="rowBorderClasses(row.changeType)"
+      class="overflow-hidden rounded-md border border-l-4"
+      :class="[traceUiStyles.divider, rowBorderClasses(row.changeType)]"
     >
       <!-- Row header (clickable) -->
       <div
-        class="flex cursor-pointer items-center gap-2.5 px-3 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800"
+        class="flex cursor-pointer items-center gap-2.5 px-3 py-2 transition-colors"
+        :class="traceUiStyles.interactiveMuted"
         role="button"
         :tabindex="0"
         :aria-expanded="isExpanded(row.key)"
@@ -131,13 +121,13 @@ function rowBorderClasses(changeType: ChangeType): string {
       >
         <!-- Expand indicator -->
         <span
-          class="inline-block text-[10px] text-gray-400 transition-transform"
-          :class="isExpanded(row.key) ? 'rotate-90' : ''"
+          class="inline-block text-[10px] transition-transform"
+          :class="[traceUiStyles.textDisabled, isExpanded(row.key) ? 'rotate-90' : '']"
           aria-hidden="true"
         >&#9656;</span>
 
         <!-- Key name -->
-        <span class="min-w-0 flex-1 truncate font-mono text-xs font-medium text-gray-900 dark:text-gray-100">
+        <span class="min-w-0 flex-1 truncate font-mono text-xs font-medium" :class="traceUiStyles.textPrimary">
           {{ row.key }}
         </span>
 
@@ -153,31 +143,35 @@ function rowBorderClasses(changeType: ChangeType): string {
       <!-- Expanded detail -->
       <div
         v-if="isExpanded(row.key)"
-        class="border-t border-gray-200 dark:border-gray-700"
+        class="border-t"
+        :class="traceUiStyles.divider"
       >
         <!-- Before value -->
         <div
           v-if="row.changeType !== 'added'"
           class="px-3 py-2"
         >
-          <p class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
+          <p class="mb-1 text-[10px] font-semibold uppercase tracking-wider" :class="traceToneStyles.danger.text">
             Before
           </p>
           <pre
-            class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-red-50 p-2 font-mono text-xs leading-relaxed text-red-800 dark:bg-red-950 dark:text-red-200"
+            class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded p-2 font-mono text-xs leading-relaxed"
+            :class="[traceToneStyles.danger.panel, traceToneStyles.danger.textStrong]"
           >{{ formatValue(row.before) }}</pre>
         </div>
 
         <!-- After value -->
         <div
           v-if="row.changeType !== 'removed'"
-          class="border-t border-gray-100 px-3 py-2 dark:border-gray-800"
+          class="border-t px-3 py-2"
+          :class="traceUiStyles.dividerSubtle"
         >
-          <p class="mb-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+          <p class="mb-1 text-[10px] font-semibold uppercase tracking-wider" :class="traceToneStyles.success.text">
             After
           </p>
           <pre
-            class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-emerald-50 p-2 font-mono text-xs leading-relaxed text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+            class="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded p-2 font-mono text-xs leading-relaxed"
+            :class="[traceToneStyles.success.panel, traceToneStyles.success.textStrong]"
           >{{ formatValue(row.after) }}</pre>
         </div>
       </div>

@@ -40,10 +40,18 @@ export {
   getBottleneckNodes,
   getErrorEventTypes,
   formatValue,
+  traceUiStyles,
+  traceToneStyles,
+  getTraceStatusTone,
+  getTraceStatusStyles,
+  getTraceChangeTone,
+  getTraceChangeStyles,
 } from './utils.js'
 
 export type {
   NodeStatus,
   ChangeType,
+  TraceTone,
+  TraceToneStyles,
   DiffRow,
 } from './utils.js'
