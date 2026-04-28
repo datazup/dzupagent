@@ -108,6 +108,7 @@ interface StreamingToolCall {
 export interface StreamingToolExecutionResult {
   message: ToolMessage
   eventResult: string
+  approvalPending?: boolean
   stuckReason?: string
   stuckRecovery?: string
   repeatedTool?: string
@@ -599,10 +600,28 @@ export async function executeStreamingToolCall(params: {
         eventResult: `[blocked: ${reason}]`,
       }
     }
-    // Note: approval-required tools are not handled in the streaming
-    // fast path; agents that depend on the human-in-the-loop approval
-    // flow should use the non-streaming generate() path which routes
-    // through tool-loop.ts and emits `approval:requested`.
+    if (access.requiresApproval) {
+      const correlationId = policy.runId ?? toolCallId
+      try {
+        policy.eventBus?.emit({
+          type: 'approval:requested',
+          runId: correlationId,
+          plan: { toolName, args: toolCall.args },
+        } as never)
+      } catch {
+        // Non-fatal: event emission must not abort the run.
+      }
+      const reason = access.reason ?? 'Approval required'
+      return {
+        message: new ToolMessage({
+          content: `[approval_pending] Tool "${toolName}" requires human approval before execution. ${reason}`,
+          tool_call_id: toolCallId,
+          name: toolName,
+        }),
+        eventResult: `[approval_pending: ${reason}]`,
+        approvalPending: true,
+      }
+    }
   }
 
   const tool = params.toolMap.get(toolName)
