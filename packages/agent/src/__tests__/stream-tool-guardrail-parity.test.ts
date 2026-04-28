@@ -149,6 +149,11 @@ function firstStreamToolResult(events: AgentStreamEvent[]): string | undefined {
   return event?.type === 'tool_result' ? event.data.result : undefined
 }
 
+function doneContent(events: AgentStreamEvent[]): string | undefined {
+  const event = events.findLast((e) => e.type === 'done')
+  return event?.type === 'done' ? event.data.content : undefined
+}
+
 function generatedToolContents(
   result: Awaited<ReturnType<DzupAgent['generate']>>,
 ): string[] {
@@ -320,6 +325,64 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
       expect(generatedToolContents(generateResult).some((content) =>
         content.startsWith('[blocked]'),
       )).toBe(true)
+    })
+  })
+
+  describe('RF-020 output filtering — native streaming completion', () => {
+    it('applies outputFilter before final done content and memory write-back', async () => {
+      const put = vi.fn(async () => {})
+      const memory = {
+        get: vi.fn(async () => []),
+        formatForPrompt: vi.fn(() => ''),
+        put,
+      } as unknown as DzupAgentConfig['memory']
+
+      const agent = new DzupAgent(
+        baseConfig({
+          model: createStreamingModel([
+            new AIMessage('user email is alice@example.com'),
+          ]),
+          memory,
+          memoryNamespace: 'session',
+          memoryScope: { tenantId: 'tenant-1' },
+          guardrails: {
+            outputFilter: async (output: string) =>
+              output.replace('alice@example.com', '[redacted-email]'),
+          },
+        }),
+      )
+
+      const events = await drainStream(agent, [new HumanMessage('summarize')])
+
+      expect(doneContent(events)).toBe('user email is [redacted-email]')
+      expect(put).toHaveBeenCalledTimes(1)
+      expect(put.mock.calls[0]?.[3]).toMatchObject({
+        text: 'user email is [redacted-email]',
+        agentId: 'stream-policy-agent',
+      })
+    })
+
+    it('keeps complete semantics when outputFilter returns null, matching generate()', async () => {
+      const agent = new DzupAgent(
+        baseConfig({
+          model: createStreamingModel([
+            new AIMessage('blocked-looking output'),
+          ]),
+          guardrails: {
+            outputFilter: async () => null,
+          },
+        }),
+      )
+
+      const events = await drainStream(agent, [new HumanMessage('summarize')])
+      const done = events.findLast((e) => e.type === 'done')
+
+      expect(doneContent(events)).toBe('blocked-looking output')
+      expect(done).toBeDefined()
+      if (done?.type === 'done') {
+        expect(done.data.stopReason).toBe('complete')
+      }
+      expect(events.some((e) => e.type === 'error')).toBe(false)
     })
   })
 

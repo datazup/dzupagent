@@ -32,6 +32,7 @@ import type {
 import {
   createToolStatTracker,
   emitStopReasonTelemetry,
+  applyOutputFilter,
   executeGenerateRun,
   executeStreamingToolCall,
   prepareRunState,
@@ -282,11 +283,12 @@ export async function* streamRun(
     }> | undefined
 
     if (!toolCalls || toolCalls.length === 0) {
-      await finalizeRun('complete', chunks.join(''))
+      const content = await applyOutputFilter(ctx.config, chunks.join(''))
+      await finalizeRun('complete', content)
       yield {
         type: 'done',
         data: {
-          content: chunks.join(''),
+          content,
           stopReason: 'complete',
         },
       }
