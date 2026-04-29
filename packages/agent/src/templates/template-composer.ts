@@ -5,6 +5,7 @@
  */
 
 import type { AgentTemplate, AgentTemplateCategory } from './agent-templates.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 /** Model tier precedence: powerful > balanced > fast. */
 const MODEL_TIER_RANK: Record<AgentTemplate['modelTier'], number> = {
@@ -106,7 +107,7 @@ export function composeTemplates(templates: AgentTemplate[]): AgentTemplate {
     }
   }
 
-  return {
+  return omitUndefined({
     id,
     name,
     description,
@@ -116,5 +117,5 @@ export function composeTemplates(templates: AgentTemplate[]): AgentTemplate {
     suggestedTools,
     guardrails,
     tags: [...tagSet],
-  }
+  })
 }

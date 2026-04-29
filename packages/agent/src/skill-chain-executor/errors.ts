@@ -1,5 +1,6 @@
 import { ForgeError } from '@dzupagent/core'
 import type { ChainValidationResult, CandidateInterpretation } from '@dzupagent/core'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 export type { CandidateInterpretation }
 
@@ -43,13 +44,13 @@ export class StepExecutionError extends ForgeError {
     cause: unknown,
     partialState: Record<string, unknown>,
   ) {
-    super({
+    super(omitUndefined({
       code: 'PIPELINE_PHASE_FAILED',
       message: `Step ${stepIndex} ("${skillId}") failed: ${cause instanceof Error ? cause.message : String(cause)}`,
       cause: cause instanceof Error ? cause : undefined,
       recoverable: false,
       context: { stepIndex, skillId },
-    })
+    }))
     this.stepIndex = stepIndex
     this.skillId = skillId
     this.partialState = partialState
@@ -61,13 +62,13 @@ export class ConditionEvaluationError extends ForgeError {
   readonly skillId: string
 
   constructor(stepIndex: number, skillId: string, cause: unknown) {
-    super({
+    super(omitUndefined({
       code: 'VALIDATION_FAILED',
       message: `Condition for step ${stepIndex} ("${skillId}") threw: ${cause instanceof Error ? cause.message : String(cause)}`,
       cause: cause instanceof Error ? cause : undefined,
       recoverable: false,
       context: { stepIndex, skillId },
-    })
+    }))
     this.stepIndex = stepIndex
     this.skillId = skillId
   }

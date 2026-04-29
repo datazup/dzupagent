@@ -16,6 +16,7 @@ import {
   resolveStructuredOutputSchemaProvider,
   unwrapStructuredEnvelope,
 } from '@dzupagent/core'
+import { omitUndefined } from '../utils/exact-optional.js'
 import type { StructuredOutputFailureCategory } from '@dzupagent/core'
 import type {
   StructuredOutputCapabilities,
@@ -238,12 +239,12 @@ export async function generateStructured<T>(
   )
   const primaryStrategy = config.strategy ?? capabilities.preferredStrategy
   const schemaProvider = resolveStructuredOutputSchemaProvider(config.schemaProvider, capabilities)
-  const schemaContract = prepareStructuredOutputSchemaContract(config.schema, {
+  const schemaContract = prepareStructuredOutputSchemaContract(config.schema, omitUndefined({
     agentId: config.agentId ?? null,
     intent: config.intent ?? null,
     schemaName: config.schemaName,
     schemaProvider,
-  })
+  }))
   const schemaName = schemaContract.schemaName
   let lastProviderFailure: Error | null = null
   let sawParseExhaustion = false

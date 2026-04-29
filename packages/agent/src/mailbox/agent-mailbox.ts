@@ -42,10 +42,10 @@ const DEFAULT_MAX_DELIVERY_ATTEMPTS = 3
 export class AgentMailboxImpl implements AgentMailbox {
   readonly agentId: string
   private readonly store: MailboxStore
-  private readonly eventBus?: DzupEventBus
+  private readonly eventBus: DzupEventBus | undefined
   private readonly maxDeliveryAttempts: number
-  private readonly deadLetterStore?: DeadLetterStore
-  private readonly rateLimiter?: RateLimiter
+  private readonly deadLetterStore: DeadLetterStore | undefined
+  private readonly rateLimiter: RateLimiter | undefined
 
   /**
    * @param agentId  The agent this mailbox belongs to.

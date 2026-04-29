@@ -10,6 +10,7 @@ import { Semaphore } from '@dzupagent/core/orchestration'
 import type { DzupAgent } from '../agent/dzip-agent.js'
 import type { MergeStrategyFn } from './merge-strategies.js'
 import { getMergeStrategy } from './merge-strategies.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -86,7 +87,7 @@ async function executeAgent(
     if (signal?.aborted) {
       throw new Error('Aborted')
     }
-    const result = await agent.generate([new HumanMessage(input)], { signal })
+    const result = await agent.generate([new HumanMessage(input)], omitUndefined({ signal }))
     return {
       agentId: agent.id,
       chunkIndex,

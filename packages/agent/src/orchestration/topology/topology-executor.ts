@@ -14,6 +14,7 @@ import type {
   TopologyExecutorConfig,
   TaskCharacteristics,
 } from './topology-types.js'
+import { omitUndefined } from '../../utils/exact-optional.js'
 
 export interface MeshResult {
   results: string[]
@@ -56,7 +57,7 @@ export class TopologyExecutor {
     const settled = await Promise.allSettled(
       agents.map(async (agent) => {
         messageCount++
-        const result = await agent.generate([new HumanMessage(task)], { signal })
+        const result = await agent.generate([new HumanMessage(task)], omitUndefined({ signal }))
         return result.content
       }),
     )
@@ -121,7 +122,7 @@ export class TopologyExecutor {
         try {
           const result = await agent.generate(
             [new HumanMessage(input)],
-            { signal },
+            omitUndefined({ signal }),
           )
           currentOutput = result.content
         } catch (err: unknown) {
@@ -258,12 +259,12 @@ export class TopologyExecutor {
         }
         const startTime = Date.now()
         const [coordinator, ...workers] = config.agents
-        const supervisorResult = await AgentOrchestrator.supervisor({
+        const supervisorResult = await AgentOrchestrator.supervisor(omitUndefined({
           manager: coordinator!,
           specialists: workers,
           task: config.task,
           signal: config.signal,
-        })
+        }))
         return {
           result: supervisorResult.content,
           metrics: {

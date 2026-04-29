@@ -11,6 +11,7 @@
 
 import type { RunStore, DzupEventBus } from '@dzupagent/core'
 import { OrchestrationError } from './orchestration-error.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Contracts
@@ -141,7 +142,7 @@ export interface SimpleDelegationTrackerConfig {
  */
 export class SimpleDelegationTracker implements DelegationTracker {
   private readonly runStore: RunStore
-  private readonly eventBus?: DzupEventBus
+  private readonly eventBus: DzupEventBus | undefined
   private readonly executor: DelegationExecutor
   private readonly defaultTimeoutMs: number
 
@@ -237,13 +238,13 @@ export class SimpleDelegationTracker implements DelegationTracker {
       }
 
       // Update run store
-      await this.runStore.update(run.id, {
+      await this.runStore.update(run.id, omitUndefined({
         status: result.success ? 'completed' : 'failed',
         output: result.output,
         completedAt: new Date(),
         error: result.error,
         tokenUsage: metadata.tokenUsage,
-      })
+      }))
 
       // Emit completed event
       this.eventBus?.emit({
@@ -398,7 +399,7 @@ export class SimpleDelegationTracker implements DelegationTracker {
     }
 
     const success = run.status === 'completed'
-    return {
+    return omitUndefined({
       success,
       output: run.output ?? null,
       error: run.error,
@@ -408,7 +409,7 @@ export class SimpleDelegationTracker implements DelegationTracker {
             tokenUsage: run.tokenUsage,
           }
         : undefined,
-    }
+    })
   }
 
   /**

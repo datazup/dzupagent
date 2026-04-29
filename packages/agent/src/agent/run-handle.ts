@@ -23,6 +23,7 @@ import {
 } from './run-handle-types.js'
 import type { RunJournal, RunJournalEntry } from '@dzupagent/core'
 import type { RunStatus } from '@dzupagent/core'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 type EventHandler = (entry: RunJournalEntry) => void
 
@@ -118,11 +119,11 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
     })
     this._currentStatus = 'cancelled'
 
-    const result: RunResult<TOutput, TState> = {
+    const result: RunResult<TOutput, TState> = omitUndefined({
       runId: this.runId,
       status: 'cancelled',
       error: reason,
-    }
+    })
     this.resolveResult(result)
   }
 
@@ -278,12 +279,12 @@ export class ConcreteRunHandle<TOutput = unknown, TState = Record<string, unknow
           stepId: string
           toolName?: string
         }
-        return {
+        return omitUndefined({
           stepId: data.stepId,
           stepName: data.toolName,
           completedAt: new Date(e.ts),
           entrySeq: e.seq,
-        } satisfies CheckpointInfo
+        })
       })
   }
 

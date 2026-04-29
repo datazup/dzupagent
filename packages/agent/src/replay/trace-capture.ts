@@ -11,6 +11,7 @@ import type {
   TraceCaptureConfig,
   CapturedTrace,
 } from './replay-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Defaults
@@ -94,7 +95,7 @@ export class TraceCapture {
     this.unsubscribe = undefined
     this.capturing = false
 
-    const trace: CapturedTrace = {
+    const trace: CapturedTrace = omitUndefined({
       schemaVersion: '1.0.0',
       runId: this.runId,
       agentId: this.agentId,
@@ -102,7 +103,7 @@ export class TraceCapture {
       startedAt: this.startedAt ?? Date.now(),
       completedAt: Date.now(),
       config: { ...this.config },
-    }
+    })
 
     return trace
   }
@@ -158,14 +159,14 @@ export class TraceCapture {
     // Extract nodeId from common event shapes
     const nodeId = extractNodeId(data)
 
-    const replayEvent: ReplayEvent = {
+    const replayEvent: ReplayEvent = omitUndefined({
       index,
       timestamp: Date.now(),
       type,
       nodeId,
       data: data as Record<string, unknown>,
       stateSnapshot,
-    }
+    })
 
     this.events.push(replayEvent)
 

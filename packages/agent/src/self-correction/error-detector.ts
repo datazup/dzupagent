@@ -9,6 +9,8 @@
  * Pure aggregation and classification --- no external dependencies or LLM calls.
  */
 
+import { omitUndefined } from '../utils/exact-optional.js'
+
 export type ErrorSource =
   | 'stuck_detector'
   | 'pipeline_stuck'
@@ -90,7 +92,7 @@ export class ErrorDetectionOrchestrator {
   }): DetectedError {
     const { source, message, nodeId, context } = params
 
-    const error: DetectedError = {
+    const error: DetectedError = omitUndefined({
       id: this.generateId(),
       source,
       severity: SOURCE_SEVERITY[source],
@@ -100,7 +102,7 @@ export class ErrorDetectionOrchestrator {
       context: context ?? {},
       suggestedRecovery: SOURCE_RECOVERY[source],
       correlatedErrors: [],
-    }
+    })
 
     // Find correlated errors (same nodeId within the correlation window)
     if (nodeId) {

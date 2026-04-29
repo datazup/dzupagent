@@ -19,6 +19,7 @@ import type {
   ToolCall,
   ToolCallResult,
 } from './contracts.js'
+import { omitUndefined } from '../../utils/exact-optional.js'
 
 export interface PolicyEnabledToolExecutorParams {
   toolMap: Map<string, StructuredToolInterface>
@@ -195,9 +196,9 @@ export async function executePolicyEnabledToolCall(
       toolName,
       config.toolTimeouts?.[toolName],
       ({ signal }) => tool.invoke(validatedArgs, { signal }),
-      {
+      omitUndefined({
         signal: config.signal,
-        onCancelRequested: (reason) => emitToolCancellationRequested(config, {
+        onCancelRequested: (reason: 'timeout' | 'run_cancelled') => emitToolCancellationRequested(config, {
           toolName,
           toolCallId,
           inputMetadataKeys: validatedKeys,
@@ -206,7 +207,7 @@ export async function executePolicyEnabledToolCall(
             ? { timeoutMs: config.toolTimeouts[toolName] }
             : {}),
         }),
-      },
+      }),
     )
     const rawResultStr = typeof result === 'string' ? result : JSON.stringify(result)
     let resultStr = config.transformToolResult
@@ -370,7 +371,7 @@ export async function executePolicyEnabledToolCall(
     }
   }
 
-  return { message, stuckNudge, stuckBreak, stuckToolName, stuckReason }
+  return omitUndefined({ message, stuckNudge, stuckBreak, stuckToolName, stuckReason })
 }
 
 function endSpan(

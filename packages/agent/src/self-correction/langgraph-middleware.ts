@@ -32,6 +32,7 @@ import type { RunAnalysis } from './post-run-analyzer.js'
 import { StrategySelector } from './strategy-selector.js'
 import { ErrorDetectionOrchestrator } from './error-detector.js'
 import { ObservabilityCorrectionBridge } from './observability-bridge.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -188,11 +189,11 @@ export class LangGraphLearningMiddleware {
       let enrichedState = state
       if (this.config.enableEnrichment) {
         try {
-          const enrichment = await this.enricher.enrich({
+          const enrichment = await this.enricher.enrich(omitUndefined({
             nodeId,
             taskType: this.config.taskType,
             riskClass: this.config.riskClass,
-          })
+          }))
 
           if (enrichment.content.length > 0) {
             enrichedState = this.applyEnrichment(state, enrichment)
@@ -302,10 +303,10 @@ export class LangGraphLearningMiddleware {
     }
 
     try {
-      const analysis: RunAnalysis = {
+      const analysis: RunAnalysis = omitUndefined({
         runId: params.runId,
         nodeScores: this.nodeScores,
-        errors: (params.errors ?? []).map((e) => ({
+        errors: (params.errors ?? []).map((e) => omitUndefined({
           nodeId: e.nodeId,
           error: e.error,
           resolved: e.resolved,
@@ -320,7 +321,7 @@ export class LangGraphLearningMiddleware {
         riskClass: this.config.riskClass ?? 'standard',
         approved: params.approved ?? false,
         feedback: params.feedback,
-      }
+      })
 
       const result = await this.analyzer.analyze(analysis)
       return {
@@ -382,11 +383,11 @@ export class LangGraphLearningMiddleware {
    */
   async enrichPrompt(nodeId: string): Promise<string> {
     try {
-      const enrichment = await this.enricher.enrich({
+      const enrichment = await this.enricher.enrich(omitUndefined({
         nodeId,
         taskType: this.config.taskType,
         riskClass: this.config.riskClass,
-      })
+      }))
       return enrichment.content
     } catch {
       return ''

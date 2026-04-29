@@ -16,6 +16,7 @@ import { z } from 'zod'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { tool } from '@langchain/core/tools'
 import type { AgentMailbox } from './types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Shared config
@@ -103,10 +104,10 @@ export function createCheckMailTool(
 
   return tool(
     async (input: z.infer<typeof checkMailInputSchema>): Promise<string> => {
-      const messages = await mailbox.receive({
+      const messages = await mailbox.receive(omitUndefined({
         limit: input.limit,
         unreadOnly: input.unreadOnly,
-      })
+      }))
 
       const cleaned = messages.map((msg) => ({
         id: msg.id,

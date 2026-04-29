@@ -18,6 +18,7 @@ import type { NodeExecutor, NodeResult, NodeExecutionContext } from '../pipeline
 import { ReflectionLoop } from './reflection-loop.js'
 import type { ScoreResult } from './reflection-loop.js'
 import { AdaptiveIterationController } from './iteration-controller.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -168,14 +169,14 @@ export function createSelfCorrectingExecutor(
       : undefined
 
     // Step 6: Create and run the ReflectionLoop
-    const reflectionLoop = new ReflectionLoop(drafter, config.critic, {
+    const reflectionLoop = new ReflectionLoop(drafter, config.critic, omitUndefined({
       maxIterations,
       qualityThreshold,
       criticPrompt: config.evaluationCriteria
         ? `You are an expert reviewer. Evaluate the following output against these criteria:\n\n${config.evaluationCriteria}\n\nRate on a scale of 0-10.\n\nProvide your response in this exact format:\nSCORE: <number 0-10>\nFEEDBACK: <specific, actionable feedback>`
         : undefined,
       costBudgetCents,
-    })
+    }))
 
     const reflectionResult = await reflectionLoop.execute(
       taskDescription,

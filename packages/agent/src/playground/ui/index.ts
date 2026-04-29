@@ -1,20 +1,20 @@
 /**
- * Playground UI — framework-internal Vue 3 trace visualizations.
+ * Playground UI — framework-internal trace utility helpers.
  *
- * This source module supports the local playground trace components and their
- * rendering-independent utilities. The Vue SFCs are not a packaged design
- * surface: `@dzupagent/agent` does not publish Vue build artifacts, Vue peer
- * requirements, or public `./playground/ui` package subpaths.
+ * This source module supports rendering-independent trace formatting and style
+ * helpers used by source-internal maintenance tests. `@dzupagent/agent` does
+ * not publish Vue build artifacts, Vue peer requirements, or public
+ * `./playground/ui` package subpaths.
  *
  * Product UIs should consume replay data/contracts from the public agent API
  * and render those states in the consuming app's own design system.
  *
- * @deprecated Framework-internal source module. Do not import Vue SFCs from
- * package internals.
+ * @deprecated Framework-internal source module. Do not import playground UI
+ * internals as a product UI API.
  * @module playground/ui
  */
 
-// Re-export types used by the components
+// Re-export replay-derived types used by trace helpers.
 export type {
   TimelineNode,
   TimelineData,
@@ -26,7 +26,7 @@ export type {
   ReplaySummary,
 } from '../../replay/replay-inspector.js'
 
-// Re-export utility functions for programmatic use
+// Re-export utility functions for source-internal maintenance use.
 export {
   getNodeStatus,
   formatMs,

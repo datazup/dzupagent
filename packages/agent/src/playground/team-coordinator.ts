@@ -23,6 +23,7 @@ import type {
   SpawnedAgent,
   PlaygroundEvent,
 } from './types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 /** Internal callback to emit playground events. */
 type EventEmitter = (event: PlaygroundEvent) => void
@@ -124,12 +125,12 @@ export class TeamCoordinator {
     }
 
     try {
-      const result = await AgentOrchestrator.supervisor({
+      const result = await AgentOrchestrator.supervisor(omitUndefined({
         manager: supervisorAgent,
         specialists: specialistAgents,
         task,
         signal: config.signal,
-      })
+      }))
 
       // Mark agents as completed
       supervisorEntry.status = 'completed'
@@ -227,7 +228,11 @@ export class TeamCoordinator {
           })
         } else {
           entry.status = 'failed'
-          entry.lastError = r.error
+          if (r.error !== undefined) {
+            entry.lastError = r.error
+          } else {
+            delete entry.lastError
+          }
           this.emitEvent({
             type: 'agent:error',
             agentId: r.agentId,
@@ -241,14 +246,14 @@ export class TeamCoordinator {
       content: merged,
       agentResults: results.map(r => {
         const entry = spawned.find(s => s.agent.id === r.agentId)
-        return {
+        return omitUndefined({
           agentId: r.agentId,
           role: entry?.role ?? 'worker',
           content: r.content,
           success: r.success,
           error: r.error,
           durationMs: r.durationMs,
-        }
+        })
       }),
       durationMs: Date.now() - startTime,
       pattern: 'peer-to-peer' as const,
@@ -314,7 +319,7 @@ export class TeamCoordinator {
 
     return {
       content: finalContent,
-      agentResults: spawned.map(s => ({
+      agentResults: spawned.map(s => omitUndefined({
         agentId: s.agent.id,
         role: s.role,
         content: s.lastResult ?? '',
@@ -361,7 +366,7 @@ export class TeamCoordinator {
       try {
         const result = await entry.agent.generate(
           [new HumanMessage(roundPrompt)],
-          { signal },
+          omitUndefined({ signal }),
         )
 
         entry.lastResult = result.content
@@ -459,7 +464,7 @@ export class TeamCoordinator {
         }
         const result = await entry.agent.generate(
           [new HumanMessage(task)],
-          { signal },
+          omitUndefined({ signal }),
         )
         return {
           agentId: entry.agent.id,

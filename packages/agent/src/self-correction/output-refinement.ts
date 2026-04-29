@@ -20,6 +20,7 @@
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -294,13 +295,13 @@ export class OutputRefinementLoop {
     config?: Partial<RefinementConfig>,
   ) {
     this.model = model
-    this.config = {
+    this.config = omitUndefined({
       maxIterations: config?.maxIterations ?? 2,
       qualityThreshold: config?.qualityThreshold ?? 0.9,
       minImprovement: config?.minImprovement ?? 0.05,
       costBudgetCents: config?.costBudgetCents ?? 20,
       domain: config?.domain,
-    }
+    })
   }
 
   // -------------------------------------------------------------------------

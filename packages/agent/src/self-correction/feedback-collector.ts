@@ -10,6 +10,7 @@
  */
 
 import type { BaseStore } from '@langchain/langgraph'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -122,7 +123,7 @@ function serializeRecord(record: FeedbackRecord): Record<string, unknown> {
 
 function deserializeRecord(value: Record<string, unknown>): FeedbackRecord | null {
   if (typeof value['id'] !== 'string' || typeof value['runId'] !== 'string') return null
-  return {
+  return omitUndefined({
     id: value['id'] as string,
     runId: value['runId'] as string,
     type: value['type'] as FeedbackType,
@@ -132,7 +133,7 @@ function deserializeRecord(value: Record<string, unknown>): FeedbackRecord | nul
     riskClass: typeof value['riskClass'] === 'string' ? value['riskClass'] : undefined,
     timestamp: typeof value['timestamp'] === 'string' ? new Date(value['timestamp'] as string) : new Date(),
     actionItems: Array.isArray(value['actionItems']) ? value['actionItems'] as string[] : [],
-  }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -360,7 +361,7 @@ export class FeedbackCollector {
         ? this.extractActionItems(params.feedback)
         : []
 
-    const record: FeedbackRecord = {
+    const record: FeedbackRecord = omitUndefined({
       id: this.generateId(),
       runId: params.runId,
       type,
@@ -370,7 +371,7 @@ export class FeedbackCollector {
       riskClass: params.riskClass,
       timestamp: new Date(),
       actionItems,
-    }
+    })
 
     const ns = [...this.namespace, 'records']
     await this.store.put(ns, record.id, serializeRecord(record))

@@ -12,6 +12,7 @@ import type {
   TimelineNode,
   TimelineData,
 } from './replay-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // ReplayInspector
@@ -69,7 +70,7 @@ export class ReplayInspector {
         nodeIdSet.add(event.nodeId)
       }
 
-      const node: TimelineNode = {
+      const node: TimelineNode = omitUndefined({
         index: event.index,
         timestamp: event.timestamp,
         type: event.type,
@@ -79,7 +80,7 @@ export class ReplayInspector {
         tokenUsage: totalTokens,
         costCents: totalCostCents,
         latencyMs: extractNumber(event.data, 'durationMs'),
-      }
+      })
 
       nodes.push(node)
     }

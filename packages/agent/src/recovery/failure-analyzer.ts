@@ -9,6 +9,7 @@ import type {
   FailureContext,
   FailureType,
 } from './recovery-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Error pattern matchers
@@ -187,13 +188,13 @@ export class FailureAnalyzer {
    */
   recordFailure(ctx: FailureContext, resolution?: string): void {
     const fp = this.fingerprint(ctx.error)
-    const entry: FailureHistoryEntry = {
+    const entry: FailureHistoryEntry = omitUndefined({
       type: ctx.type,
       error: ctx.error,
       fingerprint: fp,
       resolution,
       timestamp: ctx.timestamp,
-    }
+    })
     this.history.push(entry)
 
     const existing = this.fingerprints.get(fp)

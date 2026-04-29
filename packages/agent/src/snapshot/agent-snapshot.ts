@@ -6,6 +6,7 @@
  */
 import { createHash } from 'node:crypto'
 import { gzipSync, gunzipSync } from 'node:zlib'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 /**
  * A complete, self-contained snapshot of agent execution state.
@@ -85,7 +86,7 @@ export function createSnapshot(params: CreateSnapshotParams): AgentStateSnapshot
  * Returns `true` if the snapshot has not been tampered with.
  */
 export function verifySnapshot(snapshot: AgentStateSnapshot): boolean {
-  const expected = computeHash({
+  const expected = computeHash(omitUndefined({
     agentId: snapshot.agentId,
     agentName: snapshot.agentName,
     messages: snapshot.messages,
@@ -95,7 +96,7 @@ export function verifySnapshot(snapshot: AgentStateSnapshot): boolean {
     workingMemory: snapshot.workingMemory,
     metadata: snapshot.metadata,
     compressed: snapshot.compressed,
-  })
+  }))
   return expected === snapshot.contentHash
 }
 
@@ -116,7 +117,7 @@ export function compressSnapshot(
   const compressed = gzipSync(Buffer.from(json, 'utf-8'))
   const base64 = compressed.toString('base64')
 
-  const result: CreateSnapshotParams = {
+  const result: CreateSnapshotParams = omitUndefined({
     agentId: snapshot.agentId,
     agentName: snapshot.agentName,
     messages: [base64],
@@ -126,7 +127,7 @@ export function compressSnapshot(
     workingMemory: snapshot.workingMemory,
     metadata: snapshot.metadata,
     compressed: true,
-  }
+  })
 
   return {
     schemaVersion: '1.0.0',
@@ -154,7 +155,7 @@ export function decompressSnapshot(snapshot: AgentStateSnapshot): AgentStateSnap
   const buffer = gunzipSync(Buffer.from(base64, 'base64'))
   const messages = JSON.parse(buffer.toString('utf-8')) as unknown[]
 
-  const params: CreateSnapshotParams = {
+  const params: CreateSnapshotParams = omitUndefined({
     agentId: snapshot.agentId,
     agentName: snapshot.agentName,
     messages,
@@ -163,7 +164,7 @@ export function decompressSnapshot(snapshot: AgentStateSnapshot): AgentStateSnap
     toolNames: snapshot.toolNames,
     workingMemory: snapshot.workingMemory,
     metadata: snapshot.metadata,
-  }
+  })
 
   return {
     schemaVersion: '1.0.0',
