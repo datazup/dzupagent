@@ -42,7 +42,7 @@ describe('normalizeBrowserTool', () => {
 
     await normalized.invoke({ url: 'https://example.com' })
 
-    expect(tool.invoke).toHaveBeenCalledWith({ url: 'https://example.com' })
+    expect(tool.invoke).toHaveBeenCalledWith({ url: 'https://example.com' }, undefined)
   })
 
   it('returns the result from invoke', async () => {

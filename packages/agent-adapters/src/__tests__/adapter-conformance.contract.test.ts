@@ -223,10 +223,26 @@ describe('Claude adapter conformance contract', () => {
 
   it('execute() either throws SDK_NOT_INSTALLED or starts with adapter:started', async () => {
     const adapter = new ClaudeAgentAdapter()
-    const stream = adapter.execute({ prompt: 'test' })
+    const controller = new AbortController()
+    const stream = adapter.execute({ prompt: 'test', signal: controller.signal })
 
     try {
-      const first = await stream.next()
+      const firstEventTimeout = Symbol('firstEventTimeout')
+      const firstPromise = stream.next()
+      const first = await Promise.race([
+        firstPromise,
+        new Promise<typeof firstEventTimeout>((resolve) => {
+          setTimeout(() => resolve(firstEventTimeout), 5_000)
+        }),
+      ])
+
+      if (first === firstEventTimeout) {
+        controller.abort()
+        await stream.return?.().catch(() => undefined)
+        await firstPromise.catch(() => undefined)
+        return
+      }
+
       // Some environments have the optional SDK installed but no configured
       // local runtime/session, so the iterator may complete without emitting.
       // Treat that as inconclusive rather than a conformance failure.

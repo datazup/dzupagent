@@ -6,6 +6,7 @@ import type { PostgresApiKeyStore, ApiKeyRecord } from '../persistence/api-key-s
 interface MockStoreOptions {
   validKey: string
   ownerId?: string
+  role?: string
   listSpy?: ReturnType<typeof vi.fn>
 }
 
@@ -14,7 +15,7 @@ function makeMockStore(options: MockStoreOptions): PostgresApiKeyStore {
     id: 'key-1',
     ownerId: options.ownerId ?? 'user-1',
     name: 'test',
-    role: 'operator',
+    role: options.role ?? 'operator',
     rateLimitTier: 'standard',
     createdAt: new Date(),
     expiresAt: null,
@@ -84,6 +85,7 @@ describe('API key auth wiring', () => {
     const store = makeMockStore({
       validKey: 'token-abc',
       ownerId: 'user-42',
+      role: 'admin',
       listSpy,
     })
     const app = createForgeApp({

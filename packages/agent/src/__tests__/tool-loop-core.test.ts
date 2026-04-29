@@ -136,7 +136,7 @@ describe('Sequential tool execution', () => {
     )
 
     expect(invokeFn).toHaveBeenCalledTimes(1)
-    expect(invokeFn).toHaveBeenCalledWith({ path: 'a.ts' })
+    expect(invokeFn).toHaveBeenCalledWith({ path: 'a.ts' }, expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(result.stopReason).toBe('complete')
     expect(result.llmCalls).toBe(2)
 
@@ -673,7 +673,10 @@ describe('validateToolArgs paths (sequential)', () => {
     )
 
     // Tool invoked with raw args (no coercion, no extra field removal)
-    expect(invokeFn).toHaveBeenCalledWith({ count: 'not-a-number', extra: true })
+    expect(invokeFn).toHaveBeenCalledWith(
+      { count: 'not-a-number', extra: true },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
   })
 
   it('validateToolArgs: true - validation with auto-repair enabled', async () => {
@@ -788,7 +791,10 @@ describe('validateToolArgs paths (sequential)', () => {
     )
 
     // Should still invoke since no schema to validate against
-    expect(invokeFn).toHaveBeenCalledWith({ anything: 'goes' })
+    expect(invokeFn).toHaveBeenCalledWith(
+      { anything: 'goes' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
   })
 
   it('validateToolArgs: true coerces boolean strings', async () => {

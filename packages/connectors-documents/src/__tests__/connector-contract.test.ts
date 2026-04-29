@@ -50,7 +50,7 @@ describe('normalizeDocumentTool', () => {
 
     const result = await normalized.invoke('input-data')
     expect(result).toBe('result-42')
-    expect(mockInvoke).toHaveBeenCalledWith('input-data')
+    expect(mockInvoke).toHaveBeenCalledWith('input-data', undefined)
   })
 
   it('invoke propagates errors from the underlying tool', async () => {
@@ -94,8 +94,8 @@ describe('normalizeDocumentTools', () => {
 
     expect(await result[0]!.invoke('x')).toBe('A')
     expect(await result[1]!.invoke('y')).toBe('B')
-    expect(invokeA).toHaveBeenCalledWith('x')
-    expect(invokeB).toHaveBeenCalledWith('y')
+    expect(invokeA).toHaveBeenCalledWith('x', undefined)
+    expect(invokeB).toHaveBeenCalledWith('y', undefined)
   })
 
   it('handles single tool array', () => {

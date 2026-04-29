@@ -78,7 +78,7 @@ describe('normalizeScraperTool - detailed', () => {
 
     const result = await tool.invoke({ url: 'https://test.com' })
     expect(result).toBe('scraped content')
-    expect(invoke).toHaveBeenCalledWith({ url: 'https://test.com' })
+    expect(invoke).toHaveBeenCalledWith({ url: 'https://test.com' }, undefined)
   })
 
   it('invoke function receives full input object', async () => {
@@ -97,7 +97,7 @@ describe('normalizeScraperTool - detailed', () => {
       maxLength: 1000,
     }
     await tool.invoke(input)
-    expect(invoke).toHaveBeenCalledWith(input)
+    expect(invoke).toHaveBeenCalledWith(input, undefined)
   })
 
   it('preserves description text exactly', () => {

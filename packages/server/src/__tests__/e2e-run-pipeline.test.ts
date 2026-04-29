@@ -64,6 +64,19 @@ async function waitForTerminalStatus(
   throw new Error(`Timed out waiting for run ${runId} to reach terminal state`)
 }
 
+async function waitForEventType(
+  events: string[],
+  type: string,
+  timeoutMs = 3000,
+): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    if (events.includes(type)) return
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  throw new Error(`Timed out waiting for event ${type}`)
+}
+
 /** Create a CostAwareRouter backed by keyword matching (no LLM). */
 function createTestRouter(): CostAwareRouter {
   const keywordMatcher = new KeywordMatcher()
@@ -222,6 +235,7 @@ describe('E2E run pipeline', () => {
       expect(completedRun.costCents).toBe(0.5)
 
       // Verify lifecycle events were emitted
+      await waitForEventType(seenEvents, 'agent:completed')
       expect(seenEvents).toContain('agent:started')
       expect(seenEvents).toContain('agent:completed')
 

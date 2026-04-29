@@ -364,7 +364,7 @@ describe('AgentOrchestrator.parallel — deep branches', () => {
     expect(breaker.getState('good')).toBe('closed')
   })
 
-  it('does not record timeout on circuit breaker for non-timeout errors', async () => {
+  it('records generic circuit breaker failure for non-timeout errors', async () => {
     const breaker = new AgentCircuitBreaker({ failureThreshold: 1 })
     const a = new DzupAgent({
       id: 'generic-error',
@@ -378,8 +378,7 @@ describe('AgentOrchestrator.parallel — deep branches', () => {
       mergeStrategy: new UsePartialMergeStrategy<string>(),
     })
 
-    // Non-timeout errors do not trip the breaker
-    expect(breaker.getState('generic-error')).toBe('closed')
+    expect(breaker.getState('generic-error')).toBe('open')
   })
 
   it('JSON-stringifies non-string merge strategy output', async () => {
@@ -595,7 +594,7 @@ describe('AgentOrchestrator.supervisor — deep branches', () => {
     expect(breaker.getState('s1')).toBe('closed')
   })
 
-  it('records timeout on breaker when manager errors with timeout-flavored message', async () => {
+  it('does not record specialist timeout when manager errors before invoking tools', async () => {
     const manager = new DzupAgent({
       id: 'mgr',
       name: 'mgr',
@@ -615,7 +614,7 @@ describe('AgentOrchestrator.supervisor — deep branches', () => {
       }),
     ).rejects.toThrow('timeout')
 
-    expect(breaker.getState('s1')).toBe('open')
+    expect(breaker.getState('s1')).toBe('closed')
   })
 
   it('does not record timeout when error is not timeout-flavored', async () => {

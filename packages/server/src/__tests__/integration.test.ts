@@ -39,6 +39,7 @@ class InMemoryApiKeyStore {
     ownerId: string,
     name: string,
     tier: string = 'standard',
+    role: string = 'operator',
   ): Promise<CreateApiKeyResult> {
     const id = `key-${Math.random().toString(36).slice(2)}`
     const rawKey = `raw-${Math.random().toString(36).slice(2)}`
@@ -46,7 +47,7 @@ class InMemoryApiKeyStore {
       id,
       ownerId,
       name,
-      role: 'operator',
+      role,
       rateLimitTier: tier,
       createdAt: new Date(),
       expiresAt: null,
@@ -93,8 +94,8 @@ class InMemoryApiKeyStore {
   }
 
   /** Test helper: seed a key directly so the first HTTP request can authenticate. */
-  async seed(ownerId: string, name: string): Promise<string> {
-    const { key } = await this.create(ownerId, name)
+  async seed(ownerId: string, name: string, role: string = 'operator'): Promise<string> {
+    const { key } = await this.create(ownerId, name, 'standard', role)
     return key
   }
 }
@@ -153,7 +154,7 @@ describe('Integration: full request lifecycle', () => {
     // Seed a key directly into the mock store so the first /api/keys call
     // can authenticate. In a real deployment the "first key" is created
     // out-of-band (seed script, admin CLI, etc.).
-    seedKey = await harness.keyStore.seed('owner-1', 'seed')
+    seedKey = await harness.keyStore.seed('owner-1', 'seed', 'admin')
 
     // Seed an agent so POST /api/runs has something to target. We go
     // through the store directly rather than the HTTP API to keep each
