@@ -27,7 +27,6 @@
     { "path": "packages/testing" },
     { "path": "packages/test-utils" },
     { "path": "packages/connectors" },
-    { "path": "packages/playground" },
     { "path": "packages/create-dzupagent" }
   ]
 }
