@@ -26,6 +26,11 @@
  *   8. Production files under packages/server/src/routes/** must be declared
  *      in the serverRouteBoundaries policy with a maintenance/compatibility,
  *      generic framework primitive, or route-plugin host-seam rationale.
+ *   9. Hono method/path endpoints inside classified server route files must
+ *      match the server route endpoint manifest, including the inherited
+ *      ownership category and mounted path review signal.
+ *  10. ForgeServerConfig route-family fields must match the server route
+ *      governance review signal before built-in route families grow.
  *
  * Usage:
  *   node scripts/check-domain-boundaries.mjs
@@ -66,6 +71,8 @@ const SERVER_ROUTE_BOUNDARY_CATEGORIES = new Set([
   'route-plugin-host-seam',
   'internal-support',
 ])
+
+const HONO_ROUTE_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'ALL'])
 
 /**
  * Run ripgrep and return matching lines (empty array = no matches).
@@ -693,34 +700,45 @@ const internalBroadRootImportViolations = collectInternalBroadRootImportViolatio
 // Section 11 — Server route product-boundary classification check
 // ---------------------------------------------------------------------------
 
-function collectServerRouteBoundaryViolations() {
+function collectServerRouteFiles() {
   const routesDir = join(repoRoot, 'packages', 'server', 'src', 'routes')
   if (!existsSync(routesDir)) return []
 
-  const routeFiles = listProductionSourceFiles(routesDir)
+  return listProductionSourceFiles(routesDir)
     .map((file) => file.replace(repoRoot + '/', ''))
     .sort()
+}
 
-  if (routeFiles.length === 0) return []
-
+function collectServerRouteBoundaryState() {
+  const routeFiles = collectServerRouteFiles()
   const policy = architectureConfig.serverRouteBoundaries
+  const declaredFiles = new Map()
   const violations = []
+
+  if (routeFiles.length === 0) {
+    return { policy, routeFiles, declaredFiles, violations }
+  }
+
   if (!policy || typeof policy !== 'object') {
-    return routeFiles.map((file) => ({
-      type: 'missing-policy',
-      file,
-    }))
+    for (const file of routeFiles) {
+      violations.push({
+        type: 'missing-policy',
+        file,
+      })
+    }
+    return { policy, routeFiles, declaredFiles, violations }
   }
 
   const routeFileClassifications = policy.routeFileClassifications
   if (!routeFileClassifications || typeof routeFileClassifications !== 'object' || Array.isArray(routeFileClassifications)) {
-    return routeFiles.map((file) => ({
-      type: 'missing-policy',
-      file,
-    }))
+    for (const file of routeFiles) {
+      violations.push({
+        type: 'missing-policy',
+        file,
+      })
+    }
+    return { policy, routeFiles, declaredFiles, violations }
   }
-
-  const declaredFiles = new Map()
 
   for (const [category, entry] of Object.entries(routeFileClassifications)) {
     if (!SERVER_ROUTE_BOUNDARY_CATEGORIES.has(category)) {
@@ -798,10 +816,382 @@ function collectServerRouteBoundaryViolations() {
     }
   }
 
+  return { policy, routeFiles, declaredFiles, violations }
+}
+
+const serverRouteBoundaryState = collectServerRouteBoundaryState()
+const serverRouteBoundaryViolations = serverRouteBoundaryState.violations
+
+function maskCommentsPreserveStrings(source) {
+  const chars = [...source]
+  let state = 'code'
+
+  for (let index = 0; index < chars.length; index += 1) {
+    const char = chars[index]
+    const next = chars[index + 1]
+
+    if (state === 'lineComment') {
+      if (char === '\n') {
+        state = 'code'
+      } else {
+        chars[index] = ' '
+      }
+      continue
+    }
+
+    if (state === 'blockComment') {
+      if (char === '*' && next === '/') {
+        chars[index] = ' '
+        chars[index + 1] = ' '
+        index += 1
+        state = 'code'
+      } else if (char !== '\n') {
+        chars[index] = ' '
+      }
+      continue
+    }
+
+    if (char === '/' && next === '/') {
+      chars[index] = ' '
+      chars[index + 1] = ' '
+      index += 1
+      state = 'lineComment'
+      continue
+    }
+    if (char === '/' && next === '*') {
+      chars[index] = ' '
+      chars[index + 1] = ' '
+      index += 1
+      state = 'blockComment'
+    }
+  }
+
+  return chars.join('')
+}
+
+function collectHonoRouteEndpoints(source) {
+  const stripped = maskCommentsPreserveStrings(source)
+  const endpoints = []
+  const routePattern = /\bapp\s*\.\s*(get|post|put|patch|delete|all)\s*\(\s*(['"])([^'"`]+)\2/g
+
+  let match
+  while ((match = routePattern.exec(stripped)) !== null) {
+    endpoints.push({
+      method: match[1].toUpperCase(),
+      path: match[3],
+      line: sourceLineAt(stripped, match.index),
+    })
+  }
+
+  const onPattern = /\bapp\s*\.\s*on\s*\(\s*(['"])(GET|POST|PUT|PATCH|DELETE|ALL)\1\s*,\s*(['"])([^'"`]+)\3/gi
+  while ((match = onPattern.exec(stripped)) !== null) {
+    endpoints.push({
+      method: match[2].toUpperCase(),
+      path: match[4],
+      line: sourceLineAt(stripped, match.index),
+    })
+  }
+
+  return endpoints.sort((a, b) => endpointKey(a).localeCompare(endpointKey(b)))
+}
+
+function endpointKey(endpoint) {
+  return `${endpoint.method} ${endpoint.path}`
+}
+
+function endpointDisplay(endpoint) {
+  return `${endpoint.method} ${endpoint.path}`
+}
+
+function normalizeMountPath(mount, endpointPath) {
+  if (mount === '') return endpointPath
+  if (endpointPath === '/') return mount
+  if (mount.endsWith('/') && endpointPath.startsWith('/')) return `${mount.slice(0, -1)}${endpointPath}`
+  if (!mount.endsWith('/') && !endpointPath.startsWith('/')) return `${mount}/${endpointPath}`
+  return `${mount}${endpointPath}`
+}
+
+function normalizeEndpointEntry(entry) {
+  if (typeof entry === 'string') {
+    const match = /^(GET|POST|PUT|PATCH|DELETE|ALL)\s+(.+)$/i.exec(entry.trim())
+    if (!match) return null
+    return {
+      method: match[1].toUpperCase(),
+      path: match[2],
+      mountedPaths: undefined,
+    }
+  }
+
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null
+  if (typeof entry.method !== 'string' || typeof entry.path !== 'string') return null
+
+  const method = entry.method.toUpperCase()
+  if (!HONO_ROUTE_METHODS.has(method)) return null
+
+  return {
+    method,
+    path: entry.path,
+    mountedPaths: Array.isArray(entry.mountedPaths)
+      ? entry.mountedPaths.filter((mountedPath) => typeof mountedPath === 'string')
+      : undefined,
+  }
+}
+
+function collectServerRouteEndpointManifestViolations(state) {
+  const { policy, routeFiles, declaredFiles } = state
+  if (routeFiles.length === 0) return []
+
+  const violations = []
+  const manifest = policy?.routeEndpointManifest
+  const manifestFiles = manifest?.files
+  if (!manifest || typeof manifest !== 'object' || !manifestFiles || typeof manifestFiles !== 'object' || Array.isArray(manifestFiles)) {
+    return routeFiles
+      .filter((file) => collectHonoRouteEndpoints(readFileSync(join(repoRoot, file), 'utf8')).length > 0)
+      .map((file) => ({
+        type: 'missing-endpoint-manifest',
+        file,
+      }))
+  }
+
+  const routeFileSet = new Set(routeFiles)
+
+  for (const file of routeFiles) {
+    const source = readFileSync(join(repoRoot, file), 'utf8')
+    const actualEndpoints = collectHonoRouteEndpoints(source)
+    const entry = manifestFiles[file]
+
+    if (actualEndpoints.length === 0) {
+      if (entry) {
+        violations.push({
+          type: 'stale-endpoint-manifest',
+          file,
+        })
+      }
+      continue
+    }
+
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      violations.push({
+        type: 'missing-endpoint-file',
+        file,
+      })
+      continue
+    }
+
+    const classifiedCategory = declaredFiles.get(file)
+    if (entry.category !== classifiedCategory) {
+      violations.push({
+        type: 'endpoint-category-mismatch',
+        file,
+        expected: classifiedCategory,
+        actual: entry.category,
+      })
+    }
+
+    if (!Array.isArray(entry.mounts) || !entry.mounts.every((mount) => typeof mount === 'string')) {
+      violations.push({
+        type: 'invalid-endpoint-mounts',
+        file,
+      })
+    }
+
+    if (
+      entry.mountedEndpoints !== undefined
+      && (!Array.isArray(entry.mountedEndpoints) || !entry.mountedEndpoints.every((endpoint) => typeof endpoint === 'string'))
+    ) {
+      violations.push({
+        type: 'invalid-mounted-endpoints',
+        file,
+      })
+    }
+
+    if (!Array.isArray(entry.endpoints)) {
+      violations.push({
+        type: 'invalid-endpoint-list',
+        file,
+      })
+      continue
+    }
+
+    const declaredEndpoints = new Map()
+    for (const endpointEntry of entry.endpoints) {
+      const normalized = normalizeEndpointEntry(endpointEntry)
+      if (!normalized) {
+        violations.push({
+          type: 'invalid-endpoint-entry',
+          file,
+          entry: endpointEntry,
+        })
+        continue
+      }
+
+      const key = endpointKey(normalized)
+      if (declaredEndpoints.has(key)) {
+        violations.push({
+          type: 'duplicate-endpoint',
+          file,
+          endpoint: key,
+        })
+        continue
+      }
+      declaredEndpoints.set(key, normalized)
+    }
+
+    const actualKeys = new Set(actualEndpoints.map(endpointKey))
+    for (const endpoint of actualEndpoints) {
+      const key = endpointKey(endpoint)
+      if (!declaredEndpoints.has(key)) {
+        violations.push({
+          type: 'unreviewed-endpoint',
+          file,
+          endpoint: endpointDisplay(endpoint),
+          line: endpoint.line,
+        })
+      }
+    }
+
+    for (const [key, endpoint] of declaredEndpoints.entries()) {
+      if (!actualKeys.has(key)) {
+        violations.push({
+          type: 'stale-endpoint',
+          file,
+          endpoint: endpointDisplay(endpoint),
+        })
+      }
+
+      if (entry.mounts?.length > 0 && endpoint.mountedPaths) {
+        const expectedMountedPaths = entry.mounts.map((mount) => normalizeMountPath(mount, endpoint.path)).sort()
+        const actualMountedPaths = [...endpoint.mountedPaths].sort()
+        if (expectedMountedPaths.join('\n') !== actualMountedPaths.join('\n')) {
+          violations.push({
+            type: 'mounted-path-mismatch',
+            file,
+            endpoint: endpointDisplay(endpoint),
+            expected: expectedMountedPaths,
+            actual: actualMountedPaths,
+          })
+        }
+      }
+    }
+
+    if (entry.mounts?.length > 0 && entry.mountedEndpoints) {
+      const expectedMountedEndpoints = actualEndpoints
+        .flatMap((endpoint) => entry.mounts.map((mount) => `${endpoint.method} ${normalizeMountPath(mount, endpoint.path)}`))
+        .sort()
+      const actualMountedEndpoints = [...entry.mountedEndpoints].sort()
+      if (expectedMountedEndpoints.join('\n') !== actualMountedEndpoints.join('\n')) {
+        violations.push({
+          type: 'mounted-endpoints-mismatch',
+          file,
+          expected: expectedMountedEndpoints,
+          actual: actualMountedEndpoints,
+        })
+      }
+    }
+  }
+
+  for (const file of Object.keys(manifestFiles)) {
+    if (!routeFileSet.has(file)) {
+      violations.push({
+        type: 'stale-endpoint-file',
+        file,
+      })
+    }
+  }
+
   return violations
 }
 
-const serverRouteBoundaryViolations = collectServerRouteBoundaryViolations()
+const serverRouteEndpointManifestViolations = collectServerRouteEndpointManifestViolations(serverRouteBoundaryState)
+
+function readInterfaceBody(source, interfaceName) {
+  const match = new RegExp(`\\bexport\\s+interface\\s+${interfaceName}\\b`).exec(source)
+  if (!match) return null
+
+  const start = source.indexOf('{', match.index)
+  if (start === -1) return null
+
+  let depth = 0
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '{') depth += 1
+    if (char === '}') {
+      depth -= 1
+      if (depth === 0) return source.slice(start + 1, index)
+    }
+  }
+
+  return null
+}
+
+function collectInterfacePropertyNames(source, interfaceName) {
+  const body = readInterfaceBody(source, interfaceName)
+  if (body === null) return null
+
+  const props = []
+  let depth = 0
+  for (const line of body.split('\n')) {
+    if (depth === 0) {
+      const match = /^\s*([A-Za-z_$][\w$]*)\??\s*:/.exec(line)
+      if (match) props.push(match[1])
+    }
+    for (const char of line) {
+      if (char === '{') depth += 1
+      if (char === '}') depth = Math.max(0, depth - 1)
+    }
+  }
+  return props.sort()
+}
+
+function collectForgeRouteFamilyManifestViolations() {
+  const policy = architectureConfig.serverRouteBoundaries?.forgeServerConfigRouteFamilies
+  if (!policy) return []
+  if (!policy || typeof policy !== 'object' || Array.isArray(policy)) {
+    return [{ type: 'invalid-route-family-policy' }]
+  }
+  if (typeof policy.sourceFile !== 'string' || !policy.sourceFile.startsWith('packages/server/src/')) {
+    return [{ type: 'invalid-route-family-source' }]
+  }
+  if (!policy.interfaces || typeof policy.interfaces !== 'object' || Array.isArray(policy.interfaces)) {
+    return [{ type: 'invalid-route-family-interfaces' }]
+  }
+
+  const sourcePath = join(repoRoot, policy.sourceFile)
+  if (!existsSync(sourcePath)) {
+    return [{ type: 'missing-route-family-source', file: policy.sourceFile }]
+  }
+
+  const source = readFileSync(sourcePath, 'utf8')
+  const violations = []
+  for (const [interfaceName, declaredProps] of Object.entries(policy.interfaces)) {
+    if (!Array.isArray(declaredProps) || !declaredProps.every((prop) => typeof prop === 'string')) {
+      violations.push({ type: 'invalid-route-family-entry', interfaceName })
+      continue
+    }
+
+    const actualProps = collectInterfacePropertyNames(source, interfaceName)
+    if (actualProps === null) {
+      violations.push({ type: 'missing-route-family-interface', interfaceName })
+      continue
+    }
+
+    const declared = [...declaredProps].sort()
+    const missing = actualProps.filter((prop) => !declared.includes(prop))
+    const stale = declared.filter((prop) => !actualProps.includes(prop))
+    if (missing.length > 0 || stale.length > 0) {
+      violations.push({
+        type: 'route-family-drift',
+        interfaceName,
+        missing,
+        stale,
+      })
+    }
+  }
+
+  return violations
+}
+
+const forgeRouteFamilyManifestViolations = collectForgeRouteFamilyManifestViolations()
 
 // ---------------------------------------------------------------------------
 // Reporting
@@ -1001,8 +1391,97 @@ if (serverRouteBoundaryViolations.length > 0) {
   console.error()
 }
 
+if (serverRouteEndpointManifestViolations.length > 0) {
+  failed = true
+  console.error('SERVER ROUTE ENDPOINT-MANIFEST VIOLATIONS')
+  console.error('=========================================')
+  console.error('Hono method/path declarations inside packages/server/src/routes/** must')
+  console.error('match config/architecture-boundaries.json serverRouteBoundaries.routeEndpointManifest.')
+  console.error('The manifest records reviewed route ownership categories and mounted path pairs')
+  console.error('so classified route files cannot grow endpoints without explicit review.\n')
+
+  for (const v of serverRouteEndpointManifestViolations) {
+    if (v.type === 'missing-endpoint-manifest') {
+      console.error(`  MISSING ENDPOINT MANIFEST: ${v.file}`)
+    } else if (v.type === 'missing-endpoint-file') {
+      console.error(`  MISSING ENDPOINT FILE ENTRY: ${v.file}`)
+    } else if (v.type === 'stale-endpoint-manifest') {
+      console.error(`  STALE ENDPOINT MANIFEST: ${v.file} no longer declares route endpoints.`)
+    } else if (v.type === 'stale-endpoint-file') {
+      console.error(`  STALE ENDPOINT FILE ENTRY: ${v.file}`)
+    } else if (v.type === 'endpoint-category-mismatch') {
+      console.error(`  CATEGORY MISMATCH: ${v.file} expected ${v.expected}, found ${String(v.actual)}`)
+    } else if (v.type === 'invalid-endpoint-mounts') {
+      console.error(`  INVALID MOUNTS: ${v.file}.mounts must be an array of strings.`)
+    } else if (v.type === 'invalid-mounted-endpoints') {
+      console.error(`  INVALID MOUNTED ENDPOINTS: ${v.file}.mountedEndpoints must be an array of strings.`)
+    } else if (v.type === 'invalid-endpoint-list') {
+      console.error(`  INVALID ENDPOINTS: ${v.file}.endpoints must be an array.`)
+    } else if (v.type === 'invalid-endpoint-entry') {
+      console.error(`  INVALID ENDPOINT ENTRY: ${v.file} declares ${JSON.stringify(v.entry)}`)
+    } else if (v.type === 'duplicate-endpoint') {
+      console.error(`  DUPLICATE ENDPOINT: ${v.file} ${v.endpoint}`)
+    } else if (v.type === 'unreviewed-endpoint') {
+      console.error(`  UNREVIEWED ENDPOINT: ${v.file}:${v.line} ${v.endpoint}`)
+    } else if (v.type === 'stale-endpoint') {
+      console.error(`  STALE ENDPOINT: ${v.file} ${v.endpoint}`)
+    } else if (v.type === 'mounted-path-mismatch') {
+      console.error(`  MOUNTED PATH MISMATCH: ${v.file} ${v.endpoint}`)
+      console.error(`    expected: ${v.expected.join(', ')}`)
+      console.error(`    actual:   ${v.actual.join(', ')}`)
+    } else if (v.type === 'mounted-endpoints-mismatch') {
+      console.error(`  MOUNTED ENDPOINTS MISMATCH: ${v.file}`)
+      console.error(`    expected: ${v.expected.join(', ')}`)
+      console.error(`    actual:   ${v.actual.join(', ')}`)
+    }
+  }
+
+  console.error()
+  console.error('How to fix:')
+  console.error('  - Prefer moving new product-control-plane endpoints into the consuming app.')
+  console.error('  - If the endpoint is a reviewed framework/compatibility route, update')
+  console.error('    routeEndpointManifest with its method/path, ownership category, and mounted path.')
+  console.error()
+}
+
+if (forgeRouteFamilyManifestViolations.length > 0) {
+  failed = true
+  console.error('FORGE SERVER CONFIG ROUTE-FAMILY REVIEW VIOLATIONS')
+  console.error('==================================================')
+  console.error('ForgeServerConfig route-family fields must match')
+  console.error('serverRouteBoundaries.forgeServerConfigRouteFamilies before built-in')
+  console.error('server route families grow.\n')
+
+  for (const v of forgeRouteFamilyManifestViolations) {
+    if (v.type === 'invalid-route-family-policy') {
+      console.error('  INVALID ROUTE-FAMILY POLICY: expected an object.')
+    } else if (v.type === 'invalid-route-family-source') {
+      console.error('  INVALID ROUTE-FAMILY SOURCE: sourceFile must be a packages/server/src path.')
+    } else if (v.type === 'invalid-route-family-interfaces') {
+      console.error('  INVALID ROUTE-FAMILY INTERFACES: interfaces must be an object.')
+    } else if (v.type === 'missing-route-family-source') {
+      console.error(`  MISSING ROUTE-FAMILY SOURCE: ${v.file}`)
+    } else if (v.type === 'invalid-route-family-entry') {
+      console.error(`  INVALID ROUTE-FAMILY ENTRY: ${v.interfaceName} must list property names.`)
+    } else if (v.type === 'missing-route-family-interface') {
+      console.error(`  MISSING ROUTE-FAMILY INTERFACE: ${v.interfaceName}`)
+    } else if (v.type === 'route-family-drift') {
+      console.error(`  ROUTE-FAMILY DRIFT: ${v.interfaceName}`)
+      if (v.missing.length > 0) console.error(`    unreviewed fields: ${v.missing.join(', ')}`)
+      if (v.stale.length > 0) console.error(`    stale fields: ${v.stale.join(', ')}`)
+    }
+  }
+
+  console.error()
+  console.error('How to fix:')
+  console.error('  - Prefer routePlugins or app-owned Hono composition for product route growth.')
+  console.error('  - If a built-in route-family field is retained, update the review manifest')
+  console.error('    with the field and its route ownership implications.')
+  console.error()
+}
+
 if (failed) {
   process.exitCode = 1
 } else {
-  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, runtime cycles, undeclared source imports, package-pair boundary violations, internal broad root import violations, or unclassified server route files found.')
+  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, runtime cycles, undeclared source imports, package-pair boundary violations, internal broad root import violations, unclassified server route files, unreviewed server endpoints, or route-family review drift found.')
 }
