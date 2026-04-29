@@ -262,7 +262,7 @@ export class DzupAgent {
     }))
 
     if ((result.stopReason as string) !== 'failed') {
-      await this.maybeWriteBackMemory(result.content)
+      await this.maybeWriteBackMemory(result.content, this.resolveMemoryRunId(options))
     }
 
     return result
@@ -338,7 +338,7 @@ export class DzupAgent {
           this.transformToolResultWithMiddleware(toolName, input, result),
         maybeUpdateSummary: (allMessages, memoryFrame) =>
           this.maybeUpdateSummary(allMessages, memoryFrame),
-        maybeWriteBackMemory: (content) => this.maybeWriteBackMemory(content),
+        maybeWriteBackMemory: (content, runId) => this.maybeWriteBackMemory(content, runId),
       },
       messages,
       options,
@@ -571,8 +571,12 @@ export class DzupAgent {
   }
 
   private resolveMemoryReadContext(options?: GenerateOptions): { runId: string } | undefined {
-    const runId = options?.runId ?? this.config.toolExecution?.runId
+    const runId = this.resolveMemoryRunId(options)
     return runId ? { runId } : undefined
+  }
+
+  private resolveMemoryRunId(options?: GenerateOptions): string | undefined {
+    return options?.runId ?? this.config.toolExecution?.runId
   }
 
   private async applyPhaseWindow(messages: BaseMessage[]): Promise<BaseMessage[]> {
@@ -780,9 +784,10 @@ export class DzupAgent {
     return this.middlewareRuntime.transformToolResult(toolName, input, result)
   }
 
-  private async maybeWriteBackMemory(content: string): Promise<void> {
+  private async maybeWriteBackMemory(content: string, runId?: string): Promise<void> {
     await maybeWriteBackMemoryFinalizer({
       agentId: this.id,
+      ...(runId !== undefined ? { runId } : {}),
       config: this.config,
       content,
     })

@@ -112,10 +112,25 @@ export type DzupEvent =
       timestamp: number
     }
   // --- Memory ---
-  | { type: 'memory:written'; namespace: string; key: string }
+  | {
+      type: 'memory:written'
+      namespace: string
+      key: string
+      agentId?: string
+      runId?: string
+      scopeKeys?: string[]
+    }
   | { type: 'memory:pii_redacted'; agentId: string }
   | { type: 'memory:searched'; namespace: string; query: string; resultCount: number }
-  | { type: 'memory:error'; namespace: string; message: string; key?: string }
+  | {
+      type: 'memory:error'
+      namespace: string
+      message: string
+      key?: string
+      agentId?: string
+      runId?: string
+      scopeKeys?: string[]
+    }
   | { type: 'memory:retrieval_source_failed'; source: string; error: string; durationMs: number; query: string }
   | { type: 'memory:retrieval_source_succeeded'; source: string; resultCount: number; durationMs: number }
   // --- Budget ---

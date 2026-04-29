@@ -74,17 +74,21 @@ describe('DzupAgent memory write-back (P9)', () => {
       eventBus,
     })
 
-    await agent.generate([new HumanMessage('hello')])
+    await agent.generate([new HumanMessage('hello')], { runId: 'run-123' })
 
     const written = events.find((event) => event.type === 'memory:written')
     expect(written).toEqual({
       type: 'memory:written',
+      agentId: 'event-agent',
+      runId: 'run-123',
       namespace: 'facts',
       key: memory.put.mock.calls[0]![2],
+      scopeKeys: ['project'],
     })
     expect(written).not.toHaveProperty('scope')
     expect(written).not.toHaveProperty('record')
     expect(written).not.toHaveProperty('text')
+    expect(JSON.stringify(written)).not.toContain('demo')
   })
 
   it('generate() skips write-back when memoryWriteBack is false', async () => {
@@ -180,19 +184,24 @@ describe('DzupAgent memory write-back (P9)', () => {
       eventBus,
     })
 
-    const result = await agent.generate([new HumanMessage('hi')])
+    const result = await agent.generate([new HumanMessage('hi')], { runId: 'run-err-123' })
 
     expect(result.content).toBe('still works')
     const error = events.find((event) => event.type === 'memory:error')
     expect(error).toEqual({
       type: 'memory:error',
+      agentId: 'put-throws-event',
+      runId: 'run-err-123',
       namespace: 'facts',
       key: memory.put.mock.calls[0]![2],
+      scopeKeys: ['project'],
       message: 'Memory write-back failed',
     })
     expect(error).not.toHaveProperty('scope')
     expect(error).not.toHaveProperty('record')
     expect(error).not.toHaveProperty('text')
+    expect(JSON.stringify(error)).not.toContain('demo')
+    expect(JSON.stringify(error)).not.toContain('backend leaked final answer')
   })
 
   it('runInBackground() (via launch()) writes back content', async () => {
