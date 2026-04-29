@@ -13,16 +13,14 @@ import { randomUUID } from 'node:crypto'
 import { asc, eq, gte, lt, and } from 'drizzle-orm'
 import type { RunTrace, RunTraceStore, TraceStep } from './run-trace-store.js'
 import { runTraces, traceSteps } from './drizzle-schema.js'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDrizzle = any
+import type { DrizzleStoreDatabase } from './drizzle-store-types.js'
 
 /** Inferred row types for the run-trace tables. */
 type RunTracesRow = typeof runTraces.$inferSelect
 type TraceStepsRow = typeof traceSteps.$inferSelect
 
 export class DrizzleRunTraceStore implements RunTraceStore {
-  constructor(private readonly db: AnyDrizzle) {}
+  constructor(private readonly db: DrizzleStoreDatabase) {}
 
   /**
    * Start a new trace for a run.
@@ -55,7 +53,7 @@ export class DrizzleRunTraceStore implements RunTraceStore {
       .from(runTraces)
       .where(eq(runTraces.runId, runId))
       .limit(1)
-    const trace = rows[0]
+    const trace = rows[0] as RunTracesRow | undefined
     if (!trace) return
 
     const stepIndex: number = trace.totalSteps

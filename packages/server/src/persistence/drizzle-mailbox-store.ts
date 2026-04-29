@@ -10,13 +10,11 @@ import type { MailboxStore, MailMessage, MailboxQuery } from '@dzupagent/agent'
 import { eq, and, gt, isNull, asc, sql } from 'drizzle-orm'
 import { agentMailbox } from './drizzle-schema.js'
 import type { DrizzleDlqStore } from './drizzle-dlq-store.js'
+import type { DrizzleStoreDatabase } from './drizzle-store-types.js'
 import {
   MailRateLimitError,
   type MailRateLimiter,
 } from '../notifications/mail-rate-limiter.js'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDrizzle = any
 
 /**
  * Optional collaborators wired into the mailbox store at construction time.
@@ -60,7 +58,7 @@ export class DrizzleMailboxStore implements MailboxStore {
   private readonly dlq?: DrizzleDlqStore
 
   constructor(
-    private readonly db: AnyDrizzle,
+    private readonly db: DrizzleStoreDatabase,
     options: DrizzleMailboxStoreOptions = {},
   ) {
     this.rateLimiter = options.rateLimiter
@@ -122,12 +120,12 @@ export class DrizzleMailboxStore implements MailboxStore {
       conditions.push(gt(agentMailbox.createdAt, since))
     }
 
-    const rows: MailboxRow[] = await this.db
+    const rows = await this.db
       .select()
       .from(agentMailbox)
       .where(and(...conditions))
       .orderBy(asc(agentMailbox.createdAt))
-      .limit(limit)
+      .limit(limit) as MailboxRow[]
 
     return rows.map(rowToMessage)
   }

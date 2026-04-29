@@ -8,9 +8,7 @@
 import type { RunReflectionStore, ReflectionSummary, ReflectionPattern } from '@dzupagent/agent'
 import { eq, desc } from 'drizzle-orm'
 import { runReflections } from './drizzle-schema.js'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDrizzle = any
+import type { DrizzleConflictInsertDatabase } from './drizzle-store-types.js'
 
 interface ReflectionRow {
   runId: string
@@ -25,7 +23,7 @@ interface ReflectionRow {
 }
 
 export class DrizzleReflectionStore implements RunReflectionStore {
-  constructor(private readonly db: AnyDrizzle) {}
+  constructor(private readonly db: DrizzleConflictInsertDatabase) {}
 
   async save(summary: ReflectionSummary): Promise<void> {
     await this.db
@@ -60,17 +58,17 @@ export class DrizzleReflectionStore implements RunReflectionStore {
       .from(runReflections)
       .orderBy(desc(runReflections.completedAt))
 
-    const rows: ReflectionRow[] = limit !== undefined
+    const rows = (limit !== undefined
       ? await query.limit(limit)
-      : await query
+      : await query) as ReflectionRow[]
 
     return rows.map((r) => this.rowToSummary(r))
   }
 
   async getPatterns(type: ReflectionPattern['type']): Promise<ReflectionPattern[]> {
-    const rows: ReflectionRow[] = await this.db
+    const rows = await this.db
       .select()
-      .from(runReflections)
+      .from(runReflections) as ReflectionRow[]
 
     return rows
       .flatMap((r) => (r.patterns ?? []) as ReflectionPattern[])

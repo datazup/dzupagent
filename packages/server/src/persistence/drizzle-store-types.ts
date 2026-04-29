@@ -16,16 +16,20 @@ export interface DrizzleMutationResult extends PromiseLike<unknown> {
   returning(): Promise<unknown[]>
 }
 
-export interface DrizzleInsertBuilder {
-  values(values: unknown): DrizzleMutationResult
+export interface DrizzleConflictMutationResult extends PromiseLike<unknown> {
+  onConflictDoNothing(): PromiseLike<unknown>
 }
 
-export interface DrizzleUpdateWhereBuilder extends PromiseLike<unknown> {
-  where(condition: unknown): DrizzleMutationResult
+export interface DrizzleInsertBuilder<TResult extends PromiseLike<unknown> = DrizzleMutationResult> {
+  values(values: unknown): TResult
 }
 
-export interface DrizzleUpdateBuilder {
-  set(values: unknown): DrizzleUpdateWhereBuilder
+export interface DrizzleUpdateWhereBuilder<TResult extends PromiseLike<unknown> = DrizzleMutationResult> extends PromiseLike<unknown> {
+  where(condition: unknown): TResult
+}
+
+export interface DrizzleUpdateBuilder<TResult extends PromiseLike<unknown> = DrizzleMutationResult> {
+  set(values: unknown): DrizzleUpdateWhereBuilder<TResult>
 }
 
 export interface DrizzleDeleteBuilder {
@@ -33,8 +37,17 @@ export interface DrizzleDeleteBuilder {
 }
 
 export interface DrizzleStoreDatabase {
-  select(): DrizzleSelectQuery
+  select(selection?: unknown): DrizzleSelectQuery
   insert(table: unknown): DrizzleInsertBuilder
   update(table: unknown): DrizzleUpdateBuilder
   delete(table: unknown): DrizzleDeleteBuilder
+}
+
+export interface DrizzleConflictInsertDatabase extends Omit<DrizzleStoreDatabase, 'insert'> {
+  insert(table: unknown): DrizzleInsertBuilder<DrizzleConflictMutationResult>
+}
+
+export interface DrizzleReturningStoreDatabase extends Omit<DrizzleStoreDatabase, 'insert' | 'update'> {
+  insert(table: unknown): DrizzleInsertBuilder<DrizzleMutationResult>
+  update(table: unknown): DrizzleUpdateBuilder<DrizzleMutationResult>
 }
