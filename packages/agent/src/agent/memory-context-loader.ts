@@ -47,6 +47,12 @@ export interface AgentMemoryContextLoaderConfig {
   memory?: DzupAgentConfig['memory']
   memoryNamespace?: string
   memoryScope?: Record<string, string>
+  /**
+   * Optional run context for provenance/reference tracking on memory reads.
+   * Contains only stable identifiers; prompt text and memory content are not
+   * copied into provenance metadata.
+   */
+  memoryReadContext?: AgentMemoryReadContext
   arrowMemory?: DzupAgentConfig['arrowMemory']
   memoryProfile?: DzupAgentConfig['memoryProfile']
   estimateConversationTokens: (messages: BaseMessage[]) => number
@@ -78,6 +84,10 @@ export interface AgentMemoryContextLoaderConfig {
   frozenSnapshot?: FrozenSnapshot
 }
 
+export interface AgentMemoryReadContext {
+  runId: string
+}
+
 async function loadArrowRuntime(): Promise<ArrowMemoryRuntime> {
   return await import('@dzupagent/memory-ipc') as unknown as ArrowMemoryRuntime
 }
@@ -89,7 +99,10 @@ export class AgentMemoryContextLoader {
     this.loadArrowRuntime = config.loadArrowRuntime ?? loadArrowRuntime
   }
 
-  async load(messages: BaseMessage[]): Promise<{ context: string | null; frame?: unknown }> {
+  async load(
+    messages: BaseMessage[],
+    memoryReadContext: AgentMemoryReadContext | undefined = this.config.memoryReadContext,
+  ): Promise<{ context: string | null; frame?: unknown }> {
     const memory = this.config.memory
     const scope = this.config.memoryScope
     const namespace = this.config.memoryNamespace
@@ -148,19 +161,23 @@ export class AgentMemoryContextLoader {
           scope,
           messages,
           resolvedArrowConfig,
+          memoryReadContext,
         )
       }
     }
 
-    return await this.loadStandardMemoryContext(memory, namespace, scope)
+    return await this.loadStandardMemoryContext(memory, namespace, scope, memoryReadContext)
   }
 
   private async loadStandardMemoryContext(
     memory: AgentMemoryService,
     namespace: string,
     scope: Record<string, string>,
+    memoryReadContext?: AgentMemoryReadContext,
   ): Promise<{ context: string | null }> {
-    const records = await memory.get(namespace, scope)
+    const records = memoryReadContext
+      ? await memory.get(namespace, scope, undefined, memoryReadContext)
+      : await memory.get(namespace, scope)
     const context = memory.formatForPrompt(records) || null
     return { context }
   }
@@ -171,6 +188,7 @@ export class AgentMemoryContextLoader {
     scope: Record<string, string>,
     messages: BaseMessage[],
     arrowCfg: ResolvedArrowMemoryConfig,
+    memoryReadContext?: AgentMemoryReadContext,
   ): Promise<{ context: string | null }> {
     const memoryBudget = this.computeMemoryBudget(messages, arrowCfg).memoryBudget
     const fallbackBudget = Math.min(
@@ -182,7 +200,9 @@ export class AgentMemoryContextLoader {
       return { context: null }
     }
 
-    const records = await memory.get(namespace, scope)
+    const records = memoryReadContext
+      ? await memory.get(namespace, scope, undefined, memoryReadContext)
+      : await memory.get(namespace, scope)
     const maxCharsPerItem = Math.max(
       1,
       Math.floor((fallbackBudget * FALLBACK_CHARS_PER_TOKEN) / 10),

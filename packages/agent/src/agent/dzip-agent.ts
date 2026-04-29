@@ -144,6 +144,9 @@ export class DzupAgent {
       memory: config.memory,
       memoryNamespace: config.memoryNamespace,
       memoryScope: config.memoryScope,
+      memoryReadContext: config.toolExecution?.runId
+        ? { runId: config.toolExecution.runId }
+        : undefined,
       arrowMemory: config.arrowMemory,
       memoryProfile: config.memoryProfile,
       frozenSnapshot: config.frozenSnapshot,
@@ -238,7 +241,8 @@ export class DzupAgent {
       resolvedModel: this.resolvedModel,
       messages,
       options,
-      prepareMessages: (inputMessages) => this.prepareMessages(inputMessages),
+      prepareMessages: (inputMessages) =>
+        this.prepareMessages(inputMessages, this.resolveMemoryReadContext(options)),
       getTools: () => this.getTools(),
       bindTools: (model, tools) => this.bindTools(model, tools),
       runBeforeAgentHooks: () => this.runBeforeAgentHooks(),
@@ -280,7 +284,8 @@ export class DzupAgent {
         agentId: this.id,
         config: this.config,
         resolvedModel: this.resolvedModel,
-        prepareMessages: (inputMessages) => this.prepareMessages(inputMessages),
+        prepareMessages: (inputMessages) =>
+          this.prepareMessages(inputMessages, this.resolveMemoryReadContext(options)),
         generate: (msgs, opts) => this.generate(msgs, opts),
         resolveStructuredOutputCapabilities,
       },
@@ -322,7 +327,8 @@ export class DzupAgent {
         resolvedTier: this.resolvedTier,
         registry: this.config.registry,
         getProviderAttempts: (tools) => this.getProviderAttempts(tools),
-        prepareMessages: (inputMessages) => this.prepareMessages(inputMessages),
+        prepareMessages: (inputMessages) =>
+          this.prepareMessages(inputMessages, this.resolveMemoryReadContext(options)),
         getTools: () => this.getTools(),
         bindTools: (model, tools) => this.bindTools(model, tools),
         runBeforeAgentHooks: () => this.runBeforeAgentHooks(),
@@ -511,6 +517,7 @@ export class DzupAgent {
 
   private async prepareMessages(
     messages: BaseMessage[],
+    memoryReadContext?: { runId: string },
   ): Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }> {
     const baseInstructions = await this.resolveInstructions()
     const windowedMessages = await this.applyPhaseWindow(messages)
@@ -519,7 +526,7 @@ export class DzupAgent {
     let memoryFrame: unknown = undefined
     if (this.config.memory && this.config.memoryScope && this.config.memoryNamespace) {
       try {
-        const result = await this.memoryContextLoader.load(windowedMessages)
+        const result = await this.memoryContextLoader.load(windowedMessages, memoryReadContext)
         memoryContext = result.context
         if (this.config.arrowMemory || this.config.memoryProfile) {
           memoryFrame = result.frame ?? null
@@ -561,6 +568,11 @@ export class DzupAgent {
     })
 
     return { messages: preparedMessages, memoryFrame }
+  }
+
+  private resolveMemoryReadContext(options?: GenerateOptions): { runId: string } | undefined {
+    const runId = options?.runId ?? this.config.toolExecution?.runId
+    return runId ? { runId } : undefined
   }
 
   private async applyPhaseWindow(messages: BaseMessage[]): Promise<BaseMessage[]> {

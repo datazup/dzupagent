@@ -54,7 +54,12 @@ export async function launchDaemon(
   })
 
   // Start execution asynchronously — do NOT await
-  runInBackground(ctx, messages, handle, options?.generateOptions).catch(
+  const generateOptions = {
+    ...options?.generateOptions,
+    runId: options?.generateOptions?.runId ?? runId,
+  }
+
+  runInBackground(ctx, messages, handle, generateOptions).catch(
     (err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       handle._fail(message)
