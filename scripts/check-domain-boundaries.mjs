@@ -39,6 +39,7 @@ const repoRoot = process.cwd()
 const packagesDir = join(repoRoot, 'packages')
 const tiersConfigPath = join(repoRoot, 'config', 'package-tiers.json')
 const architectureConfigPath = join(repoRoot, 'config', 'architecture-boundaries.json')
+const publicApiAllowlistsPath = join(repoRoot, 'config', 'public-api-allowlists.json')
 
 /**
  * Domain packages that were moved out of dzupagent/packages/.
@@ -159,6 +160,7 @@ const workspacePackages = listWorkspacePackages()
 
 let tiersConfig
 let architectureConfig
+let publicApiAllowlistsConfig = {}
 try {
   tiersConfig = JSON.parse(readFileSync(tiersConfigPath, 'utf8'))
 } catch (err) {
@@ -170,6 +172,14 @@ try {
 } catch (err) {
   console.error(`Failed to read ${architectureConfigPath}: ${err.message}`)
   process.exit(2)
+}
+if (existsSync(publicApiAllowlistsPath)) {
+  try {
+    publicApiAllowlistsConfig = JSON.parse(readFileSync(publicApiAllowlistsPath, 'utf8'))
+  } catch (err) {
+    console.error(`Failed to read ${publicApiAllowlistsPath}: ${err.message}`)
+    process.exit(2)
+  }
 }
 
 const layerGraph = architectureConfig.layerGraph
@@ -632,7 +642,55 @@ const packagePairBoundaryViolations = collectPackagePairBoundaryViolations(
 )
 
 // ---------------------------------------------------------------------------
-// Section 10 — Server route product-boundary classification check
+// Section 10 — Internal broad-root import policy check
+// ---------------------------------------------------------------------------
+
+function collectInternalBroadRootImportViolations(packages) {
+  const policy = publicApiAllowlistsConfig.internalBroadRootImportPolicy
+  if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return []
+
+  const targetSpecifiers = new Set(policy.targetSpecifiers ?? [])
+  const enforcedFiles = new Set(policy.enforcedFiles ?? [])
+  const migrationAllowlist = new Set(
+    (policy.migrationAllowlist ?? []).map((entry) => `${entry.file}|${entry.specifier}`),
+  )
+
+  if (targetSpecifiers.size === 0 || enforcedFiles.size === 0) return []
+
+  const violations = []
+
+  for (const pkg of packages) {
+    if (!pkg.name) continue
+    const sourceFiles = listProductionSourceFiles(join(pkg.root, 'src'))
+
+    for (const file of sourceFiles) {
+      const relativeFile = file.replace(repoRoot + '/', '')
+      if (!enforcedFiles.has(relativeFile)) continue
+
+      const source = readFileSync(file, 'utf8')
+      for (const sourceImport of collectDzupSourceImports(source)) {
+        if (!targetSpecifiers.has(sourceImport.specifier)) continue
+
+        const allowlistKey = `${relativeFile}|${sourceImport.specifier}`
+        if (migrationAllowlist.has(allowlistKey)) continue
+
+        violations.push({
+          importer: pkg.name,
+          specifier: sourceImport.specifier,
+          file: relativeFile,
+          line: sourceImport.line,
+        })
+      }
+    }
+  }
+
+  return violations
+}
+
+const internalBroadRootImportViolations = collectInternalBroadRootImportViolations(workspacePackages)
+
+// ---------------------------------------------------------------------------
+// Section 11 — Server route product-boundary classification check
 // ---------------------------------------------------------------------------
 
 function collectServerRouteBoundaryViolations() {
@@ -880,6 +938,25 @@ if (packagePairBoundaryViolations.length > 0) {
   console.error()
 }
 
+if (internalBroadRootImportViolations.length > 0) {
+  failed = true
+  console.error('INTERNAL BROAD ROOT IMPORT VIOLATIONS')
+  console.error('=====================================')
+  console.error('Selected internal source files must not import broad package roots')
+  console.error('without an explicit migration allowlist entry in config/public-api-allowlists.json.\n')
+
+  for (const v of internalBroadRootImportViolations) {
+    console.error(`  FORBIDDEN: ${v.importer} imports ${v.specifier}`)
+    console.error(`  FILE:      ${v.file}:${v.line}`)
+    console.error()
+  }
+
+  console.error('How to fix:')
+  console.error('  - Prefer an existing stable subpath import such as /runtime, /orchestration, or /quick-start.')
+  console.error('  - If no safe subpath exists in this slice, add a specific migrationAllowlist entry.')
+  console.error()
+}
+
 if (serverRouteBoundaryViolations.length > 0) {
   failed = true
   console.error('SERVER ROUTE PRODUCT-BOUNDARY VIOLATIONS')
@@ -927,5 +1004,5 @@ if (serverRouteBoundaryViolations.length > 0) {
 if (failed) {
   process.exitCode = 1
 } else {
-  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, runtime cycles, undeclared source imports, package-pair boundary violations, or unclassified server route files found.')
+  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, runtime cycles, undeclared source imports, package-pair boundary violations, internal broad root import violations, or unclassified server route files found.')
 }

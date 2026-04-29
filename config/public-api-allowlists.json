@@ -1,4 +1,18 @@
 {
+  "internalBroadRootImportPolicy": {
+    "targetSpecifiers": [
+      "@dzupagent/core",
+      "@dzupagent/agent",
+      "@dzupagent/codegen"
+    ],
+    "enforcedFiles": [
+      "packages/flow-compiler/src/lower/_shared.ts",
+      "packages/server/src/runtime/dzip-agent-run-executor.ts",
+      "packages/agent-adapters/src/registry/adapter-registry.ts",
+      "packages/rag/src/qdrant-factory.ts"
+    ],
+    "migrationAllowlist": []
+  },
   "packages": [
     {
       "packageName": "@dzupagent/core",

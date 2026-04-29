@@ -25,24 +25,26 @@ import type {
 } from '@dzupagent/flow-ast'
 import type {
   AgentHandle,
+  McpToolHandle,
+  SkillHandle,
+  WorkflowHandle,
+} from '@dzupagent/core/advanced'
+import type {
   AgentNode,
   ForkNode,
   GateNode,
   JoinNode,
   LoopNode,
-  McpToolHandle,
   PipelineEdge,
   PipelineNode,
   SequentialEdge,
-  SkillHandle,
   SuspendNode,
   ToolNode,
-  WorkflowHandle,
-} from '@dzupagent/core'
+} from '@dzupagent/core/orchestration'
 
 // Re-export handle types for internal consumers that previously imported
 // them from this module. Keeps the public surface of this file stable while
-// the canonical definitions now live in @dzupagent/core.
+// the canonical definitions now live in @dzupagent/core/advanced.
 export type { AgentHandle, McpToolHandle, SkillHandle, WorkflowHandle }
 
 // ---------------------------------------------------------------------------
