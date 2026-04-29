@@ -217,5 +217,12 @@ export interface TeamRunResult {
   /** Total duration in milliseconds. */
   durationMs: number
   /** The coordination pattern used. */
-  pattern: 'supervisor' | 'peer-to-peer' | 'blackboard'
+  pattern:
+    | 'supervisor'
+    | 'contract-net'
+    | 'blackboard'
+    | 'peer-to-peer'
+    | 'council'
+    | 'single-participant'
+    | 'breaker-short-circuit'
 }
