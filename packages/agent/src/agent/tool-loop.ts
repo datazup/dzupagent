@@ -30,6 +30,7 @@ import type { ToolCall } from './tool-loop/contracts.js'
 import { executeModelTurn } from './tool-loop/model-turn-kernel.js'
 import { executePolicyEnabledToolCall } from './tool-loop/policy-enabled-tool-executor.js'
 import { scheduleToolCalls } from './tool-loop/tool-scheduler-kernel.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 // Note: parallel-executor.ts still exports the standalone semaphore
 // primitive (executeToolsParallel) for callers that want raw parallel
 // dispatch without the policy stack. The tool-loop's parallel path was
@@ -560,13 +561,13 @@ export async function runToolLoop(
     // and stuck-detection behavior.
     const results = await scheduleToolCalls(
       toolCalls,
-      {
+      omitUndefined({
         parallelTools: config.parallelTools,
         maxParallelTools: config.maxParallelTools,
         signal: config.signal,
         agentId: config.agentId,
         toolPermissionPolicy: config.toolPermissionPolicy,
-      },
+      }),
       (toolCall) => executePolicyEnabledToolCall(toolCall, {
         toolMap,
         config,
@@ -715,12 +716,12 @@ export async function runToolLoop(
   const stuckError = stopReason === 'stuck'
     ? new StuckError({
         reason: lastStuckReason ?? 'Agent stuck with no progress',
-        repeatedTool: lastStuckToolName,
+        ...(lastStuckToolName !== undefined ? { repeatedTool: lastStuckToolName } : {}),
         escalationLevel: (Math.max(1, Math.min(stuckStage, 3)) as 1 | 2 | 3),
       })
     : undefined
 
-  return {
+  return omitUndefined({
     messages: allMessages,
     totalInputTokens,
     totalOutputTokens,
@@ -729,5 +730,5 @@ export async function runToolLoop(
     stopReason,
     toolStats,
     stuckError,
-  }
+  })
 }

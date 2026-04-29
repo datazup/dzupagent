@@ -66,6 +66,7 @@ import {
   extractJsonFromText,
 } from './structured-generate.js'
 import { maybeWriteBackMemory as maybeWriteBackMemoryFinalizer } from './agent-finalizers.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // Re-export for backward compatibility — tests and external consumers
 // import `extractJsonFromText` from `dzip-agent.js`.
@@ -127,13 +128,13 @@ export class DzupAgent {
         createCheckMailTool({ mailbox: mailboxImpl }),
       ]
     }
-    this.instructionResolver = new AgentInstructionResolver({
+    this.instructionResolver = new AgentInstructionResolver(omitUndefined({
       agentId: this.id,
       instructions: config.instructions,
       instructionsMode: config.instructionsMode,
       agentsDir: config.agentsDir,
-    })
-    this.memoryContextLoader = new AgentMemoryContextLoader({
+    }))
+    this.memoryContextLoader = new AgentMemoryContextLoader(omitUndefined({
       instructions: config.instructions,
       memory: config.memory,
       memoryNamespace: config.memoryNamespace,
@@ -145,7 +146,7 @@ export class DzupAgent {
       onFallback: config.onFallback
         ? (reason, before, after) => {
             config.onFallback!(reason, before, after)
-            config.eventBus?.emit({
+            config.eventBus?.emit(omitUndefined({
               type: 'agent:context_fallback',
               agentId: this.id,
               reason,
@@ -153,11 +154,11 @@ export class DzupAgent {
               after,
               provider: 'arrow',
               namespace: config.memoryNamespace,
-            })
+            }))
           }
         : config.eventBus
           ? (reason, before, after) => {
-              config.eventBus!.emit({
+              config.eventBus!.emit(omitUndefined({
                 type: 'agent:context_fallback',
                 agentId: this.id,
                 reason,
@@ -165,14 +166,14 @@ export class DzupAgent {
                 after,
                 provider: 'arrow',
                 namespace: config.memoryNamespace,
-              })
+              }))
             }
           : undefined,
       // Bridge structured detail into eventBus so listeners receive the
       // richer fields (provider, namespace, detail) on the same event type.
       onFallbackDetail: (event) => {
         config.onFallbackDetail?.(event)
-        config.eventBus?.emit({
+        config.eventBus?.emit(omitUndefined({
           type: 'agent:context_fallback',
           agentId: this.id,
           reason: event.reason,
@@ -181,13 +182,13 @@ export class DzupAgent {
           provider: event.provider,
           namespace: event.namespace,
           detail: event.detail,
-        })
+        }))
       },
-    })
-    this.middlewareRuntime = new AgentMiddlewareRuntime({
+    }))
+    this.middlewareRuntime = new AgentMiddlewareRuntime(omitUndefined({
       agentId: this.id,
       middleware: config.middleware,
-    })
+    }))
   }
 
   /**
@@ -227,7 +228,7 @@ export class DzupAgent {
     messages: BaseMessage[],
     options?: GenerateOptions,
   ): Promise<GenerateResult> {
-    const runState = await prepareRunState({
+    const runState = await prepareRunState(omitUndefined({
       config: this.config,
       resolvedModel: this.resolvedModel,
       messages,
@@ -236,9 +237,9 @@ export class DzupAgent {
       getTools: () => this.getTools(),
       bindTools: (model, tools) => this.bindTools(model, tools),
       runBeforeAgentHooks: () => this.runBeforeAgentHooks(),
-    })
+    }))
 
-    const result = await executeGenerateRun({
+    const result = await executeGenerateRun(omitUndefined({
       agentId: this.id,
       config: this.config,
       options,
@@ -249,7 +250,7 @@ export class DzupAgent {
         this.transformToolResultWithMiddleware(toolName, input, result),
       maybeUpdateSummary: (allMessages, memoryFrame) =>
         this.maybeUpdateSummary(allMessages, memoryFrame),
-    })
+    }))
 
     if ((result.stopReason as string) !== 'failed') {
       await this.maybeWriteBackMemory(result.content)

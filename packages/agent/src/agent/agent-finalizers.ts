@@ -11,6 +11,7 @@ import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { shouldSummarize, summarizeAndTrim } from '@dzupagent/context'
 import type { DzupAgentConfig } from './agent-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 export interface UpdateSummaryParams {
   agentId: string
@@ -49,7 +50,7 @@ export async function maybeUpdateSummary(
       messages,
       conversationSummary,
       summaryModel,
-      {
+      omitUndefined({
         ...config.messageConfig,
         ...(memoryFrame ? { memoryFrame } : {}),
         onFallback: config.onFallback
@@ -74,7 +75,7 @@ export async function maybeUpdateSummary(
                 })
               }
             : undefined,
-      },
+      }),
     )
     return summary
   } catch {

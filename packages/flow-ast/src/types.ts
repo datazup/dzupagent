@@ -104,6 +104,7 @@ export type ClassifyNode = FlowNodeBase & {
   prompt: string
   choices: string[]
   outputKey: string
+  defaultChoice?: string
 }
 export type EmitNode = FlowNodeBase & {
   type: 'emit'

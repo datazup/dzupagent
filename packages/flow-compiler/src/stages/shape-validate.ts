@@ -173,6 +173,13 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
       if (!isNonEmptyString(node.outputKey)) {
         errors.push(missing(node.type, path, 'classify.outputKey is required (non-empty string)'))
       }
+      if (node.defaultChoice !== undefined) {
+        if (!isNonEmptyString(node.defaultChoice)) {
+          errors.push(missing(node.type, path, 'classify.defaultChoice must be a non-empty string when present'))
+        } else if (!Array.isArray(node.choices) || !node.choices.includes(node.defaultChoice)) {
+          errors.push(missing(node.type, path, 'classify.defaultChoice must match one of classify.choices'))
+        }
+      }
       return
     }
     case 'emit': {

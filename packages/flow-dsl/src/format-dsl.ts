@@ -162,6 +162,7 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       lines.push(`${childIndent}prompt: ${quote(node.prompt)}`)
       lines.push(`${childIndent}choices: [${node.choices.map(quote).join(', ')}]`)
       lines.push(`${childIndent}output: ${node.outputKey}`)
+      if (node.defaultChoice) lines.push(`${childIndent}default: ${quote(node.defaultChoice)}`)
       return
     case 'emit':
       lines.push(`${indent}- emit:`)
