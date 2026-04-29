@@ -13,7 +13,6 @@ export default [
       '**/coverage/**',
       '**/.turbo/**',
       '**/.yarn/**',
-      '**/*.vue',
     ],
   },
   // Base rules for all source files (no type-aware linting)
