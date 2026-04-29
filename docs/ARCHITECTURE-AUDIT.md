@@ -2,149 +2,149 @@
 
 ## Findings
 
-### ARCHITECTURE-001 - High - Textual DSL coverage is behind the canonical AST and formatter
+### ARCHITECTURE-001 - Medium - Server root API still exposes a broad experimental and implementation surface
 
-**Impact:** `dzupflow/v1` is presented as the editable textual form for canonical flow documents, but users cannot author every canonical node kind through the parser even though the formatter can emit several of those kinds. This breaks format -> parse round trips, blocks textual authoring for runtime leaf capabilities, and makes the DSL an incomplete projection rather than a canonical authoring surface.
+**Impact:** `@dzupagent/server` remains a large semver surface rather than a narrow host-runtime entrypoint. Consumers can import route families, Drizzle schema internals, marketplace/persona/prompt/control-plane features, CLI helpers, deploy helpers, and runtime internals from the root package. That increases compatibility cost, makes product-boundary enforcement harder, and raises the blast radius of internal refactors.
 
-**Evidence:** The canonical `FlowNode` union includes `SpawnNode`, `ClassifyNode`, `EmitNode`, and `MemoryNode` in `packages/flow-ast/src/types.ts:43` through `packages/flow-ast/src/types.ts:48`, with their shapes defined in `packages/flow-ast/src/types.ts:96` through `packages/flow-ast/src/types.ts:122`. The formatter emits `spawn`, `classify`, `emit`, and `memory` wrappers in `packages/flow-dsl/src/format-dsl.ts:153` through `packages/flow-dsl/src/format-dsl.ts:184`. The normalizer switch only accepts `action`, `if`, `parallel`, `for_each`, `approval`, `clarify`, `persona`, `route`, `complete`, `checkpoint`, and `restore`, then reports any other wrapper as `UNKNOWN_NODE_TYPE` in `packages/flow-dsl/src/normalize.ts:259` through `packages/flow-dsl/src/normalize.ts:290`. Tests also encode unknown wrappers as hard errors in `packages/flow-dsl/src/__tests__/normalize.test.ts:669` through `packages/flow-dsl/src/__tests__/normalize.test.ts:675`.
+**Evidence:** The server root barrel exports memory, learning, benchmark, eval, playground, workflow, metrics, and persistence routes from `packages/server/src/index.ts:37`, `packages/server/src/index.ts:41`, `packages/server/src/index.ts:43`, `packages/server/src/index.ts:45`, `packages/server/src/index.ts:51`, `packages/server/src/index.ts:55`, and `packages/server/src/index.ts:57`. It also exports Drizzle schema tables directly from `packages/server/src/index.ts:71`, marketplace/config-store route families from `packages/server/src/index.ts:273`, trigger/schedule/persona/prompt/cluster surfaces from `packages/server/src/index.ts:299`, `packages/server/src/index.ts:316`, and `packages/server/src/index.ts:335`, CLI and scorecard helpers from `packages/server/src/index.ts:378` and `packages/server/src/index.ts:408`, runtime internals from `packages/server/src/index.ts:423`, and deploy helpers from `packages/server/src/index.ts:474`. A source-count check of `packages/server/src/index.ts` against `config/server-api-tiers.json` found 231 root export sources: 51 stable, 57 secondary, 92 experimental, and 31 internal/remove-root candidates. The package does have explicit subpaths in `packages/server/package.json:10` through `packages/server/package.json:27`, but the root still re-exports most of the same surface.
 
-**Remediation:** Introduce a single node-authoring registry or table shared by normalization, formatting, document-to-graph projection, and tests. Either add parser/normalizer support for `spawn`, `classify`, `emit`, and `memory`, or mark formatter output for unsupported nodes as impossible with a typed failure result instead of emitting DSL that the parser rejects. Add round-trip tests for every `FlowNode` variant.
+**Remediation:** Treat the server root contraction as an active architecture task: keep only the stable host/runtime primitives at `@dzupagent/server`, move candidate surfaces behind `@dzupagent/server/runtime`, `@dzupagent/server/ops`, `@dzupagent/server/compat`, and future feature-specific subpaths, and add migration shims only where current consumers require them. Use the existing tier metadata to fail new root exports that are `candidate-subpath` or `remove-root`, not just document them.
 
-### ARCHITECTURE-002 - High - Formatter output is not value-preserving
+### ARCHITECTURE-002 - Medium - Product-control-plane compatibility has leaked into the server config seam
 
-**Impact:** A canonical document formatted back to textual DSL can lose or change data before it is parsed again. That undermines canonicalization and makes the formatter risky for editor save-on-format, generated examples, or review artifacts.
+**Impact:** The repository says new product-control-plane work should live in consuming apps, but `ForgeServerConfig` still contains prompt, persona, preset, marketplace, reflection, mailbox, cluster, learning, benchmark, eval, trigger, schedule, A2A, MCP, workflow, and compile fields. Even if many are compatibility surfaces, keeping them on the aggregate server config makes the path of least resistance adding more product-specific state to `packages/server`.
 
-**Evidence:** `FlowInputSpec.default` is part of the canonical input contract in `packages/flow-ast/src/types.ts:16` through `packages/flow-ast/src/types.ts:21`, and normalization preserves valid defaults in `packages/flow-dsl/src/normalize.ts:756` through `packages/flow-dsl/src/normalize.ts:771`. The formatter emits input `type`, `required`, and `description`, but never emits `spec.default` in `packages/flow-dsl/src/format-dsl.ts:17` through `packages/flow-dsl/src/format-dsl.ts:25`. For arbitrary scalar values, the formatter emits arrays inline and objects via `JSON.stringify` in `packages/flow-dsl/src/format-dsl.ts:227` through `packages/flow-dsl/src/format-dsl.ts:232`, while the parser only understands inline arrays by splitting on commas and does not parse inline objects in `packages/flow-dsl/src/mini-yaml.ts:277` through `packages/flow-dsl/src/mini-yaml.ts:282`. That means object-valued action inputs or metadata can come back as strings rather than structured values.
+**Evidence:** The server boundary policy says route files are frozen and new product-control-plane routes belong in consuming apps through route plugins or app-owned Hono composition in `config/architecture-boundaries.json:70` through `config/architecture-boundaries.json:72`. The same package still exposes route-family config groups for evaluation, adapters, automation, and control-plane stores in `packages/server/src/composition/types.ts:244` through `packages/server/src/composition/types.ts:320`, then folds all of them into `ForgeRouteFamiliesConfig` and `ForgeServerConfig` in `packages/server/src/composition/types.ts:322` through `packages/server/src/composition/types.ts:370`. Optional route composition mounts those fields as built-in routes, including learning/evals/playground/A2A/config stores/reflections/mailbox clusters in `packages/server/src/composition/optional-routes.ts:81` through `packages/server/src/composition/optional-routes.ts:126`, with concrete mounts in `packages/server/src/composition/optional-routes.ts:164` through `packages/server/src/composition/optional-routes.ts:268`.
 
-**Remediation:** Make the formatter return a `Result` when a value cannot be represented losslessly, or teach it to emit nested YAML for every `FlowValue` shape and extend the parser accordingly. Add fixture-based format -> parse -> validate tests covering input defaults, nested objects, arrays of objects, quoted commas, and metadata.
+**Remediation:** Freeze `ForgeServerConfig` for compatibility and stop adding new product fields to it. Move future product-specific route options into app-owned plugin configs, and introduce a smaller `ForgeHostRuntimeConfig` for new hosts. Existing optional route families can remain, but they should be marked compatibility-only in types and docs and gradually moved behind route plugins.
 
-### ARCHITECTURE-003 - Medium - Graph conversion can silently mask invalid node IDs
+### ARCHITECTURE-003 - Medium - Runtime tool resolution bypasses package boundaries with source-path dynamic imports
 
-**Impact:** `documentToGraph()` is exported as a standalone public helper but does not enforce the canonical document invariants it relies on. If callers pass unchecked objects or ASTs with missing/duplicate IDs, graph projection can synthesize IDs, drop duplicate nodes, and suppress duplicate edges instead of returning diagnostics. This produces lossy graph views that look valid.
+**Impact:** `packages/server` resolves Git and connector tools by dynamically importing sibling package source files such as `../../../codegen/src/...ts` and `../../../connectors/src/...ts`. That bypasses package `exports`, creates a source-layout dependency across package boundaries, and makes local development behavior differ from packaged runtime behavior. It also concentrates connector, MCP, Git workspace, token-profile, and security-policy logic into one 983-line server module.
 
-**Evidence:** `documentToGraph()` projects directly from `document.root.nodes` without validating the document in `packages/flow-dsl/src/document-to-graph.ts:15` through `packages/flow-dsl/src/document-to-graph.ts:18`. It synthesizes IDs for nodes without an `id` in `packages/flow-dsl/src/document-to-graph.ts:39` through `packages/flow-dsl/src/document-to-graph.ts:41`, and `pushNode` / `pushEdge` silently skip duplicate IDs in `packages/flow-dsl/src/document-to-graph.ts:116` through `packages/flow-dsl/src/document-to-graph.ts:129`. The canonical validator separately requires non-empty IDs and rejects duplicates in `packages/flow-ast/src/validate.ts:1397` through `packages/flow-ast/src/validate.ts:1419`. Current graph tests explicitly accept auto-generated IDs for nodes without IDs in `packages/flow-dsl/src/__tests__/graph.test.ts:173` through `packages/flow-dsl/src/__tests__/graph.test.ts:183`.
+**Evidence:** `resolveGitFactory()` prefers monorepo source files from `packages/codegen` before falling back to `@dzupagent/codegen` in `packages/server/src/runtime/tool-resolver.ts:367` through `packages/server/src/runtime/tool-resolver.ts:400`. `resolveConnectorFactory()` similarly falls back to source files under `packages/connectors/src` in `packages/server/src/runtime/tool-resolver.ts:700` through `packages/server/src/runtime/tool-resolver.ts:715`. The same file defines profile types and security policy handling in `packages/server/src/runtime/tool-resolver.ts:18` through `packages/server/src/runtime/tool-resolver.ts:43`, metadata and connector profile selection in `packages/server/src/runtime/tool-resolver.ts:188` through `packages/server/src/runtime/tool-resolver.ts:336`, MCP metadata policy parsing in `packages/server/src/runtime/tool-resolver.ts:459` through `packages/server/src/runtime/tool-resolver.ts:560`, and all built-in resolver dispatch in `packages/server/src/runtime/tool-resolver.ts:735` through `packages/server/src/runtime/tool-resolver.ts:983`.
 
-**Remediation:** Add a validating projection API, for example `validateAndDocumentToGraph(document): { ok, graph, diagnostics }`, and make direct projection either private or clearly documented as unsafe. Prefer failing on duplicate IDs in graph conversion because duplicate canonical IDs are structural defects, not deduplication opportunities.
+**Remediation:** Replace source-path dynamic imports with exported package subpaths or injected factories. For example, expose stable Git tool factories from `@dzupagent/codegen/tools` and connector factories from `@dzupagent/connectors`, then make the server resolver depend only on those contracts. Split resolver policy, MCP resolution, connector resolution, and Git resolution into focused modules with narrow tests.
 
-### ARCHITECTURE-004 - Medium - Parallel branch names are encoded in freeform metadata
+### ARCHITECTURE-004 - Medium - Public API allowlist governance covers only part of the supported package surface
 
-**Impact:** Branch identity is a graph and formatting concern, but the AST has no dedicated field for branch names. The DSL stores branch names in `meta.branchNames`, so semantic branch labels can collide with user metadata, drift from branch order, or be fabricated by callers that construct canonical documents directly.
+**Impact:** The strongest API-surface governance applies to `@dzupagent/core`, `@dzupagent/agent`, `@dzupagent/codegen`, and the derived server inventory, but many tier-1 supported packages still expose only a root barrel with no allowlist or subpath migration plan. This leaves public API sprawl in major consumer-facing packages outside the consistency gate.
 
-**Evidence:** `ParallelNode` only stores `branches: FlowNode[][]` in `packages/flow-ast/src/types.ts:94`. The DSL normalizer captures named YAML branches and writes them into `meta.branchNames` in `packages/flow-dsl/src/normalize.ts:377` through `packages/flow-dsl/src/normalize.ts:425`. The formatter then reads `node.meta?.['branchNames']` to choose emitted branch keys in `packages/flow-dsl/src/format-dsl.ts:82` through `packages/flow-dsl/src/format-dsl.ts:93`, and graph projection uses the same metadata for edge labels in `packages/flow-dsl/src/document-to-graph.ts:95` through `packages/flow-dsl/src/document-to-graph.ts:106`. Tests also rely on `meta.branchNames` for branch labels in `packages/flow-dsl/src/__tests__/graph.test.ts:104` through `packages/flow-dsl/src/__tests__/graph.test.ts:140`.
+**Evidence:** `config/package-tiers.json` marks `@dzupagent/agent-adapters` as tier 1 and roadmap-driving in `config/package-tiers.json:74` through `config/package-tiers.json:84`, alongside other tier-1 packages such as memory, context, rag, connectors, otel, runtime-contracts, agent-types, eval-contracts, and cache in `config/package-tiers.json:28` through `config/package-tiers.json:140`. `config/public-api-allowlists.json` only lists `@dzupagent/core`, `@dzupagent/agent`, and `@dzupagent/codegen` in `config/public-api-allowlists.json:2` through `config/public-api-allowlists.json:145`. `@dzupagent/agent-adapters` exports only the root subpath in `packages/agent-adapters/package.json:8` through `packages/agent-adapters/package.json:13`, while its root barrel exports adapters, registry/router, middleware, orchestration, sessions, A/B testing, MCP, approval, recovery, HTTP, persistence, learning, policy compiler, dzupagent sync, interaction, provider catalog, normalization, and enrichment from `packages/agent-adapters/src/index.ts:41` through `packages/agent-adapters/src/index.ts:543`.
 
-**Remediation:** Promote branch names into a typed AST construct, such as `ParallelBranch { id?: string; name: string; nodes: FlowNode[] }`, or define a reserved metadata namespace with validation that length and order match `branches`. Update formatter and graph projection to consume that typed representation.
+**Remediation:** Extend public API allowlists to every tier-1 package, starting with `@dzupagent/agent-adapters`, `@dzupagent/memory`, `@dzupagent/context`, `@dzupagent/rag`, `@dzupagent/connectors`, and `@dzupagent/otel`. Add explicit subpaths for large packages and classify root exports as stable, transitional, or internal-only candidates.
 
-### ARCHITECTURE-005 - Medium - Structural validation rules diverge between textual DSL and canonical AST/compiler paths
+### ARCHITECTURE-005 - Medium - The contract layer mixes type contracts with runtime-heavy primitives
 
-**Impact:** A flow can be invalid in the textual DSL but valid as canonical JSON or direct compiler input. That weakens the promise that textual DSL normalization, document validation, and compiler shape validation describe the same language.
+**Impact:** The layer graph describes layer 0 as type-only or zero-runtime-dependency foundations, but it contains packages that export runtime validators, parsers, cache backends, Arrow IPC operations, and Postgres HITL stores. This does not currently create a package cycle, but it makes the layer name misleading and weakens architectural reasoning about what can safely sit at the bottom of the graph.
 
-**Evidence:** The textual normalizer requires `parallel.branches` to define at least two named branches in `packages/flow-dsl/src/normalize.ts:388` through `packages/flow-dsl/src/normalize.ts:416`. The canonical AST validator rejects only zero branches in `packages/flow-ast/src/validate.ts:808` through `packages/flow-ast/src/validate.ts:845`, and the compiler shape validator also rejects only zero branches in `packages/flow-compiler/src/stages/shape-validate.ts:81` through `packages/flow-compiler/src/stages/shape-validate.ts:92`. The low-level AST parser accepts any array length and does not enforce the two-branch rule in `packages/flow-ast/src/parse.ts:605` through `packages/flow-ast/src/parse.ts:635`.
+**Evidence:** The layer graph labels layer 0 as "Type-only / zero-runtime-dep foundations" in `config/architecture-boundaries.json:155` through `config/architecture-boundaries.json:171`. `@dzupagent/flow-ast` describes itself as "pure, runtime-free types" in `packages/flow-ast/package.json:5`, but the package root exports `parse.js` and `validate.js` from `packages/flow-ast/src/index.ts:1` through `packages/flow-ast/src/index.ts:3`; `validate.ts` implements a Zod-compatible runtime validation surface starting at `packages/flow-ast/src/validate.ts:1` through `packages/flow-ast/src/validate.ts:29`. `@dzupagent/cache`, also in layer 0, exports `InMemoryCacheBackend`, `RedisCacheBackend`, and `CacheMiddleware` from `packages/cache/src/index.ts:9` through `packages/cache/src/index.ts:12` and declares optional `ioredis` peer dependency in `packages/cache/package.json:20` through `packages/cache/package.json:27`. `@dzupagent/memory-ipc` declares runtime dependencies on `apache-arrow` and `zod` in `packages/memory-ipc/package.json:22` through `packages/memory-ipc/package.json:25`.
 
-**Remediation:** Decide whether a one-branch parallel is semantically valid. If it is invalid, enforce the rule in `flow-ast` and compiler shape validation. If it is valid, relax the textual normalizer. Add cross-entry tests that feed the same structure through DSL, document JSON, and direct compiler input.
+**Remediation:** Either rename the bottom layer to something accurate like "leaf runtime primitives" or split pure contracts from runtime helpers. If the intent is truly type-only contracts, move parse/validate/cache/IPC runtime implementations to layer 1 packages and keep layer 0 export surfaces declaration-only.
 
-### ARCHITECTURE-006 - Medium - The custom mini-YAML parser is an under-specified language boundary
+### ARCHITECTURE-006 - Low - Internal packages still depend heavily on broad root barrels
 
-**Impact:** The textual DSL depends on a bespoke YAML subset parser rather than a documented grammar or a standard YAML parser. This makes authoring semantics hard to reason about, especially for quoted strings, inline arrays, comments, nested structured values, and future language additions.
+**Impact:** Root imports such as `@dzupagent/core`, `@dzupagent/agent`, and `@dzupagent/codegen` are common inside production packages. This makes root-barrel contraction harder, hides the actual subdomain dependencies of individual modules, and increases source-level circularity risk even when the package-level dependency graph is acyclic.
 
-**Evidence:** The parser tokenizes by raw indentation and skips only whole-line comments in `packages/flow-dsl/src/mini-yaml.ts:104` through `packages/flow-dsl/src/mini-yaml.ts:127`. Mapping keys are limited to identifier-like strings in `packages/flow-dsl/src/mini-yaml.ts:34` through `packages/flow-dsl/src/mini-yaml.ts:48`. Quoted strings are unwrapped without escape interpretation in `packages/flow-dsl/src/mini-yaml.ts:268` through `packages/flow-dsl/src/mini-yaml.ts:272`, and inline arrays are parsed with a simple comma split in `packages/flow-dsl/src/mini-yaml.ts:277` through `packages/flow-dsl/src/mini-yaml.ts:280`. The package description presents parser, formatter, validator, and graph projection as public package behavior in `packages/flow-dsl/package.json:2` through `packages/flow-dsl/package.json:5`.
+**Evidence:** `flow-compiler` lowers pipeline nodes by importing many pipeline and handle types from the `@dzupagent/core` root in `packages/flow-compiler/src/lower/_shared.ts:26` through `packages/flow-compiler/src/lower/_shared.ts:41`. `server` imports `DzupAgent` from the `@dzupagent/agent` root and cost/tool-event helpers from the `@dzupagent/core` root in `packages/server/src/runtime/dzip-agent-run-executor.ts:1` through `packages/server/src/runtime/dzip-agent-run-executor.ts:9`. `agent-adapters` imports `CircuitBreaker` and `ForgeError` from the `@dzupagent/core` root in `packages/agent-adapters/src/registry/adapter-registry.ts:19` through `packages/agent-adapters/src/registry/adapter-registry.ts:20`. `rag` imports Qdrant and embedding contracts from the `@dzupagent/core` root in `packages/rag/src/qdrant-factory.ts:9` through `packages/rag/src/qdrant-factory.ts:10`.
 
-**Remediation:** Either formalize the YAML subset in a grammar and compliance test suite, or adopt a mature YAML parser and validate the parsed object against the DSL schema. Keep the supported subset explicit in docs so formatter, parser, and examples cannot drift.
+**Remediation:** Prefer stable subpaths for internal package imports, especially where `public-api-allowlists.json` already defines a target subpath. Add a lint or architecture check that flags root imports from selected packages unless they are explicitly allowlisted during migration.
 
-### ARCHITECTURE-007 - Low - Source-location diagnostics stop after syntax parsing
+### ARCHITECTURE-007 - Low - Several responsibility clusters are oversized enough to slow safe change
 
-**Impact:** Authoring tools can point at YAML syntax failures, but normalization and validation failures only carry logical paths. This limits editor integrations and makes complex nested flow errors harder to connect back to the text the user wrote.
+**Impact:** Large modules are not automatically defects, but several files combine enough distinct responsibilities that future changes will be hard to review and test locally. This is structural because these files sit on core flows: flow validation, adapter recovery, team runtime, pipeline runtime, server tool resolution, run routes, and agent execution.
 
-**Evidence:** `DslDiagnostic` supports an optional `span` in `packages/flow-dsl/src/types.ts:10` through `packages/flow-dsl/src/types.ts:17`. `parseDslToDocument()` fills spans only when `parseYamlSubset()` returns parser errors in `packages/flow-dsl/src/parse-dsl.ts:10` through `packages/flow-dsl/src/parse-dsl.ts:26`. Normalization diagnostics are created with paths but no spans throughout `packages/flow-dsl/src/normalize.ts`, for example unsupported top-level fields in `packages/flow-dsl/src/normalize.ts:146` through `packages/flow-dsl/src/normalize.ts:160` and required action fields in `packages/flow-dsl/src/normalize.ts:333` through `packages/flow-dsl/src/normalize.ts:340`. Validation diagnostics similarly map schema issues to path-only diagnostics in `packages/flow-dsl/src/document-validate.ts:11` through `packages/flow-dsl/src/document-validate.ts:20`.
+**Evidence:** A current source line-count pass, excluding tests and generated/dependency paths, found large production modules: `packages/flow-ast/src/validate.ts` at 1522 lines, `packages/agent-adapters/src/recovery/adapter-recovery.ts` at 1281 lines, `packages/agent/src/orchestration/team/team-runtime.ts` at 1057 lines, `packages/agent/src/pipeline/pipeline-runtime.ts` at 1024 lines, `packages/server/src/runtime/tool-resolver.ts` at 983 lines, `packages/server/src/routes/runs.ts` at 920 lines, and `packages/agent/src/agent/run-engine.ts` at 917 lines. The `runs` route file registers the whole run lifecycle surface, streaming, trace, pause/resume/fork/checkpoint handling, and owner/tenant helpers in one route module as shown by `packages/server/src/routes/runs.ts:1` through `packages/server/src/routes/runs.ts:44` and helper/handler setup in `packages/server/src/routes/runs.ts:45` through `packages/server/src/routes/runs.ts:160`.
 
-**Remediation:** Preserve source ranges while parsing into the intermediate object, or maintain a path-to-span source map from the mini-YAML tokenizer. Use that map when emitting normalization and validation diagnostics.
+**Remediation:** Split by stable responsibility boundaries, not by arbitrary line count: route schemas and owner-scope helpers, run lifecycle handlers, SSE/trace handlers, adapter recovery policy vs trace capture, and flow validator schema descriptors vs traversal. Add regression tests around the extracted seams before changing behavior.
 
-### ARCHITECTURE-008 - Low - Public API exports internal stages without stability boundaries
+### ARCHITECTURE-008 - Low - Server route-boundary enforcement is file-presence based, not endpoint-behavior based
 
-**Impact:** Consumers can import normalizers, validators, graph conversion, and formatter internals from the root package, making it harder to change internals without breaking downstream code. This is public API sprawl in a package that is still shaping its canonical authoring contract.
+**Impact:** The route boundary check prevents new unclassified route files, which is useful, but it does not prevent product endpoints, new config fields, or broader behavior from being added inside already-classified files. That leaves a governance escape hatch exactly where compatibility route files are already broad.
 
-**Evidence:** The package exports only the root subpath in `packages/flow-dsl/package.json:8` through `packages/flow-dsl/package.json:13`, and the root index re-exports `types`, `errors`, `canonicalize-dsl`, `parse-dsl`, `format-dsl`, `normalize`, `document-validate`, and `document-to-graph` in `packages/flow-dsl/src/index.ts:1` through `packages/flow-dsl/src/index.ts:8`. The compiler imports only the high-level canonicalization bridge through `canonicalizeDsl` in `packages/flow-compiler/src/authoring-input.ts:1` through `packages/flow-compiler/src/authoring-input.ts:3`, so most root exports are tooling conveniences rather than required compiler surface.
+**Evidence:** The check requires production files under `packages/server/src/routes/**` to be declared in `serverRouteBoundaries.routeFileClassifications`, as documented in `scripts/check-domain-boundaries.mjs:1` through `scripts/check-domain-boundaries.mjs:28`. The implementation builds a set of route file paths and reports missing, duplicate, stale, or invalid classifications in `scripts/check-domain-boundaries.mjs:625` through `scripts/check-domain-boundaries.mjs:723`. It does not inspect route mounts, path patterns, HTTP methods, handler names, or config-interface growth. The current route policy already classifies 60 production route files, including compatibility-maintenance product-like route files such as clusters, learning, marketplace, personas, prompts, schedules, and triggers in `config/architecture-boundaries.json:101` through `config/architecture-boundaries.json:133`.
 
-**Remediation:** Define a stable public root with `parseDslToDocument`, `canonicalizeDsl`, `formatDocumentToDsl`, and documented types. Move lower-level helpers behind explicit subpaths such as `@dzupagent/flow-dsl/internal` or `@dzupagent/flow-dsl/testing`, or document them as unstable before external consumers rely on them.
+**Remediation:** Keep the file classification check, but add a second generated route manifest that records mounted method/path pairs and owning category. Require review when an existing server route file adds a new endpoint or when `ForgeServerConfig` gains a new route-family field.
 
-### ARCHITECTURE-009 - Low - Flow-node behavior is duplicated across oversized visitors
+### ARCHITECTURE-009 - Low - Server API surface freshness is not part of the default verify gate
 
-**Impact:** Adding or changing a node kind requires coordinated edits across multiple large switch-based modules. TypeScript exhaustiveness catches some omissions, but it does not catch semantic drift where every switch compiles but the parser, formatter, validator, graph projector, and compiler disagree on behavior.
+**Impact:** The repo has a dedicated server API surface freshness check, but `yarn verify` does not run it. As a result, root-surface docs can drift while the preferred PR gate stays green, weakening the synthesis and review automation that depends on those docs.
 
-**Evidence:** Node handling is duplicated in `normalizeNodeWrapper` in `packages/flow-dsl/src/normalize.ts:221` through `packages/flow-dsl/src/normalize.ts:291`, formatter dispatch in `packages/flow-dsl/src/format-dsl.ts:57` through `packages/flow-dsl/src/format-dsl.ts:201`, graph projection in `packages/flow-dsl/src/document-to-graph.ts:39` through `packages/flow-dsl/src/document-to-graph.ts:113`, canonical validation in `packages/flow-ast/src/validate.ts:347` through `packages/flow-ast/src/validate.ts:421`, and compiler shape validation in `packages/flow-compiler/src/stages/shape-validate.ts:34` through `packages/flow-compiler/src/stages/shape-validate.ts:205`. The largest focused modules are sizeable: `packages/flow-ast/src/validate.ts` is 1522 lines and `packages/flow-dsl/src/normalize.ts` is 905 lines.
+**Evidence:** The root `verify` script runs inventory, improvements drift, package tiers, domain boundaries, terminal tool event guards, and Turbo build/typecheck/lint/test in `package.json:22` through `package.json:31`. The server API check exists separately as `check:server-api-surface` in `package.json:34`. In this audit, `yarn -s check:server-api-surface` failed with `SERVER_API_SURFACE_INDEX.md is stale. Run: yarn docs:server-api-surface`, while `yarn -s check:domain-boundaries` and `yarn -s check:package-tiers` passed.
 
-**Remediation:** Introduce shared traversal helpers and node descriptor tables for child collections, DSL wrapper names, formatter names, and structural requirements. Keep per-stage validation messages local, but centralize the structural metadata that currently has to be retyped in every visitor.
+**Remediation:** Add `check:server-api-surface` to `verify` and `verify:strict`, or explicitly document why it is intentionally outside the default PR gate. If it remains separate, the audit/synthesis wrapper should run it before trusting server API-surface docs.
 
-### ARCHITECTURE-010 - Low - DSL bridge tests tolerate failure on valid-looking DSL examples
+### ARCHITECTURE-010 - Info - Some build entry metadata is stale even though the forced core build succeeds
 
-**Impact:** The compiler-level DSL bridge can regress while tests still pass, because some integration tests only assert that a result exists or allow either success or graceful failure. That reduces confidence in the architecture seam between `flow-dsl` and `flow-compiler`.
+**Impact:** Stale build entries create confusion during architecture review and can hide whether intended subpaths are supported. In this case the forced build succeeded, so this is not a current build failure, but the source of truth is inconsistent.
 
-**Evidence:** The `compileDsl()` e2e test for a valid DSL string accepts a failure result as long as errors are present in `packages/flow-compiler/src/__tests__/e2e.test.ts:222` through `packages/flow-compiler/src/__tests__/e2e.test.ts:245`. The `prepareFlowInputFromDsl` test similarly accepts either `ok` or non-empty errors for a DSL snippet named valid in `packages/flow-compiler/src/__tests__/e2e.test.ts:328` through `packages/flow-compiler/src/__tests__/e2e.test.ts:359`. More focused compiler tests do assert a valid `compileDsl()` path in `packages/flow-compiler/test/compile.test.ts:167` through `packages/flow-compiler/test/compile.test.ts:188`, so this is not a total coverage gap, but the integration seam is weaker than it should be.
+**Evidence:** `packages/core/tsup.config.ts` still lists `src/memory-ipc.ts` and `src/facades/memory.ts` as entries in `packages/core/tsup.config.ts:4` through `packages/core/tsup.config.ts:14`. Those files are absent from `packages/core/src`; `packages/core/src/facades` currently contains `index.ts`, `orchestration.ts`, `quick-start.ts`, and `security.ts`. `packages/core/package.json` exports `./stable`, `./advanced`, `./quick-start`, `./orchestration`, `./security`, and `./facades`, but no `./memory-ipc` or `./facades/memory`, in `packages/core/package.json:7` through `packages/core/package.json:36`. A forced `yarn -s turbo run build --filter=@dzupagent/core --force` completed successfully and the tsup log built only existing entries, so the stale entries did not fail this run.
 
-**Remediation:** Make e2e bridge tests deterministic: valid DSL must produce `ok`/success, invalid DSL must produce specific diagnostics, and source examples should include nested values plus every supported node kind. Keep graceful-failure tests for intentionally malformed inputs only.
+**Remediation:** Remove the stale entries from `packages/core/tsup.config.ts` or restore the intended source files and package exports. Add a small build-config consistency check that verifies every configured entry file exists and every exported dist file has a corresponding source entry.
 
-### ARCHITECTURE-011 - Info - Package layering is clean, but dependency metadata is slightly noisy
+## Scope Reviewed
 
-**Impact:** The package dependency direction is healthy: `flow-ast` is foundational, `flow-dsl` depends on `flow-ast`, and `flow-compiler` consumes both without a reverse dependency. The minor issue is metadata noise that can confuse future dependency audits or publishing checks.
+Reviewed the prepared repo snapshot first: `/media/ninel/Second/code/datazup/ai-internal-dev/audit/full-dzupagent-2026-04-29/run-001/codex-prep/context/repo-snapshot.md`.
 
-**Evidence:** `@dzupagent/flow-ast` has no runtime dependencies in `packages/flow-ast/package.json:23` through `packages/flow-ast/package.json:26`. `@dzupagent/flow-dsl` declares `@dzupagent/flow-ast` in both `dependencies` and `devDependencies` in `packages/flow-dsl/package.json:23` through `packages/flow-dsl/package.json:31`. `@dzupagent/flow-compiler` declares `@dzupagent/flow-dsl` as a dependency, `@dzupagent/flow-ast` as a peer dependency, and also includes `@dzupagent/flow-ast` in devDependencies in `packages/flow-compiler/package.json:26` through `packages/flow-compiler/package.json:40`. Source imports follow the same acyclic layering: compiler imports `flow-ast` / `flow-dsl`, DSL imports `flow-ast`, and AST imports only local modules.
+Reviewed live source/config selectively for the architecture domain:
 
-**Remediation:** Keep the layering as-is. Consider removing duplicate workspace entries where Yarn publishing and local build behavior allow it, or document why a package appears in both runtime and dev dependency groups.
+- Root workspace scripts and governance config: `package.json`, `config/architecture-boundaries.json`, `config/package-tiers.json`, `config/public-api-allowlists.json`, `config/server-api-tiers.json`.
+- Boundary/generation scripts: `scripts/check-domain-boundaries.mjs`, `scripts/server-api-surface-report.mjs`.
+- Package manifests and public barrels across `packages/core`, `packages/agent`, `packages/codegen`, `packages/agent-adapters`, `packages/server`, `packages/flow-ast`, `packages/cache`, and `packages/memory-ipc`.
+- Server composition and runtime seams: `packages/server/src/index.ts`, `packages/server/src/app.ts`, `packages/server/src/composition/*`, `packages/server/src/runtime.ts`, `packages/server/src/runtime/tool-resolver.ts`, `packages/server/src/runtime/dzip-agent-run-executor.ts`, and representative route modules.
+- Representative downstream imports from `flow-compiler`, `server`, `agent-adapters`, and `rag`.
 
-## Finding Manifest
+Generated/dependency paths and prior/old audit artifacts were not used as evidence. Existing generated API docs were not relied on as source of truth; the stale-doc result came from the current checker output.
+
+Validation actually run during this audit:
+
+- `yarn -s check:domain-boundaries` - passed.
+- `yarn -s check:package-tiers` - passed.
+- `yarn -s check:server-api-surface` - failed because `SERVER_API_SURFACE_INDEX.md` is stale.
+- `yarn -s turbo run build --filter=@dzupagent/core --force` - passed.
+
+No runtime behavior tests were run.
+
+## Strengths
+
+- The repository has explicit package-tier and layer-graph governance, and the current package-level graph check passed without forbidden imports, missing classifications, package-pair violations, or runtime dependency cycles.
+- `packages/server` now has real subpaths (`./ops`, `./runtime`, `./compat`) and route plugin seams, which are the right direction for reducing root API pressure.
+- Server route files are at least classified by architecture category, so new unclassified route files cannot silently appear under `packages/server/src/routes/**`.
+- `@dzupagent/core`, `@dzupagent/agent`, and `@dzupagent/codegen` already have public API allowlist metadata and migration windows, which provides a concrete pattern to extend to other supported packages.
+- The product boundary is documented in both repository guidance and source comments, and `createForgeApp` composition is split across focused helper files rather than a single monolithic app factory.
+
+## Open Questions Or Assumptions
+
+- I treated root export sprawl as a compatibility and architecture risk, not as a current runtime bug.
+- I assumed `packages/server` should remain maintenance/compatibility-oriented per the provided AGENTS instructions and the current `serverRouteBoundaries` policy.
+- I did not classify existing generated docs as authoritative; where generated docs were stale, I treated the live source/config/check output as authoritative.
+- I did not run full `yarn verify`; the audit only used the focused static checks and one forced package build listed above.
+
+## Recommended Next Actions
+
+1. Add `check:server-api-surface` to the default verification gate or make the audit wrapper run it before synthesis.
+2. Start a server-root contraction slice: move `remove-root` and experimental exports off `@dzupagent/server` root behind existing or new subpaths, and document migration aliases.
+3. Extend public API allowlists to all tier-1 packages, beginning with `@dzupagent/agent-adapters`.
+4. Replace server source-path dynamic imports with package subpath imports or injected factories for codegen and connectors.
+5. Decide whether layer 0 means true type-only contracts or leaf runtime primitives, then rename/split packages accordingly.
+6. Add route-manifest drift detection for endpoint additions inside already-classified server route files.
+7. Clean stale `@dzupagent/core` tsup entries or restore the intended source/subpath files.
 
 ```json
 {
   "domain": "architecture",
-  "counts": { "critical": 0, "high": 2, "medium": 4, "low": 4, "info": 1 },
+  "counts": { "critical": 0, "high": 0, "medium": 5, "low": 4, "info": 1 },
   "findings": [
-    { "id": "ARCHITECTURE-001", "severity": "high", "title": "Textual DSL coverage is behind the canonical AST and formatter", "file": "packages/flow-dsl/src/normalize.ts" },
-    { "id": "ARCHITECTURE-002", "severity": "high", "title": "Formatter output is not value-preserving", "file": "packages/flow-dsl/src/format-dsl.ts" },
-    { "id": "ARCHITECTURE-003", "severity": "medium", "title": "Graph conversion can silently mask invalid node IDs", "file": "packages/flow-dsl/src/document-to-graph.ts" },
-    { "id": "ARCHITECTURE-004", "severity": "medium", "title": "Parallel branch names are encoded in freeform metadata", "file": "packages/flow-ast/src/types.ts" },
-    { "id": "ARCHITECTURE-005", "severity": "medium", "title": "Structural validation rules diverge between textual DSL and canonical AST/compiler paths", "file": "packages/flow-dsl/src/normalize.ts" },
-    { "id": "ARCHITECTURE-006", "severity": "medium", "title": "The custom mini-YAML parser is an under-specified language boundary", "file": "packages/flow-dsl/src/mini-yaml.ts" },
-    { "id": "ARCHITECTURE-007", "severity": "low", "title": "Source-location diagnostics stop after syntax parsing", "file": "packages/flow-dsl/src/parse-dsl.ts" },
-    { "id": "ARCHITECTURE-008", "severity": "low", "title": "Public API exports internal stages without stability boundaries", "file": "packages/flow-dsl/src/index.ts" },
-    { "id": "ARCHITECTURE-009", "severity": "low", "title": "Flow-node behavior is duplicated across oversized visitors", "file": "packages/flow-dsl/src/normalize.ts" },
-    { "id": "ARCHITECTURE-010", "severity": "low", "title": "DSL bridge tests tolerate failure on valid-looking DSL examples", "file": "packages/flow-compiler/src/__tests__/e2e.test.ts" },
-    { "id": "ARCHITECTURE-011", "severity": "info", "title": "Package layering is clean, but dependency metadata is slightly noisy", "file": "packages/flow-dsl/package.json" }
+    { "id": "ARCHITECTURE-001", "severity": "medium", "title": "Server root API still exposes a broad experimental and implementation surface", "file": "packages/server/src/index.ts" },
+    { "id": "ARCHITECTURE-002", "severity": "medium", "title": "Product-control-plane compatibility has leaked into the server config seam", "file": "packages/server/src/composition/types.ts" },
+    { "id": "ARCHITECTURE-003", "severity": "medium", "title": "Runtime tool resolution bypasses package boundaries with source-path dynamic imports", "file": "packages/server/src/runtime/tool-resolver.ts" },
+    { "id": "ARCHITECTURE-004", "severity": "medium", "title": "Public API allowlist governance covers only part of the supported package surface", "file": "config/public-api-allowlists.json" },
+    { "id": "ARCHITECTURE-005", "severity": "medium", "title": "The contract layer mixes type contracts with runtime-heavy primitives", "file": "config/architecture-boundaries.json" },
+    { "id": "ARCHITECTURE-006", "severity": "low", "title": "Internal packages still depend heavily on broad root barrels", "file": "packages/flow-compiler/src/lower/_shared.ts" },
+    { "id": "ARCHITECTURE-007", "severity": "low", "title": "Several responsibility clusters are oversized enough to slow safe change", "file": "packages/server/src/runtime/tool-resolver.ts" },
+    { "id": "ARCHITECTURE-008", "severity": "low", "title": "Server route-boundary enforcement is file-presence based, not endpoint-behavior based", "file": "scripts/check-domain-boundaries.mjs" },
+    { "id": "ARCHITECTURE-009", "severity": "low", "title": "Server API surface freshness is not part of the default verify gate", "file": "package.json" },
+    { "id": "ARCHITECTURE-010", "severity": "info", "title": "Some build entry metadata is stale even though the forced core build succeeds", "file": "packages/core/tsup.config.ts" }
   ]
 }
 ```
-
-## Scope Reviewed
-
-This was a baseline source review for the architecture domain, focused on textual DSL parsing, normalization, canonicalization, formatting, document validation, and graph conversion. I read `context/repo-snapshot.md` first from the prepared audit pack, then selectively inspected:
-
-- `packages/flow-dsl/src/**` and its focused tests.
-- `packages/flow-ast/src/**` and AST validation/parse tests where needed for canonical contract comparison.
-- `packages/flow-compiler/src/authoring-input.ts`, `packages/flow-compiler/src/cli-input.ts`, selected compiler tests, and package metadata to verify the bridge from DSL/document input into compilation.
-- Workspace/package metadata relevant to boundaries, layering, public API surface, and circularity risk.
-
-Generated files, dependency directories, `dist`, and old audit artifacts were not used as evidence. No runtime validation, test execution, or build execution was performed for this audit.
-
-## Strengths
-
-- The package layering is directionally sound: AST is foundational, DSL depends on AST, and compiler consumes both through a narrow authoring bridge.
-- `canonicalizeDsl()` fails closed when parsing or validation produces diagnostics, and does not emit graph output for invalid DSL.
-- `flowDocumentSchema` enforces canonical document invariants such as non-empty document metadata and unique node IDs.
-- The textual DSL explicitly rejects graph-style top-level `nodes` / `edges`, which keeps the authoring format distinct from graph projection.
-- Parser, normalizer, formatter, validator, graph projection, and compiler bridge code are separated into dedicated files rather than one monolithic DSL package file.
-- There are focused tests for normalization, formatting, validation, graph projection, canonicalization, and compiler input bridging, even though several round-trip and parity gaps remain.
-
-## Open Questions Or Assumptions
-
-- I treated `dzupflow/v1` as intended to be a durable editable textual DSL because the package description and compiler bridge expose it as a parser/formatter/canonicalization path.
-- I treated formatter output as expected to be parseable unless a function contract says otherwise. If formatting is only meant for display, the API and docs should say so and should not be used as a persistence path.
-- I did not assume one-branch `parallel` is invalid or valid; the finding is that DSL and canonical/compiler paths currently disagree.
-- I did not inspect product consumers outside this repo for workaround behavior. Findings are based on current framework package contracts only.
-- I treated server/playground as outside the product feature path per repository guidance; this audit does not recommend adding new product DSL behavior there.
-
-## Recommended Next Actions
-
-1. Close the high-impact round-trip gaps first: align parser/normalizer support with formatter output and preserve `FlowInputSpec.default` plus nested structured values.
-2. Decide the canonical branch representation for `parallel`; remove `meta.branchNames` as semantic storage or validate it as a reserved metadata namespace.
-3. Unify validation invariants across textual DSL, canonical document validation, and compiler shape validation, starting with `parallel.branches`.
-4. Add a fixture matrix that checks DSL parse, document validation, format round-trip, graph projection, and compiler bridge behavior for every canonical node kind.
-5. Harden `documentToGraph()` as a validating API or move unchecked projection behind an internal/testing surface.
-6. Reduce public API sprawl in `@dzupagent/flow-dsl` after the stable root contract is clarified.

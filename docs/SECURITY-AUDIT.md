@@ -2,218 +2,155 @@
 
 ## Findings
 
-### SECURITY-001 - High - API key revoke/rotate endpoints are not owner-scoped
+### SECURITY-001 - High - A2A push callbacks allow server-side request forgery and task data exfiltration
 
-**Impact:** Any authenticated caller that can reach `/api/keys/:id` or `/api/keys/:id/rotate` can revoke or rotate another owner's API key if they know or guess the key record UUID. Rotation returns a fresh raw key for the victim owner, turning an authorization bug into credential takeover for that owner scope.
+**Impact:** An authenticated A2A caller that owns a task can configure an arbitrary push notification URL. When that task reaches a terminal state, the server POSTs the full task payload to that URL from the server network. In a production deployment this can be used to reach internal services, cloud metadata endpoints, or attacker-controlled endpoints, and it can exfiltrate task inputs, messages, artifacts, and optional callback bearer tokens.
 
-**Evidence:** `createApiKeyRoutes` resolves an owner only for create/list (`resolveOwnerId(c)` at `packages/server/src/routes/api-keys.ts:141` and `packages/server/src/routes/api-keys.ts:162`). The revoke path fetches by raw id and calls `store.revoke(id)` without comparing `existing.ownerId` to the requester (`packages/server/src/routes/api-keys.ts:168`). The rotate path does the same, then creates and returns a replacement raw key under `existing.ownerId` (`packages/server/src/routes/api-keys.ts:182`, `packages/server/src/routes/api-keys.ts:206`).
+**Evidence:** `handlePushNotificationSet` only checks that `pushNotificationConfig.url` is a string before persisting it for an owned task (`packages/server/src/routes/a2a/jsonrpc-handlers.ts:202`, `packages/server/src/routes/a2a/jsonrpc-handlers.ts:212`). `DrizzleA2ATaskStore` later sends `fetch(config.url, ...)` with the full serialized task body and optional `Authorization: Bearer ${config.token}` when a task is completed or failed (`packages/server/src/a2a/drizzle-a2a-task-store.ts:24`, `packages/server/src/a2a/drizzle-a2a-task-store.ts:33`, `packages/server/src/a2a/drizzle-a2a-task-store.ts:126`). This path does not use the shared outbound URL policy used by MCP HTTP transports.
 
-**Remediation:** Enforce ownership or an explicit admin role before revoke/rotate. For non-admin callers, require `existing.ownerId === resolveOwnerId(c)` and return 404 on mismatch. Add tests for cross-owner revoke and rotate attempts.
+**Remediation:** Apply the shared outbound URL policy to A2A push callbacks before storing and before delivering them. Default to HTTPS public destinations, block loopback/private/link-local/metadata ranges, validate DNS and redirects, and support host allowlists for deployments that need internal callbacks. Consider redacting sensitive task fields from callback bodies and making callback tokens write-only.
 
-### SECURITY-002 - High - Global RBAC allows many management routes to bypass authorization
+### SECURITY-002 - Medium - Run input guard redaction happens after raw input is persisted and returned
 
-**Impact:** When API-key auth is enabled, roles such as `viewer`, `agent`, or `operator` can still reach state-changing management routes whose path segment is not mapped by `pathToResource`. This includes API-key management, registry mutation, triggers, schedules, prompts/personas/presets/marketplace/reflections, deploy/eval/benchmark surfaces, and mailbox operations depending on configured integrations.
+**Impact:** Sensitive user input, PII, prompt-injection payloads, and oversized inputs can be accepted, stored, queued, and returned to the caller before the input guard runs. If the worker is delayed, disabled, or fails before the guard stage, the unredacted payload remains in persistence and API responses. The length guard also does not protect JSON parsing or initial database writes.
 
-**Evidence:** The RBAC middleware only maps `agents`, `runs`, `tools`, `approve`, and `reject` to resources (`packages/server/src/middleware/rbac.ts:100`). If the path is not recognized, it calls `next()` (`packages/server/src/middleware/rbac.ts:172`). Core and optional route mounting exposes many more `/api/*` route groups (`packages/server/src/composition/core-routes.ts:31`, `packages/server/src/composition/optional-routes.ts:177`, `packages/server/src/composition/optional-routes.ts:189`). Schedules can create/update/delete/trigger workflows (`packages/server/src/routes/schedules.ts:19`, `packages/server/src/routes/schedules.ts:74`, `packages/server/src/routes/schedules.ts:91`, `packages/server/src/routes/schedules.ts:100`), and triggers can store webhook secrets and toggle execution (`packages/server/src/routes/triggers.ts:15`, `packages/server/src/routes/triggers.ts:85`).
+**Evidence:** `handleCreateRun` parses the request, only size-checks `metadata`, then persists `body.input` directly in `runStore.create` (`packages/server/src/routes/runs.ts:149`, `packages/server/src/routes/runs.ts:153`, `packages/server/src/routes/runs.ts:278`). Queued runs enqueue and respond with `run.input` before worker redaction (`packages/server/src/routes/runs.ts:300`, `packages/server/src/routes/runs.ts:315`). The worker guard scans later in `runAdmissionStage` and updates the stored run only after detecting redacted input (`packages/server/src/runtime/run-worker-stages.ts:67`, `packages/server/src/runtime/run-worker-stages.ts:103`). The guard documentation says callers are expected to overwrite input before persistence and enforces a default maximum serialized input length of 50,000 characters (`packages/server/src/security/input-guard.ts:16`, `packages/server/src/security/input-guard.ts:19`).
 
-**Remediation:** Make RBAC deny-by-default for unknown `/api/*` route groups, then explicitly map every mounted route group to a resource/action. Add route-level guards for high-risk groups such as `/api/keys`, `/api/registry`, `/api/triggers`, `/api/schedules`, `/api/deploy`, `/api/evals`, `/api/benchmarks`, `/api/prompts`, `/api/personas`, and `/api/marketplace`.
+**Remediation:** Move input guard scanning, length checks, and redaction into the HTTP create-run path before `runStore.create`, queue enqueue, routing classification, and response serialization. Keep the worker guard as defense in depth, but make boundary admission fail closed for rejected input and persist only the redacted input when redaction is enabled.
 
-### SECURITY-003 - High - Metadata-controlled HTTP connector base URLs can target internal services
+### SECURITY-003 - Medium - HTTP connector redirect chains bypass the validated base-origin policy
 
-**Impact:** A caller that can create a run with HTTP connector tools and metadata can make the server process send arbitrary HTTP requests to a metadata-controlled base origin. The connector blocks path-level origin escape after the base URL is chosen, but it does not prove the base origin is safe. In cloud or internal deployments this can reach localhost, private networks, or metadata endpoints.
+**Impact:** A server-side HTTP connector profile can validate a safe-looking base URL, but a tool call to that origin can follow a server-controlled redirect to loopback, private networks, link-local metadata services, or other disallowed hosts. This preserves the same-origin check at request construction while still allowing SSRF through native fetch redirects.
 
-**Evidence:** Tool resolution reads `context.metadata.httpBaseUrl` before falling back to `DZIP_HTTP_BASE_URL` (`packages/server/src/runtime/tool-resolver.ts:642`) and passes that value directly to `createHTTPConnector` with optional `metadata.httpHeaders` (`packages/server/src/runtime/tool-resolver.ts:648`, `packages/server/src/runtime/tool-resolver.ts:656`). The connector constructs `new URL(config.baseUrl)` and only checks that each request path stays on the configured origin (`packages/connectors/src/http/http-connector.ts:40`, `packages/connectors/src/http/http-connector.ts:43`). It does not reject private, loopback, link-local, non-HTTPS, or DNS-rebound destinations.
+**Evidence:** The server validates the configured HTTP connector `baseUrl` with `validateMcpHttpEndpoint` before creating the connector (`packages/server/src/runtime/tool-resolver.ts:897`, `packages/server/src/runtime/tool-resolver.ts:904`). The connector then only verifies that the requested path stays on `base.origin` (`packages/connectors/src/http/http-connector.ts:52`, `packages/connectors/src/http/http-connector.ts:55`). It performs a raw `fetch(url.toString(), ...)` without shared outbound URL policy enforcement or redirect revalidation (`packages/connectors/src/http/http-connector.ts:67`). By contrast, the core outbound URL policy includes redirect validation in `fetchWithOutboundUrlPolicy`.
 
-**Remediation:** Do not accept `metadata.httpBaseUrl` from untrusted runs by default. Resolve HTTP connector targets from server-side named profiles or allowlists, validate the selected origin with shared SSRF controls, and require explicit opt-in for internal hosts. Treat metadata-provided headers as secrets and limit them to approved profiles.
+**Remediation:** Replace raw connector fetches with the shared outbound URL policy wrapper and validate every redirect hop. Consider `redirect: 'manual'` plus explicit revalidation, HTTPS-by-default connector profiles, and per-profile allowed host checks at request time as well as registration time.
 
-### SECURITY-004 - High - Metadata-controlled Git cwd can expose or mutate arbitrary repositories
+### SECURITY-004 - Medium - Browser connector can navigate to arbitrary internal URLs and crawl off origin
 
-**Impact:** A caller that can request git tools and set run metadata can point the Git executor at an arbitrary filesystem path accessible to the server process. Git tools can read status/diff/logs and, for `git_commit`, stage and commit changes. In shared runners this can disclose or mutate repositories outside the intended workspace.
+**Impact:** Browser tools can be used as a server-side browser SSRF primitive. A caller can request screenshots, form extraction, accessibility extraction, or element extraction from internal HTTP services reachable from the server. The crawler can also leave the starting origin through discovered links unless the caller supplies restrictive include patterns.
 
-**Evidence:** Tool resolution uses `context.metadata.cwd` as the Git executor cwd when present (`packages/server/src/runtime/tool-resolver.ts:555`) and constructs `new GitExecutor({ cwd })` (`packages/server/src/runtime/tool-resolver.ts:558`). `GitExecutor` resolves that cwd with no workspace allowlist or root containment check (`packages/codegen/src/git/git-executor.ts:53`). The git commit tool can call `executor.addAll()` and `executor.commit(message)` (`packages/codegen/src/git/git-tools.ts:114`, `packages/codegen/src/git/git-tools.ts:130`).
+**Evidence:** Browser tool schemas accept any `z.string().url()` for `startUrl` or `url` (`packages/connectors-browser/src/browser-connector.ts:85`, `packages/connectors-browser/src/browser-connector.ts:109`, `packages/connectors-browser/src/browser-connector.ts:117`). The tools pass those URLs directly to Playwright `page.goto` (`packages/connectors-browser/src/browser-connector.ts:198`, `packages/connectors-browser/src/browser-connector.ts:252`, `packages/connectors-browser/src/browser-connector.ts:295`, `packages/connectors-browser/src/browser-connector.ts:338`). `PageCrawler` queues discovered links without a same-origin default (`packages/connectors-browser/src/crawler/page-crawler.ts:27`, `packages/connectors-browser/src/crawler/page-crawler.ts:113`).
 
-**Remediation:** Remove untrusted metadata control over Git cwd, or restrict it to a server-side workspace registry. Enforce a root allowlist before constructing `GitExecutor`, reject absolute paths outside the selected workspace, and require additional approval for mutating git tools.
+**Remediation:** Add a browser-navigation URL policy that blocks loopback, private, link-local, and metadata destinations by default and revalidates navigation redirects. Make crawling same-origin by default, with explicit allowlists for cross-origin crawling. Expose an intentional unsafe/private-network opt-in for controlled internal scanning deployments.
 
-### SECURITY-005 - High - LocalWorkspace permits absolute paths and traversal outside the workspace root
+### SECURITY-005 - Medium - Non-API active routes sit outside the shared RBAC and rate-limit middleware
 
-**Impact:** Any agent/tool flow using `LocalWorkspace` directly can read or write arbitrary host files if a tool call supplies an absolute path or `../` traversal. This undermines the expected project-root boundary for codegen tools and can expose secrets or overwrite files outside the intended checkout.
+**Impact:** Costly or state-changing surfaces mounted outside `/api/*` do not receive the framework RBAC layer and do not receive the configured framework rate limiter. OpenAI-compatible `/v1/*` routes can drive model execution under their own auth but without the shared rate limiter. A2A `/a2a` routes receive auth only when framework auth is configured, and they do not receive framework RBAC or rate limiting. This increases brute-force, denial-of-wallet, and task-abuse risk on deployments that expose those compatibility surfaces.
 
-**Evidence:** `resolvePath` returns absolute paths unchanged and otherwise resolves relative paths against `rootDir` (`packages/codegen/src/workspace/local-workspace.ts:106`). `readFile` and `writeFile` call `resolvePath` without checking that the resolved path stays under `rootDir` (`packages/codegen/src/workspace/local-workspace.ts:113`, `packages/codegen/src/workspace/local-workspace.ts:117`). Codegen tools pass model-supplied `filePath` through workspace read/write APIs (`packages/codegen/src/tools/write-file.tool.ts:18`, `packages/codegen/src/tools/edit-file.tool.ts:57`).
+**Evidence:** Auth, RBAC, and rate limiting are mounted only for `/api/*` in the shared middleware (`packages/server/src/composition/middleware.ts:167`, `packages/server/src/composition/middleware.ts:184`, `packages/server/src/composition/middleware.ts:190`). A2A routes are mounted at root and protect `/a2a` only with auth when `effectiveAuth` exists (`packages/server/src/composition/optional-routes.ts:201`, `packages/server/src/composition/optional-routes.ts:213`, `packages/server/src/composition/optional-routes.ts:236`). OpenAI compatibility routes are mounted under `/v1/*` with their own auth middleware but no shared rate limiter (`packages/server/src/composition/optional-routes.ts:321`, `packages/server/src/composition/optional-routes.ts:327`).
 
-**Remediation:** Replace `resolvePath` with a safe resolver that rejects absolute paths and any resolved path outside `rootDir` using `relative(rootDir, resolved)` checks. Apply the same guard to `cwd` in `runCommand`. Add path traversal tests for read, write, exists, search glob, and command cwd.
+**Remediation:** Extend rate limiting to `/a2a/*` and `/v1/*` when those surfaces are enabled. Add explicit RBAC or capability checks for A2A task mutation and OpenAI-compatible execution. Make the configuration surface clear that these routes need equivalent production controls even though they are not `/api/*`.
 
-### SECURITY-006 - Medium - Memory analytics routes ignore authoritative tenant scope
+### SECURITY-006 - Low - Request body size limits are late and inconsistent across JSON routes
 
-**Impact:** An authenticated user can query memory analytics for another tenant/owner scope by passing a crafted `scope` query parameter, even though export/import/browse routes force authenticated scope. Depending on the backing memory service, this can leak aggregate statistics and sampled memory-derived data from other scopes.
+**Impact:** Large JSON bodies can consume memory and CPU during parsing before route-level validation rejects them. This is a practical denial-of-service risk on public deployments, especially for routes that accept arbitrary records, compile requests, workflow payloads, MCP profiles, browser or memory data, and OpenAI-compatible chat bodies.
 
-**Evidence:** `createMemoryRoutes` applies `applyAuthoritativeScope` for `/export` and `/import` (`packages/server/src/routes/memory.ts:82`, `packages/server/src/routes/memory.ts:107`). The analytics helper `getMemoryTableFromQuery` separately parses caller-supplied `scope` JSON and passes it directly into `arrowMemory.exportFrame(namespace, scope, { limit: 10_000 })` (`packages/server/src/routes/memory.ts:127`, `packages/server/src/routes/memory.ts:143`). The tenant-scope helper comment says memory browse, export, import, and analytics routes must not trust caller-supplied scope (`packages/server/src/routes/memory-tenant-scope.ts:4`).
+**Evidence:** `applyMiddleware` does not install a global content-length or body-size guard (`packages/server/src/composition/middleware.ts:55`). Many server routes parse request bodies directly with `c.req.json()` or `validateBodyCompat`, including runs, workflows, schemas, MCP, memory, OpenAI compatibility, marketplace, and A2A routes (`packages/server/src/routes/runs.ts:149`, `packages/server/src/validation/route-validator.ts:32`, `packages/server/src/routes/a2a/jsonrpc-route.ts:77`). The create-run route checks only serialized `metadata` size after JSON parsing (`packages/server/src/routes/runs.ts:153`).
 
-**Remediation:** Route all analytics scope construction through `applyAuthoritativeScope(c, parsedScope, tenantScope)`. Add cross-tenant tests for every `/api/memory/analytics/*` endpoint.
+**Remediation:** Add a shared request body limit middleware that rejects oversized requests before JSON parsing, with route-specific overrides for legitimately large inputs. Also add per-field serialized-size checks for high-risk payloads such as run input, compile body, MCP profile payloads, and OpenAI-compatible messages.
 
-### SECURITY-007 - Medium - Outbound URL fetch surfaces lack shared SSRF controls
+### SECURITY-007 - Low - Low-level WebSocket control helper defaults can allow unscoped subscriptions
 
-**Impact:** Several reusable framework surfaces fetch operator- or agent-supplied URLs without blocking loopback, private networks, link-local metadata endpoints, DNS rebinding targets, or non-public redirects. In cloud or internal deployments this can be abused for SSRF against metadata services, internal admin panels, and private APIs.
+**Impact:** Hosts that wire the low-level WebSocket control helper directly can accidentally allow clients to subscribe to all runtime events by omitting a filter. The repository has safer scoped authorization helpers, but the lower-level default is fail-open for subscription scope.
 
-**Evidence:** MCP HTTP transport calls `fetch(`${config.url}/tools/list`)` and `fetch(`${config.url}/tools/call`)` with no destination validation (`packages/core/src/mcp/mcp-client.ts:279`, `packages/core/src/mcp/mcp-client.ts:379`). The scraper tool accepts arbitrary `url` input and passes it to HTTP/browser fetchers (`packages/scraper/src/scraper.ts:114`, `packages/scraper/src/scraper.ts:142`); `HttpFetcher` follows redirects and fetches target pages and `robots.txt` without private-network checks (`packages/scraper/src/http-fetcher.ts:113`, `packages/scraper/src/http-fetcher.ts:197`). Server notification channels post to configured webhook URLs directly (`packages/server/src/notifications/channels/webhook-channel.ts:36`, `packages/server/src/notifications/channels/email-webhook-channel.ts:45`). A URL validator exists in `agent-adapters`, but these server/MCP/scraper paths do not use it (`packages/agent-adapters/src/utils/url-validator.ts:102`).
+**Evidence:** `normalizeFilter` converts a missing filter to `{}` (`packages/server/src/ws/control-protocol.ts:49`). `createWsControlHandler` defaults `requireScopedSubscription` to `false` and only invokes `authorizeFilter` when the host supplied one (`packages/server/src/ws/control-protocol.ts:89`, `packages/server/src/ws/control-protocol.ts:94`, `packages/server/src/ws/control-protocol.ts:148`). Safer helpers reject missing upgrade guards and unscoped filters by default when used (`packages/server/src/ws/node-upgrade-handler.ts:63`, `packages/server/src/ws/node-upgrade-handler.ts:78`, `packages/server/src/ws/authorization.ts:63`, `packages/server/src/ws/authorization.ts:66`).
 
-**Remediation:** Move URL validation into a shared package and enforce it on all outbound URL-bearing features. Require `https` by default, reject loopback/private/link-local hosts, re-check every redirect hop, resolve DNS and block private resolved IPs, and provide explicit allowlist overrides for trusted internal deployments.
+**Remediation:** Change the low-level helper default to require scoped subscriptions, or require an explicit `allowUnscopedSubscriptions` option to preserve compatibility. Document the unsafe mode and add tests for omitted filters in direct `createWsControlHandler` usage.
 
-### SECURITY-008 - Medium - Framework app defaults to unauthenticated `/api/*` unless host config opts in
+### SECURITY-008 - Low - Sandbox-enabled codegen can silently fall back to local execution
 
-**Impact:** A host that instantiates `createForgeApp` without `config.auth` exposes all mounted `/api/*` routes without authentication. Because many dangerous integrations are mounted only when configured, this is most harmful in partially configured deployments where developers add stores/managers but omit auth.
+**Impact:** A host can configure a workspace with `sandbox.enabled` and assume tool execution is isolated, but if no sandbox instance is passed, the factory returns a local workspace. Because local command allowlists are optional, misconfiguration can turn intended sandboxed execution into host-local command execution within the configured workspace.
 
-**Evidence:** `applyAuthAndRbac` returns without mounting auth or RBAC if `!config.auth` (`packages/server/src/composition/middleware.ts:59`). The app then mounts run, agent, registry, API-key, memory, event, deploy, learning, eval, trigger, schedule, prompt, persona, mailbox, and other optional routes based on the rest of the config (`packages/server/src/composition/core-routes.ts:23`, `packages/server/src/composition/optional-routes.ts:66`). In contrast, OpenAI `/v1/*` auth fails closed when no validator is configured (`packages/server/src/routes/openai-compat/auth-middleware.ts:101`).
+**Evidence:** `WorkspaceFactory.create` returns `SandboxedWorkspace` only when both `options.sandbox?.enabled` and a `sandbox` instance are present; otherwise it returns `LocalWorkspace` (`packages/codegen/src/workspace/workspace-factory.ts:18`, `packages/codegen/src/workspace/workspace-factory.ts:21`, `packages/codegen/src/workspace/workspace-factory.ts:25`). `LocalWorkspace.runCommand` enforces `allowedCommands` only when the option is configured (`packages/codegen/src/workspace/local-workspace.ts:199`, `packages/codegen/src/workspace/local-workspace.ts:204`).
 
-**Remediation:** Introduce a production fail-closed mode for `/api/*`, or require an explicit `auth: { mode: 'none' }` opt-out with a startup warning/error when high-risk route groups are enabled. Document dev-only unauthenticated mode separately from production configuration.
+**Remediation:** Fail closed when `sandbox.enabled` is true but no sandbox backend is supplied, unless a separate explicit local fallback option is set. Require or strongly default command allowlists for local workspaces used by agent-controlled tools.
 
-### SECURITY-009 - Medium - CORS is globally wildcard by default
+### SECURITY-009 - Low - Marketplace tag filtering uses manual SQL literal construction
 
-**Impact:** Any browser origin can call the framework API by default. This is less severe for bearer-token APIs than cookie-authenticated apps, but it increases exposure for browser-held tokens, local development servers, and any future credentialed browser auth mode.
+**Impact:** The tag filter currently escapes single quotes before embedding an array literal with `sql.raw`, which reduces obvious injection risk but is still a fragile pattern for untrusted query input. Future changes to tag normalization, database dialect, or escaping could turn this into a SQL injection defect.
 
-**Evidence:** `applyCors` mounts CORS for all routes with `origin: config.corsOrigins ?? '*'` and allows `Authorization` headers (`packages/server/src/composition/middleware.ts:41`). The code only warns when open CORS is used, preserving the permissive default (`packages/server/src/composition/middleware.ts:48`).
+**Evidence:** `DrizzleCatalogStore.search` builds a Postgres array literal from `query.tags` with string replacement and injects it through `sql.raw` (`packages/server/src/marketplace/drizzle-catalog-store.ts:144`, `packages/server/src/marketplace/drizzle-catalog-store.ts:147`). Other filters in the same method use parameterized Drizzle helpers such as `ilike` and `eq` (`packages/server/src/marketplace/drizzle-catalog-store.ts:135`, `packages/server/src/marketplace/drizzle-catalog-store.ts:153`).
 
-**Remediation:** Default CORS to disabled or an explicit allowlist in production. If backward compatibility requires wildcard, gate it behind `allowWildcardCors: true` or a dev-mode flag and add tests that credentialed origins are not reflected broadly.
+**Remediation:** Replace the raw array literal with parameterized SQL or a Drizzle-supported array overlap expression that binds tag values as parameters. Add tests with quotes, commas, braces, backslashes, and long tag arrays.
 
-### SECURITY-010 - Medium - Public `/metrics` route bypasses app auth
+### SECURITY-010 - Low - Owner-scoped run listing leaks aggregate run counts inside a tenant
 
-**Impact:** Prometheus metrics can expose operational metadata such as route usage, error volumes, run activity, and potentially tenant/activity labels. If the Hono app is internet-facing and ingress does not block `/metrics`, unauthenticated users can scrape this data.
+**Impact:** A caller can learn the total number of matching runs in its tenant even when row data is filtered to the caller's API key owner. This is a low-grade tenant-boundary metadata leak that can reveal another key's run volume for a shared tenant.
 
-**Evidence:** `mountPrometheusMetricsRoute` mounts `/metrics` outside the `/api/*` auth middleware path when the configured collector is Prometheus (`packages/server/src/composition/optional-routes.ts:279`). The code comment acknowledges that the route is currently public and expects operators to block it at ingress (`packages/server/src/composition/optional-routes.ts:280`).
+**Evidence:** `handleListRuns` fetches tenant-filtered runs and then filters rows by `ownerId` for the requesting API key (`packages/server/src/routes/runs.ts:337`, `packages/server/src/routes/runs.ts:352`, `packages/server/src/routes/runs.ts:357`). The returned `total` uses `runStore.count` with agent, status, and tenant filters but no owner filter, and a comment states that this intentionally matches the unfiltered count when the store lacks ownerId count support (`packages/server/src/routes/runs.ts:362`, `packages/server/src/routes/runs.ts:369`, `packages/server/src/routes/runs.ts:373`).
 
-**Remediation:** Add framework-level protection for `/metrics`: bind on an internal listener, require a metrics token, or accept an explicit IP allowlist/middleware guard. Keep ingress blocking as defense in depth, not the only control.
+**Remediation:** Extend the run-store count interface to accept `ownerId` and return owner-scoped totals whenever auth is enabled. Until stores support owner-aware counts, return `visible.length` or omit `total` for owner-scoped listings.
 
-### SECURITY-011 - Medium - MCP HTTP/SSE endpoint registration has no private-network validation
+### SECURITY-011 - Low - Security-sensitive peer dependency ranges allow older consumer installs
 
-**Impact:** An authorized MCP administrator can register HTTP/SSE endpoints that target localhost, private networks, or link-local metadata services. This is a narrower SSRF case than the systemic outbound URL issue because MCP registration is admin-only by default, but MCP connectivity tests and tool calls can still reach internal services from the server process.
+**Impact:** Published packages can be installed with older peer versions that are outside the versions exercised by this repository's lockfile and security gate. Consumers may satisfy `express >=4.18.0` with a version older than the repository's dev dependency, leaving the adapter compatible with potentially stale web-server dependencies even if repository CI is clean.
 
-**Evidence:** The MCP route validates stdio executable allowlists, but not HTTP/SSE endpoint URLs before `mcpManager.addServer(body)` (`packages/server/src/routes/mcp.ts:107`, `packages/server/src/routes/mcp.ts:126`). The MCP client then calls `fetch` against `config.url` for discovery and calls (`packages/core/src/mcp/mcp-client.ts:279`, `packages/core/src/mcp/mcp-client.ts:379`). Metadata-defined MCP servers do validate HTTP/SSE scheme and can enforce `DZIP_MCP_ALLOWED_HTTP_HOSTS`, but the configured-server route does not require equivalent host policy (`packages/server/src/runtime/tool-resolver.ts:304`, `packages/server/src/runtime/tool-resolver.ts:311`).
+**Evidence:** `@dzupagent/express` declares `express: ">=4.18.0"` as a peer dependency while using `express: "^4.21.0"` in dev dependencies (`packages/express/package.json:24`, `packages/express/package.json:29`). `@dzupagent/test-utils` also declares `express: ">=4.18.0"` (`packages/test-utils/package.json:24`, `packages/test-utils/package.json:26`). The security workflow audits the repository lockfile with `yarn audit --level moderate`, which does not prove every allowed peer minimum remains acceptable for consumers (`.github/workflows/security.yml:43`, `.github/workflows/security.yml:45`).
 
-**Remediation:** Validate MCP endpoint URLs at registration, patch time, metadata extraction, and connection time. Require `http`/`https`, reject private/loopback/link-local destinations unless explicitly allowlisted, and revalidate persisted definitions to catch DNS changes.
-
-### SECURITY-012 - Medium - Tool credentials can be stored in run metadata
-
-**Impact:** Callers can place connector credentials and MCP secrets into run metadata that is persisted with the run. If run metadata is visible through API responses, logs, traces, exports, or database reads, those secrets can leak beyond the intended tool invocation boundary.
-
-**Evidence:** Tool resolution accepts `metadata.githubToken`, `metadata.slackToken`, `metadata.httpHeaders`, and metadata-defined MCP `env`/`headers` (`packages/server/src/runtime/tool-resolver.ts:592`, `packages/server/src/runtime/tool-resolver.ts:617`, `packages/server/src/runtime/tool-resolver.ts:648`, `packages/server/src/runtime/tool-resolver.ts:342`). Run creation stores `metadata: tracedMetadata` directly in the run store (`packages/server/src/routes/runs.ts:273`, `packages/server/src/routes/runs.ts:276`). MCP management responses redact server config secrets, but that redaction does not cover generic run metadata storage (`packages/server/src/routes/mcp.ts:49`).
-
-**Remediation:** Remove token/header inputs from persisted metadata. Accept credentials only through server-side secret references or scoped profiles, redact known secret fields before persistence, and add tests that run creation/list/read responses cannot return connector tokens or MCP env/header values.
-
-### SECURITY-013 - Low - WebSocket upgrade helper allows requests by default if host omits a guard
-
-**Impact:** A host that uses `createNodeWsUpgradeHandler` without `shouldHandleRequest` accepts any HTTP upgrade request for the bound server. The session manager starts with a deny-all event subscription, but an unauthenticated socket can still connect and exercise control-message parsing and connection resources.
-
-**Evidence:** `createNodeWsUpgradeHandler` sets `allowed` to `true` when `options.shouldHandleRequest` is not provided (`packages/server/src/ws/node-upgrade-handler.ts:55`). The safer scoped authorization exists for subscription filters (`packages/server/src/ws/authorization.ts:57`) and `WSSessionManager.attach` starts with `eventTypes: []` (`packages/server/src/ws/session-manager.ts:30`), but the upgrade itself is not fail-closed.
-
-**Remediation:** Require an explicit upgrade guard or scope resolver for production helpers, or provide a secure factory that rejects by default. Add documentation and tests showing unauthenticated upgrades are dev-only.
-
-### SECURITY-014 - Low - Security headers are not set by the server composition layer
-
-**Impact:** If the Hono server directly serves browser-accessible routes such as playground or management surfaces, missing headers reduce defense in depth against clickjacking, MIME sniffing, and referrer leakage. The current reviewed code is mostly JSON APIs, so this is not as severe as it would be for a template-rendering app.
-
-**Evidence:** Middleware composition mounts CORS, auth/RBAC, rate limiting, metrics, and error handling (`packages/server/src/composition/middleware.ts:30`), but no security header middleware or equivalent response headers are applied. Optional playground and OpenAI-compatible routes can be mounted on the same app (`packages/server/src/composition/optional-routes.ts:133`, `packages/server/src/composition/optional-routes.ts:259`).
-
-**Remediation:** Add a small Hono security-header middleware for production deployments: `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options` or CSP `frame-ancestors`, and a CSP for any HTML-rendering route. Keep route-specific overrides for developer playgrounds.
-
-### SECURITY-015 - Low - OpenAI-compatible auth accepts only exact-case `Bearer`
-
-**Impact:** Some standards-compliant clients sending `authorization: bearer <token>` may fail auth. This is primarily interoperability rather than a direct vulnerability, but brittle auth parsing can lead operators to disable auth during integration testing.
-
-**Evidence:** `openaiAuthMiddleware` extracts a token only when `authHeader.startsWith('Bearer ')` is true (`packages/server/src/routes/openai-compat/auth-middleware.ts:72`). The `/api/*` rate limiter uses a case-insensitive Bearer regex (`packages/server/src/middleware/rate-limiter.ts:62`), so parsing behavior is inconsistent.
-
-**Remediation:** Use a shared, case-insensitive bearer-token parser for `/api/*`, `/v1/*`, rate limiting, WebSocket auth adapters, and tests.
-
-### SECURITY-016 - Low - API-key creation accepts unbounded names and `expiresIn` values
-
-**Impact:** Authenticated callers can store very large key names or nonsensical expiry values. This can bloat storage, make audit views noisy, or create effectively non-expiring keys if store behavior treats invalid values loosely.
-
-**Evidence:** `POST /api/keys` only checks that `body.name` is a string, with no length or character constraints (`packages/server/src/routes/api-keys.ts:120`). `expiresIn` is accepted when it is any number and passed to the store (`packages/server/src/routes/api-keys.ts:143`). Rotate repeats the loose `expiresIn` handling (`packages/server/src/routes/api-keys.ts:198`).
-
-**Remediation:** Validate request bodies with a schema. Bound `name` length, trim whitespace, reject control characters, require `expiresIn` to be a positive finite integer within a configured maximum, and add tests for invalid values.
-
-### SECURITY-017 - Info - Dependency audit is available but was not run in this audit
-
-**Impact:** Current transitive dependency vulnerabilities cannot be claimed from this review. The repo has a lockfile and audit scripts, but there is no captured current `yarn audit` output in this step.
-
-**Evidence:** Root scripts include `audit:deps` and `audit:deps:summary` (`package.json:52`). The snapshot confirms the workspace uses Yarn 1 and has a lockfile. This audit did not execute `yarn audit` because the task requested current-code review and no runtime validation should be claimed unless captured.
-
-**Remediation:** Run `yarn audit --summary` and triage production-impacting advisories separately from dev-tool noise. Prioritize network parsers, HTTP clients, auth/session libraries, database drivers, browser automation, and server frameworks.
-
-### SECURITY-018 - Info - Test fixtures intentionally contain fake secret patterns
-
-**Impact:** Naive secret scanners will report many test-only tokens. This is not evidence of leaked real secrets, but it can hide true positives if CI does not distinguish fixtures from production source.
-
-**Evidence:** Pattern search found hardcoded token-like strings primarily under `packages/**/__tests__`, such as Slack/GitHub/API-key fixtures. Production code instead reads provider keys from config or env, and MCP HTTP responses redact configured env/headers (`packages/server/src/routes/mcp.ts:49`).
-
-**Remediation:** Keep fixture secret patterns clearly fake and allowlisted in scanner config. Run secret scanning over source and tests, but report fixture hits separately so real source leaks remain high signal.
-
-## Finding Manifest
+**Remediation:** Raise lower bounds for security-sensitive peers to currently supported patched versions, or use tighter compatible ranges such as a patched Express 4 range plus Express 5 once validated. Add release guidance that peer dependency lower bounds are security-maintained, not only API-compatible.
 
 ```json
 {
   "domain": "security",
-  "counts": { "critical": 0, "high": 5, "medium": 7, "low": 4, "info": 2 },
+  "counts": { "critical": 0, "high": 1, "medium": 4, "low": 6, "info": 0 },
   "findings": [
-    { "id": "SECURITY-001", "severity": "high", "title": "API key revoke/rotate endpoints are not owner-scoped", "file": "packages/server/src/routes/api-keys.ts" },
-    { "id": "SECURITY-002", "severity": "high", "title": "Global RBAC allows many management routes to bypass authorization", "file": "packages/server/src/middleware/rbac.ts" },
-    { "id": "SECURITY-003", "severity": "high", "title": "Metadata-controlled HTTP connector base URLs can target internal services", "file": "packages/server/src/runtime/tool-resolver.ts" },
-    { "id": "SECURITY-004", "severity": "high", "title": "Metadata-controlled Git cwd can expose or mutate arbitrary repositories", "file": "packages/server/src/runtime/tool-resolver.ts" },
-    { "id": "SECURITY-005", "severity": "high", "title": "LocalWorkspace permits absolute paths and traversal outside the workspace root", "file": "packages/codegen/src/workspace/local-workspace.ts" },
-    { "id": "SECURITY-006", "severity": "medium", "title": "Memory analytics routes ignore authoritative tenant scope", "file": "packages/server/src/routes/memory.ts" },
-    { "id": "SECURITY-007", "severity": "medium", "title": "Outbound URL fetch surfaces lack shared SSRF controls", "file": "packages/scraper/src/http-fetcher.ts" },
-    { "id": "SECURITY-008", "severity": "medium", "title": "Framework app defaults to unauthenticated /api/* unless host config opts in", "file": "packages/server/src/composition/middleware.ts" },
-    { "id": "SECURITY-009", "severity": "medium", "title": "CORS is globally wildcard by default", "file": "packages/server/src/composition/middleware.ts" },
-    { "id": "SECURITY-010", "severity": "medium", "title": "Public /metrics route bypasses app auth", "file": "packages/server/src/composition/optional-routes.ts" },
-    { "id": "SECURITY-011", "severity": "medium", "title": "MCP HTTP/SSE endpoint registration has no private-network validation", "file": "packages/server/src/routes/mcp.ts" },
-    { "id": "SECURITY-012", "severity": "medium", "title": "Tool credentials can be stored in run metadata", "file": "packages/server/src/runtime/tool-resolver.ts" },
-    { "id": "SECURITY-013", "severity": "low", "title": "WebSocket upgrade helper allows requests by default if host omits a guard", "file": "packages/server/src/ws/node-upgrade-handler.ts" },
-    { "id": "SECURITY-014", "severity": "low", "title": "Security headers are not set by the server composition layer", "file": "packages/server/src/composition/middleware.ts" },
-    { "id": "SECURITY-015", "severity": "low", "title": "OpenAI-compatible auth accepts only exact-case Bearer", "file": "packages/server/src/routes/openai-compat/auth-middleware.ts" },
-    { "id": "SECURITY-016", "severity": "low", "title": "API-key creation accepts unbounded names and expiresIn values", "file": "packages/server/src/routes/api-keys.ts" },
-    { "id": "SECURITY-017", "severity": "info", "title": "Dependency audit is available but was not run in this audit", "file": "package.json" },
-    { "id": "SECURITY-018", "severity": "info", "title": "Test fixtures intentionally contain fake secret patterns", "file": "packages" }
+    { "id": "SECURITY-001", "severity": "high", "title": "A2A push callbacks allow server-side request forgery and task data exfiltration", "file": "packages/server/src/a2a/drizzle-a2a-task-store.ts" },
+    { "id": "SECURITY-002", "severity": "medium", "title": "Run input guard redaction happens after raw input is persisted and returned", "file": "packages/server/src/routes/runs.ts" },
+    { "id": "SECURITY-003", "severity": "medium", "title": "HTTP connector redirect chains bypass the validated base-origin policy", "file": "packages/connectors/src/http/http-connector.ts" },
+    { "id": "SECURITY-004", "severity": "medium", "title": "Browser connector can navigate to arbitrary internal URLs and crawl off origin", "file": "packages/connectors-browser/src/browser-connector.ts" },
+    { "id": "SECURITY-005", "severity": "medium", "title": "Non-API active routes sit outside the shared RBAC and rate-limit middleware", "file": "packages/server/src/composition/middleware.ts" },
+    { "id": "SECURITY-006", "severity": "low", "title": "Request body size limits are late and inconsistent across JSON routes", "file": "packages/server/src/composition/middleware.ts" },
+    { "id": "SECURITY-007", "severity": "low", "title": "Low-level WebSocket control helper defaults can allow unscoped subscriptions", "file": "packages/server/src/ws/control-protocol.ts" },
+    { "id": "SECURITY-008", "severity": "low", "title": "Sandbox-enabled codegen can silently fall back to local execution", "file": "packages/codegen/src/workspace/workspace-factory.ts" },
+    { "id": "SECURITY-009", "severity": "low", "title": "Marketplace tag filtering uses manual SQL literal construction", "file": "packages/server/src/marketplace/drizzle-catalog-store.ts" },
+    { "id": "SECURITY-010", "severity": "low", "title": "Owner-scoped run listing leaks aggregate run counts inside a tenant", "file": "packages/server/src/routes/runs.ts" },
+    { "id": "SECURITY-011", "severity": "low", "title": "Security-sensitive peer dependency ranges allow older consumer installs", "file": "packages/express/package.json" }
   ]
 }
 ```
 
 ## Scope Reviewed
 
-Current-code security review for the `dzupagent` workspace, based first on `context/repo-snapshot.md` from audit run `full-dzupagent-2026-04-28/run-001`, then selective source inspection. Reviewed areas included:
+This review started from `context/repo-snapshot.md` in the prepared audit pack, then selectively inspected current source and configuration files in the DzupAgent repository. The review focused on the requested security domain: authentication, authorization, tenant and owner boundaries, secret handling, unsafe input paths, MCP and tool execution paths, outbound network sinks, browser and HTTP connectors, workspace command execution, SQL construction, WebSocket subscriptions, and dependency-risk controls.
 
-- Server transport/auth surfaces: Hono app composition, `/api/*` auth/RBAC/rate limiting, OpenAI-compatible `/v1/*` auth, API-key management, run routes, memory routes, MCP routes, WebSocket helpers, metrics route, and notification channels.
-- Tenant and authorization boundaries: run owner/tenant guards, memory tenant-scope helpers, registry/schedule/trigger/API-key routes, and WebSocket scoped subscription helpers.
-- Unsafe input and execution paths: MCP HTTP/stdio transports, scraper fetchers, webhook delivery, runtime tool resolver metadata, HTTP/Git connector tools, codegen workspace/file tools, Docker sandbox execution, SQL tools/connectors, and local command wrappers.
-- Secrets/dependency posture: package manifests, env-driven secret handling, MCP secret redaction, metadata credential handling, memory encryption key provider, secret scanner/rules, and audit scripts.
+Reviewed source areas included:
 
-Generated output, dependency folders, and old audit artifacts were not used as evidence. No runtime validation commands were run for this audit.
+- Server composition and middleware: `packages/server/src/app.ts`, `packages/server/src/composition/*`, `packages/server/src/middleware/*`.
+- Auth and tenant-sensitive routes: `packages/server/src/routes/api-keys.ts`, `packages/server/src/routes/runs.ts`, `packages/server/src/routes/a2a/*`, OpenAI compatibility routes, metrics, MCP, marketplace, and route-plugin mounting.
+- Runtime guardrails and tool resolution: `packages/server/src/runtime/*`, `packages/server/src/security/*`, `packages/core/src/security/outbound-url-policy.ts`, and `packages/core/src/mcp/mcp-client.ts`.
+- Connector and execution packages: `packages/connectors/src/http/http-connector.ts`, `packages/connectors-browser/src/*`, and `packages/codegen/src/workspace/*`.
+- Dependency and CI metadata: root security workflow and selected package manifests.
+
+Generated artifacts, dependency directories, distribution output, and old audit artifacts were not scanned. No runtime validation, dependency audit, fuzzing, or exploit proof-of-concept execution was run for this step.
 
 ## Strengths
 
-- OpenAI-compatible `/v1/*` auth fails closed unless a validator is configured or auth is explicitly disabled; it no longer silently falls through when `validateKey` is absent (`packages/server/src/routes/openai-compat/auth-middleware.ts:53`).
-- MCP stdio server registration is guarded by an explicit executable allowlist in both create and patch flows (`packages/server/src/routes/mcp.ts:110`, `packages/server/src/routes/mcp.ts:171`).
-- Metadata-defined MCP servers reject non-HTTP/SSE schemes by default and can be constrained to `DZIP_MCP_ALLOWED_HTTP_HOSTS`; metadata-defined stdio requires explicit `DZIP_MCP_ALLOW_METADATA_STDIO` (`packages/server/src/runtime/tool-resolver.ts:226`, `packages/server/src/runtime/tool-resolver.ts:290`, `packages/server/src/runtime/tool-resolver.ts:304`).
-- MCP management responses redact inline `env` values and sensitive headers before returning server definitions (`packages/server/src/routes/mcp.ts:49`).
-- Run read/write subroutes use owner and tenant scoping helpers that deliberately return 404 for foreign runs, reducing cross-tenant enumeration (`packages/server/src/routes/runs.ts:82`, `packages/server/src/routes/run-guard.ts:99`).
-- Memory export/import/browse routes have an authoritative scope helper that forces tenant/owner scope from authenticated API-key metadata where wired (`packages/server/src/routes/memory-tenant-scope.ts:66`).
-- SQL query tooling uses AST parsing to reject non-`SELECT` statements and the PostgreSQL connector sets read-only transactions for pooled connections (`packages/connectors/src/sql/sql-tools.ts:127`, `packages/connectors/src/sql/adapters/postgresql.ts:76`).
-- Docker sandbox default mode disables network, mounts the work dir read-only, sets a read-only filesystem, and uses memory/CPU limits (`packages/codegen/src/sandbox/docker-sandbox.ts:296`).
-- The repo has dedicated security primitives and tests for injection, escalation, secret detection, tool governance, MCP security, and tenant-scoped memory.
+- Production framework `/api/*` routes require explicit auth configuration, and wildcard CORS is blocked in production unless explicitly opted in (`packages/server/src/composition/middleware.ts:43`, `packages/server/src/composition/middleware.ts:92`).
+- API-key storage uses high-entropy raw keys and stores only SHA-256 hashes; raw key material is only returned at creation or rotation time (`packages/server/src/persistence/api-key-store.ts`).
+- RBAC is deny-by-default for unmatched `/api/*` paths in the current middleware and includes admin-only path families for high-risk management routes (`packages/server/src/middleware/rbac.ts`).
+- Run and A2A records carry owner or tenant scope, and the main run and A2A task read paths apply owner or tenant filters before returning row data.
+- MCP server registration has strong controls: stdio executables require an allowlist, MCP response serialization redacts env and sensitive headers, and HTTP/SSE MCP endpoints use the shared outbound URL policy (`packages/server/src/routes/mcp.ts`, `packages/server/src/security/mcp-url-policy.ts`).
+- The shared outbound URL policy blocks loopback, private, link-local, and metadata ranges by default and revalidates redirect locations for policy-wrapped fetches (`packages/core/src/security/outbound-url-policy.ts`).
+- The core MCP client uses the outbound URL policy for HTTP transports and validates stdio executable paths before spawning child processes (`packages/core/src/mcp/mcp-client.ts`).
+- WebSocket upgrade handling has secure defaults when the higher-level helper is used: it rejects upgrades without an explicit guard and includes scoped subscription authorization helpers (`packages/server/src/ws/node-upgrade-handler.ts`, `packages/server/src/ws/authorization.ts`).
+- Codegen workspace file operations include root-containment checks and avoid shell interpolation for `LocalWorkspace.runCommand` by using `execFile` (`packages/codegen/src/workspace/local-workspace.ts`).
+- CI includes a blocking dependency audit, gitleaks scan, lint, and grep-based SAST patterns for dangerous JavaScript constructs (`.github/workflows/security.yml`).
 
 ## Open Questions Or Assumptions
 
-- I assumed public API exposure is possible for `@dzupagent/server`; if every deployment sits behind an authenticated gateway, findings around app-level auth/CORS/metrics become defense-in-depth rather than direct exposure.
-- I assumed run metadata can be supplied by users or upstream products in at least some deployments. If a trusted orchestrator fully controls metadata, `SECURITY-003`, `SECURITY-004`, and `SECURITY-012` are still hardening issues but have lower direct exploitability.
-- I did not verify database schema constraints for API-key ownership or expiry; findings are based on route-level authorization and validation behavior.
-- I did not run dependency audit, tests, or runtime probes. No validation outcomes are claimed.
-- Some endpoints are optional and only mounted when their corresponding stores/managers are configured. Findings note the risk when those integrations are enabled.
-- Existing URL validation in `agent-adapters` does not appear to be reused by server/MCP/scraper surfaces; if a consuming app wraps these surfaces with its own validation, residual SSRF risk may be lower in that app.
+- The audit assumes A2A, OpenAI compatibility, browser connectors, HTTP connectors, and codegen workspaces may be enabled by consuming applications; risk is lower for deployments that do not expose those optional surfaces.
+- The audit did not verify deployed reverse-proxy limits, WAF rules, network egress policies, container isolation, or cloud metadata protections. Those controls can reduce exploitability but should not be required for framework safety.
+- Dependency risk was reviewed from manifests and CI configuration only. No `yarn audit`, SCA scan, or lockfile vulnerability validation was executed in this step.
+- Route-plugin risks were reviewed as an extension boundary. Host-supplied plugins can intentionally mount protected or public routes, so the main security question is whether the framework defaults make accidental bypasses obvious.
 
 ## Recommended Next Actions
 
-1. Fix `SECURITY-001` immediately: owner/admin guard for API-key revoke and rotate, plus focused cross-owner tests.
-2. Fix `SECURITY-002` by converting RBAC to deny-by-default for unknown `/api/*` route groups and mapping every mounted management route.
-3. Fix `SECURITY-003`, `SECURITY-004`, and `SECURITY-012` by replacing user-controlled tool metadata with server-side tool profiles for HTTP, Git, MCP, GitHub, and Slack connectors.
-4. Fix `SECURITY-005` by enforcing root-contained paths in `LocalWorkspace` for read/write/exists/command cwd.
-5. Patch memory analytics to use `applyAuthoritativeScope` and add cross-tenant route tests.
-6. Create one shared outbound URL policy and wire it into MCP HTTP/SSE, scraper, webhook notification, approval, HTTP connector, and adapter callback surfaces.
-7. Add production-hardening defaults: explicit auth opt-out, non-wildcard CORS, protected `/metrics`, and security headers.
-8. Run dependency audit as a separate captured gate and triage only realistically reachable production advisories.
+1. Fix `SECURITY-001` first by centralizing all server-side outbound URL sinks, including A2A push callbacks, on the shared outbound URL policy.
+2. Move run input guard scanning, redaction, and serialized-size enforcement into the HTTP create-run boundary before persistence and response generation.
+3. Apply request-time URL policy enforcement to HTTP connector fetches and browser navigations, including redirect revalidation and same-origin crawl defaults.
+4. Extend production controls for active non-`/api` surfaces by adding rate limits and capability checks to `/a2a/*` and `/v1/*`.
+5. Add a global body-size guard before JSON parsing, then add targeted serialized-field limits for high-risk payloads.
+6. Fail closed on sandbox misconfiguration and tighten low-level WebSocket subscription defaults.
+7. Replace the marketplace raw SQL array literal with parameterized query construction.
+8. Add focused regression tests for each fixed finding, then run package-scoped checks first and `yarn verify` before closing the full audit remediation lane.
