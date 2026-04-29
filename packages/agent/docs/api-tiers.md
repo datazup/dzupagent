@@ -114,13 +114,15 @@ authoring module if you need stability today; expect breaking changes.
 | Self-correction (full subsystem) | `ReflectionLoop`, `parseCriticResponse`, `ReflectionConfig`, `ReflectionIteration`, `ReflectionResult`, `ScoreResult`, `AdaptiveIterationController`, `IterationDecision`, `IterationControllerConfig`, `createSelfCorrectingExecutor`, `SelfCorrectingConfig`, `SelfCorrectingResult`, `ErrorDetectionOrchestrator`, `ErrorSource`, `ErrorSeverity`, `DetectedError`, `ErrorDetectorConfig`, `RootCauseAnalyzer`, `RootCauseReport`, `RootCauseAnalyzerConfig`, `AnalyzeParams`, `HeuristicClassification`, `VerificationProtocol`, `jaccardSimilarity`, `VerificationStrategy`, `VerificationResult`, `VerificationConfig`, `SelfLearningRuntime`, `SelfLearningConfig`, `SelfLearningRunResult`, `SelfLearningPipelineHook`, `SelfLearningHookConfig`, `HookMetrics`, `PostRunAnalyzer`, `RunAnalysis`, `AnalysisResult`, `PostRunAnalyzerConfig`, `AnalysisHistoryEntry`, `AdaptivePromptEnricher`, `PromptEnrichment`, `EnricherConfig`, `EnrichParams`, `EnrichWithBudgetParams`, `PipelineStuckDetector`, `PipelineStuckConfig`, `PipelineStuckStatus`, `PipelineStuckSummary`, `PipelineSuggestedAction`, `TrajectoryCalibrator`, `StepReward`, `TrajectoryRecord`, `SuboptimalResult`, `TrajectoryCalibratorConfig`, `ObservabilityCorrectionBridge`, `CorrectionSignal`, `CorrectionSignalType`, `SignalSeverity`, `ObservabilityThresholds`, `ObservabilityBridgeConfig`, `StrategySelector`, `FixStrategy`, `StrategyRate`, `StrategyRecommendation`, `StrategySelectorConfig`, `RecoveryFeedback`, `RecoveryLesson`, `RecoveryFeedbackConfig`, `AgentPerformanceOptimizer`, `OptimizationDecision`, `PerformanceHistory`, `PerformanceOptimizerConfig`, `LangGraphLearningMiddleware`, `LangGraphLearningConfig`, `LearningRunMetrics`, `WrapNodeOptions`, `FeedbackCollector`, `FeedbackType`, `FeedbackOutcome`, `FeedbackRecord`, `FeedbackStats`, `FeedbackCollectorConfig`, `LearningDashboardService`, `LearningOverview`, `QualityTrend`, `CostTrend`, `NodePerformanceSummary`, `LearningDashboard`, `DashboardServiceConfig` | Self-correction is the largest experimental cluster — it is governed by the self-learning roadmap and changes frequently. |
 | Presets | `AgentPreset`, `PresetRuntimeDeps`, `PresetConfig`, `buildConfigFromPreset`, `PresetRegistry`, `createDefaultPresetRegistry`, `RAGChatPreset`, `ResearchPreset`, `SummarizerPreset`, `QAPreset`, `BUILT_IN_PRESETS` | Built-in presets and preset shape are still being curated. |
 
-### Framework-internal playground Vue UI
+### Framework-internal playground UI helpers
 
-`packages/agent/src/playground/ui/*.vue` is not a public design-system surface.
-The source components are retained for framework-internal playground maintenance
-and tests only. `@dzupagent/agent` intentionally does not declare Vue peer/build
-requirements, does not emit Vue SFC build artifacts, and explicitly does not
-export `./playground/ui` package subpaths.
+`packages/agent/src/playground/ui` is not a public design-system surface. It is
+limited to rendering-independent trace helpers used by source-internal
+maintenance tests. `@dzupagent/agent` intentionally does not declare Vue
+peer/build requirements, does not emit Vue SFC build artifacts, and explicitly
+does not export `./playground/ui` package subpaths. Vue SFCs do not belong in
+this package unless the package also adds an explicit local Vue lint/type/test
+gate in the same change.
 
 Consumers should import replay and execution contracts from the public API and
 render product UI inside the consuming app or design-system package. The

@@ -27,7 +27,7 @@ yarn dev
 Run a single package in development mode when needed:
 
 ```bash
-yarn workspace @dzupagent/playground dev
+yarn workspace @dzupagent/rag dev
 ```
 
 ## Package-Scoped Workflow (Recommended for LLM/Automation)
