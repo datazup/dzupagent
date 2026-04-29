@@ -31,6 +31,27 @@ describe('AgentMemoryContextLoader', () => {
     expect(memory.formatForPrompt).toHaveBeenCalled()
   })
 
+  it('passes read provenance context through the standard prompt memory path', async () => {
+    const memory = createMemoryService()
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 42,
+      memoryReadContext: { runId: 'run-standard' },
+    })
+
+    await loader.load([new HumanMessage('hello')])
+
+    expect(memory.get).toHaveBeenCalledWith(
+      'facts',
+      { project: 'demo' },
+      undefined,
+      { runId: 'run-standard' },
+    )
+  })
+
   it('uses Arrow selection when configured and formats the selected records', async () => {
     const memory = createMemoryService()
     const phaseWeightedSelection = vi.fn(() => [{ rowIndex: 1 }])
@@ -141,6 +162,7 @@ describe('AgentMemoryContextLoader', () => {
     const result = await loader.load([new HumanMessage('hello')])
 
     expect(memory.get).toHaveBeenCalledTimes(1)
+    expect(memory.get).toHaveBeenCalledWith('facts', { project: 'demo' })
     expect(memory.formatForPrompt).toHaveBeenCalledWith(
       records,
       expect.objectContaining({
@@ -151,6 +173,35 @@ describe('AgentMemoryContextLoader', () => {
     expect(result.context).not.toBeNull()
     expect(estimateTokens(result.context!)).toBeLessThanOrEqual(200)
     expect(result.context).not.toContain('record-10')
+  })
+
+  it('passes read provenance context through the bounded Arrow fallback path', async () => {
+    const memory = createMemoryService()
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      arrowMemory: {
+        currentPhase: 'general',
+        totalBudget: 10_000,
+        maxMemoryFraction: 1,
+        minResponseReserve: 0,
+      },
+      estimateConversationTokens: () => 0,
+      loadArrowRuntime: async () => {
+        throw new Error('Arrow unavailable')
+      },
+    })
+
+    await loader.load([new HumanMessage('hello')], { runId: 'run-fallback' })
+
+    expect(memory.get).toHaveBeenCalledWith(
+      'facts',
+      { project: 'demo' },
+      undefined,
+      { runId: 'run-fallback' },
+    )
   })
 
   it('invokes onFallback with arrow_fallback when Arrow path throws', async () => {

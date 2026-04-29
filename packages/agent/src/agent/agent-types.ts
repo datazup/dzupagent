@@ -458,6 +458,11 @@ export interface ArrowMemoryConfig {
 
 /** Options for a single generate/stream call */
 export interface GenerateOptions {
+  /**
+   * Durable run identifier for per-run provenance. When provided, prompt
+   * memory reads can cite this run without storing prompt content.
+   */
+  runId?: string
   /** Override max iterations for this call */
   maxIterations?: number
   /** Abort signal for cancellation */

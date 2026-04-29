@@ -174,6 +174,31 @@ describe('MemoryService reference-tracker integration', () => {
     expect(results.length).toBeGreaterThan(0)
   })
 
+  it('tracker errors do not break get() with readContext', async () => {
+    const brokenTracker = new ReferenceTracker({
+      store: {
+        record: () => Promise.reject(new Error('redis down')),
+        listByRun: () => Promise.resolve([]),
+        listByEntry: () => Promise.resolve([]),
+        clearRun: () => Promise.resolve(),
+      },
+    })
+    const svc = new MemoryService(
+      store as unknown as BaseStore,
+      [{ name: 'decisions', scopeKeys: ['tenant', 'kind'], searchable: false }],
+      { rejectUnsafe: false, referenceTracker: brokenTracker },
+    )
+
+    const results = await svc.get(
+      'decisions',
+      { tenant: 't1', kind: 'decisions' },
+      undefined,
+      { runId: 'run-broken-get' },
+    )
+
+    expect(results).toHaveLength(1)
+  })
+
   it('bidirectional query: getRunsCitingMemory works across runs', async () => {
     await service.get('lessons', { tenant: 't1', kind: 'lessons' }, 'l1', { runId: 'run-A' })
     await service.get('lessons', { tenant: 't1', kind: 'lessons' }, 'l1', { runId: 'run-B' })

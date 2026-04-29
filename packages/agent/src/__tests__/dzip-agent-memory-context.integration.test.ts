@@ -127,6 +127,29 @@ describe('DzupAgent generate memory context integration', () => {
     expect(systemMessage?.content).toContain('## Memory Context')
     expect(systemMessage?.content).toContain('stored fact')
   })
+
+  it('threads generate runId into prompt memory reads for provenance tracking', async () => {
+    const memory = createMemoryService()
+    const model = createModel()
+
+    const agent = new DzupAgent({
+      id: 'memory-provenance',
+      instructions: 'Base instructions',
+      model: model as never,
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+    })
+
+    await agent.generate([new HumanMessage('hello')], { runId: 'run-memory-read' })
+
+    expect(memory.get).toHaveBeenCalledWith(
+      'facts',
+      { project: 'demo' },
+      undefined,
+      { runId: 'run-memory-read' },
+    )
+  })
 })
 
 describe('DzupAgent memoryFrame pass-through (P4 Task 2)', () => {
