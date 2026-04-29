@@ -2,27 +2,49 @@
   "packageBoundaryRules": [
     {
       "importer": "core",
-      "forbidden": ["agent", "codegen", "connectors", "server", "agent-adapters"]
+      "forbidden": [
+        "agent",
+        "codegen",
+        "connectors",
+        "server",
+        "agent-adapters"
+      ]
     },
     {
       "importer": "agent",
-      "forbidden": ["server"]
+      "forbidden": [
+        "server"
+      ]
     },
     {
       "importer": "codegen",
-      "forbidden": ["agent", "server", "connectors"]
+      "forbidden": [
+        "agent",
+        "server",
+        "connectors"
+      ]
     },
     {
       "importer": "connectors",
-      "forbidden": ["agent", "codegen", "server"]
+      "forbidden": [
+        "agent",
+        "codegen",
+        "server"
+      ]
     },
     {
       "importer": "agent-adapters",
-      "forbidden": ["server"]
+      "forbidden": [
+        "server"
+      ]
     },
     {
       "importer": "server",
-      "forbidden": ["create-dzupagent", "testing", "test-utils"]
+      "forbidden": [
+        "create-dzupagent",
+        "testing",
+        "test-utils"
+      ]
     }
   ],
   "appWorkspaces": [
@@ -150,6 +172,841 @@
           "packages/server/src/routes/route-error.ts"
         ]
       }
+    },
+    "routeEndpointManifest": {
+      "description": "Reviewed Hono endpoint inventory for packages/server route files. Records local method/path declarations, route ownership category, and mounted method/path pairs so classified files cannot grow endpoints without explicit governance review.",
+      "files": {
+        "packages/server/src/routes/a2a/jsonrpc-route.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            ""
+          ],
+          "endpoints": [
+            "POST /a2a"
+          ],
+          "mountedEndpoints": [
+            "POST /a2a"
+          ]
+        },
+        "packages/server/src/routes/a2a/message-routes.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            ""
+          ],
+          "endpoints": [
+            "POST /a2a/tasks/:id/messages"
+          ],
+          "mountedEndpoints": [
+            "POST /a2a/tasks/:id/messages"
+          ]
+        },
+        "packages/server/src/routes/a2a/task-routes.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            ""
+          ],
+          "endpoints": [
+            "GET /a2a/tasks",
+            "GET /a2a/tasks/:id",
+            "POST /a2a/tasks",
+            "POST /a2a/tasks/:id/cancel"
+          ],
+          "mountedEndpoints": [
+            "GET /a2a/tasks",
+            "GET /a2a/tasks/:id",
+            "POST /a2a/tasks",
+            "POST /a2a/tasks/:id/cancel"
+          ]
+        },
+        "packages/server/src/routes/a2a/well-known.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            ""
+          ],
+          "endpoints": [
+            "GET /.well-known/agent.json"
+          ],
+          "mountedEndpoints": [
+            "GET /.well-known/agent.json"
+          ]
+        },
+        "packages/server/src/routes/agents.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/agent-definitions",
+            "/api/agents"
+          ],
+          "endpoints": [
+            "DELETE /:id",
+            "GET /",
+            "GET /:id",
+            "PATCH /:id",
+            "POST /"
+          ],
+          "mountedEndpoints": [
+            "DELETE /api/agent-definitions/:id",
+            "DELETE /api/agents/:id",
+            "GET /api/agent-definitions",
+            "GET /api/agent-definitions/:id",
+            "GET /api/agents",
+            "GET /api/agents/:id",
+            "PATCH /api/agent-definitions/:id",
+            "PATCH /api/agents/:id",
+            "POST /api/agent-definitions",
+            "POST /api/agents"
+          ]
+        },
+        "packages/server/src/routes/api-keys.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/keys"
+          ],
+          "endpoints": [
+            "DELETE /:id",
+            "GET /",
+            "POST /",
+            "POST /:id/rotate"
+          ],
+          "mountedEndpoints": [
+            "DELETE /api/keys/:id",
+            "GET /api/keys",
+            "POST /api/keys",
+            "POST /api/keys/:id/rotate"
+          ]
+        },
+        "packages/server/src/routes/approval.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/runs"
+          ],
+          "endpoints": [
+            "POST /:id/approve",
+            "POST /:id/reject"
+          ],
+          "mountedEndpoints": [
+            "POST /api/runs/:id/approve",
+            "POST /api/runs/:id/reject"
+          ]
+        },
+        "packages/server/src/routes/approvals.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/approvals"
+          ],
+          "endpoints": [
+            "POST /:runId/:approvalId/grant",
+            "POST /:runId/:approvalId/reject"
+          ],
+          "mountedEndpoints": [
+            "POST /api/approvals/:runId/:approvalId/grant",
+            "POST /api/approvals/:runId/:approvalId/reject"
+          ]
+        },
+        "packages/server/src/routes/benchmarks.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/benchmarks"
+          ],
+          "endpoints": [
+            "GET /baselines",
+            "GET /runs",
+            "GET /runs/:id",
+            "POST /compare",
+            "POST /runs",
+            "PUT /baselines/:suiteId"
+          ],
+          "mountedEndpoints": [
+            "GET /api/benchmarks/baselines",
+            "GET /api/benchmarks/runs",
+            "GET /api/benchmarks/runs/:id",
+            "POST /api/benchmarks/compare",
+            "POST /api/benchmarks/runs",
+            "PUT /api/benchmarks/baselines/:suiteId"
+          ]
+        },
+        "packages/server/src/routes/capabilities.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/v1/capabilities"
+          ],
+          "endpoints": [
+            "GET /:skillId"
+          ],
+          "mountedEndpoints": [
+            "GET /api/v1/capabilities/:skillId"
+          ]
+        },
+        "packages/server/src/routes/clusters.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/clusters"
+          ],
+          "endpoints": [
+            "DELETE /:id",
+            "DELETE /:id/roles/:roleId",
+            "GET /:id",
+            "POST /",
+            "POST /:id/mail",
+            "POST /:id/roles"
+          ],
+          "mountedEndpoints": [
+            "DELETE /api/clusters/:id",
+            "DELETE /api/clusters/:id/roles/:roleId",
+            "GET /api/clusters/:id",
+            "POST /api/clusters",
+            "POST /api/clusters/:id/mail",
+            "POST /api/clusters/:id/roles"
+          ]
+        },
+        "packages/server/src/routes/compile.ts": {
+          "category": "route-plugin-host-seam",
+          "mounts": [
+            "/api/workflows"
+          ],
+          "endpoints": [
+            "POST /compile"
+          ],
+          "mountedEndpoints": [
+            "POST /api/workflows/compile"
+          ]
+        },
+        "packages/server/src/routes/deploy.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/deploy"
+          ],
+          "endpoints": [
+            "GET /confidence",
+            "GET /history",
+            "PATCH /:id/outcome",
+            "POST /record"
+          ],
+          "mountedEndpoints": [
+            "GET /api/deploy/confidence",
+            "GET /api/deploy/history",
+            "PATCH /api/deploy/:id/outcome",
+            "POST /api/deploy/record"
+          ]
+        },
+        "packages/server/src/routes/enrichment-metrics.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/runs"
+          ],
+          "endpoints": [
+            "GET /:id/enrichment-metrics"
+          ],
+          "mountedEndpoints": [
+            "GET /api/runs/:id/enrichment-metrics"
+          ]
+        },
+        "packages/server/src/routes/evals.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/evals"
+          ],
+          "endpoints": [
+            "GET /health",
+            "GET /queue/stats",
+            "GET /runs",
+            "GET /runs/:id",
+            "POST /runs",
+            "POST /runs/:id/cancel",
+            "POST /runs/:id/retry"
+          ],
+          "mountedEndpoints": [
+            "GET /api/evals/health",
+            "GET /api/evals/queue/stats",
+            "GET /api/evals/runs",
+            "GET /api/evals/runs/:id",
+            "POST /api/evals/runs",
+            "POST /api/evals/runs/:id/cancel",
+            "POST /api/evals/runs/:id/retry"
+          ]
+        },
+        "packages/server/src/routes/events.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/events"
+          ],
+          "endpoints": [
+            "GET /stream"
+          ],
+          "mountedEndpoints": [
+            "GET /api/events/stream"
+          ]
+        },
+        "packages/server/src/routes/health.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/health"
+          ],
+          "endpoints": [
+            "GET /",
+            "GET /metrics",
+            "GET /ready"
+          ],
+          "mountedEndpoints": [
+            "GET /api/health",
+            "GET /api/health/metrics",
+            "GET /api/health/ready"
+          ]
+        },
+        "packages/server/src/routes/human-contact.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/runs"
+          ],
+          "endpoints": [
+            "POST /:id/human-contact/:contactId/respond"
+          ],
+          "mountedEndpoints": [
+            "POST /api/runs/:id/human-contact/:contactId/respond"
+          ]
+        },
+        "packages/server/src/routes/learning.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/learning"
+          ],
+          "endpoints": [
+            "GET /dashboard",
+            "GET /feedback/stats",
+            "GET /lessons",
+            "GET /nodes",
+            "GET /overview",
+            "GET /rules",
+            "GET /skill-packs",
+            "GET /trends/cost",
+            "GET /trends/quality",
+            "POST /feedback",
+            "POST /ingest",
+            "POST /skill-packs/load"
+          ],
+          "mountedEndpoints": [
+            "GET /api/learning/dashboard",
+            "GET /api/learning/feedback/stats",
+            "GET /api/learning/lessons",
+            "GET /api/learning/nodes",
+            "GET /api/learning/overview",
+            "GET /api/learning/rules",
+            "GET /api/learning/skill-packs",
+            "GET /api/learning/trends/cost",
+            "GET /api/learning/trends/quality",
+            "POST /api/learning/feedback",
+            "POST /api/learning/ingest",
+            "POST /api/learning/skill-packs/load"
+          ]
+        },
+        "packages/server/src/routes/mailbox.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/mailbox"
+          ],
+          "endpoints": [
+            "GET /:agentId/messages",
+            "POST /:agentId/messages/:messageId/ack",
+            "POST /:agentId/send",
+            "POST /dlq/:id/redeliver"
+          ],
+          "mountedEndpoints": [
+            "GET /api/mailbox/:agentId/messages",
+            "POST /api/mailbox/:agentId/messages/:messageId/ack",
+            "POST /api/mailbox/:agentId/send",
+            "POST /api/mailbox/dlq/:id/redeliver"
+          ]
+        },
+        "packages/server/src/routes/marketplace.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/marketplace"
+          ],
+          "endpoints": [
+            "DELETE /catalog/:id",
+            "GET /catalog",
+            "GET /catalog/:id",
+            "GET /catalog/by-slug/:slug",
+            "PATCH /catalog/:id",
+            "POST /catalog"
+          ],
+          "mountedEndpoints": [
+            "DELETE /api/marketplace/catalog/:id",
+            "GET /api/marketplace/catalog",
+            "GET /api/marketplace/catalog/:id",
+            "GET /api/marketplace/catalog/by-slug/:slug",
+            "PATCH /api/marketplace/catalog/:id",
+            "POST /api/marketplace/catalog"
+          ]
+        },
+        "packages/server/src/routes/mcp.ts": {
+          "category": "route-plugin-host-seam",
+          "mounts": [
+            "/api/mcp"
+          ],
+          "endpoints": [
+            "DELETE /profiles/:id",
+            "DELETE /servers/:id",
+            "GET /profiles",
+            "GET /profiles/:id",
+            "GET /servers",
+            "GET /servers/:id",
+            "PATCH /servers/:id",
+            "POST /profiles",
+            "POST /servers",
+            "POST /servers/:id/disable",
+            "POST /servers/:id/enable",
+            "POST /servers/:id/test"
+          ],
+          "mountedEndpoints": [
+            "DELETE /api/mcp/profiles/:id",
+            "DELETE /api/mcp/servers/:id",
+            "GET /api/mcp/profiles",
+            "GET /api/mcp/profiles/:id",
+            "GET /api/mcp/servers",
+            "GET /api/mcp/servers/:id",
+            "PATCH /api/mcp/servers/:id",
+            "POST /api/mcp/profiles",
+            "POST /api/mcp/servers",
+            "POST /api/mcp/servers/:id/disable",
+            "POST /api/mcp/servers/:id/enable",
+            "POST /api/mcp/servers/:id/test"
+          ]
+        },
+        "packages/server/src/routes/memory-browse.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/memory-browse"
+          ],
+          "endpoints": [
+            "GET /:namespace"
+          ],
+          "mountedEndpoints": [
+            "GET /api/memory-browse/:namespace"
+          ]
+        },
+        "packages/server/src/routes/memory-health.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/memory"
+          ],
+          "endpoints": [
+            "GET /health"
+          ],
+          "mountedEndpoints": [
+            "GET /api/memory/health"
+          ]
+        },
+        "packages/server/src/routes/memory-sync.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            ""
+          ],
+          "endpoints": [
+            "GET /api/memory/sync"
+          ],
+          "mountedEndpoints": [
+            "GET /api/memory/sync"
+          ]
+        },
+        "packages/server/src/routes/memory.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/memory"
+          ],
+          "endpoints": [
+            "GET /analytics/agent-performance",
+            "GET /analytics/decay-trends",
+            "GET /analytics/duplicates",
+            "GET /analytics/expiring",
+            "GET /analytics/namespace-stats",
+            "GET /analytics/usage-patterns",
+            "GET /schema",
+            "POST /export",
+            "POST /import"
+          ],
+          "mountedEndpoints": [
+            "GET /api/memory/analytics/agent-performance",
+            "GET /api/memory/analytics/decay-trends",
+            "GET /api/memory/analytics/duplicates",
+            "GET /api/memory/analytics/expiring",
+            "GET /api/memory/analytics/namespace-stats",
+            "GET /api/memory/analytics/usage-patterns",
+            "GET /api/memory/schema",
+            "POST /api/memory/export",
+            "POST /api/memory/import"
+          ]
+        },
+        "packages/server/src/routes/metrics.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/metrics"
+          ],
+          "endpoints": [
+            "GET /"
+          ],
+          "mountedEndpoints": [
+            "GET /metrics"
+          ]
+        },
+        "packages/server/src/routes/openai-compat/completions.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/v1/chat/completions"
+          ],
+          "endpoints": [
+            "POST /"
+          ],
+          "mountedEndpoints": [
+            "POST /v1/chat/completions"
+          ]
+        },
+        "packages/server/src/routes/openai-compat/models-route.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/v1/models"
+          ],
+          "endpoints": [
+            "GET /",
+            "GET /:model"
+          ],
+          "mountedEndpoints": [
+            "GET /v1/models",
+            "GET /v1/models/:model"
+          ]
+        },
+        "packages/server/src/routes/personas.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/personas"
+          ],
+          "endpoints": [
+            "DELETE /:id",
+            "GET /",
+            "GET /:id",
+            "POST /",
+            "PUT /:id"
+          ],
+          "mountedEndpoints": [
+            "DELETE /api/personas/:id",
+            "GET /api/personas",
+            "GET /api/personas/:id",
+            "POST /api/personas",
+            "PUT /api/personas/:id"
+          ]
+        },
+        "packages/server/src/routes/playground.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/playground"
+          ],
+          "endpoints": [
+            "GET /:path{.*}",
+            "GET /assets/:path{.+}"
+          ],
+          "mountedEndpoints": [
+            "GET /playground/:path{.*}",
+            "GET /playground/assets/:path{.+}"
+          ]
+        },
+        "packages/server/src/routes/presets.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/presets"
+          ],
+          "endpoints": [
+            "GET /",
+            "GET /:name",
+            "POST /:name/config"
+          ],
+          "mountedEndpoints": [
+            "GET /api/presets",
+            "GET /api/presets/:name",
+            "POST /api/presets/:name/config"
+          ]
+        },
+        "packages/server/src/routes/prompts.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/prompts"
+          ],
+          "endpoints": [
+            "DELETE /:id",
+            "GET /",
+            "GET /:id",
+            "GET /active/:promptId",
+            "POST /",
+            "POST /:id/publish",
+            "POST /rollback/:promptId",
+            "PUT /:id"
+          ],
+          "mountedEndpoints": [
+            "DELETE /api/prompts/:id",
+            "GET /api/prompts",
+            "GET /api/prompts/:id",
+            "GET /api/prompts/active/:promptId",
+            "POST /api/prompts",
+            "POST /api/prompts/:id/publish",
+            "POST /api/prompts/rollback/:promptId",
+            "PUT /api/prompts/:id"
+          ]
+        },
+        "packages/server/src/routes/reflections.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/reflections"
+          ],
+          "endpoints": [
+            "GET /",
+            "GET /:runId",
+            "GET /patterns/:type"
+          ],
+          "mountedEndpoints": [
+            "GET /api/reflections",
+            "GET /api/reflections/:runId",
+            "GET /api/reflections/patterns/:type"
+          ]
+        },
+        "packages/server/src/routes/registry.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/registry"
+          ],
+          "endpoints": [
+            "DELETE /agents/:id",
+            "GET /agents",
+            "GET /agents/:id",
+            "GET /discover",
+            "GET /health",
+            "GET /stats",
+            "POST /agents"
+          ],
+          "mountedEndpoints": [
+            "DELETE /api/registry/agents/:id",
+            "GET /api/registry/agents",
+            "GET /api/registry/agents/:id",
+            "GET /api/registry/discover",
+            "GET /api/registry/health",
+            "GET /api/registry/stats",
+            "POST /api/registry/agents"
+          ]
+        },
+        "packages/server/src/routes/routing-stats.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/health"
+          ],
+          "endpoints": [
+            "GET /routing"
+          ],
+          "mountedEndpoints": [
+            "GET /api/health/routing"
+          ]
+        },
+        "packages/server/src/routes/run-context.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/runs"
+          ],
+          "endpoints": [
+            "GET /:id/context",
+            "GET /:id/token-report"
+          ],
+          "mountedEndpoints": [
+            "GET /api/runs/:id/context",
+            "GET /api/runs/:id/token-report"
+          ]
+        },
+        "packages/server/src/routes/run-trace.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/runs"
+          ],
+          "endpoints": [
+            "GET /:id/messages"
+          ],
+          "mountedEndpoints": [
+            "GET /api/runs/:id/messages"
+          ]
+        },
+        "packages/server/src/routes/runs.ts": {
+          "category": "framework-primitive",
+          "mounts": [
+            "/api/runs"
+          ],
+          "endpoints": [
+            "GET /",
+            "GET /:id",
+            "GET /:id/checkpoints",
+            "GET /:id/logs",
+            "GET /:id/stream",
+            "GET /:id/trace",
+            "POST /",
+            "POST /:id/cancel",
+            "POST /:id/fork",
+            "POST /:id/pause",
+            "POST /:id/resume"
+          ],
+          "mountedEndpoints": [
+            "GET /api/runs",
+            "GET /api/runs/:id",
+            "GET /api/runs/:id/checkpoints",
+            "GET /api/runs/:id/logs",
+            "GET /api/runs/:id/stream",
+            "GET /api/runs/:id/trace",
+            "POST /api/runs",
+            "POST /api/runs/:id/cancel",
+            "POST /api/runs/:id/fork",
+            "POST /api/runs/:id/pause",
+            "POST /api/runs/:id/resume"
+          ]
+        },
+        "packages/server/src/routes/schedules.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/schedules"
+          ],
+          "endpoints": [
+            "DELETE /:id",
+            "GET /",
+            "GET /:id",
+            "POST /",
+            "POST /:id/trigger",
+            "PUT /:id"
+          ],
+          "mountedEndpoints": [
+            "DELETE /api/schedules/:id",
+            "GET /api/schedules",
+            "GET /api/schedules/:id",
+            "POST /api/schedules",
+            "POST /api/schedules/:id/trigger",
+            "PUT /api/schedules/:id"
+          ]
+        },
+        "packages/server/src/routes/skills.ts": {
+          "category": "route-plugin-host-seam",
+          "mounts": [
+            "/api/skills"
+          ],
+          "endpoints": [
+            "GET /",
+            "GET /:provider",
+            "GET /:provider/:skillId",
+            "GET /registry/stats",
+            "POST /compile"
+          ],
+          "mountedEndpoints": [
+            "GET /api/skills",
+            "GET /api/skills/:provider",
+            "GET /api/skills/:provider/:skillId",
+            "GET /api/skills/registry/stats",
+            "POST /api/skills/compile"
+          ]
+        },
+        "packages/server/src/routes/triggers.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/triggers"
+          ],
+          "endpoints": [
+            "DELETE /:id",
+            "GET /",
+            "GET /:id",
+            "PATCH /:id/enable",
+            "POST /"
+          ],
+          "mountedEndpoints": [
+            "DELETE /api/triggers/:id",
+            "GET /api/triggers",
+            "GET /api/triggers/:id",
+            "PATCH /api/triggers/:id/enable",
+            "POST /api/triggers"
+          ]
+        },
+        "packages/server/src/routes/workflows.ts": {
+          "category": "route-plugin-host-seam",
+          "mounts": [
+            "/api/workflows"
+          ],
+          "endpoints": [
+            "GET /",
+            "GET /stream",
+            "POST /dry-run",
+            "POST /execute"
+          ],
+          "mountedEndpoints": [
+            "GET /api/workflows",
+            "GET /api/workflows/stream",
+            "POST /api/workflows/dry-run",
+            "POST /api/workflows/execute"
+          ]
+        }
+      }
+    },
+    "forgeServerConfigRouteFamilies": {
+      "sourceFile": "packages/server/src/composition/types.ts",
+      "interfaces": {
+        "ForgeMemoryRouteFamilyConfig": [
+          "memoryService",
+          "memoryHealth",
+          "traceStore",
+          "tokenLifecycleRegistry"
+        ],
+        "ForgeCompatibilityRouteFamilyConfig": [
+          "playground",
+          "deploy",
+          "openai"
+        ],
+        "ForgeEvaluationRouteFamilyConfig": [
+          "learning",
+          "benchmark",
+          "evals",
+          "evalOrchestrator",
+          "benchmarkOrchestrator"
+        ],
+        "ForgeAdapterRouteFamilyConfig": [
+          "mcpManager",
+          "mcpAllowedExecutables",
+          "mcpAllowedHttpHosts",
+          "httpConnectorProfiles",
+          "defaultHttpConnectorProfile",
+          "githubConnectorProfiles",
+          "defaultGithubConnectorProfile",
+          "slackConnectorProfiles",
+          "defaultSlackConnectorProfile",
+          "gitWorkspaceProfiles",
+          "defaultGitWorkspaceProfile",
+          "allowUnsafeMetadataHttpConnector",
+          "allowUnsafeMetadataGitCwd",
+          "skillRegistry",
+          "coreSkillRegistry",
+          "workflowRegistry",
+          "skillStepResolver",
+          "compile"
+        ],
+        "ForgeAutomationRouteFamilyConfig": [
+          "a2a",
+          "triggerStore",
+          "scheduleStore",
+          "onScheduleTrigger"
+        ],
+        "ForgeControlPlaneRouteFamilyConfig": [
+          "promptStore",
+          "personaStore",
+          "notifier",
+          "presetRegistry",
+          "reflectionStore",
+          "mailboxStore",
+          "mailDelivery",
+          "clusterStore",
+          "catalogStore",
+          "promptFeedbackLoop",
+          "learningEventProcessor",
+          "approvalStore"
+        ],
+        "ForgeIntegrationsConfig": [
+          "routePlugins"
+        ]
+      }
     }
   },
   "layerGraph": {
@@ -240,7 +1097,10 @@
       "allowSameLayerEdges": false,
       "toolingMayBeUpstreamOfSupported": false,
       "toolingLayerId": 99,
-      "supportedTiers": [1, 2]
+      "supportedTiers": [
+        1,
+        2
+      ]
     }
   }
 }

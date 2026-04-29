@@ -14,6 +14,7 @@ function createRepo({
   packageBoundaryRules = [],
   serverRouteBoundaries,
   serverRouteFiles = [],
+  serverRouteFileContents = {},
 } = {}) {
   const repoRoot = mkdtempSync(join(tmpdir(), 'domain-boundaries-'))
   mkdirSync(join(repoRoot, 'config'), { recursive: true })
@@ -70,7 +71,7 @@ function createRepo({
   for (const routeFile of serverRouteFiles) {
     const fullPath = join(repoRoot, routeFile)
     mkdirSync(dirname(fullPath), { recursive: true })
-    writeFileSync(fullPath, 'export const route = true\n', 'utf8')
+    writeFileSync(fullPath, serverRouteFileContents[routeFile] ?? 'export const route = true\n', 'utf8')
   }
 
   return repoRoot
@@ -193,6 +194,91 @@ test('allows server route files with declared maintenance or framework rationale
         'framework-primitive': {
           rationale: 'Existing reusable framework route primitives.',
           files: ['packages/server/src/routes/runs.ts'],
+        },
+      },
+    },
+  })
+
+  try {
+    assert.doesNotThrow(() => runDomainBoundaryCheck(repoRoot))
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test('fails newly added endpoints inside an already classified server route file without manifest update', () => {
+  const repoRoot = createRepo({
+    serverRouteFiles: ['packages/server/src/routes/runs.ts'],
+    serverRouteFileContents: {
+      'packages/server/src/routes/runs.ts': [
+        "import { Hono } from 'hono'",
+        'export function createRunRoutes() {',
+        '  const app = new Hono()',
+        "  app.get('/', (c) => c.json({ ok: true }))",
+        "  app.post('/new-endpoint', (c) => c.json({ ok: true }))",
+        '  return app',
+        '}',
+        '',
+      ].join('\n'),
+    },
+    serverRouteBoundaries: {
+      routeFileClassifications: {
+        'framework-primitive': {
+          rationale: 'Existing reusable framework route primitives.',
+          files: ['packages/server/src/routes/runs.ts'],
+        },
+      },
+      routeEndpointManifest: {
+        files: {
+          'packages/server/src/routes/runs.ts': {
+            category: 'framework-primitive',
+            mounts: ['/api/runs'],
+            endpoints: ['GET /'],
+            mountedEndpoints: ['GET /api/runs'],
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const result = runDomainBoundaryCheckResult(repoRoot)
+    assert.ifError(result.error)
+    assert.notEqual(result.status, 0)
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test('allows reviewed endpoints inside classified server route files', () => {
+  const repoRoot = createRepo({
+    serverRouteFiles: ['packages/server/src/routes/runs.ts'],
+    serverRouteFileContents: {
+      'packages/server/src/routes/runs.ts': [
+        "import { Hono } from 'hono'",
+        'export function createRunRoutes() {',
+        '  const app = new Hono()',
+        "  app.get('/', (c) => c.json({ ok: true }))",
+        '  return app',
+        '}',
+        '',
+      ].join('\n'),
+    },
+    serverRouteBoundaries: {
+      routeFileClassifications: {
+        'framework-primitive': {
+          rationale: 'Existing reusable framework route primitives.',
+          files: ['packages/server/src/routes/runs.ts'],
+        },
+      },
+      routeEndpointManifest: {
+        files: {
+          'packages/server/src/routes/runs.ts': {
+            category: 'framework-primitive',
+            mounts: ['/api/runs'],
+            endpoints: ['GET /'],
+            mountedEndpoints: ['GET /api/runs'],
+          },
         },
       },
     },
