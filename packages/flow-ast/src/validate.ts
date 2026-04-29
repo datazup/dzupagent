@@ -944,7 +944,34 @@ function validateClassify(
     })
     return null
   }
-  return { type: 'classify', ...common, prompt, choices: choices as string[], outputKey }
+  const normalizedChoices = choices as string[]
+  const defaultChoice = obj['defaultChoice']
+  if (defaultChoice !== undefined) {
+    if (typeof defaultChoice !== 'string' || defaultChoice.length === 0) {
+      issues.push({
+        path: joinPath(path, 'defaultChoice'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'classify.defaultChoice must be a non-empty string when present',
+      })
+      return null
+    }
+    if (!normalizedChoices.includes(defaultChoice)) {
+      issues.push({
+        path: joinPath(path, 'defaultChoice'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'classify.defaultChoice must match one of classify.choices',
+      })
+      return null
+    }
+  }
+  return {
+    type: 'classify',
+    ...common,
+    prompt,
+    choices: normalizedChoices,
+    outputKey,
+    ...(typeof defaultChoice === 'string' ? { defaultChoice } : {}),
+  }
 }
 
 function validateMemory(

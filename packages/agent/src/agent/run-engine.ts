@@ -48,6 +48,7 @@ import {
 } from './tool-lifecycle-policy.js'
 import { ReflectionAnalyzer } from '../reflection/reflection-analyzer.js'
 import { buildWorkflowEventsFromToolStats } from '../reflection/learning-bridge.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 export interface PreparedRunState {
   maxIterations: number
@@ -208,7 +209,7 @@ export async function prepareRunState(
     await learningHook.loadSpecialistConfig().catch(() => { /* non-fatal */ })
   }
 
-  return {
+  return omitUndefined({
     maxIterations,
     budget,
     preparedMessages: finalMessages,
@@ -217,7 +218,7 @@ export async function prepareRunState(
     model,
     stuckDetector,
     memoryFrame,
-  }
+  })
 }
 
 /**
@@ -257,7 +258,7 @@ export async function executeGenerateRun(
     params.runState.model,
     params.runState.preparedMessages,
     params.runState.tools,
-    {
+    omitUndefined({
       maxIterations: params.runState.maxIterations,
       budget: params.runState.budget,
       signal: params.options?.signal,
@@ -395,7 +396,7 @@ export async function executeGenerateRun(
       },
       // Note: run:halted:token-exhausted is emitted AFTER the loop
       // completes (below) so the iteration count is accurate.
-    },
+    }),
   )
 
   // Emit token-exhaustion telemetry as soon as the loop reports the
@@ -438,7 +439,7 @@ export async function executeGenerateRun(
     }
   }
 
-  return {
+  return omitUndefined({
     content,
     messages: result.messages,
     usage: {
@@ -458,7 +459,7 @@ export async function executeGenerateRun(
     // fired; leave undefined otherwise to avoid cluttering result payloads
     // for runs that never compacted.
     ...(compressionLog.length > 0 ? { compressionLog } : {}),
-  }
+  })
 }
 
 export async function applyOutputFilter(
@@ -705,7 +706,7 @@ export async function executeStreamingToolCall(params: {
       toolName,
       policy?.toolTimeouts?.[toolName],
       ({ signal }) => tool.invoke(validatedArgs, { signal }),
-      {
+      omitUndefined({
         signal: policy?.signal ?? params.signal,
         onCancelRequested: (reason) => emitToolCancellationRequested(policy, {
           toolName,
@@ -716,7 +717,7 @@ export async function executeStreamingToolCall(params: {
             ? { timeoutMs: policy.toolTimeouts[toolName] }
             : {}),
         }),
-      },
+      }),
     )
     const rawResult = typeof result === 'string' ? result : JSON.stringify(result)
     let transformedResult = await params.transformToolResult(
@@ -901,7 +902,7 @@ export async function executeStreamingToolCall(params: {
       : undefined
     const recovery = reason ? 'Stopping due to repeated errors.' : undefined
 
-    return {
+    return omitUndefined({
       message: new ToolMessage({
         content: `Error executing tool "${toolName}": ${errorMsg}`,
         tool_call_id: toolCallId,
@@ -912,6 +913,6 @@ export async function executeStreamingToolCall(params: {
       stuckRecovery: recovery,
       repeatedTool: reason ? toolName : undefined,
       shouldStop: reason !== undefined,
-    }
+    })
   }
 }

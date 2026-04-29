@@ -7,6 +7,7 @@
  * minResponseReserve.  Explicit overrides in ArrowMemoryConfig always win.
  */
 import type { ArrowMemoryConfig } from './agent-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 /** Named memory budget profile. */
 export type MemoryProfile = 'minimal' | 'balanced' | 'memory-heavy'
@@ -67,10 +68,10 @@ export function resolveArrowMemoryConfig(
 
   const preset = getMemoryProfilePreset(profile ?? 'balanced')
 
-  return {
+  return omitUndefined({
     totalBudget: config?.totalBudget ?? preset.totalBudget,
     maxMemoryFraction: config?.maxMemoryFraction ?? preset.maxMemoryFraction,
     minResponseReserve: config?.minResponseReserve ?? preset.minResponseReserve,
     currentPhase: config?.currentPhase,
-  }
+  })
 }

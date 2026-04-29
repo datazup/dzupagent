@@ -11,6 +11,7 @@ import {
   ToolMessage,
   type BaseMessage,
 } from '@langchain/core/messages'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 /**
  * Serializable snapshot of agent execution state.
@@ -92,17 +93,17 @@ export function deserializeMessages(serialized: SerializedMessage[]): BaseMessag
   return serialized.map((msg): BaseMessage => {
     switch (msg.role) {
       case 'system':
-        return new SystemMessage({ content: msg.content, name: msg.name })
+        return new SystemMessage(omitUndefined({ content: msg.content, name: msg.name }))
       case 'human':
-        return new HumanMessage({ content: msg.content, name: msg.name })
+        return new HumanMessage(omitUndefined({ content: msg.content, name: msg.name }))
       case 'ai':
-        return new AIMessage({ content: msg.content, name: msg.name })
+        return new AIMessage(omitUndefined({ content: msg.content, name: msg.name }))
       case 'tool':
-        return new ToolMessage({
+        return new ToolMessage(omitUndefined({
           content: msg.content,
           name: msg.name,
           tool_call_id: msg.toolCallId ?? '',
-        })
+        }))
     }
   })
 }

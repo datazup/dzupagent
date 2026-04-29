@@ -3,6 +3,7 @@ import type {
   ApprovalNode,
   BranchNode,
   CheckpointNode,
+  ClassifyNode,
   ClarificationNode,
   CompleteNode,
   FlowDocumentV1,
@@ -99,6 +100,16 @@ const ROUTE_KEYS = new Set<string>([
 const COMPLETE_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
   'result',
+])
+
+const CLASSIFY_KEYS = new Set<string>([
+  ...COMMON_NODE_KEYS,
+  'prompt',
+  'choices',
+  'output',
+  'outputKey',
+  'default',
+  'defaultChoice',
 ])
 
 const CHECKPOINT_KEYS = new Set<string>([
@@ -275,6 +286,8 @@ function normalizeNodeWrapper(
       return normalizeRoute(value, path, diagnostics)
     case 'complete':
       return normalizeComplete(value, path, diagnostics)
+    case 'classify':
+      return normalizeClassify(value, path, diagnostics)
     case 'checkpoint':
       return normalizeCheckpoint(value, path, diagnostics)
     case 'restore':
@@ -636,6 +649,75 @@ function normalizeComplete(
       })
     }
   }
+  return node
+}
+
+function normalizeClassify(
+  raw: Record<string, unknown>,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): ClassifyNode {
+  reportUnsupportedFields(raw, CLASSIFY_KEYS, path, diagnostics)
+  const base = normalizeCommonNodeFields(raw, path, diagnostics)
+  const choices = normalizeStringArray(raw.choices, `${path}.choices`, diagnostics) ?? []
+  const node: ClassifyNode = {
+    type: 'classify',
+    ...base,
+    prompt: typeof raw.prompt === 'string' ? raw.prompt : '',
+    choices,
+    outputKey: typeof raw.output === 'string'
+      ? raw.output
+      : typeof raw.outputKey === 'string'
+        ? raw.outputKey
+        : '',
+  }
+
+  if (node.prompt.length === 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'classify.prompt is required',
+      path: `${path}.prompt`,
+    })
+  }
+  if (choices.length === 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'classify.choices must contain at least one choice',
+      path: `${path}.choices`,
+    })
+  }
+  if (node.outputKey.length === 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'classify.output is required',
+      path: `${path}.output`,
+    })
+  }
+
+  const defaultRaw = raw.default ?? raw.defaultChoice
+  if (defaultRaw !== undefined) {
+    if (typeof defaultRaw !== 'string' || defaultRaw.length === 0) {
+      diagnostics.push({
+        phase: 'normalize',
+        code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+        message: 'classify.default must be a non-empty string when present',
+        path: raw.default !== undefined ? `${path}.default` : `${path}.defaultChoice`,
+      })
+    } else if (!choices.includes(defaultRaw)) {
+      diagnostics.push({
+        phase: 'normalize',
+        code: DSL_ERROR.INVALID_ENUM_VALUE,
+        message: 'classify.default must match one of classify.choices',
+        path: raw.default !== undefined ? `${path}.default` : `${path}.defaultChoice`,
+      })
+    } else {
+      node.defaultChoice = defaultRaw
+    }
+  }
+
   return node
 }
 

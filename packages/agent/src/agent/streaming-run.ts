@@ -39,6 +39,7 @@ import {
   prepareRunState,
   type StreamingToolPolicyOptions,
 } from './run-engine.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 /**
  * Callbacks and configuration a streaming run needs from its owning agent.
@@ -214,7 +215,7 @@ export async function* streamRun(
   messages: BaseMessage[],
   options?: GenerateOptions,
 ): AsyncGenerator<AgentStreamEvent> {
-  const runState = await prepareRunState({
+  const runState = await prepareRunState(omitUndefined({
     config: ctx.config,
     resolvedModel: ctx.resolvedModel,
     messages,
@@ -223,7 +224,7 @@ export async function* streamRun(
     getTools: () => ctx.getTools(),
     bindTools: (model, tools) => ctx.bindTools(model, tools),
     runBeforeAgentHooks: () => ctx.runBeforeAgentHooks(),
-  })
+  }))
   const usesModelWrapper = ctx.config.middleware?.some(
     middleware => typeof middleware.wrapModelCall === 'function',
   ) ?? false
@@ -241,11 +242,11 @@ export async function* streamRun(
       }
     : userOnUsage
   const optionsWithUsage: GenerateOptions | undefined = tokenPlugin
-    ? { ...(options ?? {}), onUsage: wrappedOnUsage }
+    ? omitUndefined({ ...(options ?? {}), onUsage: wrappedOnUsage })
     : options
 
   if (!('stream' in runState.model) || typeof runState.model.stream !== 'function' || usesModelWrapper) {
-    const result = await executeGenerateRun({
+    const result = await executeGenerateRun(omitUndefined({
       agentId: ctx.agentId,
       config: ctx.config,
       options: optionsWithUsage,
@@ -256,7 +257,7 @@ export async function* streamRun(
         ctx.transformToolResultWithMiddleware(toolName, input, result),
       maybeUpdateSummary: (allMessages, memoryFrame) =>
         ctx.maybeUpdateSummary(allMessages, memoryFrame),
-    })
+    }))
 
     if (result.content) {
       yield { type: 'text', data: { content: result.content } }
@@ -529,7 +530,7 @@ export async function* streamRun(
 
       let execution: Awaited<ReturnType<typeof executeStreamingToolCall>>
       try {
-        execution = await executeStreamingToolCall({
+        execution = await executeStreamingToolCall(omitUndefined({
           toolCall,
           toolMap: runState.toolMap,
           budget: runState.budget,
@@ -547,7 +548,7 @@ export async function* streamRun(
           statTracker: toolStats,
           ...(options?.signal !== undefined ? { signal: options.signal } : {}),
           ...(streamingPolicy ? { policy: streamingPolicy } : {}),
-        })
+        }))
       } catch (err) {
         // The policy-enabled tool execution stage throws on permission
         // denial (TOOL_PERMISSION_DENIED). Match the non-streaming path's

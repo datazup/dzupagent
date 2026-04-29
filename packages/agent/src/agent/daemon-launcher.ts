@@ -76,7 +76,6 @@ async function runInBackground(
 ): Promise<void> {
   const result = await ctx.generate(messages, generateOptions)
   handle._complete(result.content, {
-    durationMs: undefined,
     totalTokens: (result.usage.totalInputTokens ?? 0) + (result.usage.totalOutputTokens ?? 0),
     // Surface the per-run memory frame on the public RunResult so callers
     // can inspect which memory context was attached to this run. Only
