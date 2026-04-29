@@ -434,6 +434,7 @@ export type { SearchResult, CommandResult, WorkspaceOptions, Workspace } from '.
 export {
   LocalWorkspace,
   SandboxedWorkspace,
+  WorkspaceConfigurationError,
   WorkspaceFactory,
   WorkspacePathSecurityError,
 } from './workspace/index.js'

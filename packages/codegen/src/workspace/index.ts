@@ -8,4 +8,4 @@ export { WorkspacePathSecurityError } from './types.js'
 
 export { LocalWorkspace } from './local-workspace.js'
 export { SandboxedWorkspace } from './sandboxed-workspace.js'
-export { WorkspaceFactory } from './workspace-factory.js'
+export { WorkspaceConfigurationError, WorkspaceFactory } from './workspace-factory.js'

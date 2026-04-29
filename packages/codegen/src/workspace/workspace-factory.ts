@@ -7,21 +7,38 @@ import type { SandboxProtocol } from '../sandbox/sandbox-protocol.js'
 import { LocalWorkspace } from './local-workspace.js'
 import { SandboxedWorkspace } from './sandboxed-workspace.js'
 
+export class WorkspaceConfigurationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'WorkspaceConfigurationError'
+  }
+}
+
 export class WorkspaceFactory {
   /**
    * Create a Workspace instance.
    *
-   * If `options.sandbox?.enabled` is true AND a `sandbox` instance is provided,
-   * returns a SandboxedWorkspace that wraps a LocalWorkspace.
-   * Otherwise returns a plain LocalWorkspace.
+   * If `options.sandbox?.enabled` is true, a sandbox backend must be provided.
+   * Callers that intentionally accept local execution can opt in with
+   * `options.sandbox.allowLocalFallback`.
    */
   static create(options: WorkspaceOptions, sandbox?: SandboxProtocol): Workspace {
     const local = new LocalWorkspace(options)
 
-    if (options.sandbox?.enabled && sandbox) {
+    if (!options.sandbox?.enabled) {
+      return local
+    }
+
+    if (sandbox) {
       return new SandboxedWorkspace(local, sandbox)
     }
 
-    return local
+    if (options.sandbox.allowLocalFallback) {
+      return local
+    }
+
+    throw new WorkspaceConfigurationError(
+      'Sandbox-enabled codegen requires a sandbox backend. Provide a SandboxProtocol instance or set sandbox.allowLocalFallback=true to opt in to local execution.',
+    )
   }
 }
