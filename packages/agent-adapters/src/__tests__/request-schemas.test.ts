@@ -1,12 +1,30 @@
 import { describe, it, expect } from 'vitest'
 
 import {
+  AdapterProviderIdSchema,
   RunRequestSchema,
   SupervisorRequestSchema,
   ParallelRequestSchema,
   BidRequestSchema,
   ApproveRequestSchema,
 } from '../http/request-schemas.js'
+import {
+  HTTP_ROUTABLE_PROVIDER_IDS,
+  getProductProviders,
+  getProviderCapabilities,
+} from '../provider-catalog.js'
+import { OpenAIAdapter } from '../openai/openai-adapter.js'
+import type { AdapterProviderId } from '../types.js'
+
+const PRESERVED_HTTP_ROUTABLE_PROVIDERS = [
+  'claude',
+  'codex',
+  'gemini',
+  'qwen',
+  'crush',
+  'goose',
+  'openrouter',
+] as const satisfies readonly AdapterProviderId[]
 
 describe('RunRequestSchema', () => {
   it('accepts a valid request', () => {
@@ -58,6 +76,58 @@ describe('RunRequestSchema', () => {
       maxTurns: 1001,
     })
     expect(result.success).toBe(false)
+  })
+})
+
+describe('HTTP provider policy', () => {
+  it('derives request validation from the catalog HTTP routing policy', () => {
+    for (const providerId of HTTP_ROUTABLE_PROVIDER_IDS) {
+      const caps = getProviderCapabilities(providerId)
+
+      expect(caps?.httpAdapterRouting).toBe(true)
+      expect(AdapterProviderIdSchema.safeParse(providerId).success).toBe(true)
+      expect(RunRequestSchema.safeParse({ prompt: 'Hello', preferredProvider: providerId }).success)
+        .toBe(true)
+      expect(SupervisorRequestSchema.safeParse({ goal: 'Build', preferredProviders: [providerId] }).success)
+        .toBe(true)
+      expect(ParallelRequestSchema.safeParse({ prompt: 'Hello', providers: [providerId] }).success)
+        .toBe(true)
+    }
+  })
+
+  it('keeps existing HTTP-routable providers accepted', () => {
+    for (const providerId of PRESERVED_HTTP_ROUTABLE_PROVIDERS) {
+      expect(HTTP_ROUTABLE_PROVIDER_IDS).toContain(providerId)
+      expect(AdapterProviderIdSchema.safeParse(providerId).success).toBe(true)
+    }
+  })
+
+  it('encodes OpenAI as product-integrated and HTTP-routable', () => {
+    const adapter = new OpenAIAdapter({ apiKey: 'test-key' })
+    const providerId = adapter.providerId
+    const caps = getProviderCapabilities(providerId)
+
+    expect(providerId).toBe('openai')
+    expect(caps?.productIntegrated).toBe(true)
+    expect(caps?.httpAdapterRouting).toBe(true)
+    expect(getProductProviders()).toContain(providerId)
+    expect(HTTP_ROUTABLE_PROVIDER_IDS).toContain(providerId)
+    expect(AdapterProviderIdSchema.safeParse(providerId).success).toBe(true)
+    expect(RunRequestSchema.safeParse({ prompt: 'Hello', preferredProvider: providerId }).success)
+      .toBe(true)
+    expect(SupervisorRequestSchema.safeParse({ goal: 'Build', preferredProviders: [providerId] }).success)
+      .toBe(true)
+    expect(ParallelRequestSchema.safeParse({ prompt: 'Hello', providers: [providerId] }).success)
+      .toBe(true)
+  })
+
+  it('rejects providers not enabled for HTTP adapter routing', () => {
+    const providerId = 'gemini-sdk'
+
+    expect(getProviderCapabilities(providerId)?.httpAdapterRouting).toBe(false)
+    expect(AdapterProviderIdSchema.safeParse(providerId).success).toBe(false)
+    expect(RunRequestSchema.safeParse({ prompt: 'Hello', preferredProvider: providerId }).success)
+      .toBe(false)
   })
 })
 
