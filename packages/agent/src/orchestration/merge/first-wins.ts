@@ -1,4 +1,5 @@
 import type { AgentResult, MergedResult, OrchestrationMergeStrategy } from '../orchestration-merge-strategy-types.js'
+import { omitUndefined } from '../../utils/exact-optional.js'
 
 /** FirstWins: returns the first successful result */
 export class FirstWinsMergeStrategy<T = unknown> implements OrchestrationMergeStrategy<T> {
@@ -18,13 +19,13 @@ export class FirstWinsMergeStrategy<T = unknown> implements OrchestrationMergeSt
       }
     }
 
-    return {
+    return omitUndefined({
       status: 'success',
       output: first.output,
       agentResults: results,
       successCount,
       timeoutCount,
       errorCount,
-    }
+    })
   }
 }

@@ -15,6 +15,7 @@ import type {
   ToolExecutionConfig,
   ToolTracer,
 } from './agent-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 export interface ProductionToolPermissionOptions {
   /**
@@ -120,12 +121,12 @@ export function withProductionToolGovernancePreset<T extends DzupAgentConfig>(
     tools?: readonly StructuredToolInterface[]
   },
 ): T & { eventBus: DzupEventBus; toolExecution: ToolExecutionConfig } {
-  const preset = createProductionToolGovernancePreset({
+  const preset = createProductionToolGovernancePreset(omitUndefined({
     ...options,
     agentId: options.agentId ?? config.id,
     tools: options.tools ?? config.tools,
     eventBus: options.eventBus ?? config.eventBus,
-  })
+  }))
 
   return {
     ...config,

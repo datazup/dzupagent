@@ -51,11 +51,16 @@ import {
   estimateConversationTokensForMessages,
 } from './message-utils.js'
 import { AgentInstructionResolver } from './instruction-resolution.js'
+import type { AgentInstructionResolverConfig } from './instruction-resolution.js'
 import { AgentMemoryContextLoader } from './memory-context-loader.js'
+import type { AgentMemoryContextLoaderConfig } from './memory-context-loader.js'
 import { AgentMiddlewareRuntime } from './middleware-runtime.js'
+import type { AgentMiddlewareRuntimeConfig } from './middleware-runtime.js'
 import {
   executeGenerateRun,
   prepareRunState,
+  type ExecuteGenerateRunParams,
+  type PrepareRunStateParams,
 } from './run-engine.js'
 import type { RunHandle, LaunchOptions } from './run-handle-types.js'
 import { streamRun } from './streaming-run.js'
@@ -128,13 +133,13 @@ export class DzupAgent {
         createCheckMailTool({ mailbox: mailboxImpl }),
       ]
     }
-    this.instructionResolver = new AgentInstructionResolver(omitUndefined({
+    this.instructionResolver = new AgentInstructionResolver(omitUndefined<AgentInstructionResolverConfig>({
       agentId: this.id,
       instructions: config.instructions,
       instructionsMode: config.instructionsMode,
       agentsDir: config.agentsDir,
     }))
-    this.memoryContextLoader = new AgentMemoryContextLoader(omitUndefined({
+    this.memoryContextLoader = new AgentMemoryContextLoader(omitUndefined<AgentMemoryContextLoaderConfig>({
       instructions: config.instructions,
       memory: config.memory,
       memoryNamespace: config.memoryNamespace,
@@ -185,7 +190,7 @@ export class DzupAgent {
         }))
       },
     }))
-    this.middlewareRuntime = new AgentMiddlewareRuntime(omitUndefined({
+    this.middlewareRuntime = new AgentMiddlewareRuntime(omitUndefined<AgentMiddlewareRuntimeConfig>({
       agentId: this.id,
       middleware: config.middleware,
     }))
@@ -228,7 +233,7 @@ export class DzupAgent {
     messages: BaseMessage[],
     options?: GenerateOptions,
   ): Promise<GenerateResult> {
-    const runState = await prepareRunState(omitUndefined({
+    const runState = await prepareRunState(omitUndefined<PrepareRunStateParams>({
       config: this.config,
       resolvedModel: this.resolvedModel,
       messages,
@@ -239,7 +244,7 @@ export class DzupAgent {
       runBeforeAgentHooks: () => this.runBeforeAgentHooks(),
     }))
 
-    const result = await executeGenerateRun(omitUndefined({
+    const result = await executeGenerateRun(omitUndefined<ExecuteGenerateRunParams>({
       agentId: this.id,
       config: this.config,
       options,
@@ -601,7 +606,7 @@ export class DzupAgent {
         messages,
         this.conversationSummary,
         summaryModel,
-        {
+        omitUndefined({
           ...this.config.messageConfig,
           ...(memoryFrame ? { memoryFrame } : {}),
           onFallback: this.config.onFallback
@@ -624,9 +629,9 @@ export class DzupAgent {
                     before,
                     after,
                   })
-                }
-              : undefined,
-        },
+              }
+            : undefined,
+        }),
       )
       this.conversationSummary = summary
     } catch (err) {

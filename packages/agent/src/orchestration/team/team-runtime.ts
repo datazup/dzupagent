@@ -47,6 +47,7 @@ import type {
   SupervisionPolicy,
   AgentBreakerState,
 } from './supervision-policy.js'
+import { omitUndefined } from '../../utils/exact-optional.js'
 
 const DEFAULT_MAX_PARALLEL_PARTICIPANTS = 5
 
@@ -276,7 +277,7 @@ export class TeamRuntime {
     if (Date.now() - state.openedAt >= this.supervisionPolicy.resetAfterMs) {
       // Reset: fully clear the breaker so the agent runs again on next pass.
       state.count = 0
-      state.openedAt = undefined
+      delete state.openedAt
       return false
     }
     return true
@@ -288,7 +289,7 @@ export class TeamRuntime {
     const state = this.breakerState.get(participantId)
     if (state) {
       state.count = 0
-      state.openedAt = undefined
+      delete state.openedAt
     }
   }
 
@@ -586,7 +587,7 @@ export class TeamRuntime {
 
     return {
       content: contractResult.result ?? '',
-      agentResults: spawned.map((s) => ({
+      agentResults: spawned.map((s) => omitUndefined({
         agentId: s.spawned.agent.id,
         role: s.spawned.role,
         content:
@@ -680,7 +681,7 @@ export class TeamRuntime {
 
     return {
       content: workspace.formatAsContext(),
-      agentResults: spawned.map((s) => ({
+      agentResults: spawned.map((s) => omitUndefined({
         agentId: s.spawned.agent.id,
         role: s.spawned.role,
         content: s.spawned.lastResult ?? '',

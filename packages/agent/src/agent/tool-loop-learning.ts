@@ -200,8 +200,8 @@ export class ToolLoopLearningHook {
       toolName,
       durationMs,
       success,
-      error,
       tokenCost: 0,
+      ...(error !== undefined ? { error } : {}),
     }
 
     this.toolSignals.push(signal)
@@ -245,7 +245,9 @@ export class ToolLoopLearningHook {
       skillMetrics: this.skillLearner.getAllMetrics(),
       skillsNeedingReview: this.skillLearner.getSkillsNeedingReview(),
       optimizableSkills: this.skillLearner.getOptimizableSkills(),
-      specialistConfig: this.specialistConfig,
+      ...(this.specialistConfig !== undefined
+        ? { specialistConfig: this.specialistConfig }
+        : {}),
       wasStuck: result.stopReason === 'stuck',
     }
 

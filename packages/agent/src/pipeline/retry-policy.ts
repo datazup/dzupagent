@@ -10,6 +10,7 @@
 
 import { calculateBackoff as coreCalculateBackoff } from '@dzupagent/core'
 import type { RetryPolicy } from './pipeline-runtime-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Default retry policy
@@ -130,12 +131,12 @@ export function resolveRetryPolicy(
   if (!nodePolicy) return globalPolicy
   if (!globalPolicy) return nodePolicy
 
-  return {
+  return omitUndefined({
     initialBackoffMs: nodePolicy.initialBackoffMs ?? globalPolicy.initialBackoffMs,
     maxBackoffMs: nodePolicy.maxBackoffMs ?? globalPolicy.maxBackoffMs,
     multiplier: nodePolicy.multiplier ?? globalPolicy.multiplier,
     backoffMultiplier: nodePolicy.backoffMultiplier ?? globalPolicy.backoffMultiplier,
     jitter: nodePolicy.jitter ?? globalPolicy.jitter,
     retryableErrors: nodePolicy.retryableErrors ?? globalPolicy.retryableErrors,
-  }
+  })
 }

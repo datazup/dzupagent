@@ -17,6 +17,7 @@ import type { ProviderExecutionPort } from './provider-adapter/provider-executio
 import type { RoutingPolicy, AgentSpec, AgentTask } from './routing-policy-types.js'
 import type { OrchestrationMergeStrategy, AgentResult } from './orchestration-merge-strategy-types.js'
 import type { AgentCircuitBreaker } from './circuit-breaker.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 export interface SupervisorConfig {
   /** The manager agent that coordinates specialists */
@@ -268,9 +269,9 @@ export class AgentOrchestrator {
     // Provider-adapter execution mode: route through the injected port
     if (executionMode === 'provider-adapter' && providerPort) {
       const portResult = await providerPort.run(
-        { prompt: task, signal },
+        omitUndefined({ prompt: task, signal }),
         { prompt: task, tags: specialists.map((s) => s.id) },
-        { signal },
+        omitUndefined({ signal }),
       )
 
       const result: SupervisorResult = {
@@ -396,7 +397,7 @@ export class AgentOrchestrator {
     try {
       const result = await managerWithTools.generate(
         [new HumanMessage(task)],
-        { signal },
+        omitUndefined({ signal }),
       )
 
       if (returnLegacy) {

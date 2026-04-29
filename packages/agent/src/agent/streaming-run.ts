@@ -37,6 +37,8 @@ import {
   executeGenerateRun,
   executeStreamingToolCall,
   prepareRunState,
+  type ExecuteGenerateRunParams,
+  type PrepareRunStateParams,
   type StreamingToolPolicyOptions,
 } from './run-engine.js'
 import { omitUndefined } from '../utils/exact-optional.js'
@@ -215,7 +217,7 @@ export async function* streamRun(
   messages: BaseMessage[],
   options?: GenerateOptions,
 ): AsyncGenerator<AgentStreamEvent> {
-  const runState = await prepareRunState(omitUndefined({
+  const runState = await prepareRunState(omitUndefined<PrepareRunStateParams>({
     config: ctx.config,
     resolvedModel: ctx.resolvedModel,
     messages,
@@ -246,7 +248,7 @@ export async function* streamRun(
     : options
 
   if (!('stream' in runState.model) || typeof runState.model.stream !== 'function' || usesModelWrapper) {
-    const result = await executeGenerateRun(omitUndefined({
+    const result = await executeGenerateRun(omitUndefined<ExecuteGenerateRunParams>({
       agentId: ctx.agentId,
       config: ctx.config,
       options: optionsWithUsage,
@@ -530,7 +532,7 @@ export async function* streamRun(
 
       let execution: Awaited<ReturnType<typeof executeStreamingToolCall>>
       try {
-        execution = await executeStreamingToolCall(omitUndefined({
+        execution = await executeStreamingToolCall(omitUndefined<Parameters<typeof executeStreamingToolCall>[0]>({
           toolCall,
           toolMap: runState.toolMap,
           budget: runState.budget,

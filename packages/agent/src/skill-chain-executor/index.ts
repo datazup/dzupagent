@@ -8,6 +8,7 @@ import { SkillChainExecutor } from './skill-chain-executor.js'
 import type { SkillStepResolver } from './skill-step-resolver.js'
 import type { StateTransformer } from './state-contract.js'
 import { WorkflowParseError } from './errors.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 export interface TextualWorkflowOptions {
   /** Custom parser; defaults to WorkflowCommandParser with built-in arrow/pipe/comma/then patterns. */
@@ -49,11 +50,11 @@ export async function executeTextualWorkflow(
     const namedChain = options.registry.get(text)
     if (namedChain) {
       const executor = buildExecutor(resolver, options)
-      return executor.execute(namedChain, initialState, {
+      return executor.execute(namedChain, initialState, omitUndefined({
         signal: options.signal,
         stateTransformers: options.stateTransformers,
         onProgress: options.onProgress,
-      })
+      }))
     }
   }
 
@@ -73,11 +74,11 @@ export async function executeTextualWorkflow(
 
   // 4. Execute
   const executor = buildExecutor(resolver, options)
-  return executor.execute(chain, initialState, {
+  return executor.execute(chain, initialState, omitUndefined({
     signal: options?.signal,
     stateTransformers: options?.stateTransformers,
     onProgress: options?.onProgress,
-  })
+  }))
 }
 
 /**
@@ -105,11 +106,11 @@ export async function* streamTextualWorkflow(
     const namedChain = options.registry.get(text)
     if (namedChain) {
       const executor = buildExecutor(resolver, options)
-      yield* executor.stream(namedChain, initialState, {
+      yield* executor.stream(namedChain, initialState, omitUndefined({
         signal: options.signal,
         stateTransformers: options.stateTransformers,
         onProgress: options.onProgress,
-      })
+      }))
       return
     }
   }
@@ -130,11 +131,11 @@ export async function* streamTextualWorkflow(
 
   // 4. Stream
   const executor = buildExecutor(resolver, options)
-  yield* executor.stream(chain, initialState, {
+  yield* executor.stream(chain, initialState, omitUndefined({
     signal: options?.signal,
     stateTransformers: options?.stateTransformers,
     onProgress: options?.onProgress,
-  })
+  }))
 }
 
 /**
@@ -147,11 +148,11 @@ export async function createSkillChainWorkflow(
   resolver: SkillStepResolver,
   options?: { registry?: SkillRegistry; eventBus?: DzupEventBus },
 ): Promise<CompiledWorkflow> {
-  const executor = new SkillChainExecutor({
+  const executor = new SkillChainExecutor(omitUndefined({
     resolver,
     registry: options?.registry ?? emptyRegistry(),
     eventBus: options?.eventBus,
-  })
+  }))
   return executor.compile(chain)
 }
 
@@ -160,13 +161,13 @@ export async function createSkillChainWorkflow(
 // ---------------------------------------------------------------------------
 
 function buildExecutor(resolver: SkillStepResolver, options?: TextualWorkflowOptions): SkillChainExecutor {
-  return new SkillChainExecutor({
+  return new SkillChainExecutor(omitUndefined({
     resolver,
     registry: options?.skillRegistry ?? emptyRegistry(),
     eventBus: options?.eventBus,
     logger: options?.logger,
     defaultTimeoutMs: options?.defaultTimeoutMs,
-  })
+  }))
 }
 
 /** Minimal stub registry for cases where validation is delegated to resolver.canResolve(). */

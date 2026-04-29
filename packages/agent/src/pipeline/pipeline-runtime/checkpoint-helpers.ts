@@ -1,4 +1,5 @@
 import type { PipelineCheckpoint } from '@dzupagent/core'
+import { omitUndefined } from '../../utils/exact-optional.js'
 
 export function createPipelineCheckpoint(options: {
   pipelineRunId: string
@@ -8,7 +9,7 @@ export function createPipelineCheckpoint(options: {
   state: Record<string, unknown>
   suspendedAtNodeId?: string
 }): PipelineCheckpoint {
-  return {
+  return omitUndefined({
     pipelineRunId: options.pipelineRunId,
     pipelineId: options.pipelineId,
     version: options.version,
@@ -17,5 +18,5 @@ export function createPipelineCheckpoint(options: {
     state: structuredClone(options.state),
     suspendedAtNodeId: options.suspendedAtNodeId,
     createdAt: new Date().toISOString(),
-  }
+  })
 }

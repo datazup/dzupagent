@@ -27,6 +27,7 @@ import { ErrorDetectionOrchestrator } from './error-detector.js'
 import { ObservabilityCorrectionBridge } from './observability-bridge.js'
 import { PostRunAnalyzer } from './post-run-analyzer.js'
 import type { RunAnalysis, AnalysisResult } from './post-run-analyzer.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,7 +136,7 @@ export class SelfLearningRuntime {
     }
 
     // (e) Create SelfLearningPipelineHook with callbacks
-    this.hook = new SelfLearningPipelineHook({
+    this.hook = new SelfLearningPipelineHook(omitUndefined({
       onBeforeNode: enricher
         ? async (nodeId: string) => {
             try {
@@ -178,7 +179,7 @@ export class SelfLearningRuntime {
             }
           }
         : undefined,
-    })
+    }))
 
     // (f) Create ObservabilityCorrectionBridge
     if (isEnabled && learningConfig.enableObservability !== false) {
@@ -215,11 +216,11 @@ export class SelfLearningRuntime {
     }
 
     // (i) Build the enhanced pipeline config and create PipelineRuntime
-    const enhancedConfig: PipelineRuntimeConfig = {
+    const enhancedConfig: PipelineRuntimeConfig = omitUndefined({
       ...pipelineConfig,
       stuckDetector,
       onEvent: chainedOnEvent,
-    }
+    })
 
     this.pipelineRuntime = new PipelineRuntime(enhancedConfig)
   }

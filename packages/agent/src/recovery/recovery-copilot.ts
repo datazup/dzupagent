@@ -28,6 +28,7 @@ import type {
   RecoveryResult,
 } from './recovery-types.js'
 import type { RecoveryFeedback, RecoveryLesson } from '../self-correction/recovery-feedback.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Default configuration
@@ -84,12 +85,12 @@ export class RecoveryCopilot {
     this.ranker = new StrategyRanker()
     this.strategyGenerator = opts.strategyGenerator ?? defaultStrategyGenerator
     this.feedback = opts.feedback
-    this.executor = new RecoveryExecutor({
+    this.executor = new RecoveryExecutor(omitUndefined({
       eventBus: opts.eventBus,
       approvalGate: opts.approvalGate,
       copilotConfig: this.config,
       actionHandler: opts.actionHandler,
-    })
+    }))
   }
 
   // ---------------------------------------------------------------------------
@@ -235,14 +236,14 @@ export class RecoveryCopilot {
   ): RecoveryPlan | null {
     if (!stuckStatus.stuck) return null
 
-    const failureContext: FailureContext = {
+    const failureContext: FailureContext = omitUndefined({
       type: 'generation_failure',
       error: stuckStatus.reason ?? 'Agent stuck — no progress detected',
       runId,
       nodeId,
       timestamp: new Date(),
       previousAttempts: this.countAttemptsForRun(runId),
-    }
+    })
 
     return this.createPlan(failureContext)
   }

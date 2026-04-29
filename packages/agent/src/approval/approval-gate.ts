@@ -28,6 +28,7 @@ import {
   type ApprovalResult,
   type ApprovalWaitOptions,
 } from './approval-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 export class ApprovalGate {
   constructor(
@@ -57,7 +58,7 @@ export class ApprovalGate {
     const contactId = randomUUID()
     const channel: ContactChannel = this.config.channel ?? 'in-app'
     const timeoutMs = this.getEffectiveTimeoutMs()
-    const approvalRequest: ApprovalRequest = {
+    const approvalRequest: ApprovalRequest = omitUndefined({
       contactId,
       runId,
       type: 'approval',
@@ -65,13 +66,13 @@ export class ApprovalGate {
       timeoutAt: timeoutMs !== undefined
         ? new Date(Date.now() + timeoutMs).toISOString()
         : undefined,
-      data: {
+      data: omitUndefined({
         question: typeof plan === 'string' ? plan : 'Approve this action?',
         context: typeof plan === 'object' && plan !== null
           ? JSON.stringify(plan)
           : undefined,
-      },
-    }
+      }),
+    })
 
     if (options.signal?.aborted) {
       this.eventBus.emit({

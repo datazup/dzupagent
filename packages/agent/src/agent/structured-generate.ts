@@ -37,6 +37,7 @@ import type {
   GenerateOptions,
   GenerateResult,
 } from './agent-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 /** Context the structured-generate routine needs from its owning agent. */
 export interface StructuredGenerateContext {
@@ -63,13 +64,13 @@ export async function generateStructured<T>(
     options?.schemaProvider,
     structuredOutputCapabilities,
   )
-  const schemaContract = prepareStructuredOutputSchemaContract(schema, {
+  const schemaContract = prepareStructuredOutputSchemaContract(schema, omitUndefined({
     agentId: ctx.agentId,
     intent: options?.intent ?? null,
     schemaName: options?.schemaName,
     schemaProvider,
     previewChars: 240,
-  })
+  }))
   const requestMessages = schemaContract.requiresEnvelope
     ? [
         ...messages,

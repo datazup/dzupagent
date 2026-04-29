@@ -117,7 +117,7 @@ function downgradeTier(tier: ModelTier): ModelTier {
 /* ------------------------------------------------------------------ */
 
 export class AgentPerformanceOptimizer {
-  private readonly store?: BaseStore
+  private readonly store: BaseStore | undefined
   private readonly namespace: string[]
   private readonly historyWindow: number
   private readonly costThresholdCents: number

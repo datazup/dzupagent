@@ -27,6 +27,7 @@ import type {
   HumanContactRequest,
   PendingHumanContact,
 } from '@dzupagent/core'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Input schema
@@ -126,42 +127,42 @@ function buildRequest(
   channel: ContactChannel,
   timeoutAt?: string,
 ): HumanContactRequest {
-  const base = {
+  const base = omitUndefined({
     contactId,
     runId,
     channel,
     timeoutAt,
     timeoutFallback: input.fallback,
-  }
+  })
 
   if (mode === 'approval') {
     return {
       ...base,
       type: 'approval' as const,
-      data: {
+      data: omitUndefined({
         question: input.question ?? 'Approve?',
         context: input.context,
-      },
+      }),
     }
   }
   if (mode === 'clarification') {
     return {
       ...base,
       type: 'clarification' as const,
-      data: {
+      data: omitUndefined({
         question: input.question ?? 'Please clarify:',
         context: input.context,
-      },
+      }),
     }
   }
   if (mode === 'input_request') {
     return {
       ...base,
       type: 'input_request' as const,
-      data: {
+      data: omitUndefined({
         prompt: input.question ?? 'Please provide input:',
         context: input.context,
-      },
+      }),
     }
   }
   if (mode === 'escalation') {
@@ -228,13 +229,13 @@ export function createHumanContactTool(
 
       // Step 3: Store as pending
       const resumeToken = randomUUID()
-      const pending: PendingHumanContact = {
+      const pending: PendingHumanContact = omitUndefined({
         request,
         resumeToken,
         expiresAt: timeoutAt,
         deliveredTo: channel,
         deliveryStatus: 'pending',
-      }
+      })
       await pendingStore.save(pending)
 
       // Step 4: Pause the run

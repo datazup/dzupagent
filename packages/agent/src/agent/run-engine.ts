@@ -28,6 +28,7 @@ import { rehydrateMessagesFromJournal } from './resume-utils.js'
 import {
   runToolLoop,
   type StopReason,
+  type ToolLoopConfig,
   type ToolResultScanFailureMode,
   type ToolLoopTracer,
   type ToolStat,
@@ -67,7 +68,7 @@ export interface PreparedRunState {
   memoryFrame?: unknown
 }
 
-interface PrepareRunStateParams {
+export interface PrepareRunStateParams {
   config: DzupAgentConfig
   resolvedModel: BaseChatModel
   messages: BaseMessage[]
@@ -88,7 +89,7 @@ interface PrepareRunStateParams {
   runId?: string
 }
 
-interface ExecuteGenerateRunParams {
+export interface ExecuteGenerateRunParams {
   agentId: string
   config: DzupAgentConfig
   options?: GenerateOptions
@@ -258,7 +259,7 @@ export async function executeGenerateRun(
     params.runState.model,
     params.runState.preparedMessages,
     params.runState.tools,
-    omitUndefined({
+    omitUndefined<ToolLoopConfig>({
       maxIterations: params.runState.maxIterations,
       budget: params.runState.budget,
       signal: params.options?.signal,
@@ -708,7 +709,7 @@ export async function executeStreamingToolCall(params: {
       ({ signal }) => tool.invoke(validatedArgs, { signal }),
       omitUndefined({
         signal: policy?.signal ?? params.signal,
-        onCancelRequested: (reason) => emitToolCancellationRequested(policy, {
+        onCancelRequested: (reason: 'timeout' | 'run_cancelled') => emitToolCancellationRequested(policy, {
           toolName,
           toolCallId,
           inputMetadataKeys: validatedKeys,

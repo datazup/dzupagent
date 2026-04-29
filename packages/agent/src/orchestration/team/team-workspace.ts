@@ -5,6 +5,7 @@
  * production `TeamRuntime`. Playground modules re-export them for compatibility.
  */
 import type { DzupAgent } from '../../agent/dzip-agent.js'
+import { omitUndefined } from '../../utils/exact-optional.js'
 
 export type WorkspaceSubscriber = (
   key: string,
@@ -64,7 +65,7 @@ export class SharedWorkspace {
    */
   async set(key: string, value: string, agentId?: string): Promise<void> {
     return new Promise<void>((resolve) => {
-      this.writeQueue.push({ key, value, agentId, resolve })
+      this.writeQueue.push(omitUndefined({ key, value, agentId, resolve }))
       void this.drain()
     })
   }

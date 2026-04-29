@@ -20,6 +20,7 @@ import type {
   CallForProposals,
   ContractNetState,
 } from './contract-net-types.js'
+import { omitUndefined } from '../../utils/exact-optional.js'
 
 const DEFAULT_BID_DEADLINE_MS = 30_000
 
@@ -156,13 +157,13 @@ export class ContractNetManager {
     const bidDeadlineMs = config.bidDeadlineMs ?? DEFAULT_BID_DEADLINE_MS
 
     const cfpId = generateCfpId()
-    const cfp: CallForProposals = {
+    const cfp: CallForProposals = omitUndefined({
       cfpId,
       task,
       requiredCapabilities,
       maxCostCents,
       bidDeadlineMs,
-    }
+    })
 
     const state: ContractNetState = {
       phase: 'announcing',
@@ -291,7 +292,7 @@ export class ContractNetManager {
     try {
       const execResult = await winner.generate(
         [new HumanMessage(`Execute this task using your proposed approach:\n\nTask: ${task}\n\nYour approach: ${winningBid.approach}`)],
-        { signal },
+        omitUndefined({ signal }),
       )
 
       const durationMs = Date.now() - startTime

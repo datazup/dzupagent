@@ -34,6 +34,7 @@ import {
   isRetryable as isRetryableError,
   resolveRetryPolicy,
 } from './retry-policy.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 import { generateRunId } from './pipeline-runtime/run-id.js'
 import {
   pipelineStartedEvent,
@@ -386,11 +387,11 @@ export class PipelineRuntime {
         },
       })
 
-      const context: NodeExecutionContext = {
+      const context: NodeExecutionContext = omitUndefined({
         state: runState,
         previousResults: nodeResults,
         signal: this.config.signal,
-      }
+      })
 
       try {
         const maxAttempts = (node.retries ?? 0) + 1 // retries=0 means 1 attempt (no retry)
@@ -474,7 +475,9 @@ export class PipelineRuntime {
 
               if (stuckStatus.suggestedAction === 'switch_strategy') {
                 // Add hint to context so next execution attempt can adapt
-                context.stuckHint = stuckStatus.reason
+                if (stuckStatus.reason !== undefined) {
+                  context.stuckHint = stuckStatus.reason
+                }
               }
             }
           }
@@ -543,7 +546,9 @@ export class PipelineRuntime {
             }
 
             if (stuckStatus.suggestedAction === 'switch_strategy') {
-              context.stuckHint = stuckStatus.reason
+              if (stuckStatus.reason !== undefined) {
+                context.stuckHint = stuckStatus.reason
+              }
             }
           }
         }
@@ -795,11 +800,11 @@ export class PipelineRuntime {
 
       this.emit(nodeStartedEvent(node.id, node.type))
 
-      const context: NodeExecutionContext = {
+      const context: NodeExecutionContext = omitUndefined({
         state: runState,
         previousResults: nodeResults,
         signal: this.config.signal,
-      }
+      })
 
       const result = await this.config.nodeExecutor(node.id, node, context)
       nodeResults.set(node.id, result)
@@ -865,11 +870,11 @@ export class PipelineRuntime {
       bodyNodes.push(bodyNode)
     }
 
-    const context: NodeExecutionContext = {
+    const context: NodeExecutionContext = omitUndefined({
       state: runState,
       previousResults: nodeResults,
       signal: this.config.signal,
-    }
+    })
 
     const predicates = this.config.predicates ?? {}
 

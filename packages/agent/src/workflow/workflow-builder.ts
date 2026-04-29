@@ -44,6 +44,7 @@ import { ConcreteRunHandle } from '../agent/run-handle.js'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import type { NodeExecutor, NodeExecutionContext, PipelineRuntimeEvent } from '../pipeline/pipeline-runtime-types.js'
 import { randomUUID } from 'node:crypto'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 export interface WorkflowConfig {
   id: string
@@ -213,7 +214,7 @@ export class CompiledWorkflow {
     const emit = options?.onEvent ?? (() => {})
 
     // Track active run
-    this.activeRuns.set(runId, { store: this.store, journal })
+    this.activeRuns.set(runId, omitUndefined({ store: this.store, journal }))
 
     // Wrap the caller's emit to also write journal entries
     const journalEmit: (event: WorkflowEvent) => void = journal
@@ -234,7 +235,7 @@ export class CompiledWorkflow {
       })
     }
 
-    const runtime = new PipelineRuntime({
+    const runtime = new PipelineRuntime(omitUndefined({
       definition: this.compilation.definition,
       nodeExecutor: this.compilation.createNodeExecutor(journalEmit, (state) => {
         latestObservedState = state
@@ -244,10 +245,10 @@ export class CompiledWorkflow {
       predicates: this.compilation.predicates as Record<string, (state: Record<string, unknown>) => boolean>,
       signal: options?.signal,
       checkpointStore: this.checkpointStore,
-      onEvent: (event) => this.handleRuntimeEvent(event, journalEmit, (err) => {
+      onEvent: (event: PipelineRuntimeEvent) => this.handleRuntimeEvent(event, journalEmit, (err) => {
         pipelineFailure = err
       }),
-    })
+    }))
 
     try {
       const result = await runtime.execute(initialState)
@@ -301,7 +302,7 @@ export class CompiledWorkflow {
     }
 
     // Run workflow in background
-    const runPromise = this.run(initialState, { signal: options?.signal, onEvent })
+    const runPromise = this.run(initialState, omitUndefined({ signal: options?.signal, onEvent }))
       .catch((err: unknown) => {
         onEvent({
           type: 'workflow:failed',
@@ -358,7 +359,7 @@ export class CompiledWorkflow {
     const runId = checkpoint.pipelineRunId
     const emit = options?.onEvent ?? (() => {})
 
-    this.activeRuns.set(runId, { store: this.store, journal })
+    this.activeRuns.set(runId, omitUndefined({ store: this.store, journal }))
 
     const journalEmit: (event: WorkflowEvent) => void = journal
       ? (event) => {
@@ -380,7 +381,7 @@ export class CompiledWorkflow {
       })
     }
 
-    const runtime = new PipelineRuntime({
+    const runtime = new PipelineRuntime(omitUndefined({
       definition: this.compilation.definition,
       nodeExecutor: this.compilation.createNodeExecutor(journalEmit, (state) => {
         latestObservedState = state
@@ -388,10 +389,10 @@ export class CompiledWorkflow {
       predicates: this.compilation.predicates as Record<string, (state: Record<string, unknown>) => boolean>,
       signal: options?.signal,
       checkpointStore: this.checkpointStore,
-      onEvent: (event) => this.handleRuntimeEvent(event, journalEmit, (err) => {
+      onEvent: (event: PipelineRuntimeEvent) => this.handleRuntimeEvent(event, journalEmit, (err) => {
         pipelineFailure = err
       }),
-    })
+    }))
 
     try {
       const result = await runtime.resume(checkpoint, additionalState)
@@ -552,13 +553,13 @@ function compileWorkflow(config: WorkflowConfig, nodes: WorkflowNode[]): Workflo
     const nodeId = nextNodeId(prefix)
     const transformName = nextTransformName(prefix)
     handlers.set(transformName, handler)
-    pipelineNodes.push({
+    pipelineNodes.push(omitUndefined({
       id: nodeId,
       type: 'transform',
       transformName,
       name,
       timeoutMs: 120_000,
-    })
+    }))
     return nodeId
   }
 
@@ -772,7 +773,7 @@ function compileWorkflow(config: WorkflowConfig, nodes: WorkflowNode[]): Workflo
     nextNodeIdInFlow = addTransformNode('noop', async () => ({}), 'empty-workflow')
   }
 
-  const definition: PipelineDefinition = {
+  const definition: PipelineDefinition = omitUndefined({
     id: config.id,
     name: config.id,
     version: '1.0.0',
@@ -787,7 +788,7 @@ function compileWorkflow(config: WorkflowConfig, nodes: WorkflowNode[]): Workflo
       runtime: 'PipelineRuntime',
     },
     tags: ['workflow-compat'],
-  }
+  })
 
   return {
     definition,
@@ -821,11 +822,11 @@ function compileWorkflow(config: WorkflowConfig, nodes: WorkflowNode[]): Workflo
 
         const startedAt = Date.now()
         try {
-          const workflowCtx: WorkflowContext = {
+          const workflowCtx: WorkflowContext = omitUndefined({
             workflowId: config.id,
             state: context.state,
             signal: context.signal,
-          }
+          })
           const output = await handler(context.state, workflowCtx, emit)
           onStateObserved(context.state)
           return {

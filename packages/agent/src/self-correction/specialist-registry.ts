@@ -13,6 +13,7 @@
  */
 
 import type { BaseStore } from '@langchain/langgraph'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -137,14 +138,14 @@ const BUILTIN_DEFAULTS: Record<string, SpecialistConfig> = {
 
 /** Deep-clone a SpecialistConfig. */
 function cloneConfig(config: SpecialistConfig): SpecialistConfig {
-  return {
+  return omitUndefined({
     ...config,
     nodeOverrides: config.nodeOverrides
       ? Object.fromEntries(
           Object.entries(config.nodeOverrides).map(([k, v]) => [k, { ...v }]),
         )
       : undefined,
-  }
+  })
 }
 
 /** Merge a partial override into a full config (mutates target). */

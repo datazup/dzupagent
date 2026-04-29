@@ -7,6 +7,7 @@ import { validateChain, calculateBackoff } from '@dzupagent/core'
 import type { SkillStepResolver } from './skill-step-resolver.js'
 import type { StateTransformer } from './state-contract.js'
 import { ChainValidationError, ConditionEvaluationError, StepExecutionError } from './errors.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 export interface SkillChainExecutorConfig {
   resolver: SkillStepResolver
@@ -160,7 +161,7 @@ export class SkillChainExecutor {
       const logger = this.config.logger
       const retryPolicy = step.retryPolicy ?? this.config.defaultRetry
 
-      builder.then({
+      builder.then(omitUndefined({
         id: workflowStep.id,
         description: workflowStep.description,
         execute: async (input: unknown, ctx: WorkflowContext) => {
@@ -295,7 +296,7 @@ export class SkillChainExecutor {
           // All attempts exhausted
           throw new StepExecutionError(stepIndex, skillName, lastError, state)
         },
-      })
+      }))
     }
 
     return builder.build()
@@ -331,10 +332,10 @@ export class SkillChainExecutor {
     }
 
     try {
-      const result = await workflow.run(state, {
+      const result = await workflow.run(state, omitUndefined({
         signal: opts?.signal,
         onEvent,
-      })
+      }))
 
       // Set lastOutput to the final step's output
       const lastSkillId = chain.steps[chain.steps.length - 1]?.skillName
@@ -372,7 +373,7 @@ export class SkillChainExecutor {
     }
     const workflow = await this.compile(chain, opts?.stateTransformers, onEvent)
     const state: Record<string, unknown> = { previousOutputs: {}, ...initialState }
-    yield* workflow.stream(state, { signal: opts?.signal })
+    yield* workflow.stream(state, omitUndefined({ signal: opts?.signal }))
   }
 
   /**
@@ -390,7 +391,7 @@ export class SkillChainExecutor {
       const canResolve = this.config.resolver.canResolve(step.skillName)
       if (canResolve) {
         const entry = this.config.registry.get(step.skillName)
-        steps.push({ skillId: step.skillName, resolved: true, description: entry?.description })
+        steps.push(omitUndefined({ skillId: step.skillName, resolved: true, description: entry?.description }))
       } else {
         steps.push({ skillId: step.skillName, resolved: false })
         errors.push(`Skill "${step.skillName}" cannot be resolved`)

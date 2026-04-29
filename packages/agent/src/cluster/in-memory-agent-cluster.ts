@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto'
 import type { MailboxStore, MailMessage } from '../mailbox/types.js'
 import type { AgentCluster, ClusterRole } from './cluster-types.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 export interface InMemoryAgentClusterConfig {
   /** Unique cluster identifier. */
@@ -72,7 +73,7 @@ export class InMemoryAgentCluster implements AgentCluster {
       throw new Error(`Recipient role "${to}" not found in cluster "${this.clusterId}"`)
     }
 
-    const message: MailMessage = {
+    const message: MailMessage = omitUndefined({
       id: randomUUID(),
       from: fromRole.agentId,
       to: toRole.agentId,
@@ -81,7 +82,7 @@ export class InMemoryAgentCluster implements AgentCluster {
       createdAt: Date.now(),
       readAt: partial.readAt,
       ttl: partial.ttl,
-    }
+    })
 
     await this.mailbox.save(message)
     return message
@@ -102,7 +103,7 @@ export class InMemoryAgentCluster implements AgentCluster {
 
     const messages: MailMessage[] = []
     for (const target of targets) {
-      const message: MailMessage = {
+      const message: MailMessage = omitUndefined({
         id: randomUUID(),
         from: fromRole.agentId,
         to: target.agentId,
@@ -111,7 +112,7 @@ export class InMemoryAgentCluster implements AgentCluster {
         createdAt: Date.now(),
         readAt: partial.readAt,
         ttl: partial.ttl,
-      }
+      })
       await this.mailbox.save(message)
       messages.push(message)
     }

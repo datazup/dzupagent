@@ -14,6 +14,7 @@
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -174,12 +175,12 @@ export class ReflectionLoop {
   ) {
     this.drafter = drafter
     this.critic = critic
-    this.config = {
+    this.config = omitUndefined({
       maxIterations: config.maxIterations ?? 3,
       qualityThreshold: config.qualityThreshold ?? 0.8,
       criticPrompt: config.criticPrompt,
       costBudgetCents: config.costBudgetCents ?? 50,
-    }
+    })
   }
 
   /**

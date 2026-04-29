@@ -21,6 +21,7 @@ import type { ProviderExecutionPort } from './provider-adapter/provider-executio
 import type { RoutingPolicy, AgentSpec, AgentTask } from './routing-policy-types.js'
 import type { OrchestrationMergeStrategy, AgentResult } from './orchestration-merge-strategy-types.js'
 import type { AgentCircuitBreaker } from './circuit-breaker.js'
+import { omitUndefined } from '../utils/exact-optional.js'
 
 /** Options for LLM-powered planAndDelegate. */
 export interface PlanAndDelegateOptions {
@@ -223,12 +224,12 @@ export class DelegatingSupervisor {
       return delegationResult
     }
 
-    const request: DelegationRequest = {
+    const request: DelegationRequest = omitUndefined({
       targetAgentId: specialistId,
       task,
       input,
       context: this.parentContext,
-    }
+    })
 
     const result = await this.tracker.delegate(request)
 
@@ -326,7 +327,7 @@ export class DelegatingSupervisor {
     // Apply merge strategy if configured
     if (this.mergeStrategy && results.size > 0) {
       const agentResults: AgentResult[] = [...results.entries()].map(
-        ([agentId, dr]) => ({
+        ([agentId, dr]) => omitUndefined({
           agentId,
           status: dr.success
             ? ('success' as const)
@@ -375,9 +376,9 @@ export class DelegatingSupervisor {
       try {
         const { PlanningAgent } = await import('./planning-agent.js')
         const planner = new PlanningAgent({ supervisor: this })
-        const plan = await planner.decompose(goal, options.llm, {
+        const plan = await planner.decompose(goal, options.llm, omitUndefined({
           signal: options.signal,
-        })
+        }))
 
         this.eventBus?.emit({
           type: 'supervisor:plan_created',
@@ -467,7 +468,7 @@ export class DelegatingSupervisor {
    * Convert specialists to AgentSpec format for routing policy consumption.
    */
   private toAgentSpecs(): AgentSpec[] {
-    let specs = [...this.specialists.entries()].map(([id, def]) => ({
+    let specs = [...this.specialists.entries()].map(([id, def]) => omitUndefined({
       id,
       name: def.name,
       tags: (def.metadata?.tags ?? []) as string[],
