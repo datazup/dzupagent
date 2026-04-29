@@ -13,6 +13,12 @@
     "memory-ipc",
     "rag"
   ],
+  "largeSourceFileRisk": {
+    "minLines": 900,
+    "excludedPackages": [
+      "server"
+    ]
+  },
   "criticalSourceFiles": [
     {
       "package": "agent",
@@ -39,6 +45,38 @@
       ]
     },
     {
+      "package": "agent",
+      "path": "src/orchestration/team/team-runtime.ts",
+      "coveredBy": [
+        "src/__tests__/team-runtime.test.ts",
+        "src/orchestration/team/__tests__/team-runtime-policy.test.ts"
+      ]
+    },
+    {
+      "package": "agent",
+      "path": "src/agent/dzip-agent.ts",
+      "coveredBy": [
+        "src/__tests__/dzip-agent.test.ts",
+        "src/__tests__/dzip-agent-tool-policy.test.ts"
+      ]
+    },
+    {
+      "package": "agent",
+      "path": "src/agent/tool-loop.ts",
+      "coveredBy": [
+        "src/__tests__/tool-loop-core.test.ts",
+        "src/__tests__/tool-loop-deep.test.ts"
+      ]
+    },
+    {
+      "package": "agent",
+      "path": "src/workflow/workflow-builder.ts",
+      "coveredBy": [
+        "src/__tests__/workflow-builder.test.ts",
+        "src/__tests__/workflow-builder-deep.test.ts"
+      ]
+    },
+    {
       "package": "agent-adapters",
       "path": "src/base/base-cli-adapter.ts",
       "coveredBy": [
@@ -52,6 +90,34 @@
       "coveredBy": [
         "src/__tests__/codex-adapter.test.ts",
         "src/__tests__/codex-adapter-deep.test.ts"
+      ]
+    },
+    {
+      "package": "agent-adapters",
+      "path": "src/recovery/adapter-recovery.ts",
+      "coveredBy": [
+        "src/__tests__/adapter-recovery.test.ts"
+      ]
+    },
+    {
+      "package": "agent-adapters",
+      "path": "src/workflow/adapter-workflow.ts",
+      "coveredBy": [
+        "src/__tests__/adapter-workflow.test.ts"
+      ]
+    },
+    {
+      "package": "agent-adapters",
+      "path": "src/facade/orchestrator-facade.ts",
+      "coveredBy": [
+        "src/__tests__/orchestrator-facade.test.ts"
+      ]
+    },
+    {
+      "package": "agent-adapters",
+      "path": "src/http/adapter-http-handler.ts",
+      "coveredBy": [
+        "src/__tests__/adapter-http-handler.test.ts"
       ]
     },
     {
@@ -71,6 +137,13 @@
       ]
     },
     {
+      "package": "memory",
+      "path": "src/sharing/memory-space-manager.ts",
+      "coveredBy": [
+        "src/sharing/__tests__/shared-spaces.test.ts"
+      ]
+    },
+    {
       "package": "connectors-browser",
       "path": "src/browser-connector.ts",
       "coveredBy": [
@@ -87,6 +160,57 @@
       ]
     },
     {
+      "package": "flow-ast",
+      "path": "src/validate.ts",
+      "coveredBy": [
+        "test/validate.test.ts"
+      ]
+    },
+    {
+      "package": "flow-ast",
+      "path": "src/parse.ts",
+      "coveredBy": [
+        "test/parse.test.ts"
+      ]
+    },
+    {
+      "package": "flow-compiler",
+      "path": "src/stages/semantic.ts",
+      "coveredBy": [
+        "test/semantic.test.ts",
+        "test/semantic-async.test.ts"
+      ]
+    },
+    {
+      "package": "flow-dsl",
+      "path": "src/normalize.ts",
+      "coveredBy": [
+        "test/normalize.test.ts",
+        "src/__tests__/normalize.test.ts"
+      ]
+    },
+    {
+      "package": "app-tools",
+      "path": "src/tools/website.ts",
+      "coveredBy": [
+        "src/tools/website.test.ts"
+      ]
+    },
+    {
+      "package": "server",
+      "path": "src/runtime/tool-resolver.ts",
+      "coveredBy": [
+        "src/__tests__/tool-resolver.test.ts"
+      ]
+    },
+    {
+      "package": "server",
+      "path": "src/runtime/run-worker-stages.ts",
+      "coveredBy": [
+        "src/runtime/__tests__/run-worker-stages.test.ts"
+      ]
+    },
+    {
       "package": "scraper",
       "path": "src/scraper.ts",
       "coveredBy": [
@@ -97,15 +221,41 @@
   ],
   "packages": {
     "adapter-rules": {
-      "waiver": {
-        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Package has tests but no published test:coverage script yet.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "adapter-types": {
-      "waiver": {
-        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Package has tests but no published test:coverage script yet.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "agent": {
@@ -133,27 +283,79 @@
       }
     },
     "agent-types": {
-      "waiver": {
-        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Package has tests but no published test:coverage script yet.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "app-tools": {
-      "waiver": {
-        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Package has tests but no published test:coverage script yet.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "cache": {
-      "waiver": {
-        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Package has tests but no published test:coverage script yet.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "code-edit-kit": {
-      "waiver": {
-        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Package has tests but no published test:coverage script yet.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "core": {
@@ -165,9 +367,27 @@
       }
     },
     "codegen": {
-      "waiver": {
-        "reason": "Coverage baseline is not published yet; keep the generator package in the rollout waiver set until reports are stable.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Coverage report is present; protect the current floor while staged targets are adopted.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "thresholds": {
+          "statements": 85,
+          "branches": 90,
+          "functions": 95,
+          "lines": 85
+        },
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "thresholds": {
+              "statements": 90,
+              "branches": 90,
+              "functions": 95,
+              "lines": 90
+            }
+          }
+        ]
       }
     },
     "connectors": {
@@ -179,33 +399,102 @@
       }
     },
     "connectors-browser": {
-      "waiver": {
-        "reason": "Browser connector has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory until coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Browser connector has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "connectors-documents": {
-      "waiver": {
-        "reason": "Document connector has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory until coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Document connector has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "context": {
-      "waiver": {
-        "reason": "Coverage baseline is not published yet; this package remains on the staged adoption list.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Coverage report is present; protect the current floor while staged targets are adopted.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "thresholds": {
+          "statements": 99,
+          "branches": 95,
+          "functions": 100,
+          "lines": 99
+        },
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "thresholds": {
+              "statements": 99,
+              "branches": 97,
+              "functions": 100,
+              "lines": 99
+            }
+          }
+        ]
       }
     },
     "create-dzupagent": {
-      "waiver": {
+      "baseline": {
         "reason": "CLI scaffolding coverage is still being baselined.",
-        "until": "2026-06-30"
+        "since": "2026-04-29",
+        "reviewBy": "2026-06-30",
+        "targets": [
+          {
+            "by": "2026-06-30",
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "eval-contracts": {
-      "waiver": {
-        "reason": "Package has tests but no published test:coverage script yet; keep visible in the workspace coverage inventory until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Package has tests but no published test:coverage script yet.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "evals": {
@@ -217,33 +506,98 @@
       }
     },
     "express": {
-      "waiver": {
-        "reason": "Express compatibility package has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Express compatibility package has tests but no published test:coverage script yet.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "flow-ast": {
-      "waiver": {
-        "reason": "Flow AST package has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Flow AST package has tests but no published test:coverage script yet; critical parser and validator files are tracked by file-level inventory.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "flow-compiler": {
-      "waiver": {
-        "reason": "Flow compiler package has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Flow compiler package has tests but no published test:coverage script yet; semantic stage is tracked by file-level inventory.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "flow-dsl": {
-      "waiver": {
-        "reason": "Flow DSL package has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Flow DSL package has tests but no published test:coverage script yet; normalizer is tracked by file-level inventory.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "hitl-kit": {
-      "waiver": {
-        "reason": "Type-focused HITL kit has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Type-focused HITL kit has tests but no published test:coverage script yet.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "memory-ipc": {
@@ -271,15 +625,41 @@
       }
     },
     "runtime-contracts": {
-      "waiver": {
-        "reason": "Runtime contracts package has tests but no published test:coverage script yet; keep visible until package coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Runtime contracts package has tests but no published test:coverage script yet.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "scraper": {
-      "waiver": {
-        "reason": "Scraper package has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory until coverage baselines are added.",
-        "until": "2026-07-31"
+      "baseline": {
+        "reason": "Scraper package has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory.",
+        "since": "2026-04-29",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "server": {
@@ -291,15 +671,46 @@
       }
     },
     "test-utils": {
-      "waiver": {
+      "baseline": {
         "reason": "Shared test utilities are still being baselined.",
-        "until": "2026-06-30"
+        "since": "2026-04-29",
+        "reviewBy": "2026-06-30",
+        "targets": [
+          {
+            "by": "2026-06-30",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
       }
     },
     "testing": {
-      "waiver": {
+      "baseline": {
         "reason": "Security test suite coverage is still being baselined.",
-        "until": "2026-06-30"
+        "since": "2026-04-29",
+        "reviewBy": "2026-06-30",
+        "thresholds": {
+          "statements": 100,
+          "branches": 100,
+          "functions": 100,
+          "lines": 100
+        },
+        "targets": [
+          {
+            "by": "2026-06-30",
+            "thresholds": {
+              "statements": 100,
+              "branches": 100,
+              "functions": 100,
+              "lines": 100
+            }
+          }
+        ]
       }
     }
   }

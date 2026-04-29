@@ -152,6 +152,24 @@ function loadCriticalSourceFiles(context) {
     .filter((entry) => entry.packageName.length > 0 && entry.sourcePath.length > 0)
 }
 
+function loadLargeSourceFileRiskConfig(context) {
+  const config = readJsonIfExists(context.coverageConfigPath)
+  const riskConfig = config?.largeSourceFileRisk && typeof config.largeSourceFileRisk === 'object'
+    ? config.largeSourceFileRisk
+    : {}
+
+  return {
+    minLines: typeof riskConfig.minLines === 'number' && Number.isFinite(riskConfig.minLines)
+      ? riskConfig.minLines
+      : 700,
+    excludedPackages: new Set(
+      Array.isArray(riskConfig.excludedPackages)
+        ? riskConfig.excludedPackages.filter((name) => typeof name === 'string')
+        : [],
+    ),
+  }
+}
+
 function directTestCandidates(sourcePath) {
   const extension = extname(sourcePath)
   const sourceWithoutExtension = sourcePath.slice(0, -extension.length)
@@ -165,6 +183,89 @@ function directTestCandidates(sourcePath) {
     join(sourceDir, '__tests__', `${sourceBase}.test${extension}`),
     join('src', '__tests__', `${withoutSrcExtension}.test${extension}`),
   ])]
+}
+
+function listProductionSourceFiles(directory) {
+  if (!existsSync(directory)) return []
+
+  const entries = readdirSync(directory, { withFileTypes: true })
+  const files = []
+
+  for (const entry of entries) {
+    const entryPath = join(directory, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === '__tests__' || entry.name === '__fixtures__' || entry.name === '__benches__') {
+        continue
+      }
+      files.push(...listProductionSourceFiles(entryPath))
+      continue
+    }
+
+    if (!entry.isFile()) continue
+    if (!entry.name.endsWith('.ts') && !entry.name.endsWith('.tsx')) continue
+    if (entry.name.endsWith('.d.ts')) continue
+    if (entry.name.includes('.test.') || entry.name.includes('.spec.')) continue
+    files.push(entryPath)
+  }
+
+  return files
+}
+
+function countLines(filePath) {
+  const raw = readFileSync(filePath, 'utf8')
+  if (raw.length === 0) return 0
+  return raw.split('\n').length
+}
+
+function toPackageRelativePath(context, packageName, absolutePath) {
+  const packageRoot = join(context.packagesDir, packageName)
+  return absolutePath.slice(packageRoot.length + 1)
+}
+
+function loadDeclaredCoverageBySource(context) {
+  const declared = new Map()
+  for (const entry of loadCriticalSourceFiles(context)) {
+    if (entry.coveredBy.length === 0) continue
+    declared.set(`${entry.packageName}:${entry.sourcePath}`, entry.coveredBy)
+  }
+  return declared
+}
+
+function evaluateLargeSourceFileRisk(context, runtimePackages) {
+  const config = loadLargeSourceFileRiskConfig(context)
+  const declaredCoverage = loadDeclaredCoverageBySource(context)
+  const risks = []
+
+  for (const packageName of runtimePackages) {
+    if (config.excludedPackages.has(packageName)) continue
+
+    const sourceRoot = join(context.packagesDir, packageName, 'src')
+    for (const sourceAbsolutePath of listProductionSourceFiles(sourceRoot)) {
+      const sourcePath = toPackageRelativePath(context, packageName, sourceAbsolutePath)
+      const lineCount = countLines(sourceAbsolutePath)
+      if (lineCount < config.minLines) continue
+
+      const directCoverage = directTestCandidates(sourcePath).filter((candidate) =>
+        existsSync(join(context.packagesDir, packageName, candidate)),
+      )
+      const declaredCoverageFiles = declaredCoverage.get(`${packageName}:${sourcePath}`) ?? []
+      const existingDeclaredCoverage = declaredCoverageFiles.filter((candidate) =>
+        existsSync(join(context.packagesDir, packageName, candidate)),
+      )
+
+      if (directCoverage.length > 0 || existingDeclaredCoverage.length > 0) continue
+
+      risks.push({
+        packageName,
+        sourcePath,
+        lineCount,
+        status: 'risk',
+        message: `large production file has ${lineCount} lines and no direct or declared test coverage`,
+      })
+    }
+  }
+
+  return risks.sort((a, b) => b.lineCount - a.lineCount || a.packageName.localeCompare(b.packageName))
 }
 
 function evaluateCriticalSourceCoverage(context) {
@@ -259,6 +360,7 @@ export function runRuntimeTestInventory({
   const zeroTestFailing = summary.filter((entry) => entry.testCount === 0)
   const criticalSourceCoverage = evaluateCriticalSourceCoverage(context)
   const criticalSourceFailing = criticalSourceCoverage.filter((entry) => entry.status === 'fail')
+  const largeSourceFileRisks = evaluateLargeSourceFileRisk(context, runtimePackages)
   const integrationFailing = strictIntegration
     ? summary.filter((entry) => entry.critical && entry.integrationStyleTestCount === 0)
     : []
@@ -269,6 +371,7 @@ export function runRuntimeTestInventory({
     zeroTestFailing,
     criticalSourceCoverage,
     criticalSourceFailing,
+    largeSourceFileRisks,
     integrationFailing,
     strictIntegration,
     exitCode,
@@ -314,6 +417,15 @@ function printRuntimeTestInventory(report) {
     }
 
     console.log('Critical source coverage inventory gate passed.')
+  }
+
+  console.log('\nLarge production file risk inventory:')
+  if (report.largeSourceFileRisks.length === 0) {
+    console.log('- no large production files without direct or declared test coverage found')
+  } else {
+    for (const entry of report.largeSourceFileRisks) {
+      console.log(`- ${entry.packageName}/${entry.sourcePath}: ${entry.message}`)
+    }
   }
 
   if (report.strictIntegration) {

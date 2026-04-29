@@ -203,6 +203,94 @@ test('honors waivers for packages with test but no test:coverage', () => {
   }
 })
 
+test('reports staged baselines for packages without coverage scripts', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: {
+      alpha: {
+        scripts: { test: 'vitest run' },
+        summary: null,
+      },
+    },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          baseline: {
+            reason: 'coverage runner is being rolled out in stages',
+            since: '2026-04-29',
+            reviewBy: '2099-01-01',
+            targets: [
+              {
+                by: '2099-02-01',
+                requireCoverageScript: true,
+                thresholds: { statements: 70, branches: 60, functions: 60, lines: 70 },
+              },
+            ],
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.equal(report.exitCode, 0)
+    assert.equal(report.totals.baseline, 1)
+    assert.equal(report.rows[0].status, 'baseline')
+    assert.match(report.rows[0].message, /test script lacks test:coverage; staged baseline/)
+    assert.match(report.rows[0].message, /publish test:coverage/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('fails when coverage drifts below a staged baseline floor', () => {
+  const { root, configPath } = makeWorkspace({
+    packages: {
+      alpha: {
+        summary: {
+          total: {
+            statements: { total: 100, covered: 39, skipped: 0, pct: 39 },
+            branches: { total: 100, covered: 39, skipped: 0, pct: 39 },
+            functions: { total: 100, covered: 39, skipped: 0, pct: 39 },
+            lines: { total: 100, covered: 39, skipped: 0, pct: 39 },
+          },
+        },
+      },
+    },
+    config: {
+      defaultThresholds: DEFAULT_THRESHOLDS,
+      trackedPackages: [],
+      packages: {
+        alpha: {
+          baseline: {
+            reason: 'protect current coverage while staged target rises',
+            since: '2026-04-29',
+            reviewBy: '2099-01-01',
+            thresholds: { statements: 40, branches: 40, functions: 40, lines: 40 },
+            targets: [
+              {
+                by: '2099-02-01',
+                thresholds: { statements: 70, branches: 60, functions: 60, lines: 70 },
+              },
+            ],
+          },
+        },
+      },
+    },
+  })
+
+  try {
+    const report = runCoverageGate({ repoRoot: root, configPath })
+    assert.equal(report.exitCode, 1)
+    assert.equal(report.totals.fail, 1)
+    assert.match(report.rows[0].message, /coverage below staged baseline/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('self-check mode passes without repo coverage artifacts', async () => {
   const report = await selfCheckCoverageGate()
   assert.equal(report.exitCode, 0)
