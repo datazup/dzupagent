@@ -351,9 +351,10 @@ export class SupervisorOrchestrator {
             if (!acquired) {
               throw buildAbortError('Supervisor execution aborted')
             }
-            results[idx] = await this.executeSingleSubtask(subtask, options)
+            const result = await this.executeSingleSubtask(subtask, options)
+            results[idx] = result
             completedCount++
-            this.emitProgressEvent(completedCount, totalTasks)
+            this.emitProgressEvent(completedCount, totalTasks, result.providerId)
           } finally {
             if (acquired) {
               semaphore.release()
@@ -498,17 +499,19 @@ export class SupervisorOrchestrator {
     return event.type === 'adapter:failed'
   }
 
-  private emitProgressEvent(current: number, total: number): void {
+  private emitProgressEvent(current: number, total: number, providerId?: AdapterProviderId | null): void {
     const percentage = total > 0 ? Math.round((current / total) * 100) : undefined
-    const progressEvent: AgentProgressEvent = {
+    const progressEvent: Omit<AgentProgressEvent, 'providerId'> & { providerId?: AdapterProviderId } = {
       type: 'adapter:progress',
-      providerId: 'claude' as AdapterProviderId,
       timestamp: Date.now(),
       phase: 'executing',
       current,
       total,
       percentage,
       message: `Completed subtask ${String(current)}/${String(total)}`,
+    }
+    if (providerId) {
+      progressEvent.providerId = providerId
     }
     if (this.eventBus) {
       this.eventBus.emit(progressEvent as unknown as Parameters<DzupEventBus['emit']>[0])

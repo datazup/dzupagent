@@ -351,6 +351,117 @@ describe('normalizeEvent', () => {
     })
   })
 
+  describe('openai', () => {
+    it('maps Chat Completions SSE content chunks → adapter:stream_delta', () => {
+      const evt = normalizeEvent(
+        {
+          object: 'chat.completion.chunk',
+          id: 'chatcmpl-1',
+          choices: [{ delta: { content: 'partial' }, index: 0 }],
+        },
+        'openai',
+      )
+      expect(evt).toMatchObject({
+        type: 'adapter:stream_delta',
+        providerId: 'openai',
+        content: 'partial',
+      })
+    })
+
+    it('maps Chat Completions SSE role chunks → adapter:progress', () => {
+      const evt = normalizeEvent(
+        {
+          object: 'chat.completion.chunk',
+          id: 'chatcmpl-1',
+          choices: [{ delta: { role: 'assistant' }, index: 0 }],
+        },
+        'openai',
+      )
+      expect(evt).toMatchObject({
+        type: 'adapter:progress',
+        providerId: 'openai',
+        phase: 'message_start',
+        message: 'assistant',
+      })
+    })
+
+    it('maps Chat Completions responses → adapter:completed', () => {
+      const evt = normalizeEvent(
+        {
+          object: 'chat.completion',
+          id: 'chatcmpl-2',
+          choices: [{ message: { role: 'assistant', content: 'final text' } }],
+          usage: { prompt_tokens: 7, completion_tokens: 3 },
+          duration_ms: 42,
+        },
+        'openai',
+      )
+      expect(evt).toMatchObject({
+        type: 'adapter:completed',
+        providerId: 'openai',
+        sessionId: 'chatcmpl-2',
+        result: 'final text',
+        usage: { inputTokens: 7, outputTokens: 3 },
+        durationMs: 42,
+      })
+    })
+
+    it('maps Responses API output_text.done → adapter:message', () => {
+      const evt = normalizeEvent(
+        {
+          type: 'response.output_text.done',
+          response_id: 'resp-1',
+          text: 'done text',
+        },
+        'openai',
+      )
+      expect(evt).toMatchObject({
+        type: 'adapter:message',
+        providerId: 'openai',
+        content: 'done text',
+        role: 'assistant',
+      })
+    })
+
+    it('maps Responses API completed events → adapter:completed', () => {
+      const evt = normalizeEvent(
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp-2',
+            output_text: 'completed text',
+            usage: { input_tokens: 11, output_tokens: 5 },
+          },
+        },
+        'openai',
+      )
+      expect(evt).toMatchObject({
+        type: 'adapter:completed',
+        providerId: 'openai',
+        result: 'completed text',
+        usage: { inputTokens: 11, outputTokens: 5 },
+      })
+    })
+
+    it('maps OpenAI error payloads → adapter:failed', () => {
+      const evt = normalizeEvent(
+        {
+          error: {
+            message: 'invalid request',
+            code: 'invalid_request_error',
+          },
+        },
+        'openai',
+      )
+      expect(evt).toMatchObject({
+        type: 'adapter:failed',
+        providerId: 'openai',
+        error: 'invalid request',
+        code: 'invalid_request_error',
+      })
+    })
+  })
+
   describe('gemini-sdk', () => {
     it('maps session_started → adapter:started', () => {
       const evt = normalizeEvent(

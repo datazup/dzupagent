@@ -51,11 +51,17 @@ export const jsonArrayMerge: MergeStrategyFn = (results) =>
   JSON.stringify(results, null, 2)
 
 /** Built-in strategy registry. */
-const builtinStrategies: Record<string, MergeStrategyFn> = {
+const builtinStrategies = {
   concat: concatMerge,
   vote: voteMerge,
   numbered: numberedMerge,
   json: jsonArrayMerge,
+} satisfies Record<string, MergeStrategyFn>
+
+export type MergeStrategyName = keyof typeof builtinStrategies
+
+export function isMergeStrategyName(name: string): name is MergeStrategyName {
+  return Object.prototype.hasOwnProperty.call(builtinStrategies, name)
 }
 
 /**
@@ -63,10 +69,9 @@ const builtinStrategies: Record<string, MergeStrategyFn> = {
  * @throws if the name is not a known built-in strategy.
  */
 export function getMergeStrategy(name: string): MergeStrategyFn {
-  const strategy = builtinStrategies[name]
-  if (!strategy) {
+  if (!isMergeStrategyName(name)) {
     const known = Object.keys(builtinStrategies).join(', ')
     throw new Error(`Unknown merge strategy "${name}". Known strategies: ${known}`)
   }
-  return strategy
+  return builtinStrategies[name]
 }

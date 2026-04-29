@@ -296,7 +296,20 @@ export type DzupEvent =
   | { type: 'supervisor:llm_decompose_fallback'; goal: string; error: string }
   | { type: 'supervisor:circuit_breaker_filtered'; skipped: string[] }
   | { type: 'supervisor:merge_complete'; mergeStatus: string; successCount: number; errorCount: number }
-  | { type: 'supervisor:routing_decision'; agentId: string; strategy: string; reason: string }
+  | {
+      type: 'supervisor:routing_decision'
+      /** Legacy single-agent selection field. Prefer selectedSpecialists for new consumers. */
+      agentId?: string
+      strategy: string
+      reason: string
+      selectedSpecialists?: string[]
+      filteredSpecialists?: string[]
+      candidateSpecialists?: string[]
+      task?: string
+      taskId?: string
+      managerId?: string
+      source?: 'direct-supervisor' | 'delegating-supervisor'
+    }
   // --- Hooks / plugins ---
   | { type: 'hook:error'; hookName: string; message: string }
   | { type: 'plugin:registered'; pluginName: string }

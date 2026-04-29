@@ -176,20 +176,17 @@ Observability inside facades:
 ## Risks and TODOs
 Current drift and maintenance risks visible from local code:
 
-1. Stale build entry configuration:
-- `tsup.config.ts` still references removed entries (`src/facades/memory.ts`, `src/memory-ipc.ts`), while those files are absent in `src/`.
-
-2. README drift:
+1. README drift:
 - `packages/core/README.md` still documents `@dzupagent/core/memory` imports and memory namespace examples under facades, which do not match current `package.json` exports or `src/facades/index.ts`.
 
-3. Historical facade doc drift:
+2. Historical facade doc drift:
 - prior `src/facades/ARCHITECTURE.md` content referenced `memory` facade/module and outdated topology.
 
 Recommended follow-up:
-- align `tsup.config.ts` entry list with existing source files
 - refresh README facade examples to only include exported subpaths
 - keep facade architecture docs synchronized with `package.json` exports and `src/facades/index.ts`
 
 ## Changelog
+- 2026-04-29: removed stale `memory-ipc` and `memory` facade build-entry risk after aligning `tsup.config.ts` with existing source files.
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 - 2026-04-26: rewritten from current `packages/core/src/facades` implementation, package export map, and active facade tests.

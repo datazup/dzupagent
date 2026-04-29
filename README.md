@@ -76,6 +76,19 @@ yarn build:connectors:verified
 
 Use the connectors gate when changes touch `packages/connectors/**`.
 
+## Playground UI Ownership
+
+DzupAgent does not currently own a product playground design-system package or
+an `@dzupagent/playground` workspace. The framework may host prebuilt static
+playground assets for compatibility through `@dzupagent/server`, but debugger,
+operator, workspace, project, task, and product UX work belongs in consuming
+applications such as Codev.
+
+Internal trace formatting helpers under `@dzupagent/agent` are framework
+maintenance utilities, not a reusable product UI package. Create a dedicated
+package with an explicit public contract before documenting those helpers as a
+design-system surface.
+
 ## Core API Tiers
 
 Use the narrowest core entrypoint that fits your use case:
@@ -93,6 +106,23 @@ import { createQuickAgent } from '@dzupagent/core'
 // Recommended
 import { createQuickAgent } from '@dzupagent/core/stable'
 ```
+
+## Production Tool Governance
+
+`@dzupagent/agent` keeps tool governance opt-in for backwards compatibility.
+Canonical tool lifecycle telemetry, governance gates, permission policy checks,
+argument validation, per-tool timeouts, and result scanning are wired when a
+caller configures `DzupAgentConfig.toolExecution` or applies the
+`createProductionToolGovernancePreset` / `withProductionToolGovernancePreset`
+helpers.
+
+The production preset composes the existing primitives into a fail-closed
+configuration bundle, including safety scanning, durable run IDs, canonical
+tool lifecycle events, and a default-deny permission policy unless the caller
+supplies an allowlist or custom policy. Omitting `toolExecution` preserves the
+legacy tool-loop behavior. See [`packages/agent/README.md`](./packages/agent/README.md)
+and [`packages/agent/src/agent/ARCHITECTURE.md`](./packages/agent/src/agent/ARCHITECTURE.md)
+for the wiring example and implementation notes.
 
 For protected branches, use the `Verify Strict` CI workflow/check as the required merge gate.
 

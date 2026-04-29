@@ -112,6 +112,7 @@ Testing status and shape:
 
 Observability surfaces:
 - Agent and tool-loop telemetry is emitted via configured event bus hooks, including stop reasons and stuck signals.
+- Canonical tool lifecycle events keep tool result bodies out of the event bus: `tool:result` carries metadata such as tool name, call id, input metadata keys, status, duration, run id, and execution run id, but not raw output. Tool governance audit hooks are separate; `ToolGovernance.auditResult()` receives raw output by default unless its core-level `resultAuditRetention` option is configured for metadata-only or redacted retention.
 - Pipeline runtime emits typed lifecycle events for start/completion/failure, node lifecycle, retries, checkpointing, recovery attempts, stuck detection, and budget warnings.
 - Streaming emits `AgentStreamEvent` updates (`text`, `tool_call`, `tool_result`, `budget_warning`, `done`, `error`).
 - Replay subsystem captures event traces and exposes replay/inspection utilities.

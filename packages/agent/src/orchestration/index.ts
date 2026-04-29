@@ -14,7 +14,7 @@ export {
   jsonArrayMerge,
   getMergeStrategy,
 } from './merge-strategies.js'
-export type { MergeStrategyFn } from './merge-strategies.js'
+export type { MergeStrategyFn, MergeStrategyName } from './merge-strategies.js'
 
 export { ContractNetManager } from './contract-net/contract-net-manager.js'
 export {

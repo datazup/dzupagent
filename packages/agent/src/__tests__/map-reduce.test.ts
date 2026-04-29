@@ -251,6 +251,32 @@ describe('mapReduce', () => {
     expect(result.result).toContain('3. third')
   })
 
+  it('uses the built-in numbered merge strategy by name', async () => {
+    const agent = createAgent('numbered-name-worker', [
+      { content: 'first' },
+      { content: 'second' },
+    ])
+
+    const result = await mapReduce(agent, ['a', 'b'], {
+      mergeStrategy: 'numbered',
+    })
+
+    expect(result.result).toBe('1. first\n\n2. second')
+  })
+
+  it('uses the built-in json merge strategy by name', async () => {
+    const agent = createAgent('json-name-worker', [
+      { content: 'first' },
+      { content: 'second' },
+    ])
+
+    const result = await mapReduce(agent, ['a', 'b'], {
+      mergeStrategy: 'json',
+    })
+
+    expect(result.result).toBe(JSON.stringify(['first', 'second'], null, 2))
+  })
+
   it('tracks positive durationMs', async () => {
     const agent = createAgent('dur-worker', [{ content: 'fast' }])
 

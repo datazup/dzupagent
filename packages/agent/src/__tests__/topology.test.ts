@@ -488,27 +488,22 @@ describe('TopologyExecutor', () => {
     })
   })
 
-  describe('provider telemetry in metrics', () => {
-    it('captures provider telemetry in metrics when available', () => {
-      // TopologyMetrics now supports optional provider telemetry fields.
-      // Verify the type allows setting them and reading them back.
+  describe('metrics contract', () => {
+    it('does not expose provider-adapter telemetry on base topology metrics', () => {
       const metrics: TopologyMetrics = {
         topology: 'mesh',
         totalDurationMs: 150,
         agentCount: 2,
         messageCount: 2,
         errorCount: 0,
+        // @ts-expect-error Provider telemetry is not populated by TopologyExecutor.
         providerId: 'claude',
-        fallbackAttempts: 1,
-        attemptedProviders: ['gemini', 'claude'],
       }
 
-      expect(metrics.providerId).toBe('claude')
-      expect(metrics.fallbackAttempts).toBe(1)
-      expect(metrics.attemptedProviders).toEqual(['gemini', 'claude'])
+      expect(metrics.topology).toBe('mesh')
     })
 
-    it('leaves provider telemetry fields undefined by default', async () => {
+    it('emits only core topology metrics by default', async () => {
       const agents = [createAgent('a1', 'Result')]
 
       const { metrics } = await TopologyExecutor.executeMesh({
@@ -516,9 +511,13 @@ describe('TopologyExecutor', () => {
         task: 'Standard task',
       })
 
-      expect(metrics.providerId).toBeUndefined()
-      expect(metrics.fallbackAttempts).toBeUndefined()
-      expect(metrics.attemptedProviders).toBeUndefined()
+      expect(Object.keys(metrics).sort()).toEqual([
+        'agentCount',
+        'errorCount',
+        'messageCount',
+        'topology',
+        'totalDurationMs',
+      ])
     })
   })
 })

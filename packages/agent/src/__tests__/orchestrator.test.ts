@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
+import { createEventBus, type DzupEvent } from '@dzupagent/core'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { AgentOrchestrator } from '../orchestration/orchestrator.js'
 import { OrchestrationError } from '../orchestration/orchestration-error.js'
@@ -539,6 +540,69 @@ describe('AgentOrchestrator.supervisor', () => {
 
       expect(specModel.invoke).not.toHaveBeenCalled()
       expect(breaker.getState('spec')).toBe('closed')
+    })
+
+    it('emits structured routing diagnostics without changing supervisor output', async () => {
+      const eventBus = createEventBus()
+      const events: DzupEvent[] = []
+      eventBus.onAny((event) => { events.push(event) })
+
+      const manager = createAgentWithModel('mgr', createMockModel([{ content: 'done' }]))
+      const api = createAgentWithModel('api', createMockModel([{ content: 'api' }]))
+      const db = createAgentWithModel('db', createMockModel([{ content: 'db' }]))
+      const stale = createAgentWithModel('stale', createMockModel([{ content: 'stale' }]))
+
+      const breaker = new AgentCircuitBreaker({ failureThreshold: 1 })
+      breaker.recordTimeout('stale')
+
+      const result = await AgentOrchestrator.supervisor({
+        manager,
+        specialists: [api, db, stale],
+        task: 'route this task',
+        circuitBreaker: breaker,
+        eventBus,
+        routingPolicy: {
+          select: (_task, candidates) => ({
+            selected: candidates.filter((candidate) => candidate.id === 'api'),
+            strategy: 'test-policy',
+            reason: 'api handles the requested task',
+          }),
+        },
+      })
+
+      expect(result).toEqual({
+        content: 'done',
+        availableSpecialists: ['api'],
+        filteredSpecialists: [],
+      })
+
+      const circuitDiagnostic = events.find((event) =>
+        event.type === 'supervisor:routing_decision' &&
+        event.strategy === 'circuit-breaker')
+      expect(circuitDiagnostic).toMatchObject({
+        type: 'supervisor:routing_decision',
+        managerId: 'mgr',
+        task: 'route this task',
+        reason: 'Excluded specialists with open circuits',
+        selectedSpecialists: ['api', 'db'],
+        filteredSpecialists: ['stale'],
+        candidateSpecialists: ['api', 'db', 'stale'],
+        source: 'direct-supervisor',
+      })
+
+      const routingDiagnostic = events.find((event) =>
+        event.type === 'supervisor:routing_decision' &&
+        event.strategy === 'test-policy')
+      expect(routingDiagnostic).toMatchObject({
+        type: 'supervisor:routing_decision',
+        managerId: 'mgr',
+        task: 'route this task',
+        reason: 'api handles the requested task',
+        selectedSpecialists: ['api'],
+        filteredSpecialists: ['db'],
+        candidateSpecialists: ['api', 'db'],
+        source: 'direct-supervisor',
+      })
     })
   })
 })

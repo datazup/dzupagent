@@ -109,7 +109,7 @@ export {
   jsonArrayMerge,
   getMergeStrategy,
 } from './orchestration/merge-strategies.js'
-export type { MergeStrategyFn } from './orchestration/merge-strategies.js'
+export type { MergeStrategyFn, MergeStrategyName } from './orchestration/merge-strategies.js'
 export { ContractNetManager } from './orchestration/contract-net/contract-net-manager.js'
 export {
   lowestCostStrategy,

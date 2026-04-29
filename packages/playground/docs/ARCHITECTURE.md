@@ -13,17 +13,21 @@ The playground surface is currently split across:
 - `packages/server/src/composition/optional-routes.ts` for conditional mount wiring.
 - `packages/agent/src/playground/*` for framework-internal playground/team coordination runtime types and helpers.
 
+There is no DzupAgent-owned product playground design-system package in this
+checkout. Product debugger/operator UX belongs in consuming applications, not in
+`packages/server` or this compatibility documentation directory.
+
 ## Responsibilities
 Because `packages/playground` is absent, it has no active package-level runtime responsibility.
 
 Current responsibilities that historically mapped to “playground” are handled by other packages:
 
 - `@dzupagent/server`:
-  - Optional static route mount (`/playground`) via `createPlaygroundRoutes`.
+  - Optional static route mount (`/playground`) via `createPlaygroundRoutes` for prebuilt compatibility assets.
   - File serving, MIME selection, SPA fallback to `index.html`, and path traversal guardrails.
 - `@dzupagent/agent`:
   - `AgentPlayground`, `SharedWorkspace`, `TeamCoordinator`, and related playground/team types under `src/playground`.
-  - Internal/runtime coordination primitives, not product UI hosting.
+  - Internal/runtime coordination primitives, not product UI hosting or a reusable design-system surface.
 
 ## Structure
 There is no package structure under `packages/playground` in this checkout.
@@ -91,6 +95,9 @@ Current integration points tied to “playground” behavior:
 - Root onboarding points package-scoped development at real workspace packages; there is no `@dzupagent/playground` workspace command in this checkout.
 - Server architecture docs should describe `/playground` as a static asset host configured through `runtimeConfig.playground.distDir`.
 - Agent package exports playground runtime primitives via its public index.
+- Product debugger/operator UI work should be owned by consuming apps such as
+  Codev unless a separate reusable UI package is intentionally created with its
+  own package manifest, contract, and validation lane.
 
 ## Testing and Observability
 There are no package-local tests under `packages/playground` because the package is absent.

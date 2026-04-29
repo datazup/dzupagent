@@ -79,16 +79,25 @@ const DEFAULT_CONTEXT_WINDOWS: Record<AdapterProviderId, number> = {
 }
 
 /**
- * Provider priority order: prefer claude first, then codex, gemini, qwen, crush.
- * Used as a tiebreaker when multiple providers can handle the context.
+ * Provider priority order used as a tiebreaker when multiple providers can
+ * handle the context.
  */
 const PROVIDER_PRIORITY: readonly AdapterProviderId[] = [
   'claude',
   'codex',
   'gemini',
+  'gemini-sdk',
   'qwen',
   'crush',
+  'goose',
+  'openrouter',
+  'openai',
 ]
+
+function getProviderPriority(providerId: AdapterProviderId): number {
+  const priority = PROVIDER_PRIORITY.indexOf(providerId)
+  return priority === -1 ? Number.MAX_SAFE_INTEGER : priority
+}
 
 // ---------------------------------------------------------------------------
 // Default token estimator
@@ -112,7 +121,7 @@ function defaultTokenEstimator(text: string): number {
  * Logic:
  * 1. Estimate context from task prompt + any injected context
  * 2. Filter providers that can handle the estimated context (with safety margin)
- * 3. Among those that fit, prefer by priority: claude > codex > gemini > qwen > crush
+ * 3. Among those that fit, prefer by provider priority order
  * 4. If no provider fits, route to gemini (largest context window) with a warning
  * 5. Confidence is based on how well the context fits (closer to max = lower confidence)
  */
@@ -210,9 +219,7 @@ export class ContextAwareRouter implements TaskRoutingStrategy {
     if (fittingProviders.length > 0) {
       // Sort by priority order
       const sorted = fittingProviders.sort((a, b) => {
-        const aIdx = PROVIDER_PRIORITY.indexOf(a)
-        const bIdx = PROVIDER_PRIORITY.indexOf(b)
-        return aIdx - bIdx
+        return getProviderPriority(a) - getProviderPriority(b)
       })
 
       const best = sorted[0]!

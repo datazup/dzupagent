@@ -41,12 +41,6 @@ export interface TopologyMetrics {
   messageCount: number
   errorCount: number
   switchedFrom?: TopologyType
-  /** Provider ID when execution was routed through a provider adapter */
-  providerId?: string
-  /** Number of fallback attempts when using provider adapter execution */
-  fallbackAttempts?: number
-  /** All providers attempted (in order) when using provider adapter execution */
-  attemptedProviders?: string[]
 }
 
 export interface TopologyExecutorConfig {

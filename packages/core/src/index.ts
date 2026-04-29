@@ -782,6 +782,8 @@ export type {
   ToolAuditHandler,
   ToolAuditEntry,
   ToolResultAuditEntry,
+  ToolResultAuditMetadata,
+  ToolResultAuditRetention,
   ToolAccessResult,
 } from './tools/tool-governance.js'
 

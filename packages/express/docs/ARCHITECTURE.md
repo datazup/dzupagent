@@ -108,7 +108,11 @@ Runtime/package dependencies:
 - `@dzupagent/agent` (agent types and runtime interaction for `/chat` routes)
 - `@dzupagent/core` (MCP request typing/validation and server compatibility)
 - Peer dependency:
-- `express >=4.18.0` (host framework)
+- `express >=4.22.1 <5` (host framework)
+
+The Express peer lower bound is security-maintained, not only API-compatible.
+Express 5 is not part of this package's declared support range until it is
+validated explicitly.
 
 Build/tooling:
 
@@ -157,4 +161,3 @@ Observability surfaces in runtime:
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
-

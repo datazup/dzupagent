@@ -221,6 +221,38 @@ describe('SupervisorOrchestrator', () => {
       expect(eventTypes).toContain('supervisor:delegation_complete')
     })
 
+    it('labels progress events with the active non-Claude provider', async () => {
+      const adapter = createMockAdapter('codex', [])
+      const registry = createMockRegistry(adapter)
+
+      const supervisor = new SupervisorOrchestrator({
+        registry,
+        eventBus: bus,
+      })
+
+      await supervisor.execute('Implement the feature')
+
+      const progressEvents = emitted.filter((e) => e.type === 'adapter:progress') as Array<
+        DzupEvent & {
+          providerId?: AdapterProviderId
+          phase?: string
+          current?: number
+          total?: number
+          percentage?: number
+          message?: string
+        }
+      >
+
+      expect(progressEvents).toHaveLength(1)
+      expect(progressEvents[0]!.providerId).toBe('codex')
+      expect(progressEvents[0]!.providerId).not.toBe('claude')
+      expect(progressEvents[0]!.phase).toBe('executing')
+      expect(progressEvents[0]!.current).toBe(1)
+      expect(progressEvents[0]!.total).toBe(1)
+      expect(progressEvents[0]!.percentage).toBe(100)
+      expect(progressEvents[0]!.message).toBe('Completed subtask 1/1')
+    })
+
     it('handles subtask failures gracefully', async () => {
       const registry = createFailingRegistry('codex', 'adapter error')
 
