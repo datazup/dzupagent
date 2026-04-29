@@ -558,6 +558,63 @@ describe('normalizeSteps — clarify', () => {
 })
 
 // ---------------------------------------------------------------------------
+// normalizeSteps — classify node
+// ---------------------------------------------------------------------------
+
+describe('normalizeSteps — classify', () => {
+  it('normalizes a classify node with an explicit default choice', () => {
+    const raw = [{
+      classify: {
+        id: 'pick_tier',
+        prompt: 'Which implementation tier?',
+        choices: ['frontend', 'backend', 'infra'],
+        output: 'tier',
+        default: 'infra',
+      },
+    }]
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = []
+    const nodes = normalizeSteps(raw, 'root.steps', diagnostics)
+    expect(nodes[0]?.type).toBe('classify')
+    expect((nodes[0] as { outputKey?: string }).outputKey).toBe('tier')
+    expect((nodes[0] as { defaultChoice?: string }).defaultChoice).toBe('infra')
+    expect(diagnostics).toHaveLength(0)
+  })
+
+  it('normalizes defaultChoice alias', () => {
+    const raw = [{
+      classify: {
+        prompt: 'Which implementation tier?',
+        choices: ['frontend', 'backend', 'infra'],
+        outputKey: 'tier',
+        defaultChoice: 'backend',
+      },
+    }]
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = []
+    const nodes = normalizeSteps(raw, 'root.steps', diagnostics)
+    expect((nodes[0] as { defaultChoice?: string }).defaultChoice).toBe('backend')
+    expect(diagnostics).toHaveLength(0)
+  })
+
+  it('errors when default choice is not one of the classify choices', () => {
+    const raw = [{
+      classify: {
+        prompt: 'Which implementation tier?',
+        choices: ['frontend', 'backend'],
+        output: 'tier',
+        default: 'infra',
+      },
+    }]
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = []
+    const nodes = normalizeSteps(raw, 'root.steps', diagnostics)
+    expect((nodes[0] as { defaultChoice?: string }).defaultChoice).toBeUndefined()
+    expect(diagnostics.some((d) => (
+      d.code === 'INVALID_ENUM_VALUE'
+      && d.path === 'root.steps[0].default'
+    ))).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // normalizeSteps — persona node
 // ---------------------------------------------------------------------------
 

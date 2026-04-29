@@ -2,6 +2,7 @@ import type {
   ActionNode,
   ApprovalNode,
   BranchNode,
+  ClassifyNode,
   ClarificationNode,
   FlowNode,
   ForEachNode,
@@ -69,6 +70,14 @@ const route = (...body: FlowNode[]): RouteNode => ({
   strategy: 'capability',
   tags: ['summarize'],
   body,
+})
+
+const classify = (defaultChoice?: string): ClassifyNode => ({
+  type: 'classify',
+  prompt: 'Choose the next branch',
+  choices: ['frontend', 'backend', 'infra'],
+  outputKey: 'intent',
+  ...(defaultChoice !== undefined ? { defaultChoice } : {}),
 })
 
 // ---------------------------------------------------------------------------
@@ -352,6 +361,10 @@ describe('validateShape — clean fixtures', () => {
     expect(validateShape(ast)).toEqual([])
   })
 
+  it('classify with explicit default choice: clean', () => {
+    expect(validateShape(classify('infra'))).toEqual([])
+  })
+
   it('persona-route-clarification mix: clean', () => {
     const ast = sequence(
       persona(action('inside')),
@@ -359,5 +372,14 @@ describe('validateShape — clean fixtures', () => {
       clarification('choice', ['a', 'b']),
     )
     expect(validateShape(ast)).toEqual([])
+  })
+})
+
+describe('validateShape — classify defaults', () => {
+  it('rejects classify.defaultChoice values outside classify.choices', () => {
+    const errors = validateShape(classify('docs'))
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.nodePath).toBe('root')
+    expect(errors[0]?.message).toContain('classify.defaultChoice must match one of classify.choices')
   })
 })
