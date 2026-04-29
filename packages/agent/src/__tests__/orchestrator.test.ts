@@ -481,6 +481,21 @@ describe('AgentOrchestrator.supervisor', () => {
       expect(managerModel.invoke).not.toHaveBeenCalled()
       expect(port.run).toHaveBeenCalledTimes(1)
     })
+
+    it('fails closed when provider-adapter mode has no providerPort', async () => {
+      const managerModel = createMockModel([{ content: 'should-not-run' }])
+      const manager = createAgentWithModel('mgr', managerModel)
+      const specialist = createAgentWithModel('spec', createMockModel([{ content: 'x' }]))
+
+      await expect(AgentOrchestrator.supervisor({
+        manager,
+        specialists: [specialist],
+        task: 'task',
+        executionMode: 'provider-adapter',
+      })).rejects.toThrow('provider-adapter executionMode requires providerPort')
+
+      expect(managerModel.invoke).not.toHaveBeenCalled()
+    })
   })
 
   describe('circuit breaker integration', () => {
