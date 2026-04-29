@@ -175,6 +175,18 @@ describe('LocalWorkspace', () => {
     expect(result.stderr).toContain('not in the allowed commands list')
   })
 
+  it('runCommand defaults to a deny-all allowlist when no commands are configured', async () => {
+    const denyAllWorkspace = new LocalWorkspace({
+      rootDir: tempDir,
+      search: { provider: 'builtin' },
+    })
+
+    const result = await denyAllWorkspace.runCommand('echo', ['blocked'])
+
+    expect(result.exitCode).toBe(126)
+    expect(result.stderr).toContain('not in the allowed commands list')
+  })
+
   it('runCommand rejects cwd outside root', async () => {
     await expect(ws.runCommand('echo', ['hello'], { cwd: '../outside' })).rejects.toBeInstanceOf(
       WorkspacePathSecurityError,

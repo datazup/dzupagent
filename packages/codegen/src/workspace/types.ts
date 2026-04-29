@@ -26,6 +26,7 @@ export interface WorkspaceOptions {
   rootDir: string
   sandbox?: {
     enabled: boolean
+    allowLocalFallback?: boolean
     containerId?: string
     permissionTier?: 'read-only' | 'read-write' | 'full'
   }

@@ -111,7 +111,13 @@ export class LocalWorkspace implements Workspace {
     } catch {
       this.rootRealDir = this.rootDir
     }
-    this.options = options
+    this.options = {
+      ...options,
+      command: {
+        ...options.command,
+        allowedCommands: options.command?.allowedCommands ?? [],
+      },
+    }
   }
 
   // ---- path helpers -------------------------------------------------------
