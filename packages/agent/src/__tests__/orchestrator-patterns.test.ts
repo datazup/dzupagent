@@ -771,7 +771,7 @@ describe('AgentOrchestrator.supervisor with provider-adapter mode', () => {
     expect(managerModel.invoke).not.toHaveBeenCalled()
   })
 
-  it('falls back to agent mode when providerPort is not set', async () => {
+  it('uses local agent mode when executionMode is not set', async () => {
     const managerModel = createMockModel([{ content: 'agent-mode result' }])
     const specModel = createMockModel([{ content: 'spec output' }])
     const manager = createAgentWithModel('mgr', 'Manager', managerModel)

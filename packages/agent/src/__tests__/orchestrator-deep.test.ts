@@ -754,21 +754,20 @@ describe('AgentOrchestrator.supervisor — deep branches', () => {
     expect(result.content).toBe('port-legacy')
   })
 
-  it('provider-adapter: when providerPort is undefined, falls back to agent mode', async () => {
+  it('provider-adapter: when providerPort is undefined, fails closed', async () => {
     const managerModel = createMockModel([{ content: 'agent-mode-used' }])
     const spec = createAgentWithModel('s1', createMockModel([{ content: 'never' }]))
     const manager = createAgentWithModel('mgr', managerModel)
 
-    const result = await AgentOrchestrator.supervisor({
+    await expect(AgentOrchestrator.supervisor({
       manager,
       specialists: [spec],
       task: 'Go',
       executionMode: 'provider-adapter',
       // providerPort intentionally omitted
-    })
+    })).rejects.toThrow('provider-adapter executionMode requires providerPort')
 
-    expect(result.content).toBe('agent-mode-used')
-    expect(managerModel.invoke).toHaveBeenCalled()
+    expect(managerModel.invoke).not.toHaveBeenCalled()
   })
 
   it('uses empty filteredSpecialists when no health check is enabled', async () => {

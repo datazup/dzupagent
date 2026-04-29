@@ -270,8 +270,18 @@ export class AgentOrchestrator {
     const eventBus = config.eventBus ?? manager.agentConfig.eventBus
     let { specialists } = config
 
-    // Provider-adapter execution mode: route through the injected port
-    if (executionMode === 'provider-adapter' && providerPort) {
+    // Provider-adapter execution mode: route through the injected port.
+    // This mode is explicitly configured, so fail closed when the port is absent
+    // instead of silently falling back to local specialist execution.
+    if (executionMode === 'provider-adapter') {
+      if (!providerPort) {
+        throw new OrchestrationError(
+          'supervisor() provider-adapter executionMode requires providerPort',
+          'supervisor',
+          { managerId: manager.id },
+        )
+      }
+
       const portResult = await providerPort.run(
         omitUndefined({ prompt: task, signal }),
         { prompt: task, tags: specialists.map((s) => s.id) },
