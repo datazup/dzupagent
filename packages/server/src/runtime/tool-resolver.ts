@@ -1,82 +1,31 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { isAbsolute, relative, resolve } from 'node:path'
 import { validateMcpHttpEndpoint } from '../security/mcp-url-policy.js'
+import { applyCustomToolResolver } from './custom-tool-instantiation.js'
+import { resolveMcpTools } from './mcp-tool-instantiation.js'
+import { resolveConnectorFactory, resolveGitFactory } from './tool-factories.js'
+import {
+  applyToolProfile,
+  getToolProfileConfig,
+  type ToolProfile,
+  type ToolProfileConfig,
+} from './tool-profile-config.js'
+import {
+  resolveTokenProfile,
+  selectGitWorkspace,
+  selectHttpConnectorProfile,
+  type ConnectorTokenProfile,
+  type GitWorkspaceProfile,
+  type HttpConnectorProfile,
+} from './tool-profile-selection.js'
+import { hasCategory, pickEnabled } from './tool-selection.js'
 
-// ---------------------------------------------------------------------------
-// Tool Profiles
-// ---------------------------------------------------------------------------
-
-export type ToolProfile = 'default' | 'codegen' | 'git' | 'connectors' | 'full'
-
-export interface ToolProfileConfig {
-  enabledCategories: string[]
-  enableMcp: boolean
-  enableConnectors: boolean
-  description: string
-}
-
-export interface HttpConnectorProfile {
-  /** Server-side base URL for the HTTP connector. */
-  baseUrl: string
-  /** Server-side headers or secret-resolved header values for this profile. */
-  headers?: Record<string, string>
-  /** Optional method allowlist passed to the connector. */
-  allowedMethods?: Array<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'>
-  /** Optional request timeout passed to the connector. */
-  timeoutMs?: number
-  /** Private/loopback/link-local hosts explicitly allowed for this profile. */
-  allowedHosts?: string[]
-}
-
-export interface ConnectorTokenProfile {
-  /** Server-owned token value. Prefer envVar in production hosts. */
-  token?: string
-  /** Environment variable name resolved by the server at execution time. */
-  envVar?: string
-}
-
-export interface GitWorkspaceProfile {
-  /** Server-side repository/workspace root for built-in Git tools. */
-  root: string
-  /** Explicit host-side policy allowing mutating Git tools such as commit or branch switch. */
-  allowMutatingTools?: boolean
-}
-
-const TOOL_PROFILE_CONFIGS: Record<ToolProfile, ToolProfileConfig> = {
-  default: {
-    enabledCategories: ['git'],
-    enableMcp: false,
-    enableConnectors: false,
-    description: 'Git tools only — no MCP, no connectors',
-  },
-  codegen: {
-    enabledCategories: ['git', 'github'],
-    enableMcp: false,
-    enableConnectors: false,
-    description: 'Git and GitHub tools for code generation workflows',
-  },
-  git: {
-    enabledCategories: ['git', 'github'],
-    enableMcp: false,
-    enableConnectors: false,
-    description: 'Git and GitHub tools only',
-  },
-  connectors: {
-    enabledCategories: ['git', 'github', 'slack', 'http'],
-    enableMcp: false,
-    enableConnectors: true,
-    description: 'Git plus all connectors — no MCP',
-  },
-  full: {
-    enabledCategories: ['git', 'github', 'slack', 'http'],
-    enableMcp: true,
-    enableConnectors: true,
-    description: 'All categories, MCP, and connectors enabled',
-  },
-}
-
-export function getToolProfileConfig(profile: ToolProfile): ToolProfileConfig {
-  return TOOL_PROFILE_CONFIGS[profile]
+export { getToolProfileConfig }
+export type {
+  ConnectorTokenProfile,
+  GitWorkspaceProfile,
+  HttpConnectorProfile,
+  ToolProfile,
+  ToolProfileConfig,
 }
 
 // ---------------------------------------------------------------------------
@@ -155,565 +104,6 @@ const SLACK_TOOL_NAMES = new Set([
 
 const HTTP_TOOL_NAMES = new Set(['http_request'])
 
-function hasCategory(requested: Set<string>, category: string): boolean {
-  return requested.has(category) || requested.has(`${category}:*`) || requested.has(`connector:${category}`)
-}
-
-function pickEnabled(
-  requested: Set<string>,
-  names: Set<string>,
-  category: string,
-): string[] {
-  if (hasCategory(requested, category)) return [...names]
-  return [...names].filter((name) => requested.has(name))
-}
-
-function getErrorCode(error: unknown): string | undefined {
-  if (typeof error !== 'object' || error === null) return undefined
-  const maybeCode = (error as { code?: unknown }).code
-  return typeof maybeCode === 'string' ? maybeCode : undefined
-}
-
-function parseCsvSet(value: string | undefined): string[] | undefined {
-  if (!value) return undefined
-  const entries = value.split(',').map((entry) => entry.trim()).filter(Boolean)
-  return entries.length ? entries : undefined
-}
-
-function isInsideRoot(path: string, root: string): boolean {
-  const rel = relative(root, path)
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
-}
-
-function selectGitWorkspace(context: ToolResolverContext): {
-  cwd?: string
-  allowedRoots?: string[]
-  allowMutatingTools: boolean
-  profileName?: string
-  warnings: string[]
-} {
-  const warnings: string[] = []
-  const profileName = typeof context.metadata?.['gitWorkspace'] === 'string' && context.metadata['gitWorkspace'].trim()
-    ? context.metadata['gitWorkspace'].trim()
-    : context.defaultGitWorkspaceProfile ?? 'default'
-
-  const hasProfiles = context.gitWorkspaceProfiles && Object.keys(context.gitWorkspaceProfiles).length > 0
-  const configuredProfile = context.gitWorkspaceProfiles?.[profileName]
-
-  if (hasProfiles && !configuredProfile) {
-    warnings.push(`Git workspace profile "${profileName}" is not configured.`)
-    return { allowMutatingTools: false, warnings }
-  }
-
-  const root = resolve(configuredProfile?.root ?? process.cwd())
-  let cwd = root
-
-  const metadataCwd = typeof context.metadata?.['cwd'] === 'string'
-    ? context.metadata['cwd']
-    : undefined
-
-  if (metadataCwd && context.allowUnsafeMetadataGitCwd) {
-    const requestedCwd = resolve(root, metadataCwd)
-    if (!isInsideRoot(requestedCwd, root)) {
-      warnings.push('Ignoring metadata.cwd for Git tools because it escapes the selected workspace root.')
-      return { allowMutatingTools: false, warnings }
-    }
-    warnings.push('Using unsafe metadata-controlled Git cwd within the selected workspace root.')
-    cwd = requestedCwd
-  } else if (metadataCwd) {
-    warnings.push(
-      'Ignoring metadata.cwd for Git tools; configure gitWorkspaceProfiles or set allowUnsafeMetadataGitCwd.',
-    )
-  }
-
-  return {
-    cwd,
-    allowedRoots: [root],
-    allowMutatingTools: configuredProfile?.allowMutatingTools === true,
-    profileName,
-    warnings,
-  }
-}
-
-function selectHttpConnectorProfile(context: ToolResolverContext): {
-  profile?: HttpConnectorProfile
-  profileName?: string
-  warnings: string[]
-} {
-  const warnings: string[] = []
-  const profileName = typeof context.metadata?.['httpProfile'] === 'string' && context.metadata['httpProfile'].trim()
-    ? context.metadata['httpProfile'].trim()
-    : context.defaultHttpConnectorProfile ?? 'default'
-
-  const configuredProfile = context.httpConnectorProfiles?.[profileName]
-  if (configuredProfile) {
-    return { profile: configuredProfile, profileName, warnings }
-  }
-
-  if (context.httpConnectorProfiles && Object.keys(context.httpConnectorProfiles).length > 0) {
-    warnings.push(`HTTP connector profile "${profileName}" is not configured.`)
-    return { warnings }
-  }
-
-  const envBaseUrl = context.env?.['DZIP_HTTP_BASE_URL']
-  if (envBaseUrl) {
-    const allowedHosts = parseCsvSet(context.env?.['DZIP_HTTP_ALLOWED_HOSTS'])
-    return {
-      profile: {
-        baseUrl: envBaseUrl,
-        ...(allowedHosts ? { allowedHosts } : {}),
-      },
-      profileName: 'env:DZIP_HTTP_BASE_URL',
-      warnings,
-    }
-  }
-
-  if (context.allowUnsafeMetadataHttpConnector) {
-    const metadataBaseUrl = typeof context.metadata?.['httpBaseUrl'] === 'string'
-      ? context.metadata['httpBaseUrl']
-      : undefined
-    if (metadataBaseUrl) {
-      const headerRecord = context.metadata?.['httpHeaders']
-      const headers = (headerRecord && typeof headerRecord === 'object' && !Array.isArray(headerRecord))
-        ? Object.fromEntries(
-            Object.entries(headerRecord)
-              .filter(([, v]) => typeof v === 'string') as Array<[string, string]>,
-          )
-        : undefined
-
-      warnings.push('Using unsafe metadata-controlled HTTP connector configuration.')
-      const allowedHosts = parseCsvSet(context.env?.['DZIP_HTTP_ALLOWED_HOSTS'])
-      return {
-        profile: {
-          baseUrl: metadataBaseUrl,
-          ...(headers ? { headers } : {}),
-          ...(allowedHosts ? { allowedHosts } : {}),
-        },
-        profileName: 'unsafe-metadata',
-        warnings,
-      }
-    }
-  } else if (context.metadata?.['httpBaseUrl'] || context.metadata?.['httpHeaders']) {
-    warnings.push(
-      'Ignoring metadata.httpBaseUrl/httpHeaders for HTTP connector; configure httpConnectorProfiles or set allowUnsafeMetadataHttpConnector.',
-    )
-  }
-
-  return { warnings }
-}
-
-function resolveTokenProfile(
-  kind: 'GitHub' | 'Slack',
-  profiles: Record<string, ConnectorTokenProfile> | undefined,
-  selectedProfile: unknown,
-  defaultProfile: string | undefined,
-  env: NodeJS.ProcessEnv | undefined,
-  fallbackEnvVar: 'GITHUB_TOKEN' | 'SLACK_BOT_TOKEN',
-): { token?: string; profileName?: string; warnings: string[] } {
-  const warnings: string[] = []
-  const profileName = typeof selectedProfile === 'string' && selectedProfile.trim()
-    ? selectedProfile.trim()
-    : defaultProfile ?? 'default'
-
-  const configuredProfile = profiles?.[profileName]
-  if (configuredProfile) {
-    const token = configuredProfile.token ?? (
-      configuredProfile.envVar ? env?.[configuredProfile.envVar] : undefined
-    )
-    if (token) return { token, profileName, warnings }
-    warnings.push(`${kind} connector profile "${profileName}" has no resolvable token.`)
-    return { profileName, warnings }
-  }
-
-  if (profiles && Object.keys(profiles).length > 0) {
-    warnings.push(`${kind} connector profile "${profileName}" is not configured.`)
-    return { warnings }
-  }
-
-  const token = env?.[fallbackEnvVar]
-  if (token) return { token, profileName: `env:${fallbackEnvVar}`, warnings }
-
-  return { warnings }
-}
-
-function isModuleNotFoundError(error: unknown): boolean {
-  const code = getErrorCode(error)
-  const message = error instanceof Error ? error.message : String(error)
-  if (code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND') {
-    return true
-  }
-  return (
-    message.includes('Cannot find module')
-    || message.includes('Cannot find package')
-    || message.includes('Failed to load url')
-  )
-}
-
-async function importFirstAvailable(paths: string[]): Promise<Record<string, unknown> | null> {
-  for (const p of paths) {
-    try {
-      return await import(p)
-    } catch (error) {
-      if (isModuleNotFoundError(error)) {
-        continue
-      }
-      const message = error instanceof Error ? error.message : String(error)
-      throw new Error(`Failed to import "${p}": ${message}`)
-    }
-  }
-  return null
-}
-
-async function resolveGitFactory(): Promise<{
-  createGitTools: ((executor: unknown, policy?: { allowMutatingTools?: boolean }) => StructuredToolInterface[]) | null
-  GitExecutor: (new (cfg?: { cwd?: string; allowedRoots?: string[] }) => unknown) | null
-}> {
-  // Prefer monorepo source during local development/tests; packaged builds fall
-  // back to @dzupagent/codegen when the source path is unavailable.
-  const toolsMod = await importFirstAvailable(['../../../codegen/src/git/git-tools.ts'])
-  const execMod = await importFirstAvailable(['../../../codegen/src/git/git-executor.ts'])
-  if (
-    toolsMod && execMod
-    && typeof toolsMod['createGitTools'] === 'function'
-    && typeof execMod['GitExecutor'] === 'function'
-  ) {
-    return {
-      createGitTools: toolsMod['createGitTools'] as (
-        executor: unknown,
-        policy?: { allowMutatingTools?: boolean },
-      ) => StructuredToolInterface[],
-      GitExecutor: execMod['GitExecutor'] as new (cfg?: { cwd?: string; allowedRoots?: string[] }) => unknown,
-    }
-  }
-
-  const pkg = await importFirstAvailable(['@dzupagent/codegen'])
-  if (pkg && typeof pkg['createGitTools'] === 'function' && typeof pkg['GitExecutor'] === 'function') {
-    return {
-      createGitTools: pkg['createGitTools'] as (
-        executor: unknown,
-        policy?: { allowMutatingTools?: boolean },
-      ) => StructuredToolInterface[],
-      GitExecutor: pkg['GitExecutor'] as new (cfg?: { cwd?: string; allowedRoots?: string[] }) => unknown,
-    }
-  }
-
-  return { createGitTools: null, GitExecutor: null }
-}
-
-// ---------------------------------------------------------------------------
-// MCP server config from metadata
-// ---------------------------------------------------------------------------
-
-interface McpServerEntry {
-  id: string
-  name?: string
-  url: string
-  transport?: 'http' | 'sse' | 'stdio'
-  args?: string[]
-  env?: Record<string, string>
-  headers?: Record<string, string>
-  timeoutMs?: number
-  maxEagerTools?: number
-}
-
-interface McpMetadataPolicy {
-  allowMetadataStdio: boolean
-  allowedServerIds?: Set<string>
-  allowedHttpHosts?: Set<string>
-  allowedStdioCommands?: Set<string>
-}
-
-function parseMcpCategory(token: string): { serverFilter?: string; toolFilter?: string } | null {
-  if (token === 'mcp' || token === 'mcp:*') return {}
-  // eslint-disable-next-line security/detect-unsafe-regex
-  const match = /^mcp:([^:]+)(?::(.+))?$/.exec(token)
-  if (!match) return null
-  return { serverFilter: match[1], toolFilter: match[2] }
-}
-
-function parseBooleanEnv(value: string | undefined): boolean {
-  if (!value) return false
-  const normalized = value.trim().toLowerCase()
-  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on'
-}
-
-function parseCsvEnvSet(value: string | undefined, normalize?: (value: string) => string): Set<string> | undefined {
-  if (!value) return undefined
-  const entries = value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0)
-    .map((entry) => normalize ? normalize(entry) : entry)
-  return entries.length > 0 ? new Set(entries) : undefined
-}
-
-function parseMcpMetadataPolicy(env: NodeJS.ProcessEnv | undefined): McpMetadataPolicy {
-  return {
-    allowMetadataStdio: parseBooleanEnv(env?.['DZIP_MCP_ALLOW_METADATA_STDIO']),
-    allowedServerIds: parseCsvEnvSet(env?.['DZIP_MCP_ALLOWED_SERVER_IDS']),
-    allowedHttpHosts: parseCsvEnvSet(env?.['DZIP_MCP_ALLOWED_HTTP_HOSTS'], value => value.toLowerCase()),
-    allowedStdioCommands: parseCsvEnvSet(env?.['DZIP_MCP_ALLOWED_STDIO_COMMANDS']),
-  }
-}
-
-async function extractMcpServers(
-  metadata: Record<string, unknown> | undefined,
-  policy: McpMetadataPolicy,
-): Promise<{ servers: McpServerEntry[]; warnings: string[] }> {
-  const warnings: string[] = []
-  if (!metadata) return { servers: [], warnings }
-  const raw = metadata['mcpServers']
-  if (!Array.isArray(raw)) return { servers: [], warnings }
-
-  const servers: McpServerEntry[] = []
-  for (const [index, entry] of raw.entries()) {
-    if (!entry || typeof entry !== 'object') {
-      warnings.push(`Ignoring metadata.mcpServers[${index}] because it is not an object.`)
-      continue
-    }
-
-    const record = entry as Record<string, unknown>
-    const id = typeof record['id'] === 'string' ? record['id'].trim() : ''
-    const name = typeof record['name'] === 'string' && record['name'].trim().length > 0
-      ? record['name'].trim()
-      : undefined
-    const url = typeof record['url'] === 'string' ? record['url'].trim() : ''
-
-    if (!id || !url) {
-      warnings.push(`Ignoring metadata.mcpServers[${index}] because "id" and "url" must be non-empty strings.`)
-      continue
-    }
-
-    if (
-      policy.allowedServerIds
-      && !policy.allowedServerIds.has(id)
-      && (!name || !policy.allowedServerIds.has(name))
-    ) {
-      warnings.push(`Ignoring MCP server "${id}" because it is not in DZIP_MCP_ALLOWED_SERVER_IDS.`)
-      continue
-    }
-
-    const rawTransport = record['transport']
-    const transport = rawTransport === undefined
-      ? 'http'
-      : rawTransport === 'http' || rawTransport === 'sse' || rawTransport === 'stdio'
-        ? rawTransport
-        : undefined
-
-    if (!transport) {
-      warnings.push(`Ignoring MCP server "${id}" because transport "${String(rawTransport)}" is invalid.`)
-      continue
-    }
-
-    if (transport === 'stdio') {
-      if (!policy.allowMetadataStdio) {
-        warnings.push(`Ignoring MCP server "${id}" because metadata-defined stdio transport is disabled by policy.`)
-        continue
-      }
-      const command = url.split(/\s+/, 1)[0] ?? ''
-      if (!command) {
-        warnings.push(`Ignoring MCP server "${id}" because stdio command is empty.`)
-        continue
-      }
-      if (policy.allowedStdioCommands && !policy.allowedStdioCommands.has(command)) {
-        warnings.push(`Ignoring MCP server "${id}" because command "${command}" is not in DZIP_MCP_ALLOWED_STDIO_COMMANDS.`)
-        continue
-      }
-    } else {
-      const result = await validateMcpHttpEndpoint(url, transport, { allowedHosts: policy.allowedHttpHosts })
-      if (!result.ok) {
-        warnings.push(`Ignoring MCP server "${id}" because ${result.reason}`)
-        continue
-      }
-    }
-
-    const rawArgs = record['args']
-    const args = Array.isArray(rawArgs)
-      ? rawArgs.filter((value): value is string => typeof value === 'string')
-      : undefined
-    if (Array.isArray(rawArgs) && rawArgs.length !== args?.length) {
-      warnings.push(`MCP server "${id}" has non-string args entries; invalid entries were dropped.`)
-    }
-
-    const timeoutMs = typeof record['timeoutMs'] === 'number' && Number.isFinite(record['timeoutMs'])
-      ? record['timeoutMs']
-      : undefined
-    const maxEagerTools = typeof record['maxEagerTools'] === 'number' && Number.isFinite(record['maxEagerTools'])
-      ? record['maxEagerTools']
-      : undefined
-
-    servers.push({
-      id,
-      name,
-      url,
-      transport,
-      args,
-      timeoutMs,
-      maxEagerTools,
-    })
-    if (record['env'] !== undefined || record['headers'] !== undefined) {
-      warnings.push(`MCP server "${id}" metadata credential fields were ignored; use server-side MCP profiles or secret references.`)
-    }
-  }
-
-  return { servers, warnings }
-}
-
-async function resolveMcpTools(
-  requested: Set<string>,
-  context: ToolResolverContext,
-): Promise<{
-  tools: StructuredToolInterface[]
-  activated: Array<{ name: string; source: 'mcp' }>
-  resolved: string[]
-  warnings: string[]
-  cleanup: () => Promise<void>
-}> {
-  const tools: StructuredToolInterface[] = []
-  const activated: Array<{ name: string; source: 'mcp' }> = []
-  const resolved: string[] = []
-  const warnings: string[] = []
-  const noop = async () => {}
-
-  // Collect all mcp:* patterns from requested set
-  const mcpPatterns: Array<{ token: string; serverFilter?: string; toolFilter?: string }> = []
-  for (const token of requested) {
-    const parsed = parseMcpCategory(token)
-    if (parsed) mcpPatterns.push({ token, ...parsed })
-  }
-
-  if (mcpPatterns.length === 0) return { tools, activated, resolved, warnings, cleanup: noop }
-
-  // Always mark mcp pattern tokens as resolved (they are category selectors, not tool names)
-  for (const pat of mcpPatterns) resolved.push(pat.token)
-
-  const mcpPolicy = parseMcpMetadataPolicy(context.env)
-  const { servers, warnings: policyWarnings } = await extractMcpServers(context.metadata, mcpPolicy)
-  warnings.push(...policyWarnings)
-  if (servers.length === 0) {
-    warnings.push('MCP tools requested but no servers configured in metadata.mcpServers.')
-    return { tools, activated, resolved, warnings, cleanup: noop }
-  }
-
-  // Dynamic import of @dzupagent/core MCP infrastructure
-  const corePkg = await importFirstAvailable(['@dzupagent/core'])
-  if (!corePkg || typeof corePkg['MCPClient'] !== 'function' || typeof corePkg['mcpToolToLangChain'] !== 'function') {
-    warnings.push('MCP tools requested but @dzupagent/core MCP infrastructure is not available.')
-    return { tools, activated, resolved, warnings, cleanup: noop }
-  }
-
-  const MCPClientCtor = corePkg['MCPClient'] as new () => {
-    addServer(config: McpServerEntry & { name: string; urlPolicy?: unknown }): unknown
-    connect(serverId: string): Promise<boolean>
-    getEagerTools(): Array<{ name: string; serverId: string; description: string; inputSchema: Record<string, unknown> }>
-    disconnectAll(): Promise<void>
-  }
-  const mcpToolToLangChain = corePkg['mcpToolToLangChain'] as (
-    descriptor: unknown,
-    client: unknown,
-  ) => StructuredToolInterface
-
-  const client = new MCPClientCtor()
-
-  // Determine which servers to connect to
-  const serverFilters = new Set<string>()
-  let connectAll = false
-  for (const pat of mcpPatterns) {
-    if (!pat.serverFilter) {
-      connectAll = true
-      break
-    }
-    serverFilters.add(pat.serverFilter)
-  }
-
-  const targetServers = connectAll
-    ? servers
-    : servers.filter((s) => serverFilters.has(s.id) || serverFilters.has(s.name ?? s.id))
-
-  for (const s of targetServers) {
-    client.addServer({
-      id: s.id,
-      name: s.name ?? s.id,
-      url: s.url,
-      transport: s.transport ?? 'http',
-      args: s.args,
-      env: s.env,
-      headers: s.headers,
-      urlPolicy: {
-        allowedHosts: mcpPolicy.allowedHttpHosts,
-      },
-      timeoutMs: s.timeoutMs,
-      maxEagerTools: s.maxEagerTools,
-    })
-  }
-
-  // Connect to all target servers
-  const connectionResults = await Promise.all(
-    targetServers.map(async (s) => {
-      const ok = await client.connect(s.id)
-      if (!ok) {
-        warnings.push(`MCP server "${s.name ?? s.id}" (${s.url}) failed to connect.`)
-      }
-      return { id: s.id, ok }
-    }),
-  )
-
-  if (connectionResults.every((r) => !r.ok)) {
-    warnings.push('All MCP servers failed to connect.')
-    return { tools, activated, resolved, warnings, cleanup: () => client.disconnectAll() }
-  }
-
-  // Collect eager tools and filter by patterns
-  const eagerTools = client.getEagerTools()
-  const toolFilters = new Set<string>()
-  for (const pat of mcpPatterns) {
-    if (pat.toolFilter) toolFilters.add(pat.toolFilter)
-  }
-
-  for (const descriptor of eagerTools) {
-    // Apply server + tool filters
-    const matchesPattern = mcpPatterns.some((pat) => {
-      if (pat.serverFilter && pat.serverFilter !== descriptor.serverId) return false
-      if (pat.toolFilter && pat.toolFilter !== descriptor.name) return false
-      return true
-    })
-    if (!matchesPattern) continue
-
-    const langChainTool = mcpToolToLangChain(descriptor, client)
-    tools.push(langChainTool)
-    activated.push({ name: descriptor.name, source: 'mcp' })
-  }
-
-  return {
-    tools,
-    activated,
-    resolved,
-    warnings,
-    cleanup: () => client.disconnectAll(),
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Connector factories
-// ---------------------------------------------------------------------------
-
-async function resolveConnectorFactory(): Promise<Record<string, unknown> | null> {
-  const pkg = await importFirstAvailable(['@dzupagent/connectors'])
-  if (pkg) return pkg
-
-  // Dev-only monorepo fallbacks — only resolve when package isn't published
-  const github = await importFirstAvailable(['../../../connectors/src/github/github-connector.ts'])
-  const slack = await importFirstAvailable(['../../../connectors/src/slack/slack-connector.ts'])
-  const http = await importFirstAvailable(['../../../connectors/src/http/http-connector.ts'])
-  if (!github && !slack && !http) return null
-
-  return {
-    ...github,
-    ...slack,
-    ...http,
-  }
-}
-
 export interface ToolResolverOptions {
   /** 'strict' throws if any tools remain unresolved; 'lenient' warns (default). */
   resolvePolicy?: 'strict' | 'lenient'
@@ -739,17 +129,7 @@ export async function resolveAgentTools(
 ): Promise<ToolResolverResult> {
   const explicitNames = (context.toolNames ?? []).map((name) => name.trim()).filter(Boolean)
   const requested = new Set(explicitNames)
-
-  // Apply tool profile: expand profile categories into the requested set
-  if (context.toolProfile) {
-    const profileConfig = getToolProfileConfig(context.toolProfile)
-    for (const category of profileConfig.enabledCategories) {
-      requested.add(`${category}:*`)
-    }
-    if (profileConfig.enableMcp) {
-      requested.add('mcp:*')
-    }
-  }
+  applyToolProfile(requested, context.toolProfile)
 
   const unresolved = new Set(requested)
   const warnings: string[] = []
@@ -760,7 +140,6 @@ export async function resolveAgentTools(
     return { tools, activated, unresolved: [], warnings }
   }
 
-  // Built-in git tools (default resolver)
   const wantGit = hasCategory(requested, 'git') || [...requested].some((name) => GIT_TOOL_NAMES.has(name))
   if (wantGit) {
     const { createGitTools, GitExecutor } = await resolveGitFactory()
@@ -798,7 +177,6 @@ export async function resolveAgentTools(
     }
   }
 
-  // Only attempt connector resolution if connector tools are actually requested
   const wantConnectors = [...requested].some((n) =>
     GITHUB_TOOL_NAMES.has(n) || SLACK_TOOL_NAMES.has(n) || HTTP_TOOL_NAMES.has(n)
       || hasCategory(requested, 'github')
@@ -811,7 +189,6 @@ export async function resolveAgentTools(
     warnings.push('Connector tools requested but @dzupagent/connectors is not available at runtime.')
   }
 
-  // GitHub connector
   const enabledGithub = pickEnabled(requested, GITHUB_TOOL_NAMES, 'github')
   if (enabledGithub.length > 0 && connectors) {
     if (typeof context.metadata?.['githubToken'] === 'string') {
@@ -846,7 +223,6 @@ export async function resolveAgentTools(
     }
   }
 
-  // Slack connector
   const enabledSlack = pickEnabled(requested, SLACK_TOOL_NAMES, 'slack')
   if (enabledSlack.length > 0 && connectors) {
     if (typeof context.metadata?.['slackToken'] === 'string') {
@@ -881,7 +257,6 @@ export async function resolveAgentTools(
     }
   }
 
-  // HTTP connector
   const enabledHttp = pickEnabled(requested, HTTP_TOOL_NAMES, 'http')
   if (enabledHttp.length > 0 && connectors) {
     const {
@@ -930,7 +305,6 @@ export async function resolveAgentTools(
     }
   }
 
-  // MCP tools (mcp:*, mcp:server-name, mcp:server-name:tool-name)
   const mcpResult = await resolveMcpTools(requested, context)
   for (const t of mcpResult.tools) {
     tools.push(t)
@@ -943,21 +317,14 @@ export async function resolveAgentTools(
   warnings.push(...mcpResult.warnings)
   const mcpCleanup = mcpResult.cleanup
 
-  // Custom resolver hook — custom tools override built-in tools with the same name
   if (customResolver) {
-    const custom = await customResolver(context)
-    for (const t of custom) {
-      const existingIdx = tools.findIndex((existing) => existing.name === t.name)
-      if (existingIdx >= 0) {
-        tools[existingIdx] = t
-        const activatedIdx = activated.findIndex((a) => a.name === t.name)
-        if (activatedIdx >= 0) activated[activatedIdx] = { name: t.name, source: 'custom' }
-      } else {
-        tools.push(t)
-        activated.push({ name: t.name, source: 'custom' })
-      }
-      unresolved.delete(t.name)
-    }
+    await applyCustomToolResolver({
+      context,
+      customResolver,
+      tools,
+      activated,
+      unresolved,
+    })
   }
 
   if (unresolved.size > 0) {
