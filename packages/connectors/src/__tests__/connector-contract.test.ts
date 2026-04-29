@@ -13,12 +13,17 @@ afterEach(() => {
 
 describe('connector contract normalization', () => {
   it('normalizes a forge-style tool descriptor into the canonical contract', async () => {
+    const controller = new AbortController()
+    const invoke = vi.fn(async (input: { value: string }, context?: { signal?: AbortSignal }) => ({
+      value: input.value,
+      signal: context?.signal,
+    }))
     const tool = normalizeConnectorTool({
       name: 'example-tool',
       description: 'Example tool',
       schema: { type: 'object' },
-      invoke: async (input: { value: string }) => `value:${input.value}`,
-      toModelOutput: (output: string) => output.toUpperCase(),
+      invoke,
+      toModelOutput: (output: { value: string }) => output.value.toUpperCase(),
     })
 
     expect(tool).toMatchObject({
@@ -28,8 +33,12 @@ describe('connector contract normalization', () => {
       schema: { type: 'object' },
     })
     expect(isConnectorTool(tool)).toBe(true)
-    await expect(tool.invoke({ value: 'alpha' })).resolves.toBe('value:alpha')
-    expect(tool.toModelOutput?.('ok')).toBe('OK')
+    await expect(tool.invoke({ value: 'alpha' }, { signal: controller.signal })).resolves.toEqual({
+      value: 'alpha',
+      signal: controller.signal,
+    })
+    expect(invoke).toHaveBeenCalledWith({ value: 'alpha' }, { signal: controller.signal })
+    expect(tool.toModelOutput?.({ value: 'ok' })).toBe('OK')
   })
 
   it('normalizes real DynamicStructuredTool outputs from a connector factory', async () => {

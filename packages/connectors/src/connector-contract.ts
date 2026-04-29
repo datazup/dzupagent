@@ -1,5 +1,5 @@
 import type { DynamicStructuredTool, StructuredToolInterface } from '@langchain/core/tools'
-import type { BaseConnectorTool } from '@dzupagent/core'
+import type { BaseConnectorTool, BaseConnectorToolLike } from '@dzupagent/core'
 import { isBaseConnectorTool, normalizeBaseConnectorTool } from '@dzupagent/core'
 
 /**
@@ -24,6 +24,7 @@ export type ConnectorToolLike<Input = unknown, Output = unknown> =
   | DynamicStructuredTool
   | StructuredToolInterface
   | ConnectorTool<Input, Output>
+  | BaseConnectorToolLike<Input, Output>
 
 /** Re-export the canonical type guard under the domain name */
 export const isConnectorTool: (value: unknown) => value is ConnectorTool = isBaseConnectorTool
@@ -31,23 +32,7 @@ export const isConnectorTool: (value: unknown) => value is ConnectorTool = isBas
 export function normalizeConnectorTool<Input = unknown, Output = unknown>(
   tool: ConnectorToolLike<Input, Output>,
 ): ConnectorTool<Input, Output> {
-  const id = 'id' in tool && typeof tool.id === 'string' ? tool.id : undefined
-  const toModelOutput = 'toModelOutput' in tool && typeof tool.toModelOutput === 'function'
-    ? tool.toModelOutput as (output: Output) => string
-    : undefined
-  const normalized = normalizeBaseConnectorTool<Input, Output>({
-    ...( id !== undefined ? { id } : {}),
-    name: tool.name,
-    description: tool.description,
-    schema: tool.schema,
-    invoke: async (input: Input) => tool.invoke(input),
-    ...(toModelOutput !== undefined ? { toModelOutput } : {}),
-  })
-  return {
-    ...normalized,
-    invoke: async (input: Input, context?: { signal?: AbortSignal }) =>
-      tool.invoke(input, context),
-  } as unknown as ConnectorTool<Input, Output>
+  return normalizeBaseConnectorTool<Input, Output>(tool)
 }
 
 export function normalizeConnectorTools<Input = unknown, Output = unknown>(

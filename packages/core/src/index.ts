@@ -758,7 +758,7 @@ export type {
 } from './vectordb/index.js'
 
 // --- Connector Contract ---
-export type { BaseConnectorTool } from './tools/connector-contract.js'
+export type { BaseConnectorTool, BaseConnectorToolLike } from './tools/connector-contract.js'
 export { isBaseConnectorTool, normalizeBaseConnectorTool, normalizeBaseConnectorTools } from './tools/connector-contract.js'
 
 // --- Tool Factory ---

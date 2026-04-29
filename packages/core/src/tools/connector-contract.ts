@@ -35,6 +35,15 @@ export interface BaseConnectorToolExecutionContext {
   signal?: AbortSignal
 }
 
+export interface BaseConnectorToolLike<Input = unknown, Output = unknown> {
+  id?: string
+  name: string
+  description: string
+  schema: unknown
+  invoke(input: Input, context?: BaseConnectorToolExecutionContext): Promise<Output>
+  toModelOutput?: (output: Output) => string
+}
+
 /**
  * Type guard — checks if an unknown value satisfies the BaseConnectorTool shape.
  */
@@ -54,17 +63,14 @@ export function isBaseConnectorTool(value: unknown): value is BaseConnectorTool 
  * Normalize a tool-like object into a BaseConnectorTool, defaulting `id` to `name`.
  */
 export function normalizeBaseConnectorTool<Input = unknown, Output = unknown>(
-  tool: {
-    id?: string
-    name: string
-    description: string
-    schema: unknown
-    invoke(input: Input, context?: BaseConnectorToolExecutionContext): Promise<Output>
-    toModelOutput?: (output: Output) => string
-  },
+  tool: BaseConnectorToolLike<Input, Output>,
 ): BaseConnectorTool<Input, Output> {
+  const id = typeof tool.id === 'string' && tool.id.trim().length > 0
+    ? tool.id
+    : tool.name
+
   const normalized: BaseConnectorTool<Input, Output> = {
-    id: (tool.id && tool.id.trim().length > 0) ? tool.id : tool.name,
+    id,
     name: tool.name,
     description: tool.description,
     schema: tool.schema,
@@ -83,14 +89,7 @@ export function normalizeBaseConnectorTool<Input = unknown, Output = unknown>(
  * Normalize an array of tool-like objects into BaseConnectorTool instances.
  */
 export function normalizeBaseConnectorTools<Input = unknown, Output = unknown>(
-  tools: ReadonlyArray<{
-    id?: string
-    name: string
-    description: string
-    schema: unknown
-    invoke(input: Input, context?: BaseConnectorToolExecutionContext): Promise<Output>
-    toModelOutput?: (output: Output) => string
-  }>,
+  tools: ReadonlyArray<BaseConnectorToolLike<Input, Output>>,
 ): BaseConnectorTool<Input, Output>[] {
   return tools.map((tool) => normalizeBaseConnectorTool(tool))
 }
