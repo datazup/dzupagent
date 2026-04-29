@@ -301,6 +301,76 @@ describe('ComplianceAuditLogger', () => {
     expect(JSON.stringify(entries[0])).not.toContain(secret)
   })
 
+  it('records tool call, successful result, and error terminal events without raw result output', async () => {
+    const store = new InMemoryAuditStore()
+    const logger = new ComplianceAuditLogger({ store })
+    const bus = createEventBus()
+    const rawOutput = 'secret tool output should not be stored'
+
+    logger.attach(bus)
+
+    bus.emit({
+      type: 'tool:called',
+      toolName: 'search',
+      agentId: 'agent-1',
+      runId: 'run-1',
+      toolCallId: 'call-1',
+      inputMetadataKeys: ['query'],
+    })
+    bus.emit({
+      type: 'tool:result',
+      toolName: 'search',
+      agentId: 'agent-1',
+      runId: 'run-1',
+      executionRunId: 'run-1',
+      toolCallId: 'call-1',
+      durationMs: 12,
+      inputMetadataKeys: ['query'],
+      status: 'success',
+      output: rawOutput,
+    } as DzupEvent & { output: string })
+    bus.emit({
+      type: 'tool:error',
+      toolName: 'search',
+      agentId: 'agent-1',
+      runId: 'run-1',
+      executionRunId: 'run-1',
+      toolCallId: 'call-2',
+      errorCode: 'TOOL_EXECUTION_FAILED',
+      message: 'tool failed',
+      errorMessage: 'tool failed',
+      durationMs: 8,
+      inputMetadataKeys: ['query'],
+      status: 'error',
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const entries = await store.search({})
+    expect(entries.map((entry) => entry.action)).toEqual([
+      'tool.called',
+      'tool.result',
+      'tool.error',
+    ])
+    expect(entries.map((entry) => entry.result)).toEqual(['success', 'success', 'failed'])
+
+    const result = entries.find((entry) => entry.action === 'tool.result')
+    expect(result).toBeDefined()
+    expect(result!.details).toMatchObject({
+      toolName: 'search',
+      agentId: 'agent-1',
+      runId: 'run-1',
+      executionRunId: 'run-1',
+      toolCallId: 'call-1',
+      durationMs: 12,
+      inputMetadataKeys: ['query'],
+      status: 'success',
+      outputRedacted: true,
+    })
+    expect(result!.details).not.toHaveProperty('output')
+    expect(JSON.stringify(entries)).not.toContain(rawOutput)
+  })
+
   it('attach ignores non-security events', async () => {
     const store = new InMemoryAuditStore()
     const logger = new ComplianceAuditLogger({ store })

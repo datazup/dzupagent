@@ -40,6 +40,7 @@ function eventToAuditAction(eventType: string): string | undefined {
     'agent:completed': 'agent.completed',
     'agent:failed': 'agent.failed',
     'tool:called': 'tool.called',
+    'tool:result': 'tool.result',
     'tool:error': 'tool.error',
     'llm:invoked': 'llm.invoked',
   }
@@ -59,6 +60,15 @@ function inputMetadataKeys(input: unknown): string[] {
 
 function auditDetailsForEvent(event: Record<string, unknown> & { type: string }): Record<string, unknown> {
   const { type: _type, ...details } = event
+
+  if (event.type === 'tool:result') {
+    const sanitized = { ...details }
+    if ('output' in sanitized) {
+      delete sanitized.output
+      sanitized.outputRedacted = true
+    }
+    return sanitized
+  }
 
   if (event.type !== 'tool:called') return details
 
