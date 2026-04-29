@@ -11,6 +11,13 @@ type ResolvedArrowMemoryConfig = NonNullable<ReturnType<typeof resolveArrowMemor
 
 const ARROW_FAILURE_FALLBACK_MAX_TOKENS = 4_000
 const FALLBACK_CHARS_PER_TOKEN = 4
+const STANDARD_MEMORY_MAX_ITEMS = 10
+const STANDARD_MEMORY_MAX_CHARS_PER_ITEM = 2_000
+const STANDARD_MEMORY_BUDGET_CONFIG: ResolvedArrowMemoryConfig = {
+  totalBudget: 128_000,
+  maxMemoryFraction: 0.3,
+  minResponseReserve: 4_000,
+}
 
 interface ArrowMemoryRecord {
   value: Record<string, unknown>
@@ -166,20 +173,31 @@ export class AgentMemoryContextLoader {
       }
     }
 
-    return await this.loadStandardMemoryContext(memory, namespace, scope, memoryReadContext)
+    return await this.loadStandardMemoryContext(
+      memory,
+      namespace,
+      scope,
+      messages,
+      memoryReadContext,
+    )
   }
 
   private async loadStandardMemoryContext(
     memory: AgentMemoryService,
     namespace: string,
     scope: Record<string, string>,
+    messages: BaseMessage[],
     memoryReadContext?: AgentMemoryReadContext,
   ): Promise<{ context: string | null }> {
     const records = memoryReadContext
       ? await memory.get(namespace, scope, undefined, memoryReadContext)
       : await memory.get(namespace, scope)
-    const context = memory.formatForPrompt(records) || null
-    return { context }
+    return this.formatStandardMemoryContext(
+      memory,
+      records,
+      messages,
+      STANDARD_MEMORY_BUDGET_CONFIG,
+    )
   }
 
   private async loadBoundedStandardMemoryContext(
@@ -190,30 +208,47 @@ export class AgentMemoryContextLoader {
     arrowCfg: ResolvedArrowMemoryConfig,
     memoryReadContext?: AgentMemoryReadContext,
   ): Promise<{ context: string | null }> {
-    const memoryBudget = this.computeMemoryBudget(messages, arrowCfg).memoryBudget
-    const fallbackBudget = Math.min(
-      memoryBudget,
-      ARROW_FAILURE_FALLBACK_MAX_TOKENS,
-    )
-
-    if (fallbackBudget <= 0) {
-      return { context: null }
-    }
-
     const records = memoryReadContext
       ? await memory.get(namespace, scope, undefined, memoryReadContext)
       : await memory.get(namespace, scope)
-    const maxCharsPerItem = Math.max(
-      1,
-      Math.floor((fallbackBudget * FALLBACK_CHARS_PER_TOKEN) / 10),
+
+    return this.formatStandardMemoryContext(
+      memory,
+      records,
+      messages,
+      arrowCfg,
+      ARROW_FAILURE_FALLBACK_MAX_TOKENS,
     )
-    const context = memory.formatForPrompt(records, {
-      maxItems: 10,
-      maxCharsPerItem,
-    }) || null
+  }
+
+  private formatStandardMemoryContext(
+    memory: AgentMemoryService,
+    records: Record<string, unknown>[],
+    messages: BaseMessage[],
+    budgetCfg: ResolvedArrowMemoryConfig,
+    maxMemoryBudget?: number,
+  ): { context: string | null } {
+    if (records.length === 0) {
+      return { context: null }
+    }
+
+    const memoryBudget = this.safeComputeMemoryBudget(messages, budgetCfg, maxMemoryBudget)
+    if (memoryBudget === undefined) {
+      return { context: memory.formatForPrompt(records) || null }
+    }
+    if (memoryBudget <= 0) {
+      return { context: null }
+    }
+
+    const bounds = this.deriveStandardMemoryPromptBounds(memoryBudget, records.length)
+    if (!bounds) {
+      return { context: null }
+    }
+
+    const context = memory.formatForPrompt(records, bounds) || null
 
     return {
-      context: this.boundContextToTokenBudget(context, fallbackBudget),
+      context: this.boundContextToTokenBudget(context, memoryBudget),
     }
   }
 
@@ -273,6 +308,51 @@ export class AgentMemoryContextLoader {
       systemPromptTokens,
       conversationTokens,
     }
+  }
+
+  private safeComputeMemoryBudget(
+    messages: BaseMessage[],
+    budgetCfg: ResolvedArrowMemoryConfig,
+    maxMemoryBudget?: number,
+  ): number | undefined {
+    try {
+      const memoryBudget = this.computeMemoryBudget(messages, budgetCfg).memoryBudget
+      return maxMemoryBudget === undefined
+        ? memoryBudget
+        : Math.min(memoryBudget, maxMemoryBudget)
+    } catch {
+      return undefined
+    }
+  }
+
+  private deriveStandardMemoryPromptBounds(
+    memoryBudget: number,
+    recordCount: number,
+  ): { maxItems: number; maxCharsPerItem: number } | undefined {
+    if (memoryBudget <= 0 || recordCount <= 0) {
+      return undefined
+    }
+
+    const defaultTokensPerItem = Math.ceil(
+      STANDARD_MEMORY_MAX_CHARS_PER_ITEM / FALLBACK_CHARS_PER_TOKEN,
+    )
+    const maxItemsByBudget = Math.max(
+      1,
+      Math.floor(memoryBudget / defaultTokensPerItem),
+    )
+    const maxItems = Math.max(
+      1,
+      Math.min(recordCount, STANDARD_MEMORY_MAX_ITEMS, maxItemsByBudget),
+    )
+    const maxCharsPerItem = Math.max(
+      1,
+      Math.min(
+        STANDARD_MEMORY_MAX_CHARS_PER_ITEM,
+        Math.floor((memoryBudget * FALLBACK_CHARS_PER_TOKEN) / maxItems),
+      ),
+    )
+
+    return { maxItems, maxCharsPerItem }
   }
 
   private boundContextToTokenBudget(

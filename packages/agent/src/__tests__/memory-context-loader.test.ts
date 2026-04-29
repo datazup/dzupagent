@@ -28,7 +28,102 @@ describe('AgentMemoryContextLoader', () => {
       context: '## Memory Context\n- stored fact',
     })
     expect(memory.get).toHaveBeenCalledWith('facts', { project: 'demo' })
-    expect(memory.formatForPrompt).toHaveBeenCalled()
+    expect(memory.formatForPrompt).toHaveBeenCalledWith(
+      [{ text: 'stored fact' }],
+      expect.objectContaining({
+        maxItems: 1,
+        maxCharsPerItem: 2000,
+      }),
+    )
+  })
+
+  it('applies tight token-derived bounds to standard memory loading', async () => {
+    const records = Array.from({ length: 20 }, (_, i) => ({
+      text: `record-${i} ${'large-memory-payload '.repeat(200)}`,
+    }))
+    const memory = {
+      get: vi.fn(async () => records),
+      formatForPrompt: vi.fn((
+        input: Array<Record<string, unknown>>,
+        options?: { maxItems?: number; maxCharsPerItem?: number },
+      ) => {
+        const maxItems = options?.maxItems ?? input.length
+        const maxCharsPerItem = options?.maxCharsPerItem ?? Number.MAX_SAFE_INTEGER
+        return [
+          '## Memory Context',
+          ...input.slice(0, maxItems).map((record) => {
+            const text = String(record['text'] ?? '')
+            return `- ${text.slice(0, maxCharsPerItem)}`
+          }),
+        ].join('\n')
+      }),
+    }
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 123_600,
+    })
+
+    const result = await loader.load([new HumanMessage('hello')])
+
+    expect(memory.formatForPrompt).toHaveBeenCalledWith(
+      records,
+      expect.objectContaining({
+        maxItems: 1,
+        maxCharsPerItem: expect.any(Number),
+      }),
+    )
+    const options = memory.formatForPrompt.mock.calls[0][1] as {
+      maxItems: number
+      maxCharsPerItem: number
+    }
+    expect(options.maxCharsPerItem).toBeLessThan(2000)
+    expect(result.context).not.toBeNull()
+    expect(estimateTokens(result.context!)).toBeLessThanOrEqual(400)
+    expect(result.context).not.toContain('record-1')
+  })
+
+  it('keeps default standard memory bounds for large context budgets', async () => {
+    const records = Array.from({ length: 25 }, (_, i) => ({ text: `record-${i}` }))
+    const memory = createMemoryService()
+    memory.get.mockResolvedValueOnce(records)
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 0,
+    })
+
+    await loader.load([new HumanMessage('hello')])
+
+    expect(memory.formatForPrompt).toHaveBeenCalledWith(
+      records,
+      expect.objectContaining({
+        maxItems: 10,
+        maxCharsPerItem: 2000,
+      }),
+    )
+  })
+
+  it('falls back to the legacy standard prompt call when budget estimation fails', async () => {
+    const memory = createMemoryService()
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => {
+        throw new Error('estimator unavailable')
+      },
+    })
+
+    await expect(loader.load([new HumanMessage('hello')])).resolves.toMatchObject({
+      context: '## Memory Context\n- stored fact',
+    })
+    expect(memory.formatForPrompt).toHaveBeenCalledWith([{ text: 'stored fact' }])
   })
 
   it('passes read provenance context through the standard prompt memory path', async () => {
@@ -166,7 +261,7 @@ describe('AgentMemoryContextLoader', () => {
     expect(memory.formatForPrompt).toHaveBeenCalledWith(
       records,
       expect.objectContaining({
-        maxItems: 10,
+        maxItems: 1,
         maxCharsPerItem: expect.any(Number),
       }),
     )

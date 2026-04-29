@@ -171,13 +171,13 @@ describe('QF-AGENT-07 — Arrow runtime failure fallback', () => {
     expect(memory.formatForPrompt).toHaveBeenCalledWith(
       records,
       expect.objectContaining({
-        maxItems: 10,
+        maxItems: 1,
         maxCharsPerItem: expect.any(Number),
       }),
     )
     expect(result.context).not.toBeNull()
     expect(estimateTokens(result.context!)).toBeLessThanOrEqual(200)
-    expect(result.context).not.toContain('fallback-10')
+    expect(result.context).not.toContain('fallback-1')
   })
 })
 
