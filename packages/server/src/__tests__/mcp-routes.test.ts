@@ -72,6 +72,21 @@ describe('MCP routes', () => {
     expect(json.data.id).toBe('test-server')
   })
 
+  it('POST /api/mcp/servers rejects oversized high-risk fields', async () => {
+    const res = await req(app, 'POST', '/api/mcp/servers', {
+      id: 'large-server',
+      transport: 'http',
+      endpoint: 'https://93.184.216.34',
+      enabled: true,
+      headers: { 'x-large': 'x'.repeat(64 * 1024) },
+    })
+
+    expect(res.status).toBe(413)
+    const json = await res.json() as { error: { code: string; message: string } }
+    expect(json.error.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(json.error.message).toContain('headers too large')
+  })
+
   it('POST /api/mcp/servers returns 400 for missing fields', async () => {
     const res = await req(app, 'POST', '/api/mcp/servers', {
       id: 'test-server',

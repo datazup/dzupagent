@@ -114,6 +114,17 @@ describe('Marketplace routes', () => {
       expect(json.error.message).toContain('semver')
     })
 
+    it('rejects oversized readme fields', async () => {
+      const res = await req(app, 'POST', '/api/marketplace/catalog', validEntry({
+        readme: 'x'.repeat(256 * 1024),
+      }))
+
+      expect(res.status).toBe(413)
+      const json = await res.json() as { error: { code: string; message: string } }
+      expect(json.error.code).toBe('PAYLOAD_TOO_LARGE')
+      expect(json.error.message).toContain('readme too large')
+    })
+
     it('accepts valid semver with prerelease', async () => {
       const res = await req(app, 'POST', '/api/marketplace/catalog', validEntry({ slug: 'pre', version: '1.0.0-beta.1' }))
       expect(res.status).toBe(201)

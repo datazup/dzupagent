@@ -21,6 +21,9 @@ import {
   handlePushNotificationSet,
   handlePushNotificationGet,
 } from './jsonrpc-handlers.js'
+import { getSerializedJsonSizeBytes } from '../../validation/route-validator.js'
+
+const A2A_JSON_RPC_PARAMS_MAX_BYTES = 256 * 1024
 
 // ---------------------------------------------------------------------------
 // JSON-RPC method dispatcher
@@ -94,6 +97,10 @@ export function registerJsonRpcRoute(app: Hono, config: A2ARoutesConfig): void {
 
       const responses: JsonRpcResponse[] = []
       for (const req of batchResult.requests) {
+        if (getSerializedJsonSizeBytes(req.params) > A2A_JSON_RPC_PARAMS_MAX_BYTES) {
+          responses.push(createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_REQUEST, 'params too large'))
+          continue
+        }
         const resp = await handleJsonRpcMethod(req, config, scope)
         responses.push(resp)
       }
@@ -104,6 +111,9 @@ export function registerJsonRpcRoute(app: Hono, config: A2ARoutesConfig): void {
     const validation = validateJsonRpcRequest(body)
     if (!validation.valid) {
       return c.json(validation.error)
+    }
+    if (getSerializedJsonSizeBytes(validation.request.params) > A2A_JSON_RPC_PARAMS_MAX_BYTES) {
+      return c.json(createJsonRpcError(validation.request.id, JSON_RPC_ERRORS.INVALID_REQUEST, 'params too large'))
     }
 
     const response = await handleJsonRpcMethod(validation.request, config, scope)

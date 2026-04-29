@@ -63,6 +63,7 @@ import type { EventGateway } from '../events/event-gateway.js'
 import type { PersonaStore } from '../personas/persona-store.js'
 import { createPersonaStoreResolver } from '../personas/persona-resolver.js'
 import { normalizeCompileInput } from './compile-input.js'
+import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
 
 /** Allowed compilation targets — mirrors `CompilationTarget` in flow-compiler. */
 const ALLOWED_TARGETS: readonly CompilationTarget[] = [
@@ -70,6 +71,7 @@ const ALLOWED_TARGETS: readonly CompilationTarget[] = [
   'workflow-builder',
   'pipeline',
 ] as const
+const COMPILE_PAYLOAD_FIELD_MAX_BYTES = 1_048_576
 
 function isAllowedTarget(v: unknown): v is CompilationTarget {
   return typeof v === 'string' && (ALLOWED_TARGETS as readonly string[]).includes(v)
@@ -263,6 +265,20 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
       return c.json(
         failureBody([makeRouteDiagnostic(1, 'INVALID_REQUEST', 'Invalid JSON body')]),
         400,
+      )
+    }
+
+    const oversizedField = getOversizedCompilePayloadField(body)
+    if (oversizedField) {
+      return c.json(
+        failureBody([
+          makeRouteDiagnostic(
+            1,
+            'PAYLOAD_TOO_LARGE',
+            `${oversizedField} too large (max 1 MiB)`,
+          ),
+        ]),
+        413,
       )
     }
 
@@ -535,6 +551,18 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
   })
 
   return app
+}
+
+function getOversizedCompilePayloadField(body: CompileRequestBody): 'flow' | 'document' | 'dsl' | undefined {
+  for (const field of ['flow', 'document', 'dsl'] as const) {
+    if (
+      body[field] !== undefined &&
+      getSerializedJsonSizeBytes(body[field]) > COMPILE_PAYLOAD_FIELD_MAX_BYTES
+    ) {
+      return field
+    }
+  }
+  return undefined
 }
 
 // ---------------------------------------------------------------------------

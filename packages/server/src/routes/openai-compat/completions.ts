@@ -27,6 +27,7 @@ import {
   serverError,
   generateCompletionId,
 } from './request-mapper.js'
+import { getSerializedJsonSizeBytes } from '../../validation/route-validator.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -37,6 +38,8 @@ export interface OpenAICompatCompletionsConfig {
   modelRegistry: ModelRegistry
   eventBus: DzupEventBus
 }
+
+const OPENAI_MESSAGES_MAX_BYTES = 512 * 1024
 
 // ---------------------------------------------------------------------------
 // Route factory
@@ -67,6 +70,20 @@ export function createOpenAICompatCompletionsRoute(
       return c.json(validation.error, 400)
     }
     const request = validation.request
+
+    if (getSerializedJsonSizeBytes(request.messages) > OPENAI_MESSAGES_MAX_BYTES) {
+      return c.json(
+        {
+          error: {
+            message: 'messages too large (max 512 KB)',
+            type: 'invalid_request_error',
+            param: 'messages',
+            code: 'payload_too_large',
+          },
+        },
+        413,
+      )
+    }
 
     // --- GAP-1: Extract system messages and map request ---
     const mapped = mapRequest(request)

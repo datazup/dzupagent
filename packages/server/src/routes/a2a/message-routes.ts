@@ -7,6 +7,9 @@
 import type { Hono } from 'hono'
 import type { A2ARoutesConfig } from './helpers.js'
 import { callerOwnsTask, getCallerScope } from './helpers.js'
+import { getSerializedJsonSizeBytes } from '../../validation/route-validator.js'
+
+const A2A_MESSAGE_PARTS_MAX_BYTES = 256 * 1024
 
 export function registerMessageRoutes(app: Hono, config: A2ARoutesConfig): void {
   app.post('/a2a/tasks/:id/messages', async (c) => {
@@ -17,6 +20,13 @@ export function registerMessageRoutes(app: Hono, config: A2ARoutesConfig): void 
       return c.json(
         { error: { code: 'BAD_REQUEST', message: 'role and parts are required' } },
         400,
+      )
+    }
+
+    if (getSerializedJsonSizeBytes(body.parts) > A2A_MESSAGE_PARTS_MAX_BYTES) {
+      return c.json(
+        { error: { code: 'PAYLOAD_TOO_LARGE', message: 'parts too large (max 256 KB)' } },
+        413,
       )
     }
 

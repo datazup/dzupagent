@@ -8,6 +8,8 @@
 import type { Context } from 'hono'
 import type { ZodType } from 'zod'
 
+const TEXT_ENCODER = new TextEncoder()
+
 /** Structured error response shape returned on validation failure. */
 export interface ValidationErrorResponse {
   error: 'VALIDATION_ERROR'
@@ -81,6 +83,22 @@ export function validateQuery<T>(c: Context, schema: ZodType<T>): T | Response {
   }
 
   return result.data
+}
+
+/**
+ * Return the UTF-8 byte size of a value after JSON serialization.
+ * `Infinity` is returned for values that cannot be serialized.
+ */
+export function getSerializedJsonSizeBytes(value: unknown): number {
+  try {
+    return TEXT_ENCODER.encode(JSON.stringify(value)).byteLength
+  } catch {
+    return Number.POSITIVE_INFINITY
+  }
+}
+
+export function isSerializedJsonSizeWithinLimit(value: unknown, maxBytes: number): boolean {
+  return getSerializedJsonSizeBytes(value) <= maxBytes
 }
 
 // ---------------------------------------------------------------------------

@@ -173,6 +173,13 @@ export interface ForgeTransportConfig {
   /** Safe default HTTP response headers. Pass `false` to disable, or override individual headers. */
   securityHeaders?: SecurityHeadersConfig | false
   rateLimit?: Partial<RateLimiterConfig>
+  /**
+   * Shared JSON request body size protection. Defaults to a conservative
+   * framework-wide limit with route-specific allowances for known large
+   * payload surfaces. Pass `false` to disable in controlled compatibility
+   * hosts.
+   */
+  jsonBodyLimit?: JsonBodyLimitConfig | false
 }
 
 export interface SecurityHeadersConfig {
@@ -186,6 +193,16 @@ export interface SecurityHeadersConfig {
   contentSecurityPolicy?: string | false
   /** Additional explicit headers; pass `false` to suppress a header from this map. */
   additionalHeaders?: Record<string, string | false | undefined>
+}
+
+export interface JsonBodyLimitConfig {
+  /** Default max JSON body size in bytes. Defaults to 1 MiB. */
+  defaultMaxBytes?: number
+  /**
+   * Route-specific max JSON body size in bytes. Keys are request paths.
+   * A key ending in `*` is treated as a prefix match.
+   */
+  routeMaxBytes?: Record<string, number>
 }
 
 /**

@@ -27,6 +27,7 @@ import type {
   McpProfile,
   McpServerDefinition,
 } from '@dzupagent/core'
+import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
 
 // ---------------------------------------------------------------------------
 // Response redaction (QF-SEC-06)
@@ -46,6 +47,8 @@ type PublicMcpServerDefinition = Omit<McpServerDefinition, 'env' | 'headers'> & 
 }
 
 const SENSITIVE_HEADER_PATTERN = /authorization|x-api-key|bearer|x-auth|cookie|token/i
+const MCP_SERVER_FIELD_MAX_BYTES = 64 * 1024
+const MCP_PROFILE_MAX_BYTES = 128 * 1024
 
 function redactMcpDefinition(
   def: McpServerDefinition,
@@ -125,6 +128,19 @@ export function createMcpRoutes(
     if (parsed instanceof Response) return parsed
     const body: McpServerInput = parsed
 
+    const oversizedServerField = getOversizedMcpServerField(body)
+    if (oversizedServerField) {
+      return c.json(
+        {
+          error: {
+            code: 'PAYLOAD_TOO_LARGE',
+            message: `${oversizedServerField} too large (max 64 KB)`,
+          },
+        },
+        413,
+      )
+    }
+
     // RF-S03: gate stdio transport registrations behind an explicit
     // allowlist so authenticated API keys cannot spawn arbitrary binaries
     // on the host. `endpoint` carries the command for stdio transports.
@@ -186,6 +202,19 @@ export function createMcpRoutes(
       return c.json(
         { error: { code: 'VALIDATION_ERROR', message: 'Invalid JSON body' } },
         400,
+      )
+    }
+
+    const oversizedPatchField = getOversizedMcpServerField(patch)
+    if (oversizedPatchField) {
+      return c.json(
+        {
+          error: {
+            code: 'PAYLOAD_TOO_LARGE',
+            message: `${oversizedPatchField} too large (max 64 KB)`,
+          },
+        },
+        413,
       )
     }
 
@@ -348,6 +377,13 @@ export function createMcpRoutes(
       )
     }
 
+    if (getSerializedJsonSizeBytes(body) > MCP_PROFILE_MAX_BYTES) {
+      return c.json(
+        { error: { code: 'PAYLOAD_TOO_LARGE', message: 'profile too large (max 128 KB)' } },
+        413,
+      )
+    }
+
     if (!body.id || !Array.isArray(body.serverIds)) {
       return c.json(
         { error: { code: 'VALIDATION_ERROR', message: 'id and serverIds (array) are required' } },
@@ -400,4 +436,18 @@ export function createMcpRoutes(
   })
 
   return app
+}
+
+function getOversizedMcpServerField(
+  body: Partial<McpServerInput | McpServerPatch>,
+): 'args' | 'env' | 'headers' | undefined {
+  for (const field of ['args', 'env', 'headers'] as const) {
+    if (
+      body[field] !== undefined &&
+      getSerializedJsonSizeBytes(body[field]) > MCP_SERVER_FIELD_MAX_BYTES
+    ) {
+      return field
+    }
+  }
+  return undefined
 }

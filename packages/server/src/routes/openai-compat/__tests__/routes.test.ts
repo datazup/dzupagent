@@ -130,6 +130,21 @@ describe('OpenAI-compatible routes', () => {
       expect(usage['total_tokens']).toBe(15)
     })
 
+    it('should reject oversized messages before generation', async () => {
+      const res = await app.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(makeCompletionBody({
+          messages: [{ role: 'user', content: 'x'.repeat(512 * 1024) }],
+        })),
+      })
+
+      expect(res.status).toBe(413)
+      const body = await res.json() as Record<string, unknown>
+      expect((body['error'] as Record<string, unknown>)['code']).toBe('payload_too_large')
+      expect(mockGenerate).not.toHaveBeenCalled()
+    })
+
     it('should accept and process temperature parameter', async () => {
       const res = await app.request('/v1/chat/completions', {
         method: 'POST',

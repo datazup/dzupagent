@@ -29,6 +29,9 @@ import {
   applyAuthoritativeScope,
   type MemoryTenantScopeConfig,
 } from './memory-tenant-scope.js'
+import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
+
+const MEMORY_IMPORT_DATA_MAX_BYTES = 4 * 1_048_576
 
 /**
  * Duck-type check for ZodError without importing zod directly.
@@ -102,6 +105,18 @@ export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
         )
       }
       throw err
+    }
+
+    if (
+      typeof input.format === 'string' &&
+      input.format.toLowerCase() === 'json' &&
+      'data' in input &&
+      getSerializedJsonSizeBytes(input.data) > MEMORY_IMPORT_DATA_MAX_BYTES
+    ) {
+      return c.json(
+        { error: { code: 'PAYLOAD_TOO_LARGE', message: 'data too large (max 4 MiB)' } },
+        413,
+      )
     }
 
     // MJ-SEC-04: override caller-supplied scope with authenticated tenant identity.
