@@ -3,12 +3,14 @@ import { InMemoryRunStore, createEventBus } from '@dzupagent/core'
 import type { DzupEventBus, DzupEvent, AgentExecutionSpec } from '@dzupagent/core'
 import {
   SimpleDelegationTracker,
+  type DelegationTracker,
   type DelegationExecutor,
 } from '../orchestration/delegation.js'
 import {
   DelegatingSupervisor,
   type TaskAssignment,
 } from '../orchestration/delegating-supervisor.js'
+import type { AgentCircuitBreaker } from '../orchestration/circuit-breaker.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,6 +81,38 @@ function makeSpecialist(
   }
 }
 
+function makeCircuitBreakerSpy(): AgentCircuitBreaker {
+  return {
+    recordSuccess: vi.fn(),
+    recordFailure: vi.fn(),
+    recordTimeout: vi.fn(),
+    filterAvailable: vi.fn((items: { id: string }[]) => items),
+    isAvailable: vi.fn(() => true),
+    getState: vi.fn(() => 'closed'),
+    reset: vi.fn(),
+  } as unknown as AgentCircuitBreaker
+}
+
+function makeTrackerReturning(
+  result: { success: boolean; output: unknown; error?: string },
+): DelegationTracker {
+  return {
+    delegate: vi.fn(async () => result),
+    getActiveDelegations: vi.fn(() => []),
+    cancel: vi.fn(() => false),
+  }
+}
+
+function makeTrackerRejecting(error: unknown): DelegationTracker {
+  return {
+    delegate: vi.fn(async () => {
+      throw error
+    }),
+    getActiveDelegations: vi.fn(() => []),
+    cancel: vi.fn(() => false),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -99,6 +133,65 @@ describe('DelegatingSupervisor', () => {
   // Single delegation
   // -----------------------------------------------------------------------
   describe('delegateTask', () => {
+    it('records circuit-breaker success for successful delegation results', async () => {
+      const circuitBreaker = makeCircuitBreakerSpy()
+      const supervisor = new DelegatingSupervisor({
+        specialists: new Map([
+          ['agent-ok', makeSpecialist('agent-ok')],
+        ]),
+        tracker: makeTrackerReturning({ success: true, output: 'ok' }),
+        circuitBreaker,
+      })
+
+      await supervisor.delegateTask('Task A', 'agent-ok', {})
+
+      expect(circuitBreaker.recordSuccess).toHaveBeenCalledWith('agent-ok')
+      expect(circuitBreaker.recordTimeout).not.toHaveBeenCalled()
+      expect(circuitBreaker.recordFailure).not.toHaveBeenCalled()
+    })
+
+    it('records circuit-breaker timeout for timeout delegation results', async () => {
+      const circuitBreaker = makeCircuitBreakerSpy()
+      const supervisor = new DelegatingSupervisor({
+        specialists: new Map([
+          ['agent-timeout', makeSpecialist('agent-timeout')],
+        ]),
+        tracker: makeTrackerReturning({
+          success: false,
+          output: null,
+          error: 'Delegation timeout after 50ms',
+        }),
+        circuitBreaker,
+      })
+
+      await supervisor.delegateTask('Task A', 'agent-timeout', {})
+
+      expect(circuitBreaker.recordTimeout).toHaveBeenCalledWith('agent-timeout')
+      expect(circuitBreaker.recordFailure).not.toHaveBeenCalled()
+      expect(circuitBreaker.recordSuccess).not.toHaveBeenCalled()
+    })
+
+    it('records circuit-breaker failure for generic unsuccessful delegation results', async () => {
+      const circuitBreaker = makeCircuitBreakerSpy()
+      const supervisor = new DelegatingSupervisor({
+        specialists: new Map([
+          ['agent-fail', makeSpecialist('agent-fail')],
+        ]),
+        tracker: makeTrackerReturning({
+          success: false,
+          output: null,
+          error: 'Model returned invalid output',
+        }),
+        circuitBreaker,
+      })
+
+      await supervisor.delegateTask('Task A', 'agent-fail', {})
+
+      expect(circuitBreaker.recordFailure).toHaveBeenCalledWith('agent-fail')
+      expect(circuitBreaker.recordTimeout).not.toHaveBeenCalled()
+      expect(circuitBreaker.recordSuccess).not.toHaveBeenCalled()
+    })
+
     it('delegates a single task to a specialist and returns the result', async () => {
       const tracker = new SimpleDelegationTracker({
         runStore: store,
@@ -205,6 +298,32 @@ describe('DelegatingSupervisor', () => {
   // Parallel delegation
   // -----------------------------------------------------------------------
   describe('delegateAndCollect', () => {
+    it('records circuit-breaker failure for rejected delegateTask promises', async () => {
+      const circuitBreaker = makeCircuitBreakerSpy()
+      const supervisor = new DelegatingSupervisor({
+        specialists: new Map([
+          ['agent-reject', makeSpecialist('agent-reject')],
+        ]),
+        tracker: makeTrackerRejecting(new Error('Transport closed')),
+        circuitBreaker,
+      })
+
+      const aggregated = await supervisor.delegateAndCollect([
+        { task: 'Task A', specialistId: 'agent-reject', input: {} },
+      ])
+
+      expect(aggregated.failed).toEqual(['agent-reject'])
+      expect(aggregated.results.get('agent-reject')).toMatchObject({
+        success: false,
+        output: null,
+        error: 'Transport closed',
+      })
+      expect(circuitBreaker.recordFailure).toHaveBeenCalledTimes(1)
+      expect(circuitBreaker.recordFailure).toHaveBeenCalledWith('agent-reject')
+      expect(circuitBreaker.recordTimeout).not.toHaveBeenCalled()
+      expect(circuitBreaker.recordSuccess).not.toHaveBeenCalled()
+    })
+
     it('delegates multiple tasks in parallel and collects results', async () => {
       const tracker = new SimpleDelegationTracker({
         runStore: store,
