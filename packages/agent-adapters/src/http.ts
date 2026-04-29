@@ -23,6 +23,7 @@ export type {
 } from './http/adapter-http-handler.js'
 
 export {
+  AdapterProviderIdSchema,
   RunRequestSchema,
   SupervisorRequestSchema,
   ParallelRequestSchema,

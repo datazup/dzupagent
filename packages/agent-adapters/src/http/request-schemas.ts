@@ -7,7 +7,15 @@
 
 import { z } from 'zod'
 
-const AdapterProviderIdSchema = z.enum(['claude', 'codex', 'gemini', 'qwen', 'crush', 'goose', 'openrouter'])
+import { HTTP_ROUTABLE_PROVIDER_IDS } from '../provider-catalog.js'
+import type { AdapterProviderId } from '../types.js'
+
+const HttpRoutableProviderIds = HTTP_ROUTABLE_PROVIDER_IDS as [
+  AdapterProviderId,
+  ...AdapterProviderId[],
+]
+
+export const AdapterProviderIdSchema = z.enum(HttpRoutableProviderIds)
 
 export const RunRequestSchema = z.object({
   prompt: z.string().min(1).max(100_000),

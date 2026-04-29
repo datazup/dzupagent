@@ -525,6 +525,7 @@ export type { RawAgentEvent, ProviderRawStreamEvent, AgentArtifactEvent, RunSumm
 // --- Provider Catalog ---
 export {
   PROVIDER_CATALOG,
+  HTTP_ROUTABLE_PROVIDER_IDS,
   getMonitorableProviders,
   getProductProviders,
   getProviderCapabilities,
