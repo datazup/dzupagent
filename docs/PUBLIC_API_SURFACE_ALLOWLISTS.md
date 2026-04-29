@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-04-28
+Date: 2026-04-29
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -50,7 +50,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./plugin/plugin-registry.js` | 1 | `prefix:./plugin/` | `PluginRegistry` |
 | `stable` | `./plugin/plugin-discovery.js` | 6 | `prefix:./plugin/` | `discoverPlugins`, `validateManifest`, `resolvePluginOrder`, `PluginManifest` |
 | `stable` | `./plugin/plugin-manifest.js` | 2 | `prefix:./plugin/` | `createManifest`, `serializeManifest` |
-| `stable` | `./llm/model-registry.js` | 1 | `prefix:./llm/` | `ModelRegistry` |
+| `stable` | `./llm/model-registry.js` | 2 | `prefix:./llm/` | `ModelRegistry`, `ModelFallbackCandidate` |
 | `stable` | `./llm/model-config.js` | 9 | `prefix:./llm/` | `KnownLLMProvider`, `LLMProviderConfig`, `LLMProviderName`, `ModelTier` |
 | `stable` | `./llm/circuit-breaker.js` | 4 | `prefix:./llm/` | `CircuitBreaker`, `KeyedCircuitBreaker`, `CircuitBreakerConfig`, `CircuitState` |
 | `stable` | `./llm/invoke.js` | 5 | `prefix:./llm/` | `invokeWithTimeout`, `extractTokenUsage`, `estimateTokens`, `TokenUsage` |
@@ -161,7 +161,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `12`
-- Deprecated transitional root sources: `108`
+- Deprecated transitional root sources: `109`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
@@ -182,6 +182,7 @@ Root index: `packages/agent/src/index.ts`
 | `stable` | `./agent/agent-factory.js` | 1 | `exact:./agent/agent-factory.js` | `createAgentWithMemory` |
 | `stable` | `./agent/agent-types.js` | 11 | `exact:./agent/agent-types.js` | `DzupAgentConfig`, `AgentMailboxConfig`, `ArrowMemoryConfig`, `GenerateOptions` |
 | `deprecated-transitional` | `./agent/memory-profiles.js` | 4 | `prefix:./agent/` | `getMemoryProfilePreset`, `resolveArrowMemoryConfig`, `MemoryProfile`, `MemoryProfilePreset` |
+| `deprecated-transitional` | `./agent/production-tool-governance-preset.js` | 6 | `prefix:./agent/` | `createAllowlistPermissionPolicy`, `createProductionToolGovernancePreset`, `withProductionToolGovernancePreset`, `ProductionToolGovernancePreset` |
 | `deprecated-transitional` | `./agent/tool-loop.js` | 5 | `prefix:./agent/` | `runToolLoop`, `ToolLoopConfig`, `ToolLoopResult`, `ToolStat` |
 | `deprecated-transitional` | `./agent/tool-timeout-error.js` | 3 | `prefix:./agent/` | `TOOL_TIMEOUT_ERROR_CODE`, `ToolTimeoutError`, `isToolTimeoutError` |
 | `stable` | `./agent/run-handle-types.js` | 9 | `exact:./agent/run-handle-types.js` | `RunHandle`, `RunResult`, `LaunchOptions`, `Unsubscribe` |
@@ -222,7 +223,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./context/auto-compress.js` | 4 | `prefix:./context/` | `autoCompress`, `FrozenSnapshot`, `AutoCompressConfig`, `CompressResult` |
 | `deprecated-transitional` | `./context/token-lifecycle-integration.js` | 4 | `prefix:./context/` | `withTokenLifecycle`, `TokenLifecycleHooks`, `TokenLifecyclePhase`, `TokenPressureListener` |
 | `stable` | `./approval/approval-gate.js` | 1 | `prefix:./approval/` | `ApprovalGate` |
-| `stable` | `./approval/approval-types.js` | 3 | `prefix:./approval/` | `ApprovalConfig`, `ApprovalMode`, `ApprovalResult` |
+| `stable` | `./approval/approval-types.js` | 5 | `prefix:./approval/` | `DEFAULT_APPROVAL_TIMEOUT_MS`, `ApprovalConfig`, `ApprovalMode`, `ApprovalResult` |
 | `deprecated-transitional` | `./agent/tool-registry.js` | 2 | `prefix:./agent/` | `DynamicToolRegistry`, `ToolRegistryEvent` |
 | `stable` | `./tools/create-tool.js` | 2 | `exact:./tools/create-tool.js` | `createForgeTool`, `ForgeToolConfig` |
 | `deprecated-transitional` | `./tools/human-contact-tool.js` | 5 | `prefix:./tools/` | `createHumanContactTool`, `InMemoryPendingContactStore`, `HumanContactInput`, `HumanContactToolConfig` |

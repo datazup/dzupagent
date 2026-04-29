@@ -130,7 +130,7 @@ The replay subsystem provides an in-memory debugging workflow for agent runs:
 - Playground UI type integration inside this package:
   - `src/playground/ui/types.ts` re-exports `TimelineNode`, `TimelineData`, `StateDiffEntry`, `NodeMetrics`, `ReplaySummary` from replay modules.
   - `src/playground/ui/utils.ts` imports replay types for derived UI formatting/helpers.
-  - Vue components (`TraceTimeline.vue`, `TraceNodeDetail.vue`, `TraceSummary.vue`) type against replay contracts.
+  - `@dzupagent/agent` intentionally keeps this layer rendering-independent; Vue SFCs belong in a consuming UI package unless this package also adds a local Vue lint/type/test gate.
 
 - Test integration:
   - `src/__tests__/replay-debugger.test.ts` exercises capture -> engine -> controller -> inspector -> serializer flows.
@@ -163,4 +163,3 @@ Observability surface in replay itself:
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
