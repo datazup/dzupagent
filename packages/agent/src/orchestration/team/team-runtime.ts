@@ -408,7 +408,7 @@ export class TeamRuntime {
           content: '',
           agentResults: [],
           durationMs: Date.now() - startedAt,
-          pattern: 'peer-to-peer',
+          pattern: 'breaker-short-circuit',
         }
       }
 
@@ -608,7 +608,7 @@ export class TeamRuntime {
             : 0,
       })),
       durationMs,
-      pattern: 'peer-to-peer',
+      pattern: 'contract-net',
     }
   }
 
@@ -816,7 +816,7 @@ export class TeamRuntime {
           durationMs,
         })),
         durationMs,
-        pattern: 'supervisor',
+        pattern: 'council',
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
@@ -934,7 +934,7 @@ export class TeamRuntime {
         },
       ],
       durationMs,
-      pattern: 'supervisor',
+      pattern: 'single-participant',
     }
   }
 

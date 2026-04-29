@@ -7,7 +7,7 @@
  *
  * All tests use mocked DzupAgent instances — no real LLM calls are made.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
@@ -504,7 +504,7 @@ describe('TeamRuntime — supervisor pattern', () => {
 
     const result = await runtime.execute('task')
 
-    expect(result.pattern).toBe('supervisor')
+    expect(result.pattern).toBe('single-participant')
     expect(result.content).toBe('solo-sup-result')
     expect(result.agentResults).toHaveLength(1)
   })
@@ -587,7 +587,7 @@ describe('TeamRuntime — council pattern', () => {
 
     const result = await runtime.execute('council task')
 
-    expect(result.pattern).toBe('supervisor')
+    expect(result.pattern).toBe('council')
     expect(result.content).toBe('council-verdict')
   })
 
