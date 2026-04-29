@@ -118,17 +118,22 @@ authoring module if you need stability today; expect breaking changes.
 
 `packages/agent/src/playground/ui` is not a public design-system surface. It is
 limited to rendering-independent trace helpers used by source-internal
-maintenance tests. `@dzupagent/agent` intentionally does not declare Vue
-peer/build requirements, does not emit Vue SFC build artifacts, and explicitly
-does not export `./playground/ui` package subpaths. Vue SFCs do not belong in
-this package unless the package also adds an explicit local Vue lint/type/test
-gate in the same change.
+maintenance tests. Those tests validate formatting helpers, trace tone maps,
+and class composition only; they do not validate rendered Vue SFC behavior,
+visual regressions, or design-token conformance. `@dzupagent/agent`
+intentionally does not declare Vue peer/build requirements, does not emit Vue
+SFC build artifacts, and explicitly does not export `./playground/ui` package
+subpaths. While the SFCs remain internal and unpublished, no runtime visual
+validation is expected for them.
 
 Consumers should import replay and execution contracts from the public API and
 render product UI inside the consuming app or design-system package. The
 rendering-independent helpers in `src/playground/ui/index.ts` remain available
 to existing source-internal tests and maintenance code, but they are not a
-published package contract.
+published package contract. If these SFCs are promoted to a maintained UI
+surface, the promotion must add a local rendered-component test scaffold and a
+token-conformance check or documented handoff to the owning design-system test
+gate in the same change.
 
 ## Tier: internal
 

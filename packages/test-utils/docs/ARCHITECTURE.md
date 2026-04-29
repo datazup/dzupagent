@@ -96,8 +96,12 @@ Runtime dependency:
 
 Peer dependencies:
 - `@langchain/core`: base chat model/message contracts used by mock/recorder implementations.
-- `express`: type and runtime contract expected by the route harness.
+- `express >=4.22.1 <5`: type and runtime contract expected by the route harness.
 - `vitest`: required because `mcp-compatibility.ts` imports `describe`, `it`, and `expect` directly.
+
+The Express peer lower bound is security-maintained, not only API-compatible.
+Express 5 support should be declared here only after the route harness is
+validated against it.
 
 Node built-ins:
 - `crypto`, `fs`, `path`, `events`, `stream`.

@@ -264,6 +264,9 @@ export class ProviderAdapterRegistry {
       const breaker = this.breakers.get(providerId)
       if (!adapter || (breaker && !breaker.canExecute())) continue
 
+      const startMs = Date.now()
+      const attemptRunId = `${providerId}-${startMs}`
+
       try {
         let sawCompleted = false
         let sawFailed = false
@@ -273,10 +276,9 @@ export class ProviderAdapterRegistry {
         this.emitEvent({
           type: 'agent:started',
           agentId: providerId,
-          runId: `${providerId}-${Date.now()}`,
+          runId: attemptRunId,
         })
 
-        const startMs = Date.now()
         const gen = adapter.executeWithRaw?.(input) ?? adapter.execute(input)
 
         for await (const event of gen) {
@@ -303,7 +305,7 @@ export class ProviderAdapterRegistry {
           this.emitEvent({
             type: 'agent:completed',
             agentId: providerId,
-            runId: `${providerId}-${startMs}`,
+            runId: attemptRunId,
             durationMs: Date.now() - startMs,
             // `usage` is optional — omit when the adapter didn't surface
             // token counts so the wire shape stays clean.
@@ -325,7 +327,7 @@ export class ProviderAdapterRegistry {
         this.emitEvent({
           type: 'agent:failed',
           agentId: providerId,
-          runId: `${providerId}-fallback`,
+          runId: attemptRunId,
           errorCode: failureCode,
           message: failureMessage,
         })
@@ -354,7 +356,7 @@ export class ProviderAdapterRegistry {
         this.emitEvent({
           type: 'agent:failed',
           agentId: providerId,
-          runId: `${providerId}-fallback`,
+          runId: attemptRunId,
           errorCode: 'ADAPTER_EXECUTION_FAILED',
           message: error.message,
         })
@@ -615,4 +617,3 @@ export class ProviderAdapterRegistry {
     }
   }
 }
-

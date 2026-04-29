@@ -129,6 +129,26 @@ describe('ContextAwareRouter', () => {
       expect(decision.confidence).toBe(0.95)
     })
 
+    it('prioritizes claude before openrouter when both fit', () => {
+      const task = makeTask('Short question')
+
+      const decision = router.route(task, ['openrouter', 'claude'])
+
+      expect(decision.provider).toBe('claude')
+      expect(decision.fallbackProviders).toEqual(['openrouter'])
+    })
+
+    it('respects preferred openrouter when it fits', () => {
+      const task = makeTask('Short question', {
+        preferredProvider: 'openrouter',
+      })
+
+      const decision = router.route(task, ['claude', 'openrouter'])
+
+      expect(decision.provider).toBe('openrouter')
+      expect(decision.confidence).toBe(0.95)
+    })
+
     it('returns auto when no providers available', () => {
       const task = makeTask('Question')
       const decision = router.route(task, [])

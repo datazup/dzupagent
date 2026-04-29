@@ -6,6 +6,11 @@
  * not publish Vue build artifacts, Vue peer requirements, or public
  * `./playground/ui` package subpaths.
  *
+ * The current helper tests validate formatting, trace tone maps, and class
+ * composition only. Because the Vue SFCs remain internal and unpublished, this
+ * package does not run runtime visual validation, rendered component checks, or
+ * design-token conformance checks for them.
+ *
  * Product UIs should consume replay data/contracts from the public agent API
  * and render those states in the consuming app's own design system.
  *

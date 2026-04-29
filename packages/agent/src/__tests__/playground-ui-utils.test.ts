@@ -1,6 +1,10 @@
 /**
  * Tests for playground/ui/utils — helper functions used by the
- * Playground UI Vue components.
+ * framework-internal Playground trace UI.
+ *
+ * These are rendering-independent helper checks only. They cover formatting,
+ * trace tone maps, and Tailwind class composition; they do not validate Vue SFC
+ * rendering behavior, visual regressions, or design-token conformance.
  */
 import { describe, it, expect } from 'vitest'
 import type { TimelineNode } from '../replay/replay-types.js'

@@ -139,6 +139,105 @@ describe('ProviderAdapterRegistry', () => {
     expect(completed).toBeDefined()
   })
 
+  it('correlates started and terminal event run IDs for failed and completed fallback attempts', async () => {
+    const failedOnly = createMockAdapter('claude', [
+      {
+        type: 'adapter:started',
+        providerId: 'claude',
+        sessionId: 's1',
+        timestamp: Date.now(),
+      },
+      {
+        type: 'adapter:failed',
+        providerId: 'claude',
+        sessionId: 's1',
+        error: 'provider failed',
+        code: 'ADAPTER_EXECUTION_FAILED',
+        timestamp: Date.now(),
+      },
+    ])
+
+    const succeeds = createMockAdapter('codex', [
+      {
+        type: 'adapter:started',
+        providerId: 'codex',
+        sessionId: 's2',
+        timestamp: Date.now(),
+      },
+      {
+        type: 'adapter:completed',
+        providerId: 'codex',
+        sessionId: 's2',
+        result: 'ok',
+        durationMs: 10,
+        timestamp: Date.now(),
+      },
+    ])
+
+    const registry = new ProviderAdapterRegistry().setRouter(router)
+    registry.register(failedOnly).register(succeeds)
+
+    const eventBus = createEventBus()
+    const emitted: any[] = []
+    eventBus.onAny((event) => emitted.push(event))
+    registry.setEventBus(eventBus)
+
+    await collectEvents(registry.executeWithFallback(input, task))
+
+    const claudeStarted = emitted.find((e) => e.type === 'agent:started' && e.agentId === 'claude')
+    const claudeFailed = emitted.find((e) => e.type === 'agent:failed' && e.agentId === 'claude')
+    const codexStarted = emitted.find((e) => e.type === 'agent:started' && e.agentId === 'codex')
+    const codexCompleted = emitted.find((e) => e.type === 'agent:completed' && e.agentId === 'codex')
+
+    expect(claudeStarted?.runId).toMatch(/^claude-\d+$/)
+    expect(claudeFailed?.runId).toBe(claudeStarted?.runId)
+    expect(codexStarted?.runId).toMatch(/^codex-\d+$/)
+    expect(codexCompleted?.runId).toBe(codexStarted?.runId)
+    expect(codexStarted?.runId).not.toBe(claudeStarted?.runId)
+  })
+
+  it('correlates started and failed event run IDs when an adapter throws during fallback', async () => {
+    const throws = {
+      ...createMockAdapter('claude', []),
+      async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+        yield {
+          type: 'adapter:started',
+          providerId: 'claude',
+          sessionId: 's1',
+          timestamp: Date.now(),
+        }
+        throw new Error('provider crashed')
+      },
+    } satisfies AgentCLIAdapter
+
+    const succeeds = createMockAdapter('codex', [
+      {
+        type: 'adapter:completed',
+        providerId: 'codex',
+        sessionId: 's2',
+        result: 'ok',
+        durationMs: 10,
+        timestamp: Date.now(),
+      },
+    ])
+
+    const registry = new ProviderAdapterRegistry().setRouter(router)
+    registry.register(throws).register(succeeds)
+
+    const eventBus = createEventBus()
+    const emitted: any[] = []
+    eventBus.onAny((event) => emitted.push(event))
+    registry.setEventBus(eventBus)
+
+    await collectEvents(registry.executeWithFallback(input, task))
+
+    const started = emitted.find((e) => e.type === 'agent:started' && e.agentId === 'claude')
+    const failed = emitted.find((e) => e.type === 'agent:failed' && e.agentId === 'claude')
+
+    expect(started?.runId).toMatch(/^claude-\d+$/)
+    expect(failed?.runId).toBe(started?.runId)
+  })
+
   it('synthesizes failure and falls back when stream ends without completion', async () => {
     const nonTerminal = createMockAdapter('claude', [
       {

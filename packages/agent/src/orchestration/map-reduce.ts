@@ -8,7 +8,7 @@
 import { HumanMessage } from '@langchain/core/messages'
 import { Semaphore } from '@dzupagent/core/orchestration'
 import type { DzupAgent } from '../agent/dzip-agent.js'
-import type { MergeStrategyFn } from './merge-strategies.js'
+import type { MergeStrategyFn, MergeStrategyName } from './merge-strategies.js'
 import { getMergeStrategy } from './merge-strategies.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 
@@ -20,7 +20,7 @@ export interface MapReduceConfig {
   /** Max concurrent agent executions (default: 5). */
   concurrency: number
   /** Merge strategy for combining results (default: 'concat'). */
-  mergeStrategy: MergeStrategyFn | 'concat' | 'vote' | 'custom'
+  mergeStrategy: MergeStrategyFn | MergeStrategyName | 'custom'
   /** Custom merge function (required when mergeStrategy is 'custom'). */
   customMerge?: MergeStrategyFn
   /** Abort signal for cancellation. */

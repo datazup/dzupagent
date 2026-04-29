@@ -45,6 +45,73 @@ describe('ToolGovernance', () => {
     expect(onToolCall).toHaveBeenCalledOnce()
   })
 
+  it('forwards raw tool result output by default for backwards compatibility', async () => {
+    const onToolCall = vi.fn()
+    const onToolResult = vi.fn()
+    const gov = new ToolGovernance({ auditHandler: { onToolCall, onToolResult } })
+    const output = { secret: 'raw-value', status: 'ok' }
+
+    await gov.auditResult({
+      toolName: 'read_file',
+      output,
+      callerAgent: 'test',
+      durationMs: 12,
+      success: true,
+      timestamp: 1,
+    })
+
+    expect(onToolResult).toHaveBeenCalledWith(expect.objectContaining({ output }))
+  })
+
+  it('can retain only result metadata for audit handlers', async () => {
+    const onToolCall = vi.fn()
+    const onToolResult = vi.fn()
+    const gov = new ToolGovernance({
+      resultAuditRetention: 'metadata-only',
+      auditHandler: { onToolCall, onToolResult },
+    })
+
+    await gov.auditResult({
+      toolName: 'read_file',
+      output: { secret: 'raw-value', status: 'ok' },
+      callerAgent: 'test',
+      durationMs: 12,
+      success: true,
+      timestamp: 1,
+    })
+
+    expect(onToolResult).toHaveBeenCalledWith(expect.objectContaining({
+      output: undefined,
+      outputMetadata: { outputType: 'object', outputKeys: ['secret', 'status'] },
+      resultAuditRetention: 'metadata-only',
+    }))
+  })
+
+  it('can retain redacted result output for audit handlers', async () => {
+    const onToolCall = vi.fn()
+    const onToolResult = vi.fn()
+    const gov = new ToolGovernance({
+      resultAuditRetention: 'redacted',
+      resultAuditRedactor: () => '[CUSTOM-REDACTED]',
+      auditHandler: { onToolCall, onToolResult },
+    })
+
+    await gov.auditResult({
+      toolName: 'read_file',
+      output: 'raw secret',
+      callerAgent: 'test',
+      durationMs: 12,
+      success: true,
+      timestamp: 1,
+    })
+
+    expect(onToolResult).toHaveBeenCalledWith(expect.objectContaining({
+      output: '[CUSTOM-REDACTED]',
+      outputMetadata: { outputType: 'string', outputLength: 10 },
+      resultAuditRetention: 'redacted',
+    }))
+  })
+
   it('audit failure is non-fatal', async () => {
     const gov = new ToolGovernance({
       auditHandler: {

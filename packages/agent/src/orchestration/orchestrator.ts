@@ -9,6 +9,7 @@
  */
 import { HumanMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import type { DzupEventBus } from '@dzupagent/core'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { OrchestrationError } from './orchestration-error.js'
 import { ContractNetManager } from './contract-net/contract-net-manager.js'
@@ -30,6 +31,8 @@ export interface SupervisorConfig {
   healthCheck?: boolean
   /** Abort signal for cancellation */
   signal?: AbortSignal
+  /** Event bus for structured supervisor routing diagnostics */
+  eventBus?: DzupEventBus
   /**
    * Execution mode for the supervisor.
    * - `'agent'` (default): use DzupAgent for execution
@@ -264,6 +267,7 @@ export class AgentOrchestrator {
     }
 
     const { manager, task, signal, executionMode, providerPort, routingPolicy, circuitBreaker } = config
+    const eventBus = config.eventBus ?? manager.agentConfig.eventBus
     let { specialists } = config
 
     // Provider-adapter execution mode: route through the injected port
@@ -303,14 +307,28 @@ export class AgentOrchestrator {
 
     // Filter specialists through circuit breaker if configured
     if (circuitBreaker) {
+      const candidateSpecialists = specialists.map((s) => s.id)
       const before = specialists.length
       specialists = circuitBreaker.filterAvailable(specialists)
       if (specialists.length < before) {
         const removedIds = config.specialists
           .filter((s) => !specialists.includes(s))
           .map((s) => s.id)
+        eventBus?.emit({
+          type: 'supervisor:routing_decision',
+          managerId: manager.id,
+          task,
+          strategy: 'circuit-breaker',
+          reason: 'Excluded specialists with open circuits',
+          selectedSpecialists: specialists.map((s) => s.id),
+          filteredSpecialists: removedIds,
+          candidateSpecialists,
+          source: 'direct-supervisor',
+        })
         // Log filtered agents for observability
-        console.debug('[AgentOrchestrator] Circuit breaker filtered agents:', removedIds)
+        if (!eventBus) {
+          console.debug('[AgentOrchestrator] Circuit breaker filtered agents:', removedIds)
+        }
       }
 
       if (specialists.length === 0) {
@@ -329,6 +347,7 @@ export class AgentOrchestrator {
         name: s.id,
         tags: [],
       }))
+      const candidateSpecialists = candidates.map((s) => s.id)
       const agentTask: AgentTask = {
         taskId: `supervisor-${Date.now()}`,
         content: task,
@@ -336,11 +355,28 @@ export class AgentOrchestrator {
       const decision = routingPolicy.select(agentTask, candidates)
       const selectedIds = new Set(decision.selected.map((a) => a.id))
       specialists = specialists.filter((s) => selectedIds.has(s.id))
-      console.debug('[AgentOrchestrator] Routing decision:', {
-        selected: decision.selected.map((a) => a.id),
+      const selectedSpecialists = specialists.map((s) => s.id)
+      const filteredSpecialists = candidateSpecialists.filter((id) => !selectedIds.has(id))
+
+      eventBus?.emit({
+        type: 'supervisor:routing_decision',
+        managerId: manager.id,
+        task,
+        taskId: agentTask.taskId,
         strategy: decision.strategy,
         reason: decision.reason,
+        selectedSpecialists,
+        filteredSpecialists,
+        candidateSpecialists,
+        source: 'direct-supervisor',
       })
+      if (!eventBus) {
+        console.debug('[AgentOrchestrator] Routing decision:', {
+          selected: selectedSpecialists,
+          strategy: decision.strategy,
+          reason: decision.reason,
+        })
+      }
     }
 
     // Optional health check: filter out unresponsive specialists

@@ -20,7 +20,19 @@ export interface ToolGovernanceConfig {
   validator?: (toolName: string, input: unknown) => ToolValidationResult
   /** Audit handler for logging tool usage */
   auditHandler?: ToolAuditHandler
+  /**
+   * Controls what `auditResult()` forwards as `ToolResultAuditEntry.output`.
+   *
+   * Defaults to `raw` for backwards compatibility. Use `metadata-only` when
+   * audit sinks should receive shape information without the tool result value,
+   * or `redacted` when a redacted placeholder/value should be retained.
+   */
+  resultAuditRetention?: ToolResultAuditRetention
+  /** Optional redactor used when `resultAuditRetention` is `redacted`. */
+  resultAuditRedactor?: (output: unknown, entry: ToolResultAuditEntry) => unknown
 }
+
+export type ToolResultAuditRetention = 'raw' | 'metadata-only' | 'redacted'
 
 export interface ToolValidationResult {
   valid: boolean
@@ -46,10 +58,18 @@ export interface ToolAuditEntry {
 export interface ToolResultAuditEntry {
   toolName: string
   output: unknown
+  outputMetadata?: ToolResultAuditMetadata
+  resultAuditRetention?: ToolResultAuditRetention
   callerAgent: string
   durationMs: number
   success: boolean
   timestamp: number
+}
+
+export interface ToolResultAuditMetadata {
+  outputType: string
+  outputKeys?: string[]
+  outputLength?: number
 }
 
 export interface ToolAccessResult {
@@ -114,7 +134,7 @@ export class ToolGovernance {
   /** Record a tool result for audit */
   async auditResult(entry: ToolResultAuditEntry): Promise<void> {
     try {
-      await this.config.auditHandler?.onToolResult?.(entry)
+      await this.config.auditHandler?.onToolResult?.(this.prepareResultAuditEntry(entry))
     } catch {
       // Audit failures are non-fatal
     }
@@ -141,4 +161,51 @@ export class ToolGovernance {
     entry.count++
     return true
   }
+
+  private prepareResultAuditEntry(entry: ToolResultAuditEntry): ToolResultAuditEntry {
+    const retention = this.config.resultAuditRetention ?? 'raw'
+    if (retention === 'raw') return entry
+
+    const outputMetadata = describeToolResultOutput(entry.output)
+    if (retention === 'metadata-only') {
+      return {
+        ...entry,
+        output: undefined,
+        outputMetadata,
+        resultAuditRetention: retention,
+      }
+    }
+
+    return {
+      ...entry,
+      output: this.config.resultAuditRedactor
+        ? this.config.resultAuditRedactor(entry.output, entry)
+        : '[REDACTED]',
+      outputMetadata,
+      resultAuditRetention: retention,
+    }
+  }
+}
+
+function describeToolResultOutput(output: unknown): ToolResultAuditMetadata {
+  if (Array.isArray(output)) {
+    return { outputType: 'array', outputLength: output.length }
+  }
+
+  if (output === null) {
+    return { outputType: 'null' }
+  }
+
+  if (typeof output === 'object') {
+    return {
+      outputType: 'object',
+      outputKeys: Object.keys(output as Record<string, unknown>),
+    }
+  }
+
+  if (typeof output === 'string') {
+    return { outputType: 'string', outputLength: output.length }
+  }
+
+  return { outputType: typeof output }
 }

@@ -19,7 +19,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { createEventBus, type DzupEvent, type DzupEventBus } from '@dzupagent/core'
+import { createEventBus, ToolGovernance, type DzupEvent, type DzupEventBus } from '@dzupagent/core'
 import { runToolLoop } from '../agent/tool-loop.js'
 
 function mockTool(name: string, result = 'ok'): StructuredToolInterface {
@@ -122,6 +122,42 @@ describe('Tool Loop — RF-AGENT-05 canonical lifecycle events', () => {
     expect(typeof terminal.durationMs).toBe('number')
     expect(terminal.durationMs).toBeGreaterThanOrEqual(0)
     expect(terminal.inputMetadataKeys).toEqual(['path', 'apiKey'])
+    expect(terminal).not.toHaveProperty('output')
+  })
+
+  it('keeps tool:result events metadata-only when governance redacts audit output', async () => {
+    const bus = createEventBus()
+    const events = captureToolEvents(bus)
+    const onToolCall = vi.fn()
+    const onToolResult = vi.fn()
+    const governance = new ToolGovernance({
+      resultAuditRetention: 'metadata-only',
+      auditHandler: { onToolCall, onToolResult },
+    })
+
+    const tool = mockTool('read_file', 'secret file contents')
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'read_file', args: { path: '/secret.txt' } }]),
+      new AIMessage('done'),
+    ])
+
+    await runToolLoop(model, [new HumanMessage('go')], [tool], {
+      maxIterations: 5,
+      eventBus: bus,
+      agentId: 'agent_42',
+      runId: 'run_xyz',
+      toolGovernance: governance,
+    })
+
+    const resultEvent = events.find((e) => e.type === 'tool:result')
+    expect(resultEvent).toBeDefined()
+    expect(resultEvent).not.toHaveProperty('output')
+    expect(JSON.stringify(resultEvent)).not.toContain('secret file contents')
+    expect(onToolResult).toHaveBeenCalledWith(expect.objectContaining({
+      output: undefined,
+      outputMetadata: { outputType: 'string', outputLength: 20 },
+      resultAuditRetention: 'metadata-only',
+    }))
   })
 
   it('never leaks raw input VALUES through canonical events', async () => {

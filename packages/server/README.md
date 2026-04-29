@@ -291,7 +291,7 @@ const app = createForgeApp({
 Ingress allow-lists, private listeners, and network policies are useful defense
 in depth, but they should not be the primary protection for `/metrics`.
 
-### 4. Mount built playground (optional)
+### 4. Mount prebuilt playground assets (optional)
 
 ```ts
 import { resolve } from 'node:path'
@@ -299,12 +299,17 @@ import { resolve } from 'node:path'
 const app = createForgeApp({
   ...baseConfig,
   playground: {
-    distDir: resolve(process.cwd(), 'packages/dzupagent-playground/dist'),
+    distDir: resolve(process.cwd(), 'path/to/prebuilt-playground/dist'),
   },
 })
 ```
 
-When configured, playground assets are served at `/playground`.
+When configured, static playground assets are served at `/playground`.
+`@dzupagent/server` only hosts these assets for compatibility; this repository
+does not currently provide or own an `@dzupagent/playground` workspace,
+product playground design-system package, or debugger/operator UX. Build those
+product surfaces in the consuming app and pass their compiled assets here only
+when compatibility hosting is required.
 
 ### 5. Configure HTTP connector profiles
 

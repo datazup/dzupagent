@@ -38,6 +38,11 @@ The module is a shared tool foundation layer, not a full execution runtime. It p
 
 `audit(entry)` and `auditResult(entry)` forward to `auditHandler` when present. Handler errors are swallowed so auditing is non-fatal.
 
+By default, `auditResult(entry)` forwards the raw `ToolResultAuditEntry.output` value for backwards compatibility. Callers that persist audit records should treat this as raw tool output retention and configure `resultAuditRetention` when raw result bodies are not appropriate:
+- `raw` keeps the current behavior.
+- `metadata-only` replaces `output` with `undefined` and forwards only `outputMetadata` shape data.
+- `redacted` forwards a redacted value, using `resultAuditRedactor` when supplied or a default redaction placeholder otherwise.
+
 ### `ToolStatsTracker`
 1. `recordCall(record)` appends a call record by `toolName`.
 2. Per-tool sliding-window eviction keeps only the latest `windowSize` records (default `200`).
@@ -92,6 +97,8 @@ This file is type-only. It models request and response contracts for contact mod
   - `maxExecutionMs?: number` (declared only; not enforced in this class)
   - `validator?: (toolName, input) => ToolValidationResult`
   - `auditHandler?: ToolAuditHandler`
+  - `resultAuditRetention?: 'raw' | 'metadata-only' | 'redacted'` (defaults to `raw`)
+  - `resultAuditRedactor?: (output, entry) => unknown`
 - `ToolAccessResult`: `{ allowed, reason?, requiresApproval? }`.
 - `ToolAuditHandler`: `onToolCall(...)` and optional `onToolResult(...)`.
 
