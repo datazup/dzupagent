@@ -7,9 +7,7 @@
 import type { ClusterRole } from '@dzupagent/agent'
 import { eq, and } from 'drizzle-orm'
 import { agentClusters, clusterRoles } from './drizzle-schema.js'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDrizzle = any
+import type { DrizzleStoreDatabase } from './drizzle-store-types.js'
 
 export interface ClusterRecord {
   id: string
@@ -124,7 +122,7 @@ export class InMemoryClusterStore implements ClusterStore {
 
 /** Drizzle-backed cluster store for Postgres persistence. */
 export class DrizzleClusterStore implements ClusterStore {
-  constructor(private readonly db: AnyDrizzle) {}
+  constructor(private readonly db: DrizzleStoreDatabase) {}
 
   async create(input: CreateClusterInput): Promise<ClusterRecord> {
     const now = new Date()
@@ -157,7 +155,14 @@ export class DrizzleClusterStore implements ClusterStore {
 
     if (rows.length === 0) return null
 
-    const row = rows[0]!
+    const row = rows[0]! as {
+      id: string
+      workspaceType: string
+      workspaceOptions: Record<string, unknown> | null
+      metadata: Record<string, unknown> | null
+      createdAt: Date
+      updatedAt: Date
+    }
     const roles = await this.listRoles(id)
 
     return {
@@ -205,9 +210,13 @@ export class DrizzleClusterStore implements ClusterStore {
     const rows = await this.db
       .select()
       .from(clusterRoles)
-      .where(eq(clusterRoles.clusterId, clusterId))
+      .where(eq(clusterRoles.clusterId, clusterId)) as Array<{
+        roleId: string
+        agentId: string
+        capabilities: string[] | null
+      }>
 
-    return rows.map((row: { roleId: string; agentId: string; capabilities: string[] | null }) => ({
+    return rows.map((row) => ({
       roleId: row.roleId,
       agentId: row.agentId,
       capabilities: (row.capabilities ?? []) as string[],

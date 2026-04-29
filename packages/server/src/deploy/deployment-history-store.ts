@@ -7,6 +7,7 @@
 
 import { eq, desc, and, gte, sql } from 'drizzle-orm'
 import { deploymentHistory } from '../persistence/drizzle-schema.js'
+import type { DrizzleReturningStoreDatabase } from '../persistence/drizzle-store-types.js'
 import type { GateDecision } from './confidence-types.js'
 
 // ---------------------------------------------------------------------------
@@ -66,15 +67,11 @@ export interface DeploymentHistoryStoreInterface {
 // Drizzle (Postgres) implementation
 // ---------------------------------------------------------------------------
 
-// Duck-typed Drizzle DB handle to avoid complex generics coupling.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyDrizzleDB = any
-
 /** Inferred row type for the {@link deploymentHistory} table. */
 type DeploymentHistoryRow = typeof deploymentHistory.$inferSelect
 
 export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInterface {
-  constructor(private readonly db: AnyDrizzleDB) {}
+  constructor(private readonly db: DrizzleReturningStoreDatabase) {}
 
   async record(input: DeploymentHistoryInput): Promise<DeploymentHistoryRecord> {
     const rows = await this.db
@@ -91,7 +88,7 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
       })
       .returning()
 
-    return this.toRecord(rows[0])
+    return this.toRecord(rows[0] as DeploymentHistoryRow)
   }
 
   async getRecent(limit: number, environment?: string): Promise<DeploymentHistoryRecord[]> {
@@ -106,9 +103,9 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
     const withWhere = conditions ? query.where(conditions) : query
     const rows = await withWhere
       .orderBy(desc(deploymentHistory.deployedAt))
-      .limit(limit)
+      .limit(limit) as DeploymentHistoryRow[]
 
-    return rows.map((r: DeploymentHistoryRow) => this.toRecord(r))
+    return rows.map((r) => this.toRecord(r))
   }
 
   async getSuccessRate(environment?: string, windowDays = 30): Promise<SuccessRateResult> {
@@ -127,7 +124,10 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
         successes: sql<number>`count(*) filter (where ${deploymentHistory.outcome} = 'success')::int`,
       })
       .from(deploymentHistory)
-      .where(and(conditions, sql`${deploymentHistory.outcome} is not null`))
+      .where(and(conditions, sql`${deploymentHistory.outcome} is not null`)) as Array<{
+        total: number
+        successes: number
+      }>
 
     const total = rows[0]?.total ?? 0
     const successes = rows[0]?.successes ?? 0
@@ -150,7 +150,7 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
       .returning()
 
     if (rows.length === 0) return null
-    return this.toRecord(rows[0])
+    return this.toRecord(rows[0] as DeploymentHistoryRow)
   }
 
   async getById(id: string): Promise<DeploymentHistoryRecord | null> {
@@ -161,7 +161,7 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
       .limit(1)
 
     if (rows.length === 0) return null
-    return this.toRecord(rows[0])
+    return this.toRecord(rows[0] as DeploymentHistoryRow)
   }
 
   private toRecord(row: DeploymentHistoryRow): DeploymentHistoryRecord {

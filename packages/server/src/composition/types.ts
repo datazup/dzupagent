@@ -67,14 +67,10 @@ import type { OpenAIAuthConfig } from '../routes/openai-compat/auth-middleware.j
 import type { Notifier } from '../notifications/notifier.js'
 import type { MailRateLimiterConfig } from '../notifications/mail-rate-limiter.js'
 import type { PostgresApiKeyStore } from '../persistence/api-key-store.js'
+import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
 import type { PlaygroundRouteConfig } from '../routes/playground.js'
 import type { ConnectorTokenProfile, GitWorkspaceProfile, HttpConnectorProfile } from '../runtime/tool-resolver.js'
 import type { MetricsAccessControl } from '../routes/metrics.js'
-
-// Drizzle DB clients are opaque at this layer — we intentionally avoid a
-// hard dependency on `drizzle-orm/postgres-js` here.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyDrizzle = any
 
 /**
  * Optional mail delivery config. When provided, `createForgeApp` constructs a
@@ -85,7 +81,7 @@ export type AnyDrizzle = any
  */
 export interface MailDeliveryConfig {
   /** Drizzle DB client used by the DLQ store and mailbox store. */
-  db: AnyDrizzle
+  db: DrizzleStoreDatabase
   /** Token-bucket configuration. Defaults to 10 tokens / 10-per-minute refill. */
   rateLimiter?: MailRateLimiterConfig
   /** DLQ drain interval in milliseconds. Defaults to 10s. */
