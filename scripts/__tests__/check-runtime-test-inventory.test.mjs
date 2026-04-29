@@ -177,3 +177,70 @@ test('honors critical source waivers with reasons', () => {
     rmSync(repoRoot, { recursive: true, force: true });
   }
 });
+
+test('reports large production files without direct or declared coverage as risk inventory', () => {
+  const repoRoot = makeRepo({
+    packages: {
+      core: {
+        sourceFiles: ['src/runtime/large-contract.ts'],
+        testFiles: ['src/__tests__/other.test.ts'],
+      },
+    },
+    config: {
+      largeSourceFileRisk: {
+        minLines: 3,
+      },
+    },
+  });
+
+  writeFileSync(
+    path.join(repoRoot, 'packages', 'core', 'src', 'runtime', 'large-contract.ts'),
+    ['export const a = 1;', 'export const b = 2;', 'export const c = 3;'].join('\n'),
+  );
+
+  try {
+    const report = runRuntimeTestInventory({ repoRoot });
+    assert.equal(report.exitCode, 0);
+    assert.equal(report.largeSourceFileRisks.length, 1);
+    assert.equal(report.largeSourceFileRisks[0].sourcePath, 'src/runtime/large-contract.ts');
+    assert.match(report.largeSourceFileRisks[0].message, /no direct or declared test coverage/);
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('does not report large production files with declared critical source coverage', () => {
+  const repoRoot = makeRepo({
+    packages: {
+      core: {
+        sourceFiles: ['src/runtime/large-contract.ts'],
+        testFiles: ['src/__tests__/large-contract.test.ts'],
+      },
+    },
+    config: {
+      largeSourceFileRisk: {
+        minLines: 3,
+      },
+      criticalSourceFiles: [
+        {
+          package: 'core',
+          path: 'src/runtime/large-contract.ts',
+          coveredBy: ['src/__tests__/large-contract.test.ts'],
+        },
+      ],
+    },
+  });
+
+  writeFileSync(
+    path.join(repoRoot, 'packages', 'core', 'src', 'runtime', 'large-contract.ts'),
+    ['export const a = 1;', 'export const b = 2;', 'export const c = 3;'].join('\n'),
+  );
+
+  try {
+    const report = runRuntimeTestInventory({ repoRoot });
+    assert.equal(report.exitCode, 0);
+    assert.equal(report.largeSourceFileRisks.length, 0);
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});

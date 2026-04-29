@@ -152,6 +152,7 @@ function resolvePackageRule(config, packageName) {
     return {
       thresholds: { ...config.defaultThresholds },
       waiver: null,
+      baseline: null,
     }
   }
 
@@ -167,7 +168,9 @@ function resolvePackageRule(config, packageName) {
       }
     : null
 
-  return { thresholds, waiver }
+  const baseline = normalizeBaseline(rule.baseline)
+
+  return { thresholds, waiver, baseline }
 }
 
 function isActiveWaiver(waiver) {
@@ -181,6 +184,72 @@ function isActiveWaiver(waiver) {
     throw new Error(`Invalid waiver until date: ${waiver.until}`)
   }
   return untilTime >= Date.now()
+}
+
+function normalizeBaseline(input) {
+  if (!input || typeof input !== 'object') return null
+  const targets = Array.isArray(input.targets)
+    ? input.targets
+        .filter((target) => target && typeof target === 'object')
+        .map((target) => ({
+          by: typeof target.by === 'string' ? target.by : null,
+          requireCoverageScript: target.requireCoverageScript === true,
+          thresholds: target.thresholds && typeof target.thresholds === 'object'
+            ? normalizeThresholds(target.thresholds)
+            : null,
+        }))
+        .filter((target) => target.by || target.requireCoverageScript || target.thresholds)
+    : []
+
+  return {
+    reason: typeof input.reason === 'string' ? input.reason.trim() : '',
+    since: typeof input.since === 'string' ? input.since : null,
+    reviewBy: typeof input.reviewBy === 'string' ? input.reviewBy : null,
+    thresholds: input.thresholds && typeof input.thresholds === 'object'
+      ? normalizeThresholds(input.thresholds)
+      : null,
+    targets,
+  }
+}
+
+function getExpiredBaselineMessage(baseline) {
+  if (!baseline) return null
+  if (!baseline.reason) {
+    throw new Error('Baseline entries must include a reason')
+  }
+  if (!baseline.reviewBy) {
+    throw new Error('Baseline entries must include a reviewBy date')
+  }
+  const reviewByTime = Date.parse(baseline.reviewBy)
+  if (Number.isNaN(reviewByTime)) {
+    throw new Error(`Invalid baseline reviewBy date: ${baseline.reviewBy}`)
+  }
+  return reviewByTime < Date.now()
+    ? `staged baseline expired ${baseline.reviewBy}: ${baseline.reason}`
+    : null
+}
+
+function formatBaselineTarget(baseline) {
+  const nextTarget = baseline.targets[0]
+  if (!nextTarget) return 'no staged target declared'
+
+  const parts = []
+  if (nextTarget.by) parts.push(`by ${nextTarget.by}`)
+  if (nextTarget.requireCoverageScript) parts.push('publish test:coverage')
+  if (nextTarget.thresholds) {
+    parts.push(
+      `target ${formatPct(nextTarget.thresholds.statements)} statements, ` +
+        `${formatPct(nextTarget.thresholds.branches)} branches, ` +
+        `${formatPct(nextTarget.thresholds.functions)} functions, ` +
+        `${formatPct(nextTarget.thresholds.lines)} lines`,
+    )
+  }
+  return parts.join('; ')
+}
+
+function formatBaselineMessage(baseline, prefix = 'staged baseline') {
+  const since = baseline.since ? ` since ${baseline.since}` : ''
+  return `${prefix}${since}; review by ${baseline.reviewBy}: ${baseline.reason}; next ${formatBaselineTarget(baseline)}`
 }
 
 function formatPct(value) {
@@ -210,7 +279,7 @@ function summarizeReport(rows) {
       acc[row.status] += 1
       return acc
     },
-    { total: 0, pass: 0, fail: 0, waived: 0, missing: 0, expired: 0 },
+    { total: 0, pass: 0, fail: 0, waived: 0, baseline: 0, missing: 0, expired: 0 },
   )
 
   return totals
@@ -248,6 +317,16 @@ export function runCoverageGate({
       continue
     }
 
+    const expiredBaselineMessage = getExpiredBaselineMessage(rule.baseline)
+    if (expiredBaselineMessage) {
+      rows.push({
+        packageName,
+        status: 'expired',
+        message: expiredBaselineMessage,
+      })
+      continue
+    }
+
     if (rule.waiver && rule.waiver.until) {
       const untilTime = Date.parse(rule.waiver.until)
       if (!Number.isNaN(untilTime) && untilTime < Date.now()) {
@@ -261,6 +340,15 @@ export function runCoverageGate({
     }
 
     if (!fileExists(summaryPath)) {
+      if (rule.baseline) {
+        rows.push({
+          packageName,
+          status: 'baseline',
+          message: formatBaselineMessage(rule.baseline, `missing coverage summary at ${summaryPath}; staged baseline`),
+        })
+        continue
+      }
+
       rows.push({
         packageName,
         status: 'missing',
@@ -272,6 +360,31 @@ export function runCoverageGate({
     try {
       const summary = readCoverageSummary(summaryPath)
       const coverage = extractCoverage(summary)
+      if (rule.baseline) {
+        if (rule.baseline.thresholds) {
+          const baselineFailure = formatThresholdFailure(packageName, rule.baseline.thresholds, coverage)
+          if (baselineFailure.length > 0) {
+            rows.push({
+              packageName,
+              status: 'fail',
+              message: `coverage below staged baseline: ${baselineFailure}`,
+              coverage,
+              thresholds: rule.baseline.thresholds,
+            })
+            continue
+          }
+        }
+
+        rows.push({
+          packageName,
+          status: 'baseline',
+          message: formatBaselineMessage(rule.baseline),
+          coverage,
+          thresholds: rule.baseline.thresholds ?? rule.thresholds,
+        })
+        continue
+      }
+
       const failure = formatThresholdFailure(packageName, rule.thresholds, coverage)
 
       if (failure.length > 0) {
@@ -311,6 +424,25 @@ export function runCoverageGate({
           message: rule.waiver.until
             ? `test script lacks test:coverage; waived until ${rule.waiver.until}: ${rule.waiver.reason}`
             : `test script lacks test:coverage; waived: ${rule.waiver.reason}`,
+        })
+        continue
+      }
+
+      const expiredBaselineMessage = getExpiredBaselineMessage(rule.baseline)
+      if (expiredBaselineMessage) {
+        rows.push({
+          packageName,
+          status: 'expired',
+          message: expiredBaselineMessage,
+        })
+        continue
+      }
+
+      if (rule.baseline) {
+        rows.push({
+          packageName,
+          status: 'baseline',
+          message: formatBaselineMessage(rule.baseline, 'test script lacks test:coverage; staged baseline'),
         })
         continue
       }
@@ -358,6 +490,11 @@ function printReport(report) {
       continue
     }
 
+    if (row.status === 'baseline') {
+      console.log(`- ${row.packageName}: ${row.message}`)
+      continue
+    }
+
     if (row.status === 'expired') {
       console.error(`- ${row.packageName}: ${row.message}`)
       continue
@@ -370,6 +507,7 @@ function printReport(report) {
     `Summary: ${report.totals.total} checked, ` +
       `${report.totals.pass} passed, ` +
       `${report.totals.waived} waived, ` +
+      `${report.totals.baseline} baselined, ` +
       `${report.totals.missing} missing, ` +
       `${report.totals.expired} expired, ` +
       `${report.totals.fail} failed`,
