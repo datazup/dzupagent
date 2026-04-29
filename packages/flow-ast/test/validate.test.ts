@@ -82,6 +82,21 @@ describe('flowNodeSchema.safeParse — valid inputs', () => {
     expect(result.success).toBe(true)
   })
 
+  it('accepts a classify node with an explicit default choice', () => {
+    const result = flowNodeSchema.safeParse({
+      type: 'classify',
+      id: 'classify_intent',
+      prompt: 'Choose the next branch',
+      choices: ['frontend', 'backend', 'infra'],
+      outputKey: 'intent',
+      defaultChoice: 'infra',
+    })
+    expect(result.success).toBe(true)
+    if (result.success && result.data.type === 'classify') {
+      expect(result.data.defaultChoice).toBe('infra')
+    }
+  })
+
   it('accepts optional node metadata fields', () => {
     const result = flowNodeSchema.safeParse({
       type: 'action',
@@ -166,6 +181,26 @@ describe('flowNodeSchema.safeParse — invalid inputs', () => {
     expect(result.success).toBe(false)
     if (!result.success) {
       expect(result.error.issues.some((i) => i.code === 'EMPTY_BODY')).toBe(true)
+    }
+  })
+
+  it('rejects classify.defaultChoice values outside classify.choices', () => {
+    const result = flowNodeSchema.safeParse({
+      type: 'classify',
+      id: 'classify_intent',
+      prompt: 'Choose the next branch',
+      choices: ['frontend', 'backend'],
+      outputKey: 'intent',
+      defaultChoice: 'infra',
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => (
+          i.path === 'root.defaultChoice'
+          && i.message.includes('must match one of classify.choices')
+        )),
+      ).toBe(true)
     }
   })
 })
