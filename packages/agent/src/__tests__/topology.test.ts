@@ -63,6 +63,31 @@ function createFailingAgent(id: string): DzupAgent {
   })
 }
 
+function createFailOnceAgent(id: string, content: string): DzupAgent {
+  let callCount = 0
+  const model = {
+    invoke: vi.fn(async () => {
+      callCount++
+      if (callCount === 1) {
+        throw new Error(`Agent ${id} failed once`)
+      }
+      return new AIMessage({ content, response_metadata: {} })
+    }),
+    bindTools: vi.fn(function (this: BaseChatModel) {
+      return this
+    }),
+    _modelType: () => 'base_chat_model',
+    _llmType: () => 'mock',
+  } as unknown as BaseChatModel
+
+  return new DzupAgent({
+    id,
+    description: `Fail-once agent ${id}`,
+    instructions: `You are ${id}.`,
+    model,
+  })
+}
+
 // ---------------------------------------------------------------------------
 // TopologyAnalyzer tests
 // ---------------------------------------------------------------------------
@@ -1465,6 +1490,102 @@ describe('TopologyExecutor — auto-switch advanced scenarios', () => {
     // Error rate 0.67 > 0.5 should trigger switch attempt
     // Whether switchedFrom is set depends on analyzer recommendation
     expect(metrics.agentCount).toBe(3)
+  })
+
+  it('auto-switch recovers a thrown pipeline failure by retrying an alternate topology', async () => {
+    const agents = [
+      createFailOnceAgent('p1', 'Recovered P1'),
+      createAgent('p2', 'Recovered P2'),
+    ]
+
+    const { result, metrics } = await TopologyExecutor.execute({
+      agents,
+      task: 'Recover pipeline',
+      topology: 'pipeline',
+      autoSwitch: true,
+    })
+
+    expect(typeof result).toBe('string')
+    expect(metrics.topology).not.toBe('pipeline')
+    expect(metrics.switchedFrom).toBe('pipeline')
+    expect(metrics.errorCount).toBe(0)
+  })
+
+  it('preserves thrown pipeline failure behavior when autoSwitch is disabled', async () => {
+    await expect(
+      TopologyExecutor.execute({
+        agents: [
+          createFailOnceAgent('p1', 'Recovered P1'),
+          createAgent('p2', 'Recovered P2'),
+        ],
+        task: 'Do not recover pipeline',
+        topology: 'pipeline',
+        autoSwitch: false,
+      }),
+    ).rejects.toThrow('Agent p1 failed once')
+  })
+
+  it('auto-switch recovers a thrown star failure by retrying an alternate topology', async () => {
+    const agents = [
+      createFailOnceAgent('s1', 'Recovered S1'),
+      createAgent('s2', 'Recovered S2'),
+    ]
+
+    const { metrics } = await TopologyExecutor.execute({
+      agents,
+      task: 'Recover star',
+      topology: 'star',
+      autoSwitch: true,
+    })
+
+    expect(metrics.topology).not.toBe('star')
+    expect(metrics.switchedFrom).toBe('star')
+  })
+
+  it('preserves thrown star failure behavior when autoSwitch is disabled', async () => {
+    await expect(
+      TopologyExecutor.execute({
+        agents: [
+          createFailOnceAgent('s1', 'Recovered S1'),
+          createAgent('s2', 'Recovered S2'),
+        ],
+        task: 'Do not recover star',
+        topology: 'star',
+        autoSwitch: false,
+      }),
+    ).rejects.toThrow('Agent s1 failed once')
+  })
+
+  it('auto-switch recovers a thrown hierarchical failure by retrying an alternate topology', async () => {
+    const agents = [
+      createFailOnceAgent('coordinator', 'Recovered coordinator'),
+      createAgent('worker', 'Recovered worker'),
+    ]
+
+    const { metrics } = await TopologyExecutor.execute({
+      agents,
+      task: 'Recover hierarchical',
+      topology: 'hierarchical',
+      autoSwitch: true,
+    })
+
+    expect(metrics.topology).not.toBe('hierarchical')
+    expect(metrics.switchedFrom).toBe('hierarchical')
+    expect(metrics.errorCount).toBe(0)
+  })
+
+  it('preserves thrown hierarchical failure behavior when autoSwitch is disabled', async () => {
+    await expect(
+      TopologyExecutor.execute({
+        agents: [
+          createFailOnceAgent('coordinator', 'Recovered coordinator'),
+          createAgent('worker', 'Recovered worker'),
+        ],
+        task: 'Do not recover hierarchical',
+        topology: 'hierarchical',
+        autoSwitch: false,
+      }),
+    ).rejects.toThrow('Agent coordinator failed once')
   })
 })
 

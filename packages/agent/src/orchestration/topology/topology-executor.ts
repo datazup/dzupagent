@@ -162,7 +162,18 @@ export class TopologyExecutor {
 
     TopologyExecutor.checkAborted(config.signal, `topology-${topology}`)
 
-    const result = await TopologyExecutor.executeTopology(config, topology)
+    let result: ExecuteResult
+    let initialError: unknown
+
+    try {
+      result = await TopologyExecutor.executeTopology(config, topology)
+    } catch (err: unknown) {
+      if (!autoSwitch) {
+        throw err
+      }
+      initialError = err
+      result = TopologyExecutor.createThrownFailureResult(config, topology, err)
+    }
 
     // Auto-switch: if error rate is high, re-analyze and try a different topology
     if (
@@ -173,22 +184,33 @@ export class TopologyExecutor {
       const analyzer = new TopologyAnalyzer()
       const characteristics = TopologyExecutor.inferCharacteristics(config, topology)
       const recommendation = analyzer.analyze(characteristics)
+      const retryTopology = TopologyExecutor.selectRetryTopology(
+        topology,
+        recommendation,
+      )
 
-      if (recommendation.recommended !== topology) {
+      if (retryTopology) {
         try {
           const retryResult = await TopologyExecutor.executeTopology(
             config,
-            recommendation.recommended,
+            retryTopology,
           )
 
           retryResult.metrics.switchedFrom = topology
           return retryResult
         } catch {
+          if (initialError) {
+            throw initialError
+          }
           // Retry topology also failed — return original result with switch annotation
           result.metrics.switchedFrom = topology
           return result
         }
       }
+    }
+
+    if (initialError) {
+      throw initialError
     }
 
     return result
@@ -286,6 +308,54 @@ export class TopologyExecutor {
         )
       }
     }
+  }
+
+  private static createThrownFailureResult(
+    config: TopologyExecutorConfig,
+    topology: TopologyType,
+    err: unknown,
+  ): ExecuteResult {
+    const errMsg = err instanceof Error ? err.message : String(err)
+
+    return {
+      result: `[error: ${errMsg}]`,
+      metrics: {
+        topology,
+        totalDurationMs: 0,
+        agentCount: config.agents.length,
+        messageCount: TopologyExecutor.estimatedMessageCount(config, topology),
+        errorCount: config.agents.length,
+      },
+    }
+  }
+
+  private static estimatedMessageCount(
+    config: TopologyExecutorConfig,
+    topology: TopologyType,
+  ): number {
+    switch (topology) {
+      case 'hierarchical':
+        return config.agents.length > 0 ? config.agents.length : 0
+      case 'pipeline':
+      case 'star':
+      case 'mesh':
+        return config.agents.length
+      case 'ring':
+        return config.agents.length * (config.maxRounds ?? 3)
+    }
+  }
+
+  private static selectRetryTopology(
+    failedTopology: TopologyType,
+    recommendation: ReturnType<TopologyAnalyzer['analyze']>,
+  ): TopologyType | undefined {
+    if (recommendation.recommended !== failedTopology) {
+      return recommendation.recommended
+    }
+
+    return recommendation.alternatives.find(
+      (alternative) => alternative.topology !== failedTopology,
+    )?.topology
   }
 
   /**
