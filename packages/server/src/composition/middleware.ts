@@ -167,7 +167,7 @@ function applyAuthAndRbac(app: Hono, config: ForgeServerConfig): AuthConfig | un
   app.use('/api/*', authMiddleware(effectiveAuth))
 
   // MC-S02: RBAC — mounted after authMiddleware so the `apiKey` context
-  // variable is populated. Role defaults to `'user'` when the API key
+  // variable is populated. Role defaults to `'operator'` when the API key
   // record predates the MC-S02 migration, so existing keys keep working
   // but admin-only endpoints (MCP registration, cluster management)
   // reject them. Hosts can opt out with `config.rbac = false`.
@@ -178,7 +178,7 @@ function applyAuthAndRbac(app: Hono, config: ForgeServerConfig): AuthConfig | un
         const role = key?.['role']
         return typeof role === 'string'
           ? (role as ForgeRole)
-          : ('user' as ForgeRole)
+          : 'operator'
       },
     }
     app.use('/api/*', rbacMiddleware(rbacConfig))

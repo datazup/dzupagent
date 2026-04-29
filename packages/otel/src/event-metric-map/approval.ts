@@ -33,6 +33,25 @@ export const approvalMetricMap = {
     },
   ],
 
+  'approval:timed_out': [
+    {
+      metricName: 'forge_approval_requests_total',
+      type: 'counter',
+      description: 'Total approval request timeouts',
+      labelKeys: ['status'],
+      extract: () => ({ value: 1, labels: { status: 'timed_out' } }),
+    },
+  ],
+
+  'approval:cancelled': [
+    {
+      metricName: 'forge_approval_requests_total',
+      type: 'counter',
+      description: 'Total approval request cancellations',
+      labelKeys: ['status'],
+      extract: () => ({ value: 1, labels: { status: 'cancelled' } }),
+    },
+  ],
 
   // --- Human Contact ---
   'human_contact:requested': [

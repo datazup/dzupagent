@@ -29,6 +29,19 @@ export const toolLifecycleMetricMap = {
     },
   ],
 
+  'tool:cancel_requested': [
+    {
+      metricName: 'forge_tool_cancellations_total',
+      type: 'counter',
+      description: 'Total tool cancellation requests',
+      labelKeys: ['tool_name', 'reason'],
+      extract: (e) => {
+        const ev = asEvent<'tool:cancel_requested'>(e)
+        return { value: 1, labels: { tool_name: ev.toolName, reason: ev.reason } }
+      },
+    },
+  ],
+
   'tool:error': [
     {
       metricName: 'forge_tool_errors_total',
