@@ -130,7 +130,7 @@ describe('createWsControlHandler branch coverage', () => {
     expect(err.code).toBe('INVALID_FILTER')
   })
 
-  it('treats null filter as empty scope', async () => {
+  it('rejects null filter as unscoped by default', async () => {
     const bus = createEventBus()
     const bridge = new EventBridge(bus)
     const ws = new MockWsClient()
@@ -139,12 +139,12 @@ describe('createWsControlHandler branch coverage', () => {
     const handler = createWsControlHandler(bridge, ws)
     await handler(JSON.stringify({ type: 'subscribe', filter: null }))
 
-    const ack = JSON.parse(ws.sent[0] ?? '{}') as { type?: string; filter?: Record<string, unknown> }
-    expect(ack.type).toBe('subscribed')
-    expect(ack.filter).toBeDefined()
+    const err = JSON.parse(ws.sent[0] ?? '{}') as { type?: string; code?: string }
+    expect(err.type).toBe('error')
+    expect(err.code).toBe('UNSCOPED_SUBSCRIPTION')
   })
 
-  it('treats missing filter as empty scope', async () => {
+  it('rejects missing filter as unscoped by default', async () => {
     const bus = createEventBus()
     const bridge = new EventBridge(bus)
     const ws = new MockWsClient()
@@ -153,8 +153,9 @@ describe('createWsControlHandler branch coverage', () => {
     const handler = createWsControlHandler(bridge, ws)
     await handler(JSON.stringify({ type: 'subscribe' }))
 
-    const ack = JSON.parse(ws.sent[0] ?? '{}') as { type?: string }
-    expect(ack.type).toBe('subscribed')
+    const err = JSON.parse(ws.sent[0] ?? '{}') as { type?: string; code?: string }
+    expect(err.type).toBe('error')
+    expect(err.code).toBe('UNSCOPED_SUBSCRIPTION')
   })
 
   it('strips whitespace-only runId/agentId', async () => {
@@ -163,7 +164,9 @@ describe('createWsControlHandler branch coverage', () => {
     const ws = new MockWsClient()
     bridge.addClient(ws)
 
-    const handler = createWsControlHandler(bridge, ws)
+    const handler = createWsControlHandler(bridge, ws, {
+      allowUnscopedSubscriptions: true,
+    })
     await handler(JSON.stringify({
       type: 'subscribe',
       filter: { runId: '   ', agentId: '  ' },

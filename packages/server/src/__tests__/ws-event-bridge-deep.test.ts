@@ -813,7 +813,7 @@ describe('WS control protocol', () => {
     bridge.addClient(ws, { eventTypes: [] })
     const handler = createWsControlHandler(bridge, ws, {
       authorizeFilter: ({ filter }) => filter.runId === undefined && filter.agentId === undefined,
-      requireScopedSubscription: false,
+      allowUnscopedSubscriptions: true,
     })
     await handler(JSON.stringify({ type: 'subscribe', filter: { runId: '   ', agentId: '' } }))
     expect(ws.lastMessage.type).toBe('subscribed')
@@ -826,6 +826,7 @@ describe('WS control protocol', () => {
     bridge.addClient(ws, { eventTypes: [] })
     const captured: EventSubscriptionFilter[] = []
     const handler = createWsControlHandler(bridge, ws, {
+      allowUnscopedSubscriptions: true,
       authorizeFilter: ({ filter }) => {
         captured.push(filter)
         return true

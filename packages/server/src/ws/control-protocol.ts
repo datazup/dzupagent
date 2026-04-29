@@ -27,8 +27,17 @@ export interface WSControlHandlerOptions {
    */
   authorizeFilter?: WSControlAuthorizeFilter
   /**
-   * If true, subscribe filter must include at least one scope field.
-   * Scope fields: runId, agentId, eventTypes.
+   * Unsafe compatibility mode for trusted single-tenant/local hosts that still
+   * need wildcard control subscriptions.
+   *
+   * Default false: subscribe filters must include at least one scope field
+   * (runId, agentId, or eventTypes).
+   */
+  allowUnscopedSubscriptions?: boolean
+  /**
+   * @deprecated Use allowUnscopedSubscriptions for compatibility opt-in.
+   * Default behavior is scoped; setting this to false explicitly keeps the
+   * legacy wildcard subscription behavior.
    */
   requireScopedSubscription?: boolean
   /**
@@ -85,13 +94,17 @@ function isScopedFilter(filter: ClientFilter): boolean {
  * 1. bridge.addClient(ws)
  * 2. const onMessage = createWsControlHandler(bridge, ws)
  * 3. forward incoming text messages to onMessage(raw)
+ *
+ * Unscoped subscriptions are rejected by default. Only trusted local or
+ * single-tenant hosts should pass allowUnscopedSubscriptions: true.
  */
 export function createWsControlHandler(
   bridge: EventBridge,
   client: WSClient,
   options?: WSControlHandlerOptions,
 ): (raw: string) => Promise<void> {
-  const requireScopedSubscription = options?.requireScopedSubscription ?? false
+  const allowUnscopedSubscriptions =
+    options?.allowUnscopedSubscriptions ?? options?.requireScopedSubscription === false
   const unsubscribeFilter = options?.unsubscribeFilter ?? {}
 
   return async (raw: string) => {
@@ -137,7 +150,7 @@ export function createWsControlHandler(
         })
         return
       }
-      if (requireScopedSubscription && !isScopedFilter(filter)) {
+      if (!allowUnscopedSubscriptions && !isScopedFilter(filter)) {
         safeSend(client, {
           type: 'error',
           code: 'UNSCOPED_SUBSCRIPTION',
