@@ -86,6 +86,7 @@ export async function maybeUpdateSummary(
 
 export interface WriteBackMemoryParams {
   agentId: string
+  runId?: string
   config: DzupAgentConfig
   content: string
 }
@@ -102,7 +103,7 @@ export interface WriteBackMemoryParams {
 export async function maybeWriteBackMemory(
   params: WriteBackMemoryParams,
 ): Promise<void> {
-  const { agentId, config, content } = params
+  const { agentId, runId, config, content } = params
   if (
     config.memoryWriteBack === false ||
     !config.memory ||
@@ -128,16 +129,26 @@ export async function maybeWriteBackMemory(
     )
     config.eventBus?.emit({
       type: 'memory:written',
+      agentId,
+      ...(runId !== undefined ? { runId } : {}),
       namespace: config.memoryNamespace,
       key,
+      scopeKeys: getSafeScopeKeys(config.memoryScope),
     })
   } catch {
     config.eventBus?.emit({
       type: 'memory:error',
+      agentId,
+      ...(runId !== undefined ? { runId } : {}),
       namespace: config.memoryNamespace,
       key,
+      scopeKeys: getSafeScopeKeys(config.memoryScope),
       message: 'Memory write-back failed',
     })
     // write-back failures are non-fatal
   }
+}
+
+function getSafeScopeKeys(scope: Record<string, string>): string[] {
+  return Object.keys(scope).sort()
 }

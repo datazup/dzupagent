@@ -89,7 +89,7 @@ export interface StreamRunContext {
     result: string,
   ) => Promise<string>
   maybeUpdateSummary: (messages: BaseMessage[], memoryFrame?: unknown) => Promise<void>
-  maybeWriteBackMemory: (content: string) => Promise<void>
+  maybeWriteBackMemory: (content: string, runId?: string) => Promise<void>
 }
 
 type StreamableModel = BaseChatModel & {
@@ -265,7 +265,7 @@ export async function* streamRun(
       yield { type: 'text', data: { content: result.content } }
     }
     if (result.stopReason === 'complete') {
-      await ctx.maybeWriteBackMemory(result.content)
+      await ctx.maybeWriteBackMemory(result.content, resolveMemoryRunId(ctx, options))
     }
     yield {
       type: 'done',
@@ -302,7 +302,7 @@ export async function* streamRun(
     })
     await ctx.maybeUpdateSummary(allMessages, runState.memoryFrame)
     if (stopReason === 'complete') {
-      await ctx.maybeWriteBackMemory(content ?? '')
+      await ctx.maybeWriteBackMemory(content ?? '', resolveMemoryRunId(ctx, options))
     }
   }
 
@@ -633,4 +633,11 @@ export async function* streamRun(
 
   await finalizeRun('iteration_limit')
   yield { type: 'done', data: { hitIterationLimit: true, stopReason: 'iteration_limit' } }
+}
+
+function resolveMemoryRunId(
+  ctx: StreamRunContext,
+  options?: GenerateOptions,
+): string | undefined {
+  return options?.runId ?? ctx.config.toolExecution?.runId
 }
