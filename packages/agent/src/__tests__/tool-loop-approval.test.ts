@@ -184,7 +184,7 @@ describe('Approval-required tool gating (RF-AGENT-04)', () => {
     )
 
     expect(invokeFn).toHaveBeenCalledTimes(1)
-    expect(invokeFn).toHaveBeenCalledWith({ path: 'a.ts' })
+    expect(invokeFn).toHaveBeenCalledWith({ path: 'a.ts' }, expect.objectContaining({ signal: expect.any(AbortSignal) }))
     expect(result.stopReason).toBe('complete')
     expect(events).toHaveLength(0)
   })

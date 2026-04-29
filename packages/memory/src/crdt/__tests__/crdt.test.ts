@@ -385,11 +385,11 @@ describe('CRDT integration with MemorySpaceManager', () => {
       name: 'test-space',
       owner: 'forge://org/agent-a',
       participants: [
-        { agentUri: 'forge://org/agent-a', permission: 'admin', joinedAt: '2024-01-01' },
-        { agentUri: 'forge://org/agent-b', permission: 'read-write', joinedAt: '2024-01-01' },
+        { agentUri: 'forge://org/agent-a', permission: 'admin', joinedAt: '2024-01-01T00:00:00.000Z' },
+        { agentUri: 'forge://org/agent-b', permission: 'read-write', joinedAt: '2024-01-01T00:00:00.000Z' },
       ],
       conflictResolution: 'crdt',
-      createdAt: '2024-01-01',
+      createdAt: '2024-01-01T00:00:00.000Z',
     }
 
     // First call: getSpace (loadSpace), second call: get existing value for key
@@ -433,11 +433,11 @@ describe('CRDT integration with MemorySpaceManager', () => {
       name: 'test-space',
       owner: 'forge://org/agent-a',
       participants: [
-        { agentUri: 'forge://org/agent-a', permission: 'admin', joinedAt: '2024-01-01' },
-        { agentUri: 'forge://org/agent-b', permission: 'read-write', joinedAt: '2024-01-01' },
+        { agentUri: 'forge://org/agent-a', permission: 'admin', joinedAt: '2024-01-01T00:00:00.000Z' },
+        { agentUri: 'forge://org/agent-b', permission: 'read-write', joinedAt: '2024-01-01T00:00:00.000Z' },
       ],
       conflictResolution: 'crdt',
-      createdAt: '2024-01-01',
+      createdAt: '2024-01-01T00:00:00.000Z',
     }
 
     // Create an existing CRDT record with an older timestamp from a different node

@@ -333,7 +333,7 @@ describe('normalizeScraperTool', () => {
 
     const result = await tool.invoke({ url: 'https://example.com' })
     expect(result).toBe('invoked')
-    expect(invoke).toHaveBeenCalledWith({ url: 'https://example.com' })
+    expect(invoke).toHaveBeenCalledWith({ url: 'https://example.com' }, undefined)
   })
 })
 
