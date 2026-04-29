@@ -2,14 +2,18 @@ import { describe, it, expect, vi } from 'vitest'
 import { normalizeBrowserTool, normalizeBrowserTools } from '../connector-contract.js'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 
-function createMockTool(overrides: Partial<StructuredToolInterface> = {}): StructuredToolInterface {
+type TestStructuredTool = StructuredToolInterface & {
+  toModelOutput?: (output: string) => string
+}
+
+function createMockTool(overrides: Partial<TestStructuredTool> = {}): TestStructuredTool {
   return {
     name: 'test-tool',
     description: 'A test tool',
     schema: { type: 'object', properties: { url: { type: 'string' } } },
     invoke: vi.fn().mockResolvedValue('result'),
     ...overrides,
-  } as unknown as StructuredToolInterface
+  } as unknown as TestStructuredTool
 }
 
 describe('normalizeBrowserTool', () => {
@@ -37,12 +41,16 @@ describe('normalizeBrowserTool', () => {
   })
 
   it('wraps invoke to call the underlying tool', async () => {
+    const controller = new AbortController()
     const tool = createMockTool()
     const normalized = normalizeBrowserTool(tool)
 
-    await normalized.invoke({ url: 'https://example.com' })
+    await normalized.invoke({ url: 'https://example.com' }, { signal: controller.signal })
 
-    expect(tool.invoke).toHaveBeenCalledWith({ url: 'https://example.com' }, undefined)
+    expect(tool.invoke).toHaveBeenCalledWith(
+      { url: 'https://example.com' },
+      { signal: controller.signal },
+    )
   })
 
   it('returns the result from invoke', async () => {
@@ -52,6 +60,15 @@ describe('normalizeBrowserTool', () => {
 
     const result = await normalized.invoke({ url: 'https://example.com' })
     expect(result).toBe('screenshot-data')
+  })
+
+  it('preserves output formatting callbacks', () => {
+    const toModelOutput = vi.fn((output: string) => `formatted:${output}`)
+    const tool = createMockTool({ toModelOutput })
+    const normalized = normalizeBrowserTool(tool)
+
+    expect(normalized.toModelOutput?.('screenshot-data')).toBe('formatted:screenshot-data')
+    expect(toModelOutput).toHaveBeenCalledWith('screenshot-data')
   })
 })
 

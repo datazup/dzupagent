@@ -2,11 +2,15 @@ import { describe, it, expect, vi } from 'vitest'
 import { normalizeDocumentTool, normalizeDocumentTools } from '../connector-contract.js'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 
+type TestStructuredTool = StructuredToolInterface & {
+  toModelOutput?: (output: string) => string
+}
+
 // ---------------------------------------------------------------------------
 // Helpers — create a minimal mock StructuredToolInterface
 // ---------------------------------------------------------------------------
 
-function createMockTool(overrides: Partial<StructuredToolInterface> = {}): StructuredToolInterface {
+function createMockTool(overrides: Partial<TestStructuredTool> = {}): TestStructuredTool {
   return {
     name: overrides.name ?? 'mock-tool',
     description: overrides.description ?? 'A mock tool for testing',
@@ -15,7 +19,7 @@ function createMockTool(overrides: Partial<StructuredToolInterface> = {}): Struc
     // Remaining required fields from the interface
     lc_namespace: [],
     ...overrides,
-  } as unknown as StructuredToolInterface
+  } as unknown as TestStructuredTool
 }
 
 // ---------------------------------------------------------------------------
@@ -44,13 +48,14 @@ describe('normalizeDocumentTool', () => {
   })
 
   it('invoke delegates to the underlying tool', async () => {
+    const controller = new AbortController()
     const mockInvoke = vi.fn().mockResolvedValue('result-42')
     const tool = createMockTool({ invoke: mockInvoke as unknown as StructuredToolInterface['invoke'] })
     const normalized = normalizeDocumentTool(tool)
 
-    const result = await normalized.invoke('input-data')
+    const result = await normalized.invoke('input-data', { signal: controller.signal })
     expect(result).toBe('result-42')
-    expect(mockInvoke).toHaveBeenCalledWith('input-data', undefined)
+    expect(mockInvoke).toHaveBeenCalledWith('input-data', { signal: controller.signal })
   })
 
   it('invoke propagates errors from the underlying tool', async () => {
@@ -59,6 +64,15 @@ describe('normalizeDocumentTool', () => {
     const normalized = normalizeDocumentTool(tool)
 
     await expect(normalized.invoke('bad-input')).rejects.toThrow('tool failed')
+  })
+
+  it('preserves output formatting callbacks', () => {
+    const toModelOutput = vi.fn((output: string) => `formatted:${output}`)
+    const tool = createMockTool({ toModelOutput })
+    const normalized = normalizeDocumentTool(tool)
+
+    expect(normalized.toModelOutput?.('document-data')).toBe('formatted:document-data')
+    expect(toModelOutput).toHaveBeenCalledWith('document-data')
   })
 })
 
