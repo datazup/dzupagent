@@ -70,13 +70,13 @@ describe('ws-control-protocol', () => {
     expect(err.code).toBe('INVALID_JSON')
   })
 
-  it('rejects unscoped subscriptions when required', async () => {
+  it('rejects unscoped subscriptions by default', async () => {
     const bus = createEventBus()
     const bridge = new EventBridge(bus)
     const ws = new MockWsClient()
     bridge.addClient(ws)
 
-    const onMessage = createWsControlHandler(bridge, ws, { requireScopedSubscription: true })
+    const onMessage = createWsControlHandler(bridge, ws)
     await onMessage(JSON.stringify({ type: 'subscribe', filter: {} }))
 
     const err = JSON.parse(ws.sent[0] ?? '{}') as { type?: string; code?: string }
