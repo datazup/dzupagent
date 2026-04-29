@@ -142,6 +142,33 @@ const KEYWORD_TAG_MAP: ReadonlyMap<string, string[]> = new Map([
   ['deploy', ['deploy', 'deployment', 'ci', 'cd', 'infrastructure', 'devops']],
 ])
 
+const CIRCUIT_BREAKER_RECORDED = Symbol('circuitBreakerRecorded')
+
+function isTimeoutError(message: string | undefined): boolean {
+  return message?.toLowerCase().includes('timeout') ?? false
+}
+
+function markCircuitBreakerRecorded(error: unknown): void {
+  if (error && (typeof error === 'object' || typeof error === 'function')) {
+    try {
+      Object.defineProperty(error, CIRCUIT_BREAKER_RECORDED, {
+        value: true,
+        configurable: true,
+      })
+    } catch {
+      // Non-extensible thrown values still get recorded; they just cannot be tagged.
+    }
+  }
+}
+
+function hasCircuitBreakerRecorded(error: unknown): boolean {
+  return Boolean(
+    error &&
+      (typeof error === 'object' || typeof error === 'function') &&
+      (error as { [CIRCUIT_BREAKER_RECORDED]?: boolean })[CIRCUIT_BREAKER_RECORDED],
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
@@ -196,13 +223,20 @@ export class DelegatingSupervisor {
     // Route through provider port when configured
     if (this.providerPort) {
       const tags: string[] = (specialist.metadata?.tags ?? []) as string[]
-      const portResult = await this.providerPort.run(
-        { prompt: task },
-        {
-          prompt: task,
-          tags: tags.length > 0 ? tags : [specialistId],
-        },
-      )
+      let portResult: Awaited<ReturnType<ProviderExecutionPort['run']>>
+      try {
+        portResult = await this.providerPort.run(
+          { prompt: task },
+          {
+            prompt: task,
+            tags: tags.length > 0 ? tags : [specialistId],
+          },
+        )
+      } catch (err: unknown) {
+        this.recordCircuitBreakerFailure(specialistId, err)
+        markCircuitBreakerRecorded(err)
+        throw err
+      }
 
       const delegationResult: DelegationResult = {
         success: true,
@@ -231,14 +265,23 @@ export class DelegatingSupervisor {
       context: this.parentContext,
     })
 
-    const result = await this.tracker.delegate(request)
+    let result: DelegationResult
+    try {
+      result = await this.tracker.delegate(request)
+    } catch (err: unknown) {
+      this.recordCircuitBreakerFailure(specialistId, err)
+      markCircuitBreakerRecorded(err)
+      throw err
+    }
 
     // Record circuit breaker outcome
     if (this.circuitBreaker) {
       if (result.success) {
         this.circuitBreaker.recordSuccess(specialistId)
-      } else if (result.error?.toLowerCase().includes('timeout')) {
+      } else if (isTimeoutError(result.error)) {
         this.circuitBreaker.recordTimeout(specialistId)
+      } else {
+        this.circuitBreaker.recordFailure(specialistId)
       }
     }
 
@@ -315,6 +358,9 @@ export class DelegatingSupervisor {
         const errorMsg = outcome.reason instanceof Error
           ? outcome.reason.message
           : String(outcome.reason)
+        if (!hasCircuitBreakerRecorded(outcome.reason)) {
+          this.recordCircuitBreakerFailure(assignment.specialistId, outcome.reason)
+        }
         results.set(assignment.specialistId, {
           success: false,
           output: null,
@@ -481,6 +527,18 @@ export class DelegatingSupervisor {
     }
 
     return specs
+  }
+
+  private recordCircuitBreakerFailure(specialistId: string, error: unknown): void {
+    if (!this.circuitBreaker) return
+
+    const message = error instanceof Error ? error.message : String(error)
+    if (isTimeoutError(message)) {
+      this.circuitBreaker.recordTimeout(specialistId)
+      return
+    }
+
+    this.circuitBreaker.recordFailure(specialistId)
   }
 
   /**
