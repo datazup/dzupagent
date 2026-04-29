@@ -16,8 +16,8 @@
  *   later by flipping the `productIntegrated` flag.
  */
 
-import { CircuitBreaker, ForgeError } from '@dzupagent/core'
-import type { CircuitBreakerConfig, DzupEventBus } from '@dzupagent/core'
+import { CircuitBreaker, ForgeError } from '@dzupagent/core/advanced'
+import type { CircuitBreakerConfig, DzupEventBus } from '@dzupagent/core/advanced'
 
 import type {
   AdapterProviderId,

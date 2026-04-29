@@ -6,8 +6,8 @@
  * Qdrant RBAC clean and avoids cross-tenant filter misses.
  */
 
-import { QdrantAdapter } from '@dzupagent/core'
-import type { QdrantAdapterConfig, EmbeddingProvider } from '@dzupagent/core'
+import { QdrantAdapter } from '@dzupagent/core/advanced'
+import type { QdrantAdapterConfig, EmbeddingProvider } from '@dzupagent/core/advanced'
 
 import { RagPipeline } from './pipeline.js'
 import type { RagPipelineDeps } from './pipeline.js'
@@ -57,7 +57,7 @@ export interface QdrantRagConfig {
  * @example
  * ```ts
  * import { createQdrantRagPipeline } from '@dzupagent/rag'
- * import { createOpenAIEmbedding } from '@dzupagent/core'
+ * import { createOpenAIEmbedding } from '@dzupagent/core/advanced'
  *
  * const pipeline = createQdrantRagPipeline({
  *   qdrant: { url: 'http://localhost:6333', apiKey: process.env.QDRANT_API_KEY },
