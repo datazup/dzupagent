@@ -211,6 +211,87 @@ describe('composition/middleware', () => {
     expect(res.headers.get('referrer-policy')).toBe('no-referrer')
   })
 
+  it('allows small JSON requests through the shared body size guard', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig())
+    app.post('/api/echo', async (c) => c.json({ data: await c.req.json() }))
+
+    const body = JSON.stringify({ message: 'ok' })
+    const res = await app.request('/api/echo', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(body.length),
+      },
+      body,
+    })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ data: { message: 'ok' } })
+  })
+
+  it('rejects oversized JSON requests before route handlers parse the body', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({ jsonBodyLimit: { defaultMaxBytes: 10 } }))
+    const handler = vi.fn((c) => c.json({ ok: true }))
+    app.post('/api/echo', handler)
+
+    const body = JSON.stringify({ message: 'too large' })
+    const res = await app.request('/api/echo', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(body.length),
+      },
+      body,
+    })
+
+    expect(res.status).toBe(413)
+    expect(handler).not.toHaveBeenCalled()
+    const json = await res.json() as { error: { code: string } }
+    expect(json.error.code).toBe('PAYLOAD_TOO_LARGE')
+  })
+
+  it('rejects oversized JSON requests that omit Content-Length before handlers parse', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({ jsonBodyLimit: { defaultMaxBytes: 10 } }))
+    const handler = vi.fn((c) => c.json({ ok: true }))
+    app.post('/api/echo', handler)
+
+    const res = await app.request(new Request('http://localhost/api/echo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'too large' }),
+    }))
+
+    expect(res.status).toBe(413)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('honors route-specific JSON body size overrides', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({
+      jsonBodyLimit: {
+        defaultMaxBytes: 10,
+        routeMaxBytes: { '/api/large': 100 },
+      },
+    }))
+    app.post('/api/large', async (c) => c.json({ data: await c.req.json() }))
+
+    const body = JSON.stringify({ message: 'allowed by override' })
+    const res = await app.request('/api/large', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(body.length),
+      },
+      body,
+    })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ data: { message: 'allowed by override' } })
+  })
+
   it('returns 503 from POST /api/runs while shutdown is draining', async () => {
     const shutdown = new GracefulShutdown({
       drainTimeoutMs: 1_000,

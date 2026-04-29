@@ -7,9 +7,10 @@
  *   3. Auth (`/api/*`) — when `config.auth` is provided
  *   4. RBAC  (`/api/*`) — chained after auth unless explicitly disabled
  *   5. Rate limiter (`/api/*`) — when `config.rateLimit` is provided
- *   6. Shutdown guard for `POST /api/runs` — when `config.shutdown` is provided
- *   7. Request metrics (all paths) — when `config.metrics` is provided
- *   8. Global `onError` handler (always)
+ *   6. JSON body size guard (all paths) — unless explicitly disabled
+ *   7. Shutdown guard for `POST /api/runs` — when `config.shutdown` is provided
+ *   8. Request metrics (all paths) — when `config.metrics` is provided
+ *   9. Global `onError` handler (always)
  *
  * The function returns the resolved `effectiveAuth` (with `apiKeyStore` wired
  * into the validateKey callback when applicable) so downstream consumers
@@ -18,7 +19,7 @@
 import type { Hono } from 'hono'
 import { cors } from 'hono/cors'
 
-import type { ForgeServerConfig, SecurityHeadersConfig } from './types.js'
+import type { ForgeServerConfig, JsonBodyLimitConfig, SecurityHeadersConfig } from './types.js'
 import { authMiddleware, type AuthConfig } from '../middleware/auth.js'
 import { rbacMiddleware, type ForgeRole, type RBACConfig } from '../middleware/rbac.js'
 import { rateLimiterMiddleware } from '../middleware/rate-limiter.js'
@@ -26,6 +27,14 @@ import { rateLimiterMiddleware } from '../middleware/rate-limiter.js'
 export interface ComposedMiddleware {
   /** Auth config with apiKeyStore validate function wired in (when applicable). */
   effectiveAuth: AuthConfig | undefined
+}
+
+export const DEFAULT_JSON_BODY_MAX_BYTES = 1_048_576
+
+const DEFAULT_ROUTE_JSON_BODY_MAX_BYTES: Record<string, number> = {
+  '/api/memory/import': 8 * 1_048_576,
+  '/api/workflows/compile': 2 * 1_048_576,
+  '/v1/chat/completions': 2 * 1_048_576,
 }
 
 const FRAMEWORK_API_AUTH_WARNING =
@@ -57,6 +66,7 @@ export function applyMiddleware(app: Hono, config: ForgeServerConfig): ComposedM
   applySecurityHeaders(app, config)
   const effectiveAuth = applyAuthAndRbac(app, config)
   applyRateLimit(app, config)
+  applyJsonBodySizeLimit(app, config)
   applyShutdownGuard(app, config)
   applyRequestMetrics(app, config)
   applyErrorHandler(app, config)
@@ -191,6 +201,128 @@ function applyRateLimit(app: Hono, config: ForgeServerConfig): void {
   if (config.rateLimit) {
     app.use('/api/*', rateLimiterMiddleware(config.rateLimit))
   }
+}
+
+function applyJsonBodySizeLimit(app: Hono, config: ForgeServerConfig): void {
+  if (config.jsonBodyLimit === false) {
+    return
+  }
+
+  const limits = resolveJsonBodyLimits(config.jsonBodyLimit)
+  app.use('*', async (c, next) => {
+    if (!shouldCheckJsonBodySize(c.req.method, c.req.header('content-type'))) {
+      return next()
+    }
+
+    const maxBytes = resolveJsonBodyMaxBytes(c.req.path, limits)
+    const contentLength = parseContentLength(c.req.header('content-length'))
+    if (contentLength !== undefined && contentLength > maxBytes) {
+      return c.json(
+        {
+          error: {
+            code: 'PAYLOAD_TOO_LARGE',
+            message: `JSON request body too large (max ${maxBytes} bytes)`,
+          },
+        },
+        413,
+      )
+    }
+
+    if (contentLength === undefined) {
+      const actualBytes = await getRequestBodyByteLength(c.req.raw)
+      if (actualBytes > maxBytes) {
+        return c.json(
+          {
+            error: {
+              code: 'PAYLOAD_TOO_LARGE',
+              message: `JSON request body too large (max ${maxBytes} bytes)`,
+            },
+          },
+          413,
+        )
+      }
+    }
+
+    return next()
+  })
+}
+
+interface ResolvedJsonBodyLimits {
+  defaultMaxBytes: number
+  routeMaxBytes: Record<string, number>
+}
+
+function resolveJsonBodyLimits(config?: JsonBodyLimitConfig): ResolvedJsonBodyLimits {
+  return {
+    defaultMaxBytes: positiveIntegerOr(config?.defaultMaxBytes, DEFAULT_JSON_BODY_MAX_BYTES),
+    routeMaxBytes: {
+      ...DEFAULT_ROUTE_JSON_BODY_MAX_BYTES,
+      ...sanitizeRouteMaxBytes(config?.routeMaxBytes),
+    },
+  }
+}
+
+function sanitizeRouteMaxBytes(routeMaxBytes?: Record<string, number>): Record<string, number> {
+  if (!routeMaxBytes) {
+    return {}
+  }
+  return Object.fromEntries(
+    Object.entries(routeMaxBytes)
+      .filter(([path, bytes]) => path.length > 0 && Number.isInteger(bytes) && bytes > 0),
+  )
+}
+
+function positiveIntegerOr(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isInteger(value) && value > 0 ? value : fallback
+}
+
+function shouldCheckJsonBodySize(method: string, contentType: string | undefined): boolean {
+  if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') {
+    return false
+  }
+  if (!contentType) {
+    return false
+  }
+  const normalized = contentType.toLowerCase()
+  return normalized.includes('application/json') || normalized.includes('+json')
+}
+
+function parseContentLength(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined
+  }
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+async function getRequestBodyByteLength(request: Request): Promise<number> {
+  try {
+    return (await request.clone().arrayBuffer()).byteLength
+  } catch {
+    return 0
+  }
+}
+
+function resolveJsonBodyMaxBytes(path: string, limits: ResolvedJsonBodyLimits): number {
+  const exact = limits.routeMaxBytes[path]
+  if (exact !== undefined) {
+    return exact
+  }
+
+  let matchedBytes: number | undefined
+  let matchedPrefixLength = -1
+  for (const [pattern, bytes] of Object.entries(limits.routeMaxBytes)) {
+    if (!pattern.endsWith('*')) {
+      continue
+    }
+    const prefix = pattern.slice(0, -1)
+    if (path.startsWith(prefix) && prefix.length > matchedPrefixLength) {
+      matchedBytes = bytes
+      matchedPrefixLength = prefix.length
+    }
+  }
+
+  return matchedBytes ?? limits.defaultMaxBytes
 }
 
 function applyShutdownGuard(app: Hono, config: ForgeServerConfig): void {

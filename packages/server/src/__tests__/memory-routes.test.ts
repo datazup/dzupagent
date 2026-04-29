@@ -209,6 +209,20 @@ describe('Memory routes', () => {
       const body = await res.json() as { error: { code: string } }
       expect(body.error.code).toBe('VALIDATION_ERROR')
     })
+
+    it('rejects oversized JSON import data fields', async () => {
+      const res = await req(app, 'POST', '/api/memory/import', {
+        data: 'x'.repeat(4 * 1_048_576),
+        format: 'json',
+        namespace: 'lessons',
+        scope: { tenant: 't1' },
+      })
+
+      expect(res.status).toBe(413)
+      const body = await res.json() as { error: { code: string; message: string } }
+      expect(body.error.code).toBe('PAYLOAD_TOO_LARGE')
+      expect(body.error.message).toContain('data too large')
+    })
   })
 
   describe('Routes not mounted without memoryService', () => {

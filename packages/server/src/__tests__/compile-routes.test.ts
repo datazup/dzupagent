@@ -156,6 +156,20 @@ describe('POST /api/workflows/compile — JSON branch', () => {
     expect(res.status).toBe(200)
   })
 
+  it('413 — rejects oversized compile payload fields before compiler execution', async () => {
+    const app = buildApp()
+
+    const res = await postCompile(app, {
+      dsl: `dzupflow/v1\n${'x'.repeat(1_048_576)}`,
+    })
+
+    expect(res.status).toBe(413)
+    const body = await res.json() as { ok: boolean; error: string }
+    expect(body.ok).toBe(false)
+    expect(body.error).toContain('dsl too large')
+    expect(mockCompile).not.toHaveBeenCalled()
+  })
+
   it('200 — passes toolResolver from config to compiler', async () => {
     const toolResolver = {
       resolve: vi.fn().mockReturnValue(null),

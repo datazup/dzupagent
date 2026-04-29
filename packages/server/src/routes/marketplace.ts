@@ -11,6 +11,7 @@
 import { Hono } from 'hono'
 import type { CatalogStore } from '../marketplace/catalog-store.js'
 import { CatalogNotFoundError, CatalogSlugConflictError } from '../marketplace/catalog-store.js'
+import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
 
 export interface MarketplaceRouteConfig {
   catalogStore: CatalogStore
@@ -18,6 +19,7 @@ export interface MarketplaceRouteConfig {
 
 // eslint-disable-next-line security/detect-unsafe-regex
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?$/
+const MARKETPLACE_README_MAX_BYTES = 256 * 1024
 
 export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
   const app = new Hono()
@@ -41,6 +43,13 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
       return c.json(
         { error: { code: 'VALIDATION_ERROR', message: 'slug, name, and version are required' } },
         400,
+      )
+    }
+
+    if (body.readme !== undefined && getSerializedJsonSizeBytes(body.readme) > MARKETPLACE_README_MAX_BYTES) {
+      return c.json(
+        { error: { code: 'PAYLOAD_TOO_LARGE', message: 'readme too large (max 256 KB)' } },
+        413,
       )
     }
 
@@ -136,6 +145,13 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
       return c.json(
         { error: { code: 'VALIDATION_ERROR', message: 'version must be valid semver (e.g. 1.0.0)' } },
         400,
+      )
+    }
+
+    if (body.readme !== undefined && getSerializedJsonSizeBytes(body.readme) > MARKETPLACE_README_MAX_BYTES) {
+      return c.json(
+        { error: { code: 'PAYLOAD_TOO_LARGE', message: 'readme too large (max 256 KB)' } },
+        413,
       )
     }
 

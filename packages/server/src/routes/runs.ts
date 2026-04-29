@@ -41,6 +41,10 @@ import {
   sanitizeRunForResponse,
   sanitizeRunMetadataForPersistence,
 } from '../security/run-metadata-secrets.js'
+import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
+
+const RUN_INPUT_MAX_BYTES = 256 * 1024
+const RUN_METADATA_MAX_BYTES = 64 * 1024
 
 // ---------------------------------------------------------------------------
 // Owner-scope helpers
@@ -153,7 +157,14 @@ export async function handleCreateRun(
   // Guard against oversized metadata payloads before any database writes.
   // 64 KB is ample for routing hints, trace context, and user tags while
   // keeping rogue clients from bloating the run record.
-  if (body.metadata && JSON.stringify(body.metadata).length > 65_536) {
+  if (getSerializedJsonSizeBytes(body.input) > RUN_INPUT_MAX_BYTES) {
+    return c.json(
+      { error: { code: 'VALIDATION_ERROR', message: 'input too large (max 256 KB)' } },
+      400,
+    )
+  }
+
+  if (body.metadata && getSerializedJsonSizeBytes(body.metadata) > RUN_METADATA_MAX_BYTES) {
     return c.json(
       { error: { code: 'VALIDATION_ERROR', message: 'metadata too large (max 64 KB)' } },
       400,

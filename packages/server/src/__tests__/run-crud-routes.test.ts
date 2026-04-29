@@ -111,6 +111,18 @@ describe('POST /api/runs', () => {
     expect(body.error.code).toBe('NOT_FOUND')
   })
 
+  it('400 — rejects oversized run input fields', async () => {
+    const res = await req(app, 'POST', '/api/runs', {
+      agentId: 'agent-1',
+      input: { prompt: 'x'.repeat(256 * 1024) },
+    })
+
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toContain('input too large')
+  })
+
   it('201 — stores custom metadata on the run', async () => {
     const res = await req(app, 'POST', '/api/runs', {
       agentId: 'agent-1',

@@ -10,6 +10,9 @@ import type { Hono } from 'hono'
 import type { A2ATaskState } from '../../a2a/task-handler.js'
 import type { A2ARoutesConfig } from './helpers.js'
 import { callerOwnsTask, getCallerScope } from './helpers.js'
+import { getSerializedJsonSizeBytes } from '../../validation/route-validator.js'
+
+const A2A_INPUT_MAX_BYTES = 256 * 1024
 
 export function registerTaskRoutes(app: Hono, config: A2ARoutesConfig): void {
   // --- Submit task ---
@@ -24,6 +27,13 @@ export function registerTaskRoutes(app: Hono, config: A2ARoutesConfig): void {
       return c.json(
         { error: { code: 'BAD_REQUEST', message: 'agentName and input are required' } },
         400,
+      )
+    }
+
+    if (getSerializedJsonSizeBytes(body.input) > A2A_INPUT_MAX_BYTES) {
+      return c.json(
+        { error: { code: 'PAYLOAD_TOO_LARGE', message: 'input too large (max 256 KB)' } },
+        413,
       )
     }
 
