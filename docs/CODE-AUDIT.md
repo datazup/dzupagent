@@ -1,143 +1,229 @@
-# Code Quality Audit
+# Code Quality Audit - Flow DSL Textual Parsing, Normalization, Canonicalization, Formatting, Validation, and Graph Conversion
 
 ## Findings
 
-### CODE-001 - High - Drizzle persistence boundaries repeatedly erase schema types with `any`
+### DOMAIN-001 - High - Invalid `dsl` versions are normalized into valid documents
 
-Impact: Persistent stores can drift from Drizzle schema contracts without TypeScript catching it. These classes perform writes, reads, and row-to-domain conversion for scheduled jobs, triggers, mailbox DLQ, A2A tasks, and related runtime state, so a column rename, nullable-field change, or row shape mismatch can compile and fail only in runtime paths.
+**Impact:** A document that declares an unsupported DSL version can pass through `parseDslToDocument()` and `canonicalizeDsl()` as if it were `dzupflow/v1`. This breaks the version boundary that should protect future grammar changes, and it makes `DSL_ERROR.INVALID_DSL_VERSION` effectively dead code on the main parse path.
 
-Evidence: `packages/server/src/triggers/trigger-store.ts:87` disables `@typescript-eslint/no-explicit-any` and defines `type AnyDrizzle = any`, then injects it into `DrizzleTriggerStore` at `packages/server/src/triggers/trigger-store.ts:106`. The same pattern exists in `packages/server/src/schedules/schedule-store.ts:86`, `packages/server/src/persistence/drizzle-dlq-store.ts:21`, and `packages/server/src/a2a/drizzle-a2a-task-store.ts:27`. The A2A store even defines a typed `DrizzleA2ADatabase` at `packages/server/src/a2a/drizzle-a2a-task-store.ts:20`, but the constructor still takes `AnyDrizzle` at `packages/server/src/a2a/drizzle-a2a-task-store.ts:60`.
+**Evidence:**
+- `packages/flow-dsl/src/normalize.ts:171` through `packages/flow-dsl/src/normalize.ts:174` constructs the canonical document with `dsl: raw.dsl === 'dzupflow/v1' ? 'dzupflow/v1' : 'dzupflow/v1'`, so every input becomes `dzupflow/v1`.
+- `packages/flow-dsl/src/parse-dsl.ts:34` through `packages/flow-dsl/src/parse-dsl.ts:40` attempts to report `INVALID_DSL_VERSION`, but it checks the already-normalized `document.dsl`, so the condition is unreachable for non-null documents.
+- `packages/flow-dsl/src/errors.ts:1` through `packages/flow-dsl/src/errors.ts:13` defines `INVALID_DSL_VERSION`, but the current normalization flow prevents it from being emitted for a wrong textual `dsl` value.
+- `packages/flow-dsl/src/__tests__/validator.test.ts:131` through `packages/flow-dsl/src/__tests__/validator.test.ts:140` explicitly documents the current behavior: `dzupflow/v2` still produces a document.
 
-Remediation: Replace local `AnyDrizzle` aliases with a shared typed DB interface derived from the repository's Drizzle schema, or with narrow per-store interfaces that model only the operations each store uses. Keep row conversion behind explicit parser/mapper functions and add type-level compile tests for representative store methods.
+**Remediation:** Validate `raw.dsl` before constructing the canonical document. Preserve the raw value long enough to emit `INVALID_DSL_VERSION`, and make `canonicalizeDsl()` fail closed when this diagnostic appears. Add a regression test where `dsl: dzupflow/v2` returns `ok: false` and no derived graph.
 
-### CODE-002 - Medium - Streaming and non-streaming tool execution duplicate the same policy stack
+### DOMAIN-002 - High - Formatter output is not a parser-compatible canonical form
 
-Impact: The agent tool path has two near-parallel implementations for timeout classification, schema extraction, argument validation, lifecycle event emission, stuck detection, and result/error shaping. Any future fix to approval, telemetry, timeout, validation, or governance behavior must be patched twice, which increases regression risk between `generate()` and streaming execution.
+**Impact:** `formatDocumentToDsl()` is exported as the textual formatter, but its output is not a reliable input to `parseDslToDocument()`. This makes canonical formatting unsafe for review, storage, or round-trip editing flows because users can format a valid document into text that the same package cannot parse back.
 
-Evidence: The non-streaming path in `packages/agent/src/agent/tool-loop.ts` defines timeout classification at `packages/agent/src/agent/tool-loop.ts:738`, event emitters starting at `packages/agent/src/agent/tool-loop.ts:751`, approval handling at `packages/agent/src/agent/tool-loop.ts:1134`, parallel execution ordering at `packages/agent/src/agent/tool-loop.ts:1593`, and timeout racing at `packages/agent/src/agent/tool-loop.ts:1643`. The streaming path repeats equivalent helpers in `packages/agent/src/agent/run-engine.ts:500`, `packages/agent/src/agent/run-engine.ts:506`, `packages/agent/src/agent/run-engine.ts:513`, `packages/agent/src/agent/run-engine.ts:521`, and timeout handling at `packages/agent/src/agent/run-engine.ts:722`.
+**Evidence:**
+- `packages/flow-dsl/src/format-dsl.ts:57` through `packages/flow-dsl/src/format-dsl.ts:69` emits child fields for `- action:` at `indentLevel + 1`.
+- `packages/flow-dsl/src/mini-yaml.ts:175` through `packages/flow-dsl/src/mini-yaml.ts:181` parses an inline sequence mapping with an empty value by requiring nested fields at `indent + 4`. For a `steps:` list indented two spaces, handwritten parseable DSL uses six spaces under `- action:`, while the formatter emits four.
+- `packages/flow-dsl/src/__tests__/formatter.test.ts:281` through `packages/flow-dsl/src/__tests__/formatter.test.ts:285` avoids parsing formatter output and states that the formatter uses different indentation conventions than the parser expects.
+- `packages/flow-dsl/src/format-dsl.ts:8` through `packages/flow-dsl/src/format-dsl.ts:13` formats multiline descriptions by passing `|` through `pushField()`, and `packages/flow-dsl/src/format-dsl.ts:217` through `packages/flow-dsl/src/format-dsl.ts:224` quotes that value as `"|"`, so it does not emit a YAML literal block marker the parser recognizes.
+- `packages/flow-dsl/src/__tests__/formatter.test.ts:63` through `packages/flow-dsl/src/__tests__/formatter.test.ts:69` encodes the quoted-pipe behavior in comments instead of asserting a round-trip contract.
 
-Remediation: Extract a shared tool execution policy module that accepts mode-specific adapters for message construction and event output. Keep a focused parity test that runs the same tool scenarios through streaming and non-streaming execution and asserts identical lifecycle statuses.
+**Remediation:** Make the formatter and parser share one indentation contract. Add `formatDocumentToDsl(document) -> parseDslToDocument(output)` tests for every supported node kind and for multiline scalar fields. Emit literal blocks as `description: |` without quoting the pipe, and preserve blank lines/indentation according to the documented subset.
 
-### CODE-003 - Medium - Timeout detection depends on parsing human-readable error messages
+### DOMAIN-003 - Medium - Formatting is lossy for input defaults and structured scalar values
 
-Impact: Timeout classification is a fragile invariant. If an error message changes, is localized, is wrapped by another layer, or comes from a tool with a similar string, the lifecycle status can silently flip between `timeout` and generic `error`, which affects event consumers and retry/circuit-breaker logic.
+**Impact:** A canonical `FlowDocumentV1` can contain JSON-like input defaults and nested object values, but formatting either drops them or emits them in a form the mini parser treats as strings. This corrupts the authored contract across format/review/save cycles.
 
-Evidence: `packages/agent/src/agent/tool-loop.ts:738` classifies timeouts with `/timed out after \d+ms/.test(msg)`, while `packages/agent/src/agent/run-engine.ts:506` repeats the same message regex. Both timeout helpers construct the message string themselves at `packages/agent/src/agent/tool-loop.ts:1655` and `packages/agent/src/agent/run-engine.ts:734`, coupling classification to text formatting instead of a typed error.
+**Evidence:**
+- `packages/flow-ast/src/types.ts:16` through `packages/flow-ast/src/types.ts:21` allows `FlowInputSpec.default?: FlowValue`.
+- `packages/flow-dsl/src/format-dsl.ts:17` through `packages/flow-dsl/src/format-dsl.ts:25` formats input specs with `type`, `required`, and `description`, but never emits `spec.default`.
+- `packages/flow-dsl/src/normalize.ts:756` through `packages/flow-dsl/src/normalize.ts:771` correctly preserves and validates JSON-like defaults when parsing, so the formatter is the asymmetric side of the contract.
+- `packages/flow-dsl/src/format-dsl.ts:227` through `packages/flow-dsl/src/format-dsl.ts:233` emits arbitrary objects with `JSON.stringify(value)`.
+- `packages/flow-dsl/src/mini-yaml.ts:268` through `packages/flow-dsl/src/mini-yaml.ts:282` parses booleans, numbers, strings, nulls, and inline arrays, but it does not parse inline JSON objects. A formatted nested object such as `{ "a": 1 }` is read back as a string.
 
-Remediation: Introduce a `ToolTimeoutError` or `ForgeError` code for timeout failures and classify by `instanceof` or error code. Keep the message for humans, but make lifecycle status derive from typed metadata.
+**Remediation:** Add a `FlowValue` formatter/parser pair instead of using ad hoc scalar formatting. Emit object defaults and object input values as nested mappings, or explicitly support a JSON scalar form and parse it back. Add round-trip tests for `inputs.*.default`, nested action input, `meta`, and emit payload values.
 
-### CODE-004 - Medium - Several runtime modules are large enough to hide unrelated responsibilities and invariants
+### DOMAIN-004 - Medium - Node-kind support drifts across formatter, textual normalizer, AST parser, and validators
 
-Impact: Large files concentrate multiple behaviors, making review and regression testing harder. This is true maintainability risk rather than formatting noise because the largest files mix policy decisions, event emission, state transitions, parsing/validation, and fallback behavior.
+**Impact:** Different entry points disagree about which node kinds are valid. This is a maintainability risk because adding a node requires updates in several hand-maintained lists, and a valid AST can be formatted into textual DSL that the textual parser rejects.
 
-Evidence: Static line counts show `packages/agent/src/agent/tool-loop.ts` at 1,665 lines, `packages/flow-ast/src/validate.ts` at 1,522 lines, `packages/agent-adapters/src/recovery/adapter-recovery.ts` at 1,281 lines, `packages/agent/src/agent/run-engine.ts` at 1,070 lines, and `packages/agent/src/pipeline/pipeline-runtime.ts` at 1,024 lines. In `tool-loop.ts`, the same file owns core loop config (`packages/agent/src/agent/tool-loop.ts:77`), lifecycle event emission (`packages/agent/src/agent/tool-loop.ts:751`), governance/approval handling (`packages/agent/src/agent/tool-loop.ts:1134`), parallel scheduling (`packages/agent/src/agent/tool-loop.ts:1554`), and timeout racing (`packages/agent/src/agent/tool-loop.ts:1643`). In `validate.ts`, the file implements a hand-rolled schema surface and every node validator in one module (`packages/flow-ast/src/validate.ts:1`, `packages/flow-ast/src/validate.ts:510`, `packages/flow-ast/src/validate.ts:554`).
+**Evidence:**
+- `packages/flow-ast/src/types.ts:32` through `packages/flow-ast/src/types.ts:48` includes `spawn`, `classify`, `emit`, `memory`, `checkpoint`, and `restore` in `FlowNode`.
+- `packages/flow-dsl/src/format-dsl.ts:153` through `packages/flow-dsl/src/format-dsl.ts:184` emits textual forms for `spawn`, `classify`, `emit`, and `memory`.
+- `packages/flow-dsl/src/normalize.ts:259` through `packages/flow-dsl/src/normalize.ts:282` accepts only textual wrappers for `action`, `if`, `parallel`, `for_each`, `approval`, `clarify`, `persona`, `route`, `complete`, `checkpoint`, and `restore`. The formatter-only node kinds above fall into `UNKNOWN_NODE_TYPE`.
+- `packages/flow-ast/src/parse.ts:41` through `packages/flow-ast/src/parse.ts:52` keeps a separate `KNOWN_NODE_TYPES` set that only includes the original ten node kinds and excludes `checkpoint` and `restore`, even though `packages/flow-ast/src/validate.ts:328` through `packages/flow-ast/src/validate.ts:345` validates the newer node kinds.
 
-Remediation: Split by responsibility, not by arbitrary line count. Good first candidates are shared tool lifecycle helpers, timeout/error helpers, flow node validators grouped by node family, and adapter recovery terminal-result builders. Preserve public exports while moving internals behind package-private modules.
+**Remediation:** Introduce a single node-kind registry or table-driven node definition map shared by parsing, normalization, formatting, and validation. Until then, remove formatter cases for unsupported textual node kinds or add normalizer support for them in the same change. Add a test that enumerates `FlowNode['type']` support across parser, formatter, graph projection, and validation.
 
-### CODE-005 - Medium - Coverage gates do not cover all runtime packages and zero-test detection is package-level only
+### DOMAIN-005 - Medium - Duplicate YAML mapping keys silently overwrite earlier values
 
-Impact: The repo has meaningful quality gates, but they leave blind spots. File-level untested code can accumulate inside packages that have any tests, and packages without `test:coverage` scripts are excluded from the workspace coverage gate entirely.
+**Impact:** Duplicate keys in the textual DSL can hide authoring mistakes, especially at top-level fields such as `steps`, `inputs`, or `defaults`, and inside node bodies such as `ref`, `input`, or `branches`. Silent last-write-wins behavior makes review output look valid while discarding part of the source.
 
-Evidence: `scripts/check-runtime-test-inventory.mjs:127` only fails packages whose total test count is zero. A static inventory found 655 production source files without a same-name or nearby `__tests__` match, concentrated in `packages/core` (134), `packages/server` (97), `packages/agent` (91), `packages/codegen` (60), `packages/memory` (36), and `packages/agent-adapters` (36). Examples with no direct test match include `packages/codegen/src/sandbox/e2b-sandbox.ts`, `packages/codegen/src/sandbox/fly-sandbox.ts`, `packages/code-edit-kit/src/atomic-multi-edit.tool.ts`, and `packages/memory/src/sharing/memory-space-manager.ts`. `scripts/check-workspace-coverage.mjs:70` discovers only packages with a `test:coverage` script, and `coverage-thresholds.json:8` tracks a subset explicitly; packages such as `@dzupagent/flow-ast`, `@dzupagent/flow-compiler`, `@dzupagent/app-tools`, and `@dzupagent/code-edit-kit` have normal `test` scripts but no `test:coverage` script (`packages/flow-ast/package.json:17`, `packages/app-tools/package.json:17`, `packages/code-edit-kit/package.json:17`).
+**Evidence:**
+- `packages/flow-dsl/src/mini-yaml.ts:197` through `packages/flow-dsl/src/mini-yaml.ts:242` builds mappings into a plain `Record<string, unknown>`.
+- `packages/flow-dsl/src/mini-yaml.ts:222` through `packages/flow-dsl/src/mini-yaml.ts:238` assigns `obj[key] = ...` without tracking whether the key was already present.
+- There is no duplicate-key diagnostic in `packages/flow-dsl/src/errors.ts:1` through `packages/flow-dsl/src/errors.ts:13`.
+- The observed parser tests in `packages/flow-dsl/src/__tests__/mini-yaml.test.ts:23` through `packages/flow-dsl/src/__tests__/mini-yaml.test.ts:176` cover scalar, nested, sequence, literal, inline-array, and indentation errors, but not duplicate keys.
 
-Remediation: Add a file-level critical-source inventory for high-risk packages and require explicit waivers for untested runtime files above a complexity threshold. Add `test:coverage` scripts or explicit coverage waivers for runtime packages that currently sit outside the coverage gate.
+**Remediation:** Track keys within `parseMapping()` and emit a parse diagnostic on duplicates, including the duplicate line and the first occurrence if available. Decide whether duplicate keys should fail hard in `parseYamlSubset()` or remain recoverable diagnostics, then add tests for top-level and nested duplicates.
 
-### CODE-006 - Medium - Stored memory-sharing records are trusted after shallow shape checks
+### DOMAIN-006 - Medium - Graph conversion trusts non-canonical IDs and silently collapses duplicates
 
-Impact: Shared memory spaces and pending share requests are persisted as generic records and later cast into domain objects. The current guards check only a few top-level fields, so corrupted or older records with malformed participants, requests, permissions, or retention policy can flow into permission checks and writes.
+**Impact:** `documentToGraph()` is exported directly and accepts a `FlowDocumentV1`, but `FlowNodeBase.id` is optional at the type level. If callers bypass `canonicalizeDsl()` or `validateDocument()`, graph conversion can synthesize IDs, collide with authored IDs, or silently collapse duplicate nodes and edges. The derived graph then becomes a lossy projection rather than a validation-backed canonical graph.
 
-Evidence: `MemorySpaceManager.create` stores a full `SharedMemorySpace` by casting it to `Record<string, unknown>` at `packages/memory/src/sharing/memory-space-manager.ts:121`. `reviewPullRequest` casts the first stored pending record directly to `PendingShareRequest` at `packages/memory/src/sharing/memory-space-manager.ts:302`. The helpers at `packages/memory/src/sharing/memory-space-manager.ts:742` and `packages/memory/src/sharing/memory-space-manager.ts:750` validate only `id`, `name`, `owner`, `request`, and `status`, then `toSpace` and `toPending` cast the full object at `packages/memory/src/sharing/memory-space-manager.ts:746` and `packages/memory/src/sharing/memory-space-manager.ts:754`.
+**Evidence:**
+- `packages/flow-ast/src/types.ts:4` through `packages/flow-ast/src/types.ts:14` makes `FlowNodeBase.id` optional.
+- `packages/flow-dsl/src/document-to-graph.ts:39` through `packages/flow-dsl/src/document-to-graph.ts:42` generates fallback IDs from `node.type` and `state.nodes.length + 1`.
+- `packages/flow-dsl/src/document-to-graph.ts:116` through `packages/flow-dsl/src/document-to-graph.ts:119` silently returns when a node ID already exists.
+- `packages/flow-dsl/src/document-to-graph.ts:121` through `packages/flow-dsl/src/document-to-graph.ts:130` silently returns when an edge ID already exists.
+- `packages/flow-ast/src/validate.ts:1397` through `packages/flow-ast/src/validate.ts:1420` enforces non-empty unique IDs only during document validation, not inside the graph converter itself.
 
-Remediation: Replace shallow predicates with full runtime decoders for `SharedMemorySpace` and `PendingShareRequest`, including participant permissions, request shape, timestamps, and optional policies. Add tests for malformed stored records and backward-compatible migrations.
+**Remediation:** Either make `documentToGraph()` validate canonical ID invariants before projection, or narrow its accepted type to a validated/canonical branded document. At minimum, return graph diagnostics for duplicate and synthesized IDs instead of silently dropping nodes and edges. Add tests for duplicate IDs and authored IDs that collide with fallback IDs.
 
-### CODE-007 - Low - A2A task list says it batch-loads messages but still executes one query per task
+### DOMAIN-007 - Medium - Validation and normalization rules are duplicated across several walkers
 
-Impact: The comment and implementation disagree, and future maintainers may assume list performance has already been addressed. This is a maintainability and scalability trap in a route-facing persistent store.
+**Impact:** The DSL stack has separate hand-maintained walkers for mini-YAML parsing, textual normalization, document validation, legacy AST parsing, compiler shape validation, and graph projection. The current bugs around DSL versioning, node-kind drift, formatter round-trip, and route/clarification constraints are symptoms of duplicated rule ownership rather than isolated style issues.
 
-Evidence: `packages/server/src/a2a/drizzle-a2a-task-store.ts:174` says `Batch-load messages for all tasks`, but the implementation loops over rows and performs a separate `select().from(a2aTaskMessages).where(eq(...))` for each row at `packages/server/src/a2a/drizzle-a2a-task-store.ts:176`.
+**Evidence:**
+- `packages/flow-dsl/src/normalize.ts:317` through `packages/flow-dsl/src/normalize.ts:705` implements per-node normalization and required-field diagnostics.
+- `packages/flow-ast/src/validate.ts:347` through `packages/flow-ast/src/validate.ts:1081` implements a separate per-node validation walker.
+- `packages/flow-compiler/src/stages/shape-validate.ts:34` through `packages/flow-compiler/src/stages/shape-validate.ts:205` implements another structural validation walker.
+- `packages/flow-ast/src/parse.ts:41` through `packages/flow-ast/src/parse.ts:52` and `packages/flow-dsl/src/normalize.ts:259` through `packages/flow-dsl/src/normalize.ts:282` keep separate node-kind lists.
+- `packages/flow-dsl/src/normalize.ts:581` through `packages/flow-dsl/src/normalize.ts:613`, `packages/flow-ast/src/validate.ts:732` through `packages/flow-ast/src/validate.ts:806`, and `packages/flow-compiler/src/stages/shape-validate.ts:136` through `packages/flow-compiler/src/stages/shape-validate.ts:155` all encode route-specific requirements.
 
-Remediation: Either implement actual batch loading with an `IN` query grouped by `taskId`, or change the comment and add a limit/justification test so the N+1 behavior is explicit.
+**Remediation:** Consolidate node definitions into declarative descriptors that own aliases, required fields, child collections, formatting names, and validation constraints. Generate or table-drive the repetitive switch cases from those descriptors. Add a consistency test that compares supported node kinds and child paths across the DSL, AST, compiler, and graph modules.
 
-### CODE-008 - Low - Flow lowering can continue with stub tool nodes after a missing semantic resolution
+### DOMAIN-008 - Low - Inline scalar parsing is fragile for quoted commas, nested arrays, and JSON-like values
 
-Impact: This keeps downstream compilation alive after an invariant violation, but it can also make failures harder to localize because a missing semantic resolution becomes a warning plus a synthetic tool node. That is useful for best-effort diagnostics, but fragile if any caller treats lowered output as executable.
+**Impact:** The parser is intentionally a YAML subset, but the subset accepts inline arrays in a way that looks more capable than it is. Values containing commas or nested bracket/object syntax are split incorrectly or retained as strings, which can surprise authors when tags, choices, defaults, or payloads contain richer values.
 
-Evidence: `packages/flow-compiler/src/lower/_shared.ts:289` notes that the semantic stage should already have caught unresolved refs, then emits a warning and creates a stub `ToolNode` at `packages/flow-compiler/src/lower/_shared.ts:295`.
+**Evidence:**
+- `packages/flow-dsl/src/mini-yaml.ts:277` through `packages/flow-dsl/src/mini-yaml.ts:280` parses inline arrays with `inner.split(',')`.
+- `packages/flow-dsl/src/mini-yaml.ts:268` through `packages/flow-dsl/src/mini-yaml.ts:282` has no state machine for quotes, escapes, nesting, or inline objects.
+- `packages/flow-dsl/src/__tests__/mini-yaml.test.ts:129` through `packages/flow-dsl/src/__tests__/mini-yaml.test.ts:140` covers only simple inline arrays and empty arrays.
 
-Remediation: Make the behavior mode-explicit: diagnostic lowering may emit stubs, executable lowering should fail closed. Add tests that prove unresolved actions cannot reach executable runtime paths unless a caller explicitly requests best-effort output.
+**Remediation:** Either document and enforce a narrower scalar grammar, or replace `split(',')` with a small token parser that respects quotes and bracket nesting. Add tests for `["a,b"]`, nested arrays, escaped quotes, and inline JSON objects if those remain accepted.
 
-### CODE-009 - Low - A generated timestamped Vitest config artifact is checked into the source tree
+### DOMAIN-009 - Low - `parseDslToDocument()` returns partial documents alongside diagnostics
 
-Impact: The file is not part of the package source contract and embeds an absolute local path. It adds noise to audits and file discovery, and it can confuse tooling that scans package roots for config files.
+**Impact:** `canonicalizeDsl()` correctly fails closed when diagnostics exist, but lower-level callers of `parseDslToDocument()` can receive a non-null document that has known unsupported fields, missing required fields, or validation failures. This is a fragile API invariant because callers must remember that `document !== null` does not mean "valid".
 
-Evidence: `packages/flow-ast/vitest.config.ts.timestamp-1776633817137-64c36d7a19afd.mjs:1` is a generated JavaScript copy of the Vitest config. It imports Vitest through an absolute file URL at `packages/flow-ast/vitest.config.ts.timestamp-1776633817137-64c36d7a19afd.mjs:2` and carries an inline sourcemap with absolute workspace paths at `packages/flow-ast/vitest.config.ts.timestamp-1776633817137-64c36d7a19afd.mjs:13`.
+**Evidence:**
+- `packages/flow-dsl/src/parse-dsl.ts:43` through `packages/flow-dsl/src/parse-dsl.ts:47` returns `document: validation.valid ? (document as FlowDocumentV1) : document`, so a structurally invalid normalized document can still be returned.
+- `packages/flow-dsl/src/canonicalize-dsl.ts:6` through `packages/flow-dsl/src/canonicalize-dsl.ts:15` adds a stricter wrapper that rejects any diagnostics, implying the lower-level parse result needs extra interpretation.
+- `packages/flow-dsl/src/__tests__/validator.test.ts:123` through `packages/flow-dsl/src/__tests__/validator.test.ts:128` asserts that unsupported top-level fields still produce a document.
 
-Remediation: Remove the artifact and add `*.timestamp-*.mjs` or the exact Vitest temporary pattern to `.gitignore` if this can be regenerated by local tooling.
+**Remediation:** Make the parse result state explicit. Options include returning `{ valid: boolean }`, returning `document: null` when diagnostics include error-level issues, or splitting recoverable warnings from hard errors. Document which diagnostics are safe to ignore and update tests accordingly.
 
-### CODE-010 - Info - Some package test scripts still allow empty suites even where tests now exist
+### DOMAIN-010 - Low - Textual formatting accepts values wider than the textual grammar
 
-Impact: This is not a current zero-test failure for the inspected packages, but it weakens future regression detection: a bad test glob, moved test directory, or accidental deletion could still exit successfully.
+**Impact:** Several AST fields are typed as `Record<string, unknown>`, and the formatter accepts them without checking that each value is representable in the textual DSL. Non-JSON values can be stringified incorrectly, while valid nested objects are emitted in a form the parser does not reconstruct.
 
-Evidence: `packages/connectors-documents/package.json:17`, `packages/connectors-browser/package.json:17`, `packages/eval-contracts/package.json:17`, and `packages/agent-types/package.json:20` use `vitest run --passWithNoTests`. Current source does contain tests for `connectors-documents` and `connectors-browser`, so this is a guardrail weakness rather than proof of missing tests.
+**Evidence:**
+- `packages/flow-ast/src/types.ts:13`, `packages/flow-ast/src/types.ts:54`, `packages/flow-ast/src/types.ts:99`, and `packages/flow-ast/src/types.ts:113` use `Record<string, unknown>` for `meta`, action input, spawn input, and emit payload.
+- `packages/flow-dsl/src/format-dsl.ts:43` through `packages/flow-dsl/src/format-dsl.ts:48`, `packages/flow-dsl/src/format-dsl.ts:66` through `packages/flow-dsl/src/format-dsl.ts:69`, and `packages/flow-dsl/src/format-dsl.ts:170` through `packages/flow-dsl/src/format-dsl.ts:174` format those unknown values as textual scalars.
+- `packages/flow-dsl/src/format-dsl.ts:227` through `packages/flow-dsl/src/format-dsl.ts:233` falls back to `JSON.stringify(value)` without validating that the result is parseable by `parseScalar()`.
 
-Remediation: Remove `--passWithNoTests` from packages that intentionally maintain tests. Keep it only for truly type-only packages, and document those package-level exceptions in the runtime test inventory denylist or a test-policy file.
+**Remediation:** Define a textual-format value type, likely `FlowValue`, and either reject non-representable values with diagnostics or emit them as nested mappings. If `unknown` must remain in the AST, keep the formatter result as `{ ok, text, diagnostics }` rather than a bare string.
 
-### CODE-011 - Info - Root barrel files remain very broad public surfaces
+### DOMAIN-011 - Low - Test coverage is broad but misses the highest-risk round-trip and drift contracts
 
-Impact: Broad root exports increase accidental API commitments and make refactors more expensive. This is lower severity because the repo already has a server API surface report, but the current source still exposes many route, persistence, deploy, security, and compatibility internals through package roots.
+**Impact:** The package has many tests, but the tests currently allow several important invariants to drift: formatter output round-tripping, wrong DSL version rejection, duplicate YAML keys, formatter support for newer node kinds, and structured default formatting. This is not a zero-test package, but the missing tests align with the actual correctness risks found above.
 
-Evidence: `packages/server/src/index.ts:16` starts route exports and continues through persistence, middleware, queues, deployment, security, and docs until the version export at `packages/server/src/index.ts:536`. `packages/core/src/index.ts:9` similarly aggregates config, errors, events, plugin, LLM, prompt, security, tools, and telemetry exports through `packages/core/src/index.ts:807`. The server package has only the root and `./ops` subpath in `packages/server/package.json:10`, so most public surface remains root-based.
+**Evidence:**
+- `packages/flow-dsl/src/__tests__/formatter.test.ts:281` through `packages/flow-dsl/src/__tests__/formatter.test.ts:285` explicitly avoids parsing formatter output.
+- `packages/flow-dsl/src/__tests__/validator.test.ts:131` through `packages/flow-dsl/src/__tests__/validator.test.ts:140` documents wrong-version acceptance rather than rejecting it.
+- `packages/flow-dsl/test/format-dsl.test.ts:5` through `packages/flow-dsl/test/format-dsl.test.ts:25` checks only containment for a minimal document.
+- `packages/flow-dsl/test/document-to-graph.test.ts:5` through `packages/flow-dsl/test/document-to-graph.test.ts:24` covers only a simple sequence in the top-level test folder, while the more detailed graph tests still do not cover duplicate IDs.
+- Declarative files such as `packages/flow-dsl/src/index.ts`, `packages/flow-dsl/src/errors.ts`, and `packages/flow-dsl/src/types.ts` have no direct behavioral tests, which is acceptable; the meaningful gap is around cross-module contracts, not those low-risk export/type files.
 
-Remediation: Continue moving operational and unstable surfaces behind explicit subpaths, with deprecation windows for root exports. Keep the existing `server-api-surface-report` check as the compatibility ledger, but pair it with an allowlist that distinguishes stable root API from transitional exports.
+**Remediation:** Add contract tests instead of more containment tests: `parse(format(doc))`, `format(parse(source).document)`, node-kind matrix consistency, wrong-version failure, duplicate-key failure, and graph projection on duplicate/missing IDs. Keep simple export/type files covered indirectly unless they gain behavior.
 
-## Scope Reviewed
+### DOMAIN-012 - Info - Graph-style input is deliberately rejected in textual DSL
 
-Reviewed current source and configuration for the code quality domain in the `dzupagent` Yarn workspace. The review started from `context/repo-snapshot.md` from the prepared audit pack, then selectively inspected source/config files under `packages/*`, root quality scripts, and package manifests.
+**Impact:** This is a boundary note, not a defect. The textual DSL rejects top-level `nodes` and `edges` and requires authoring through `steps`. That is a maintainable boundary as long as consuming apps do not expect graph-style documents to be accepted by `@dzupagent/flow-dsl`.
 
-The review focused on type-unsafety, duplication, complexity hotspots, zero-test and coverage-gate blind spots, dead/stale code artifacts, and fragile invariants. Generated dependency directories and old audit artifacts were not used as evidence for findings. I did not run build, typecheck, lint, tests, or coverage.
+**Evidence:**
+- `packages/flow-dsl/src/normalize.ts:146` through `packages/flow-dsl/src/normalize.ts:159` emits a targeted unsupported-field diagnostic and suggestion for top-level `nodes` and `edges`.
+- `packages/flow-dsl/test/parse-dsl.test.ts:71` through `packages/flow-dsl/test/parse-dsl.test.ts:95` asserts rejection of graph-style top-level input.
+- `packages/flow-dsl/src/canonicalize-dsl.ts:6` through `packages/flow-dsl/src/canonicalize-dsl.ts:15` fails closed and does not derive graph output when diagnostics are present.
 
-## Strengths
-
-The repository has a strong baseline of quality automation: root `verify` chains runtime test inventory, drift checks, domain-boundary checks, terminal tool event guards, build, typecheck, lint, and tests (`package.json:29`). There are also focused scripts for coverage, server API surface tracking, package tiers, capability matrix freshness, and waiver expiry.
-
-The codebase already contains many targeted tests, especially in `packages/server`, `packages/agent`, `packages/agent-adapters`, `packages/codegen`, and connector packages. Several recent hardening decisions are visible in source, including durable `executionRunId` checks, approval gating, memory/context package boundary comments, and server API surface tooling.
-
-The strongest quality pattern is explicit invariant tooling where it exists: `check-terminal-tool-event-guards`, `check-domain-boundaries`, `check-workspace-coverage`, and the package-scoped scripts give future work concrete gates rather than relying only on review discipline.
-
-## Open Questions Or Assumptions
-
-I treated `packages/server` and `packages/playground` as maintenance surfaces per the repository guidance, so server findings are framed as maintenance/code-quality risks rather than invitations to add new product capability there.
-
-The zero-test inventory is a static heuristic based on same-name or nearby test files. It can miss broad integration tests that cover a source file indirectly, so the finding is about guardrail precision and review visibility, not a claim that those files are entirely untested.
-
-No runtime validation was run for this audit. Findings are based on source inspection, package manifests, and static shell inventory only.
-
-## Recommended Next Actions
-
-1. Replace `AnyDrizzle` in the server persistence stores with typed DB interfaces and add compile-level store contract checks.
-2. Extract shared tool execution lifecycle helpers from `tool-loop.ts` and `run-engine.ts`, then add streaming/non-streaming parity tests for timeout, approval, validation, and telemetry cases.
-3. Introduce typed timeout errors and remove message-regex timeout classification.
-4. Extend quality gates with file-level critical-source test inventory and add coverage scripts or explicit waivers for runtime packages outside the current coverage gate.
-5. Remove the timestamped Vitest artifact and tighten ignore rules for generated temporary config files.
+**Remediation:** Keep this boundary documented in package docs and compiler-facing errors. If graph-style imports become a product requirement, implement them as a separate converter instead of weakening the `dzupflow/v1` textual authoring form.
 
 ## Finding Manifest
 
 ```json
 {
   "domain": "code quality",
-  "counts": { "critical": 0, "high": 1, "medium": 5, "low": 3, "info": 2 },
+  "counts": { "critical": 0, "high": 2, "medium": 5, "low": 4, "info": 1 },
   "findings": [
-    { "id": "CODE-001", "severity": "high", "title": "Drizzle persistence boundaries repeatedly erase schema types with any", "file": "packages/server/src/triggers/trigger-store.ts" },
-    { "id": "CODE-002", "severity": "medium", "title": "Streaming and non-streaming tool execution duplicate the same policy stack", "file": "packages/agent/src/agent/tool-loop.ts" },
-    { "id": "CODE-003", "severity": "medium", "title": "Timeout detection depends on parsing human-readable error messages", "file": "packages/agent/src/agent/tool-loop.ts" },
-    { "id": "CODE-004", "severity": "medium", "title": "Several runtime modules are large enough to hide unrelated responsibilities and invariants", "file": "packages/agent/src/agent/tool-loop.ts" },
-    { "id": "CODE-005", "severity": "medium", "title": "Coverage gates do not cover all runtime packages and zero-test detection is package-level only", "file": "scripts/check-runtime-test-inventory.mjs" },
-    { "id": "CODE-006", "severity": "medium", "title": "Stored memory-sharing records are trusted after shallow shape checks", "file": "packages/memory/src/sharing/memory-space-manager.ts" },
-    { "id": "CODE-007", "severity": "low", "title": "A2A task list says it batch-loads messages but still executes one query per task", "file": "packages/server/src/a2a/drizzle-a2a-task-store.ts" },
-    { "id": "CODE-008", "severity": "low", "title": "Flow lowering can continue with stub tool nodes after a missing semantic resolution", "file": "packages/flow-compiler/src/lower/_shared.ts" },
-    { "id": "CODE-009", "severity": "low", "title": "A generated timestamped Vitest config artifact is checked into the source tree", "file": "packages/flow-ast/vitest.config.ts.timestamp-1776633817137-64c36d7a19afd.mjs" },
-    { "id": "CODE-010", "severity": "info", "title": "Some package test scripts still allow empty suites even where tests now exist", "file": "packages/connectors-documents/package.json" },
-    { "id": "CODE-011", "severity": "info", "title": "Root barrel files remain very broad public surfaces", "file": "packages/server/src/index.ts" }
+    { "id": "DOMAIN-001", "severity": "high", "title": "Invalid dsl versions are normalized into valid documents", "file": "packages/flow-dsl/src/normalize.ts" },
+    { "id": "DOMAIN-002", "severity": "high", "title": "Formatter output is not a parser-compatible canonical form", "file": "packages/flow-dsl/src/format-dsl.ts" },
+    { "id": "DOMAIN-003", "severity": "medium", "title": "Formatting is lossy for input defaults and structured scalar values", "file": "packages/flow-dsl/src/format-dsl.ts" },
+    { "id": "DOMAIN-004", "severity": "medium", "title": "Node-kind support drifts across formatter, textual normalizer, AST parser, and validators", "file": "packages/flow-dsl/src/normalize.ts" },
+    { "id": "DOMAIN-005", "severity": "medium", "title": "Duplicate YAML mapping keys silently overwrite earlier values", "file": "packages/flow-dsl/src/mini-yaml.ts" },
+    { "id": "DOMAIN-006", "severity": "medium", "title": "Graph conversion trusts non-canonical IDs and silently collapses duplicates", "file": "packages/flow-dsl/src/document-to-graph.ts" },
+    { "id": "DOMAIN-007", "severity": "medium", "title": "Validation and normalization rules are duplicated across several walkers", "file": "packages/flow-dsl/src/normalize.ts" },
+    { "id": "DOMAIN-008", "severity": "low", "title": "Inline scalar parsing is fragile for quoted commas, nested arrays, and JSON-like values", "file": "packages/flow-dsl/src/mini-yaml.ts" },
+    { "id": "DOMAIN-009", "severity": "low", "title": "parseDslToDocument returns partial documents alongside diagnostics", "file": "packages/flow-dsl/src/parse-dsl.ts" },
+    { "id": "DOMAIN-010", "severity": "low", "title": "Textual formatting accepts values wider than the textual grammar", "file": "packages/flow-dsl/src/format-dsl.ts" },
+    { "id": "DOMAIN-011", "severity": "low", "title": "Test coverage is broad but misses the highest-risk round-trip and drift contracts", "file": "packages/flow-dsl/src/__tests__/formatter.test.ts" },
+    { "id": "DOMAIN-012", "severity": "info", "title": "Graph-style input is deliberately rejected in textual DSL", "file": "packages/flow-dsl/src/normalize.ts" }
   ]
 }
 ```
+
+## Scope Reviewed
+
+Reviewed current repository code for the code quality domain, weighted toward textual DSL parsing, normalization, canonicalization, formatting, document validation, and graph conversion.
+
+Primary files inspected:
+- `context/repo-snapshot.md` from the prepared audit prompt pack.
+- `packages/flow-dsl/src/parse-dsl.ts`
+- `packages/flow-dsl/src/mini-yaml.ts`
+- `packages/flow-dsl/src/normalize.ts`
+- `packages/flow-dsl/src/format-dsl.ts`
+- `packages/flow-dsl/src/canonicalize-dsl.ts`
+- `packages/flow-dsl/src/document-validate.ts`
+- `packages/flow-dsl/src/document-to-graph.ts`
+- `packages/flow-dsl/src/types.ts`
+- `packages/flow-dsl/src/errors.ts`
+- `packages/flow-ast/src/types.ts`
+- `packages/flow-ast/src/parse.ts`
+- `packages/flow-ast/src/validate.ts`
+- `packages/flow-compiler/src/authoring-input.ts`
+- `packages/flow-compiler/src/cli-input.ts`
+- `packages/flow-compiler/src/index.ts`
+- `packages/flow-compiler/src/stages/shape-validate.ts`
+
+Tests inspected selectively:
+- `packages/flow-dsl/test/*.test.ts`
+- `packages/flow-dsl/src/__tests__/*.test.ts`
+- `packages/flow-ast/test/*.test.ts`
+- `packages/flow-compiler/test/cli-input.test.ts`
+
+Generated files, dependency folders, and old audit artifacts were not used as source evidence. No runtime validation command was run for this audit; findings are based on current source and test inspection.
+
+## Strengths
+
+- `canonicalizeDsl()` fails closed when parse, normalize, or validate diagnostics exist, and it avoids deriving a graph for invalid input.
+- Diagnostics carry a phase (`parse`, `normalize`, `validate`), code, message, path, and optional suggestion, which is useful for editor and product UX integration.
+- `flow-ast` now has a recursive `FlowValue` guard for input defaults, and `flow-dsl` normalization aligns with it for parsed defaults.
+- The textual DSL explicitly rejects graph-style `nodes` and `edges`, preserving a clear authoring boundary around `steps`.
+- There is meaningful test coverage across parser basics, normalization, validation, graph projection, compiler CLI input, and checkpoint/restore behavior. The gaps are concentrated around cross-module contract tests rather than lack of tests overall.
+- The compiler has a dedicated `prepareFlowInputFromDsl()` path, so textual authoring can be hardened behind one canonicalization seam.
+
+## Open Questions Or Assumptions
+
+- Assumption: `formatDocumentToDsl()` is intended to produce reusable source text, not just a display-only preview. Its package description says parser, formatter, validator, and graph projection, so this audit treats round-trip safety as an expected quality property.
+- Assumption: `dzupflow/v1` should reject unknown `dsl` values even when the rest of the document is structurally valid.
+- Open question: Should the textual DSL eventually support every `FlowNode` kind, or should it intentionally remain a smaller authoring subset? The formatter currently implies broader support than the normalizer provides.
+- Open question: Should `parseDslToDocument()` expose warnings separately from hard errors, or should callers use `canonicalizeDsl()` for any valid-document need?
+- Open question: Should `meta`, action input, spawn input, and emit payload be constrained to `FlowValue` for text formatting, while the lower-level AST remains `unknown` for runtime compatibility?
+
+## Recommended Next Actions
+
+1. Fix the DSL version invariant first. Preserve `raw.dsl`, emit `INVALID_DSL_VERSION`, and add a failing canonicalization test for `dzupflow/v2`.
+2. Establish the formatter contract. Either mark it display-only and rename/document it accordingly, or make `parse(format(document))` a required test across supported node kinds.
+3. Close the lossy formatting gaps for `FlowValue`: input defaults, nested objects, arrays with quoted commas, and multiline strings.
+4. Create a node-kind consistency test that compares AST types, textual normalizer wrappers, formatter cases, graph projection cases, and compiler shape validation.
+5. Add duplicate-key detection in `mini-yaml` before widening the grammar further.
+6. Harden `documentToGraph()` with canonical validation or diagnostics for duplicate/missing IDs before projection.
+7. Consolidate repeated node rules into a declarative table once the immediate correctness fixes are in place. This is the maintainability step that prevents the same drift from reappearing.
