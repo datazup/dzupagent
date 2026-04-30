@@ -3,7 +3,7 @@
  *
  * Uses Drizzle ORM for type-safe queries against the forge_* tables.
  */
-import { eq, desc, and, sql, asc, type SQL } from 'drizzle-orm'
+import { eq, desc, and, or, isNull, sql, asc, type SQL } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors } from './drizzle-schema.js'
 import { cosineDistance, l2Distance, innerProduct } from './vector-ops.js'
@@ -79,6 +79,13 @@ export class PostgresRunStore implements RunStore {
     if (filter?.agentId) conditions.push(eq(forgeRuns.agentId, filter.agentId))
     if (filter?.status) conditions.push(eq(forgeRuns.status, filter.status))
     if (filter?.tenantId) conditions.push(eq(forgeRuns.tenantId, filter.tenantId))
+    if (filter?.ownerId) {
+      conditions.push(
+        filter.includeLegacyOwnerless === true
+          ? or(eq(forgeRuns.ownerId, filter.ownerId), isNull(forgeRuns.ownerId))!
+          : eq(forgeRuns.ownerId, filter.ownerId),
+      )
+    }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined
     const limit = filter?.limit ?? 50
@@ -100,6 +107,13 @@ export class PostgresRunStore implements RunStore {
     if (filter?.agentId) conditions.push(eq(forgeRuns.agentId, filter.agentId))
     if (filter?.status) conditions.push(eq(forgeRuns.status, filter.status))
     if (filter?.tenantId) conditions.push(eq(forgeRuns.tenantId, filter.tenantId))
+    if (filter?.ownerId) {
+      conditions.push(
+        filter.includeLegacyOwnerless === true
+          ? or(eq(forgeRuns.ownerId, filter.ownerId), isNull(forgeRuns.ownerId))!
+          : eq(forgeRuns.ownerId, filter.ownerId),
+      )
+    }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined
 

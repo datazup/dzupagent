@@ -136,6 +136,40 @@ export type RestoreNode = FlowNodeBase & {
   onNotFound?: 'fail' | 'skip'
 }
 
+export type FlowNodeKind = FlowNode['type']
+
+/**
+ * Authoritative registry for public FlowNode discriminators.
+ *
+ * Parser, validator, and downstream contract tests derive their accepted
+ * node-kind lists from this table so the public union cannot drift from
+ * runtime handling.
+ */
+export const FLOW_NODE_KIND_REGISTRY = {
+  sequence: true,
+  action: true,
+  for_each: true,
+  branch: true,
+  approval: true,
+  clarification: true,
+  persona: true,
+  route: true,
+  parallel: true,
+  complete: true,
+  spawn: true,
+  classify: true,
+  emit: true,
+  memory: true,
+  checkpoint: true,
+  restore: true,
+} as const satisfies Record<FlowNodeKind, true>
+
+export const FLOW_NODE_KINDS = Object.keys(FLOW_NODE_KIND_REGISTRY) as FlowNodeKind[]
+
+export function isFlowNodeKind(value: string): value is FlowNodeKind {
+  return Object.prototype.hasOwnProperty.call(FLOW_NODE_KIND_REGISTRY, value)
+}
+
 export interface FlowDocumentV1 {
   dsl: 'dzupflow/v1'
   id: string

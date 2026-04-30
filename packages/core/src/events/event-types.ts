@@ -25,6 +25,52 @@ export interface ToolStatSummary {
 }
 
 /**
+ * Adapter runtime progress emitted by provider-neutral orchestration layers.
+ *
+ * This is the event-bus counterpart to adapter package progress events. The
+ * provider is optional because supervisor-level progress can describe a group
+ * of subtasks before a single provider is selected.
+ */
+export interface AdapterProgressDzupEvent {
+  type: 'adapter:progress'
+  providerId?: string
+  timestamp: number
+  phase: string
+  percentage?: number
+  message?: string
+  current?: number
+  total?: number
+  correlationId?: string
+}
+
+export type MapReduceDzupEvent =
+  | { type: 'mapreduce:started'; totalChunks: number; maxConcurrency: number }
+  | {
+      type: 'mapreduce:map_completed'
+      totalChunks: number
+      successfulChunks: number
+      failedChunks: number
+    }
+  | {
+      type: 'mapreduce:completed'
+      totalChunks: number
+      successfulChunks: number
+      failedChunks: number
+      totalDurationMs: number
+      reduceDurationMs: number
+    }
+  | {
+      type: 'mapreduce:chunk_completed'
+      chunkIndex: number
+      providerId: string
+      durationMs: number
+      success: boolean
+    }
+  | { type: 'mapreduce:chunk_failed'; chunkIndex: number; error: string; durationMs: number }
+
+export type AdapterRuntimeDzupEvent = AdapterProgressDzupEvent | MapReduceDzupEvent
+
+/**
  * Discriminated union of all events emitted through DzupEventBus.
  *
  * Each event has a `type` discriminator and type-specific payload fields.
@@ -150,6 +196,7 @@ export type DzupEvent =
   | { type: 'human_contact:responded'; runId: string; contactId: string; response: unknown }
   | { type: 'human_contact:timed_out'; runId: string; contactId: string; fallback?: unknown }
   // --- Adapter Interactions (mid-execution questions/permissions) ---
+  | AdapterRuntimeDzupEvent
   | { type: 'adapter:interaction_required'; interactionId: string; providerId: string; question: string; kind: string; correlationId?: string }
   | { type: 'adapter:interaction_resolved'; interactionId: string; providerId: string; question: string; answer: string; resolvedBy: string; correlationId?: string }
   // --- MCP ---

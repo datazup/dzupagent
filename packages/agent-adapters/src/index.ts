@@ -25,6 +25,8 @@ export type {
   AgentFailedEvent,
   AgentStreamDeltaEvent,
   AgentProgressEvent,
+  AdapterRuntimeEventBusEvent,
+  MapReduceRuntimeEvent,
   GovernanceEvent,
   GovernanceEventKind,
   TokenUsage,

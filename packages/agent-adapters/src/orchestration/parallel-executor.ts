@@ -697,7 +697,7 @@ export class ParallelExecutor {
       message: `Completed provider ${String(current)}/${String(total)}`,
     }
     if (this.eventBus) {
-      this.eventBus.emit(progressEvent as unknown as Parameters<DzupEventBus['emit']>[0])
+      this.eventBus.emit(progressEvent)
     }
   }
 

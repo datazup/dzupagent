@@ -50,15 +50,18 @@ import type {
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
-  AgentCompletedEvent,
-  AgentEvent,
-  AgentFailedEvent,
   AgentInput,
   TaskDescriptor,
 } from '../types.js'
-import { WorkflowStepResolver } from './template-resolver.js'
-import type { TemplateContext } from './template-resolver.js'
 import { WorkflowValidator } from './workflow-validator.js'
+import {
+  isCompletedEvent,
+  isFailedEvent,
+  mergeParallelResults,
+  resolveFallbackProviderId,
+  resolveTemplate,
+  sharedTemplateResolver,
+} from './adapter-workflow-execution.js'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -212,45 +215,6 @@ interface AdapterWorkflowCompilation {
 }
 
 const PREV_RESULT_STATE_KEY = '__adapter_workflow_internal_prev_result'
-
-function resolveFallbackProviderId(
-  registry: ProviderAdapterRegistry,
-  preferredProvider?: AdapterProviderId,
-): AdapterProviderId {
-  return preferredProvider ?? registry.listAdapters()[0] ?? ('unknown' as AdapterProviderId)
-}
-
-// ---------------------------------------------------------------------------
-// Template resolution (delegated to WorkflowStepResolver)
-// ---------------------------------------------------------------------------
-
-/** Shared resolver instance used by the compilation and execution logic. */
-const sharedTemplateResolver = new WorkflowStepResolver()
-
-/**
- * Resolve template variables in a prompt string.
- * Thin wrapper around WorkflowStepResolver for backward compatibility.
- */
-function resolveTemplate(
-  template: string,
-  state: Record<string, unknown>,
-  prevResult?: string,
-): string {
-  const context: TemplateContext = { prev: prevResult, state }
-  return sharedTemplateResolver.resolve(template, context)
-}
-
-// ---------------------------------------------------------------------------
-// Event helpers
-// ---------------------------------------------------------------------------
-
-function isCompletedEvent(event: AgentEvent): event is AgentCompletedEvent {
-  return event.type === 'adapter:completed'
-}
-
-function isFailedEvent(event: AgentEvent): event is AgentFailedEvent {
-  return event.type === 'adapter:failed'
-}
 
 // ---------------------------------------------------------------------------
 // AdapterWorkflow (executable)
@@ -1096,42 +1060,6 @@ async function executeAdapterStep(
     durationMs: 0,
     retries: attempt,
     error: lastError ?? 'Unknown error',
-  }
-}
-
-function mergeParallelResults(
-  state: Record<string, unknown>,
-  results: AdapterStepResult[],
-  strategy: ParallelMergeStrategy,
-): void {
-  switch (strategy) {
-    case 'merge': {
-      for (const result of results) {
-        state[result.stepId] = result.result
-      }
-      break
-    }
-    case 'concat': {
-      state['parallelResults'] = results.map((r) => ({
-        stepId: r.stepId,
-        result: r.result,
-        success: r.success,
-      }))
-      for (const result of results) {
-        state[result.stepId] = result.result
-      }
-      break
-    }
-    case 'last-wins': {
-      const lastSuccess = [...results].reverse().find((r) => r.success)
-      if (lastSuccess) {
-        state['lastResult'] = lastSuccess.result
-      }
-      for (const result of results) {
-        state[result.stepId] = result.result
-      }
-      break
-    }
   }
 }
 

@@ -23,6 +23,10 @@
     "./compat": {
       "import": "./dist/compat.js",
       "types": "./dist/compat.d.ts"
+    },
+    "./features": {
+      "import": "./dist/features.js",
+      "types": "./dist/features.d.ts"
     }
   },
   "scripts": {

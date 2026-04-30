@@ -643,14 +643,14 @@ export class ContractNetOrchestrator {
         protocol: detail.protocol,
         to: detail.to ?? '',
         messageType: detail.messageType,
-      } as Parameters<DzupEventBus['emit']>[0])
+      })
     } else {
       this.eventBus.emit({
         type: 'protocol:message_received',
         protocol: detail.protocol,
         from: detail.from ?? '',
         messageType: detail.messageType,
-      } as Parameters<DzupEventBus['emit']>[0])
+      })
     }
   }
 }

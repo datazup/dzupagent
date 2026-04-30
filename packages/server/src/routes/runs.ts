@@ -360,12 +360,20 @@ export async function handleListRuns(
     ...(requestingTenantId ? { tenantId: requestingTenantId } : {}),
   }
 
-  const runs = await runStore.list(listFilter)
+  const requestingKeyId = getRequestingKeyId(c)
+  const ownerScopeFilter = requestingKeyId
+    ? { ownerId: requestingKeyId, includeLegacyOwnerless: true }
+    : {}
+
+  const runs = await runStore.list({
+    ...listFilter,
+    ...ownerScopeFilter,
+  })
 
   // RF-S02: filter results to the requesting API key's runs. Runs with no
   // recorded ownerId (pre-migration rows) stay visible so legacy data does
-  // not disappear after the schema change.
-  const requestingKeyId = getRequestingKeyId(c)
+  // not disappear after the schema change. This remains as a defense-in-depth
+  // guard for third-party stores that have not adopted the owner filter yet.
   const visible = requestingKeyId
     ? runs.filter(r => !r.ownerId || r.ownerId === requestingKeyId)
     : runs
@@ -374,14 +382,12 @@ export async function handleListRuns(
   // render accurate pagination controls. Falls back to `runs.length` for
   // stores that don't implement the optional `count()` method.
   //
-  // Note: when the store lacks ownerId filter support (current interface
-  // shape), the `total` intentionally matches the un-filtered count; the
-  // per-row owner filter above keeps the returned data scoped correctly.
   const total = typeof runStore.count === 'function'
     ? await runStore.count({
         ...(agentId !== undefined ? { agentId } : {}),
         ...(status !== undefined ? { status } : {}),
         ...(requestingTenantId ? { tenantId: requestingTenantId } : {}),
+        ...ownerScopeFilter,
       })
     : visible.length
 

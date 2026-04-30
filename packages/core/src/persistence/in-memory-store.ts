@@ -120,6 +120,13 @@ export class InMemoryRunStore implements RunStore {
       const target = filter.tenantId
       results = results.filter(r => (r.tenantId ?? 'default') === target)
     }
+    if (filter?.ownerId) {
+      const target = filter.ownerId
+      results = results.filter(r => (
+        r.ownerId === target
+        || (filter.includeLegacyOwnerless === true && !r.ownerId)
+      ))
+    }
 
     // Sort by startedAt descending
     results.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime())
@@ -141,6 +148,13 @@ export class InMemoryRunStore implements RunStore {
     if (filter?.tenantId) {
       const target = filter.tenantId
       results = results.filter(r => (r.tenantId ?? 'default') === target)
+    }
+    if (filter?.ownerId) {
+      const target = filter.ownerId
+      results = results.filter(r => (
+        r.ownerId === target
+        || (filter.includeLegacyOwnerless === true && !r.ownerId)
+      ))
     }
 
     return results.length

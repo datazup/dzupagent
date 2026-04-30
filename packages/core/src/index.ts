@@ -17,7 +17,15 @@ export type { ForgeErrorCode } from './errors/error-codes.js'
 // --- Events ---
 export { createEventBus } from './events/event-bus.js'
 export type { DzupEventBus } from './events/event-bus.js'
-export type { DzupEvent, DzupEventOf, BudgetUsage, ToolStatSummary } from './events/event-types.js'
+export type {
+  AdapterProgressDzupEvent,
+  AdapterRuntimeDzupEvent,
+  DzupEvent,
+  DzupEventOf,
+  BudgetUsage,
+  MapReduceDzupEvent,
+  ToolStatSummary,
+} from './events/event-types.js'
 export { emitDegradedOperation } from './events/degraded-operation.js'
 export { requireTerminalToolExecutionRunId } from './events/tool-event-correlation.js'
 export type { TerminalToolExecutionRunIdOptions, TerminalToolEventType } from './events/tool-event-correlation.js'
