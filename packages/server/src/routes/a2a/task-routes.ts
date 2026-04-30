@@ -11,6 +11,7 @@ import type { A2ATaskState } from '../../a2a/task-handler.js'
 import type { A2ARoutesConfig } from './helpers.js'
 import { callerOwnsTask, getCallerScope } from './helpers.js'
 import { getSerializedJsonSizeBytes } from '../../validation/route-validator.js'
+import { redactA2ATaskPushConfig } from '../../a2a/push-notifications.js'
 
 const A2A_INPUT_MAX_BYTES = 256 * 1024
 
@@ -71,7 +72,7 @@ export function registerTaskRoutes(app: Hono, config: A2ARoutesConfig): void {
       })
     }
 
-    return c.json(task, 201)
+    return c.json(redactA2ATaskPushConfig(task), 201)
   })
 
   // --- Get task ---
@@ -86,7 +87,7 @@ export function registerTaskRoutes(app: Hono, config: A2ARoutesConfig): void {
         404,
       )
     }
-    return c.json(task)
+    return c.json(redactA2ATaskPushConfig(task))
   })
 
   // --- List tasks ---
@@ -109,7 +110,7 @@ export function registerTaskRoutes(app: Hono, config: A2ARoutesConfig): void {
     // route still drops cross-owner rows before responding.
     const visible = tasks.filter((t) => callerOwnsTask(scope, t))
 
-    return c.json({ tasks: visible })
+    return c.json({ tasks: visible.map(redactA2ATaskPushConfig) })
   })
 
   // --- Cancel task ---
@@ -134,6 +135,6 @@ export function registerTaskRoutes(app: Hono, config: A2ARoutesConfig): void {
     }
 
     const updated = await config.taskStore.update(task.id, { state: 'cancelled' })
-    return c.json(updated)
+    return c.json(updated ? redactA2ATaskPushConfig(updated) : updated)
   })
 }

@@ -30,6 +30,8 @@ export interface ProviderExecutionResult {
   attemptedProviders: AdapterProviderId[]
   /** Number of fallback attempts before success (0 = first provider succeeded) */
   fallbackAttempts: number
+  /** Additional provider-neutral execution metadata */
+  metadata?: Record<string, unknown>
 }
 
 /**

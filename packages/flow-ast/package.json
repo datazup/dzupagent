@@ -2,7 +2,7 @@
   "name": "@dzupagent/flow-ast",
   "version": "0.2.0",
   "type": "module",
-  "description": "Flow AST type definitions for DzupAgent flow-compiler — pure, runtime-free types shared across compiler stages",
+  "description": "Flow AST contracts plus local parser and validator helpers for DzupAgent flow compiler stages",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

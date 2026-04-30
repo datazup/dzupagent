@@ -282,6 +282,7 @@ export async function resolveAgentTools(
           ...(httpProfile.headers ? { headers: httpProfile.headers } : {}),
           ...(httpProfile.allowedMethods ? { allowedMethods: httpProfile.allowedMethods } : {}),
           ...(httpProfile.timeoutMs !== undefined ? { timeoutMs: httpProfile.timeoutMs } : {}),
+          ...(httpProfile.allowedHosts ? { allowedHosts: httpProfile.allowedHosts } : {}),
         }
         const httpTools = (connectors['createHTTPConnector'] as (
           cfg: {
@@ -289,6 +290,7 @@ export async function resolveAgentTools(
             headers?: Record<string, string>
             allowedMethods?: Array<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'>
             timeoutMs?: number
+            allowedHosts?: string[]
           },
         ) => StructuredToolInterface[])(httpConfig)
         for (const t of httpTools) {

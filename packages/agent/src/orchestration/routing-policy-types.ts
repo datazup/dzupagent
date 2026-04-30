@@ -39,6 +39,20 @@ export interface RoutingDecision {
   reason: string
   /** Which strategy produced this decision */
   strategy: 'rule' | 'hash' | 'llm' | 'round-robin' | string
+  /** Human-readable explanation when the policy used deterministic fallback behavior */
+  fallbackReason?: string
+  /** Machine-readable routing diagnostics for observability */
+  diagnostics?: RoutingDiagnostics
+}
+
+/** Machine-readable routing details emitted by supervisors when available */
+export interface RoutingDiagnostics {
+  /** Candidate IDs considered by the routing policy */
+  candidateIds: string[]
+  /** Candidate IDs selected by the routing policy */
+  selectedIds: string[]
+  /** Fallback reason when the policy did not produce a primary selection */
+  fallbackReason?: string
 }
 
 /**
@@ -53,6 +67,31 @@ export interface RoutingPolicy {
    * Must return at least one agent if candidates is non-empty.
    */
   select(task: AgentTask, candidates: AgentSpec[]): RoutingDecision
+}
+
+export type LLMRoutingFallback = 'pass-through' | 'first-candidate'
+
+export type LLMRoutingSelection =
+  | string
+  | string[]
+  | AgentSpec
+  | AgentSpec[]
+  | RoutingDecision
+  | null
+  | undefined
+
+/** Configuration for the explicit LLM routing adapter */
+export interface LLMRoutingConfig {
+  /**
+   * Product/framework-provided selector result. This stays provider-neutral:
+   * callers can adapt any model/tool result into candidate IDs or AgentSpec(s).
+   */
+  selector?: (task: AgentTask, candidates: AgentSpec[]) => LLMRoutingSelection
+  /**
+   * Required deterministic fallback when the selector is omitted, empty, or
+   * returns IDs that are not in the current candidate set.
+   */
+  fallback: LLMRoutingFallback
 }
 
 /** Configuration for rule-based routing */

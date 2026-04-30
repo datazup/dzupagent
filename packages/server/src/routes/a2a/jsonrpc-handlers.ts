@@ -19,6 +19,11 @@ import type {
 } from '@dzupagent/core'
 import type { A2ACallerScope, A2ARoutesConfig } from './helpers.js'
 import { callerOwnsTask } from './helpers.js'
+import {
+  assertA2APushCallbackUrlAllowed,
+  redactA2APushConfig,
+  redactA2ATaskPushConfig,
+} from '../../a2a/push-notifications.js'
 
 // ---------------------------------------------------------------------------
 // tasks/send — create or continue a task
@@ -69,7 +74,7 @@ export async function handleTasksSend(
           })
         }
 
-        return createJsonRpcSuccess(req.id, continued)
+        return createJsonRpcSuccess(req.id, continued ? redactA2ATaskPushConfig(continued) : continued)
       }
 
       // Task exists but is not in input-required state — error
@@ -84,7 +89,7 @@ export async function handleTasksSend(
 
       // Task is still working/submitted — append message anyway
       const updated = await config.taskStore.appendMessage(taskId, message)
-      return createJsonRpcSuccess(req.id, updated)
+      return createJsonRpcSuccess(req.id, updated ? redactA2ATaskPushConfig(updated) : updated)
     }
   }
 
@@ -125,7 +130,7 @@ export async function handleTasksSend(
     })
   }
 
-  return createJsonRpcSuccess(req.id, task)
+  return createJsonRpcSuccess(req.id, redactA2ATaskPushConfig(task))
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +153,7 @@ export async function handleTasksGet(
     return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
   }
 
-  return createJsonRpcSuccess(req.id, task)
+  return createJsonRpcSuccess(req.id, redactA2ATaskPushConfig(task))
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +187,7 @@ export async function handleTasksCancel(
   }
 
   const updated = await config.taskStore.update(task.id, { state: 'cancelled' })
-  return createJsonRpcSuccess(req.id, updated)
+  return createJsonRpcSuccess(req.id, updated ? redactA2ATaskPushConfig(updated) : updated)
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +208,12 @@ export async function handlePushNotificationSet(
   if (!pushConfig || typeof pushConfig.url !== 'string') {
     return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, 'params.pushNotificationConfig.url is required')
   }
+  try {
+    await assertA2APushCallbackUrlAllowed(pushConfig.url, config.pushNotificationUrlPolicy)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, message)
+  }
 
   const task = await config.taskStore.get(taskId)
   if (!task || !callerOwnsTask(scope, task)) {
@@ -210,7 +221,7 @@ export async function handlePushNotificationSet(
   }
 
   const updated = await config.taskStore.setPushConfig(taskId, pushConfig)
-  return createJsonRpcSuccess(req.id, updated)
+  return createJsonRpcSuccess(req.id, updated ? redactA2ATaskPushConfig(updated) : updated)
 }
 
 // ---------------------------------------------------------------------------
@@ -232,5 +243,5 @@ export async function handlePushNotificationGet(
     return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
   }
 
-  return createJsonRpcSuccess(req.id, task.pushNotificationConfig ?? null)
+  return createJsonRpcSuccess(req.id, redactA2APushConfig(task.pushNotificationConfig) ?? null)
 }

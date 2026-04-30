@@ -55,6 +55,18 @@ export interface DelegationResult {
 
 /** Metadata about a completed delegation. */
 export interface DelegationMetadata {
+  /** Stable assignment/node key used to aggregate batch delegation results. */
+  assignmentId?: string
+  /** Specialist agent that executed this delegation. */
+  specialistId?: string
+  /** Provider that completed provider-port execution. */
+  providerId?: string
+  /** Providers attempted during provider-port execution. */
+  attemptedProviders?: string[]
+  /** Number of provider fallback attempts before success. */
+  fallbackAttempts?: number
+  /** Additional provider-port metadata that is not part of the core contract. */
+  providerMetadata?: Record<string, unknown>
   modelTier?: string
   tokenUsage?: { input: number; output: number }
   durationMs: number

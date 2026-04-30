@@ -310,25 +310,48 @@ export interface ForgeAutomationRouteFamilyConfig {
     taskStore?: A2ATaskStore
     onTaskSubmitted?: A2ARoutesConfig['onTaskSubmitted']
     onTaskContinued?: A2ARoutesConfig['onTaskContinued']
+    pushNotificationUrlPolicy?: A2ARoutesConfig['pushNotificationUrlPolicy']
   }
   triggerStore?: TriggerStore
   scheduleStore?: ScheduleStore
   onScheduleTrigger?: ScheduleRouteConfig['onManualTrigger']
 }
 
-/** Prompt, persona, preset, marketplace, reflection, mailbox, and cluster config. */
+/**
+ * Compatibility-only route-family config for legacy server-hosted control
+ * planes: prompts, personas, presets, marketplace, reflections, mailbox,
+ * clusters, closed-loop processors, and approval state.
+ *
+ * Do not add new product-control-plane fields here. New app-owned concepts
+ * such as workspaces, projects, tasks/subtasks, operator dashboards, personas
+ * as product UX, prompt-template product flows, marketplace UX, or memory
+ * policy controls should define app-owned config and mount routes through
+ * `routePlugins` or app-level Hono composition around `createForgeApp`.
+ */
 export interface ForgeControlPlaneRouteFamilyConfig {
+  /** Compatibility-only prompt route store. New product prompt UX belongs in the consuming app. */
   promptStore?: PromptStore
+  /** Compatibility-only persona route store. New product persona UX belongs in the consuming app. */
   personaStore?: PersonaStore
+  /** Compatibility-only notification integration for existing server routes. */
   notifier?: Notifier
+  /** Compatibility-only preset route registry. New product preset UX belongs in the consuming app. */
   presetRegistry?: PresetRegistry
+  /** Compatibility-only reflection route store. */
   reflectionStore?: RunReflectionStore
+  /** Compatibility-only mailbox route store. */
   mailboxStore?: MailboxStore
+  /** Compatibility-only mailbox delivery wiring. */
   mailDelivery?: MailDeliveryConfig
+  /** Compatibility-only cluster route store. */
   clusterStore?: ClusterStore
+  /** Compatibility-only marketplace catalog route store. New product marketplace UX belongs in the consuming app. */
   catalogStore?: CatalogStore
+  /** Compatibility-only closed-loop prompt processor lifecycle hook. */
   promptFeedbackLoop?: PromptFeedbackLoop | PromptFeedbackLoopLike
+  /** Compatibility-only closed-loop learning processor lifecycle hook. */
   learningEventProcessor?: LearningEventProcessor | LearningEventProcessorLike
+  /** Compatibility-only approval state route store. */
   approvalStore?: ApprovalStateStore
 }
 
@@ -355,6 +378,28 @@ export interface ForgeIntegrationsConfig extends ForgeRouteFamiliesConfig {
    * by the consuming app instead of added as built-in packages/server routes.
    */
   routePlugins?: ServerRoutePlugin<ForgeServerConfig>[]
+}
+
+/**
+ * Narrow host-runtime config for new `createForgeApp` hosts.
+ *
+ * Use this type when a host only needs the framework runtime, transport,
+ * security, and route-plugin seam. It intentionally excludes the frozen
+ * compatibility route-family fields exposed by {@link ForgeServerConfig};
+ * app/product routes should keep their own app-owned config and mount through
+ * `routePlugins` or app-level Hono composition.
+ */
+export interface ForgeHostRuntimeConfig
+  extends ForgeCoreConfig,
+    ForgeTransportConfig,
+    ForgeRuntimeConfig,
+    ForgeSecurityConfig {
+  /**
+   * Host-supplied route plugins for app-owned or integration-owned routes.
+   * New product-specific route families should use this seam instead of
+   * adding fields to `ForgeServerConfig`.
+   */
+  routePlugins?: ForgeIntegrationsConfig['routePlugins']
 }
 
 /**

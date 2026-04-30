@@ -4,6 +4,17 @@ export interface CrawlOptions {
   includePatterns?: string[] | undefined
   excludePatterns?: string[] | undefined
   waitForIdle?: number | undefined
+  sameOrigin?: boolean | undefined
+  allowedOrigins?: string[] | undefined
+  allowCrossOrigin?: boolean | undefined
+  navigationPolicy?: BrowserNavigationPolicy | undefined
+}
+
+export interface BrowserNavigationPolicy {
+  allowedProtocols?: string[] | undefined
+  allowedOrigins?: string[] | undefined
+  allowedHosts?: string[] | undefined
+  allowPrivateNetwork?: boolean | undefined
 }
 
 export interface CrawlResult {

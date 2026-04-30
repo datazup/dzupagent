@@ -2,10 +2,10 @@
  * Types for the contract-net negotiation protocol.
  *
  * The contract-net protocol follows this lifecycle:
- * 1. Manager announces a Call For Proposals (CFP)
+ * 1. A Call For Proposals (CFP) is announced
  * 2. Specialists submit bids
- * 3. Manager evaluates bids using a pluggable strategy
- * 4. Manager awards the contract to the best bidder
+ * 3. Bids are evaluated using a pluggable strategy
+ * 4. The contract is awarded to the best bidder
  * 5. Winner executes the task
  * 6. Result is returned
  */
@@ -69,7 +69,6 @@ export interface BidEvaluationStrategy {
 }
 
 export interface ContractNetConfig {
-  manager: DzupAgent
   specialists: DzupAgent[]
   task: string
   strategy?: BidEvaluationStrategy

@@ -15,6 +15,7 @@
 export { createForgeApp } from './app.js'
 export type {
   ForgeServerConfig,
+  ForgeHostRuntimeConfig,
   ForgeRouteFamiliesConfig,
   ForgeMemoryRouteFamilyConfig,
   ForgeCompatibilityRouteFamilyConfig,

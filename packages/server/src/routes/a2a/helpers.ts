@@ -5,6 +5,7 @@ import type { Context } from 'hono'
 import type { AgentCard } from '../../a2a/agent-card.js'
 import type { A2ATaskStore } from '../../a2a/task-handler.js'
 import type { A2ATask } from '../../a2a/task-handler.js'
+import type { OutboundUrlSecurityPolicy } from '@dzupagent/core'
 
 export interface A2ARoutesConfig {
   agentCard: AgentCard
@@ -13,6 +14,8 @@ export interface A2ARoutesConfig {
   onTaskSubmitted?: (task: A2ATask) => Promise<void>
   /** Called when a multi-turn task receives additional input. */
   onTaskContinued?: (task: A2ATask) => Promise<void>
+  /** Optional allowlist policy for intentional internal A2A callback targets. */
+  pushNotificationUrlPolicy?: OutboundUrlSecurityPolicy
 }
 
 /** Known A2A JSON-RPC methods. */

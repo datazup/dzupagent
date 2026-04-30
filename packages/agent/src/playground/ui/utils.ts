@@ -63,6 +63,47 @@ export interface TraceInteractionStyles {
   selectedBorder: string
 }
 
+export interface TraceSurfaceStyles {
+  panel: string
+  panelMuted: string
+  panelSubtle: string
+  tableHeader: string
+  tableRow: string
+  divider: string
+  dividerSubtle: string
+  interactive: string
+  interactiveMuted: string
+  track: string
+}
+
+export interface TraceTextStyles {
+  primary: string
+  secondary: string
+  muted: string
+  subtle: string
+  disabled: string
+}
+
+export interface TraceTheme {
+  /**
+   * Product-neutral surface slots used by retained trace helpers.
+   */
+  surface: TraceSurfaceStyles
+  /**
+   * Product-neutral text slots used by retained trace helpers.
+   */
+  text: TraceTextStyles
+  /**
+   * Keyboard focus and selected-state slots.
+   */
+  interaction: TraceInteractionStyles
+  /**
+   * Semantic status and change tones. Palette classes live only in the default
+   * map; helper functions consume the semantic tone keys.
+   */
+  statusTones: Record<TraceTone, TraceToneStyles>
+}
+
 export interface TraceUiHostContract {
   /**
    * Tailwind must be configured to activate dark variants from a `.dark`
@@ -101,33 +142,94 @@ export const traceUiHostContract: TraceUiHostContract = {
   ],
 }
 
-export const traceInteractionStyles: TraceInteractionStyles = {
-  focusRing: 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500',
-  selectedSurface: 'bg-blue-50 dark:bg-blue-950',
-  selectedBorder: 'border-blue-500 dark:border-blue-400',
+export const defaultTraceTheme: TraceTheme = {
+  surface: {
+    panel: 'rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900',
+    panelMuted: 'rounded-md bg-gray-50 dark:bg-gray-800',
+    panelSubtle: 'rounded-md border border-gray-200 dark:border-gray-700',
+    tableHeader: 'border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800',
+    tableRow: 'border-b border-gray-100 last:border-b-0 dark:border-gray-800',
+    divider: 'border-gray-200 dark:border-gray-700',
+    dividerSubtle: 'border-gray-100 dark:border-gray-800',
+    interactive: 'border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-gray-700 dark:hover:bg-gray-900',
+    interactiveMuted: 'hover:bg-gray-50 dark:hover:bg-gray-800',
+    track: 'bg-gray-100 dark:bg-gray-800',
+  },
+  text: {
+    primary: 'text-gray-900 dark:text-gray-100',
+    secondary: 'text-gray-800 dark:text-gray-200',
+    muted: 'text-gray-500 dark:text-gray-400',
+    subtle: 'text-gray-600 dark:text-gray-400',
+    disabled: 'text-gray-400 dark:text-gray-500',
+  },
+  interaction: {
+    focusRing: 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500',
+    selectedSurface: 'bg-blue-50 dark:bg-blue-950',
+    selectedBorder: 'border-blue-500 dark:border-blue-400',
+  },
+  statusTones: {
+    danger: {
+      badge: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+      dot: 'bg-red-500',
+      bar: 'bg-red-500',
+      text: 'text-red-600 dark:text-red-400',
+      textStrong: 'text-red-800 dark:text-red-200',
+      panel: 'border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950',
+      borderLeft: 'border-l-red-500',
+    },
+    success: {
+      badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200',
+      dot: 'bg-emerald-500',
+      bar: 'bg-emerald-500',
+      text: 'text-emerald-600 dark:text-emerald-400',
+      textStrong: 'text-emerald-800 dark:text-emerald-200',
+      panel: 'border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950',
+      borderLeft: 'border-l-emerald-500',
+    },
+    warning: {
+      badge: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+      dot: 'bg-yellow-500',
+      bar: 'bg-yellow-500',
+      text: 'text-yellow-600 dark:text-yellow-400',
+      textStrong: 'text-yellow-800 dark:text-yellow-200',
+      panel: 'border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950',
+      borderLeft: 'border-l-yellow-500',
+    },
+    neutral: {
+      badge: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+      dot: 'bg-gray-400',
+      bar: 'bg-gray-400',
+      text: 'text-gray-600 dark:text-gray-400',
+      textStrong: 'text-gray-900 dark:text-gray-100',
+      panel: 'border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800',
+      borderLeft: 'border-l-transparent',
+    },
+  },
 }
 
+export const traceInteractionStyles: TraceInteractionStyles = defaultTraceTheme.interaction
+
 export const traceUiStyles = {
-  panel: 'rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900',
-  panelMuted: 'rounded-md bg-gray-50 dark:bg-gray-800',
-  panelSubtle: 'rounded-md border border-gray-200 dark:border-gray-700',
-  tableHeader: 'border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800',
-  tableRow: 'border-b border-gray-100 last:border-b-0 dark:border-gray-800',
-  divider: 'border-gray-200 dark:border-gray-700',
-  dividerSubtle: 'border-gray-100 dark:border-gray-800',
-  focusRing: traceInteractionStyles.focusRing,
-  selectedSurface: traceInteractionStyles.selectedSurface,
-  selectedBorder: traceInteractionStyles.selectedBorder,
-  selected: `${traceInteractionStyles.selectedBorder} ${traceInteractionStyles.selectedSurface}`,
-  interactive: 'border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-gray-700 dark:hover:bg-gray-900',
-  interactiveMuted: 'hover:bg-gray-50 dark:hover:bg-gray-800',
-  track: 'bg-gray-100 dark:bg-gray-800',
-  textPrimary: 'text-gray-900 dark:text-gray-100',
-  textSecondary: 'text-gray-800 dark:text-gray-200',
-  textMuted: 'text-gray-500 dark:text-gray-400',
-  textSubtle: 'text-gray-600 dark:text-gray-400',
-  textDisabled: 'text-gray-400 dark:text-gray-500',
-  badgeNeutral: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+  panel: defaultTraceTheme.surface.panel,
+  panelMuted: defaultTraceTheme.surface.panelMuted,
+  panelSubtle: defaultTraceTheme.surface.panelSubtle,
+  tableHeader: defaultTraceTheme.surface.tableHeader,
+  tableRow: defaultTraceTheme.surface.tableRow,
+  divider: defaultTraceTheme.surface.divider,
+  dividerSubtle: defaultTraceTheme.surface.dividerSubtle,
+  focusRing: defaultTraceTheme.interaction.focusRing,
+  selectedSurface: defaultTraceTheme.interaction.selectedSurface,
+  selectedBorder: defaultTraceTheme.interaction.selectedBorder,
+  selected: `${defaultTraceTheme.interaction.selectedBorder} ${defaultTraceTheme.interaction.selectedSurface}`,
+  interactive: defaultTraceTheme.surface.interactive,
+  interactiveMuted: defaultTraceTheme.surface.interactiveMuted,
+  track: defaultTraceTheme.surface.track,
+  textPrimary: defaultTraceTheme.text.primary,
+  textSecondary: defaultTraceTheme.text.secondary,
+  textMuted: defaultTraceTheme.text.muted,
+  textSubtle: defaultTraceTheme.text.subtle,
+  textDisabled: defaultTraceTheme.text.disabled,
+  badgeNeutral: defaultTraceTheme.statusTones.neutral.badge,
 } as const
 
 /**
@@ -177,44 +279,7 @@ export const traceDensityStyles: Record<TraceDensity, TraceDensityStyles> = {
   },
 }
 
-export const traceToneStyles: Record<TraceTone, TraceToneStyles> = {
-  danger: {
-    badge: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
-    dot: 'bg-red-500',
-    bar: 'bg-red-500',
-    text: 'text-red-600 dark:text-red-400',
-    textStrong: 'text-red-800 dark:text-red-200',
-    panel: 'border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950',
-    borderLeft: 'border-l-red-500',
-  },
-  success: {
-    badge: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200',
-    dot: 'bg-emerald-500',
-    bar: 'bg-emerald-500',
-    text: 'text-emerald-600 dark:text-emerald-400',
-    textStrong: 'text-emerald-800 dark:text-emerald-200',
-    panel: 'border border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950',
-    borderLeft: 'border-l-emerald-500',
-  },
-  warning: {
-    badge: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
-    dot: 'bg-yellow-500',
-    bar: 'bg-yellow-500',
-    text: 'text-yellow-600 dark:text-yellow-400',
-    textStrong: 'text-yellow-800 dark:text-yellow-200',
-    panel: 'border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950',
-    borderLeft: 'border-l-yellow-500',
-  },
-  neutral: {
-    badge: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-    dot: 'bg-gray-400',
-    bar: 'bg-gray-400',
-    text: 'text-gray-600 dark:text-gray-400',
-    textStrong: 'text-gray-900 dark:text-gray-100',
-    panel: 'border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800',
-    borderLeft: 'border-l-transparent',
-  },
-}
+export const traceToneStyles: Record<TraceTone, TraceToneStyles> = defaultTraceTheme.statusTones
 
 export function getTraceStatusTone(status: NodeStatus): TraceTone {
   switch (status) {

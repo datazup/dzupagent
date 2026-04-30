@@ -2,10 +2,11 @@
  * Team policy types — orthogonal knobs that control how a `TeamDefinition`
  * executes at runtime.
  *
- * Each policy is optional; the runtime applies sensible defaults when a
- * policy (or any field within it) is omitted. Policies are deliberately
- * decoupled from the definition so that the same team can be promoted from
- * ephemeral/sandboxed to persistent/live by swapping policy objects.
+ * Each policy is optional; the runtime applies sensible defaults for supported
+ * omissions and rejects reserved policy groups or fields until it can enforce
+ * them. Policies are deliberately decoupled from the definition so that the
+ * same team can be promoted from ephemeral/sandboxed to persistent/live by
+ * swapping policy objects once those controls are implemented.
  */
 
 /** Controls the supported participant scheduling subset for TeamRuntime. */
@@ -54,8 +55,31 @@ export interface MemoryPolicy {
   tier: 'ephemeral' | 'session' | 'persistent'
   /** Whether all participants share the same memory store. */
   shareAcrossParticipants: boolean
-  /** Whether to consolidate/summarize memory when the run completes. */
+  /**
+   * Whether to consolidate/summarize memory when the run completes.
+   *
+   * TeamRuntime rejects this field when it is enabled until a real
+   * consolidation implementation exists.
+   */
   consolidateOnComplete?: boolean
+  /**
+   * Serialized-size budget for blackboard shared context passed to
+   * participants. Applies only to the `blackboard` coordinator pattern.
+   */
+  blackboardContext?: BlackboardContextPolicy
+}
+
+/** Overflow behavior for bounded blackboard context. */
+export type BlackboardContextOverflowBehavior = 'compact' | 'reject'
+
+/** Controls bounded shared-context prompts for the blackboard pattern. */
+export interface BlackboardContextPolicy {
+  /** Maximum serialized characters for the formatted shared context. */
+  maxSerializedChars?: number
+  /** Maximum characters accepted for a single participant contribution. */
+  maxEntryChars?: number
+  /** How to handle oversized participant contributions (default: `compact`). */
+  overflowBehavior?: BlackboardContextOverflowBehavior
 }
 
 /** Controls sandboxing and workspace sharing. */

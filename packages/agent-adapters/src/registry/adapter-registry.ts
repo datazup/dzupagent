@@ -178,6 +178,7 @@ export class ProviderAdapterRegistry {
   getHealthy(providerId: AdapterProviderId): AgentCLIAdapter | undefined {
     const adapter = this.adapters.get(providerId)
     if (!adapter) return undefined
+    if (this.disabledAdapters.has(providerId)) return undefined
     const breaker = this.breakers.get(providerId)
     if (breaker && !breaker.canExecute()) return undefined
     return adapter

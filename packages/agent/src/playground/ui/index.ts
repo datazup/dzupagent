@@ -17,7 +17,9 @@
  * Dark-mode precondition for hosts that intentionally reuse these internal
  * class strings: Tailwind must use class-based dark mode, and the host must
  * toggle a `.dark` class on an ancestor. The machine-readable form of this
- * contract is exported as `traceUiHostContract`.
+ * contract is exported as `traceUiHostContract`. Semantic trace theme slots are
+ * exported as `defaultTraceTheme`; they remain an internal helper contract, not
+ * a reusable product UI surface.
  *
  * @deprecated Framework-internal source module. Do not import playground UI
  * internals as a product UI API.
@@ -51,6 +53,7 @@ export {
   getErrorEventTypes,
   formatValue,
   traceUiHostContract,
+  defaultTraceTheme,
   traceInteractionStyles,
   traceUiStyles,
   traceDensityStyles,
@@ -67,6 +70,9 @@ export type {
   ChangeType,
   TraceTone,
   TraceDensity,
+  TraceTheme,
+  TraceSurfaceStyles,
+  TraceTextStyles,
   TraceToneStyles,
   TraceDensityStyles,
   TraceInteractionStyles,

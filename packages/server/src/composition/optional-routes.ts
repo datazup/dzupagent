@@ -46,6 +46,7 @@ import { createReflectionRoutes } from '../routes/reflections.js'
 import { createMailboxRoutes } from '../routes/mailbox.js'
 import { createClusterRoutes } from '../routes/clusters.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { rbacMiddleware } from '../middleware/rbac.js'
 import { InMemoryMailboxStore } from '@dzupagent/agent'
 import {
   MailRateLimiter,
@@ -63,6 +64,7 @@ import { createOpenAICompatCompletionsRoute } from '../routes/openai-compat/comp
 import { createModelsRoute } from '../routes/openai-compat/models-route.js'
 import { PrometheusMetricsCollector } from '../metrics/prometheus-collector.js'
 import { createMetricsRoute } from '../routes/metrics.js'
+import { createDefaultRbacConfig } from './middleware.js'
 import { registerShutdownDrainHook } from './utils.js'
 
 export interface OptionalRoutesContext {
@@ -214,6 +216,11 @@ function mountA2ARoutes(app: Hono, ctx: OptionalRoutesContext): void {
     app.use('/a2a', authMiddleware(effectiveAuth))
     app.use('/a2a/*', authMiddleware(effectiveAuth))
   }
+  if (effectiveAuth && runtimeConfig.rbac !== false) {
+    const rbacConfig = createDefaultRbacConfig(runtimeConfig)
+    app.use('/a2a', rbacMiddleware(rbacConfig))
+    app.use('/a2a/*', rbacMiddleware(rbacConfig))
+  }
 
   // Select task store: Drizzle if env flag set, otherwise provided or in-memory
   let taskStore: A2ATaskStore
@@ -222,9 +229,13 @@ function mountA2ARoutes(app: Hono, ctx: OptionalRoutesContext): void {
   } else if (process.env['USE_DRIZZLE_A2A'] === 'true') {
     // DrizzleA2ATaskStore requires a db instance passed via taskStore config
     // Fall back to in-memory if no store was explicitly provided
-    taskStore = new InMemoryA2ATaskStore()
+    taskStore = new InMemoryA2ATaskStore({
+      pushNotificationUrlPolicy: a2aConfig.pushNotificationUrlPolicy,
+    })
   } else {
-    taskStore = new InMemoryA2ATaskStore()
+    taskStore = new InMemoryA2ATaskStore({
+      pushNotificationUrlPolicy: a2aConfig.pushNotificationUrlPolicy,
+    })
   }
 
   const a2aRoutes = createA2ARoutes({
@@ -232,6 +243,7 @@ function mountA2ARoutes(app: Hono, ctx: OptionalRoutesContext): void {
     taskStore,
     onTaskSubmitted: a2aConfig.onTaskSubmitted,
     onTaskContinued: a2aConfig.onTaskContinued,
+    pushNotificationUrlPolicy: a2aConfig.pushNotificationUrlPolicy,
   })
   app.route('', a2aRoutes)
 }
@@ -323,8 +335,11 @@ function mountOpenAICompatRoutes(app: Hono, { runtimeConfig }: OptionalRoutesCon
     return
   }
 
-  // Apply OpenAI auth middleware to all /v1/* routes (separate from /api/* auth)
+  // Apply OpenAI auth middleware to all /v1/* routes (separate from /api/* auth).
   app.use('/v1/*', openaiAuthMiddleware(runtimeConfig.openai?.auth))
+  if (runtimeConfig.rbac !== false) {
+    app.use('/v1/*', rbacMiddleware(createDefaultRbacConfig(runtimeConfig)))
+  }
 
   app.route('/v1/chat/completions', createOpenAICompatCompletionsRoute({
     agentStore: runtimeConfig.agentStore,
