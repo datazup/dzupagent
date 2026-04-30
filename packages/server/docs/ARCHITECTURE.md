@@ -75,6 +75,10 @@ Public package entrypoints:
 - `/api/*` auth (when configured), with optional API key store auto-wiring.
 - `/api/*` RBAC by default (can disable via `rbac: false`).
 - `/api/*` rate limiting (when configured).
+- Configured compatibility route controls: A2A `/a2a` and `/a2a/*` reuse the
+  framework auth/RBAC context and rate limiter; OpenAI-compatible `/v1/*`
+  reuses the framework rate limiter and enforces RBAC from OpenAI bearer auth
+  metadata when `openai.enabled: true`.
 - `/api/runs` shutdown write guard for POST during drain.
 - Global request metrics instrumentation (when metrics collector provided).
 - Global error handler.
@@ -107,12 +111,20 @@ Run lifecycle path (configured queue mode):
 ## Key APIs and Types
 App factory and configuration:
 - `createForgeApp(config: ForgeServerConfig): Hono`.
+- `ForgeHostRuntimeConfig` is the narrower host-runtime seam for new hosts that
+  only need core stores, transport/security policy, runtime lifecycle wiring,
+  and `routePlugins`. It intentionally excludes frozen compatibility
+  route-family fields.
 - `ForgeServerConfig` is composed from `ForgeCoreConfig`, `ForgeTransportConfig`, `ForgeRuntimeConfig`, `ForgeIntegrationsConfig`, and `ForgeSecurityConfig` in `src/composition/types.ts`.
 - Optional route-facing config is further split into feature-family contracts:
   `ForgeMemoryRouteFamilyConfig`, `ForgeCompatibilityRouteFamilyConfig`,
   `ForgeEvaluationRouteFamilyConfig`, `ForgeAdapterRouteFamilyConfig`,
   `ForgeAutomationRouteFamilyConfig`, and
   `ForgeControlPlaneRouteFamilyConfig`.
+- `ForgeControlPlaneRouteFamilyConfig` is compatibility-only. Do not add new
+  product-control-plane fields to it for workspaces, projects, tasks/subtasks,
+  operator dashboards, prompt-template product flows, marketplace UX, or
+  app-specific memory policy controls.
 - `mountOptionalRoutes` adapts existing `ForgeServerConfig` optional fields into
   `ServerRoutePlugin` instances, preserving source compatibility while keeping
   new product route families on the `routePlugins` seam.

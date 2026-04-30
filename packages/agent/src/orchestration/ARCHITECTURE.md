@@ -99,6 +99,12 @@ Subdirectories:
 - execute awarded task with winning specialist
 - emit protocol events through `DzupEventBus` when provided
 
+`ContractNetConfig` no longer accepts a manager agent. CFP construction,
+bid collection, bid evaluation, award events, and execution are handled by
+the reusable protocol manager class plus the configured specialists and
+strategy; passing a legacy `manager` property raises an explicit
+`OrchestrationError` instead of being silently ignored.
+
 ### 4) Topology
 - `TopologyAnalyzer`: heuristic scoring over task characteristics.
 - `TopologyExecutor`:
@@ -206,11 +212,9 @@ Current implementation risks/gaps visible in code:
   - Multiple same-specialist nodes in one execution chunk can overwrite each other.
 - `MapReduceConfig.mergeStrategy` type union omits supported names (`numbered`, `json`) even though `getMergeStrategy` supports them.
 - `AgentOrchestrator.supervisor` provider-adapter branch requires both `executionMode === 'provider-adapter'` and `providerPort`; missing port silently falls back to agent mode.
-- `ContractNetConfig.manager` exists in contract type but manager instance is not currently used inside `ContractNetManager.execute` logic.
 - `TopologyExecutor` routed-path metrics (`pipeline`, `star`, `hierarchical`) currently hardcode `errorCount: 0` unless errors throw, unlike mesh/ring which track per-agent failures.
 - Team runtime pattern labels are not perfectly aligned with coordinator pattern names in all return paths (for example some paths return `'peer-to-peer'`/`'supervisor'` as pattern labels independent of coordinator enum shape).
 - `orchestration-telemetry.ts` currently logs to debug output only; no direct OTel SDK binding in this module.
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

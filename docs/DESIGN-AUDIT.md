@@ -15,17 +15,33 @@ Evidence:
 
 Remediation: Keep framework packages product-neutral, but formalize a small semantic trace-theme contract if these helpers remain. Prefer CSS custom properties or a class-map injection API such as `TraceThemeClasses` with documented semantic slots (`surface`, `surfaceMuted`, `textMuted`, `toneDanger`, `toneSuccess`, `focusRing`). If product UIs are the forward path, move the actual visual implementation to the consuming app design system and leave only data/contracts in DzupAgent.
 
-### DESIGN-002 [medium] Vue trace components are retained as source but are outside the build, typecheck, and public package surface
+### DESIGN-002 [medium] Vue trace components ownership needed an explicit package boundary
 
-Impact: The repository contains SFC components that look like reusable trace UI, but `@dzupagent/agent` intentionally does not build or publish them. That boundary is reasonable for the framework, yet it means component adoption cannot be validated by the package quality gates and the source can drift from real app design systems. It also creates ambiguity for contributors deciding whether to improve framework UI or app UI.
+Current resolution: The chosen ownership path is internal non-public source for
+rendering-independent trace helpers only. Vue SFC source has been removed from
+`@dzupagent/agent`; product trace/debugger UI belongs in the consuming app or a
+future real reusable UI package with its own Vue peer dependencies, build,
+typecheck, render tests, and public export contract.
+
+Impact: Before this boundary was encoded, the repository contained SFC
+components that looked like reusable trace UI, but `@dzupagent/agent`
+intentionally did not build or publish them. That was a reasonable framework
+boundary, yet it meant component adoption could not be validated by the package
+quality gates and the source could drift from real app design systems. It also
+created ambiguity for contributors deciding whether to improve framework UI or
+app UI.
 
 Evidence:
-- `packages/agent/docs/api-tiers.md:117` says `packages/agent/src/playground/ui/*.vue` is not a public design-system surface and is retained for framework-internal maintenance and tests only.
+- `packages/agent/docs/api-tiers.md` says `packages/agent/src/playground/ui` is not a public design-system surface and is limited to rendering-independent trace helpers used by source-internal maintenance tests.
 - `packages/agent/package.json:28` explicitly blocks `./playground/ui` and `./playground/ui/*` package subpaths.
 - `packages/agent/tsup.config.ts:4` builds only TypeScript entrypoints and does not include Vue SFC entries.
-- `packages/agent/tsconfig.json:24` includes only `src/**/*.ts`, so the Vue components are not typechecked by `yarn workspace @dzupagent/agent typecheck`.
+- `packages/agent/tsconfig.json:24` includes only `src/**/*.ts`, matching the internal helper-only boundary.
+- `find packages/agent/src/playground/ui -name '*.vue'` returns no Vue SFCs in the current source tree.
 
-Remediation: Choose one explicit path. If the trace UI should remain non-product source, mark it as example/internal more clearly and avoid treating it as a design-system asset. If the UI should be reused, create a real app-owned or shared UI package with Vue peer dependencies, Vite/Vue test tooling, token integration, and a public export contract.
+Remediation: Keep this path unless product needs change. If Vue trace UI is
+reintroduced as reusable UI, do it in a proper app-owned or shared UI package
+with Vue peer dependencies, Vite/Vue test tooling, token integration, and a
+public export contract.
 
 ### DESIGN-003 [medium] Trace UI uses raw controls and ad hoc component patterns instead of shared primitives
 
@@ -151,13 +167,13 @@ Explicitly out of scope:
 ## Open Questions Or Assumptions
 
 - Assumption: Design-system ownership for production app UI is expected to remain outside this repository, likely in consuming apps or a separate shared UI package, because `packages/server` and `packages/playground` are not the forward path for product UX.
-- Open question: Should the internal trace Vue files remain in DzupAgent at all, or should they be moved to an app-owned debugger UI where token/theming integration can be real?
+- Resolved for DESIGN-002: Internal trace Vue files do not remain in DzupAgent. DzupAgent keeps only headless/rendering-independent helper contracts; app-owned or dedicated UI packages own rendered trace/debugger components.
 - Open question: If DzupAgent should provide reusable trace visualization, should it expose a headless data-to-view-model package rather than framework-specific SFCs?
 - Open question: Which shared design system should Codev or other consuming apps use for trace/debugger surfaces, and does it already define semantic tokens for status, trace timelines, code blocks, and metric tiles?
 
 ## Recommended Next Actions
 
-1. Decide the ownership path for trace/debugger UI: app-owned visual implementation with DzupAgent exporting contracts, or a real reusable UI package with explicit theme and build support.
+1. Keep the encoded ownership path for trace/debugger UI: DzupAgent owns headless/rendering-independent helper contracts only; app-owned visual implementation or a real reusable UI package must own rendered components.
 2. If app-owned, update `README.md` and `packages/server/README.md` to remove absent playground workspace and legacy dist-path guidance.
 3. If reusable, introduce a semantic theme contract before adding more components. Start by replacing fixed palette/focus classes with slots for surface, text, accent, focus, and status tones.
 4. Extract repeated trace primitives or adopt the consuming app's shared components for buttons, badges, panels, metric tiles, tables, alerts, and code blocks.

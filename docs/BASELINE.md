@@ -110,7 +110,7 @@ Prepared prompt pack: `/media/ninel/Second/code/datazup/ai-internal-dev/audit/fu
   - Data, retrieval, evaluation, and test support: `@dzupagent/connectors`, `@dzupagent/connectors-browser`, `@dzupagent/connectors-documents`, `@dzupagent/rag`, `@dzupagent/scraper`, `@dzupagent/evals`, `@dzupagent/eval-contracts`, `@dzupagent/testing`, `@dzupagent/test-utils`, `@dzupagent/cache`
 - Runtime/export surfaces visible from package manifests:
   - `@dzupagent/core`: root plus `./stable`, `./advanced`, `./quick-start`, `./orchestration`, `./security`, and `./facades`.
-  - `@dzupagent/agent`: root plus `./runtime`, `./workflow`, `./tools`, `./compat`, and playground UI subpaths.
+  - `@dzupagent/agent`: root plus `./runtime`, `./workflow`, `./tools`, and `./compat`; `./playground/ui` subpaths are explicitly blocked.
   - `@dzupagent/codegen`: root plus `./vfs`, `./tools`, `./runtime`, and `./compat`.
   - `@dzupagent/server`: root plus `./ops`, `./runtime`, and `./compat`; CLI bin `dzup`.
   - `@dzupagent/flow-compiler`: CLI bin `dzupagent-compile`.
