@@ -142,6 +142,7 @@
   "@dzupagent/cache": {
     "tier": 1,
     "status": "supported",
+    "architectureRole": "Layer-0 leaf runtime primitive: dependency-light cache contracts, middleware, and backend implementations with no @dzupagent runtime dependencies.",
     "roadmapDriver": true,
     "owners": [
       "apps/codev-app",
@@ -195,6 +196,7 @@
   "@dzupagent/flow-ast": {
     "tier": 2,
     "status": "supported-secondary",
+    "architectureRole": "Layer-0 leaf runtime primitive: canonical flow AST contracts plus local parser and validator helpers with no @dzupagent runtime dependencies.",
     "roadmapDriver": false,
     "owners": [
       "apps/codev-app"
@@ -219,6 +221,7 @@
   "@dzupagent/memory-ipc": {
     "tier": 2,
     "status": "supported-secondary",
+    "architectureRole": "Layer-0 leaf runtime primitive: Arrow frame contracts, IPC serialization, and memory exchange operations with no @dzupagent runtime dependencies.",
     "roadmapDriver": false,
     "owners": [
       "apps/ai-saas-starter-kit",

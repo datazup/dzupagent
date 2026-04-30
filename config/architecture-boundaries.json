@@ -1010,12 +1010,13 @@
     }
   },
   "layerGraph": {
-    "description": "Directed acyclic layer graph for @dzupagent packages. Each package is assigned exactly one layer. A package may only depend on packages in lower-numbered layers (or share a layer for sibling type-only contracts). Tier metadata for each package lives in config/package-tiers.json — do not duplicate it here.",
+    "description": "Directed acyclic layer graph for @dzupagent packages. Each package is assigned exactly one layer. A package may only depend on packages in lower-numbered layers. Layer 0 is a leaf primitive layer: it may contain dependency-light runtime primitives when they do not depend on other @dzupagent packages. Tier metadata for each package lives in config/package-tiers.json — do not duplicate it here.",
     "layers": [
       {
         "id": 0,
-        "name": "contracts",
-        "description": "Type-only / zero-runtime-dep foundations. May not depend on any other @dzupagent package.",
+        "name": "leaf-primitives",
+        "runtimeProfile": "leaf-runtime-primitives",
+        "description": "Shared contracts and dependency-light leaf runtime primitives. May not depend on any other @dzupagent package; external runtime dependencies are allowed when the package docs and description identify the runtime role.",
         "packages": [
           "adapter-types",
           "agent-types",
@@ -1095,6 +1096,8 @@
     ],
     "rules": {
       "allowSameLayerEdges": false,
+      "layerZeroRuntimeProfile": "leaf-runtime-primitives",
+      "layerZeroMayHaveExternalRuntimeDeps": true,
       "toolingMayBeUpstreamOfSupported": false,
       "toolingLayerId": 99,
       "supportedTiers": [
