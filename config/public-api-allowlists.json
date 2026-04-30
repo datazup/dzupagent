@@ -155,6 +155,270 @@
         "./compat": "preview and transitional subsystems"
       },
       "migrationWindow": "Root transitional exports remain available through 0.x with migration to vfs/tools/runtime/compat before a future 1.0 root contraction."
+    },
+    {
+      "packageName": "@dzupagent/memory",
+      "packageDir": "packages/memory",
+      "rootIndex": "packages/memory/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./store-factory.js" },
+        { "match": "exact", "pattern": "./store-capabilities.js" },
+        { "match": "exact", "pattern": "./memory-service.js" },
+        { "match": "exact", "pattern": "./memory-types.js" },
+        { "match": "exact", "pattern": "./memory-sanitizer.js" },
+        { "match": "exact", "pattern": "./working-memory.js" },
+        { "match": "exact", "pattern": "./session-search.js" },
+        { "match": "prefix", "pattern": "./retrieval/" },
+        { "match": "exact", "pattern": "./temporal.js" },
+        { "match": "exact", "pattern": "./scoped-memory.js" },
+        { "match": "prefix", "pattern": "./provenance/" },
+        { "match": "prefix", "pattern": "./agent-file/" }
+      ],
+      "transitionalRoot": [
+        { "match": "exact", "pattern": "./decay-engine.js" },
+        { "match": "exact", "pattern": "./memory-consolidation.js" },
+        { "match": "exact", "pattern": "./semantic-consolidation.js" },
+        { "match": "exact", "pattern": "./memory-healer.js" },
+        { "match": "exact", "pattern": "./versioned-working-memory.js" },
+        { "match": "exact", "pattern": "./observation-extractor.js" },
+        { "match": "exact", "pattern": "./memory-aware-extractor.js" },
+        { "match": "exact", "pattern": "./frozen-snapshot.js" },
+        { "match": "exact", "pattern": "./staged-writer.js" },
+        { "match": "exact", "pattern": "./policy-aware-staged-writer.js" },
+        { "match": "exact", "pattern": "./write-policy.js" },
+        { "match": "exact", "pattern": "./dual-stream-writer.js" },
+        { "match": "exact", "pattern": "./sleep-consolidator.js" },
+        { "match": "exact", "pattern": "./observational-memory.js" },
+        { "match": "exact", "pattern": "./multi-network-memory.js" },
+        { "match": "prefix", "pattern": "./convention/" },
+        { "match": "prefix", "pattern": "./causal/" },
+        { "match": "exact", "pattern": "./mcp-memory-server.js" },
+        { "match": "prefix", "pattern": "./encryption/" },
+        { "match": "prefix", "pattern": "./crdt/" },
+        { "match": "prefix", "pattern": "./sharing/" },
+        { "match": "prefix", "pattern": "./multi-modal/" },
+        { "match": "exact", "pattern": "./consolidation-types.js" },
+        { "match": "exact", "pattern": "./lesson-dedup.js" },
+        { "match": "exact", "pattern": "./staleness-pruner.js" },
+        { "match": "exact", "pattern": "./shared-namespace.js" },
+        { "match": "exact", "pattern": "./vector-clock.js" },
+        { "match": "prefix", "pattern": "./sync/" },
+        { "match": "exact", "pattern": "./rule-engine.js" },
+        { "match": "exact", "pattern": "./lesson-pipeline.js" },
+        { "match": "exact", "pattern": "./skill-acquisition.js" },
+        { "match": "exact", "pattern": "./skill-packs.js" },
+        { "match": "exact", "pattern": "./memory-integrator.js" },
+        { "match": "exact", "pattern": "./tenant-scoped-store.js" },
+        { "match": "prefix", "pattern": "./shared/" },
+        { "match": "prefix", "pattern": "./graph/" }
+      ],
+      "subpaths": {},
+      "migrationWindow": "Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced."
+    },
+    {
+      "packageName": "@dzupagent/context",
+      "packageDir": "packages/context",
+      "rootIndex": "packages/context/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./message-manager.js" },
+        { "match": "exact", "pattern": "./auto-compress.js" },
+        { "match": "exact", "pattern": "./snapshot-builder.js" },
+        { "match": "exact", "pattern": "./extraction-bridge.js" },
+        { "match": "exact", "pattern": "./completeness-scorer.js" },
+        { "match": "exact", "pattern": "./context-eviction.js" },
+        { "match": "exact", "pattern": "./system-reminder.js" },
+        { "match": "exact", "pattern": "./phase-window.js" },
+        { "match": "exact", "pattern": "./progressive-compress.js" },
+        { "match": "exact", "pattern": "./prompt-cache.js" },
+        { "match": "exact", "pattern": "./context-transfer.js" },
+        { "match": "exact", "pattern": "./token-lifecycle.js" },
+        { "match": "exact", "pattern": "./char-estimate-counter.js" },
+        { "match": "exact", "pattern": "./tiktoken-counter.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Context root exports are currently the contracted package surface; add allowlist rules before exposing new root modules."
+    },
+    {
+      "packageName": "@dzupagent/rag",
+      "packageDir": "packages/rag",
+      "rootIndex": "packages/rag/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./types.js" },
+        { "match": "exact", "pattern": "./chunker.js" },
+        { "match": "exact", "pattern": "./retriever.js" },
+        { "match": "exact", "pattern": "./assembler.js" },
+        { "match": "exact", "pattern": "./pipeline.js" },
+        { "match": "exact", "pattern": "./quality-retriever.js" },
+        { "match": "exact", "pattern": "./citation-tracker.js" },
+        { "match": "exact", "pattern": "./memory-namespace.js" },
+        { "match": "exact", "pattern": "./corpus-manager.js" },
+        { "match": "exact", "pattern": "./corpus-types.js" }
+      ],
+      "transitionalRoot": [
+        { "match": "exact", "pattern": "./qdrant-factory.js" },
+        { "match": "exact", "pattern": "./folder-context-generator.js" },
+        { "match": "prefix", "pattern": "./providers/" }
+      ],
+      "subpaths": {},
+      "migrationWindow": "Root transitional exports remain available through 0.x; provider-specific RAG wiring should move to explicit provider subpaths before a future 1.0 root contraction."
+    },
+    {
+      "packageName": "@dzupagent/connectors",
+      "packageDir": "packages/connectors",
+      "rootIndex": "packages/connectors/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./connector-types.js" },
+        { "match": "exact", "pattern": "./connector-contract.js" },
+        { "match": "prefix", "pattern": "./github/" },
+        { "match": "prefix", "pattern": "./http/" },
+        { "match": "prefix", "pattern": "./slack/" },
+        { "match": "prefix", "pattern": "./database/" },
+        { "match": "prefix", "pattern": "./sql/" },
+        { "match": "exact", "pattern": "<local>:dzupagent_CONNECTORS_VERSION" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Connector root exports are currently the contracted compatibility surface; new connector families should prefer explicit subpaths before root promotion."
+    },
+    {
+      "packageName": "@dzupagent/agent-adapters",
+      "packageDir": "packages/agent-adapters",
+      "rootIndex": "packages/agent-adapters/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./types.js" },
+        { "match": "prefix", "pattern": "./registry/" },
+        { "match": "prefix", "pattern": "./facade/" },
+        { "match": "prefix", "pattern": "./integration/" },
+        { "match": "exact", "pattern": "./provider-catalog.js" },
+        { "match": "exact", "pattern": "./normalize.js" },
+        { "match": "prefix", "pattern": "./runs/" }
+      ],
+      "transitionalRoot": [
+        { "match": "prefix", "pattern": "./claude/" },
+        { "match": "prefix", "pattern": "./codex/" },
+        { "match": "prefix", "pattern": "./gemini/" },
+        { "match": "prefix", "pattern": "./qwen/" },
+        { "match": "prefix", "pattern": "./crush/" },
+        { "match": "prefix", "pattern": "./goose/" },
+        { "match": "prefix", "pattern": "./openrouter/" },
+        { "match": "prefix", "pattern": "./openai/" },
+        { "match": "prefix", "pattern": "./prompts/" },
+        { "match": "prefix", "pattern": "./middleware/" },
+        { "match": "prefix", "pattern": "./orchestration/" },
+        { "match": "prefix", "pattern": "./session/" },
+        { "match": "prefix", "pattern": "./testing/" },
+        { "match": "prefix", "pattern": "./mcp/" },
+        { "match": "prefix", "pattern": "./plugin/" },
+        { "match": "prefix", "pattern": "./guardrails/" },
+        { "match": "prefix", "pattern": "./workflow/" },
+        { "match": "prefix", "pattern": "./streaming/" },
+        { "match": "prefix", "pattern": "./observability/" },
+        { "match": "prefix", "pattern": "./approval/" },
+        { "match": "prefix", "pattern": "./recovery/" },
+        { "match": "prefix", "pattern": "./http/" },
+        { "match": "prefix", "pattern": "./context/" },
+        { "match": "prefix", "pattern": "./output/" },
+        { "match": "prefix", "pattern": "./persistence/" },
+        { "match": "prefix", "pattern": "./learning/" },
+        { "match": "prefix", "pattern": "./utils/" },
+        { "match": "prefix", "pattern": "./base/" },
+        { "match": "prefix", "pattern": "./skills/" },
+        { "match": "prefix", "pattern": "./policy/" },
+        { "match": "prefix", "pattern": "./dzupagent/" },
+        { "match": "prefix", "pattern": "./interaction/" },
+        { "match": "prefix", "pattern": "./enrichment/" },
+        { "match": "exact", "pattern": "@dzupagent/adapter-types" }
+      ],
+      "subpaths": {
+        "./providers": "provider adapter contracts, concrete provider adapters, registry primitives, and provider helpers",
+        "./orchestration": "multi-agent orchestration, sessions, context routing, and integration bridge",
+        "./workflow": "workflow DSL builder, resolver, and validator",
+        "./http": "HTTP handler, request schemas, and rate limiting",
+        "./persistence": "checkpoint, run manager, run log, and run event store helpers",
+        "./learning": "learning loop, A/B testing, interaction policy, and enrichment pipeline",
+        "./recovery": "recovery copilot, policies, escalation, cross-provider handoff, and approval gates"
+      },
+      "migrationWindow": "Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/learning/recovery subpaths before a future 1.0 root contraction."
+    },
+    {
+      "packageName": "@dzupagent/otel",
+      "packageDir": "packages/otel",
+      "rootIndex": "packages/otel/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./span-attributes.js" },
+        { "match": "exact", "pattern": "./otel-types.js" },
+        { "match": "exact", "pattern": "./noop.js" },
+        { "match": "exact", "pattern": "./trace-context-store.js" },
+        { "match": "exact", "pattern": "./tracer.js" },
+        { "match": "exact", "pattern": "./event-metric-map.js" },
+        { "match": "exact", "pattern": "./vector-metrics.js" },
+        { "match": "exact", "pattern": "./otel-bridge.js" },
+        { "match": "exact", "pattern": "./cost-attribution.js" },
+        { "match": "exact", "pattern": "./safety-monitor.js" },
+        { "match": "exact", "pattern": "./audit-trail.js" },
+        { "match": "exact", "pattern": "./otel-plugin.js" },
+        { "match": "exact", "pattern": "<local>:dzupagent_OTEL_VERSION" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "OTel root exports are currently the contracted package surface; add allowlist rules before exposing new root modules."
+    },
+    {
+      "packageName": "@dzupagent/runtime-contracts",
+      "packageDir": "packages/runtime-contracts",
+      "rootIndex": "packages/runtime-contracts/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./planning.js" },
+        { "match": "exact", "pattern": "./execution.js" },
+        { "match": "exact", "pattern": "./ledger.js" },
+        { "match": "exact", "pattern": "./schedule.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules."
+    },
+    {
+      "packageName": "@dzupagent/agent-types",
+      "packageDir": "packages/agent-types",
+      "rootIndex": "packages/agent-types/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./guardrails.js" },
+        { "match": "exact", "pattern": "./retry.js" },
+        { "match": "exact", "pattern": "./tool-permission.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Agent type root exports are stable Layer 0 contracts; add allowlist rules before exposing new type modules."
+    },
+    {
+      "packageName": "@dzupagent/eval-contracts",
+      "packageDir": "packages/eval-contracts",
+      "rootIndex": "packages/eval-contracts/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./eval-types.js" },
+        { "match": "exact", "pattern": "./benchmark-types.js" },
+        { "match": "exact", "pattern": "./store-contracts.js" },
+        { "match": "exact", "pattern": "./orchestrator-contracts.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Eval contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules."
+    },
+    {
+      "packageName": "@dzupagent/cache",
+      "packageDir": "packages/cache",
+      "rootIndex": "packages/cache/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./types.js" },
+        { "match": "exact", "pattern": "./key-generator.js" },
+        { "match": "exact", "pattern": "./backends/in-memory.js" },
+        { "match": "exact", "pattern": "./backends/redis.js" },
+        { "match": "exact", "pattern": "./middleware.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Cache root exports are currently the contracted package surface; add allowlist rules before exposing new root modules."
     }
   ]
 }
