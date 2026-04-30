@@ -1,4 +1,4 @@
-# @dzupagent/playground Architecture
+# Playground Compatibility Notes
 
 ## Scope
 This document describes the **current local reality** for `packages/playground` in this checkout.
@@ -92,7 +92,7 @@ Relevant dependency/runtime surfaces in active implementations:
 Current integration points tied to “playground” behavior:
 
 - Server optional route composition (`mountOptionalRoutes`) mounts `/playground` when configured.
-- Root onboarding points package-scoped development at real workspace packages; there is no `@dzupagent/playground` workspace command in this checkout.
+- Root onboarding points package-scoped development at real workspace packages; there is no dedicated playground workspace command in this checkout.
 - Server architecture docs should describe `/playground` as a static asset host configured through `runtimeConfig.playground.distDir`.
 - Agent package exports playground runtime primitives via its public index.
 - Product debugger/operator UI work should be owned by consuming apps such as
@@ -112,12 +112,12 @@ Active automated coverage for playground-related behavior exists in:
 Observability and operational behavior for hosted UI route is inherited from server middleware/composition (health, metrics, error handling) rather than a dedicated playground package.
 
 ## Risks and TODOs
-- Documentation drift: future docs may reintroduce `@dzupagent/playground` commands even though no such workspace package exists in this checkout.
+- Documentation drift: future docs may reintroduce dedicated playground workspace commands even though no such workspace package exists in this checkout.
 - Architecture drift: references to the removed package can mislead maintenance tasks and automation expecting `packages/playground/src`.
 - TODO: keep root/server docs aligned with current source-of-truth locations (`packages/server/src/routes/playground.ts` and `packages/agent/src/playground/*`).
 - TODO: if a dedicated UI package is reintroduced, add a real `package.json`, `README.md`, and implementation tree under `packages/playground` and replace this decommission note.
 
 ## Changelog
-- 2026-04-29: removed stale onboarding references to `@dzupagent/playground`; preserved this document as a decommission/maintenance note.
+- 2026-04-29: removed stale onboarding references to a dedicated playground workspace; preserved this document as a decommission/maintenance note.
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
 - 2026-04-26: rewritten against live checkout; documented that `packages/playground` package is absent and mapped active playground behavior to server and agent packages.

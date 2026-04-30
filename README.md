@@ -79,7 +79,7 @@ Use the connectors gate when changes touch `packages/connectors/**`.
 ## Playground UI Ownership
 
 DzupAgent does not currently own a product playground design-system package or
-an `@dzupagent/playground` workspace. The framework may host prebuilt static
+a dedicated playground workspace. The framework may host prebuilt static
 playground assets for compatibility through `@dzupagent/server`, but debugger,
 operator, workspace, project, task, and product UX work belongs in consuming
 applications such as Codev.

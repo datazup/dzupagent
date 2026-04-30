@@ -119,21 +119,26 @@ authoring module if you need stability today; expect breaking changes.
 `packages/agent/src/playground/ui` is not a public design-system surface. It is
 limited to rendering-independent trace helpers used by source-internal
 maintenance tests. Those tests validate formatting helpers, trace tone maps,
-and class composition only; they do not validate rendered Vue SFC behavior,
-visual regressions, or design-token conformance. `@dzupagent/agent`
-intentionally does not declare Vue peer/build requirements, does not emit Vue
-SFC build artifacts, and explicitly does not export `./playground/ui` package
-subpaths. While the SFCs remain internal and unpublished, no runtime visual
-validation is expected for them.
+and class composition only; they do not validate rendered component behavior,
+visual regressions, or design-token conformance. Vue SFC source is not
+maintained in this package. `@dzupagent/agent` intentionally does not declare
+Vue peer/build requirements, does not emit Vue SFC build artifacts, and
+explicitly does not export `./playground/ui` package subpaths.
+
+The trace style helpers return Tailwind class strings. Any host that
+intentionally reuses those internal helpers must configure Tailwind dark mode as
+class-based and toggle a `.dark` class on an ancestor. The package-local
+`src/playground/ui/index.ts` entrypoint exposes `traceUiHostContract` so tests
+and maintainers can assert this precondition explicitly.
 
 Consumers should import replay and execution contracts from the public API and
 render product UI inside the consuming app or design-system package. The
 rendering-independent helpers in `src/playground/ui/index.ts` remain available
 to existing source-internal tests and maintenance code, but they are not a
-published package contract. If these SFCs are promoted to a maintained UI
-surface, the promotion must add a local rendered-component test scaffold and a
-token-conformance check or documented handoff to the owning design-system test
-gate in the same change.
+published package contract. If Vue SFCs or another maintained renderer are
+reintroduced here, that promotion must add a local rendered-component test
+scaffold and a token-conformance check or documented handoff to the owning
+design-system test gate in the same change.
 
 ## Tier: internal
 
