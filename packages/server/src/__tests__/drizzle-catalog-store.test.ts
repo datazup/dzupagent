@@ -30,7 +30,7 @@ import type { CatalogEntryCreate } from '../marketplace/catalog-store.js'
 //   ilike(col, pattern) → { _kind: 'ilike', _field, _pattern }
 //   or(...parts)        → { _kind: 'or', _parts }
 //   count()             → { _kind: 'count' }          (used in select projection)
-//   sql`...`            → { _kind: 'sql' }            (array-overlap; always-true in mock)
+//   arrayOverlaps(col, vals) → { _kind: 'arrayOverlaps', _field, _values }
 // ---------------------------------------------------------------------------
 
 vi.mock('drizzle-orm', () => {
@@ -58,17 +58,13 @@ vi.mock('drizzle-orm', () => {
 
   const count = () => ({ _kind: 'count' as const })
 
-  // sql template tag: produces a sentinel.  sql.raw returns another sentinel.
-  const sql = Object.assign(
-    (_strings: TemplateStringsArray, ..._vals: unknown[]) => ({
-      _kind: 'sql' as const,
-    }),
-    {
-      raw: (_s: string) => ({ _kind: 'sql' as const }),
-    },
-  )
+  const arrayOverlaps = (col: { name: string }, values: unknown[]) => ({
+    _kind: 'arrayOverlaps' as const,
+    _field: col.name,
+    _values: values,
+  })
 
-  return { eq, and, ilike, or, count, sql }
+  return { eq, and, ilike, or, count, arrayOverlaps }
 })
 
 // ---------------------------------------------------------------------------
@@ -102,8 +98,14 @@ type AndSentinel = { _kind: 'and'; _conditions: Sentinel[] }
 type IlikeSentinel = { _kind: 'ilike'; _field: string; _pattern: string }
 type OrSentinel = { _kind: 'or'; _parts: Sentinel[] }
 type CountSentinel = { _kind: 'count' }
-type SqlSentinel = { _kind: 'sql' }
-type Sentinel = EqSentinel | AndSentinel | IlikeSentinel | OrSentinel | CountSentinel | SqlSentinel
+type ArrayOverlapsSentinel = { _kind: 'arrayOverlaps'; _field: string; _values: unknown[] }
+type Sentinel =
+  | EqSentinel
+  | AndSentinel
+  | IlikeSentinel
+  | OrSentinel
+  | CountSentinel
+  | ArrayOverlapsSentinel
 
 // ---------------------------------------------------------------------------
 // Row shape — mirrors the $inferSelect shape that rowToEntry() expects.
@@ -168,10 +170,11 @@ function evalCondition(cond: Sentinel, row: StoredRow): boolean {
     case 'and':
       return cond._conditions.every((c) => evalCondition(c, row))
 
-    // sql sentinel = Postgres array-overlap; mock treats as always-true.
-    // Tests that require real tag filtering use the queue mechanism.
-    case 'sql':
-      return true
+    case 'arrayOverlaps': {
+      const haystack = r[cond._field]
+      if (!Array.isArray(haystack)) return false
+      return cond._values.some((value) => haystack.includes(value))
+    }
 
     case 'count':
       return true
@@ -770,12 +773,9 @@ describe('DrizzleCatalogStore', () => {
   //   1. select({ total: count() }) ... → count row
   //   2. select() ... orderBy().limit().offset() → item rows
   //
-  // Strategy A (where conditions evaluate cleanly): seed rows into live storage
-  // and let evalCondition() filter them.  Works for eq (author), ilike (q).
-  //
-  // Strategy B (tag overlap uses sql sentinel, always-true in mock): pre-load
-  // the exact expected responses via _queueSelectResult() so the mock returns
-  // the right data for both select() calls.
+  // Seed rows into live storage and let evalCondition() filter them. The
+  // Drizzle arrayOverlaps helper is modeled explicitly so tag filters exercise
+  // bound array values instead of an interpolated SQL literal.
   // -------------------------------------------------------------------------
 
   describe('search()', () => {
@@ -854,38 +854,66 @@ describe('DrizzleCatalogStore', () => {
       expect(result.items).toHaveLength(0)
     })
 
-    // -- tags filter — uses queue because sql sentinel is always-true --
+    // -- tags filter --
 
     it('filters by a single tag', async () => {
-      db._queueSelectResult([{ total: 2 }])
-      db._queueSelectResult([
-        makeRow({ id: 'e2', slug: 'code-reviewer', name: 'Code Reviewer', version: '2.0.0', tags: ['code', 'review'], author: 'bob' }),
-        makeRow({ id: 'e3', slug: 'doc-generator', name: 'Doc Generator', version: '1.5.0', tags: ['code', 'documentation'], author: 'alice' }),
-      ])
-
       const result = await store.search({ tags: ['code'] })
       expect(result.total).toBe(2)
       expect(result.items.map((i) => i.slug).sort()).toEqual(['code-reviewer', 'doc-generator'])
     })
 
     it('filters by multiple tags (overlap semantics)', async () => {
-      db._queueSelectResult([{ total: 2 }])
-      db._queueSelectResult([
-        makeRow({ id: 'e1', slug: 'text-summarizer', name: 'Text Summarizer', version: '1.0.0', tags: ['nlp', 'summarization'], author: 'alice' }),
-        makeRow({ id: 'e4', slug: 'sentiment-analyzer', name: 'Sentiment Analyzer', version: '3.0.0', tags: ['nlp', 'sentiment'], author: 'charlie' }),
-      ])
-
       const result = await store.search({ tags: ['summarization', 'sentiment'] })
       expect(result.total).toBe(2)
+      expect(result.items.map((i) => i.slug).sort()).toEqual(['sentiment-analyzer', 'text-summarizer'])
     })
 
     it('returns empty when no entries have the requested tag', async () => {
-      db._queueSelectResult([{ total: 0 }])
-      db._queueSelectResult([])
-
       const result = await store.search({ tags: ['nonexistent-tag'] })
       expect(result.total).toBe(0)
       expect(result.items).toHaveLength(0)
+    })
+
+    it('does not add a tag filter for an empty tag array', async () => {
+      const result = await store.search({ tags: [] })
+      expect(result.total).toBe(5)
+      expect(result.items).toHaveLength(5)
+    })
+
+    it('filters exact tags containing quotes, commas, braces, and backslashes', async () => {
+      seedRow(db, {
+        id: 'special-tags',
+        slug: 'special-tags',
+        name: 'Special Tags',
+        version: '1.0.0',
+        tags: ['quote"tag', 'comma,tag', 'brace{tag}', 'slash\\tag'],
+      })
+
+      await expect(store.search({ tags: ['quote"tag'] })).resolves.toMatchObject({
+        total: 1,
+        items: [{ slug: 'special-tags' }],
+      })
+      await expect(store.search({ tags: ['comma,tag'] })).resolves.toMatchObject({
+        total: 1,
+        items: [{ slug: 'special-tags' }],
+      })
+      await expect(store.search({ tags: ['brace{tag}'] })).resolves.toMatchObject({
+        total: 1,
+        items: [{ slug: 'special-tags' }],
+      })
+      await expect(store.search({ tags: ['slash\\tag'] })).resolves.toMatchObject({
+        total: 1,
+        items: [{ slug: 'special-tags' }],
+      })
+    })
+
+    it('preserves overlap behavior for long tag arrays', async () => {
+      const tags = Array.from({ length: 160 }, (_, index) => `tag-${index}`)
+      tags.push('translation')
+
+      const result = await store.search({ tags })
+      expect(result.total).toBe(1)
+      expect(result.items[0]!.slug).toBe('translator')
     })
 
     // -- author filter --

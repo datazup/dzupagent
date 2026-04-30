@@ -5,10 +5,54 @@
  * to MemoryService after a successful generate() / launch() / stream() run.
  */
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
+import type { BaseStore } from '@langchain/langgraph'
 import { createEventBus, type DzupEvent } from '@dzupagent/core'
+import { MemoryService } from '@dzupagent/memory'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
+
+class FakeStore {
+  private readonly data = new Map<string, Map<string, Record<string, unknown>>>()
+
+  private nsKey(ns: string[]): string {
+    return ns.join('|')
+  }
+
+  async put(ns: string[], key: string, value: Record<string, unknown>): Promise<void> {
+    const k = this.nsKey(ns)
+    const bucket = this.data.get(k) ?? new Map<string, Record<string, unknown>>()
+    bucket.set(key, value)
+    this.data.set(k, bucket)
+  }
+
+  async get(ns: string[], key: string): Promise<{ value: Record<string, unknown> } | null> {
+    const value = this.data.get(this.nsKey(ns))?.get(key)
+    return value ? { value } : null
+  }
+
+  async search(ns: string[]): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
+    const bucket = this.data.get(this.nsKey(ns))
+    if (!bucket) return []
+    return [...bucket.entries()].map(([key, value]) => ({ key, value }))
+  }
+}
+
+class CapturingReferenceTracker {
+  readonly refs: Array<{
+    runId: string
+    memoryEntryId: string
+    retrievalContext: Record<string, unknown>
+  }> = []
+
+  async trackReference(
+    runId: string,
+    memoryEntryId: string,
+    retrievalContext: Record<string, unknown>,
+  ): Promise<void> {
+    this.refs.push({ runId, memoryEntryId, retrievalContext })
+  }
+}
 
 function createMemoryService() {
   return {
@@ -55,6 +99,45 @@ describe('DzupAgent memory write-back (P9)', () => {
       agentId: 'test-agent',
     })
     expect(typeof (putCall[3] as { timestamp: unknown }).timestamp).toBe('number')
+  })
+
+  it('prompt-injected memory reads create provenance references when configured', async () => {
+    const store = new FakeStore()
+    const tracker = new CapturingReferenceTracker()
+    const memory = new MemoryService(
+      store as unknown as BaseStore,
+      [{ name: 'facts', scopeKeys: ['project'] }],
+      { rejectUnsafe: false, referenceTracker: tracker as never },
+    )
+    await memory.put(
+      'facts',
+      { project: 'demo' },
+      'fact-1',
+      { _key: 'fact-1', text: 'stored fact for prompt injection' },
+    )
+    const model = createModel('final answer')
+
+    const agent = new DzupAgent({
+      id: 'read-ref-agent',
+      instructions: 'Base instructions',
+      model: model as never,
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      memoryWriteBack: false,
+    })
+
+    await agent.generate([new HumanMessage('use memory')], { runId: 'run-read-ref' })
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(JSON.stringify(model.invoke.mock.calls[0]?.[0])).toContain('stored fact for prompt injection')
+    expect(tracker.refs).toHaveLength(1)
+    expect(tracker.refs[0]).toMatchObject({
+      runId: 'run-read-ref',
+      memoryEntryId: 'fact-1',
+      retrievalContext: { namespace: 'facts', rank: 0 },
+    })
+    expect(JSON.stringify(tracker.refs)).not.toContain('use memory')
   })
 
   it('generate() emits sanitized memory:written metadata after write-back succeeds', async () => {

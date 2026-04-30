@@ -7,6 +7,10 @@ import {
   AdapterRecoveryCopilot,
   type RecoveryConfig,
 } from '../recovery/adapter-recovery.js'
+import {
+  createCancelledRecoveryResult,
+  createRecoveryCancelledEvent,
+} from '../recovery/recovery-events.js'
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
@@ -341,6 +345,34 @@ describe('ExecutionTraceCapture', () => {
 
     capture.clear()
     expect(capture.getAllTraces()).toHaveLength(0)
+  })
+})
+
+describe('recovery event extraction seams', () => {
+  it('builds cancelled recovery results without changing the public result shape', () => {
+    expect(createCancelledRecoveryResult('abort', 'claude' as AdapterProviderId, 2, 25, 'cancelled')).toEqual({
+      success: false,
+      cancelled: true,
+      strategy: 'abort',
+      providerId: 'claude',
+      totalAttempts: 2,
+      totalDurationMs: 25,
+      error: 'cancelled',
+    })
+  })
+
+  it('builds recovery cancelled adapter events with unknown-provider fallback', () => {
+    const event = createRecoveryCancelledEvent(undefined, 1, 10, 'aborted')
+
+    expect(event).toEqual(expect.objectContaining({
+      type: 'recovery:cancelled',
+      providerId: 'unknown',
+      strategy: 'abort',
+      error: 'aborted',
+      totalAttempts: 1,
+      totalDurationMs: 10,
+    }))
+    expect(typeof event.timestamp).toBe('number')
   })
 })
 

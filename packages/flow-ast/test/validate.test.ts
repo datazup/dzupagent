@@ -8,6 +8,10 @@ import {
   validateFlowDocumentShape,
   validateFlowNodeShape,
 } from '../src/validate.js'
+import { FLOW_NODE_VALIDATOR_DESCRIPTORS, KNOWN_NODE_TYPES } from '../src/validation-descriptors.js'
+import { isFlowValue, isPlainObject, joinPath } from '../src/validation-helpers.js'
+import { validateCanonicalNodeIds } from '../src/validation-traversal.js'
+import { FLOW_NODE_KINDS } from '../src/types.js'
 
 // ---------------------------------------------------------------------------
 // flowNodeSchema — happy path
@@ -393,5 +397,47 @@ describe('flowDocumentSchema', () => {
       },
     })
     expect(errors.some((error) => error.code === 'DUPLICATE_NODE_ID')).toBe(true)
+  })
+})
+
+describe('validation extraction seams', () => {
+  it('keeps node validator descriptors exhaustive with public node kinds', () => {
+    expect(FLOW_NODE_VALIDATOR_DESCRIPTORS.map((descriptor) => descriptor.type).sort()).toEqual(
+      [...FLOW_NODE_KINDS].sort(),
+    )
+    expect([...KNOWN_NODE_TYPES].sort()).toEqual([...FLOW_NODE_KINDS].sort())
+  })
+
+  it('keeps validation primitives aligned with document default semantics', () => {
+    expect(isPlainObject({ ok: true })).toBe(true)
+    expect(isPlainObject([])).toBe(false)
+    expect(isFlowValue({ nested: ['a', 1, true, null] })).toBe(true)
+    expect(isFlowValue(new Date('2026-04-30T00:00:00.000Z'))).toBe(false)
+    expect(joinPath('root.nodes[0]', 'id')).toBe('root.nodes[0].id')
+  })
+
+  it('reports duplicate canonical ids through the traversal helper', () => {
+    const issues: Array<{ path: string; code: string; message: string }> = []
+    validateCanonicalNodeIds(
+      {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          { type: 'complete', id: 'dup' },
+          { type: 'complete', id: 'dup' },
+        ],
+      },
+      'root',
+      issues,
+      new Map(),
+    )
+
+    expect(issues).toEqual([
+      expect.objectContaining({
+        path: 'root.nodes[1].id',
+        code: 'DUPLICATE_NODE_ID',
+        message: 'duplicate node id "dup" first seen at root.nodes[0]',
+      }),
+    ])
   })
 })
