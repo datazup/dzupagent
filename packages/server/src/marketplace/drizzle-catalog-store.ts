@@ -4,7 +4,7 @@
  * Uses the `agent_catalog` table defined in the Drizzle schema and
  * implements full-text ILIKE search and Postgres array overlap filtering.
  */
-import { eq, sql, and, ilike, or, count } from 'drizzle-orm'
+import { eq, and, ilike, or, count, arrayOverlaps } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { agentCatalog } from '../persistence/drizzle-schema.js'
 import type {
@@ -143,9 +143,7 @@ export class DrizzleCatalogStore implements CatalogStore {
 
     // Tag filter — Postgres array overlap (&&)
     if (query.tags && query.tags.length > 0) {
-      conditions.push(
-        sql`${agentCatalog.tags} && ${sql.raw(`ARRAY[${query.tags.map((t) => `'${t.replace(/'/g, "''")}'`).join(',')}]::text[]`)}`,
-      )
+      conditions.push(arrayOverlaps(agentCatalog.tags, query.tags))
     }
 
     // Author filter

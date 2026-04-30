@@ -1,8 +1,10 @@
 /**
- * Shared utility functions for Playground UI components.
+ * Shared utility functions for framework-internal playground trace UI helpers.
  *
- * Extracted from the Vue SFC components so they can be used
- * programmatically without importing the full component.
+ * Vue SFC source is not maintained in this package. These helpers remain
+ * rendering-independent so source-internal maintenance tests can validate trace
+ * formatting, tone mapping, and class composition without publishing a product
+ * UI surface.
  *
  * @module playground/ui/utils
  */
@@ -17,6 +19,7 @@ import type { NodeMetrics, ReplaySummary } from '../../replay/replay-inspector.j
 export type NodeStatus = 'error' | 'success' | 'running' | 'pending'
 export type ChangeType = 'added' | 'removed' | 'modified' | 'unchanged'
 export type TraceTone = 'danger' | 'success' | 'warning' | 'neutral'
+export type TraceDensity = 'compact' | 'default'
 
 export interface DiffRow {
   key: string
@@ -35,6 +38,41 @@ export interface TraceToneStyles {
   borderLeft: string
 }
 
+export interface TraceDensityStyles {
+  sectionGap: string
+  detailGrid: string
+  rowButton: string
+  rowGap: string
+  rowPadding: string
+  rowRadius: string
+  labelColumn: string
+  durationColumn: string
+  valueColumn: string
+  metricTile: string
+  badge: string
+  badgeText: string
+  captionText: string
+  codeBlock: string
+  codeText: string
+  tableCell: string
+}
+
+export interface TraceInteractionStyles {
+  focusRing: string
+  selectedSurface: string
+  selectedBorder: string
+}
+
+export interface TraceUiHostContract {
+  /**
+   * Tailwind must be configured to activate dark variants from a `.dark`
+   * class on a host ancestor, for example `<html class="dark">`.
+   */
+  darkMode: 'class'
+  requiredHostClass: 'dark'
+  appliesTo: readonly string[]
+}
+
 // ---------------------------------------------------------------------------
 // Trace UI style adapter
 // ---------------------------------------------------------------------------
@@ -42,10 +80,33 @@ export interface TraceToneStyles {
 /**
  * Centralized visual primitives for the framework-internal trace UI.
  *
- * The Vue SFCs are not a public design-system surface, but keeping semantic
- * treatments behind this small adapter makes the components compatible with a
- * future token swap without changing their props, emits, or rendering logic.
+ * Playground UI is not a public design-system surface, but keeping semantic
+ * treatments behind this small adapter preserves a narrow utility seam for a
+ * future app-owned renderer or design-system handoff.
+ *
+ * Dark-mode styling intentionally uses Tailwind `dark:` variants. Hosts that
+ * reuse these internal class strings must satisfy `traceUiHostContract` by
+ * enabling class-based dark mode and toggling a `.dark` class on an ancestor.
  */
+export const traceUiHostContract: TraceUiHostContract = {
+  darkMode: 'class',
+  requiredHostClass: 'dark',
+  appliesTo: [
+    'status tone',
+    'surface',
+    'text',
+    'divider',
+    'selected',
+    'interactive',
+  ],
+}
+
+export const traceInteractionStyles: TraceInteractionStyles = {
+  focusRing: 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500',
+  selectedSurface: 'bg-blue-50 dark:bg-blue-950',
+  selectedBorder: 'border-blue-500 dark:border-blue-400',
+}
+
 export const traceUiStyles = {
   panel: 'rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900',
   panelMuted: 'rounded-md bg-gray-50 dark:bg-gray-800',
@@ -54,7 +115,10 @@ export const traceUiStyles = {
   tableRow: 'border-b border-gray-100 last:border-b-0 dark:border-gray-800',
   divider: 'border-gray-200 dark:border-gray-700',
   dividerSubtle: 'border-gray-100 dark:border-gray-800',
-  selected: 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-950',
+  focusRing: traceInteractionStyles.focusRing,
+  selectedSurface: traceInteractionStyles.selectedSurface,
+  selectedBorder: traceInteractionStyles.selectedBorder,
+  selected: `${traceInteractionStyles.selectedBorder} ${traceInteractionStyles.selectedSurface}`,
   interactive: 'border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-gray-700 dark:hover:bg-gray-900',
   interactiveMuted: 'hover:bg-gray-50 dark:hover:bg-gray-800',
   track: 'bg-gray-100 dark:bg-gray-800',
@@ -65,6 +129,53 @@ export const traceUiStyles = {
   textDisabled: 'text-gray-400 dark:text-gray-500',
   badgeNeutral: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
 } as const
+
+/**
+ * Named trace density slots for internal renderers.
+ *
+ * The default values preserve the previous Vue template defaults called out by
+ * the audit (`gap-5`, `gap-4 p-4`, `gap-3 rounded-md px-3 py-2`, fixed trace
+ * columns, and compact caption text) while giving future renderers one place to
+ * switch to a compact mode.
+ */
+export const traceDensityStyles: Record<TraceDensity, TraceDensityStyles> = {
+  compact: {
+    sectionGap: 'gap-3',
+    detailGrid: 'gap-3 p-3',
+    rowButton: 'gap-2 rounded px-2 py-1.5',
+    rowGap: 'gap-2',
+    rowPadding: 'px-2 py-1.5',
+    rowRadius: 'rounded',
+    labelColumn: 'w-28',
+    durationColumn: 'w-14',
+    valueColumn: 'w-24',
+    metricTile: 'rounded p-2',
+    badge: 'rounded px-1.5 py-0.5',
+    badgeText: 'text-[10px] font-medium',
+    captionText: 'text-[10px] uppercase',
+    codeBlock: 'rounded p-2 text-[11px]',
+    codeText: 'text-[11px]',
+    tableCell: 'px-2 py-1.5',
+  },
+  default: {
+    sectionGap: 'gap-5',
+    detailGrid: 'gap-4 p-4',
+    rowButton: 'gap-3 rounded-md px-3 py-2',
+    rowGap: 'gap-3',
+    rowPadding: 'px-3 py-2',
+    rowRadius: 'rounded-md',
+    labelColumn: 'w-36',
+    durationColumn: 'w-16',
+    valueColumn: 'w-32',
+    metricTile: 'rounded-md p-3',
+    badge: 'rounded px-2 py-0.5',
+    badgeText: 'text-[11px] font-medium',
+    captionText: 'text-[10px] uppercase',
+    codeBlock: 'rounded-md p-3 text-xs',
+    codeText: 'text-xs',
+    tableCell: 'px-3 py-2',
+  },
+}
 
 export const traceToneStyles: Record<TraceTone, TraceToneStyles> = {
   danger: {
@@ -137,6 +248,10 @@ export function getTraceChangeTone(changeType: ChangeType): TraceTone {
 
 export function getTraceChangeStyles(changeType: ChangeType): TraceToneStyles {
   return traceToneStyles[getTraceChangeTone(changeType)]
+}
+
+export function getTraceDensityStyles(density: TraceDensity = 'default'): TraceDensityStyles {
+  return traceDensityStyles[density]
 }
 
 // ---------------------------------------------------------------------------

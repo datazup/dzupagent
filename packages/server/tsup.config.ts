@@ -6,6 +6,7 @@ export default defineConfig({
     'ops': 'src/ops.ts',
     'runtime': 'src/runtime.ts',
     'compat': 'src/compat.ts',
+    'features': 'src/features.ts',
     'cli/dzup': 'src/cli/dzup.ts',
   },
   format: ['esm'],

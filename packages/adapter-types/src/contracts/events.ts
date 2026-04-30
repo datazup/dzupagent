@@ -130,6 +130,40 @@ export interface AgentProgressEvent {
   correlationId?: string | undefined
 }
 
+/** Map-reduce orchestration event emitted on the framework event bus. */
+export type MapReduceRuntimeEvent =
+  | { type: 'mapreduce:started'; totalChunks: number; maxConcurrency: number }
+  | {
+      type: 'mapreduce:map_completed'
+      totalChunks: number
+      successfulChunks: number
+      failedChunks: number
+    }
+  | {
+      type: 'mapreduce:completed'
+      totalChunks: number
+      successfulChunks: number
+      failedChunks: number
+      totalDurationMs: number
+      reduceDurationMs: number
+    }
+  | {
+      type: 'mapreduce:chunk_completed'
+      chunkIndex: number
+      providerId: AdapterProviderId
+      durationMs: number
+      success: boolean
+    }
+  | { type: 'mapreduce:chunk_failed'; chunkIndex: number; error: string; durationMs: number }
+
+/**
+ * Adapter-owned runtime events that are deliberately allowed on DzupEventBus.
+ *
+ * Keep this provider-neutral: it describes adapter orchestration/runtime state,
+ * not product UI state.
+ */
+export type AdapterRuntimeEventBusEvent = AgentProgressEvent | MapReduceRuntimeEvent
+
 /** Emitted after memory injection completes (withHierarchicalMemoryEnrichment) */
 export interface AgentMemoryRecalledEvent {
   type: 'adapter:memory_recalled'

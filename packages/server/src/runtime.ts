@@ -14,6 +14,7 @@
 export { startRunWorker } from './runtime/run-worker.js'
 export { createDefaultRunExecutor } from './runtime/default-run-executor.js'
 export { createDzupAgentRunExecutor } from './runtime/dzip-agent-run-executor.js'
+export { QuotaExceededError } from './runtime/resource-quota.js'
 export type {
   RunExecutionContext,
   RunExecutor,
@@ -25,6 +26,13 @@ export type {
   ReflectionDimensions,
 } from './runtime/run-worker.js'
 export type { DzupAgentRunExecutorOptions } from './runtime/dzip-agent-run-executor.js'
+export type {
+  ResourceDimensions,
+  ResourceQuota,
+  ResourceReservation,
+  ResourceQuotaManager,
+  QuotaCheckResult,
+} from './runtime/resource-quota.js'
 
 // --- Tool resolution ---
 export { resolveAgentTools, ToolResolutionError, getToolProfileConfig } from './runtime/tool-resolver.js'
@@ -43,14 +51,23 @@ export type {
 
 // --- Runtime utilities ---
 export { isStructuredResult } from './runtime/utils.js'
+export { reportRetrievalFeedback, mapScoreToQuality } from './runtime/retrieval-feedback-hook.js'
+export type { RetrievalFeedbackSink, RetrievalFeedbackHookConfig } from './runtime/retrieval-feedback-hook.js'
 
 // --- Consolidation scheduler ---
 export { ConsolidationScheduler } from './runtime/consolidation-scheduler.js'
+export { createSleepConsolidationTask } from './runtime/sleep-consolidation-task.js'
+export { InMemoryQuotaManager } from './runtime/memory-quota-manager.js'
 export type {
   ConsolidationTask,
   ConsolidationReport,
   ConsolidationSchedulerConfig,
 } from './runtime/consolidation-scheduler.js'
+export type {
+  SleepConsolidationTaskConfig,
+  SleepConsolidatorLike,
+  SleepConsolidationReportLike,
+} from './runtime/sleep-consolidation-task.js'
 
 // --- Run trace stores ---
 export { InMemoryRunTraceStore, computeStepDistribution } from './persistence/run-trace-store.js'

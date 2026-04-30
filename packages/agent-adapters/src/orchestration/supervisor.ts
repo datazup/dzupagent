@@ -514,7 +514,7 @@ export class SupervisorOrchestrator {
       progressEvent.providerId = providerId
     }
     if (this.eventBus) {
-      this.eventBus.emit(progressEvent as unknown as Parameters<DzupEventBus['emit']>[0])
+      this.eventBus.emit(progressEvent)
     }
   }
 
@@ -530,7 +530,7 @@ export class SupervisorOrchestrator {
       | { type: 'supervisor:delegation_complete'; specialistId: string; task: string; success: boolean },
   ): void {
     if (this.eventBus) {
-      this.eventBus.emit(event as Parameters<DzupEventBus['emit']>[0])
+      this.eventBus.emit(event)
     }
   }
 }

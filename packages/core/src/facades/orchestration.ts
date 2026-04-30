@@ -17,7 +17,15 @@
 // ---------------------------------------------------------------------------
 export { createEventBus } from '../events/event-bus.js'
 export type { DzupEventBus } from '../events/event-bus.js'
-export type { DzupEvent, DzupEventOf, BudgetUsage, ToolStatSummary } from '../events/event-types.js'
+export type {
+  AdapterProgressDzupEvent,
+  AdapterRuntimeDzupEvent,
+  DzupEvent,
+  DzupEventOf,
+  BudgetUsage,
+  MapReduceDzupEvent,
+  ToolStatSummary,
+} from '../events/event-types.js'
 export { AgentBus } from '../events/agent-bus.js'
 export type { AgentMessage, AgentMessageHandler } from '../events/agent-bus.js'
 

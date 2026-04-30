@@ -18,6 +18,7 @@ import type {
   AgentCompletedEvent,
   AgentEvent,
   AgentInput,
+  MapReduceRuntimeEvent,
   TaskDescriptor,
 } from '../types.js'
 
@@ -429,35 +430,9 @@ export class MapReduceOrchestrator {
     return null
   }
 
-  private emitEvent(
-    event:
-      | { type: 'mapreduce:started'; totalChunks: number; maxConcurrency: number }
-      | {
-          type: 'mapreduce:map_completed'
-          totalChunks: number
-          successfulChunks: number
-          failedChunks: number
-        }
-      | {
-          type: 'mapreduce:completed'
-          totalChunks: number
-          successfulChunks: number
-          failedChunks: number
-          totalDurationMs: number
-          reduceDurationMs: number
-        }
-      | {
-          type: 'mapreduce:chunk_completed'
-          chunkIndex: number
-          providerId: AdapterProviderId
-          durationMs: number
-          success: boolean
-        }
-      | { type: 'mapreduce:chunk_failed'; chunkIndex: number; error: string; durationMs: number },
-  ): void {
+  private emitEvent(event: MapReduceRuntimeEvent): void {
     if (this.eventBus) {
-      // Map-reduce events are domain-specific extensions; cast through unknown.
-      this.eventBus.emit(event as unknown as Parameters<DzupEventBus['emit']>[0])
+      this.eventBus.emit(event)
     }
   }
 }

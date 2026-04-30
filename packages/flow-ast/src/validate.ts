@@ -32,7 +32,6 @@ import type {
   FlowDocumentV1,
   FlowInputSpec,
   FlowNode,
-  FlowValue,
   ValidationError,
   ValidationErrorCode,
   EmitNode,
@@ -40,6 +39,14 @@ import type {
   CheckpointNode,
   RestoreNode,
 } from './types.js'
+import {
+  describeJsType,
+  isFlowValue,
+  isPlainObject,
+  joinPath,
+} from './validation-helpers.js'
+import { KNOWN_NODE_TYPES } from './validation-descriptors.js'
+import { validateCanonicalNodeIds } from './validation-traversal.js'
 
 // ---------------------------------------------------------------------------
 // Zod-compatible schema surface
@@ -324,25 +331,6 @@ function validateFlowDocument(
 // ---------------------------------------------------------------------------
 // FlowNode walker
 // ---------------------------------------------------------------------------
-
-const KNOWN_NODE_TYPES: ReadonlySet<string> = new Set([
-  'sequence',
-  'action',
-  'for_each',
-  'branch',
-  'approval',
-  'clarification',
-  'persona',
-  'route',
-  'parallel',
-  'complete',
-  'spawn',
-  'classify',
-  'emit',
-  'memory',
-  'checkpoint',
-  'restore',
-])
 
 function validateFlowNode(
   value: unknown,
@@ -1419,131 +1407,4 @@ function validateOptionalDefaults(
   }
 
   return Object.keys(defaults).length > 0 ? defaults : {}
-}
-
-function validateCanonicalNodeIds(
-  node: FlowNode,
-  path: string,
-  issues: SchemaIssue[],
-  seen: Map<string, string>,
-): void {
-  if (typeof node.id !== 'string' || node.id.length === 0) {
-    issues.push({
-      path: joinPath(path, 'id'),
-      code: 'MISSING_REQUIRED_FIELD',
-      message: 'canonical document nodes must define a non-empty id',
-    })
-  } else {
-    const priorPath = seen.get(node.id)
-    if (priorPath !== undefined) {
-      issues.push({
-        path: joinPath(path, 'id'),
-        code: 'DUPLICATE_NODE_ID',
-        message: `duplicate node id "${node.id}" first seen at ${priorPath}`,
-      })
-    } else {
-      seen.set(node.id, path)
-    }
-  }
-
-  switch (node.type) {
-    case 'sequence':
-      node.nodes.forEach((child, index) => {
-        validateCanonicalNodeIds(child, `${joinPath(path, 'nodes')}[${index}]`, issues, seen)
-      })
-      return
-    case 'for_each':
-      node.body.forEach((child, index) => {
-        validateCanonicalNodeIds(child, `${joinPath(path, 'body')}[${index}]`, issues, seen)
-      })
-      return
-    case 'branch':
-      node.then.forEach((child, index) => {
-        validateCanonicalNodeIds(child, `${joinPath(path, 'then')}[${index}]`, issues, seen)
-      })
-      node.else?.forEach((child, index) => {
-        validateCanonicalNodeIds(child, `${joinPath(path, 'else')}[${index}]`, issues, seen)
-      })
-      return
-    case 'approval':
-      node.onApprove.forEach((child, index) => {
-        validateCanonicalNodeIds(child, `${joinPath(path, 'onApprove')}[${index}]`, issues, seen)
-      })
-      node.onReject?.forEach((child, index) => {
-        validateCanonicalNodeIds(child, `${joinPath(path, 'onReject')}[${index}]`, issues, seen)
-      })
-      return
-    case 'persona':
-    case 'route':
-      node.body.forEach((child, index) => {
-        validateCanonicalNodeIds(child, `${joinPath(path, 'body')}[${index}]`, issues, seen)
-      })
-      return
-    case 'parallel':
-      node.branches.forEach((branch, branchIndex) => {
-        branch.forEach((child, childIndex) => {
-          validateCanonicalNodeIds(
-            child,
-            `${joinPath(path, 'branches')}[${branchIndex}][${childIndex}]`,
-            issues,
-            seen,
-          )
-        })
-      })
-      return
-    case 'action':
-    case 'clarification':
-    case 'complete':
-    case 'spawn':
-    case 'classify':
-    case 'emit':
-    case 'memory':
-    case 'checkpoint':
-    case 'restore':
-      return
-    default: {
-      const _exhaustive: never = node
-      void _exhaustive
-    }
-  }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false
-  }
-
-  const prototype = Object.getPrototypeOf(value)
-  return prototype === Object.prototype || prototype === null
-}
-
-function isFlowValue(value: unknown): value is FlowValue {
-  if (
-    value === null
-    || typeof value === 'string'
-    || typeof value === 'number'
-    || typeof value === 'boolean'
-  ) {
-    return true
-  }
-
-  if (Array.isArray(value)) {
-    return value.every((entry) => isFlowValue(entry))
-  }
-
-  if (isPlainObject(value)) {
-    return Object.values(value).every((entry) => isFlowValue(entry))
-  }
-
-  return false
-}
-
-function describeJsType(value: unknown): string {
-  if (value === null) return 'null'
-  if (Array.isArray(value)) return 'array'
-  return typeof value
-}
-
-function joinPath(base: string, segment: string): string {
-  return `${base}.${segment}`
 }

@@ -25,6 +25,10 @@ import type { EscalationHandler } from './escalation-handler.js'
 import { CrossProviderHandoff } from './cross-provider-handoff.js'
 import { selectRecoveryStrategy } from './recovery-strategy.js'
 import { applyRecoveryStrategy } from './recovery-strategy-application.js'
+import {
+  createCancelledRecoveryResult,
+  createRecoveryCancelledEvent,
+} from './recovery-events.js'
 
 // ---------------------------------------------------------------------------
 // Recovery strategy type
@@ -138,41 +142,6 @@ export type RecoveryResult =
   | RecoverySuccessResult
   | RecoveryFailureResult
   | RecoveryCancelledResult
-
-function createCancelledRecoveryResult(
-  strategy: 'abort',
-  providerId: AdapterProviderId | undefined,
-  totalAttempts: number,
-  totalDurationMs: number,
-  error: string,
-): RecoveryCancelledResult {
-  return {
-    success: false,
-    cancelled: true,
-    strategy,
-    providerId,
-    totalAttempts,
-    totalDurationMs,
-    error,
-  }
-}
-
-function createRecoveryCancelledEvent(
-  providerId: AdapterProviderId | undefined,
-  totalAttempts: number,
-  totalDurationMs: number,
-  error: string,
-): AgentEvent {
-  return {
-    type: 'recovery:cancelled',
-    providerId: providerId ?? ('unknown' as AdapterProviderId),
-    strategy: 'abort',
-    error,
-    totalAttempts,
-    totalDurationMs,
-    timestamp: Date.now(),
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Trace types

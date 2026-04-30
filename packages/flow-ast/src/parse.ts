@@ -10,7 +10,14 @@ import type {
   RouteNode,
   ParallelNode,
   CompleteNode,
+  SpawnNode,
+  ClassifyNode,
+  EmitNode,
+  MemoryNode,
+  CheckpointNode,
+  RestoreNode,
 } from './types.js'
+import { FLOW_NODE_KINDS } from './types.js'
 
 export type ParseInput = string | object
 
@@ -38,18 +45,7 @@ export interface ParseResult {
   errors: ParseError[]
 }
 
-const KNOWN_NODE_TYPES = new Set<string>([
-  'sequence',
-  'action',
-  'for_each',
-  'branch',
-  'approval',
-  'clarification',
-  'persona',
-  'route',
-  'parallel',
-  'complete',
-])
+const KNOWN_NODE_TYPES = new Set<string>(FLOW_NODE_KINDS)
 
 interface ParseContext {
   errors: ParseError[]
@@ -164,6 +160,18 @@ function parseNode(value: unknown, pointer: string, ctx: ParseContext): FlowNode
       return parseParallel(value, pointer, ctx)
     case 'complete':
       return parseComplete(value, pointer, ctx)
+    case 'spawn':
+      return parseSpawn(value, pointer, ctx)
+    case 'classify':
+      return parseClassify(value, pointer, ctx)
+    case 'emit':
+      return parseEmit(value, pointer, ctx)
+    case 'memory':
+      return parseMemory(value, pointer, ctx)
+    case 'checkpoint':
+      return parseCheckpoint(value, pointer, ctx)
+    case 'restore':
+      return parseRestore(value, pointer, ctx)
     default:
       // Defensive — KNOWN_NODE_TYPES is the source of truth above.
       ctx.errors.push({
@@ -657,6 +665,276 @@ function parseComplete(obj: Record<string, unknown>, pointer: string, ctx: Parse
   return node
 }
 
+function parseSpawn(obj: Record<string, unknown>, pointer: string, ctx: ParseContext): SpawnNode | null {
+  const templateRefRaw = obj.templateRef
+  if (typeof templateRefRaw !== 'string') {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `spawn.templateRef must be a string, received ${describeJsType(templateRefRaw)}`,
+      pointer: joinPointer(pointer, 'templateRef'),
+    })
+    return null
+  }
+
+  let input: Record<string, unknown> | undefined
+  if ('input' in obj) {
+    const inputRaw = obj.input
+    if (inputRaw === undefined) {
+      // Treat explicit undefined like an omitted optional field.
+    } else if (isPlainObject(inputRaw)) {
+      input = inputRaw
+    } else {
+      ctx.errors.push({
+        code: 'EXPECTED_OBJECT',
+        message: `spawn.input must be an object when present, received ${describeJsType(inputRaw)}`,
+        pointer: joinPointer(pointer, 'input'),
+      })
+    }
+  }
+
+  let waitForCompletion: boolean | undefined
+  if ('waitForCompletion' in obj) {
+    const waitRaw = obj.waitForCompletion
+    if (waitRaw === undefined) {
+      // Treat explicit undefined like an omitted optional field.
+    } else if (typeof waitRaw === 'boolean') {
+      waitForCompletion = waitRaw
+    } else {
+      ctx.errors.push({
+        code: 'WRONG_FIELD_TYPE',
+        message: `spawn.waitForCompletion must be a boolean when present, received ${describeJsType(waitRaw)}`,
+        pointer: joinPointer(pointer, 'waitForCompletion'),
+      })
+    }
+  }
+
+  const node: SpawnNode = {
+    type: 'spawn',
+    ...parseCommonNodeFields(obj, pointer, ctx),
+    templateRef: templateRefRaw,
+  }
+  if (input !== undefined) node.input = input
+  if (waitForCompletion !== undefined) node.waitForCompletion = waitForCompletion
+  return node
+}
+
+function parseClassify(obj: Record<string, unknown>, pointer: string, ctx: ParseContext): ClassifyNode | null {
+  const promptRaw = obj.prompt
+  const choicesRaw = obj.choices
+  const outputKeyRaw = obj.outputKey
+  let failed = false
+
+  if (typeof promptRaw !== 'string') {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `classify.prompt must be a string, received ${describeJsType(promptRaw)}`,
+      pointer: joinPointer(pointer, 'prompt'),
+    })
+    failed = true
+  }
+  if (!Array.isArray(choicesRaw)) {
+    ctx.errors.push({
+      code: choicesRaw === undefined ? 'WRONG_FIELD_TYPE' : 'EXPECTED_ARRAY',
+      message: `classify.choices must be an array, received ${describeJsType(choicesRaw)}`,
+      pointer: joinPointer(pointer, 'choices'),
+    })
+    failed = true
+  } else if (!choicesRaw.every((value) => typeof value === 'string')) {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: 'classify.choices must be an array of strings',
+      pointer: joinPointer(pointer, 'choices'),
+    })
+    failed = true
+  }
+  if (typeof outputKeyRaw !== 'string') {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `classify.outputKey must be a string, received ${describeJsType(outputKeyRaw)}`,
+      pointer: joinPointer(pointer, 'outputKey'),
+    })
+    failed = true
+  }
+
+  let defaultChoice: string | undefined
+  if ('defaultChoice' in obj) {
+    const defaultChoiceRaw = obj.defaultChoice
+    if (defaultChoiceRaw === undefined) {
+      // Treat explicit undefined like an omitted optional field.
+    } else if (typeof defaultChoiceRaw === 'string') {
+      defaultChoice = defaultChoiceRaw
+    } else {
+      ctx.errors.push({
+        code: 'WRONG_FIELD_TYPE',
+        message: `classify.defaultChoice must be a string when present, received ${describeJsType(defaultChoiceRaw)}`,
+        pointer: joinPointer(pointer, 'defaultChoice'),
+      })
+    }
+  }
+
+  if (failed) return null
+  const node: ClassifyNode = {
+    type: 'classify',
+    ...parseCommonNodeFields(obj, pointer, ctx),
+    prompt: promptRaw as string,
+    choices: choicesRaw as string[],
+    outputKey: outputKeyRaw as string,
+  }
+  if (defaultChoice !== undefined) node.defaultChoice = defaultChoice
+  return node
+}
+
+function parseEmit(obj: Record<string, unknown>, pointer: string, ctx: ParseContext): EmitNode | null {
+  const eventRaw = obj.event
+  if (typeof eventRaw !== 'string') {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `emit.event must be a string, received ${describeJsType(eventRaw)}`,
+      pointer: joinPointer(pointer, 'event'),
+    })
+    return null
+  }
+
+  let payload: Record<string, unknown> | undefined
+  if ('payload' in obj) {
+    const payloadRaw = obj.payload
+    if (payloadRaw === undefined) {
+      // Treat explicit undefined like an omitted optional field.
+    } else if (isPlainObject(payloadRaw)) {
+      payload = payloadRaw
+    } else {
+      ctx.errors.push({
+        code: 'EXPECTED_OBJECT',
+        message: `emit.payload must be an object when present, received ${describeJsType(payloadRaw)}`,
+        pointer: joinPointer(pointer, 'payload'),
+      })
+    }
+  }
+
+  const node: EmitNode = {
+    type: 'emit',
+    ...parseCommonNodeFields(obj, pointer, ctx),
+    event: eventRaw,
+  }
+  if (payload !== undefined) node.payload = payload
+  return node
+}
+
+function parseMemory(obj: Record<string, unknown>, pointer: string, ctx: ParseContext): MemoryNode | null {
+  const operationRaw = obj.operation
+  const tierRaw = obj.tier
+  let failed = false
+
+  if (operationRaw !== 'read' && operationRaw !== 'write' && operationRaw !== 'list') {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `memory.operation must be "read", "write", or "list", received ${describeJsType(operationRaw)}`,
+      pointer: joinPointer(pointer, 'operation'),
+    })
+    failed = true
+  }
+  if (tierRaw !== 'session' && tierRaw !== 'project' && tierRaw !== 'workspace') {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `memory.tier must be "session", "project", or "workspace", received ${describeJsType(tierRaw)}`,
+      pointer: joinPointer(pointer, 'tier'),
+    })
+    failed = true
+  }
+
+  const optionalStrings: Pick<MemoryNode, 'key' | 'valueExpr' | 'outputVar'> = {}
+  parseOptionalMemoryStringField(obj, 'key', pointer, ctx, (value) => {
+    optionalStrings.key = value
+  })
+  parseOptionalMemoryStringField(obj, 'valueExpr', pointer, ctx, (value) => {
+    optionalStrings.valueExpr = value
+  })
+  parseOptionalMemoryStringField(obj, 'outputVar', pointer, ctx, (value) => {
+    optionalStrings.outputVar = value
+  })
+
+  if (failed) return null
+  return {
+    type: 'memory',
+    ...parseCommonNodeFields(obj, pointer, ctx),
+    operation: operationRaw as 'read' | 'write' | 'list',
+    tier: tierRaw as 'session' | 'project' | 'workspace',
+    ...optionalStrings,
+  }
+}
+
+function parseCheckpoint(obj: Record<string, unknown>, pointer: string, ctx: ParseContext): CheckpointNode | null {
+  const captureOutputOfRaw = obj.captureOutputOf
+  if (typeof captureOutputOfRaw !== 'string') {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `checkpoint.captureOutputOf must be a string, received ${describeJsType(captureOutputOfRaw)}`,
+      pointer: joinPointer(pointer, 'captureOutputOf'),
+    })
+    return null
+  }
+
+  let label: string | undefined
+  if ('label' in obj) {
+    const labelRaw = obj.label
+    if (labelRaw === undefined) {
+      // Treat explicit undefined like an omitted optional field.
+    } else if (typeof labelRaw === 'string') {
+      label = labelRaw
+    } else {
+      ctx.errors.push({
+        code: 'WRONG_FIELD_TYPE',
+        message: `checkpoint.label must be a string when present, received ${describeJsType(labelRaw)}`,
+        pointer: joinPointer(pointer, 'label'),
+      })
+    }
+  }
+
+  const node: CheckpointNode = {
+    type: 'checkpoint',
+    ...parseCommonNodeFields(obj, pointer, ctx),
+    captureOutputOf: captureOutputOfRaw,
+  }
+  if (label !== undefined) node.label = label
+  return node
+}
+
+function parseRestore(obj: Record<string, unknown>, pointer: string, ctx: ParseContext): RestoreNode | null {
+  const checkpointLabelRaw = obj.checkpointLabel
+  if (typeof checkpointLabelRaw !== 'string') {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `restore.checkpointLabel must be a string, received ${describeJsType(checkpointLabelRaw)}`,
+      pointer: joinPointer(pointer, 'checkpointLabel'),
+    })
+    return null
+  }
+
+  let onNotFound: 'fail' | 'skip' | undefined
+  if ('onNotFound' in obj) {
+    const onNotFoundRaw = obj.onNotFound
+    if (onNotFoundRaw === undefined) {
+      // Treat explicit undefined like an omitted optional field.
+    } else if (onNotFoundRaw === 'fail' || onNotFoundRaw === 'skip') {
+      onNotFound = onNotFoundRaw
+    } else {
+      ctx.errors.push({
+        code: 'WRONG_FIELD_TYPE',
+        message: `restore.onNotFound must be "fail" or "skip" when present, received ${describeJsType(onNotFoundRaw)}`,
+        pointer: joinPointer(pointer, 'onNotFound'),
+      })
+    }
+  }
+
+  const node: RestoreNode = {
+    type: 'restore',
+    ...parseCommonNodeFields(obj, pointer, ctx),
+    checkpointLabel: checkpointLabelRaw,
+  }
+  if (onNotFound !== undefined) node.onNotFound = onNotFound
+  return node
+}
+
 // ------------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------------
@@ -722,6 +1000,27 @@ function parseOptionalStringField(
   ctx.errors.push({
     code: 'WRONG_FIELD_TYPE',
     message: `Field "${key}" must be a string when present, received ${describeJsType(raw)}`,
+    pointer: joinPointer(pointer, key),
+  })
+}
+
+function parseOptionalMemoryStringField(
+  obj: Record<string, unknown>,
+  key: 'key' | 'valueExpr' | 'outputVar',
+  pointer: string,
+  ctx: ParseContext,
+  assign: (value: string) => void,
+): void {
+  if (!(key in obj)) return
+  const raw = obj[key]
+  if (raw === undefined) return
+  if (typeof raw === 'string') {
+    assign(raw)
+    return
+  }
+  ctx.errors.push({
+    code: 'WRONG_FIELD_TYPE',
+    message: `memory.${key} must be a string when present, received ${describeJsType(raw)}`,
     pointer: joinPointer(pointer, key),
   })
 }

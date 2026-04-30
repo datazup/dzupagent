@@ -71,6 +71,16 @@ export interface RunFilter {
   offset?: number
   /** MC-S02: Restrict listings to a single tenant scope. */
   tenantId?: string
+  /**
+   * Restrict listings/counts to runs owned by this API key or principal.
+   * Use `includeLegacyOwnerless` when pre-owner rows should remain visible.
+   */
+  ownerId?: string
+  /**
+   * Include rows with no recorded owner when `ownerId` is set. This preserves
+   * compatibility for runs created before owner scoping was introduced.
+   */
+  includeLegacyOwnerless?: boolean
 }
 
 export interface LogEntry {
@@ -159,4 +169,3 @@ export interface AgentExecutionSpecStore {
   list(filter?: AgentExecutionSpecFilter): Promise<AgentExecutionSpec[]>
   delete(id: string): Promise<void>
 }
-
