@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-04-29
+Date: 2026-04-30
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -40,7 +40,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./errors/forge-error.js` | 2 | `prefix:./errors/` | `ForgeError`, `ForgeErrorOptions` |
 | `stable` | `./errors/error-codes.js` | 1 | `prefix:./errors/` | `ForgeErrorCode` |
 | `stable` | `./events/event-bus.js` | 2 | `prefix:./events/` | `createEventBus`, `DzupEventBus` |
-| `stable` | `./events/event-types.js` | 4 | `prefix:./events/` | `DzupEvent`, `DzupEventOf`, `BudgetUsage`, `ToolStatSummary` |
+| `stable` | `./events/event-types.js` | 7 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DzupEvent`, `DzupEventOf` |
 | `stable` | `./events/degraded-operation.js` | 1 | `prefix:./events/` | `emitDegradedOperation` |
 | `stable` | `./events/tool-event-correlation.js` | 3 | `prefix:./events/` | `requireTerminalToolExecutionRunId`, `TerminalToolExecutionRunIdOptions`, `TerminalToolEventType` |
 | `stable` | `./events/agent-bus.js` | 3 | `prefix:./events/` | `AgentBus`, `AgentMessage`, `AgentMessageHandler` |
@@ -146,10 +146,10 @@ Root index: `packages/core/src/index.ts`
   AgentCardV2Schema`, `validateAgentCard`, `// Tool Format Adapters
   zodToJsonSchema`, `jsonSchemaToZod` |
 | `deprecated-transitional` | `./vectordb/index.js` | 45 | `prefix:./vectordb/` | `DistanceMetric`, `CollectionConfig`, `VectorEntry`, `VectorQuery` |
-| `deprecated-transitional` | `./tools/connector-contract.js` | 4 | `prefix:./tools/` | `BaseConnectorTool`, `isBaseConnectorTool`, `normalizeBaseConnectorTool`, `normalizeBaseConnectorTools` |
+| `deprecated-transitional` | `./tools/connector-contract.js` | 5 | `prefix:./tools/` | `BaseConnectorTool`, `BaseConnectorToolLike`, `isBaseConnectorTool`, `normalizeBaseConnectorTool` |
 | `deprecated-transitional` | `./tools/create-tool.js` | 2 | `prefix:./tools/` | `createForgeTool`, `ForgeToolConfig` |
 | `deprecated-transitional` | `./tools/tool-stats-tracker.js` | 5 | `prefix:./tools/` | `ToolStatsTracker`, `ToolCallRecord`, `ToolStats`, `ToolRanking` |
-| `deprecated-transitional` | `./tools/tool-governance.js` | 7 | `prefix:./tools/` | `ToolGovernance`, `ToolGovernanceConfig`, `ToolValidationResult`, `ToolAuditHandler` |
+| `deprecated-transitional` | `./tools/tool-governance.js` | 9 | `prefix:./tools/` | `ToolGovernance`, `ToolGovernanceConfig`, `ToolValidationResult`, `ToolAuditHandler` |
 | `deprecated-transitional` | `./tools/human-contact-types.js` | 17 | `prefix:./tools/` | `ContactType`, `ContactChannel`, `ApprovalRequest`, `ClarificationRequest` |
 | `deprecated-transitional` | `./telemetry/trace-propagation.js` | 5 | `prefix:./telemetry/` | `injectTraceContext`, `extractTraceContext`, `formatTraceparent`, `parseTraceparent` |
 | `deprecated-transitional` | `./utils/logger.js` | 3 | `prefix:./utils/` | `defaultLogger`, `noopLogger`, `FrameworkLogger` |
@@ -199,7 +199,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./orchestration/orchestrator.js` | 4 | `prefix:./orchestration/` | `AgentOrchestrator`, `MergeFn`, `SupervisorConfig`, `SupervisorResult` |
 | `deprecated-transitional` | `./orchestration/orchestration-error.js` | 2 | `prefix:./orchestration/` | `OrchestrationError`, `OrchestrationPattern` |
 | `deprecated-transitional` | `./orchestration/map-reduce.js` | 5 | `prefix:./orchestration/` | `mapReduce`, `mapReduceMulti`, `MapReduceConfig`, `MapReduceResult` |
-| `deprecated-transitional` | `./orchestration/merge-strategies.js` | 6 | `prefix:./orchestration/` | `concatMerge`, `voteMerge`, `numberedMerge`, `jsonArrayMerge` |
+| `deprecated-transitional` | `./orchestration/merge-strategies.js` | 7 | `prefix:./orchestration/` | `concatMerge`, `voteMerge`, `numberedMerge`, `jsonArrayMerge` |
 | `deprecated-transitional` | `./orchestration/contract-net/contract-net-manager.js` | 1 | `prefix:./orchestration/` | `ContractNetManager` |
 | `deprecated-transitional` | `./orchestration/contract-net/bid-strategies.js` | 4 | `prefix:./orchestration/` | `lowestCostStrategy`, `fastestStrategy`, `highestQualityStrategy`, `createWeightedStrategy` |
 | `deprecated-transitional` | `./orchestration/contract-net/contract-net-types.js` | 8 | `prefix:./orchestration/` | `ContractNetPhase`, `CallForProposals`, `ContractBid`, `ContractAward` |
@@ -412,7 +412,7 @@ Root index: `packages/codegen/src/index.ts`
 | `deprecated-transitional` | `./guardrails/rules/index.js` | 8 | `prefix:./guardrails/` | `createBuiltinRules`, `createLayeringRule`, `createImportRestrictionRule`, `createNamingConventionRule` |
 | `deprecated-transitional` | `./guardrails/guardrail-types.js` | 15 | `prefix:./guardrails/` | `GuardrailCategory`, `GuardrailSeverity`, `GeneratedFile`, `ProjectStructure` |
 | `deprecated-transitional` | `./streaming/index.js` | 2 | `prefix:./streaming/` | `CodegenStreamEvent`, `mergeCodegenStreams` |
-| `deprecated-transitional` | `./workspace/index.js` | 8 | `prefix:./workspace/` | `SearchResult`, `CommandResult`, `WorkspaceOptions`, `Workspace` |
+| `deprecated-transitional` | `./workspace/index.js` | 9 | `prefix:./workspace/` | `SearchResult`, `CommandResult`, `WorkspaceOptions`, `Workspace` |
 | `stable` | `<local>:dzupagent_CODEGEN_VERSION` | 1 | `exact:<local>:dzupagent_CODEGEN_VERSION` | `dzupagent_CODEGEN_VERSION` |
 
 ## @dzupagent/server
@@ -420,9 +420,9 @@ Root index: `packages/codegen/src/index.ts`
 Root index: `packages/server/src/index.ts`
 
 - Stable root sources: `30`
-- Deprecated transitional root sources: `78`
-- Internal-only root candidates: `18`
-- Migration window: Root transitional exports remain available through 0.x with migration to ops/runtime/compat before a future 1.0 root contraction.
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: The server root is contracted to keep-root sources; advanced and feature-specific imports must use ops/runtime/compat/features subpaths.
 
 ### Stable Subpaths
 
@@ -431,6 +431,7 @@ Root index: `packages/server/src/index.ts`
 | `@dzupagent/server/ops` | operational diagnostics and scorecards |
 | `@dzupagent/server/runtime` | run workers, executors, trace stores, and control-plane helpers |
 | `@dzupagent/server/compat` | OpenAI-compatible HTTP surface |
+| `@dzupagent/server/features` | opt-in feature-plane routes, stores, and helpers |
 
 ### Root Allowlist
 
@@ -439,34 +440,10 @@ Root index: `packages/server/src/index.ts`
 | `stable` | `./app.js` | 11 | `stable/app/keep-root` | `createForgeApp`, `ForgeServerConfig`, `ForgeRouteFamiliesConfig`, `ForgeMemoryRouteFamilyConfig` |
 | `stable` | `./route-plugin.js` | 2 | `stable/extensibility/keep-root` | `ServerRoutePlugin`, `ServerRoutePluginContext` |
 | `stable` | `./routes/runs.js` | 1 | `stable/routes-core/keep-root` | `createRunRoutes` |
-| `deprecated-transitional` | `./routes/run-context.js` | 3 | `secondary/trace-context/candidate-subpath` | `createRunContextRoutes`, `TokenLifecycleLike`, `TokenLifecycleRegistry` |
 | `stable` | `./routes/agents.js` | 2 | `stable/routes-core/keep-root` | `createAgentDefinitionRoutes`, `createAgentRoutes` |
 | `stable` | `./routes/approval.js` | 1 | `stable/routes-core/keep-root` | `createApprovalRoutes` |
-| `deprecated-transitional` | `./routes/human-contact.js` | 1 | `secondary/routes-core/candidate-subpath` | `createHumanContactRoutes` |
 | `stable` | `./routes/health.js` | 1 | `stable/routes-core/keep-root` | `createHealthRoutes` |
-| `deprecated-transitional` | `./routes/memory.js` | 2 | `experimental/memory/candidate-subpath` | `createMemoryRoutes`, `MemoryRouteConfig` |
-| `deprecated-transitional` | `./routes/memory-browse.js` | 2 | `experimental/memory/candidate-subpath` | `createMemoryBrowseRoutes`, `MemoryBrowseRouteConfig` |
-| `deprecated-transitional` | `./routes/learning.js` | 2 | `experimental/learning/candidate-subpath` | `createLearningRoutes`, `LearningRouteConfig` |
-| `deprecated-transitional` | `./routes/benchmarks.js` | 3 | `experimental/benchmarks/candidate-subpath` | `createBenchmarkRoutes`, `BenchmarkRouteConfig`, `BenchmarkOrchestratorFactory` |
-| `deprecated-transitional` | `./routes/evals.js` | 3 | `experimental/evals/candidate-subpath` | `createEvalRoutes`, `EvalRouteConfig`, `EvalOrchestratorFactory` |
-| `deprecated-transitional` | `./routes/memory-health.js` | 3 | `experimental/memory/candidate-subpath` | `createMemoryHealthRoutes`, `MemoryHealthRouteConfig`, `HealthProvider` |
-| `deprecated-transitional` | `./routes/routing-stats.js` | 2 | `experimental/observability/candidate-subpath` | `createRoutingStatsRoutes`, `RoutingStatsConfig` |
-| `deprecated-transitional` | `./routes/playground.js` | 2 | `experimental/playground/candidate-subpath` | `createPlaygroundRoutes`, `PlaygroundRouteConfig` |
 | `stable` | `./routes/events.js` | 2 | `stable/realtime/keep-root` | `createEventRoutes`, `EventRouteConfig` |
-| `deprecated-transitional` | `./routes/workflows.js` | 2 | `secondary/workflow-routes/candidate-subpath` | `createWorkflowRoutes`, `WorkflowRouteConfig` |
-| `deprecated-transitional` | `./routes/metrics.js` | 3 | `secondary/metrics/candidate-subpath` | `createMetricsRoute`, `MetricsAccessControl`, `MetricsRouteConfig` |
-| `deprecated-transitional` | `./metrics/prometheus-collector.js` | 1 | `secondary/metrics/candidate-subpath` | `PrometheusMetricsCollector` |
-| `deprecated-transitional` | `./persistence/postgres-stores.js` | 7 | `secondary/persistence/candidate-subpath` | `PostgresRunStore`, `PostgresAgentStore`, `DrizzleVectorStore`, `VectorDistanceMetric` |
-| `internal-only-candidate` | `./persistence/drizzle-schema.js` | 17 | `internal/persistence/remove-root` | `dzipAgents`, `forgeRuns`, `forgeRunLogs`, `forgeVectors` |
-| `deprecated-transitional` | `./persistence/api-key-store.js` | 5 | `secondary/persistence/candidate-subpath` | `PostgresApiKeyStore`, `hashApiKey`, `generateRawApiKey`, `ApiKeyRecord` |
-| `deprecated-transitional` | `./routes/api-keys.js` | 2 | `secondary/security-routes/candidate-subpath` | `createApiKeyRoutes`, `ApiKeyRoutesConfig` |
-| `deprecated-transitional` | `./persistence/vector-column.js` | 1 | `secondary/persistence/candidate-subpath` | `vectorColumn` |
-| `deprecated-transitional` | `./persistence/vector-ops.js` | 4 | `secondary/persistence/candidate-subpath` | `cosineDistance`, `l2Distance`, `innerProduct`, `toVector` |
-| `deprecated-transitional` | `./persistence/run-trace-store.js` | 7 | `secondary/persistence/candidate-subpath` | `InMemoryRunTraceStore`, `computeStepDistribution`, `TraceStep`, `RunTrace` |
-| `deprecated-transitional` | `./persistence/drizzle-run-trace-store.js` | 1 | `secondary/persistence/candidate-subpath` | `DrizzleRunTraceStore` |
-| `deprecated-transitional` | `./persistence/benchmark-run-store.js` | 5 | `secondary/persistence/candidate-subpath` | `InMemoryBenchmarkRunStore`, `BenchmarkRunRecord`, `BenchmarkBaselineRecord`, `BenchmarkCompareRecord` |
-| `deprecated-transitional` | `./persistence/eval-run-store.js` | 8 | `secondary/persistence/candidate-subpath` | `InMemoryEvalRunStore`, `EvalRunErrorRecord`, `EvalRunAttemptRecord`, `EvalRunRecord` |
-| `deprecated-transitional` | `./routes/run-trace.js` | 2 | `secondary/trace-routes/candidate-subpath` | `createRunTraceRoutes`, `RunTraceRouteConfig` |
 | `stable` | `./middleware/auth.js` | 2 | `stable/middleware/keep-root` | `authMiddleware`, `AuthConfig` |
 | `stable` | `./middleware/rate-limiter.js` | 3 | `stable/middleware/keep-root` | `rateLimiterMiddleware`, `TokenBucketLimiter`, `RateLimiterConfig` |
 | `stable` | `./middleware/identity.js` | 4 | `stable/middleware/keep-root` | `identityMiddleware`, `getForgeIdentity`, `getForgeCapabilities`, `IdentityMiddlewareConfig` |
@@ -476,10 +453,6 @@ Root index: `packages/server/src/index.ts`
 | `stable` | `./queue/run-queue.js` | 7 | `stable/queue/keep-root` | `InMemoryRunQueue`, `RunQueue`, `RunJob`, `RunQueueConfig` |
 | `stable` | `./queue/bullmq-run-queue.js` | 2 | `stable/queue/keep-root` | `BullMQRunQueue`, `BullMQRunQueueConfig` |
 | `stable` | `./lifecycle/graceful-shutdown.js` | 3 | `stable/lifecycle/keep-root` | `GracefulShutdown`, `ShutdownConfig`, `ShutdownState` |
-| `deprecated-transitional` | `./lifecycle/human-contact-timeout.js` | 2 | `secondary/lifecycle/candidate-subpath` | `HumanContactTimeoutScheduler`, `HumanContactTimeoutConfig` |
-| `deprecated-transitional` | `@dzupagent/eval-contracts` | 7 | `secondary/evals/candidate-subpath` | `EvalOrchestratorLike`, `BenchmarkOrchestratorLike`, `EvalExecutionTarget`, `EvalExecutionContext` |
-| `deprecated-transitional` | `./services/agent-control-plane-service.js` | 2 | `secondary/control-plane/candidate-subpath` | `AgentControlPlaneService`, `AgentControlPlaneServiceConfig` |
-| `deprecated-transitional` | `./services/executable-agent-resolver.js` | 3 | `secondary/control-plane/candidate-subpath` | `ControlPlaneExecutableAgentResolver`, `AgentStoreExecutableAgentResolver`, `ExecutableAgentResolver` |
 | `stable` | `./ws/event-bridge.js` | 4 | `stable/realtime/keep-root` | `EventBridge`, `WSClient`, `ClientFilter`, `EventBridgeConfig` |
 | `stable` | `./ws/control-protocol.js` | 6 | `stable/realtime/keep-root` | `createWsControlHandler`, `WSControlClientMessage`, `WSControlServerMessage`, `WSControlHandlerOptions` |
 | `stable` | `./ws/authorization.js` | 3 | `stable/realtime/keep-root` | `createScopedAuthorizeFilter`, `WSClientScope`, `ScopedAuthorizeFilterOptions` |
@@ -489,77 +462,9 @@ Root index: `packages/server/src/index.ts`
 | `stable` | `./ws/node-adapter.js` | 3 | `stable/realtime/keep-root` | `attachNodeWsSession`, `NodeWSLike`, `AttachNodeWsSessionOptions` |
 | `stable` | `./ws/node-upgrade-handler.js` | 4 | `stable/realtime/keep-root` | `createNodeWsUpgradeHandler`, `createPathUpgradeGuard`, `NodeWebSocketServerLike`, `NodeWsUpgradeHandlerOptions` |
 | `stable` | `./events/event-gateway.js` | 8 | `stable/realtime/keep-root` | `InMemoryEventGateway`, `EventGateway`, `EventEnvelope`, `EventSubscription` |
-| `deprecated-transitional` | `./notifications/notifier.js` | 7 | `experimental/notifications/candidate-subpath` | `Notifier`, `classifyEvent`, `Notification`, `NotificationChannel` |
-| `deprecated-transitional` | `./notifications/channels/webhook-channel.js` | 2 | `experimental/notifications/candidate-subpath` | `WebhookChannel`, `WebhookChannelConfig` |
-| `deprecated-transitional` | `./notifications/channels/console-channel.js` | 1 | `experimental/notifications/candidate-subpath` | `ConsoleChannel` |
-| `deprecated-transitional` | `./notifications/channels/slack-channel.js` | 2 | `experimental/notifications/candidate-subpath` | `SlackNotificationChannel`, `SlackNotificationChannelConfig` |
-| `deprecated-transitional` | `./notifications/channels/email-webhook-channel.js` | 2 | `experimental/notifications/candidate-subpath` | `EmailWebhookNotificationChannel`, `EmailWebhookNotificationChannelConfig` |
-| `deprecated-transitional` | `./notifications/mail-rate-limiter.js` | 5 | `experimental/notifications/candidate-subpath` | `MailRateLimiter`, `MailRateLimitError`, `DEFAULT_CAPACITY`, `DEFAULT_REFILL_PER_MINUTE` |
-| `deprecated-transitional` | `./notifications/mail-dlq-worker.js` | 4 | `experimental/notifications/candidate-subpath` | `MailDlqWorker`, `DEFAULT_DLQ_WORKER_INTERVAL_MS`, `DEFAULT_DLQ_WORKER_BATCH_SIZE`, `MailDlqWorkerConfig` |
-| `internal-only-candidate` | `./persistence/drizzle-dlq-store.js` | 6 | `internal/persistence/remove-root` | `DrizzleDlqStore`, `DLQ_INITIAL_BACKOFF_MS`, `MAX_DLQ_ATTEMPTS`, `computeNextRetryDelayMs` |
-| `internal-only-candidate` | `./persistence/drizzle-mailbox-store.js` | 2 | `internal/persistence/remove-root` | `DrizzleMailboxStoreOptions`, `DrizzleMailboxStore` |
-| `deprecated-transitional` | `./a2a/index.js` | 15 | `experimental/a2a/candidate-subpath` | `buildAgentCard`, `InMemoryA2ATaskStore`, `DrizzleA2ATaskStore`, `createA2ARoutes` |
-| `deprecated-transitional` | `./routes/marketplace.js` | 2 | `experimental/marketplace/candidate-subpath` | `createMarketplaceRoutes`, `MarketplaceRouteConfig` |
-| `deprecated-transitional` | `./marketplace/index.js` | 10 | `experimental/marketplace/candidate-subpath` | `InMemoryCatalogStore`, `DrizzleCatalogStore`, `CatalogNotFoundError`, `CatalogSlugConflictError` |
-| `deprecated-transitional` | `./routes/memory-sync.js` | 5 | `experimental/memory/candidate-subpath` | `createMemorySyncRoutes`, `createMemorySyncHandler`, `MemorySyncRouteConfig`, `SyncWebSocket` |
-| `deprecated-transitional` | `./triggers/index.js` | 6 | `experimental/triggers/candidate-subpath` | `TriggerManager`, `TriggerType`, `TriggerConfig`, `CronTriggerConfig` |
-| `deprecated-transitional` | `./triggers/trigger-store.js` | 4 | `experimental/triggers/candidate-subpath` | `InMemoryTriggerStore`, `DrizzleTriggerStore`, `TriggerStore`, `TriggerConfigRecord` |
-| `deprecated-transitional` | `./routes/triggers.js` | 2 | `experimental/triggers/candidate-subpath` | `createTriggerRoutes`, `TriggerRouteConfig` |
-| `deprecated-transitional` | `./routes/schedules.js` | 2 | `experimental/triggers/candidate-subpath` | `createScheduleRoutes`, `ScheduleRouteConfig` |
-| `deprecated-transitional` | `./schedules/schedule-store.js` | 4 | `experimental/triggers/candidate-subpath` | `InMemoryScheduleStore`, `DrizzleScheduleStore`, `ScheduleStore`, `ScheduleRecord` |
-| `deprecated-transitional` | `./routes/personas.js` | 2 | `experimental/personas/candidate-subpath` | `createPersonaRoutes`, `PersonaRouteConfig` |
-| `deprecated-transitional` | `./routes/prompts.js` | 2 | `experimental/prompts/candidate-subpath` | `createPromptRoutes`, `PromptRouteConfig` |
-| `deprecated-transitional` | `./prompts/prompt-store.js` | 4 | `experimental/prompts/candidate-subpath` | `InMemoryPromptStore`, `PromptStore`, `PromptVersionRecord`, `PromptStatus` |
-| `deprecated-transitional` | `./personas/persona-store.js` | 3 | `experimental/personas/candidate-subpath` | `InMemoryPersonaStore`, `PersonaStore`, `PersonaRecord` |
-| `deprecated-transitional` | `./personas/persona-resolver.js` | 2 | `experimental/personas/candidate-subpath` | `createPersonaStoreResolver`, `PersonaStoreResolver` |
-| `deprecated-transitional` | `./routes/presets.js` | 2 | `experimental/presets/candidate-subpath` | `createPresetRoutes`, `PresetRouteConfig` |
-| `deprecated-transitional` | `./routes/reflections.js` | 2 | `experimental/reflections/candidate-subpath` | `createReflectionRoutes`, `ReflectionRouteConfig` |
-| `internal-only-candidate` | `./persistence/drizzle-reflection-store.js` | 1 | `internal/persistence/remove-root` | `DrizzleReflectionStore` |
-| `deprecated-transitional` | `./routes/mailbox.js` | 2 | `experimental/notifications/candidate-subpath` | `createMailboxRoutes`, `MailboxRouteConfig` |
-| `internal-only-candidate` | `./persistence/drizzle-cluster-store.js` | 5 | `internal/persistence/remove-root` | `InMemoryClusterStore`, `DrizzleClusterStore`, `ClusterStore`, `ClusterRecord` |
-| `deprecated-transitional` | `./routes/clusters.js` | 2 | `experimental/clusters/candidate-subpath` | `createClusterRoutes`, `ClusterRouteConfig` |
-| `deprecated-transitional` | `./routes/openai-compat/index.js` | 26 | `secondary/compat/candidate-subpath` | `OpenAICompletionMapper`, `createOpenAICompatCompletionsRoute`, `createModelsRoute`, `openaiAuthMiddleware` |
+| `stable` | `./streaming/sse-streaming-adapter.js` | 3 | `stable/realtime/keep-root` | `streamRunHandleToSSE`, `SSEStreamLike`, `StreamRunHandleToSSEOptions` |
 | `stable` | `./platforms/lambda.js` | 1 | `stable/platforms/keep-root` | `toLambdaHandler` |
 | `stable` | `./platforms/vercel.js` | 1 | `stable/platforms/keep-root` | `toVercelHandler` |
 | `stable` | `./platforms/cloudflare.js` | 1 | `stable/platforms/keep-root` | `toCloudflareHandler` |
-| `internal-only-candidate` | `./cli/plugins-command.js` | 4 | `internal/cli/remove-root` | `listPlugins`, `addPlugin`, `removePlugin`, `PluginInfo` |
-| `internal-only-candidate` | `./cli/dev-command.js` | 3 | `internal/cli/remove-root` | `createDevCommand`, `DevCommandConfig`, `DevCommandHandle` |
-| `internal-only-candidate` | `./cli/trace-printer.js` | 1 | `internal/cli/remove-root` | `TracePrinter` |
-| `internal-only-candidate` | `./cli/config-command.js` | 2 | `internal/cli/remove-root` | `configValidate`, `configShow` |
-| `internal-only-candidate` | `./cli/memory-command.js` | 5 | `internal/cli/remove-root` | `memoryBrowse`, `memorySearch`, `MemoryBrowseOptions`, `MemoryBrowseEntry` |
-| `internal-only-candidate` | `./cli/vectordb-command.js` | 3 | `internal/cli/remove-root` | `vectordbStatus`, `formatVectorDBStatus`, `VectorDBStatusResult` |
-| `deprecated-transitional` | `./cli/doctor.js` | 9 | `secondary/ops/candidate-subpath` | `runDoctor`, `formatDoctorReport`, `formatDoctorReportJSON`, `CheckStatus` |
-| `internal-only-candidate` | `./cli/marketplace-command.js` | 6 | `internal/cli/remove-root` | `searchMarketplace`, `filterByCategory`, `formatPluginTable`, `createSampleRegistry` |
-| `internal-only-candidate` | `./cli/scorecard-command.js` | 4 | `internal/cli/remove-root` | `runScorecard`, `parseScorecardArgs`, `ScorecardCommandOptions`, `ScorecardCommandResult` |
-| `deprecated-transitional` | `./scorecard/index.js` | 14 | `secondary/ops/candidate-subpath` | `IntegrationScorecard`, `ScorecardReport`, `ScorecardCategory`, `ScorecardCheck` |
-| `deprecated-transitional` | `./runtime/consolidation-scheduler.js` | 4 | `secondary/runtime/candidate-subpath` | `ConsolidationScheduler`, `ConsolidationTask`, `ConsolidationReport`, `ConsolidationSchedulerConfig` |
-| `deprecated-transitional` | `./runtime/sleep-consolidation-task.js` | 4 | `experimental/runtime/candidate-subpath` | `createSleepConsolidationTask`, `SleepConsolidationTaskConfig`, `SleepConsolidatorLike`, `SleepConsolidationReportLike` |
-| `deprecated-transitional` | `./runtime/memory-quota-manager.js` | 1 | `experimental/runtime/candidate-subpath` | `InMemoryQuotaManager` |
-| `deprecated-transitional` | `./runtime/run-worker.js` | 9 | `secondary/runtime/candidate-subpath` | `startRunWorker`, `RunExecutionContext`, `RunExecutor`, `StartRunWorkerOptions` |
-| `deprecated-transitional` | `./runtime/default-run-executor.js` | 1 | `secondary/runtime/candidate-subpath` | `createDefaultRunExecutor` |
-| `deprecated-transitional` | `./runtime/dzip-agent-run-executor.js` | 2 | `secondary/runtime/candidate-subpath` | `createDzupAgentRunExecutor`, `DzupAgentRunExecutorOptions` |
-| `deprecated-transitional` | `./runtime/resource-quota.js` | 6 | `secondary/runtime/candidate-subpath` | `QuotaExceededError`, `ResourceDimensions`, `ResourceQuota`, `ResourceReservation` |
-| `deprecated-transitional` | `./runtime/retrieval-feedback-hook.js` | 4 | `secondary/runtime/candidate-subpath` | `reportRetrievalFeedback`, `mapScoreToQuality`, `RetrievalFeedbackSink`, `RetrievalFeedbackHookConfig` |
-| `deprecated-transitional` | `./runtime/tool-resolver.js` | 13 | `secondary/runtime/candidate-subpath` | `resolveAgentTools`, `ToolResolutionError`, `getToolProfileConfig`, `ToolResolverContext` |
-| `deprecated-transitional` | `./runtime/utils.js` | 1 | `secondary/runtime/candidate-subpath` | `isStructuredResult` |
-| `deprecated-transitional` | `./deploy/docker-generator.js` | 4 | `experimental/deploy/candidate-subpath` | `generateDockerfile`, `generateDockerCompose`, `generateDockerignore`, `DockerConfig` |
-| `deprecated-transitional` | `./deploy/health-checker.js` | 2 | `experimental/deploy/candidate-subpath` | `checkHealth`, `HealthCheckResult` |
-| `deprecated-transitional` | `./deploy/confidence-calculator.js` | 1 | `experimental/deploy/candidate-subpath` | `DeployConfidenceCalculator` |
-| `deprecated-transitional` | `./deploy/deploy-gate.js` | 1 | `experimental/deploy/candidate-subpath` | `DeployGate` |
-| `deprecated-transitional` | `./deploy/deployment-history.js` | 3 | `experimental/deploy/candidate-subpath` | `DeploymentHistory`, `generateDeploymentId`, `resetIdCounter` |
-| `deprecated-transitional` | `./deploy/confidence-types.js` | 6 | `experimental/deploy/candidate-subpath` | `GateDecision`, `ConfidenceSignal`, `DeployConfidence`, `ConfidenceThresholds` |
-| `deprecated-transitional` | `./deploy/deployment-history-store.js` | 7 | `experimental/deploy/candidate-subpath` | `PostgresDeploymentHistoryStore`, `InMemoryDeploymentHistoryStore`, `DeploymentHistoryStoreInterface`, `DeploymentHistoryRecord` |
-| `deprecated-transitional` | `./deploy/signal-checkers.js` | 8 | `experimental/deploy/candidate-subpath` | `checkRecoveryCopilotConfigured`, `checkRollbackAvailable`, `computeAllSignals`, `AgentConfigLike` |
-| `deprecated-transitional` | `./routes/deploy.js` | 2 | `experimental/deploy/candidate-subpath` | `createDeployRoutes`, `DeployRouteConfig` |
 | `stable` | `./security/input-guard.js` | 5 | `stable/security/keep-root` | `createInputGuard`, `DEFAULT_MAX_INPUT_LENGTH`, `InputGuard`, `InputGuardConfig` |
-| `deprecated-transitional` | `./security/incident-response.js` | 12 | `experimental/security/candidate-subpath` | `IncidentResponseEngine`, `clearIncidentFlags`, `isAgentKilled`, `isToolDisabled` |
-| `internal-only-candidate` | `./docs/doc-generator.js` | 3 | `internal/docs/remove-root` | `DocGenerator`, `DocGeneratorConfig`, `DocGeneratorContext` |
-| `internal-only-candidate` | `./docs/agent-doc.js` | 2 | `internal/docs/remove-root` | `renderAgentDoc`, `AgentDocInput` |
-| `internal-only-candidate` | `./docs/tool-doc.js` | 2 | `internal/docs/remove-root` | `renderToolDoc`, `ToolDocInput` |
-| `internal-only-candidate` | `./docs/pipeline-doc.js` | 4 | `internal/docs/remove-root` | `renderPipelineDoc`, `PipelineDocInput`, `PipelineDocNode`, `PipelineDocEdge` |
-| `deprecated-transitional` | `./persistence/postgres-registry.js` | 5 | `experimental/registry/candidate-subpath` | `PostgresRegistry`, `InMemoryRegistryStore`, `PostgresRegistryConfig`, `RegistryStore` |
-| `deprecated-transitional` | `./registry/health-monitor.js` | 3 | `experimental/registry/candidate-subpath` | `HealthMonitor`, `HealthMonitorConfig`, `ProbeResult` |
-| `deprecated-transitional` | `./routes/registry.js` | 2 | `experimental/registry/candidate-subpath` | `createRegistryRoutes`, `RegistryRouteConfig` |
-| `stable` | `./streaming/sse-streaming-adapter.js` | 3 | `stable/realtime/keep-root` | `streamRunHandleToSSE`, `SSEStreamLike`, `StreamRunHandleToSSEOptions` |
-| `internal-only-candidate` | `<local>:dzupagent_SERVER_VERSION` | 1 | `internal/versioning/remove-root` | `dzupagent_SERVER_VERSION` |
 
