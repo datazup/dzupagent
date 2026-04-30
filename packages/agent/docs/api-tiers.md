@@ -125,9 +125,13 @@ maintained in this package. `@dzupagent/agent` intentionally does not declare
 Vue peer/build requirements, does not emit Vue SFC build artifacts, and
 explicitly does not export `./playground/ui` package subpaths.
 
-The trace style helpers return Tailwind class strings. Any host that
-intentionally reuses those internal helpers must configure Tailwind dark mode as
-class-based and toggle a `.dark` class on an ancestor. The package-local
+The trace style helpers return Tailwind class strings through a small semantic
+theme contract. `defaultTraceTheme` is the source of truth for product-neutral
+surface, text, muted text, focus, selected-state, and status-tone slots; the
+older `traceUiStyles`, `traceInteractionStyles`, and `traceToneStyles` maps are
+derived compatibility helpers for source-internal maintenance code. Any host
+that intentionally reuses those internal helpers must configure Tailwind dark
+mode as class-based and toggle a `.dark` class on an ancestor. The package-local
 `src/playground/ui/index.ts` entrypoint exposes `traceUiHostContract` so tests
 and maintainers can assert this precondition explicitly.
 

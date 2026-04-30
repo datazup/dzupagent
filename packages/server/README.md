@@ -66,9 +66,11 @@ framework-primitive, route-plugin-host-seam, or internal-support rationale;
 
 ## Server Config And Route Families
 
-`ForgeServerConfig` remains the compatibility aggregate accepted by
-`createForgeApp`, but its route-facing options are split into feature-family
-contracts:
+`ForgeHostRuntimeConfig` is the preferred narrow type for new hosts that only
+need the framework runtime, transport/security settings, and the
+`routePlugins` seam. `ForgeServerConfig` remains the compatibility aggregate
+accepted by `createForgeApp`, but its route-facing options are split into
+frozen feature-family contracts:
 
 - `ForgeMemoryRouteFamilyConfig`
 - `ForgeCompatibilityRouteFamilyConfig`
@@ -78,11 +80,12 @@ contracts:
 - `ForgeControlPlaneRouteFamilyConfig`
 
 Existing fields such as `memoryHealth`, `evals`, `playground`, `a2a`,
-`promptStore`, and `mailDelivery` still work on `ForgeServerConfig`. Internally,
-the server adapts those legacy fields into route-family plugins before mounting
-them. New product-specific feature families should define their own app-owned
-config and pass a `ServerRoutePlugin` through `routePlugins` instead of adding
-new optional fields to `ForgeServerConfig`.
+`promptStore`, and `mailDelivery` still work on `ForgeServerConfig` for
+compatibility. Internally, the server adapts those legacy fields into
+route-family plugins before mounting them. New product-specific feature
+families should define their own app-owned config and pass a
+`ServerRoutePlugin` through `routePlugins` instead of adding new optional fields
+to `ForgeServerConfig`.
 
 ```ts
 import type { ServerRoutePlugin } from '@dzupagent/server'
@@ -197,8 +200,15 @@ const app = createForgeApp({
 ```
 
 When auth is enabled, global RBAC is enabled unless `rbac: false` is set.
-RBAC denies unknown `/api/*` management route groups by default. Built-in
-high-risk groups such as `/api/keys`, `/api/registry`, `/api/triggers`,
+RBAC denies unknown `/api/*` management route groups by default. The same
+production controls also cover configured compatibility surfaces: `rateLimit`
+applies to `/api/*`, A2A `/a2a` and `/a2a/*` when `a2a` is configured, and
+OpenAI-compatible `/v1/*` when `openai.enabled` is true. A2A task routes use
+the framework API key auth/RBAC context; OpenAI-compatible routes use their
+OpenAI bearer auth metadata for RBAC checks on `/v1/models` and
+`/v1/chat/completions`.
+
+Built-in high-risk groups such as `/api/keys`, `/api/registry`, `/api/triggers`,
 `/api/schedules`, `/api/deploy`, `/api/evals`, `/api/benchmarks`,
 `/api/prompts`, `/api/personas`, `/api/marketplace`, `/api/mailbox`,
 `/api/clusters`, and `/api/mcp` require the `admin` role. Health routes under
