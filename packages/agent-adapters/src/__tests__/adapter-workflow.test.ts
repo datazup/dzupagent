@@ -9,6 +9,13 @@ import {
   AdapterWorkflow,
 } from '../workflow/adapter-workflow.js'
 import type { AdapterWorkflowEvent } from '../workflow/adapter-workflow.js'
+import {
+  isCompletedEvent,
+  isFailedEvent,
+  mergeParallelResults,
+  resolveFallbackProviderId,
+  resolveTemplate,
+} from '../workflow/adapter-workflow-execution.js'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
@@ -398,6 +405,72 @@ describe('AdapterWorkflowBuilder', () => {
       ]),
     )
     expect(events.some((event) => event.type.startsWith('flow:compile_'))).toBe(false)
+  })
+})
+
+describe('adapter workflow execution extraction seams', () => {
+  it('resolves prompt templates and fallback providers through focused helpers', () => {
+    const registry = createRegistry([createMockAdapter('codex' as AdapterProviderId)])
+
+    expect(resolveTemplate('hello {{state.name}} after {{prev}}', { name: 'Ada' }, 'plan')).toBe(
+      'hello Ada after plan',
+    )
+    expect(resolveFallbackProviderId(registry, undefined)).toBe('codex')
+    expect(resolveFallbackProviderId(registry, 'claude' as AdapterProviderId)).toBe('claude')
+  })
+
+  it('narrows adapter completion/failure events without changing event semantics', () => {
+    const completed: AgentEvent = {
+      type: 'adapter:completed',
+      providerId: 'codex' as AdapterProviderId,
+      sessionId: 's1',
+      result: 'done',
+      durationMs: 1,
+      timestamp: Date.now(),
+    }
+    const failed: AgentEvent = {
+      type: 'adapter:failed',
+      providerId: 'codex' as AdapterProviderId,
+      error: 'nope',
+      timestamp: Date.now(),
+    }
+
+    expect(isCompletedEvent(completed)).toBe(true)
+    expect(isFailedEvent(completed)).toBe(false)
+    expect(isFailedEvent(failed)).toBe(true)
+  })
+
+  it('merges parallel results with the same public state shapes', () => {
+    const state: Record<string, unknown> = {}
+    const results = [
+      {
+        stepId: 'a',
+        result: 'A',
+        providerId: 'codex' as AdapterProviderId,
+        success: true,
+        durationMs: 1,
+        retries: 0,
+      },
+      {
+        stepId: 'b',
+        result: 'B',
+        providerId: 'claude' as AdapterProviderId,
+        success: true,
+        durationMs: 1,
+        retries: 0,
+      },
+    ]
+
+    mergeParallelResults(state, results, 'concat')
+
+    expect(state).toEqual({
+      a: 'A',
+      b: 'B',
+      parallelResults: [
+        { stepId: 'a', result: 'A', success: true },
+        { stepId: 'b', result: 'B', success: true },
+      ],
+    })
   })
 })
 

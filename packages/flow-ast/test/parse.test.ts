@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { parseFlow, type ParseResult } from '../src/parse.js'
+import { FLOW_NODE_KINDS, parseFlow, type ParseResult } from '../src/index.js'
+import type { FlowNode } from '../src/index.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const FIXTURES = join(__dirname, 'fixtures')
@@ -10,6 +11,44 @@ const FIXTURES = join(__dirname, 'fixtures')
 function loadFixture(name: string): string {
   return readFileSync(join(FIXTURES, name), 'utf8')
 }
+
+const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode['type'], FlowNode> = {
+  sequence: { type: 'sequence', nodes: [{ type: 'complete' }] },
+  action: { type: 'action', toolRef: 'tool.run', input: {} },
+  for_each: { type: 'for_each', source: 'items', as: 'item', body: [{ type: 'complete' }] },
+  branch: { type: 'branch', condition: 'ok', then: [{ type: 'complete' }] },
+  approval: { type: 'approval', question: 'go?', onApprove: [{ type: 'complete' }] },
+  clarification: { type: 'clarification', question: 'need input?' },
+  persona: { type: 'persona', personaId: 'reviewer', body: [{ type: 'complete' }] },
+  route: { type: 'route', strategy: 'fixed-provider', provider: 'openai', body: [{ type: 'complete' }] },
+  parallel: { type: 'parallel', branches: [[{ type: 'complete' }]] },
+  complete: { type: 'complete', result: 'done' },
+  spawn: { type: 'spawn', templateRef: 'templates.codegen', input: { task: 'build' }, waitForCompletion: true },
+  classify: {
+    type: 'classify',
+    prompt: 'classify request',
+    choices: ['bug', 'feature'],
+    outputKey: 'intent',
+    defaultChoice: 'bug',
+  },
+  emit: { type: 'emit', event: 'flow.completed', payload: { ok: true } },
+  memory: { type: 'memory', operation: 'write', tier: 'session', key: 'intent', valueExpr: '${intent}' },
+  checkpoint: { type: 'checkpoint', label: 'after-plan', captureOutputOf: 'plan' },
+  restore: { type: 'restore', checkpointLabel: 'after-plan', onNotFound: 'skip' },
+}
+
+describe('parseFlow — public node contract', () => {
+  it.each(FLOW_NODE_KINDS)('accepts public node kind %s', (kind) => {
+    const node = PUBLIC_NODE_KIND_FIXTURES[kind]
+    const result = parseFlow(node)
+    expect(result.errors).toEqual([])
+    expect(result.ast).toEqual(node)
+  })
+
+  it('the parser coverage table is exhaustive for the public FlowNode union', () => {
+    expect(Object.keys(PUBLIC_NODE_KIND_FIXTURES).sort()).toEqual([...FLOW_NODE_KINDS].sort())
+  })
+})
 
 describe('parseFlow — golden fixtures', () => {
   it('simple-sequence: zero errors, exact AST', () => {

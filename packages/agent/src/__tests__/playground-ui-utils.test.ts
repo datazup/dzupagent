@@ -1,14 +1,16 @@
 /**
- * Tests for playground/ui/utils — helper functions used by the
- * framework-internal Playground trace UI.
+ * Tests for playground/ui/utils — rendering-independent helper functions used
+ * by framework-internal playground trace utilities.
  *
  * These are rendering-independent helper checks only. They cover formatting,
- * trace tone maps, and Tailwind class composition; they do not validate Vue SFC
- * rendering behavior, visual regressions, or design-token conformance.
+ * trace tone maps, and Tailwind class composition. Vue SFC source is not
+ * maintained in this package, so these tests do not validate rendered component
+ * behavior, visual regressions, or design-token conformance.
  */
 import { describe, it, expect } from 'vitest'
 import type { TimelineNode } from '../replay/replay-types.js'
 import type { NodeMetrics, ReplaySummary } from '../replay/replay-inspector.js'
+import { traceUiHostContract as traceUiEntrypointHostContract } from '../playground/ui/index.js'
 import {
   getNodeStatus,
   formatMs,
@@ -22,12 +24,16 @@ import {
   getBottleneckNodes,
   getErrorEventTypes,
   formatValue,
+  traceUiHostContract,
+  traceInteractionStyles,
   traceUiStyles,
+  traceDensityStyles,
   traceToneStyles,
   getTraceStatusTone,
   getTraceStatusStyles,
   getTraceChangeTone,
   getTraceChangeStyles,
+  getTraceDensityStyles,
 } from '../playground/ui/utils.js'
 
 // ---------------------------------------------------------------------------
@@ -130,9 +136,74 @@ describe('trace UI style adapter', () => {
 
   it('centralizes shared surface, border, selected, and muted text primitives', () => {
     expect(traceUiStyles.panel).toContain('border')
-    expect(traceUiStyles.selected).toContain('border-blue')
+    expect(traceUiStyles.selected).toBe(`${traceUiStyles.selectedBorder} ${traceUiStyles.selectedSurface}`)
     expect(traceUiStyles.textMuted).toContain('text-gray')
     expect(getTraceChangeStyles('removed').panel).toBe(traceToneStyles.danger.panel)
+  })
+
+  it('sources selected and focus classes from semantic interaction slots', () => {
+    expect(traceUiStyles.focusRing).toBe(traceInteractionStyles.focusRing)
+    expect(traceUiStyles.selectedBorder).toBe(traceInteractionStyles.selectedBorder)
+    expect(traceUiStyles.selectedSurface).toBe(traceInteractionStyles.selectedSurface)
+    expect(traceUiStyles.selected).toBe(
+      `${traceInteractionStyles.selectedBorder} ${traceInteractionStyles.selectedSurface}`,
+    )
+    expect(traceUiStyles.focusRing).toContain('focus-visible:outline-blue-500')
+    expect(traceUiStyles.selectedBorder).toContain('border-blue-500')
+    expect(traceUiStyles.selectedSurface).toContain('bg-blue-50')
+  })
+
+  it('documents the Tailwind dark-mode host contract from the package-local UI entrypoint', () => {
+    expect(traceUiEntrypointHostContract).toBe(traceUiHostContract)
+    expect(traceUiHostContract.darkMode).toBe('class')
+    expect(traceUiHostContract.requiredHostClass).toBe('dark')
+    expect(traceUiHostContract.appliesTo).toEqual([
+      'status tone',
+      'surface',
+      'text',
+      'divider',
+      'selected',
+      'interactive',
+    ])
+  })
+
+  it('keeps dark-mode class variants centralized for trace visual slots', () => {
+    expect(traceUiStyles.panel).toContain('dark:border-gray-700')
+    expect(traceUiStyles.panel).toContain('dark:bg-gray-900')
+    expect(traceUiStyles.divider).toContain('dark:border-gray-700')
+    expect(traceUiStyles.selectedBorder).toContain('dark:border-blue-400')
+    expect(traceUiStyles.selectedSurface).toContain('dark:bg-blue-950')
+    expect(traceUiStyles.interactive).toContain('dark:hover:bg-gray-900')
+    expect(traceToneStyles.danger.badge).toContain('dark:bg-red-900')
+    expect(traceToneStyles.success.textStrong).toContain('dark:text-emerald-200')
+    expect(traceToneStyles.warning.panel).toContain('dark:bg-yellow-950')
+    expect(traceToneStyles.neutral.text).toContain('dark:text-gray-400')
+  })
+
+  it('centralizes default trace density values behind semantic slots', () => {
+    const density = getTraceDensityStyles()
+
+    expect(density).toBe(traceDensityStyles.default)
+    expect(density.sectionGap).toBe('gap-5')
+    expect(density.detailGrid).toBe('gap-4 p-4')
+    expect(density.rowButton).toBe('gap-3 rounded-md px-3 py-2')
+    expect(density.labelColumn).toBe('w-36')
+    expect(density.durationColumn).toBe('w-16')
+    expect(density.valueColumn).toBe('w-32')
+    expect(density.badgeText).toBe('text-[11px] font-medium')
+    expect(density.captionText).toBe('text-[10px] uppercase')
+  })
+
+  it('provides a compact trace density variant without changing default density', () => {
+    const compact = getTraceDensityStyles('compact')
+
+    expect(compact).toBe(traceDensityStyles.compact)
+    expect(compact.sectionGap).toBe('gap-3')
+    expect(compact.rowButton).toBe('gap-2 rounded px-2 py-1.5')
+    expect(compact.labelColumn).toBe('w-28')
+    expect(compact.codeText).toBe('text-[11px]')
+    expect(compact.rowButton).not.toBe(traceDensityStyles.default.rowButton)
+    expect(getTraceDensityStyles()).toBe(traceDensityStyles.default)
   })
 })
 

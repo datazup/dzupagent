@@ -341,6 +341,27 @@ steps:
     expect(failure.errors[0]?.code).toBe('UNSUPPORTED_FIELD')
     expect(failure.errors[0]?.nodePath).toBe('root.steps[0].on_error')
   })
+
+  it('newer public node kinds reach shape validation instead of UNKNOWN_NODE_TYPE', async () => {
+    const resolver = makeResolver([])
+    const compiler = createFlowCompiler({ toolResolver: resolver })
+
+    const result = await compiler.compile({
+      type: 'spawn',
+      templateRef: '',
+    })
+
+    expect('errors' in result).toBe(true)
+    const failure = result as { errors: Array<{ stage: number; code: string; message: string }> }
+    expect(failure.errors).toEqual([
+      expect.objectContaining({
+        stage: 2,
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'spawn.templateRef is required (non-empty string)',
+      }),
+    ])
+    expect(failure.errors.some((e) => e.code === 'UNKNOWN_NODE_TYPE')).toBe(false)
+  })
 })
 
 // ---------------------------------------------------------------------------

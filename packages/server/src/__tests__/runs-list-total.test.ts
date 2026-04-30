@@ -14,11 +14,38 @@ import {
   ModelRegistry,
   createEventBus,
 } from '@dzupagent/core'
+import type { PostgresApiKeyStore, ApiKeyRecord } from '../persistence/api-key-store.js'
 
 interface RunsListResponse {
-  data: Array<{ id: string; agentId: string; status: string }>
+  data: Array<{ id: string; agentId: string; status: string; ownerId?: string | null; tenantId?: string | null }>
   count: number
   total: number
+}
+
+function makeApiKeyStore(records: Record<string, ApiKeyRecord>): PostgresApiKeyStore {
+  return {
+    validate: async (key: string) => records[key] ?? null,
+    create: async () => { throw new Error('not implemented') },
+    revoke: async () => {},
+    list: async () => [],
+    get: async () => null,
+  } as unknown as PostgresApiKeyStore
+}
+
+function apiKeyRecord(id: string, tenantId = 'tenant-1'): ApiKeyRecord {
+  return {
+    id,
+    ownerId: id,
+    tenantId,
+    name: 'test key',
+    role: 'operator',
+    rateLimitTier: 'standard',
+    createdAt: new Date(),
+    expiresAt: null,
+    revokedAt: null,
+    lastUsedAt: null,
+    metadata: {},
+  }
 }
 
 function createTestConfig(): ForgeServerConfig {
@@ -124,5 +151,82 @@ describe('GET /api/runs — total count', () => {
     expect(paginatedBody.data.length).toBe(2)
     expect(paginatedBody.count).toBe(2)
     expect(paginatedBody.total).toBe(5)
+  })
+
+  it('returns tenant-wide totals when auth is disabled', async () => {
+    await config.runStore.create({ agentId: 'agent-1', input: 'owner-1', ownerId: 'key-1', tenantId: 'tenant-1' })
+    await config.runStore.create({ agentId: 'agent-1', input: 'owner-2', ownerId: 'key-2', tenantId: 'tenant-1' })
+    await config.runStore.create({ agentId: 'agent-1', input: 'other-tenant', ownerId: 'key-3', tenantId: 'tenant-2' })
+
+    const res = await app.request('/api/runs')
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as RunsListResponse
+    expect(body.count).toBe(3)
+    expect(body.total).toBe(3)
+  })
+
+  it('scopes total to the authenticated tenant before owner filtering', async () => {
+    app = createForgeApp({
+      ...config,
+      auth: { mode: 'api-key' },
+      apiKeyStore: makeApiKeyStore({ token: apiKeyRecord('key-1', 'tenant-1') }),
+    })
+    await config.runStore.create({ agentId: 'agent-1', input: 'visible', ownerId: 'key-1', tenantId: 'tenant-1' })
+    await config.runStore.create({ agentId: 'agent-1', input: 'wrong-tenant', ownerId: 'key-1', tenantId: 'tenant-2' })
+
+    const res = await app.request('/api/runs', {
+      headers: { Authorization: 'Bearer token' },
+    })
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as RunsListResponse
+    expect(body.data.map(run => run.tenantId)).toEqual(['tenant-1'])
+    expect(body.count).toBe(1)
+    expect(body.total).toBe(1)
+  })
+
+  it('scopes total to the authenticated owner while keeping legacy ownerless rows visible', async () => {
+    app = createForgeApp({
+      ...config,
+      auth: { mode: 'api-key' },
+      apiKeyStore: makeApiKeyStore({ token: apiKeyRecord('key-1', 'tenant-1') }),
+    })
+    await config.runStore.create({ agentId: 'agent-1', input: 'owned', ownerId: 'key-1', tenantId: 'tenant-1' })
+    await config.runStore.create({ agentId: 'agent-1', input: 'other-owner', ownerId: 'key-2', tenantId: 'tenant-1' })
+    await config.runStore.create({ agentId: 'agent-1', input: 'legacy', ownerId: null, tenantId: 'tenant-1' })
+
+    const res = await app.request('/api/runs', {
+      headers: { Authorization: 'Bearer token' },
+    })
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as RunsListResponse
+    expect(body.data.map(run => run.ownerId ?? null).sort()).toEqual(['key-1', null].sort())
+    expect(body.count).toBe(2)
+    expect(body.total).toBe(2)
+  })
+
+  it('applies owner scope before pagination so totals and pages do not leak other owners', async () => {
+    app = createForgeApp({
+      ...config,
+      auth: { mode: 'api-key' },
+      apiKeyStore: makeApiKeyStore({ token: apiKeyRecord('key-1', 'tenant-1') }),
+    })
+    await config.runStore.create({ agentId: 'agent-1', input: 'visible-1', ownerId: 'key-1', tenantId: 'tenant-1' })
+    await config.runStore.create({ agentId: 'agent-1', input: 'hidden', ownerId: 'key-2', tenantId: 'tenant-1' })
+    await config.runStore.create({ agentId: 'agent-1', input: 'visible-2', ownerId: 'key-1', tenantId: 'tenant-1' })
+    await config.runStore.create({ agentId: 'agent-1', input: 'legacy', ownerId: null, tenantId: 'tenant-1' })
+
+    const res = await app.request('/api/runs?limit=2', {
+      headers: { Authorization: 'Bearer token' },
+    })
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as RunsListResponse
+    expect(body.data).toHaveLength(2)
+    expect(body.count).toBe(2)
+    expect(body.total).toBe(3)
+    expect(body.data.every(run => !run.ownerId || run.ownerId === 'key-1')).toBe(true)
   })
 })
