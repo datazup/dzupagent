@@ -434,6 +434,7 @@ export class ParallelExecutor {
       const mergedInput: AgentInput = { ...input, signal }
       const gen = adapter.execute(mergedInput)
       let finalResult = ''
+      let failedEvent: Extract<AgentEvent, { type: 'adapter:failed' }> | undefined
 
       for await (const event of gen) {
         // If we have been aborted (e.g. first-wins resolved), stop consuming.
@@ -448,6 +449,10 @@ export class ParallelExecutor {
         }
 
         events.push(event)
+
+        if (event.type === 'adapter:failed') {
+          failedEvent = event
+        }
 
         // Extract the final result and usage from the completed event.
         if (event.type === 'adapter:completed') {
@@ -466,6 +471,7 @@ export class ParallelExecutor {
             )
           }
 
+          this.recordProviderSuccess(providerId)
           this.emit({
             type: 'pipeline:node_completed',
             pipelineId: 'parallel-executor',
@@ -497,20 +503,27 @@ export class ParallelExecutor {
         )
       }
 
+      const failureMessage = failedEvent?.error
+        ?? 'Adapter stream ended without terminal adapter:completed event'
+      const failureCode = failedEvent?.code ?? 'MISSING_TERMINAL_COMPLETION'
+      this.recordProviderFailure(providerId, new Error(failureMessage))
+
       this.emit({
-        type: 'pipeline:node_completed',
+        type: 'pipeline:node_failed',
         pipelineId: 'parallel-executor',
         runId: `parallel-${startMs}`,
         nodeId: providerId,
-        durationMs,
+        error: failureMessage,
       })
 
       return {
         providerId,
-        result: finalResult,
-        success: true,
+        result: '',
+        success: false,
         durationMs,
-        ...(usage !== undefined ? { usage } : {}),
+        error: failureCode === 'MISSING_TERMINAL_COMPLETION'
+          ? failureMessage
+          : `${failureCode}: ${failureMessage}`,
         events,
       }
     } catch (err) {
@@ -539,6 +552,8 @@ export class ParallelExecutor {
         })
       }
 
+      this.recordProviderFailure(providerId, err instanceof Error ? err : new Error(message))
+
       return {
         providerId,
         result: '',
@@ -564,6 +579,7 @@ export class ParallelExecutor {
     let bestScore = -Infinity
 
     for (const r of results) {
+      if (!r.success || r.cancelled) continue
       const score = scorer(r)
       if (score > bestScore) {
         bestScore = score
@@ -699,6 +715,20 @@ export class ParallelExecutor {
     if (this.eventBus) {
       this.eventBus.emit(progressEvent)
     }
+  }
+
+  private recordProviderSuccess(providerId: AdapterProviderId): void {
+    const registry = this.registry as ProviderAdapterRegistry & {
+      recordSuccess?: (providerId: AdapterProviderId) => void
+    }
+    registry.recordSuccess?.(providerId)
+  }
+
+  private recordProviderFailure(providerId: AdapterProviderId, error: Error): void {
+    const registry = this.registry as ProviderAdapterRegistry & {
+      recordFailure?: (providerId: AdapterProviderId, error: Error) => void
+    }
+    registry.recordFailure?.(providerId, error)
   }
 
   private emit(

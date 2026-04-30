@@ -5,7 +5,7 @@
  *
  * Neither `@dzupagent/flow-ast` nor `@dzupagent/flow-compiler` declares `zod`
  * as a dependency. Adding one purely to satisfy SC-12 would balloon the
- * runtime-free-types surface of this package and require peer-dep gymnastics
+ * dependency-light leaf-runtime surface of this package and require peer-dep gymnastics
  * in every downstream workspace. Per SC-12 constraints ("Do NOT add a new dep
  * if zod isn't already there — use type narrowing instead and note the gap"),
  * this module exposes a Zod-compatible API shape built entirely from

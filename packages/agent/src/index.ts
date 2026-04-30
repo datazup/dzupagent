@@ -133,12 +133,16 @@ export type {
   TaskAssignment,
   AggregatedDelegationResult,
   PlanAndDelegateOptions,
+  DelegateTaskOptions,
 } from './orchestration/delegating-supervisor.js'
 export { PlanningAgent, buildExecutionLevels, validatePlanStructure, PlanNodeSchema, DecompositionSchema } from './orchestration/planning-agent.js'
 export type {
   PlanNode,
   ExecutionPlan,
   PlanExecutionResult,
+  PlanningDecompositionDiagnostics,
+  RemovedPlanNodeDiagnostic,
+  DanglingPlanDependencyDiagnostic,
   PlanningAgentConfig,
   DecompositionResult,
   DecomposeOptions,

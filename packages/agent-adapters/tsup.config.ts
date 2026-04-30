@@ -1,7 +1,16 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: [
+    'src/index.ts',
+    'src/providers.ts',
+    'src/orchestration.ts',
+    'src/workflow.ts',
+    'src/http.ts',
+    'src/persistence.ts',
+    'src/learning.ts',
+    'src/recovery.ts',
+  ],
   format: ['esm'],
   dts: true,
   clean: true,

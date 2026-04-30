@@ -6,6 +6,10 @@
  */
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
+import {
+  fetchWithOutboundUrlPolicy,
+  type OutboundUrlSecurityPolicy,
+} from '@dzupagent/core'
 import type { ConnectorToolkit } from '../connector-contract.js'
 
 export interface HTTPConnectorConfig {
@@ -17,6 +21,10 @@ export interface HTTPConnectorConfig {
   allowedMethods?: Array<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'>
   /** Request timeout in ms (default: 30_000) */
   timeoutMs?: number
+  /** Additional hosts this connector profile may reach, including redirects. */
+  allowedHosts?: string[]
+  /** Optional low-level outbound URL policy overrides for trusted deployments and tests. */
+  outboundUrlPolicy?: OutboundUrlSecurityPolicy
 }
 
 function parseHttpBaseUrl(baseUrl: string): URL {
@@ -30,9 +38,57 @@ function parseHttpBaseUrl(baseUrl: string): URL {
   return parsed
 }
 
+function normalizeHost(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, '')
+}
+
+function normalizeHostname(value: string): string {
+  return normalizeHost(value).replace(/^\[|\]$/g, '')
+}
+
+function hostMatches(candidate: URL, allowedHosts: Set<string>): boolean {
+  const hostname = normalizeHostname(candidate.hostname)
+  const host = normalizeHost(candidate.host)
+  return allowedHosts.has(hostname) || allowedHosts.has(host)
+}
+
+function createHttpConnectorPolicy(
+  base: URL,
+  config: HTTPConnectorConfig,
+): {
+  policy: OutboundUrlSecurityPolicy
+  fetchImpl: typeof fetch
+} {
+  const explicitAllowedHosts = new Set((config.allowedHosts ?? []).map(normalizeHost).filter(Boolean))
+  const policyAllowedHosts = new Set<string>([
+    normalizeHostname(base.hostname),
+    normalizeHost(base.host),
+    ...explicitAllowedHosts,
+    ...Array.from(config.outboundUrlPolicy?.allowedHosts ?? []).map(normalizeHost).filter(Boolean),
+  ])
+  const policy: OutboundUrlSecurityPolicy = {
+    ...config.outboundUrlPolicy,
+    allowedHosts: policyAllowedHosts,
+    allowHttp: config.outboundUrlPolicy?.allowHttp === true || base.protocol === 'http:',
+  }
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const nextUrl = new URL(String(input))
+    if (nextUrl.origin !== base.origin && !hostMatches(nextUrl, explicitAllowedHosts)) {
+      throw new Error(
+        `URL origin "${nextUrl.origin}" does not match base origin "${base.origin}" and is not in the connector host allowlist.`,
+      )
+    }
+    return fetch(input, init)
+  }
+
+  return { policy, fetchImpl }
+}
+
 export function createHTTPConnector(config: HTTPConnectorConfig): DynamicStructuredTool[] {
   const methods = config.allowedMethods ?? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
   const base = parseHttpBaseUrl(config.baseUrl)
+  const { policy, fetchImpl } = createHttpConnectorPolicy(base, config)
 
   return [
     new DynamicStructuredTool({
@@ -64,15 +120,19 @@ export function createHTTPConnector(config: HTTPConnectorConfig): DynamicStructu
         const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? 30_000)
 
         try {
-          const res = await fetch(url.toString(), {
-            method,
-            headers: {
-              'Content-Type': 'application/json',
-              ...config.headers,
+          const res = await fetchWithOutboundUrlPolicy(
+            url.toString(),
+            {
+              method,
+              headers: {
+                'Content-Type': 'application/json',
+                ...config.headers,
+              },
+              body: body ?? undefined,
+              signal: controller.signal,
             },
-            body: body ?? undefined,
-            signal: controller.signal,
-          })
+            { policy, fetchImpl },
+          )
 
           const text = await res.text()
           return `${res.status} ${res.statusText}\n\n${text.slice(0, 5000)}`

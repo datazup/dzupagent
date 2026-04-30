@@ -9,6 +9,34 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./providers": {
+      "import": "./dist/providers.js",
+      "types": "./dist/providers.d.ts"
+    },
+    "./orchestration": {
+      "import": "./dist/orchestration.js",
+      "types": "./dist/orchestration.d.ts"
+    },
+    "./workflow": {
+      "import": "./dist/workflow.js",
+      "types": "./dist/workflow.d.ts"
+    },
+    "./http": {
+      "import": "./dist/http.js",
+      "types": "./dist/http.d.ts"
+    },
+    "./persistence": {
+      "import": "./dist/persistence.js",
+      "types": "./dist/persistence.d.ts"
+    },
+    "./learning": {
+      "import": "./dist/learning.js",
+      "types": "./dist/learning.d.ts"
+    },
+    "./recovery": {
+      "import": "./dist/recovery.js",
+      "types": "./dist/recovery.d.ts"
     }
   },
   "scripts": {

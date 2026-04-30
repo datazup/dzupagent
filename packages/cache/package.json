@@ -2,6 +2,7 @@
   "name": "@dzupagent/cache",
   "version": "0.2.0",
   "type": "module",
+  "description": "Dependency-light cache contracts, middleware, and in-memory/Redis backend primitives for DzupAgent runtimes",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

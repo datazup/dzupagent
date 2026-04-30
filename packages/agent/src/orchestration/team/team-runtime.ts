@@ -40,7 +40,10 @@ import type {
   ParticipantDefinition,
   TeamDefinition,
 } from './team-definition.js'
-import type { TeamPolicies } from './team-policy.js'
+import type {
+  BlackboardContextOverflowBehavior,
+  TeamPolicies,
+} from './team-policy.js'
 import type { TeamPhase, TeamPhaseModel } from './team-phase.js'
 import type { TeamCheckpoint, ResumeContract } from './team-checkpoint.js'
 import type {
@@ -50,6 +53,8 @@ import type {
 import { omitUndefined } from '../../utils/exact-optional.js'
 
 const DEFAULT_MAX_PARALLEL_PARTICIPANTS = 5
+const DEFAULT_BLACKBOARD_CONTEXT_MAX_SERIALIZED_CHARS = 16_000
+const DEFAULT_BLACKBOARD_CONTEXT_MAX_ENTRY_CHARS = 4_000
 
 // Recommended model constants — exported for downstream wiring code that needs
 // to align participant/router/governance choices with the framework defaults.
@@ -105,6 +110,15 @@ export type TeamRuntimeEvent =
       teamId: string
       runId: string
       error: string
+      at: Date
+    }
+  | {
+      type: 'policy_applied'
+      teamId: string
+      runId: string
+      policyGroup: 'governance'
+      policyField: 'judgeModel'
+      coordinatorPattern: CoordinatorPattern
       at: Date
     }
 
@@ -198,6 +212,53 @@ export interface TeamRuntimeOptions {
   supervisionPolicy?: SupervisionPolicy
 }
 
+interface ResolvedBlackboardContextPolicy {
+  maxSerializedChars: number
+  maxEntryChars: number
+  overflowBehavior: BlackboardContextOverflowBehavior
+}
+
+function compactText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value
+  const marker = '\n\n[compacted: middle omitted to fit blackboard context budget]\n\n'
+  if (maxChars <= marker.length + 2) {
+    return value.slice(0, maxChars)
+  }
+  const remaining = maxChars - marker.length
+  const headChars = Math.ceil(remaining * 0.6)
+  const tailChars = Math.max(0, remaining - headChars)
+  return `${value.slice(0, headChars)}${marker}${value.slice(-tailChars)}`
+}
+
+function formatCompactedWorkspaceContext(
+  workspace: SharedWorkspace,
+  policy: ResolvedBlackboardContextPolicy,
+): string {
+  const lines: string[] = ['## Shared Workspace']
+  let remaining = policy.maxSerializedChars - lines[0]!.length
+
+  for (const [key, rawValue] of workspace.entries()) {
+    if (!rawValue || remaining <= 0) continue
+    const heading = `### ${key}`
+    const sectionOverhead = heading.length + 3
+    if (remaining <= sectionOverhead) break
+
+    const maxValueChars = Math.min(
+      policy.maxEntryChars,
+      remaining - sectionOverhead,
+    )
+    const value = compactText(rawValue, maxValueChars)
+    lines.push(heading)
+    lines.push(value)
+    lines.push('')
+    remaining -= sectionOverhead + value.length
+  }
+
+  const formatted = lines.join('\n')
+  if (formatted.length <= policy.maxSerializedChars) return formatted
+  return formatted.slice(0, policy.maxSerializedChars)
+}
+
 /**
  * Executes a team according to its declarative definition and policies.
  *
@@ -225,13 +286,22 @@ export class TeamRuntime {
   constructor(options: TeamRuntimeOptions) {
     this.definition = options.definition
     this.policies = options.policies ?? {}
-    this.validateExecutionPolicy()
+    this.validatePolicies()
     this.resolveParticipant = options.resolveParticipant
     this.emitEvent = options.onEvent ?? (() => {})
     this.generateRunId =
       options.generateRunId ?? (() => globalThis.crypto.randomUUID())
     this.tracer = options.tracer
     this.supervisionPolicy = options.supervisionPolicy
+  }
+
+  private validatePolicies(): void {
+    this.validateExecutionPolicy()
+    this.validateGovernancePolicy()
+    this.validateMemoryPolicy()
+    this.rejectUnsupportedPolicyGroup('isolation', this.policies.isolation)
+    this.rejectUnsupportedPolicyGroup('mailbox', this.policies.mailbox)
+    this.rejectUnsupportedPolicyGroup('evaluation', this.policies.evaluation)
   }
 
   private validateExecutionPolicy(): void {
@@ -263,6 +333,73 @@ export class TeamRuntime {
         "TeamRuntime execution policy field 'maxParallelParticipants' must be a positive integer",
       )
     }
+  }
+
+  private validateGovernancePolicy(): void {
+    const governance = this.policies.governance
+    if (!governance) return
+
+    if (this.definition.coordinatorPattern !== 'council') {
+      throw new Error(
+        "TeamRuntime governance policy group is only supported for coordinator pattern 'council'",
+      )
+    }
+    if (governance.minScore !== undefined) {
+      throw new Error(
+        "TeamRuntime governance policy field 'minScore' is not supported yet",
+      )
+    }
+    if (governance.requireUnanimous !== undefined) {
+      throw new Error(
+        "TeamRuntime governance policy field 'requireUnanimous' is not supported yet",
+      )
+    }
+  }
+
+  private validateMemoryPolicy(): void {
+    const memory = this.policies.memory
+    if (!memory) return
+
+    if (this.definition.coordinatorPattern !== 'blackboard') {
+      throw new Error(
+        "TeamRuntime memory policy group is only supported for coordinator pattern 'blackboard'",
+      )
+    }
+    if (memory.consolidateOnComplete === true) {
+      throw new Error(
+        "TeamRuntime memory policy field 'consolidateOnComplete' is not supported yet",
+      )
+    }
+
+    const blackboardContext = memory.blackboardContext
+    if (!blackboardContext) return
+
+    if (
+      blackboardContext.maxSerializedChars !== undefined &&
+      (!Number.isInteger(blackboardContext.maxSerializedChars) ||
+        blackboardContext.maxSerializedChars < 1)
+    ) {
+      throw new Error(
+        "TeamRuntime memory policy field 'blackboardContext.maxSerializedChars' must be a positive integer",
+      )
+    }
+    if (
+      blackboardContext.maxEntryChars !== undefined &&
+      (!Number.isInteger(blackboardContext.maxEntryChars) ||
+        blackboardContext.maxEntryChars < 1)
+    ) {
+      throw new Error(
+        "TeamRuntime memory policy field 'blackboardContext.maxEntryChars' must be a positive integer",
+      )
+    }
+  }
+
+  private rejectUnsupportedPolicyGroup(
+    group: 'isolation' | 'mailbox' | 'evaluation',
+    policy: unknown,
+  ): void {
+    if (policy === undefined) return
+    throw new Error(`TeamRuntime policy group '${group}' is not supported yet`)
   }
 
   /**
@@ -548,7 +685,8 @@ export class TeamRuntime {
   /**
    * Contract-net pattern — delegate to `ContractNetManager.execute`.
    *
-   * Manager announces a CFP, specialists bid, winner executes.
+   * Specialists bid on a CFP, the configured award strategy selects a winner,
+   * and the winner executes.
    */
   private async runContractNet(task: string, runId: string): Promise<TeamRunResult> {
     const startTime = Date.now()
@@ -566,7 +704,6 @@ export class TeamRuntime {
     for (const s of spawned) this.emitParticipantStart(s.participant, runId)
 
     const contractResult = await ContractNetManager.execute({
-      manager: managerEntry.spawned.agent,
       specialists: specialists.map((s) => s.spawned.agent),
       task,
     })
@@ -628,6 +765,7 @@ export class TeamRuntime {
     const workspace = new SharedWorkspace()
     const maxRounds = this.resolveMaxRounds()
     const timings = new Map<string, number>()
+    const contextPolicy = this.resolveBlackboardContextPolicy()
 
     await workspace.set('task', task, '__runtime__')
     await workspace.set('round', '0', '__runtime__')
@@ -640,7 +778,10 @@ export class TeamRuntime {
       await workspace.set('round', String(round + 1), '__runtime__')
       for (const entry of spawned) {
         const t0 = Date.now()
-        const context = workspace.formatAsContext()
+        const context = this.formatBoundedBlackboardContext(
+          workspace,
+          contextPolicy,
+        )
         const prompt = [
           `You are participating in a collaborative blackboard session (round ${round + 1}).`,
           '',
@@ -655,8 +796,16 @@ export class TeamRuntime {
 
         try {
           const result = await entry.spawned.agent.generate([new HumanMessage(prompt)])
-          entry.spawned.lastResult = result.content
-          await workspace.set(entry.spawned.agent.id, result.content, entry.spawned.agent.id)
+          const contribution = this.prepareBlackboardContribution(
+            result.content,
+            contextPolicy,
+          )
+          entry.spawned.lastResult = contribution
+          await workspace.set(
+            entry.spawned.agent.id,
+            contribution,
+            entry.spawned.agent.id,
+          )
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err)
           entry.spawned.lastError = message
@@ -680,7 +829,7 @@ export class TeamRuntime {
     }
 
     return {
-      content: workspace.formatAsContext(),
+      content: this.formatBoundedBlackboardContext(workspace, contextPolicy),
       agentResults: spawned.map((s) => omitUndefined({
         agentId: s.spawned.agent.id,
         role: s.spawned.role,
@@ -692,6 +841,54 @@ export class TeamRuntime {
       durationMs,
       pattern: 'blackboard',
     }
+  }
+
+  private resolveBlackboardContextPolicy(): ResolvedBlackboardContextPolicy {
+    const configured = this.policies.memory?.blackboardContext
+    const maxSerializedChars =
+      configured?.maxSerializedChars ??
+      DEFAULT_BLACKBOARD_CONTEXT_MAX_SERIALIZED_CHARS
+    const maxEntryChars =
+      configured?.maxEntryChars ??
+      Math.min(
+        DEFAULT_BLACKBOARD_CONTEXT_MAX_ENTRY_CHARS,
+        maxSerializedChars,
+      )
+    return {
+      maxSerializedChars,
+      maxEntryChars,
+      overflowBehavior: configured?.overflowBehavior ?? 'compact',
+    }
+  }
+
+  private prepareBlackboardContribution(
+    value: string,
+    policy: ResolvedBlackboardContextPolicy,
+  ): string {
+    if (value.length <= policy.maxEntryChars) return value
+
+    if (policy.overflowBehavior === 'reject') {
+      throw new Error(
+        `TeamRuntime[blackboard]: contribution exceeds maxEntryChars (${value.length}/${policy.maxEntryChars})`,
+      )
+    }
+
+    return compactText(value, policy.maxEntryChars)
+  }
+
+  private formatBoundedBlackboardContext(
+    workspace: SharedWorkspace,
+    policy: ResolvedBlackboardContextPolicy,
+  ): string {
+    const fullContext = workspace.formatAsContext()
+    if (fullContext.length <= policy.maxSerializedChars) return fullContext
+    if (policy.overflowBehavior === 'reject') {
+      throw new Error(
+        `TeamRuntime[blackboard]: shared context exceeds maxSerializedChars (${fullContext.length}/${policy.maxSerializedChars})`,
+      )
+    }
+
+    return formatCompactedWorkspaceContext(workspace, policy)
   }
 
   /**
@@ -784,6 +981,9 @@ export class TeamRuntime {
     // Pick a judge: prefer a participant whose model matches governance.judgeModel,
     // fall back to the first participant. Proposers are the remaining participants.
     const judgeModel = this.policies.governance?.judgeModel ?? DEFAULT_GOVERNANCE_MODEL
+    if (this.policies.governance?.judgeModel !== undefined) {
+      this.emitPolicyApplied('governance', 'judgeModel', runId)
+    }
     const judgeEntry =
       spawned.find((s) => s.participant.model === judgeModel) ?? spawned[0]!
     const proposers = spawned.filter((s) => s !== judgeEntry)
@@ -979,6 +1179,29 @@ export class TeamRuntime {
       this.recordSuccess(participant.id)
     } else {
       this.recordFailure(participant.id)
+    }
+  }
+
+  private emitPolicyApplied(
+    policyGroup: 'governance',
+    policyField: 'judgeModel',
+    runId: string,
+  ): void {
+    this.emitEvent({
+      type: 'policy_applied',
+      teamId: this.definition.id,
+      runId,
+      policyGroup,
+      policyField,
+      coordinatorPattern: this.definition.coordinatorPattern,
+      at: new Date(),
+    })
+    if (this.currentSpan) {
+      this.currentSpan.addEvent('team.policy_applied', {
+        'team.policy_group': policyGroup,
+        'team.policy_field': policyField,
+        'team.coordination_pattern': this.definition.coordinatorPattern,
+      })
     }
   }
 

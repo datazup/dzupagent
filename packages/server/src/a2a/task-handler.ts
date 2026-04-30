@@ -3,6 +3,8 @@
  *
  * Provides a store interface and an in-memory implementation for development.
  */
+import type { OutboundUrlSecurityPolicy } from '@dzupagent/core'
+import { assertA2APushCallbackUrlAllowed } from './push-notifications.js'
 
 export type A2ATaskState =
   | 'submitted'
@@ -90,6 +92,10 @@ export interface A2ATaskStore {
   setPushConfig(id: string, config: A2ATaskPushConfig): Promise<A2ATask | null>
 }
 
+export interface A2ATaskStoreOptions {
+  pushNotificationUrlPolicy?: OutboundUrlSecurityPolicy | undefined
+}
+
 /**
  * In-memory A2A task store for development and testing.
  *
@@ -98,6 +104,8 @@ export interface A2ATaskStore {
 export class InMemoryA2ATaskStore implements A2ATaskStore {
   private readonly tasks = new Map<string, A2ATask>()
   private counter = 0
+
+  constructor(private readonly options: A2ATaskStoreOptions = {}) {}
 
   async create(
     task: Omit<A2ATask, 'id' | 'createdAt' | 'updatedAt' | 'messages' | 'artifacts'>,
@@ -200,6 +208,7 @@ export class InMemoryA2ATaskStore implements A2ATaskStore {
   async setPushConfig(id: string, config: A2ATaskPushConfig): Promise<A2ATask | null> {
     const existing = this.tasks.get(id)
     if (!existing) return null
+    await assertA2APushCallbackUrlAllowed(config.url, this.options.pushNotificationUrlPolicy)
 
     const updated: A2ATask = {
       ...existing,

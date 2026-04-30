@@ -5,7 +5,8 @@ import { extractAccessibilityTree } from '../extraction/accessibility-tree.js'
 import { captureScreenshot } from '../extraction/screenshot-capture.js'
 import { extractForms } from '../extraction/form-extractor.js'
 import { extractInteractiveElements } from '../extraction/element-extractor.js'
-import { matchesPattern, isHashRoute } from './url-utils.js'
+import { safeBrowserGoto, validateBrowserNavigationUrl } from '../browser/navigation-policy.js'
+import { matchesPattern, isHashRoute, isSameOrigin } from './url-utils.js'
 
 const DEFAULT_OPTIONS: CrawlOptions = {
   maxPages: 50,
@@ -25,6 +26,7 @@ export class PageCrawler {
   }
 
   async *crawl(startUrl: string): AsyncGenerator<CrawlResult> {
+    validateBrowserNavigationUrl(startUrl, this.opts.navigationPolicy)
     const queue: Array<{ url: string; depth: number }> = [{ url: startUrl, depth: 0 }]
 
     while (queue.length > 0 && this.visited.size < this.opts.maxPages) {
@@ -57,10 +59,15 @@ export class PageCrawler {
           // Only do a full navigation if this is the first page or a different base
           const currentBase = page.url().split('#')[0]
           if (currentBase !== baseWithoutHash) {
-            await page.goto(baseWithoutHash, {
-              waitUntil: 'domcontentloaded',
-              timeout: 30000,
-            })
+            await safeBrowserGoto(
+              page,
+              baseWithoutHash,
+              {
+                waitUntil: 'domcontentloaded',
+                timeout: 30000,
+              },
+              this.opts.navigationPolicy,
+            )
             await this.waitForSpaContent(page)
           }
 
@@ -72,10 +79,15 @@ export class PageCrawler {
           await page.waitForTimeout(this.opts.waitForIdle ?? 2000)
         } else {
           // Standard navigation
-          await page.goto(url, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30000,
-          })
+          await safeBrowserGoto(
+            page,
+            url,
+            {
+              waitUntil: 'domcontentloaded',
+              timeout: 30000,
+            },
+            this.opts.navigationPolicy,
+          )
           await this.waitForSpaContent(page)
 
           if (this.opts.waitForIdle) {
@@ -112,7 +124,11 @@ export class PageCrawler {
 
         // Add discovered links to the queue
         for (const link of links) {
-          if (!this.visited.has(link) && this.visited.size + queue.length < this.opts.maxPages) {
+          if (
+            this.canCrawlUrl(link, startUrl) &&
+            !this.visited.has(link) &&
+            this.visited.size + queue.length < this.opts.maxPages
+          ) {
             queue.push({ url: link, depth: depth + 1 })
           }
         }
@@ -125,6 +141,17 @@ export class PageCrawler {
           await page.close()
         }
       }
+    }
+  }
+
+  private canCrawlUrl(url: string, startUrl: string): boolean {
+    try {
+      const parsed = validateBrowserNavigationUrl(url, this.opts.navigationPolicy)
+      if (isSameOrigin(parsed.href, startUrl)) return true
+      if (this.opts.allowedOrigins?.includes(parsed.origin)) return true
+      return this.opts.sameOrigin === false || this.opts.allowCrossOrigin === true
+    } catch {
+      return false
     }
   }
 

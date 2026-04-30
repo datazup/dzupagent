@@ -29,6 +29,14 @@ export interface PlanAndDelegateOptions {
   llm?: StructuredLLM
   /** Abort signal for cancellation */
   signal?: AbortSignal
+  /**
+   * Explicitly acknowledge unresolved LLM planning nodes/dependencies.
+   *
+   * By default, unresolved decomposition output fails before execution and this
+   * supervisor falls back to keyword planning. When true, PlanningAgent removes
+   * unresolved nodes/dependencies deterministically before execution.
+   */
+  acknowledgeUnresolvedNodes?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +45,8 @@ export interface PlanAndDelegateOptions {
 
 /** A single task assignment for parallel delegation. */
 export interface TaskAssignment {
+  /** Stable key for this assignment, used to aggregate duplicate-specialist batches. */
+  id?: string
   /** Human-readable sub-task description */
   task: string
   /** ID of the specialist to delegate to */
@@ -47,14 +57,22 @@ export interface TaskAssignment {
 
 /** Aggregated result from delegateAndCollect. */
 export interface AggregatedDelegationResult {
-  /** Results keyed by specialist ID */
+  /** Results keyed by assignment ID when provided, otherwise by specialist ID */
   results: Map<string, DelegationResult>
-  /** IDs of specialists that succeeded */
+  /** Result keys that succeeded */
   succeeded: string[]
-  /** IDs of specialists that failed */
+  /** Result keys that failed */
   failed: string[]
   /** Total wall-clock time for the parallel batch (ms) */
   totalDurationMs: number
+}
+
+/** Options for a single delegated task execution. */
+export interface DelegateTaskOptions {
+  /** Stable run ID to correlate provider-port execution. */
+  runId?: string
+  /** Abort signal for provider-port cancellation. */
+  signal?: AbortSignal
 }
 
 /** Configuration for DelegatingSupervisor. */
@@ -204,6 +222,7 @@ export class DelegatingSupervisor {
     task: string,
     specialistId: string,
     input: Record<string, unknown>,
+    options?: DelegateTaskOptions,
   ): Promise<DelegationResult> {
     const specialist = this.specialists.get(specialistId)
     if (!specialist) {
@@ -223,14 +242,31 @@ export class DelegatingSupervisor {
     // Route through provider port when configured
     if (this.providerPort) {
       const tags: string[] = (specialist.metadata?.tags ?? []) as string[]
+      const startedAt = Date.now()
       let portResult: Awaited<ReturnType<ProviderExecutionPort['run']>>
       try {
         portResult = await this.providerPort.run(
-          { prompt: task },
+          {
+            prompt: task,
+            signal: options?.signal,
+            correlationId: options?.runId ?? this.parentContext?.parentRunId,
+            options: {
+              delegation: omitUndefined({
+                task,
+                specialistId,
+                input,
+                context: this.parentContext,
+              }),
+            },
+          },
           {
             prompt: task,
             tags: tags.length > 0 ? tags : [specialistId],
           },
+          omitUndefined({
+            runId: options?.runId,
+            signal: options?.signal,
+          }),
         )
       } catch (err: unknown) {
         this.recordCircuitBreakerFailure(specialistId, err)
@@ -241,9 +277,14 @@ export class DelegatingSupervisor {
       const delegationResult: DelegationResult = {
         success: true,
         output: portResult.content,
-        metadata: {
-          durationMs: 0,
-        },
+        metadata: omitUndefined({
+          durationMs: Date.now() - startedAt,
+          specialistId,
+          providerId: portResult.providerId,
+          attemptedProviders: [...portResult.attemptedProviders],
+          fallbackAttempts: portResult.fallbackAttempts,
+          providerMetadata: portResult.metadata,
+        }),
       }
 
       this.circuitBreaker?.recordSuccess(specialistId)
@@ -347,12 +388,22 @@ export class DelegatingSupervisor {
 
     for (const [i, outcome] of settled.entries()) {
       const assignment = effectiveTasks[i]!
+      const resultKey = assignment.id ?? assignment.specialistId
       if (outcome.status === 'fulfilled') {
-        results.set(assignment.specialistId, outcome.value)
+        const result: DelegationResult = {
+          ...outcome.value,
+          metadata: {
+            ...outcome.value.metadata,
+            durationMs: outcome.value.metadata?.durationMs ?? 0,
+            assignmentId: resultKey,
+            specialistId: assignment.specialistId,
+          },
+        }
+        results.set(resultKey, result)
         if (outcome.value.success) {
-          succeeded.push(assignment.specialistId)
+          succeeded.push(resultKey)
         } else {
-          failed.push(assignment.specialistId)
+          failed.push(resultKey)
         }
       } else {
         const errorMsg = outcome.reason instanceof Error
@@ -361,12 +412,17 @@ export class DelegatingSupervisor {
         if (!hasCircuitBreakerRecorded(outcome.reason)) {
           this.recordCircuitBreakerFailure(assignment.specialistId, outcome.reason)
         }
-        results.set(assignment.specialistId, {
+        results.set(resultKey, {
           success: false,
           output: null,
           error: errorMsg,
+          metadata: {
+            durationMs: 0,
+            assignmentId: resultKey,
+            specialistId: assignment.specialistId,
+          },
         })
-        failed.push(assignment.specialistId)
+        failed.push(resultKey)
       }
     }
 
@@ -424,6 +480,7 @@ export class DelegatingSupervisor {
         const planner = new PlanningAgent({ supervisor: this })
         const plan = await planner.decompose(goal, options.llm, omitUndefined({
           signal: options.signal,
+          acknowledgeUnresolvedNodes: options.acknowledgeUnresolvedNodes,
         }))
 
         this.eventBus?.emit({
@@ -560,13 +617,22 @@ export class DelegatingSupervisor {
       const decision = this.routingPolicy!.select(task, candidates)
 
       // Log routing decision
+      const selectedCandidates = decision.diagnostics?.selectedIds ??
+        decision.selected.map((agent) => agent.id)
+      const candidateSpecialists = decision.diagnostics?.candidateIds ??
+        candidates.map((agent) => agent.id)
       for (const selected of decision.selected) {
-        this.eventBus?.emit({
+        const routingEvent = {
           type: 'supervisor:routing_decision',
           agentId: selected.id,
           strategy: decision.strategy,
           reason: decision.reason,
-        })
+          fallbackReason: decision.fallbackReason,
+          selectedCandidates,
+          candidateSpecialists,
+          source: 'delegating-supervisor',
+        } as const
+        this.eventBus?.emit(routingEvent)
       }
 
       // Create assignments from the routing decision

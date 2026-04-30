@@ -364,7 +364,9 @@ export type DzupEvent =
       agentId?: string
       strategy: string
       reason: string
+      fallbackReason?: string
       selectedSpecialists?: string[]
+      selectedCandidates?: string[]
       filteredSpecialists?: string[]
       candidateSpecialists?: string[]
       task?: string

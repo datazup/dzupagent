@@ -56,6 +56,7 @@ import { registerEnvNotificationChannels } from './composition/notifications.js'
 // are exposed here for callers that prefer narrower types.
 export type {
   ForgeServerConfig,
+  ForgeHostRuntimeConfig,
   ForgeCoreConfig,
   ForgeTransportConfig,
   ForgeRuntimeConfig,

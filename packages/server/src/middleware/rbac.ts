@@ -34,6 +34,8 @@ export type ForgePermissionResource =
   | 'mcp'
   | 'skills'
   | 'workflows'
+  | 'a2a'
+  | 'openai'
   | (string & {})
   | '*'
 
@@ -129,6 +131,10 @@ export const DEFAULT_ROUTE_PERMISSIONS: Record<string, RoutePermissionPolicy> = 
   '/api/presets': { resource: 'presets' },
   '/api/skills': { resource: 'skills' },
   '/api/workflows': { resource: 'workflows' },
+  '/a2a/tasks': { resource: 'a2a' },
+  '/a2a': { resource: 'a2a', action: 'execute' },
+  '/v1/chat/completions': { resource: 'openai', action: 'execute' },
+  '/v1/models': { resource: 'openai', action: 'read' },
 }
 
 /**
@@ -154,17 +160,29 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<ForgeRole, ForgePermission[]> = {
     { resource: 'memory', action: 'delete' },
     { resource: 'tools', action: 'read' },
     { resource: 'tools', action: 'execute' },
+    { resource: 'a2a', action: 'create' },
+    { resource: 'a2a', action: 'read' },
+    { resource: 'a2a', action: 'execute' },
+    { resource: 'openai', action: 'read' },
+    { resource: 'openai', action: 'execute' },
   ],
   viewer: [
     { resource: 'runs', action: 'read' },
     { resource: 'agents', action: 'read' },
     { resource: 'tools', action: 'read' },
+    { resource: 'a2a', action: 'read' },
+    { resource: 'openai', action: 'read' },
   ],
   agent: [
     { resource: 'runs', action: 'create' },
     { resource: 'runs', action: 'read' },
     { resource: 'runs', action: 'execute' },
     { resource: 'tools', action: 'execute' },
+    { resource: 'a2a', action: 'create' },
+    { resource: 'a2a', action: 'read' },
+    { resource: 'a2a', action: 'execute' },
+    { resource: 'openai', action: 'read' },
+    { resource: 'openai', action: 'execute' },
   ],
 }
 

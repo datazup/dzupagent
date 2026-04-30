@@ -580,6 +580,11 @@ export class ContractNetOrchestrator {
 
     if (success) {
       this.registry.recordSuccess(providerId)
+    } else {
+      this.registry.recordFailure(
+        providerId,
+        new Error(errorMessage ?? 'Adapter stream ended without terminal adapter:completed event'),
+      )
     }
 
     return { success, text: resultText, ...(errorMessage !== undefined ? { error: errorMessage } : {}) }

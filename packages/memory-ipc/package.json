@@ -1,7 +1,7 @@
 {
   "name": "@dzupagent/memory-ipc",
   "version": "0.2.0",
-  "description": "Arrow-based IPC for inter-agent memory sharing in DzupAgent",
+  "description": "Arrow frame contracts, IPC serialization, and memory exchange runtime primitives for DzupAgent",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -39,6 +39,7 @@ export type {
   DelegatingSupervisorConfig,
   TaskAssignment,
   AggregatedDelegationResult,
+  DelegateTaskOptions,
 } from './delegating-supervisor.js'
 
 export { TopologyAnalyzer } from './topology/topology-analyzer.js'

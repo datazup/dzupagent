@@ -41,6 +41,8 @@ export interface ExecutionPlan {
   nodes: PlanNode[]
   /** Execution order: groups of node IDs that can run in parallel */
   executionLevels: string[][]
+  /** Diagnostics from acknowledged LLM decomposition cleanup, if any */
+  decompositionDiagnostics?: PlanningDecompositionDiagnostics
 }
 
 /** Result of executing an entire plan. */
@@ -57,6 +59,49 @@ export interface PlanExecutionResult {
   failedNodes: string[]
   /** IDs of nodes that were skipped due to failed dependencies */
   skippedNodes: string[]
+}
+
+/** A generated decomposition node removed before plan execution. */
+export interface RemovedPlanNodeDiagnostic {
+  /** ID of the removed node */
+  nodeId: string
+  /** Specialist ID emitted for the removed node */
+  specialistId: string
+  /** Reason the node cannot be executed */
+  reason: 'unknown-specialist'
+  /** Remaining nodes that referenced this removed node as a dependency */
+  affectedDependencies: Array<{
+    /** Node that had the dependency reference */
+    nodeId: string
+    /** Specialist assigned to the affected node */
+    specialistId: string
+    /** Removed dependency node ID */
+    dependencyId: string
+  }>
+}
+
+/** A dependency reference that cannot be resolved to an executable node. */
+export interface DanglingPlanDependencyDiagnostic {
+  /** Node that contains the unresolved dependency */
+  nodeId: string
+  /** Specialist assigned to the affected node */
+  specialistId: string
+  /** Missing dependency node ID */
+  dependencyId: string
+  /** Specialist ID of the missing dependency when it was removed from the plan */
+  dependencySpecialistId?: string
+}
+
+/** Diagnostics for LLM decomposition nodes/dependencies that were not executable. */
+export interface PlanningDecompositionDiagnostics {
+  /** Available specialist IDs at decomposition time */
+  availableSpecialists: string[]
+  /** Generated nodes removed because they cannot be executed */
+  removedNodes: RemovedPlanNodeDiagnostic[]
+  /** Dependency references removed because no executable node satisfied them */
+  danglingDependencies: DanglingPlanDependencyDiagnostic[]
+  /** Whether the caller explicitly acknowledged deterministic cleanup */
+  acknowledged: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +294,14 @@ export interface DecomposeOptions {
   maxNodes?: number
   /** Abort signal for cancellation */
   signal?: AbortSignal
+  /**
+   * Explicitly acknowledge unresolved generated nodes/dependencies.
+   *
+   * By default, unknown-specialist nodes and dangling dependencies fail
+   * decomposition before execution. When true, those nodes/dependencies are
+   * removed deterministically and diagnostics are attached to the returned plan.
+   */
+  acknowledgeUnresolvedNodes?: boolean
 }
 
 /**
@@ -333,6 +386,7 @@ export class PlanningAgent {
           }
 
           return {
+            id: nodeId,
             task: node.task,
             specialistId: node.specialistId,
             input: {
@@ -349,7 +403,7 @@ export class PlanningAgent {
         for (let j = 0; j < chunk.length; j++) {
           const nodeId = chunk[j]!
           const node = nodeMap.get(nodeId)!
-          const result = aggregated.results.get(node.specialistId)
+          const result = aggregated.results.get(nodeId) ?? aggregated.results.get(node.specialistId)
 
           if (result) {
             results.set(nodeId, result)
@@ -438,12 +492,14 @@ export class PlanningAgent {
       schemaDescription: 'A directed acyclic graph of tasks assigned to specialist agents',
     })
 
-    // Validate and sanitize specialist IDs — filter out nodes with unknown specialists
+    // Validate specialist IDs and dependency references before any cleanup.
     const validSpecialistSet = new Set(specialistIds)
+    const generatedNodes = result.data.nodes.slice(0, maxNodes)
     const validNodes: PlanNode[] = []
     const removedNodeIds = new Set<string>()
+    const removedNodeSpecialists = new Map<string, string>()
 
-    for (const node of result.data.nodes.slice(0, maxNodes)) {
+    for (const node of generatedNodes) {
       if (validSpecialistSet.has(node.specialistId)) {
         validNodes.push({
           id: node.id,
@@ -454,28 +510,132 @@ export class PlanningAgent {
         })
       } else {
         removedNodeIds.add(node.id)
+        removedNodeSpecialists.set(node.id, node.specialistId)
       }
     }
 
+    const validNodeIds = new Set(validNodes.map((node) => node.id))
+    const danglingDependencies: DanglingPlanDependencyDiagnostic[] = []
+
+    for (const node of validNodes) {
+      for (const dependencyId of node.dependsOn) {
+        if (!validNodeIds.has(dependencyId)) {
+          const dependencySpecialistId = removedNodeSpecialists.get(dependencyId)
+          danglingDependencies.push({
+            nodeId: node.id,
+            specialistId: node.specialistId,
+            dependencyId,
+            ...(dependencySpecialistId ? { dependencySpecialistId } : {}),
+          })
+        }
+      }
+    }
+
+    const removedNodes: RemovedPlanNodeDiagnostic[] = [...removedNodeSpecialists].map(
+      ([nodeId, specialistId]) => ({
+        nodeId,
+        specialistId,
+        reason: 'unknown-specialist',
+        affectedDependencies: danglingDependencies
+          .filter((dependency) => dependency.dependencyId === nodeId)
+          .map((dependency) => ({
+            nodeId: dependency.nodeId,
+            specialistId: dependency.specialistId,
+            dependencyId: dependency.dependencyId,
+          })),
+      }),
+    )
+
+    const hasUnresolvedNodes = removedNodes.length > 0 || danglingDependencies.length > 0
+    const removedDetails = removedNodes.map(
+      (node) => `${node.nodeId} (${node.specialistId})`,
+    )
+    const dependencyDetails = danglingDependencies.map(
+      (dependency) => [
+        `${dependency.nodeId} (${dependency.specialistId}) -> ${dependency.dependencyId}`,
+        dependency.dependencySpecialistId ? ` (${dependency.dependencySpecialistId})` : '',
+      ].join(''),
+    )
+
     if (validNodes.length === 0) {
       throw new OrchestrationError(
-        `LLM decomposition produced no valid nodes. All specialist IDs were unrecognized. Available: ${specialistIds.join(', ')}`,
+        [
+          `LLM decomposition produced no valid nodes. All specialist IDs were unrecognized. Available: ${specialistIds.join(', ')}`,
+          removedDetails.length > 0
+            ? `Unknown-specialist nodes: ${removedDetails.join(', ')}`
+            : undefined,
+        ].filter(Boolean).join(' '),
         'delegation',
-        { goal, availableSpecialists: specialistIds },
+        {
+          goal,
+          availableSpecialists: specialistIds,
+          diagnostics: {
+            availableSpecialists: specialistIds,
+            removedNodes,
+            danglingDependencies,
+            acknowledged: options?.acknowledgeUnresolvedNodes === true,
+          } satisfies PlanningDecompositionDiagnostics,
+        },
       )
     }
 
-    // Remove dangling dependency references to removed nodes
-    for (const node of validNodes) {
-      node.dependsOn = node.dependsOn.filter(
-        (dep) => !removedNodeIds.has(dep) && validNodes.some((n) => n.id === dep),
+    if (hasUnresolvedNodes && !options?.acknowledgeUnresolvedNodes) {
+      throw new OrchestrationError(
+        [
+          'LLM decomposition contains unresolved planning nodes or dependencies.',
+          removedDetails.length > 0
+            ? `Unknown-specialist nodes: ${removedDetails.join(', ')}`
+            : undefined,
+          dependencyDetails.length > 0
+            ? `Dangling dependencies: ${dependencyDetails.join(', ')}`
+            : undefined,
+          'Pass acknowledgeUnresolvedNodes: true to remove them deterministically before execution.',
+        ].filter(Boolean).join(' '),
+        'delegation',
+        {
+          goal,
+          availableSpecialists: specialistIds,
+          diagnostics: {
+            availableSpecialists: specialistIds,
+            removedNodes,
+            danglingDependencies,
+            acknowledged: false,
+          } satisfies PlanningDecompositionDiagnostics,
+        },
       )
+    }
+
+    if (options?.acknowledgeUnresolvedNodes) {
+      // Remove dangling dependency references after explicit caller acknowledgement.
+      for (const node of validNodes) {
+        node.dependsOn = node.dependsOn.filter(
+          (dep) => !removedNodeIds.has(dep) && validNodeIds.has(dep),
+        )
+      }
     }
 
     // Validate DAG (throws on cycles)
     const executionLevels = buildExecutionLevels(validNodes)
 
-    return { goal, nodes: validNodes, executionLevels }
+    const plan: ExecutionPlan = {
+      goal,
+      nodes: validNodes,
+      executionLevels,
+    }
+
+    if (!hasUnresolvedNodes) {
+      return plan
+    }
+
+    return {
+      ...plan,
+      decompositionDiagnostics: {
+        availableSpecialists: specialistIds,
+        removedNodes,
+        danglingDependencies,
+        acknowledged: true,
+      },
+    }
   }
 
   /**

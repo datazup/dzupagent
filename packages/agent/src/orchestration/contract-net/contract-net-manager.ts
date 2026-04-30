@@ -23,6 +23,8 @@ import type {
 import { omitUndefined } from '../../utils/exact-optional.js'
 
 const DEFAULT_BID_DEADLINE_MS = 30_000
+const REMOVED_MANAGER_FIELD_MESSAGE =
+  'ContractNetConfig.manager was removed because ContractNetManager does not use a manager agent; omit manager and configure specialists, task, and strategy instead.'
 
 /** Generate a unique CFP identifier. */
 function generateCfpId(): string {
@@ -143,6 +145,13 @@ export class ContractNetManager {
    * Execute the full contract-net protocol lifecycle.
    */
   static async execute(config: ContractNetConfig): Promise<ContractResult> {
+    if ('manager' in config) {
+      throw new OrchestrationError(
+        REMOVED_MANAGER_FIELD_MESSAGE,
+        'contract-net',
+      )
+    }
+
     const {
       specialists,
       task,

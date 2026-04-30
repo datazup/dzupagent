@@ -74,6 +74,22 @@ export function applyMiddleware(app: Hono, config: ForgeServerConfig): ComposedM
   return { effectiveAuth }
 }
 
+export function createDefaultRbacConfig(config: ForgeServerConfig): RBACConfig {
+  if (config.rbac !== false && config.rbac !== undefined) {
+    return config.rbac
+  }
+
+  return {
+    extractRole: (c) => {
+      const key = c.get('apiKey') as Record<string, unknown> | undefined
+      const role = key?.['role']
+      return typeof role === 'string'
+        ? (role as ForgeRole)
+        : 'operator'
+    },
+  }
+}
+
 function applyCors(app: Hono, config: ForgeServerConfig): void {
   const origin = resolveCorsOrigin(config)
   if (!origin) {
@@ -182,25 +198,31 @@ function applyAuthAndRbac(app: Hono, config: ForgeServerConfig): AuthConfig | un
   // but admin-only endpoints (MCP registration, cluster management)
   // reject them. Hosts can opt out with `config.rbac = false`.
   if (config.rbac !== false) {
-    const rbacConfig: RBACConfig = config.rbac ?? {
-      extractRole: (c) => {
-        const key = c.get('apiKey') as Record<string, unknown> | undefined
-        const role = key?.['role']
-        return typeof role === 'string'
-          ? (role as ForgeRole)
-          : 'operator'
-      },
-    }
-    app.use('/api/*', rbacMiddleware(rbacConfig))
+    app.use('/api/*', rbacMiddleware(createDefaultRbacConfig(config)))
   }
 
   return effectiveAuth
 }
 
 function applyRateLimit(app: Hono, config: ForgeServerConfig): void {
-  if (config.rateLimit) {
-    app.use('/api/*', rateLimiterMiddleware(config.rateLimit))
+  if (!config.rateLimit) {
+    return
   }
+
+  for (const path of getRateLimitedRoutePatterns(config)) {
+    app.use(path, rateLimiterMiddleware(config.rateLimit))
+  }
+}
+
+function getRateLimitedRoutePatterns(config: ForgeServerConfig): string[] {
+  const paths = ['/api/*']
+  if (config.a2a) {
+    paths.push('/a2a', '/a2a/*')
+  }
+  if (config.openai?.enabled === true) {
+    paths.push('/v1/*')
+  }
+  return paths
 }
 
 function applyJsonBodySizeLimit(app: Hono, config: ForgeServerConfig): void {

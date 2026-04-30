@@ -11,38 +11,38 @@ import type {
   A2ATask,
   A2ATaskState,
   A2ATaskStore,
+  A2ATaskStoreOptions,
   A2ATaskListFilter,
   A2ATaskMessage,
   A2ATaskArtifact,
   A2ATaskPushConfig,
 } from './task-handler.js'
+import {
+  assertA2APushCallbackUrlAllowed,
+  deliverA2APushNotification,
+  type A2APushNotificationOptions,
+} from './push-notifications.js'
 
 /**
  * Deliver a push notification to the task's configured URL.
  * Best-effort: errors are caught and logged, never thrown.
  */
-async function deliverPushNotification(task: A2ATask): Promise<void> {
-  const config = task.pushNotificationConfig
-  if (!config?.url) return
-
+async function deliverPushNotification(
+  task: A2ATask,
+  options: A2APushNotificationOptions,
+): Promise<void> {
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (config.token) {
-      headers['Authorization'] = `Bearer ${config.token}`
-    }
-    await fetch(config.url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(task),
-      signal: AbortSignal.timeout(5000),
-    })
+    await deliverA2APushNotification(task, options)
   } catch {
     // Best-effort — don't fail the update
   }
 }
 
 export class DrizzleA2ATaskStore implements A2ATaskStore {
-  constructor(private readonly db: DrizzleStoreDatabase) {}
+  constructor(
+    private readonly db: DrizzleStoreDatabase,
+    private readonly options: A2ATaskStoreOptions = {},
+  ) {}
 
   async create(
     task: Omit<A2ATask, 'id' | 'createdAt' | 'updatedAt' | 'messages' | 'artifacts'>,
@@ -125,7 +125,9 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
 
     // Push notification on terminal states
     if (updates.state === 'completed' || updates.state === 'failed') {
-      void deliverPushNotification(task)
+      void deliverPushNotification(task, {
+        urlPolicy: this.options.pushNotificationUrlPolicy,
+      })
     }
 
     return task
@@ -228,6 +230,8 @@ export class DrizzleA2ATaskStore implements A2ATaskStore {
   }
 
   async setPushConfig(id: string, config: A2ATaskPushConfig): Promise<A2ATask | null> {
+    await assertA2APushCallbackUrlAllowed(config.url, this.options.pushNotificationUrlPolicy)
+
     const rows = await this.db
       .update(a2aTasks)
       .set({

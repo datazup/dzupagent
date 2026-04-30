@@ -18,6 +18,11 @@ export {
 // Browser management
 export { BrowserManager } from './browser/browser-manager.js'
 export { AuthHandler } from './browser/auth-handler.js'
+export {
+  installBrowserNavigationPolicy,
+  safeBrowserGoto,
+  validateBrowserNavigationUrl,
+} from './browser/navigation-policy.js'
 
 // Crawling
 export { PageCrawler } from './crawler/page-crawler.js'
@@ -41,4 +46,5 @@ export type {
   AuthCredentials,
   ScreenshotResult,
   BrowserLaunchOptions,
+  BrowserNavigationPolicy,
 } from './types.js'

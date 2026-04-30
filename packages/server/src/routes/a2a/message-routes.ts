@@ -8,6 +8,7 @@ import type { Hono } from 'hono'
 import type { A2ARoutesConfig } from './helpers.js'
 import { callerOwnsTask, getCallerScope } from './helpers.js'
 import { getSerializedJsonSizeBytes } from '../../validation/route-validator.js'
+import { redactA2ATaskPushConfig } from '../../a2a/push-notifications.js'
 
 const A2A_MESSAGE_PARTS_MAX_BYTES = 256 * 1024
 
@@ -44,6 +45,6 @@ export function registerMessageRoutes(app: Hono, config: A2ARoutesConfig): void 
       parts: body.parts,
     })
 
-    return c.json(updated)
+    return c.json(updated ? redactA2ATaskPushConfig(updated) : updated)
   })
 }

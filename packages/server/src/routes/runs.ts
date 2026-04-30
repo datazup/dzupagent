@@ -41,6 +41,7 @@ import {
   sanitizeRunForResponse,
   sanitizeRunMetadataForPersistence,
 } from '../security/run-metadata-secrets.js'
+import { createInputGuard } from '../security/input-guard.js'
 import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
 
 const RUN_INPUT_MAX_BYTES = 256 * 1024
@@ -171,6 +172,28 @@ export async function handleCreateRun(
     )
   }
 
+  let admittedInput: unknown = body.input
+  let inputWasRedacted = false
+  if (config.security?.inputGuard !== false) {
+    const inputGuard = createInputGuard(config.security?.inputGuard)
+    const guardResult = await inputGuard.scan(body.input)
+    if (!guardResult.allowed) {
+      return c.json(
+        {
+          error: {
+            code: 'SECURITY_POLICY_DENIED',
+            message: guardResult.reason ?? 'Rejected by input guard',
+          },
+        },
+        400,
+      )
+    }
+    if (guardResult.redactedInput !== undefined) {
+      admittedInput = guardResult.redactedInput
+      inputWasRedacted = true
+    }
+  }
+
   const agent = executableAgentResolver
     ? await executableAgentResolver.resolve(body.agentId)
     : await config.agentStore.get(body.agentId)
@@ -218,15 +241,15 @@ export async function handleCreateRun(
   // --- Cost-aware routing: classify input to determine optimal model tier ---
   let routingMetadata: Record<string, unknown> = {}
   if (config.router) {
-    const inputObj = body.input as Record<string, unknown> | null | undefined
-    const text = typeof body.input === 'string'
-      ? body.input
+    const inputObj = admittedInput as Record<string, unknown> | null | undefined
+    const text = typeof admittedInput === 'string'
+      ? admittedInput
       : (inputObj && typeof inputObj === 'object' && !Array.isArray(inputObj))
         ? (typeof inputObj['message'] === 'string' ? inputObj['message']
           : typeof inputObj['content'] === 'string' ? inputObj['content']
           : typeof inputObj['prompt'] === 'string' ? inputObj['prompt']
-          : JSON.stringify(body.input))
-        : JSON.stringify(body.input ?? '')
+          : JSON.stringify(admittedInput))
+        : JSON.stringify(admittedInput ?? '')
 
     try {
       const result = await config.router.classify(text)
@@ -288,11 +311,19 @@ export async function handleCreateRun(
 
   const run = await runStore.create({
     agentId: body.agentId,
-    input: body.input,
+    input: admittedInput,
     metadata: tracedMetadata,
     ownerId,
     tenantId,
   })
+
+  if (inputWasRedacted) {
+    await runStore.addLog(run.id, {
+      level: 'info',
+      phase: 'security',
+      message: 'Input guard redacted PII in run input',
+    })
+  }
 
   if (config.runQueue) {
     if (!config.runExecutor) {

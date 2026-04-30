@@ -12,7 +12,8 @@ import { captureScreenshot } from './extraction/screenshot-capture.js'
 import { extractAccessibilityTree } from './extraction/accessibility-tree.js'
 import { extractForms } from './extraction/form-extractor.js'
 import { extractInteractiveElements } from './extraction/element-extractor.js'
-import type { CrawlOptions, AuthCredentials } from './types.js'
+import { safeBrowserGoto } from './browser/navigation-policy.js'
+import type { CrawlOptions, AuthCredentials, BrowserNavigationPolicy } from './types.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,6 +23,7 @@ export interface BrowserConnectorConfig {
   headless?: boolean
   auth?: AuthCredentials
   crawlOptions?: Partial<CrawlOptions>
+  navigationPolicy?: BrowserNavigationPolicy
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +137,10 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
 
         const crawlOpts: Partial<CrawlOptions> = {
           ...config.crawlOptions,
+          navigationPolicy: {
+            ...config.navigationPolicy,
+            ...config.crawlOptions?.navigationPolicy,
+          },
           ...(input.maxPages !== undefined ? { maxPages: input.maxPages } : {}),
           ...(input.maxDepth !== undefined ? { maxDepth: input.maxDepth } : {}),
           ...(input.includePatterns !== undefined
@@ -195,10 +201,15 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
 
         const page = await session.context.newPage()
         try {
-          await page.goto(input.url, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30_000,
-          })
+          await safeBrowserGoto(
+            page,
+            input.url,
+            {
+              waitUntil: 'domcontentloaded',
+              timeout: 30_000,
+            },
+            config.navigationPolicy,
+          )
           // Wait for content to settle
           await page.waitForLoadState('networkidle').catch(() => {
             // networkidle may not fire for SPAs with persistent connections
@@ -249,10 +260,15 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
 
         const page = await session.context.newPage()
         try {
-          await page.goto(input.url, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30_000,
-          })
+          await safeBrowserGoto(
+            page,
+            input.url,
+            {
+              waitUntil: 'domcontentloaded',
+              timeout: 30_000,
+            },
+            config.navigationPolicy,
+          )
           await page.waitForLoadState('networkidle').catch(() => {
             // networkidle may not fire for SPAs with persistent connections
           })
@@ -292,10 +308,15 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
 
         const page = await session.context.newPage()
         try {
-          await page.goto(input.url, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30_000,
-          })
+          await safeBrowserGoto(
+            page,
+            input.url,
+            {
+              waitUntil: 'domcontentloaded',
+              timeout: 30_000,
+            },
+            config.navigationPolicy,
+          )
           await page.waitForLoadState('networkidle').catch(() => {
             // networkidle may not fire for SPAs with persistent connections
           })
@@ -335,10 +356,15 @@ export function createBrowserConnector(config: BrowserConnectorConfig = {}) {
 
         const page = await session.context.newPage()
         try {
-          await page.goto(input.url, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30_000,
-          })
+          await safeBrowserGoto(
+            page,
+            input.url,
+            {
+              waitUntil: 'domcontentloaded',
+              timeout: 30_000,
+            },
+            config.navigationPolicy,
+          )
           await page.waitForLoadState('networkidle').catch(() => {
             // networkidle may not fire for SPAs with persistent connections
           })
