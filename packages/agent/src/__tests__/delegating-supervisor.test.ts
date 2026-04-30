@@ -11,6 +11,7 @@ import {
   type TaskAssignment,
 } from '../orchestration/delegating-supervisor.js'
 import type { AgentCircuitBreaker } from '../orchestration/circuit-breaker.js'
+import type { ProviderExecutionPort } from '../orchestration/provider-adapter/provider-execution-port.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -396,6 +397,43 @@ describe('DelegatingSupervisor', () => {
       expect(apiResult?.error).toContain('agent-api')
     })
 
+    it('keys duplicate-specialist assignments by assignment ID', async () => {
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        eventBus,
+        executor: specialistExecutor(store),
+      })
+
+      const specialists = new Map<string, AgentExecutionSpec>([
+        ['agent-coder', makeSpecialist('agent-coder')],
+      ])
+
+      const supervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+      })
+
+      const tasks: TaskAssignment[] = [
+        { id: 'node-a', task: 'Implement A', specialistId: 'agent-coder', input: {} },
+        { id: 'node-b', task: 'Implement B', specialistId: 'agent-coder', input: {} },
+      ]
+
+      const aggregated = await supervisor.delegateAndCollect(tasks)
+
+      expect(aggregated.succeeded).toEqual(['node-a', 'node-b'])
+      expect(aggregated.failed).toEqual([])
+      expect(aggregated.results.get('node-a')?.output).toBe('Result from agent-coder')
+      expect(aggregated.results.get('node-a')?.metadata).toMatchObject({
+        assignmentId: 'node-a',
+        specialistId: 'agent-coder',
+      })
+      expect(aggregated.results.get('node-b')?.metadata).toMatchObject({
+        assignmentId: 'node-b',
+        specialistId: 'agent-coder',
+      })
+    })
+
     it('throws when a specialist in the task list is not registered', async () => {
       const tracker = new SimpleDelegationTracker({
         runStore: store,
@@ -733,6 +771,92 @@ describe('DelegatingSupervisor', () => {
       const task = capturedTasks[0] as { prompt: string; tags: string[] }
       expect(task.prompt).toBe('Build REST endpoints')
       expect(task.tags).toEqual(['api', 'backend'])
+    })
+
+    it('passes structured input, parent context, run options, and provider metadata through providerPort', async () => {
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        executor: withStoreUpdate(store),
+      })
+      const parentContext = {
+        parentRunId: 'parent-run-1',
+        decisions: ['Use PostgreSQL'],
+        constraints: ['No schema drift'],
+        relevantFiles: ['src/schema.ts'],
+      }
+      const structuredInput = {
+        tables: ['users'],
+        migration: { transactional: true },
+      }
+      const controller = new AbortController()
+      const captured: Array<Parameters<ProviderExecutionPort['run']>> = []
+      const mockProviderPort: ProviderExecutionPort = {
+        run: vi.fn(async (...args: Parameters<ProviderExecutionPort['run']>) => {
+          captured.push(args)
+          await new Promise((resolve) => setTimeout(resolve, 5))
+          return {
+            content: 'provider result',
+            providerId: 'codex',
+            attemptedProviders: ['claude', 'codex'],
+            fallbackAttempts: 1,
+            metadata: {
+              sessionId: 'session-1',
+              usageCents: 3,
+            },
+          }
+        }),
+        stream: vi.fn(),
+      }
+
+      const supervisor = new DelegatingSupervisor({
+        specialists: new Map([
+          ['db-specialist', makeSpecialist('db-specialist', {
+            metadata: { tags: ['database', 'sql'] },
+          })],
+        ]),
+        tracker,
+        eventBus,
+        parentContext,
+        providerPort: mockProviderPort,
+      })
+
+      const result = await supervisor.delegateTask(
+        'Create users table',
+        'db-specialist',
+        structuredInput,
+        { runId: 'delegation-run-1', signal: controller.signal },
+      )
+
+      expect(captured).toHaveLength(1)
+      const [agentInput, taskDescriptor, runOptions] = captured[0]!
+      expect(agentInput.prompt).toBe('Create users table')
+      expect(agentInput.signal).toBe(controller.signal)
+      expect(agentInput.correlationId).toBe('delegation-run-1')
+      expect(agentInput.options?.delegation).toEqual({
+        task: 'Create users table',
+        specialistId: 'db-specialist',
+        input: structuredInput,
+        context: parentContext,
+      })
+      expect(taskDescriptor).toEqual({
+        prompt: 'Create users table',
+        tags: ['database', 'sql'],
+      })
+      expect(runOptions).toEqual({
+        runId: 'delegation-run-1',
+        signal: controller.signal,
+      })
+      expect(result.metadata).toMatchObject({
+        specialistId: 'db-specialist',
+        providerId: 'codex',
+        attemptedProviders: ['claude', 'codex'],
+        fallbackAttempts: 1,
+        providerMetadata: {
+          sessionId: 'session-1',
+          usageCents: 3,
+        },
+      })
+      expect(result.metadata?.durationMs).toBeGreaterThan(0)
     })
 
     it('emits supervisor events even when using providerPort', async () => {

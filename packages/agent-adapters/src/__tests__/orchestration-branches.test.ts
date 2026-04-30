@@ -1180,7 +1180,7 @@ describe('ParallelExecutor branch coverage', () => {
     expect(result.selectedResult.success).toBe(true)
   })
 
-  it('supports adapter completing with no result event (iterator ends silently)', async () => {
+  it('fails adapter streams that end without a terminal completion event', async () => {
     const silent = makeAdapter('claude', async function* () {
       // no events at all
     })
@@ -1195,9 +1195,11 @@ describe('ParallelExecutor branch coverage', () => {
         mergeStrategy: 'all',
       },
     )
-    // Treated as success with empty result since no error thrown
-    expect(result.allResults[0]!.success).toBe(true)
+    expect(result.allResults[0]!.success).toBe(false)
     expect(result.allResults[0]!.result).toBe('')
+    expect(result.allResults[0]!.error).toBe(
+      'Adapter stream ended without terminal adapter:completed event',
+    )
   })
 
   it('timeoutMs of zero is ignored (treated as no timeout)', async () => {

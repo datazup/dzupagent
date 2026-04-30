@@ -40,10 +40,21 @@ function createRepo({
         ...(serverRouteBoundaries ? { serverRouteBoundaries } : {}),
         layerGraph: {
           layers: [
+            {
+              id: 0,
+              name: 'leaf-primitives',
+              runtimeProfile: 'leaf-runtime-primitives',
+              description: 'Leaf runtime primitives.',
+              packages: [],
+            },
             { id: 1, name: 'base', packages: ['beta'] },
             { id: 2, name: 'feature', packages: ['alpha'] },
           ],
-          rules: { allowSameLayerEdges: false },
+          rules: {
+            allowSameLayerEdges: false,
+            layerZeroRuntimeProfile: 'leaf-runtime-primitives',
+            layerZeroMayHaveExternalRuntimeDeps: true,
+          },
         },
       },
       null,
@@ -164,6 +175,46 @@ test('fails declared forbidden package pairs even when layer rules allow the sou
   }
 })
 
+test('fails when layer 0 is runtime-capable but still labelled as type-only', () => {
+  const repoRoot = createRepo({})
+  writeFileSync(
+    join(repoRoot, 'config', 'architecture-boundaries.json'),
+    JSON.stringify(
+      {
+        packageBoundaryRules: [],
+        layerGraph: {
+          description: 'Layer graph with type-only contracts at the bottom.',
+          layers: [
+            {
+              id: 0,
+              name: 'contracts',
+              runtimeProfile: 'leaf-runtime-primitives',
+              description: 'Type-only / zero-runtime-dep foundations.',
+              packages: ['beta'],
+            },
+            { id: 1, name: 'feature', packages: ['alpha'] },
+          ],
+          rules: {
+            allowSameLayerEdges: false,
+            layerZeroRuntimeProfile: 'leaf-runtime-primitives',
+            layerZeroMayHaveExternalRuntimeDeps: true,
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  )
+
+  try {
+    const result = runDomainBoundaryCheckResult(repoRoot)
+    assert.ifError(result.error)
+    assert.notEqual(result.status, 0)
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
 test('fails newly added server route files without a boundary classification', () => {
   const repoRoot = createRepo({
     serverRouteFiles: ['packages/server/src/routes/projects.ts'],
@@ -279,6 +330,65 @@ test('allows reviewed endpoints inside classified server route files', () => {
             endpoints: ['GET /'],
             mountedEndpoints: ['GET /api/runs'],
           },
+        },
+      },
+    },
+  })
+
+  try {
+    assert.doesNotThrow(() => runDomainBoundaryCheck(repoRoot))
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test('fails newly added ForgeServerConfig route-family fields without manifest approval', () => {
+  const repoRoot = createRepo({
+    serverRouteFiles: ['packages/server/src/composition/types.ts'],
+    serverRouteFileContents: {
+      'packages/server/src/composition/types.ts': [
+        'export interface ForgeControlPlaneRouteFamilyConfig {',
+        '  promptStore?: unknown',
+        '  workspaceStore?: unknown',
+        '}',
+        '',
+      ].join('\n'),
+    },
+    serverRouteBoundaries: {
+      forgeServerConfigRouteFamilies: {
+        sourceFile: 'packages/server/src/composition/types.ts',
+        interfaces: {
+          ForgeControlPlaneRouteFamilyConfig: ['promptStore'],
+        },
+      },
+    },
+  })
+
+  try {
+    const result = runDomainBoundaryCheckResult(repoRoot)
+    assert.ifError(result.error)
+    assert.notEqual(result.status, 0)
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test('allows reviewed ForgeServerConfig route-family fields', () => {
+  const repoRoot = createRepo({
+    serverRouteFiles: ['packages/server/src/composition/types.ts'],
+    serverRouteFileContents: {
+      'packages/server/src/composition/types.ts': [
+        'export interface ForgeControlPlaneRouteFamilyConfig {',
+        '  promptStore?: unknown',
+        '}',
+        '',
+      ].join('\n'),
+    },
+    serverRouteBoundaries: {
+      forgeServerConfigRouteFamilies: {
+        sourceFile: 'packages/server/src/composition/types.ts',
+        interfaces: {
+          ForgeControlPlaneRouteFamilyConfig: ['promptStore'],
         },
       },
     },

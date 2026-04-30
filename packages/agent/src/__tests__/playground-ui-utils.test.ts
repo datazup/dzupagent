@@ -25,6 +25,7 @@ import {
   getErrorEventTypes,
   formatValue,
   traceUiHostContract,
+  defaultTraceTheme,
   traceInteractionStyles,
   traceUiStyles,
   traceDensityStyles,
@@ -113,6 +114,58 @@ describe('getNodeStatus', () => {
 // ---------------------------------------------------------------------------
 
 describe('trace UI style adapter', () => {
+  it('defines the default semantic trace theme shape', () => {
+    expect(Object.keys(defaultTraceTheme)).toEqual([
+      'surface',
+      'text',
+      'interaction',
+      'statusTones',
+    ])
+    expect(Object.keys(defaultTraceTheme.surface)).toEqual([
+      'panel',
+      'panelMuted',
+      'panelSubtle',
+      'tableHeader',
+      'tableRow',
+      'divider',
+      'dividerSubtle',
+      'interactive',
+      'interactiveMuted',
+      'track',
+    ])
+    expect(Object.keys(defaultTraceTheme.text)).toEqual([
+      'primary',
+      'secondary',
+      'muted',
+      'subtle',
+      'disabled',
+    ])
+    expect(Object.keys(defaultTraceTheme.interaction)).toEqual([
+      'focusRing',
+      'selectedSurface',
+      'selectedBorder',
+    ])
+    expect(Object.keys(defaultTraceTheme.statusTones)).toEqual([
+      'danger',
+      'success',
+      'warning',
+      'neutral',
+    ])
+  })
+
+  it('keeps legacy helper maps derived from the default theme slots', () => {
+    expect(traceInteractionStyles).toBe(defaultTraceTheme.interaction)
+    expect(traceToneStyles).toBe(defaultTraceTheme.statusTones)
+    expect(traceUiStyles.panel).toBe(defaultTraceTheme.surface.panel)
+    expect(traceUiStyles.interactive).toBe(defaultTraceTheme.surface.interactive)
+    expect(traceUiStyles.textPrimary).toBe(defaultTraceTheme.text.primary)
+    expect(traceUiStyles.textMuted).toBe(defaultTraceTheme.text.muted)
+    expect(traceUiStyles.focusRing).toBe(defaultTraceTheme.interaction.focusRing)
+    expect(traceUiStyles.selectedBorder).toBe(defaultTraceTheme.interaction.selectedBorder)
+    expect(traceUiStyles.selectedSurface).toBe(defaultTraceTheme.interaction.selectedSurface)
+    expect(traceUiStyles.badgeNeutral).toBe(defaultTraceTheme.statusTones.neutral.badge)
+  })
+
   it('maps node statuses to semantic trace tones', () => {
     expect(getTraceStatusTone('error')).toBe('danger')
     expect(getTraceStatusTone('success')).toBe('success')

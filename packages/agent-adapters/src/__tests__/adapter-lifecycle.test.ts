@@ -127,6 +127,17 @@ describe('ProviderAdapterRegistry lifecycle', () => {
     expect(adapter.providerId).toBe('claude')
   })
 
+  it('getHealthy excludes disabled adapters until explicitly re-enabled', () => {
+    const registry = new ProviderAdapterRegistry()
+    registry.register(createMockAdapter('claude'))
+
+    expect(registry.getHealthy('claude')).toBeDefined()
+    registry.disable('claude')
+    expect(registry.getHealthy('claude')).toBeUndefined()
+    registry.enable('claude')
+    expect(registry.getHealthy('claude')).toBeDefined()
+  })
+
   it('isEnabled returns correct state', () => {
     const registry = new ProviderAdapterRegistry()
     registry.register(createMockAdapter('claude'))

@@ -138,26 +138,76 @@ describe('RoundRobinRouting', () => {
 // ---------------------------------------------------------------------------
 
 describe('LLMRouting', () => {
-  it('select() returns all candidates (pass-through)', () => {
-    const routing = new LLMRouting()
+  it('requires explicit fallback semantics', () => {
+    expect(() => new LLMRouting(undefined as never)).toThrow(
+      'LLMRouting requires explicit fallback semantics',
+    )
+  })
+
+  it('select() returns all candidates only when pass-through fallback is explicit', () => {
+    const routing = new LLMRouting({ fallback: 'pass-through' })
     const decision = routing.select(task(), agents)
     expect(decision.selected).toHaveLength(3)
     expect(decision.selected.map((a) => a.id)).toEqual(['db-agent', 'api-agent', 'ui-agent'])
     expect(decision.strategy).toBe('llm')
+    expect(decision.fallbackReason).toContain("explicit 'pass-through' fallback")
+    expect(decision.diagnostics).toEqual({
+      candidateIds: ['db-agent', 'api-agent', 'ui-agent'],
+      selectedIds: ['db-agent', 'api-agent', 'ui-agent'],
+      fallbackReason: expect.stringContaining("explicit 'pass-through' fallback"),
+    })
+  })
+
+  it('select() returns LLM-selected candidates from a configured selector', () => {
+    const routing = new LLMRouting({
+      fallback: 'first-candidate',
+      selector: () => 'api-agent',
+    })
+    const decision = routing.select(task(), agents)
+    expect(decision.selected).toHaveLength(1)
+    expect(decision.selected[0]!.id).toBe('api-agent')
+    expect(decision.reason).toBe('LLM selected candidate(s): api-agent')
+    expect(decision.fallbackReason).toBeUndefined()
+    expect(decision.diagnostics).toEqual({
+      candidateIds: ['db-agent', 'api-agent', 'ui-agent'],
+      selectedIds: ['api-agent'],
+    })
+  })
+
+  it('select() uses deterministic fallback when selector returns no valid candidate', () => {
+    const routing = new LLMRouting({
+      fallback: 'first-candidate',
+      selector: () => 'nonexistent',
+    })
+    const decision = routing.select(task(), agents)
+    expect(decision.selected).toHaveLength(1)
+    expect(decision.selected[0]!.id).toBe('db-agent')
+    expect(decision.fallbackReason).toBe(
+      'LLM routing fallback: selector returned no valid candidates',
+    )
+    expect(decision.diagnostics).toEqual({
+      candidateIds: ['db-agent', 'api-agent', 'ui-agent'],
+      selectedIds: ['db-agent'],
+      fallbackReason: 'LLM routing fallback: selector returned no valid candidates',
+    })
   })
 
   it('createDecision() with valid agentId returns that agent', () => {
-    const routing = new LLMRouting()
+    const routing = new LLMRouting({ fallback: 'first-candidate' })
     const decision = routing.createDecision('api-agent', agents, 'LLM chose api-agent')
     expect(decision.selected).toHaveLength(1)
     expect(decision.selected[0]!.id).toBe('api-agent')
     expect(decision.reason).toBe('LLM chose api-agent')
+    expect(decision.fallbackReason).toBeUndefined()
   })
 
   it('createDecision() with invalid agentId falls back to first candidate', () => {
-    const routing = new LLMRouting()
+    const routing = new LLMRouting({ fallback: 'first-candidate' })
     const decision = routing.createDecision('nonexistent', agents)
     expect(decision.selected).toHaveLength(1)
     expect(decision.selected[0]!.id).toBe('db-agent')
+    expect(decision.fallbackReason).toBe(
+      "LLM routing fallback: selected agent 'nonexistent' is not in the candidate set",
+    )
   })
 })

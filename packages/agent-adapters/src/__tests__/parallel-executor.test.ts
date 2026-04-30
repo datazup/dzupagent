@@ -4,7 +4,7 @@ import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { ParallelExecutor } from '../orchestration/parallel-executor.js'
 import type { ProviderResult } from '../orchestration/parallel-executor.js'
-import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -57,6 +57,68 @@ function createFailingAdapter(
     providerId,
     async *execute(_input: AgentInput) {
       throw new Error(errorMessage)
+    },
+    async *resumeSession() { /* noop */ },
+    interrupt() {},
+    async healthCheck() {
+      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
+    },
+    configure() {},
+  }
+}
+
+function createFailedEventAdapter(
+  providerId: AdapterProviderId,
+  errorMessage: string,
+  code = 'ADAPTER_EXECUTION_FAILED',
+): AgentCLIAdapter {
+  return {
+    providerId,
+    async *execute(_input: AgentInput) {
+      yield {
+        type: 'adapter:started' as const,
+        providerId,
+        sessionId: `sess-${providerId}`,
+        timestamp: Date.now(),
+      }
+      yield {
+        type: 'adapter:failed' as const,
+        providerId,
+        sessionId: `sess-${providerId}`,
+        error: errorMessage,
+        code,
+        timestamp: Date.now(),
+      }
+    },
+    async *resumeSession() { /* noop */ },
+    interrupt() {},
+    async healthCheck() {
+      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
+    },
+    configure() {},
+  }
+}
+
+function createNoTerminalAdapter(
+  providerId: AdapterProviderId,
+  message = 'partial output',
+): AgentCLIAdapter {
+  return {
+    providerId,
+    async *execute(_input: AgentInput) {
+      yield {
+        type: 'adapter:started' as const,
+        providerId,
+        sessionId: `sess-${providerId}`,
+        timestamp: Date.now(),
+      }
+      yield {
+        type: 'adapter:message' as const,
+        providerId,
+        content: message,
+        role: 'assistant' as const,
+        timestamp: Date.now(),
+      }
     },
     async *resumeSession() { /* noop */ },
     interrupt() {},
@@ -334,6 +396,54 @@ describe('ParallelExecutor', () => {
     })
   })
 
+  it('does not execute disabled providers supplied in the parallel provider list', async () => {
+    const disabledState = { calls: 0 }
+    const disabledAdapter: AgentCLIAdapter = {
+      providerId: 'claude',
+      async *execute() {
+        disabledState.calls += 1
+        yield {
+          type: 'adapter:completed' as const,
+          providerId: 'claude',
+          sessionId: 'sess-claude',
+          result: 'disabled-result',
+          durationMs: 0,
+          timestamp: Date.now(),
+        }
+      },
+      async *resumeSession() { /* noop */ },
+      interrupt() {},
+      async healthCheck() {
+        return { healthy: true, providerId: 'claude', sdkInstalled: true, cliAvailable: true }
+      },
+      configure() {},
+    }
+    const registry = new ProviderAdapterRegistry()
+    registry.register(disabledAdapter)
+    registry.register(createMockAdapter('codex', 'enabled-result'))
+    registry.disable('claude')
+
+    const executor = new ParallelExecutor({ registry, eventBus: bus })
+    const result = await executor.execute(
+      { prompt: 'test' },
+      {
+        providers: ['claude', 'codex'],
+        mergeStrategy: 'all',
+      },
+    )
+
+    expect(disabledState.calls).toBe(0)
+    expect(result.selectedResult.providerId).toBe('codex')
+    expect(result.allResults.find((r) => r.providerId === 'claude')).toMatchObject({
+      success: false,
+      error: 'Adapter "claude" is not healthy or not registered',
+    })
+    expect(result.allResults.find((r) => r.providerId === 'codex')).toMatchObject({
+      success: true,
+      result: 'enabled-result',
+    })
+  })
+
   describe('all strategy', () => {
     it('waits for all providers and returns combined results', async () => {
       const adapters = new Map<AdapterProviderId, AgentCLIAdapter>([
@@ -454,6 +564,128 @@ describe('ParallelExecutor', () => {
       const gemini = result.allResults.find((r) => r.providerId === 'gemini')
       expect(gemini?.success).toBe(false)
       expect(gemini?.error).toContain('not healthy or not registered')
+    })
+
+    it('treats adapter:failed streams as failed results', async () => {
+      const adapters = new Map<AdapterProviderId, AgentCLIAdapter>([
+        ['claude', createFailedEventAdapter('claude', 'provider failed', 'PROVIDER_FAILED')],
+      ])
+      const registry = createMockRegistry(adapters)
+      const executor = new ParallelExecutor({ registry, eventBus: bus })
+
+      const result = await executor.execute(
+        { prompt: 'test' },
+        {
+          providers: ['claude'],
+          mergeStrategy: 'all',
+        },
+      )
+
+      expect(result.selectedResult.success).toBe(false)
+      expect(result.selectedResult.error).toBe('PROVIDER_FAILED: provider failed')
+      expect(result.selectedResult.events.map((event) => event.type)).toEqual([
+        'adapter:started',
+        'adapter:failed',
+      ])
+      expect(emitted).toContainEqual(expect.objectContaining({
+        type: 'pipeline:node_failed',
+        nodeId: 'claude',
+        error: 'provider failed',
+      }))
+    })
+
+    it('treats streams without terminal completion as failed results', async () => {
+      const adapters = new Map<AdapterProviderId, AgentCLIAdapter>([
+        ['claude', createNoTerminalAdapter('claude')],
+        ['gemini', createMockAdapter('gemini', 'gemini-result')],
+      ])
+      const registry = createMockRegistry(adapters)
+      const executor = new ParallelExecutor({ registry, eventBus: bus })
+
+      const result = await executor.execute(
+        { prompt: 'test' },
+        {
+          providers: ['claude', 'gemini'],
+          mergeStrategy: 'all',
+        },
+      )
+
+      const claude = result.allResults.find((provider) => provider.providerId === 'claude')
+      expect(claude).toMatchObject({
+        success: false,
+        result: '',
+        error: 'Adapter stream ended without terminal adapter:completed event',
+      })
+      expect(result.selectedResult.providerId).toBe('gemini')
+      expect(result.selectedResult.success).toBe(true)
+    })
+
+    it('does not let no-terminal streams win first-wins', async () => {
+      const adapters = new Map<AdapterProviderId, AgentCLIAdapter>([
+        ['claude', createNoTerminalAdapter('claude')],
+        ['gemini', createMockAdapter('gemini', 'gemini-result')],
+      ])
+      const registry = createMockRegistry(adapters)
+      const executor = new ParallelExecutor({ registry, eventBus: bus })
+
+      const result = await executor.execute(
+        { prompt: 'test' },
+        {
+          providers: ['claude', 'gemini'],
+          mergeStrategy: 'first-wins',
+        },
+      )
+
+      expect(result.selectedResult.providerId).toBe('gemini')
+      expect(result.selectedResult.success).toBe(true)
+      expect(result.allResults.find((provider) => provider.providerId === 'claude')?.success).toBe(false)
+    })
+
+    it('does not let no-terminal streams win best-of-n even with a high scorer', async () => {
+      const adapters = new Map<AdapterProviderId, AgentCLIAdapter>([
+        ['claude', createNoTerminalAdapter('claude')],
+        ['gemini', createMockAdapter('gemini', 'gemini-result')],
+      ])
+      const registry = createMockRegistry(adapters)
+      const executor = new ParallelExecutor({ registry, eventBus: bus })
+
+      const result = await executor.execute(
+        { prompt: 'test' },
+        {
+          providers: ['claude', 'gemini'],
+          mergeStrategy: 'best-of-n',
+          scorer(provider) {
+            return provider.providerId === 'claude' ? 100 : 1
+          },
+        },
+      )
+
+      expect(result.allResults.find((provider) => provider.providerId === 'claude')?.success).toBe(false)
+      expect(result.selectedResult.providerId).toBe('gemini')
+      expect(result.selectedResult.success).toBe(true)
+    })
+
+    it('records no-terminal streams as registry circuit failures', async () => {
+      const registry = new ProviderAdapterRegistry({
+        circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
+      })
+      registry.register(createNoTerminalAdapter('claude'))
+      const executor = new ParallelExecutor({ registry, eventBus: bus })
+
+      const result = await executor.execute(
+        { prompt: 'test' },
+        {
+          providers: ['claude'],
+          mergeStrategy: 'all',
+        },
+      )
+      const health = await registry.getDetailedHealth()
+
+      expect(result.selectedResult.success).toBe(false)
+      expect(health.adapters['claude']).toMatchObject({
+        circuitState: 'open',
+        consecutiveFailures: 1,
+      })
     })
   })
 

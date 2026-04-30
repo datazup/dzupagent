@@ -161,6 +161,105 @@ describe('HTTP connector', () => {
     )
   })
 
+  it('follows same-origin redirects after revalidating each hop', async () => {
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response('', {
+        status: 302,
+        statusText: 'Found',
+        headers: { location: '/v1/final' },
+      }))
+      .mockResolvedValueOnce(new Response('{"ok":true}', {
+        status: 200,
+        statusText: 'OK',
+      }))
+    vi.stubGlobal('fetch', mock)
+
+    const tools = createHTTPConnector({ baseUrl: 'https://api.example.com' })
+    const result = await tools[0]!.invoke({ method: 'GET', path: '/v1/start' })
+
+    expect(result).toContain('200 OK')
+    expect(result).toContain('{"ok":true}')
+    expect(mock).toHaveBeenCalledTimes(2)
+    expect(mock.mock.calls[0]![0]).toBe('https://api.example.com/v1/start')
+    expect(mock.mock.calls[1]![0]).toBe('https://api.example.com/v1/final')
+    expect(mock.mock.calls[0]![1]).toEqual(expect.objectContaining({ redirect: 'manual' }))
+    expect(mock.mock.calls[1]![1]).toEqual(expect.objectContaining({ redirect: 'manual' }))
+  })
+
+  it('rejects off-origin redirects when the host is not allowlisted', async () => {
+    const mock = vi.fn().mockResolvedValue(new Response('', {
+      status: 302,
+      statusText: 'Found',
+      headers: { location: 'https://evil.example.com/steal' },
+    }))
+    vi.stubGlobal('fetch', mock)
+
+    const tools = createHTTPConnector({ baseUrl: 'https://api.example.com' })
+    const result = await tools[0]!.invoke({ method: 'GET', path: '/start' })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('not in the connector host allowlist')
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects redirects to private and metadata addresses', async () => {
+    const mock = vi.fn().mockResolvedValue(new Response('', {
+      status: 302,
+      statusText: 'Found',
+      headers: { location: 'https://169.254.169.254/latest/meta-data' },
+    }))
+    vi.stubGlobal('fetch', mock)
+
+    const tools = createHTTPConnector({ baseUrl: 'https://api.example.com' })
+    const result = await tools[0]!.invoke({ method: 'GET', path: '/start' })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('Outbound URL rejected')
+    expect(result).toContain('not a public IP address')
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows redirects to explicit connector host allowlist entries', async () => {
+    const mock = vi.fn()
+      .mockResolvedValueOnce(new Response('', {
+        status: 302,
+        statusText: 'Found',
+        headers: { location: 'https://cdn.example.com/files/1' },
+      }))
+      .mockResolvedValueOnce(new Response('cdn-ok', {
+        status: 200,
+        statusText: 'OK',
+      }))
+    vi.stubGlobal('fetch', mock)
+
+    const tools = createHTTPConnector({
+      baseUrl: 'https://api.example.com',
+      allowedHosts: ['cdn.example.com'],
+    })
+    const result = await tools[0]!.invoke({ method: 'GET', path: '/download' })
+
+    expect(result).toContain('200 OK')
+    expect(result).toContain('cdn-ok')
+    expect(mock).toHaveBeenCalledTimes(2)
+    expect(mock.mock.calls[1]![0]).toBe('https://cdn.example.com/files/1')
+  })
+
+  it('rejects protocol-changing redirects unless the destination host is explicitly allowlisted', async () => {
+    const mock = vi.fn().mockResolvedValue(new Response('', {
+      status: 302,
+      statusText: 'Found',
+      headers: { location: 'http://api.example.com/insecure' },
+    }))
+    vi.stubGlobal('fetch', mock)
+
+    const tools = createHTTPConnector({ baseUrl: 'https://api.example.com' })
+    const result = await tools[0]!.invoke({ method: 'GET', path: '/start' })
+
+    expect(result).toContain('Error')
+    expect(result).toContain('not in the connector host allowlist')
+    expect(mock).toHaveBeenCalledTimes(1)
+  })
+
   it('handles abort timeout by returning error', async () => {
     // Simulate a request that takes too long by never resolving
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() =>

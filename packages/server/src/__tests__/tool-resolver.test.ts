@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { tool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { resolve } from 'node:path'
@@ -494,6 +494,38 @@ describe('tool-resolver', { timeout: 30_000 }, () => {
 
       expect(result.tools.map((t) => t.name)).toContain('http_request')
       expect(result.unresolved).not.toContain('http_request')
+    })
+
+    it('passes profile allowedHosts through to HTTP connector redirect policy', async () => {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(new Response('', {
+          status: 302,
+          headers: { location: 'https://cdn.example.com/file' },
+        }))
+        .mockResolvedValueOnce(new Response('ok', { status: 200, statusText: 'OK' }))
+      vi.stubGlobal('fetch', fetchMock)
+
+      try {
+        const result = await resolveAgentTools({
+          toolNames: ['http_request'],
+          httpConnectorProfiles: {
+            public: {
+              baseUrl: 'https://api.example.com',
+              allowedHosts: ['cdn.example.com'],
+            },
+          },
+          defaultHttpConnectorProfile: 'public',
+          env: {},
+        })
+
+        const httpTool = result.tools.find((t) => t.name === 'http_request')
+        expect(httpTool).toBeTruthy()
+        await expect(httpTool!.invoke({ method: 'GET', path: '/download' })).resolves.toContain('200 OK')
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        expect(fetchMock.mock.calls[1]![0]).toBe('https://cdn.example.com/file')
+      } finally {
+        vi.unstubAllGlobals()
+      }
     })
 
     it('supports clearly named unsafe metadata compatibility opt-in', async () => {

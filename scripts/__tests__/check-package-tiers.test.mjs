@@ -45,7 +45,7 @@ function makeRepo(structure) {
 test('passes when package tier manifest matches the workspace', async () => {
   const repoRoot = makeRepo({
     packageMap: {
-      '@dzupagent/alpha': { tier: 1, status: 'supported', roadmapDriver: true, owners: ['help'] },
+      '@dzupagent/alpha': { tier: 2, status: 'supported-secondary', roadmapDriver: false, owners: ['help'] },
       '@dzupagent/beta': { tier: 3, status: 'parked', roadmapDriver: false, owners: [] },
     },
     workspacePackages: {
@@ -133,6 +133,72 @@ test('fails when a governed root barrel export is not explicitly allowlisted', a
     const result = await checkPackageTiers({ root: repoRoot });
     assert.equal(result.ok, false);
     assert.match(result.messages.join('\n'), /config\/public-api-allowlists\.json stableRoot or transitionalRoot/);
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('fails when a tier 1 package has no public API allowlist entry', async () => {
+  const repoRoot = makeRepo({
+    packageMap: {
+      '@dzupagent/core': { tier: 1, status: 'supported', roadmapDriver: true, owners: ['help'] },
+    },
+    workspacePackages: {
+      core: '@dzupagent/core',
+    },
+    sourceFiles: {
+      core: {
+        'src/index.ts': `
+          export { createStableThing } from './stable/thing.js'
+        `,
+      },
+    },
+  });
+
+  try {
+    const result = await checkPackageTiers({ root: repoRoot });
+    assert.equal(result.ok, false);
+    assert.match(result.messages.join('\n'), /Tier 1 but has no config\/public-api-allowlists\.json package entry/);
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('fails when a configured public API subpath is missing from package exports', async () => {
+  const repoRoot = makeRepo({
+    packageMap: {
+      '@dzupagent/core': { tier: 1, status: 'supported', roadmapDriver: true, owners: ['help'] },
+    },
+    workspacePackages: {
+      core: '@dzupagent/core',
+    },
+    publicApiAllowlists: {
+      packages: [
+        {
+          packageName: '@dzupagent/core',
+          packageDir: 'packages/core',
+          rootIndex: 'packages/core/src/index.ts',
+          stableRoot: [{ match: 'prefix', pattern: './stable/' }],
+          transitionalRoot: [],
+          subpaths: {
+            './stable': 'stable facade',
+          },
+        },
+      ],
+    },
+    sourceFiles: {
+      core: {
+        'src/index.ts': `
+          export { createStableThing } from './stable/thing.js'
+        `,
+      },
+    },
+  });
+
+  try {
+    const result = await checkPackageTiers({ root: repoRoot });
+    assert.equal(result.ok, false);
+    assert.match(result.messages.join('\n'), /declares subpaths missing from package\.json exports: \.\/stable/);
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
   }
