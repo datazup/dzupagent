@@ -17,6 +17,7 @@ import { AgentOrchestrator } from '../orchestration/orchestrator.js'
 import { OrchestrationError } from '../orchestration/orchestration-error.js'
 import { AgentCircuitBreaker } from '../orchestration/circuit-breaker.js'
 import { UsePartialMergeStrategy } from '../orchestration/merge/index.js'
+import { LLMRouting } from '../orchestration/routing/llm-routing.js'
 
 // ---------------------------------------------------------------------------
 // Shared mock helpers
@@ -619,6 +620,41 @@ describe('AgentOrchestrator.supervisor', () => {
         source: 'direct-supervisor',
       })
     })
+
+    it('emits LLM routing fallback diagnostics with selected candidates', async () => {
+      const eventBus = createEventBus()
+      const events: DzupEvent[] = []
+      eventBus.onAny((event) => { events.push(event) })
+
+      const manager = createAgentWithModel('mgr', createMockModel([{ content: 'done' }]))
+      const api = createAgentWithModel('api', createMockModel([{ content: 'api' }]))
+      const db = createAgentWithModel('db', createMockModel([{ content: 'db' }]))
+
+      await AgentOrchestrator.supervisor({
+        manager,
+        specialists: [api, db],
+        task: 'route this task',
+        eventBus,
+        routingPolicy: new LLMRouting({ fallback: 'first-candidate' }),
+      })
+
+      const routingDiagnostic = events.find((event) =>
+        event.type === 'supervisor:routing_decision' &&
+        event.strategy === 'llm') as Record<string, unknown> | undefined
+
+      expect(routingDiagnostic).toMatchObject({
+        type: 'supervisor:routing_decision',
+        managerId: 'mgr',
+        task: 'route this task',
+        strategy: 'llm',
+        fallbackReason: expect.stringContaining("explicit 'first-candidate' fallback"),
+        selectedSpecialists: ['api'],
+        selectedCandidates: ['api'],
+        filteredSpecialists: ['db'],
+        candidateSpecialists: ['api', 'db'],
+        source: 'direct-supervisor',
+      })
+    })
   })
 })
 
@@ -751,9 +787,6 @@ describe('AgentOrchestrator.contractNet', () => {
   it('delegates to ContractNetManager.execute and returns a ContractResult', async () => {
     // The contractNet method is a thin delegator to ContractNetManager.execute.
     // We verify it exists, is callable, and returns the expected shape.
-    const managerModel = createMockModel([
-      { content: 'CFP announced' },
-    ])
     const bidJson = JSON.stringify({
       estimatedCostCents: 5,
       estimatedDurationMs: 50,
@@ -766,12 +799,10 @@ describe('AgentOrchestrator.contractNet', () => {
       { content: 'executed result' },
     ])
 
-    const manager = createAgentWithModel('mgr', managerModel)
     const specialist = createAgentWithModel('spec', specModel)
 
     try {
       const result = await AgentOrchestrator.contractNet({
-        manager,
         specialists: [specialist],
         task: 'do work',
       })

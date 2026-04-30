@@ -20,7 +20,7 @@ import type { DelegationResult } from '../orchestration/delegation.js'
 
 function createMockSupervisor(opts?: {
   specialists?: string[]
-  /** Override delegation results per specialist ID */
+  /** Override delegation results per assignment ID or specialist ID */
   resultOverrides?: Map<string, DelegationResult>
 }): DelegatingSupervisor {
   const specialistIds = opts?.specialists ?? ['planner', 'coder', 'reviewer', 'tester']
@@ -33,21 +33,22 @@ function createMockSupervisor(opts?: {
       const failed: string[] = []
 
       for (const task of tasks) {
-        const override = resultOverrides.get(task.specialistId)
+        const resultKey = task.id ?? task.specialistId
+        const override = resultOverrides.get(resultKey) ?? resultOverrides.get(task.specialistId)
         if (override) {
-          results.set(task.specialistId, override)
+          results.set(resultKey, override)
           if (override.success) {
-            succeeded.push(task.specialistId)
+            succeeded.push(resultKey)
           } else {
-            failed.push(task.specialistId)
+            failed.push(resultKey)
           }
         } else {
           // Default: succeed with output echoing the input
-          results.set(task.specialistId, {
+          results.set(resultKey, {
             success: true,
             output: { task: task.task, input: task.input },
           })
-          succeeded.push(task.specialistId)
+          succeeded.push(resultKey)
         }
       }
 
@@ -294,6 +295,60 @@ describe('PlanningAgent.executePlan', () => {
     // Second call should have 2 tasks (parallel)
     const secondCall = (supervisor.delegateAndCollect as ReturnType<typeof vi.fn>).mock.calls[1]![0] as TaskAssignment[]
     expect(secondCall).toHaveLength(2)
+    expect(new Set(secondCall.map((assignment) => assignment.id))).toEqual(new Set(['b', 'c']))
+  })
+
+  it('keeps duplicate-specialist parallel results keyed by node ID', async () => {
+    const plan = PlanningAgent.buildPlan('Duplicate specialist parallel', [
+      { id: 'draft-a', task: 'Draft A', specialistId: 'coder', input: { item: 'a' }, dependsOn: [] },
+      { id: 'draft-b', task: 'Draft B', specialistId: 'coder', input: { item: 'b' }, dependsOn: [] },
+      { id: 'review-a', task: 'Review A', specialistId: 'reviewer', input: {}, dependsOn: ['draft-a'] },
+    ])
+
+    const agent = new PlanningAgent({ supervisor })
+    const result = await agent.executePlan(plan)
+
+    expect(result.success).toBe(true)
+    expect(result.results.get('draft-a')?.output).toMatchObject({
+      task: 'Draft A',
+      input: expect.objectContaining({ item: 'a', _nodeId: 'draft-a' }),
+    })
+    expect(result.results.get('draft-b')?.output).toMatchObject({
+      task: 'Draft B',
+      input: expect.objectContaining({ item: 'b', _nodeId: 'draft-b' }),
+    })
+
+    const secondCall = (supervisor.delegateAndCollect as ReturnType<typeof vi.fn>).mock.calls[1]![0] as TaskAssignment[]
+    const predecessorResults = secondCall[0]!.input._predecessorResults as Record<string, unknown>
+    expect(predecessorResults).toEqual({
+      'draft-a': result.results.get('draft-a')?.output,
+    })
+    expect(predecessorResults).not.toHaveProperty('draft-b')
+  })
+
+  it('associates duplicate-specialist failures with the failed node only', async () => {
+    const failingSupervisor = createMockSupervisor({
+      resultOverrides: new Map([
+        ['draft-b', { success: false, output: null, error: 'draft-b failed' }],
+      ]),
+    })
+
+    const plan = PlanningAgent.buildPlan('Duplicate specialist partial fail', [
+      { id: 'draft-a', task: 'Draft A', specialistId: 'coder', input: { item: 'a' }, dependsOn: [] },
+      { id: 'draft-b', task: 'Draft B', specialistId: 'coder', input: { item: 'b' }, dependsOn: [] },
+      { id: 'review-a', task: 'Review A', specialistId: 'reviewer', input: {}, dependsOn: ['draft-a'] },
+      { id: 'review-b', task: 'Review B', specialistId: 'reviewer', input: {}, dependsOn: ['draft-b'] },
+    ])
+
+    const agent = new PlanningAgent({ supervisor: failingSupervisor })
+    const result = await agent.executePlan(plan)
+
+    expect(result.success).toBe(false)
+    expect(result.failedNodes).toEqual(['draft-b'])
+    expect(result.skippedNodes).toEqual(['review-b'])
+    expect(result.results.get('draft-a')?.success).toBe(true)
+    expect(result.results.get('review-a')?.success).toBe(true)
+    expect(result.results.get('draft-b')?.error).toBe('draft-b failed')
   })
 
   it('should skip dependents when a node fails', async () => {

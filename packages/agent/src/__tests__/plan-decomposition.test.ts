@@ -185,7 +185,7 @@ describe('PlanningAgent.decompose', () => {
     expect(messages[1]!.content).toContain('Build a user management feature')
   })
 
-  it('should filter out nodes with invalid specialist IDs', async () => {
+  it('should reject nodes with invalid specialist IDs by default', async () => {
     const llmResponse = JSON.stringify({
       nodes: [
         { id: 'node-0', task: 'Create schema', specialistId: 'db-agent', dependsOn: [] },
@@ -196,17 +196,49 @@ describe('PlanningAgent.decompose', () => {
     const llm = createMockLLM(llmResponse)
 
     const agent = new PlanningAgent({ supervisor })
-    const plan = await agent.decompose('Build feature', llm)
-
-    // node-1 should be filtered out, leaving 2 valid nodes
-    expect(plan.nodes).toHaveLength(2)
-    expect(plan.nodes.map((n) => n.id)).toEqual(['node-0', 'node-2'])
-    // node-2 should still depend on node-0 but not node-1
-    const node2 = plan.nodes.find((n) => n.id === 'node-2')
-    expect(node2!.dependsOn).toEqual(['node-0'])
+    await expect(agent.decompose('Build feature', llm)).rejects.toMatchObject({
+      message: expect.stringContaining('Unknown-specialist nodes: node-1 (nonexistent-agent)'),
+      context: expect.objectContaining({
+        diagnostics: expect.objectContaining({
+          acknowledged: false,
+          removedNodes: [
+            expect.objectContaining({
+              nodeId: 'node-1',
+              specialistId: 'nonexistent-agent',
+              affectedDependencies: [],
+            }),
+          ],
+        }),
+      }),
+    })
   })
 
-  it('should remove dangling dependency references after filtering', async () => {
+  it('should reject dangling dependency references by default', async () => {
+    const llmResponse = JSON.stringify({
+      nodes: [
+        { id: 'node-1', task: 'Build API', specialistId: 'api-agent', dependsOn: ['node-0'] },
+      ],
+    })
+    const llm = createMockLLM(llmResponse)
+
+    const agent = new PlanningAgent({ supervisor })
+    await expect(agent.decompose('Build feature', llm)).rejects.toMatchObject({
+      message: expect.stringContaining('Dangling dependencies: node-1 (api-agent) -> node-0'),
+      context: expect.objectContaining({
+        diagnostics: expect.objectContaining({
+          danglingDependencies: [
+            expect.objectContaining({
+              nodeId: 'node-1',
+              specialistId: 'api-agent',
+              dependencyId: 'node-0',
+            }),
+          ],
+        }),
+      }),
+    })
+  })
+
+  it('should include removed-node dependency diagnostics before execution', async () => {
     const llmResponse = JSON.stringify({
       nodes: [
         { id: 'node-0', task: 'Invalid task', specialistId: 'bad-agent', dependsOn: [] },
@@ -216,11 +248,34 @@ describe('PlanningAgent.decompose', () => {
     const llm = createMockLLM(llmResponse)
 
     const agent = new PlanningAgent({ supervisor })
-    const plan = await agent.decompose('Build feature', llm)
-
-    expect(plan.nodes).toHaveLength(1)
-    // dependsOn should be cleaned (node-0 was removed)
-    expect(plan.nodes[0]!.dependsOn).toEqual([])
+    await expect(agent.decompose('Build feature', llm)).rejects.toMatchObject({
+      message: expect.stringContaining('Unknown-specialist nodes: node-0 (bad-agent)'),
+      context: expect.objectContaining({
+        diagnostics: expect.objectContaining({
+          removedNodes: [
+            expect.objectContaining({
+              nodeId: 'node-0',
+              specialistId: 'bad-agent',
+              affectedDependencies: [
+                expect.objectContaining({
+                  nodeId: 'node-1',
+                  specialistId: 'api-agent',
+                  dependencyId: 'node-0',
+                }),
+              ],
+            }),
+          ],
+          danglingDependencies: [
+            expect.objectContaining({
+              nodeId: 'node-1',
+              specialistId: 'api-agent',
+              dependencyId: 'node-0',
+              dependencySpecialistId: 'bad-agent',
+            }),
+          ],
+        }),
+      }),
+    })
   })
 
   it('should throw when all specialist IDs are invalid', async () => {
@@ -236,6 +291,51 @@ describe('PlanningAgent.decompose', () => {
     await expect(agent.decompose('Build feature', llm)).rejects.toThrow(
       /no valid nodes/i,
     )
+  })
+
+  it('should remove unresolved nodes and dependencies only with explicit acknowledgement', async () => {
+    const llmResponse = JSON.stringify({
+      nodes: [
+        { id: 'node-0', task: 'Invalid task', specialistId: 'bad-agent', dependsOn: [] },
+        { id: 'node-1', task: 'Build API', specialistId: 'api-agent', dependsOn: ['node-0'] },
+        { id: 'node-2', task: 'Build UI', specialistId: 'ui-agent', dependsOn: ['node-1'] },
+      ],
+    })
+    const llm = createMockLLM(llmResponse)
+
+    const agent = new PlanningAgent({ supervisor })
+    const plan = await agent.decompose('Build feature', llm, {
+      acknowledgeUnresolvedNodes: true,
+    })
+
+    expect(plan.nodes.map((node) => node.id)).toEqual(['node-1', 'node-2'])
+    expect(plan.nodes[0]!.dependsOn).toEqual([])
+    expect(plan.nodes[1]!.dependsOn).toEqual(['node-1'])
+    expect(plan.executionLevels).toEqual([['node-1'], ['node-2']])
+    expect(plan.decompositionDiagnostics).toMatchObject({
+      acknowledged: true,
+      removedNodes: [
+        expect.objectContaining({
+          nodeId: 'node-0',
+          specialistId: 'bad-agent',
+          affectedDependencies: [
+            expect.objectContaining({
+              nodeId: 'node-1',
+              specialistId: 'api-agent',
+              dependencyId: 'node-0',
+            }),
+          ],
+        }),
+      ],
+      danglingDependencies: [
+        expect.objectContaining({
+          nodeId: 'node-1',
+          specialistId: 'api-agent',
+          dependencyId: 'node-0',
+          dependencySpecialistId: 'bad-agent',
+        }),
+      ],
+    })
   })
 
   it('should detect cycles produced by the LLM', async () => {

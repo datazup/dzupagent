@@ -11,7 +11,7 @@ import type {
   TaskDecomposer,
   SupervisorConfig,
 } from '../orchestration/supervisor.js'
-import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -266,6 +266,58 @@ describe('SupervisorOrchestrator', () => {
       expect(result.subtaskResults).toHaveLength(1)
       expect(result.subtaskResults[0]!.success).toBe(false)
       expect(result.subtaskResults[0]!.error).toBeDefined()
+    })
+
+    it('does not delegate supervisor execution to disabled providers', async () => {
+      const disabledState = { calls: 0 }
+      const disabledAdapter: AgentCLIAdapter = {
+        providerId: 'claude',
+        async *execute() {
+          disabledState.calls += 1
+          yield {
+            type: 'adapter:completed' as const,
+            providerId: 'claude',
+            sessionId: 'sess-claude',
+            result: 'disabled result',
+            durationMs: 0,
+            timestamp: Date.now(),
+          }
+        },
+        async *resumeSession() { /* noop */ },
+        interrupt() {},
+        async healthCheck() {
+          return { healthy: true, providerId: 'claude', sdkInstalled: true, cliAvailable: true }
+        },
+        configure() {},
+      }
+      const registry = new ProviderAdapterRegistry()
+      registry.register(disabledAdapter)
+      registry.register(createMockAdapter('codex', [
+        {
+          type: 'adapter:completed' as const,
+          providerId: 'codex',
+          sessionId: 'sess-codex',
+          result: 'enabled result',
+          durationMs: 0,
+          timestamp: Date.now(),
+        },
+      ]))
+      registry.disable('claude')
+
+      const supervisor = new SupervisorOrchestrator({
+        registry,
+        eventBus: bus,
+      })
+
+      const result = await supervisor.execute('Review the implementation')
+
+      expect(disabledState.calls).toBe(0)
+      expect(result.subtaskResults).toHaveLength(1)
+      expect(result.subtaskResults[0]).toMatchObject({
+        providerId: 'codex',
+        result: 'enabled result',
+        success: true,
+      })
     })
 
     it('uses custom decomposer when provided', async () => {

@@ -41,6 +41,7 @@ const mockedExtractLinks = vi.mocked(extractLinks)
 function createMockPage(url = 'https://example.com'): Page {
   return {
     url: () => url,
+    route: vi.fn(async () => undefined),
     goto: vi.fn(async () => null),
     title: vi.fn(async () => 'Test Page'),
     evaluate: vi.fn(async (fn: (...args: unknown[]) => unknown, ...args: unknown[]) => {
@@ -368,5 +369,84 @@ describe('PageCrawler', () => {
     }
 
     expect(results.length).toBeLessThanOrEqual(2)
+  })
+
+  it('crawls same-origin links by default and skips cross-origin links', async () => {
+    const context = createMockContext()
+    const crawler = new PageCrawler(context, { maxPages: 10, maxDepth: 2 })
+
+    let callIdx = 0
+    mockedExtractLinks.mockImplementation(async () => {
+      callIdx++
+      if (callIdx === 1) {
+        return [
+          'https://example.com/docs',
+          'https://other.example/docs',
+        ]
+      }
+      return []
+    })
+
+    const urls: string[] = []
+    for await (const result of crawler.crawl('https://example.com')) {
+      urls.push(result.url)
+    }
+
+    expect(urls).toContain('https://example.com')
+    expect(urls).toContain('https://example.com/docs')
+    expect(urls).not.toContain('https://other.example/docs')
+  })
+
+  it('crawls cross-origin links when the origin is explicitly allowlisted', async () => {
+    const context = createMockContext()
+    const crawler = new PageCrawler(context, {
+      maxPages: 10,
+      maxDepth: 2,
+      allowedOrigins: ['https://other.example'],
+    })
+
+    let callIdx = 0
+    mockedExtractLinks.mockImplementation(async () => {
+      callIdx++
+      return callIdx === 1 ? ['https://other.example/docs'] : []
+    })
+
+    const urls: string[] = []
+    for await (const result of crawler.crawl('https://example.com')) {
+      urls.push(result.url)
+    }
+
+    expect(urls).toContain('https://other.example/docs')
+  })
+
+  it('blocks private-network crawl start URLs by default', async () => {
+    const context = createMockContext()
+    const crawler = new PageCrawler(context)
+
+    await expect(async () => {
+      for await (const _result of crawler.crawl('http://127.0.0.1/admin')) {
+        // consume
+      }
+    }).rejects.toThrow('private or local network host')
+  })
+
+  it('revalidates redirected crawl navigations', async () => {
+    const page = createMockPage('http://169.254.169.254/latest')
+    const context = {
+      newPage: vi.fn(async () => page),
+    } as unknown as BrowserContext
+    const crawler = new PageCrawler(context, { maxPages: 1, maxDepth: 0 })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const results: unknown[] = []
+    for await (const result of crawler.crawl('https://example.com/redirect')) {
+      results.push(result)
+    }
+
+    expect(results).toHaveLength(0)
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('private or local network host'),
+    )
+    warnSpy.mockRestore()
   })
 })

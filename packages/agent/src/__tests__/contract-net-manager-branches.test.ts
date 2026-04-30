@@ -35,6 +35,25 @@ function makeAgent(id: string, model: BaseChatModel): DzupAgent {
 }
 
 describe('ContractNetManager — branch coverage', () => {
+  it('rejects legacy manager config instead of silently ignoring it', async () => {
+    const manager = makeAgent('manager', makeModel('unused'))
+    const specialist = makeAgent('spec', makeModel(JSON.stringify({
+      estimatedCostCents: 1,
+      estimatedDurationMs: 1,
+      qualityEstimate: 1,
+      confidence: 1,
+      approach: 'ok',
+    })))
+
+    await expect(
+      ContractNetManager.execute({
+        manager,
+        specialists: [specialist],
+        task: 'legacy manager',
+      } as unknown as Parameters<typeof ContractNetManager.execute>[0]),
+    ).rejects.toThrow('ContractNetConfig.manager was removed')
+  })
+
   it('parses bids from markdown-fenced JSON blocks', async () => {
     // First call returns a bid wrapped in ```json fences
     // Second call is the execution

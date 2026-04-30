@@ -12,6 +12,7 @@ import type {
   ContractNetConfig,
 } from '../orchestration/contract-net.js'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistryConfig } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
   AgentCLIAdapter,
@@ -204,8 +205,11 @@ describe('ContractNetOrchestrator', () => {
     emitted = collectBusEvents(bus)
   })
 
-  function buildRegistry(adapters: AgentCLIAdapter[]): ProviderAdapterRegistry {
-    const registry = new ProviderAdapterRegistry()
+  function buildRegistry(
+    adapters: AgentCLIAdapter[],
+    config?: ProviderAdapterRegistryConfig,
+  ): ProviderAdapterRegistry {
+    const registry = new ProviderAdapterRegistry(config)
     for (const adapter of adapters) {
       registry.register(adapter)
     }
@@ -238,6 +242,38 @@ describe('ContractNetOrchestrator', () => {
     expect(result.winningBid.providerId).toBe('claude')
     expect(result.allBids).toHaveLength(1)
     expect(result.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('does not collect bids from or execute disabled providers', async () => {
+    const disabledState = { calls: 0 }
+    const disabledAdapter: AgentCLIAdapter = {
+      providerId: 'claude',
+      async *execute() {
+        disabledState.calls += 1
+        yield* completedEvents('claude', 'disabled result')
+      },
+      async *resumeSession() { /* noop */ },
+      interrupt() {},
+      async healthCheck() {
+        return { healthy: true, providerId: 'claude', sdkInstalled: true, cliAvailable: true }
+      },
+      configure() {},
+    }
+    const enabledAdapter = createMockAdapter('codex', completedEvents('codex', 'enabled result'))
+    const registry = buildRegistry([disabledAdapter, enabledAdapter])
+    registry.disable('claude')
+    const orchestrator = buildOrchestrator(registry)
+
+    const result = await orchestrator.execute(
+      makeTask(['reasoning']),
+      makeInput(),
+    )
+
+    expect(disabledState.calls).toBe(0)
+    expect(result.success).toBe(true)
+    expect(result.executionResult).toBe('enabled result')
+    expect(result.winningBid?.providerId).toBe('codex')
+    expect(result.allBids.map((bid) => bid.providerId)).toEqual(['codex'])
   })
 
   it('falls back to next-best bid on failure', async () => {
@@ -532,5 +568,100 @@ describe('ContractNetOrchestrator', () => {
     // The adapter emitted a failed event but did not throw, so the iterator
     // completes without success
     expect(result.success).toBe(false)
+  })
+
+  it('records thrown bid execution failures in registry circuit state', async () => {
+    const adapter: AgentCLIAdapter = {
+      providerId: 'claude',
+      async *execute() {
+        throw new Error('thrown failure')
+      },
+      async *resumeSession() { /* noop */ },
+      interrupt() {},
+      async healthCheck() {
+        return { healthy: true, providerId: 'claude', sdkInstalled: true, cliAvailable: true }
+      },
+      configure() {},
+    }
+    const registry = buildRegistry([adapter], {
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
+    })
+    const orchestrator = buildOrchestrator(registry)
+
+    const result = await orchestrator.execute(makeTask(['general']), makeInput())
+    const health = await registry.getDetailedHealth()
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('thrown failure')
+    expect(health.adapters.claude?.circuitState).toBe('open')
+    expect(health.adapters.claude?.consecutiveFailures).toBe(1)
+    expect(health.adapters.claude?.lastFailureAt).toBeDefined()
+  })
+
+  it('records terminal adapter:failed events in registry circuit state', async () => {
+    const adapter = createMockAdapter('claude', failedEvents('claude', 'terminal failure'))
+    const registry = buildRegistry([adapter], {
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
+    })
+    const orchestrator = buildOrchestrator(registry)
+
+    const result = await orchestrator.execute(makeTask(['general']), makeInput())
+    const health = await registry.getDetailedHealth()
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('terminal failure')
+    expect(health.adapters.claude?.circuitState).toBe('open')
+    expect(health.adapters.claude?.consecutiveFailures).toBe(1)
+    expect(health.adapters.claude?.lastFailureAt).toBeDefined()
+  })
+
+  it('records terminal adapter:completed events as registry circuit success', async () => {
+    const adapter = createMockAdapter('claude', completedEvents('claude', 'done'))
+    const registry = buildRegistry([adapter], {
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
+    })
+    const orchestrator = buildOrchestrator(registry)
+
+    const result = await orchestrator.execute(makeTask(['general']), makeInput())
+    const health = await registry.getDetailedHealth()
+
+    expect(result.success).toBe(true)
+    expect(result.executionResult).toBe('done')
+    expect(health.adapters.claude?.circuitState).toBe('closed')
+    expect(health.adapters.claude?.consecutiveFailures).toBe(0)
+    expect(health.adapters.claude?.lastSuccessAt).toBeDefined()
+    expect(health.adapters.claude?.lastFailureAt).toBeUndefined()
+  })
+
+  it('records streams without terminal completion in registry circuit state', async () => {
+    const adapter = createMockAdapter('claude', [
+      {
+        type: 'adapter:started' as const,
+        providerId: 'claude',
+        sessionId: 'sess-1',
+        timestamp: Date.now(),
+      },
+      {
+        type: 'adapter:message' as const,
+        providerId: 'claude',
+        sessionId: 'sess-1',
+        role: 'assistant',
+        content: 'partial',
+        timestamp: Date.now(),
+      },
+    ])
+    const registry = buildRegistry([adapter], {
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60_000, halfOpenMaxAttempts: 1 },
+    })
+    const orchestrator = buildOrchestrator(registry)
+
+    const result = await orchestrator.execute(makeTask(['general']), makeInput())
+    const health = await registry.getDetailedHealth()
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('Adapter completed without producing a result')
+    expect(health.adapters.claude?.circuitState).toBe('open')
+    expect(health.adapters.claude?.consecutiveFailures).toBe(1)
+    expect(health.adapters.claude?.lastFailureAt).toBeDefined()
   })
 })

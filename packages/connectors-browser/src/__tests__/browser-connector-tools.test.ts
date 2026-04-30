@@ -5,6 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ---------------------------------------------------------------------------
 
 const mockPage = {
+  url: vi.fn(() => 'https://example.com/'),
+  route: vi.fn(async () => undefined),
   goto: vi.fn(async () => null),
   waitForLoadState: vi.fn(async () => undefined),
   title: vi.fn(async () => 'Test'),
@@ -83,6 +85,8 @@ beforeEach(() => {
   // Re-setup default mocks
   mockBrowser.newContext.mockResolvedValue(mockContext)
   mockContext.newPage.mockResolvedValue(mockPage)
+  mockPage.url.mockReturnValue('https://example.com/')
+  mockPage.route.mockResolvedValue(undefined)
   mockPage.goto.mockResolvedValue(null)
   mockPage.waitForLoadState.mockResolvedValue(undefined)
   mockPage.close.mockResolvedValue(undefined)
@@ -188,6 +192,25 @@ describe('captureScreenshotTool', () => {
     const [, screenshotTool] = createBrowserConnector()
     const result = await screenshotTool.invoke({ url: 'https://example.com' })
     expect(result).toContain('Error: Navigation timeout')
+  })
+
+  it('blocks private-network screenshot navigation by default', async () => {
+    const [, screenshotTool] = createBrowserConnector()
+    const result = await screenshotTool.invoke({ url: 'http://127.0.0.1/admin' })
+
+    expect(result).toContain('Error:')
+    expect(result).toContain('private or local network host')
+    expect(mockPage.goto).not.toHaveBeenCalled()
+  })
+
+  it('revalidates redirected screenshot navigation targets', async () => {
+    mockPage.url.mockReturnValue('http://169.254.169.254/latest')
+    const [, screenshotTool] = createBrowserConnector()
+    const result = await screenshotTool.invoke({ url: 'https://example.com/redirect' })
+
+    expect(result).toContain('Error:')
+    expect(result).toContain('private or local network host')
+    expect(mockPage.goto).toHaveBeenCalled()
   })
 })
 

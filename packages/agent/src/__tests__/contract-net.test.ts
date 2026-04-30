@@ -162,14 +162,10 @@ describe('ContractNetManager.execute', () => {
       { content: 'Task completed by spec2' },
     ])
 
-    const managerModel = createMockModel([{ content: 'Managed' }])
-
-    const manager = createAgent('manager', 'Manager', managerModel)
     const spec1 = createAgent('spec1', 'Specialist 1', spec1Model)
     const spec2 = createAgent('spec2', 'Specialist 2', spec2Model)
 
     const result = await ContractNetManager.execute({
-      manager,
       specialists: [spec1, spec2],
       task: 'Build a widget',
       strategy: lowestCostStrategy,
@@ -188,13 +184,10 @@ describe('ContractNetManager.execute', () => {
       { content: 'I do not know how to bid' },
     ])
 
-    const managerModel = createMockModel([{ content: 'ok' }])
-    const manager = createAgent('manager', 'Manager', managerModel)
     const spec = createAgent('spec', 'Specialist', specModel)
 
     await expect(
       ContractNetManager.execute({
-        manager,
         specialists: [spec],
         task: 'Do something',
       }),
@@ -202,7 +195,6 @@ describe('ContractNetManager.execute', () => {
 
     try {
       await ContractNetManager.execute({
-        manager,
         specialists: [spec],
         task: 'Do something',
       })
@@ -235,12 +227,9 @@ describe('ContractNetManager.execute', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const managerModel = createMockModel([{ content: 'ok' }])
-    const manager = createAgent('manager', 'Manager', managerModel)
     const spec = createAgent('spec', 'Specialist', specModel)
 
     const result = await ContractNetManager.execute({
-      manager,
       specialists: [spec],
       task: 'Do something',
       retryOnNoBids: true,
@@ -255,13 +244,10 @@ describe('ContractNetManager.execute', () => {
       { content: 'still not a valid bid' },
     ])
 
-    const managerModel = createMockModel([{ content: 'ok' }])
-    const manager = createAgent('manager', 'Manager', managerModel)
     const spec = createAgent('spec', 'Specialist', specModel)
 
     await expect(
       ContractNetManager.execute({
-        manager,
         specialists: [spec],
         task: 'Do something',
         retryOnNoBids: true,
@@ -274,8 +260,6 @@ describe('ContractNetManager.execute', () => {
       { content: bidResponse({ estimatedCostCents: 100 }) },
     ])
 
-    const managerModel = createMockModel([{ content: 'ok' }])
-    const manager = createAgent('manager', 'Manager', managerModel)
     const spec = createAgent('spec', 'Specialist', specModel)
 
     const controller = new AbortController()
@@ -283,7 +267,6 @@ describe('ContractNetManager.execute', () => {
 
     await expect(
       ContractNetManager.execute({
-        manager,
         specialists: [spec],
         task: 'Do something',
         signal: controller.signal,
@@ -321,13 +304,10 @@ describe('ContractNetManager.execute', () => {
       { content: 'Completed by fast agent' },
     ])
 
-    const managerModel = createMockModel([{ content: 'ok' }])
-    const manager = createAgent('manager', 'Manager', managerModel)
     const slowAgent = createAgent('slow', 'Slow agent', slowModel)
     const fastAgent = createAgent('fast', 'Fast agent', fastModel)
 
     const result = await ContractNetManager.execute({
-      manager,
       specialists: [slowAgent, fastAgent],
       task: 'Do something',
       bidDeadlineMs: 50, // Very short deadline
@@ -344,8 +324,6 @@ describe('ContractNetManager.execute', () => {
       { content: 'Done!' },
     ])
 
-    const managerModel = createMockModel([{ content: 'ok' }])
-    const manager = createAgent('manager', 'Manager', managerModel)
     const spec = createAgent('spec', 'Specialist', specModel)
 
     const emitted: Array<{ type: string }> = []
@@ -357,7 +335,6 @@ describe('ContractNetManager.execute', () => {
     }
 
     await ContractNetManager.execute({
-      manager,
       specialists: [spec],
       task: 'Do something',
       eventBus: eventBus as never,
@@ -391,12 +368,9 @@ describe('ContractNetManager.execute', () => {
       _llmType: () => 'mock',
     } as unknown as BaseChatModel
 
-    const managerModel = createMockModel([{ content: 'ok' }])
-    const manager = createAgent('manager', 'Manager', managerModel)
     const spec = createAgent('spec', 'Specialist', specModel)
 
     const result = await ContractNetManager.execute({
-      manager,
       specialists: [spec],
       task: 'Do something',
     })
@@ -418,12 +392,9 @@ describe('AgentOrchestrator.contractNet', () => {
       { content: 'Completed via orchestrator' },
     ])
 
-    const managerModel = createMockModel([{ content: 'ok' }])
-    const manager = createAgent('manager', 'Manager', managerModel)
     const spec = createAgent('spec', 'Specialist', specModel)
 
     const result = await AgentOrchestrator.contractNet({
-      manager,
       specialists: [spec],
       task: 'Build feature',
     })

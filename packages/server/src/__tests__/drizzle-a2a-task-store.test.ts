@@ -264,7 +264,8 @@ describe('DrizzleA2ATaskStore', () => {
       const db = buildMockDb({
         updateSequence: [[makeTaskRow({
           state: 'completed',
-          pushNotificationConfig: { url: 'https://hook', token: 'tok' },
+          output: { ok: true },
+          pushNotificationConfig: { url: 'https://example.com/hook', token: 'tok' },
         })]],
         selectSequence: [[]],
       })
@@ -276,11 +277,20 @@ describe('DrizzleA2ATaskStore', () => {
       await Promise.resolve()
       await Promise.resolve()
 
-      expect(fetchMock).toHaveBeenCalledWith('https://hook', expect.objectContaining({
+      expect(fetchMock).toHaveBeenCalledWith('https://example.com/hook', expect.objectContaining({
         method: 'POST',
+        redirect: 'manual',
         headers: expect.objectContaining({
           Authorization: 'Bearer tok',
           'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify({
+          id: 't1',
+          state: 'completed',
+          agentName: 'test-agent',
+          createdAt: '2026-04-01T00:00:00.000Z',
+          updatedAt: '2026-04-01T00:00:00.000Z',
+          output: { ok: true },
         }),
       }))
 
@@ -294,7 +304,7 @@ describe('DrizzleA2ATaskStore', () => {
       const db = buildMockDb({
         updateSequence: [[makeTaskRow({
           state: 'failed',
-          pushNotificationConfig: { url: 'https://hook' },
+          pushNotificationConfig: { url: 'https://example.com/hook' },
         })]],
         selectSequence: [[]],
       })
@@ -491,22 +501,22 @@ describe('DrizzleA2ATaskStore', () => {
     it('returns null when no row is updated', async () => {
       const db = buildMockDb({ updateSequence: [[]] })
       const store = new DrizzleA2ATaskStore(db)
-      expect(await store.setPushConfig('missing', { url: 'https://x' })).toBeNull()
+      expect(await store.setPushConfig('missing', { url: 'https://example.com/hook' })).toBeNull()
     })
 
     it('returns hydrated task with messages when update succeeds', async () => {
       const db = buildMockDb({
         updateSequence: [[makeTaskRow({
-          pushNotificationConfig: { url: 'https://x' },
+          pushNotificationConfig: { url: 'https://example.com/hook' },
         })]],
         selectSequence: [[makeMessageRow()]],
       })
       const store = new DrizzleA2ATaskStore(db)
 
-      const task = await store.setPushConfig('t1', { url: 'https://x' })
+      const task = await store.setPushConfig('t1', { url: 'https://example.com/hook' })
 
       expect(task).not.toBeNull()
-      expect(task!.pushNotificationConfig).toEqual({ url: 'https://x' })
+      expect(task!.pushNotificationConfig).toEqual({ url: 'https://example.com/hook' })
       expect(task!.messages).toHaveLength(1)
     })
 
@@ -519,11 +529,11 @@ describe('DrizzleA2ATaskStore', () => {
       })
       const store = new DrizzleA2ATaskStore(db)
 
-      await store.setPushConfig('t1', { url: 'https://hook', token: 't' })
+      await store.setPushConfig('t1', { url: 'https://example.com/hook', token: 't' })
 
       const setCall = log.find((l) => l.op === 'update' && l.fn === 'set')
       const values = setCall!.args[0] as Record<string, unknown>
-      expect(values['pushNotificationConfig']).toEqual({ url: 'https://hook', token: 't' })
+      expect(values['pushNotificationConfig']).toEqual({ url: 'https://example.com/hook', token: 't' })
     })
   })
 

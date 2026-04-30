@@ -99,9 +99,6 @@ describe('orchestration path: supervisor-parallel', () => {
 
 describe('orchestration path: contract-net', () => {
   it('executes full CFP-bid-award-execute lifecycle', async () => {
-    // Manager: first call evaluates bids, second call is unused
-    const manager = createAgent('cnm-manager', 'Task complete.')
-
     // Specialists return valid bid JSON
     const bid = (agentId: string, cost: number) =>
       JSON.stringify({
@@ -129,7 +126,6 @@ describe('orchestration path: contract-net', () => {
     })
 
     const result = await ContractNetManager.execute({
-      manager,
       specialists: [s1WithExec, s2],
       task: 'Build the feature',
     })
