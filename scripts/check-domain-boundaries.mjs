@@ -10,26 +10,28 @@
  *      config/package-tiers.json and the layer graph in
  *      config/architecture-boundaries.json. A new, unclassified package
  *      fails this check.
- *   3. The layer graph must be acyclic and consistent: a package may only
+ *   3. Layer 0 governance must be explicit about whether it is type-only or
+ *      leaf-runtime capable, and its labels must match that runtime profile.
+ *   4. The layer graph must be acyclic and consistent: a package may only
  *      depend on packages in strictly lower-numbered layers.
- *   4. Tier-1 and tier-2 (supported) packages MUST NOT take a runtime
+ *   5. Tier-1 and tier-2 (supported) packages MUST NOT take a runtime
  *      dependency on a tier-3 tooling/parked package.
- *   5. The runtime dependency graph (packages/<pkg>/package.json
+ *   6. The runtime dependency graph (packages/<pkg>/package.json
  *      dependencies + peerDependencies) must be acyclic.
- *   6. Production src/** imports from sibling @dzupagent/* workspace packages
+ *   7. Production src/** imports from sibling @dzupagent/* workspace packages
  *      must be declared in dependencies, peerDependencies, or
  *      optionalDependencies. Type-only imports are not exempt because emitted
  *      declaration files still expose the package contract.
- *   7. Production src/** imports from sibling @dzupagent/* workspace packages
+ *   8. Production src/** imports from sibling @dzupagent/* workspace packages
  *      must not violate config/architecture-boundaries.json
  *      packageBoundaryRules forbidden package pairs.
- *   8. Production files under packages/server/src/routes/** must be declared
+ *   9. Production files under packages/server/src/routes/** must be declared
  *      in the serverRouteBoundaries policy with a maintenance/compatibility,
  *      generic framework primitive, or route-plugin host-seam rationale.
- *   9. Hono method/path endpoints inside classified server route files must
+ *  10. Hono method/path endpoints inside classified server route files must
  *      match the server route endpoint manifest, including the inherited
  *      ownership category and mounted path review signal.
- *  10. ForgeServerConfig route-family fields must match the server route
+ *  11. ForgeServerConfig route-family fields must match the server route
  *      governance review signal before built-in route families grow.
  *
  * Usage:
@@ -200,6 +202,73 @@ if (!Array.isArray(packageBoundaryRules)) {
   console.error('config/architecture-boundaries.json packageBoundaryRules must be an array when present.')
   process.exit(2)
 }
+
+function textImpliesTypeOnlyRuntimeProfile(text) {
+  return /\b(type-only|zero-runtime(?:-dep)?|runtime-free|contract-only)\b/i.test(text)
+}
+
+function layerZeroHasExternalRuntimeDeps(layer) {
+  const layerPackageNames = new Set((layer?.packages ?? []).map((shortName) => `@dzupagent/${shortName}`))
+  return workspacePackages.some((pkg) => {
+    if (!layerPackageNames.has(pkg.name)) return false
+    return Object.keys(pkg.runtimeDeps).some((depName) => {
+      return !depName.startsWith('@dzupagent/') && depName !== 'create-dzupagent'
+    })
+  })
+}
+
+function collectLayerZeroGovernanceViolations() {
+  const violations = []
+  const layerZero = layerGraph.layers.find((layer) => layer.id === 0)
+  const graphProfile = layerGraph.rules?.layerZeroRuntimeProfile
+  const layerProfile = layerZero?.runtimeProfile
+  const validProfiles = new Set(['type-only-contracts', 'leaf-runtime-primitives'])
+
+  if (!layerZero) {
+    return [{ type: 'missing-layer-zero' }]
+  }
+
+  if (!validProfiles.has(graphProfile)) {
+    violations.push({
+      type: 'invalid-runtime-profile',
+      value: graphProfile,
+    })
+  }
+
+  if (layerProfile !== graphProfile) {
+    violations.push({
+      type: 'runtime-profile-mismatch',
+      layerProfile,
+      graphProfile,
+    })
+  }
+
+  const labelText = `${layerZero.name ?? ''} ${layerZero.description ?? ''} ${layerGraph.description ?? ''}`
+  if (graphProfile === 'leaf-runtime-primitives' && textImpliesTypeOnlyRuntimeProfile(labelText)) {
+    violations.push({
+      type: 'leaf-runtime-type-only-label',
+      layerName: layerZero.name,
+    })
+  }
+
+  if (graphProfile === 'type-only-contracts') {
+    if (layerGraph.rules?.layerZeroMayHaveExternalRuntimeDeps !== false) {
+      violations.push({ type: 'type-only-runtime-deps-allowed' })
+    }
+
+    if (layerZeroHasExternalRuntimeDeps(layerZero)) {
+      violations.push({ type: 'type-only-layer-has-runtime-deps' })
+    }
+  }
+
+  if (graphProfile === 'leaf-runtime-primitives' && layerGraph.rules?.layerZeroMayHaveExternalRuntimeDeps !== true) {
+    violations.push({ type: 'leaf-runtime-deps-not-declared' })
+  }
+
+  return violations
+}
+
+const layerZeroGovernanceViolations = collectLayerZeroGovernanceViolations()
 
 // Build short-name -> layerId map. Short names are the part after "@dzupagent/"
 // or the literal package name for unscoped packages (e.g. "create-dzupagent").
@@ -1248,6 +1317,41 @@ if (missingFromTiers.length > 0 || missingFromLayerGraph.length > 0) {
   console.error()
 }
 
+if (layerZeroGovernanceViolations.length > 0) {
+  failed = true
+  console.error('LAYER-0 RUNTIME-PROFILE GOVERNANCE VIOLATIONS')
+  console.error('================================================')
+  console.error('Layer 0 must declare whether it is type-only or leaf-runtime capable,')
+  console.error('and its name/description must match that decision.\n')
+
+  for (const v of layerZeroGovernanceViolations) {
+    if (v.type === 'missing-layer-zero') {
+      console.error('  MISSING: layerGraph.layers has no id=0 entry.')
+    } else if (v.type === 'invalid-runtime-profile') {
+      console.error(`  INVALID PROFILE: rules.layerZeroRuntimeProfile=${String(v.value)}`)
+    } else if (v.type === 'runtime-profile-mismatch') {
+      console.error(
+        `  PROFILE MISMATCH: layer 0 runtimeProfile=${String(v.layerProfile)} but rules.layerZeroRuntimeProfile=${String(v.graphProfile)}`,
+      )
+    } else if (v.type === 'leaf-runtime-type-only-label') {
+      console.error(`  LABEL MISMATCH: layer 0 "${String(v.layerName)}" is leaf-runtime capable but still uses type-only wording.`)
+    } else if (v.type === 'type-only-runtime-deps-allowed') {
+      console.error('  POLICY MISMATCH: type-only layer 0 must set layerZeroMayHaveExternalRuntimeDeps=false.')
+    } else if (v.type === 'type-only-layer-has-runtime-deps') {
+      console.error('  RUNTIME DEP MISMATCH: type-only layer 0 contains packages with external runtime dependencies.')
+    } else if (v.type === 'leaf-runtime-deps-not-declared') {
+      console.error('  POLICY MISMATCH: leaf-runtime layer 0 must set layerZeroMayHaveExternalRuntimeDeps=true.')
+    }
+  }
+
+  console.error()
+  console.error('How to fix:')
+  console.error('  - Use layerZeroRuntimeProfile="leaf-runtime-primitives" when layer 0 contains parsers, validators, IPC, or cache implementations.')
+  console.error('  - Use layerZeroRuntimeProfile="type-only-contracts" only when layer 0 has no runtime dependency burden.')
+  console.error('  - Keep layer 0 free of @dzupagent runtime dependencies; the layer-direction check enforces that separately.')
+  console.error()
+}
+
 if (layerViolations.length > 0) {
   failed = true
   console.error('LAYER-GRAPH DIRECTION VIOLATIONS')
@@ -1483,5 +1587,5 @@ if (forgeRouteFamilyManifestViolations.length > 0) {
 if (failed) {
   process.exitCode = 1
 } else {
-  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-direction violations, tooling-upstream edges, runtime cycles, undeclared source imports, package-pair boundary violations, internal broad root import violations, unclassified server route files, unreviewed server endpoints, or route-family review drift found.')
+  console.log('Domain boundary check passed — no forbidden imports, missing classifications, layer-0 runtime-profile drift, layer-direction violations, tooling-upstream edges, runtime cycles, undeclared source imports, package-pair boundary violations, internal broad root import violations, unclassified server route files, unreviewed server endpoints, or route-family review drift found.')
 }
