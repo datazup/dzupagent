@@ -332,9 +332,21 @@ function serverInventoryFromTierConfig(config) {
   })
 }
 
+function assertContractedServerRoot(inventory) {
+  const contractedViolations = inventory.filter((entry) => entry.recommendedRootExposure !== 'keep-root')
+  if (contractedViolations.length === 0) return
+
+  const formatted = contractedViolations
+    .map((entry) => `  - ${entry.source} (${entry.tier}/${entry.area}/${entry.recommendedRootExposure})`)
+    .join('\n')
+  throw new Error(
+    `@dzupagent/server root may only expose keep-root sources. Move candidate-subpath/remove-root exports behind ./runtime, ./ops, ./compat, ./features, or another reviewed subpath.\n${formatted}`,
+  )
+}
+
 function serverAsAllowlistPackage(serverInventory) {
   const packageExports = readPackageExports('packages/server')
-  const requiredSubpaths = ['./ops', './runtime', './compat']
+  const requiredSubpaths = ['./ops', './runtime', './compat', './features']
   const missingSubpaths = requiredSubpaths.filter((subpath) => !packageExports.includes(subpath))
   if (missingSubpaths.length > 0) {
     throw new Error(`@dzupagent/server: package.json is missing configured subpaths: ${missingSubpaths.join(', ')}`)
@@ -352,9 +364,10 @@ function serverAsAllowlistPackage(serverInventory) {
     subpaths: {
       './ops': 'operational diagnostics and scorecards',
       './runtime': 'run workers, executors, trace stores, and control-plane helpers',
-      './compat': 'OpenAI-compatible HTTP surface'
+      './compat': 'OpenAI-compatible HTTP surface',
+      './features': 'opt-in feature-plane routes, stores, and helpers'
     },
-    migrationWindow: 'Root transitional exports remain available through 0.x with migration to ops/runtime/compat before a future 1.0 root contraction.',
+    migrationWindow: 'The server root is contracted to keep-root sources; advanced and feature-specific imports must use ops/runtime/compat/features subpaths.',
   }
 }
 
@@ -427,6 +440,7 @@ function main() {
   const config = readJson(configPath)
   const publicAllowlists = readJson(publicAllowlistPath)
   const inventory = serverInventoryFromTierConfig(config)
+  assertContractedServerRoot(inventory)
 
   const exportLookup = new Map()
   for (const row of inventory) {
