@@ -118,6 +118,8 @@ export async function checkPackageTiers({ root = process.cwd() } = {}) {
   const workspacePackages = await listWorkspacePackages(root);
   const workspaceNames = new Set(workspacePackages.map((pkg) => pkg.name));
   const manifestNames = new Set(Object.keys(packageMap));
+  const publicApiAllowlistEntries = publicApiAllowlists.packages ?? [];
+  const publicApiAllowlistNames = new Set();
   const validStatuses = new Set(['supported', 'supported-secondary', 'parked']);
   const validTiers = new Set([1, 2, 3]);
   const messages = [];
@@ -169,7 +171,13 @@ export async function checkPackageTiers({ root = process.cwd() } = {}) {
     }
   }
 
-  for (const packageConfig of publicApiAllowlists.packages ?? []) {
+  for (const packageConfig of publicApiAllowlistEntries) {
+    if (publicApiAllowlistNames.has(packageConfig.packageName)) {
+      fail(`${packageConfig.packageName} has duplicate public API allowlist entries`);
+      continue;
+    }
+    publicApiAllowlistNames.add(packageConfig.packageName);
+
     if (!manifestNames.has(packageConfig.packageName)) {
       fail(`${packageConfig.packageName} has public API allowlist rules but no config/package-tiers.json entry`);
       continue;
@@ -186,6 +194,17 @@ export async function checkPackageTiers({ root = process.cwd() } = {}) {
     const rootIndexPath = path.join(root, packageConfig.rootIndex);
     const rootIndexText = await readFile(rootIndexPath, 'utf8');
     const sources = summarizeRootExportSources(rootIndexText);
+    const packageJsonPath = path.join(root, packageConfig.packageDir, 'package.json');
+    const packageJson = await readJson(packageJsonPath);
+    const packageExports = new Set(Object.keys(packageJson.exports ?? {}));
+    const missingSubpaths = Object.keys(packageConfig.subpaths ?? {}).filter((subpath) => !packageExports.has(subpath));
+
+    if (missingSubpaths.length > 0) {
+      fail(
+        `${packageConfig.packageName} config/public-api-allowlists.json declares subpaths missing from package.json exports: ` +
+          `${missingSubpaths.join(', ')}`
+      );
+    }
 
     for (const { source, exportNames } of sources) {
       const classification = classifyRootSource(source, packageConfig);
@@ -205,6 +224,15 @@ export async function checkPackageTiers({ root = process.cwd() } = {}) {
           `${packageConfig.packageName} root export source ${source} matches multiple public API allowlist rules: ${formatted}`
         );
       }
+    }
+  }
+
+  for (const [manifestName, entry] of Object.entries(packageMap)) {
+    if (entry.tier === 1 && !publicApiAllowlistNames.has(manifestName)) {
+      fail(
+        `${manifestName} is Tier 1 but has no config/public-api-allowlists.json package entry; ` +
+          `add stableRoot/transitionalRoot rules so new root exports are governed`
+      );
     }
   }
 
