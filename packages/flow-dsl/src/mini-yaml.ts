@@ -279,6 +279,13 @@ function parseScalar(raw: string): unknown {
     if (inner.length === 0) return []
     return inner.split(',').map((part) => parseScalar(part.trim()))
   }
+  if (value.startsWith('{') && value.endsWith('}')) {
+    try {
+      return JSON.parse(value) as unknown
+    } catch {
+      return value
+    }
+  }
   return value
 }
 

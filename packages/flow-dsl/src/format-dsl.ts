@@ -56,11 +56,11 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
 
 function formatNode(lines: string[], node: FlowNode, indentLevel: number): void {
   const indent = '  '.repeat(indentLevel)
-  const childIndent = '  '.repeat(indentLevel + 1)
+  const childIndent = '  '.repeat(indentLevel + 2)
   switch (node.type) {
     case 'action':
       lines.push(`${indent}- action:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}ref: ${node.toolRef}`)
       if (node.personaRef) lines.push(`${childIndent}persona: ${node.personaRef}`)
       lines.push(`${childIndent}input:`)
@@ -70,18 +70,18 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       return
     case 'branch':
       lines.push(`${indent}- if:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}condition: ${quote(node.condition)}`)
       lines.push(`${childIndent}then:`)
-      for (const child of node.then) formatNode(lines, child, indentLevel + 2)
+      for (const child of node.then) formatNode(lines, child, indentLevel + 3)
       if (node.else && node.else.length > 0) {
         lines.push(`${childIndent}else:`)
-        for (const child of node.else) formatNode(lines, child, indentLevel + 2)
+        for (const child of node.else) formatNode(lines, child, indentLevel + 3)
       }
       return
     case 'parallel': {
       lines.push(`${indent}- parallel:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}branches:`)
       const branchNames = Array.isArray(node.meta?.['branchNames'])
         ? node.meta!['branchNames'].filter((value): value is string => typeof value === 'string')
@@ -89,35 +89,35 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       node.branches.forEach((branch, index) => {
         const name = branchNames[index] ?? `branch_${index + 1}`
         lines.push(`${childIndent}  ${name}:`)
-        for (const child of branch) formatNode(lines, child, indentLevel + 3)
+        for (const child of branch) formatNode(lines, child, indentLevel + 4)
       })
       return
     }
     case 'for_each':
       lines.push(`${indent}- for_each:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}source: ${quote(node.source)}`)
       lines.push(`${childIndent}as: ${node.as}`)
       lines.push(`${childIndent}body:`)
-      for (const child of node.body) formatNode(lines, child, indentLevel + 2)
+      for (const child of node.body) formatNode(lines, child, indentLevel + 3)
       return
     case 'approval':
       lines.push(`${indent}- approval:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}question: ${quote(node.question)}`)
       if (node.options && node.options.length > 0) {
         lines.push(`${childIndent}options: [${node.options.map(quote).join(', ')}]`)
       }
       lines.push(`${childIndent}on_approve:`)
-      for (const child of node.onApprove) formatNode(lines, child, indentLevel + 2)
+      for (const child of node.onApprove) formatNode(lines, child, indentLevel + 3)
       if (node.onReject && node.onReject.length > 0) {
         lines.push(`${childIndent}on_reject:`)
-        for (const child of node.onReject) formatNode(lines, child, indentLevel + 2)
+        for (const child of node.onReject) formatNode(lines, child, indentLevel + 3)
       }
       return
     case 'clarification':
       lines.push(`${indent}- clarify:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}question: ${quote(node.question)}`)
       if (node.expected) lines.push(`${childIndent}expected: ${node.expected}`)
       if (node.choices && node.choices.length > 0) {
@@ -126,25 +126,25 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       return
     case 'persona':
       lines.push(`${indent}- persona:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}ref: ${node.personaId}`)
       lines.push(`${childIndent}body:`)
-      for (const child of node.body) formatNode(lines, child, indentLevel + 2)
+      for (const child of node.body) formatNode(lines, child, indentLevel + 3)
       return
     case 'route':
       lines.push(`${indent}- route:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}strategy: ${node.strategy}`)
       if (node.provider) lines.push(`${childIndent}provider: ${node.provider}`)
       if (node.tags && node.tags.length > 0) {
         lines.push(`${childIndent}tags: [${node.tags.map(quote).join(', ')}]`)
       }
       lines.push(`${childIndent}body:`)
-      for (const child of node.body) formatNode(lines, child, indentLevel + 2)
+      for (const child of node.body) formatNode(lines, child, indentLevel + 3)
       return
     case 'complete':
       lines.push(`${indent}- complete:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       if (node.result !== undefined) lines.push(`${childIndent}result: ${quote(node.result)}`)
       return
     case 'sequence':
@@ -152,13 +152,13 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       return
     case 'spawn':
       lines.push(`${indent}- spawn:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}template: ${node.templateRef}`)
       if (node.waitForCompletion !== undefined) lines.push(`${childIndent}wait: ${node.waitForCompletion}`)
       return
     case 'classify':
       lines.push(`${indent}- classify:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}prompt: ${quote(node.prompt)}`)
       lines.push(`${childIndent}choices: [${node.choices.map(quote).join(', ')}]`)
       lines.push(`${childIndent}output: ${node.outputKey}`)
@@ -166,7 +166,7 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       return
     case 'emit':
       lines.push(`${indent}- emit:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}event: ${quote(node.event)}`)
       if (node.payload && Object.keys(node.payload).length > 0) {
         lines.push(`${childIndent}payload:`)
@@ -177,7 +177,7 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       return
     case 'memory':
       lines.push(`${indent}- memory:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}operation: ${node.operation}`)
       lines.push(`${childIndent}tier: ${node.tier}`)
       if (node.key) lines.push(`${childIndent}key: ${quote(node.key)}`)
@@ -185,13 +185,13 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       return
     case 'checkpoint':
       lines.push(`${indent}- checkpoint:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}captureOutputOf: ${quote(node.captureOutputOf)}`)
       if (node.label !== undefined) lines.push(`${childIndent}label: ${quote(node.label)}`)
       return
     case 'restore':
       lines.push(`${indent}- restore:`)
-      pushCommon(lines, node, indentLevel + 1)
+      pushCommon(lines, node, indentLevel + 2)
       lines.push(`${childIndent}checkpointLabel: ${quote(node.checkpointLabel)}`)
       if (node.onNotFound !== undefined) lines.push(`${childIndent}onNotFound: ${node.onNotFound}`)
       return
