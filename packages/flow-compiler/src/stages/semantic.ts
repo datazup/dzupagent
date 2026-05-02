@@ -96,6 +96,7 @@ export async function semanticResolve(
         nodeType: ast.type,
         nodePath: issue.path,
         code: issue.code,
+        category: 'shape',
         message: `Schema validation failed: ${issue.message}`,
       })
     }
@@ -335,11 +336,12 @@ async function resolveToolRef(
     return maybe instanceof Promise ? await maybe : maybe
   } catch (err) {
     errors.push({
-      nodeType,
-      nodePath,
-      code: 'RESOLVER_INFRA_ERROR',
-      message: err instanceof Error ? err.message : String(err),
-    })
+          nodeType,
+          nodePath,
+          code: 'RESOLVER_INFRA_ERROR',
+          category: 'internal',
+          message: err instanceof Error ? err.message : String(err),
+        })
     return INFRA_FAILURE
   }
 }
@@ -367,6 +369,7 @@ async function resolvePersonaRef(
         nodeType,
         nodePath: ROOT_PATH,
         code: 'UNRESOLVED_PERSONA_REF',
+        category: 'resolution',
         message: 'personaResolver not provided',
       })
     }
@@ -382,6 +385,7 @@ async function resolvePersonaRef(
       nodeType,
       nodePath: path,
       code: 'RESOLVER_INFRA_ERROR',
+      category: 'internal',
       message: err instanceof Error ? err.message : String(err),
     })
     return
@@ -396,6 +400,7 @@ async function resolvePersonaRef(
     nodeType,
     nodePath: path,
     code: 'UNRESOLVED_PERSONA_REF',
+    category: 'resolution',
     message: buildPersonaErrorMessage(ref, ctx.personaResolver),
   })
 }
@@ -410,6 +415,7 @@ function unresolvedToolError(
     nodeType,
     nodePath: path,
     code: 'UNRESOLVED_TOOL_REF',
+    category: 'registry',
     message: buildToolErrorMessage(ref, ctx),
   }
 }

@@ -52,6 +52,16 @@ import type {
 export * from './types.js'
 export { prepareFlowInputFromDocument, prepareFlowInputFromDsl } from './authoring-input.js'
 export { compileTextInput, isFlowDocumentJson } from './cli-input.js'
+export {
+  createToolResolverFromRegistry,
+  validateHostToolRegistry,
+} from './host-tool-registry.js'
+export type { HostToolRegistryValidationResult } from './host-tool-registry.js'
+export { collectFlowArtifactMetadata } from './flow-artifact-metadata.js'
+export type {
+  FlowArtifactMetadata,
+  FlowArtifactNodeMetadata,
+} from './flow-artifact-metadata.js'
 export { validateShape } from './stages/shape-validate.js'
 export { semanticResolve } from './stages/semantic.js'
 export type { SemanticOptions, SemanticResult } from './stages/semantic.js'
@@ -147,6 +157,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
         code: e.code,
         message: e.message,
         nodePath: jsonPointerToNodePath(e.pointer),
+        category: 'shape',
       }))
 
       emit({
@@ -164,7 +175,11 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
           errorCount: stage1Errors.length,
           durationMs: Date.now() - startedAt,
         })
-        return { errors: stage1Errors, compileId }
+        return {
+          errors: stage1Errors,
+          compileId,
+          diagnosticCountsByCategory: countDiagnosticsByCategory(stage1Errors),
+        }
       }
 
       const ast = parseResult.ast
@@ -179,6 +194,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
         code: e.code,
         message: e.message,
         nodePath: e.nodePath,
+        category: 'shape',
       }))
 
       emit({
@@ -203,7 +219,11 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
           errorCount: combinedEarly.length,
           durationMs: Date.now() - startedAt,
         })
-        return { errors: combinedEarly, compileId }
+        return {
+          errors: combinedEarly,
+          compileId,
+          diagnosticCountsByCategory: countDiagnosticsByCategory(combinedEarly),
+        }
       }
 
       // -----------------------------------------------------------------------
@@ -229,6 +249,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
           code: e.code,
           message: e.message,
           nodePath: e.nodePath,
+          category: e.category ?? 'resolution',
           ...extractSuggestionFromMessage(e.message),
         }))
         emit({
@@ -238,7 +259,11 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
           errorCount: stage3Errors.length,
           durationMs: Date.now() - startedAt,
         })
-        return { errors: stage3Errors, compileId }
+        return {
+          errors: stage3Errors,
+          compileId,
+          diagnosticCountsByCategory: countDiagnosticsByCategory(stage3Errors),
+        }
       }
 
       const { resolved, resolvedPersonas } = semanticResult
@@ -257,6 +282,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
           code: 'UNSUPPORTED_FIELD',
           message: 'on_error is only legal in pipeline-targeted flows',
           nodePath: 'root',
+          category: 'lowering',
         }
         emit({
           type: 'flow:compile_failed',
@@ -265,7 +291,11 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
           errorCount: 1,
           durationMs: Date.now() - startedAt,
         })
-        return { errors: [stage4Error], compileId }
+        return {
+          errors: [stage4Error],
+          compileId,
+          diagnosticCountsByCategory: countDiagnosticsByCategory([stage4Error]),
+        }
       }
 
       let artifact: unknown
@@ -321,6 +351,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
         warnings: toCompilationWarnings(warnings),
         reasons: targetReasons(target, bitmask),
         compileId,
+        diagnosticCountsByCategory: countDiagnosticsByCategory(toCompilationWarnings(warnings)),
       }
   }
 
@@ -330,6 +361,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
       return {
         compileId: crypto.randomUUID(),
         errors: prepared.errors,
+        diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
       }
     }
     return compile(prepared.flowInput)
@@ -341,6 +373,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
       return {
         compileId: crypto.randomUUID(),
         errors: prepared.errors,
+        diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
       }
     }
     return compile(prepared.flowInput)
@@ -351,6 +384,17 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
     compileDocument,
     compileDsl,
   }
+}
+
+function countDiagnosticsByCategory(
+  diagnostics: Array<{ category?: string }>,
+): Record<string, number> {
+  const counts: Record<string, number> = {}
+  for (const diagnostic of diagnostics) {
+    const category = diagnostic.category ?? 'internal'
+    counts[category] = (counts[category] ?? 0) + 1
+  }
+  return counts
 }
 
 // ---------------------------------------------------------------------------
@@ -409,6 +453,7 @@ function toCompilationWarnings(warnings: string[]): CompilationWarning[] {
   return warnings.map((message) => ({
     stage: 4 as const,
     code: 'LOWERING_WARNING',
+    category: 'lowering',
     message,
   }))
 }

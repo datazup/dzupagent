@@ -30,6 +30,8 @@ import type {
 } from '@dzupagent/flow-ast'
 import type { SkillChain, SkillChainStep, SkillHandle } from '@dzupagent/core'
 import type { LoweringMode } from './_shared.js'
+import { collectFlowArtifactMetadata } from '../flow-artifact-metadata.js'
+import type { FlowArtifactMetadata } from '../flow-artifact-metadata.js'
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -51,7 +53,7 @@ export interface LowerSkillChainInput {
 }
 
 export function lowerSkillChain(input: LowerSkillChainInput): {
-  artifact: SkillChain
+  artifact: SkillChain & { metadata?: FlowArtifactMetadata }
   warnings: string[]
 } {
   const warnings: string[] = []
@@ -77,7 +79,13 @@ export function lowerSkillChain(input: LowerSkillChainInput): {
     steps,
   }
 
-  return { artifact, warnings }
+  return {
+    artifact: {
+      ...artifact,
+      metadata: collectFlowArtifactMetadata(input.ast),
+    },
+    warnings,
+  }
 }
 
 // ---------------------------------------------------------------------------

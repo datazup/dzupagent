@@ -1,4 +1,4 @@
-import type { AsyncToolResolver, ToolResolver } from '@dzupagent/flow-ast'
+import type { AsyncToolResolver, FlowDiagnosticCategory, ToolResolver } from '@dzupagent/flow-ast'
 import type { ParseInput } from '@dzupagent/flow-ast'
 import type { DzupEventBus } from '@dzupagent/core'
 
@@ -63,6 +63,7 @@ export interface CompilationDiagnostic {
   message: string
   nodePath?: string
   suggestion?: string
+  category?: FlowDiagnosticCategory
 }
 
 export interface CompilationWarning {
@@ -70,6 +71,7 @@ export interface CompilationWarning {
   code: string
   message: string
   nodePath?: string
+  category?: FlowDiagnosticCategory
 }
 
 export interface CompilationTargetReason {
@@ -93,11 +95,13 @@ export interface CompileSuccess {
   artifact: unknown
   warnings: CompilationWarning[]
   reasons: CompilationTargetReason[]
+  diagnosticCountsByCategory?: Record<string, number>
 }
 
 export interface CompileFailure {
   compileId: string
   errors: CompilationDiagnostic[]
+  diagnosticCountsByCategory?: Record<string, number>
 }
 
 export type CompileResult = CompileSuccess | CompileFailure
