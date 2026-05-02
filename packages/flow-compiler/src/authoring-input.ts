@@ -18,6 +18,7 @@ export function prepareFlowInputFromDocument(
     code: issue.code,
     message: issue.message,
     nodePath: issue.nodePath,
+    category: 'shape' as const,
   }))
   if (issues.length > 0) {
     return { ok: false, errors: issues }
@@ -48,6 +49,7 @@ export function prepareFlowInputFromDsl(
         code: diagnostic.code,
         message: diagnostic.message,
         nodePath: diagnostic.path,
+        category: 'shape' as const,
         ...(diagnostic.suggestion ? { suggestion: diagnostic.suggestion } : {}),
       })),
     }
@@ -69,5 +71,6 @@ function makeDiagnostic(
     code,
     message,
     nodePath: 'root',
+    category: 'shape',
   }
 }

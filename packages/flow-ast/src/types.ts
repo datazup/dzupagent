@@ -1,6 +1,61 @@
 export type FlowPrimitive = string | number | boolean | null
 export type FlowValue = FlowPrimitive | FlowValue[] | { [key: string]: FlowValue }
 
+export type FlowDiagnosticCategory =
+  | 'shape'
+  | 'resolution'
+  | 'registry'
+  | 'policy'
+  | 'artifact'
+  | 'provenance'
+  | 'control'
+  | 'condition'
+  | 'resume'
+  | 'mutation'
+  | 'lowering'
+  | 'internal'
+
+export interface FlowArtifactContract {
+  path?: string
+  kind?: string
+  required?: boolean
+  description?: string
+}
+
+export interface FlowReviewGateMetadata {
+  gate?: string
+  reviewerRole?: string
+  decisionNeeded?: string
+  artifactRef?: string
+}
+
+export interface FlowResumeMetadata {
+  mode?: 'manual' | 'event' | 'condition'
+  condition?: string
+  checkpointRef?: string
+}
+
+export interface FlowMutationMetadata {
+  policy?: 'read-only' | 'idempotent' | 'mutating'
+  idempotencyKey?: string
+}
+
+export type FlowNodeMetadata = Record<string, unknown> & {
+  invocation?: Record<string, unknown>
+  requires?: FlowValue
+  produces?: FlowValue
+  updates?: FlowValue
+  artifacts?: FlowArtifactContract[] | FlowValue
+  evidence?: FlowValue
+  provenance?: FlowValue
+  review?: FlowReviewGateMetadata | FlowValue
+  approval?: FlowReviewGateMetadata | FlowValue
+  resume?: FlowResumeMetadata | FlowValue
+  idempotency?: FlowValue
+  mutation?: FlowMutationMetadata | FlowValue
+  conditions?: Record<string, string> | FlowValue
+}
+
 export interface FlowNodeBase {
   /**
    * Stable node identifier. Optional at the low-level AST layer for backward
@@ -10,7 +65,7 @@ export interface FlowNodeBase {
   id?: string
   name?: string
   description?: string
-  meta?: Record<string, unknown>
+  meta?: FlowNodeMetadata
 }
 
 export interface FlowInputSpec {
@@ -179,7 +234,7 @@ export interface FlowDocumentV1 {
   inputs?: Record<string, FlowInputSpec>
   defaults?: FlowDefaults
   tags?: string[]
-  meta?: Record<string, unknown>
+  meta?: FlowNodeMetadata
   root: SequenceNode
 }
 
@@ -189,6 +244,7 @@ export interface ValidationError {
   nodePath: string       // dot-notation path in the AST, e.g. "root.nodes[2].body[0]"
   code: ValidationErrorCode
   message: string
+  category?: FlowDiagnosticCategory
 }
 
 export type ValidationErrorCode =
@@ -272,4 +328,17 @@ export interface ResolvedTool {
   outputSchema?: unknown
   /** Opaque, stable handle the runtime uses to invoke the resolved entity. */
   handle: unknown
+  /** Optional generic metadata surfaced by host registries for planning tools. */
+  meta?: Record<string, unknown>
+}
+
+export interface HostToolRegistryEntry {
+  ref: string
+  kind: ResolvedToolKind
+  inputSchema: unknown
+  outputSchema?: unknown
+  handle?: unknown
+  aliases?: string[]
+  description?: string
+  meta?: Record<string, unknown>
 }

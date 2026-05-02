@@ -19,6 +19,7 @@ import type { PipelineDefinition } from '@dzupagent/core'
 
 import { lowerNodeToPipeline } from './_shared.js'
 import type { LoweringMode, LowerPipelineContext } from './_shared.js'
+import { collectFlowArtifactMetadata } from '../flow-artifact-metadata.js'
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -85,6 +86,9 @@ export function lowerPipelineFlat(input: LowerPipelineFlatInput): {
     entryNodeId: firstNode.id,
     nodes: result.nodes,
     edges: result.edges,
+    metadata: {
+      flow: collectFlowArtifactMetadata(input.ast),
+    },
   }
 
   return { artifact, warnings: result.warnings }

@@ -35,7 +35,23 @@ const TOP_LEVEL_KEYS = new Set([
   'steps',
 ])
 
-const COMMON_NODE_KEYS = ['id', 'name', 'description', 'meta'] as const
+const GENERIC_METADATA_KEYS = [
+  'invocation',
+  'requires',
+  'produces',
+  'updates',
+  'artifacts',
+  'evidence',
+  'provenance',
+  'review',
+  'approval',
+  'resume',
+  'idempotency',
+  'mutation',
+  'conditions',
+] as const
+
+const COMMON_NODE_KEYS = ['id', 'name', 'description', 'meta', ...GENERIC_METADATA_KEYS] as const
 
 const ACTION_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
@@ -323,6 +339,20 @@ function normalizeCommonNodeFields(
   if (raw.meta !== undefined) {
     const meta = normalizeObject(raw.meta, `${path}.meta`, diagnostics)
     if (meta !== undefined) base.meta = meta
+  }
+  for (const key of GENERIC_METADATA_KEYS) {
+    if (!(key in raw) || raw[key] === undefined) continue
+    const value = raw[key]
+    if (isFlowValue(value)) {
+      base.meta = { ...(base.meta ?? {}), [key]: value }
+      continue
+    }
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: `${key} metadata must be JSON-compatible`,
+      path: `${path}.${key}`,
+    })
   }
   return base
 }
