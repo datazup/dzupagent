@@ -250,6 +250,7 @@ export type {
   MCPExposedTool,
   MCPExposedResource,
   MCPExposedResourceTemplate,
+  MCPExposedPrompt,
   MCPServerCapabilities,
   MCPInitializeResult,
   MCPRequest,
@@ -297,6 +298,18 @@ export type {
   ResourceSubscription,
   ResourceChangeHandler,
 } from './mcp/mcp-resource-types.js'
+// MCP Prompts
+export type {
+  MCPPromptArgument,
+  MCPPromptDescriptor,
+  MCPPromptGetResult,
+  MCPPromptHandler,
+  MCPPromptContent,
+  MCPPromptMessage,
+  MCPPromptTextContent,
+  MCPPromptImageContent,
+  MCPPromptResourceContent,
+} from './mcp/mcp-prompt-types.js'
 // MCP Sampling
 export { createSamplingHandler, registerSamplingHandler } from './mcp/mcp-sampling.js'
 export type {
