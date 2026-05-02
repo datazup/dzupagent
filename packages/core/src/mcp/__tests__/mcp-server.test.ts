@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { DzupAgentMCPServer, isMCPRequest } from '../mcp-server.js'
 
 describe('DzupAgentMCPServer', () => {
-  it('advertises initialize capabilities for tools, resources, and sampling', async () => {
+  it('advertises initialize capabilities for tools, resources, prompts, and sampling', async () => {
     const server = new DzupAgentMCPServer({
       name: 'tooling-server',
       version: '1.2.3',
@@ -21,6 +21,17 @@ describe('DzupAgentMCPServer', () => {
         name: 'Overview',
         mimeType: 'text/plain',
         read: async () => 'Framework overview',
+      }],
+      prompts: [{
+        name: 'review',
+        description: 'Review a change',
+        arguments: [{ name: 'diff', required: true }],
+        get: async (args) => ({
+          messages: [{
+            role: 'user',
+            content: { type: 'text', text: String(args['diff'] ?? '') },
+          }],
+        }),
       }],
       samplingHandler: async () => ({
         role: 'assistant',
@@ -47,10 +58,86 @@ describe('DzupAgentMCPServer', () => {
         capabilities: {
           tools: {},
           resources: {},
+          prompts: {},
           sampling: {},
         },
       },
     })
+  })
+
+  it('supports registering, listing, retrieving, and unregistering prompts', async () => {
+    const server = new DzupAgentMCPServer({
+      name: 'prompt-server',
+      version: '1.0.0',
+    })
+
+    server.registerPrompt({
+      name: 'commit-message',
+      description: 'Draft a commit message',
+      arguments: [
+        { name: 'summary', description: 'Change summary', required: true },
+        { name: 'scope', description: 'Optional package scope' },
+      ],
+      get: async (args) => ({
+        description: 'Commit message prompt',
+        messages: [
+          {
+            role: 'user',
+            content: {
+              type: 'text',
+              text: `Write a commit message for ${String(args['summary'])}`,
+            },
+          },
+        ],
+      }),
+    })
+
+    const listed = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 'prompts',
+      method: 'prompts/list',
+    })
+    expect(listed).toEqual({
+      jsonrpc: '2.0',
+      id: 'prompts',
+      result: {
+        prompts: [{
+          name: 'commit-message',
+          description: 'Draft a commit message',
+          arguments: [
+            { name: 'summary', description: 'Change summary', required: true },
+            { name: 'scope', description: 'Optional package scope' },
+          ],
+        }],
+      },
+    })
+
+    const retrieved = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 'get-prompt',
+      method: 'prompts/get',
+      params: {
+        name: 'commit-message',
+        arguments: { summary: 'MCP prompts support' },
+      },
+    })
+    expect(retrieved).toEqual({
+      jsonrpc: '2.0',
+      id: 'get-prompt',
+      result: {
+        description: 'Commit message prompt',
+        messages: [{
+          role: 'user',
+          content: {
+            type: 'text',
+            text: 'Write a commit message for MCP prompts support',
+          },
+        }],
+      },
+    })
+
+    server.unregisterPrompt('commit-message')
+    expect(server.listPrompts()).toEqual([])
   })
 
   it('supports resources/list, resources/templates/list, and resources/read', async () => {
@@ -239,7 +326,7 @@ describe('DzupAgentMCPServer', () => {
     })
   })
 
-  it('returns protocol errors for invalid requests and missing resource params', async () => {
+  it('returns protocol errors for invalid requests and missing params', async () => {
     const server = new DzupAgentMCPServer({
       name: 'errors-server',
       version: '1.0.0',
@@ -277,6 +364,61 @@ describe('DzupAgentMCPServer', () => {
       error: {
         code: -32602,
         message: 'Missing required param: uri',
+        data: undefined,
+      },
+    })
+
+    const unknownPrompt = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 12,
+      method: 'prompts/get',
+      params: { name: 'missing' },
+    })
+    expect(unknownPrompt).toEqual({
+      jsonrpc: '2.0',
+      id: 12,
+      error: {
+        code: -32601,
+        message: 'Prompt not found: missing',
+        data: { availablePrompts: [] },
+      },
+    })
+
+    const missingPromptName = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 13,
+      method: 'prompts/get',
+      params: {},
+    })
+    expect(missingPromptName).toEqual({
+      jsonrpc: '2.0',
+      id: 13,
+      error: {
+        code: -32602,
+        message: 'Missing required param: name',
+        data: undefined,
+      },
+    })
+
+    server.registerPrompt({
+      name: 'existing',
+      get: async () => ({
+        messages: [{ role: 'user', content: { type: 'text', text: 'ok' } }],
+      }),
+    })
+
+    const invalidPromptArguments = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 14,
+      method: 'prompts/get',
+      params: { name: 'existing', arguments: 'bad' },
+    })
+    expect(invalidPromptArguments).toEqual({
+      jsonrpc: '2.0',
+      id: 14,
+      error: {
+        code: -32602,
+        message: 'Invalid param: arguments',
         data: undefined,
       },
     })
