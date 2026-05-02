@@ -6,6 +6,12 @@
  * centralized in one place.
  */
 import type {
+  MCPPromptArgument,
+  MCPPromptDescriptor,
+  MCPPromptGetResult,
+  MCPPromptHandler,
+} from './mcp-prompt-types.js'
+import type {
   MCPResource,
   MCPResourceContent,
   MCPResourceTemplate,
@@ -67,12 +73,22 @@ export interface MCPExposedResourceTemplate {
   read: (uri: string) => Promise<string | MCPResourceContent | undefined>
 }
 
+export interface MCPExposedPrompt {
+  name: string
+  description?: string
+  arguments?: MCPPromptArgument[]
+  get: MCPPromptHandler
+}
+
 export interface MCPServerCapabilities {
   tools?: {
     listChanged?: boolean
   }
   resources?: {
     subscribe?: boolean
+    listChanged?: boolean
+  }
+  prompts?: {
     listChanged?: boolean
   }
   sampling?: Record<string, never>
@@ -100,6 +116,8 @@ export interface MCPServerOptions {
   resources?: MCPExposedResource[]
   /** Initial set of resource templates to expose */
   resourceTemplates?: MCPExposedResourceTemplate[]
+  /** Initial set of prompts to expose */
+  prompts?: MCPExposedPrompt[]
   /** Optional capability overrides */
   capabilities?: MCPServerCapabilities
   /** Optional sampling handler for in-process/loopback usage */
@@ -142,6 +160,7 @@ export class DzupAgentMCPServer {
   private readonly tools: Map<string, MCPExposedTool> = new Map()
   private readonly resources: Map<string, MCPExposedResource> = new Map()
   private readonly resourceTemplates: Map<string, MCPExposedResourceTemplate> = new Map()
+  private readonly prompts: Map<string, MCPExposedPrompt> = new Map()
   private readonly capabilityOverrides: MCPServerCapabilities | undefined
   private readonly samplingHandler: SamplingHandler | undefined
 
@@ -160,6 +179,9 @@ export class DzupAgentMCPServer {
     }
     for (const template of options.resourceTemplates ?? []) {
       this.resourceTemplates.set(template.uriTemplate, template)
+    }
+    for (const prompt of options.prompts ?? []) {
+      this.prompts.set(prompt.name, prompt)
     }
   }
 
@@ -202,6 +224,16 @@ export class DzupAgentMCPServer {
     this.resourceTemplates.delete(uriTemplate)
   }
 
+  /** Register an additional prompt after construction. */
+  registerPrompt(prompt: MCPExposedPrompt): void {
+    this.prompts.set(prompt.name, prompt)
+  }
+
+  /** Remove a registered prompt by name. */
+  unregisterPrompt(name: string): void {
+    this.prompts.delete(name)
+  }
+
   /** List all registered tools as MCP descriptors. */
   listTools(): MCPToolDescriptor[] {
     const descriptors: MCPToolDescriptor[] = []
@@ -241,6 +273,15 @@ export class DzupAgentMCPServer {
     }))
   }
 
+  /** List all registered prompts as MCP descriptors. */
+  listPrompts(): MCPPromptDescriptor[] {
+    return [...this.prompts.values()].map(prompt => ({
+      name: prompt.name,
+      ...(prompt.description !== undefined && { description: prompt.description }),
+      ...(prompt.arguments !== undefined && { arguments: prompt.arguments }),
+    }))
+  }
+
   /** Return the advertised MCP capabilities for this server. */
   getCapabilities(): MCPServerCapabilities {
     const capabilities: MCPServerCapabilities = {}
@@ -254,6 +295,12 @@ export class DzupAgentMCPServer {
     if (this.resources.size > 0 || this.resourceTemplates.size > 0 || this.capabilityOverrides?.resources) {
       capabilities.resources = {
         ...(this.capabilityOverrides?.resources ?? {}),
+      }
+    }
+
+    if (this.prompts.size > 0 || this.capabilityOverrides?.prompts) {
+      capabilities.prompts = {
+        ...(this.capabilityOverrides?.prompts ?? {}),
       }
     }
 
@@ -297,6 +344,13 @@ export class DzupAgentMCPServer {
         break
       case 'resources/read':
         response = await this.handleResourceRead(responseId, params)
+        break
+
+      case 'prompts/list':
+        response = this.buildResult(responseId, { prompts: this.listPrompts() })
+        break
+      case 'prompts/get':
+        response = await this.handlePromptGet(responseId, params)
         break
 
       case 'sampling/createMessage':
@@ -389,6 +443,42 @@ export class DzupAgentMCPServer {
     return this.buildError(id, JSON_RPC_METHOD_NOT_FOUND, `Resource not found: ${uri}`)
   }
 
+  private async handlePromptGet(
+    id: MCPRequestId,
+    params: Record<string, unknown> | undefined,
+  ): Promise<MCPResponse> {
+    if (!isRecordParams(params) || typeof params['name'] !== 'string') {
+      return this.buildError(id, JSON_RPC_INVALID_PARAMS, 'Missing required param: name')
+    }
+
+    const promptName = params['name']
+    const prompt = this.prompts.get(promptName)
+
+    if (!prompt) {
+      return this.buildError(
+        id,
+        JSON_RPC_METHOD_NOT_FOUND,
+        `Prompt not found: ${promptName}`,
+        { availablePrompts: [...this.prompts.keys()] },
+      )
+    }
+
+    const args = params['arguments'] ?? {}
+    if (!isRecordParams(args)) {
+      return this.buildError(id, JSON_RPC_INVALID_PARAMS, 'Invalid param: arguments')
+    }
+
+    try {
+      const result = await prompt.get(args)
+      return this.buildResult(id, result satisfies MCPPromptGetResult)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      return this.buildError(id, JSON_RPC_INTERNAL_ERROR, `Prompt retrieval failed: ${message}`, {
+        promptName,
+      })
+    }
+  }
+
   private async handleSamplingRequest(
     id: MCPRequestId,
     params: Record<string, unknown> | undefined,
@@ -462,6 +552,10 @@ function isValidMCPRequestId(id: unknown): id is MCPRequestId | undefined {
 
 function isValidMCPParams(params: unknown): boolean {
   return params === undefined || Array.isArray(params) || (params !== null && typeof params === 'object')
+}
+
+function isRecordParams(params: unknown): params is Record<string, unknown> {
+  return params !== null && typeof params === 'object' && !Array.isArray(params)
 }
 
 function normalizeResourceContent(
