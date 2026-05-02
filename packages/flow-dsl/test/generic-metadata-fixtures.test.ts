@@ -27,7 +27,7 @@ steps:
             id: implement
             ref: tools.implement
             requires: [plan]
-      produces:
+            produces:
               artifacts: true
             provenance:
               sourceDocumentId: doc-001
