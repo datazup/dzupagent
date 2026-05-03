@@ -43,8 +43,8 @@ export type {
 } from './types.js'
 
 // --- Adapters ---
-export { ClaudeAgentAdapter } from './claude/claude-adapter.js'
-export { CodexAdapter } from './codex/codex-adapter.js'
+export { ClaudeAgentAdapter, createClaudeAdapter } from './claude/claude-adapter.js'
+export { CodexAdapter, createCodexAdapter } from './codex/codex-adapter.js'
 export { GeminiCLIAdapter } from './gemini/gemini-adapter.js'
 export { GeminiSDKAdapter } from './gemini/gemini-sdk-adapter.js'
 export type { GeminiSDKAdapterConfig } from './gemini/gemini-sdk-adapter.js'
