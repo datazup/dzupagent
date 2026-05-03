@@ -10,6 +10,8 @@ import {
 } from '../http/request-schemas.js'
 import {
   HTTP_ROUTABLE_PROVIDER_IDS,
+  PROVIDER_CATALOG,
+  getDefaultMonitorStatus,
   getProductProviders,
   getProviderCapabilities,
 } from '../provider-catalog.js'
@@ -119,6 +121,52 @@ describe('HTTP provider policy', () => {
       .toBe(true)
     expect(ParallelRequestSchema.safeParse({ prompt: 'Hello', providers: [providerId] }).success)
       .toBe(true)
+  })
+
+  it('does not advertise native policy projection for API-only providers', () => {
+    expect(getProviderCapabilities('openai')?.supportsPolicyProjection).toBe(false)
+    expect(getProviderCapabilities('openrouter')?.supportsPolicyProjection).toBe(false)
+  })
+
+  it('distinguishes native, provider-config, and host-gated approval support', () => {
+    expect(getProviderCapabilities('claude')?.approvalSupport).toBe('native')
+    expect(getProviderCapabilities('codex')?.approvalSupport).toBe('native')
+
+    for (const providerId of ['gemini', 'gemini-sdk', 'qwen', 'goose', 'crush'] as const) {
+      expect(getProviderCapabilities(providerId)?.approvalSupport).toBe('provider-config')
+    }
+
+    expect(getProviderCapabilities('openai')?.approvalSupport).toBe('host-gated')
+    expect(getProviderCapabilities('openrouter')?.approvalSupport).toBe('host-gated')
+  })
+
+  it('derives default monitor status from provider monitor introspection tier', () => {
+    expect(getDefaultMonitorStatus('claude')).toEqual({
+      state: 'not_configured',
+      supported: true,
+      monitorIntrospection: 'deep',
+    })
+    expect(getDefaultMonitorStatus('openai')).toEqual({
+      state: 'unsupported',
+      supported: false,
+      monitorIntrospection: 'none',
+    })
+  })
+
+  it('keeps native policy projection limited to providers with config projectors', () => {
+    const nativeProjectionProviders = Object.entries(PROVIDER_CATALOG)
+      .filter(([, caps]) => caps.supportsPolicyProjection)
+      .map(([providerId]) => providerId)
+
+    expect(nativeProjectionProviders).toEqual([
+      'claude',
+      'codex',
+      'gemini',
+      'qwen',
+      'goose',
+      'crush',
+      'gemini-sdk',
+    ])
   })
 
   it('rejects providers not enabled for HTTP adapter routing', () => {

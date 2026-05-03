@@ -65,6 +65,116 @@ describe('RuleLoader', () => {
     expect(console.warn).toHaveBeenCalled()
   })
 
+  it('skips rules with invalid scope or provider ids', async () => {
+    const filePath = join(dir, 'invalid-scope-provider.json')
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        ...exampleRule,
+        scope: 'organization',
+        appliesToProviders: ['codex', 'unknown-provider'],
+      }),
+      'utf8',
+    )
+
+    const rules = await new RuleLoader().loadFile(filePath)
+    expect(rules).toEqual([])
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('scope must be one of'))
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('supported provider id'))
+  })
+
+  it('skips rules with malformed match arrays', async () => {
+    const filePath = join(dir, 'invalid-match.json')
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        ...exampleRule,
+        match: {
+          paths: ['apps/api'],
+          requestTags: 'security',
+        },
+      }),
+      'utf8',
+    )
+
+    const rules = await new RuleLoader().loadFile(filePath)
+    expect(rules).toEqual([])
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('match.requestTags must be a string array'))
+  })
+
+  it('skips rules with unknown effect kinds', async () => {
+    const filePath = join(dir, 'unknown-effect.json')
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        ...exampleRule,
+        effects: [{ kind: 'unknown_effect', content: 'ignored before fix' }],
+      }),
+      'utf8',
+    )
+
+    const rules = await new RuleLoader().loadFile(filePath)
+    expect(rules).toEqual([])
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('known RuleEffect kind'))
+  })
+
+  it.each([
+    {
+      name: 'prompt_section without content',
+      effect: { kind: 'prompt_section', purpose: 'persona' },
+      message: 'content must be a non-empty string',
+    },
+    {
+      name: 'prompt_section with invalid purpose',
+      effect: { kind: 'prompt_section', purpose: 'brand', content: 'x' },
+      message: 'purpose must be one of',
+    },
+    {
+      name: 'require_skill without skill',
+      effect: { kind: 'require_skill' },
+      message: 'skill must be a non-empty string',
+    },
+    {
+      name: 'prefer_agent without agent',
+      effect: { kind: 'prefer_agent' },
+      message: 'agent must be a non-empty string',
+    },
+    {
+      name: 'require_approval with invalid target',
+      effect: { kind: 'require_approval', target: 'filesystem' },
+      message: 'target must be one of',
+    },
+    {
+      name: 'deny_path without path',
+      effect: { kind: 'deny_path' },
+      message: 'path must be a non-empty string',
+    },
+    {
+      name: 'watch_path without artifactKind',
+      effect: { kind: 'watch_path', path: '.codex/' },
+      message: 'artifactKind must be a non-empty string',
+    },
+    {
+      name: 'emit_alert with invalid severity',
+      effect: { kind: 'emit_alert', on: 'tool:error', severity: 'critical' },
+      message: 'severity must be one of',
+    },
+  ])('skips rules with malformed effect payload: $name', async ({ effect, message }) => {
+    const filePath = join(dir, `invalid-effect-${effect.kind}.json`)
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        ...exampleRule,
+        effects: [effect],
+      }),
+      'utf8',
+    )
+
+    const rules = await new RuleLoader().loadFile(filePath)
+    expect(rules).toEqual([])
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(message))
+  })
+
   it('loadFromDirectory returns all valid rules from .json files', async () => {
     const subdir = join(dir, 'rules')
     await mkdir(subdir)
@@ -88,5 +198,47 @@ describe('RuleLoader', () => {
     const missing = join(dir, 'does-not-exist')
     const rules = await new RuleLoader().loadFromDirectory(missing)
     expect(rules).toEqual([])
+  })
+
+  it('returns structured diagnostics for invalid rule files', async () => {
+    const filePath = join(dir, 'invalid-diagnostic.json')
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        ...exampleRule,
+        effects: [{ kind: 'deny_path' }],
+      }),
+      'utf8',
+    )
+
+    const result = await new RuleLoader().loadFileWithDiagnostics(filePath)
+
+    expect(result.rules).toEqual([])
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'invalid_rule',
+        source: filePath,
+        ruleIndex: 0,
+        errors: ['effects[0].path must be a non-empty string'],
+      }),
+    ])
+    expect(console.warn).not.toHaveBeenCalled()
+  })
+
+  it('returns structured diagnostics for missing directories without warning through the legacy API', async () => {
+    const missing = join(dir, 'missing-rules')
+    const loader = new RuleLoader()
+
+    await expect(loader.loadFromDirectory(missing)).resolves.toEqual([])
+    expect(console.warn).not.toHaveBeenCalled()
+
+    const result = await loader.loadFromDirectoryWithDiagnostics(missing)
+    expect(result.rules).toEqual([])
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'directory_not_found',
+        source: missing,
+      }),
+    ])
   })
 })

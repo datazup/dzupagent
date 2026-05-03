@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { AdapterTracer } from '../observability/adapter-tracer.js'
+import { ADAPTER_TRACE_ENV_OPTION, AdapterTracer } from '../observability/adapter-tracer.js'
 import { createTracingMiddleware } from '../observability/tracing-middleware.js'
 import type { AgentEvent } from '../types.js'
 import type { MiddlewareContext } from '../middleware/middleware-pipeline.js'
@@ -76,6 +76,66 @@ describe('createTracingMiddleware', () => {
     expect(toolSpan!.attributes['tool.duration_ms']).toBe(50)
     expect(toolSpan!.attributes['tool.output_length']).toBe(7) // 'content'.length
     expect(toolSpan!.parentSpanId).toBe(spans.find(s => s.name === 'adapter.claude.execute')!.spanId)
+  })
+
+  it('keeps concurrent same-name tool spans using FIFO fallback', async () => {
+    const tracer = new AdapterTracer({ serviceName: 'test' })
+    const mw = createTracingMiddleware(tracer)
+
+    const events: AgentEvent[] = [
+      { type: 'adapter:tool_call', providerId: 'claude', toolName: 'read_file', input: { path: 'a' }, timestamp: 1 },
+      { type: 'adapter:tool_call', providerId: 'claude', toolName: 'read_file', input: { path: 'b' }, timestamp: 2 },
+      { type: 'adapter:tool_result', providerId: 'claude', toolName: 'read_file', output: 'a', durationMs: 10, timestamp: 3 },
+      { type: 'adapter:tool_result', providerId: 'claude', toolName: 'read_file', output: 'bb', durationMs: 20, timestamp: 4 },
+      { type: 'adapter:completed', providerId: 'claude', sessionId: 's1', result: 'ok', durationMs: 200, timestamp: 5 },
+    ]
+
+    await collect(mw(mockSource(events), mockContext()))
+
+    const toolSpans = tracer.getSpans().filter((span) => span.name === 'tool.read_file')
+    expect(toolSpans).toHaveLength(2)
+    expect(toolSpans.map((span) => span.attributes['tool.duration_ms'])).toEqual([10, 20])
+    expect(toolSpans.map((span) => span.attributes['tool.output_length'])).toEqual([1, 2])
+  })
+
+  it('matches concurrent same-name tool spans by explicit call id', async () => {
+    const tracer = new AdapterTracer({ serviceName: 'test' })
+    const mw = createTracingMiddleware(tracer)
+
+    const events = [
+      { type: 'adapter:tool_call', providerId: 'claude', toolName: 'read_file', toolCallId: 'call-a', input: { path: 'a' }, timestamp: 1 },
+      { type: 'adapter:tool_call', providerId: 'claude', toolName: 'read_file', toolCallId: 'call-b', input: { path: 'b' }, timestamp: 2 },
+      { type: 'adapter:tool_result', providerId: 'claude', toolName: 'read_file', toolCallId: 'call-a', output: 'a', durationMs: 10, timestamp: 3 },
+      { type: 'adapter:tool_result', providerId: 'claude', toolName: 'read_file', toolCallId: 'call-b', output: 'bb', durationMs: 20, timestamp: 4 },
+      { type: 'adapter:completed', providerId: 'claude', sessionId: 's1', result: 'ok', durationMs: 200, timestamp: 5 },
+    ] as AgentEvent[]
+
+    await collect(mw(mockSource(events), mockContext()))
+
+    const toolSpans = tracer.getSpans().filter((span) => span.name === 'tool.read_file')
+    expect(toolSpans).toHaveLength(2)
+    expect(toolSpans.map((span) => span.attributes['tool.call_id'])).toEqual([
+      'call-a',
+      'call-b',
+    ])
+    expect(toolSpans.map((span) => span.attributes['tool.duration_ms'])).toEqual([10, 20])
+  })
+
+  it('attaches trace env metadata to the shared input before consuming source', async () => {
+    const tracer = new AdapterTracer({ serviceName: 'test' })
+    const mw = createTracingMiddleware(tracer)
+    const context = mockContext({ input: { prompt: 'hello' } })
+
+    await collect(mw(mockSource([
+      { type: 'adapter:completed', providerId: 'claude', sessionId: 's1', result: 'ok', durationMs: 50, timestamp: 1 },
+    ]), context))
+
+    const traceEnv = context.input.options?.[ADAPTER_TRACE_ENV_OPTION] as
+      | Record<string, string>
+      | undefined
+    expect(traceEnv?.['TRACEPARENT']).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/,
+    )
   })
 
   it('passes all events through unchanged', async () => {
