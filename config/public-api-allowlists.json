@@ -336,10 +336,11 @@
         "./workflow": "workflow DSL builder, resolver, and validator",
         "./http": "HTTP handler, request schemas, and rate limiting",
         "./persistence": "checkpoint, run manager, run log, and run event store helpers",
+        "./rules": "adapter-rule RuntimePlan preparation, governance diagnostics, and watcher-path projection bridge",
         "./learning": "learning loop, A/B testing, interaction policy, and enrichment pipeline",
         "./recovery": "recovery copilot, policies, escalation, cross-provider handoff, and approval gates"
       },
-      "migrationWindow": "Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/learning/recovery subpaths before a future 1.0 root contraction."
+      "migrationWindow": "Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction."
     },
     {
       "packageName": "@dzupagent/otel",
