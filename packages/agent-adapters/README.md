@@ -22,6 +22,108 @@ npm install @dzupagent/agent-adapters
 | Qwen | `QwenAdapter` | OpenAI-compatible endpoint and/or `qwen` CLI |
 | Crush | `CrushAdapter` | `crush` CLI available in `PATH` |
 
+## CLI-based execution (no API keys needed)
+
+The Claude and Codex adapters wrap their respective **CLI tools**, not the
+raw HTTP API. They reuse the authentication that the user has already
+configured on the machine via `claude login` / `codex login`.
+
+- `ClaudeAgentAdapter` uses `@anthropic-ai/claude-agent-sdk`, which
+  communicates with the locally authenticated `claude` CLI.
+- `CodexAdapter` uses `@openai/codex-sdk`, which communicates with the
+  locally authenticated `codex` CLI.
+
+This means you do **not** need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` in
+your environment — the CLIs handle authentication themselves. If you do
+pass `apiKey` via `AdapterConfig` it is forwarded to the SDK and
+overrides whatever the CLI was using; otherwise the adapters rely on
+the CLI's stored credentials.
+
+`healthCheck()` reports both `sdkInstalled` (the SDK package is
+importable) and `cliAvailable` (the underlying CLI binary responds to
+`--version`) so callers can degrade gracefully when either side is
+missing.
+
+## Factory functions
+
+In addition to the adapter classes, this package exports thin factory
+functions for callers that prefer a functional setup style or that
+resolve adapters dynamically by name:
+
+```ts
+import { createClaudeAdapter, createCodexAdapter } from '@dzupagent/agent-adapters'
+
+const claude = createClaudeAdapter({ model: 'claude-sonnet-4-7', sandboxMode: 'workspace-write' })
+const codex  = createCodexAdapter({ model: 'gpt-5.4', sandboxMode: 'workspace-write' })
+```
+
+The CJS-to-ESM `scripts/lib/agent-bridge/run.mjs` resolves adapters by
+the convention `create<ProviderId>Adapter` first and falls back to the
+class export `<ProviderId>AgentAdapter` / `<ProviderId>Adapter`. Adding a
+factory keeps the bridge's preferred resolution path stable.
+
+## Agent Bridge (automation / CJS scripts)
+
+The `scripts/lib/agent-bridge/` integration bridges Node.js **CJS**
+automation scripts (audit runners, agent-planning scripts, scheduled
+workers) to these **ESM** adapters via a JSON-over-stdin/stdout
+protocol. This avoids dragging the entire `scripts/` tree onto ESM
+just to use the adapter registry.
+
+The bridge supports three actions today:
+
+| Action | Purpose |
+|---|---|
+| `registry-run` | Spawn `ProviderAdapterRegistry.executeWithFallback()` for one provider, stream events back, and return the collected event list. |
+| `store-event` | Append a single event to `ScriptRunEventStore`. |
+| `store-summary` | Write a run-level summary record. |
+
+CJS callers invoke the bridge through `scripts/lib/agent-bridge/invoke.js`,
+which spawns `run.mjs`, pipes the JSON request on stdin, and parses the
+JSON response on stdout. This is the same path used by
+`scripts/lib/claude/provider.js` so all script-based Claude/Codex calls
+flow through the registry rather than hitting an API directly.
+
+### Event streaming and NDJSON tail-f
+
+While the bridge runs, every `AgentEvent` is appended to two log files:
+
+- `adapterOutputLogPath` — human-readable log lines (one per event).
+- `adapterStatusLogPath` — **NDJSON** records (one JSON object per line)
+  suitable for `tail -f` consumption by dashboards, terminals, or
+  log-shipping agents.
+
+The registry now also emits `adapter:progress` events tagged with
+`phase: 'registry:routing'` (one routing decision per call) and
+`phase: 'registry:primary_attempt' | 'registry:fallback_attempt'` (one
+per fallback attempt). These show up in the NDJSON stream so you can
+observe routing decisions live without instrumenting every adapter
+manually.
+
+### Per-execution timeout
+
+`ProviderAdapterRegistry` accepts `executionTimeoutMs` in its
+constructor config and also honors `input.options.timeoutMs` per call.
+If a single attempt does not produce a terminal `adapter:completed`
+event within the timeout, the registry aborts that attempt (via
+`AbortController`), tags the failure with `code: 'ADAPTER_TIMEOUT'`,
+and proceeds to the next provider in the fallback chain.
+
+```ts
+const registry = new ProviderAdapterRegistry({ executionTimeoutMs: 120_000 })
+registry.registerProductionAdapters([
+  createClaudeAdapter(),
+  createCodexAdapter(),
+])
+
+for await (const event of registry.executeWithFallback(
+  { prompt: '...', options: { timeoutMs: 60_000 } }, // per-call override
+  { prompt: '...', tags: ['code'] },
+)) {
+  console.log(event.type, event.providerId)
+}
+```
+
 ## Core design
 
 - **Unified adapter contract** via `AgentCLIAdapter` and `AgentEvent` stream (`adapter:started`, `adapter:message`, `adapter:tool_call`, `adapter:tool_result`, `adapter:stream_delta`, `adapter:completed`, `adapter:failed`).
