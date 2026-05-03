@@ -16,7 +16,6 @@ import {
   ToolCancellationError,
   ToolTimeoutError,
 } from './tool-timeout-error.js'
-import { omitUndefined } from '../utils/exact-optional.js'
 
 export interface ToolLifecyclePolicyContext {
   eventBus?: DzupEventBus
@@ -163,11 +162,11 @@ export function emitToolResult(
   if (!context) return
   const { toolName, toolCallId, durationMs, inputMetadataKeys, output } = args
   try {
-    const executionRunId = requireTerminalToolExecutionRunId(omitUndefined({
+    const executionRunId = requireTerminalToolExecutionRunId({
       eventType: 'tool:result',
       toolName,
-      executionRunId: context.runId,
-    }))
+      ...(context.runId !== undefined ? { executionRunId: context.runId } : {}),
+    })
     context.eventBus?.emit({
       type: 'tool:result',
       toolName,
@@ -222,11 +221,11 @@ export function emitToolError(
     status,
   } = args
   try {
-    const executionRunId = requireTerminalToolExecutionRunId(omitUndefined({
+    const executionRunId = requireTerminalToolExecutionRunId({
       eventType: 'tool:error',
       toolName,
-      executionRunId: context.runId,
-    }))
+      ...(context.runId !== undefined ? { executionRunId: context.runId } : {}),
+    })
     context.eventBus?.emit({
       type: 'tool:error',
       toolName,

@@ -52,6 +52,18 @@ export const supervisorMetricMap = {
     },
   ],
 
+  'supervisor:duplicate_specialist_assignment_ids': [
+    {
+      metricName: 'dzip_supervisor_duplicate_specialist_assignment_id_warnings_total',
+      type: 'counter',
+      description: 'Total duplicate-specialist delegation batches missing stable assignment IDs',
+      labelKeys: ['mode'],
+      extract: (e) => {
+        const ev = asEvent<'supervisor:duplicate_specialist_assignment_ids'>(e)
+        return { value: ev.duplicateSpecialists.length, labels: { mode: ev.mode } }
+      },
+    },
+  ],
 
   'supervisor:circuit_breaker_filtered': [
     {

@@ -1,3 +1,4 @@
+export { adapterRuntimeMetricMap } from './adapter-runtime.js'
 export { agentLifecycleMetricMap } from './agent-lifecycle.js'
 export { approvalMetricMap } from './approval.js'
 export { budgetMetricMap } from './budget.js'

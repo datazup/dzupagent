@@ -1,6 +1,5 @@
 import type { FlowDocumentV1 } from '@dzupagent/flow-ast'
 
-import { DSL_ERROR } from './errors.js'
 import { parseYamlSubset } from './mini-yaml.js'
 import { normalizeDslDocument } from './normalize.js'
 import { validateDocument } from './document-validate.js'
@@ -23,26 +22,32 @@ export function parseDslToDocument(source: string): ParseDslResult {
           columnEnd: error.column,
         },
       })),
+      ok: false,
+      partialDocument: null,
     }
   }
 
-  const { document, diagnostics } = normalizeDslDocument(yaml.value)
-  if (document === null) {
-    return { document: null, diagnostics }
+  const normalized = normalizeDslDocument(yaml.value)
+  if (!normalized.ok) {
+    return {
+      ok: false,
+      document: null,
+      partialDocument: normalized.partialDocument,
+      diagnostics: normalized.diagnostics,
+    }
   }
 
-  if (document.dsl !== 'dzupflow/v1') {
-    diagnostics.push({
-      phase: 'normalize',
-      code: DSL_ERROR.INVALID_DSL_VERSION,
-      message: 'dsl must equal "dzupflow/v1"',
-      path: 'root.dsl',
-    })
-  }
-
+  const { document } = normalized
   const validation = validateDocument(document)
-  return {
-    document: validation.valid ? (document as FlowDocumentV1) : document,
-    diagnostics: [...diagnostics, ...validation.diagnostics],
+  const allDiagnostics = validation.diagnostics
+  if (allDiagnostics.length > 0) {
+    return {
+      ok: false,
+      document: null,
+      partialDocument: document,
+      diagnostics: allDiagnostics,
+    }
   }
+
+  return { ok: true, document: document as FlowDocumentV1, partialDocument: null, diagnostics: [] }
 }

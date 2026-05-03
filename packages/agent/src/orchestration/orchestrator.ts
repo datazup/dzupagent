@@ -368,7 +368,7 @@ export class AgentOrchestrator {
       const selectedSpecialists = specialists.map((s) => s.id)
       const filteredSpecialists = candidateSpecialists.filter((id) => !selectedIds.has(id))
 
-      const routingEvent = {
+      const routingEvent = omitUndefined({
         type: 'supervisor:routing_decision',
         managerId: manager.id,
         task,
@@ -381,7 +381,7 @@ export class AgentOrchestrator {
         filteredSpecialists,
         candidateSpecialists,
         source: 'direct-supervisor',
-      } as const
+      } as const)
       eventBus?.emit(routingEvent)
       if (!eventBus) {
         console.debug('[AgentOrchestrator] Routing decision:', {

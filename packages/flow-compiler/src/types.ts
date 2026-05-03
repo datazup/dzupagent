@@ -57,6 +57,19 @@ export type CompilationTarget = 'skill-chain' | 'workflow-builder' | 'pipeline'
 
 export type CompilationStage = 1 | 2 | 3 | 4
 
+export type FlowCompileSourceKind = 'flow-object' | 'flow-json-string' | 'flow-document' | 'dzupflow-dsl'
+
+export interface FlowCompileCorrelation {
+  runId?: string
+  eventCorrelationId?: string
+}
+
+export interface CompileInvocationOptions {
+  sourceKind?: FlowCompileSourceKind
+  source?: unknown
+  correlation?: FlowCompileCorrelation
+}
+
 export interface CompilationDiagnostic {
   stage: CompilationStage
   code: string
@@ -95,6 +108,7 @@ export interface CompileSuccess {
   artifact: unknown
   warnings: CompilationWarning[]
   reasons: CompilationTargetReason[]
+  evidence: FlowCompileEvidence
   diagnosticCountsByCategory?: Record<string, number>
 }
 
@@ -107,7 +121,27 @@ export interface CompileFailure {
 export type CompileResult = CompileSuccess | CompileFailure
 
 export interface FlowCompiler {
-  compile(input: ParseInput): Promise<CompileSuccess | CompileFailure>
+  compile(input: ParseInput, options?: CompileInvocationOptions): Promise<CompileSuccess | CompileFailure>
   compileDocument(document: unknown): Promise<CompileSuccess | CompileFailure>
   compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure>
+}
+
+export interface FlowCompileEvidenceNode {
+  type: string
+  id?: string
+}
+
+export interface FlowCompileEvidence {
+  schema: 'dzupagent.flowCompileEvidence/v1'
+  sourceKind: FlowCompileSourceKind
+  sourceHash: string
+  compileId: string
+  canonicalNodeIds: string[]
+  canonicalNodePaths: Record<string, FlowCompileEvidenceNode>
+  loweredTarget: CompilationTarget
+  correlationIds: {
+    compileId: string
+    eventCorrelationId: string
+    runId?: string
+  }
 }

@@ -47,7 +47,9 @@ import type {
   CompilationTarget,
   CompilationTargetReason,
   CompilationWarning,
+  CompileInvocationOptions,
   CompileFailure,
+  FlowCompileEvidence,
   CompileSuccess,
 } from '@dzupagent/flow-compiler'
 import type { ToolResolver, AsyncToolResolver } from '@dzupagent/flow-ast'
@@ -62,7 +64,7 @@ import type { RunEventStore } from '@dzupagent/agent-adapters'
 import type { EventGateway } from '../events/event-gateway.js'
 import type { PersonaStore } from '../personas/persona-store.js'
 import { createPersonaStoreResolver } from '../personas/persona-resolver.js'
-import { normalizeCompileInput } from './compile-input.js'
+import { normalizeCompileInput, type NormalizedCompileInput } from './compile-input.js'
 import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
 
 /** Allowed compilation targets — mirrors `CompilationTarget` in flow-compiler. */
@@ -139,6 +141,7 @@ interface CompileSuccessResponse {
   reasons: CompilationTargetReason[]
   target: CompilationTarget
   compileId: string
+  evidence: FlowCompileEvidence
 }
 
 interface CompileFailureResponse {
@@ -206,6 +209,28 @@ function isStreamErrorResult(value: StreamCompileResult): value is { readonly __
 
 function isCompileSuccessResult(value: StreamCompileResult): value is CompileSuccess {
   return !isStreamErrorResult(value) && !('errors' in value)
+}
+
+function makeCompileInvocationOptions(
+  body: CompileRequestBody,
+  input: NormalizedCompileInput,
+  runId: string,
+): CompileInvocationOptions {
+  const source =
+    input.kind === 'dsl' ? body.dsl
+      : input.kind === 'document' ? body.document
+      : body.flow
+  const correlation = runId ? { eventCorrelationId: runId, runId } : undefined
+
+  return {
+    sourceKind:
+      input.kind === 'dsl' ? 'dzupflow-dsl'
+        : input.kind === 'document' ? 'flow-document'
+        : typeof input.flowInput === 'string' ? 'flow-json-string'
+          : 'flow-object',
+    source,
+    ...(correlation ? { correlation } : {}),
+  }
 }
 
 function publishToGateway(config: CompileRouteConfig, event: DzupEvent): void {
@@ -290,6 +315,8 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
       )
     }
     const { flowInput } = normalizedInput.value
+    const runId = c.req.query('runId') ?? ''
+    const invocationOptions = makeCompileInvocationOptions(body, normalizedInput.value, runId)
 
     // Validate optional target
     let requestedTarget: CompilationTarget | undefined
@@ -332,6 +359,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
       return streamStageCompile({
         c,
         flowInput,
+        invocationOptions,
         requestedTarget,
         config,
         effectivePersonaResolver,
@@ -345,7 +373,6 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
       // persisted under this run rather than under the compileId. When absent
       // and a runEventStore is configured we emit a warning and skip
       // persistence so appendArtifact is never called with an undefined runId.
-      const runId = c.req.query('runId') ?? ''
       if (!runId && config.runEventStore) {
         console.warn('SSE compile: runId missing, skipping persistence')
       }
@@ -403,7 +430,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
         // Kick off the compile — do NOT await here; stream events as they
         // arrive. Any thrown error is captured and surfaced as an SSE error.
         const compilePromise = compiler
-          .compile(flowInput)
+          .compile(flowInput, invocationOptions)
           .catch((err: unknown) => {
             const { safe } = sanitizeError(err)
             return { __streamError: safe } as const
@@ -458,6 +485,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
                 type: 'compile:completed',
                 target: r.target,
                 artifact: r.artifact,
+                evidence: r.evidence,
                 warnings: r.warnings,
                 reasons: r.reasons,
               },
@@ -481,7 +509,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
     })
 
     try {
-      const result = await compiler.compile(flowInput)
+      const result = await compiler.compile(flowInput, invocationOptions)
 
       if ('errors' in result) {
         // Failure — report the first error's stage (stages are monotonic; the
@@ -509,7 +537,6 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
 
       // Persist compile artifact to the run event store (fire-and-forget).
       // Honour an optional caller-supplied runId (same pattern as the SSE branch).
-      const runId = c.req.query('runId') ?? ''
       if (config.runEventStore) {
         config.runEventStore.appendArtifact({
           runId: runId || result.compileId,
@@ -522,6 +549,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
             type: 'compile:completed',
             target: result.target,
             artifact: result.artifact,
+            evidence: result.evidence,
             warnings: result.warnings,
             reasons: result.reasons,
           },
@@ -537,6 +565,7 @@ export function createCompileRoutes(config: CompileRouteConfig = {}): Hono {
         reasons: result.reasons,
         target: result.target,
         compileId: result.compileId,
+        evidence: result.evidence,
       }
       return c.json(response)
     } catch (err) {
@@ -587,6 +616,7 @@ interface StreamStageCompileArgs {
   // only members consumed below.
   c: Context
   flowInput: string | object
+  invocationOptions: CompileInvocationOptions
   requestedTarget: CompilationTarget | undefined
   config: CompileRouteConfig
   effectivePersonaResolver: PersonaResolver | AsyncPersonaResolver | undefined
@@ -601,7 +631,15 @@ interface StreamStageCompileArgs {
  * `{ message, stage }` is sent and the stream closes.
  */
 async function streamStageCompile(args: StreamStageCompileArgs): Promise<Response> {
-  const { c, flowInput, requestedTarget, config, effectivePersonaResolver, resolveToolResolver } = args
+  const {
+    c,
+    flowInput,
+    invocationOptions,
+    requestedTarget,
+    config,
+    effectivePersonaResolver,
+    resolveToolResolver,
+  } = args
 
   const bus = createEventBus()
   bus.onAny((event) => {
@@ -656,7 +694,7 @@ async function streamStageCompile(args: StreamStageCompileArgs): Promise<Respons
     // Run the compile WITHOUT awaiting first, so stages can stream as they fire.
     type CompileOutcome = CompileSuccess | CompileFailure | { readonly __streamError: string }
     const compilePromise: Promise<CompileOutcome> = compiler
-      .compile(flowInput)
+      .compile(flowInput, invocationOptions)
       .catch((err: unknown): { readonly __streamError: string } => {
         const { safe } = sanitizeError(err)
         return { __streamError: safe } as const
@@ -734,6 +772,7 @@ async function streamStageCompile(args: StreamStageCompileArgs): Promise<Respons
           reasons: result.reasons,
           target: result.target,
           compileId: result.compileId,
+          evidence: result.evidence,
         }),
       })
     } finally {

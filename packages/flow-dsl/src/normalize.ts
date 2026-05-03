@@ -20,7 +20,7 @@ import type {
 } from '@dzupagent/flow-ast'
 
 import { DSL_ERROR } from './errors.js'
-import type { DslDiagnostic } from './types.js'
+import type { DslDiagnostic, NormalizeDslResult } from './types.js'
 
 const TOP_LEVEL_KEYS = new Set([
   'dsl',
@@ -155,10 +155,7 @@ const INPUT_SPEC_KEYS = new Set<string>([
   'default',
 ])
 
-export function normalizeDslDocument(raw: unknown): {
-  document: FlowDocumentV1 | null
-  diagnostics: DslDiagnostic[]
-} {
+export function normalizeDslDocument(raw: unknown): NormalizeDslResult {
   const diagnostics: DslDiagnostic[] = []
   if (!isPlainObject(raw)) {
     diagnostics.push({
@@ -167,7 +164,7 @@ export function normalizeDslDocument(raw: unknown): {
       message: 'Top-level dzupflow document must be an object',
       path: 'root',
     })
-    return { document: null, diagnostics }
+    return { ok: false, document: null, partialDocument: null, diagnostics }
   }
 
   for (const key of Object.keys(raw)) {
@@ -220,7 +217,11 @@ export function normalizeDslDocument(raw: unknown): {
       path: 'root.version',
     })
   }
-  return { document: doc, diagnostics }
+  if (diagnostics.length > 0) {
+    return { ok: false, document: null, partialDocument: doc, diagnostics }
+  }
+
+  return { ok: true, document: doc, partialDocument: null, diagnostics: [] }
 }
 
 export function normalizeSteps(

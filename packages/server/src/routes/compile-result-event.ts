@@ -10,13 +10,14 @@ export type CompileResultEvent = DzupEventOf<'flow:compile_result'>
 
 type CompileResultPayload = Pick<
   CompileSuccess,
-  'compileId' | 'target' | 'artifact' | 'warnings' | 'reasons'
+  'compileId' | 'target' | 'artifact' | 'warnings' | 'reasons' | 'evidence'
 >
 
 type PartialCompileResultPayload = {
   compileId: string
   target: CompilationTarget
   artifact: unknown
+  evidence?: CompileSuccess['evidence']
   warnings: readonly CompilationWarning[]
   reasons?: readonly CompilationTargetReason[]
 }
@@ -36,6 +37,7 @@ export function buildCompileResultEvent(
     compileId: payload.compileId,
     target: payload.target,
     artifact: payload.artifact,
+    ...(payload.evidence ? { evidence: payload.evidence } : {}),
     warnings: [...payload.warnings],
     reasons: [...(payload.reasons ?? [])],
   }
