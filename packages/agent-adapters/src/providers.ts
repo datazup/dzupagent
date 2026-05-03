@@ -28,6 +28,8 @@ export type {
   GovernanceEventKind,
   TokenUsage,
   HealthStatus,
+  AdapterMonitorStatus,
+  AdapterMonitorStatusState,
   SessionInfo,
   EnvFilterConfig,
   AdapterConfig,
@@ -76,11 +78,16 @@ export type {
 export {
   PROVIDER_CATALOG,
   HTTP_ROUTABLE_PROVIDER_IDS,
+  getDefaultMonitorStatus,
   getMonitorableProviders,
   getProductProviders,
   getProviderCapabilities,
 } from './provider-catalog.js'
-export type { ProviderCapabilities, MonitorTier } from './provider-catalog.js'
+export type {
+  ApprovalSupportTier,
+  MonitorTier,
+  ProviderCapabilities,
+} from './provider-catalog.js'
 
 // --- Unified Event Normalization ---
 export { normalizeEvent } from './normalize.js'

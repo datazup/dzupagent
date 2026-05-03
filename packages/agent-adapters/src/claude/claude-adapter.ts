@@ -20,6 +20,7 @@ import type {
 } from '../types.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
 import { classifyInteractionText } from '../interaction/interaction-detector.js'
+import { getDefaultMonitorStatus } from '../provider-catalog.js'
 
 // ---------------------------------------------------------------------------
 // SDK type declarations (optional peer dep — cannot import statically)
@@ -547,6 +548,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
       sdkInstalled,
       cliAvailable,
       ...(!sdkInstalled && lastError !== undefined ? { lastError } : {}),
+      monitorStatus: getDefaultMonitorStatus('claude'),
     }
   }
 
@@ -689,6 +691,12 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
     } else if (interactionPolicy.mode === 'auto-approve') {
       options['permissionMode'] = 'bypassPermissions'
     }
+    // Extended thinking for Claude: reasoning='high' or explicit thinkingBudgetTokens
+    const thinkingBudget = this.config.thinkingBudgetTokens ?? (this.config.reasoning === 'high' ? 10000 : 0)
+    if (thinkingBudget > 0) {
+      options['thinking'] = { type: 'enabled', budget_tokens: thinkingBudget }
+    }
+
     if (this.abortController) {
       options['abortController'] = this.abortController
     }

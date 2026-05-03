@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto'
 import type { DzupEventBus } from '@dzupagent/core'
 
 import type { AgentEvent } from '../types.js'
+import { getToolCallId, ToolSpanTracker } from './tool-span-tracker.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +52,9 @@ export interface TraceContext {
   traceId: string
   spanId: string
 }
+
+/** AgentInput.options key used to pass per-run trace propagation env. */
+export const ADAPTER_TRACE_ENV_OPTION = 'adapterTraceEnv'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -98,8 +102,7 @@ export class AdapterTracer {
       'service.name': this.serviceName,
     })
 
-    // Track open tool spans by toolName so we can close them on tool_result
-    const openToolSpans = new Map<string, TraceSpan>()
+    const openToolSpans = new ToolSpanTracker()
 
     try {
       for await (const event of source) {
@@ -113,24 +116,25 @@ export class AdapterTracer {
           }
 
           case 'adapter:tool_call': {
+            const toolCallId = getToolCallId(event as typeof event & Record<string, unknown>)
             const toolSpan = this.startSpan(
               `tool.${event.toolName}`,
               this.getTraceContext(rootSpan),
               {
                 'tool.name': event.toolName,
                 'adapter.provider_id': event.providerId,
+                ...(toolCallId ? { 'tool.call_id': toolCallId } : {}),
               },
             )
-            openToolSpans.set(event.toolName, toolSpan)
+            openToolSpans.add(event as typeof event & Record<string, unknown>, toolSpan)
             break
           }
 
           case 'adapter:tool_result': {
-            const toolSpan = openToolSpans.get(event.toolName)
+            const toolSpan = openToolSpans.take(event as typeof event & Record<string, unknown>)
             if (toolSpan) {
               toolSpan.attributes['tool.duration_ms'] = event.durationMs
               this.endSpan(toolSpan, 'ok')
-              openToolSpans.delete(event.toolName)
             }
             break
           }
@@ -172,7 +176,7 @@ export class AdapterTracer {
       }
     } catch (err: unknown) {
       // Close any open tool spans
-      for (const toolSpan of openToolSpans.values()) {
+      for (const toolSpan of openToolSpans.openSpans()) {
         if (toolSpan.endTime === undefined) {
           this.endSpan(toolSpan, 'error', 'parent trace aborted')
         }

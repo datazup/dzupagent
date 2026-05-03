@@ -16,6 +16,7 @@ import type {
   AgentCLIAdapter,
   AdapterProviderId,
 } from '../types.js'
+import { getDefaultMonitorStatus } from '../provider-catalog.js'
 
 /** SSE chunk shape returned by the OpenRouter streaming API. */
 interface SSEChunkChoice {
@@ -237,6 +238,7 @@ export class OpenRouterAdapter implements AgentCLIAdapter {
       sdkInstalled: true,
       cliAvailable: false,
       lastError: apiKey ? undefined : 'No API key configured',
+      monitorStatus: getDefaultMonitorStatus(this.providerId),
     }
   }
 

@@ -12,6 +12,7 @@ export default defineConfig({
     'src/recovery.ts',
     'src/runs/index.ts',
     'src/integration/index.ts',
+    'src/rules.ts',
   ],
   format: ['esm'],
   dts: true,

@@ -38,6 +38,10 @@
       "import": "./dist/integration/index.js",
       "types": "./dist/integration/index.d.ts"
     },
+    "./rules": {
+      "import": "./dist/rules.js",
+      "types": "./dist/rules.d.ts"
+    },
     "./learning": {
       "import": "./dist/learning.js",
       "types": "./dist/learning.d.ts"
@@ -59,6 +63,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@dzupagent/adapter-rules": "0.1.0",
     "@dzupagent/adapter-types": "0.2.0",
     "@dzupagent/agent": "0.2.0",
     "@dzupagent/agent-types": "0.2.0",

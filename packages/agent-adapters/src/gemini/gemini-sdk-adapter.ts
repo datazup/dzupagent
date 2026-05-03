@@ -15,6 +15,7 @@ import type {
   HealthStatus,
   AgentCLIAdapter,
 } from '../types.js'
+import { getDefaultMonitorStatus } from '../provider-catalog.js'
 
 // SDK type stubs (for dynamic import)
 interface GeminiSDK {
@@ -211,7 +212,13 @@ export class GeminiSDKAdapter implements AgentCLIAdapter {
   async healthCheck(): Promise<HealthStatus> {
     try {
       await this.loadSDK()
-      return { healthy: true, providerId: 'gemini-sdk', sdkInstalled: true, cliAvailable: false }
+      return {
+        healthy: true,
+        providerId: 'gemini-sdk',
+        sdkInstalled: true,
+        cliAvailable: false,
+        monitorStatus: getDefaultMonitorStatus('gemini-sdk'),
+      }
     } catch {
       return {
         healthy: false,
@@ -219,6 +226,7 @@ export class GeminiSDKAdapter implements AgentCLIAdapter {
         sdkInstalled: false,
         cliAvailable: false,
         lastError: '@google/generative-ai not installed',
+        monitorStatus: getDefaultMonitorStatus('gemini-sdk'),
       }
     }
   }

@@ -2,19 +2,21 @@
  * Tracing middleware for the adapter middleware pipeline.
  *
  * Wraps every adapter execution in OTel-style spans using {@link AdapterTracer}.
- * The middleware is purely observational — it yields every event unchanged.
+ * The middleware yields every event unchanged. When trace propagation is
+ * enabled on the tracer, it also attaches W3C trace env metadata to the
+ * shared input object before the adapter generator starts executing.
  */
 
 import type { AdapterMiddleware, MiddlewareContext } from '../middleware/middleware-pipeline.js'
 import type { AgentEvent, AgentCompletedEvent, AgentFailedEvent } from '../types.js'
-import { AdapterTracer } from './adapter-tracer.js'
-import type { TraceSpan } from './adapter-tracer.js'
+import { ADAPTER_TRACE_ENV_OPTION, AdapterTracer } from './adapter-tracer.js'
+import { getToolCallId, ToolSpanTracker } from './tool-span-tracker.js'
 
 /**
  * Creates a middleware that traces adapter executions using AdapterTracer.
  * Each execution creates a root span with child spans for tool calls.
  *
- * All events pass through unchanged — this middleware is observation-only.
+ * All events pass through unchanged.
  */
 export function createTracingMiddleware(tracer: AdapterTracer): AdapterMiddleware {
   return async function* tracingMiddleware(
@@ -27,8 +29,15 @@ export function createTracingMiddleware(tracer: AdapterTracer): AdapterMiddlewar
       'adapter.has_system_prompt': !!context.input.systemPrompt,
       'adapter.max_turns': context.input.maxTurns ?? 0,
     })
+    const traceEnv = tracer.buildPropagationEnv(rootSpan)
+    if (Object.keys(traceEnv).length > 0) {
+      context.input.options = {
+        ...context.input.options,
+        [ADAPTER_TRACE_ENV_OPTION]: traceEnv,
+      }
+    }
 
-    const openToolSpans = new Map<string, TraceSpan>()
+    const openToolSpans = new ToolSpanTracker()
 
     try {
       for await (const event of source) {
@@ -41,22 +50,25 @@ export function createTracingMiddleware(tracer: AdapterTracer): AdapterMiddlewar
           }
 
           case 'adapter:tool_call': {
+            const toolCallId = getToolCallId(event as typeof event & Record<string, unknown>)
             const toolSpan = tracer.startSpan(
               `tool.${event.toolName}`,
               tracer.getTraceContext(rootSpan),
-              { 'tool.name': event.toolName },
+              {
+                'tool.name': event.toolName,
+                ...(toolCallId ? { 'tool.call_id': toolCallId } : {}),
+              },
             )
-            openToolSpans.set(event.toolName, toolSpan)
+            openToolSpans.add(event as typeof event & Record<string, unknown>, toolSpan)
             break
           }
 
           case 'adapter:tool_result': {
-            const toolSpan = openToolSpans.get(event.toolName)
+            const toolSpan = openToolSpans.take(event as typeof event & Record<string, unknown>)
             if (toolSpan) {
               toolSpan.attributes['tool.duration_ms'] = event.durationMs
               toolSpan.attributes['tool.output_length'] = event.output.length
               tracer.endSpan(toolSpan, 'ok')
-              openToolSpans.delete(event.toolName)
             }
             break
           }
@@ -98,7 +110,7 @@ export function createTracingMiddleware(tracer: AdapterTracer): AdapterMiddlewar
       }
     } catch (error: unknown) {
       // Close any open tool spans
-      for (const toolSpan of openToolSpans.values()) {
+      for (const toolSpan of openToolSpans.openSpans()) {
         if (toolSpan.endTime === undefined) {
           tracer.endSpan(toolSpan, 'error', 'parent trace aborted')
         }

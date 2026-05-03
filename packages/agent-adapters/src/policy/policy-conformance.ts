@@ -16,6 +16,7 @@
  */
 
 import type { AdapterProviderId } from '../types.js'
+import { getProviderCapabilities } from '../provider-catalog.js'
 import type { AdapterPolicy, CompiledPolicyOverrides } from './policy-compiler.js'
 
 // ---------------------------------------------------------------------------
@@ -52,7 +53,6 @@ export interface PolicyConformanceResult {
 interface ProviderCapabilities {
   supportsSandbox: boolean
   supportsNetworkToggle: boolean
-  supportsApproval: boolean
   supportsToolAllowlist: boolean
   supportsToolBlocklist: boolean
   supportsBudget: boolean
@@ -64,7 +64,6 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   claude: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
-    supportsApproval: true,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: true,
@@ -74,7 +73,6 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   codex: {
     supportsSandbox: true,
     supportsNetworkToggle: true,
-    supportsApproval: true,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -84,7 +82,6 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   gemini: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
-    supportsApproval: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -94,7 +91,6 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   'gemini-sdk': {
     supportsSandbox: false,
     supportsNetworkToggle: false,
-    supportsApproval: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -104,7 +100,6 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   qwen: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
-    supportsApproval: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -114,7 +109,6 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   crush: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
-    supportsApproval: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -124,7 +118,6 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   goose: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
-    supportsApproval: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -134,7 +127,6 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   openrouter: {
     supportsSandbox: false,
     supportsNetworkToggle: false,
-    supportsApproval: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -144,7 +136,6 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   openai: {
     supportsSandbox: false,
     supportsNetworkToggle: false,
-    supportsApproval: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -204,10 +195,17 @@ export class PolicyConformanceChecker {
     }
 
     // --- approvalRequired ---
-    if (policy.approvalRequired && !caps.supportsApproval) {
+    const approvalSupport = getProviderCapabilities(provider)?.approvalSupport ?? 'host-gated'
+    if (policy.approvalRequired && approvalSupport === 'provider-config') {
       violations.push({
         field: 'approvalRequired',
-        reason: `Provider '${provider}' does not support native approval gates. Use the OrchestratorFacade approval gate instead.`,
+        reason: `Provider '${provider}' supports approval through provider-config projection, not direct AdapterPolicy runtime options. Apply adapter-rules projection or use the OrchestratorFacade approval gate.`,
+        severity: 'warning',
+      })
+    } else if (policy.approvalRequired && approvalSupport === 'host-gated') {
+      violations.push({
+        field: 'approvalRequired',
+        reason: `Provider '${provider}' does not support native or provider-config approval gates. Use the OrchestratorFacade approval gate instead.`,
         severity: 'warning',
       })
     }

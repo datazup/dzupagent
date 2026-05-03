@@ -1,6 +1,8 @@
 import type { AdapterProviderId } from './types.js'
+import type { AdapterMonitorStatus } from './types.js'
 
 export type MonitorTier = 'deep' | 'partial' | 'artifact-backed' | 'none'
+export type ApprovalSupportTier = 'native' | 'provider-config' | 'host-gated'
 
 export interface ProviderCapabilities {
   runtimeExecution: boolean
@@ -8,6 +10,20 @@ export interface ProviderCapabilities {
   httpAdapterRouting: boolean
   monitorIntrospection: MonitorTier
   supportsReplay: boolean
+  /**
+   * Distinguishes approval behavior by enforcement surface:
+   * - native: AdapterPolicy can map approval directly into runtime config/options.
+   * - provider-config: adapter-rules can project approval into provider config,
+   *   but AdapterPolicy callers still need a rule-aware bridge or host gate.
+   * - host-gated: approval must be enforced by the host/orchestrator.
+   */
+  approvalSupport: ApprovalSupportTier
+  /**
+   * True when the provider has a native/provider-config projection path for
+   * policy effects. Generic policy compiler guardrail hints are not enough for
+   * this flag; API-only providers can still receive maxTurns or host-side
+   * guardrails without advertising native projection support.
+   */
   supportsPolicyProjection: boolean
   supportsSkillProjection: boolean
 }
@@ -44,6 +60,7 @@ export const PROVIDER_CATALOG = {
     httpAdapterRouting: true,
     monitorIntrospection: 'deep',
     supportsReplay: true,
+    approvalSupport: 'native',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
   },
@@ -53,6 +70,7 @@ export const PROVIDER_CATALOG = {
     httpAdapterRouting: true,
     monitorIntrospection: 'deep',
     supportsReplay: true,
+    approvalSupport: 'native',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
   },
@@ -62,6 +80,7 @@ export const PROVIDER_CATALOG = {
     httpAdapterRouting: true,
     monitorIntrospection: 'partial',
     supportsReplay: false,
+    approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
   },
@@ -71,6 +90,7 @@ export const PROVIDER_CATALOG = {
     httpAdapterRouting: true,
     monitorIntrospection: 'partial',
     supportsReplay: false,
+    approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
   },
@@ -80,6 +100,7 @@ export const PROVIDER_CATALOG = {
     httpAdapterRouting: true,
     monitorIntrospection: 'artifact-backed',
     supportsReplay: false,
+    approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
   },
@@ -89,6 +110,7 @@ export const PROVIDER_CATALOG = {
     httpAdapterRouting: true,
     monitorIntrospection: 'artifact-backed',
     supportsReplay: false,
+    approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
   },
@@ -98,6 +120,7 @@ export const PROVIDER_CATALOG = {
     httpAdapterRouting: false,
     monitorIntrospection: 'none',
     supportsReplay: false,
+    approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
   },
@@ -107,7 +130,8 @@ export const PROVIDER_CATALOG = {
     httpAdapterRouting: true,
     monitorIntrospection: 'none',
     supportsReplay: false,
-    supportsPolicyProjection: true,
+    approvalSupport: 'host-gated',
+    supportsPolicyProjection: false,
     supportsSkillProjection: true,
   },
   openai: {
@@ -116,7 +140,8 @@ export const PROVIDER_CATALOG = {
     httpAdapterRouting: true,
     monitorIntrospection: 'none',
     supportsReplay: false,
-    supportsPolicyProjection: true,
+    approvalSupport: 'host-gated',
+    supportsPolicyProjection: false,
     supportsSkillProjection: true,
   },
 } satisfies Record<AdapterProviderId, ProviderCapabilities>
@@ -144,4 +169,21 @@ export function getProductProviders(): AdapterProviderId[] {
 /** Returns capabilities for a given provider ID, or undefined if unknown. */
 export function getProviderCapabilities(id: string): ProviderCapabilities | undefined {
   return PROVIDER_CATALOG[id as AdapterProviderId]
+}
+
+/** Returns the default idle monitor status implied by provider catalog metadata. */
+export function getDefaultMonitorStatus(providerId: AdapterProviderId): AdapterMonitorStatus {
+  const tier = getProviderCapabilities(providerId)?.monitorIntrospection ?? 'none'
+  if (tier === 'none') {
+    return {
+      state: 'unsupported',
+      supported: false,
+      monitorIntrospection: tier,
+    }
+  }
+  return {
+    state: 'not_configured',
+    supported: true,
+    monitorIntrospection: tier,
+  }
 }

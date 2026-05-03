@@ -31,7 +31,7 @@ import type {
   TaskRoutingStrategy,
   TokenUsage,
 } from '../types.js'
-import { getProviderCapabilities } from '../provider-catalog.js'
+import { getDefaultMonitorStatus, getProviderCapabilities } from '../provider-catalog.js'
 
 import { TagBasedRouter } from './task-router.js'
 
@@ -59,6 +59,8 @@ export interface ProviderAdapterHealthDetail {
   lastSuccessAt?: number | undefined
   /** Last failure timestamp */
   lastFailureAt?: number | undefined
+  /** Optional artifact/config monitor status for this provider. */
+  monitorStatus?: HealthStatus['monitorStatus'] | undefined
 }
 
 /** Aggregated detailed health status for all registered adapters. */
@@ -444,10 +446,14 @@ export class ProviderAdapterRegistry {
     for (const check of checks) {
       if (check.status === 'fulfilled') {
         const { id, health } = check.value
+        const healthWithMonitorStatus = {
+          ...health,
+          monitorStatus: health.monitorStatus ?? getDefaultMonitorStatus(id),
+        }
         if (this.disabledAdapters.has(id)) {
-          result[id] = { ...health, healthy: false, lastError: 'disabled' }
+          result[id] = { ...healthWithMonitorStatus, healthy: false, lastError: 'disabled' }
         } else {
-          result[id] = health
+          result[id] = healthWithMonitorStatus
         }
       } else {
         // If healthCheck itself throws, synthesize a status
@@ -462,6 +468,7 @@ export class ProviderAdapterRegistry {
             sdkInstalled: false,
             cliAvailable: false,
             lastError: check.reason instanceof Error ? check.reason.message : String(check.reason),
+            monitorStatus: getDefaultMonitorStatus(id),
           }
         }
       }

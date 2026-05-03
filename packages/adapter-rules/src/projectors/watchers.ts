@@ -84,30 +84,66 @@ export function buildWatcherRegistrations(
   })
 
   for (const rule of rules) {
-    for (const provider of rule.appliesToProviders) {
-      const spec = PROVIDER_WATCHERS[provider]
-      if (spec === undefined) continue
-
-      for (const projectPath of spec.project) {
-        push({
-          path: resolveProjectPath(projectPath, context),
-          provider,
-          watchClass: 'project',
-          description: `${provider} project-local configuration`,
-        })
-      }
-      for (const homePath of spec.home) {
-        push({
-          path: homePath,
-          provider,
-          watchClass: 'home',
-          description: `${provider} user-home configuration`,
-        })
-      }
+    for (const provider of resolveProviderTargets(rule, context)) {
+      pushProviderWatchers(provider, context, push)
     }
   }
 
   return registrations
+}
+
+export function buildDefaultWatcherRegistrations(
+  context: CompileContext,
+): WatcherRegistration[] {
+  const registrations: WatcherRegistration[] = []
+  const seen = new Set<string>()
+
+  const push = (registration: WatcherRegistration): void => {
+    if (seen.has(registration.path)) return
+    seen.add(registration.path)
+    registrations.push(registration)
+  }
+
+  push({
+    ...DZUPAGENT_WATCHER,
+    path: resolveProjectPath(DZUPAGENT_WATCHER.path, context),
+  })
+  pushProviderWatchers(context.providerId, context, push)
+  return registrations
+}
+
+function resolveProviderTargets(rule: AdapterRule, context: CompileContext): string[] {
+  const providers = new Set<string>()
+  for (const provider of rule.appliesToProviders) {
+    providers.add(provider === '*' ? context.providerId : provider)
+  }
+  return [...providers]
+}
+
+function pushProviderWatchers(
+  provider: string,
+  context: CompileContext,
+  push: (registration: WatcherRegistration) => void,
+): void {
+  const spec = PROVIDER_WATCHERS[provider]
+  if (spec === undefined) return
+
+  for (const projectPath of spec.project) {
+    push({
+      path: resolveProjectPath(projectPath, context),
+      provider,
+      watchClass: 'project',
+      description: `${provider} project-local configuration`,
+    })
+  }
+  for (const homePath of spec.home) {
+    push({
+      path: homePath,
+      provider,
+      watchClass: 'home',
+      description: `${provider} user-home configuration`,
+    })
+  }
 }
 
 function resolveProjectPath(relative: string, context: CompileContext): string {
