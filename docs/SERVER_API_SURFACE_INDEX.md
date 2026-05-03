@@ -1,6 +1,6 @@
 # Server API Surface Index
 
-Date: 2026-04-30
+Date: 2026-05-03
 
 Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`.
 
@@ -33,7 +33,7 @@ Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`
 
 | Source Module | Tier | Area | Root Exposure | Export Count | Sample Exports |
 | --- | --- | --- | --- | ---: | --- |
-| `./app.js` | `stable` | `app` | `keep-root` | 11 | `createForgeApp`, `ForgeServerConfig`, `ForgeRouteFamiliesConfig`, `ForgeMemoryRouteFamilyConfig` |
+| `./app.js` | `stable` | `app` | `keep-root` | 12 | `createForgeApp`, `ForgeServerConfig`, `ForgeHostRuntimeConfig`, `ForgeRouteFamiliesConfig` |
 | `./route-plugin.js` | `stable` | `extensibility` | `keep-root` | 2 | `ServerRoutePlugin`, `ServerRoutePluginContext` |
 | `./routes/runs.js` | `stable` | `routes-core` | `keep-root` | 1 | `createRunRoutes` |
 | `./routes/agents.js` | `stable` | `routes-core` | `keep-root` | 2 | `createAgentDefinitionRoutes`, `createAgentRoutes` |

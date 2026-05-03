@@ -49,7 +49,18 @@ Top-level package layout:
 
 Entry surfaces inside source:
 - Plane files exist (`src/providers.ts`, `src/orchestration.ts`, `src/http.ts`, `src/recovery.ts`, `src/workflow.ts`, `src/learning.ts`, `src/persistence.ts`).
-- Published package `exports` currently exposes only `"."` (`dist/index.js` / `dist/index.d.ts`), so root import is the externally declared entrypoint.
+- Published package `exports` expose the compatibility root plus plane subpaths:
+  - `.`
+  - `./providers`
+  - `./orchestration`
+  - `./workflow`
+  - `./http`
+  - `./persistence`
+  - `./runs`
+  - `./integration`
+  - `./learning`
+  - `./recovery`
+- The root import remains the 0.x compatibility barrel. New consumers should prefer the plane subpaths when they only need provider, workflow, HTTP, persistence, run, integration, learning, or recovery surfaces.
 
 ## Runtime and Control Flow
 Core single-run flow (`OrchestratorFacade.run`):
@@ -108,7 +119,7 @@ Primary runtime APIs:
 - Workflow/session: `AdapterWorkflowBuilder` / `defineWorkflow`, `SessionRegistry`, `WorkflowCheckpointer`, `ConversationCompressor`, `DefaultCompactionStrategy`
 - Governance and control: `AdapterGuardrails`, `AdapterApprovalGate`, `AdapterRecoveryCopilot`, `compilePolicyForProvider`, `PolicyConformanceChecker`
 - Integration APIs: `AdapterHttpHandler`, `AgentIntegrationBridge`, `RegistryExecutionPort`, `createAdapterPlugin`, `AdapterPluginLoader`, `MCPToolSharingBridge`, `InMemoryMcpAdapterManager`
-- Persistence and runs: `FileCheckpointStore`, `RunManager`, `RunEventStore`
+- Persistence and runs: `FileCheckpointStore`, `RunManager`, `RunEventStore`, `ScriptRunEventStore`
 
 Provider catalog and product gating:
 - `PROVIDER_CATALOG` defines runtime/product/monitoring capabilities.
@@ -117,7 +128,7 @@ Provider catalog and product gating:
 
 ## Dependencies
 Package metadata (`package.json`):
-- Runtime dependencies: `@dzupagent/adapter-types`, `@dzupagent/agent`, `@dzupagent/core`.
+- Runtime dependencies: `@dzupagent/adapter-types`, `@dzupagent/agent`, `@dzupagent/agent-types`, `@dzupagent/core`, `@dzupagent/runtime-contracts`.
 - Peer dependencies: `@langchain/core`, `zod`.
 - Optional dependencies: `@anthropic-ai/claude-agent-sdk`, `@openai/codex-sdk`.
 
@@ -127,7 +138,7 @@ Runtime/tooling dependencies used by source:
 - Build/test toolchain: `tsup`, `typescript`, `vitest`.
 
 Build packaging:
-- `tsup` entry: `src/index.ts`.
+- `tsup` entries: `src/index.ts`, `src/providers.ts`, `src/orchestration.ts`, `src/workflow.ts`, `src/http.ts`, `src/persistence.ts`, `src/learning.ts`, `src/recovery.ts`, `src/runs/index.ts`, and `src/integration/index.ts`.
 - Output format: ESM + declaration files.
 - `external` marks workspace `@dzupagent/*` imports and optional SDKs as external.
 
@@ -171,15 +182,16 @@ Observability surfaces:
 - `CostTrackingMiddleware` aggregates usage/cost and emits budget events.
 - `StreamingHandler` serializes event streams as SSE/JSONL/NDJSON with progress tracking.
 - Recovery trace store (`ExecutionTraceCapture`) preserves route/recovery decisions and observed events.
+- `ScriptRunEventStore` persists and reads neutral managed-run events, artifact indexes, typed validation/review/approval records, snapshots, and summary counters for script-driven audit/planning/execution runs.
 
 ## Risks and TODOs
-- Package export map only declares `"."`; plane entry files (`src/http.ts`, `src/workflow.ts`, etc.) exist but are not declared as package subpath exports.
+- The root barrel is still broad for 0.x compatibility. Avoid adding new public surfaces to `src/index.ts` by default; prefer explicit plane subpaths and keep `docs/PUBLIC_API_SURFACE_ALLOWLISTS.md` updated when the public API changes.
 - `request-schemas.ts` provider enum omits `openai` and `gemini-sdk`, while both provider IDs exist in adapter/runtime types.
 - `PROVIDER_CATALOG` omits an `openai` entry; `registerProductionAdapters()` relies on catalog lookup and can silently skip providers not cataloged.
 - `GeminiSDKAdapter` depends on runtime availability of `@google/generative-ai`, but that package is loaded dynamically and is not declared in package dependencies/optionalDependencies.
-- Source imports `@dzupagent/agent-types` (`guardrails/adapter-guardrails.ts`), but package metadata does not list it as a dependency/peer/optional dependency.
-- Architecture drift test (`src/__tests__/architecture-doc.test.ts`) still asserts legacy heading strings from the old doc format and may fail against the new required section layout.
+- `src/__tests__/architecture-doc.test.ts` guards both root and `docs/ARCHITECTURE.md` architecture docs against package export-map drift.
 
 ## Changelog
+- 2026-05-03: documented `ScriptRunEventStore` as the managed-run persistence surface for typed validation/review/approval evidence.
+- 2026-05-02: refreshed package export/subpath and dependency notes against current package metadata.
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
