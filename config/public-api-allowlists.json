@@ -372,7 +372,8 @@
         { "match": "exact", "pattern": "./planning.js" },
         { "match": "exact", "pattern": "./execution.js" },
         { "match": "exact", "pattern": "./ledger.js" },
-        { "match": "exact", "pattern": "./schedule.js" }
+        { "match": "exact", "pattern": "./schedule.js" },
+        { "match": "exact", "pattern": "./script-runs.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},
