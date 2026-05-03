@@ -17,7 +17,21 @@ export interface CostLedgerEntry {
   recordedAt: number
 }
 
-export type ArtifactType = 'plan' | 'report' | 'patch' | 'log' | 'diff' | 'spec' | 'brief'
+export type ArtifactType =
+  | 'plan'
+  | 'report'
+  | 'patch'
+  | 'log'
+  | 'diff'
+  | 'spec'
+  | 'brief'
+  | 'validation'
+  | 'approval'
+  | 'review'
+  | 'manifest'
+  | 'harness'
+  | 'event-log'
+  | 'screenshot'
 
 export interface Artifact {
   id: string

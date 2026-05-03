@@ -67,6 +67,9 @@ export interface AggregatedDelegationResult {
   totalDurationMs: number
 }
 
+/** Behavior when a parallel batch repeats a specialist without stable assignment IDs. */
+export type DuplicateSpecialistAssignmentIdMode = 'allow' | 'warn' | 'strict'
+
 /** Options for a single delegated task execution. */
 export interface DelegateTaskOptions {
   /** Stable run ID to correlate provider-port execution. */
@@ -85,6 +88,17 @@ export interface DelegatingSupervisorConfig {
   parentContext?: DelegationContext
   /** Event bus for lifecycle events */
   eventBus?: DzupEventBus
+  /**
+   * Guard direct delegateAndCollect() callers from result-key collisions.
+   *
+   * PlanningAgent.executePlan() already passes TaskAssignment.id = node.id.
+   * Direct callers that repeat the same specialist should pass stable IDs for
+   * every assignment in the duplicate-specialist batch.
+   *
+   * Defaults to "warn" so legacy direct callers keep working while surfacing
+   * the collision risk. Use "strict" to fail before delegation starts.
+   */
+  duplicateSpecialistAssignmentIdMode?: DuplicateSpecialistAssignmentIdMode
   /**
    * Provider execution port for adapter-based execution.
    * When set, `delegateTask` routes through `providerPort.run()`
@@ -162,6 +176,12 @@ const KEYWORD_TAG_MAP: ReadonlyMap<string, string[]> = new Map([
 
 const CIRCUIT_BREAKER_RECORDED = Symbol('circuitBreakerRecorded')
 
+interface DuplicateSpecialistAssignmentIdWarning {
+  specialistId: string
+  assignmentIndexes: number[]
+  missingAssignmentIdIndexes: number[]
+}
+
 function isTimeoutError(message: string | undefined): boolean {
   return message?.toLowerCase().includes('timeout') ?? false
 }
@@ -187,6 +207,54 @@ function hasCircuitBreakerRecorded(error: unknown): boolean {
   )
 }
 
+function findDuplicateSpecialistAssignmentsWithoutIds(
+  tasks: TaskAssignment[],
+): DuplicateSpecialistAssignmentIdWarning[] {
+  const bySpecialist = new Map<string, number[]>()
+
+  tasks.forEach((task, index) => {
+    const indexes = bySpecialist.get(task.specialistId)
+    if (indexes) {
+      indexes.push(index)
+    } else {
+      bySpecialist.set(task.specialistId, [index])
+    }
+  })
+
+  const warnings: DuplicateSpecialistAssignmentIdWarning[] = []
+  for (const [specialistId, assignmentIndexes] of bySpecialist) {
+    if (assignmentIndexes.length < 2) continue
+
+    const missingAssignmentIdIndexes = assignmentIndexes.filter((index) => {
+      const id = tasks[index]?.id
+      return id === undefined || id.length === 0
+    })
+
+    if (missingAssignmentIdIndexes.length === 0) continue
+    warnings.push({
+      specialistId,
+      assignmentIndexes,
+      missingAssignmentIdIndexes,
+    })
+  }
+
+  return warnings
+}
+
+function formatDuplicateSpecialistAssignmentIdMessage(
+  warnings: DuplicateSpecialistAssignmentIdWarning[],
+): string {
+  const details = warnings
+    .map((warning) => {
+      const allIndexes = warning.assignmentIndexes.join(', ')
+      const missingIndexes = warning.missingAssignmentIdIndexes.join(', ')
+      return `${warning.specialistId} at indexes ${allIndexes} (missing IDs at ${missingIndexes})`
+    })
+    .join('; ')
+
+  return `delegateAndCollect received duplicate specialist assignments without stable assignment IDs: ${details}. Provide TaskAssignment.id for every assignment in duplicate-specialist batches.`
+}
+
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
@@ -200,6 +268,7 @@ export class DelegatingSupervisor {
   private readonly routingPolicy: RoutingPolicy | undefined
   private readonly mergeStrategy: OrchestrationMergeStrategy | undefined
   private readonly circuitBreaker: AgentCircuitBreaker | undefined
+  private readonly duplicateSpecialistAssignmentIdMode: DuplicateSpecialistAssignmentIdMode
 
   constructor(config: DelegatingSupervisorConfig) {
     this.specialists = config.specialists
@@ -210,6 +279,7 @@ export class DelegatingSupervisor {
     this.routingPolicy = config.routingPolicy
     this.mergeStrategy = config.mergeStrategy
     this.circuitBreaker = config.circuitBreaker
+    this.duplicateSpecialistAssignmentIdMode = config.duplicateSpecialistAssignmentIdMode ?? 'warn'
   }
 
   /**
@@ -367,6 +437,8 @@ export class DelegatingSupervisor {
       effectiveTasks = filtered
     }
 
+    this.guardDuplicateSpecialistAssignmentIds(effectiveTasks)
+
     // Validate all specialists exist before starting any work
     for (const assignment of effectiveTasks) {
       if (!this.specialists.has(assignment.specialistId)) {
@@ -456,6 +528,28 @@ export class DelegatingSupervisor {
       failed,
       totalDurationMs: Date.now() - start,
     }
+  }
+
+  private guardDuplicateSpecialistAssignmentIds(tasks: TaskAssignment[]): void {
+    if (this.duplicateSpecialistAssignmentIdMode === 'allow') return
+
+    const warnings = findDuplicateSpecialistAssignmentsWithoutIds(tasks)
+    if (warnings.length === 0) return
+
+    const message = formatDuplicateSpecialistAssignmentIdMessage(warnings)
+    if (this.duplicateSpecialistAssignmentIdMode === 'strict') {
+      throw new OrchestrationError(message, 'delegation', {
+        duplicateSpecialists: warnings,
+      })
+    }
+
+    const event = {
+      type: 'supervisor:duplicate_specialist_assignment_ids',
+      mode: 'warn',
+      duplicateSpecialists: warnings,
+      message,
+    } as const
+    this.eventBus?.emit(event as unknown as Parameters<DzupEventBus['emit']>[0])
   }
 
   /**
@@ -622,7 +716,7 @@ export class DelegatingSupervisor {
       const candidateSpecialists = decision.diagnostics?.candidateIds ??
         candidates.map((agent) => agent.id)
       for (const selected of decision.selected) {
-        const routingEvent = {
+        const routingEvent = omitUndefined({
           type: 'supervisor:routing_decision',
           agentId: selected.id,
           strategy: decision.strategy,
@@ -631,7 +725,7 @@ export class DelegatingSupervisor {
           selectedCandidates,
           candidateSpecialists,
           source: 'delegating-supervisor',
-        } as const
+        } as const)
         this.eventBus?.emit(routingEvent)
       }
 

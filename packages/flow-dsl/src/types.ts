@@ -16,22 +16,51 @@ export interface DslDiagnostic {
   suggestion?: string
 }
 
-export interface ParseDslResult {
-  document: FlowDocumentV1 | null
+export interface NormalizeDslSuccess {
+  ok: true
+  document: FlowDocumentV1
+  partialDocument: null
+  diagnostics: []
+}
+
+export interface NormalizeDslFailure {
+  ok: false
+  document: null
+  partialDocument: FlowDocumentV1 | null
   diagnostics: DslDiagnostic[]
 }
+
+export type NormalizeDslResult = NormalizeDslSuccess | NormalizeDslFailure
+
+export interface ParseDslSuccess {
+  ok: true
+  document: FlowDocumentV1
+  partialDocument: null
+  diagnostics: []
+}
+
+export interface ParseDslFailure {
+  ok: false
+  document: null
+  partialDocument: FlowDocumentV1 | null
+  diagnostics: DslDiagnostic[]
+}
+
+export type ParseDslResult = ParseDslSuccess | ParseDslFailure
 
 export interface CanonicalizeDslSuccess {
   ok: true
   document: FlowDocumentV1
   flowInput: FlowDocumentV1['root']
   derivedGraph: DerivedGraph
+  partialDocument: null
   diagnostics: []
 }
 
 export interface CanonicalizeDslFailure {
   ok: false
   document: null
+  partialDocument: FlowDocumentV1 | null
   flowInput: null
   derivedGraph: null
   diagnostics: DslDiagnostic[]

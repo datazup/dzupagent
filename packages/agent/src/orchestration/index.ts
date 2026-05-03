@@ -40,6 +40,7 @@ export type {
   TaskAssignment,
   AggregatedDelegationResult,
   DelegateTaskOptions,
+  DuplicateSpecialistAssignmentIdMode,
 } from './delegating-supervisor.js'
 
 export { TopologyAnalyzer } from './topology/topology-analyzer.js'

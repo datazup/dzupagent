@@ -8,6 +8,7 @@
 import type { DzupEvent } from '@dzupagent/core'
 
 import {
+  adapterRuntimeMetricMap,
   agentLifecycleMetricMap,
   approvalMetricMap,
   budgetMetricMap,
@@ -41,6 +42,7 @@ import type { MetricMapping } from './event-metric-map/index.js'
  * Events not listed here (mapped to empty arrays) produce no metrics.
  */
 export const EVENT_METRIC_MAP = {
+  ...adapterRuntimeMetricMap,
   ...agentLifecycleMetricMap,
   ...toolLifecycleMetricMap,
   ...memoryCoreMetricMap,

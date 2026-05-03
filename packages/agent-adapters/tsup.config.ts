@@ -10,6 +10,8 @@ export default defineConfig({
     'src/persistence.ts',
     'src/learning.ts',
     'src/recovery.ts',
+    'src/runs/index.ts',
+    'src/integration/index.ts',
   ],
   format: ['esm'],
   dts: true,

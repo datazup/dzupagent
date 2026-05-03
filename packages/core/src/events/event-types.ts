@@ -357,6 +357,16 @@ export type DzupEvent =
   | { type: 'supervisor:plan_created'; goal: string; assignments: Array<{ task: string; specialistId: string }>; source?: 'llm' | 'keyword' }
   | { type: 'supervisor:llm_decompose_fallback'; goal: string; error: string }
   | { type: 'supervisor:circuit_breaker_filtered'; skipped: string[] }
+  | {
+      type: 'supervisor:duplicate_specialist_assignment_ids'
+      mode: 'warn'
+      duplicateSpecialists: Array<{
+        specialistId: string
+        assignmentIndexes: number[]
+        missingAssignmentIdIndexes: number[]
+      }>
+      message: string
+    }
   | { type: 'supervisor:merge_complete'; mergeStatus: string; successCount: number; errorCount: number }
   | {
       type: 'supervisor:routing_decision'
@@ -522,6 +532,20 @@ export type DzupEvent =
       compileId: string
       target: 'skill-chain' | 'workflow-builder' | 'pipeline'
       artifact: unknown
+      evidence?: {
+        schema: 'dzupagent.flowCompileEvidence/v1'
+        sourceKind: 'flow-object' | 'flow-json-string' | 'flow-document' | 'dzupflow-dsl'
+        sourceHash: string
+        compileId: string
+        canonicalNodeIds: string[]
+        canonicalNodePaths: Record<string, { type: string; id?: string }>
+        loweredTarget: 'skill-chain' | 'workflow-builder' | 'pipeline'
+        correlationIds: {
+          compileId: string
+          eventCorrelationId: string
+          runId?: string
+        }
+      }
       warnings: Array<{ stage: 4; code: string; message: string; nodePath?: string }>
       reasons: Array<{
         code:

@@ -24,8 +24,9 @@
  * parse + shape-validate + lower. See ADR `DECISIONS_WAVE_11.md`.
  */
 
+import { createHash } from 'node:crypto'
 import { parseFlow } from '@dzupagent/flow-ast'
-import type { ParseInput } from '@dzupagent/flow-ast'
+import type { FlowNode, ParseInput } from '@dzupagent/flow-ast'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import { validateShape } from './stages/shape-validate.js'
@@ -37,14 +38,18 @@ import { lowerPipelineLoop } from './lower/lower-pipeline-loop.js'
 import { hasOnError } from './route-target.js'
 import { prepareFlowInputFromDocument, prepareFlowInputFromDsl } from './authoring-input.js'
 import { compileTextInput, isFlowDocumentJson } from './cli-input.js'
+import { collectFlowArtifactMetadata } from './flow-artifact-metadata.js'
 
 import type {
   CompilerOptions,
+  CompileInvocationOptions,
   CompilationError,
   CompilationTarget,
   CompilationTargetReason,
   CompilationWarning,
   CompileFailure,
+  FlowCompileEvidence,
+  FlowCompileSourceKind,
   FlowCompiler,
   CompileSuccess,
 } from './types.js'
@@ -137,9 +142,14 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
       ? ((bus: DzupEventBus) => (e: FlowCompileEvent) => bus.emit(e))(opts.eventBus)
       : NOOP_EMIT
 
-  async function compile(input: ParseInput): Promise<CompileSuccess | CompileFailure> {
+  async function compile(
+    input: ParseInput,
+    invocationOptions: CompileInvocationOptions = {},
+  ): Promise<CompileSuccess | CompileFailure> {
       const compileId = crypto.randomUUID()
       const startedAt = Date.now()
+      const sourceKind = invocationOptions.sourceKind ?? defaultSourceKind(input)
+      const sourceHash = hashSource(invocationOptions.source ?? input)
 
       emit({
         type: 'flow:compile_started',
@@ -351,6 +361,14 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
         warnings: toCompilationWarnings(warnings),
         reasons: targetReasons(target, bitmask),
         compileId,
+        evidence: buildCompileEvidence({
+          ast,
+          compileId,
+          target,
+          sourceKind,
+          sourceHash,
+          correlation: invocationOptions.correlation,
+        }),
         diagnosticCountsByCategory: countDiagnosticsByCategory(toCompilationWarnings(warnings)),
       }
   }
@@ -364,7 +382,10 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
         diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
       }
     }
-    return compile(prepared.flowInput)
+    return compile(prepared.flowInput, {
+      sourceKind: 'flow-document',
+      source: document,
+    })
   }
 
   async function compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure> {
@@ -376,13 +397,82 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
         diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
       }
     }
-    return compile(prepared.flowInput)
+    return compile(prepared.flowInput, {
+      sourceKind: 'dzupflow-dsl',
+      source,
+    })
   }
 
   return {
     compile,
     compileDocument,
     compileDsl,
+  }
+}
+
+function defaultSourceKind(input: ParseInput): FlowCompileSourceKind {
+  return typeof input === 'string' ? 'flow-json-string' : 'flow-object'
+}
+
+function hashSource(source: unknown): string {
+  return `sha256:${createHash('sha256').update(stableStringify(source)).digest('hex')}`
+}
+
+function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
+  if (value === null) return 'null'
+  if (typeof value === 'bigint') return JSON.stringify(value.toString())
+  if (typeof value === 'function') return JSON.stringify('[Function]')
+  if (typeof value === 'symbol') return JSON.stringify(value.toString())
+  if (typeof value !== 'object') return JSON.stringify(value) ?? 'undefined'
+  if (seen.has(value)) return JSON.stringify('[Circular]')
+
+  seen.add(value)
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item, seen)).join(',')}]`
+
+  const record = value as Record<string, unknown>
+  const entries = Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`)
+  return `{${entries.join(',')}}`
+}
+
+function buildCompileEvidence(args: {
+  ast: FlowNode
+  compileId: string
+  target: CompilationTarget
+  sourceKind: FlowCompileSourceKind
+  sourceHash: string
+  correlation?: CompileInvocationOptions['correlation']
+}): FlowCompileEvidence {
+  const metadata = collectFlowArtifactMetadata(args.ast)
+  const canonicalNodePaths: FlowCompileEvidence['canonicalNodePaths'] = {}
+  const canonicalNodeIds = new Set<string>()
+
+  for (const [path, node] of Object.entries(metadata.nodes)) {
+    canonicalNodePaths[path] = {
+      type: node.type,
+      ...(node.id !== undefined ? { id: node.id } : {}),
+    }
+    if (node.id !== undefined && node.id.length > 0) {
+      canonicalNodeIds.add(node.id)
+    }
+  }
+
+  const eventCorrelationId = args.correlation?.eventCorrelationId ?? args.compileId
+
+  return {
+    schema: 'dzupagent.flowCompileEvidence/v1',
+    sourceKind: args.sourceKind,
+    sourceHash: args.sourceHash,
+    compileId: args.compileId,
+    canonicalNodeIds: [...canonicalNodeIds].sort(),
+    canonicalNodePaths,
+    loweredTarget: args.target,
+    correlationIds: {
+      compileId: args.compileId,
+      eventCorrelationId,
+      ...(args.correlation?.runId ? { runId: args.correlation.runId } : {}),
+    },
   }
 }
 

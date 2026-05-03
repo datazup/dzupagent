@@ -521,8 +521,32 @@ export type { InteractionRequest, InteractionResult } from './interaction/intera
 
 // --- Run Event Store ---
 export { RunEventStore } from './runs/run-event-store.js'
+export { ScriptRunEventStore } from './runs/script-run-event-store.js'
 export { runLogRoot } from './runs/run-log-root.js'
 export type { RawAgentEvent, ProviderRawStreamEvent, AgentArtifactEvent, RunSummary } from '@dzupagent/adapter-types'
+export type {
+  AppendManagedArtifactInput,
+  AppendManagedRunEventInput,
+  ManagedRunSummaryInput,
+  RecordManagedApprovalDecisionInput,
+  RecordManagedArtifactFileInput,
+  RecordManagedReviewDecisionInput,
+  RecordManagedValidationInput,
+  ApprovalDecision,
+  ApprovalDecisionRecord,
+  ManagedArtifactRef,
+  ManagedArtifactType,
+  ManagedRunEvent,
+  ManagedRunEventLevel,
+  ManagedRunEventType,
+  ManagedRunStatus,
+  ManagedRunSummary,
+  ManagedRunSnapshot,
+  ReviewDecision,
+  ReviewDecisionRecord,
+  ValidationRecord,
+  ValidationStatus,
+} from './runs/script-run-event-store.js'
 
 // --- Provider Catalog ---
 export {

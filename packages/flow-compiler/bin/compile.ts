@@ -167,6 +167,7 @@ async function main(): Promise<number> {
       compileId: result.compileId,
       target: result.target,
       artifact: result.artifact,
+      evidence: result.evidence,
       warnings: result.warnings,
       reasons: result.reasons,
     })
