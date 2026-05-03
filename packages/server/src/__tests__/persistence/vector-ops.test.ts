@@ -257,17 +257,17 @@ describe('DrizzleVectorStore', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Module exports — verify everything is re-exported from index
+// Module exports — verify everything is re-exported from the reviewed ops subpath
 // ---------------------------------------------------------------------------
 
-describe('server index exports', { timeout: 90_000 }, () => {
+describe('server ops exports', { timeout: 90_000 }, () => {
   it('exports vectorColumn', async () => {
-    const mod = await import('../../index.js')
+    const mod = await import('../../ops.js')
     expect(mod.vectorColumn).toBeDefined()
   })
 
   it('exports distance functions', async () => {
-    const mod = await import('../../index.js')
+    const mod = await import('../../ops.js')
     expect(mod.cosineDistance).toBeDefined()
     expect(mod.l2Distance).toBeDefined()
     expect(mod.innerProduct).toBeDefined()
@@ -275,12 +275,12 @@ describe('server index exports', { timeout: 90_000 }, () => {
   })
 
   it('exports DrizzleVectorStore', async () => {
-    const mod = await import('../../index.js')
+    const mod = await import('../../ops.js')
     expect(mod.DrizzleVectorStore).toBeDefined()
   })
 
   it('exports forgeVectors table', async () => {
-    const mod = await import('../../index.js')
+    const mod = await import('../../ops.js')
     expect(mod.forgeVectors).toBeDefined()
   })
 })

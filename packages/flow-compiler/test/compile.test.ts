@@ -98,6 +98,71 @@ describe('createFlowCompiler — forwardInnerEvents guard', () => {
 // ---------------------------------------------------------------------------
 
 describe('createFlowCompiler — happy path skill-chain', () => {
+  it('attaches source, target, node-id, and correlation evidence to success results', async () => {
+    const resolver = makeResolver(['pm.create_task'])
+    const compiler = createFlowCompiler({ toolResolver: resolver })
+
+    const input = {
+      type: 'action',
+      id: 'step-create',
+      toolRef: 'pm.create_task',
+      input: {},
+    }
+
+    const result = await compiler.compile(input, {
+      sourceKind: 'flow-object',
+      source: input,
+      correlation: { runId: 'run-1' },
+    })
+
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) {
+      throw new Error('expected compile success')
+    }
+
+    expect(result.evidence).toMatchObject({
+      schema: 'dzupagent.flowCompileEvidence/v1',
+      sourceKind: 'flow-object',
+      compileId: result.compileId,
+      canonicalNodeIds: ['step-create'],
+      loweredTarget: 'skill-chain',
+      correlationIds: {
+        compileId: result.compileId,
+        eventCorrelationId: result.compileId,
+        runId: 'run-1',
+      },
+    })
+    expect(result.evidence.sourceHash).toMatch(/^sha256:[a-f0-9]{64}$/)
+    expect(result.evidence.canonicalNodePaths.root).toEqual({
+      type: 'action',
+      id: 'step-create',
+    })
+  })
+
+  it('marks compileDsl evidence as dzupflow-dsl', async () => {
+    const resolver = makeResolver(['pm.create_task'])
+    const compiler = createFlowCompiler({ toolResolver: resolver })
+
+    const result = await compiler.compileDsl(`
+dsl: dzupflow/v1
+id: evidence_flow
+version: 1
+steps:
+  - action:
+      id: step-create
+      ref: pm.create_task
+      input: {}
+`)
+
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) {
+      throw new Error('expected compile success')
+    }
+
+    expect(result.evidence.sourceKind).toBe('dzupflow-dsl')
+    expect(result.evidence.canonicalNodeIds).toContain('step-create')
+  })
+
   it('compiles a 2-action sequence to a SkillChain artifact', async () => {
     const resolver = makeResolver(['pm.create_task', 'pm.update_task'])
     const compiler = createFlowCompiler({ toolResolver: resolver })

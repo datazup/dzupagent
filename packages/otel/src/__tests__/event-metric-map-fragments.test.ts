@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { adapterRuntimeMetricMap } from '../event-metric-map/adapter-runtime.js'
 import { agentLifecycleMetricMap } from '../event-metric-map/agent-lifecycle.js'
 import { toolLifecycleMetricMap } from '../event-metric-map/tool-lifecycle.js'
 import { memoryCoreMetricMap } from '../event-metric-map/memory-core.js'
@@ -344,6 +345,53 @@ describe('flow-compile metric map', () => {
     expect(mappings[0]!.extract(event)).toEqual({ value: 1, labels: { stage: '3' } })
     expect(mappings[1]!.extract(event)).toEqual({ value: 2, labels: { stage: '3' } })
     expect(mappings[2]!.extract(event)).toEqual({ value: 60, labels: { stage: '3' } })
+  })
+})
+
+describe('adapter-runtime metric map', () => {
+  it('adapter:progress records phase and provider labels', () => {
+    const result = extractFirst(adapterRuntimeMetricMap['adapter:progress'], {
+      type: 'adapter:progress',
+      providerId: 'openai',
+      phase: 'streaming',
+      percentage: 75,
+      timestamp: Date.now(),
+    } as DzupEvent)
+
+    expect(result).toEqual({ value: 75, labels: { phase: 'streaming', provider_id: 'openai' } })
+  })
+
+  it('mapreduce:completed records total and reduce duration', () => {
+    const mappings = adapterRuntimeMetricMap['mapreduce:completed']
+    expect(mappings).toHaveLength(3)
+
+    const event = {
+      type: 'mapreduce:completed',
+      totalChunks: 4,
+      successfulChunks: 3,
+      failedChunks: 1,
+      totalDurationMs: 1200,
+      reduceDurationMs: 250,
+    } as DzupEvent
+
+    expect(mappings[1]!.extract(event)).toEqual({ value: 1200, labels: {} })
+    expect(mappings[2]!.extract(event)).toEqual({ value: 250, labels: {} })
+  })
+})
+
+describe('supervisor metric map', () => {
+  it('supervisor:duplicate_specialist_assignment_ids counts duplicate specialists', () => {
+    const result = extractFirst(supervisorMetricMap['supervisor:duplicate_specialist_assignment_ids'], {
+      type: 'supervisor:duplicate_specialist_assignment_ids',
+      mode: 'warn',
+      duplicateSpecialists: [
+        { specialistId: 'reviewer', assignmentIndexes: [0, 1], missingAssignmentIdIndexes: [0, 1] },
+        { specialistId: 'coder', assignmentIndexes: [2, 3], missingAssignmentIdIndexes: [3] },
+      ],
+      message: 'duplicate specialist assignments need stable ids',
+    } as DzupEvent)
+
+    expect(result).toEqual({ value: 2, labels: { mode: 'warn' } })
   })
 })
 

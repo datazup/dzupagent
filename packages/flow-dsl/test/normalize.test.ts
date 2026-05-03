@@ -56,7 +56,9 @@ describe('normalizeDslDocument', () => {
       ],
     })
 
-    expect(result.document?.inputs).toEqual({
+    expect(result.ok).toBe(false)
+    expect(result.document).toBeNull()
+    expect(result.partialDocument?.inputs).toEqual({
       startedAt: {
         type: 'string',
       },

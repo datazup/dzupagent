@@ -324,7 +324,10 @@ describe('POST /api/workflows/compile — JSON branch', () => {
 
     const res = await postCompile(app, { document })
     expect(res.status).toBe(200)
-    expect(mockCompile).toHaveBeenCalledWith(document.root)
+    expect(mockCompile).toHaveBeenCalledWith(document.root, expect.objectContaining({
+      source: document,
+      sourceKind: 'flow-document',
+    }))
   })
 
   it('200 — accepts dzupflow DSL input and compiles the normalized root flow', async () => {
@@ -349,7 +352,37 @@ steps:
       nodes: [
         { type: 'complete', id: 'done', result: 'ok' },
       ],
+    }, expect.objectContaining({
+      sourceKind: 'dzupflow-dsl',
+    }))
+  })
+
+  it('400 — rejects invalid dzupflow DSL before compiler execution', async () => {
+    const app = buildApp()
+
+    const res = await postCompile(app, {
+      dsl: `
+dsl: dzupflow/v1
+id: invalid_partial
+version: 1
+steps:
+  - complete:
+      id: done
+      result: ok
+unknownField: value
+`,
     })
+
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as {
+      ok: boolean
+      stage: number
+      errors: Array<{ code?: string; message?: string }>
+    }
+    expect(body.ok).toBe(false)
+    expect(body.stage).toBe(2)
+    expect(body.errors.some((error) => error.code === 'UNSUPPORTED_FIELD')).toBe(true)
+    expect(mockCompile).not.toHaveBeenCalled()
   })
 
   it('400 — rejects requests that provide more than one compile input', async () => {

@@ -18,7 +18,7 @@ import type { TokenLifecycleLike } from '../routes/run-context.js'
 let shouldAgentThrow = false
 let streamedEvents: Array<{ type: string; data: Record<string, unknown> }> = []
 
-vi.mock('@dzupagent/agent', () => ({
+vi.mock('@dzupagent/agent/runtime', () => ({
   DzupAgent: class {
     async *stream(): AsyncGenerator<
       { type: string; data: Record<string, unknown> },

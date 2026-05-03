@@ -4,7 +4,7 @@ import type { RunExecutionContext } from '../runtime/run-worker.js'
 
 const streamedEvents: Array<{ type: string; data: Record<string, unknown> }> = []
 
-vi.mock('@dzupagent/agent', () => ({
+vi.mock('@dzupagent/agent/runtime', () => ({
   DzupAgent: class {
     async *stream(): AsyncGenerator<{ type: string; data: Record<string, unknown> }, void, undefined> {
       for (const event of streamedEvents) {

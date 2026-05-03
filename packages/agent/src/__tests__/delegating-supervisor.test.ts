@@ -432,6 +432,60 @@ describe('DelegatingSupervisor', () => {
         assignmentId: 'node-b',
         specialistId: 'agent-coder',
       })
+      expect(events.some((e) => e.type === 'supervisor:duplicate_specialist_assignment_ids')).toBe(false)
+    })
+
+    it('warns direct callers when duplicate-specialist assignments do not all have IDs', async () => {
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        eventBus,
+        executor: specialistExecutor(store),
+      })
+
+      const supervisor = new DelegatingSupervisor({
+        specialists: new Map([
+          ['agent-coder', makeSpecialist('agent-coder')],
+        ]),
+        tracker,
+        eventBus,
+      })
+
+      await supervisor.delegateAndCollect([
+        { task: 'Implement A', specialistId: 'agent-coder', input: {} },
+        { id: 'node-b', task: 'Implement B', specialistId: 'agent-coder', input: {} },
+      ])
+
+      const warning = events.find((e) => e.type === 'supervisor:duplicate_specialist_assignment_ids')
+      expect(warning).toMatchObject({
+        mode: 'warn',
+        duplicateSpecialists: [
+          {
+            specialistId: 'agent-coder',
+            assignmentIndexes: [0, 1],
+            missingAssignmentIdIndexes: [0],
+          },
+        ],
+      })
+      expect((warning as { message?: string } | undefined)?.message).toContain('TaskAssignment.id')
+    })
+
+    it('throws before delegation in strict mode when duplicate-specialist assignments do not all have IDs', async () => {
+      const tracker = makeTrackerReturning({ success: true, output: 'ok' })
+
+      const supervisor = new DelegatingSupervisor({
+        specialists: new Map([
+          ['agent-coder', makeSpecialist('agent-coder')],
+        ]),
+        tracker,
+        duplicateSpecialistAssignmentIdMode: 'strict',
+      })
+
+      await expect(supervisor.delegateAndCollect([
+        { task: 'Implement A', specialistId: 'agent-coder', input: {} },
+        { task: 'Implement B', specialistId: 'agent-coder', input: {} },
+      ])).rejects.toThrow('duplicate specialist assignments without stable assignment IDs')
+
+      expect(tracker.delegate).not.toHaveBeenCalled()
     })
 
     it('throws when a specialist in the task list is not registered', async () => {
