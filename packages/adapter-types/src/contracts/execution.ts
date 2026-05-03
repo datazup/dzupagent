@@ -49,6 +49,22 @@ export interface TokenUsage {
   costCents?: number | undefined
 }
 
+/** Runtime status of optional adapter monitor integration. */
+export type AdapterMonitorStatusState =
+  | 'unsupported'
+  | 'not_configured'
+  | 'ready'
+  | 'active'
+  | 'failed_to_start'
+
+export interface AdapterMonitorStatus {
+  state: AdapterMonitorStatusState
+  supported: boolean
+  monitorIntrospection?: string | undefined
+  watchedPathCount?: number | undefined
+  lastError?: string | undefined
+}
+
 /** Health status of an adapter */
 export interface HealthStatus {
   healthy: boolean
@@ -57,6 +73,7 @@ export interface HealthStatus {
   cliAvailable: boolean
   lastError?: string | undefined
   lastSuccessTimestamp?: number | undefined
+  monitorStatus?: AdapterMonitorStatus | undefined
 }
 
 /** Session info for session management */
@@ -104,6 +121,16 @@ export interface AdapterConfig {
    * Adapters that do not use Codex ignore this flag.
    */
   skipGitRepoCheck?: boolean | undefined
+  /**
+   * Normalized reasoning effort level.
+   * Claude maps 'high' to extended thinking; Codex maps to model_reasoning_effort.
+   */
+  reasoning?: 'low' | 'medium' | 'high' | undefined
+  /**
+   * Claude extended thinking budget in tokens. Only applied when reasoning === 'high'
+   * or explicitly set. Ignored by non-Claude adapters.
+   */
+  thinkingBudgetTokens?: number | undefined
 }
 
 /**

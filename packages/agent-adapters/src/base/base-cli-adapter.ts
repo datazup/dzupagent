@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import * as os from 'node:os'
+import { buildDefaultWatcherRegistrations } from '@dzupagent/adapter-rules'
 import { ForgeError } from '@dzupagent/core'
 
 import type {
@@ -11,6 +11,7 @@ import type {
   AgentInput,
   GovernanceEvent,
   HealthStatus,
+  AdapterMonitorStatus,
   EnvFilterConfig,
   InteractionPolicy,
 } from '../types.js'
@@ -19,6 +20,13 @@ import { isBinaryAvailable, spawnAndStreamJsonl } from '../utils/process-helpers
 import type { SpawnJsonlOptions } from '../utils/process-helpers.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
 import type { InteractionKind } from '../interaction/interaction-detector.js'
+import {
+  getAdapterRuleRuntimePlan,
+  resolveAdapterWatchPath,
+  resolveRuntimePlanWatcherPaths,
+} from '../rules.js'
+import { ADAPTER_TRACE_ENV_OPTION } from '../observability/adapter-tracer.js'
+import { getDefaultMonitorStatus, getProviderCapabilities } from '../provider-catalog.js'
 
 /** Default patterns for sensitive env vars that should not leak to child processes */
 const DEFAULT_SENSITIVE_PATTERNS: RegExp[] = [
@@ -68,34 +76,6 @@ interface NormalizedAdapterError {
 }
 
 /**
- * Per-provider relative/home paths that DzupAgent knows may contain run
- * artifacts (sessions, memory snapshots, skill bundles). These are used to
- * seed the {@link ArtifactWatcher} on run start. Entries beginning with `~`
- * are resolved against {@link os.homedir}; other entries are treated as
- * relative to the run's working directory by the watcher integration.
- */
-const PROVIDER_WATCH_SPECS: Partial<Record<string, string[]>> = {
-  claude: ['.claude', '~/.claude'],
-  codex: ['.codex', '~/.codex'],
-  gemini: ['.gemini', '~/.gemini'],
-  qwen: ['.qwen', '~/.qwen'],
-  goose: ['.goosehints', '~/.config/goose', '~/.local/share/goose'],
-  crush: ['.crush', '~/.config/crush', '~/.local/share/crush'],
-}
-
-/**
- * Resolve a provider watch-spec entry to an absolute path. `~` and `~/...`
- * are expanded against the current user's home directory; anything else is
- * resolved against the supplied working directory.
- */
-function resolveWatchPath(entry: string, workingDirectory: string): string {
-  if (entry === '~') return os.homedir()
-  if (entry.startsWith('~/')) return `${os.homedir()}/${entry.slice(2)}`
-  if (entry.startsWith('/')) return entry
-  return `${workingDirectory.replace(/\/$/, '')}/${entry}`
-}
-
-/**
  * Opaque handle returned by an artifact-watcher implementation. The base
  * adapter only needs a way to stop a running watcher; the concrete type is
  * intentionally minimal so the adapter-monitor dependency stays optional.
@@ -138,6 +118,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   private artifactWatcherFactory:
     | ((paths: string[], providerId: AdapterProviderId) => ArtifactWatcherHandle)
     | null = null
+  private monitorStatus: AdapterMonitorStatus
 
   /**
    * Listeners registered via {@link onGovernanceEvent}.  The governance
@@ -158,6 +139,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   constructor(providerId: AdapterProviderId, config: AdapterConfig = {}) {
     this.providerId = providerId
     this.config = { ...config }
+    this.monitorStatus = getDefaultMonitorStatus(providerId)
   }
 
   /**
@@ -362,10 +344,19 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     // ArtifactWatcher integration: start watcher on run begin, stop on end
     // (requires @datazup/dzupagent-adapter-monitor peer). When the peer is
     // not wired via setArtifactWatcherFactory this call is a no-op.
-    const watchSpec = PROVIDER_WATCH_SPECS[this.providerId] ?? []
     const workingDirectory =
       input.workingDirectory ?? this.config.workingDirectory ?? process.cwd()
-    const resolvedPaths = watchSpec.map((p) => resolveWatchPath(p, workingDirectory))
+    const runtimePlan = getAdapterRuleRuntimePlan(input, this.providerId)
+    const defaultWatcherPaths = buildDefaultWatcherRegistrations({
+      providerId: this.providerId,
+      workspaceDir: workingDirectory,
+    }).map((registration) => registration.path)
+    const resolvedPaths = dedupe([
+      ...defaultWatcherPaths.map((p) => resolveAdapterWatchPath(p, workingDirectory)),
+      ...(runtimePlan
+        ? resolveRuntimePlanWatcherPaths(runtimePlan, workingDirectory)
+        : []),
+    ])
     this.startArtifactWatcher(resolvedPaths)
 
     this.currentAbortController = new AbortController()
@@ -374,7 +365,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       : this.currentAbortController.signal
 
     const args = this.buildArgs(input)
-    const env = this.buildEnv()
+    const env = this.buildSpawnEnv(input)
 
     // Set up interaction handling
     const policy = this.resolveInteractionPolicy(input)
@@ -591,6 +582,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       sdkInstalled: cliAvailable,
       cliAvailable,
       lastError: cliAvailable ? undefined : this.getUnavailableBinaryMessage(binary),
+      monitorStatus: this.getMonitorStatus(),
     }
   }
 
@@ -612,6 +604,11 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       | null,
   ): void {
     this.artifactWatcherFactory = factory
+    this.monitorStatus = this.resolveIdleMonitorStatus()
+  }
+
+  getMonitorStatus(): AdapterMonitorStatus {
+    return { ...this.monitorStatus }
   }
 
   /**
@@ -622,13 +619,46 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
    */
   protected startArtifactWatcher(paths: string[]): void {
     if (this.artifactWatcher) return
-    if (!this.artifactWatcherFactory) return
-    if (paths.length === 0) return
+    if (!this.isMonitorSupported()) {
+      this.monitorStatus = this.unsupportedMonitorStatus()
+      return
+    }
+    if (!this.artifactWatcherFactory) {
+      this.monitorStatus = {
+        ...this.monitorBase(),
+        state: 'not_configured',
+        supported: true,
+        watchedPathCount: paths.length,
+      }
+      return
+    }
+    if (paths.length === 0) {
+      this.monitorStatus = {
+        ...this.monitorBase(),
+        state: 'not_configured',
+        supported: true,
+        watchedPathCount: 0,
+      }
+      return
+    }
     try {
       this.artifactWatcher = this.artifactWatcherFactory(paths, this.providerId)
+      this.monitorStatus = {
+        ...this.monitorBase(),
+        state: 'active',
+        supported: true,
+        watchedPathCount: paths.length,
+      }
     } catch {
       // Watcher start failures must not break the run — best-effort only.
       this.artifactWatcher = null
+      this.monitorStatus = {
+        ...this.monitorBase(),
+        state: 'failed_to_start',
+        supported: true,
+        watchedPathCount: paths.length,
+        lastError: 'Artifact watcher factory failed to start',
+      }
     }
   }
 
@@ -645,6 +675,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       // swallow — stopping is best-effort
     }
     this.artifactWatcher = null
+    this.monitorStatus = this.resolveIdleMonitorStatus()
   }
 
   getCapabilities(): AdapterCapabilityProfile {
@@ -670,6 +701,15 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       Object.assign(raw, this.config.env)
     }
     return raw
+  }
+
+  protected buildSpawnEnv(input: AgentInput): Record<string, string> {
+    const env = this.buildEnv()
+    const traceEnv = readTraceEnvOption(input)
+    if (traceEnv) {
+      Object.assign(env, traceEnv)
+    }
+    return env
   }
 
   protected normalizeError(err: unknown): NormalizedAdapterError {
@@ -711,6 +751,37 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     return this.config.interactionPolicy ?? { mode: 'auto-approve' }
   }
 
+  private isMonitorSupported(): boolean {
+    return (getProviderCapabilities(this.providerId)?.monitorIntrospection ?? 'none') !== 'none'
+  }
+
+  private unsupportedMonitorStatus(): AdapterMonitorStatus {
+    return {
+      state: 'unsupported',
+      supported: false,
+      monitorIntrospection:
+        getProviderCapabilities(this.providerId)?.monitorIntrospection ?? 'none',
+    }
+  }
+
+  private monitorBase(): Pick<AdapterMonitorStatus, 'monitorIntrospection'> {
+    return {
+      monitorIntrospection:
+        getProviderCapabilities(this.providerId)?.monitorIntrospection ?? 'none',
+    }
+  }
+
+  private resolveIdleMonitorStatus(): AdapterMonitorStatus {
+    if (!this.isMonitorSupported()) {
+      return this.unsupportedMonitorStatus()
+    }
+    return {
+      ...this.monitorBase(),
+      state: this.artifactWatcherFactory ? 'ready' : 'not_configured',
+      supported: true,
+    }
+  }
+
   protected abstract getBinaryName(): string
   protected abstract buildArgs(input: AgentInput): string[]
   protected abstract mapProviderEvent(
@@ -730,4 +801,21 @@ function mapResolvedByToResolution(
   if (resolvedBy === 'auto-approve') return 'approved'
   if (resolvedBy === 'auto-deny') return 'denied'
   return 'auto'
+}
+
+function dedupe<T>(values: T[]): T[] {
+  return [...new Set(values)]
+}
+
+function readTraceEnvOption(input: AgentInput): Record<string, string> | undefined {
+  const value = input.options?.[ADAPTER_TRACE_ENV_OPTION]
+  if (!value || typeof value !== 'object') return undefined
+
+  const env: Record<string, string> = {}
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw === 'string') {
+      env[key] = raw
+    }
+  }
+  return Object.keys(env).length > 0 ? env : undefined
 }

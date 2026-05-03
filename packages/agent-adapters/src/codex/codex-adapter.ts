@@ -23,6 +23,7 @@ import type {
   RawAgentEvent,
   TokenUsage,
 } from '../types.js'
+import { getDefaultMonitorStatus } from '../provider-catalog.js'
 import { withCorrelationId } from '../types.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
 
@@ -139,12 +140,15 @@ interface CodexCtorOptions {
 
 /** Shape of startThread / resumeThread options */
 interface CodexThreadOptions {
+  [key: string]: unknown
   model?: string
   sandboxMode?: string
   workingDirectory?: string
   approvalPolicy?: string
   networkAccessEnabled?: boolean
   skipGitRepoCheck?: boolean
+  /** Normalized reasoning effort level forwarded to the Codex SDK */
+  reasoningEffort?: string
 }
 
 /** The Codex class from the SDK */
@@ -322,6 +326,7 @@ export class CodexAdapter implements AgentCLIAdapter {
         sdkInstalled: true,
         cliAvailable: true,
         lastSuccessTimestamp: now(),
+        monitorStatus: getDefaultMonitorStatus(this.providerId),
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
@@ -331,6 +336,7 @@ export class CodexAdapter implements AgentCLIAdapter {
         sdkInstalled: false,
         cliAvailable: false,
         lastError: message,
+        monitorStatus: getDefaultMonitorStatus(this.providerId),
       }
     }
   }
@@ -471,6 +477,12 @@ export class CodexAdapter implements AgentCLIAdapter {
       opts.skipGitRepoCheck = inputOpts['skipGitRepoCheck']
     } else if (typeof this.config.skipGitRepoCheck === 'boolean') {
       opts.skipGitRepoCheck = this.config.skipGitRepoCheck
+    }
+
+    // Normalized reasoning effort → Codex reasoningEffort field
+    const reasoning = (inputOpts['reasoning'] as string | undefined) ?? this.config.reasoning
+    if (reasoning) {
+      opts.reasoningEffort = reasoning
     }
 
     return opts

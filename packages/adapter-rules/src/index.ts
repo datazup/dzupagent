@@ -12,6 +12,11 @@
 export * from './types.js'
 export { RuleCompiler } from './compiler.js'
 export { RuleLoader } from './loader.js'
+export type {
+  RuleLoadDiagnostic,
+  RuleLoadDiagnosticCode,
+  RuleLoadResult,
+} from './loader.js'
 export {
   projectProviderConfig,
   projectClaudeConfig,
@@ -22,3 +27,4 @@ export {
   projectQwenConfig,
   type ProjectorFn,
 } from './projectors/index.js'
+export { buildDefaultWatcherRegistrations, buildWatcherRegistrations } from './projectors/watchers.js'
