@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-04-30
+Date: 2026-05-03
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -17,7 +17,7 @@ Generated from package root facades plus `config/public-api-allowlists.json` and
 Root index: `packages/core/src/index.ts`
 
 - Stable root sources: `42`
-- Deprecated transitional root sources: `75`
+- Deprecated transitional root sources: `76`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
 
@@ -108,7 +108,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./mcp/mcp-client.js` | 1 | `prefix:./mcp/` | `MCPClient` |
 | `deprecated-transitional` | `./mcp/mcp-tool-bridge.js` | 3 | `prefix:./mcp/` | `mcpToolToLangChain`, `mcpToolsToLangChain`, `langChainToolToMcp` |
 | `deprecated-transitional` | `./mcp/deferred-loader.js` | 2 | `prefix:./mcp/` | `DeferredToolLoader`, `DeferredLoaderConfig` |
-| `deprecated-transitional` | `./mcp/mcp-server.js` | 11 | `prefix:./mcp/` | `DzupAgentMCPServer`, `isMCPRequest`, `MCPServerOptions`, `MCPExposedTool` |
+| `deprecated-transitional` | `./mcp/mcp-server.js` | 12 | `prefix:./mcp/` | `DzupAgentMCPServer`, `isMCPRequest`, `MCPServerOptions`, `MCPExposedTool` |
 | `deprecated-transitional` | `./mcp/mcp-types.js` | 7 | `prefix:./mcp/` | `MCPTransport`, `MCPServerConfig`, `MCPToolDescriptor`, `MCPToolParameter` |
 | `deprecated-transitional` | `./mcp/mcp-reliability.js` | 3 | `prefix:./mcp/` | `McpReliabilityManager`, `McpServerHealth`, `McpReliabilityConfig` |
 | `deprecated-transitional` | `./mcp/mcp-manager.js` | 3 | `prefix:./mcp/` | `InMemoryMcpManager`, `McpManager`, `InMemoryMcpManagerOptions` |
@@ -117,6 +117,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./security/outbound-url-policy.js` | 8 | `prefix:./security/` | `fetchWithOutboundUrlPolicy`, `isPublicIpAddress`, `validateOutboundUrl`, `validateOutboundUrlSyntax` |
 | `deprecated-transitional` | `./mcp/mcp-resources.js` | 2 | `prefix:./mcp/` | `MCPResourceClient`, `MCPResourceClientConfig` |
 | `deprecated-transitional` | `./mcp/mcp-resource-types.js` | 5 | `prefix:./mcp/` | `MCPResource`, `MCPResourceTemplate`, `MCPResourceContent`, `ResourceSubscription` |
+| `deprecated-transitional` | `./mcp/mcp-prompt-types.js` | 9 | `prefix:./mcp/` | `MCPPromptArgument`, `MCPPromptDescriptor`, `MCPPromptGetResult`, `MCPPromptHandler` |
 | `deprecated-transitional` | `./mcp/mcp-sampling.js` | 8 | `prefix:./mcp/` | `createSamplingHandler`, `registerSamplingHandler`, `MCPSamplingConfig`, `LLMInvokeMessage` |
 | `deprecated-transitional` | `./mcp/mcp-sampling-types.js` | 6 | `prefix:./mcp/` | `MCPSamplingRequest`, `MCPSamplingResponse`, `MCPSamplingContent`, `MCPSamplingMessage` |
 | `stable` | `./security/risk-classifier.js` | 5 | `prefix:./security/` | `createRiskClassifier`, `RiskTier`, `RiskClassification`, `RiskClassifierConfig` |
@@ -203,8 +204,8 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./orchestration/contract-net/contract-net-manager.js` | 1 | `prefix:./orchestration/` | `ContractNetManager` |
 | `deprecated-transitional` | `./orchestration/contract-net/bid-strategies.js` | 4 | `prefix:./orchestration/` | `lowestCostStrategy`, `fastestStrategy`, `highestQualityStrategy`, `createWeightedStrategy` |
 | `deprecated-transitional` | `./orchestration/contract-net/contract-net-types.js` | 8 | `prefix:./orchestration/` | `ContractNetPhase`, `CallForProposals`, `ContractBid`, `ContractAward` |
-| `deprecated-transitional` | `./orchestration/delegating-supervisor.js` | 5 | `prefix:./orchestration/` | `DelegatingSupervisor`, `DelegatingSupervisorConfig`, `TaskAssignment`, `AggregatedDelegationResult` |
-| `deprecated-transitional` | `./orchestration/planning-agent.js` | 11 | `prefix:./orchestration/` | `PlanningAgent`, `buildExecutionLevels`, `validatePlanStructure`, `PlanNodeSchema` |
+| `deprecated-transitional` | `./orchestration/delegating-supervisor.js` | 6 | `prefix:./orchestration/` | `DelegatingSupervisor`, `DelegatingSupervisorConfig`, `TaskAssignment`, `AggregatedDelegationResult` |
+| `deprecated-transitional` | `./orchestration/planning-agent.js` | 14 | `prefix:./orchestration/` | `PlanningAgent`, `buildExecutionLevels`, `validatePlanStructure`, `PlanNodeSchema` |
 | `deprecated-transitional` | `./orchestration/delegation.js` | 10 | `prefix:./orchestration/` | `SimpleDelegationTracker`, `DelegationRequest`, `DelegationResult`, `DelegationContext` |
 | `deprecated-transitional` | `./orchestration/topology/topology-analyzer.js` | 1 | `prefix:./orchestration/` | `TopologyAnalyzer` |
 | `deprecated-transitional` | `./orchestration/topology/topology-executor.js` | 4 | `prefix:./orchestration/` | `TopologyExecutor`, `MeshResult`, `RingResult`, `ExecuteResult` |
@@ -587,7 +588,7 @@ No stable subpaths configured.
 
 Root index: `packages/agent-adapters/src/index.ts`
 
-- Stable root sources: `13`
+- Stable root sources: `14`
 - Deprecated transitional root sources: `78`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/learning/recovery subpaths before a future 1.0 root contraction.
@@ -695,6 +696,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./interaction/interaction-resolver.js` | 3 | `prefix:./interaction/` | `InteractionResolver`, `InteractionRequest`, `InteractionResult` |
 | `deprecated-transitional` | `./interaction/interaction-detector.js` | 3 | `prefix:./interaction/` | `classifyInteractionText`, `detectCliInteraction`, `InteractionKind` |
 | `stable` | `./runs/run-event-store.js` | 1 | `prefix:./runs/` | `RunEventStore` |
+| `stable` | `./runs/script-run-event-store.js` | 22 | `prefix:./runs/` | `ScriptRunEventStore`, `AppendManagedArtifactInput`, `AppendManagedRunEventInput`, `ManagedRunSummaryInput` |
 | `stable` | `./runs/run-log-root.js` | 1 | `prefix:./runs/` | `runLogRoot` |
 | `stable` | `./provider-catalog.js` | 7 | `exact:./provider-catalog.js` | `PROVIDER_CATALOG`, `HTTP_ROUTABLE_PROVIDER_IDS`, `getMonitorableProviders`, `getProductProviders` |
 | `stable` | `./normalize.js` | 2 | `exact:./normalize.js` | `normalizeEvent`, `Provider` |

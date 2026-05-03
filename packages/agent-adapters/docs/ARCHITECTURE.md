@@ -52,9 +52,19 @@ Current source layout:
 - `src/__tests__/` and `src/dzupagent/__tests__/`: package tests.
 
 Packaging/build structure:
-- Build entry is `src/index.ts` (`tsup.config.ts`).
-- Package `exports` currently exposes only `"."` -> `dist/index.js` / `dist/index.d.ts`.
-- Plane barrels are real source modules but are not currently declared package subpath exports.
+- Build entries in `tsup.config.ts` cover the compatibility root plus plane entry files.
+- Package `exports` expose the compatibility root plus subpaths:
+  - `.`
+  - `./providers`
+  - `./orchestration`
+  - `./workflow`
+  - `./http`
+  - `./persistence`
+  - `./runs`
+  - `./integration`
+  - `./learning`
+  - `./recovery`
+- The root import remains available for 0.x compatibility. New consumers should prefer the plane subpaths when they do not need the full compatibility barrel.
 
 ## Runtime and Control Flow
 Primary run flow (`OrchestratorFacade.run`):
@@ -109,7 +119,7 @@ Primary runtime APIs:
 - Workflow/session: `AdapterWorkflowBuilder`/`defineWorkflow`, `SessionRegistry`, `WorkflowCheckpointer`, `ConversationCompressor`.
 - Recovery/control: `AdapterRecoveryCopilot`, `AdapterApprovalGate`, `AdapterGuardrails`, policy compiler + conformance checker.
 - Transport/integration: `AdapterHttpHandler`, `EventBusBridge`, `RegistryExecutionPort`, plugin APIs, MCP manager/tool sharing bridge.
-- Persistence and logging: `FileCheckpointStore`, `RunManager`, `RunEventStore`, `runLogRoot`.
+- Persistence and logging: `FileCheckpointStore`, `RunManager`, `RunEventStore`, `ScriptRunEventStore`, `runLogRoot`.
 
 Provider capability policy surface:
 - `PROVIDER_CATALOG` + helpers (`getMonitorableProviders`, `getProductProviders`, `getProviderCapabilities`).
@@ -121,6 +131,7 @@ Declared runtime dependencies:
 - `@dzupagent/agent`
 - `@dzupagent/agent-types`
 - `@dzupagent/core`
+- `@dzupagent/runtime-contracts`
 
 Peer dependencies:
 - `@langchain/core`
@@ -133,7 +144,7 @@ Optional dependencies:
 Runtime/tooling notes from implementation:
 - `GeminiSDKAdapter` dynamically imports `@google/generative-ai` (runtime optional, not declared in `package.json`).
 - CLI-backed adapters depend on external binaries (`gemini`, `qwen`, `crush`, `goose`) being available in `PATH`.
-- Build uses `tsup` (ESM + d.ts) with entry `src/index.ts`; workspace `@dzupagent/*` and optional SDKs are externalized.
+- Build uses `tsup` (ESM + d.ts) with root and plane entries; workspace `@dzupagent/*` and optional SDKs are externalized.
 - Testing uses Vitest in Node environment with configured coverage thresholds (statements/lines 70, branches/functions 60).
 
 ## Integration Points
@@ -174,15 +185,17 @@ Observability surfaces:
 - `StreamingHandler` serializes stream output for SSE/JSONL/NDJSON formats.
 - `RunEventStore` persists raw + normalized + artifact event logs and run summaries.
 - Recovery trace capture stores execution traces and decisions for post-failure analysis.
+- `ScriptRunEventStore` writes and reads managed script-run event logs, artifact indexes, typed validation/review/approval records, snapshots, and summary counters for durable automation evidence.
 
 ## Risks and TODOs
-- Package docs describe subpath API tiers (`docs/api-surface.md`), but `package.json` currently exports only the root entrypoint.
+- The root entrypoint remains broad for 0.x compatibility even though package subpaths now exist. Avoid growing the root barrel; route new public surfaces through explicit subpaths plus public API allowlist updates.
 - `RunRequestSchema` provider enum excludes valid adapter IDs such as `openai` and `gemini-sdk`, limiting direct HTTP selection.
 - `PROVIDER_CATALOG` does not include an `openai` entry, so catalog-driven product/experimental registration paths can skip it.
 - `normalizeEvent` handles `openrouter` but not `openai`; OpenAI raw payload normalization is currently absent in this utility.
 - `GeminiSDKAdapter` requires `@google/generative-ai` at runtime but this dependency is not declared in package metadata.
-- `src/__tests__/architecture-doc.test.ts` asserts headings in root `packages/agent-adapters/ARCHITECTURE.md`, not this `docs/ARCHITECTURE.md`, so this document is not guarded by that test.
+- `src/__tests__/architecture-doc.test.ts` guards both the root and `docs/ARCHITECTURE.md` architecture docs against package export-map drift.
 
 ## Changelog
+- 2026-05-03: documented `ScriptRunEventStore` as the managed-run persistence surface for typed validation/review/approval evidence.
+- 2026-05-02: refreshed package export/subpath and doc-guard notes against current package metadata.
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

@@ -206,10 +206,12 @@ Observability surfaces in code:
 
 ## Risks and TODOs
 Current implementation risks/gaps visible in code:
-- Planning result collision risk:
-  - `DelegatingSupervisor.delegateAndCollect` stores results keyed by `specialistId`.
-  - `PlanningAgent.executePlan` retrieves by `node.specialistId`.
-  - Multiple same-specialist nodes in one execution chunk can overwrite each other.
+- Planning result identity:
+  - The `PlanningAgent.executePlan` path is keyed by node ID: it passes `TaskAssignment.id = node.id` into `DelegatingSupervisor.delegateAndCollect`.
+  - `DelegatingSupervisor.delegateAndCollect` stores results by assignment ID when present, and falls back to `specialistId` only for legacy direct callers.
+  - Direct duplicate-specialist batches without stable assignment IDs now emit `supervisor:duplicate_specialist_assignment_ids` by default, or fail before delegation when `duplicateSpecialistAssignmentIdMode: 'strict'` is set.
+  - Residual collision risk is limited to direct `delegateAndCollect` callers that explicitly choose `duplicateSpecialistAssignmentIdMode: 'allow'`.
+  - Regression coverage exists in `src/__tests__/planning-agent.test.ts` and `src/__tests__/delegating-supervisor.test.ts` for duplicate-specialist batches and the direct-caller guardrail.
 - `MapReduceConfig.mergeStrategy` type union omits supported names (`numbered`, `json`) even though `getMergeStrategy` supports them.
 - `AgentOrchestrator.supervisor` provider-adapter branch requires both `executionMode === 'provider-adapter'` and `providerPort`; missing port silently falls back to agent mode.
 - `TopologyExecutor` routed-path metrics (`pipeline`, `star`, `hierarchical`) currently hardcode `errorCount: 0` unless errors throw, unlike mesh/ring which track per-agent failures.
@@ -217,4 +219,6 @@ Current implementation risks/gaps visible in code:
 - `orchestration-telemetry.ts` currently logs to debug output only; no direct OTel SDK binding in this module.
 
 ## Changelog
+- 2026-05-02: refreshed planning result identity notes against current `PlanningAgent` and `DelegatingSupervisor` behavior.
+- 2026-05-03: added warn/strict guardrail for direct duplicate-specialist `delegateAndCollect` batches without stable assignment IDs.
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
