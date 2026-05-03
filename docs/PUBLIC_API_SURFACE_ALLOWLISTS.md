@@ -591,7 +591,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 - Stable root sources: `14`
 - Deprecated transitional root sources: `78`
 - Internal-only root candidates: `0`
-- Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/learning/recovery subpaths before a future 1.0 root contraction.
+- Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
 
 ### Stable Subpaths
 
@@ -602,6 +602,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `@dzupagent/agent-adapters/workflow` | workflow DSL builder, resolver, and validator |
 | `@dzupagent/agent-adapters/http` | HTTP handler, request schemas, and rate limiting |
 | `@dzupagent/agent-adapters/persistence` | checkpoint, run manager, run log, and run event store helpers |
+| `@dzupagent/agent-adapters/rules` | adapter-rule RuntimePlan preparation, governance diagnostics, and watcher-path projection bridge |
 | `@dzupagent/agent-adapters/learning` | learning loop, A/B testing, interaction policy, and enrichment pipeline |
 | `@dzupagent/agent-adapters/recovery` | recovery copilot, policies, escalation, cross-provider handoff, and approval gates |
 
@@ -609,7 +610,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
-| `stable` | `./types.js` | 26 | `exact:./types.js` | `AdapterProviderId`, `AdapterCapabilityProfile`, `AgentInput`, `AgentEvent` |
+| `stable` | `./types.js` | 28 | `exact:./types.js` | `AdapterProviderId`, `AdapterCapabilityProfile`, `AgentInput`, `AgentEvent` |
 | `deprecated-transitional` | `./claude/claude-adapter.js` | 1 | `prefix:./claude/` | `ClaudeAgentAdapter` |
 | `deprecated-transitional` | `./codex/codex-adapter.js` | 1 | `prefix:./codex/` | `CodexAdapter` |
 | `deprecated-transitional` | `./gemini/gemini-adapter.js` | 1 | `prefix:./gemini/` | `GeminiCLIAdapter` |
@@ -698,7 +699,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `stable` | `./runs/run-event-store.js` | 1 | `prefix:./runs/` | `RunEventStore` |
 | `stable` | `./runs/script-run-event-store.js` | 22 | `prefix:./runs/` | `ScriptRunEventStore`, `AppendManagedArtifactInput`, `AppendManagedRunEventInput`, `ManagedRunSummaryInput` |
 | `stable` | `./runs/run-log-root.js` | 1 | `prefix:./runs/` | `runLogRoot` |
-| `stable` | `./provider-catalog.js` | 7 | `exact:./provider-catalog.js` | `PROVIDER_CATALOG`, `HTTP_ROUTABLE_PROVIDER_IDS`, `getMonitorableProviders`, `getProductProviders` |
+| `stable` | `./provider-catalog.js` | 8 | `exact:./provider-catalog.js` | `PROVIDER_CATALOG`, `HTTP_ROUTABLE_PROVIDER_IDS`, `getDefaultMonitorStatus`, `getMonitorableProviders` |
 | `stable` | `./normalize.js` | 2 | `exact:./normalize.js` | `normalizeEvent`, `Provider` |
 | `deprecated-transitional` | `./enrichment/enrichment-pipeline.js` | 3 | `prefix:./enrichment/` | `EnrichmentPipeline`, `EnrichmentContext`, `EnrichmentResult` |
 
