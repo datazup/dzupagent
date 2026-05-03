@@ -88,6 +88,24 @@ describe('Detailed Health', () => {
     expect(health.adapters['claude']!.circuitState).toBe('closed')
   })
 
+  it('getHealthStatus enriches adapters with default monitor status', async () => {
+    registry.register(createMockAdapter('claude'))
+    registry.register(createMockAdapter('openai'))
+
+    const health = await registry.getHealthStatus()
+
+    expect(health['claude']!.monitorStatus).toMatchObject({
+      state: 'not_configured',
+      supported: true,
+      monitorIntrospection: 'deep',
+    })
+    expect(health['openai']!.monitorStatus).toMatchObject({
+      state: 'unsupported',
+      supported: false,
+      monitorIntrospection: 'none',
+    })
+  })
+
   it('getDetailedHealth returns success/failure timestamps', async () => {
     registry.register(createMockAdapter('claude'))
 

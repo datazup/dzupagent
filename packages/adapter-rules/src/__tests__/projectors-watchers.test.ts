@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildWatcherRegistrations } from '../projectors/watchers.js'
+import {
+  buildDefaultWatcherRegistrations,
+  buildWatcherRegistrations,
+} from '../projectors/watchers.js'
 import type { AdapterRule, CompileContext, WatcherRegistration } from '../types.js'
 
 function rule(
@@ -157,5 +160,50 @@ describe('buildWatcherRegistrations', () => {
     expect(paths).toContain('~/.gemini/')
     expect(paths).toContain('.qwen/')
     expect(paths).toContain('~/.qwen/')
+  })
+
+  it('expands wildcard provider rules to the current compile provider', () => {
+    const regs = buildWatcherRegistrations(
+      [rule({ id: 'r1', appliesToProviders: ['*'] })],
+      { providerId: 'codex' },
+    )
+
+    const paths = regs.map((r) => r.path)
+    expect(paths).toContain('.dzupagent/')
+    expect(paths).toContain('.codex/')
+    expect(paths).toContain('~/.codex/')
+    expect(paths).not.toContain('.claude/')
+    expect(paths).not.toContain('~/.claude/')
+  })
+
+  it('deduplicates wildcard and explicit current-provider watcher paths', () => {
+    const regs = buildWatcherRegistrations(
+      [rule({ id: 'r1', appliesToProviders: ['*', 'codex'] })],
+      { providerId: 'codex' },
+    )
+
+    const paths = regs.map((r) => r.path)
+    expect(paths.filter((path) => path === '.codex/')).toHaveLength(1)
+    expect(paths.filter((path) => path === '~/.codex/')).toHaveLength(1)
+  })
+
+  it('builds default provider watcher registrations without requiring active rules', () => {
+    const regs = buildDefaultWatcherRegistrations({
+      providerId: 'codex',
+      workspaceDir: '/workspace/project',
+    })
+
+    expect(findByPath(regs, '/workspace/project/.dzupagent/')).toMatchObject({
+      provider: 'dzupagent',
+      watchClass: 'dzupagent',
+    })
+    expect(findByPath(regs, '/workspace/project/.codex/')).toMatchObject({
+      provider: 'codex',
+      watchClass: 'project',
+    })
+    expect(findByPath(regs, '~/.codex/')).toMatchObject({
+      provider: 'codex',
+      watchClass: 'home',
+    })
   })
 })

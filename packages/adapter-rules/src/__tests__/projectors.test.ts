@@ -300,11 +300,14 @@ describe('projectProviderConfig (dispatch)', () => {
     expect(patch).toEqual({ model: 'gemini-2.5-pro' })
   })
 
-  it('returns empty patch for providers without a registered projector', () => {
-    const patch = projectProviderConfig(
-      emptyPlan({ auditFlags: ['approval:bash'] }),
-      { providerId: 'openrouter' },
-    )
-    expect(patch).toEqual({})
-  })
+  it.each(['openrouter', 'openai'] as const)(
+    'returns empty patch for API-only provider without registered projector: %s',
+    (providerId) => {
+      const patch = projectProviderConfig(
+        emptyPlan({ auditFlags: ['approval:bash'] }),
+        { providerId },
+      )
+      expect(patch).toEqual({})
+    },
+  )
 })

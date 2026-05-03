@@ -131,6 +131,82 @@ describe('AdapterTracer', () => {
       expect(toolSpan!.endTime).toBeDefined()
     })
 
+    it('keeps concurrent same-name tool spans using FIFO fallback', async () => {
+      const events = [
+        makeEvent('adapter:tool_call', {
+          toolName: 'exec',
+          input: { command: 'first' },
+        }),
+        makeEvent('adapter:tool_call', {
+          toolName: 'exec',
+          input: { command: 'second' },
+        }),
+        makeEvent('adapter:tool_result', {
+          toolName: 'exec',
+          output: 'first',
+          durationMs: 10,
+        }),
+        makeEvent('adapter:tool_result', {
+          toolName: 'exec',
+          output: 'second',
+          durationMs: 20,
+        }),
+        makeEvent('adapter:completed', {
+          sessionId: 's1',
+          result: 'done',
+          durationMs: 50,
+        }),
+      ]
+
+      await collectEvents(tracer.trace('run', eventStream(events)))
+
+      const toolSpans = tracer.getSpans().filter((s) => s.name === 'tool.exec')
+      expect(toolSpans).toHaveLength(2)
+      expect(toolSpans.map((span) => span.attributes['tool.duration_ms'])).toEqual([10, 20])
+    })
+
+    it('matches concurrent same-name tool spans by explicit call id', async () => {
+      const events = [
+        makeEvent('adapter:tool_call', {
+          toolName: 'exec',
+          toolCallId: 'call-a',
+          input: { command: 'first' },
+        }),
+        makeEvent('adapter:tool_call', {
+          toolName: 'exec',
+          toolCallId: 'call-b',
+          input: { command: 'second' },
+        }),
+        makeEvent('adapter:tool_result', {
+          toolName: 'exec',
+          toolCallId: 'call-a',
+          output: 'first',
+          durationMs: 10,
+        }),
+        makeEvent('adapter:tool_result', {
+          toolName: 'exec',
+          toolCallId: 'call-b',
+          output: 'second',
+          durationMs: 20,
+        }),
+        makeEvent('adapter:completed', {
+          sessionId: 's1',
+          result: 'done',
+          durationMs: 50,
+        }),
+      ]
+
+      await collectEvents(tracer.trace('run', eventStream(events)))
+
+      const toolSpans = tracer.getSpans().filter((s) => s.name === 'tool.exec')
+      expect(toolSpans).toHaveLength(2)
+      expect(toolSpans.map((span) => span.attributes['tool.call_id'])).toEqual([
+        'call-a',
+        'call-b',
+      ])
+      expect(toolSpans.map((span) => span.attributes['tool.duration_ms'])).toEqual([10, 20])
+    })
+
     it('sets usage attributes on completion', async () => {
       const events = [
         makeEvent('adapter:completed', {

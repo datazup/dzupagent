@@ -452,13 +452,25 @@ describe('PolicyConformanceChecker', () => {
   // -------------------------------------------------------------------------
 
   describe('approvalRequired', () => {
-    it('should produce a warning for providers without approval support', () => {
-      const noApproval: AdapterProviderId[] = ['gemini', 'gemini-sdk', 'qwen', 'crush', 'goose', 'openrouter', 'openai']
-      for (const provider of noApproval) {
+    it('should produce a provider-config warning for providers with rule-projected approval', () => {
+      const providerConfigApproval: AdapterProviderId[] = ['gemini', 'gemini-sdk', 'qwen', 'crush', 'goose']
+      for (const provider of providerConfigApproval) {
         const result = compileAndCheck(provider, { approvalRequired: true })
         const violation = result.violations.find((v) => v.field === 'approvalRequired')
         expect(violation).toBeDefined()
         expect(violation!.severity).toBe('warning')
+        expect(violation!.reason).toContain('provider-config projection')
+      }
+    })
+
+    it('should produce a host-gated warning for providers without native or config approval', () => {
+      const hostGatedApproval: AdapterProviderId[] = ['openrouter', 'openai']
+      for (const provider of hostGatedApproval) {
+        const result = compileAndCheck(provider, { approvalRequired: true })
+        const violation = result.violations.find((v) => v.field === 'approvalRequired')
+        expect(violation).toBeDefined()
+        expect(violation!.severity).toBe('warning')
+        expect(violation!.reason).toContain('does not support native or provider-config')
       }
     })
 
