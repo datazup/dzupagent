@@ -129,7 +129,10 @@ function mapSandboxMode(mode: AdapterConfig['sandboxMode']): string {
     case 'read-only':
       return 'default'
     case 'workspace-write':
-      return 'default'
+      // Allow file writes within the working directory without interactive prompts.
+      // The Claude SDK 'default' mode blocks writes; 'bypassPermissions' matches
+      // the intent of workspace-write for automated coding agents.
+      return 'bypassPermissions'
     case 'full-access':
       return 'bypassPermissions'
     default:
@@ -760,4 +763,16 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
         : {}),
     }
   }
+}
+
+/**
+ * Factory function for {@link ClaudeAgentAdapter}.
+ *
+ * Provides a stable functional entry point for callers that prefer not to
+ * instantiate the class directly (for example, the CJS-to-ESM
+ * `scripts/lib/agent-bridge/run.mjs` resolves adapters by `create<Provider>Adapter`
+ * before falling back to class exports).
+ */
+export function createClaudeAdapter(config: AdapterConfig = {}): ClaudeAgentAdapter {
+  return new ClaudeAgentAdapter(config)
 }

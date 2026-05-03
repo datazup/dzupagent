@@ -1130,3 +1130,15 @@ export class CodexAdapter implements AgentCLIAdapter {
     return combined.signal
   }
 }
+
+/**
+ * Factory function for {@link CodexAdapter}.
+ *
+ * Provides a stable functional entry point for callers that prefer not to
+ * instantiate the class directly (for example, the CJS-to-ESM
+ * `scripts/lib/agent-bridge/run.mjs` resolves adapters by `create<Provider>Adapter`
+ * before falling back to class exports).
+ */
+export function createCodexAdapter(config: AdapterConfig = {}): CodexAdapter {
+  return new CodexAdapter(config)
+}

@@ -42,6 +42,19 @@ function isProviderRawStreamEvent(event: AgentStreamEvent): event is Extract<Age
 export interface ProviderAdapterRegistryConfig {
   /** Circuit breaker config applied to all adapters */
   circuitBreaker?: Partial<CircuitBreakerConfig> | undefined
+  /**
+   * Default per-execution timeout in milliseconds for
+   * {@link ProviderAdapterRegistry.executeWithFallback}.
+   *
+   * If a single adapter attempt does not emit a terminal `adapter:completed`
+   * event within this window, the registry aborts (via `input.signal`) and
+   * proceeds to the next fallback provider.
+   *
+   * Per-call overrides may be supplied via `input.options.timeoutMs`.
+   * Set to `0` or omit to disable the registry-level timeout (the adapter
+   * may still enforce its own internal timeout — see `AdapterConfig.timeoutMs`).
+   */
+  executionTimeoutMs?: number | undefined
 }
 
 /** Detailed per-adapter health including circuit breaker diagnostics. */
@@ -74,6 +87,7 @@ export class ProviderAdapterRegistry {
   private readonly adapters = new Map<AdapterProviderId, AgentCLIAdapter>()
   private readonly breakers = new Map<AdapterProviderId, CircuitBreaker>()
   private readonly cbConfig: Partial<CircuitBreakerConfig> | undefined
+  private readonly defaultExecutionTimeoutMs: number | undefined
   private readonly lastSuccess = new Map<AdapterProviderId, number>()
   private readonly lastFailure = new Map<AdapterProviderId, number>()
   private readonly consecutiveFailures = new Map<AdapterProviderId, number>()
@@ -83,6 +97,7 @@ export class ProviderAdapterRegistry {
 
   constructor(config?: ProviderAdapterRegistryConfig) {
     this.cbConfig = config?.circuitBreaker
+    this.defaultExecutionTimeoutMs = config?.executionTimeoutMs
   }
 
   /** Register an adapter. Creates a circuit breaker for it. */
@@ -260,15 +275,63 @@ export class ProviderAdapterRegistry {
     const decision = this.router.route(task, healthyIds)
     const ordered = this.buildFallbackOrder(decision, healthyIds)
 
+    // Resolve per-execution timeout: per-call > registry default > none
+    const perCallTimeout = typeof input.options?.['timeoutMs'] === 'number'
+      ? (input.options['timeoutMs'] as number)
+      : undefined
+    const effectiveTimeoutMs = perCallTimeout ?? this.defaultExecutionTimeoutMs
+    const timeoutEnabled = typeof effectiveTimeoutMs === 'number' && effectiveTimeoutMs > 0
+
+    // Emit a routing-decision progress event so callers (NDJSON tail-f, etc.)
+    // can observe which adapter the registry picked and what fallbacks remain.
+    yield this.buildRoutingProgressEvent({
+      providerId: ordered[0] ?? (decision.provider !== 'auto' ? decision.provider : healthyIds[0]),
+      decision,
+      ordered,
+      input,
+      message: `Registry routing → primary=${decision.provider !== 'auto' ? decision.provider : (ordered[0] ?? 'auto')} fallbacks=${ordered.slice(1).join(',') || 'none'}`,
+    })
+
     let lastError: Error | undefined
 
-    for (const providerId of ordered) {
+    for (let attemptIdx = 0; attemptIdx < ordered.length; attemptIdx++) {
+      const providerId = ordered[attemptIdx]
+      if (providerId === undefined) continue
       const adapter = this.adapters.get(providerId)
       const breaker = this.breakers.get(providerId)
       if (!adapter || (breaker && !breaker.canExecute())) continue
 
       const startMs = Date.now()
       const attemptRunId = `${providerId}-${startMs}`
+
+      // Emit a per-attempt progress event (helps distinguish primary vs fallback).
+      yield this.buildAttemptProgressEvent({
+        providerId,
+        attemptIdx,
+        totalAttempts: ordered.length,
+        input,
+        message: attemptIdx === 0
+          ? `Executing primary provider ${providerId}`
+          : `Falling back to ${providerId} (attempt ${attemptIdx + 1}/${ordered.length})`,
+      })
+
+      // Per-attempt abort controller for the registry-level timeout.
+      // We forward the caller's abort signal through, then layer our own
+      // timeout on top so a stalled adapter cannot block the fallback chain.
+      const attemptAbort = new AbortController()
+      if (input.signal) {
+        if (input.signal.aborted) attemptAbort.abort()
+        else input.signal.addEventListener('abort', () => attemptAbort.abort(), { once: true })
+      }
+      let didTimeout = false
+      const timeoutHandle = timeoutEnabled
+        ? setTimeout(() => {
+            didTimeout = true
+            attemptAbort.abort()
+          }, effectiveTimeoutMs as number)
+        : null
+
+      const attemptInput: AgentInput = { ...input, signal: attemptAbort.signal }
 
       try {
         let sawCompleted = false
@@ -282,7 +345,7 @@ export class ProviderAdapterRegistry {
           runId: attemptRunId,
         })
 
-        const gen = adapter.executeWithRaw?.(input) ?? adapter.execute(input)
+        const gen = adapter.executeWithRaw?.(attemptInput) ?? adapter.execute(attemptInput)
 
         for await (const event of gen) {
           if (isProviderRawStreamEvent(event)) {
@@ -317,12 +380,16 @@ export class ProviderAdapterRegistry {
           return // successfully completed
         }
 
-        const failureMessage = sawFailed
-          ? (lastFailedEvent?.error ?? 'Adapter emitted failure event without details')
-          : 'Adapter stream ended without terminal adapter:completed event'
-        const failureCode = sawFailed
-          ? (lastFailedEvent?.code ?? 'ADAPTER_EXECUTION_FAILED')
-          : 'MISSING_TERMINAL_COMPLETION'
+        const failureMessage = didTimeout
+          ? `Adapter ${providerId} exceeded registry timeout of ${effectiveTimeoutMs}ms`
+          : sawFailed
+            ? (lastFailedEvent?.error ?? 'Adapter emitted failure event without details')
+            : 'Adapter stream ended without terminal adapter:completed event'
+        const failureCode = didTimeout
+          ? 'ADAPTER_TIMEOUT'
+          : sawFailed
+            ? (lastFailedEvent?.code ?? 'ADAPTER_EXECUTION_FAILED')
+            : 'MISSING_TERMINAL_COMPLETION'
         const terminalError = new Error(failureMessage)
         lastError = terminalError
         this.recordFailure(providerId, terminalError)
@@ -349,31 +416,38 @@ export class ProviderAdapterRegistry {
 
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err))
-        if (ForgeError.is(err) && err.code === 'AGENT_ABORTED') {
+        if (ForgeError.is(err) && err.code === 'AGENT_ABORTED' && !didTimeout) {
           throw err
         }
 
         lastError = error
         this.recordFailure(providerId, error)
 
+        const errorCode = didTimeout ? 'ADAPTER_TIMEOUT' : 'ADAPTER_EXECUTION_FAILED'
+        const errorMessage = didTimeout
+          ? `Adapter ${providerId} exceeded registry timeout of ${effectiveTimeoutMs}ms`
+          : error.message
+
         this.emitEvent({
           type: 'agent:failed',
           agentId: providerId,
           runId: attemptRunId,
-          errorCode: 'ADAPTER_EXECUTION_FAILED',
-          message: error.message,
+          errorCode,
+          message: errorMessage,
         })
 
         // Yield a failed event for this adapter so consumers can observe
         yield {
           type: 'adapter:failed',
           providerId,
-          error: error.message,
-          code: 'ADAPTER_EXECUTION_FAILED',
+          error: errorMessage,
+          code: errorCode,
           timestamp: Date.now(),
         }
 
         // Continue to next adapter in fallback chain
+      } finally {
+        if (timeoutHandle) clearTimeout(timeoutHandle)
       }
     }
 
@@ -541,6 +615,55 @@ export class ProviderAdapterRegistry {
   }
 
   // --- Private helpers ---
+
+  /**
+   * Build an adapter:progress event describing the registry's routing decision.
+   * Emitted once per executeWithFallback call before the first attempt so callers
+   * (NDJSON tail-f, dashboards, audit logs) can observe which provider was
+   * selected and the full fallback chain.
+   */
+  private buildRoutingProgressEvent(args: {
+    providerId: AdapterProviderId | undefined
+    decision: RoutingDecision
+    ordered: AdapterProviderId[]
+    input: AgentInput
+    message: string
+  }): Extract<AgentEvent, { type: 'adapter:progress' }> {
+    const providerId = args.providerId ?? (args.ordered[0] as AdapterProviderId)
+    return {
+      type: 'adapter:progress',
+      providerId,
+      timestamp: Date.now(),
+      phase: 'registry:routing',
+      message: args.message,
+      total: args.ordered.length,
+      current: 0,
+      ...(args.input.correlationId ? { correlationId: args.input.correlationId } : {}),
+    }
+  }
+
+  /**
+   * Build an adapter:progress event for a single fallback attempt.
+   * `current` is 1-indexed within `total` so progress UIs render correctly.
+   */
+  private buildAttemptProgressEvent(args: {
+    providerId: AdapterProviderId
+    attemptIdx: number
+    totalAttempts: number
+    input: AgentInput
+    message: string
+  }): Extract<AgentEvent, { type: 'adapter:progress' }> {
+    return {
+      type: 'adapter:progress',
+      providerId: args.providerId,
+      timestamp: Date.now(),
+      phase: args.attemptIdx === 0 ? 'registry:primary_attempt' : 'registry:fallback_attempt',
+      message: args.message,
+      current: args.attemptIdx + 1,
+      total: args.totalAttempts,
+      ...(args.input.correlationId ? { correlationId: args.input.correlationId } : {}),
+    }
+  }
 
   private getHealthyProviderIds(): AdapterProviderId[] {
     const ids: AdapterProviderId[] = []
