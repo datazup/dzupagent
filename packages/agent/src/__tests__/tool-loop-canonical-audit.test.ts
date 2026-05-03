@@ -21,6 +21,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { createEventBus, ToolGovernance, type DzupEvent, type DzupEventBus } from '@dzupagent/core'
 import { runToolLoop } from '../agent/tool-loop.js'
+import { emitToolError, emitToolResult } from '../agent/tool-lifecycle-policy.js'
 
 function mockTool(name: string, result = 'ok'): StructuredToolInterface {
   return {
@@ -123,6 +124,36 @@ describe('Tool Loop — RF-AGENT-05 canonical lifecycle events', () => {
     expect(terminal.durationMs).toBeGreaterThanOrEqual(0)
     expect(terminal.inputMetadataKeys).toEqual(['path', 'apiKey'])
     expect(terminal).not.toHaveProperty('output')
+  })
+
+  it('does not emit terminal tool events when runId is missing', () => {
+    const bus = createEventBus()
+    const events = captureToolEvents(bus)
+
+    emitToolResult(
+      { eventBus: bus, agentId: 'agent_missing_run' },
+      {
+        toolName: 'read_file',
+        toolCallId: 'tc_missing_result',
+        durationMs: 1,
+        inputMetadataKeys: ['path'],
+        output: 'contents',
+      },
+    )
+    emitToolError(
+      { eventBus: bus, agentId: 'agent_missing_run' },
+      {
+        toolName: 'write_file',
+        toolCallId: 'tc_missing_error',
+        durationMs: 1,
+        inputMetadataKeys: ['path'],
+        errorCode: 'TOOL_EXECUTION_FAILED',
+        errorMessage: 'failed',
+        status: 'error',
+      },
+    )
+
+    expect(events).toEqual([])
   })
 
   it('keeps tool:result events metadata-only when governance redacts audit output', async () => {

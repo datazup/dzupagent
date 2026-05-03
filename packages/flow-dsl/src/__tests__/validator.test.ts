@@ -123,8 +123,9 @@ describe('parseDslToDocument', () => {
   it('returns normalize diagnostics for unsupported top-level field', () => {
     const dsl = MINIMAL_VALID_DSL + '\nunknownField: value'
     const result = parseDslToDocument(dsl)
-    // Document is still produced; unsupported field is a warning
-    expect(result.document).not.toBeNull()
+    expect(result.ok).toBe(false)
+    expect(result.document).toBeNull()
+    expect(result.partialDocument).not.toBeNull()
     expect(result.diagnostics.some((d) => d.code === 'UNSUPPORTED_FIELD')).toBe(true)
   })
 

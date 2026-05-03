@@ -63,7 +63,7 @@ function makeExhaustedStream(): StreamEvent[] {
 
 let agentStreamEvents: StreamEvent[] = []
 
-vi.mock('@dzupagent/agent', () => ({
+vi.mock('@dzupagent/agent/runtime', () => ({
   DzupAgent: class {
     async *stream(): AsyncGenerator<StreamEvent, void, undefined> {
       for (const event of agentStreamEvents) {
