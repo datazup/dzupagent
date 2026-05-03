@@ -4,9 +4,11 @@
 
 ### DOMAIN-001 - High - OpenAI/OpenRouter are marked policy-projectable but adapter-rules projects no provider config
 
+Status: Resolved
+
 **Impact:** Rules with provider-level effects can appear active for `openai` and `openrouter` while producing no native provider configuration. This is a real maintainability and behavior risk because the provider catalog advertises support, the rule compiler accumulates `auditFlags`, and the projector dispatch silently returns `{}` instead of exposing an unsupported-provider violation.
 
-**Evidence:**
+**Original evidence:**
 - `packages/agent-adapters/src/provider-catalog.ts:104` through `packages/agent-adapters/src/provider-catalog.ts:120` marks both `openrouter` and `openai` with `supportsPolicyProjection: true`.
 - `packages/adapter-rules/src/projectors/index.ts:28` through `packages/adapter-rules/src/projectors/index.ts:36` registers projectors only for Claude, Codex, Gemini/Gemini SDK, Qwen, Goose, and Crush.
 - `packages/adapter-rules/src/projectors/index.ts:42` through `packages/adapter-rules/src/projectors/index.ts:44` returns `{}` when no projector is registered.
@@ -14,11 +16,15 @@
 
 **Remediation:** Make the provider capability source authoritative across `agent-adapters` and `adapter-rules`. Either add explicit OpenAI/OpenRouter projectors and conformance tests for approval/path/watch effects, or mark policy projection unsupported and make `projectProviderConfig()` return a typed warning/error object instead of a silent empty patch for known-but-unprojectable providers.
 
+**Resolved evidence:** `PROVIDER_CATALOG` now documents `supportsPolicyProjection` as native/provider-config projection support and marks API-only `openai` and `openrouter` as unsupported for that capability. `packages/agent-adapters/src/__tests__/request-schemas.test.ts` guards that OpenAI/OpenRouter remain product/HTTP routable without advertising native policy projection, and `packages/adapter-rules/src/__tests__/projectors.test.ts` covers both API-only providers returning an empty provider config patch until real projectors exist.
+
 ### DOMAIN-002 - High - Approval support semantics disagree between adapter-rules projection and policy conformance
+
+Status: Resolved
 
 **Impact:** The repo has two current sources of truth for provider approval support. `adapter-rules` projects native approval config for Gemini, Qwen, Goose, and Crush, while `PolicyConformanceChecker` says those providers do not support approval. Callers can receive contradictory guidance depending on whether they enter through canonical rules or policy compilation, which makes best-practice conformance hard to trust.
 
-**Evidence:**
+**Original evidence:**
 - `packages/adapter-rules/src/projectors/gemini.ts:26` through `packages/adapter-rules/src/projectors/gemini.ts:38` projects approval flags into `trust_tools: false` and `tool_config.require_confirmation`.
 - `packages/adapter-rules/src/projectors/qwen.ts:29` through `packages/adapter-rules/src/projectors/qwen.ts:32` projects approval flags into `approval_mode: 'require'`.
 - `packages/adapter-rules/src/projectors/goose.ts:41` through `packages/adapter-rules/src/projectors/goose.ts:44` projects approval flags into `goose.mode: 'approve'`.
@@ -28,7 +34,11 @@
 
 **Remediation:** Split capability semantics into one shared typed matrix that distinguishes native provider approvals, CLI config best-effort approvals, and host/orchestrator approval gates. Have both `adapter-rules` projectors and `PolicyConformanceChecker` consume that matrix, then add conformance tests asserting every provider has one agreed approval tier.
 
+**Resolved evidence:** `PROVIDER_CATALOG` now exposes an `approvalSupport` tier with `native`, `provider-config`, and `host-gated` states. `PolicyConformanceChecker` consumes that tier and distinguishes direct AdapterPolicy approval support from adapter-rules provider-config approval projection in its warnings. Regression coverage in `packages/agent-adapters/src/__tests__/policy-compiler-conformance.test.ts` asserts provider-config warnings for Gemini/Gemini SDK/Qwen/Crush/Goose, host-gated warnings for OpenAI/OpenRouter, and no warning for native Claude/Codex approval.
+
 ### DOMAIN-003 - Medium - RuleLoader validates only the outer shape and lets invalid rule semantics reach the compiler
+
+Status: Resolved
 
 **Impact:** JSON rule files can pass loader validation with invalid scopes, provider IDs, match shapes, and effect payloads. The compiler then trusts the static `AdapterRule` type and can push `undefined` prompt sections, malformed watch paths, or unrecognized providers into runtime plans. This is type-unsafety at the untyped filesystem boundary, not a style issue.
 
@@ -40,7 +50,11 @@
 
 **Remediation:** Add a runtime schema or explicit type guards for `AdapterRule`, `RuleMatch`, and every `RuleEffect` variant. Return structured load diagnostics instead of only `console.warn`, and add loader tests for every invalid semantic shape that the compiler currently assumes is impossible.
 
+**Resolved evidence:** `RuleLoader` now applies explicit runtime guards for `AdapterRule`, `RuleMatch`, and each `RuleEffect` variant. It rejects invalid scopes, unsupported providers, malformed match arrays, unknown effect kinds, and missing/invalid effect payload fields before values reach `RuleCompiler`. Regression coverage in `packages/adapter-rules/src/__tests__/loader.test.ts` exercises all of those invalid shapes.
+
 ### DOMAIN-004 - Medium - Universal provider rules do not expand into provider watcher registrations
+
+Status: Resolved
 
 **Impact:** `appliesToProviders: ['*']` works for rule matching, but the watcher projector iterates the literal provider list and has no `'*'` expansion. A universal rule therefore becomes active in the runtime plan while only the always-on `.dzupagent/` watcher is registered, so provider-local config/artifact changes can be missed by monitor consumers.
 
@@ -53,7 +67,11 @@
 
 **Remediation:** Expand `'*'` to either the current `context.providerId` or the full provider set before watcher projection, depending on whether registrations are meant to be run-local or multi-provider. Add a watcher test for a universal rule and make the intended behavior explicit in `WatcherRegistration` docs.
 
+**Resolved evidence:** `buildWatcherRegistrations()` now expands `'*'` to the current compile provider and deduplicates repeated wildcard/explicit provider paths. Regression coverage in `packages/adapter-rules/src/__tests__/projectors-watchers.test.ts` proves a universal rule compiled for `codex` emits Codex project and home watcher registrations.
+
 ### DOMAIN-005 - Medium - Monitor/watch projection has two disconnected hardcoded provider path maps
+
+Status: Resolved
 
 **Impact:** The monitor path model can drift because `adapter-rules` emits `watcherRegistrations`, while the CLI runtime starts artifact watchers from a separate `PROVIDER_WATCH_SPECS` table. `watch_path` effects and rule-derived watcher registrations are not consumed by `BaseCliAdapter`, so changing rules can update the plan without changing what the CLI adapter actually watches.
 
@@ -66,7 +84,11 @@
 
 **Remediation:** Move provider watch-path metadata into one shared contract package or exported adapter-rules helper, and pass compiled watcher registrations into the CLI execution path when rules are active. Keep the hardcoded fallback only for legacy no-rules runs, and add a cross-package test that a `watch_path` rule changes the actual watcher factory input.
 
+**Resolved evidence:** `@dzupagent/agent-adapters` now exposes a `./rules` subpath with `withAdapterRuleRuntimePlan()`, `projectAdapterRuleRuntimePlan()`, `getAdapterRuleRuntimePlan()`, and watcher path resolution helpers for compiled `@dzupagent/adapter-rules` plans. `BaseCliAdapter.execute()` consumes an attached `RuntimePlan` and merges both `watcherRegistrations` and `watchPaths` into the artifact watcher factory input. Default no-rules watcher startup now uses `buildDefaultWatcherRegistrations()` exported by `@dzupagent/adapter-rules`, so provider-local default watch paths no longer live in a second `PROVIDER_WATCH_SPECS` table inside `agent-adapters`. The same helper surface preserves provider config patches, audit flags, denied paths, alerts, and monitor subscriptions in adapter-facing options, with direct mappings for Codex approval policy, Claude provider options, and Goose permission mode where the current adapters already consume those shapes. Regression coverage in `packages/agent-adapters/src/__tests__/base-cli-adapter-artifact-watcher.test.ts` compiles a real `AdapterRule` with `RuleCompiler` and asserts the watcher factory sees `.dzupagent`, provider-local, and rule-specific artifact paths; `packages/agent-adapters/src/__tests__/rule-runtime-plan.test.ts` covers the projection behavior; `packages/adapter-rules/src/__tests__/projectors-watchers.test.ts` covers default watcher registration without active rules.
+
 ### DOMAIN-006 - Medium - Trace propagation is implemented but not wired into CLI execution
+
+Status: Resolved
 
 **Impact:** `AdapterTracer` exposes W3C `TRACEPARENT` propagation and comments say trace context is propagated to child processes by default, but CLI execution never calls `buildPropagationEnv()`. Operators can enable tracing and still get child processes without trace context, which is a fragile observability invariant and a misleading API contract.
 
@@ -79,7 +101,11 @@
 
 **Remediation:** Decide whether propagation belongs in middleware, `AgentInput.options`, or `AdapterConfig.env`. Then wire `TRACEPARENT` into `BaseCliAdapter` spawn env and add a focused test asserting traced CLI execution passes the env var to `spawnAndStreamJsonl`. If propagation is intentionally not supported for this path, remove or narrow the public comment.
 
+**Resolved evidence:** `AdapterTracer` now exposes the `ADAPTER_TRACE_ENV_OPTION` option key and `createTracingMiddleware()` attaches `buildPropagationEnv()` output to the shared `AgentInput.options` before adapter execution begins. `BaseCliAdapter.execute()` now builds spawn env through `buildSpawnEnv(input)`, which merges the per-run trace env into the child process environment. Regression coverage in `packages/agent-adapters/src/__tests__/tracing-middleware.test.ts` asserts that middleware attaches a W3C `TRACEPARENT`, and `packages/agent-adapters/src/__tests__/base-cli-adapter-artifact-watcher.test.ts` asserts the spawned CLI process receives it.
+
 ### DOMAIN-007 - Medium - Tool spans are keyed only by tool name, so repeated in-flight calls overwrite each other
+
+Status: Resolved
 
 **Impact:** Observability loses span fidelity when the same tool is called more than once before corresponding results arrive. The second `adapter:tool_call` with the same `toolName` overwrites the first open span, and the first result can close the wrong span or leave a span unrecorded. This is a correctness issue in monitor data, not formatting noise.
 
@@ -90,6 +116,8 @@
 - Existing tests in `packages/agent-adapters/src/__tests__/adapter-tracer.test.ts:80` through `packages/agent-adapters/src/__tests__/adapter-tracer.test.ts:132` and `packages/agent-adapters/src/__tests__/tracing-middleware.test.ts:55` through `packages/agent-adapters/src/__tests__/tracing-middleware.test.ts:79` cover only one in-flight call per tool name.
 
 **Remediation:** Key spans by a stable tool-call ID when the event provides one; otherwise store a FIFO queue per tool name and close the oldest open span on each result. Add tests for two interleaved calls with the same `toolName`, both in `AdapterTracer` and `createTracingMiddleware`.
+
+**Resolved evidence:** `AdapterTracer` and `createTracingMiddleware()` now share `ToolSpanTracker`, which indexes spans by provider-supplied call IDs when present and otherwise keeps a FIFO queue per `toolName`. Tool spans now also record `tool.call_id` when a stable call ID is present. Regression coverage in `packages/agent-adapters/src/__tests__/adapter-tracer.test.ts` and `packages/agent-adapters/src/__tests__/tracing-middleware.test.ts` covers concurrent same-name tool calls for both FIFO fallback and explicit call IDs.
 
 ### DOMAIN-008 - Medium - BaseCliAdapter is a multi-responsibility hotspot for CLI execution, governance, monitor hooks, interactions, env policy, and health
 
@@ -108,15 +136,15 @@
 ```json
 {
   "domain": "code quality",
-  "counts": { "critical": 0, "high": 2, "medium": 6, "low": 0, "info": 0 },
+  "counts": { "critical": 0, "high": 0, "medium": 1, "low": 0, "info": 0, "resolved": 7 },
   "findings": [
-    { "id": "DOMAIN-001", "severity": "high", "title": "OpenAI/OpenRouter are marked policy-projectable but adapter-rules projects no provider config", "file": "packages/adapter-rules/src/projectors/index.ts" },
-    { "id": "DOMAIN-002", "severity": "high", "title": "Approval support semantics disagree between adapter-rules projection and policy conformance", "file": "packages/agent-adapters/src/policy/policy-conformance.ts" },
-    { "id": "DOMAIN-003", "severity": "medium", "title": "RuleLoader validates only the outer shape and lets invalid rule semantics reach the compiler", "file": "packages/adapter-rules/src/loader.ts" },
-    { "id": "DOMAIN-004", "severity": "medium", "title": "Universal provider rules do not expand into provider watcher registrations", "file": "packages/adapter-rules/src/projectors/watchers.ts" },
-    { "id": "DOMAIN-005", "severity": "medium", "title": "Monitor/watch projection has two disconnected hardcoded provider path maps", "file": "packages/agent-adapters/src/base/base-cli-adapter.ts" },
-    { "id": "DOMAIN-006", "severity": "medium", "title": "Trace propagation is implemented but not wired into CLI execution", "file": "packages/agent-adapters/src/observability/adapter-tracer.ts" },
-    { "id": "DOMAIN-007", "severity": "medium", "title": "Tool spans are keyed only by tool name, so repeated in-flight calls overwrite each other", "file": "packages/agent-adapters/src/observability/adapter-tracer.ts" },
+    { "id": "DOMAIN-001", "severity": "high", "status": "resolved", "title": "OpenAI/OpenRouter are marked policy-projectable but adapter-rules projects no provider config", "file": "packages/agent-adapters/src/provider-catalog.ts" },
+    { "id": "DOMAIN-002", "severity": "high", "status": "resolved", "title": "Approval support semantics disagree between adapter-rules projection and policy conformance", "file": "packages/agent-adapters/src/provider-catalog.ts" },
+    { "id": "DOMAIN-003", "severity": "medium", "status": "resolved", "title": "RuleLoader validates only the outer shape and lets invalid rule semantics reach the compiler", "file": "packages/adapter-rules/src/loader.ts" },
+    { "id": "DOMAIN-004", "severity": "medium", "status": "resolved", "title": "Universal provider rules do not expand into provider watcher registrations", "file": "packages/adapter-rules/src/projectors/watchers.ts" },
+    { "id": "DOMAIN-005", "severity": "medium", "status": "resolved", "title": "Monitor/watch projection has two disconnected hardcoded provider path maps", "file": "packages/adapter-rules/src/projectors/watchers.ts" },
+    { "id": "DOMAIN-006", "severity": "medium", "status": "resolved", "title": "Trace propagation is implemented but not wired into CLI execution", "file": "packages/agent-adapters/src/observability/adapter-tracer.ts" },
+    { "id": "DOMAIN-007", "severity": "medium", "status": "resolved", "title": "Tool spans are keyed only by tool name, so repeated in-flight calls overwrite each other", "file": "packages/agent-adapters/src/observability/adapter-tracer.ts" },
     { "id": "DOMAIN-008", "severity": "medium", "title": "BaseCliAdapter is a multi-responsibility hotspot for CLI execution, governance, monitor hooks, interactions, env policy, and health", "file": "packages/agent-adapters/src/base/base-cli-adapter.ts" }
   ]
 }
@@ -136,21 +164,19 @@
 - Provider projectors are pure functions and are kept separate per provider, which makes targeted fixes and conformance tests straightforward.
 - `agent-adapters` already exposes a provider catalog and HTTP-routable provider list, which is the right shape for reducing scattered provider policy over time.
 - CLI execution has meaningful tests around artifact watcher lifecycle and environment filtering.
-- Observability has direct tests for tracing middleware, `AdapterTracer`, span ending, usage capture, callback failure isolation, and event bus emission.
+- Observability has direct tests for tracing middleware, `AdapterTracer`, trace env propagation, same-name concurrent tool span tracking, span ending, usage capture, callback failure isolation, and event bus emission.
 - The code generally avoids broad `any` in this focused slice; the main type-unsafety is at JSON rule loading and provider config patch shapes, not pervasive unchecked TypeScript.
 
 ## Open Questions Or Assumptions
 
 - I treated `supportsPolicyProjection` in `provider-catalog.ts` as an authoritative advertised capability because it is exported from both the root and provider subpath.
 - I assumed universal rules should produce useful provider watcher registrations. If the intended meaning is "active rule only, no provider watcher", that should be explicit in watcher docs and tests.
-- I did not classify all source files without same-name tests as zero-test findings. In this focused slice, the more actionable risk is missing semantic coverage for OpenAI/OpenRouter projector behavior, `'*'` watcher expansion, invalid rule payloads, trace env propagation, and duplicate tool-call spans.
+- I did not classify all source files without same-name tests as zero-test findings. In this focused slice, the remaining actionable code-quality risk is the `BaseCliAdapter` maintainability hotspot; the OpenAI/OpenRouter projector semantics, `'*'` watcher expansion, invalid rule payloads, trace env propagation, and duplicate tool-call spans have focused regression coverage.
 - I treated `BaseCliAdapter` complexity as a maintainability risk because it concentrates multiple CLI governance and monitor invariants in one execution loop, not because of file length alone.
 
 ## Recommended Next Actions
 
-1. Resolve the provider capability contradictions first: decide OpenAI/OpenRouter projection status and normalize approval-support tiers across `adapter-rules`, `policy-compiler`, `policy-conformance`, and `provider-catalog`.
-2. Add runtime validation for `AdapterRule` JSON files before adding more rule effects or providers. This is the narrowest way to reduce type-unsafety in the adapter-rules boundary.
-3. Consolidate watch-path metadata and route compiled watcher registrations into CLI watcher startup, then add one cross-package test proving a rule-driven watch path reaches the adapter watcher factory.
-4. Wire or remove trace propagation. A focused test should assert whether traced CLI execution passes `TRACEPARENT` into `spawnAndStreamJsonl`.
-5. Fix span keying for repeated tool calls and add interleaving tests in both tracing implementations.
-6. After remediation, run focused gates first: `yarn test --filter=@dzupagent/adapter-rules` and `yarn test --filter=@dzupagent/agent-adapters`, then run broader `yarn typecheck`/`yarn test` if shared provider contracts changed.
+1. Keep the new rule bridge helper as resolved groundwork: `prepareAdapterRuleRuntime()` loads rules, compiles a plan, projects it, and emits load/compile diagnostics as governance events.
+2. Keep monitor status as resolved groundwork: provider health now reports `unsupported`, `not_configured`, `ready`, `active`, or `failed_to_start`; future monitor work should consume that status instead of adding another health shape.
+3. Extract only stable `BaseCliAdapter` seams: provider hook record detection and spawn env construction are the lowest-risk first candidates because they already have focused tests.
+4. After remediation, run focused gates first: `yarn workspace @dzupagent/agent-adapters test`, `typecheck`, `lint`, and `build`; then rerun `yarn check:package-tiers`, `yarn check:domain-boundaries`, and `yarn verify` before checkpointing a broader slice.

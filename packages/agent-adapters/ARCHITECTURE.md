@@ -58,15 +58,16 @@ Entry surfaces inside source:
   - `./persistence`
   - `./runs`
   - `./integration`
+  - `./rules`
   - `./learning`
   - `./recovery`
-- The root import remains the 0.x compatibility barrel. New consumers should prefer the plane subpaths when they only need provider, workflow, HTTP, persistence, run, integration, learning, or recovery surfaces.
+- The root import remains the 0.x compatibility barrel. New consumers should prefer the plane subpaths when they only need provider, workflow, HTTP, persistence, run, integration, rules, learning, or recovery surfaces.
 
 ## Runtime and Control Flow
 Core single-run flow (`OrchestratorFacade.run`):
 1. Construct `AgentInput` + `TaskDescriptor` from prompt and options.
 2. Optionally apply `.dzupagent` enrichment (`WorkspaceResolver` + `loadDzupAgentConfig` + `EnrichmentPipeline.apply`).
-3. Optionally compile policy (`compilePolicyForProvider`) and run conformance checks (`PolicyConformanceChecker`).
+3. Optionally compile policy (`compilePolicyForProvider`) and run conformance checks (`PolicyConformanceChecker`). Hosts using `@dzupagent/adapter-rules` should call `prepareAdapterRuleRuntime()` from `./rules` to load rules, compile a `RuntimePlan`, project adapter input/config, and emit loader/compiler diagnostics onto the governance plane.
 4. Execute through `ProviderAdapterRegistry.executeWithFallback`.
 5. Bridge events to core bus (`EventBusBridge`), then wrap with cost tracking and guardrails if configured.
 6. Optionally gate stream via `AdapterApprovalGate`.
@@ -118,17 +119,18 @@ Primary runtime APIs:
 - Orchestration engines: `ParallelExecutor`, `SupervisorOrchestrator`, `MapReduceOrchestrator`, `ContractNetOrchestrator`
 - Workflow/session: `AdapterWorkflowBuilder` / `defineWorkflow`, `SessionRegistry`, `WorkflowCheckpointer`, `ConversationCompressor`, `DefaultCompactionStrategy`
 - Governance and control: `AdapterGuardrails`, `AdapterApprovalGate`, `AdapterRecoveryCopilot`, `compilePolicyForProvider`, `PolicyConformanceChecker`
+- Rule runtime bridge: `prepareAdapterRuleRuntime`, `withAdapterRuleRuntimePlan`, `projectAdapterRuleRuntimePlan`, `getAdapterRuleRuntimePlan`, and watcher-path projection helpers on `./rules`.
 - Integration APIs: `AdapterHttpHandler`, `AgentIntegrationBridge`, `RegistryExecutionPort`, `createAdapterPlugin`, `AdapterPluginLoader`, `MCPToolSharingBridge`, `InMemoryMcpAdapterManager`
 - Persistence and runs: `FileCheckpointStore`, `RunManager`, `RunEventStore`, `ScriptRunEventStore`
 
 Provider catalog and product gating:
-- `PROVIDER_CATALOG` defines runtime/product/monitoring capabilities.
+- `PROVIDER_CATALOG` defines runtime/product/monitoring, policy-projection, and approval-support capabilities.
 - `getProductProviders()` filters by `productIntegrated: true`.
 - `ProviderAdapterRegistry.registerProductionAdapters()` consults catalog capabilities when deciding what to register.
 
 ## Dependencies
 Package metadata (`package.json`):
-- Runtime dependencies: `@dzupagent/adapter-types`, `@dzupagent/agent`, `@dzupagent/agent-types`, `@dzupagent/core`, `@dzupagent/runtime-contracts`.
+- Runtime dependencies: `@dzupagent/adapter-rules`, `@dzupagent/adapter-types`, `@dzupagent/agent`, `@dzupagent/agent-types`, `@dzupagent/core`, `@dzupagent/runtime-contracts`.
 - Peer dependencies: `@langchain/core`, `zod`.
 - Optional dependencies: `@anthropic-ai/claude-agent-sdk`, `@openai/codex-sdk`.
 
@@ -138,7 +140,7 @@ Runtime/tooling dependencies used by source:
 - Build/test toolchain: `tsup`, `typescript`, `vitest`.
 
 Build packaging:
-- `tsup` entries: `src/index.ts`, `src/providers.ts`, `src/orchestration.ts`, `src/workflow.ts`, `src/http.ts`, `src/persistence.ts`, `src/learning.ts`, `src/recovery.ts`, `src/runs/index.ts`, and `src/integration/index.ts`.
+- `tsup` entries: `src/index.ts`, `src/providers.ts`, `src/orchestration.ts`, `src/workflow.ts`, `src/http.ts`, `src/persistence.ts`, `src/learning.ts`, `src/recovery.ts`, `src/runs/index.ts`, `src/integration/index.ts`, and `src/rules.ts`.
 - Output format: ESM + declaration files.
 - `external` marks workspace `@dzupagent/*` imports and optional SDKs as external.
 
@@ -178,7 +180,8 @@ Coverage focus areas represented by tests:
 
 Observability surfaces:
 - `EventBusBridge` emits bus-level lifecycle and tool events.
-- `AdapterTracer` + `createTracingMiddleware` record spans/events for adapter execution.
+- `AdapterTracer` + `createTracingMiddleware` record spans/events for adapter execution and attach W3C `TRACEPARENT` metadata for CLI spawn propagation.
+- Adapter health exposes `monitorStatus` so monitorable providers report `not_configured`, `ready`, `active`, or `failed_to_start`, while unsupported providers report `unsupported`.
 - `CostTrackingMiddleware` aggregates usage/cost and emits budget events.
 - `StreamingHandler` serializes event streams as SSE/JSONL/NDJSON with progress tracking.
 - Recovery trace store (`ExecutionTraceCapture`) preserves route/recovery decisions and observed events.
@@ -186,8 +189,8 @@ Observability surfaces:
 
 ## Risks and TODOs
 - The root barrel is still broad for 0.x compatibility. Avoid adding new public surfaces to `src/index.ts` by default; prefer explicit plane subpaths and keep `docs/PUBLIC_API_SURFACE_ALLOWLISTS.md` updated when the public API changes.
-- `request-schemas.ts` provider enum omits `openai` and `gemini-sdk`, while both provider IDs exist in adapter/runtime types.
-- `PROVIDER_CATALOG` omits an `openai` entry; `registerProductionAdapters()` relies on catalog lookup and can silently skip providers not cataloged.
+- `request-schemas.ts` intentionally excludes `gemini-sdk` from HTTP routing, while `openai` is now cataloged and HTTP-routable.
+- API-only providers (`openai`, `openrouter`) are product/HTTP-capable but do not advertise native policy projection until provider-config projectors exist.
 - `GeminiSDKAdapter` depends on runtime availability of `@google/generative-ai`, but that package is loaded dynamically and is not declared in package dependencies/optionalDependencies.
 - `src/__tests__/architecture-doc.test.ts` guards both root and `docs/ARCHITECTURE.md` architecture docs against package export-map drift.
 

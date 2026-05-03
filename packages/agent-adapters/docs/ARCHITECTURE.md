@@ -62,6 +62,7 @@ Packaging/build structure:
   - `./persistence`
   - `./runs`
   - `./integration`
+  - `./rules`
   - `./learning`
   - `./recovery`
 - The root import remains available for 0.x compatibility. New consumers should prefer the plane subpaths when they do not need the full compatibility barrel.
@@ -70,7 +71,7 @@ Packaging/build structure:
 Primary run flow (`OrchestratorFacade.run`):
 1. Build `AgentInput` and `TaskDescriptor` from prompt/options.
 2. Apply optional `.dzupagent` enrichment.
-3. Compile/apply optional policy overrides (`compilePolicyForProvider`) and conformance checks.
+3. Compile/apply optional policy overrides (`compilePolicyForProvider`) and conformance checks. Hosts using `@dzupagent/adapter-rules` should call `prepareAdapterRuleRuntime()` from `./rules` to load rules, compile a `RuntimePlan`, project adapter input/config, and emit loader/compiler diagnostics onto the governance plane.
 4. Execute through `ProviderAdapterRegistry.executeWithFallback`.
 5. Bridge events to bus (`EventBusBridge`) and apply post-stream wrappers (cost tracking, guardrails).
 6. Optionally gate stream via `AdapterApprovalGate`.
@@ -118,15 +119,18 @@ Primary runtime APIs:
 - Orchestration engines: `ParallelExecutor`, `SupervisorOrchestrator`, `MapReduceOrchestrator`, `ContractNetOrchestrator`.
 - Workflow/session: `AdapterWorkflowBuilder`/`defineWorkflow`, `SessionRegistry`, `WorkflowCheckpointer`, `ConversationCompressor`.
 - Recovery/control: `AdapterRecoveryCopilot`, `AdapterApprovalGate`, `AdapterGuardrails`, policy compiler + conformance checker.
+- Rule runtime bridge: `prepareAdapterRuleRuntime`, `withAdapterRuleRuntimePlan`, `projectAdapterRuleRuntimePlan`, `getAdapterRuleRuntimePlan`, and watcher-path projection helpers on `./rules`.
 - Transport/integration: `AdapterHttpHandler`, `EventBusBridge`, `RegistryExecutionPort`, plugin APIs, MCP manager/tool sharing bridge.
 - Persistence and logging: `FileCheckpointStore`, `RunManager`, `RunEventStore`, `ScriptRunEventStore`, `runLogRoot`.
 
 Provider capability policy surface:
 - `PROVIDER_CATALOG` + helpers (`getMonitorableProviders`, `getProductProviders`, `getProviderCapabilities`).
+- Catalog entries distinguish native approval, provider-config approval projection, and host-gated approval.
 - `registerProductionAdapters` / `registerExperimentalAdapters` enforce catalog-driven product vs experimental registration.
 
 ## Dependencies
 Declared runtime dependencies:
+- `@dzupagent/adapter-rules`
 - `@dzupagent/adapter-types`
 - `@dzupagent/agent`
 - `@dzupagent/agent-types`
@@ -144,7 +148,7 @@ Optional dependencies:
 Runtime/tooling notes from implementation:
 - `GeminiSDKAdapter` dynamically imports `@google/generative-ai` (runtime optional, not declared in `package.json`).
 - CLI-backed adapters depend on external binaries (`gemini`, `qwen`, `crush`, `goose`) being available in `PATH`.
-- Build uses `tsup` (ESM + d.ts) with root and plane entries; workspace `@dzupagent/*` and optional SDKs are externalized.
+- Build uses `tsup` (ESM + d.ts) with root and plane entries, including `src/rules.ts`; workspace `@dzupagent/*` and optional SDKs are externalized.
 - Testing uses Vitest in Node environment with configured coverage thresholds (statements/lines 70, branches/functions 60).
 
 ## Integration Points
@@ -180,7 +184,8 @@ Testing:
 
 Observability surfaces:
 - `EventBusBridge` emits lifecycle/tool/progress events to core event bus.
-- `AdapterTracer` and tracing middleware add span/event instrumentation.
+- `AdapterTracer` and tracing middleware add span/event instrumentation and attach W3C `TRACEPARENT` metadata for CLI spawn propagation.
+- Adapter health exposes `monitorStatus` so monitorable providers report `not_configured`, `ready`, `active`, or `failed_to_start`, while unsupported providers report `unsupported`.
 - `CostTrackingMiddleware` tracks usage/cost and emits budget-related events.
 - `StreamingHandler` serializes stream output for SSE/JSONL/NDJSON formats.
 - `RunEventStore` persists raw + normalized + artifact event logs and run summaries.
@@ -189,8 +194,8 @@ Observability surfaces:
 
 ## Risks and TODOs
 - The root entrypoint remains broad for 0.x compatibility even though package subpaths now exist. Avoid growing the root barrel; route new public surfaces through explicit subpaths plus public API allowlist updates.
-- `RunRequestSchema` provider enum excludes valid adapter IDs such as `openai` and `gemini-sdk`, limiting direct HTTP selection.
-- `PROVIDER_CATALOG` does not include an `openai` entry, so catalog-driven product/experimental registration paths can skip it.
+- `RunRequestSchema` intentionally excludes `gemini-sdk` from HTTP routing, while `openai` is now cataloged and HTTP-routable.
+- API-only providers (`openai`, `openrouter`) are product/HTTP-capable but do not advertise native policy projection until provider-config projectors exist.
 - `normalizeEvent` handles `openrouter` but not `openai`; OpenAI raw payload normalization is currently absent in this utility.
 - `GeminiSDKAdapter` requires `@google/generative-ai` at runtime but this dependency is not declared in package metadata.
 - `src/__tests__/architecture-doc.test.ts` guards both the root and `docs/ARCHITECTURE.md` architecture docs against package export-map drift.
