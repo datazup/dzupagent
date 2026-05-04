@@ -105,8 +105,8 @@ describe('CostTrackingMiddleware', () => {
       await collectAll(middleware.wrap(yieldEvents(events)))
 
       const usage = middleware.getUsage()
-      // 125 + 500 = 625 cents
-      expect(usage.totalCostCents).toBe(625)
+      // 10 + 40 = 50 cents (Gemini Flash 2.0 rates: 10/1M input, 40/1M output)
+      expect(usage.totalCostCents).toBe(50)
     })
   })
 
