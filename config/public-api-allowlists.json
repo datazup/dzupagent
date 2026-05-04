@@ -15,6 +15,19 @@
   },
   "packages": [
     {
+      "packageName": "@dzupagent/security",
+      "packageDir": "packages/security",
+      "rootIndex": "packages/security/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./prompt-injection/index.js" },
+        { "match": "exact", "pattern": "./pii/index.js" },
+        { "match": "exact", "pattern": "./content-scanner.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Security package root exports are the primary consumption surface; all exports are stable from initial release."
+    },
+    {
       "packageName": "@dzupagent/core",
       "packageDir": "packages/core",
       "rootIndex": "packages/core/src/index.ts",
@@ -31,6 +44,8 @@
         { "match": "exact", "pattern": "<local>:dzupagent_CORE_VERSION" }
       ],
       "transitionalRoot": [
+        { "match": "exact", "pattern": "./rate-limit/token-bucket.js" },
+        { "match": "prefix", "pattern": "./structured/" },
         { "match": "prefix", "pattern": "./context/" },
         { "match": "prefix", "pattern": "./concurrency/" },
         { "match": "prefix", "pattern": "./flow/" },
@@ -175,6 +190,9 @@
         { "match": "prefix", "pattern": "./agent-file/" }
       ],
       "transitionalRoot": [
+        { "match": "exact", "pattern": "./in-memory-client.js" },
+        { "match": "exact", "pattern": "./http-client.js" },
+        { "match": "exact", "pattern": "./memory-service-adapter.js" },
         { "match": "exact", "pattern": "./decay-engine.js" },
         { "match": "exact", "pattern": "./memory-consolidation.js" },
         { "match": "exact", "pattern": "./semantic-consolidation.js" },
@@ -220,6 +238,7 @@
       "packageDir": "packages/context",
       "rootIndex": "packages/context/src/index.ts",
       "stableRoot": [
+        { "match": "exact", "pattern": "./prompt-cache-injector.js" },
         { "match": "exact", "pattern": "./message-manager.js" },
         { "match": "exact", "pattern": "./auto-compress.js" },
         { "match": "exact", "pattern": "./snapshot-builder.js" },
@@ -316,6 +335,7 @@
         { "match": "prefix", "pattern": "./observability/" },
         { "match": "prefix", "pattern": "./approval/" },
         { "match": "prefix", "pattern": "./recovery/" },
+        { "match": "prefix", "pattern": "./pipeline/" },
         { "match": "prefix", "pattern": "./http/" },
         { "match": "prefix", "pattern": "./context/" },
         { "match": "prefix", "pattern": "./output/" },
@@ -387,7 +407,9 @@
       "stableRoot": [
         { "match": "exact", "pattern": "./guardrails.js" },
         { "match": "exact", "pattern": "./retry.js" },
-        { "match": "exact", "pattern": "./tool-permission.js" }
+        { "match": "exact", "pattern": "./tool-permission.js" },
+        { "match": "exact", "pattern": "./orchestration-contracts.js" },
+        { "match": "exact", "pattern": "./memory-client.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},

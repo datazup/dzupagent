@@ -1025,7 +1025,8 @@
           "cache",
           "memory-ipc",
           "hitl-kit",
-          "flow-ast"
+          "flow-ast",
+          "security"
         ]
       },
       {

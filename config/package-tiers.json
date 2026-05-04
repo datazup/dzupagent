@@ -1,4 +1,16 @@
 {
+  "@dzupagent/security": {
+    "tier": 1,
+    "status": "supported",
+    "roadmapDriver": true,
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app",
+      "apps/testman-app"
+    ]
+  },
   "@dzupagent/core": {
     "tier": 1,
     "status": "supported",
