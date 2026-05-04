@@ -12,8 +12,10 @@ import type {
   StructuredOutputModelCapabilities,
   ToolGovernance,
   SafetyMonitor,
+  TokenBucket,
+  TokenBucketConfig,
 } from '@dzupagent/core'
-import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
+import type { ToolPermissionPolicy, MemoryClient } from '@dzupagent/agent-types'
 import type { MemoryService } from '@dzupagent/memory'
 import type { MessageManagerConfig } from '@dzupagent/context'
 import type { ConversationPhase, FrozenSnapshot } from '@dzupagent/context'
@@ -56,8 +58,26 @@ export interface DzupAgentConfig {
   tools?: StructuredToolInterface[]
   /** Middleware hooks (cost tracking, observability, etc.) */
   middleware?: AgentMiddleware[]
-  /** Memory service for persistent context */
+  /**
+   * Memory service for persistent context.
+   *
+   * @deprecated Prefer `memoryClient` (ADR-0005) for new integrations.
+   * The `memory` field continues to work for backwards compatibility and
+   * still drives the existing decay / write-back pipeline.
+   */
   memory?: MemoryService
+  /**
+   * MemoryClient for persistent context (ADR-0005).
+   *
+   * Decoupled from any specific transport. Implementations:
+   * - `InMemoryMemoryClient` (`@dzupagent/memory`)  — dev / tests
+   * - `IpcMemoryClient`      (`@dzupagent/memory-ipc`) — Arrow IPC
+   * - `HttpMemoryClient`     (`@dzupagent/memory`) — future remote
+   *
+   * Backwards compat: wrap an existing `MemoryService` with
+   * `memoryServiceToClient(svc)` from `@dzupagent/memory`.
+   */
+  memoryClient?: MemoryClient
   /** Memory scope for get/put operations */
   memoryScope?: Record<string, string>
   /** Memory namespace to use */
@@ -137,6 +157,19 @@ export interface DzupAgentConfig {
    * If the import fails the agent falls back to the standard load-all path.
    */
   arrowMemory?: ArrowMemoryConfig
+
+  /**
+   * Arrow runtime loader (ADR-0005).
+   *
+   * The agent no longer dynamically imports `@dzupagent/memory-ipc`. When
+   * `arrowMemory` or `memoryProfile` is configured, callers MUST inject this
+   * loader so the dependency surface is explicit at the call site. Typical
+   * value: `() => import('@dzupagent/memory-ipc')`.
+   *
+   * The returned object must satisfy the `ArrowMemoryRuntime` shape exported
+   * from `./memory-context-loader.ts`.
+   */
+  loadArrowRuntime?: () => Promise<unknown>
 
   /**
    * Memory budget profile preset.
@@ -284,6 +317,60 @@ export interface DzupAgentConfig {
    * idempotent or otherwise retry-safe.
    */
   providerFailover?: ProviderFailoverPolicy
+
+  /**
+   * Optional client-side LLM call rate limiter (audit fix RF-11 / AG-10).
+   *
+   * When set, every LLM invocation in `generate()` and `stream()` calls
+   * `rateLimiter.waitUntilAvailable(1)` before contacting the provider,
+   * preventing runaway cost and provider throttling under load.
+   *
+   * Accepts either a pre-built {@link TokenBucket} (so callers can share
+   * a bucket across agents for global throttling) or a
+   * {@link TokenBucketConfig} object — the agent then constructs its own
+   * per-instance bucket. Omitting this field preserves the legacy
+   * unrestricted behaviour.
+   */
+  rateLimiter?: TokenBucket | TokenBucketConfig
+
+  /**
+   * Memory decay pruning threshold (RF-10 / AG-07).
+   *
+   * After each successful memory write-back, the agent checks whether the
+   * namespace exceeds this record count. When it does, weak memories
+   * (strength below 0.1 per the Ebbinghaus forgetting curve) are pruned
+   * in a fire-and-forget background sweep.
+   *
+   * Default: 200. Set to 0 or Infinity to disable automatic pruning.
+   */
+  memoryDecayThreshold?: number
+
+  /**
+   * OWASP-aligned content scanning configuration (audit MC-01 / AG-08 / AG-09).
+   *
+   * Wires `@dzupagent/security`'s `ContentScanner` into the agent's run
+   * lifecycle:
+   *
+   * - `promptInjection: 'block'` — every incoming `HumanMessage` is
+   *   scanned in `prepareRunState`. A finding aborts the run with
+   *   `PromptInjectionBlockedError`.
+   * - `promptInjection: 'warn'` — matched spans are rewritten with
+   *   `[REDACTED-INJECTION]` before reaching the model.
+   * - `promptInjection: 'off'` — no scanning (legacy behaviour).
+   * - `pii: 'redact'` — final response content is sanitized before
+   *   memory write-back so SSN / CC / IBAN / JWT / API-key values never
+   *   land on disk.
+   * - `pii: 'block'` — any PII finding fails the write-back step (still
+   *   non-fatal to the run; failure is emitted on `eventBus`).
+   * - `pii: 'off'` — no scanning (legacy behaviour).
+   *
+   * Omitting the field preserves the legacy unscanned behaviour. Hosts
+   * that want hardening should opt in explicitly per environment.
+   */
+  security?: {
+    promptInjection?: 'off' | 'warn' | 'block'
+    pii?: 'off' | 'redact' | 'block'
+  }
 }
 
 /** Explicit run-level provider retry/failover policy. */
@@ -557,6 +644,19 @@ export interface GenerateResult {
    * compression was observed.
    */
   compressionLog?: CompressionLogEntry[]
+  /**
+   * Set when the run was abandoned because a durable approval gate threw
+   * `ApprovalSuspendedError`. The accompanying `resumeToken` lets an
+   * out-of-process resumer complete the approval and continue the run.
+   *
+   * When present, callers should treat the run as paused rather than
+   * complete -- the textual `content` is empty and `messages` only contains
+   * the prefix produced before suspension.
+   */
+  suspended?: {
+    runId: string
+    resumeToken: string
+  }
 }
 
 /** A single streamed event from the agent */

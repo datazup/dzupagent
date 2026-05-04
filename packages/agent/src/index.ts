@@ -36,6 +36,11 @@ export type {
 } from './agent/production-tool-governance-preset.js'
 export { runToolLoop } from './agent/tool-loop.js'
 export type { ToolLoopConfig, ToolLoopResult, ToolStat, StopReason } from './agent/tool-loop.js'
+export { ToolOutputValidator } from './agent/tool-loop/output-validator.js'
+export type {
+  ToolOutputSchema,
+  ToolOutputValidationResult,
+} from './agent/tool-loop/output-validator.js'
 export {
   TOOL_TIMEOUT_ERROR_CODE,
   ToolTimeoutError,
@@ -87,7 +92,7 @@ export type {
 
 // --- Workflow ---
 export { WorkflowBuilder, CompiledWorkflow, createWorkflow } from './workflow/workflow-builder.js'
-export type { WorkflowConfig } from './workflow/workflow-builder.js'
+export type { WorkflowConfig, WorkflowErrorHandler } from './workflow/workflow-builder.js'
 export type {
   WorkflowStep,
   WorkflowContext,
@@ -222,12 +227,18 @@ export type {
 // --- Approval ---
 export { ApprovalGate } from './approval/approval-gate.js'
 export {
+  APPROVAL_PENDING_KEY,
   DEFAULT_APPROVAL_TIMEOUT_MS,
+  type ApprovalCheckpointStore,
   type ApprovalConfig,
+  type ApprovalDecision,
   type ApprovalMode,
+  type ApprovalPendingState,
+  type ApprovalRequestInput,
   type ApprovalResult,
   type ApprovalWaitOptions,
 } from './approval/approval-types.js'
+export { ApprovalSuspendedError } from './approval/approval-errors.js'
 
 // --- Tool Registry ---
 export { DynamicToolRegistry } from './agent/tool-registry.js'
@@ -478,6 +489,11 @@ export type {
 } from './recovery/recovery-types.js'
 
 // --- Replay Debugger ---
+/**
+ * @deprecated Import from `@dzupagent/agent/replay` instead. The root barrel
+ * re-export is retained for backwards compatibility and will be removed in a
+ * future major release.
+ */
 export {
   TraceCapture,
   ReplayEngine,
@@ -485,6 +501,7 @@ export {
   ReplayInspector,
   TraceSerializer,
 } from './replay/index.js'
+/** @deprecated Import from `@dzupagent/agent/replay` instead. */
 export type {
   ReplayEvent,
   Breakpoint,
@@ -512,20 +529,37 @@ export type { MergedInstructions } from './instructions/instruction-merger.js'
 export { loadAgentsFiles } from './instructions/instruction-loader.js'
 export type { LoadedAgentsFile, LoadAgentsOptions } from './instructions/instruction-loader.js'
 
+// =============================================================================
+// Self-Correction re-exports
+// -----------------------------------------------------------------------------
+// All symbols below are re-exported from the dedicated subpath
+// `@dzupagent/agent/self-correction`. Importing them from the root barrel is
+// deprecated; new code should target the subpath directly to enable better
+// tree-shaking and to keep the root surface minimal.
+// =============================================================================
+
 // --- Self-Correction (ReflectionLoop) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { ReflectionLoop, parseCriticResponse } from './self-correction/reflection-loop.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type { ReflectionConfig, ReflectionIteration, ReflectionResult, ScoreResult } from './self-correction/reflection-loop.js'
 
 // --- Self-Correction (AdaptiveIterationController) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { AdaptiveIterationController } from './self-correction/iteration-controller.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type { IterationDecision, IterationControllerConfig } from './self-correction/iteration-controller.js'
 
 // --- Self-Correction (SelfCorrectingNode) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { createSelfCorrectingExecutor } from './self-correction/self-correcting-node.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type { SelfCorrectingConfig, SelfCorrectingResult } from './self-correction/self-correcting-node.js'
 
 // --- Self-Correction (ErrorDetectionOrchestrator) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { ErrorDetectionOrchestrator } from './self-correction/error-detector.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   ErrorSource,
   ErrorSeverity,
@@ -534,7 +568,9 @@ export type {
 } from './self-correction/error-detector.js'
 
 // --- Self-Correction (RootCauseAnalyzer) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { RootCauseAnalyzer } from './self-correction/root-cause-analyzer.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   RootCauseReport,
   RootCauseAnalyzerConfig,
@@ -543,7 +579,9 @@ export type {
 } from './self-correction/root-cause-analyzer.js'
 
 // --- Self-Correction (VerificationProtocol) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { VerificationProtocol, jaccardSimilarity } from './self-correction/verification-protocol.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   VerificationStrategy,
   VerificationResult,
@@ -551,18 +589,24 @@ export type {
 } from './self-correction/verification-protocol.js'
 
 // --- Self-Correction (SelfLearningRuntime) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { SelfLearningRuntime } from './self-correction/self-learning-runtime.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   SelfLearningConfig,
   SelfLearningRunResult,
 } from './self-correction/self-learning-runtime.js'
 
 // --- Self-Correction (SelfLearningPipelineHook) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { SelfLearningPipelineHook } from './self-correction/self-learning-hook.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type { SelfLearningHookConfig, HookMetrics } from './self-correction/self-learning-hook.js'
 
 // --- Self-Correction (PostRunAnalyzer) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { PostRunAnalyzer } from './self-correction/post-run-analyzer.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   RunAnalysis,
   AnalysisResult,
@@ -571,7 +615,9 @@ export type {
 } from './self-correction/post-run-analyzer.js'
 
 // --- Self-Correction (AdaptivePromptEnricher) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { AdaptivePromptEnricher } from './self-correction/adaptive-prompt-enricher.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   PromptEnrichment,
   EnricherConfig,
@@ -580,7 +626,9 @@ export type {
 } from './self-correction/adaptive-prompt-enricher.js'
 
 // --- Self-Correction (PipelineStuckDetector) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { PipelineStuckDetector } from './self-correction/pipeline-stuck-detector.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   PipelineStuckConfig,
   PipelineStuckStatus,
@@ -589,7 +637,9 @@ export type {
 } from './self-correction/pipeline-stuck-detector.js'
 
 // --- Self-Correction (TrajectoryCalibrator) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { TrajectoryCalibrator } from './self-correction/trajectory-calibrator.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   StepReward,
   TrajectoryRecord,
@@ -598,7 +648,9 @@ export type {
 } from './self-correction/trajectory-calibrator.js'
 
 // --- Self-Correction (ObservabilityCorrectionBridge) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { ObservabilityCorrectionBridge } from './self-correction/observability-bridge.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   CorrectionSignal,
   CorrectionSignalType,
@@ -608,7 +660,9 @@ export type {
 } from './self-correction/observability-bridge.js'
 
 // --- Self-Correction (StrategySelector) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { StrategySelector } from './self-correction/strategy-selector.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   FixStrategy,
   StrategyRate,
@@ -617,11 +671,15 @@ export type {
 } from './self-correction/strategy-selector.js'
 
 // --- Self-Correction (RecoveryFeedback) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { RecoveryFeedback } from './self-correction/recovery-feedback.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type { RecoveryLesson, RecoveryFeedbackConfig } from './self-correction/recovery-feedback.js'
 
 // --- Self-Correction (AgentPerformanceOptimizer) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { AgentPerformanceOptimizer } from './self-correction/performance-optimizer.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   OptimizationDecision,
   PerformanceHistory,
@@ -629,7 +687,9 @@ export type {
 } from './self-correction/performance-optimizer.js'
 
 // --- Self-Correction (LangGraphLearningMiddleware) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { LangGraphLearningMiddleware } from './self-correction/langgraph-middleware.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   LangGraphLearningConfig,
   LearningRunMetrics,
@@ -637,7 +697,9 @@ export type {
 } from './self-correction/langgraph-middleware.js'
 
 // --- Self-Correction (FeedbackCollector) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { FeedbackCollector } from './self-correction/feedback-collector.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   FeedbackType,
   FeedbackOutcome,
@@ -647,7 +709,9 @@ export type {
 } from './self-correction/feedback-collector.js'
 
 // --- Self-Correction (LearningDashboardService) ---
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export { LearningDashboardService } from './self-correction/learning-dashboard.js'
+/** @deprecated Import from `@dzupagent/agent/self-correction` instead. */
 export type {
   LearningOverview,
   QualityTrend,

@@ -6,7 +6,7 @@
  * - High error rate within a time window
  * - No-progress iterations (no new tool calls or outputs)
  */
-import { createHash } from 'node:crypto'
+import { hashToolInput } from '@dzupagent/core'
 import type { StuckDetectorConfig } from '@dzupagent/agent-types'
 
 export type { StuckDetectorConfig }
@@ -24,6 +24,7 @@ const DEFAULT_CONFIG: ResolvedStuckDetectorConfig = {
   maxErrorsInWindow: 5,
   errorWindowMs: 60_000,
   maxIdleIterations: 3,
+  semanticPlateauWindow: 0,
 }
 
 export class StuckDetector {
@@ -39,6 +40,9 @@ export class StuckDetector {
   private currentBlock: string[] = []
   private lastCompletedBlock: string[] = []
   private hashHistory: string[] = []
+
+  // Semantic plateau: recent tool names window (FIFO, bounded to semanticPlateauWindow)
+  private semanticWindow: string[] = []
 
   constructor(config?: StuckDetectorConfig) {
     this.config = { ...DEFAULT_CONFIG, ...config }
@@ -74,6 +78,23 @@ export class StuckDetector {
       return {
         stuck: true,
         reason: `Identical tool sequence repeated ${this.hashRepeatThreshold} times: [${this.lastCompletedBlock.join(', ')}]`,
+      }
+    }
+
+    // Semantic plateau: detect fixation on a single tool with varied arguments
+    if (this.config.semanticPlateauWindow > 0) {
+      this.semanticWindow.push(name)
+      if (this.semanticWindow.length > this.config.semanticPlateauWindow) {
+        this.semanticWindow.shift()
+      }
+      if (this.semanticWindow.length >= this.config.semanticPlateauWindow) {
+        const uniqueTools = new Set(this.semanticWindow)
+        if (uniqueTools.size === 1) {
+          return {
+            stuck: true,
+            reason: `Semantic plateau: tool "${name}" called ${this.config.semanticPlateauWindow} consecutive times with no other tools`,
+          }
+        }
       }
     }
 
@@ -154,10 +175,10 @@ export class StuckDetector {
     this.currentBlock = []
     this.lastCompletedBlock = []
     this.hashHistory = []
+    this.semanticWindow = []
   }
 
   private hashInput(input: unknown): string {
-    const str = typeof input === 'string' ? input : JSON.stringify(input)
-    return createHash('sha256').update(str).digest('hex').slice(0, 16)
+    return hashToolInput(input)
   }
 }

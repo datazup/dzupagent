@@ -39,14 +39,18 @@
 
 import { ForgeError } from '@dzupagent/core'
 import type { DzupEventBus, PipelineDefinition, PipelineNode } from '@dzupagent/core'
-import { PipelineRuntime } from '@dzupagent/agent'
 import type {
   NodeExecutionContext,
   NodeExecutor,
   NodeResult,
   PipelineRuntimeEvent,
 } from '@dzupagent/agent'
+import type {
+  PipelineExecutorFactory,
+  PipelineExecutorPort,
+} from '@dzupagent/adapter-types'
 
+import { defaultPipelineExecutorFactory } from './default-pipeline-executor.js'
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
   AdapterProviderId,
@@ -236,12 +240,15 @@ export interface AdapterWorkflowRunOptions {
  */
 export class AdapterWorkflow {
   private readonly compilation: AdapterWorkflowCompilation
+  private readonly executorFactory: PipelineExecutorFactory<PipelineDefinition, PipelineNode>
 
   constructor(
     private readonly workflowConfig: AdapterWorkflowConfig,
     nodes: AdapterWorkflowNode[],
+    executorFactory: PipelineExecutorFactory<PipelineDefinition, PipelineNode> = defaultPipelineExecutorFactory,
   ) {
     this.compilation = compileAdapterWorkflow(workflowConfig, nodes)
+    this.executorFactory = executorFactory
   }
 
   /** The workflow identifier. */
@@ -287,7 +294,7 @@ export class AdapterWorkflow {
     }
 
     try {
-      const runtime = new PipelineRuntime({
+      const executor: PipelineExecutorPort = this.executorFactory({
         definition: this.compilation.definition,
         nodeExecutor: this.compilation.createNodeExecutor(registry, emit, stepResults, (observed) => {
           latestObservedState = observed
@@ -295,12 +302,12 @@ export class AdapterWorkflow {
         // Runtime accepts branch keys as strings, but config type narrows to boolean.
         predicates: this.compilation.predicates as Record<string, (state: Record<string, unknown>) => boolean>,
         ...(options?.signal !== undefined ? { signal: options.signal } : {}),
-        onEvent: (event) => this.handleRuntimeEvent(event, emit, () => {
+        onEvent: (event) => this.handleRuntimeEvent(event as PipelineRuntimeEvent, emit, () => {
           failureEventEmitted = true
         }),
       })
 
-      const runtimeResult = await runtime.execute(state)
+      const runtimeResult = await executor.execute(state)
       if (runtimeResult.state !== 'completed') {
         throw new Error(this.extractFailure(runtimeResult.nodeResults) ?? 'Workflow execution failed')
       }
@@ -411,8 +418,22 @@ export class AdapterWorkflow {
  */
 export class AdapterWorkflowBuilder {
   private readonly nodes: AdapterWorkflowNode[] = []
+  private executorFactory: PipelineExecutorFactory<PipelineDefinition, PipelineNode> | undefined
 
   constructor(private readonly config: AdapterWorkflowConfig) {}
+
+  /**
+   * Inject a custom `PipelineExecutorFactory` for the resulting workflow.
+   *
+   * When unset, `build()` uses `defaultPipelineExecutorFactory`, which
+   * binds the canonical `PipelineRuntime` from `@dzupagent/agent`. Tests
+   * and alternative runtimes can supply their own factory here without
+   * `AdapterWorkflowBuilder` needing to know about the concrete class.
+   */
+  withExecutorFactory(factory: PipelineExecutorFactory<PipelineDefinition, PipelineNode>): this {
+    this.executorFactory = factory
+    return this
+  }
 
   /** Add a sequential step that runs on the best-routed adapter. */
   step(config: AdapterStepConfig): this {
@@ -461,7 +482,11 @@ export class AdapterWorkflowBuilder {
         message: `Workflow has validation errors:\n${result.errors.map((e) => `  ${e.stepId}: ${e.message}`).join('\n')}`,
       })
     }
-    return new AdapterWorkflow(this.config, [...this.nodes])
+    return new AdapterWorkflow(
+      this.config,
+      [...this.nodes],
+      this.executorFactory ?? defaultPipelineExecutorFactory,
+    )
   }
 }
 

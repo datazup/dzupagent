@@ -1,6 +1,7 @@
 /**
  * RegistryExecutionPort — implements the `ProviderExecutionPort` interface
- * from `@dzupagent/agent` using `ProviderAdapterRegistry.executeWithFallback()`.
+ * (canonically defined in `@dzupagent/adapter-types`) using
+ * `ProviderAdapterRegistry.executeWithFallback()`.
  *
  * This bridges the dependency-inverted port with the concrete adapter
  * runtime, keeping `@dzupagent/agent` free of adapter implementation details.
@@ -10,8 +11,6 @@ import { ForgeError } from '@dzupagent/core'
 import type {
   ProviderExecutionPort,
   ProviderExecutionResult,
-} from '@dzupagent/agent'
-import type {
   AgentEvent,
   AgentInput,
   TaskDescriptor,

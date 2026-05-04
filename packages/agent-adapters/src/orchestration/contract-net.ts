@@ -20,6 +20,8 @@
 
 import type { DzupEventBus } from '@dzupagent/core'
 import { ForgeError } from '@dzupagent/core'
+import type { BaseContractNetContract } from '@dzupagent/agent-types'
+import type { AgentCLIAdapter } from '@dzupagent/adapter-types'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
@@ -72,7 +74,7 @@ export interface ContractNetOptions {
 }
 
 /** Configuration for the ContractNetOrchestrator. */
-export interface ContractNetConfig {
+export interface ContractNetConfig extends BaseContractNetContract<AgentCLIAdapter> {
   registry: ProviderAdapterRegistry
   eventBus?: DzupEventBus | undefined
   /** Max time (ms) to collect bids. Default 5000. */

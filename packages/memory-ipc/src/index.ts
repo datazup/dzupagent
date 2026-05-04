@@ -108,6 +108,10 @@ export type {
   SlotHandle,
 } from './shared-memory-channel.js'
 
+// --- MemoryClient (ADR-0005) ---
+export { IpcMemoryClient, IpcNotConfiguredError } from './ipc-client.js'
+export type { IpcMemoryClientConfig } from './ipc-client.js'
+
 // --- Memory Service Arrow Extension ---
 export { extendMemoryServiceWithArrow } from './memory-service-ext.js'
 export type {

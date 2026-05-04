@@ -22,18 +22,30 @@ function isProviderRawStreamEvent(
 interface ProviderRates {
   inputCentsPer1M: number
   outputCentsPer1M: number
+  /** Cache read price (prompt-cache hit). Defaults to inputCentsPer1M if absent. */
+  cachedInputCentsPer1M?: number
+  /** Cache write price (prompt-cache write). Defaults to 0 if absent. */
+  cacheWriteCentsPer1M?: number
 }
 
+// Rates last updated 2025-05 (cents per 1M tokens).
+// Claude: claude-sonnet-4 pricing; Codex: o4-mini pricing; Gemini: Flash 2.0 pricing.
+// Cached-token pricing reflects Anthropic prompt-cache hit / write tiers.
 const PROVIDER_RATES: Record<AdapterProviderId, ProviderRates> = {
-  claude: { inputCentsPer1M: 300, outputCentsPer1M: 1500 },
-  codex: { inputCentsPer1M: 200, outputCentsPer1M: 800 },
-  gemini: { inputCentsPer1M: 125, outputCentsPer1M: 500 },
-  'gemini-sdk': { inputCentsPer1M: 125, outputCentsPer1M: 500 },
+  claude: {
+    inputCentsPer1M: 300,
+    outputCentsPer1M: 1500,
+    cachedInputCentsPer1M: 30,   // Anthropic cache-read: ~0.1× base input price
+    cacheWriteCentsPer1M: 375,   // Anthropic cache-write: ~1.25× base input price
+  },
+  codex: { inputCentsPer1M: 110, outputCentsPer1M: 440 },          // o4-mini (2025-05)
+  gemini: { inputCentsPer1M: 10, outputCentsPer1M: 40 },            // Gemini Flash 2.0
+  'gemini-sdk': { inputCentsPer1M: 10, outputCentsPer1M: 40 },
   qwen: { inputCentsPer1M: 50, outputCentsPer1M: 200 },
   crush: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
   goose: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
   openrouter: { inputCentsPer1M: 300, outputCentsPer1M: 1500 },
-  openai: { inputCentsPer1M: 250, outputCentsPer1M: 1000 },
+  openai: { inputCentsPer1M: 150, outputCentsPer1M: 600 },          // gpt-4o-mini (2025-05)
 }
 
 // ---------------------------------------------------------------------------
@@ -240,9 +252,13 @@ export class CostTrackingMiddleware {
   private estimateCost(providerId: AdapterProviderId, usage: TokenUsage): number {
     const rates = PROVIDER_RATES[providerId]
     if (!rates) return 0
-    const inputCost = (usage.inputTokens * rates.inputCentsPer1M) / 1_000_000
+    const cachedTokens = usage.cachedInputTokens ?? 0
+    const uncachedInputTokens = Math.max(0, usage.inputTokens - cachedTokens)
+
+    const inputCost = (uncachedInputTokens * rates.inputCentsPer1M) / 1_000_000
+    const cachedReadCost = (cachedTokens * (rates.cachedInputCentsPer1M ?? rates.inputCentsPer1M)) / 1_000_000
     const outputCost = (usage.outputTokens * rates.outputCentsPer1M) / 1_000_000
-    return inputCost + outputCost
+    return inputCost + cachedReadCost + outputCost
   }
 
   private buildBudgetUsage(percent: number) {

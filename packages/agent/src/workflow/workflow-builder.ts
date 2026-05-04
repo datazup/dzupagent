@@ -61,14 +61,43 @@ interface WorkflowCompilation {
   ) => NodeExecutor
 }
 
+/**
+ * Error handler registered via {@link WorkflowBuilder.onError}.
+ *
+ * On a matching predicate, the registered `recoverySteps` are executed in
+ * sequence with the current state augmented with `error` (an `Error`-shaped
+ * record). The combined output is merged back into the workflow state and
+ * the workflow continues from the next node as if the failing step had
+ * succeeded.
+ */
+export interface WorkflowErrorHandler {
+  /** Predicate selecting the errors this handler should recover. */
+  predicate: (err: Error) => boolean
+  /** Recovery sub-graph executed on a matching error. */
+  recoverySteps: WorkflowStep[]
+}
+
 export class WorkflowBuilder {
   private nodes: WorkflowNode[] = []
+  private readonly errorHandlers: WorkflowErrorHandler[] = []
 
   constructor(private config: WorkflowConfig) {}
 
   /** Add a sequential step */
   then(step: WorkflowStep): this {
     this.nodes.push({ type: 'step', step })
+    return this
+  }
+
+  /**
+   * Register a recovery sub-graph for errors that match `predicate`.
+   *
+   * Handlers are evaluated in registration order; the first match wins. If
+   * no handler matches the original error is re-thrown and the workflow
+   * fails. Handlers apply to all step and parallel nodes in the workflow.
+   */
+  onError(predicate: (err: Error) => boolean, recoverySteps: WorkflowStep[]): this {
+    this.errorHandlers.push({ predicate, recoverySteps })
     return this
   }
 
@@ -99,7 +128,7 @@ export class WorkflowBuilder {
 
   /** Build the workflow into an executable CompiledWorkflow */
   build(): CompiledWorkflow {
-    return new CompiledWorkflow(this.config, [...this.nodes])
+    return new CompiledWorkflow(this.config, [...this.nodes], [...this.errorHandlers])
   }
 }
 
@@ -118,8 +147,9 @@ export class CompiledWorkflow {
   constructor(
     readonly config: WorkflowConfig,
     nodes: WorkflowNode[],
+    errorHandlers: WorkflowErrorHandler[] = [],
   ) {
-    this.compilation = compileWorkflow(config, nodes)
+    this.compilation = compileWorkflow(config, nodes, errorHandlers)
   }
 
   /** Attach a RunJournal for recording execution history. Returns `this` for fluent chaining. */
@@ -522,7 +552,63 @@ export class CompiledWorkflow {
   }
 }
 
-function compileWorkflow(config: WorkflowConfig, nodes: WorkflowNode[]): WorkflowCompilation {
+/**
+ * Try each registered error handler against `err`; the first matching handler
+ * wins. Recovery steps are executed in sequence with `state.error` populated
+ * (a serializable view of the original error) and any object outputs are
+ * merged back into the workflow state. Returns `true` when an handler ran
+ * successfully; otherwise the caller must re-throw.
+ */
+async function applyErrorHandlers(
+  err: unknown,
+  state: Record<string, unknown>,
+  ctx: WorkflowContext,
+  emit: (event: WorkflowEvent) => void,
+  errorHandlers: WorkflowErrorHandler[],
+): Promise<boolean> {
+  if (errorHandlers.length === 0) return false
+  const errorObj = err instanceof Error ? err : new Error(String(err))
+  const matching = errorHandlers.find(h => {
+    try {
+      return h.predicate(errorObj)
+    } catch {
+      return false
+    }
+  })
+  if (!matching) return false
+
+  const errorView = {
+    name: errorObj.name,
+    message: errorObj.message,
+    stack: errorObj.stack,
+  }
+  state['error'] = errorView
+
+  for (const recoveryStep of matching.recoverySteps) {
+    const start = Date.now()
+    emit({ type: 'step:started', stepId: recoveryStep.id })
+    try {
+      const result = await recoveryStep.execute(state, ctx) as
+        | Record<string, unknown>
+        | undefined
+      if (result && typeof result === 'object') {
+        Object.assign(state, result)
+      }
+      emit({ type: 'step:completed', stepId: recoveryStep.id, durationMs: Date.now() - start })
+    } catch (recoveryErr) {
+      const message = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr)
+      emit({ type: 'step:failed', stepId: recoveryStep.id, error: message })
+      throw recoveryErr
+    }
+  }
+  return true
+}
+
+function compileWorkflow(
+  config: WorkflowConfig,
+  nodes: WorkflowNode[],
+  errorHandlers: WorkflowErrorHandler[] = [],
+): WorkflowCompilation {
   const pipelineNodes: PipelineNode[] = []
   const edges: PipelineDefinition['edges'] = []
   const predicates: Record<string, (state: Record<string, unknown>) => boolean | string> = {}
@@ -612,6 +698,13 @@ function compileWorkflow(config: WorkflowConfig, nodes: WorkflowNode[]): Workflo
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           emit({ type: 'step:failed', stepId: step.id, error: message })
+          // Try to recover via a registered error handler. If a handler runs
+          // successfully, we treat the step as recovered and continue the
+          // workflow; otherwise re-throw so the runtime fails the node.
+          const recovered = await applyErrorHandlers(err, state, ctx, emit, errorHandlers)
+          if (recovered) {
+            return undefined
+          }
           throw err
         }
       },
@@ -644,6 +737,12 @@ function compileWorkflow(config: WorkflowConfig, nodes: WorkflowNode[]): Workflo
                 stepId: step.id,
                 error: err instanceof Error ? err.message : String(err),
               })
+              // Per-branch recovery -- if a handler claims this error, treat
+              // the parallel branch as recovered with an empty contribution.
+              const recovered = await applyErrorHandlers(err, state, ctx, emit, errorHandlers)
+              if (recovered) {
+                return {}
+              }
               throw err
             }
           }),

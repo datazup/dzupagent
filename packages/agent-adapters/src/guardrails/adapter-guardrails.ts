@@ -6,7 +6,7 @@
  * unified AgentEvent stream produced by CLI/SDK adapters.
  */
 
-import { createHash } from 'node:crypto'
+import { hashToolInput } from '@dzupagent/core'
 import type { StuckDetectorConfig } from '@dzupagent/agent-types'
 import type { DzupEventBus } from '@dzupagent/core'
 import type { BudgetUsage } from '@dzupagent/core'
@@ -37,6 +37,7 @@ const DEFAULT_STUCK_CONFIG: ResolvedStuckDetectorConfig = {
   maxErrorsInWindow: 5,
   errorWindowMs: 60_000,
   maxIdleIterations: 3,
+  semanticPlateauWindow: 0,
 }
 
 // ---------------------------------------------------------------------------
@@ -173,8 +174,7 @@ export class AdapterStuckDetector {
   }
 
   private hashInput(input: unknown): string {
-    const str = typeof input === 'string' ? input : JSON.stringify(input)
-    return createHash('sha256').update(str).digest('hex').slice(0, 16)
+    return hashToolInput(input)
   }
 }
 

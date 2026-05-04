@@ -6,19 +6,16 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { ForgeError } from '@dzupagent/core'
 import { SystemPromptBuilder } from '../prompts/system-prompt-builder.js'
 import type { CodexPromptPayload } from '../prompts/system-prompt-builder.js'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
   AdapterProviderId,
-  AgentCLIAdapter,
   AgentEvent,
   AgentStreamEvent,
   AgentInput,
   HealthStatus,
-  InteractionPolicy,
   ProviderRawStreamEvent,
   RawAgentEvent,
   TokenUsage,
@@ -26,6 +23,7 @@ import type {
 import { getDefaultMonitorStatus } from '../provider-catalog.js'
 import { withCorrelationId } from '../types.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
+import { BaseSdkAdapter } from '../base/base-sdk-adapter.js'
 
 // ---------------------------------------------------------------------------
 // SDK type declarations (mirrors the shapes we consume from @openai/codex-sdk)
@@ -254,20 +252,13 @@ function summarizeTodoList(
 // CodexAdapter
 // ---------------------------------------------------------------------------
 
-export class CodexAdapter implements AgentCLIAdapter {
+export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
   readonly providerId: AdapterProviderId = 'codex'
 
-  private config: AdapterConfig
-  private abortController: AbortController | null = null
   private currentSessionId: string | null = null
   private sdkModule: { Codex: CodexClass } | null = null
   private currentInput: AgentInput | null = null
   private currentIsResume = false
-  private resolver: InteractionResolver | null = null
-
-  constructor(config: AdapterConfig = {}) {
-    this.config = { ...config }
-  }
 
   // ---- AgentCLIAdapter interface ------------------------------------------
 
@@ -341,10 +332,6 @@ export class CodexAdapter implements AgentCLIAdapter {
     }
   }
 
-  configure(opts: Partial<AdapterConfig>): void {
-    this.config = { ...this.config, ...opts }
-  }
-
   getCapabilities(): AdapterCapabilityProfile {
     return {
       supportsResume: true,
@@ -355,42 +342,23 @@ export class CodexAdapter implements AgentCLIAdapter {
     }
   }
 
-  respondInteraction(interactionId: string, answer: string): boolean {
-    return this.resolver?.respond(interactionId, answer) ?? false
-  }
-
-  async warmup(): Promise<void> {
-    await this.loadSdk()
-  }
-
-  // ---- Private helpers ----------------------------------------------------
+  // ---- BaseSdkAdapter.loadSdk — concrete implementation -----------------
 
   /**
    * Dynamically import the Codex SDK. Caches the module after first load.
-   * Throws ForgeError with ADAPTER_SDK_NOT_INSTALLED if the package is missing.
+   * Delegates to {@link BaseSdkAdapter.loadOptionalSdkModule} for the
+   * shared dynamic-import + ForgeError pattern.
    */
-  private async loadSdk(): Promise<{ Codex: CodexClass }> {
+  override async loadSdk(): Promise<{ Codex: CodexClass }> {
     if (this.sdkModule) return this.sdkModule
-
-    try {
-      // Dynamic import of optional peer dependency.
-      // We use a variable to prevent TypeScript from resolving the module at compile time.
-      const sdkName = '@openai/codex-sdk'
-      const mod = (await import(/* webpackIgnore: true */ sdkName)) as { Codex: CodexClass }
-      this.sdkModule = mod
-      return mod
-    } catch (cause: unknown) {
-      throw new ForgeError({
-        code: 'ADAPTER_SDK_NOT_INSTALLED',
-        message:
-          '@openai/codex-sdk is not installed. Install it with: npm install @openai/codex-sdk',
-        recoverable: false,
-        suggestion: 'Run `npm install @openai/codex-sdk` or `yarn add @openai/codex-sdk`',
-        cause: cause instanceof Error ? cause : undefined,
-        context: { providerId: 'codex', sdkPackage: '@openai/codex-sdk' },
-      })
-    }
+    this.sdkModule = await this.loadOptionalSdkModule<{ Codex: CodexClass }>(
+      '@openai/codex-sdk',
+      { providerId: 'codex' },
+    )
+    return this.sdkModule
   }
+
+  // ---- Private helpers ----------------------------------------------------
 
   /** Create a Codex instance from the loaded SDK module */
   private createInstance(sdk: { Codex: CodexClass }, systemPrompt?: string): CodexInstance {
@@ -501,19 +469,6 @@ export class CodexAdapter implements AgentCLIAdapter {
     }
     const policy = this.resolveInteractionPolicy(input)
     return policy.mode === 'auto-approve' ? 'never' : 'on-failure'
-  }
-
-  /** Resolve the effective InteractionPolicy (per-call → config → default). */
-  private resolveInteractionPolicy(input: AgentInput): InteractionPolicy {
-    const perCall = input.options?.['interactionPolicy']
-    if (
-      perCall !== null &&
-      typeof perCall === 'object' &&
-      'mode' in (perCall as object)
-    ) {
-      return perCall as InteractionPolicy
-    }
-    return this.config.interactionPolicy ?? { mode: 'auto-approve' }
   }
 
   /** Get or create the InteractionResolver for the current execution. */
@@ -806,8 +761,7 @@ export class CodexAdapter implements AgentCLIAdapter {
     } finally {
       clearTimeout(timeoutHandle)
       this.abortController = null
-      this.resolver?.dispose()
-      this.resolver = null
+      this.disposeResolver()
     }
 
     console.debug('[codex-adapter.ts:runStreamedThread] completed normally', {

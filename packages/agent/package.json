@@ -9,6 +9,30 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./agent": {
+      "import": "./dist/agent.js",
+      "types": "./dist/agent.d.ts"
+    },
+    "./orchestration": {
+      "import": "./dist/orchestration.js",
+      "types": "./dist/orchestration.d.ts"
+    },
+    "./self-correction": {
+      "import": "./dist/self-correction.js",
+      "types": "./dist/self-correction.d.ts"
+    },
+    "./replay": {
+      "import": "./dist/replay.js",
+      "types": "./dist/replay.d.ts"
+    },
+    "./playground": {
+      "import": "./dist/playground.js",
+      "types": "./dist/playground.d.ts"
+    },
+    "./pipeline": {
+      "import": "./dist/pipeline.js",
+      "types": "./dist/pipeline.d.ts"
+    },
     "./runtime": {
       "import": "./dist/runtime.js",
       "types": "./dist/runtime.d.ts"
@@ -42,7 +66,8 @@
     "@dzupagent/context": "0.2.0",
     "@dzupagent/core": "0.2.0",
     "@dzupagent/memory": "0.2.0",
-    "@dzupagent/memory-ipc": "0.2.0"
+    "@dzupagent/memory-ipc": "0.2.0",
+    "@dzupagent/security": "0.2.0"
   },
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",

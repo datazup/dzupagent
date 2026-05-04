@@ -16,6 +16,8 @@
 import type { DzupEventBus } from '@dzupagent/core'
 import { ForgeError } from '@dzupagent/core'
 import { Semaphore } from '@dzupagent/core/orchestration'
+import type { BaseSupervisorContract } from '@dzupagent/agent-types'
+import type { AgentCLIAdapter } from '@dzupagent/adapter-types'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
@@ -80,7 +82,7 @@ export interface SupervisorOptions {
 }
 
 /** Configuration for the SupervisorOrchestrator. */
-export interface SupervisorConfig {
+export interface SupervisorConfig extends BaseSupervisorContract<AgentCLIAdapter> {
   registry: ProviderAdapterRegistry
   eventBus?: DzupEventBus | undefined
   decomposer?: TaskDecomposer | undefined

@@ -13,3 +13,19 @@ export type {
   ToolPermissionEntry,
   ToolPermissionPolicy,
 } from './tool-permission.js'
+export type {
+  BaseSupervisorContract,
+  BaseMapReduceContract,
+  BaseContractNetContract,
+} from './orchestration-contracts.js'
+export type {
+  MemoryClient,
+  MemoryScope,
+  MemoryQuery,
+  MemoryRecord,
+  MemoryChangeEvent,
+  MemoryStats,
+  ReadContext,
+  WriteContext,
+  CancellationSignal,
+} from './memory-client.js'

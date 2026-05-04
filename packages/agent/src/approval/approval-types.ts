@@ -6,6 +6,57 @@ export type ApprovalMode = 'auto' | 'required' | 'conditional'
 /** Conservative default for in-process approval waits. */
 export const DEFAULT_APPROVAL_TIMEOUT_MS = 300_000
 
+/** Default key used by the approval gate to store pending state. */
+export const APPROVAL_PENDING_KEY = 'approval:pending'
+
+/**
+ * Persisted state for a pending approval request.
+ *
+ * Written to an {@link ApprovalCheckpointStore} when the gate is configured
+ * with `durableResume: true` and a backing store. The state survives process
+ * restart and is removed on resume.
+ */
+export interface ApprovalPendingState {
+  runId: string
+  contactId: string
+  plan: unknown
+  channel: string
+  requestedAt: number
+  /** When the approval is considered timed out. `null` for unbounded waits. */
+  timeoutAt: number | null
+  resumeToken: string
+}
+
+/**
+ * Generic key-value persistence interface for approval pending state.
+ *
+ * The interface is intentionally narrow -- it stores per-run, per-key blobs.
+ * Implementations may layer on top of Postgres, Redis, file-system, or an
+ * in-memory map for tests.
+ */
+export interface ApprovalCheckpointStore {
+  /** Persist a pending approval state under (runId, key). */
+  save(runId: string, key: string, state: ApprovalPendingState): Promise<void>
+  /** Load a previously saved state, or `null` if missing. */
+  load(runId: string, key: string): Promise<ApprovalPendingState | null>
+  /** Delete the state at (runId, key); idempotent. */
+  delete(runId: string, key: string): Promise<void>
+}
+
+/** Input for the durable {@link ApprovalGate.requestApproval} entry point. */
+export interface ApprovalRequestInput {
+  runId: string
+  contactId?: string
+  plan: unknown
+  channel?: string
+}
+
+/** Decision payload accepted by {@link ApprovalGate.resume}. */
+export interface ApprovalDecision {
+  decision: 'approved' | 'rejected'
+  reason?: string
+}
+
 /** Configuration for the approval gate */
 export interface ApprovalConfig {
   mode: ApprovalMode
@@ -37,6 +88,15 @@ export interface ApprovalConfig {
    * @default 'in-app'
    */
   channel?: ContactChannel
+  /**
+   * Optional checkpoint store for durable approval state.
+   *
+   * When supplied alongside `durableResume: true`, the
+   * {@link ApprovalGate.requestApproval} entry point persists pending state
+   * here and throws `ApprovalSuspendedError` so the outer driver can abandon
+   * the in-process wait and reschedule resumption later.
+   */
+  checkpointStore?: ApprovalCheckpointStore
 }
 
 /** Per-call controls for an approval wait. */

@@ -59,6 +59,8 @@ export type {
 } from './llm/model-config.js'
 export { CircuitBreaker, KeyedCircuitBreaker } from './llm/circuit-breaker.js'
 export type { CircuitBreakerConfig, CircuitState } from './llm/circuit-breaker.js'
+export { TokenBucket } from './rate-limit/token-bucket.js'
+export type { TokenBucketConfig } from './rate-limit/token-bucket.js'
 export { invokeWithTimeout, extractTokenUsage, estimateTokens } from './llm/invoke.js'
 export type { TokenUsage, InvokeOptions } from './llm/invoke.js'
 export { isTransientError, isContextLengthError, DEFAULT_RETRY_CONFIG } from './llm/retry.js'
@@ -702,6 +704,19 @@ export {
   // AGENTS.md V2 Parser
   parseAgentsMdV2, generateAgentsMd, toLegacyConfig,
 } from './formats/index.js'
+
+// --- Structured Output (shared primitives) ---
+export {
+  JsonOutputSchema,
+  RegexOutputSchema,
+  extractJsonFromMarkdown,
+  toSchemaRef,
+  createZodStructuredValidator,
+} from './structured/index.js'
+export type {
+  OutputSchema,
+  ParseResult,
+} from './structured/index.js'
 export type {
   // Agent Card V2 types
   ContentMode, AgentCardV2, AgentCardCapability, AgentCardSkill,
@@ -838,6 +853,7 @@ export { defaultLogger, noopLogger } from './utils/logger.js'
 export type { FrameworkLogger } from './utils/logger.js'
 export { calculateBackoff } from './utils/backoff.js'
 export type { BackoffConfig } from './utils/backoff.js'
+export { hashToolInput } from './utils/hash.js'
 
 // --- Version ---
 export const dzupagent_CORE_VERSION = '0.2.0'

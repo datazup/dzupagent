@@ -2,26 +2,26 @@
  * StructuredOutputAdapter — wraps adapter execution with schema validation,
  * output parsing, and retry/fallback when output doesn't match expected format.
  *
- * Supports arbitrary output schemas (JSON with Zod validators, regex patterns,
- * or custom parsers). On parse failure, retries with a correction prompt, then
- * falls back to alternative providers if retries are exhausted.
+ * The shared schema primitives (`OutputSchema`, `JsonOutputSchema`,
+ * `RegexOutputSchema`) live in `@dzupagent/core/structured`. This module owns
+ * the adapter-aware orchestration (`StructuredOutputAdapter`,
+ * provider-aware `ParseResult`/`StructuredRunResult`) that depends on
+ * `ProviderAdapterRegistry`, `AgentEvent`, and `AdapterProviderId`.
  */
 
-import { z } from 'zod'
 import {
-  ForgeError,
   executeStructuredParseLoop,
   executeStructuredParseStreamLoop,
   buildStructuredOutputCorrectionPrompt,
   buildStructuredOutputExhaustedError,
-  prepareStructuredOutputSchemaContract,
-  unwrapStructuredEnvelope,
+  JsonOutputSchema,
+  RegexOutputSchema,
 } from '@dzupagent/core'
 import type {
   DzupEventBus,
+  OutputSchema,
   StructuredOutputErrorSchemaRef,
   StructuredOutputFailureCategory,
-  StructuredOutputSchemaContract,
 } from '@dzupagent/core'
 
 import type {
@@ -33,30 +33,10 @@ import type {
 } from '../types.js'
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 
-// ---------------------------------------------------------------------------
-// Schema interfaces
-// ---------------------------------------------------------------------------
-
-/** Schema that validates and parses raw LLM output into a typed value. */
-export interface OutputSchema<T = unknown> {
-  /** Schema name for error messages */
-  name: string
-  /** Optional stable schema hash for diagnostics and bug reports */
-  schemaHash?: string
-  /** Optional provider-facing JSON Schema for adapters that support native structured output. */
-  outputSchema?: Record<string, unknown>
-  /** Optional structured-output diagnostics aligned with the main throwing runtimes. */
-  structuredOutput?: {
-    requiresEnvelope: boolean
-    requestSchema: StructuredOutputErrorSchemaRef
-    responseSchema?: StructuredOutputErrorSchemaRef
-    failureCategory?: StructuredOutputFailureCategory
-  }
-  /** Validate and parse raw output. Returns parsed value or throws. */
-  parse(raw: string): T
-  /** Get a description of the expected format (for prompt injection) */
-  describe(): string
-}
+// Re-export the shared, framework-agnostic primitives so existing callers of
+// `@dzupagent/agent-adapters` continue to work without code changes.
+export { JsonOutputSchema, RegexOutputSchema }
+export type { OutputSchema }
 
 // ---------------------------------------------------------------------------
 // Config & result types
@@ -99,33 +79,6 @@ export interface StructuredRunResult<T> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Extract JSON content from markdown fenced code blocks.
- * Matches ```json ... ``` or ``` ... ```.
- */
-function extractJsonFromMarkdown(text: string): string | null {
-  const match = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
-  return match?.[1]?.trim() ?? null
-}
-
-function toSchemaRef(descriptor: StructuredOutputSchemaContract['requestSchemaDescriptor']): StructuredOutputErrorSchemaRef {
-  return {
-    name: descriptor.schemaName,
-    hash: descriptor.schemaHash,
-    preview: descriptor.schemaPreview,
-    summary: descriptor.summary,
-  }
-}
-
-function createZodStructuredValidator<T>(
-  contract: StructuredOutputSchemaContract,
-): (data: unknown) => T {
-  return (data: unknown) => {
-    const parsed = contract.responseSchema.parse(data)
-    return unwrapStructuredEnvelope<T>(parsed, contract.requiresEnvelope)
-  }
-}
 
 function withFailureCategory(
   structuredOutput: OutputSchema['structuredOutput'] | undefined,
@@ -199,158 +152,6 @@ async function collectExecution(
 class MissingCompletedStreamResultError extends Error {
   constructor() {
     super('Structured output streamed execution completed without adapter:completed result')
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Built-in schemas
-// ---------------------------------------------------------------------------
-
-/**
- * JSON output schema — parses raw text as JSON, optionally extracting from
- * markdown code blocks, then validates with a user-supplied validator (e.g. Zod .parse).
- */
-export class JsonOutputSchema<T> implements OutputSchema<T> {
-  readonly name: string
-  readonly schemaHash: string | undefined
-  readonly outputSchema: Record<string, unknown> | undefined
-  readonly structuredOutput:
-    | {
-        requiresEnvelope: boolean
-        requestSchema: StructuredOutputErrorSchemaRef
-        responseSchema: StructuredOutputErrorSchemaRef
-        failureCategory?: StructuredOutputFailureCategory
-      }
-    | undefined
-  private readonly validator: (data: unknown) => T
-  private readonly schemaDescription: string
-
-  constructor(
-    name: string,
-    validator: (data: unknown) => T,
-    schemaDescription?: string,
-    metadata?: {
-      schemaHash?: string
-      outputSchema?: Record<string, unknown>
-      structuredOutput?: {
-        requiresEnvelope: boolean
-        requestSchema: StructuredOutputErrorSchemaRef
-        responseSchema: StructuredOutputErrorSchemaRef
-        failureCategory?: StructuredOutputFailureCategory
-      }
-    },
-  ) {
-    this.name = name
-    this.validator = validator
-    this.schemaDescription = schemaDescription ?? 'valid JSON matching the expected schema'
-    this.schemaHash = metadata?.schemaHash
-    this.outputSchema = metadata?.outputSchema
-    this.structuredOutput = metadata?.structuredOutput
-  }
-
-  static fromZod<T>(
-    schema: z.ZodType<T>,
-    options?: {
-      schemaName?: string
-      agentId?: string
-      intent?: string
-      provider?: 'generic' | 'openai'
-      schemaDescription?: string
-    },
-  ): JsonOutputSchema<T> {
-    const contract = prepareStructuredOutputSchemaContract(schema, {
-      schemaName: options?.schemaName,
-      agentId: options?.agentId ?? null,
-      intent: options?.intent ?? null,
-      schemaProvider: options?.provider ?? 'generic',
-    })
-    const schemaDescription = options?.schemaDescription
-      ?? [
-        `valid JSON matching schema "${contract.requestSchemaDescriptor.schemaName}"`,
-        `(schema hash: ${contract.requestSchemaDescriptor.schemaHash})`,
-        `JSON Schema: ${JSON.stringify(contract.responseSchemaDescriptor.jsonSchema)}`,
-      ].join(' ')
-
-    return new JsonOutputSchema(
-      contract.requestSchemaDescriptor.schemaName,
-      createZodStructuredValidator(contract),
-      schemaDescription,
-      {
-        schemaHash: contract.requestSchemaDescriptor.schemaHash,
-        outputSchema: contract.requestSchemaDescriptor.jsonSchema,
-        structuredOutput: {
-          requiresEnvelope: contract.requiresEnvelope,
-          requestSchema: toSchemaRef(contract.requestSchemaDescriptor),
-          responseSchema: toSchemaRef(contract.responseSchemaDescriptor),
-        },
-      },
-    )
-  }
-
-  parse(raw: string): T {
-    let parsed: unknown
-
-    // Attempt 1: direct JSON.parse
-    try {
-      parsed = JSON.parse(raw)
-    } catch {
-      // Attempt 2: extract from markdown code blocks
-      const extracted = extractJsonFromMarkdown(raw)
-      if (extracted === null) {
-        throw new ForgeError({
-          code: 'OUTPUT_PARSE_FAILED',
-          message: `[${this.name}] Output is not valid JSON and contains no JSON code block`,
-          recoverable: true,
-        })
-      }
-      try {
-        parsed = JSON.parse(extracted)
-      } catch {
-        throw new ForgeError({
-          code: 'OUTPUT_PARSE_FAILED',
-          message: `[${this.name}] Extracted code block is not valid JSON`,
-          recoverable: true,
-        })
-      }
-    }
-
-    // Validate with the user-supplied validator
-    return this.validator(parsed)
-  }
-
-  describe(): string {
-    return `${this.schemaDescription}. Output raw JSON only — no markdown, no explanation.`
-  }
-}
-
-/**
- * Regex output schema — matches raw output against a regular expression.
- */
-export class RegexOutputSchema implements OutputSchema<RegExpMatchArray> {
-  readonly name: string
-  private readonly pattern: RegExp
-  private readonly description: string
-
-  constructor(name: string, pattern: RegExp, description?: string) {
-    this.name = name
-    this.pattern = pattern
-    this.description = description ?? `text matching the pattern: ${pattern.source}`
-  }
-
-  parse(raw: string): RegExpMatchArray {
-    const match = raw.match(this.pattern)
-    if (!match) {
-      throw new ForgeError({
-        code: 'OUTPUT_PARSE_FAILED',
-        message: `[${this.name}] Output does not match pattern: ${this.pattern.source}`,
-        recoverable: true,
-      })
-    }
-    return match
-  }
-
-  describe(): string {
-    return this.description
   }
 }
 

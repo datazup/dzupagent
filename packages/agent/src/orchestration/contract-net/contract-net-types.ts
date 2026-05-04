@@ -11,6 +11,7 @@
  */
 import type { DzupAgent } from '../../agent/dzip-agent.js'
 import type { DzupEventBus } from '@dzupagent/core'
+import type { BaseContractNetContract } from '@dzupagent/agent-types'
 
 export type ContractNetPhase =
   | 'announcing'
@@ -68,7 +69,7 @@ export interface BidEvaluationStrategy {
   evaluate(bids: ContractBid[]): ContractBid[]
 }
 
-export interface ContractNetConfig {
+export interface ContractNetConfig extends BaseContractNetContract<DzupAgent> {
   specialists: DzupAgent[]
   task: string
   strategy?: BidEvaluationStrategy
