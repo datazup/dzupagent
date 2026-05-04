@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-05-03
+Date: 2026-05-04
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -12,12 +12,33 @@ Generated from package root facades plus `config/public-api-allowlists.json` and
 - New consumers should prefer the listed subpaths for domain-specific imports.
 - Every current root export source must match exactly one allowlist rule; unreviewed sources fail `yarn check:server-api-surface`.
 
+## @dzupagent/security
+
+Root index: `packages/security/src/index.ts`
+
+- Stable root sources: `3`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: Security package root exports are the primary consumption surface; all exports are stable from initial release.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+| `stable` | `./prompt-injection/index.js` | 7 | `exact:./prompt-injection/index.js` | `INJECTION_PATTERNS`, `INJECTION_REDACTION`, `PromptInjectionDetector`, `PromptInjectionBlockedError` |
+| `stable` | `./pii/index.js` | 3 | `exact:./pii/index.js` | `PII_PATTERNS`, `PiiDetector`, `PiiScanResult` |
+| `stable` | `./content-scanner.js` | 6 | `exact:./content-scanner.js` | `ContentScanner`, `ContentScannerConfig`, `ContentScanResult`, `ContentScanVerdict` |
+
 ## @dzupagent/core
 
 Root index: `packages/core/src/index.ts`
 
 - Stable root sources: `42`
-- Deprecated transitional root sources: `76`
+- Deprecated transitional root sources: `79`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
 
@@ -53,6 +74,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./llm/model-registry.js` | 2 | `prefix:./llm/` | `ModelRegistry`, `ModelFallbackCandidate` |
 | `stable` | `./llm/model-config.js` | 9 | `prefix:./llm/` | `KnownLLMProvider`, `LLMProviderConfig`, `LLMProviderName`, `ModelTier` |
 | `stable` | `./llm/circuit-breaker.js` | 4 | `prefix:./llm/` | `CircuitBreaker`, `KeyedCircuitBreaker`, `CircuitBreakerConfig`, `CircuitState` |
+| `deprecated-transitional` | `./rate-limit/token-bucket.js` | 2 | `exact:./rate-limit/token-bucket.js` | `TokenBucket`, `TokenBucketConfig` |
 | `stable` | `./llm/invoke.js` | 5 | `prefix:./llm/` | `invokeWithTimeout`, `extractTokenUsage`, `estimateTokens`, `TokenUsage` |
 | `stable` | `./llm/retry.js` | 4 | `prefix:./llm/` | `isTransientError`, `isContextLengthError`, `DEFAULT_RETRY_CONFIG`, `RetryConfig` |
 | `stable` | `./llm/registry-middleware.js` | 4 | `prefix:./llm/` | `RegistryMiddleware`, `MiddlewareContext`, `MiddlewareResult`, `MiddlewareTokenUsage` |
@@ -146,6 +168,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./formats/index.js` | 62 | `prefix:./formats/` | `// Agent Card V2
   AgentCardV2Schema`, `validateAgentCard`, `// Tool Format Adapters
   zodToJsonSchema`, `jsonSchemaToZod` |
+| `deprecated-transitional` | `./structured/index.js` | 7 | `prefix:./structured/` | `JsonOutputSchema`, `RegexOutputSchema`, `extractJsonFromMarkdown`, `toSchemaRef` |
 | `deprecated-transitional` | `./vectordb/index.js` | 45 | `prefix:./vectordb/` | `DistanceMetric`, `CollectionConfig`, `VectorEntry`, `VectorQuery` |
 | `deprecated-transitional` | `./tools/connector-contract.js` | 5 | `prefix:./tools/` | `BaseConnectorTool`, `BaseConnectorToolLike`, `isBaseConnectorTool`, `normalizeBaseConnectorTool` |
 | `deprecated-transitional` | `./tools/create-tool.js` | 2 | `prefix:./tools/` | `createForgeTool`, `ForgeToolConfig` |
@@ -155,14 +178,15 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./telemetry/trace-propagation.js` | 5 | `prefix:./telemetry/` | `injectTraceContext`, `extractTraceContext`, `formatTraceparent`, `parseTraceparent` |
 | `deprecated-transitional` | `./utils/logger.js` | 3 | `prefix:./utils/` | `defaultLogger`, `noopLogger`, `FrameworkLogger` |
 | `deprecated-transitional` | `./utils/backoff.js` | 2 | `prefix:./utils/` | `calculateBackoff`, `BackoffConfig` |
+| `deprecated-transitional` | `./utils/hash.js` | 1 | `prefix:./utils/` | `hashToolInput` |
 | `stable` | `<local>:dzupagent_CORE_VERSION` | 1 | `exact:<local>:dzupagent_CORE_VERSION` | `dzupagent_CORE_VERSION` |
 
 ## @dzupagent/agent
 
 Root index: `packages/agent/src/index.ts`
 
-- Stable root sources: `12`
-- Deprecated transitional root sources: `109`
+- Stable root sources: `13`
+- Deprecated transitional root sources: `110`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
@@ -185,6 +209,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./agent/memory-profiles.js` | 4 | `prefix:./agent/` | `getMemoryProfilePreset`, `resolveArrowMemoryConfig`, `MemoryProfile`, `MemoryProfilePreset` |
 | `deprecated-transitional` | `./agent/production-tool-governance-preset.js` | 6 | `prefix:./agent/` | `createAllowlistPermissionPolicy`, `createProductionToolGovernancePreset`, `withProductionToolGovernancePreset`, `ProductionToolGovernancePreset` |
 | `deprecated-transitional` | `./agent/tool-loop.js` | 5 | `prefix:./agent/` | `runToolLoop`, `ToolLoopConfig`, `ToolLoopResult`, `ToolStat` |
+| `deprecated-transitional` | `./agent/tool-loop/output-validator.js` | 3 | `prefix:./agent/` | `ToolOutputValidator`, `ToolOutputSchema`, `ToolOutputValidationResult` |
 | `deprecated-transitional` | `./agent/tool-timeout-error.js` | 3 | `prefix:./agent/` | `TOOL_TIMEOUT_ERROR_CODE`, `ToolTimeoutError`, `isToolTimeoutError` |
 | `stable` | `./agent/run-handle-types.js` | 9 | `exact:./agent/run-handle-types.js` | `RunHandle`, `RunResult`, `LaunchOptions`, `Unsubscribe` |
 | `deprecated-transitional` | `./agent/run-handle.js` | 1 | `prefix:./agent/` | `ConcreteRunHandle` |
@@ -195,7 +220,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./agent/stuck-error.js` | 3 | `prefix:./agent/` | `StuckError`, `EscalationLevel`, `RecoveryAction` |
 | `deprecated-transitional` | `./guardrails/cascading-timeout.js` | 2 | `prefix:./guardrails/` | `CascadingTimeout`, `CascadingTimeoutConfig` |
 | `stable` | `./guardrails/guardrail-types.js` | 3 | `exact:./guardrails/guardrail-types.js` | `GuardrailConfig`, `BudgetState`, `BudgetWarning` |
-| `stable` | `./workflow/workflow-builder.js` | 4 | `prefix:./workflow/` | `WorkflowBuilder`, `CompiledWorkflow`, `createWorkflow`, `WorkflowConfig` |
+| `stable` | `./workflow/workflow-builder.js` | 5 | `prefix:./workflow/` | `WorkflowBuilder`, `CompiledWorkflow`, `createWorkflow`, `WorkflowConfig` |
 | `stable` | `./workflow/workflow-types.js` | 4 | `prefix:./workflow/` | `WorkflowStep`, `WorkflowContext`, `WorkflowEvent`, `MergeStrategy` |
 | `deprecated-transitional` | `./orchestration/orchestrator.js` | 4 | `prefix:./orchestration/` | `AgentOrchestrator`, `MergeFn`, `SupervisorConfig`, `SupervisorResult` |
 | `deprecated-transitional` | `./orchestration/orchestration-error.js` | 2 | `prefix:./orchestration/` | `OrchestrationError`, `OrchestrationPattern` |
@@ -224,7 +249,8 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./context/auto-compress.js` | 4 | `prefix:./context/` | `autoCompress`, `FrozenSnapshot`, `AutoCompressConfig`, `CompressResult` |
 | `deprecated-transitional` | `./context/token-lifecycle-integration.js` | 4 | `prefix:./context/` | `withTokenLifecycle`, `TokenLifecycleHooks`, `TokenLifecyclePhase`, `TokenPressureListener` |
 | `stable` | `./approval/approval-gate.js` | 1 | `prefix:./approval/` | `ApprovalGate` |
-| `stable` | `./approval/approval-types.js` | 5 | `prefix:./approval/` | `DEFAULT_APPROVAL_TIMEOUT_MS`, `ApprovalConfig`, `ApprovalMode`, `ApprovalResult` |
+| `stable` | `./approval/approval-types.js` | 10 | `prefix:./approval/` | `APPROVAL_PENDING_KEY`, `DEFAULT_APPROVAL_TIMEOUT_MS`, `ApprovalCheckpointStore`, `ApprovalConfig` |
+| `stable` | `./approval/approval-errors.js` | 1 | `prefix:./approval/` | `ApprovalSuspendedError` |
 | `deprecated-transitional` | `./agent/tool-registry.js` | 2 | `prefix:./agent/` | `DynamicToolRegistry`, `ToolRegistryEvent` |
 | `stable` | `./tools/create-tool.js` | 2 | `exact:./tools/create-tool.js` | `createForgeTool`, `ForgeToolConfig` |
 | `deprecated-transitional` | `./tools/human-contact-tool.js` | 5 | `prefix:./tools/` | `createHumanContactTool`, `InMemoryPendingContactStore`, `HumanContactInput`, `HumanContactToolConfig` |
@@ -421,7 +447,7 @@ Root index: `packages/codegen/src/index.ts`
 Root index: `packages/memory/src/index.ts`
 
 - Stable root sources: `25`
-- Deprecated transitional root sources: `37`
+- Deprecated transitional root sources: `40`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced.
 
@@ -436,6 +462,9 @@ No stable subpaths configured.
 | `stable` | `./store-factory.js` | 3 | `exact:./store-factory.js` | `createStore`, `StoreConfig`, `StoreIndexConfig` |
 | `stable` | `./store-capabilities.js` | 1 | `exact:./store-capabilities.js` | `MemoryStoreCapabilities` |
 | `stable` | `./memory-service.js` | 1 | `exact:./memory-service.js` | `MemoryService` |
+| `deprecated-transitional` | `./in-memory-client.js` | 1 | `exact:./in-memory-client.js` | `InMemoryMemoryClient` |
+| `deprecated-transitional` | `./http-client.js` | 3 | `exact:./http-client.js` | `HttpMemoryClient`, `NotImplementedError`, `HttpMemoryClientConfig` |
+| `deprecated-transitional` | `./memory-service-adapter.js` | 2 | `exact:./memory-service-adapter.js` | `memoryServiceToClient`, `MemoryServiceLike` |
 | `stable` | `./memory-types.js` | 4 | `exact:./memory-types.js` | `NamespaceConfig`, `FormatOptions`, `DecayConfig`, `SemanticStoreAdapter` |
 | `deprecated-transitional` | `./decay-engine.js` | 6 | `exact:./decay-engine.js` | `calculateStrength`, `reinforceMemory`, `createDecayMetadata`, `scoreWithDecay` |
 | `stable` | `./memory-sanitizer.js` | 3 | `exact:./memory-sanitizer.js` | `sanitizeMemoryContent`, `stripInvisibleUnicode`, `SanitizeResult` |
@@ -500,7 +529,7 @@ No stable subpaths configured.
 
 Root index: `packages/context/src/index.ts`
 
-- Stable root sources: `14`
+- Stable root sources: `15`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Context root exports are currently the contracted package surface; add allowlist rules before exposing new root modules.
@@ -523,6 +552,7 @@ No stable subpaths configured.
 | `stable` | `./phase-window.js` | 7 | `exact:./phase-window.js` | `PhaseAwareWindowManager`, `DEFAULT_PHASES`, `ConversationPhase`, `PhaseConfig` |
 | `stable` | `./progressive-compress.js` | 6 | `exact:./progressive-compress.js` | `compressToLevel`, `compressToBudget`, `selectCompressionLevel`, `CompressionLevel` |
 | `stable` | `./prompt-cache.js` | 4 | `exact:./prompt-cache.js` | `applyAnthropicCacheControl`, `applyCacheBreakpoints`, `CacheStrategy`, `CacheBreakpointOptions` |
+| `stable` | `./prompt-cache-injector.js` | 1 | `exact:./prompt-cache-injector.js` | `injectPromptCacheMarkers` |
 | `stable` | `./context-transfer.js` | 6 | `exact:./context-transfer.js` | `ContextTransferService`, `IntentContext`, `IntentType`, `ContextTransferConfig` |
 | `stable` | `./token-lifecycle.js` | 8 | `exact:./token-lifecycle.js` | `TokenLifecycleManager`, `createTokenBudget`, `TokenBudget`, `TokenPhaseUsage` |
 | `stable` | `./char-estimate-counter.js` | 1 | `exact:./char-estimate-counter.js` | `CharEstimateCounter` |
@@ -589,7 +619,7 @@ No stable subpaths configured.
 Root index: `packages/agent-adapters/src/index.ts`
 
 - Stable root sources: `14`
-- Deprecated transitional root sources: `78`
+- Deprecated transitional root sources: `79`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
 
@@ -611,8 +641,8 @@ Root index: `packages/agent-adapters/src/index.ts`
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
 | `stable` | `./types.js` | 28 | `exact:./types.js` | `AdapterProviderId`, `AdapterCapabilityProfile`, `AgentInput`, `AgentEvent` |
-| `deprecated-transitional` | `./claude/claude-adapter.js` | 1 | `prefix:./claude/` | `ClaudeAgentAdapter` |
-| `deprecated-transitional` | `./codex/codex-adapter.js` | 1 | `prefix:./codex/` | `CodexAdapter` |
+| `deprecated-transitional` | `./claude/claude-adapter.js` | 2 | `prefix:./claude/` | `ClaudeAgentAdapter`, `createClaudeAdapter` |
+| `deprecated-transitional` | `./codex/codex-adapter.js` | 2 | `prefix:./codex/` | `CodexAdapter`, `createCodexAdapter` |
 | `deprecated-transitional` | `./gemini/gemini-adapter.js` | 1 | `prefix:./gemini/` | `GeminiCLIAdapter` |
 | `deprecated-transitional` | `./gemini/gemini-sdk-adapter.js` | 2 | `prefix:./gemini/` | `GeminiSDKAdapter`, `GeminiSDKAdapterConfig` |
 | `deprecated-transitional` | `./qwen/qwen-adapter.js` | 1 | `prefix:./qwen/` | `QwenAdapter` |
@@ -649,6 +679,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./plugin/adapter-plugin-sdk.js` | 4 | `prefix:./plugin/` | `defineAdapterPlugin`, `isAdapterPlugin`, `AdapterPluginDefinition`, `AdapterPlugin` |
 | `deprecated-transitional` | `./plugin/adapter-plugin-loader.js` | 1 | `prefix:./plugin/` | `AdapterPluginLoader` |
 | `stable` | `./facade/orchestrator-facade.js` | 3 | `prefix:./facade/` | `OrchestratorFacade`, `createOrchestrator`, `OrchestratorConfig` |
+| `deprecated-transitional` | `./pipeline/index.js` | 8 | `prefix:./pipeline/` | `AdapterPipeline`, `ApprovalPipelineStep`, `GuardrailsPipelineStep`, `PolicyEnforcementPipeline` |
 | `stable` | `./integration/agent-bridge.js` | 6 | `prefix:./integration/` | `AgentIntegrationBridge`, `AdapterAsToolWrapper`, `AdapterToolConfig`, `ToolInvocationResult` |
 | `stable` | `./integration/index.js` | 1 | `prefix:./integration/` | `RegistryExecutionPort` |
 | `deprecated-transitional` | `./guardrails/adapter-guardrails.js` | 8 | `prefix:./guardrails/` | `AdapterGuardrails`, `AdapterStuckDetector`, `AdapterGuardrailsConfig`, `StuckDetectorConfig` |
@@ -756,7 +787,7 @@ No stable subpaths configured.
 
 Root index: `packages/agent-types/src/index.ts`
 
-- Stable root sources: `3`
+- Stable root sources: `5`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Agent type root exports are stable Layer 0 contracts; add allowlist rules before exposing new type modules.
@@ -772,6 +803,8 @@ No stable subpaths configured.
 | `stable` | `./guardrails.js` | 1 | `exact:./guardrails.js` | `StuckDetectorConfig` |
 | `stable` | `./retry.js` | 1 | `exact:./retry.js` | `RetryPolicy` |
 | `stable` | `./tool-permission.js` | 3 | `exact:./tool-permission.js` | `ToolScope`, `ToolPermissionEntry`, `ToolPermissionPolicy` |
+| `stable` | `./orchestration-contracts.js` | 3 | `exact:./orchestration-contracts.js` | `BaseSupervisorContract`, `BaseMapReduceContract`, `BaseContractNetContract` |
+| `stable` | `./memory-client.js` | 9 | `exact:./memory-client.js` | `MemoryClient`, `MemoryScope`, `MemoryQuery`, `MemoryRecord` |
 
 ## @dzupagent/eval-contracts
 
