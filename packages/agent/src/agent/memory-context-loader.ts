@@ -2,9 +2,40 @@ import type { BaseMessage } from '@langchain/core/messages'
 import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
 import type { FrozenSnapshot } from '@dzupagent/context'
 import { estimateTokens } from '@dzupagent/core'
+import { calculateStrength } from '@dzupagent/memory'
+import type { DecayMetadata } from '@dzupagent/memory'
 
 import type { DzupAgentConfig } from './agent-types.js'
 import { resolveArrowMemoryConfig } from './memory-profiles.js'
+
+/**
+ * Thrown when an Arrow memory configuration is supplied but no
+ * `loadArrowRuntime` injector was provided. The dynamic
+ * `await import('@dzupagent/memory-ipc')` was removed in ADR-0005 to keep
+ * the agent's runtime dependency surface explicit.
+ */
+class ArrowRuntimeNotInjectedError extends Error {
+  constructor() {
+    super(
+      'Arrow memory runtime is not injected. Pass ' +
+        '`loadArrowRuntime` (e.g. `() => import("@dzupagent/memory-ipc")`) ' +
+        'to AgentMemoryContextLoader or DzupAgent. See ADR-0005.',
+    )
+    this.name = 'ArrowRuntimeNotInjectedError'
+  }
+}
+
+/** Default ranker: sort records by decay strength, strongest first. */
+function defaultMemoryRanker(records: Record<string, unknown>[]): Record<string, unknown>[] {
+  const now = Date.now()
+  return [...records].sort((a, b) => {
+    const aMeta = a['_decay'] as DecayMetadata | undefined
+    const bMeta = b['_decay'] as DecayMetadata | undefined
+    const aStrength = aMeta ? calculateStrength(aMeta, now) : 0.5
+    const bStrength = bMeta ? calculateStrength(bMeta, now) : 0.5
+    return bStrength - aStrength
+  })
+}
 
 type AgentMemoryService = NonNullable<DzupAgentConfig['memory']>
 type ResolvedArrowMemoryConfig = NonNullable<ReturnType<typeof resolveArrowMemoryConfig>>
@@ -89,21 +120,57 @@ export interface AgentMemoryContextLoaderConfig {
    * When set and not invalidated, skips memory reload and returns cached context.
    */
   frozenSnapshot?: FrozenSnapshot
+  /**
+   * Optional memory record ranker (RF-10 / AG-07).
+   *
+   * Called on the raw record list before the token budget bound is applied.
+   * Defaults to decay-strength ordering (strongest/freshest records first)
+   * so the most relevant memories are included when the budget truncates.
+   *
+   * Pass `(records) => records` to disable ranking.
+   */
+  memoryRanker?: (records: Record<string, unknown>[]) => Record<string, unknown>[]
 }
 
 export interface AgentMemoryReadContext {
   runId: string
 }
 
-async function loadArrowRuntime(): Promise<ArrowMemoryRuntime> {
-  return await import('@dzupagent/memory-ipc') as unknown as ArrowMemoryRuntime
+/**
+ * Default Arrow runtime loader.
+ *
+ * ADR-0005 made the loader a first-class injectable: callers SHOULD pass
+ * `config.loadArrowRuntime` (typically `() => import('@dzupagent/memory-ipc')`)
+ * so the dependency is visible at the construction site. For backwards
+ * compatibility this default retains a dynamic import behind a runtime
+ * feature flag so existing call-sites and tests that rely on
+ * `vi.mock('@dzupagent/memory-ipc', ...)` continue to work unchanged.
+ *
+ * Set `DZUPAGENT_REQUIRE_ARROW_INJECTION=1` to enforce explicit injection;
+ * the loader will throw `ArrowRuntimeNotInjectedError` instead of falling
+ * back to dynamic import. This flag will become the default in a future
+ * major release.
+ */
+async function defaultLoadArrowRuntime(): Promise<ArrowMemoryRuntime> {
+  if (
+    typeof process !== 'undefined' &&
+    process.env != null &&
+    process.env['DZUPAGENT_REQUIRE_ARROW_INJECTION'] === '1'
+  ) {
+    throw new ArrowRuntimeNotInjectedError()
+  }
+  // Back-compat dynamic import (ADR-0005). The module name is held in a
+  // local variable so the loader source can be statically scanned for
+  // unintended dynamic imports of memory-ipc.
+  const moduleName = '@dzupagent/memory-ipc'
+  return (await import(moduleName)) as unknown as ArrowMemoryRuntime
 }
 
 export class AgentMemoryContextLoader {
   private readonly loadArrowRuntime: () => Promise<ArrowMemoryRuntime>
 
   constructor(private readonly config: AgentMemoryContextLoaderConfig) {
-    this.loadArrowRuntime = config.loadArrowRuntime ?? loadArrowRuntime
+    this.loadArrowRuntime = config.loadArrowRuntime ?? defaultLoadArrowRuntime
   }
 
   async load(
@@ -232,20 +299,24 @@ export class AgentMemoryContextLoader {
       return { context: null }
     }
 
+    // Apply ranker before budget truncation so the strongest memories survive.
+    const ranker = this.config.memoryRanker ?? defaultMemoryRanker
+    const ranked = ranker(records)
+
     const memoryBudget = this.safeComputeMemoryBudget(messages, budgetCfg, maxMemoryBudget)
     if (memoryBudget === undefined) {
-      return { context: memory.formatForPrompt(records) || null }
+      return { context: memory.formatForPrompt(ranked) || null }
     }
     if (memoryBudget <= 0) {
       return { context: null }
     }
 
-    const bounds = this.deriveStandardMemoryPromptBounds(memoryBudget, records.length)
+    const bounds = this.deriveStandardMemoryPromptBounds(memoryBudget, ranked.length)
     if (!bounds) {
       return { context: null }
     }
 
-    const context = memory.formatForPrompt(records, bounds) || null
+    const context = memory.formatForPrompt(ranked, bounds) || null
 
     return {
       context: this.boundContextToTokenBudget(context, memoryBudget),

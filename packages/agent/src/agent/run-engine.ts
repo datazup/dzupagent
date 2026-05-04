@@ -48,8 +48,17 @@ import {
   statusFromError,
 } from './tool-lifecycle-policy.js'
 import { ReflectionAnalyzer } from '../reflection/reflection-analyzer.js'
+import { ApprovalSuspendedError } from '../approval/approval-errors.js'
 import { buildWorkflowEventsFromToolStats } from '../reflection/learning-bridge.js'
 import { omitUndefined } from '../utils/exact-optional.js'
+import { injectPromptCacheMarkers } from '@dzupagent/context'
+import {
+  ContentScanner,
+  PromptInjectionBlockedError,
+  type PromptInjectionMode,
+  type PiiMode,
+} from '@dzupagent/security'
+import { HumanMessage } from '@langchain/core/messages'
 
 export interface PreparedRunState {
   maxIterations: number
@@ -183,6 +192,28 @@ export async function prepareRunState(
     }
   }
 
+  // OWASP-aligned content scan (audit MC-01 / AG-08 / AG-09).
+  //
+  // When `config.security.promptInjection` is `'warn'` or `'block'`, every
+  // HumanMessage in the prepared transcript is scanned via
+  // `@dzupagent/security`. A `'block'` verdict aborts the run with
+  // `PromptInjectionBlockedError`; a `'sanitize'` verdict rewrites the
+  // matched span(s) before they reach the model.
+  finalMessages = await scanHumanMessages(
+    finalMessages,
+    params.config.security?.promptInjection,
+    params.config.security?.pii,
+    params.config.eventBus,
+    params.config.id,
+    params.runId,
+  )
+
+  // Inject Anthropic prompt-cache markers for Claude models (RF-13 / AG-12).
+  // No-op for non-Claude model IDs and short prompts — safe for all providers.
+  if (typeof params.config.model === 'string') {
+    finalMessages = injectPromptCacheMarkers(finalMessages, params.config.model)
+  }
+
   const tools = params.getTools()
   const model = params.bindTools(params.resolvedModel, tools)
 
@@ -223,6 +254,62 @@ export async function prepareRunState(
 }
 
 /**
+ * Scan every HumanMessage in `messages` for prompt-injection / PII content.
+ *
+ * - On `promptInjection === 'block'`: any finding raises
+ *   {@link PromptInjectionBlockedError}.
+ * - On `promptInjection === 'warn'`: matched spans are rewritten to
+ *   `[REDACTED-INJECTION]` and the message content replaced.
+ * - When `pii !== 'off'`, PII findings on incoming user input are also
+ *   sanitized inline (the sanitize verdict from the scanner rewrites
+ *   SSN/CC/IBAN/JWT/API-key matches with typed redaction markers).
+ *
+ * Returns a new message array; the original is left untouched. When no
+ * scanning is configured the function is an O(n) pass-through.
+ */
+async function scanHumanMessages(
+  messages: BaseMessage[],
+  promptInjection: PromptInjectionMode | undefined,
+  pii: PiiMode | undefined,
+  eventBus: DzupEventBus | undefined,
+  agentId: string,
+  runId: string | undefined,
+): Promise<BaseMessage[]> {
+  const piMode: PromptInjectionMode = promptInjection ?? 'off'
+  const piiMode: PiiMode = pii ?? 'off'
+  if (piMode === 'off' && piiMode === 'off') return messages
+
+  const scanner = new ContentScanner({ promptInjection: piMode, pii: piiMode })
+  const out: BaseMessage[] = []
+  for (const m of messages) {
+    const typed = m as { _getType?: () => string }
+    const isHuman = typeof typed._getType === 'function' && typed._getType() === 'human'
+    if (!isHuman || typeof m.content !== 'string') {
+      out.push(m)
+      continue
+    }
+    const result = await scanner.scan(m.content)
+    if (result.verdict === 'allow') {
+      out.push(m)
+      continue
+    }
+    eventBus?.emit({
+      type: 'agent:context_fallback',
+      agentId,
+      ...(runId !== undefined ? { runId } : {}),
+      reason: result.verdict === 'block' ? 'security:blocked' : 'security:sanitized',
+      before: m.content.length,
+      after: result.sanitized.length,
+    })
+    if (result.verdict === 'block') {
+      throw new PromptInjectionBlockedError(result.findings)
+    }
+    out.push(new HumanMessage(result.sanitized))
+  }
+  return out
+}
+
+/**
  * Best-effort extraction of the first human-authored message content from a
  * prepared transcript. Used as a fallback when the journal lacks a
  * `run_started` entry during resume rehydration.
@@ -238,6 +325,30 @@ function extractFirstHumanMessage(messages: BaseMessage[]): string {
 }
 
 export async function executeGenerateRun(
+  params: ExecuteGenerateRunParams,
+): Promise<GenerateResult> {
+  try {
+    return await executeGenerateRunInner(params)
+  } catch (err) {
+    // Durable approval gate -- surface a `suspended` GenerateResult instead
+    // of bubbling the error so the outer agent driver can return a clean
+    // pause result. Other errors propagate unchanged.
+    if (err instanceof ApprovalSuspendedError) {
+      return {
+        content: '',
+        messages: params.runState.preparedMessages,
+        usage: { totalInputTokens: 0, totalOutputTokens: 0, llmCalls: 0 },
+        hitIterationLimit: false,
+        stopReason: 'approval_pending',
+        toolStats: [],
+        suspended: { runId: err.runId, resumeToken: err.resumeToken },
+      }
+    }
+    throw err
+  }
+}
+
+async function executeGenerateRunInner(
   params: ExecuteGenerateRunParams,
 ): Promise<GenerateResult> {
   // Accumulates compression events observed during the run. Surfaced back

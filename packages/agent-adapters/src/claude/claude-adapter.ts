@@ -10,17 +10,17 @@ import { SystemPromptBuilder } from '../prompts/system-prompt-builder.js'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
-  AgentCLIAdapter,
   AgentEvent,
   AgentInput,
   HealthStatus,
-  InteractionPolicy,
   SessionInfo,
   TokenUsage,
 } from '../types.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
 import { classifyInteractionText } from '../interaction/interaction-detector.js'
 import { getDefaultMonitorStatus } from '../provider-catalog.js'
+import { BaseSdkAdapter } from '../base/base-sdk-adapter.js'
+import { extractTokenUsage as extractTokenUsageShared } from '../base/extract-token-usage.js'
 
 // ---------------------------------------------------------------------------
 // SDK type declarations (optional peer dep — cannot import statically)
@@ -145,17 +145,7 @@ function mapSandboxMode(mode: AdapterConfig['sandboxMode']): string {
 // ---------------------------------------------------------------------------
 
 function extractTokenUsage(usage: Record<string, unknown> | undefined): TokenUsage | undefined {
-  if (!usage) return undefined
-  const inputTokens = typeof usage['input_tokens'] === 'number' ? usage['input_tokens'] : 0
-  const outputTokens = typeof usage['output_tokens'] === 'number' ? usage['output_tokens'] : 0
-  const result: TokenUsage = { inputTokens, outputTokens }
-  if (typeof usage['cached_input_tokens'] === 'number') {
-    result.cachedInputTokens = usage['cached_input_tokens']
-  }
-  if (typeof usage['cost_cents'] === 'number') {
-    result.costCents = usage['cost_cents']
-  }
-  return result
+  return extractTokenUsageShared(usage) as TokenUsage | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -191,26 +181,11 @@ function extractQuestionFromToolInput(input: unknown): string {
 // ClaudeAgentAdapter
 // ---------------------------------------------------------------------------
 
-export class ClaudeAgentAdapter implements AgentCLIAdapter {
+export class ClaudeAgentAdapter extends BaseSdkAdapter<ClaudeSDKModule> {
   readonly providerId = 'claude' as const
 
-  private config: AdapterConfig
   private sdk: ClaudeSDKModule | null = null
   private activeConversation: ClaudeConversation | null = null
-  private abortController: AbortController | null = null
-  private resolver: InteractionResolver | null = null
-
-  constructor(config: AdapterConfig = {}) {
-    this.config = { ...config }
-  }
-
-  // -----------------------------------------------------------------------
-  // AgentCLIAdapter.configure
-  // -----------------------------------------------------------------------
-
-  configure(opts: Partial<AdapterConfig>): void {
-    this.config = { ...this.config, ...opts }
-  }
 
   // -----------------------------------------------------------------------
   // AgentCLIAdapter.getCapabilities
@@ -226,16 +201,12 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
     }
   }
 
-  respondInteraction(interactionId: string, answer: string): boolean {
-    return this.resolver?.respond(interactionId, answer) ?? false
-  }
-
   // -----------------------------------------------------------------------
   // AgentCLIAdapter.execute
   // -----------------------------------------------------------------------
 
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
-    const sdk = await this.loadSDK()
+    const sdk = await this.loadSdk()
     const startTime = Date.now()
 
     this.abortController = new AbortController()
@@ -443,8 +414,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
     } finally {
       this.activeConversation = null
       this.abortController = null
-      this.resolver?.dispose()
-      this.resolver = null
+      this.disposeResolver()
     }
   }
 
@@ -525,7 +495,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
 
     // Check SDK importability
     try {
-      await this.loadSDK()
+      await this.loadSdk()
       sdkInstalled = true
     } catch (err: unknown) {
       lastError = err instanceof Error ? err.message : String(err)
@@ -560,7 +530,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
   // -----------------------------------------------------------------------
 
   async listSessions(): Promise<SessionInfo[]> {
-    const sdk = await this.loadSDK()
+    const sdk = await this.loadSdk()
 
     if (typeof sdk.listSessions !== 'function') {
       return []
@@ -583,7 +553,7 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
   // -----------------------------------------------------------------------
 
   async forkSession(sessionId: string): Promise<string> {
-    const sdk = await this.loadSDK()
+    const sdk = await this.loadSdk()
 
     // Fork is implemented by starting a new query with forkSession option
     // and capturing the new session_id from the system event.
@@ -633,38 +603,31 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
   }
 
   // -----------------------------------------------------------------------
-  // AgentCLIAdapter.warmup
+  // BaseSdkAdapter.loadSdk — concrete implementation
   // -----------------------------------------------------------------------
 
-  async warmup(): Promise<void> {
-    await this.loadSDK()
+  /**
+   * Implements {@link BaseSdkAdapter.loadSdk}. Delegates to the existing
+   * {@link loadSDK} accessor so test fixtures that spy on the original
+   * method name continue to work.
+   */
+  override async loadSdk(): Promise<ClaudeSDKModule> {
+    return this.loadSDK()
+  }
+
+  /** @internal Backward-compatible accessor for tests that spy on this method. */
+  private async loadSDK(): Promise<ClaudeSDKModule> {
+    if (this.sdk) return this.sdk
+    this.sdk = await this.loadOptionalSdkModule<ClaudeSDKModule>(
+      '@anthropic-ai/claude-agent-sdk',
+      { providerId: 'claude' },
+    )
+    return this.sdk
   }
 
   // -----------------------------------------------------------------------
   // Private helpers
   // -----------------------------------------------------------------------
-
-  private async loadSDK(): Promise<ClaudeSDKModule> {
-    if (this.sdk) return this.sdk
-
-    try {
-      // Use a variable to prevent TypeScript from resolving the optional peer dep at compile time
-      const sdkPackage = '@anthropic-ai/claude-agent-sdk'
-      const mod = (await import(/* webpackIgnore: true */ sdkPackage)) as unknown
-      this.sdk = mod as ClaudeSDKModule
-      return this.sdk
-    } catch {
-      throw new ForgeError({
-        code: 'ADAPTER_SDK_NOT_INSTALLED',
-        message:
-          'The @anthropic-ai/claude-agent-sdk package is not installed. ' +
-          'Install it with: npm install @anthropic-ai/claude-agent-sdk',
-        recoverable: false,
-        suggestion: 'Run: npm install @anthropic-ai/claude-agent-sdk',
-        context: { adapter: 'claude' },
-      })
-    }
-  }
 
   private buildQueryOptions(input: AgentInput): Record<string, unknown> {
     const options: Record<string, unknown> = {}
@@ -727,19 +690,6 @@ export class ClaudeAgentAdapter implements AgentCLIAdapter {
       prompt: input.prompt,
       options,
     }
-  }
-
-  /** Resolve the effective interaction policy (per-call → config → default). */
-  private resolveInteractionPolicy(input: AgentInput): InteractionPolicy {
-    const perCall = input.options?.['interactionPolicy']
-    if (
-      perCall !== null &&
-      typeof perCall === 'object' &&
-      'mode' in (perCall as object)
-    ) {
-      return perCall as InteractionPolicy
-    }
-    return this.config.interactionPolicy ?? { mode: 'auto-approve' }
   }
 
   private toSessionInfo(raw: unknown): SessionInfo {

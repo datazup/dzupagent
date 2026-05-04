@@ -31,6 +31,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
   attachStructuredOutputCapabilities,
   isTransientError,
+  TokenBucket,
   type ModelTier,
   type StructuredOutputModelCapabilities,
 } from '@dzupagent/core'
@@ -53,7 +54,10 @@ import {
 import { AgentInstructionResolver } from './instruction-resolution.js'
 import type { AgentInstructionResolverConfig } from './instruction-resolution.js'
 import { AgentMemoryContextLoader } from './memory-context-loader.js'
-import type { AgentMemoryContextLoaderConfig } from './memory-context-loader.js'
+import type {
+  AgentMemoryContextLoaderConfig,
+  ArrowMemoryRuntime,
+} from './memory-context-loader.js'
 import { AgentMiddlewareRuntime } from './middleware-runtime.js'
 import type { AgentMiddlewareRuntimeConfig } from './middleware-runtime.js'
 import {
@@ -93,6 +97,14 @@ function resolveStructuredOutputCapabilities(
   }).structuredOutputCapabilities
 }
 
+function resolveRateLimiter(
+  config: DzupAgentConfig['rateLimiter'],
+): TokenBucket | undefined {
+  if (!config) return undefined
+  if (config instanceof TokenBucket) return config
+  return new TokenBucket(config)
+}
+
 export class DzupAgent {
   readonly id: string
   readonly name: string
@@ -110,6 +122,7 @@ export class DzupAgent {
   private readonly memoryContextLoader: AgentMemoryContextLoader
   private readonly middlewareRuntime: AgentMiddlewareRuntime
   private readonly mailboxTools: StructuredToolInterface[] = []
+  private readonly rateLimiter: TokenBucket | undefined
   private conversationSummary: string | null = null
 
   constructor(config: DzupAgentConfig) {
@@ -121,6 +134,7 @@ export class DzupAgent {
     this.resolvedModel = resolved.model
     this.resolvedProvider = resolved.provider
     this.resolvedTier = resolved.tier
+    this.rateLimiter = resolveRateLimiter(config.rateLimiter)
 
     // Initialize mailbox when configured
     if (config.mailbox) {
@@ -150,6 +164,12 @@ export class DzupAgent {
       arrowMemory: config.arrowMemory,
       memoryProfile: config.memoryProfile,
       frozenSnapshot: config.frozenSnapshot,
+      // Inject the Arrow runtime loader (ADR-0005). The dynamic import in
+      // memory-context-loader.ts was removed; callers using arrowMemory must
+      // pass a loader so the dependency is visible at the call site.
+      loadArrowRuntime: config.loadArrowRuntime
+        ? config.loadArrowRuntime as () => Promise<ArrowMemoryRuntime>
+        : undefined,
       estimateConversationTokens: (messages) => this.estimateConversationTokens(messages),
       onFallback: config.onFallback
         ? (reason, before, after) => {
@@ -696,6 +716,22 @@ export class DzupAgent {
     await this.middlewareRuntime.runBeforeAgentHooks()
   }
 
+  private async awaitRateLimit(): Promise<void> {
+    if (!this.rateLimiter) return
+    try {
+      await this.rateLimiter.waitUntilAvailable(1)
+    } catch (err) {
+      // Surface a structured event before propagating so operators can
+      // distinguish client-side throttling from provider-side failures.
+      this.config.eventBus?.emit({
+        type: 'agent:rate_limited',
+        agentId: this.id,
+        reason: err instanceof Error ? err.message : String(err),
+      } as never)
+      throw err
+    }
+  }
+
   private async invokeModelWithMiddleware(
     model: BaseChatModel,
     messages: BaseMessage[],
@@ -706,6 +742,7 @@ export class DzupAgent {
       return this.invokeModelWithProviderFailover(attempts, messages)
     }
 
+    await this.awaitRateLimit()
     try {
       const result = await this.middlewareRuntime.invokeModel(model, messages)
       // Feed the provider's circuit breaker a success signal. No-op when
@@ -744,6 +781,7 @@ export class DzupAgent {
         phase: 'invoke',
       })
 
+      await this.awaitRateLimit()
       try {
         const result = await this.middlewareRuntime.invokeModel(attempt.model, messages)
         this.config.registry?.recordProviderSuccess(attempt.provider)

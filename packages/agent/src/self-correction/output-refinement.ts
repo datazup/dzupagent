@@ -41,6 +41,13 @@ export interface RefinementConfig {
   costBudgetCents: number
   /** Domain (auto-detected if not specified). */
   domain?: RefinementDomain
+  /**
+   * Consecutive iterations with sub-threshold improvement before declaring
+   * convergence. Detects diminishing-returns plateau across multiple
+   * iterations that each individually clear `minImprovement` but together
+   * show stagnation. Default: disabled (0 = no plateau detection).
+   */
+  convergenceWindow?: number
 }
 
 /** A single refinement iteration record. */
@@ -86,6 +93,7 @@ export interface RefinementResult {
     | 'quality_met'
     | 'max_iterations'
     | 'no_improvement'
+    | 'convergence'
     | 'budget_exhausted'
     | 'regression_detected'
     | 'error'
@@ -301,6 +309,7 @@ export class OutputRefinementLoop {
       minImprovement: config?.minImprovement ?? 0.05,
       costBudgetCents: config?.costBudgetCents ?? 20,
       domain: config?.domain,
+      convergenceWindow: config?.convergenceWindow,
     })
   }
 
@@ -354,6 +363,7 @@ export class OutputRefinementLoop {
     }
 
     // --- Refinement iterations ---
+    let plateauCount = 0
     for (let i = 0; i < this.config.maxIterations; i++) {
       const iterStart = Date.now()
 
@@ -434,10 +444,27 @@ export class OutputRefinementLoop {
         break
       }
 
-      // No meaningful improvement
+      // No meaningful improvement in this iteration
       if (improvement < this.config.minImprovement) {
         exitReason = 'no_improvement'
         break
+      }
+
+      // Convergence plateau: improvement is diminishing across consecutive
+      // iterations — stop when convergenceWindow consecutive low-gain rounds
+      // are observed even though each clears the minImprovement bar.
+      const convergenceWindow = this.config.convergenceWindow ?? 0
+      if (convergenceWindow > 0) {
+        const PLATEAU_THRESHOLD = this.config.minImprovement * 2
+        if (improvement < PLATEAU_THRESHOLD) {
+          plateauCount++
+          if (plateauCount >= convergenceWindow) {
+            exitReason = 'convergence'
+            break
+          }
+        } else {
+          plateauCount = 0
+        }
       }
 
       // Accept refinement

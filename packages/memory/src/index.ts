@@ -14,6 +14,13 @@ export type { MemoryStoreCapabilities } from './store-capabilities.js'
 // --- Core Service ---
 export { MemoryService } from './memory-service.js'
 
+// --- MemoryClient implementations (ADR-0005) ---
+export { InMemoryMemoryClient } from './in-memory-client.js'
+export { HttpMemoryClient, NotImplementedError } from './http-client.js'
+export type { HttpMemoryClientConfig } from './http-client.js'
+export { memoryServiceToClient } from './memory-service-adapter.js'
+export type { MemoryServiceLike as AdapterMemoryServiceLike } from './memory-service-adapter.js'
+
 // --- Types ---
 export type { NamespaceConfig, FormatOptions, DecayConfig, SemanticStoreAdapter } from './memory-types.js'
 

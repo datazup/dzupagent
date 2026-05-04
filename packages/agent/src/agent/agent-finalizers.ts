@@ -10,8 +10,14 @@
 import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { shouldSummarize, summarizeAndTrim } from '@dzupagent/context'
+import { findWeakMemories } from '@dzupagent/memory'
+import type { DecayMetadata } from '@dzupagent/memory'
+import { PiiDetector } from '@dzupagent/security'
 import type { DzupAgentConfig } from './agent-types.js'
 import { omitUndefined } from '../utils/exact-optional.js'
+
+const DEFAULT_DECAY_THRESHOLD = 200
+const DECAY_STRENGTH_THRESHOLD = 0.1
 
 export interface UpdateSummaryParams {
   agentId: string
@@ -111,6 +117,34 @@ export async function maybeWriteBackMemory(
     !config.memoryScope ||
     !content
   ) return
+
+  // OWASP-aligned PII gate (audit MC-01 / AG-09).
+  // - `pii: 'redact'` rewrites SSN/CC/IBAN/JWT/API-key with typed
+  //   markers before the record reaches the memory store.
+  // - `pii: 'block'` aborts write-back when any PII is detected and
+  //   surfaces a `memory:error` event so callers can audit the gate.
+  const piiMode = config.security?.pii ?? 'off'
+  let toWrite = content
+  if (piiMode !== 'off') {
+    const detector = new PiiDetector()
+    const scan = detector.scan(content)
+    if (scan.hasPii) {
+      if (piiMode === 'block') {
+        config.eventBus?.emit({
+          type: 'memory:error',
+          agentId,
+          ...(runId !== undefined ? { runId } : {}),
+          namespace: config.memoryNamespace,
+          key: 'pii-blocked',
+          scopeKeys: getSafeScopeKeys(config.memoryScope),
+          message: `Memory write-back blocked: PII detected (${scan.types.join(',')})`,
+        })
+        return
+      }
+      toWrite = detector.sanitize(content)
+    }
+  }
+
   const now = Date.now()
   const key = now.toString()
   try {
@@ -119,7 +153,7 @@ export async function maybeWriteBackMemory(
       config.memoryScope,
       key,
       {
-        text: content,
+        text: toWrite,
         agentId,
         timestamp: now,
         ...(config.ttlMs !== undefined
@@ -135,6 +169,8 @@ export async function maybeWriteBackMemory(
       key,
       scopeKeys: getSafeScopeKeys(config.memoryScope),
     })
+    // Fire-and-forget decay sweep — must never delay or abort the run
+    void runMemoryDecay(agentId, config)
   } catch {
     config.eventBus?.emit({
       type: 'memory:error',
@@ -151,4 +187,70 @@ export async function maybeWriteBackMemory(
 
 function getSafeScopeKeys(scope: Record<string, string>): string[] {
   return Object.keys(scope).sort()
+}
+
+interface DecayRecord {
+  _key?: string
+  _decay?: DecayMetadata
+  [key: string]: unknown
+}
+
+/**
+ * Fire-and-forget memory decay sweep.
+ *
+ * Loads all records for the namespace, identifies those below the
+ * forgetting-curve strength threshold, and deletes them via the public
+ * MemoryService API. Only runs when the record count exceeds
+ * `memoryDecayThreshold` to avoid sweeping on every write.
+ *
+ * Failures are fully swallowed — decay is a background hygiene task and
+ * must never interfere with the agent run result.
+ */
+async function runMemoryDecay(
+  agentId: string,
+  config: DzupAgentConfig,
+): Promise<void> {
+  const memory = config.memory
+  const namespace = config.memoryNamespace
+  const scope = config.memoryScope
+  if (!memory || !namespace || !scope) return
+
+  const threshold = config.memoryDecayThreshold ?? DEFAULT_DECAY_THRESHOLD
+  if (threshold === 0 || !isFinite(threshold)) return
+
+  try {
+    const records = await memory.get(namespace, scope)
+    if (records.length < threshold) return
+
+    const withDecay = records.flatMap((r): Array<{ key: string; meta: DecayMetadata }> => {
+      const rec = r as DecayRecord
+      const key = typeof rec['_key'] === 'string' ? rec['_key'] : undefined
+      const meta = rec['_decay']
+      if (!key || !meta) return []
+      return [{ key, meta }]
+    })
+
+    if (withDecay.length === 0) return
+
+    const weak = findWeakMemories(withDecay, DECAY_STRENGTH_THRESHOLD)
+    if (weak.length === 0) return
+
+    let pruned = 0
+    for (const { key } of weak) {
+      const deleted = await memory.delete(namespace, scope, key)
+      if (deleted) pruned++
+    }
+
+    if (pruned > 0) {
+      config.eventBus?.emit({
+        type: 'memory:written',
+        agentId,
+        namespace,
+        key: `decay:sweep:${Date.now()}`,
+        scopeKeys: getSafeScopeKeys(scope),
+      })
+    }
+  } catch {
+    // Decay sweep failures are non-fatal
+  }
 }

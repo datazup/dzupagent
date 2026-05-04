@@ -27,6 +27,7 @@ import {
   type ToolArgValidatorConfig,
 } from './tool-arg-validator.js'
 import type { ToolCall } from './tool-loop/contracts.js'
+import type { ToolOutputValidator } from './tool-loop/output-validator.js'
 import { executeModelTurn } from './tool-loop/model-turn-kernel.js'
 import { executePolicyEnabledToolCall } from './tool-loop/policy-enabled-tool-executor.js'
 import { scheduleToolCalls } from './tool-loop/tool-scheduler-kernel.js'
@@ -67,6 +68,42 @@ export type StopReason =
   | 'approval_pending'
 
 export type ToolResultScanFailureMode = 'fail-open' | 'fail-closed'
+
+/**
+ * Per-tool retry policy for transient tool execution failures (RF-09).
+ *
+ * Wired via {@link ToolLoopConfig.toolRetry}. All fields are optional; the
+ * executor fills missing values with the documented defaults.
+ *
+ * The retry loop uses `calculateBackoff` from `@dzupagent/core` so the
+ * delay schedule matches the rest of the framework (LLM invoke retry, MCP
+ * connection pool, pipeline executor).
+ */
+export interface ToolRetryConfig {
+  /**
+   * Maximum total attempts (including the first try). `1` disables retry.
+   * Default: `3`.
+   */
+  maxAttempts?: number
+  /** Initial backoff in ms for attempt 0. Default: `200`. */
+  initialBackoffMs?: number
+  /** Upper bound on backoff in ms. Default: `4000`. */
+  maxBackoffMs?: number
+  /** Exponential growth factor. Default: `2`. */
+  multiplier?: number
+  /** Apply equal-jitter (0.5×–1.0×). Default: `true`. */
+  jitter?: boolean
+  /**
+   * Custom predicate deciding whether a thrown error is retryable. When
+   * omitted, the executor falls back to {@link isTransientError} from
+   * `@dzupagent/core` (rate-limit, overload, network heuristics).
+   *
+   * Note: cancellation, timeout, permission and validation errors are
+   * filtered out BEFORE this predicate runs — `retryOn` is only consulted
+   * for the residual "unknown error" bucket.
+   */
+  retryOn?: (err: Error) => boolean
+}
 
 export interface ToolLoopConfig {
   maxIterations: number
@@ -274,6 +311,37 @@ export interface ToolLoopConfig {
   eventBus?: DzupEventBus
 
   /**
+   * Per-tool retry policy for transient failures (RF-09).
+   *
+   * Opt-in: tools without an entry retry zero times — preserves the legacy
+   * surface. When configured, the policy-enabled executor wraps the tool
+   * invocation in a retry loop that uses the canonical `calculateBackoff`
+   * helper from `@dzupagent/core` between attempts.
+   *
+   * Errors that are NEVER retried (regardless of `retryOn`):
+   *   - permission/governance/approval denials (the tool never ran)
+   *   - validation errors (the tool never ran)
+   *   - {@link ToolCancellationError} (run was aborted upstream)
+   *   - {@link ToolTimeoutError} (per-call timeout already fired; retrying
+   *     would just hit the same deadline again)
+   *
+   * For all other errors, the retry decision is delegated to:
+   *   - `retryOn(err)` when provided, else
+   *   - {@link isTransientError} from `@dzupagent/core` (rate-limit / overload
+   *     / network heuristics)
+   *
+   * Defaults when an entry is present but a field is omitted:
+   *   - `maxAttempts`: 3 (i.e. up to 2 retries after the initial try)
+   *   - `initialBackoffMs`: 200
+   *   - `maxBackoffMs`: 4000
+   *   - `multiplier`: 2
+   *   - `jitter`: true
+   *
+   * Example: `{ fetchUrl: { maxAttempts: 4 }, slowQuery: { maxAttempts: 3, initialBackoffMs: 500 } }`.
+   */
+  toolRetry?: Record<string, ToolRetryConfig>
+
+  /**
    * Per-tool execution timeouts in milliseconds.
    *
    * When a tool is invoked, the runtime creates a per-call `AbortSignal`
@@ -345,6 +413,29 @@ export interface ToolLoopConfig {
    * `tool.invoke()` in either execution mode.
    */
   toolPermissionPolicy?: ToolPermissionPolicy
+
+  /**
+   * RF-08 — Optional tool-output schema validator.
+   *
+   * When provided, every successful tool result is validated against the
+   * registered schema (if any) before being appended to the conversation.
+   * Validation failures are SOFT: a `tool:output:invalid` event is emitted
+   * to the configured event bus and the corresponding callback fires, but
+   * execution continues with the original tool output. Tools without a
+   * registered schema are passed through untouched.
+   */
+  toolOutputValidator?: ToolOutputValidator
+
+  /**
+   * Optional callback invoked when {@link toolOutputValidator} reports an
+   * invalid tool result. Mirrors the warning event so consumers can wire
+   * lightweight observers without subscribing to the event bus.
+   */
+  onToolOutputInvalid?: (info: {
+    toolName: string
+    toolCallId: string
+    error: string
+  }) => void
 }
 
 /**

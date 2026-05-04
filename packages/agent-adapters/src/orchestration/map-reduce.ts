@@ -12,6 +12,8 @@
 import type { DzupEventBus } from '@dzupagent/core'
 import { ForgeError } from '@dzupagent/core'
 import { Semaphore } from '@dzupagent/core/orchestration'
+import type { BaseMapReduceContract } from '@dzupagent/agent-types'
+import type { AgentCLIAdapter } from '@dzupagent/adapter-types'
 
 import type {
   AdapterProviderId,
@@ -103,7 +105,7 @@ export interface MapReduceOptions<TChunk, TMapResult, TReduceResult> {
 }
 
 /** Configuration for the MapReduceOrchestrator. */
-export interface MapReduceConfig {
+export interface MapReduceConfig extends BaseMapReduceContract<AgentCLIAdapter> {
   registry: ProviderAdapterRegistry
   eventBus?: DzupEventBus | undefined
   /** Maximum number of concurrent map operations. Default: 4 */

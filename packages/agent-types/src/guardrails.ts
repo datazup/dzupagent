@@ -27,4 +27,11 @@ export interface StuckDetectorConfig {
   errorWindowMs?: number
   /** Max consecutive iterations with no tool calls before flagging (default: 3) */
   maxIdleIterations?: number
+  /**
+   * Semantic plateau: flag if the agent calls only 1 unique tool across this
+   * many consecutive calls. Detects "hammer" patterns where the agent fixates
+   * on a single tool with varied-but-ineffective arguments.
+   * Default: disabled (0 = no semantic plateau detection).
+   */
+  semanticPlateauWindow?: number
 }

@@ -9,6 +9,7 @@ export type ForgeErrorCode =
   | 'PROVIDER_AUTH_FAILED'
   | 'PROVIDER_TIMEOUT'
   | 'ALL_PROVIDERS_EXHAUSTED'
+  | 'RATE_LIMIT_EXCEEDED'
   // --- Budget errors ---
   | 'BUDGET_EXCEEDED'
   | 'TOKEN_LIMIT_EXCEEDED'

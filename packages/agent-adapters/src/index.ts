@@ -241,6 +241,20 @@ export { AdapterPluginLoader } from './plugin/adapter-plugin-loader.js'
 export { OrchestratorFacade, createOrchestrator } from './facade/orchestrator-facade.js'
 export type { OrchestratorConfig } from './facade/orchestrator-facade.js'
 
+// --- Pipeline (composable steps used by OrchestratorFacade) ---
+export {
+  AdapterPipeline,
+  ApprovalPipelineStep,
+  GuardrailsPipelineStep,
+  PolicyEnforcementPipeline,
+  UCLEnrichmentStep,
+} from './pipeline/index.js'
+export type {
+  BuildApprovalContextArgs,
+  PreparePipelineArgs,
+  UCLEnrichmentConfig,
+} from './pipeline/index.js'
+
 // --- Integration Bridge ---
 export { AgentIntegrationBridge, AdapterAsToolWrapper } from './integration/agent-bridge.js'
 export type {

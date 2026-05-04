@@ -23,11 +23,16 @@
 import { randomUUID } from 'node:crypto'
 import type { DzupEventBus, HookContext, ApprovalRequest, ContactChannel } from '@dzupagent/core'
 import {
+  APPROVAL_PENDING_KEY,
   DEFAULT_APPROVAL_TIMEOUT_MS,
   type ApprovalConfig,
+  type ApprovalDecision,
+  type ApprovalPendingState,
+  type ApprovalRequestInput,
   type ApprovalResult,
   type ApprovalWaitOptions,
 } from './approval-types.js'
+import { ApprovalSuspendedError } from './approval-errors.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 
 export class ApprovalGate {
@@ -159,6 +164,99 @@ export class ApprovalGate {
         }, timeoutMs)
       }
     })
+  }
+
+  /**
+   * Durable approval entry point.
+   *
+   * When configured with `durableResume: true` and a `checkpointStore`, this
+   * persists pending approval state and throws {@link ApprovalSuspendedError}
+   * so the outer run driver can abandon the in-process wait and reschedule
+   * resumption (e.g. via {@link resume}) after process restart.
+   *
+   * Otherwise it falls back to the legacy in-process {@link waitForApproval}
+   * flow for backwards compatibility.
+   */
+  async requestApproval(
+    input: ApprovalRequestInput,
+    ctx?: HookContext,
+    options: ApprovalWaitOptions = {},
+  ): Promise<ApprovalResult> {
+    const store = this.config.checkpointStore
+    if (this.config.durableResume === true && store !== undefined) {
+      const contactId = input.contactId ?? randomUUID()
+      const channel = input.channel ?? this.config.channel ?? 'in-app'
+      const timeoutMs = this.config.timeoutMs
+      const requestedAt = Date.now()
+      const resumeToken = randomUUID()
+      const state: ApprovalPendingState = {
+        runId: input.runId,
+        contactId,
+        plan: input.plan,
+        channel,
+        requestedAt,
+        timeoutAt: timeoutMs !== undefined ? requestedAt + timeoutMs : null,
+        resumeToken,
+      }
+      await store.save(input.runId, APPROVAL_PENDING_KEY, state)
+
+      // Notify listeners so external resumers (HTTP, queue worker) see the
+      // pending request alongside the persisted state.
+      this.eventBus.emit({
+        type: 'approval:requested',
+        runId: input.runId,
+        plan: input.plan,
+        contactId,
+        channel: channel as ContactChannel,
+      })
+
+      throw new ApprovalSuspendedError(resumeToken, input.runId)
+    }
+
+    return this.waitForApproval(input.runId, input.plan, ctx, options)
+  }
+
+  /**
+   * Resume a previously suspended approval.
+   *
+   * Loads the persisted pending state, deletes it, and emits an
+   * `approval:granted` or `approval:rejected` event so any in-process
+   * listeners that survived restart can react.
+   *
+   * @throws if no pending approval exists for `runId`.
+   */
+  async resume(runId: string, decision: ApprovalDecision): Promise<void> {
+    const store = this.config.checkpointStore
+    if (store === undefined) {
+      throw new Error('ApprovalGate.resume requires a checkpointStore on the config')
+    }
+    const state = await store.load(runId, APPROVAL_PENDING_KEY)
+    if (!state) {
+      throw new Error(`No pending approval for runId: ${runId}`)
+    }
+    await store.delete(runId, APPROVAL_PENDING_KEY)
+
+    if (decision.decision === 'approved') {
+      this.eventBus.emit({ type: 'approval:granted', runId })
+    } else {
+      this.eventBus.emit(omitUndefined({
+        type: 'approval:rejected' as const,
+        runId,
+        reason: decision.reason,
+      }))
+    }
+  }
+
+  /**
+   * Inspect the persisted pending state for a run, if any.
+   *
+   * Useful for resumers that need to validate timeouts or rebuild a
+   * `HumanContactRequest` before deciding whether to resume.
+   */
+  async loadPending(runId: string): Promise<ApprovalPendingState | null> {
+    const store = this.config.checkpointStore
+    if (store === undefined) return null
+    return store.load(runId, APPROVAL_PENDING_KEY)
   }
 
   private getEffectiveTimeoutMs(): number | undefined {

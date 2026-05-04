@@ -10,6 +10,7 @@
 import { HumanMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { DzupEventBus } from '@dzupagent/core'
+import type { BaseSupervisorContract } from '@dzupagent/agent-types'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { OrchestrationError } from './orchestration-error.js'
 import { ContractNetManager } from './contract-net/contract-net-manager.js'
@@ -20,7 +21,7 @@ import type { OrchestrationMergeStrategy, AgentResult } from './orchestration-me
 import type { AgentCircuitBreaker } from './circuit-breaker.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 
-export interface SupervisorConfig {
+export interface SupervisorConfig extends BaseSupervisorContract<DzupAgent> {
   /** The manager agent that coordinates specialists */
   manager: DzupAgent
   /** Specialist agents to be exposed as tools to the manager */
@@ -114,6 +115,54 @@ function instrumentSpecialistTool(
   return tool
 }
 
+/**
+ * Run task factories in parallel, capped at `maxConcurrency` simultaneous
+ * executions. Returns allSettled-style results preserving order.
+ * When `maxConcurrency` is undefined, all tasks start at once.
+ */
+async function runConcurrently<T>(
+  factories: Array<() => Promise<T>>,
+  maxConcurrency: number | undefined,
+): Promise<PromiseSettledResult<T>[]> {
+  if (!maxConcurrency || maxConcurrency >= factories.length) {
+    return Promise.allSettled(factories.map(f => f()))
+  }
+  const results: PromiseSettledResult<T>[] = new Array(factories.length)
+  let next = 0
+  const runWorker = async (): Promise<void> => {
+    while (next < factories.length) {
+      const idx = next++
+      try {
+        results[idx] = { status: 'fulfilled', value: await factories[idx]!() }
+      } catch (reason) {
+        results[idx] = { status: 'rejected', reason }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: maxConcurrency }, runWorker))
+  return results
+}
+
+/**
+ * Run task factories in parallel, capped at `maxConcurrency`.
+ * Rejects on first failure (mirrors Promise.all semantics).
+ */
+async function runAllConcurrently<T>(
+  factories: Array<() => Promise<T>>,
+  maxConcurrency: number | undefined,
+): Promise<T[]> {
+  if (!maxConcurrency || maxConcurrency >= factories.length) {
+    return Promise.all(factories.map(f => f()))
+  }
+  const settled = await runConcurrently(factories, maxConcurrency)
+  const results: T[] = []
+  for (const s of settled) {
+    if (s.status === 'rejected') throw s.reason as Error
+    results.push(s.value)
+  }
+  return results
+}
+
 export class AgentOrchestrator {
   /**
    * Run agents sequentially -- each receives the previous agent's output.
@@ -145,6 +194,13 @@ export class AgentOrchestrator {
     options?: {
       circuitBreaker?: AgentCircuitBreaker
       mergeStrategy?: OrchestrationMergeStrategy<string>
+      /**
+       * Maximum number of agents to run concurrently.
+       * When set, agents run in batches rather than all at once, preventing
+       * resource exhaustion with large agent lists.
+       * Default: unlimited.
+       */
+      maxConcurrency?: number
     },
   ): Promise<string> {
     let effectiveAgents = agents
@@ -162,8 +218,9 @@ export class AgentOrchestrator {
 
     // When merge strategy or circuit breaker is active, use allSettled for resilience
     if (options?.mergeStrategy || options?.circuitBreaker) {
-      const settled = await Promise.allSettled(
-        effectiveAgents.map(agent => agent.generate([new HumanMessage(input)])),
+      const settled = await runConcurrently(
+        effectiveAgents.map(agent => () => agent.generate([new HumanMessage(input)])),
+        options?.maxConcurrency,
       )
 
       // Record circuit breaker outcomes
@@ -226,9 +283,10 @@ export class AgentOrchestrator {
       return (merge ?? defaultMerge)(contents)
     }
 
-    // Default path: preserve original Promise.all behavior (rejects on failure)
-    const results = await Promise.all(
-      effectiveAgents.map(agent => agent.generate([new HumanMessage(input)])),
+    // Default path: reject on first failure; respect maxConcurrency
+    const results = await runAllConcurrently(
+      effectiveAgents.map(agent => () => agent.generate([new HumanMessage(input)])),
+      options?.maxConcurrency,
     )
     const contents = results.map(r => r.content)
     return (merge ?? defaultMerge)(contents)
