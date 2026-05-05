@@ -70,7 +70,8 @@
         { "match": "prefix", "pattern": "./tools/" },
         { "match": "prefix", "pattern": "./telemetry/" },
         { "match": "prefix", "pattern": "./utils/" },
-        { "match": "prefix", "pattern": "./vectordb/" }
+        { "match": "prefix", "pattern": "./vectordb/" },
+        { "match": "prefix", "pattern": "./guardrails/" }
       ],
       "subpaths": {
         "./stable": "stable root facade",
