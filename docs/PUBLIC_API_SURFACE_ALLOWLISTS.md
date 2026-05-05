@@ -37,7 +37,7 @@ No stable subpaths configured.
 
 Root index: `packages/core/src/index.ts`
 
-- Stable root sources: `42`
+- Stable root sources: `44`
 - Deprecated transitional root sources: `82`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
@@ -76,6 +76,8 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./llm/circuit-breaker.js` | 4 | `prefix:./llm/` | `CircuitBreaker`, `KeyedCircuitBreaker`, `CircuitBreakerConfig`, `CircuitState` |
 | `deprecated-transitional` | `./rate-limit/token-bucket.js` | 2 | `exact:./rate-limit/token-bucket.js` | `TokenBucket`, `TokenBucketConfig` |
 | `stable` | `./llm/invoke.js` | 5 | `prefix:./llm/` | `invokeWithTimeout`, `extractTokenUsage`, `estimateTokens`, `TokenUsage` |
+| `stable` | `./llm/tokenizer.js` | 5 | `prefix:./llm/` | `HeuristicTokenizer`, `AnthropicTokenizer`, `TiktokenTokenizer`, `Tokenizer` |
+| `stable` | `./llm/tokenizer-registry.js` | 2 | `prefix:./llm/` | `TokenizerRegistry`, `defaultTokenizerRegistry` |
 | `stable` | `./llm/retry.js` | 4 | `prefix:./llm/` | `isTransientError`, `isContextLengthError`, `DEFAULT_RETRY_CONFIG`, `RetryConfig` |
 | `stable` | `./llm/registry-middleware.js` | 4 | `prefix:./llm/` | `RegistryMiddleware`, `MiddlewareContext`, `MiddlewareResult`, `MiddlewareTokenUsage` |
 | `stable` | `./llm/embedding-registry.js` | 4 | `prefix:./llm/` | `EmbeddingRegistry`, `createDefaultEmbeddingRegistry`, `COMMON_EMBEDDING_MODELS`, `EmbeddingModelEntry` |
@@ -189,7 +191,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `13`
-- Deprecated transitional root sources: `110`
+- Deprecated transitional root sources: `109`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
@@ -222,7 +224,9 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./guardrails/stuck-detector.js` | 3 | `prefix:./guardrails/` | `StuckDetector`, `StuckDetectorConfig`, `StuckStatus` |
 | `deprecated-transitional` | `./agent/stuck-error.js` | 3 | `prefix:./agent/` | `StuckError`, `EscalationLevel`, `RecoveryAction` |
 | `deprecated-transitional` | `./guardrails/cascading-timeout.js` | 2 | `prefix:./guardrails/` | `CascadingTimeout`, `CascadingTimeoutConfig` |
-| `stable` | `./guardrails/guardrail-types.js` | 3 | `exact:./guardrails/guardrail-types.js` | `GuardrailConfig`, `BudgetState`, `BudgetWarning` |
+| `stable` | `./guardrails/guardrail-types.js` | 4 | `exact:./guardrails/guardrail-types.js` | `GuardrailConfig`, `BudgetState`, `BudgetWarning`, `DistributedGuardrailConfig` |
+| `deprecated-transitional` | `./guardrails/distributed-rate-limiter.js` | 4 | `prefix:./guardrails/` | `DistributedRateLimiter`, `RateLimiterClient`, `LocalRateLimiter`, `DistributedRateLimiterConfig` |
+| `deprecated-transitional` | `./guardrails/distributed-budget.js` | 4 | `prefix:./guardrails/` | `DistributedCostLedger`, `CostLedgerClient`, `DistributedCostLedgerConfig`, `CostLedgerRecordResult` |
 | `stable` | `./workflow/workflow-builder.js` | 5 | `prefix:./workflow/` | `WorkflowBuilder`, `CompiledWorkflow`, `createWorkflow`, `WorkflowConfig` |
 | `stable` | `./workflow/workflow-types.js` | 4 | `prefix:./workflow/` | `WorkflowStep`, `WorkflowContext`, `WorkflowEvent`, `MergeStrategy` |
 | `deprecated-transitional` | `./orchestration/orchestrator.js` | 4 | `prefix:./orchestration/` | `AgentOrchestrator`, `MergeFn`, `SupervisorConfig`, `SupervisorResult` |
@@ -279,10 +283,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./pipeline/pipeline-templates.js` | 8 | `prefix:./pipeline/` | `createCodeReviewPipeline`, `createFeatureGenerationPipeline`, `createTestGenerationPipeline`, `createRefactoringPipeline` |
 | `deprecated-transitional` | `./security/agent-auth.js` | 4 | `prefix:./security/` | `AgentAuth`, `AgentCredential`, `SignedAgentMessage`, `AgentAuthConfig` |
 | `deprecated-transitional` | `./pipeline/pipeline-analytics.js` | 6 | `prefix:./pipeline/` | `PipelineAnalytics`, `NodeMetrics`, `BottleneckEntry`, `PipelineAnalyticsReport` |
-| `deprecated-transitional` | `./playground/playground.js` | 2 | `prefix:./playground/` | `AgentPlayground`, `PlaygroundConfig` |
 | `deprecated-transitional` | `./orchestration/team/team-workspace.js` | 6 | `prefix:./orchestration/` | `SharedWorkspace`, `WorkspaceSubscriber`, `TeamAgentRole`, `TeamAgentStatus` |
-| `deprecated-transitional` | `./playground/team-coordinator.js` | 1 | `prefix:./playground/` | `TeamCoordinator` |
-| `deprecated-transitional` | `./playground/types.js` | 8 | `prefix:./playground/` | `AgentRole`, `AgentSpawnConfig`, `CoordinationPattern`, `TeamConfig` |
 | `deprecated-transitional` | `./orchestration/team/team-runtime.js` | 10 | `prefix:./orchestration/` | `TeamRuntime`, `DEFAULT_ROUTER_MODEL`, `DEFAULT_PARTICIPANT_MODEL`, `DEFAULT_GOVERNANCE_MODEL` |
 | `deprecated-transitional` | `./orchestration/team/team-definition.js` | 3 | `prefix:./orchestration/` | `CoordinatorPattern`, `ParticipantDefinition`, `TeamDefinition` |
 | `deprecated-transitional` | `./orchestration/team/team-policy.js` | 7 | `prefix:./orchestration/` | `ExecutionPolicy`, `GovernancePolicy`, `MemoryPolicy`, `IsolationPolicy` |
@@ -450,7 +451,7 @@ Root index: `packages/codegen/src/index.ts`
 Root index: `packages/memory/src/index.ts`
 
 - Stable root sources: `25`
-- Deprecated transitional root sources: `40`
+- Deprecated transitional root sources: `42`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced.
 
@@ -472,6 +473,8 @@ No stable subpaths configured.
 | `deprecated-transitional` | `./decay-engine.js` | 6 | `exact:./decay-engine.js` | `calculateStrength`, `reinforceMemory`, `createDecayMetadata`, `scoreWithDecay` |
 | `stable` | `./memory-sanitizer.js` | 3 | `exact:./memory-sanitizer.js` | `sanitizeMemoryContent`, `stripInvisibleUnicode`, `SanitizeResult` |
 | `deprecated-transitional` | `./memory-consolidation.js` | 4 | `exact:./memory-consolidation.js` | `consolidateNamespace`, `consolidateAll`, `ConsolidationConfig`, `ConsolidationResult` |
+| `deprecated-transitional` | `./consolidation-engine.js` | 5 | `exact:./consolidation-engine.js` | `ConsolidationEngine`, `ConsolidationResult`, `ConsolidationEngineConfig`, `ConsolidationStore` |
+| `deprecated-transitional` | `./memory-pruner.js` | 5 | `exact:./memory-pruner.js` | `MemoryPruner`, `PruneOptions`, `PruneResult`, `MemoryStore` |
 | `deprecated-transitional` | `./semantic-consolidation.js` | 6 | `exact:./semantic-consolidation.js` | `SemanticConsolidator`, `consolidateWithLLM`, `SemanticConsolidationConfig`, `SemanticConsolidationResult` |
 | `deprecated-transitional` | `./memory-healer.js` | 7 | `exact:./memory-healer.js` | `findDuplicates`, `findContradictions`, `findStaleRecords`, `healMemory` |
 | `stable` | `./working-memory.js` | 2 | `exact:./working-memory.js` | `WorkingMemory`, `WorkingMemoryConfig` |
@@ -546,7 +549,7 @@ No stable subpaths configured.
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
 | `stable` | `./message-manager.js` | 6 | `exact:./message-manager.js` | `shouldSummarize`, `summarizeAndTrim`, `formatSummaryContext`, `pruneToolResults` |
-| `stable` | `./auto-compress.js` | 4 | `exact:./auto-compress.js` | `autoCompress`, `FrozenSnapshot`, `AutoCompressConfig`, `CompressResult` |
+| `stable` | `./auto-compress.js` | 5 | `exact:./auto-compress.js` | `autoCompress`, `FrozenSnapshot`, `AutoCompressConfig`, `CompressResult` |
 | `stable` | `./snapshot-builder.js` | 3 | `exact:./snapshot-builder.js` | `buildFrozenSnapshot`, `MemoryServiceLike`, `BuildFrozenSnapshotOptions` |
 | `stable` | `./extraction-bridge.js` | 2 | `exact:./extraction-bridge.js` | `createExtractionHook`, `MessageExtractionFn` |
 | `stable` | `./completeness-scorer.js` | 3 | `exact:./completeness-scorer.js` | `scoreCompleteness`, `CompletenessResult`, `DescriptionInput` |
