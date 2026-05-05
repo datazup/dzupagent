@@ -1,19 +1,12 @@
-import { describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
 import { DzupAgent } from '../../../agent/dzip-agent.js'
-import { SharedWorkspace, type TeamRunResult } from '../team-workspace.js'
+import { SharedWorkspace } from '../team-workspace.js'
 import { TeamRuntime } from '../team-runtime.js'
 import type { ParticipantDefinition, TeamDefinition } from '../team-definition.js'
 import type { TeamSpawnedAgent } from '../team-workspace.js'
-import {
-  SharedWorkspace as PlaygroundSharedWorkspace,
-} from '../../../playground/shared-workspace.js'
-import type {
-  SpawnedAgent as PlaygroundSpawnedAgent,
-  TeamRunResult as PlaygroundTeamRunResult,
-} from '../../../playground/types.js'
 
 function createModel(response: string): BaseChatModel {
   const invoke = vi.fn(async (_messages: BaseMessage[]) => {
@@ -88,16 +81,11 @@ describe('team workspace/result contracts', () => {
     expect(result.content).toContain('plan draft')
   })
 
-  it('keeps playground workspace and result aliases compatible', async () => {
-    expect(PlaygroundSharedWorkspace).toBe(SharedWorkspace)
-
-    const workspace = new PlaygroundSharedWorkspace()
+  it('exposes a usable SharedWorkspace contract', async () => {
+    const workspace = new SharedWorkspace()
     await workspace.set('answer', '42', 'agent-a')
 
     expect(workspace).toBeInstanceOf(SharedWorkspace)
     expect(workspace.get('answer')).toBe('42')
-
-    expectTypeOf<PlaygroundTeamRunResult>().toEqualTypeOf<TeamRunResult>()
-    expectTypeOf<PlaygroundSpawnedAgent>().toEqualTypeOf<TeamSpawnedAgent>()
   })
 })

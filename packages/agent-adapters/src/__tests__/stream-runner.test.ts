@@ -183,4 +183,108 @@ describe('AdapterStreamRunner', () => {
     // After thread_start, sessionId should be set in context for subsequent events
     expect(capturedContexts.some((c) => c.sessionId === 'ctx-session')).toBe(true)
   })
+
+  it('calls onAbortController before stream opens', async () => {
+    let capturedController: AbortController | null = null
+    const runner = new AdapterStreamRunner({
+      onAbortController: (ctrl) => { capturedController = ctrl },
+    })
+    const source = makeSource([{ kind: 'thread_start', sessionId: 's1' }, { kind: 'done' }])
+    await collect(runner.run(source, makeInput()))
+
+    expect(capturedController).not.toBeNull()
+    expect(capturedController).toBeInstanceOf(AbortController)
+  })
+
+  it('abort via onAbortController stops the stream', async () => {
+    let runnerController: AbortController | null = null
+    const runner = new AdapterStreamRunner({
+      onAbortController: (ctrl) => { runnerController = ctrl },
+    })
+
+    const source: AdapterStreamSource<RawEvent> = {
+      providerId: 'claude',
+      async *open(_input, signal) {
+        for (let i = 0; i < 100; i++) {
+          if (signal.aborted) return
+          yield { kind: 'message', content: `msg-${i}` } as RawEvent
+          await new Promise((r) => setTimeout(r, 1))
+        }
+      },
+      mapRawEvent(raw, _ctx): AgentEvent | null {
+        return {
+          type: 'adapter:message',
+          providerId: 'claude',
+          content: (raw as RawEvent).content ?? '',
+          role: 'assistant',
+          timestamp: Date.now(),
+        }
+      },
+    }
+
+    let count = 0
+    const events: AgentEvent[] = []
+    for await (const ev of runner.run(source, makeInput())) {
+      events.push(ev)
+      count++
+      if (count === 2 && runnerController) {
+        runnerController.abort()
+      }
+    }
+
+    expect(events.length).toBeLessThan(100)
+  })
+
+  it('emits multiple events when mapRawEvent returns an array', async () => {
+    const runner = new AdapterStreamRunner()
+    const source: AdapterStreamSource<RawEvent> = {
+      providerId: 'claude',
+      async *open() {
+        yield { kind: 'thread_start', sessionId: 's1' } as RawEvent
+        yield { kind: 'done' } as RawEvent
+      },
+      mapRawEvent(raw, ctx): AgentEvent | AgentEvent[] | null {
+        if (raw.kind === 'done') {
+          return [
+            { type: 'adapter:completed', providerId: 'claude', sessionId: ctx.sessionId, result: 'done', durationMs: 0, timestamp: Date.now() },
+            { type: 'adapter:cache_stats', providerId: 'claude', sessionId: ctx.sessionId, cacheReadTokens: 100, cacheWriteTokens: 0, totalInputTokens: 200, cacheHitRatio: 0.5, timestamp: Date.now() } as AgentEvent,
+          ]
+        }
+        return null
+      },
+      detectThreadStart(raw) {
+        if (raw.kind === 'thread_start') return { threadId: raw.sessionId ?? 's1' }
+        return null
+      },
+    }
+
+    const events = await collect(runner.run(source, makeInput()))
+    const types = events.map((e) => e.type)
+    expect(types).toContain('adapter:started')
+    expect(types).toContain('adapter:completed')
+    expect(types).toContain('adapter:cache_stats')
+    expect(types.indexOf('adapter:completed')).toBeLessThan(types.indexOf('adapter:cache_stats'))
+  })
+
+  it('merges extra fields from detectThreadStart into adapter:started', async () => {
+    const runner = new AdapterStreamRunner()
+    const source: AdapterStreamSource<RawEvent> = {
+      providerId: 'claude',
+      async *open() {
+        yield { kind: 'thread_start', sessionId: 's2' } as RawEvent
+      },
+      mapRawEvent: () => null,
+      detectThreadStart(raw) {
+        if (raw.kind === 'thread_start') {
+          return { threadId: 's2', extra: { model: 'claude-opus-4', workingDirectory: '/app' } }
+        }
+        return null
+      },
+    }
+
+    const events = await collect(runner.run(source, makeInput()))
+    const started = events.find((e) => e.type === 'adapter:started') as Record<string, unknown> | undefined
+    expect(started?.['model']).toBe('claude-opus-4')
+    expect(started?.['workingDirectory']).toBe('/app')
+  })
 })

@@ -535,9 +535,12 @@ describe('RecoveryFeedback deep coverage', () => {
     }
   }
 
-  it('no store: recordOutcome / retrieveSimilar / getSuccessRate are all no-ops', async () => {
+  it('no store: recordOutcome stages a candidate, retrieveSimilar / getSuccessRate are no-ops', async () => {
     const fb = new RecoveryFeedback()
-    await expect(fb.recordOutcome(sampleLesson())).resolves.toBeUndefined()
+    const candidateId = await fb.recordOutcome(sampleLesson())
+    expect(typeof candidateId).toBe('string')
+    expect(candidateId).toMatch(/^cand_/)
+    // No store, so retrieveSimilar and getSuccessRate remain no-ops
     await expect(fb.retrieveSimilar('build_failure', 'n')).resolves.toEqual([])
     await expect(fb.getSuccessRate('timeout')).resolves.toEqual({ total: 0, successes: 0, rate: 0 })
   })
@@ -556,12 +559,15 @@ describe('RecoveryFeedback deep coverage', () => {
     expect(id).toMatch(/^lesson_\d+_\d+$/)
   })
 
-  it('recordOutcome serializes the Date timestamp to ISO string', async () => {
+  it('recordOutcome + promoteCandidate serializes the Date timestamp to ISO string', async () => {
     const store = createMemoryStore()
     const putSpy = vi.spyOn(store, 'put')
     const fb = new RecoveryFeedback({ store })
-    await fb.recordOutcome(sampleLesson({ id: 'L42' }))
-
+    const candidateId = await fb.recordOutcome(sampleLesson({ id: 'L42' }))
+    // Stage only — store should not be written yet
+    expect(putSpy).not.toHaveBeenCalled()
+    // Promote — now the store is written
+    await fb.promoteCandidate(candidateId)
     expect(putSpy).toHaveBeenCalledTimes(1)
     const [, , value] = putSpy.mock.calls[0]!
     expect(typeof (value as Record<string, unknown>)['timestamp']).toBe('string')
@@ -572,7 +578,8 @@ describe('RecoveryFeedback deep coverage', () => {
   it('retrieveSimilar deserializes timestamp back into a Date', async () => {
     const store = createMemoryStore()
     const fb = new RecoveryFeedback({ store })
-    await fb.recordOutcome(sampleLesson({ id: 'L100' }))
+    const candidateId = await fb.recordOutcome(sampleLesson({ id: 'L100' }))
+    await fb.promoteCandidate(candidateId)
 
     const results = await fb.retrieveSimilar('build_failure', 'node-a')
     expect(results.length).toBe(1)
@@ -584,9 +591,12 @@ describe('RecoveryFeedback deep coverage', () => {
     const store = createMemoryStore()
     const fb = new RecoveryFeedback({ store })
 
-    await fb.recordOutcome(sampleLesson({ id: 'L-other', nodeId: 'node-b', timestamp: new Date('2026-01-01Z') }))
-    await fb.recordOutcome(sampleLesson({ id: 'L-a1', nodeId: 'node-a', timestamp: new Date('2025-01-01Z') }))
-    await fb.recordOutcome(sampleLesson({ id: 'L-a2', nodeId: 'node-a', timestamp: new Date('2025-06-01Z') }))
+    const c1 = await fb.recordOutcome(sampleLesson({ id: 'L-other', nodeId: 'node-b', timestamp: new Date('2026-01-01Z') }))
+    const c2 = await fb.recordOutcome(sampleLesson({ id: 'L-a1', nodeId: 'node-a', timestamp: new Date('2025-01-01Z') }))
+    const c3 = await fb.recordOutcome(sampleLesson({ id: 'L-a2', nodeId: 'node-a', timestamp: new Date('2025-06-01Z') }))
+    await fb.promoteCandidate(c1)
+    await fb.promoteCandidate(c2)
+    await fb.promoteCandidate(c3)
 
     const results = await fb.retrieveSimilar('build_failure', 'node-a', 10)
     expect(results.length).toBe(3)
@@ -600,8 +610,10 @@ describe('RecoveryFeedback deep coverage', () => {
   it('retrieveSimilar with limit of 1 returns exactly one result', async () => {
     const store = createMemoryStore()
     const fb = new RecoveryFeedback({ store })
-    await fb.recordOutcome(sampleLesson({ id: 'X', timestamp: new Date('2025-01-01Z') }))
-    await fb.recordOutcome(sampleLesson({ id: 'Y', timestamp: new Date('2025-02-01Z') }))
+    const cx = await fb.recordOutcome(sampleLesson({ id: 'X', timestamp: new Date('2025-01-01Z') }))
+    const cy = await fb.recordOutcome(sampleLesson({ id: 'Y', timestamp: new Date('2025-02-01Z') }))
+    await fb.promoteCandidate(cx)
+    await fb.promoteCandidate(cy)
 
     const results = await fb.retrieveSimilar('build_failure', 'node-a', 1)
     expect(results.length).toBe(1)
@@ -612,7 +624,8 @@ describe('RecoveryFeedback deep coverage', () => {
     const fbA = new RecoveryFeedback({ store, namespace: ['proj-a'] })
     const fbB = new RecoveryFeedback({ store, namespace: ['proj-b'] })
 
-    await fbA.recordOutcome(sampleLesson({ id: 'A1' }))
+    const candidateId = await fbA.recordOutcome(sampleLesson({ id: 'A1' }))
+    await fbA.promoteCandidate(candidateId)
     const resA = await fbA.retrieveSimilar('build_failure', 'node-a')
     const resB = await fbB.retrieveSimilar('build_failure', 'node-a')
     expect(resA.length).toBe(1)
@@ -630,7 +643,8 @@ describe('RecoveryFeedback deep coverage', () => {
     const store = createMemoryStore()
     const fb = new RecoveryFeedback({ store })
     for (let i = 0; i < 4; i++) {
-      await fb.recordOutcome(sampleLesson({ id: `L${i}`, outcome: 'success' }))
+      const cid = await fb.recordOutcome(sampleLesson({ id: `L${i}`, outcome: 'success' }))
+      await fb.promoteCandidate(cid)
     }
     const rate = await fb.getSuccessRate('build_failure')
     expect(rate.total).toBe(4)
@@ -641,7 +655,8 @@ describe('RecoveryFeedback deep coverage', () => {
     const store = createMemoryStore()
     const fb = new RecoveryFeedback({ store })
     for (let i = 0; i < 3; i++) {
-      await fb.recordOutcome(sampleLesson({ id: `F${i}`, outcome: 'failure' }))
+      const cid = await fb.recordOutcome(sampleLesson({ id: `F${i}`, outcome: 'failure' }))
+      await fb.promoteCandidate(cid)
     }
     const rate = await fb.getSuccessRate('build_failure')
     expect(rate.total).toBe(3)

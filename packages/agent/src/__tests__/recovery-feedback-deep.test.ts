@@ -61,10 +61,12 @@ function makeLesson(overrides: Partial<RecoveryLesson> = {}): RecoveryLesson {
 
 describe('RecoveryFeedback', () => {
   describe('no store (no-op mode)', () => {
-    it('recordOutcome is a no-op', async () => {
+    it('recordOutcome stages a candidate even without a store (no-op store write)', async () => {
       const feedback = new RecoveryFeedback()
-      // Should not throw
-      await feedback.recordOutcome(makeLesson())
+      // Should not throw and returns a candidate id
+      const candidateId = await feedback.recordOutcome(makeLesson())
+      expect(typeof candidateId).toBe('string')
+      expect(candidateId).toMatch(/^cand_/)
     })
 
     it('retrieveSimilar returns empty array', async () => {
@@ -89,9 +91,16 @@ describe('RecoveryFeedback', () => {
       feedback = new RecoveryFeedback({ store })
     })
 
-    it('recordOutcome persists lesson to store', async () => {
+    it('recordOutcome stages a candidate; promoteCandidate persists lesson to store', async () => {
       const lesson = makeLesson()
-      await feedback.recordOutcome(lesson)
+      const candidateId = await feedback.recordOutcome(lesson)
+
+      // Staged only — store should be empty until promoted
+      expect(store._data.size).toBe(0)
+      expect(typeof candidateId).toBe('string')
+      expect(candidateId).toMatch(/^cand_/)
+
+      await feedback.promoteCandidate(candidateId)
 
       expect(store._data.size).toBe(1)
       const stored = [...store._data.values()][0]!
@@ -101,13 +110,14 @@ describe('RecoveryFeedback', () => {
       expect(typeof stored['timestamp']).toBe('string') // ISO string
     })
 
-    it('recordOutcome uses custom namespace', async () => {
+    it('recordOutcome + promoteCandidate uses custom namespace', async () => {
       const fb = new RecoveryFeedback({
         store,
         namespace: ['custom', 'ns'],
       })
 
-      await fb.recordOutcome(makeLesson())
+      const candidateId = await fb.recordOutcome(makeLesson())
+      await fb.promoteCandidate(candidateId)
 
       const key = [...store._data.keys()][0]!
       expect(key).toContain('custom/ns')
