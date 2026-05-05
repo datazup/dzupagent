@@ -21,6 +21,7 @@ import { executionLedgerMetricMap } from '../event-metric-map/execution-ledger.j
 import { workflowDomainMetricMap } from '../event-metric-map/workflow-domain.js'
 import { emptyEventMetricMap } from '../event-metric-map/empty-events.js'
 import { approvalMetricMap } from '../event-metric-map/approval.js'
+import { adapterRuntimeMetricMap } from '../event-metric-map/adapter-runtime.js'
 import type { DzupEvent } from '@dzupagent/core'
 
 function extractAll(
@@ -497,5 +498,54 @@ describe('approval: human_contact events', () => {
     const mappings = approvalMetricMap['human_contact:timed_out']
     const result = mappings[0]!.extract({ type: 'human_contact:timed_out' } as DzupEvent)
     expect(result.value).toBe(1)
+  })
+})
+
+// ------------------------------------------------------------------ adapter:cache_stats
+
+describe('adapter-runtime: adapter:cache_stats metrics', () => {
+  const cacheStatsEvent = {
+    type: 'adapter:cache_stats',
+    providerId: 'claude',
+    sessionId: 'sess-123',
+    cacheReadTokens: 50,
+    cacheWriteTokens: 10,
+    totalInputTokens: 100,
+    cacheHitRatio: 0.5,
+    timestamp: Date.now(),
+  } as DzupEvent
+
+  it('produces counter with provider_id', () => {
+    const mappings = adapterRuntimeMetricMap['adapter:cache_stats']
+    const counter = mappings.find((m) => m.metricName === 'dzip_adapter_cache_stats_total')
+    expect(counter).toBeDefined()
+    const result = counter!.extract(cacheStatsEvent)
+    expect(result.value).toBe(1)
+    expect(result.labels.provider_id).toBe('claude')
+  })
+
+  it('produces gauge with cache hit ratio', () => {
+    const mappings = adapterRuntimeMetricMap['adapter:cache_stats']
+    const gauge = mappings.find((m) => m.metricName === 'dzip_adapter_cache_hit_ratio')
+    expect(gauge).toBeDefined()
+    const result = gauge!.extract(cacheStatsEvent)
+    expect(result.value).toBe(0.5)
+    expect(result.labels.provider_id).toBe('claude')
+  })
+
+  it('produces histogram for cache read tokens', () => {
+    const mappings = adapterRuntimeMetricMap['adapter:cache_stats']
+    const histogram = mappings.find((m) => m.metricName === 'dzip_adapter_cache_read_tokens')
+    expect(histogram).toBeDefined()
+    const result = histogram!.extract(cacheStatsEvent)
+    expect(result.value).toBe(50)
+  })
+
+  it('produces histogram for cache write tokens', () => {
+    const mappings = adapterRuntimeMetricMap['adapter:cache_stats']
+    const histogram = mappings.find((m) => m.metricName === 'dzip_adapter_cache_write_tokens')
+    expect(histogram).toBeDefined()
+    const result = histogram!.extract(cacheStatsEvent)
+    expect(result.value).toBe(10)
   })
 })

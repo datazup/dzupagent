@@ -1,6 +1,8 @@
 import type {
   ActionNode,
+  BranchNode,
   FlowNode,
+  ForEachNode,
   PersonaNode,
   ResolvedTool,
   SequenceNode,
@@ -281,5 +283,93 @@ describe('semanticResolve — persona resolution', () => {
 
     expect(result.errors).toHaveLength(1)
     expect(result.errors[0]?.message).toContain('Did you mean: "pm.lead"')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Condition expression validation (R3 INVALID_CONDITION)
+// ---------------------------------------------------------------------------
+
+const branch = (condition: string, then_: FlowNode[], else_?: FlowNode[]): BranchNode => ({
+  type: 'branch',
+  condition,
+  then: then_,
+  ...(else_ !== undefined ? { else: else_ } : {}),
+})
+
+const forEach = (source: string, as_: string, ...body: FlowNode[]): ForEachNode => ({
+  type: 'for_each',
+  source,
+  as: as_,
+  body,
+})
+
+describe('semanticResolve — condition expression validation', () => {
+  it('passes valid branch conditions without errors', async () => {
+    const resolver = makeResolver(['pm.task'])
+    const ast = sequence(branch('ctx.ready === true', [action('pm.task')]))
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    expect(result.errors.filter((e) => e.code === 'INVALID_CONDITION')).toEqual([])
+  })
+
+  it('passes simple identifier conditions', async () => {
+    const resolver = makeResolver(['pm.task'])
+    const ast = sequence(branch('isReady', [action('pm.task')]))
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    expect(result.errors.filter((e) => e.code === 'INVALID_CONDITION')).toEqual([])
+  })
+
+  it('passes for_each source that is a valid identifier', async () => {
+    const resolver = makeResolver(['pm.task'])
+    const ast = sequence(forEach('items', 'item', action('pm.task')))
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    expect(result.errors.filter((e) => e.code === 'INVALID_CONDITION')).toEqual([])
+  })
+
+  it('rejects branch condition with syntax error', async () => {
+    const resolver = makeResolver(['pm.task'])
+    const ast = sequence(branch('if (', [action('pm.task')]))
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    const condErr = result.errors.find((e) => e.code === 'INVALID_CONDITION')
+    expect(condErr).toBeDefined()
+    expect(condErr?.nodeType).toBe('branch')
+    expect(condErr?.nodePath).toBe('root.nodes[0].condition')
+    expect(condErr?.message).toContain('branch.condition is not a valid expression')
+  })
+
+  it('rejects for_each source with syntax error', async () => {
+    const resolver = makeResolver(['pm.task'])
+    const ast = sequence(forEach('items[', 'item', action('pm.task')))
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    const condErr = result.errors.find((e) => e.code === 'INVALID_CONDITION')
+    expect(condErr).toBeDefined()
+    expect(condErr?.nodeType).toBe('for_each')
+    expect(condErr?.nodePath).toBe('root.nodes[0].source')
+  })
+
+  it('rejects branch condition with eval()', async () => {
+    const resolver = makeResolver(['pm.task'])
+    const ast = sequence(branch('eval("rm -rf /")', [action('pm.task')]))
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    const condErr = result.errors.find((e) => e.code === 'INVALID_CONDITION')
+    expect(condErr).toBeDefined()
+    expect(condErr?.message).toContain('disallowed construct')
+  })
+
+  it('rejects condition with Function() constructor', async () => {
+    const resolver = makeResolver(['pm.task'])
+    const ast = sequence(branch('new Function("return 1")', [action('pm.task')]))
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    const condErr = result.errors.find((e) => e.code === 'INVALID_CONDITION')
+    expect(condErr).toBeDefined()
+    expect(condErr?.message).toContain('disallowed construct')
+  })
+
+  it('collects condition error alongside unresolved tool ref', async () => {
+    const resolver = makeResolver([])
+    const ast = sequence(branch('if (', [action('unknown.tool')]))
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    expect(result.errors.some((e) => e.code === 'INVALID_CONDITION')).toBe(true)
+    expect(result.errors.some((e) => e.code === 'UNRESOLVED_TOOL_REF')).toBe(true)
   })
 })

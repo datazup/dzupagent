@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -219,6 +219,21 @@ describe('FileCheckpointStore', () => {
       const loaded = await store.load('wf-dates2', 1)
 
       expect(loaded!.completedSteps[0]!.completedAt).toBeInstanceOf(Date)
+    })
+  })
+
+  describe('error handling', () => {
+    it('throws a descriptive error when checkpoint file contains malformed JSON', async () => {
+      const corruptStore = new FileCheckpointStore({ directory: tmpDir })
+
+      // Write malformed JSON directly into the expected file location
+      const workflowDir = path.join(tmpDir, 'wf-corrupt')
+      await mkdir(workflowDir, { recursive: true })
+      await writeFile(path.join(workflowDir, 'v1.json'), '{ invalid json !!!', 'utf-8')
+
+      await expect(corruptStore.load('wf-corrupt', 1)).rejects.toThrow(
+        /Checkpoint file for workflow "wf-corrupt" version 1 contains malformed JSON/,
+      )
     })
   })
 })
