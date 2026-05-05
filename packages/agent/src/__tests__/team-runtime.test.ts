@@ -17,7 +17,7 @@ import type { TeamRuntimeEvent, TeamRuntimeEventEmitter } from '../orchestration
 import type { TeamDefinition, ParticipantDefinition } from '../orchestration/team/team-definition.js'
 import type { TeamPolicies } from '../orchestration/team/team-policy.js'
 import type { TeamCheckpoint, ResumeContract } from '../orchestration/team/team-checkpoint.js'
-import type { SpawnedAgent } from '../playground/types.js'
+import type { TeamSpawnedAgent as SpawnedAgent } from '../orchestration/team/team-workspace.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers

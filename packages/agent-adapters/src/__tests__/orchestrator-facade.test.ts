@@ -621,7 +621,8 @@ describe('OrchestratorFacade', () => {
 
       const firstEvent = await firstEventPromise
       expect(firstEvent.done).toBe(false)
-      expect(firstEvent.value?.type).toBe('adapter:started')
+      // Registry yields routing progress events before adapter events
+      expect(['adapter:progress', 'adapter:started']).toContain(firstEvent.value?.type)
 
       const remainingTypes: string[] = []
       for await (const event of stream) {
@@ -668,7 +669,9 @@ describe('OrchestratorFacade', () => {
         events.push(event)
       }
 
-      expect(events[0]?.type).toBe('adapter:provider_raw')
+      // Registry yields routing progress events before adapter events
+      const nonProgress = events.filter((e) => e.type !== 'adapter:progress')
+      expect(nonProgress[0]?.type).toBe('adapter:provider_raw')
       expect(events.at(-1)).toMatchObject({
         type: 'adapter:failed',
         error: expect.stringContaining('blocked'),

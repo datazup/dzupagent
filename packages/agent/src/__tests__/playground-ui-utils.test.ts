@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import type { TimelineNode } from '../replay/replay-types.js'
 import type { NodeMetrics, ReplaySummary } from '../replay/replay-inspector.js'
-import { traceUiHostContract as traceUiEntrypointHostContract } from '../playground/ui/index.js'
+import { traceUiHostContract as traceUiEntrypointHostContract } from '../observability/trace-ui/index.js'
 import {
   getNodeStatus,
   formatMs,
@@ -35,7 +35,7 @@ import {
   getTraceChangeTone,
   getTraceChangeStyles,
   getTraceDensityStyles,
-} from '../playground/ui/utils.js'
+} from '../observability/trace-ui/utils.js'
 
 // ---------------------------------------------------------------------------
 // Helpers to create test data

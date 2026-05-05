@@ -1,13 +1,22 @@
 /**
  * Integration tests for workflow durability: checkpoint, fork, resume, and HTTP routes.
+ *
+ * Lives in `@dzupagent/server` because the HTTP-route portion exercises
+ * `createForgeApp`. The pure workflow durability checks (checkpoint / fork /
+ * resume on a `CompiledWorkflow`) are also covered here because the server
+ * is the natural integration host for the full stack.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createWorkflow } from '../workflow/index.js'
-import type { WorkflowStep } from '../workflow/workflow-types.js'
+import { createWorkflow } from '@dzupagent/agent'
+import type { WorkflowStep } from '@dzupagent/agent'
 import {
   InMemoryRunJournal,
   InMemoryRunStore,
+  InMemoryAgentStore,
+  ModelRegistry,
+  createEventBus,
 } from '@dzupagent/core'
+import { createForgeApp, type ForgeServerConfig } from '../app.js'
 
 function step(
   id: string,
@@ -113,7 +122,56 @@ describe('workflow durability integration', () => {
     expect(resumedTypes).toContain('run_resumed')
   })
 
-  // HTTP server route tests (fork + checkpoints routes) live in
-  // packages/server/src/__tests__/workflow-durability-integration.test.ts
-  // which has the correct @dzupagent/server dependency.
+  it('fork + checkpoints server routes', async () => {
+    const serverJournal = new InMemoryRunJournal()
+    const serverStore = new InMemoryRunStore()
+
+    const config: ForgeServerConfig = {
+      runStore: serverStore,
+      agentStore: new InMemoryAgentStore(),
+      eventBus: createEventBus(),
+      modelRegistry: new ModelRegistry(),
+      journal: serverJournal,
+    }
+
+    // First run a workflow to populate the journal and store
+    const workflow = createWorkflow({ id: 'route-test' })
+      .then(step('step1', (s) => ({ ...s, step1: true })))
+      .then(step('step2', (s) => ({ ...s, step2: true })))
+      .build()
+      .withJournal(serverJournal)
+
+    // Create a run in the store
+    const run = await serverStore.create({
+      agentId: 'workflow:route-test',
+      input: {},
+    })
+    await workflow.run({}, { runId: run.id })
+
+    // Create the Hono app using createForgeApp (like existing server tests)
+    const app = createForgeApp(config)
+
+    // GET /api/runs/:id/checkpoints
+    const checkpointsRes = await app.request(`/api/runs/${run.id}/checkpoints`)
+    expect(checkpointsRes.status).toBe(200)
+    const checkpointsData = await checkpointsRes.json() as {
+      data: { runId: string; checkpoints: Array<{ stepId: string }> }
+    }
+    expect(checkpointsData.data.runId).toBe(run.id)
+    expect(checkpointsData.data.checkpoints.length).toBeGreaterThanOrEqual(1)
+
+    // POST /api/runs/:id/fork
+    const forkRes = await app.request(`/api/runs/${run.id}/fork`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetStepId: 'step1' }),
+    })
+    expect(forkRes.status).toBe(201)
+    const forkData = await forkRes.json() as {
+      data: { originalRunId: string; forkedRunId: string }
+    }
+    expect(forkData.data.originalRunId).toBe(run.id)
+    expect(forkData.data.forkedRunId).toBeTruthy()
+    expect(forkData.data.forkedRunId).not.toBe(run.id)
+  })
 })
