@@ -73,6 +73,8 @@ describe('CostTrackingMiddleware', () => {
         costCents: 15,
         inputTokens: 300,
         outputTokens: 150,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         invocations: 2,
       })
     })
@@ -92,6 +94,43 @@ describe('CostTrackingMiddleware', () => {
       const usage = middleware.getUsage()
       // 300 + 1500 = 1800 cents
       expect(usage.totalCostCents).toBe(1800)
+    })
+
+    it('correctly prices cache-read tokens at 10% of input rate', async () => {
+      const middleware = new CostTrackingMiddleware({ maxBudgetCents: 10000 })
+
+      // Claude cache-read: 30/1M (0.1× the 300/1M input rate)
+      // 1_000_000 cache-read tokens at 30/1M = 30 cents
+      // 0 uncached input, 0 output
+      const events: AgentEvent[] = [
+        makeCompletedEvent('claude', { inputTokens: 1_000_000, outputTokens: 0, cachedInputTokens: 1_000_000 }),
+      ]
+
+      await collectAll(middleware.wrap(yieldEvents(events)))
+
+      const usage = middleware.getUsage()
+      expect(usage.totalCostCents).toBe(30)
+      expect(usage.totalTokens.cacheRead).toBe(1_000_000)
+      expect(usage.totalTokens.cacheWrite).toBe(0)
+      expect(usage.perProvider['claude']!.cacheReadTokens).toBe(1_000_000)
+    })
+
+    it('correctly prices cache-write tokens at 125% of input rate', async () => {
+      const middleware = new CostTrackingMiddleware({ maxBudgetCents: 10000 })
+
+      // Claude cache-write: 375/1M (1.25× the 300/1M input rate)
+      // 1_000_000 cache-write tokens at 375/1M = 375 cents
+      // 0 uncached input, 0 output
+      const events: AgentEvent[] = [
+        makeCompletedEvent('claude', { inputTokens: 1_000_000, outputTokens: 0, cacheWriteTokens: 1_000_000 }),
+      ]
+
+      await collectAll(middleware.wrap(yieldEvents(events)))
+
+      const usage = middleware.getUsage()
+      expect(usage.totalCostCents).toBe(375)
+      expect(usage.totalTokens.cacheWrite).toBe(1_000_000)
+      expect(usage.perProvider['claude']!.cacheWriteTokens).toBe(1_000_000)
     })
 
     it('estimates cost correctly for different providers', async () => {
@@ -250,12 +289,16 @@ describe('CostTrackingMiddleware', () => {
         costCents: 12,
         inputTokens: 250,
         outputTokens: 125,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         invocations: 2,
       })
       expect(usage.perProvider['gemini']).toEqual({
         costCents: 3,
         inputTokens: 200,
         outputTokens: 100,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
         invocations: 1,
       })
     })
@@ -264,7 +307,7 @@ describe('CostTrackingMiddleware', () => {
       const middleware = new CostTrackingMiddleware({})
       const usage = middleware.getUsage()
       expect(usage.totalCostCents).toBe(0)
-      expect(usage.totalTokens).toEqual({ input: 0, output: 0, cached: 0 })
+      expect(usage.totalTokens).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
       expect(usage.perProvider).toEqual({})
     })
   })

@@ -128,4 +128,60 @@ describe('ApprovalGate', () => {
 
     vi.unstubAllGlobals()
   })
+
+  it('retries webhook up to 3 times on failure then emits webhook_failed', async () => {
+    vi.useFakeTimers()
+    const bus = createEventBus()
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 503 })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const failedEvents: unknown[] = []
+    bus.on('approval:webhook_failed', (e) => failedEvents.push(e))
+
+    const gate = new ApprovalGate({
+      mode: 'required',
+      timeoutMs: 50,
+      webhookUrl: 'https://example.com/webhook',
+    }, bus)
+
+    const waitPromise = gate.waitForApproval('run-1', { plan: 'notify' })
+    await vi.runAllTimersAsync()
+    await waitPromise
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3)
+    expect(failedEvents).toHaveLength(1)
+    expect(failedEvents[0]).toMatchObject({
+      type: 'approval:webhook_failed',
+      runId: 'run-1',
+      attempts: 3,
+    })
+
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('calls webhookDLQ on terminal webhook failure', async () => {
+    vi.useFakeTimers()
+    const bus = createEventBus()
+    const fetchSpy = vi.fn().mockRejectedValue(new Error('network error'))
+    vi.stubGlobal('fetch', fetchSpy)
+    const dlq = vi.fn()
+
+    const gate = new ApprovalGate({
+      mode: 'required',
+      timeoutMs: 50,
+      webhookUrl: 'https://example.com/webhook',
+      webhookDLQ: dlq,
+    }, bus)
+
+    const waitPromise = gate.waitForApproval('run-1', { plan: 'notify' })
+    await vi.runAllTimersAsync()
+    await waitPromise
+
+    expect(dlq).toHaveBeenCalledOnce()
+    expect(dlq).toHaveBeenCalledWith('run-1', 'https://example.com/webhook', expect.any(Error))
+
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
 })

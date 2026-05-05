@@ -11,12 +11,12 @@ describe('RunMetricsAggregator', () => {
     const agg = new RunMetricsAggregator({ now: () => now })
     agg.recordStart('r1', 'openai')
     now = 1_500
-    agg.recordComplete('r1', { input: 100, output: 50, cached: 10 }, 250_000)
+    agg.recordComplete('r1', { input: 100, output: 50, cacheRead: 10, cacheWrite: 0 }, 250_000)
     const row = agg.getRunMetrics('r1')
     expect(row).toBeDefined()
     expect(row?.status).toBe('completed')
     expect(row?.durationMs).toBe(500)
-    expect(row?.tokenUsage).toEqual({ input: 100, output: 50, cached: 10 })
+    expect(row?.tokenUsage).toEqual({ input: 100, output: 50, cacheRead: 10, cacheWrite: 0 })
     expect(row?.costMicros).toBe(250_000)
     expect(row?.completedAt).toBe(1_500)
   })
@@ -27,7 +27,7 @@ describe('RunMetricsAggregator', () => {
     agg.recordStart('a', 'openai')
     agg.recordStart('b', 'openai')
     now = 1_100
-    agg.recordComplete('a', { input: 0, output: 0, cached: 0 }, 0)
+    agg.recordComplete('a', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, 0)
     now = 1_200
     agg.recordFailure('b')
     const m = agg.getAggregated()
@@ -44,9 +44,9 @@ describe('RunMetricsAggregator', () => {
     agg.recordStart('o2', 'openai')
     agg.recordStart('a1', 'anthropic')
     now = 2_000
-    agg.recordComplete('o1', { input: 0, output: 0, cached: 0 }, 100_000)
+    agg.recordComplete('o1', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, 100_000)
     agg.recordFailure('o2')
-    agg.recordComplete('a1', { input: 0, output: 0, cached: 0 }, 200_000)
+    agg.recordComplete('a1', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, 200_000)
     const m = agg.getAggregated()
     expect(m.byProvider.openai).toEqual({
       runs: 2,
@@ -64,8 +64,8 @@ describe('RunMetricsAggregator', () => {
     const agg = new RunMetricsAggregator({ now: () => 1_000 })
     agg.recordStart('o1', 'openai')
     agg.recordStart('a1', 'anthropic')
-    agg.recordComplete('o1', { input: 0, output: 0, cached: 0 }, 100_000)
-    agg.recordComplete('a1', { input: 0, output: 0, cached: 0 }, 50_000)
+    agg.recordComplete('o1', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, 100_000)
+    agg.recordComplete('a1', { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, 50_000)
     const m = agg.getAggregated({ providerId: 'openai' })
     expect(m.totalRuns).toBe(1)
     expect(m.totalCostMicros).toBe(100_000)
@@ -120,14 +120,14 @@ describe('RunMetricsAggregator', () => {
     expect(m.successRate).toBe(0)
   })
 
-  it('totalTokens sums input/output/cached across runs', () => {
+  it('totalTokens sums input/output/cacheRead/cacheWrite across runs', () => {
     const agg = new RunMetricsAggregator({ now: () => 1_000 })
     agg.recordStart('a', 'openai')
     agg.recordStart('b', 'openai')
-    agg.recordComplete('a', { input: 10, output: 20, cached: 5 }, 0)
-    agg.recordComplete('b', { input: 1, output: 2, cached: 3 }, 0)
+    agg.recordComplete('a', { input: 10, output: 20, cacheRead: 5, cacheWrite: 0 }, 0)
+    agg.recordComplete('b', { input: 1, output: 2, cacheRead: 3, cacheWrite: 1 }, 0)
     const m = agg.getAggregated()
-    expect(m.totalTokens).toBe(10 + 20 + 5 + 1 + 2 + 3)
+    expect(m.totalTokens).toBe(10 + 20 + 5 + 0 + 1 + 2 + 3 + 1)
   })
 
   it('returned row is a defensive clone — mutating it does not affect store', () => {
@@ -169,7 +169,7 @@ describe('attachRunMetricsBridge', () => {
     const row = agg.getRunMetrics('r1')
     expect(row?.status).toBe('completed')
     expect(row?.toolCallCount).toBe(2)
-    expect(row?.tokenUsage).toEqual({ input: 100, output: 50, cached: 0 })
+    expect(row?.tokenUsage).toEqual({ input: 100, output: 50, cacheRead: 0, cacheWrite: 0 })
     // 5 cents = 50_000 micros
     expect(row?.costMicros).toBe(50_000)
 
@@ -256,5 +256,32 @@ describe('attachRunMetricsBridge', () => {
     const row = agg.getRunMetrics('r')
     expect(row?.status).toBe('failed')
     expect(row?.errorCount).toBe(1)
+  })
+
+  it('accumulates cacheRead/cacheWrite tokens from llm:invoked events', async () => {
+    const bus = createEventBus()
+    const agg = new RunMetricsAggregator()
+    attachRunMetricsBridge(bus, agg)
+
+    bus.emit({ type: 'agent:started', agentId: 'claude', runId: 'r-cache' })
+    bus.emit({
+      type: 'llm:invoked',
+      agentId: 'claude',
+      runId: 'r-cache',
+      model: 'claude-sonnet-4-6',
+      inputTokens: 1000,
+      outputTokens: 200,
+      cacheReadTokens: 800,
+      cacheWriteTokens: 50,
+      costCents: 3,
+      timestamp: Date.now(),
+    })
+    bus.emit({ type: 'agent:completed', agentId: 'claude', runId: 'r-cache', durationMs: 100 })
+
+    await Promise.resolve()
+
+    const row = agg.getRunMetrics('r-cache')
+    expect(row?.tokenUsage.cacheRead).toBe(800)
+    expect(row?.tokenUsage.cacheWrite).toBe(50)
   })
 })

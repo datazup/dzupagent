@@ -713,6 +713,45 @@ describe('ClaudeAgentAdapter', () => {
       )
     })
 
+    it('maps workspace-write sandboxMode to default permissionMode (not bypassPermissions)', async () => {
+      const workspaceWriteAdapter = new ClaudeAgentAdapter({ sandboxMode: 'workspace-write' })
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(workspaceWriteAdapter.execute({ prompt: 'test' }))
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({ permissionMode: 'default' }),
+        }),
+      )
+    })
+
+    it('enables promptCaching by default', async () => {
+      const adapter = new ClaudeAgentAdapter({})
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(adapter.execute({ prompt: 'test' }))
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.objectContaining({ promptCaching: true }),
+        }),
+      )
+    })
+
+    it('disables promptCaching when promptCache is off', async () => {
+      const adapter = new ClaudeAgentAdapter({ promptCache: 'off' })
+      mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))
+
+      await collectEvents(adapter.execute({ prompt: 'test' }))
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          options: expect.not.objectContaining({ promptCaching: true }),
+        }),
+      )
+    })
+
     it('maps read-only sandboxMode to default permissionMode', async () => {
       const readOnlyAdapter = new ClaudeAgentAdapter({ sandboxMode: 'read-only' })
       mockQuery.mockReturnValue(asyncIterableOf([makeSystemMessage(), makeResultSuccess()]))

@@ -274,7 +274,7 @@ describe('ProviderAdapterRegistry', () => {
       (e) =>
         e.type === 'adapter:failed'
         && e.providerId === 'claude'
-        && e.code === 'MISSING_TERMINAL_COMPLETION',
+        && e.code === 'ADAPTER_EXECUTION_FAILED',
     )
     const completed = events.find((e) => e.type === 'adapter:completed' && e.providerId === 'codex')
 
@@ -305,7 +305,9 @@ describe('ProviderAdapterRegistry', () => {
       }
     })()).rejects.toMatchObject({ code: 'AGENT_ABORTED' })
 
-    expect(yielded.map((e) => e.type)).toEqual([
+    // The registry yields routing progress events before adapter events
+    const nonProgress = yielded.filter((e) => e.type !== 'adapter:progress')
+    expect(nonProgress.map((e) => e.type)).toEqual([
       'adapter:started',
       'adapter:failed',
     ])

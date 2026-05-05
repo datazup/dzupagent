@@ -262,10 +262,18 @@ describe('DzupAgent stream() — circuit-breaker outcome recording', () => {
       /overloaded/,
     )
 
+    // RF-04 bug fix: an opened-then-broken stream produces both
+    // signals. `recordProviderSuccess` fires when the stream is opened
+    // successfully (mirroring the multi-provider failover loop in
+    // `attemptWithFailover`); `recordProviderFailure` fires when the
+    // consumption loop throws. Both are valid breaker input: the
+    // breaker treats a stream that opened-but-failed-mid-flight as a
+    // transient mid-stream disconnect rather than as a hard refusal.
+    expect(registry.recordProviderSuccess).toHaveBeenCalledTimes(1)
+    expect(registry.recordProviderSuccess).toHaveBeenCalledWith('primary')
     expect(registry.recordProviderFailure).toHaveBeenCalledTimes(1)
     const [providerArg] = registry.recordProviderFailure.mock.calls[0] as [string, Error]
     expect(providerArg).toBe('primary')
-    expect(registry.recordProviderSuccess).not.toHaveBeenCalled()
   })
 
   it('does not record provider outcomes when the agent was constructed with a direct model (no registry)', async () => {

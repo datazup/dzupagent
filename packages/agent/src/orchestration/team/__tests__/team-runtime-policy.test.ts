@@ -406,11 +406,10 @@ describe('TeamRuntime blackboard memory policy', () => {
     expect(result.content).not.toContain('too large')
   })
 
-  it('rejects memory policy outside blackboard and consolidateOnComplete until implemented', () => {
+  it('rejects memory policy outside blackboard pattern', () => {
     const peerDefinition = buildDefinition('memory-peer', [
       { id: 'p1', role: 'worker' },
     ])
-    const blackboardDefinition = buildBlackboardDefinition('memory-consolidate')
 
     expect(() => new TeamRuntime({
       definition: peerDefinition,
@@ -418,6 +417,10 @@ describe('TeamRuntime blackboard memory policy', () => {
     })).toThrow(
       "memory policy group is only supported for coordinator pattern 'blackboard'",
     )
+  })
+
+  it('accepts consolidateOnComplete policy without throwing', () => {
+    const blackboardDefinition = buildBlackboardDefinition('memory-consolidate')
 
     expect(() => new TeamRuntime({
       definition: blackboardDefinition,
@@ -428,8 +431,6 @@ describe('TeamRuntime blackboard memory policy', () => {
           consolidateOnComplete: true,
         },
       },
-    })).toThrow(
-      "memory policy field 'consolidateOnComplete' is not supported yet",
-    )
+    })).not.toThrow()
   })
 })

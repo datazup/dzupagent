@@ -14,8 +14,8 @@ import {
 import {
   DzupAgent,
   generateStructuredOutput,
-} from '../../../agent/src/index.js'
-import type { StructuredLLMWithMeta } from '../../../agent/src/index.js'
+} from '@dzupagent/agent'
+import type { StructuredLLMWithMeta } from '@dzupagent/agent'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import {
   JsonOutputSchema,
