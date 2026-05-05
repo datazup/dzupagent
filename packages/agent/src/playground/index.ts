@@ -1,7 +1,7 @@
-export { AgentPlayground } from './playground.js'
-export type { PlaygroundConfig } from './playground.js'
-export { SharedWorkspace } from './shared-workspace.js'
-export { TeamCoordinator } from './team-coordinator.js'
+/** @deprecated Import from '@dzupagent/agent' or the orchestration subpath instead. Will be removed in 0.4.0. */
+export { AgentPlayground } from '../orchestration/playground/playground.js'
+export type { PlaygroundConfig } from '../orchestration/playground/playground.js'
+export { TeamCoordinator } from '../orchestration/playground/team-coordinator.js'
 export type {
   AgentRole,
   AgentSpawnConfig,
@@ -11,4 +11,4 @@ export type {
   SpawnedAgent,
   PlaygroundEvent,
   TeamRunResult,
-} from './types.js'
+} from '../orchestration/playground/types.js'

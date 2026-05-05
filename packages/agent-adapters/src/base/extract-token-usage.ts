@@ -19,9 +19,8 @@ import type { TokenUsage } from '../types.js'
  * Supported source keys:
  * - `input_tokens` (number) → `inputTokens` (defaults to 0)
  * - `output_tokens` (number) → `outputTokens` (defaults to 0)
- * - `cached_input_tokens` (number) → `cachedInputTokens` (omitted if absent)
- * - `cache_creation_input_tokens` (number) — added to `cachedInputTokens`
- *   when present (Anthropic-style cache write tokens)
+ * - `cached_input_tokens` (number) → `cachedInputTokens` (cache read tokens)
+ * - `cache_creation_input_tokens` (number) → `cacheWriteTokens` (cache write tokens)
  * - `cost_cents` (number) → `costCents` (omitted if absent)
  *
  * Unknown keys are ignored. Non-numeric values fall back to 0 / are skipped.
@@ -44,8 +43,11 @@ export function extractTokenUsage(usage: unknown): TokenUsage | undefined {
       ? record['cache_creation_input_tokens']
       : undefined
 
-  if (cachedRead !== undefined || cachedWrite !== undefined) {
-    result.cachedInputTokens = (cachedRead ?? 0) + (cachedWrite ?? 0)
+  if (cachedRead !== undefined) {
+    result.cachedInputTokens = cachedRead
+  }
+  if (cachedWrite !== undefined) {
+    result.cacheWriteTokens = cachedWrite
   }
 
   if (typeof record['cost_cents'] === 'number') {

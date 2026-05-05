@@ -146,6 +146,9 @@ export class AdapterTracer {
               if (event.usage.cachedInputTokens !== undefined) {
                 rootSpan.attributes['usage.cached_input_tokens'] = event.usage.cachedInputTokens
               }
+              if (event.usage.cacheWriteTokens !== undefined) {
+                rootSpan.attributes['usage.cache_write_tokens'] = event.usage.cacheWriteTokens
+              }
               if (event.usage.costCents !== undefined) {
                 rootSpan.attributes['usage.cost_cents'] = event.usage.costCents
               }

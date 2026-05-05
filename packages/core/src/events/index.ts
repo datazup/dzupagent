@@ -1,4 +1,4 @@
-export { createEventBus } from './event-bus.js'
+export { createEventBus, typedEmit } from './event-bus.js'
 export type { DzupEventBus } from './event-bus.js'
 export type {
   AdapterProgressDzupEvent,
@@ -7,6 +7,7 @@ export type {
   DzupEventOf,
   BudgetUsage,
   MapReduceDzupEvent,
+  RunLifecycleEvent,
   ToolStatSummary,
 } from './event-types.js'
 export { emitDegradedOperation } from './degraded-operation.js'

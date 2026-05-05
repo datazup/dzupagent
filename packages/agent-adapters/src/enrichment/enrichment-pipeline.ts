@@ -106,7 +106,7 @@ export interface EnrichmentResult {
  *   providerId,
  *   skipMemory,
  *   skipSkills,
- *   emitEvent: (e) => eventBus.emit(e as unknown as DzupEvent),
+ *   emitEvent: (e) => eventBus.emit(e as DzupEvent),
  * })
  * ```
  */

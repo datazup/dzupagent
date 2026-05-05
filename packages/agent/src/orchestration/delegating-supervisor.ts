@@ -8,7 +8,7 @@
  * or any other sibling package.
  */
 
-import type { AgentExecutionSpec, DzupEventBus } from '@dzupagent/core'
+import { typedEmit, type AgentExecutionSpec, type DzupEventBus } from '@dzupagent/core'
 import { OrchestrationError } from './orchestration-error.js'
 import type {
   DelegationTracker,
@@ -543,13 +543,12 @@ export class DelegatingSupervisor {
       })
     }
 
-    const event = {
+    typedEmit(this.eventBus, {
       type: 'supervisor:duplicate_specialist_assignment_ids',
       mode: 'warn',
       duplicateSpecialists: warnings,
       message,
-    } as const
-    this.eventBus?.emit(event as unknown as Parameters<DzupEventBus['emit']>[0])
+    })
   }
 
   /**

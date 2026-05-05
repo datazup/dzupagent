@@ -16,6 +16,7 @@ import {
   buildStructuredOutputExhaustedError,
   JsonOutputSchema,
   RegexOutputSchema,
+  typedEmit,
 } from '@dzupagent/core'
 import type {
   DzupEventBus,
@@ -535,11 +536,6 @@ export class StructuredOutputAdapter {
           error: string
         },
   ): void {
-    if (this.eventBus) {
-      // These are adapter-level observability events; emit via the bus.
-      // The structured_output:* event types are not part of the core DzupEvent
-      // union, so we cast through unknown to satisfy the type checker.
-      this.eventBus.emit(event as unknown as Parameters<DzupEventBus['emit']>[0])
-    }
+    typedEmit(this.eventBus, event)
   }
 }

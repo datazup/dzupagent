@@ -479,4 +479,129 @@ export const emptyEventMetricMap = {
       },
     ),
   ],
+
+  // --- Recovery escalation ---
+  'recovery:escalation_requested': [
+    counter(
+      'dzip_recovery_escalation_requested_total',
+      'Total recovery escalation requests (all strategies exhausted)',
+      ['failed_provider_id'],
+      (e) => {
+        const ev = asEvent<'recovery:escalation_requested'>(e)
+        return { value: 1, labels: { failed_provider_id: ev.failedProviderId } }
+      },
+    ),
+  ],
+
+  // --- Session lifecycle ---
+  'session:workflow_created': [
+    counter(
+      'dzip_session_workflows_created_total',
+      'Total session workflows created',
+      [],
+      () => ({ value: 1, labels: {} }),
+    ),
+  ],
+  'session:workflow_deleted': [
+    counter(
+      'dzip_session_workflows_deleted_total',
+      'Total session workflows deleted',
+      [],
+      () => ({ value: 1, labels: {} }),
+    ),
+  ],
+  'session:provider_linked': [
+    counter(
+      'dzip_session_providers_linked_total',
+      'Total provider links established for session workflows',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'session:provider_linked'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId } }
+      },
+    ),
+  ],
+  'session:provider_switched': [
+    counter(
+      'dzip_session_providers_switched_total',
+      'Total provider switches within session workflows',
+      ['to'],
+      (e) => {
+        const ev = asEvent<'session:provider_switched'>(e)
+        return { value: 1, labels: { to: ev.to } }
+      },
+    ),
+  ],
+  'session:multi_turn_completed': [
+    counter(
+      'dzip_session_multi_turn_completed_total',
+      'Total multi-turn session completions',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'session:multi_turn_completed'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown' } }
+      },
+    ),
+    histogram(
+      'dzip_session_multi_turn_duration_ms',
+      'Duration in ms of multi-turn sessions',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'session:multi_turn_completed'>(e)
+        return { value: ev.durationMs, labels: { provider_id: ev.providerId ?? 'unknown' } }
+      },
+    ),
+  ],
+  'session:pruned': [
+    counter(
+      'dzip_session_pruned_total',
+      'Total sessions pruned',
+      [],
+      () => ({ value: 1, labels: {} }),
+    ),
+    histogram(
+      'dzip_session_pruned_count',
+      'Number of sessions pruned per prune event',
+      [],
+      (e) => {
+        const ev = asEvent<'session:pruned'>(e)
+        return { value: ev.count, labels: {} }
+      },
+    ),
+  ],
+
+  // --- Structured output ---
+  'structured_output:parsed': [
+    counter(
+      'dzip_structured_output_parsed_total',
+      'Total structured output parse successes',
+      ['schema_name', 'provider_id'],
+      (e) => {
+        const ev = asEvent<'structured_output:parsed'>(e)
+        return { value: 1, labels: { schema_name: ev.schemaName, provider_id: ev.providerId } }
+      },
+    ),
+  ],
+  'structured_output:parse_failed': [
+    counter(
+      'dzip_structured_output_parse_failed_total',
+      'Total structured output parse failures',
+      ['schema_name', 'provider_id'],
+      (e) => {
+        const ev = asEvent<'structured_output:parse_failed'>(e)
+        return { value: 1, labels: { schema_name: ev.schemaName, provider_id: ev.providerId } }
+      },
+    ),
+  ],
+  'structured_output:all_failed': [
+    counter(
+      'dzip_structured_output_all_failed_total',
+      'Total structured output all-attempts failures',
+      ['schema_name'],
+      (e) => {
+        const ev = asEvent<'structured_output:all_failed'>(e)
+        return { value: 1, labels: { schema_name: ev.schemaName } }
+      },
+    ),
+  ],
 } satisfies MetricMapFragment

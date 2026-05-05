@@ -106,4 +106,17 @@ export const agentLifecycleMetricMap = {
     },
   ],
 
+  'agent:rate_limited': [
+    {
+      metricName: 'dzip_agent_rate_limited_total',
+      type: 'counter',
+      description: 'Total agent rate limit events',
+      labelKeys: ['agent_id', 'reason'],
+      extract: (e) => {
+        const ev = asEvent<'agent:rate_limited'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId, reason: ev.reason } }
+      },
+    },
+  ],
+
 } satisfies MetricMapFragment

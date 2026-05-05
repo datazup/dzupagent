@@ -1,10 +1,8 @@
 /**
  * TeamRuntime — production-grade execution engine for declarative teams.
  *
- * This is the promoted successor to `playground/team-coordinator.ts`. Whereas
- * the playground coordinator is geared toward interactive, in-memory agent
- * wiring, `TeamRuntime` consumes a declarative `TeamDefinition` + `TeamPolicies`
- * pair and delegates to the right coordination primitive based on
+ * Consumes a declarative `TeamDefinition` + `TeamPolicies` pair and
+ * delegates to the right `TeamPattern` strategy based on
  * `coordinatorPattern`.
  *
  * Supported patterns:
@@ -14,22 +12,17 @@
  *   - peer_to_peer  — parallel execution with merge
  *   - council       — deliberation judged by a governance model
  *
- * The runtime emits typed lifecycle events through a caller-supplied callback
- * so that observability, telemetry, and UI streaming can all plug in without
- * the runtime knowing about them.
- *
- * NOTE: This file intentionally ships as a structural skeleton — the
- * pattern-specific private methods contain the delegation scaffolding, phase
- * management, and event plumbing, but do not yet invoke real LLMs. Concrete
- * LLM wiring is layered in by higher-level product code (e.g. codev-app) that
- * supplies agent instances and bid strategies.
+ * Each pattern is implemented as a `TeamPattern` strategy under
+ * `./patterns/`; `TeamRuntime` is a thin dispatcher that owns:
+ *   - lifecycle phase transitions
+ *   - lifecycle event emission
+ *   - OTel root-span management
+ *   - policy validation + memory consolidation
+ *   - keyed circuit-breaker bookkeeping (`KeyedCircuitBreaker` from core)
  */
 
-import { HumanMessage } from '@langchain/core/messages'
-import { AgentOrchestrator } from '../orchestrator.js'
-import { ContractNetManager } from '../contract-net/contract-net-manager.js'
-import { concatMerge, type MergeStrategyFn } from '../merge-strategies.js'
-import type { DzupAgent } from '../../agent/dzip-agent.js'
+import { KeyedCircuitBreaker } from '@dzupagent/core'
+import { TeamBreakerTracker } from './team-runtime-breaker.js'
 import {
   SharedWorkspace,
   type TeamRunResult,
@@ -40,21 +33,28 @@ import type {
   ParticipantDefinition,
   TeamDefinition,
 } from './team-definition.js'
-import type {
-  BlackboardContextOverflowBehavior,
-  TeamPolicies,
-} from './team-policy.js'
+import type { TeamPolicies } from './team-policy.js'
 import type { TeamPhase, TeamPhaseModel } from './team-phase.js'
 import type { TeamCheckpoint, ResumeContract } from './team-checkpoint.js'
-import type {
-  SupervisionPolicy,
-  AgentBreakerState,
-} from './supervision-policy.js'
-import { omitUndefined } from '../../utils/exact-optional.js'
+import type { SupervisionPolicy } from './supervision-policy.js'
+import {
+  TEAM_PATTERN_REGISTRY,
+  type ResolvedParticipant,
+  type TeamPattern,
+  type TeamPatternContext,
+  type TeamPatternHooks,
+} from './patterns/index.js'
+import { DEFAULT_GOVERNANCE_MODEL as DEFAULT_GOVERNANCE_MODEL_FROM_PATTERN } from './patterns/council-pattern.js'
+import { validateTeamPolicies } from './team-runtime-policy-validator.js'
+import type { TeamOTelSpanLike, TeamRuntimeTracer } from './team-otel-types.js'
+import type { TeamRuntimeEventEmitter } from './team-runtime-events.js'
 
-const DEFAULT_MAX_PARALLEL_PARTICIPANTS = 5
-const DEFAULT_BLACKBOARD_CONTEXT_MAX_SERIALIZED_CHARS = 16_000
-const DEFAULT_BLACKBOARD_CONTEXT_MAX_ENTRY_CHARS = 4_000
+// Re-export structural types so existing callers keep working.
+export type { TeamOTelSpanLike, TeamRuntimeTracer } from './team-otel-types.js'
+export type {
+  TeamRuntimeEvent,
+  TeamRuntimeEventEmitter,
+} from './team-runtime-events.js'
 
 // Recommended model constants — exported for downstream wiring code that needs
 // to align participant/router/governance choices with the framework defaults.
@@ -63,118 +63,22 @@ export const DEFAULT_ROUTER_MODEL = 'claude-haiku-4-5-20251001'
 /** Default participant model when a `ParticipantDefinition` omits one. */
 export const DEFAULT_PARTICIPANT_MODEL = 'claude-sonnet-4-6'
 /** Default governance / evaluation / council judge model. */
-export const DEFAULT_GOVERNANCE_MODEL = 'claude-opus-4-7'
-
-// ---------------------------------------------------------------------------
-// Event types
-// ---------------------------------------------------------------------------
-
-/** Lifecycle events emitted by `TeamRuntime.execute`. */
-export type TeamRuntimeEvent =
-  | {
-      type: 'phase_changed'
-      teamId: string
-      runId: string
-      from: TeamPhase
-      to: TeamPhase
-      at: Date
-    }
-  | {
-      type: 'participant_started'
-      teamId: string
-      runId: string
-      participantId: string
-      role: string
-      at: Date
-    }
-  | {
-      type: 'participant_completed'
-      teamId: string
-      runId: string
-      participantId: string
-      role: string
-      success: boolean
-      error?: string
-      durationMs: number
-      at: Date
-    }
-  | {
-      type: 'team_completed'
-      teamId: string
-      runId: string
-      durationMs: number
-      at: Date
-    }
-  | {
-      type: 'team_failed'
-      teamId: string
-      runId: string
-      error: string
-      at: Date
-    }
-  | {
-      type: 'policy_applied'
-      teamId: string
-      runId: string
-      policyGroup: 'governance'
-      policyField: 'judgeModel'
-      coordinatorPattern: CoordinatorPattern
-      at: Date
-    }
-
-/** Callback shape used to stream runtime events to observers. */
-export type TeamRuntimeEventEmitter = (event: TeamRuntimeEvent) => void
-
-// ---------------------------------------------------------------------------
-// OTel structural types (no @dzupagent/otel import — loose coupling)
-// ---------------------------------------------------------------------------
-
-/**
- * Minimal span interface compatible with OTelSpan from @dzupagent/otel.
- * Uses structural typing so consumers can pass any compatible span
- * (DzupTracer-produced spans, Noop spans, mock test doubles).
- */
-export interface TeamOTelSpanLike {
-  setAttribute(key: string, value: string | number | boolean): unknown
-  addEvent(name: string, attributes?: Record<string, string | number | boolean>): unknown
-  end(): void
-}
-
-/**
- * Structural tracer interface for team runtime instrumentation. Compatible
- * with `DzupTracer` from `@dzupagent/otel` but does not import it, keeping
- * `@dzupagent/agent` decoupled from the OTel package. The concrete
- * `DzupTracer.startPhaseSpan` returns an `OTelSpan` that conforms to
- * `TeamOTelSpanLike` via structural subtyping, and its `endSpanOk` /
- * `endSpanWithError` methods accept that span.
- *
- * `team.*` semantic attributes are set via `setAttribute` on the returned
- * span after creation rather than through `startPhaseSpan` options, because
- * `DzupTracer.startPhaseSpan`'s option surface is limited to `{ agentId,
- * runId }`.
- */
-export interface TeamRuntimeTracer {
-  startPhaseSpan(
-    phase: string,
-    options?: { agentId?: string; runId?: string },
-  ): TeamOTelSpanLike
-  endSpanOk(span: TeamOTelSpanLike): void
-  endSpanWithError(span: TeamOTelSpanLike, error: unknown): void
-}
-
-// ---------------------------------------------------------------------------
-// Runtime wiring
-// ---------------------------------------------------------------------------
+export const DEFAULT_GOVERNANCE_MODEL = DEFAULT_GOVERNANCE_MODEL_FROM_PATTERN
 
 /**
  * Adapter contract for resolving a `ParticipantDefinition` into a runnable
- * `SpawnedAgent`. Supplied by the host (e.g. the app that constructs the
- * runtime) so the runtime stays free of concrete LLM wiring concerns.
+ * `SpawnedAgent`. Supplied by the host so the runtime stays free of LLM
+ * wiring concerns.
  */
 export type ParticipantResolver = (
   participant: ParticipantDefinition,
   team: TeamDefinition,
 ) => Promise<SpawnedAgent>
+
+/** Memory service port for post-run consolidation. */
+export interface TeamRuntimeMemoryService {
+  consolidate?(teamId: string, namespace: string): Promise<void>
+}
 
 /** Options accepted by the `TeamRuntime` constructor. */
 export interface TeamRuntimeOptions {
@@ -188,83 +92,23 @@ export interface TeamRuntimeOptions {
   onEvent?: TeamRuntimeEventEmitter
   /** Optional run ID generator (defaults to `crypto.randomUUID()`). */
   generateRunId?: () => string
-  /**
-   * Optional OTel tracer for creating a span per `execute()` call.
-   * When absent, no spans are emitted (tracing is a no-op).
-   *
-   * The runtime sets the following span attributes:
-   *   - `team.run_id`                — the run ID
-   *   - `team.agent_count`           — number of participants
-   *   - `team.coordination_pattern`  — the coordinator pattern name
-   *
-   * And emits these span events during execution:
-   *   - `team.phase_changed`         — per phase transition (attr: `team.phase`)
-   *   - `team.participant_completed` — per participant result
-   *     (attrs: `team.participant_id`, `team.participant_status`)
-   *   - `circuit_breaker.opened`     — when a participant's failure count
-   *     hits the SupervisionPolicy threshold (attr: `agentId`)
-   */
+  /** Optional memory service for post-run consolidation. */
+  memory?: TeamRuntimeMemoryService
+  /** Optional OTel tracer for creating a span per `execute()` call. */
   tracer?: TeamRuntimeTracer
-  /**
-   * Optional per-agent circuit-breaker controls. When present, the runtime
-   * tracks failures per participant and skips agents whose breaker is open.
-   */
+  /** Optional per-agent circuit-breaker controls. */
   supervisionPolicy?: SupervisionPolicy
-}
-
-interface ResolvedBlackboardContextPolicy {
-  maxSerializedChars: number
-  maxEntryChars: number
-  overflowBehavior: BlackboardContextOverflowBehavior
-}
-
-function compactText(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value
-  const marker = '\n\n[compacted: middle omitted to fit blackboard context budget]\n\n'
-  if (maxChars <= marker.length + 2) {
-    return value.slice(0, maxChars)
-  }
-  const remaining = maxChars - marker.length
-  const headChars = Math.ceil(remaining * 0.6)
-  const tailChars = Math.max(0, remaining - headChars)
-  return `${value.slice(0, headChars)}${marker}${value.slice(-tailChars)}`
-}
-
-function formatCompactedWorkspaceContext(
-  workspace: SharedWorkspace,
-  policy: ResolvedBlackboardContextPolicy,
-): string {
-  const lines: string[] = ['## Shared Workspace']
-  let remaining = policy.maxSerializedChars - lines[0]!.length
-
-  for (const [key, rawValue] of workspace.entries()) {
-    if (!rawValue || remaining <= 0) continue
-    const heading = `### ${key}`
-    const sectionOverhead = heading.length + 3
-    if (remaining <= sectionOverhead) break
-
-    const maxValueChars = Math.min(
-      policy.maxEntryChars,
-      remaining - sectionOverhead,
-    )
-    const value = compactText(rawValue, maxValueChars)
-    lines.push(heading)
-    lines.push(value)
-    lines.push('')
-    remaining -= sectionOverhead + value.length
-  }
-
-  const formatted = lines.join('\n')
-  if (formatted.length <= policy.maxSerializedChars) return formatted
-  return formatted.slice(0, policy.maxSerializedChars)
+  /**
+   * Optional override for the pattern strategy registry, primarily used
+   * by tests to inject mock patterns. Defaults to the canonical
+   * `TEAM_PATTERN_REGISTRY`.
+   */
+  patternRegistry?: Record<CoordinatorPattern, TeamPattern>
 }
 
 /**
  * Executes a team according to its declarative definition and policies.
- *
- * Instantiate once per team (definition + policies), then call `execute(task)`
- * one or more times. Each call produces an independent run with its own
- * `runId`, phase model, and event stream.
+ * Instantiate once per team, then call `execute(task)` one or more times.
  */
 export class TeamRuntime {
   private readonly definition: TeamDefinition
@@ -273,192 +117,27 @@ export class TeamRuntime {
   private readonly emitEvent: TeamRuntimeEventEmitter
   private readonly generateRunId: () => string
   private readonly tracer: TeamRuntimeTracer | undefined
-  /**
-   * Per-run span, set at the top of `execute()` / cleared after `end()`.
-   * Phase + participant helpers read this to attach events without needing
-   * to thread the span through every private method signature.
-   */
+  /** Per-run span; cleared in `finally`. */
   private currentSpan: TeamOTelSpanLike | undefined
-  private readonly supervisionPolicy: SupervisionPolicy | undefined
-  /** Per-participant circuit-breaker state. Keyed by participant id. */
-  private readonly breakerState = new Map<string, AgentBreakerState>()
+  /** Optional breaker tracker — undefined when no supervision policy was set. */
+  private readonly breakerTracker: TeamBreakerTracker | undefined
+  private readonly memory: TeamRuntimeMemoryService | undefined
+  private readonly patternRegistry: Record<CoordinatorPattern, TeamPattern>
 
   constructor(options: TeamRuntimeOptions) {
     this.definition = options.definition
     this.policies = options.policies ?? {}
-    this.validatePolicies()
+    validateTeamPolicies(this.definition.coordinatorPattern, this.policies)
     this.resolveParticipant = options.resolveParticipant
     this.emitEvent = options.onEvent ?? (() => {})
     this.generateRunId =
       options.generateRunId ?? (() => globalThis.crypto.randomUUID())
     this.tracer = options.tracer
-    this.supervisionPolicy = options.supervisionPolicy
-  }
-
-  private validatePolicies(): void {
-    this.validateExecutionPolicy()
-    this.validateGovernancePolicy()
-    this.validateMemoryPolicy()
-    this.rejectUnsupportedPolicyGroup('isolation', this.policies.isolation)
-    this.rejectUnsupportedPolicyGroup('mailbox', this.policies.mailbox)
-    this.rejectUnsupportedPolicyGroup('evaluation', this.policies.evaluation)
-  }
-
-  private validateExecutionPolicy(): void {
-    const execution = this.policies.execution
-    if (!execution) return
-
-    if (execution.timeoutMs !== undefined) {
-      throw new Error(
-        "TeamRuntime execution policy field 'timeoutMs' is not supported yet",
-      )
-    }
-    if (execution.retryOnFailure !== undefined) {
-      throw new Error(
-        "TeamRuntime execution policy field 'retryOnFailure' is not supported yet",
-      )
-    }
-    if (execution.maxRetries !== undefined) {
-      throw new Error(
-        "TeamRuntime execution policy field 'maxRetries' is not supported yet",
-      )
-    }
-
-    const maxParallel = execution.maxParallelParticipants
-    if (
-      maxParallel !== undefined &&
-      (!Number.isInteger(maxParallel) || maxParallel < 1)
-    ) {
-      throw new Error(
-        "TeamRuntime execution policy field 'maxParallelParticipants' must be a positive integer",
-      )
-    }
-  }
-
-  private validateGovernancePolicy(): void {
-    const governance = this.policies.governance
-    if (!governance) return
-
-    if (this.definition.coordinatorPattern !== 'council') {
-      throw new Error(
-        "TeamRuntime governance policy group is only supported for coordinator pattern 'council'",
-      )
-    }
-    if (governance.minScore !== undefined) {
-      throw new Error(
-        "TeamRuntime governance policy field 'minScore' is not supported yet",
-      )
-    }
-    if (governance.requireUnanimous !== undefined) {
-      throw new Error(
-        "TeamRuntime governance policy field 'requireUnanimous' is not supported yet",
-      )
-    }
-  }
-
-  private validateMemoryPolicy(): void {
-    const memory = this.policies.memory
-    if (!memory) return
-
-    if (this.definition.coordinatorPattern !== 'blackboard') {
-      throw new Error(
-        "TeamRuntime memory policy group is only supported for coordinator pattern 'blackboard'",
-      )
-    }
-    if (memory.consolidateOnComplete === true) {
-      throw new Error(
-        "TeamRuntime memory policy field 'consolidateOnComplete' is not supported yet",
-      )
-    }
-
-    const blackboardContext = memory.blackboardContext
-    if (!blackboardContext) return
-
-    if (
-      blackboardContext.maxSerializedChars !== undefined &&
-      (!Number.isInteger(blackboardContext.maxSerializedChars) ||
-        blackboardContext.maxSerializedChars < 1)
-    ) {
-      throw new Error(
-        "TeamRuntime memory policy field 'blackboardContext.maxSerializedChars' must be a positive integer",
-      )
-    }
-    if (
-      blackboardContext.maxEntryChars !== undefined &&
-      (!Number.isInteger(blackboardContext.maxEntryChars) ||
-        blackboardContext.maxEntryChars < 1)
-    ) {
-      throw new Error(
-        "TeamRuntime memory policy field 'blackboardContext.maxEntryChars' must be a positive integer",
-      )
-    }
-  }
-
-  private rejectUnsupportedPolicyGroup(
-    group: 'isolation' | 'mailbox' | 'evaluation',
-    policy: unknown,
-  ): void {
-    if (policy === undefined) return
-    throw new Error(`TeamRuntime policy group '${group}' is not supported yet`)
-  }
-
-  /**
-   * Whether a participant's circuit is currently open. If `resetAfterMs` has
-   * elapsed since the trip we lazily reset the breaker so the participant is
-   * eligible to run again.
-   */
-  private isCircuitOpen(participantId: string): boolean {
-    if (!this.supervisionPolicy) return false
-    const state = this.breakerState.get(participantId)
-    if (!state || state.openedAt === undefined) return false
-    if (Date.now() - state.openedAt >= this.supervisionPolicy.resetAfterMs) {
-      // Reset: fully clear the breaker so the agent runs again on next pass.
-      state.count = 0
-      delete state.openedAt
-      return false
-    }
-    return true
-  }
-
-  /** Record a successful task completion — clears the breaker state. */
-  private recordSuccess(participantId: string): void {
-    if (!this.supervisionPolicy) return
-    const state = this.breakerState.get(participantId)
-    if (state) {
-      state.count = 0
-      delete state.openedAt
-    }
-  }
-
-  /**
-   * Record a failure for a participant. Returns `true` when this failure
-   * pushes the breaker open for the first time. Emits the
-   * `circuit_breaker.opened` span event on the first trip.
-   */
-  private recordFailure(participantId: string): boolean {
-    if (!this.supervisionPolicy) return false
-    const state =
-      this.breakerState.get(participantId) ?? { count: 0 }
-    state.count += 1
-    this.breakerState.set(participantId, state)
-
-    const justTripped =
-      state.openedAt === undefined &&
-      state.count >= this.supervisionPolicy.maxFailuresBeforeCircuitBreak
-    if (justTripped) {
-      state.openedAt = Date.now()
-      try {
-        this.supervisionPolicy.onCircuitOpen?.(participantId)
-      } catch {
-        // Callback errors must never bubble — supervision is best-effort.
-      }
-      if (this.currentSpan) {
-        this.currentSpan.addEvent('circuit_breaker.opened', {
-          agentId: participantId,
-        })
-      }
-    }
-    return justTripped
+    this.memory = options.memory
+    this.patternRegistry = options.patternRegistry ?? TEAM_PATTERN_REGISTRY
+    this.breakerTracker = options.supervisionPolicy
+      ? new TeamBreakerTracker(options.supervisionPolicy)
+      : undefined
   }
 
   /** The team definition backing this runtime. */
@@ -473,8 +152,7 @@ export class TeamRuntime {
 
   /**
    * Resolve a participant definition into a runnable `SpawnedAgent`.
-   * Exposed as `protected` so pattern subclasses (or product code that
-   * overrides `runSupervisor` et al.) can hydrate participants on demand.
+   * Exposed as `protected` so subclasses can hydrate participants on demand.
    */
   protected async spawnParticipant(
     participant: ParticipantDefinition,
@@ -488,11 +166,8 @@ export class TeamRuntime {
   }
 
   /**
-   * Execute the team against a task.
-   *
-   * Dispatches to a pattern-specific private method based on
-   * `definition.coordinatorPattern`, emits phase + participant events, and
-   * returns a `TeamRunResult` compatible with the playground coordinator.
+   * Execute the team against a task. Dispatches to a `TeamPattern`
+   * strategy and emits phase + participant lifecycle events.
    */
   async execute(task: string): Promise<TeamRunResult> {
     const runId = this.generateRunId()
@@ -503,9 +178,6 @@ export class TeamRuntime {
       transitions: [],
     }
 
-    // Start the root team span (if a tracer is configured). Attributes are
-    // attached via setAttribute so the structural interface stays compatible
-    // with DzupTracer.startPhaseSpan (whose options only accept agentId/runId).
     const span = this.tracer?.startPhaseSpan(`team:${this.definition.id}`, {
       runId,
     })
@@ -523,13 +195,12 @@ export class TeamRuntime {
       this.transition(phaseModel, 'planning', runId)
       this.transition(phaseModel, 'executing', runId)
 
-      // If supervision has tripped every participant's breaker, short-circuit
-      // to an empty result rather than letting the pattern method throw on
-      // an empty participant set.
+      // Short-circuit when every participant's breaker is open.
+      const tracker = this.breakerTracker
       if (
-        this.supervisionPolicy &&
+        tracker &&
         this.definition.participants.length > 0 &&
-        this.definition.participants.every((p) => this.isCircuitOpen(p.id))
+        this.definition.participants.every((p) => !tracker.isAvailable(p.id))
       ) {
         this.transition(phaseModel, 'evaluating', runId)
         this.transition(phaseModel, 'completing', runId)
@@ -549,31 +220,9 @@ export class TeamRuntime {
         }
       }
 
-      const pattern: CoordinatorPattern = this.definition.coordinatorPattern
-      let result: TeamRunResult
-      switch (pattern) {
-        case 'supervisor':
-          result = await this.runSupervisor(task, runId)
-          break
-        case 'contract_net':
-          result = await this.runContractNet(task, runId)
-          break
-        case 'blackboard':
-          result = await this.runBlackboard(task, runId)
-          break
-        case 'peer_to_peer':
-          result = await this.runPeerToPeer(task, runId)
-          break
-        case 'council':
-          result = await this.runCouncil(task, runId)
-          break
-        default: {
-          const exhaustive: never = pattern
-          throw new Error(
-            `TeamRuntime: unknown coordinator pattern '${exhaustive as string}'`,
-          )
-        }
-      }
+      const pattern = this.resolvePattern(this.definition.coordinatorPattern)
+      const ctx = await this.buildPatternContext(task, runId, startedAt)
+      const result = await pattern.execute(ctx)
 
       this.transition(phaseModel, 'evaluating', runId)
       this.transition(phaseModel, 'completing', runId)
@@ -586,9 +235,22 @@ export class TeamRuntime {
         at: new Date(),
       })
 
-      if (span && this.tracer) {
-        this.tracer.endSpanOk(span)
+      if (
+        this.policies.memory?.consolidateOnComplete === true &&
+        this.memory?.consolidate
+      ) {
+        const namespace = this.definition.id
+        await this.memory.consolidate(this.definition.id, namespace)
+        this.emitEvent({
+          type: 'team_consolidation_completed',
+          teamId: this.definition.id,
+          runId,
+          namespace,
+          at: new Date(),
+        })
       }
+
+      if (span && this.tracer) this.tracer.endSpanOk(span)
       return result
     } catch (err: unknown) {
       this.transition(phaseModel, 'failed', runId)
@@ -600,443 +262,16 @@ export class TeamRuntime {
         error: message,
         at: new Date(),
       })
-      if (span && this.tracer) {
-        this.tracer.endSpanWithError(span, err)
-      }
+      if (span && this.tracer) this.tracer.endSpanWithError(span, err)
       throw err
     } finally {
       this.currentSpan = undefined
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Pattern skeletons
-  // -------------------------------------------------------------------------
-
   /**
-   * Supervisor pattern — delegate to `AgentOrchestrator.supervisor`.
-   *
-   * Picks the participant with role `supervisor` (falling back to the first
-   * participant) as the manager; all others are specialists exposed to the
-   * manager as tools.
-   */
-  private async runSupervisor(task: string, runId: string): Promise<TeamRunResult> {
-    const startTime = Date.now()
-    const spawned = await this.resolveAll()
-    const managerEntry =
-      spawned.find((s) => s.participant.role === 'supervisor') ?? spawned[0]
-    if (!managerEntry) {
-      throw new Error('TeamRuntime[supervisor]: team has no participants')
-    }
-    const specialists = spawned.filter((s) => s !== managerEntry)
-
-    if (specialists.length === 0) {
-      return this.runSingleParticipant(managerEntry, task, startTime)
-    }
-
-    this.emitParticipantStart(managerEntry.participant, runId)
-    for (const s of specialists) this.emitParticipantStart(s.participant, runId)
-
-    try {
-      const result = await AgentOrchestrator.supervisor({
-        manager: managerEntry.spawned.agent,
-        specialists: specialists.map((s) => s.spawned.agent),
-        task,
-      })
-
-      const durationMs = Date.now() - startTime
-      this.emitParticipantComplete(managerEntry.participant, runId, true, durationMs)
-      for (const s of specialists) {
-        this.emitParticipantComplete(s.participant, runId, true, durationMs)
-      }
-
-      return {
-        content: result.content,
-        agentResults: [
-          {
-            agentId: managerEntry.spawned.agent.id,
-            role: managerEntry.spawned.role,
-            content: result.content,
-            success: true,
-            durationMs,
-          },
-          ...specialists.map((s) => ({
-            agentId: s.spawned.agent.id,
-            role: s.spawned.role,
-            content: '',
-            success: true,
-            durationMs,
-          })),
-        ],
-        durationMs,
-        pattern: 'supervisor' as const,
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      const durationMs = Date.now() - startTime
-      this.emitParticipantComplete(managerEntry.participant, runId, false, durationMs, message)
-      for (const s of specialists) {
-        this.emitParticipantComplete(s.participant, runId, false, durationMs, message)
-      }
-      throw err
-    }
-  }
-
-  /**
-   * Contract-net pattern — delegate to `ContractNetManager.execute`.
-   *
-   * Specialists bid on a CFP, the configured award strategy selects a winner,
-   * and the winner executes.
-   */
-  private async runContractNet(task: string, runId: string): Promise<TeamRunResult> {
-    const startTime = Date.now()
-    const spawned = await this.resolveAll()
-    const managerEntry =
-      spawned.find((s) => s.participant.role === 'supervisor') ?? spawned[0]
-    if (!managerEntry) {
-      throw new Error('TeamRuntime[contract_net]: team has no participants')
-    }
-    const specialists = spawned.filter((s) => s !== managerEntry)
-    if (specialists.length === 0) {
-      return this.runSingleParticipant(managerEntry, task, startTime)
-    }
-
-    for (const s of spawned) this.emitParticipantStart(s.participant, runId)
-
-    const contractResult = await ContractNetManager.execute({
-      specialists: specialists.map((s) => s.spawned.agent),
-      task,
-    })
-
-    const durationMs = Date.now() - startTime
-    for (const s of spawned) {
-      const success = s.spawned.agent.id === contractResult.agentId
-        ? contractResult.success
-        : true
-      this.emitParticipantComplete(
-        s.participant,
-        runId,
-        success,
-        durationMs,
-        contractResult.error,
-      )
-    }
-
-    return {
-      content: contractResult.result ?? '',
-      agentResults: spawned.map((s) => omitUndefined({
-        agentId: s.spawned.agent.id,
-        role: s.spawned.role,
-        content:
-          s.spawned.agent.id === contractResult.agentId
-            ? contractResult.result ?? ''
-            : '',
-        success:
-          s.spawned.agent.id === contractResult.agentId
-            ? contractResult.success
-            : true,
-        error:
-          s.spawned.agent.id === contractResult.agentId
-            ? contractResult.error
-            : undefined,
-        durationMs:
-          s.spawned.agent.id === contractResult.agentId
-            ? contractResult.actualDurationMs ?? durationMs
-            : 0,
-      })),
-      durationMs,
-      pattern: 'contract-net',
-    }
-  }
-
-  /**
-   * Blackboard pattern — shared workspace, participants iterate in rounds.
-   *
-   * Mirrors the playground coordinator's per-round logic: each round, each
-   * participant reads the workspace, produces a contribution, and writes it
-   * back under its own key.
-   */
-  private async runBlackboard(task: string, runId: string): Promise<TeamRunResult> {
-    const startTime = Date.now()
-    const spawned = await this.resolveAll()
-    if (spawned.length === 0) {
-      throw new Error('TeamRuntime[blackboard]: team has no participants')
-    }
-    const workspace = new SharedWorkspace()
-    const maxRounds = this.resolveMaxRounds()
-    const timings = new Map<string, number>()
-    const contextPolicy = this.resolveBlackboardContextPolicy()
-
-    await workspace.set('task', task, '__runtime__')
-    await workspace.set('round', '0', '__runtime__')
-    for (const s of spawned) {
-      this.emitParticipantStart(s.participant, runId)
-      timings.set(s.spawned.agent.id, 0)
-    }
-
-    for (let round = 0; round < maxRounds; round++) {
-      await workspace.set('round', String(round + 1), '__runtime__')
-      for (const entry of spawned) {
-        const t0 = Date.now()
-        const context = this.formatBoundedBlackboardContext(
-          workspace,
-          contextPolicy,
-        )
-        const prompt = [
-          `You are participating in a collaborative blackboard session (round ${round + 1}).`,
-          '',
-          `## Task`,
-          task,
-          '',
-          context,
-          '',
-          `Write your contribution. Focus on your role as "${entry.participant.role}".`,
-          `Your output will be stored in the shared workspace under key "${entry.spawned.agent.id}".`,
-        ].join('\n')
-
-        try {
-          const result = await entry.spawned.agent.generate([new HumanMessage(prompt)])
-          const contribution = this.prepareBlackboardContribution(
-            result.content,
-            contextPolicy,
-          )
-          entry.spawned.lastResult = contribution
-          await workspace.set(
-            entry.spawned.agent.id,
-            contribution,
-            entry.spawned.agent.id,
-          )
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err)
-          entry.spawned.lastError = message
-        }
-        timings.set(
-          entry.spawned.agent.id,
-          (timings.get(entry.spawned.agent.id) ?? 0) + (Date.now() - t0),
-        )
-      }
-    }
-
-    const durationMs = Date.now() - startTime
-    for (const s of spawned) {
-      this.emitParticipantComplete(
-        s.participant,
-        runId,
-        s.spawned.lastError === undefined,
-        timings.get(s.spawned.agent.id) ?? 0,
-        s.spawned.lastError,
-      )
-    }
-
-    return {
-      content: this.formatBoundedBlackboardContext(workspace, contextPolicy),
-      agentResults: spawned.map((s) => omitUndefined({
-        agentId: s.spawned.agent.id,
-        role: s.spawned.role,
-        content: s.spawned.lastResult ?? '',
-        success: s.spawned.lastError === undefined,
-        error: s.spawned.lastError,
-        durationMs: timings.get(s.spawned.agent.id) ?? 0,
-      })),
-      durationMs,
-      pattern: 'blackboard',
-    }
-  }
-
-  private resolveBlackboardContextPolicy(): ResolvedBlackboardContextPolicy {
-    const configured = this.policies.memory?.blackboardContext
-    const maxSerializedChars =
-      configured?.maxSerializedChars ??
-      DEFAULT_BLACKBOARD_CONTEXT_MAX_SERIALIZED_CHARS
-    const maxEntryChars =
-      configured?.maxEntryChars ??
-      Math.min(
-        DEFAULT_BLACKBOARD_CONTEXT_MAX_ENTRY_CHARS,
-        maxSerializedChars,
-      )
-    return {
-      maxSerializedChars,
-      maxEntryChars,
-      overflowBehavior: configured?.overflowBehavior ?? 'compact',
-    }
-  }
-
-  private prepareBlackboardContribution(
-    value: string,
-    policy: ResolvedBlackboardContextPolicy,
-  ): string {
-    if (value.length <= policy.maxEntryChars) return value
-
-    if (policy.overflowBehavior === 'reject') {
-      throw new Error(
-        `TeamRuntime[blackboard]: contribution exceeds maxEntryChars (${value.length}/${policy.maxEntryChars})`,
-      )
-    }
-
-    return compactText(value, policy.maxEntryChars)
-  }
-
-  private formatBoundedBlackboardContext(
-    workspace: SharedWorkspace,
-    policy: ResolvedBlackboardContextPolicy,
-  ): string {
-    const fullContext = workspace.formatAsContext()
-    if (fullContext.length <= policy.maxSerializedChars) return fullContext
-    if (policy.overflowBehavior === 'reject') {
-      throw new Error(
-        `TeamRuntime[blackboard]: shared context exceeds maxSerializedChars (${fullContext.length}/${policy.maxSerializedChars})`,
-      )
-    }
-
-    return formatCompactedWorkspaceContext(workspace, policy)
-  }
-
-  /**
-   * Peer-to-peer pattern — parallel fan-out, policy-governed merge.
-   *
-   * Runs participants with concurrency subject to
-   * `ExecutionPolicy.maxParallelParticipants`.
-   */
-  private async runPeerToPeer(task: string, runId: string): Promise<TeamRunResult> {
-    const startTime = Date.now()
-    const spawned = await this.resolveAll()
-    if (spawned.length === 0) {
-      throw new Error('TeamRuntime[peer_to_peer]: team has no participants')
-    }
-    for (const s of spawned) this.emitParticipantStart(s.participant, runId)
-
-    const merge: MergeStrategyFn = concatMerge
-    const results: TeamRunResult['agentResults'] = []
-
-    const settled = await this.mapSettledWithConcurrency(
-      spawned,
-      this.resolveMaxParallelParticipants(),
-      async (entry) => {
-        const t0 = Date.now()
-        const res = await entry.spawned.agent.generate([new HumanMessage(task)])
-        return {
-          agentId: entry.spawned.agent.id,
-          role: entry.spawned.role,
-          content: res.content,
-          durationMs: Date.now() - t0,
-        }
-      },
-    )
-
-    const successContents: string[] = []
-    for (let i = 0; i < settled.length; i++) {
-      const outcome = settled[i]!
-      const entry = spawned[i]!
-      if (outcome.status === 'fulfilled') {
-        results.push({ ...outcome.value, success: true })
-        successContents.push(outcome.value.content)
-        this.emitParticipantComplete(
-          entry.participant,
-          runId,
-          true,
-          outcome.value.durationMs,
-        )
-      } else {
-        const msg = outcome.reason instanceof Error
-          ? outcome.reason.message
-          : String(outcome.reason)
-        results.push({
-          agentId: entry.spawned.agent.id,
-          role: entry.spawned.role,
-          content: '',
-          success: false,
-          error: msg,
-          durationMs: 0,
-        })
-        this.emitParticipantComplete(entry.participant, runId, false, 0, msg)
-      }
-    }
-
-    const merged = successContents.length > 0 ? await merge(successContents) : ''
-
-    return {
-      content: merged,
-      agentResults: results,
-      durationMs: Date.now() - startTime,
-      pattern: 'peer-to-peer',
-    }
-  }
-
-  /**
-   * Council pattern — proposals from all participants judged by governance model.
-   *
-   * Delegates to `AgentOrchestrator.debate`, using the governance policy's
-   * `judgeModel` (falling back to the first participant that matches, or the
-   * first participant, as the judge). If `requireUnanimous` is set, the
-   * winner still goes through the debate judge — unanimity is a softer
-   * constraint captured in the emitted agent results metadata.
-   */
-  private async runCouncil(task: string, runId: string): Promise<TeamRunResult> {
-    const startTime = Date.now()
-    const spawned = await this.resolveAll()
-    if (spawned.length === 0) {
-      throw new Error('TeamRuntime[council]: team has no participants')
-    }
-
-    // Pick a judge: prefer a participant whose model matches governance.judgeModel,
-    // fall back to the first participant. Proposers are the remaining participants.
-    const judgeModel = this.policies.governance?.judgeModel ?? DEFAULT_GOVERNANCE_MODEL
-    if (this.policies.governance?.judgeModel !== undefined) {
-      this.emitPolicyApplied('governance', 'judgeModel', runId)
-    }
-    const judgeEntry =
-      spawned.find((s) => s.participant.model === judgeModel) ?? spawned[0]!
-    const proposers = spawned.filter((s) => s !== judgeEntry)
-
-    if (proposers.length === 0) {
-      return this.runSingleParticipant(judgeEntry, task, startTime)
-    }
-
-    for (const s of spawned) this.emitParticipantStart(s.participant, runId)
-
-    try {
-      const content = await AgentOrchestrator.debate(
-        proposers.map((p) => p.spawned.agent),
-        judgeEntry.spawned.agent,
-        task,
-      )
-
-      const durationMs = Date.now() - startTime
-      for (const s of spawned) {
-        this.emitParticipantComplete(s.participant, runId, true, durationMs)
-      }
-
-      return {
-        content,
-        agentResults: spawned.map((s) => ({
-          agentId: s.spawned.agent.id,
-          role: s.spawned.role,
-          content: s === judgeEntry ? content : '',
-          success: true,
-          durationMs,
-        })),
-        durationMs,
-        pattern: 'council',
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      const durationMs = Date.now() - startTime
-      for (const s of spawned) {
-        this.emitParticipantComplete(s.participant, runId, false, durationMs, message)
-      }
-      throw err
-    }
-  }
-
-  /**
-   * Resume a previously checkpointed team run.
-   *
-   * Applies the `skipCompletedParticipants` policy by filtering the working
-   * participant set before dispatching to the pattern method. The shared
-   * context in the checkpoint is surfaced to participants by merging it into
-   * the task prompt prefix — this keeps resume consistent with the
-   * pipeline-runtime checkpoint model (which threads `state` through each
-   * node as resume re-enters execution).
+   * Resume a previously checkpointed team run, narrowing the participant
+   * set based on the contract's `skipCompletedParticipants` flag.
    */
   async resume(
     checkpoint: TeamCheckpoint,
@@ -1049,14 +284,14 @@ export class TeamRuntime {
       )
     }
 
-    // Rehydrate the subset of participants that still need to run.
     const pendingIds = contract.skipCompletedParticipants
       ? new Set(checkpoint.pendingParticipantIds)
       : new Set(this.definition.participants.map((p) => p.id))
 
-    const working = this.definition.participants.filter((p) => pendingIds.has(p.id))
+    const working = this.definition.participants.filter((p) =>
+      pendingIds.has(p.id),
+    )
     if (working.length === 0) {
-      // Nothing to run — synthesize a no-op completion result.
       return {
         content: '',
         agentResults: [],
@@ -1065,16 +300,18 @@ export class TeamRuntime {
       }
     }
 
-    // Compose a resume prompt that injects the shared context from the checkpoint.
-    const sharedContextStr = Object.keys(checkpoint.sharedContext).length > 0
-      ? `\n\n## Resumed shared context\n${JSON.stringify(checkpoint.sharedContext, null, 2)}`
-      : ''
+    const sharedContextStr =
+      Object.keys(checkpoint.sharedContext).length > 0
+        ? `\n\n## Resumed shared context\n${JSON.stringify(
+            checkpoint.sharedContext,
+            null,
+            2,
+          )}`
+        : ''
     const resumeTask = `${task}${sharedContextStr}`
 
-    // Temporarily scope the definition to pending participants for this run.
     const originalParticipants = this.definition.participants
     try {
-      // Narrow the participant set by swapping the array; restored in `finally`.
       ;(this.definition as { participants: ParticipantDefinition[] }).participants =
         working
       return await this.execute(resumeTask)
@@ -1084,24 +321,48 @@ export class TeamRuntime {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Resolution + event helpers
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // Pattern context construction
+  // ---------------------------------------------------------------------
 
-  /**
-   * Spawn a `SpawnedAgent` for every `ParticipantDefinition` in the team.
-   * Pairs each `SpawnedAgent` with its source `ParticipantDefinition` so that
-   * pattern methods can emit role/model-aware events.
-   */
-  private async resolveAll(): Promise<
-    Array<{ participant: ParticipantDefinition; spawned: SpawnedAgent }>
-  > {
-    // Apply the supervision policy: skip participants whose breaker is open
-    // (the lazy reset inside `isCircuitOpen` re-admits them once
-    // `resetAfterMs` has elapsed).
-    const eligible = this.definition.participants.filter(
-      (p) => !this.isCircuitOpen(p.id),
-    )
+  private resolvePattern(id: CoordinatorPattern): TeamPattern {
+    const pattern = this.patternRegistry[id]
+    if (!pattern) {
+      throw new Error(
+        `TeamRuntime: unknown coordinator pattern '${String(id)}'`,
+      )
+    }
+    return pattern
+  }
+
+  private async buildPatternContext(
+    task: string,
+    runId: string,
+    startedAt: number,
+  ): Promise<TeamPatternContext> {
+    const participants = await this.resolveAll()
+    const breaker = this.breakerTracker?.registry ?? new KeyedCircuitBreaker()
+    return {
+      task,
+      teamId: this.definition.id,
+      runId,
+      startedAt,
+      definition: this.definition,
+      policies: this.policies,
+      participants,
+      workspace: new SharedWorkspace(),
+      circuitBreaker: breaker,
+      otelSpan: this.currentSpan,
+      hooks: this.makeHooks(runId),
+    }
+  }
+
+  /** Spawn agents for all participants whose breaker is currently closed. */
+  private async resolveAll(): Promise<ResolvedParticipant[]> {
+    const tracker = this.breakerTracker
+    const eligible = tracker
+      ? this.definition.participants.filter((p) => tracker.isAvailable(p.id))
+      : this.definition.participants
     return Promise.all(
       eligible.map(async (participant) => {
         const spawned = await this.spawnParticipant(participant)
@@ -1110,35 +371,31 @@ export class TeamRuntime {
     )
   }
 
-  /**
-   * Run a single participant directly (no coordination). Used as the
-   * degenerate case when a pattern collapses to one participant.
-   */
-  private async runSingleParticipant(
-    entry: { participant: ParticipantDefinition; spawned: SpawnedAgent },
-    task: string,
-    startTime: number,
-  ): Promise<TeamRunResult> {
-    const agent: DzupAgent = entry.spawned.agent
-    const result = await agent.generate([new HumanMessage(task)])
-    const durationMs = Date.now() - startTime
+  private makeHooks(runId: string): TeamPatternHooks {
     return {
-      content: result.content,
-      agentResults: [
-        {
-          agentId: agent.id,
-          role: entry.spawned.role,
-          content: result.content,
-          success: true,
+      emitParticipantStart: (participant) =>
+        this.emitParticipantStart(participant, runId),
+      emitParticipantComplete: (participant, success, durationMs, error) =>
+        this.emitParticipantComplete(
+          participant,
+          runId,
+          success,
           durationMs,
-        },
-      ],
-      durationMs,
-      pattern: 'single-participant',
+          error,
+        ),
+      emitPolicyApplied: (group, field) =>
+        this.emitPolicyApplied(group, field, runId),
     }
   }
 
-  private emitParticipantStart(participant: ParticipantDefinition, runId: string): void {
+  // ---------------------------------------------------------------------
+  // Event helpers + circuit-breaker bookkeeping
+  // ---------------------------------------------------------------------
+
+  private emitParticipantStart(
+    participant: ParticipantDefinition,
+    runId: string,
+  ): void {
     this.emitEvent({
       type: 'participant_started',
       teamId: this.definition.id,
@@ -1173,12 +430,20 @@ export class TeamRuntime {
         'team.participant_status': success ? 'success' : 'failed',
       })
     }
-    // Update circuit-breaker state. Done last so that any thrown callback
-    // does not interfere with event emission.
-    if (success) {
-      this.recordSuccess(participant.id)
-    } else {
-      this.recordFailure(participant.id)
+    this.recordParticipantOutcome(participant.id, success)
+  }
+
+  /** Forward a participant outcome into the breaker tracker. */
+  private recordParticipantOutcome(
+    participantId: string,
+    success: boolean,
+  ): void {
+    const tracker = this.breakerTracker
+    if (!tracker) return
+    if (tracker.record(participantId, success) === 'tripped' && this.currentSpan) {
+      this.currentSpan.addEvent('circuit_breaker.opened', {
+        agentId: participantId,
+      })
     }
   }
 
@@ -1205,53 +470,6 @@ export class TeamRuntime {
     }
   }
 
-  private resolveMaxRounds(): number {
-    // Blackboard uses a simple round count. If an explicit policy knob is
-    // ever added, hook it here; for now default to 3 (matches playground).
-    return 3
-  }
-
-  private resolveMaxParallelParticipants(): number {
-    return (
-      this.policies.execution?.maxParallelParticipants ??
-      DEFAULT_MAX_PARALLEL_PARTICIPANTS
-    )
-  }
-
-  private async mapSettledWithConcurrency<T, R>(
-    items: readonly T[],
-    concurrency: number,
-    mapper: (item: T, index: number) => Promise<R>,
-  ): Promise<Array<PromiseSettledResult<R>>> {
-    const settled: Array<PromiseSettledResult<R>> = new Array(items.length)
-    let nextIndex = 0
-
-    const worker = async (): Promise<void> => {
-      while (true) {
-        const index = nextIndex
-        nextIndex += 1
-        if (index >= items.length) return
-
-        try {
-          settled[index] = {
-            status: 'fulfilled',
-            value: await mapper(items[index]!, index),
-          }
-        } catch (reason: unknown) {
-          settled[index] = { status: 'rejected', reason }
-        }
-      }
-    }
-
-    const workerCount = Math.min(concurrency, items.length)
-    await Promise.all(Array.from({ length: workerCount }, () => worker()))
-    return settled
-  }
-
-  // -------------------------------------------------------------------------
-  // Helpers
-  // -------------------------------------------------------------------------
-
   private transition(
     model: TeamPhaseModel,
     to: TeamPhase,
@@ -1277,5 +495,4 @@ export class TeamRuntime {
       })
     }
   }
-
 }

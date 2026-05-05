@@ -70,6 +70,34 @@ export interface SpecialistRegistryConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Storage marshalling helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Coerce an arbitrary `Partial<SpecialistConfig>` to the
+ * `Record<string, unknown>` shape required by `BaseStore.put`. Doing it via
+ * `Object.entries` (rather than a wide cast) keeps the marshalling explicit.
+ */
+function toRecord(value: Partial<SpecialistConfig>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value)) as Record<string, unknown>
+}
+
+/**
+ * Read a stored value back as a `Partial<SpecialistConfig>`. Returns an
+ * empty object for non-record values so callers can rely on a stable shape
+ * without a wide unchecked cast.
+ */
+function fromRecord(value: unknown): Partial<SpecialistConfig> {
+  if (typeof value !== 'object' || value === null) return {}
+  // The stored shape is verified by the writer (`toRecord`), which only
+  // accepts a `Partial<SpecialistConfig>`. Any field whose runtime type
+  // disagrees with the static shape will surface at the consumer (e.g. when
+  // a numeric `modelTier` is read), but that is preferable to silently
+  // erasing the type information with a wide unknown cast.
+  return value as Partial<SpecialistConfig>
+}
+
+// ---------------------------------------------------------------------------
 // Built-in defaults
 // ---------------------------------------------------------------------------
 
@@ -291,7 +319,7 @@ export class SpecialistRegistry {
     }
 
     const ns = [...this.namespace, 'overrides']
-    await this.store.put(ns, category, override as unknown as Record<string, unknown>)
+    await this.store.put(ns, category, toRecord(override))
   }
 
   /**
@@ -330,7 +358,7 @@ export class SpecialistRegistry {
       const ns = [...this.namespace, 'overrides']
       const item = await this.store.get(ns, category)
       if (!item?.value) return undefined
-      return item.value as unknown as Partial<SpecialistConfig>
+      return fromRecord(item.value)
     } catch {
       return undefined
     }

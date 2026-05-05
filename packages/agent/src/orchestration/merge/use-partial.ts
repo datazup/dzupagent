@@ -17,13 +17,16 @@ export class UsePartialMergeStrategy<T = unknown> implements OrchestrationMergeS
       }
     }
 
+    // See AllRequiredMergeStrategy for the rationale: callers parameterise
+    // `T` to the array type they expect, so a single direct cast preserves
+    // type safety.
     const outputs = results
       .filter((r) => r.status === 'success')
-      .map((r) => r.output)
+      .map((r) => r.output as T)
 
     return {
       status: 'partial',
-      output: outputs as unknown as T,
+      output: outputs as T,
       agentResults: results,
       successCount,
       timeoutCount,

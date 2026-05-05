@@ -67,13 +67,22 @@ export interface CostTrackingConfig {
 
 export interface CostReport {
   totalCostCents: number
-  totalTokens: { input: number; output: number; cached: number }
+  totalTokens: {
+    input: number
+    output: number
+    /** Cache-read tokens (billed at ~10% of input price). */
+    cacheRead: number
+    /** Cache-write tokens (billed at ~125% of input price). */
+    cacheWrite: number
+  }
   perProvider: Record<
     string,
     {
       costCents: number
       inputTokens: number
       outputTokens: number
+      cacheReadTokens: number
+      cacheWriteTokens: number
       invocations: number
     }
   >
@@ -87,11 +96,13 @@ interface ProviderAccumulator {
   costCents: number
   inputTokens: number
   outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
   invocations: number
 }
 
 function emptyAccumulator(): ProviderAccumulator {
-  return { costCents: 0, inputTokens: 0, outputTokens: 0, invocations: 0 }
+  return { costCents: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, invocations: 0 }
 }
 
 // ---------------------------------------------------------------------------
@@ -147,16 +158,20 @@ export class CostTrackingMiddleware {
 
   /** Return a snapshot of accumulated costs. */
   getUsage(): CostReport {
-    const totalTokens = { input: 0, output: 0, cached: 0 }
+    const totalTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
     const perProvider: CostReport['perProvider'] = {}
 
     for (const [providerId, acc] of this.accumulators) {
       totalTokens.input += acc.inputTokens
       totalTokens.output += acc.outputTokens
+      totalTokens.cacheRead += acc.cacheReadTokens
+      totalTokens.cacheWrite += acc.cacheWriteTokens
       perProvider[providerId] = {
         costCents: acc.costCents,
         inputTokens: acc.inputTokens,
         outputTokens: acc.outputTokens,
+        cacheReadTokens: acc.cacheReadTokens,
+        cacheWriteTokens: acc.cacheWriteTokens,
         invocations: acc.invocations,
       }
     }
@@ -194,6 +209,8 @@ export class CostTrackingMiddleware {
 
     acc.inputTokens += usage.inputTokens
     acc.outputTokens += usage.outputTokens
+    acc.cacheReadTokens += usage.cachedInputTokens ?? 0
+    acc.cacheWriteTokens += usage.cacheWriteTokens ?? 0
     acc.invocations += 1
 
     const costCents = usage.costCents ?? this.estimateCost(providerId, usage)
@@ -252,13 +269,17 @@ export class CostTrackingMiddleware {
   private estimateCost(providerId: AdapterProviderId, usage: TokenUsage): number {
     const rates = PROVIDER_RATES[providerId]
     if (!rates) return 0
-    const cachedTokens = usage.cachedInputTokens ?? 0
-    const uncachedInputTokens = Math.max(0, usage.inputTokens - cachedTokens)
+
+    const cacheReadTokens = usage.cachedInputTokens ?? 0
+    const cacheWriteTokens = usage.cacheWriteTokens ?? 0
+    const cachedTotal = cacheReadTokens + cacheWriteTokens
+    const uncachedInputTokens = Math.max(0, usage.inputTokens - cachedTotal)
 
     const inputCost = (uncachedInputTokens * rates.inputCentsPer1M) / 1_000_000
-    const cachedReadCost = (cachedTokens * (rates.cachedInputCentsPer1M ?? rates.inputCentsPer1M)) / 1_000_000
+    const cacheReadCost = (cacheReadTokens * (rates.cachedInputCentsPer1M ?? rates.inputCentsPer1M)) / 1_000_000
+    const cacheWriteCost = (cacheWriteTokens * (rates.cacheWriteCentsPer1M ?? rates.inputCentsPer1M)) / 1_000_000
     const outputCost = (usage.outputTokens * rates.outputCentsPer1M) / 1_000_000
-    return inputCost + cachedReadCost + outputCost
+    return inputCost + cacheReadCost + cacheWriteCost + outputCost
   }
 
   private buildBudgetUsage(percent: number) {

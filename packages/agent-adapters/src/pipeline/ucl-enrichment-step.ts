@@ -6,7 +6,7 @@
  * best-effort — a broken skill file should never block a run.
  */
 
-import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+import { typedEmit, type DzupEventBus } from '@dzupagent/core'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { WorkspaceResolver } from '../dzupagent/workspace-resolver.js'
@@ -75,9 +75,11 @@ export class UCLEnrichmentStep {
       skipSkills: cfg.skipSkills,
       skipMemory: cfg.skipMemory,
       // Adapter-layer events are emitted directly on the bus (not via the
-      // bridge). Cast required because these events are not part of the
-      // core DzupEvent union.
-      emitEvent: (event) => this._eventBus.emit(event as unknown as DzupEvent),
+      // bridge). The `adapter:memory_recalled` and `adapter:skills_compiled`
+      // types are part of the core DzupEvent union, so no cast is needed —
+      // we route through `typedEmit` to keep the discriminated-union check
+      // intact at the call site.
+      emitEvent: (event) => typedEmit(this._eventBus, event),
     })
   }
 }

@@ -11,7 +11,7 @@
 import type { DzupEventBus, DzupEventOf } from '@dzupagent/core'
 import { defaultLogger } from '@dzupagent/core'
 
-import type { AgentCLIAdapter, TaskRoutingStrategy } from '../types.js'
+import type { AdapterProviderId, AgentCLIAdapter, TaskRoutingStrategy } from '../types.js'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type { ProviderAdapterRegistryConfig } from '../registry/adapter-registry.js'
 import { EventBusBridge } from '../registry/event-bus-bridge.js'
@@ -205,9 +205,9 @@ export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPl
         // Only record if the agentId matches a registered adapter.
         const adapters = registry.listAdapters()
         const providerId = event.agentId
-        if (adapters.includes(providerId as Parameters<typeof adapters.includes>[0])) {
+        if ((adapters as string[]).includes(providerId)) {
           registry.recordFailure(
-            providerId as Parameters<typeof registry.recordFailure>[0],
+            providerId as AdapterProviderId,
             new Error(typeof event.message === 'string' ? event.message : 'Agent failed'),
           )
         }

@@ -68,6 +68,7 @@ import {
 } from './run-engine.js'
 import type { RunHandle, LaunchOptions } from './run-handle-types.js'
 import { streamRun } from './streaming-run.js'
+import { attemptWithFailover } from './provider-failover.js'
 import { launchDaemon } from './daemon-launcher.js'
 import { agentAsTool } from '../tools/agent-as-tool.js'
 import {
@@ -460,14 +461,12 @@ export class DzupAgent {
     }
 
     const maxAttempts = Math.max(1, this.config.providerFailover.maxAttempts ?? 2)
-    const registry = this.config.registry as unknown as {
-      getModelFallbackCandidates: (tier: ModelTier) => ProviderAttempt[]
-    }
-    return registry
+    return this.config.registry
       .getModelFallbackCandidates(this.resolvedTier)
       .slice(0, maxAttempts)
-      .map(candidate => ({
-        ...candidate,
+      .map((candidate): ProviderAttempt => ({
+        provider: candidate.provider,
+        modelName: candidate.modelName,
         model: this.bindTools(
           attachStructuredOutputCapabilities(
             candidate.model,
@@ -489,29 +488,6 @@ export class DzupAgent {
       return false
     }
     return policy.shouldRetry?.(error) ?? isTransientError(error)
-  }
-
-  private emitProviderAttempt(event: {
-    type: 'provider:run_attempt' | 'provider:run_failure' | 'provider:run_selected'
-    attempt: number
-    maxAttempts?: number
-    provider: string
-    model: string
-    phase: 'invoke' | 'stream'
-    reason?: string
-    retrying?: boolean
-  }): void {
-    this.config.eventBus?.emit({
-      type: event.type,
-      agentId: this.id,
-      attempt: event.attempt,
-      provider: event.provider,
-      model: event.model,
-      phase: event.phase,
-      ...(event.maxAttempts !== undefined ? { maxAttempts: event.maxAttempts } : {}),
-      ...(event.reason !== undefined ? { reason: event.reason } : {}),
-      ...(event.retrying !== undefined ? { retrying: event.retrying } : {}),
-    } as never)
   }
 
   private getTools(): StructuredToolInterface[] {
@@ -727,7 +703,7 @@ export class DzupAgent {
         type: 'agent:rate_limited',
         agentId: this.id,
         reason: err instanceof Error ? err.message : String(err),
-      } as never)
+      })
       throw err
     }
   }
@@ -767,51 +743,18 @@ export class DzupAgent {
     attempts: ProviderAttempt[],
     messages: BaseMessage[],
   ): Promise<BaseMessage> {
-    let lastError: unknown
-
-    for (let index = 0; index < attempts.length; index++) {
-      const attempt = attempts[index]!
-      const attemptNumber = index + 1
-      this.emitProviderAttempt({
-        type: 'provider:run_attempt',
-        attempt: attemptNumber,
-        maxAttempts: attempts.length,
-        provider: attempt.provider,
-        model: attempt.modelName,
-        phase: 'invoke',
-      })
-
-      await this.awaitRateLimit()
-      try {
-        const result = await this.middlewareRuntime.invokeModel(attempt.model, messages)
-        this.config.registry?.recordProviderSuccess(attempt.provider)
-        this.emitProviderAttempt({
-          type: 'provider:run_selected',
-          attempt: attemptNumber,
-          provider: attempt.provider,
-          model: attempt.modelName,
-          phase: 'invoke',
-        })
-        return result
-      } catch (err) {
-        lastError = err
-        const asError = err instanceof Error ? err : new Error(String(err))
-        this.config.registry?.recordProviderFailure(attempt.provider, asError)
-        const retrying = index < attempts.length - 1 && this.shouldRunFailover(asError, messages)
-        this.emitProviderAttempt({
-          type: 'provider:run_failure',
-          attempt: attemptNumber,
-          provider: attempt.provider,
-          model: attempt.modelName,
-          phase: 'invoke',
-          reason: asError.message,
-          retrying,
-        })
-        if (!retrying) break
-      }
-    }
-
-    throw lastError
+    return attemptWithFailover<BaseMessage>({
+      attempts,
+      phase: 'invoke',
+      agentId: this.id,
+      eventBus: this.config.eventBus,
+      registry: this.config.registry,
+      shouldRetry: (err) => this.shouldRunFailover(err, messages),
+      execute: async (attempt) => {
+        await this.awaitRateLimit()
+        return this.middlewareRuntime.invokeModel(attempt.model, messages)
+      },
+    })
   }
 
   private async transformToolResultWithMiddleware(

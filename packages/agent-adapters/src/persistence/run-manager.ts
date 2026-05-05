@@ -9,7 +9,7 @@
 
 import crypto from 'node:crypto'
 
-import type { DzupEventBus, RunStatus } from '@dzupagent/core'
+import { typedEmit, type DzupEventBus, type RunLifecycleEvent, type RunStatus } from '@dzupagent/core'
 
 import type {
   AdapterProviderId,
@@ -348,13 +348,17 @@ export class RunManager {
   private emitRunEvent(run: AdapterRun): void {
     if (!this.eventBus) return
 
-    const event = {
-      type: `adapter:run_${run.status}` as const,
+    // The DzupEvent union has one member per RunStatus value (e.g.
+    // `adapter:run_pending`, `adapter:run_completed`, ...). The dynamic
+    // template-literal `type` is a union of those literals, but the compiler
+    // cannot pair the dynamic discriminator with a single union member, so
+    // we bind it to a concrete `RunLifecycleEvent` first and then dispatch.
+    const event: RunLifecycleEvent = {
+      type: `adapter:run_${run.status}` as RunLifecycleEvent['type'],
       runId: run.runId,
-      providerId: run.providerId,
+      ...(run.providerId !== undefined ? { providerId: run.providerId } : {}),
       status: run.status,
     }
-
-    this.eventBus.emit(event as unknown as Parameters<DzupEventBus['emit']>[0])
+    typedEmit(this.eventBus, event)
   }
 }

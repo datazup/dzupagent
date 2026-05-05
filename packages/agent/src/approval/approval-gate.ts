@@ -85,7 +85,7 @@ export class ApprovalGate {
         runId,
         contactId,
         reason: this.abortReason(options.signal),
-      } as never)
+      })
       return 'cancelled'
     }
 
@@ -141,7 +141,7 @@ export class ApprovalGate {
             runId,
             contactId,
             reason: this.abortReason(options.signal),
-          } as never)
+          })
           resolve('cancelled')
         }
       }
@@ -158,10 +158,10 @@ export class ApprovalGate {
               runId,
               contactId,
               timeoutMs,
-            } as never)
+            })
             resolve('timeout')
           }
-        }, timeoutMs)
+        }, timeoutMs).unref()
       }
     })
   }
@@ -278,16 +278,46 @@ export class ApprovalGate {
     request: ApprovalRequest,
   ): Promise<void> {
     if (!this.config.webhookUrl) return
-    await fetch(this.config.webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'approval_requested',
-        runId,
-        plan,
-        contactId: request.contactId,
-        channel: request.channel,
-      }),
+    const webhookUrl = this.config.webhookUrl
+    const body = JSON.stringify({
+      type: 'approval_requested',
+      runId,
+      plan,
+      contactId: request.contactId,
+      channel: request.channel,
     })
+    const delays = [100, 300, 900]
+    let lastError: Error = new Error('unknown')
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      if (attempt > 0) {
+        const jitter = Math.floor(Math.random() * 50)
+        await new Promise<void>((r) => setTimeout(r, delays[attempt - 1]! + jitter).unref())
+      }
+      try {
+        const res = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        })
+        if (res.ok) return
+        lastError = new Error(`webhook returned ${res.status}`)
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err))
+      }
+    }
+    this.eventBus.emit({
+      type: 'approval:webhook_failed',
+      runId,
+      webhookUrl,
+      attempts: delays.length,
+      error: lastError.message,
+    })
+    if (this.config.webhookDLQ) {
+      try {
+        await this.config.webhookDLQ(runId, webhookUrl, lastError)
+      } catch {
+        // DLQ callback errors must not surface to the caller
+      }
+    }
   }
 }

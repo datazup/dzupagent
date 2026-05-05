@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { buildDefaultWatcherRegistrations } from '@dzupagent/adapter-rules'
-import { ForgeError } from '@dzupagent/core'
 
 import type {
   AdapterConfig,
@@ -12,86 +10,44 @@ import type {
   GovernanceEvent,
   HealthStatus,
   AdapterMonitorStatus,
-  EnvFilterConfig,
   InteractionPolicy,
 } from '../types.js'
 import { withCorrelationId } from '../types.js'
 import { isBinaryAvailable, spawnAndStreamJsonl } from '../utils/process-helpers.js'
 import type { SpawnJsonlOptions } from '../utils/process-helpers.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
-import type { InteractionKind } from '../interaction/interaction-detector.js'
 import {
-  getAdapterRuleRuntimePlan,
-  resolveAdapterWatchPath,
-  resolveRuntimePlanWatcherPaths,
-} from '../rules.js'
-import { ADAPTER_TRACE_ENV_OPTION } from '../observability/adapter-tracer.js'
-import { getDefaultMonitorStatus, getProviderCapabilities } from '../provider-catalog.js'
+  GovernanceEmitter,
+  type EmitRuleViolationOpts,
+  type GuardrailsLike,
+  type RuleViolation,
+} from './governance-emitter.js'
+import {
+  ArtifactWatcherHost,
+  resolveWatcherPaths,
+  type ArtifactWatcherHandle,
+} from './artifact-watcher-host.js'
+import {
+  buildEnv as buildEnvHelper,
+  applyTraceEnv,
+  filterSensitiveEnvVars,
+} from './env-builder.js'
+import {
+  normalizeAdapterError,
+  shouldRethrowAdapterError,
+  type NormalizedAdapterError,
+} from './adapter-error-normalizer.js'
+import { createStdinResponder } from './stdin-responder.js'
 
-/** Default patterns for sensitive env vars that should not leak to child processes */
-const DEFAULT_SENSITIVE_PATTERNS: RegExp[] = [
-  /SECRET/i,
-  /PASSWORD/i,
-  /PRIVATE_KEY/i,
-  /^DATABASE_URL$/i,
-  /^JWT_SECRET$/i,
-  /^COOKIE_SECRET$/i,
-  /TOKEN(?!_LIMIT|_COUNT|S_PER)/i,
-]
-
-/**
- * Filter sensitive environment variables based on the provided config.
- *
- * Removes entries whose keys match any blocked pattern, unless the key
- * is explicitly listed in `allowedVars`. Returns a new object; does not
- * mutate the input.
- */
-export function filterSensitiveEnvVars(
-  env: Record<string, string>,
-  config?: EnvFilterConfig,
-): Record<string, string> {
-  if (config?.disableFilter) {
-    return { ...env }
-  }
-  const patterns = [
-    ...DEFAULT_SENSITIVE_PATTERNS,
-    ...(config?.blockedPatterns ?? []),
-  ]
-  const allowed = new Set(config?.allowedVars ?? [])
-  const result: Record<string, string> = {}
-  for (const key of Object.keys(env)) {
-    if (!allowed.has(key) && patterns.some((p) => p.test(key))) {
-      continue
-    }
-    const val = env[key]
-    if (val !== undefined) result[key] = val
-  }
-  return result
-}
-
-interface NormalizedAdapterError {
-  message: string
-  code?: string | undefined
-  original: unknown
-}
+// Backward-compat re-exports
+export { filterSensitiveEnvVars }
+export type { ArtifactWatcherHandle }
 
 /**
- * Opaque handle returned by an artifact-watcher implementation. The base
- * adapter only needs a way to stop a running watcher; the concrete type is
- * intentionally minimal so the adapter-monitor dependency stays optional.
- */
-interface ArtifactWatcherHandle {
-  stop: () => void
-}
-
-/**
- * Shared base class for CLI-backed adapters (Gemini/Qwen/Crush).
- *
- * Centralizes:
- * - process spawn + JSONL stream loop
- * - started/completed/failed lifecycle events
- * - abort composition and interrupt behavior
- * - common health-check + configuration updates
+ * Shared base class for CLI-backed adapters (Gemini/Qwen/Crush). Centralizes
+ * spawn + JSONL stream, lifecycle events, abort/interrupt, healthcheck, and
+ * configuration. Cross-cutting concerns delegate to {@link GovernanceEmitter},
+ * {@link ArtifactWatcherHost}, env-builder, and adapter-error-normalizer.
  */
 export abstract class BaseCliAdapter implements AgentCLIAdapter {
   readonly providerId: AdapterProviderId
@@ -99,233 +55,46 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   protected config: AdapterConfig
   private currentAbortController: AbortController | null = null
 
-  /**
-   * Active artifact-watcher handle for the current run, if any. Populated by
-   * {@link startArtifactWatcher} on run start and cleared by
-   * {@link stopArtifactWatcher} when the run ends (success, failure, or
-   * cancellation). Remains `null` unless a concrete watcher is wired in via
-   * {@link setArtifactWatcherFactory}.
-   */
-  private artifactWatcher: ArtifactWatcherHandle | null = null
-
-  /**
-   * Optional factory that creates an {@link ArtifactWatcherHandle} given a
-   * list of absolute paths to watch. This indirection keeps the
-   * `@datazup/dzupagent-adapter-monitor` package an *optional* peer: when the
-   * dependency is not installed, the factory stays `null` and
-   * {@link startArtifactWatcher} becomes a no-op.
-   */
-  private artifactWatcherFactory:
-    | ((paths: string[], providerId: AdapterProviderId) => ArtifactWatcherHandle)
-    | null = null
-  private monitorStatus: AdapterMonitorStatus
-
-  /**
-   * Listeners registered via {@link onGovernanceEvent}.  The governance
-   * plane is a side-channel parallel to the primary AgentEvent stream — it
-   * surfaces approval/authorization decisions, hook executions, rule
-   * violations, and dangerous-command detections for auditing purposes.
-   */
-  private governanceListeners = new Set<(event: GovernanceEvent) => void>()
-
-  /**
-   * Run-scoped correlation context used by governance emitters that fire
-   * outside the spawn loop (e.g. {@link emitRuleViolation} called from the
-   * rules compile path, or from a guardrails callback).  Populated at the
-   * top of {@link execute} and cleared in `finally`.
-   */
-  private currentRunContext: { runId: string; sessionId: string } | null = null
+  private readonly governance: GovernanceEmitter
+  private readonly artifactWatcherHost: ArtifactWatcherHost
 
   constructor(providerId: AdapterProviderId, config: AdapterConfig = {}) {
     this.providerId = providerId
     this.config = { ...config }
-    this.monitorStatus = getDefaultMonitorStatus(providerId)
+    this.governance = new GovernanceEmitter(providerId)
+    this.artifactWatcherHost = new ArtifactWatcherHost(providerId)
   }
 
-  /**
-   * Subscribe to governance events emitted by this adapter.
-   * Returns an unsubscribe function — call it when the consumer detaches
-   * to prevent leaks.  Errors thrown inside listeners are swallowed so they
-   * cannot break the adapter event loop.
-   */
   onGovernanceEvent(listener: (event: GovernanceEvent) => void): () => void {
-    this.governanceListeners.add(listener)
-    return () => {
-      this.governanceListeners.delete(listener)
-    }
+    return this.governance.onGovernanceEvent(listener)
   }
 
-  /**
-   * Emit a governance event to all registered listeners.
-   *
-   * Subclasses and internal helpers call this to publish approval requests,
-   * hook executions, rule violations, or dangerous-command alerts.  Listener
-   * errors are intentionally swallowed to protect the event loop.
-   */
   protected emitGovernanceEvent(event: GovernanceEvent): void {
-    for (const listener of this.governanceListeners) {
-      try {
-        listener(event)
-      } catch {
-        /* listener errors must not break the adapter event loop */
-      }
-    }
+    this.governance.emit(event)
   }
 
-  /**
-   * Emit a `governance:rule_violation` event on the governance side-channel.
-   *
-   * The canonical emission path is the RuleCompiler's validation step
-   * (see `@dzupagent/adapter-rules`) and the {@link AdapterGuardrails}
-   * `onRuleViolation` callback.  This helper provides a convenient,
-   * type-safe shortcut that also stamps the currently-active run context
-   * (populated by {@link execute}).
-   *
-   * Callers may override `runId` or `sessionId` explicitly; when omitted
-   * the current run context is used, and when no run is active the
-   * caller-supplied runId is required (falls back to an empty string only
-   * when also omitted — hosts should pass one in for out-of-run
-   * validations).
-   */
-  emitRuleViolation(opts: {
-    ruleId: string
-    severity: 'warn' | 'block'
-    detail: string
-    runId?: string
-    sessionId?: string
-    timestamp?: number
-  }): void {
-    const ctx = this.currentRunContext
-    const runId = opts.runId ?? ctx?.runId ?? ''
-    const sessionId = opts.sessionId ?? ctx?.sessionId
-    const event: GovernanceEvent = {
-      type: 'governance:rule_violation',
-      runId,
-      providerId: this.providerId,
-      timestamp: opts.timestamp ?? Date.now(),
-      ruleId: opts.ruleId,
-      severity: opts.severity,
-      detail: opts.detail,
-      ...(sessionId ? { sessionId } : {}),
-    }
-    this.emitGovernanceEvent(event)
+  emitRuleViolation(opts: EmitRuleViolationOpts): void {
+    this.governance.emitRuleViolation(opts)
   }
 
-  /**
-   * Wire an {@link AdapterGuardrails}-like object so its `onRuleViolation`
-   * callback is routed into this adapter's governance side-channel.
-   *
-   * The supplied object is mutated: its `onRuleViolation` field is replaced
-   * with a composed callback that first forwards to any existing callback
-   * and then emits a `governance:rule_violation` event.  Call sites that
-   * want to observe violations on both channels should register the
-   * original callback before invoking this method.
-   */
-  attachGuardrailsGovernance(
-    guardrails: {
-      onRuleViolation?: (
-        ruleId: string,
-        severity: 'warn' | 'block',
-        detail: string,
-      ) => void
-      getOnRuleViolation?: () =>
-        | ((ruleId: string, severity: 'warn' | 'block', detail: string) => void)
-        | undefined
-      setOnRuleViolation?: (
-        cb:
-          | ((ruleId: string, severity: 'warn' | 'block', detail: string) => void)
-          | undefined,
-      ) => void
-    },
-  ): void {
-    const existing = guardrails.getOnRuleViolation
-      ? guardrails.getOnRuleViolation()
-      : guardrails.onRuleViolation
-    const composed = (
-      ruleId: string,
-      severity: 'warn' | 'block',
-      detail: string,
-    ): void => {
-      try {
-        existing?.(ruleId, severity, detail)
-      } catch {
-        /* host callback errors must not break governance emission */
-      }
-      this.emitRuleViolation({ ruleId, severity, detail })
-    }
-    if (guardrails.setOnRuleViolation) {
-      guardrails.setOnRuleViolation(composed)
-    } else {
-      guardrails.onRuleViolation = composed
-    }
+  attachGuardrailsGovernance(guardrails: GuardrailsLike): void {
+    this.governance.attachGuardrails(guardrails)
   }
 
-  /**
-   * Validate a list of rules against a compile context using the supplied
-   * validator callback.  Any violations reported by the validator are
-   * emitted as `governance:rule_violation` events and returned.
-   *
-   * Agent-adapters intentionally does not take a hard dependency on
-   * `@dzupagent/adapter-rules`; hosts that wish to integrate the
-   * RuleCompiler pass its validation function here.  This keeps the base
-   * adapter's governance plane aware of compile-time rule failures without
-   * introducing a package-level dependency.
-   */
   validateAndEmitRules<TRule, TContext>(
     rules: TRule[],
     context: TContext,
-    validator: (
-      rules: TRule[],
-      context: TContext,
-    ) => ReadonlyArray<{
-      ruleId: string
-      severity: 'warn' | 'block'
-      detail: string
-    }>,
+    validator: (rules: TRule[], context: TContext) => ReadonlyArray<RuleViolation>,
     opts?: { runId?: string; sessionId?: string },
-  ): ReadonlyArray<{
-    ruleId: string
-    severity: 'warn' | 'block'
-    detail: string
-  }> {
-    let violations: ReadonlyArray<{
-      ruleId: string
-      severity: 'warn' | 'block'
-      detail: string
-    }> = []
-    try {
-      violations = validator(rules, context)
-    } catch {
-      // A thrown validator is treated as a single blocking violation so the
-      // governance plane still records the failure.
-      const runId = opts?.runId ?? this.currentRunContext?.runId ?? ''
-      const sessionId = opts?.sessionId ?? this.currentRunContext?.sessionId
-      this.emitRuleViolation({
-        ruleId: 'rule_compile_error',
-        severity: 'block',
-        detail: 'Rule validator threw',
-        ...(runId ? { runId } : {}),
-        ...(sessionId ? { sessionId } : {}),
-      })
-      return []
-    }
-    for (const v of violations) {
-      this.emitRuleViolation({
-        ruleId: v.ruleId,
-        severity: v.severity,
-        detail: v.detail,
-        ...(opts?.runId ? { runId: opts.runId } : {}),
-        ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
-      })
-    }
-    return violations
+  ): ReadonlyArray<RuleViolation> {
+    return this.governance.validateAndEmitRules(rules, context, validator, opts)
   }
 
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
     const sessionId = randomUUID()
     const startTime = Date.now()
     const runIdForContext = input.correlationId ?? sessionId
-    this.currentRunContext = { runId: runIdForContext, sessionId }
+    this.governance.setRunContext({ runId: runIdForContext, sessionId })
 
     await this.assertReady()
 
@@ -341,187 +110,63 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       isResume: !!input.resumeSessionId,
     }, input.correlationId)
 
-    // ArtifactWatcher integration: start watcher on run begin, stop on end
-    // (requires @datazup/dzupagent-adapter-monitor peer). When the peer is
-    // not wired via setArtifactWatcherFactory this call is a no-op.
+    // Start artifact watcher (no-op when no factory wired).
     const workingDirectory =
       input.workingDirectory ?? this.config.workingDirectory ?? process.cwd()
-    const runtimePlan = getAdapterRuleRuntimePlan(input, this.providerId)
-    const defaultWatcherPaths = buildDefaultWatcherRegistrations({
-      providerId: this.providerId,
-      workspaceDir: workingDirectory,
-    }).map((registration) => registration.path)
-    const resolvedPaths = dedupe([
-      ...defaultWatcherPaths.map((p) => resolveAdapterWatchPath(p, workingDirectory)),
-      ...(runtimePlan
-        ? resolveRuntimePlanWatcherPaths(runtimePlan, workingDirectory)
-        : []),
-    ])
-    this.startArtifactWatcher(resolvedPaths)
+    this.startArtifactWatcher(
+      resolveWatcherPaths(this.providerId, input, workingDirectory),
+    )
 
     this.currentAbortController = new AbortController()
     const combinedSignal = input.signal
       ? AbortSignal.any([this.currentAbortController.signal, input.signal])
       : this.currentAbortController.signal
 
-    const args = this.buildArgs(input)
-    const env = this.buildSpawnEnv(input)
-
-    // Set up interaction handling
     const policy = this.resolveInteractionPolicy(input)
     const resolver = policy.mode !== 'auto-approve' ? new InteractionResolver(policy) : null
-    // Events generated by the stdinResponder closure are drained before each record
     const pendingEvents: AgentEvent[] = []
 
     const spawnOpts: SpawnJsonlOptions = {
       cwd: input.workingDirectory ?? this.config.workingDirectory,
-      env,
+      env: this.buildSpawnEnv(input),
       signal: combinedSignal,
       timeoutMs: this.config.timeoutMs,
     }
-
     if (resolver) {
-      spawnOpts.stdinResponder = async (
-        _record: Record<string, unknown>,
-        question: string,
-        kind: InteractionKind,
-      ): Promise<string | null> => {
-        const interactionId = randomUUID()
-        const timeoutMs = policy.askCaller?.timeoutMs ?? 60_000
-        const now = Date.now()
-        // runId defaults to correlationId when present, else the sessionId.
-        const runId = input.correlationId ?? sessionId
-
-        if (policy.mode === 'ask-caller') {
-          pendingEvents.push(withCorrelationId({
-            type: 'adapter:interaction_required',
-            providerId: this.providerId,
-            interactionId,
-            question,
-            kind,
-            timestamp: now,
-            expiresAt: now + timeoutMs,
-          }, input.correlationId))
-        }
-
-        // Governance side-channel: mirror every interaction request as an
-        // approval_requested event regardless of policy mode so the audit
-        // trail captures auto-approved prompts too.
-        this.emitGovernanceEvent({
-          type: 'governance:approval_requested',
-          runId,
-          sessionId,
-          interactionId,
-          providerId: this.providerId,
-          timestamp: now,
-          prompt: question,
-        })
-
-        const result = await resolver.resolve({ interactionId, question, kind })
-
-        pendingEvents.push(withCorrelationId({
-          type: 'adapter:interaction_resolved',
-          providerId: this.providerId,
-          interactionId,
-          question,
-          answer: result.answer,
-          resolvedBy: result.resolvedBy,
-          timestamp: Date.now(),
-        }, input.correlationId))
-
-        // Governance side-channel: mirror resolution with a normalized
-        // resolution field distinct from the detailed resolvedBy.
-        this.emitGovernanceEvent({
-          type: 'governance:approval_resolved',
-          runId,
-          sessionId,
-          interactionId,
-          providerId: this.providerId,
-          timestamp: Date.now(),
-          resolution: mapResolvedByToResolution(result.resolvedBy),
-        })
-
-        return result.answer
-      }
+      spawnOpts.stdinResponder = createStdinResponder({
+        providerId: this.providerId,
+        resolver,
+        policy,
+        input,
+        sessionId,
+        pendingEvents,
+        governance: this.governance,
+      })
     }
 
     try {
       let hasCompleted = false
       let hasFailed = false
-
+      const args = this.buildArgs(input)
       for await (const record of spawnAndStreamJsonl(this.getBinaryName(), args, spawnOpts)) {
-        // Drain any interaction events accumulated during stdinResponder
-        for (const evt of pendingEvents.splice(0)) {
-          yield evt
-        }
+        for (const evt of pendingEvents.splice(0)) yield evt
 
-        // Detect hook execution records from the provider JSONL stream and
-        // emit governance:hook_executed so the audit plane captures them.
-        // Providers signal hook runs via type: 'hook_execution' (Codex
-        // pattern), a top-level hookName / hook_name field, or a nested
-        // `hook.name` object.
-        const recordType = typeof record.type === 'string' ? record.type : ''
-        const topLevelHookName =
-          (typeof record.hookName === 'string' && record.hookName.length > 0
-            ? record.hookName
-            : undefined) ??
-          (typeof record.hook_name === 'string' && record.hook_name.length > 0
-            ? record.hook_name
-            : undefined)
-        const nestedHookName =
-          record.hook &&
-          typeof record.hook === 'object' &&
-          typeof (record.hook as Record<string, unknown>).name === 'string'
-            ? ((record.hook as Record<string, unknown>).name as string)
-            : undefined
-        const isHookRecord =
-          recordType === 'hook_execution' ||
-          !!topLevelHookName ||
-          !!nestedHookName
-        if (isHookRecord) {
-          const hookName =
-            topLevelHookName ?? nestedHookName ?? recordType
-          const exitCode =
-            typeof record.exitCode === 'number'
-              ? record.exitCode
-              : typeof record.exit_code === 'number'
-              ? record.exit_code
-              : typeof record.hook === 'object' &&
-                record.hook !== null &&
-                typeof (record.hook as Record<string, unknown>).exitCode ===
-                  'number'
-              ? ((record.hook as Record<string, unknown>).exitCode as number)
-              : undefined
-          const runId = this.currentRunContext?.runId ?? input.correlationId ?? sessionId
-          this.emitGovernanceEvent({
-            type: 'governance:hook_executed',
-            runId,
-            sessionId,
-            providerId: this.providerId,
-            timestamp: Date.now(),
-            hookName,
-            ...(exitCode !== undefined ? { exitCode } : {}),
-          })
-        }
+        // Emit governance:hook_executed for recognized hook records.
+        this.governance.emitHookExecutedIfRecognized(record, {
+          runId: input.correlationId ?? sessionId,
+          sessionId,
+        })
 
         const mapped = this.mapProviderEvent(record, sessionId)
         if (!mapped) continue
 
         const event = withCorrelationId(mapped, input.correlationId)
-
-        if (event.type === 'adapter:completed') {
-          hasCompleted = true
-        }
-        if (event.type === 'adapter:failed') {
-          hasFailed = true
-        }
+        if (event.type === 'adapter:completed') hasCompleted = true
+        if (event.type === 'adapter:failed') hasFailed = true
         yield event
       }
 
-      // Drain any remaining interaction events
-      for (const evt of pendingEvents.splice(0)) {
-        yield evt
-      }
+      for (const evt of pendingEvents.splice(0)) yield evt
 
       if (!hasCompleted && !hasFailed) {
         yield withCorrelationId({
@@ -544,14 +189,12 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         timestamp: Date.now(),
       }, input.correlationId)
 
-      if (this.shouldRethrow(normalized.original)) {
-        throw normalized.original
-      }
+      if (this.shouldRethrow(normalized.original)) throw normalized.original
     } finally {
       resolver?.dispose()
       this.currentAbortController = null
       this.stopArtifactWatcher()
-      this.currentRunContext = null
+      this.governance.setRunContext(null)
     }
   }
 
@@ -559,18 +202,13 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     sessionId: string,
     input: AgentInput,
   ): AsyncGenerator<AgentEvent, void, undefined> {
-    const modifiedInput: AgentInput = {
-      ...input,
-      resumeSessionId: sessionId,
-    }
-    yield* this.execute(modifiedInput)
+    yield* this.execute({ ...input, resumeSessionId: sessionId })
   }
 
   interrupt(): void {
-    if (this.currentAbortController) {
-      this.currentAbortController.abort()
-      this.currentAbortController = null
-    }
+    if (!this.currentAbortController) return
+    this.currentAbortController.abort()
+    this.currentAbortController = null
   }
 
   async healthCheck(): Promise<HealthStatus> {
@@ -590,92 +228,25 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     this.config = { ...this.config, ...opts }
   }
 
-  /**
-   * Wire an artifact-watcher implementation. Intended for hosts that depend
-   * on `@datazup/dzupagent-adapter-monitor` to pass a factory that returns a
-   * concrete {@link ArtifactWatcher} handle.  When no factory is set, the
-   * watcher integration becomes a no-op — the base package stays free of
-   * the optional peer dependency while still supporting the run lifecycle
-   * hook points.
-   */
+  /** Wire an artifact-watcher factory. See {@link ArtifactWatcherHost}. */
   setArtifactWatcherFactory(
     factory:
       | ((paths: string[], providerId: AdapterProviderId) => ArtifactWatcherHandle)
       | null,
   ): void {
-    this.artifactWatcherFactory = factory
-    this.monitorStatus = this.resolveIdleMonitorStatus()
+    this.artifactWatcherHost.setFactory(factory)
   }
 
   getMonitorStatus(): AdapterMonitorStatus {
-    return { ...this.monitorStatus }
+    return this.artifactWatcherHost.getStatus()
   }
 
-  /**
-   * Begin watching the supplied paths for the duration of the current run.
-   * Called automatically by {@link execute} right after the
-   * `adapter:started` event has been yielded. No-op when no factory has
-   * been wired or when the provider has no registered watch-spec.
-   */
   protected startArtifactWatcher(paths: string[]): void {
-    if (this.artifactWatcher) return
-    if (!this.isMonitorSupported()) {
-      this.monitorStatus = this.unsupportedMonitorStatus()
-      return
-    }
-    if (!this.artifactWatcherFactory) {
-      this.monitorStatus = {
-        ...this.monitorBase(),
-        state: 'not_configured',
-        supported: true,
-        watchedPathCount: paths.length,
-      }
-      return
-    }
-    if (paths.length === 0) {
-      this.monitorStatus = {
-        ...this.monitorBase(),
-        state: 'not_configured',
-        supported: true,
-        watchedPathCount: 0,
-      }
-      return
-    }
-    try {
-      this.artifactWatcher = this.artifactWatcherFactory(paths, this.providerId)
-      this.monitorStatus = {
-        ...this.monitorBase(),
-        state: 'active',
-        supported: true,
-        watchedPathCount: paths.length,
-      }
-    } catch {
-      // Watcher start failures must not break the run — best-effort only.
-      this.artifactWatcher = null
-      this.monitorStatus = {
-        ...this.monitorBase(),
-        state: 'failed_to_start',
-        supported: true,
-        watchedPathCount: paths.length,
-        lastError: 'Artifact watcher factory failed to start',
-      }
-    }
+    this.artifactWatcherHost.start(paths)
   }
 
-  /**
-   * Stop the active artifact watcher, if any. Invoked in the `finally`
-   * block of {@link execute} so it runs on success, failure, and
-   * cancellation paths.
-   */
   protected stopArtifactWatcher(): void {
-    if (!this.artifactWatcher) return
-    try {
-      this.artifactWatcher.stop()
-    } catch {
-      // swallow — stopping is best-effort
-    }
-    this.artifactWatcher = null
-    this.monitorStatus = this.resolveIdleMonitorStatus()
+    this.artifactWatcherHost.stop()
   }
 
   getCapabilities(): AdapterCapabilityProfile {
@@ -688,98 +259,35 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     }
   }
 
-  protected getUnavailableBinaryMessage(binary: string): string {
-    return `'${binary}' binary not found in PATH`
-  }
+  protected getUnavailableBinaryMessage(b: string): string { return `'${b}' binary not found in PATH` }
 
   protected buildEnv(): Record<string, string> {
-    const raw = filterSensitiveEnvVars(
-      { ...process.env } as Record<string, string>,
-      this.config.envFilter,
-    )
-    if (this.config.env) {
-      Object.assign(raw, this.config.env)
-    }
-    return raw
+    return buildEnvHelper(this.config)
   }
 
   protected buildSpawnEnv(input: AgentInput): Record<string, string> {
-    const env = this.buildEnv()
-    const traceEnv = readTraceEnvOption(input)
-    if (traceEnv) {
-      Object.assign(env, traceEnv)
-    }
-    return env
+    // Honors subclass overrides of buildEnv (e.g. Qwen sets DASHSCOPE_API_KEY).
+    return applyTraceEnv(this.buildEnv(), input)
   }
 
   protected normalizeError(err: unknown): NormalizedAdapterError {
-    if (err instanceof Error) {
-      return {
-        message: err.message,
-        code: ForgeError.is(err) ? err.code : undefined,
-        original: err,
-      }
-    }
-    return {
-      message: String(err),
-      code: undefined,
-      original: err,
-    }
+    return normalizeAdapterError(err)
   }
 
   protected shouldRethrow(err: unknown): boolean {
-    return ForgeError.is(err)
+    return shouldRethrowAdapterError(err)
   }
 
   protected async assertReady(): Promise<void> {
     // default: no preflight checks
   }
 
-  /**
-   * Resolve the effective interaction policy for a given input.
-   * Per-call options override the adapter-level config; config overrides the default.
-   */
   protected resolveInteractionPolicy(input: AgentInput): InteractionPolicy {
     const perCall = input.options?.['interactionPolicy']
-    if (
-      perCall !== null &&
-      typeof perCall === 'object' &&
-      'mode' in (perCall as object)
-    ) {
+    if (perCall !== null && typeof perCall === 'object' && 'mode' in (perCall as object)) {
       return perCall as InteractionPolicy
     }
     return this.config.interactionPolicy ?? { mode: 'auto-approve' }
-  }
-
-  private isMonitorSupported(): boolean {
-    return (getProviderCapabilities(this.providerId)?.monitorIntrospection ?? 'none') !== 'none'
-  }
-
-  private unsupportedMonitorStatus(): AdapterMonitorStatus {
-    return {
-      state: 'unsupported',
-      supported: false,
-      monitorIntrospection:
-        getProviderCapabilities(this.providerId)?.monitorIntrospection ?? 'none',
-    }
-  }
-
-  private monitorBase(): Pick<AdapterMonitorStatus, 'monitorIntrospection'> {
-    return {
-      monitorIntrospection:
-        getProviderCapabilities(this.providerId)?.monitorIntrospection ?? 'none',
-    }
-  }
-
-  private resolveIdleMonitorStatus(): AdapterMonitorStatus {
-    if (!this.isMonitorSupported()) {
-      return this.unsupportedMonitorStatus()
-    }
-    return {
-      ...this.monitorBase(),
-      state: this.artifactWatcherFactory ? 'ready' : 'not_configured',
-      supported: true,
-    }
   }
 
   protected abstract getBinaryName(): string
@@ -788,34 +296,4 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     record: Record<string, unknown>,
     sessionId: string,
   ): AgentEvent | undefined
-}
-
-/**
- * Map an interaction-resolver `resolvedBy` value to the normalized
- * governance `resolution` field.  Everything that is not an explicit
- * caller-provided allow/deny is classified as `auto`.
- */
-function mapResolvedByToResolution(
-  resolvedBy: 'auto-approve' | 'auto-deny' | 'default-answers' | 'ai-autonomous' | 'caller' | 'timeout-fallback',
-): 'approved' | 'denied' | 'auto' {
-  if (resolvedBy === 'auto-approve') return 'approved'
-  if (resolvedBy === 'auto-deny') return 'denied'
-  return 'auto'
-}
-
-function dedupe<T>(values: T[]): T[] {
-  return [...new Set(values)]
-}
-
-function readTraceEnvOption(input: AgentInput): Record<string, string> | undefined {
-  const value = input.options?.[ADAPTER_TRACE_ENV_OPTION]
-  if (!value || typeof value !== 'object') return undefined
-
-  const env: Record<string, string> = {}
-  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof raw === 'string') {
-      env[key] = raw
-    }
-  }
-  return Object.keys(env).length > 0 ? env : undefined
 }

@@ -30,7 +30,7 @@
  * ```
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import type { AdapterProviderId, AgentEvent, AgentStreamEvent } from '../types.js'
 import { validateWebhookUrl } from '../utils/url-validator.js'
@@ -457,7 +457,7 @@ export class AdapterApprovalGate {
       | { type: 'approval:rejected'; runId: string; reason?: string | undefined },
   ): void {
     if (this.config.eventBus) {
-      this.config.eventBus.emit(event as Parameters<DzupEventBus['emit']>[0])
+      this.config.eventBus.emit(event as DzupEvent)
     }
   }
 

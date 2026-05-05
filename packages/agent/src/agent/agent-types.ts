@@ -34,6 +34,7 @@ import type { ReflectionSummary } from '../reflection/reflection-types.js'
 import type { ReflectionAnalyzerConfig } from '../reflection/reflection-analyzer.js'
 import type { MailboxStore } from '../mailbox/types.js'
 import type { AgentLoopPlugin } from '../token-lifecycle-wiring.js'
+import type { LlmCallAuditSink } from '../observability/llm-call-audit.js'
 
 /** Configuration for creating a DzupAgent */
 export interface DzupAgentConfig {
@@ -115,6 +116,21 @@ export interface DzupAgentConfig {
   description?: string
   /** Event bus for emitting telemetry and lifecycle events */
   eventBus?: DzupEventBus
+
+  /**
+   * Optional audit sink for LLM-call traceability (RF-12).
+   *
+   * When set, every model invocation made by the run engine — successful
+   * or failed — is recorded as an {@link LlmCallAuditSink} entry capturing
+   * model id, token usage, duration, success flag, and error (when
+   * failed). Entries are recorded fire-and-forget so a slow or failing
+   * sink never stalls a run.
+   *
+   * Use {@link InMemoryAuditStore} for tests or wire a durable sink
+   * (database, append-only log, SIEM forwarder) for ISO/IEC 42001 / SOC 2
+   * compliance retention.
+   */
+  auditStore?: LlmCallAuditSink
 
   /**
    * Telemetry callback invoked when memory falls back or compression truncates.

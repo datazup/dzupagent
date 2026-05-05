@@ -505,7 +505,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       typeof input.options?.['timeoutMs'] === 'number'
         ? input.options['timeoutMs']
         : undefined
-    const configuredTimeoutMs = (this.config as Record<string, unknown>).timeoutMs as number | undefined
+    const configuredTimeoutMs = this.config.timeoutMs
     const timeoutMs = inputTimeoutMs ?? configuredTimeoutMs ?? CodexAdapter.DEFAULT_TIMEOUT_MS
     let eventCount = 0
     let lastEventAt = startTime

@@ -6,11 +6,11 @@
  * Never overwrites existing .dzupagent/ files.
  */
 
-import { createHash } from 'node:crypto'
 import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises'
 import { join, basename } from 'node:path'
 import type { DzupAgentPaths } from '@dzupagent/adapter-types'
 import { parseMarkdownFile } from './md-frontmatter-parser.js'
+import { sha256 } from './hash-utils.js'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -129,7 +129,7 @@ export class DzupAgentImporter {
       await writeFile(targetPath, transformed, 'utf-8')
 
       // Hash source content and store in state
-      const hash = createHash('sha256').update(rawContent).digest('hex')
+      const hash = sha256(rawContent)
       state.files[source.sourcePath] = {
         hash,
         importedAt: new Date().toISOString(),
@@ -179,7 +179,7 @@ export class DzupAgentImporter {
 
       try {
         const currentContent = await readFile(sourcePath, 'utf-8')
-        const currentHash = createHash('sha256').update(currentContent).digest('hex')
+        const currentHash = sha256(currentContent)
         results.push({
           source,
           diverged: currentHash !== entry.hash,

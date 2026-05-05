@@ -7,9 +7,9 @@
  * subpath.
  */
 
-export { AgentPlayground } from './playground/playground.js'
-export type { PlaygroundConfig } from './playground/playground.js'
-export { TeamCoordinator } from './playground/team-coordinator.js'
+export { AgentPlayground } from './orchestration/playground/playground.js'
+export type { PlaygroundConfig } from './orchestration/playground/playground.js'
+export { TeamCoordinator } from './orchestration/playground/team-coordinator.js'
 export type {
   AgentRole,
   AgentSpawnConfig,
@@ -19,4 +19,4 @@ export type {
   SpawnedAgent,
   PlaygroundEvent,
   TeamRunResult,
-} from './playground/types.js'
+} from './orchestration/playground/types.js'

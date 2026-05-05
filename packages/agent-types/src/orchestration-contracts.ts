@@ -81,3 +81,40 @@ export interface BaseContractNetContract<TAgent> {
   /** Maximum time (ms) to collect bids before evaluating. */
   bidTimeoutMs?: number
 }
+
+
+/**
+ * Base contract for the Team-Coordination orchestration pattern family.
+ *
+ * Captures the structural shape of a coordination strategy that the
+ * `TeamRuntime` (in `@dzupagent/agent`) dispatches to per
+ * `coordinatorPattern`. The runtime owns lifecycle / OTel / policy
+ * validation; each pattern implementation owns the participant scheduling
+ * and merge semantics for one specific pattern.
+ *
+ * This contract is intentionally structural (no class import) so the
+ * agent-types layer stays free of runtime symbols. The `@dzupagent/agent`
+ * package narrows the generic params (`TContext`, `TResult`,
+ * `TCheckpoint`) to its concrete `TeamPatternContext` /
+ * `TeamPatternResult` / `TeamCheckpoint` types.
+ *
+ * @typeParam TPatternId  - The coordinator pattern identifier (e.g. the
+ *   `CoordinatorPattern` union from `@dzupagent/agent`).
+ * @typeParam TContext    - The execution context the pattern receives
+ *   (participants, workspace, circuit breaker, span, ...).
+ * @typeParam TResult     - The result the pattern returns to the runtime.
+ * @typeParam TCheckpoint - The checkpoint shape consumed by `resume`.
+ */
+export interface BaseTeamCoordinationContract<
+  TPatternId extends string,
+  TContext,
+  TResult,
+  TCheckpoint = unknown,
+> {
+  /** Stable pattern identifier — must match the `coordinatorPattern`. */
+  readonly id: TPatternId
+  /** Run the pattern against a fresh task. */
+  execute(ctx: TContext): Promise<TResult>
+  /** Optional: resume from a previously persisted checkpoint. */
+  resume?(ctx: TContext, checkpoint: TCheckpoint): Promise<TResult>
+}

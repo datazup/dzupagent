@@ -8,8 +8,8 @@
  * @module recovery/escalation-handler
  */
 
-import { ForgeError } from '@dzupagent/core'
-import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
+import { ForgeError, typedEmit } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import type { AdapterProviderId, AgentInput } from '../types.js'
 import type { RecoveryStrategy } from './adapter-recovery.js'
@@ -82,17 +82,15 @@ export class EventBusEscalationHandler implements EscalationHandler {
   constructor(private readonly eventBus?: DzupEventBus) {}
 
   async notify(context: EscalationContext): Promise<void> {
-    if (this.eventBus) {
-      this.eventBus.emit({
-        type: 'recovery:escalation_requested',
-        requestId: context.requestId,
-        failedProviderId: context.failedProviderId,
-        error: context.error,
-        attempts: context.attempts,
-        suggestions: context.suggestions,
-        timestamp: Date.now(),
-      } as unknown as DzupEvent)
-    }
+    typedEmit(this.eventBus, {
+      type: 'recovery:escalation_requested',
+      requestId: context.requestId,
+      failedProviderId: context.failedProviderId,
+      error: context.error,
+      attempts: context.attempts.map((attempt): Record<string, unknown> => ({ ...attempt })),
+      suggestions: context.suggestions,
+      timestamp: Date.now(),
+    })
   }
 
   async waitForResolution(requestId: string, timeoutMs: number): Promise<EscalationResolution> {
