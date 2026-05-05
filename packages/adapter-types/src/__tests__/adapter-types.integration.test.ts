@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type {
+  AgentCacheStatsEvent,
   AgentCompletedEvent,
   AgentEvent,
   AgentFailedEvent,
@@ -46,6 +47,8 @@ function summarizeAdapterEvents(events: AgentEvent[]): string {
           return `interaction_required:${event.interactionId}:${event.kind}`
         case 'adapter:interaction_resolved':
           return `interaction_resolved:${event.interactionId}:${event.resolvedBy}`
+        case 'adapter:cache_stats':
+          return `cache_stats:${event.sessionId}:${event.cacheHitRatio}`
         default:
           return assertNever(event)
       }

@@ -514,11 +514,15 @@ describe('ClaudeAgentAdapter — deep coverage', () => {
         'adapter:stream_delta',
         'adapter:stream_delta',
         'adapter:completed',
+        'adapter:cache_stats',
       ])
-      const completed = events.at(-1) as Extract<AgentEvent, { type: 'adapter:completed' }>
+      const completed = events.at(-2) as Extract<AgentEvent, { type: 'adapter:completed' }>
       expect(completed.sessionId).toBe('sess-final')
       expect(completed.durationMs).toBe(1234)
       expect(completed.usage?.cachedInputTokens).toBe(50)
+      const cacheStats = events.at(-1) as Extract<AgentEvent, { type: 'adapter:cache_stats' }>
+      expect(cacheStats.cacheReadTokens).toBe(50)
+      expect(cacheStats.cacheHitRatio).toBeCloseTo(50 / 75)
     })
   })
 })
