@@ -356,7 +356,17 @@ export class RecoveryCopilot {
     }
 
     try {
-      await this.feedback.recordOutcome(lesson)
+      const candidateId = await this.feedback.recordOutcome(lesson)
+      // Append a policy_applied audit entry so the decision chain is traceable:
+      // plan.id → strategy → candidateId → run → node
+      this.feedback.appendCandidateAuditEntry(candidateId, {
+        runId: failureContext.runId,
+        nodeId: failureContext.nodeId ?? '',
+        event: 'policy_applied',
+        actor: 'system',
+        detail: `Plan ${plan.id} selected strategy "${plan.selectedStrategy?.name ?? 'none'}" (confidence ${plan.selectedStrategy?.confidence?.toFixed(2) ?? 'n/a'})`,
+        timestamp: new Date(),
+      })
     } catch {
       // Feedback recording is best-effort — don't fail recovery over it
     }

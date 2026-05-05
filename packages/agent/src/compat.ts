@@ -12,7 +12,6 @@ export type {
   SerializedMessage as LegacySerializedMessage,
 } from './agent/agent-state.js'
 export * from './instructions/index.js'
-export * from './playground/index.js'
 export * from './presets/index.js'
 export * from './reflection/index.js'
 export * from './recovery/index.js'

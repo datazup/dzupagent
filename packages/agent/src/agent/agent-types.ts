@@ -14,6 +14,7 @@ import type {
   SafetyMonitor,
   TokenBucket,
   TokenBucketConfig,
+  Tokenizer,
 } from '@dzupagent/core'
 import type { ToolPermissionPolicy, MemoryClient } from '@dzupagent/agent-types'
 import type { MemoryService } from '@dzupagent/memory'
@@ -160,6 +161,19 @@ export interface DzupAgentConfig {
    * Uses structural typing so callers can pass a ToolStatsTracker from core.
    */
   toolStatsTracker?: { formatAsPromptHint: (limit?: number, intent?: string) => string }
+
+  /**
+   * Optional real tokenizer for accurate token counting (MC-08).
+   *
+   * When set, the agent uses this tokenizer for conversation token estimation
+   * (compression triggers, budget warnings) instead of the char/4 heuristic.
+   *
+   * When unset, the agent resolves a tokenizer from `defaultTokenizerRegistry`
+   * keyed off the resolved model id, with a graceful fallback to the heuristic
+   * tokenizer when no pattern matches or when an optional tokenizer backend
+   * (`@anthropic-ai/tokenizer`, `js-tiktoken`) is not installed.
+   */
+  tokenizer?: Tokenizer
 
   /**
    * Arrow-based memory configuration (optional, enables token budgeting).
@@ -360,6 +374,35 @@ export interface DzupAgentConfig {
    * Default: 200. Set to 0 or Infinity to disable automatic pruning.
    */
   memoryDecayThreshold?: number
+
+  /**
+   * Memory hygiene policy applied by post-run finalizers (MC-02).
+   *
+   * - `pruneFinalizer: false` disables the {@link MemoryPruner} sweep.
+   * - `maxEntries` caps the namespace size; entries with the lowest
+   *   decay strength are evicted when the cap is exceeded (default 1000).
+   * - `ttlMs` removes entries older than the TTL before applying the cap
+   *   (default 7 days). Set to `Infinity` to disable TTL expiry.
+   *
+   * The pruner runs fire-and-forget after each successful run and never
+   * blocks or fails the agent loop.
+   */
+  memoryPolicy?: {
+    pruneFinalizer?: boolean
+    maxEntries?: number
+    ttlMs?: number
+    /**
+     * When true, a ConsolidationEngine sweep runs after each write-back,
+     * clustering and summarising entries in the agent's namespace.
+     * Defaults to false (opt-in) to avoid LLM calls on every run.
+     */
+    consolidateFinalizer?: boolean
+    /**
+     * Minimum cluster size for consolidation. Defaults to 3.
+     * Clusters with fewer entries are left unchanged.
+     */
+    consolidateMinCluster?: number
+  }
 
   /**
    * OWASP-aligned content scanning configuration (audit MC-01 / AG-08 / AG-09).

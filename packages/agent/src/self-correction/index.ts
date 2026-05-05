@@ -157,3 +157,20 @@ export type {
   LearningDashboard,
   DashboardServiceConfig,
 } from './learning-dashboard.js'
+
+export {
+  InMemoryLearningCandidateStore,
+  appendAuditEntry,
+} from './learning-candidate.js'
+export type {
+  CandidateStatus,
+  AuditEntry,
+  LearningCandidate,
+  LearningCandidateStore,
+} from './learning-candidate.js'
+
+export { LearningCandidateService } from './learning-candidate-service.js'
+export type {
+  PromoteResult,
+  RejectResult,
+} from './learning-candidate-service.js'

@@ -21,6 +21,18 @@ import {
   type MessageManagerConfig,
 } from './message-manager.js'
 
+/**
+ * Minimal structural tokenizer surface used by auto-compress (MC-08).
+ *
+ * We do not import the concrete `Tokenizer` interface from `@dzupagent/core`
+ * because `@dzupagent/context` must stay independent of core. Callers can
+ * safely pass any object that implements `countTokens`, including the
+ * `Tokenizer` types exported from core.
+ */
+export interface AutoCompressTokenizer {
+  countTokens(text: string): number
+}
+
 export interface AutoCompressConfig extends MessageManagerConfig {
   /** If true, memory context is frozen at init and not reloaded mid-session */
   frozenSnapshot?: boolean
@@ -52,6 +64,14 @@ export interface AutoCompressConfig extends MessageManagerConfig {
    * Zero impact when not set.
    */
   memoryFrame?: unknown
+
+  /**
+   * Optional real tokenizer used for hard-budget enforcement (MC-08).
+   *
+   * When set, `estimateMessageTokens()` delegates to `tokenizer.countTokens()`
+   * for accurate counts. When unset, the legacy char/4 heuristic is used.
+   */
+  tokenizer?: AutoCompressTokenizer
 }
 
 export interface CompressResult {
@@ -62,9 +82,22 @@ export interface CompressResult {
   fallbackReason?: string
 }
 
-/** Rough token estimate based on JSON character length (~4 chars/token). */
-function estimateMessageTokens(messages: BaseMessage[]): number {
-  return Math.ceil(JSON.stringify(messages).length / 4)
+/**
+ * Token estimate for a message array.
+ *
+ * Uses a real tokenizer when one is supplied (MC-08); otherwise falls back
+ * to the legacy JSON-stringified char/4 heuristic so existing behaviour is
+ * preserved.
+ */
+function estimateMessageTokens(
+  messages: BaseMessage[],
+  tokenizer?: AutoCompressTokenizer,
+): number {
+  const serialized = JSON.stringify(messages)
+  if (tokenizer) {
+    return tokenizer.countTokens(serialized)
+  }
+  return Math.ceil(serialized.length / 4)
 }
 
 /**
@@ -133,13 +166,14 @@ export async function autoCompress(
   // still produced a result over budget, drop the oldest trimmed messages
   // until we fit.
   if (config?.budget !== undefined) {
-    const before = estimateMessageTokens(trimmedMessages)
+    const tk = config.tokenizer
+    const before = estimateMessageTokens(trimmedMessages, tk)
     if (before > config.budget) {
       let truncated = trimmedMessages
-      while (truncated.length > 0 && estimateMessageTokens(truncated) > config.budget) {
+      while (truncated.length > 0 && estimateMessageTokens(truncated, tk) > config.budget) {
         truncated = truncated.slice(1)
       }
-      const after = estimateMessageTokens(truncated)
+      const after = estimateMessageTokens(truncated, tk)
       config.onFallback?.('truncation', before, after)
       return {
         messages: truncated,

@@ -38,6 +38,8 @@ import {
   type NormalizedAdapterError,
 } from './adapter-error-normalizer.js'
 import { createStdinResponder } from './stdin-responder.js'
+import { AdapterStreamRunner } from './stream-runner.js'
+import type { AdapterStreamSource } from './stream-runner.js'
 
 // Backward-compat re-exports
 export { filterSensitiveEnvVars }
@@ -98,18 +100,6 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
     await this.assertReady()
 
-    yield withCorrelationId({
-      type: 'adapter:started',
-      providerId: this.providerId,
-      sessionId,
-      timestamp: startTime,
-      prompt: input.prompt,
-      systemPrompt: input.systemPrompt,
-      model: this.config.model,
-      workingDirectory: input.workingDirectory ?? this.config.workingDirectory,
-      isResume: !!input.resumeSessionId,
-    }, input.correlationId)
-
     // Start artifact watcher (no-op when no factory wired).
     const workingDirectory =
       input.workingDirectory ?? this.config.workingDirectory ?? process.cwd()
@@ -117,57 +107,108 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       resolveWatcherPaths(this.providerId, input, workingDirectory),
     )
 
-    this.currentAbortController = new AbortController()
-    const combinedSignal = input.signal
-      ? AbortSignal.any([this.currentAbortController.signal, input.signal])
-      : this.currentAbortController.signal
-
     const policy = this.resolveInteractionPolicy(input)
     const resolver = policy.mode !== 'auto-approve' ? new InteractionResolver(policy) : null
     const pendingEvents: AgentEvent[] = []
 
-    const spawnOpts: SpawnJsonlOptions = {
-      cwd: input.workingDirectory ?? this.config.workingDirectory,
-      env: this.buildSpawnEnv(input),
-      signal: combinedSignal,
-      timeoutMs: this.config.timeoutMs,
-    }
-    if (resolver) {
-      spawnOpts.stdinResponder = createStdinResponder({
-        providerId: this.providerId,
-        resolver,
-        policy,
-        input,
-        sessionId,
-        pendingEvents,
-        governance: this.governance,
-      })
-    }
+    // Per-run mutable state consumed by the AdapterStreamSource methods.
+    let hasCompleted = false
+    let hasFailed = false
+    const captured: { error: NormalizedAdapterError | null } = { error: null }
 
-    try {
-      let hasCompleted = false
-      let hasFailed = false
-      const args = this.buildArgs(input)
-      for await (const record of spawnAndStreamJsonl(this.getBinaryName(), args, spawnOpts)) {
-        for (const evt of pendingEvents.splice(0)) yield evt
+    const adapter = this
+    const source: AdapterStreamSource<Record<string, unknown>> = {
+      providerId: this.providerId,
+      async *open(_input: AgentInput, signal: AbortSignal) {
+        const spawnOpts: SpawnJsonlOptions = {
+          cwd: _input.workingDirectory ?? adapter.config.workingDirectory,
+          env: adapter.buildSpawnEnv(_input),
+          signal,
+          timeoutMs: adapter.config.timeoutMs,
+        }
+        if (resolver) {
+          spawnOpts.stdinResponder = createStdinResponder({
+            providerId: adapter.providerId,
+            resolver,
+            policy,
+            input: _input,
+            sessionId,
+            pendingEvents,
+            governance: adapter.governance,
+          })
+        }
+        const args = adapter.buildArgs(_input)
+        try {
+          yield* spawnAndStreamJsonl(adapter.getBinaryName(), args, spawnOpts)
+        } catch (err: unknown) {
+          // Capture for ForgeError rethrow + custom adapter:failed emission;
+          // also rethrow so the runner's catch path triggers its lifecycle
+          // bookkeeping (abort handling, finally cleanup).
+          captured.error = adapter.normalizeError(err)
+          throw err
+        }
+      },
+      mapRawEvent(record: Record<string, unknown>): AgentEvent | AgentEvent[] | null {
+        const events: AgentEvent[] = []
+        for (const evt of pendingEvents.splice(0)) events.push(evt)
 
         // Emit governance:hook_executed for recognized hook records.
-        this.governance.emitHookExecutedIfRecognized(record, {
+        adapter.governance.emitHookExecutedIfRecognized(record, {
           runId: input.correlationId ?? sessionId,
           sessionId,
         })
 
-        const mapped = this.mapProviderEvent(record, sessionId)
-        if (!mapped) continue
+        const mapped = adapter.mapProviderEvent(record, sessionId)
+        if (mapped) {
+          const event = withCorrelationId(mapped, input.correlationId)
+          if (event.type === 'adapter:completed') hasCompleted = true
+          if (event.type === 'adapter:failed') hasFailed = true
+          events.push(event)
+        }
+        return events.length === 0 ? null : events
+      },
+    }
 
-        const event = withCorrelationId(mapped, input.correlationId)
-        if (event.type === 'adapter:completed') hasCompleted = true
-        if (event.type === 'adapter:failed') hasFailed = true
+    const runner = new AdapterStreamRunner<Record<string, unknown>>({
+      emitStartedImmediately: true,
+      emitFailedOnAbort: true,
+      initialSessionId: sessionId,
+      startedExtra: {
+        ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
+        ...(this.config.model !== undefined ? { model: this.config.model } : {}),
+      },
+      onAbortController: (ctrl) => {
+        this.currentAbortController = ctrl
+      },
+    })
+
+    try {
+      // Track whether the runner emitted its own adapter:failed (from its
+      // catch path) so we can suppress the synthetic adapter:completed.
+      for await (const event of runner.run(source, input, input.signal)) {
+        if (event.type === 'adapter:failed') {
+          hasFailed = true
+          // Re-emit the runner's adapter:failed but normalize the error code
+          // back to the captured original (legacy preserves spawn error code).
+          if (captured.error) {
+            yield withCorrelationId({
+              type: 'adapter:failed',
+              providerId: adapter.providerId,
+              sessionId,
+              error: captured.error.message,
+              code: captured.error.code,
+              timestamp: Date.now(),
+            }, input.correlationId)
+            continue
+          }
+        }
         yield event
       }
 
+      // Flush any pending events emitted by the resolver after the stream ended.
       for (const evt of pendingEvents.splice(0)) yield evt
 
+      // Synthesise adapter:completed when the stream ended without a terminal.
       if (!hasCompleted && !hasFailed) {
         yield withCorrelationId({
           type: 'adapter:completed',
@@ -178,23 +219,17 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           timestamp: Date.now(),
         }, input.correlationId)
       }
-    } catch (err: unknown) {
-      const normalized = this.normalizeError(err)
-      yield withCorrelationId({
-        type: 'adapter:failed',
-        providerId: this.providerId,
-        sessionId,
-        error: normalized.message,
-        code: normalized.code,
-        timestamp: Date.now(),
-      }, input.correlationId)
-
-      if (this.shouldRethrow(normalized.original)) throw normalized.original
     } finally {
       resolver?.dispose()
       this.currentAbortController = null
       this.stopArtifactWatcher()
       this.governance.setRunContext(null)
+    }
+
+    // Preserve legacy semantics: rethrow ForgeError originals after the
+    // adapter:failed event has been yielded so the host can observe them.
+    if (captured.error && this.shouldRethrow(captured.error.original)) {
+      throw captured.error.original
     }
   }
 

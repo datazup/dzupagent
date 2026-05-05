@@ -28,6 +28,12 @@ export interface StepReward {
   tokenCost: number
   errorCount: number
   timestamp: Date
+  /** Whether the node's output passed a downstream validation step. */
+  validationPassed?: boolean
+  /** Number of tool-call errors encountered during node execution. */
+  toolErrorCount?: number
+  /** Number of times the node was retried before producing this result. */
+  retryCount?: number
 }
 
 /** A complete trajectory recording for a full pipeline run */
@@ -129,6 +135,30 @@ function recordToTrajectory(value: Record<string, unknown>): TrajectoryRecord | 
 }
 
 // ---------------------------------------------------------------------------
+// Effective score computation
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute a validation-aware effective quality score from a StepReward.
+ *
+ * Applies multiplicative penalties for:
+ *   - validation failure  (−30%)
+ *   - retries            (−5% per retry, floored at 50% of base)
+ *   - tool errors        (−3% per error, floored at 70% of base)
+ */
+function computeEffectiveScore(step: StepReward): number {
+  let score = step.qualityScore
+
+  const validationMultiplier = step.validationPassed === false ? 0.7 : 1.0
+  const retryPenalty = Math.max(0.5, 1.0 - (step.retryCount ?? 0) * 0.05)
+  const toolErrorPenalty = Math.max(0.7, 1.0 - (step.toolErrorCount ?? 0) * 0.03)
+
+  score = score * validationMultiplier * retryPenalty * toolErrorPenalty
+  // Clamp to [0, 1]
+  return Math.min(1, Math.max(0, score))
+}
+
+// ---------------------------------------------------------------------------
 // TrajectoryCalibrator
 // ---------------------------------------------------------------------------
 
@@ -151,12 +181,26 @@ export class TrajectoryCalibrator {
 
   /**
    * Record a step-level quality measurement during pipeline execution.
+   *
+   * When `validationPassed`, `toolErrorCount`, or `retryCount` are present on
+   * the step, the stored quality score is adjusted downward by:
+   *   - validation failure   → × 0.70
+   *   - each retry           → × (1 − retryCount × 0.05), min 0.50
+   *   - each tool error      → × (1 − toolErrorCount × 0.03), min 0.70
+   *
+   * The raw `qualityScore` is preserved on the record; only the stored
+   * value used for baseline computation reflects the effective score.
+   *
    * Stored under namespace [...prefix, 'steps', nodeId] with a composite key.
    */
   async recordStep(step: StepReward): Promise<void> {
+    const effectiveStep: StepReward = {
+      ...step,
+      qualityScore: computeEffectiveScore(step),
+    }
     const ns = [...this.namespace, 'steps', step.nodeId]
     const key = `${step.runId}:${step.nodeId}:${step.timestamp.getTime()}`
-    await this.store.put(ns, key, stepToRecord(step))
+    await this.store.put(ns, key, stepToRecord(effectiveStep))
   }
 
   // ---------- Detect suboptimal ---------------------------------------------

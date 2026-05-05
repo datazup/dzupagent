@@ -1,5 +1,5 @@
 import { SystemMessage, type BaseMessage } from '@langchain/core/messages'
-import { estimateTokens } from '@dzupagent/core'
+import { estimateTokens, type Tokenizer } from '@dzupagent/core'
 import { formatSummaryContext } from '@dzupagent/context'
 
 interface BuildPreparedMessagesParams {
@@ -29,7 +29,18 @@ export function buildPreparedMessages({
   return [new SystemMessage(parts.join('\n\n')), ...messages]
 }
 
-export function estimateConversationTokensForMessages(messages: BaseMessage[]): number {
+/**
+ * Estimate conversation token count.
+ *
+ * When a {@link Tokenizer} is provided (MC-08), it is used for an accurate
+ * count via `countTokens()`; otherwise the legacy char/4 heuristic
+ * (`estimateTokens`) is used so callers retain backwards-compatible
+ * semantics.
+ */
+export function estimateConversationTokensForMessages(
+  messages: BaseMessage[],
+  tokenizer?: Tokenizer,
+): number {
   const fullText = messages
     .map((message) =>
       typeof message.content === 'string'
@@ -38,6 +49,9 @@ export function estimateConversationTokensForMessages(messages: BaseMessage[]): 
     )
     .join('')
 
+  if (tokenizer) {
+    return tokenizer.countTokens(fullText)
+  }
   return estimateTokens(fullText)
 }
 

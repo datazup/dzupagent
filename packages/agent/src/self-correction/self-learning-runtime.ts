@@ -54,6 +54,12 @@ export interface SelfLearningConfig {
   riskClass?: 'critical' | 'sensitive' | 'standard' | 'cosmetic'
   /** Namespace prefix for all learning data (default: ['self-learning']) */
   namespace?: string[]
+  /**
+   * Optional recovery copilot configuration. When provided, the SelfLearningRuntime
+   * forwards it to the underlying PipelineRuntime so every run has automatic
+   * failure recovery available without manual wiring.
+   */
+  recoveryCopilot?: PipelineRuntimeConfig['recoveryCopilot']
 }
 
 export interface SelfLearningRunResult extends PipelineRunResult {
@@ -220,6 +226,7 @@ export class SelfLearningRuntime {
       ...pipelineConfig,
       stuckDetector,
       onEvent: chainedOnEvent,
+      recoveryCopilot: learningConfig.recoveryCopilot ?? pipelineConfig.recoveryCopilot,
     })
 
     this.pipelineRuntime = new PipelineRuntime(enhancedConfig)

@@ -408,6 +408,7 @@ export class PipelineRuntime {
           durationMs: 0,
           error: 'Pipeline node did not execute',
         }
+        let nodeRetryCount = 0
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           result = await this.config.nodeExecutor(node.id, node, context)
@@ -422,6 +423,9 @@ export class PipelineRuntime {
 
           // Calculate backoff (with optional jitter)
           const backoffMs = calculateBackoff(attempt, effectivePolicy)
+
+          // Track retry count for trajectory calibration
+          nodeRetryCount++
 
           // Emit retry event
           this.emit(nodeRetryEvent(node.id, attempt, maxAttempts, result.error, backoffMs))
@@ -575,6 +579,7 @@ export class PipelineRuntime {
                 tokenCost: 0,
                 errorCount: 0,
                 timestamp: new Date(),
+                retryCount: nodeRetryCount,
               })
 
               // Check against baseline
