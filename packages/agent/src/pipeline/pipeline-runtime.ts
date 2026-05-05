@@ -193,6 +193,8 @@ export class PipelineRuntime {
     }
 
     this.state = 'running'
+    // Restore recovery budget so limits are enforced across process restarts
+    this.recoveryAttemptsUsed = checkpoint.recoveryAttemptsUsed ?? 0
     this.emit(pipelineStartedEvent(this.config.definition.id, runId))
 
     const startTime = Date.now()
@@ -399,8 +401,13 @@ export class PipelineRuntime {
           node.retryPolicy as RetryPolicy | undefined,
           this.config.retryPolicy,
         )
-        let result: NodeResult | undefined
         const nodeStartTime = Date.now()
+        let result: NodeResult = {
+          nodeId: node.id,
+          output: undefined,
+          durationMs: 0,
+          error: 'Pipeline node did not execute',
+        }
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           result = await this.config.nodeExecutor(node.id, node, context)
@@ -436,7 +443,7 @@ export class PipelineRuntime {
 
         // Accumulate total duration across retries
         const finalResult: NodeResult = {
-          ...result!,
+          ...result,
           durationMs: Date.now() - nodeStartTime,
         }
 
@@ -692,6 +699,7 @@ export class PipelineRuntime {
         completedNodeIds,
         state: runState,
         suspendedAtNodeId: nodeId,
+        recoveryAttemptsUsed: this.recoveryAttemptsUsed,
       })
       await this.config.checkpointStore.save(checkpoint)
       this.emit(checkpointSavedEvent(runId, versionTracker.version))
@@ -940,6 +948,7 @@ export class PipelineRuntime {
         version: versionTracker.version,
         completedNodeIds,
         state: runState,
+        recoveryAttemptsUsed: this.recoveryAttemptsUsed,
       })
       await this.config.checkpointStore.save(checkpoint)
       this.emit(checkpointSavedEvent(runId, versionTracker.version))

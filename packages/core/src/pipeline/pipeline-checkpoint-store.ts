@@ -36,6 +36,8 @@ export interface PipelineCheckpoint {
     tokensUsed: number
     costCents: number
   }
+  /** Number of recovery attempts consumed in this run (persisted to enforce limits across restarts) */
+  recoveryAttemptsUsed?: number
   /** ISO-8601 timestamp of when this checkpoint was created */
   createdAt: string
 }

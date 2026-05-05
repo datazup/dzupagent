@@ -8,6 +8,7 @@ export function createPipelineCheckpoint(options: {
   completedNodeIds: string[]
   state: Record<string, unknown>
   suspendedAtNodeId?: string
+  recoveryAttemptsUsed?: number
 }): PipelineCheckpoint {
   return omitUndefined({
     pipelineRunId: options.pipelineRunId,
@@ -17,6 +18,7 @@ export function createPipelineCheckpoint(options: {
     completedNodeIds: [...options.completedNodeIds],
     state: structuredClone(options.state),
     suspendedAtNodeId: options.suspendedAtNodeId,
+    recoveryAttemptsUsed: options.recoveryAttemptsUsed,
     createdAt: new Date().toISOString(),
   })
 }

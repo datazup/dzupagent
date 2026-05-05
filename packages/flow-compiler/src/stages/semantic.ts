@@ -173,6 +173,7 @@ async function visit(node: FlowNode, path: string, ctx: WalkContext): Promise<vo
       return
     }
     case 'for_each': {
+      validateConditionExpr(node.type, node.source, `${path}.source`, 'for_each.source', ctx)
       for (let idx = 0; idx < node.body.length; idx++) {
         const child = node.body[idx]
         if (child !== undefined) {
@@ -182,6 +183,7 @@ async function visit(node: FlowNode, path: string, ctx: WalkContext): Promise<vo
       return
     }
     case 'branch': {
+      validateConditionExpr(node.type, node.condition, `${path}.condition`, 'branch.condition', ctx)
       for (let idx = 0; idx < node.then.length; idx++) {
         const child = node.then[idx]
         if (child !== undefined) {
@@ -276,6 +278,61 @@ async function visit(node: FlowNode, path: string, ctx: WalkContext): Promise<vo
 // ---------------------------------------------------------------------------
 // Resolution helpers
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Condition expression validation (Stage 3 / R3)
+// ---------------------------------------------------------------------------
+
+/** Patterns that are syntactically valid JS but semantically unsafe in conditions. */
+const UNSAFE_PATTERNS = /eval\s*\(|Function\s*\(|import\s*\(/
+
+/**
+ * Validate a condition expression string (`branch.condition` or
+ * `for_each.source`) by:
+ *   1. Rejecting known unsafe patterns (eval, dynamic Function/import).
+ *   2. Attempting to parse the expression via `new Function()` — which
+ *      detects syntax errors without evaluating anything.
+ *
+ * Emits `INVALID_CONDITION` into `ctx.errors` on failure; silently
+ * passes valid expressions.
+ *
+ * Stage 2 already ensures the field is a non-empty string, so an empty
+ * value here means stage 2 was skipped — we skip validation too (stage 2
+ * already owns that diagnostic).
+ */
+function validateConditionExpr(
+  nodeType: FlowNode['type'],
+  expr: string,
+  nodePath: string,
+  fieldLabel: string,
+  ctx: WalkContext,
+): void {
+  if (!expr) return
+
+  if (UNSAFE_PATTERNS.test(expr)) {
+    ctx.errors.push({
+      nodeType,
+      nodePath,
+      code: 'INVALID_CONDITION',
+      category: 'shape',
+      message: `${fieldLabel} contains a disallowed construct (eval, dynamic Function, or import): "${expr}".`,
+    })
+    return
+  }
+
+  try {
+    // eslint-disable-next-line no-new-func
+    new Function('ctx', `return (${expr})`)
+  } catch (err) {
+    ctx.errors.push({
+      nodeType,
+      nodePath,
+      code: 'INVALID_CONDITION',
+      category: 'shape',
+      message: `${fieldLabel} is not a valid expression: ${err instanceof Error ? err.message : String(err)}`,
+    })
+  }
+}
 
 /** Sentinel returned by {@link resolveToolRef} when the resolver threw. */
 const INFRA_FAILURE = Symbol('infra-failure')

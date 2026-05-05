@@ -250,7 +250,7 @@ export class CompiledWorkflow {
     const journalEmit: (event: WorkflowEvent) => void = journal
       ? (event) => {
           emit(event)
-          void this.journalWrite(journal, runId, event)
+          this.journalWrite(journal, runId, event).catch(() => {})
         }
       : emit
 
@@ -394,7 +394,7 @@ export class CompiledWorkflow {
     const journalEmit: (event: WorkflowEvent) => void = journal
       ? (event) => {
           emit(event)
-          void this.journalWrite(journal, runId, event)
+          this.journalWrite(journal, runId, event).catch(() => {})
         }
       : emit
 
@@ -516,8 +516,20 @@ export class CompiledWorkflow {
         default:
           break
       }
-    } catch {
-      // Journal writes must not break the workflow
+    } catch (err) {
+      // Journal writes must not break the workflow; surface via options.onEvent if available
+      // so callers can observe journal degradation without losing the run.
+      const msg = err instanceof Error ? err.message : String(err)
+      try {
+        // Re-use the same event channel if available (journalEmit not in scope here;
+        // we only have access to the raw journal — just swallow but tag for diagnostics)
+        void journal.append(runId, {
+          type: 'step_failed',
+          data: { stepId: '__journal_write_error__', error: msg },
+        }).catch(() => {})
+      } catch {
+        // Ignore secondary failure
+      }
     }
   }
 

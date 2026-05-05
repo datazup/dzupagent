@@ -780,6 +780,23 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       durationMs: now() - startTime,
       timestamp: now(),
     }, input.correlationId)
+
+    // Emit cache efficiency telemetry when cache tokens were observed
+    if (lastUsage && (lastUsage.cachedInputTokens !== undefined || lastUsage.cacheWriteTokens !== undefined)) {
+      const cacheRead = lastUsage.cachedInputTokens ?? 0
+      const cacheWrite = lastUsage.cacheWriteTokens ?? 0
+      const total = lastUsage.inputTokens
+      yield withCorrelationId({
+        type: 'adapter:cache_stats',
+        providerId: this.providerId,
+        sessionId,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
+        totalInputTokens: total,
+        cacheHitRatio: total > 0 ? cacheRead / total : 0,
+        timestamp: now(),
+      } as AgentEvent, input.correlationId)
+    }
   }
 
   private wrapRawProviderEvent(
@@ -1066,16 +1083,18 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
   ): AbortSignal {
     if (!external) return internal
 
-    // Create a new AbortController whose signal aborts when either input fires
     const combined = new AbortController()
-
-    const onAbort = () => {
-      combined.abort()
-    }
 
     if (external.aborted || internal.aborted) {
       combined.abort()
       return combined.signal
+    }
+
+    const onAbort = () => {
+      combined.abort()
+      // Clean up both listeners once either fires so they are not retained
+      external.removeEventListener('abort', onAbort)
+      internal.removeEventListener('abort', onAbort)
     }
 
     external.addEventListener('abort', onAbort, { once: true })
