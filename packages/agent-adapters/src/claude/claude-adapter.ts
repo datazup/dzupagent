@@ -22,7 +22,11 @@ import { getDefaultMonitorStatus } from '../provider-catalog.js'
 import { BaseSdkAdapter } from '../base/base-sdk-adapter.js'
 import { extractTokenUsage as extractTokenUsageShared } from '../base/extract-token-usage.js'
 import { AdapterStreamRunner } from '../base/stream-runner.js'
-import type { AdapterStreamSource, StreamContext } from '../base/stream-runner.js'
+import type {
+  AdapterStreamSource,
+  StreamContext,
+  ThreadStartResult,
+} from '../base/stream-runner.js'
 
 // ---------------------------------------------------------------------------
 // SDK type declarations (optional peer dep — cannot import statically)
@@ -183,11 +187,22 @@ function extractQuestionFromToolInput(input: unknown): string {
 // ClaudeAgentAdapter
 // ---------------------------------------------------------------------------
 
-export class ClaudeAgentAdapter extends BaseSdkAdapter<ClaudeSDKModule> {
+export class ClaudeAgentAdapter
+  extends BaseSdkAdapter<ClaudeSDKModule>
+  implements AdapterStreamSource<ClaudeSDKMessage>
+{
   readonly providerId = 'claude' as const
 
   private sdk: ClaudeSDKModule | null = null
   private activeConversation: ClaudeConversation | null = null
+
+  // Per-execution state populated by execute() before the runner starts.
+  // mapRawEvent / detectThreadStart / open consume these fields.
+  private currentInput: AgentInput | null = null
+  private currentQueryOptions: Record<string, unknown> | null = null
+  private currentStartTime = 0
+  private lastToolStartTime = 0
+  private lastToolName = ''
 
   // -----------------------------------------------------------------------
   // AgentCLIAdapter.getCapabilities
@@ -209,237 +224,241 @@ export class ClaudeAgentAdapter extends BaseSdkAdapter<ClaudeSDKModule> {
 
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
     const sdk = await this.loadSdk()
-    const startTime = Date.now()
 
     const policy = this.resolveInteractionPolicy(input)
     this.resolver = policy.mode !== 'auto-approve' ? new InteractionResolver(policy) : null
 
+    this.currentInput = input
+    this.currentStartTime = Date.now()
+    this.currentQueryOptions = this.buildQueryOptions(input)
+    this.lastToolStartTime = 0
+    this.lastToolName = ''
+    // sdk reference held via this.sdk (loadSdk caches it)
+    this.sdk = sdk
+
     const runner = new AdapterStreamRunner<ClaudeSDKMessage>({
-      onAbortController: (ctrl) => { this.abortController = ctrl },
+      onAbortController: (ctrl) => {
+        this.abortController = ctrl
+      },
     })
 
-    const queryOptions = this.buildQueryOptions(input)
-    const source = this.buildClaudeStreamSource(sdk, queryOptions, input, startTime)
-
     try {
-      yield* runner.run(source, input, input.signal)
+      yield* runner.run(this, input, input.signal)
     } finally {
       this.activeConversation = null
       this.abortController = null
+      this.currentInput = null
+      this.currentQueryOptions = null
       this.disposeResolver()
     }
   }
 
   // -----------------------------------------------------------------------
-  // Stream source implementation for AdapterStreamRunner
+  // AdapterStreamSource<ClaudeSDKMessage> — class methods
   // -----------------------------------------------------------------------
 
-  private buildClaudeStreamSource(
-    sdk: ClaudeSDKModule,
-    queryOptions: Record<string, unknown>,
-    input: AgentInput,
-    startTime: number,
-  ): AdapterStreamSource<ClaudeSDKMessage> {
-    const adapter = this
-    let lastToolStartTime = 0
-    let lastToolName = ''
+  async *open(input: AgentInput, signal: AbortSignal): AsyncIterable<ClaudeSDKMessage> {
+    const sdk = this.sdk
+    const queryOptions = this.currentQueryOptions
+    if (!sdk || !queryOptions) {
+      throw new ForgeError({
+        code: 'ADAPTER_EXECUTION_FAILED',
+        message: 'ClaudeAgentAdapter.open invoked outside execute()',
+        recoverable: false,
+      })
+    }
 
+    // Inject the runner's AbortController signal into the SDK query options
+    const opts = queryOptions['options'] as Record<string, unknown>
+    opts['abortController'] = { signal, abort: () => { /* runner owns abort */ } }
+
+    let conversation: ClaudeConversation
+    try {
+      conversation = sdk.query(queryOptions)
+      this.activeConversation = conversation
+    } catch (err: unknown) {
+      throw ForgeError.wrap(err, {
+        code: 'ADAPTER_EXECUTION_FAILED',
+        suggestion: 'Verify Claude Agent SDK is correctly installed and configured',
+        context: {
+          providerId: 'claude',
+          model: this.config.model,
+          promptLength: input.prompt.length,
+        },
+      })
+    }
+
+    try {
+      for await (const message of conversation as AsyncIterable<ClaudeSDKMessage>) {
+        if (signal.aborted) break
+        yield message
+      }
+    } finally {
+      this.activeConversation = null
+    }
+  }
+
+  detectThreadStart(raw: ClaudeSDKMessage): ThreadStartResult | null {
+    if (!isSystemMessage(raw)) return null
+    const input = this.currentInput
+    const resolvedModel = this.config.model ?? (typeof raw.model === 'string' ? raw.model : undefined)
+    const resolvedWorkingDirectory = input?.workingDirectory ?? this.config.workingDirectory
     return {
-      providerId: 'claude' as const,
-
-      async *open(_input: AgentInput, signal: AbortSignal): AsyncIterable<ClaudeSDKMessage> {
-        // Inject the runner's AbortController signal into the SDK query options
-        const opts = queryOptions.options as Record<string, unknown>
-        opts['abortController'] = { signal, abort: () => { /* runner owns abort */ } }
-
-        let conversation: ClaudeConversation
-        try {
-          conversation = sdk.query(queryOptions)
-          adapter.activeConversation = conversation
-        } catch (err: unknown) {
-          throw ForgeError.wrap(err, {
-            code: 'ADAPTER_EXECUTION_FAILED',
-            suggestion: 'Verify Claude Agent SDK is correctly installed and configured',
-            context: {
-              providerId: 'claude',
-              model: adapter.config.model,
-              promptLength: input.prompt.length,
-            },
-          })
-        }
-
-        try {
-          for await (const message of conversation as AsyncIterable<ClaudeSDKMessage>) {
-            if (signal.aborted) break
-            yield message
-          }
-        } finally {
-          adapter.activeConversation = null
-        }
+      threadId: raw.session_id,
+      extra: {
+        ...(resolvedModel !== undefined ? { model: resolvedModel } : {}),
+        ...(resolvedWorkingDirectory !== undefined ? { workingDirectory: resolvedWorkingDirectory } : {}),
       },
+    }
+  }
 
-      mapRawEvent(raw: ClaudeSDKMessage, context: StreamContext): AgentEvent | null {
-        if (isSystemMessage(raw)) {
-          // Thread start is detected via detectThreadStart; here we also capture
-          // model from the system message for the started event enrichment.
-          context.sessionId = raw.session_id
+  extractUsage(raw: ClaudeSDKMessage): TokenUsage | undefined {
+    if (!isResultMessage(raw)) return undefined
+    return extractTokenUsage(raw.usage)
+  }
+
+  mapRawEvent(raw: ClaudeSDKMessage, context: StreamContext): AgentEvent | AgentEvent[] | null {
+    const input = context.input
+
+    if (isSystemMessage(raw)) {
+      // Thread start handled via detectThreadStart; capture session id locally.
+      context.sessionId = raw.session_id
+      return null
+    }
+
+    if (isAssistantMessage(raw)) {
+      const text = extractTextFromContentBlocks(raw.content as unknown[])
+      if (text.length === 0) return null
+      return {
+        type: 'adapter:message',
+        providerId: 'claude',
+        content: text,
+        role: 'assistant',
+        timestamp: Date.now(),
+        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+      }
+    }
+
+    if (isToolProgressMessage(raw)) {
+      if (raw.status === 'started') {
+        this.lastToolStartTime = Date.now()
+        this.lastToolName = raw.tool_name
+
+        if (this.resolver && isInteractionToolName(raw.tool_name)) {
+          const questionText = extractQuestionFromToolInput(raw.input)
+          const interactionId = randomUUID()
+          const kind = classifyInteractionText(questionText)
+          const nowMs = Date.now()
+          const policy = this.resolveInteractionPolicy(input)
+
+          if (policy.mode === 'ask-caller') {
+            // Return interaction_required as the mapped event; the resolver runs async.
+            void this.resolver.resolve({ interactionId, question: questionText, kind })
+            return {
+              type: 'adapter:interaction_required',
+              providerId: 'claude',
+              interactionId,
+              question: questionText,
+              kind,
+              timestamp: nowMs,
+              expiresAt: nowMs + (policy.askCaller?.timeoutMs ?? 60_000),
+              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+            } as AgentEvent
+          }
           return null
         }
 
-        if (isAssistantMessage(raw)) {
-          const text = extractTextFromContentBlocks(raw.content as unknown[])
-          if (text.length === 0) return null
-          return {
-            type: 'adapter:message',
-            providerId: 'claude',
-            content: text,
-            role: 'assistant',
-            timestamp: Date.now(),
-            ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-          }
+        return {
+          type: 'adapter:tool_call',
+          providerId: 'claude',
+          toolName: raw.tool_name,
+          input: raw.input ?? {},
+          timestamp: Date.now(),
+          ...(input.correlationId ? { correlationId: input.correlationId } : {}),
         }
+      }
 
-        if (isToolProgressMessage(raw)) {
-          if (raw.status === 'started') {
-            lastToolStartTime = Date.now()
-            lastToolName = raw.tool_name
-
-            if (adapter.resolver && isInteractionToolName(raw.tool_name)) {
-              const questionText = extractQuestionFromToolInput(raw.input)
-              const interactionId = randomUUID()
-              const kind = classifyInteractionText(questionText)
-              const nowMs = Date.now()
-              const policy = adapter.resolveInteractionPolicy(input)
-
-              // Schedule async interaction handling — emit interaction events after return
-              // by returning a special marker. We handle this inline via a yielded promise
-              // through a side-channel: emit interaction_required synchronously if ask-caller.
-              if (policy.mode === 'ask-caller') {
-                // Return interaction_required as the mapped event; the resolver runs async.
-                // We use a void promise to allow the interaction to complete before yielding more.
-                void adapter.resolver.resolve({ interactionId, question: questionText, kind })
-                return {
-                  type: 'adapter:interaction_required',
-                  providerId: 'claude',
-                  interactionId,
-                  question: questionText,
-                  kind,
-                  timestamp: nowMs,
-                  expiresAt: nowMs + (policy.askCaller?.timeoutMs ?? 60_000),
-                  ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-                } as AgentEvent
-              }
-              return null
-            }
-
-            return {
-              type: 'adapter:tool_call',
-              providerId: 'claude',
-              toolName: raw.tool_name,
-              input: raw.input ?? {},
-              timestamp: Date.now(),
-              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-            }
-          }
-
-          // completed/failed
-          if (isInteractionToolName(raw.tool_name) && adapter.resolver) return null
-          const durationMs = typeof raw.duration_ms === 'number'
-            ? raw.duration_ms
-            : (lastToolName === raw.tool_name ? Date.now() - lastToolStartTime : 0)
-          return {
-            type: 'adapter:tool_result',
-            providerId: 'claude',
-            toolName: raw.tool_name,
-            output: typeof raw.output === 'string' ? raw.output : '',
-            durationMs,
-            timestamp: Date.now(),
-            ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-          }
-        }
-
-        if (isStreamEvent(raw)) {
-          const delta = raw.delta
-          if (typeof delta !== 'string' || delta.length === 0) return null
-          return {
-            type: 'adapter:stream_delta',
-            providerId: 'claude',
-            content: delta,
-            timestamp: Date.now(),
-            ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-          }
-        }
-
-        if (isResultMessage(raw)) {
-          const durationMs = typeof raw.duration_ms === 'number'
-            ? raw.duration_ms
-            : Date.now() - startTime
-
-          if (raw.subtype === 'success') {
-            const tokenUsage = extractTokenUsage(raw.usage)
-            const sessionId = raw.session_id ?? context.sessionId
-            const completedEvent: AgentEvent = {
-              type: 'adapter:completed',
-              providerId: 'claude',
-              sessionId,
-              result: typeof raw.result === 'string' ? raw.result : '',
-              ...(tokenUsage !== undefined ? { usage: tokenUsage } : {}),
-              durationMs,
-              timestamp: Date.now(),
-              ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-            }
-            if (tokenUsage && (tokenUsage.cachedInputTokens !== undefined || tokenUsage.cacheWriteTokens !== undefined)) {
-              const cacheRead = tokenUsage.cachedInputTokens ?? 0
-              const cacheWrite = tokenUsage.cacheWriteTokens ?? 0
-              const total = tokenUsage.inputTokens
-              const cacheStatsEvent: AgentEvent = {
-                type: 'adapter:cache_stats',
-                providerId: 'claude',
-                sessionId,
-                cacheReadTokens: cacheRead,
-                cacheWriteTokens: cacheWrite,
-                totalInputTokens: total,
-                cacheHitRatio: total > 0 ? cacheRead / total : 0,
-                timestamp: Date.now(),
-                ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-              } as AgentEvent
-              return [completedEvent, cacheStatsEvent]
-            }
-            return completedEvent
-          }
-
-          const failedSessionId = raw.session_id ?? (context.sessionId || undefined)
-          return {
-            type: 'adapter:failed',
-            providerId: 'claude',
-            ...(failedSessionId !== undefined ? { sessionId: failedSessionId } : {}),
-            error: typeof raw.error === 'string'
-              ? raw.error
-              : `Claude agent failed with subtype: ${raw.subtype}`,
-            code: raw.subtype,
-            timestamp: Date.now(),
-            ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-          }
-        }
-
-        return null
-      },
-
-      detectThreadStart(raw: ClaudeSDKMessage): { threadId: string; sessionId?: string; extra?: Record<string, unknown> } | null {
-        if (isSystemMessage(raw)) {
-          const resolvedModel = adapter.config.model ?? (typeof raw.model === 'string' ? raw.model : undefined)
-          const resolvedWorkingDirectory = input.workingDirectory ?? adapter.config.workingDirectory
-          return {
-            threadId: raw.session_id,
-            extra: {
-              ...(resolvedModel !== undefined ? { model: resolvedModel } : {}),
-              ...(resolvedWorkingDirectory !== undefined ? { workingDirectory: resolvedWorkingDirectory } : {}),
-            },
-          }
-        }
-        return null
-      },
+      // completed/failed
+      if (isInteractionToolName(raw.tool_name) && this.resolver) return null
+      const durationMs = typeof raw.duration_ms === 'number'
+        ? raw.duration_ms
+        : (this.lastToolName === raw.tool_name ? Date.now() - this.lastToolStartTime : 0)
+      return {
+        type: 'adapter:tool_result',
+        providerId: 'claude',
+        toolName: raw.tool_name,
+        output: typeof raw.output === 'string' ? raw.output : '',
+        durationMs,
+        timestamp: Date.now(),
+        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+      }
     }
+
+    if (isStreamEvent(raw)) {
+      const delta = raw.delta
+      if (typeof delta !== 'string' || delta.length === 0) return null
+      return {
+        type: 'adapter:stream_delta',
+        providerId: 'claude',
+        content: delta,
+        timestamp: Date.now(),
+        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+      }
+    }
+
+    if (isResultMessage(raw)) {
+      const durationMs = typeof raw.duration_ms === 'number'
+        ? raw.duration_ms
+        : Date.now() - this.currentStartTime
+
+      if (raw.subtype === 'success') {
+        const tokenUsage = extractTokenUsage(raw.usage)
+        const sessionId = raw.session_id ?? context.sessionId
+        const completedEvent: AgentEvent = {
+          type: 'adapter:completed',
+          providerId: 'claude',
+          sessionId,
+          result: typeof raw.result === 'string' ? raw.result : '',
+          ...(tokenUsage !== undefined ? { usage: tokenUsage } : {}),
+          durationMs,
+          timestamp: Date.now(),
+          ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+        }
+        if (tokenUsage && (tokenUsage.cachedInputTokens !== undefined || tokenUsage.cacheWriteTokens !== undefined)) {
+          const cacheRead = tokenUsage.cachedInputTokens ?? 0
+          const cacheWrite = tokenUsage.cacheWriteTokens ?? 0
+          const total = tokenUsage.inputTokens
+          const cacheStatsEvent: AgentEvent = {
+            type: 'adapter:cache_stats',
+            providerId: 'claude',
+            sessionId,
+            cacheReadTokens: cacheRead,
+            cacheWriteTokens: cacheWrite,
+            totalInputTokens: total,
+            cacheHitRatio: total > 0 ? cacheRead / total : 0,
+            timestamp: Date.now(),
+            ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+          } as AgentEvent
+          return [completedEvent, cacheStatsEvent]
+        }
+        return completedEvent
+      }
+
+      const failedSessionId = raw.session_id ?? (context.sessionId || undefined)
+      return {
+        type: 'adapter:failed',
+        providerId: 'claude',
+        ...(failedSessionId !== undefined ? { sessionId: failedSessionId } : {}),
+        error: typeof raw.error === 'string'
+          ? raw.error
+          : `Claude agent failed with subtype: ${raw.subtype}`,
+        code: raw.subtype,
+        timestamp: Date.now(),
+        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+      }
+    }
+
+    return null
   }
 
   // -----------------------------------------------------------------------

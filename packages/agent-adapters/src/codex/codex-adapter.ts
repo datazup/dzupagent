@@ -279,7 +279,19 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
 
     this.currentInput = input
     this.currentIsResume = false
-    yield* this.runStreamedThread(thread, input, codex)
+
+    // Set up the runner's AbortController so interrupt() can abort the stream.
+    // The runner signal is a combination of input.signal + runner's internal controller.
+    this.abortController = new AbortController()
+    const signal = this.combineSignals(input.signal, this.abortController.signal)
+
+    try {
+      yield* this.runStreamedThread(thread, input, codex, signal)
+    } finally {
+      this.abortController = null
+      this.currentInput = null
+      this.disposeResolver()
+    }
   }
 
   async *resumeSession(
@@ -294,7 +306,8 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
 
     this.currentInput = input
     this.currentIsResume = true
-    for await (const event of this.runStreamedThread(thread, input, codex)) {
+    const resumeSignal = input.signal ?? new AbortController().signal
+    for await (const event of this.runStreamedThread(thread, input, codex, resumeSignal)) {
       if (event.type !== 'adapter:provider_raw') {
         yield event
       }
@@ -495,8 +508,8 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     thread: CodexThread,
     input: AgentInput,
     codex: CodexInstance,
+    signal: AbortSignal,
   ): AsyncGenerator<AgentStreamEvent, void, undefined> {
-    this.abortController = new AbortController()
     const startTime = now()
     let sessionId = this.currentSessionId ?? `codex-${Date.now()}`
     let lastUsage: TokenUsage | undefined
@@ -520,9 +533,6 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       console.error(`[codex-adapter.ts:runStreamedThread] timeout after ${timeoutMs}ms — aborting`, { sessionId })
       this.abortController?.abort()
     }, timeoutMs)
-
-    // Combine caller signal with our internal abort controller
-    const signal = this.combineSignals(input.signal, this.abortController.signal)
 
     console.debug('[codex-adapter.ts:runStreamedThread] starting', {
       sessionId, promptLength: input.prompt.length, timeoutMs,
@@ -699,7 +709,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
             if (result.answer === 'yes' || result.answer === 'approve') {
               // Resume the thread with an approval message
               const approvalThread = codex.resumeThread(sessionId, this.buildThreadOptions(input))
-              yield* this.runStreamedThread(approvalThread, input, codex)
+              yield* this.runStreamedThread(approvalThread, input, codex, signal)
             } else {
               yield withCorrelationId({
                 type: 'adapter:failed',
@@ -760,8 +770,6 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       return
     } finally {
       clearTimeout(timeoutHandle)
-      this.abortController = null
-      this.disposeResolver()
     }
 
     console.debug('[codex-adapter.ts:runStreamedThread] completed normally', {
