@@ -1,6 +1,6 @@
 # Server API Surface Index
 
-Date: 2026-05-04
+Date: 2026-05-05
 
 Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`.
 
@@ -12,15 +12,14 @@ Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`
 
 ## Current Direct Root Imports
 
-- Imported symbols by tier: stable=`3`, secondary=`0`, experimental=`0`, internal=`0`, unknown=`9`
+- Imported symbols by tier: stable=`2`, secondary=`0`, experimental=`0`, internal=`0`, unknown=`9`
 
 | Import | Tier | Source Module | Root Exposure | Files | Sample Consumers |
 | --- | --- | --- | --- | ---: | --- |
 | `ServerRoutePlugin` | `stable` | `./route-plugin.js` | `keep-root` | 7 | `apps/ai-saas-starter-kit/packages/server-domain/src/index.ts`, `apps/ai-saas-starter-kit/packages/server-domain/src/persistence/create-drizzle-domain-config.ts`, `apps/ai-saas-starter-kit/packages/server-domain/src/plugins/ledger-plugin.ts` |
-| `ForgeServerConfig` | `stable` | `./app.js` | `keep-root` | 2 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts`, `dzupagent/packages/agent/src/__tests__/workflow-durability-integration.test.ts` |
-| `createForgeApp` | `stable` | `./app.js` | `keep-root` | 1 | `dzupagent/packages/agent/src/__tests__/workflow-durability-integration.test.ts` |
 | `DoctorContext` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
 | `DoctorReport` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
+| `ForgeServerConfig` | `stable` | `./app.js` | `keep-root` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
 | `formatDoctorReportJSON` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
 | `Grade` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
 | `IntegrationScorecard` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
