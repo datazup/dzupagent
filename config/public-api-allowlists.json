@@ -216,6 +216,8 @@
         { "match": "prefix", "pattern": "./crdt/" },
         { "match": "prefix", "pattern": "./sharing/" },
         { "match": "prefix", "pattern": "./multi-modal/" },
+        { "match": "exact", "pattern": "./consolidation-engine.js" },
+        { "match": "exact", "pattern": "./memory-pruner.js" },
         { "match": "exact", "pattern": "./consolidation-types.js" },
         { "match": "exact", "pattern": "./lesson-dedup.js" },
         { "match": "exact", "pattern": "./staleness-pruner.js" },
