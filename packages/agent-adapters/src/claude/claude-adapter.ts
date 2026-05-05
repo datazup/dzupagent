@@ -129,10 +129,10 @@ function mapSandboxMode(mode: AdapterConfig['sandboxMode']): string {
     case 'read-only':
       return 'default'
     case 'workspace-write':
-      // Allow file writes within the working directory without interactive prompts.
-      // The Claude SDK 'default' mode blocks writes; 'bypassPermissions' matches
-      // the intent of workspace-write for automated coding agents.
-      return 'bypassPermissions'
+      // Claude SDK has no granular cwd-write mode. Route to 'default' (restricted)
+      // rather than 'bypassPermissions' (full access). Callers that need unrestricted
+      // file writes must explicitly use 'full-access'.
+      return 'default'
     case 'full-access':
       return 'bypassPermissions'
     default:
@@ -442,31 +442,15 @@ export class ClaudeAgentAdapter extends BaseSdkAdapter<ClaudeSDKModule> {
   // -----------------------------------------------------------------------
 
   interrupt(): void {
-    // The Claude SDK installs an abort listener that emits a synchronous
-    // error on its underlying child_process when the AbortController is
-    // aborted. That error reaches our generator's catch block, but the SDK
-    // also schedules an internal Promise rejection ("Claude Code process
-    // aborted by user") that is not consumed by the iterator we return.
-    //
-    // To prevent that benign abort signal from surfacing as an unhandled
-    // rejection in test runners, install a short-lived process-level
-    // handler that swallows exactly that message before triggering the
-    // abort.
-    const swallowAbort = (reason: unknown): void => {
-      const message = reason instanceof Error ? reason.message : String(reason)
-      if (message.includes('Claude Code process aborted by user')) {
-        // expected — this is the SDK's own abort signal, already handled
-        // via our generator's catch block
-        return
+    // Attach a no-op catch to the active conversation's async iterator before
+    // calling interrupt() so the SDK's internal abort rejection ("Claude Code
+    // process aborted by user") never surfaces as an unhandledRejection.
+    if (this.activeConversation) {
+      const conv = this.activeConversation as unknown as AsyncIterator<unknown>
+      if (typeof conv.return === 'function') {
+        conv.return(undefined).catch(() => {})
       }
-      // Re-emit to preserve normal unhandled-rejection behavior for any
-      // unrelated errors that happen to arrive in this tick.
-      process.emit('unhandledRejection', reason as Error, Promise.reject(reason))
     }
-    process.once('unhandledRejection', swallowAbort)
-    // Remove the listener shortly after — abort propagation is synchronous
-    // plus one microtask, so a brief delay is sufficient.
-    setTimeout(() => process.removeListener('unhandledRejection', swallowAbort), 100).unref()
 
     try {
       if (this.activeConversation) {
@@ -663,6 +647,13 @@ export class ClaudeAgentAdapter extends BaseSdkAdapter<ClaudeSDKModule> {
       options['thinking'] = { type: 'enabled', budget_tokens: thinkingBudget }
     }
 
+    // Prompt caching: enabled by default ('auto') unless explicitly disabled.
+    // Adds cache_control markers on the system prompt so repeated runs with the
+    // same persona/tools pay write cost once and read cost (~10%) thereafter.
+    if (this.config.promptCache !== 'off') {
+      options['promptCaching'] = true
+    }
+
     if (this.abortController) {
       options['abortController'] = this.abortController
     }
@@ -679,7 +670,7 @@ export class ClaudeAgentAdapter extends BaseSdkAdapter<ClaudeSDKModule> {
       }
     }
 
-    // Merge provider-specific config options
+    // Merge provider-specific config options (may override promptCaching if needed)
     if (this.config.providerOptions) {
       for (const [key, value] of Object.entries(this.config.providerOptions)) {
         options[key] = value

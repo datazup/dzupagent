@@ -4,6 +4,7 @@ import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
   calculateCostCents,
   estimateTokens,
+  extractTokenUsage,
   ForgeError,
   type DzupEventBus,
   type RunJournalEntry,
@@ -59,6 +60,27 @@ import {
   type PiiMode,
 } from '@dzupagent/security'
 import { HumanMessage } from '@langchain/core/messages'
+import type {
+  LlmCallAuditEntry,
+  LlmCallAuditSink,
+} from '../observability/llm-call-audit.js'
+
+/**
+ * Push an LLM-call audit entry to the configured sink. Fire-and-forget:
+ * synchronous throws and rejected promises are swallowed so the run
+ * never fails because of an audit-sink defect.
+ */
+async function recordAuditEntry(
+  sink: LlmCallAuditSink,
+  entry: LlmCallAuditEntry,
+): Promise<void> {
+  try {
+    await sink.record(entry)
+  } catch {
+    // Audit sink failures must never disturb the run. Compliance reports
+    // surface missing entries via downstream reconciliation, not here.
+  }
+}
 
 export interface PreparedRunState {
   maxIterations: number
@@ -443,7 +465,49 @@ async function executeGenerateRunInner(
           timestamp: Date.now(),
         })
       },
-      invokeModel: (model, messages) => params.invokeModel(model, messages),
+      invokeModel: async (model, messages) => {
+        // RF-12 — record every LLM invocation in the configured audit
+        // sink for compliance traceability. Fire-and-forget; never blocks
+        // the run, never propagates sink errors.
+        const auditStore = params.config.auditStore
+        const startMs = Date.now()
+        const modelId =
+          (model as BaseChatModel & { model?: string }).model
+          ?? (typeof params.config.model === 'string' ? params.config.model : 'unknown')
+        try {
+          const response = await params.invokeModel(model, messages)
+          if (auditStore) {
+            const usage = extractTokenUsage(response, modelId)
+            void recordAuditEntry(auditStore, {
+              agentId: params.agentId,
+              ...(params.options?.runId !== undefined ? { runId: params.options.runId } : {}),
+              model: modelId,
+              inputTokens: usage.inputTokens ?? 0,
+              outputTokens: usage.outputTokens ?? 0,
+              durationMs: Date.now() - startMs,
+              timestamp: Date.now(),
+              success: true,
+            })
+          }
+          return response
+        } catch (err) {
+          if (auditStore) {
+            const errorMessage = err instanceof Error ? err.message : String(err)
+            void recordAuditEntry(auditStore, {
+              agentId: params.agentId,
+              ...(params.options?.runId !== undefined ? { runId: params.options.runId } : {}),
+              model: modelId,
+              inputTokens: 0,
+              outputTokens: 0,
+              durationMs: Date.now() - startMs,
+              timestamp: Date.now(),
+              success: false,
+              error: errorMessage,
+            })
+          }
+          throw err
+        }
+      },
       transformToolResult: (name, input, result) =>
         params.transformToolResult(name, input, result),
       onUsage: (usage) => {
@@ -457,6 +521,8 @@ async function executeGenerateRunInner(
           model: usage.model,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
+          ...(usage.cacheReadTokens !== undefined ? { cacheReadTokens: usage.cacheReadTokens } : {}),
+          ...(usage.cacheWriteTokens !== undefined ? { cacheWriteTokens: usage.cacheWriteTokens } : {}),
           costCents: calculateCostCents(usage),
           timestamp: Date.now(),
         })
@@ -738,7 +804,7 @@ export async function executeStreamingToolCall(params: {
           type: 'approval:requested',
           runId: correlationId,
           plan: { toolName, args: toolCall.args },
-        } as never)
+        })
       } catch {
         // Non-fatal: event emission must not abort the run.
       }
@@ -892,7 +958,7 @@ export async function executeStreamingToolCall(params: {
           severity: policy.scanFailureMode === 'fail-closed' ? 'critical' : 'warning',
           ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
           message: 'Tool result safety scanner failed',
-        } as never)
+        })
 
         if (policy.scanFailureMode === 'fail-closed') {
           const blockedContent = '[blocked: tool result safety scanner failed]'

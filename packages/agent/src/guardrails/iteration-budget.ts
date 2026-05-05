@@ -16,6 +16,7 @@ export class IterationBudget {
   }
 
   private emittedThresholds = new Set<string>()
+  private dynamicallyBlockedTools = new Set<string>()
 
   constructor(private readonly config: GuardrailConfig) {}
 
@@ -54,17 +55,13 @@ export class IterationBudget {
 
   /** Check if a tool is blocked by guardrails */
   isToolBlocked(toolName: string): boolean {
-    return this.config.blockedTools?.includes(toolName) ?? false
+    return (this.config.blockedTools?.includes(toolName) ?? false) || this.dynamicallyBlockedTools.has(toolName)
   }
 
-  /** Dynamically block a tool at runtime (e.g., by stuck detector) */
+  /** Dynamically block a tool at runtime (e.g., by stuck detector).
+   * Tracks in a private Set to avoid mutating the caller-provided config. */
   blockTool(toolName: string): void {
-    if (!this.config.blockedTools) {
-      ;(this.config as { blockedTools: string[] }).blockedTools = []
-    }
-    if (!this.config.blockedTools!.includes(toolName)) {
-      this.config.blockedTools!.push(toolName)
-    }
+    this.dynamicallyBlockedTools.add(toolName)
   }
 
   /** Get current budget state snapshot */
@@ -77,6 +74,7 @@ export class IterationBudget {
     const child = new IterationBudget(this.config)
     child.state = this.state // shared reference
     child.emittedThresholds = this.emittedThresholds
+    child.dynamicallyBlockedTools = this.dynamicallyBlockedTools
     return child
   }
 

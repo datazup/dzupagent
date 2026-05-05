@@ -86,11 +86,8 @@ export class AgentMailboxImpl implements AgentMailbox {
       // We reject before constructing/persisting the message.
       throw new MailRateLimitedError(
         this.agentId,
-        // Expose configured values via the limiter for better error messages.
-        // Fall back to 0 if reflection is unavailable (never expected).
-        (this.rateLimiter as unknown as { maxMessages?: number })
-          .maxMessages ?? 0,
-        (this.rateLimiter as unknown as { windowMs?: number }).windowMs ?? 0,
+        this.rateLimiter.getMaxMessages(),
+        this.rateLimiter.getWindowMs(),
       )
     }
 

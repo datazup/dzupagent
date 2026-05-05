@@ -54,7 +54,7 @@ export function attachRunMetricsBridge(
   function getOrInit(runId: string): PendingUsage {
     let p = pending.get(runId)
     if (!p) {
-      p = { tokens: { input: 0, output: 0, cached: 0 }, costCents: 0 }
+      p = { tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, costCents: 0 }
       pending.set(runId, p)
     }
     return p
@@ -76,6 +76,8 @@ export function attachRunMetricsBridge(
       const acc = getOrInit(e.runId)
       acc.tokens.input += e.inputTokens
       acc.tokens.output += e.outputTokens
+      acc.tokens.cacheRead += e.cacheReadTokens ?? 0
+      acc.tokens.cacheWrite += e.cacheWriteTokens ?? 0
       acc.costCents += e.costCents
     }),
   )
@@ -83,7 +85,7 @@ export function attachRunMetricsBridge(
   unsubscribers.push(
     bus.on('agent:completed', (e) => {
       const acc = pending.get(e.runId)
-      const tokens = acc?.tokens ?? { input: 0, output: 0, cached: 0 }
+      const tokens = acc?.tokens ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
       // Convert cents -> micros (1 cent = 10_000 micros).
       const costMicros = Math.round((acc?.costCents ?? 0) * 10_000)
       aggregator.recordComplete(e.runId, tokens, costMicros)

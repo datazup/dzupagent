@@ -15,7 +15,7 @@ export type { ForgeErrorOptions } from './errors/forge-error.js'
 export type { ForgeErrorCode } from './errors/error-codes.js'
 
 // --- Events ---
-export { createEventBus } from './events/event-bus.js'
+export { createEventBus, typedEmit } from './events/event-bus.js'
 export type { DzupEventBus } from './events/event-bus.js'
 export type {
   AdapterProgressDzupEvent,
@@ -24,6 +24,7 @@ export type {
   DzupEventOf,
   BudgetUsage,
   MapReduceDzupEvent,
+  RunLifecycleEvent,
   ToolStatSummary,
 } from './events/event-types.js'
 export { emitDegradedOperation } from './events/degraded-operation.js'
@@ -854,6 +855,13 @@ export type { FrameworkLogger } from './utils/logger.js'
 export { calculateBackoff } from './utils/backoff.js'
 export type { BackoffConfig } from './utils/backoff.js'
 export { hashToolInput } from './utils/hash.js'
+export { omitUndefined } from './utils/exact-optional.js'
+export type { OmitUndefined } from './utils/exact-optional.js'
+export { getString, getNumber, getObject, toJsonString } from './utils/event-record.js'
+
+// --- Guardrails ---
+export { StuckDetector } from './guardrails/stuck-detector.js'
+export type { StuckStatus, StuckDetectorConfig } from './guardrails/stuck-detector.js'
 
 // --- Version ---
 export const dzupagent_CORE_VERSION = '0.2.0'

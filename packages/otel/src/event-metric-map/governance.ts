@@ -117,4 +117,30 @@ export const governanceMetricMap = {
     },
   ],
 
+  'safety:tool_result_blocked': [
+    {
+      metricName: 'forge_safety_tool_result_blocked_total',
+      type: 'counter',
+      description: 'Total tool results blocked by safety scanner',
+      labelKeys: ['tool_name', 'category'],
+      extract: (e) => {
+        const ev = asEvent<'safety:tool_result_blocked'>(e)
+        return { value: 1, labels: { tool_name: ev.toolName, category: ev.category } }
+      },
+    },
+  ],
+
+  'safety:tool_result_warning': [
+    {
+      metricName: 'forge_safety_tool_result_warnings_total',
+      type: 'counter',
+      description: 'Total tool results that triggered a safety warning',
+      labelKeys: ['tool_name', 'category'],
+      extract: (e) => {
+        const ev = asEvent<'safety:tool_result_warning'>(e)
+        return { value: 1, labels: { tool_name: ev.toolName, category: ev.category } }
+      },
+    },
+  ],
+
 } satisfies MetricMapFragment

@@ -124,10 +124,8 @@ export function emitToolCalled(
       toolCallId,
       inputMetadataKeys,
       ...(context.agentId !== undefined ? { agentId: context.agentId } : {}),
-      ...(context.runId !== undefined
-        ? { runId: context.runId, executionRunId: context.runId }
-        : {}),
-    } as never)
+      ...(context.runId !== undefined ? { runId: context.runId, executionRunId: context.runId } : {}),
+    })
   } catch {
     // Telemetry must never abort the loop.
   }
@@ -177,7 +175,7 @@ export function emitToolResult(
       executionRunId,
       ...(context.agentId !== undefined ? { agentId: context.agentId } : {}),
       ...(context.runId !== undefined ? { runId: context.runId } : {}),
-    } as never)
+    })
   } catch {
     // Telemetry must never abort the loop.
   }
@@ -239,7 +237,7 @@ export function emitToolError(
       executionRunId,
       ...(context.agentId !== undefined ? { agentId: context.agentId } : {}),
       ...(context.runId !== undefined ? { runId: context.runId } : {}),
-    } as never)
+    })
   } catch {
     // Telemetry must never abort the loop.
   }
@@ -282,10 +280,8 @@ export function emitToolCancellationRequested(
       reason,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(context.agentId !== undefined ? { agentId: context.agentId } : {}),
-      ...(context.runId !== undefined
-        ? { runId: context.runId, executionRunId: context.runId }
-        : {}),
-    } as never)
+      ...(context.runId !== undefined ? { runId: context.runId, executionRunId: context.runId } : {}),
+    })
   } catch {
     // Telemetry must never abort the loop.
   }

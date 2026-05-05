@@ -137,9 +137,12 @@ export class StreamingRunHandle {
               return Promise.resolve({ value: event, done: false })
             }
 
-            // If terminal and no more buffered events, we are done
+            // If terminal and no more buffered events, we are done.
+            // `IteratorReturnResult` allows `value: undefined`, so no cast
+            // is needed — explicitly type the resolution as the return form.
             if (this._status !== 'running') {
-              return Promise.resolve({ value: undefined as unknown as StreamEvent, done: true })
+              const result: IteratorReturnResult<undefined> = { value: undefined, done: true }
+              return Promise.resolve(result)
             }
 
             // Wait for the next event from the producer
@@ -160,7 +163,8 @@ export class StreamingRunHandle {
       // Don't signal done yet if there are buffered events — the consumer's
       // next() call will drain them first, then see terminal status.
       if (this.eventQueue.length === 0) {
-        w.resolve({ value: undefined as unknown as StreamEvent, done: true })
+        const result: IteratorReturnResult<undefined> = { value: undefined, done: true }
+        w.resolve(result)
       }
       // If there are buffered events, the waiter should never be set
       // (the queue drain path handles it), so this branch is defensive.

@@ -145,7 +145,7 @@ export async function executePolicyEnabledToolCall(
           type: 'approval:requested',
           runId: correlationId,
           plan: { toolName, args: tc.args },
-        } as never)
+        })
       } catch {
         // Non-fatal: event emission must not abort the run.
       }
@@ -350,7 +350,7 @@ export async function executePolicyEnabledToolCall(
           severity: config.scanFailureMode === 'fail-closed' ? 'critical' : 'warning',
           ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
           message: 'Tool result safety scanner failed',
-        } as never)
+        })
 
         if (config.scanFailureMode === 'fail-closed') {
           resultStr = '[blocked: tool result safety scanner failed]'
@@ -395,7 +395,7 @@ export async function executePolicyEnabledToolCall(
               ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
               ...(config.runId !== undefined ? { runId: config.runId } : {}),
               error: errorText,
-            } as never)
+            })
           } catch {
             // Telemetry must never abort the tool loop.
           }
@@ -551,9 +551,9 @@ function maybeEmitCheckpointEvent(
         type: 'checkpoint:created',
         runId: config.runId,
         nodeId,
-        label: record['label'],
+        label: record['label'] as string,
         checkpointAt,
-      } as never)
+      })
       return
     }
 
@@ -565,10 +565,10 @@ function maybeEmitCheckpointEvent(
       config.eventBus.emit({
         type: 'checkpoint:restored',
         runId: config.runId,
-        checkpointLabel: record['label'],
+        checkpointLabel: record['label'] as string,
         restored: record['restored'] as boolean,
         ...(typeof reasonValue === 'string' ? { reason: reasonValue } : {}),
-      } as never)
+      })
     }
   } catch {
     // Telemetry must never abort the tool loop.

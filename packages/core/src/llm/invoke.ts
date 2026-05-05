@@ -17,6 +17,10 @@ export interface TokenUsage {
   model: string
   inputTokens: number
   outputTokens: number
+  /** Cache-read tokens (Anthropic: cached_input_tokens). Billed at ~10% of input price. */
+  cacheReadTokens?: number
+  /** Cache-write tokens (Anthropic: cache_creation_input_tokens). Billed at ~125% of input price. */
+  cacheWriteTokens?: number
 }
 
 /** Options for invokeWithTimeout */
@@ -67,6 +71,13 @@ export function extractTokenUsage(
   const meta = resp.response_metadata
   const resolvedModel = modelName ?? (meta?.['model'] as string | undefined) ?? 'unknown'
 
+  function extractCacheTokens(record: Record<string, unknown>): Pick<TokenUsage, 'cacheReadTokens' | 'cacheWriteTokens'> {
+    const result: Pick<TokenUsage, 'cacheReadTokens' | 'cacheWriteTokens'> = {}
+    if (typeof record['cached_input_tokens'] === 'number') result.cacheReadTokens = record['cached_input_tokens']
+    if (typeof record['cache_creation_input_tokens'] === 'number') result.cacheWriteTokens = record['cache_creation_input_tokens']
+    return result
+  }
+
   // Path 1: Top-level usage_metadata (LangChain 0.3+ standardized)
   const topUsageMeta = resp.usage_metadata as Record<string, number> | undefined
   if (topUsageMeta && typeof topUsageMeta['input_tokens'] === 'number' && typeof topUsageMeta['output_tokens'] === 'number') {
@@ -74,6 +85,7 @@ export function extractTokenUsage(
       model: resolvedModel,
       inputTokens: topUsageMeta['input_tokens'],
       outputTokens: topUsageMeta['output_tokens'],
+      ...extractCacheTokens(topUsageMeta),
     }
   }
 
@@ -85,6 +97,7 @@ export function extractTokenUsage(
         model: resolvedModel,
         inputTokens: usage['input_tokens'],
         outputTokens: usage['output_tokens'],
+        ...extractCacheTokens(usage),
       }
     }
     if (typeof usage['prompt_tokens'] === 'number' && typeof usage['completion_tokens'] === 'number') {
@@ -92,6 +105,7 @@ export function extractTokenUsage(
         model: resolvedModel,
         inputTokens: usage['prompt_tokens'],
         outputTokens: usage['completion_tokens'],
+        ...extractCacheTokens(usage),
       }
     }
   }
@@ -104,6 +118,7 @@ export function extractTokenUsage(
         model: resolvedModel,
         inputTokens: usageMeta['input_tokens'],
         outputTokens: usageMeta['output_tokens'],
+        ...extractCacheTokens(usageMeta),
       }
     }
   }

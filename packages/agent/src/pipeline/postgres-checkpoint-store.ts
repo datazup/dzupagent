@@ -221,12 +221,13 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
       WHERE created_at < $1
          OR (expires_at IS NOT NULL AND expires_at < NOW())
     `
-    const result = await this.client.query<{ count?: number }>(sql, [cutoff])
+    const result: { rows: unknown[]; rowCount?: number } = await this.client.query<{ count?: number }>(sql, [cutoff])
     // pg.Pool / postgres-js return different shapes for DELETE; most expose
     // a `rowCount` on the result envelope. We mirror rows length as a
-    // fallback for adapters that surface rows or use RETURNING.
-    const maybeRowCount = (result as unknown as { rowCount?: number }).rowCount
-    if (typeof maybeRowCount === 'number') return maybeRowCount
+    // fallback for adapters that surface rows or use RETURNING. Typing the
+    // local `result` with the optional `rowCount` field keeps the access
+    // safe without a wide cast.
+    if (typeof result.rowCount === 'number') return result.rowCount
     return result.rows.length
   }
 }

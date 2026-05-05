@@ -8,7 +8,7 @@
 
 import { randomUUID } from 'node:crypto'
 
-import type { DzupEventBus } from '@dzupagent/core'
+import { typedEmit, type DzupEventBus } from '@dzupagent/core'
 
 import type {
   AdapterProviderId,
@@ -521,10 +521,6 @@ export class SessionRegistry {
       | { type: 'session:multi_turn_completed'; workflowId: string; providerId: AdapterProviderId | undefined; durationMs: number }
       | { type: 'session:pruned'; count: number },
   ): void {
-    if (this.eventBus) {
-      // Session events are adapter-layer extensions not in core DzupEvent union.
-      // Cast through unknown to satisfy the type constraint.
-      this.eventBus.emit(event as unknown as Parameters<DzupEventBus['emit']>[0])
-    }
+    typedEmit(this.eventBus, event)
   }
 }

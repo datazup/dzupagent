@@ -133,4 +133,202 @@ export const adapterRuntimeMetricMap = {
       },
     ),
   ],
+
+  // --- Adapter run lifecycle ---
+  'adapter:run_pending': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_pending'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'pending' } }
+      },
+    ),
+  ],
+  'adapter:run_queued': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_queued'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'queued' } }
+      },
+    ),
+  ],
+  'adapter:run_running': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_running'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'running' } }
+      },
+    ),
+  ],
+  'adapter:run_executing': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_executing'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'executing' } }
+      },
+    ),
+  ],
+  'adapter:run_awaiting_approval': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_awaiting_approval'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'awaiting_approval' } }
+      },
+    ),
+  ],
+  'adapter:run_approved': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_approved'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'approved' } }
+      },
+    ),
+  ],
+  'adapter:run_paused': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_paused'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'paused' } }
+      },
+    ),
+  ],
+  'adapter:run_suspended': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_suspended'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'suspended' } }
+      },
+    ),
+  ],
+  'adapter:run_completed': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_completed'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'completed' } }
+      },
+    ),
+  ],
+  'adapter:run_halted': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_halted'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'halted' } }
+      },
+    ),
+  ],
+  'adapter:run_failed': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_failed'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'failed' } }
+      },
+    ),
+  ],
+  'adapter:run_cancelled': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_cancelled'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'cancelled' } }
+      },
+    ),
+  ],
+  'adapter:run_rejected': [
+    counter(
+      'dzip_adapter_run_status_total',
+      'Total adapter run status transitions',
+      ['provider_id', 'status'],
+      (e) => {
+        const ev = asEvent<'adapter:run_rejected'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId ?? 'unknown', status: 'rejected' } }
+      },
+    ),
+  ],
+
+  // --- Adapter memory recall ---
+  'adapter:memory_recalled': [
+    counter(
+      'dzip_adapter_memory_recalled_total',
+      'Total adapter memory recall events',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'adapter:memory_recalled'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId } }
+      },
+    ),
+    histogram(
+      'dzip_adapter_memory_recalled_tokens',
+      'Total tokens recalled from adapter memory',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'adapter:memory_recalled'>(e)
+        return { value: ev.totalTokens, labels: { provider_id: ev.providerId } }
+      },
+    ),
+    histogram(
+      'dzip_adapter_memory_recalled_duration_ms',
+      'Duration in ms of adapter memory recall',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'adapter:memory_recalled'>(e)
+        return { value: ev.durationMs, labels: { provider_id: ev.providerId } }
+      },
+    ),
+  ],
+
+  // --- Adapter skills compiled ---
+  'adapter:skills_compiled': [
+    counter(
+      'dzip_adapter_skills_compiled_total',
+      'Total adapter skill compilation events',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'adapter:skills_compiled'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId } }
+      },
+    ),
+    histogram(
+      'dzip_adapter_skills_compiled_duration_ms',
+      'Duration in ms of adapter skill compilation',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'adapter:skills_compiled'>(e)
+        return { value: ev.durationMs, labels: { provider_id: ev.providerId } }
+      },
+    ),
+  ],
 } satisfies MetricMapFragment

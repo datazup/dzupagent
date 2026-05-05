@@ -14,7 +14,10 @@
 export interface RunTokenUsage {
   input: number
   output: number
-  cached: number
+  /** Cache-read tokens (Anthropic: cached_input_tokens). Billed at ~10% of input price. */
+  cacheRead: number
+  /** Cache-write tokens (Anthropic: cache_creation_input_tokens). Billed at ~125% of input price. */
+  cacheWrite: number
 }
 
 /** Per-run metrics row maintained by the aggregator. */
@@ -62,7 +65,7 @@ export interface AggregatedMetrics {
 const DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1000
 
 function emptyTokenUsage(): RunTokenUsage {
-  return { input: 0, output: 0, cached: 0 }
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
 }
 
 /**
@@ -113,7 +116,8 @@ export class RunMetricsAggregator {
     row.tokenUsage = {
       input: tokenUsage.input,
       output: tokenUsage.output,
-      cached: tokenUsage.cached,
+      cacheRead: tokenUsage.cacheRead,
+      cacheWrite: tokenUsage.cacheWrite,
     }
     row.costMicros = costMicros
   }
@@ -192,7 +196,7 @@ export class RunMetricsAggregator {
       if (row.status === 'failed') failedRuns += 1
 
       totalCostMicros += row.costMicros
-      totalTokens += row.tokenUsage.input + row.tokenUsage.output + row.tokenUsage.cached
+      totalTokens += row.tokenUsage.input + row.tokenUsage.output + row.tokenUsage.cacheRead + row.tokenUsage.cacheWrite
 
       if (row.durationMs !== null) {
         durationSum += row.durationMs

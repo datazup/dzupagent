@@ -13,7 +13,7 @@
 
 import crypto from 'node:crypto'
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 import type { AdapterProviderId } from '../types.js'
 
@@ -368,7 +368,7 @@ export class WorkflowCheckpointer {
       | { type: 'pipeline:resumed'; pipelineId: string; runId: string; nodeId: string },
   ): void {
     if (this.eventBus) {
-      this.eventBus.emit(event as Parameters<DzupEventBus['emit']>[0])
+      this.eventBus.emit(event as DzupEvent)
     }
   }
 }

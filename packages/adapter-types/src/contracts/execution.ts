@@ -45,7 +45,10 @@ export interface AgentInput {
 export interface TokenUsage {
   inputTokens: number
   outputTokens: number
+  /** Cache-read tokens (Anthropic: cached_input_tokens). Billed at ~10% of input price. */
   cachedInputTokens?: number | undefined
+  /** Cache-write tokens (Anthropic: cache_creation_input_tokens). Billed at ~125% of input price. */
+  cacheWriteTokens?: number | undefined
   costCents?: number | undefined
 }
 
@@ -131,6 +134,13 @@ export interface AdapterConfig {
    * or explicitly set. Ignored by non-Claude adapters.
    */
   thinkingBudgetTokens?: number | undefined
+  /**
+   * Prompt caching mode for Claude adapter.
+   * - 'auto': inject cache_control on system prompt and tool definitions (default for Claude)
+   * - 'off': disable caching entirely
+   * Ignored by non-Claude adapters.
+   */
+  promptCache?: 'auto' | 'off' | undefined
 }
 
 /**

@@ -6,8 +6,8 @@
  * unified AgentEvent stream produced by CLI/SDK adapters.
  */
 
-import { hashToolInput } from '@dzupagent/core'
-import type { StuckDetectorConfig } from '@dzupagent/agent-types'
+import { StuckDetector } from '@dzupagent/core'
+import type { StuckDetectorConfig, StuckStatus as CoreStuckStatus } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 import type { BudgetUsage } from '@dzupagent/core'
 import type { AgentEvent, AgentStreamEvent, TokenUsage } from '../types.js'
@@ -24,21 +24,12 @@ function isProviderRawStreamEvent(
 // Stuck detector types
 // ---------------------------------------------------------------------------
 
-export interface StuckStatus {
-  stuck: boolean
-  reason?: string
-}
-
-/** Fully-resolved stuck config with defaults applied. */
-type ResolvedStuckDetectorConfig = Required<StuckDetectorConfig>
-
-const DEFAULT_STUCK_CONFIG: ResolvedStuckDetectorConfig = {
-  maxRepeatCalls: 3,
-  maxErrorsInWindow: 5,
-  errorWindowMs: 60_000,
-  maxIdleIterations: 3,
-  semanticPlateauWindow: 0,
-}
+/**
+ * Re-exported here to preserve the long-standing
+ * `@dzupagent/agent-adapters` public surface. The canonical type lives in
+ * `@dzupagent/core` (RF-11).
+ */
+export type StuckStatus = CoreStuckStatus
 
 // ---------------------------------------------------------------------------
 // Guardrail types
@@ -98,83 +89,19 @@ export interface GuardrailStatus {
  * - Repeated identical tool calls (same name + same input hash)
  * - High error rate within a sliding time window
  * - Idle iterations with no tool calls
+ * - Repeated non-overlapping tool-name block patterns
+ * - Semantic plateau (single-tool fixation)
+ *
+ * Thin extension of the canonical {@link StuckDetector} from
+ * `@dzupagent/core` (RF-11). Kept as a named subclass so that the long-standing
+ * `AdapterStuckDetector` export from `@dzupagent/agent-adapters` continues to
+ * work. The legacy 3-mode contract (`recordToolCall`, `recordError`,
+ * `recordIteration`, `reset`) is fully preserved; the additional 5-mode
+ * detection (semantic plateau + progress-hash) is now available transparently.
  */
-export class AdapterStuckDetector {
-  private recentCalls: Array<{ name: string; hash: string; timestamp: number }> = []
-  private recentErrors: Array<{ message: string; timestamp: number }> = []
-  private idleCount = 0
-  private readonly config: ResolvedStuckDetectorConfig
-
+export class AdapterStuckDetector extends StuckDetector {
   constructor(config?: StuckDetectorConfig) {
-    this.config = { ...DEFAULT_STUCK_CONFIG, ...config }
-  }
-
-  /** Record a tool call. Returns stuck status. */
-  recordToolCall(name: string, input: unknown): StuckStatus {
-    const hash = this.hashInput(input)
-    this.recentCalls.push({ name, hash, timestamp: Date.now() })
-    this.idleCount = 0 // tool call = progress
-
-    // Check for repeated identical calls
-    const tail = this.recentCalls.slice(-this.config.maxRepeatCalls)
-    if (tail.length >= this.config.maxRepeatCalls) {
-      const first = tail[0]!
-      const allSame = tail.every(c => c.name === first.name && c.hash === first.hash)
-      if (allSame) {
-        return {
-          stuck: true,
-          reason: `Tool "${name}" called ${this.config.maxRepeatCalls} times with identical input`,
-        }
-      }
-    }
-
-    return { stuck: false }
-  }
-
-  /** Record an error. Returns stuck status. */
-  recordError(message: string): StuckStatus {
-    this.recentErrors.push({ message, timestamp: Date.now() })
-
-    // Check error rate in sliding window
-    const windowStart = Date.now() - this.config.errorWindowMs
-    const recent = this.recentErrors.filter(e => e.timestamp >= windowStart)
-    if (recent.length >= this.config.maxErrorsInWindow) {
-      return {
-        stuck: true,
-        reason: `${recent.length} errors in ${Math.round(this.config.errorWindowMs / 1000)}s window`,
-      }
-    }
-
-    return { stuck: false }
-  }
-
-  /** Record an iteration tick. Detects idle (no tool calls) iterations. */
-  recordIteration(toolCallCount: number): StuckStatus {
-    if (toolCallCount === 0) {
-      this.idleCount++
-    } else {
-      this.idleCount = 0
-    }
-
-    if (this.idleCount >= this.config.maxIdleIterations) {
-      return {
-        stuck: true,
-        reason: `${this.idleCount} consecutive iterations with no tool calls`,
-      }
-    }
-
-    return { stuck: false }
-  }
-
-  /** Reset all tracking state */
-  reset(): void {
-    this.recentCalls = []
-    this.recentErrors = []
-    this.idleCount = 0
-  }
-
-  private hashInput(input: unknown): string {
-    return hashToolInput(input)
+    super(config)
   }
 }
 

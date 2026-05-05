@@ -42,6 +42,7 @@ import {
   type StreamingToolPolicyOptions,
 } from './run-engine.js'
 import { omitUndefined } from '../utils/exact-optional.js'
+import { attemptWithFailover } from './provider-failover.js'
 
 /**
  * Callbacks and configuration a streaming run needs from its owning agent.
@@ -132,17 +133,16 @@ function emitProviderRunEvent(
     retrying?: boolean
   },
 ): void {
-  ctx.config.eventBus?.emit({
-    type: event.type,
-    agentId: ctx.agentId,
-    attempt: event.attempt,
-    provider: event.provider,
-    model: event.model,
-    phase: event.phase,
-    ...(event.maxAttempts !== undefined ? { maxAttempts: event.maxAttempts } : {}),
-    ...(event.reason !== undefined ? { reason: event.reason } : {}),
-    ...(event.retrying !== undefined ? { retrying: event.retrying } : {}),
-  } as never)
+  const bus = ctx.config.eventBus
+  if (!bus) return
+  const base = { agentId: ctx.agentId, attempt: event.attempt, provider: event.provider, model: event.model, phase: event.phase } as const
+  if (event.type === 'provider:run_failure') {
+    bus.emit({ type: 'provider:run_failure', ...base, reason: event.reason ?? '', retrying: event.retrying ?? false })
+  } else if (event.type === 'provider:run_attempt') {
+    bus.emit({ type: 'provider:run_attempt', ...base, maxAttempts: event.maxAttempts ?? 1 })
+  } else {
+    bus.emit({ type: 'provider:run_selected', ...base })
+  }
 }
 
 async function openStreamWithProviderFailover(
@@ -155,55 +155,29 @@ async function openStreamWithProviderFailover(
   modelName: string
   attempt: number
 }> {
-  let lastError: unknown
-
-  for (let index = 0; index < attempts.length; index++) {
-    const candidate = attempts[index]!
-    const attemptNumber = index + 1
-    emitProviderRunEvent(ctx, {
-      type: 'provider:run_attempt',
-      attempt: attemptNumber,
-      maxAttempts: attempts.length,
-      provider: candidate.provider,
-      model: candidate.modelName,
-      phase: 'stream',
-    })
-
-    try {
+  return attemptWithFailover<{
+    stream: AsyncIterable<AIMessage>
+    provider: string
+    modelName: string
+    attempt: number
+  }>({
+    attempts,
+    phase: 'stream',
+    agentId: ctx.agentId,
+    eventBus: ctx.config.eventBus,
+    registry: ctx.registry,
+    shouldRetry: (err) => shouldRunStreamFailover(ctx, err, messages),
+    execute: async (candidate, attemptNumber) => {
       const streamable = candidate.model as StreamableModel
       const stream = await streamable.stream(messages)
-      emitProviderRunEvent(ctx, {
-        type: 'provider:run_selected',
-        attempt: attemptNumber,
-        provider: candidate.provider,
-        model: candidate.modelName,
-        phase: 'stream',
-      })
       return {
         stream,
         provider: candidate.provider,
         modelName: candidate.modelName,
         attempt: attemptNumber,
       }
-    } catch (err) {
-      lastError = err
-      const asError = err instanceof Error ? err : new Error(String(err))
-      ctx.registry?.recordProviderFailure(candidate.provider, asError)
-      const retrying = index < attempts.length - 1 && shouldRunStreamFailover(ctx, asError, messages)
-      emitProviderRunEvent(ctx, {
-        type: 'provider:run_failure',
-        attempt: attemptNumber,
-        provider: candidate.provider,
-        model: candidate.modelName,
-        phase: 'stream',
-        reason: asError.message,
-        retrying,
-      })
-      if (!retrying) break
-    }
-  }
-
-  throw lastError
+    },
+  })
 }
 
 /**
@@ -352,6 +326,16 @@ export async function* streamRun(
     } else {
       try {
         stream = await streamModel.stream(allMessages)
+        // Single-provider path: record success-on-open against the
+        // selection-time provider so the circuit breaker sees the same
+        // signal `attemptWithFailover` produces for the multi-provider
+        // path. A subsequent failure during stream consumption is
+        // recorded as a failure below — both signals are valid breaker
+        // input for an opened-then-broken stream (e.g. a transient
+        // mid-stream disconnect).
+        if (ctx.resolvedProvider && ctx.registry) {
+          ctx.registry.recordProviderSuccess(ctx.resolvedProvider)
+        }
       } catch (err) {
         if (ctx.resolvedProvider && ctx.registry) {
           const asError = err instanceof Error ? err : new Error(String(err))
@@ -363,7 +347,6 @@ export async function* streamRun(
     llmCalls += 1
 
     let fullResponse: AIMessage | null = null
-    let streamThrew = false
     try {
       for await (const chunk of stream) {
         fullResponse = chunk
@@ -374,7 +357,14 @@ export async function* streamRun(
         }
       }
     } catch (err) {
-      streamThrew = true
+      // Bug fix (RF-04): the previous code only recorded
+      // `recordProviderFailure` here when stream consumption threw, but
+      // never recorded `recordProviderSuccess` for the *open* outcome.
+      // Success is now recorded at open time (above for single-provider,
+      // inside `attemptWithFailover` for multi-provider). This catch
+      // block still records the consumption-time failure so the breaker
+      // sees an opened-then-broken stream as both — which matches its
+      // semantics for transient mid-stream disconnects.
       if (activeProvider && ctx.registry) {
         const asError = err instanceof Error ? err : new Error(String(err))
         ctx.registry.recordProviderFailure(activeProvider, asError)
@@ -391,10 +381,6 @@ export async function* streamRun(
         }
       }
       throw err
-    } finally {
-      if (!streamThrew && activeProvider && ctx.registry) {
-        ctx.registry.recordProviderSuccess(activeProvider)
-      }
     }
 
     if (!fullResponse) {

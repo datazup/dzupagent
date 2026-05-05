@@ -46,8 +46,8 @@ function emitContractEvent(
     protocol: 'contract-net',
     to: 'broadcast',
     messageType: type,
-    ...payload,
-  } as Parameters<DzupEventBus['emit']>[0])
+    payload,
+  })
 }
 
 /**

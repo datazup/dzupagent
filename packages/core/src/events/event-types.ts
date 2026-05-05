@@ -1,4 +1,5 @@
 import type { ForgeErrorCode } from '../errors/error-codes.js'
+import type { RunStatus } from '../persistence/store-interfaces.js'
 
 /**
  * Budget usage snapshot — emitted with budget warnings.
@@ -79,8 +80,26 @@ export type AdapterRuntimeDzupEvent = AdapterProgressDzupEvent | MapReduceDzupEv
 export type DzupEvent =
   // --- Agent lifecycle ---
   | { type: 'agent:started'; agentId: string; runId: string }
-  | { type: 'agent:completed'; agentId: string; runId: string; durationMs: number }
+  | {
+      type: 'agent:completed'
+      agentId: string
+      runId: string
+      durationMs: number
+      /**
+       * Optional token usage summary. Adapter-layer producers populate this
+       * when available; consumers should treat it as best-effort metadata.
+       */
+      usage?: {
+        inputTokens?: number
+        outputTokens?: number
+        cachedInputTokens?: number
+        costCents?: number
+        /** Optional model name for downstream attribution. */
+        model?: string
+      }
+    }
   | { type: 'agent:failed'; agentId: string; runId: string; errorCode: ForgeErrorCode; message: string }
+  | { type: 'agent:rate_limited'; agentId: string; reason: string }
   | { type: 'agent:stream_delta'; agentId: string; runId: string; content: string }
   | { type: 'agent:stream_done'; agentId: string; runId: string; finalContent: string }
   | { type: 'recovery:cancelled'; agentId: string; runId: string; attempts: number; durationMs: number; reason: string }
@@ -142,9 +161,17 @@ export type DzupEvent =
       inputMetadataKeys?: string[]
       durationMs?: number
       /** Outcome discriminator. */
-      status?: 'error' | 'timeout' | 'denied' | 'cancelled'
+      status?: 'error' | 'timeout' | 'denied' | 'cancelled' | 'cancel_requested'
       /** Alias for `message` to match the canonical contract field name. */
       errorMessage?: string
+    }
+  | {
+      type: 'tool:output:invalid'
+      toolName: string
+      toolCallId?: string
+      agentId?: string
+      runId?: string
+      error: string
     }
   // --- LLM invocation (compliance/audit) ---
   | {
@@ -154,6 +181,10 @@ export type DzupEvent =
       model: string
       inputTokens: number
       outputTokens: number
+      /** Cache-read tokens (Anthropic: cached_input_tokens). Billed at ~10% of input price. */
+      cacheReadTokens?: number
+      /** Cache-write tokens (Anthropic: cache_creation_input_tokens). Billed at ~125% of input price. */
+      cacheWriteTokens?: number
       costCents: number
       timestamp: number
     }
@@ -191,6 +222,7 @@ export type DzupEvent =
   | { type: 'approval:rejected'; runId: string; reason?: string }
   | { type: 'approval:timed_out'; runId: string; contactId?: string; timeoutMs: number }
   | { type: 'approval:cancelled'; runId: string; contactId?: string; reason?: string }
+  | { type: 'approval:webhook_failed'; runId: string; webhookUrl: string; attempts: number; error: string }
   // --- Human Contact ---
   | { type: 'human_contact:requested'; runId: string; contactId: string; contactType: string; channel: string }
   | { type: 'human_contact:responded'; runId: string; contactId: string; response: unknown }
@@ -256,7 +288,7 @@ export type DzupEvent =
   | { type: 'registry:health_changed'; agentId: string; previousStatus: string; newStatus: string }
   | { type: 'registry:capability_added'; agentId: string; capability: string }
   // --- Protocol ---
-  | { type: 'protocol:message_sent'; protocol: string; to: string; messageType: string }
+  | { type: 'protocol:message_sent'; protocol: string; to: string; messageType: string; payload?: Record<string, unknown> }
   | { type: 'protocol:message_received'; protocol: string; from: string; messageType: string }
   | { type: 'protocol:error'; protocol: string; error: string }
   | { type: 'protocol:connected'; protocol: string; endpoint: string }
@@ -283,6 +315,37 @@ export type DzupEvent =
   | { type: 'safety:violation'; category: string; severity: string; agentId?: string; message: string }
   | { type: 'safety:blocked'; category: string; agentId?: string; action: string }
   | { type: 'safety:kill_requested'; agentId: string; reason: string }
+  /**
+   * Emitted when a tool result is blocked because the safety scanner found
+   * a critical violation (e.g. prompt injection, secret leak). The blocked
+   * result is replaced with a safe placeholder before reaching the LLM.
+   */
+  | {
+      type: 'safety:tool_result_blocked'
+      agentId?: string
+      runId?: string
+      toolName: string
+      toolCallId?: string
+      category: string
+      severity: string
+      action: string
+      message: string
+    }
+  /**
+   * Emitted when a tool result triggers a non-blocking safety warning.
+   * The original tool result is preserved and forwarded to the LLM.
+   */
+  | {
+      type: 'safety:tool_result_warning'
+      agentId?: string
+      runId?: string
+      toolName: string
+      toolCallId?: string
+      category: string
+      severity: string
+      action: string
+      message: string
+    }
   | { type: 'memory:threat_detected'; threatType: string; namespace: string; key?: string }
   | { type: 'memory:quarantined'; namespace: string; key: string; reason: string }
   // --- Vector Store ---
@@ -406,6 +469,20 @@ export type DzupEvent =
   | { type: 'recovery:attempt_started'; agentId: string; runId: string; attempt: number; maxAttempts: number; strategy: string; timestamp: number }
   | { type: 'recovery:succeeded'; agentId: string; runId: string; attempt: number; strategy: string; durationMs: number }
   | { type: 'recovery:exhausted'; agentId: string; runId: string; attempts: number; strategies: string[]; durationMs: number; lastError?: string }
+  | {
+      type: 'recovery:escalation_requested'
+      requestId: string
+      failedProviderId: string
+      error: string
+      /**
+       * Summary of prior recovery attempts. Adapter-layer types are kept
+       * as plain `Record<string, unknown>` so core does not depend on
+       * adapter-specific provider id types.
+       */
+      attempts: ReadonlyArray<Record<string, unknown>>
+      suggestions: string[]
+      timestamp: number
+    }
   // --- Execution ledger ---
   | { type: 'ledger:execution_recorded'; providerId: string }
   | { type: 'ledger:prompt_recorded'; executionRunId: string }
@@ -558,6 +635,68 @@ export type DzupEvent =
       }>
     }
   | { type: 'flow:compile_failed'; compileId: string; stage: 1 | 2 | 3 | 4; errorCount: number; durationMs: number }
+  // --- Adapter run lifecycle (adapter-layer observability) ---
+  // Provider is `string` here so core does not depend on adapter-specific provider id types.
+  | { type: 'adapter:run_pending'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_queued'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_running'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_executing'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_awaiting_approval'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_approved'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_paused'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_suspended'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_completed'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_halted'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_failed'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_cancelled'; runId: string; providerId?: string; status: RunStatus }
+  | { type: 'adapter:run_rejected'; runId: string; providerId?: string; status: RunStatus }
+  // --- Session registry (adapter-layer) ---
+  | { type: 'session:workflow_created'; workflowId: string }
+  | { type: 'session:workflow_deleted'; workflowId: string }
+  | { type: 'session:provider_linked'; workflowId: string; providerId: string; sessionId: string }
+  | { type: 'session:provider_switched'; workflowId: string; from: string | undefined; to: string }
+  | { type: 'session:multi_turn_completed'; workflowId: string; providerId: string | undefined; durationMs: number }
+  | { type: 'session:pruned'; count: number }
+  // --- Structured output (adapter-layer observability) ---
+  | { type: 'structured_output:parsed'; schemaName: string; schemaHash?: string; providerId: string; attempts: number }
+  | { type: 'structured_output:parse_failed'; schemaName: string; schemaHash?: string; providerId: string; attempt: number; error: string }
+  | { type: 'structured_output:all_failed'; schemaName: string; schemaHash?: string; error: string }
+  // --- UCL enrichment (adapter-layer observability) ---
+  // Provider id is `string` here so core does not depend on the
+  // adapter-specific `AdapterProviderId` literal union.
+  | {
+      type: 'adapter:memory_recalled'
+      providerId: string
+      timestamp: number
+      entries: ReadonlyArray<{
+        level: 'global' | 'workspace' | 'project' | 'agent'
+        name: string
+        tokenEstimate: number
+      }>
+      totalTokens: number
+      durationMs: number
+      correlationId?: string
+    }
+  | {
+      type: 'adapter:skills_compiled'
+      providerId: string
+      timestamp: number
+      skills: ReadonlyArray<{
+        skillId: string
+        degraded: string[]
+        dropped: string[]
+      }>
+      durationMs: number
+      correlationId?: string
+    }
 
 /** Extract a specific event by its type discriminator */
 export type DzupEventOf<T extends DzupEvent['type']> = Extract<DzupEvent, { type: T }>
+
+/**
+ * Adapter run lifecycle event union — one event per terminal/intermediate
+ * `RunStatus`. Exposed so adapter-layer code that mints these events from a
+ * dynamic `run.status` discriminator can bind the resulting object to a
+ * concrete type before calling {@link typedEmit}.
+ */
+export type RunLifecycleEvent = DzupEventOf<`adapter:run_${RunStatus}`>

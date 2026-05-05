@@ -15,7 +15,6 @@
  * data loss.
  */
 
-import { createHash } from 'node:crypto'
 import { readdir, readFile, writeFile, mkdir, unlink } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 import type { DzupAgentPaths } from '../types.js'
@@ -23,6 +22,7 @@ import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
 import type { DzupAgentFileLoader } from './file-loader.js'
 import type { DzupAgentAgentLoader, AgentDefinition } from './agent-loader.js'
 import { DryRunReporter, type DryRunReporterMode } from './dry-run-reporter.js'
+import { sha256 } from './hash-utils.js'
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -123,10 +123,6 @@ interface StateJson {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function sha256(content: string): string {
-  return createHash('sha256').update(content, 'utf-8').digest('hex')
-}
 
 async function readFileSafe(path: string): Promise<string | undefined> {
   try {

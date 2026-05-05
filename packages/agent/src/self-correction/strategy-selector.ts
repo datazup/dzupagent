@@ -63,13 +63,36 @@ export interface StrategySelectorConfig {
 // Internal types
 // ---------------------------------------------------------------------------
 
-/** Shape of a persisted outcome record. */
-interface OutcomeRecord {
+/**
+ * Shape of a persisted outcome record.
+ *
+ * Uses an index-signature intersection so it satisfies the
+ * `Record<string, unknown>` shape required by `BaseStore.put` without any
+ * unchecked cast at the call site.
+ */
+type OutcomeRecord = Record<string, unknown> & {
   errorType: string
   nodeId: string
   strategy: FixStrategy
   success: boolean
   timestamp: string
+}
+
+/** Type guard: stored values are always objects when present. */
+function isStoredRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+/**
+ * Read an outcome record's `strategy`/`success` fields safely. Returns
+ * `undefined` for malformed entries so callers can drop them without an
+ * unchecked cast.
+ */
+function asOutcomeRecord(value: unknown): OutcomeRecord | undefined {
+  if (!isStoredRecord(value)) return undefined
+  if (typeof value['strategy'] !== 'string') return undefined
+  if (typeof value['success'] !== 'boolean') return undefined
+  return value as OutcomeRecord
 }
 
 /** Ordered escalation path. */
@@ -225,7 +248,7 @@ export class StrategySelector {
       timestamp: new Date().toISOString(),
     }
 
-    await this.store.put(ns, key, record as unknown as Record<string, unknown>)
+    await this.store.put(ns, key, record)
 
     // Prune old records if over the limit
     await this.pruneOutcomes(ns)
@@ -296,8 +319,8 @@ export class StrategySelector {
       const outcomes: OutcomeRecord[] = []
 
       for (const item of items) {
-        const value = item.value as unknown as OutcomeRecord
-        if (!value.strategy || typeof value.success !== 'boolean') continue
+        const value = asOutcomeRecord(item.value)
+        if (!value) continue
         outcomes.push(value)
       }
 
@@ -318,8 +341,12 @@ export class StrategySelector {
 
       // Sort by timestamp ascending (oldest first)
       const sorted = [...items].sort((a, b) => {
-        const aTs = (a.value as unknown as OutcomeRecord).timestamp ?? ''
-        const bTs = (b.value as unknown as OutcomeRecord).timestamp ?? ''
+        const aTs = isStoredRecord(a.value) && typeof a.value['timestamp'] === 'string'
+          ? a.value['timestamp']
+          : ''
+        const bTs = isStoredRecord(b.value) && typeof b.value['timestamp'] === 'string'
+          ? b.value['timestamp']
+          : ''
         return aTs < bTs ? -1 : aTs > bTs ? 1 : 0
       })
 

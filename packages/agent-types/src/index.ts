@@ -17,6 +17,7 @@ export type {
   BaseSupervisorContract,
   BaseMapReduceContract,
   BaseContractNetContract,
+  BaseTeamCoordinationContract,
 } from './orchestration-contracts.js'
 export type {
   MemoryClient,

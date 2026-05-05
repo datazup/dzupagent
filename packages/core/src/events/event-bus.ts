@@ -98,3 +98,29 @@ export function createEventBus(): DzupEventBus {
     },
   }
 }
+
+/**
+ * Typed emit helper that preserves the discriminated-union type checking at
+ * the call site without forcing callers to add an `as never` cast.
+ *
+ * Spread expressions of the form `{ type: '...', ...rest }` defeat TS's
+ * narrowing: the inferred shape is too wide to satisfy any single union
+ * member, so `bus.emit(...)` requires `as never`. This helper accepts
+ * `DzupEvent` exactly, so the call site builds a complete object literal
+ * that the compiler can match to the correct union member.
+ *
+ * Also accepts an optional bus, so callers can guard `bus?.emit(...)` style
+ * fire-and-forget dispatch with a single function call.
+ *
+ * @example
+ * ```ts
+ * typedEmit(bus, {
+ *   type: 'agent:rate_limited',
+ *   agentId: 'a1',
+ *   reason: 'Quota exceeded',
+ * })
+ * ```
+ */
+export function typedEmit(bus: DzupEventBus | undefined, event: DzupEvent): void {
+  bus?.emit(event)
+}

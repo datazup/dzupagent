@@ -17,11 +17,16 @@ export class AllRequiredMergeStrategy<T = unknown> implements OrchestrationMerge
       }
     }
 
-    // All succeeded -- merge outputs into an array
-    const outputs = results.map((r) => r.output)
+    // All succeeded -- merge outputs into an array. The MergedResult<T>
+    // contract returns a single `T`, but the all-required strategy actually
+    // collects an array of agent outputs. Callers parameterise this strategy
+    // with the array type they expect (for example
+    // `AllRequiredMergeStrategy<R[]>`), so a single direct cast preserves
+    // type safety.
+    const outputs = results.map((r) => r.output as T)
     return {
       status: 'success',
-      output: outputs as unknown as T,
+      output: outputs as T,
       agentResults: results,
       successCount,
       timeoutCount,

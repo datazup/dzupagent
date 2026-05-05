@@ -502,23 +502,19 @@ export class AgentOrchestrator {
 
     // Run the manager with the task -- the LLM will invoke specialist tools
     // via function calling, and the tool loop handles ToolMessage flow.
-    try {
-      const result = await managerWithTools.generate(
-        [new HumanMessage(task)],
-        omitUndefined({ signal }),
-      )
+    const result = await managerWithTools.generate(
+      [new HumanMessage(task)],
+      omitUndefined({ signal }),
+    )
 
-      if (returnLegacy) {
-        return result.content
-      }
+    if (returnLegacy) {
+      return result.content
+    }
 
-      return {
-        content: result.content,
-        availableSpecialists,
-        filteredSpecialists,
-      }
-    } catch (err: unknown) {
-      throw err
+    return {
+      content: result.content,
+      availableSpecialists,
+      filteredSpecialists,
     }
   }
 

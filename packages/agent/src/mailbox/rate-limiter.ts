@@ -77,6 +77,16 @@ export class RateLimiter {
     return true
   }
 
+  /** Configured maximum messages per window (read-only accessor). */
+  getMaxMessages(): number {
+    return this.maxMessages
+  }
+
+  /** Configured sliding-window size in milliseconds (read-only accessor). */
+  getWindowMs(): number {
+    return this.windowMs
+  }
+
   /** Current number of in-window timestamps for a sender (for diagnostics). */
   currentCount(senderId: string): number {
     const bucket = this.timestamps.get(senderId)

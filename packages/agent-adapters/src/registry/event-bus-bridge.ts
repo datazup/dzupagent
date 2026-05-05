@@ -171,18 +171,16 @@ export class EventBusBridge {
         }
 
       case 'adapter:completed':
-        // `usage` is an additive extension to agent:completed not yet
-        // declared on the core DzupEvent union — receivers read JSON,
-        // not the compile-time type, so the extra field is safe on the
-        // wire. Cast through `never` so downstream subscribers receive
-        // the token counts without widening the DzupEvent union.
+        // The core `agent:completed` event accepts an optional `usage` field
+        // for input/output token counts; route directly without an unknown
+        // cast.
         return {
           type: 'agent:completed',
           agentId: event.providerId,
           runId,
           durationMs: event.durationMs,
           ...(event.usage ? { usage: event.usage } : {}),
-        } as unknown as DzupEvent
+        }
 
       case 'adapter:failed':
         return {

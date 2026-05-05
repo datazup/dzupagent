@@ -800,13 +800,19 @@ export type {
 } from './token-lifecycle-wiring.js'
 
 // --- Run Metrics Observability ---
-export { RunMetricsAggregator, attachRunMetricsBridge } from './observability/index.js'
+export {
+  RunMetricsAggregator,
+  attachRunMetricsBridge,
+  InMemoryAuditStore,
+} from './observability/index.js'
 export type {
   RunSummaryMetrics,
   RunTokenUsage,
   AggregatedMetrics,
   ProviderRollup,
   EventBusBridgeOptions,
+  LlmCallAuditEntry,
+  LlmCallAuditSink,
 } from './observability/index.js'
 
 // --- Version ---
