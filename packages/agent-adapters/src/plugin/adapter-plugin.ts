@@ -71,6 +71,8 @@ export interface AdapterPluginInstance {
   getCostTracking(): CostTrackingMiddleware | undefined
   /** Access the event bus bridge (if enabled) */
   getEventBridge(): EventBusBridge | undefined
+  /** Unsubscribe all event bus listeners registered during onRegister */
+  dispose(): void
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +111,9 @@ export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPl
   // consumers who read `plugin.eventHandlers` before registration still
   // get a stable reference.
   const eventHandlers: Record<string, (event: unknown) => void | Promise<void>> = {}
+
+  // Collected unsubscribe functions from eventBus.on() — called in dispose()
+  const busUnsubscribers: Array<() => void> = []
 
   return {
     name: PLUGIN_NAME,
@@ -187,6 +192,13 @@ export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPl
     getEventBridge(): EventBusBridge | undefined {
       return eventBridge
     },
+
+    dispose(): void {
+      for (const unsub of busUnsubscribers) {
+        unsub()
+      }
+      busUnsubscribers.length = 0
+    },
   }
 
   // -------------------------------------------------------------------------
@@ -230,10 +242,13 @@ export function createAdapterPlugin(config: AdapterPluginConfig = {}): AdapterPl
       )
     }
 
-    // Subscribe on the event bus
-    eventBus.on('agent:failed', handleAgentFailed)
-    eventBus.on('provider:circuit_opened', handleCircuitOpened)
-    eventBus.on('provider:circuit_closed', handleCircuitClosed)
+    // Subscribe on the event bus — store unsubscribe fns for cleanup in dispose()
+    const unsubAgentFailed = eventBus.on('agent:failed', handleAgentFailed)
+    const unsubCircuitOpened = eventBus.on('provider:circuit_opened', handleCircuitOpened)
+    const unsubCircuitClosed = eventBus.on('provider:circuit_closed', handleCircuitClosed)
+
+    // Register cleanup so callers can teardown the plugin (e.g. in tests or hot-reload)
+    busUnsubscribers.push(unsubAgentFailed, unsubCircuitOpened, unsubCircuitClosed)
 
     // Expose on the eventHandlers record so PluginRegistry can introspect
     eventHandlers['agent:failed'] = handleAgentFailed as (event: unknown) => void

@@ -191,7 +191,13 @@ export class FileCheckpointStore implements CheckpointStore {
       throw err
     }
 
-    return JSON.parse(raw, dateReviver) as WorkflowCheckpoint
+    try {
+      return JSON.parse(raw, dateReviver) as WorkflowCheckpoint
+    } catch (err: unknown) {
+      throw new Error(
+        `Checkpoint file for workflow "${workflowId}" version ${version} contains malformed JSON: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
   }
 }
 

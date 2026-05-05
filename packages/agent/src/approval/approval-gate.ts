@@ -74,7 +74,7 @@ export class ApprovalGate {
       data: omitUndefined({
         question: typeof plan === 'string' ? plan : 'Approve this action?',
         context: typeof plan === 'object' && plan !== null
-          ? JSON.stringify(plan)
+          ? safeJsonStringify(plan)
           : undefined,
       }),
     })
@@ -279,7 +279,7 @@ export class ApprovalGate {
   ): Promise<void> {
     if (!this.config.webhookUrl) return
     const webhookUrl = this.config.webhookUrl
-    const body = JSON.stringify({
+    const body = safeJsonStringify({
       type: 'approval_requested',
       runId,
       plan,
@@ -319,5 +319,22 @@ export class ApprovalGate {
         // DLQ callback errors must not surface to the caller
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * JSON.stringify that degrades gracefully on circular references or
+ * non-serialisable values rather than throwing. Returns a fallback string
+ * when serialization fails so callers can always produce a body.
+ */
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return JSON.stringify({ _serialisationError: true })
   }
 }

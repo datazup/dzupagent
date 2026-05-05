@@ -17,6 +17,7 @@ export type AgentEvent =
   | AgentSkillsCompiledEvent
   | AgentInteractionRequiredEvent
   | AgentInteractionResolvedEvent
+  | AgentCacheStatsEvent
 
 export interface AgentStartedEvent {
   type: 'adapter:started'
@@ -251,4 +252,20 @@ export interface ProviderRawStreamEvent {
 }
 
 /** Stream item yielded by raw-capable adapters and orchestrators. */
+export interface AgentCacheStatsEvent {
+  type: 'adapter:cache_stats'
+  providerId: AdapterProviderId
+  sessionId: string
+  /** Tokens served from cache (billed at ~10% of input price) */
+  cacheReadTokens: number
+  /** Tokens written to cache (billed at ~125% of input price) */
+  cacheWriteTokens: number
+  /** Total input tokens for this run (including cached) */
+  totalInputTokens: number
+  /** Fraction of input tokens that were cache hits (0–1) */
+  cacheHitRatio: number
+  timestamp: number
+  correlationId?: string | undefined
+}
+
 export type AgentStreamEvent = AgentEvent | ProviderRawStreamEvent

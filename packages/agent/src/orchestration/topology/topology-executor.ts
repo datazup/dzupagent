@@ -6,6 +6,7 @@
  */
 import { HumanMessage } from '@langchain/core/messages'
 import { AgentOrchestrator } from '../orchestrator.js'
+import type { SupervisorResult } from '../orchestrator.js'
 import { OrchestrationError } from '../orchestration-error.js'
 import { TopologyAnalyzer } from './topology-analyzer.js'
 import type {
@@ -237,10 +238,14 @@ export class TopologyExecutor {
 
       case 'pipeline': {
         const startTime = Date.now()
-        const pipelineResult = await AgentOrchestrator.sequential(
-          config.agents,
-          config.task,
-        )
+        let pipelineErrorCount = 0
+        let pipelineResult: string
+        try {
+          pipelineResult = await AgentOrchestrator.sequential(config.agents, config.task)
+        } catch (err) {
+          pipelineErrorCount = 1
+          throw err
+        }
         return {
           result: pipelineResult,
           metrics: {
@@ -248,17 +253,21 @@ export class TopologyExecutor {
             totalDurationMs: Date.now() - startTime,
             agentCount: config.agents.length,
             messageCount: config.agents.length,
-            errorCount: 0,
+            errorCount: pipelineErrorCount,
           },
         }
       }
 
       case 'star': {
         const startTime = Date.now()
-        const starResult = await AgentOrchestrator.parallel(
-          config.agents,
-          config.task,
-        )
+        let starErrorCount = 0
+        let starResult: string
+        try {
+          starResult = await AgentOrchestrator.parallel(config.agents, config.task)
+        } catch (err) {
+          starErrorCount = 1
+          throw err
+        }
         return {
           result: starResult,
           metrics: {
@@ -266,7 +275,7 @@ export class TopologyExecutor {
             totalDurationMs: Date.now() - startTime,
             agentCount: config.agents.length,
             messageCount: config.agents.length,
-            errorCount: 0,
+            errorCount: starErrorCount,
           },
         }
       }
@@ -281,12 +290,19 @@ export class TopologyExecutor {
         }
         const startTime = Date.now()
         const [coordinator, ...workers] = config.agents
-        const supervisorResult = await AgentOrchestrator.supervisor(omitUndefined({
-          manager: coordinator!,
-          specialists: workers,
-          task: config.task,
-          signal: config.signal,
-        }))
+        let hierarchicalErrorCount = 0
+        let supervisorResult: SupervisorResult
+        try {
+          supervisorResult = await AgentOrchestrator.supervisor(omitUndefined({
+            manager: coordinator!,
+            specialists: workers,
+            task: config.task,
+            signal: config.signal,
+          }))
+        } catch (err) {
+          hierarchicalErrorCount = 1
+          throw err
+        }
         return {
           result: supervisorResult.content,
           metrics: {
@@ -294,7 +310,7 @@ export class TopologyExecutor {
             totalDurationMs: Date.now() - startTime,
             agentCount: config.agents.length,
             messageCount: workers.length + 1,
-            errorCount: 0,
+            errorCount: hierarchicalErrorCount,
           },
         }
       }

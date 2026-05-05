@@ -331,4 +331,44 @@ export const adapterRuntimeMetricMap = {
       },
     ),
   ],
+
+  // --- Prompt cache efficiency telemetry ---
+  'adapter:cache_stats': [
+    counter(
+      'dzip_adapter_cache_stats_total',
+      'Total prompt cache stat events emitted per session',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'adapter:cache_stats'>(e)
+        return { value: 1, labels: { provider_id: ev.providerId } }
+      },
+    ),
+    gauge(
+      'dzip_adapter_cache_hit_ratio',
+      'Latest prompt cache hit ratio (0–1) per session',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'adapter:cache_stats'>(e)
+        return { value: ev.cacheHitRatio, labels: { provider_id: ev.providerId } }
+      },
+    ),
+    histogram(
+      'dzip_adapter_cache_read_tokens',
+      'Cache-read tokens (served from cache) per session',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'adapter:cache_stats'>(e)
+        return { value: ev.cacheReadTokens, labels: { provider_id: ev.providerId } }
+      },
+    ),
+    histogram(
+      'dzip_adapter_cache_write_tokens',
+      'Cache-write tokens (written to cache) per session',
+      ['provider_id'],
+      (e) => {
+        const ev = asEvent<'adapter:cache_stats'>(e)
+        return { value: ev.cacheWriteTokens, labels: { provider_id: ev.providerId } }
+      },
+    ),
+  ],
 } satisfies MetricMapFragment

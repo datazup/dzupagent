@@ -604,4 +604,26 @@ export const emptyEventMetricMap = {
       },
     ),
   ],
+  'tool:output:invalid': [
+    counter(
+      'dzip_tool_output_invalid_total',
+      'Total tool output validation failures',
+      ['tool_name'],
+      (e) => {
+        const ev = asEvent<'tool:output:invalid'>(e)
+        return { value: 1, labels: { tool_name: ev.toolName } }
+      },
+    ),
+  ],
+  'approval:webhook_failed': [
+    counter(
+      'dzip_approval_webhook_failed_total',
+      'Total approval webhook delivery failures after retries',
+      ['webhook_url'],
+      (e) => {
+        const ev = asEvent<'approval:webhook_failed'>(e)
+        return { value: 1, labels: { webhook_url: ev.webhookUrl } }
+      },
+    ),
+  ],
 } satisfies MetricMapFragment
