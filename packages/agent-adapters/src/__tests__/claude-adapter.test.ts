@@ -545,18 +545,18 @@ describe('ClaudeAgentAdapter', () => {
       expect(failed.error).toBe('Claude agent failed with subtype: error_unknown')
     })
 
-    it('throws ForgeError when sdk.query() throws', async () => {
+    it('emits adapter:failed when sdk.query() throws', async () => {
       mockQuery.mockImplementation(() => {
         throw new Error('SDK init failure')
       })
 
-      await expect(collectEvents(adapter.execute({ prompt: 'test' }))).rejects.toThrow(ForgeError)
-      await expect(collectEvents(adapter.execute({ prompt: 'test' }))).rejects.toMatchObject({
-        code: 'ADAPTER_EXECUTION_FAILED',
-      })
+      const events = await collectEvents(adapter.execute({ prompt: 'test' }))
+      expect(events).toHaveLength(1)
+      expect(events[0]?.type).toBe('adapter:failed')
+      expect((events[0] as { code: string }).code).toBe('ADAPTER_EXECUTION_FAILED')
     })
 
-    it('throws ForgeError when iteration throws (non-abort)', async () => {
+    it('emits adapter:failed when iteration throws (non-abort)', async () => {
       const iterable = {
         interrupt: vi.fn(),
         [Symbol.asyncIterator]() {
@@ -574,7 +574,10 @@ describe('ClaudeAgentAdapter', () => {
       }
       mockQuery.mockReturnValue(iterable)
 
-      await expect(collectEvents(adapter.execute({ prompt: 'test' }))).rejects.toThrow(ForgeError)
+      const events = await collectEvents(adapter.execute({ prompt: 'test' }))
+      const failed = events.find((e) => e.type === 'adapter:failed')
+      expect(failed).toBeDefined()
+      expect((failed as { error: string }).error).toContain('Connection lost')
     })
 
     it('silently returns when iteration error occurs after abort', async () => {
