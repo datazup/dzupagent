@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-05-04
+Date: 2026-05-05
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -38,7 +38,7 @@ No stable subpaths configured.
 Root index: `packages/core/src/index.ts`
 
 - Stable root sources: `42`
-- Deprecated transitional root sources: `79`
+- Deprecated transitional root sources: `82`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
 
@@ -60,8 +60,8 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./config/container.js` | 2 | `prefix:./config/` | `ForgeContainer`, `createContainer` |
 | `stable` | `./errors/forge-error.js` | 2 | `prefix:./errors/` | `ForgeError`, `ForgeErrorOptions` |
 | `stable` | `./errors/error-codes.js` | 1 | `prefix:./errors/` | `ForgeErrorCode` |
-| `stable` | `./events/event-bus.js` | 2 | `prefix:./events/` | `createEventBus`, `DzupEventBus` |
-| `stable` | `./events/event-types.js` | 7 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DzupEvent`, `DzupEventOf` |
+| `stable` | `./events/event-bus.js` | 3 | `prefix:./events/` | `createEventBus`, `typedEmit`, `DzupEventBus` |
+| `stable` | `./events/event-types.js` | 8 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DzupEvent`, `DzupEventOf` |
 | `stable` | `./events/degraded-operation.js` | 1 | `prefix:./events/` | `emitDegradedOperation` |
 | `stable` | `./events/tool-event-correlation.js` | 3 | `prefix:./events/` | `requireTerminalToolExecutionRunId`, `TerminalToolExecutionRunIdOptions`, `TerminalToolEventType` |
 | `stable` | `./events/agent-bus.js` | 3 | `prefix:./events/` | `AgentBus`, `AgentMessage`, `AgentMessageHandler` |
@@ -179,6 +179,9 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./utils/logger.js` | 3 | `prefix:./utils/` | `defaultLogger`, `noopLogger`, `FrameworkLogger` |
 | `deprecated-transitional` | `./utils/backoff.js` | 2 | `prefix:./utils/` | `calculateBackoff`, `BackoffConfig` |
 | `deprecated-transitional` | `./utils/hash.js` | 1 | `prefix:./utils/` | `hashToolInput` |
+| `deprecated-transitional` | `./utils/exact-optional.js` | 2 | `prefix:./utils/` | `omitUndefined`, `OmitUndefined` |
+| `deprecated-transitional` | `./utils/event-record.js` | 4 | `prefix:./utils/` | `getString`, `getNumber`, `getObject`, `toJsonString` |
+| `deprecated-transitional` | `./guardrails/stuck-detector.js` | 3 | `prefix:./guardrails/` | `StuckDetector`, `StuckStatus`, `StuckDetectorConfig` |
 | `stable` | `<local>:dzupagent_CORE_VERSION` | 1 | `exact:<local>:dzupagent_CORE_VERSION` | `dzupagent_CORE_VERSION` |
 
 ## @dzupagent/agent
@@ -324,7 +327,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./cluster/index.js` | 4 | `prefix:./cluster/` | `ClusterRole`, `AgentCluster`, `InMemoryAgentCluster`, `InMemoryAgentClusterConfig` |
 | `deprecated-transitional` | `./mailbox/index.js` | 18 | `prefix:./mailbox/` | `MailMessage`, `MailboxQuery`, `MailboxStore`, `AgentMailbox` |
 | `deprecated-transitional` | `./token-lifecycle-wiring.js` | 4 | `exact:./token-lifecycle-wiring.js` | `createTokenLifecyclePlugin`, `AgentLoopPlugin`, `TokenLifecyclePluginOptions`, `CompressionHintListener` |
-| `deprecated-transitional` | `./observability/index.js` | 7 | `prefix:./observability/` | `RunMetricsAggregator`, `attachRunMetricsBridge`, `RunSummaryMetrics`, `RunTokenUsage` |
+| `deprecated-transitional` | `./observability/index.js` | 10 | `prefix:./observability/` | `RunMetricsAggregator`, `attachRunMetricsBridge`, `InMemoryAuditStore`, `RunSummaryMetrics` |
 | `stable` | `<local>:dzupagent_AGENT_VERSION` | 1 | `exact:<local>:dzupagent_AGENT_VERSION` | `dzupagent_AGENT_VERSION` |
 
 ## @dzupagent/codegen
@@ -803,7 +806,7 @@ No stable subpaths configured.
 | `stable` | `./guardrails.js` | 1 | `exact:./guardrails.js` | `StuckDetectorConfig` |
 | `stable` | `./retry.js` | 1 | `exact:./retry.js` | `RetryPolicy` |
 | `stable` | `./tool-permission.js` | 3 | `exact:./tool-permission.js` | `ToolScope`, `ToolPermissionEntry`, `ToolPermissionPolicy` |
-| `stable` | `./orchestration-contracts.js` | 3 | `exact:./orchestration-contracts.js` | `BaseSupervisorContract`, `BaseMapReduceContract`, `BaseContractNetContract` |
+| `stable` | `./orchestration-contracts.js` | 4 | `exact:./orchestration-contracts.js` | `BaseSupervisorContract`, `BaseMapReduceContract`, `BaseContractNetContract`, `BaseTeamCoordinationContract` |
 | `stable` | `./memory-client.js` | 9 | `exact:./memory-client.js` | `MemoryClient`, `MemoryScope`, `MemoryQuery`, `MemoryRecord` |
 
 ## @dzupagent/eval-contracts
