@@ -689,6 +689,21 @@ export type DzupEvent =
       durationMs: number
       correlationId?: string
     }
+  | {
+      type: 'adapter:cache_stats'
+      providerId: string
+      sessionId: string
+      /** Tokens served from cache (billed at reduced rate) */
+      cacheReadTokens: number
+      /** Tokens written to cache (billed at premium rate) */
+      cacheWriteTokens: number
+      /** Total input tokens for this run (including cached) */
+      totalInputTokens: number
+      /** Fraction of input tokens that were cache hits (0–1) */
+      cacheHitRatio: number
+      timestamp: number
+      correlationId?: string
+    }
 
 /** Extract a specific event by its type discriminator */
 export type DzupEventOf<T extends DzupEvent['type']> = Extract<DzupEvent, { type: T }>

@@ -1,14 +1,11 @@
 /**
- * OpenAI adapter.
+ * OpenAI adapter — thin wrapper around the OpenAI Chat Completions API.
  *
- * Thin wrapper around the OpenAI Chat Completions API for app-chat use.
- * Uses native `fetch` directly -- no external SDK dependency required.
- *
- * This adapter intentionally implements only `chat`/`run` semantics on top
- * of the AgentCLIAdapter contract. It is not a full agent CLI adapter --
- * approval gates, MCP tool calls, and session management are not handled.
+ * Uses native `fetch` directly (no external SDK dependency). Stream lifecycle
+ * delegates to {@link AdapterStreamRunner}; this class implements
+ * {@link AdapterStreamSource} so the runner owns abort control, heartbeat
+ * detection, and adapter:started/completed/failed lifecycle events.
  */
-
 import { randomUUID } from 'node:crypto'
 import { ForgeError } from '@dzupagent/core'
 import type {
@@ -21,6 +18,8 @@ import type {
   AdapterProviderId,
 } from '../types.js'
 import { getDefaultMonitorStatus } from '../provider-catalog.js'
+import { AdapterStreamRunner } from '../base/stream-runner.js'
+import type { AdapterStreamSource, StreamContext } from '../base/stream-runner.js'
 
 /** SSE chunk shape returned by the OpenAI streaming API. */
 interface SSEChunkChoice {
@@ -63,17 +62,18 @@ export interface OpenAIRunResult {
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1'
 const DEFAULT_MODEL = 'gpt-4o-mini'
 
-/**
- * Lightweight OpenAI Chat Completions adapter.
- *
- * Provides:
- *   - `run(prompt, opts)` for one-shot calls returning `{ content, usage }`
- *   - `chat(prompt, opts)` for streaming calls yielding agent events
- *   - `execute(input)` to satisfy the AgentCLIAdapter contract
- */
-export class OpenAIAdapter implements AgentCLIAdapter {
+/** Raw event shape streamed between open() and mapRawEvent(). */
+type OpenAIRawEvent =
+  | { kind: 'sse'; chunk: SSEChunk }
+  | { kind: 'completed'; fullText: string; usage?: { inputTokens: number; outputTokens: number }; durationMs: number }
+
+export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenAIRawEvent> {
   readonly providerId: AdapterProviderId = 'openai'
   private currentController?: AbortController
+  private currentSessionId = ''
+  private currentModel = DEFAULT_MODEL
+  private currentStartTime = 0
+  private currentFullText = ''
 
   constructor(private config: OpenAIConfig = {}) {}
 
@@ -87,66 +87,27 @@ export class OpenAIAdapter implements AgentCLIAdapter {
     }
   }
 
-  /**
-   * Non-streaming convenience method.
-   * Returns the assembled content and token usage.
-   */
+  /** Non-streaming convenience method returning the assembled content + usage. */
   async run(
     prompt: string,
-    opts: {
-      systemPrompt?: string
-      model?: string
-      signal?: AbortSignal
-    } = {},
+    opts: { systemPrompt?: string; model?: string; signal?: AbortSignal } = {},
   ): Promise<OpenAIRunResult> {
-    const apiKey = this.resolveApiKey()
-    const baseURL = this.config.baseURL ?? DEFAULT_BASE_URL
     const model = opts.model ?? this.config.model ?? DEFAULT_MODEL
-
-    const messages: Array<{ role: string; content: string }> = []
-    if (opts.systemPrompt) messages.push({ role: 'system', content: opts.systemPrompt })
-    messages.push({ role: 'user', content: prompt })
-
-    const response = await fetch(`${baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        stream: false,
-      }),
+    const response = await this.postChatCompletions({
+      messages: this.buildMessages(prompt, opts.systemPrompt),
+      model,
+      stream: false,
       signal: opts.signal,
     })
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => response.statusText)
-      throw new ForgeError({
-        code: 'ADAPTER_EXECUTION_FAILED',
-        message: `OpenAI API error: ${response.status} ${errorText}`,
-        recoverable: false,
-        context: { providerId: 'openai', status: response.status },
-      })
-    }
-
     const data = (await response.json()) as OpenAIChatResponse
     const content = data.choices?.[0]?.message?.content ?? ''
     const usage = data.usage
-      ? {
-          inputTokens: data.usage.prompt_tokens ?? 0,
-          outputTokens: data.usage.completion_tokens ?? 0,
-        }
+      ? { inputTokens: data.usage.prompt_tokens ?? 0, outputTokens: data.usage.completion_tokens ?? 0 }
       : undefined
-
     return usage ? { content, usage } : { content }
   }
 
-  /**
-   * Streaming convenience method.
-   * Yields agent events for each SSE delta plus a final completion event.
-   */
+  /** Streaming convenience that delegates to {@link execute}. */
   async *chat(
     prompt: string,
     opts: {
@@ -166,142 +127,99 @@ export class OpenAIAdapter implements AgentCLIAdapter {
   }
 
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
-    let apiKey: string
-    try {
-      apiKey = this.resolveApiKey()
-    } catch (err) {
-      throw err instanceof ForgeError
-        ? err
-        : new ForgeError({
-            code: 'ADAPTER_EXECUTION_FAILED',
-            message: 'OpenAI API key required. Set OPENAI_API_KEY or pass apiKey in config.',
-            recoverable: false,
-            context: { providerId: 'openai', reason: 'missing_api_key' },
-          })
-    }
+    // Validate API key up-front so we throw a ForgeError synchronously
+    // (preserves prior behaviour expected by callers).
+    this.resolveApiKey()
 
-    const baseURL = this.config.baseURL ?? DEFAULT_BASE_URL
-    const model =
+    this.currentSessionId = randomUUID()
+    this.currentModel =
       (input.options?.['model'] as string | undefined) ?? this.config.model ?? DEFAULT_MODEL
-    const sessionId = randomUUID()
-    this.currentController = new AbortController()
-    const signal = input.signal
-      ? AbortSignal.any([input.signal, this.currentController.signal])
-      : this.currentController.signal
+    this.currentStartTime = Date.now()
+    this.currentFullText = ''
 
-    yield {
-      type: 'adapter:started',
-      providerId: this.providerId,
-      sessionId,
-      timestamp: Date.now(),
-      prompt: input.prompt,
-      systemPrompt: input.systemPrompt,
-      model,
-      workingDirectory: input.workingDirectory,
-      isResume: false,
-    }
+    const runner = new AdapterStreamRunner<OpenAIRawEvent>({
+      emitStartedImmediately: true,
+      emitFailedOnAbort: true,
+      initialSessionId: this.currentSessionId,
+      startedExtra: {
+        model: this.currentModel,
+      },
+      onAbortController: (ctrl) => {
+        this.currentController = ctrl
+      },
+    })
 
-    const startTime = Date.now()
-
-    const messages: Array<{ role: string; content: string }> = []
-    if (input.systemPrompt) messages.push({ role: 'system', content: input.systemPrompt })
-    messages.push({ role: 'user', content: input.prompt })
-
-    let response: Response
     try {
-      response = await fetch(`${baseURL}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: true,
-          stream_options: { include_usage: true },
-        }),
-        signal,
-      })
-    } catch (err) {
-      yield {
-        type: 'adapter:failed',
-        providerId: this.providerId,
-        sessionId,
-        error: err instanceof Error ? err.message : String(err),
-        code: signal.aborted ? 'AGENT_ABORTED' : 'ADAPTER_EXECUTION_FAILED',
-        timestamp: Date.now(),
-      }
-      return
+      yield* runner.run(this, input, input.signal)
+    } finally {
+      this.currentController = undefined
     }
+  }
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => response.statusText)
-      yield {
-        type: 'adapter:failed',
-        providerId: this.providerId,
-        sessionId,
-        error: `OpenAI API error: ${response.status} ${errorText}`,
-        code: 'ADAPTER_EXECUTION_FAILED',
-        timestamp: Date.now(),
-      }
-      return
-    }
+  // -----------------------------------------------------------------------
+  // AdapterStreamSource<OpenAIRawEvent>
+  // -----------------------------------------------------------------------
 
-    let fullText = ''
+  async *open(input: AgentInput, signal: AbortSignal): AsyncIterable<OpenAIRawEvent> {
+    const response = await this.postChatCompletions({
+      messages: this.buildMessages(input.prompt, input.systemPrompt),
+      model: this.currentModel,
+      stream: true,
+      signal,
+    })
+
     let usage: { inputTokens: number; outputTokens: number } | undefined
 
-    try {
-      for await (const event of this.parseSSE(response.body!, signal)) {
-        const choice = event.choices?.[0]
-        if (choice?.delta?.content) {
-          const content = choice.delta.content
-          fullText += content
-          yield {
-            type: 'adapter:stream_delta',
-            providerId: this.providerId,
-            content,
-            timestamp: Date.now(),
-          }
-        }
-        if (event.usage) {
-          usage = {
-            inputTokens: event.usage.prompt_tokens ?? 0,
-            outputTokens: event.usage.completion_tokens ?? 0,
-          }
+    for await (const chunk of this.parseSSE(response.body!, signal)) {
+      yield { kind: 'sse', chunk }
+      if (chunk.usage) {
+        usage = {
+          inputTokens: chunk.usage.prompt_tokens ?? 0,
+          outputTokens: chunk.usage.completion_tokens ?? 0,
         }
       }
-    } catch (err) {
-      if (signal.aborted) {
-        yield {
-          type: 'adapter:failed',
-          providerId: this.providerId,
-          sessionId,
-          error: 'Aborted',
-          code: 'AGENT_ABORTED',
-          timestamp: Date.now(),
-        }
-        return
-      }
-      yield {
-        type: 'adapter:failed',
-        providerId: this.providerId,
-        sessionId,
-        error: err instanceof Error ? err.message : String(err),
-        code: 'ADAPTER_EXECUTION_FAILED',
-        timestamp: Date.now(),
-      }
-      return
     }
 
     yield {
+      kind: 'completed',
+      fullText: this.currentFullText,
+      ...(usage !== undefined ? { usage } : {}),
+      durationMs: Date.now() - this.currentStartTime,
+    }
+  }
+
+  mapRawEvent(raw: OpenAIRawEvent, context: StreamContext): AgentEvent | AgentEvent[] | null {
+    // Ensure runner-context sessionId tracks our locally generated id so
+    // adapter:started carries the same session as adapter:completed.
+    if (!context.sessionId) {
+      context.sessionId = this.currentSessionId
+    }
+    const input = context.input
+
+    if (raw.kind === 'sse') {
+      const choice = raw.chunk.choices?.[0]
+      if (!choice?.delta?.content) return null
+      const content = choice.delta.content
+      this.currentFullText += content
+      return {
+        type: 'adapter:stream_delta',
+        providerId: this.providerId,
+        content,
+        timestamp: Date.now(),
+        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+      }
+    }
+
+    // raw.kind === 'completed'
+    return {
       type: 'adapter:completed',
       providerId: this.providerId,
-      sessionId,
-      result: fullText,
-      durationMs: Date.now() - startTime,
-      usage,
+      sessionId: this.currentSessionId,
+      result: raw.fullText,
+      durationMs: raw.durationMs,
+      ...(raw.usage !== undefined ? { usage: raw.usage } : {}),
       timestamp: Date.now(),
+      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
     }
   }
 
@@ -348,6 +266,48 @@ export class OpenAIAdapter implements AgentCLIAdapter {
       })
     }
     return apiKey
+  }
+
+  private buildMessages(prompt: string, systemPrompt?: string): Array<{ role: string; content: string }> {
+    const messages: Array<{ role: string; content: string }> = []
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+    messages.push({ role: 'user', content: prompt })
+    return messages
+  }
+
+  private async postChatCompletions(args: {
+    messages: Array<{ role: string; content: string }>
+    model: string
+    stream: boolean
+    signal?: AbortSignal
+  }): Promise<Response> {
+    const apiKey = this.resolveApiKey()
+    const baseURL = this.config.baseURL ?? DEFAULT_BASE_URL
+    const body: Record<string, unknown> = {
+      model: args.model,
+      messages: args.messages,
+      stream: args.stream,
+    }
+    if (args.stream) body['stream_options'] = { include_usage: true }
+    const response = await fetch(`${baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: args.signal,
+    })
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText)
+      throw new ForgeError({
+        code: 'ADAPTER_EXECUTION_FAILED',
+        message: `OpenAI API error: ${response.status} ${errorText}`,
+        recoverable: false,
+        context: { providerId: 'openai', status: response.status },
+      })
+    }
+    return response
   }
 
   private async *parseSSE(

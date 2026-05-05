@@ -11,6 +11,13 @@
 
 import type { BaseStore } from '@langchain/langgraph'
 import type { FailureType } from '../recovery/recovery-types.js'
+import {
+  type LearningCandidate,
+  type LearningCandidateStore,
+  type AuditEntry,
+  InMemoryLearningCandidateStore,
+  appendAuditEntry,
+} from './learning-candidate.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +49,12 @@ export interface RecoveryFeedbackConfig {
   store?: BaseStore
   /** Namespace prefix for lesson storage (default: ['recovery', 'lessons']). */
   namespace?: string[]
+  /**
+   * Candidate store for the staging layer. When provided, lessons are staged
+   * as LearningCandidates and must be explicitly promoted before being written
+   * to the durable store. Defaults to an InMemoryLearningCandidateStore.
+   */
+  candidateStore?: LearningCandidateStore
 }
 
 // ---------------------------------------------------------------------------
@@ -121,11 +134,14 @@ function serializeLesson(lesson: RecoveryLesson): SerializedLesson {
 export class RecoveryFeedback {
   private readonly store: BaseStore | undefined
   private readonly namespace: string[]
+  private readonly candidateStore: LearningCandidateStore
   private lessonCounter = 0
+  private candidateCounter = 0
 
   constructor(config: RecoveryFeedbackConfig = {}) {
     this.store = config.store
     this.namespace = config.namespace ?? ['recovery', 'lessons']
+    this.candidateStore = config.candidateStore ?? new InMemoryLearningCandidateStore()
   }
 
   // -------------------------------------------------------------------------
@@ -133,22 +149,139 @@ export class RecoveryFeedback {
   // -------------------------------------------------------------------------
 
   /**
-   * Record a recovery outcome as a lesson in the store.
-   * No-op if no store is configured.
+   * Stage a recovery outcome as a LearningCandidate pending operator review.
+   * The lesson is NOT written to the durable store until `promoteCandidate()` is called.
+   * Returns the candidate ID so callers can include it in audit chains.
    */
-  async recordOutcome(lesson: RecoveryLesson): Promise<void> {
-    if (!this.store) return
+  async recordOutcome(lesson: RecoveryLesson): Promise<string> {
+    return this.stageCandidate(lesson, 'system', `Staged from run ${lesson.id}`)
+  }
 
-    const key = lesson.id
-    const serialized = serializeLesson(lesson)
+  /**
+   * Stage a lesson as a LearningCandidate with an explicit audit reason.
+   * Returns the new candidate's ID.
+   */
+  stageCandidate(
+    lesson: RecoveryLesson,
+    actor: 'system' | 'operator' = 'system',
+    detail = 'Recovery outcome staged for review',
+  ): string {
+    this.candidateCounter++
+    const candidateId = `cand_${Date.now()}_${this.candidateCounter}`
+    const now = new Date()
+    const auditEntry: Omit<AuditEntry, 'candidateId'> = {
+      runId: lesson.id,
+      nodeId: lesson.nodeId,
+      event: 'staged',
+      actor,
+      detail,
+      timestamp: now,
+    }
+    const candidate: LearningCandidate = {
+      id: candidateId,
+      lesson,
+      status: 'pending',
+      createdAt: now,
+      auditTrail: [],
+    }
+    appendAuditEntry(candidate, auditEntry)
+    this.candidateStore.add(candidate)
+    return candidateId
+  }
 
-    await this.store.put(this.namespace, key, serialized)
+  /**
+   * Promote a pending candidate to durable memory.
+   * No-op (returns false) if candidate not found or already reviewed.
+   */
+  async promoteCandidate(
+    candidateId: string,
+    reviewedBy = 'operator',
+  ): Promise<boolean> {
+    const candidate = this.candidateStore.get(candidateId)
+    if (!candidate || candidate.status !== 'pending') return false
+
+    const now = new Date()
+    candidate.status = 'promoted'
+    candidate.reviewedAt = now
+    candidate.reviewedBy = reviewedBy
+    appendAuditEntry(candidate, {
+      runId: candidate.lesson.id,
+      nodeId: candidate.lesson.nodeId,
+      event: 'promoted',
+      actor: 'operator',
+      detail: `Promoted by ${reviewedBy}`,
+      timestamp: now,
+    })
+    this.candidateStore.update(candidate)
+
+    if (this.store) {
+      const serialized = serializeLesson(candidate.lesson)
+      await this.store.put(this.namespace, candidate.lesson.id, serialized)
+    }
+
+    return true
+  }
+
+  /**
+   * Reject a pending candidate. The lesson is NOT written to the durable store.
+   * Returns false if candidate not found or already reviewed.
+   */
+  rejectCandidate(
+    candidateId: string,
+    reviewedBy = 'operator',
+  ): boolean {
+    const candidate = this.candidateStore.get(candidateId)
+    if (!candidate || candidate.status !== 'pending') return false
+
+    const now = new Date()
+    candidate.status = 'rejected'
+    candidate.reviewedAt = now
+    candidate.reviewedBy = reviewedBy
+    appendAuditEntry(candidate, {
+      runId: candidate.lesson.id,
+      nodeId: candidate.lesson.nodeId,
+      event: 'rejected',
+      actor: 'operator',
+      detail: `Rejected by ${reviewedBy}`,
+      timestamp: now,
+    })
+    this.candidateStore.update(candidate)
+    return true
+  }
+
+  /**
+   * List all pending LearningCandidates awaiting operator review.
+   */
+  listPendingCandidates(): LearningCandidate[] {
+    return this.candidateStore.listByStatus('pending')
+  }
+
+  /**
+   * Get a specific LearningCandidate by ID.
+   */
+  getCandidate(candidateId: string): LearningCandidate | undefined {
+    return this.candidateStore.get(candidateId)
+  }
+
+  /**
+   * Append an audit entry to a candidate's trail.
+   * No-op if the candidate does not exist.
+   */
+  appendCandidateAuditEntry(
+    candidateId: string,
+    entry: Omit<AuditEntry, 'candidateId'>,
+  ): void {
+    const candidate = this.candidateStore.get(candidateId)
+    if (!candidate) return
+    appendAuditEntry(candidate, entry)
+    this.candidateStore.update(candidate)
   }
 
   /**
    * Retrieve past recovery lessons for similar errors.
    *
-   * Searches by errorType and nodeId to find relevant past lessons.
+   * Searches both the durable store (promoted lessons) and the candidate store
+   * (pending/promoted candidates) by errorType and nodeId.
    * Returns up to `limit` results, sorted by most recent first.
    */
   async retrieveSimilar(
@@ -156,24 +289,41 @@ export class RecoveryFeedback {
     nodeId: string,
     limit = 5,
   ): Promise<RecoveryLesson[]> {
-    if (!this.store) return []
-
-    // Search the store with a filter on errorType
-    const results = await this.store.search(this.namespace, {
-      filter: { errorType },
-      limit: limit * 3, // over-fetch to filter by nodeId client-side
-    })
-
     const lessons: RecoveryLesson[] = []
+    const seen = new Set<string>()
 
-    for (const item of results) {
-      if (!isLessonRecord(item.value)) continue
-      // Match the previous behaviour: keep only entries that look like real
-      // lessons (must have at least an id and errorType).
-      if (typeof item.value.id !== 'string' || typeof item.value.errorType !== 'string') {
-        continue
+    // Search durable store first (promoted lessons)
+    if (this.store) {
+      const results = await this.store.search(this.namespace, {
+        filter: { errorType },
+        limit: limit * 3, // over-fetch to filter by nodeId client-side
+      })
+
+      for (const item of results) {
+        if (!isLessonRecord(item.value)) continue
+        if (typeof item.value.id !== 'string' || typeof item.value.errorType !== 'string') {
+          continue
+        }
+        seen.add(item.value.id)
+        lessons.push(hydrateLesson(item.value))
       }
-      lessons.push(hydrateLesson(item.value))
+    }
+
+    // Also include lessons from the candidate store (any status — staged lessons
+    // are immediately useful for decision-making even before promotion)
+    for (const candidate of this.candidateStore.listByStatus('pending')) {
+      const lesson = candidate.lesson
+      if (lesson.errorType !== errorType) continue
+      if (seen.has(lesson.id)) continue
+      seen.add(lesson.id)
+      lessons.push(lesson)
+    }
+    for (const candidate of this.candidateStore.listByStatus('promoted')) {
+      const lesson = candidate.lesson
+      if (lesson.errorType !== errorType) continue
+      if (seen.has(lesson.id)) continue
+      seen.add(lesson.id)
+      lessons.push(lesson)
     }
 
     // Sort: same-node first, then by timestamp descending

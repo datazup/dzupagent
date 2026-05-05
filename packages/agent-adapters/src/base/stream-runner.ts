@@ -67,6 +67,37 @@ export interface AdapterStreamRunnerConfig {
    * Adapters that expose an interrupt() method store this reference so they can abort the runner.
    */
   onAbortController?: (ctrl: AbortController) => void
+  /**
+   * If true, the runner emits a synthetic `adapter:failed` event when the stream
+   * terminates because the abort signal fired (rather than returning silently).
+   *
+   * SDK-based adapters (Claude, Codex) typically expect `aborted` to mean
+   * "consumer cancelled, no terminal needed", so the default is false.
+   * Stream-based adapters (OpenAI/OpenRouter) consider aborts as failures
+   * since callers expect a terminal event in every execution.
+   */
+  emitFailedOnAbort?: boolean
+  /**
+   * Error message used when {@link emitFailedOnAbort} fires.
+   * Default: 'Aborted'.
+   */
+  abortErrorMessage?: string
+  /**
+   * Error code used when {@link emitFailedOnAbort} fires.
+   * Default: 'AGENT_ABORTED'.
+   */
+  abortErrorCode?: string
+  /**
+   * Pre-populate the session ID before the stream starts. Used by adapters that
+   * generate their own session identifier (e.g. fetch-based providers without
+   * SDK thread metadata) so it appears in `adapter:started`/`adapter:failed`.
+   */
+  initialSessionId?: string
+  /**
+   * Extra fields merged into the adapter:started event when emitted via
+   * {@link emitStartedImmediately}.
+   */
+  startedExtra?: Record<string, unknown>
 }
 
 export class AdapterStreamRunner<TRaw> {
@@ -85,12 +116,16 @@ export class AdapterStreamRunner<TRaw> {
     this.config.onAbortController?.(abortController)
     let externalAbortListener: (() => void) | null = null
     if (externalSignal) {
-      externalAbortListener = () => abortController.abort()
-      externalSignal.addEventListener('abort', externalAbortListener, { once: true })
+      if (externalSignal.aborted) {
+        abortController.abort()
+      } else {
+        externalAbortListener = () => abortController.abort()
+        externalSignal.addEventListener('abort', externalAbortListener, { once: true })
+      }
     }
 
     const context: StreamContext = {
-      sessionId: '',
+      sessionId: this.config.initialSessionId ?? '',
       input,
       startedAt: Date.now(),
       aborted: false,
@@ -104,7 +139,7 @@ export class AdapterStreamRunner<TRaw> {
 
       if (this.config.emitStartedImmediately) {
         startedEmitted = true
-        yield this.buildStartedEvent(source.providerId, context)
+        yield this.buildStartedEvent(source.providerId, context, this.config.startedExtra)
       }
 
       for await (const raw of stream) {
@@ -155,6 +190,9 @@ export class AdapterStreamRunner<TRaw> {
     } catch (err: unknown) {
       if (abortController.signal.aborted) {
         context.aborted = true
+        if (this.config.emitFailedOnAbort) {
+          yield this.buildAbortFailedEvent(source.providerId, context)
+        }
         return
       }
       const forgeErr = ForgeError.wrap(err, {
@@ -174,10 +212,34 @@ export class AdapterStreamRunner<TRaw> {
         timestamp: Date.now(),
         ...(input.correlationId ? { correlationId: input.correlationId } : {}),
       }
+      return
     } finally {
       if (externalAbortListener && externalSignal) {
         externalSignal.removeEventListener('abort', externalAbortListener)
       }
+    }
+
+    // Stream ended cleanly. If the abort signal fired but no exception was
+    // raised by the source (e.g. the source caught the abort itself and
+    // returned), still emit a terminal failed event when configured.
+    if (abortController.signal.aborted && this.config.emitFailedOnAbort) {
+      context.aborted = true
+      yield this.buildAbortFailedEvent(source.providerId, context)
+    }
+  }
+
+  private buildAbortFailedEvent(
+    providerId: AdapterProviderId,
+    context: StreamContext,
+  ): AgentEvent {
+    return {
+      type: 'adapter:failed',
+      providerId,
+      ...(context.sessionId ? { sessionId: context.sessionId } : {}),
+      error: this.config.abortErrorMessage ?? 'Aborted',
+      code: this.config.abortErrorCode ?? 'AGENT_ABORTED',
+      timestamp: Date.now(),
+      ...(context.input.correlationId ? { correlationId: context.input.correlationId } : {}),
     }
   }
 

@@ -25,10 +25,6 @@
       "import": "./dist/replay.js",
       "types": "./dist/replay.d.ts"
     },
-    "./playground": {
-      "import": "./dist/playground.js",
-      "types": "./dist/playground.d.ts"
-    },
     "./pipeline": {
       "import": "./dist/pipeline.js",
       "types": "./dist/pipeline.d.ts"
@@ -48,9 +44,7 @@
     "./compat": {
       "import": "./dist/compat.js",
       "types": "./dist/compat.d.ts"
-    },
-    "./playground/ui": null,
-    "./playground/ui/*": null
+    }
   },
   "scripts": {
     "build": "tsup",

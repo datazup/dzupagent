@@ -34,7 +34,28 @@ export type { SanitizeResult } from './memory-sanitizer.js'
 
 // --- Consolidation ---
 export { consolidateNamespace, consolidateAll } from './memory-consolidation.js'
-export type { ConsolidationConfig, ConsolidationResult } from './memory-consolidation.js'
+export type {
+  ConsolidationConfig,
+  ConsolidationResult as NamespaceConsolidationResult,
+} from './memory-consolidation.js'
+
+// --- Consolidation Engine (key-prefix clustering, MC-02) ---
+export { ConsolidationEngine } from './consolidation-engine.js'
+export type {
+  ConsolidationResult,
+  ConsolidationEngineConfig,
+  ConsolidationStore,
+  ConsolidationStoreItem,
+} from './consolidation-engine.js'
+
+// --- Memory Pruner (TTL + capacity cap, MC-02) ---
+export { MemoryPruner } from './memory-pruner.js'
+export type {
+  PruneOptions,
+  PruneResult,
+  MemoryStore as PrunerMemoryStore,
+  MemoryStoreItem as PrunerMemoryStoreItem,
+} from './memory-pruner.js'
 
 // --- Semantic Consolidation (LLM-powered) ---
 export { SemanticConsolidator, consolidateWithLLM } from './semantic-consolidation.js'

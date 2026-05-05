@@ -389,6 +389,17 @@ export class MemoryService {
   }
 
   /**
+   * Return the underlying `BaseStore`. Exposed so post-run hygiene tasks
+   * (consolidation engine, memory pruner) can operate directly on the
+   * store without re-wrapping it. Treat as read-only for hygiene
+   * pipelines — direct writes bypass sanitization, decay metadata
+   * population, and PII redaction.
+   */
+  getStore(): BaseStore {
+    return this.store
+  }
+
+  /**
    * Fuse keyword search results with vector search results using
    * Reciprocal Rank Fusion (RRF): score = sum(1 / (k + rank)) per result.
    */

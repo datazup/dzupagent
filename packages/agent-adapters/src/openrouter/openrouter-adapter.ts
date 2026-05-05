@@ -17,6 +17,11 @@ import type {
   AdapterProviderId,
 } from '../types.js'
 import { getDefaultMonitorStatus } from '../provider-catalog.js'
+import { AdapterStreamRunner } from '../base/stream-runner.js'
+import type {
+  AdapterStreamSource,
+  StreamContext,
+} from '../base/stream-runner.js'
 
 /** SSE chunk shape returned by the OpenRouter streaming API. */
 interface SSEChunkChoice {
@@ -49,9 +54,20 @@ export interface OpenRouterConfig extends AdapterConfig {
   }
 }
 
-export class OpenRouterAdapter implements AgentCLIAdapter {
+const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-5-20250514'
+
+/** Internal raw events streamed from open() through the runner. */
+type OpenRouterRawEvent =
+  | { kind: 'sse'; chunk: SSEChunk }
+  | { kind: 'completed'; fullText: string; usage?: { inputTokens: number; outputTokens: number }; durationMs: number }
+
+export class OpenRouterAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenRouterRawEvent> {
   readonly providerId: AdapterProviderId = 'openrouter'
   private currentController?: AbortController
+  private currentSessionId = ''
+  private currentModel = DEFAULT_MODEL
+  private currentStartTime = 0
+  private currentFullText = ''
 
   constructor(private config: OpenRouterConfig = {}) {}
 
@@ -66,148 +82,122 @@ export class OpenRouterAdapter implements AgentCLIAdapter {
   }
 
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
-    const apiKey =
-      this.config.openRouterApiKey ??
-      this.config.apiKey ??
-      process.env['OPENROUTER_API_KEY']
-    if (!apiKey) {
-      throw new ForgeError({
-        code: 'ADAPTER_EXECUTION_FAILED',
-        message:
-          'OpenRouter API key required. Set OPENROUTER_API_KEY or pass openRouterApiKey in config.',
-        recoverable: false,
-        context: { providerId: 'openrouter', reason: 'missing_api_key' },
-      })
+    // Validate API key synchronously so first .next() throws.
+    this.resolveApiKey()
+
+    this.currentSessionId = randomUUID()
+    this.currentModel =
+      (input.options?.['model'] as string) ?? this.config.defaultModel ?? DEFAULT_MODEL
+    this.currentStartTime = Date.now()
+    this.currentFullText = ''
+
+    const runner = new AdapterStreamRunner<OpenRouterRawEvent>({
+      emitStartedImmediately: true,
+      emitFailedOnAbort: true,
+      initialSessionId: this.currentSessionId,
+      startedExtra: { model: this.currentModel },
+      onAbortController: (ctrl) => {
+        this.currentController = ctrl
+      },
+    })
+
+    try {
+      yield* runner.run(this, input, input.signal)
+    } finally {
+      this.currentController = undefined
     }
+  }
 
-    const model =
-      (input.options?.['model'] as string) ??
-      this.config.defaultModel ??
-      'anthropic/claude-sonnet-4-5-20250514'
-    const sessionId = randomUUID()
-    this.currentController = new AbortController()
-    const signal = input.signal
-      ? AbortSignal.any([input.signal, this.currentController.signal])
-      : this.currentController.signal
+  // -----------------------------------------------------------------------
+  // AdapterStreamSource<OpenRouterRawEvent>
+  // -----------------------------------------------------------------------
 
-    yield {
-      type: 'adapter:started',
-      providerId: this.providerId,
-      sessionId,
-      timestamp: Date.now(),
-      prompt: input.prompt,
-      systemPrompt: input.systemPrompt,
-      model,
-      workingDirectory: input.workingDirectory,
-      isResume: false,
-    }
-
-    const startTime = Date.now()
+  async *open(input: AgentInput, signal: AbortSignal): AsyncIterable<OpenRouterRawEvent> {
+    const apiKey = this.resolveApiKey()
 
     const messages: Array<{ role: string; content: string }> = []
     if (input.systemPrompt) messages.push({ role: 'system', content: input.systemPrompt })
     messages.push({ role: 'user', content: input.prompt })
 
-    let response: Response
-    try {
-      response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          ...(this.config.siteUrl ? { 'HTTP-Referer': this.config.siteUrl } : {}),
-          ...(this.config.siteName ? { 'X-Title': this.config.siteName } : {}),
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: true,
-          ...(this.config.providerPreferences
-            ? { provider: this.config.providerPreferences }
-            : {}),
-        }),
-        signal,
-      })
-    } catch (err) {
-      yield {
-        type: 'adapter:failed',
-        providerId: this.providerId,
-        sessionId,
-        error: err instanceof Error ? err.message : String(err),
-        code: signal.aborted ? 'AGENT_ABORTED' : 'ADAPTER_EXECUTION_FAILED',
-        timestamp: Date.now(),
-      }
-      return
-    }
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        ...(this.config.siteUrl ? { 'HTTP-Referer': this.config.siteUrl } : {}),
+        ...(this.config.siteName ? { 'X-Title': this.config.siteName } : {}),
+      },
+      body: JSON.stringify({
+        model: this.currentModel,
+        messages,
+        stream: true,
+        ...(this.config.providerPreferences
+          ? { provider: this.config.providerPreferences }
+          : {}),
+      }),
+      signal,
+    })
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => response.statusText)
-      yield {
-        type: 'adapter:failed',
-        providerId: this.providerId,
-        sessionId,
-        error: `OpenRouter API error: ${response.status} ${errorText}`,
+      throw new ForgeError({
         code: 'ADAPTER_EXECUTION_FAILED',
-        timestamp: Date.now(),
-      }
-      return
+        message: `OpenRouter API error: ${response.status} ${errorText}`,
+        recoverable: false,
+        context: { providerId: 'openrouter', status: response.status },
+      })
     }
 
-    // Parse SSE stream
-    let fullText = ''
     let usage: { inputTokens: number; outputTokens: number } | undefined
 
-    try {
-      for await (const event of this.parseSSE(response.body!, signal)) {
-        const choice = event.choices?.[0]
-        if (choice?.delta?.content) {
-          const content = choice.delta.content
-          fullText += content
-          yield {
-            type: 'adapter:stream_delta',
-            providerId: this.providerId,
-            content,
-            timestamp: Date.now(),
-          }
-        }
-        if (event.usage) {
-          usage = {
-            inputTokens: event.usage.prompt_tokens ?? 0,
-            outputTokens: event.usage.completion_tokens ?? 0,
-          }
+    for await (const chunk of this.parseSSE(response.body!, signal)) {
+      yield { kind: 'sse', chunk }
+      if (chunk.usage) {
+        usage = {
+          inputTokens: chunk.usage.prompt_tokens ?? 0,
+          outputTokens: chunk.usage.completion_tokens ?? 0,
         }
       }
-    } catch (err) {
-      if (signal.aborted) {
-        yield {
-          type: 'adapter:failed',
-          providerId: this.providerId,
-          sessionId,
-          error: 'Aborted',
-          code: 'AGENT_ABORTED',
-          timestamp: Date.now(),
-        }
-        return
-      }
-      yield {
-        type: 'adapter:failed',
-        providerId: this.providerId,
-        sessionId,
-        error: err instanceof Error ? err.message : String(err),
-        code: 'ADAPTER_EXECUTION_FAILED',
-        timestamp: Date.now(),
-      }
-      return
     }
 
     yield {
+      kind: 'completed',
+      fullText: this.currentFullText,
+      ...(usage !== undefined ? { usage } : {}),
+      durationMs: Date.now() - this.currentStartTime,
+    }
+  }
+
+  mapRawEvent(raw: OpenRouterRawEvent, context: StreamContext): AgentEvent | AgentEvent[] | null {
+    if (!context.sessionId) {
+      context.sessionId = this.currentSessionId
+    }
+    const input = context.input
+
+    if (raw.kind === 'sse') {
+      const choice = raw.chunk.choices?.[0]
+      if (!choice?.delta?.content) return null
+      const content = choice.delta.content
+      this.currentFullText += content
+      return {
+        type: 'adapter:stream_delta',
+        providerId: this.providerId,
+        content,
+        timestamp: Date.now(),
+        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+      }
+    }
+
+    // raw.kind === 'completed'
+    return {
       type: 'adapter:completed',
       providerId: this.providerId,
-      sessionId,
-      result: fullText,
-      durationMs: Date.now() - startTime,
-      usage,
+      sessionId: this.currentSessionId,
+      result: raw.fullText,
+      durationMs: raw.durationMs,
+      ...(raw.usage !== undefined ? { usage: raw.usage } : {}),
       timestamp: Date.now(),
+      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
     }
   }
 
@@ -244,6 +234,23 @@ export class OpenRouterAdapter implements AgentCLIAdapter {
 
   configure(opts: Partial<OpenRouterConfig>): void {
     this.config = { ...this.config, ...opts }
+  }
+
+  private resolveApiKey(): string {
+    const apiKey =
+      this.config.openRouterApiKey ??
+      this.config.apiKey ??
+      process.env['OPENROUTER_API_KEY']
+    if (!apiKey) {
+      throw new ForgeError({
+        code: 'ADAPTER_EXECUTION_FAILED',
+        message:
+          'OpenRouter API key required. Set OPENROUTER_API_KEY or pass openRouterApiKey in config.',
+        recoverable: false,
+        context: { providerId: 'openrouter', reason: 'missing_api_key' },
+      })
+    }
+    return apiKey
   }
 
   private async *parseSSE(

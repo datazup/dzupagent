@@ -72,9 +72,16 @@ export function validateFragments(fragments: ComposableFragment[]): { valid: boo
   return { valid: errors.length === 0, errors }
 }
 
-/** Rough token estimate: ~4 chars per token. */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4)
+import { defaultTokenizerRegistry } from '../llm/tokenizer-registry.js'
+
+/**
+ * Token estimate routed through the default tokenizer registry. Falls back to
+ * the char/4 heuristic when no real tokenizer backend is available, but uses
+ * a precise count when `@anthropic-ai/tokenizer` or `js-tiktoken` is
+ * installed and a model id is supplied.
+ */
+function estimateTokens(text: string, model?: string): number {
+  return defaultTokenizerRegistry.resolve(model ?? 'heuristic').countTokens(text)
 }
 
 /**
@@ -92,6 +99,8 @@ export function composeAdvancedFragments(
   options?: {
     maxTokens?: number
     context?: Record<string, unknown>
+    /** Model id used to pick a tokenizer for `maxTokens` accounting. */
+    model?: string
   },
 ): ComposeResult {
   const ctx = options?.context ?? {}
@@ -180,7 +189,7 @@ export function composeAdvancedFragments(
   const maxTokens = options?.maxTokens ?? Infinity
 
   for (const frag of ordered) {
-    const fragTokens = estimateTokens(frag.content)
+    const fragTokens = estimateTokens(frag.content, options?.model)
     if (usedTokens + fragTokens > maxTokens) {
       finalExcluded.push(frag.id)
       warnings.push(`Fragment "${frag.id}" excluded: exceeds token budget.`)

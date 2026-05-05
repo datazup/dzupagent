@@ -151,3 +151,20 @@ export type {
   LearningDashboard,
   DashboardServiceConfig,
 } from './self-correction/learning-dashboard.js'
+
+export {
+  InMemoryLearningCandidateStore,
+  appendAuditEntry,
+} from './self-correction/learning-candidate.js'
+export type {
+  CandidateStatus,
+  AuditEntry,
+  LearningCandidate,
+  LearningCandidateStore,
+} from './self-correction/learning-candidate.js'
+
+export { LearningCandidateService } from './self-correction/learning-candidate-service.js'
+export type {
+  PromoteResult,
+  RejectResult,
+} from './self-correction/learning-candidate-service.js'

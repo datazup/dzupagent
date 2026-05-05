@@ -1,0 +1,95 @@
+/**
+ * LearningCandidateService — operator review surface for LearningCandidates.
+ *
+ * A pure, framework-agnostic class that wraps RecoveryFeedback and exposes
+ * listPending / promote / reject operations. HTTP adapters in consuming apps
+ * (e.g. apps/codev-app) can wrap this class without pulling in Express/Hono
+ * as a framework dependency.
+ *
+ * @module self-correction/learning-candidate-service
+ */
+
+import type { RecoveryFeedback } from './recovery-feedback.js'
+import type { LearningCandidate } from './learning-candidate.js'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface PromoteResult {
+  success: boolean
+  candidateId: string
+  /** Reason for failure when success is false. */
+  reason?: string
+}
+
+export interface RejectResult {
+  success: boolean
+  candidateId: string
+  reason?: string
+}
+
+// ---------------------------------------------------------------------------
+// Service
+// ---------------------------------------------------------------------------
+
+/**
+ * Operator-facing service for reviewing and actioning LearningCandidates.
+ *
+ * Wire this into an HTTP layer (REST, tRPC, etc.) in the consuming app.
+ * The service itself is framework-free.
+ */
+export class LearningCandidateService {
+  constructor(private readonly feedback: RecoveryFeedback) {}
+
+  /**
+   * List all pending candidates awaiting operator review.
+   */
+  listPending(): LearningCandidate[] {
+    return this.feedback.listPendingCandidates()
+  }
+
+  /**
+   * Get a single candidate by ID (any status).
+   * Returns undefined if not found.
+   */
+  get(candidateId: string): LearningCandidate | undefined {
+    return this.feedback.getCandidate(candidateId)
+  }
+
+  /**
+   * Promote a pending candidate to durable memory.
+   */
+  async promote(candidateId: string, reviewedBy = 'operator'): Promise<PromoteResult> {
+    const candidate = this.feedback.getCandidate(candidateId)
+    if (!candidate) {
+      return { success: false, candidateId, reason: 'Candidate not found' }
+    }
+    if (candidate.status !== 'pending') {
+      return { success: false, candidateId, reason: `Candidate already ${candidate.status}` }
+    }
+
+    const ok = await this.feedback.promoteCandidate(candidateId, reviewedBy)
+    return ok
+      ? { success: true, candidateId }
+      : { success: false, candidateId, reason: 'Promotion failed' }
+  }
+
+  /**
+   * Reject a pending candidate.
+   */
+  reject(candidateId: string, reviewedBy = 'operator'): RejectResult {
+    const candidate = this.feedback.getCandidate(candidateId)
+    if (!candidate) {
+      return { success: false, candidateId, reason: 'Candidate not found' }
+    }
+    if (candidate.status !== 'pending') {
+      return { success: false, candidateId, reason: `Candidate already ${candidate.status}` }
+    }
+
+    const ok = this.feedback.rejectCandidate(candidateId, reviewedBy)
+    return ok
+      ? { success: true, candidateId }
+      : { success: false, candidateId, reason: 'Rejection failed' }
+  }
+}

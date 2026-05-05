@@ -30,11 +30,17 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
   attachStructuredOutputCapabilities,
+  calculateCostCents,
+  defaultTokenizerRegistry,
+  extractTokenUsage,
   isTransientError,
   TokenBucket,
   type ModelTier,
   type StructuredOutputModelCapabilities,
+  type Tokenizer,
 } from '@dzupagent/core'
+import { DistributedRateLimiter } from '../guardrails/distributed-rate-limiter.js'
+import { DistributedCostLedger } from '../guardrails/distributed-budget.js'
 import { shouldSummarize, summarizeAndTrim } from '@dzupagent/context'
 import type {
   DzupAgentConfig,
@@ -76,6 +82,8 @@ import {
   extractJsonFromText,
 } from './structured-generate.js'
 import { maybeWriteBackMemory as maybeWriteBackMemoryFinalizer } from './agent-finalizers.js'
+import { ConsolidationEngine } from '@dzupagent/memory'
+import type { ConsolidationStore } from '@dzupagent/memory'
 import { omitUndefined } from '../utils/exact-optional.js'
 
 // Re-export for backward compatibility — tests and external consumers
@@ -106,6 +114,35 @@ function resolveRateLimiter(
   return new TokenBucket(config)
 }
 
+/**
+ * Resolve a {@link Tokenizer} for the agent (MC-08).
+ *
+ * Resolution order:
+ * 1. Explicit `config.tokenizer` (caller-provided override)
+ * 2. `defaultTokenizerRegistry.resolve(modelId)` keyed off the resolved model
+ * 3. Heuristic fallback (built into the registry's `resolve()` contract)
+ *
+ * Never throws — the registry always returns at least a HeuristicTokenizer.
+ */
+function resolveTokenizer(
+  config: DzupAgentConfig,
+  resolvedModel: BaseChatModel,
+  resolvedTier: ModelTier | undefined,
+): Tokenizer {
+  if (config.tokenizer) return config.tokenizer
+  // Prefer an explicit string model identifier; otherwise inspect the model
+  // instance, then fall back to the resolved tier label so the registry can
+  // still match generic patterns (e.g. /gpt-/, /claude/).
+  const modelHint =
+    typeof config.model === 'string'
+      ? config.model
+      : (resolvedModel as { model?: string; modelName?: string; _modelType?: () => string }).model
+        ?? (resolvedModel as { modelName?: string }).modelName
+        ?? resolvedTier
+        ?? 'unknown'
+  return defaultTokenizerRegistry.resolve(modelHint)
+}
+
 export class DzupAgent {
   readonly id: string
   readonly name: string
@@ -124,6 +161,10 @@ export class DzupAgent {
   private readonly middlewareRuntime: AgentMiddlewareRuntime
   private readonly mailboxTools: StructuredToolInterface[] = []
   private readonly rateLimiter: TokenBucket | undefined
+  private readonly distributedRateLimiter: DistributedRateLimiter | undefined
+  private readonly distributedCostLedger: DistributedCostLedger | undefined
+  private readonly tenantId: string
+  private readonly tokenizer: Tokenizer
   private conversationSummary: string | null = null
 
   constructor(config: DzupAgentConfig) {
@@ -136,6 +177,33 @@ export class DzupAgent {
     this.resolvedProvider = resolved.provider
     this.resolvedTier = resolved.tier
     this.rateLimiter = resolveRateLimiter(config.rateLimiter)
+    this.tenantId = config.memoryScope?.['tenantId'] ?? 'default'
+    this.tokenizer = resolveTokenizer(config, resolved.model, resolved.tier)
+
+    // Distributed guardrails (MC-07) — optional Redis-backed rate limit
+    // and cost ledger so multi-instance fleets share a single budget.
+    const distributed = config.guardrails?.distributed
+    if (distributed?.rateLimiter) {
+      this.distributedRateLimiter = new DistributedRateLimiter(
+        omitUndefined({
+          client: distributed.rateLimiter.client,
+          windowMs: distributed.rateLimiter.windowMs,
+          maxRequests: distributed.rateLimiter.maxRequests,
+          keyPrefix: distributed.rateLimiter.keyPrefix,
+        }),
+        this.rateLimiter,
+      )
+    }
+    if (distributed?.costLedger) {
+      this.distributedCostLedger = new DistributedCostLedger(
+        omitUndefined({
+          client: distributed.costLedger.client,
+          maxCostUsd: distributed.costLedger.maxCostUsd,
+          ttlMs: distributed.costLedger.ttlMs,
+          keyPrefix: distributed.costLedger.keyPrefix,
+        }),
+      )
+    }
 
     // Initialize mailbox when configured
     if (config.mailbox) {
@@ -600,7 +668,7 @@ export class DzupAgent {
   }
 
   private estimateConversationTokens(messages: BaseMessage[]): number {
-    return estimateConversationTokensForMessages(messages)
+    return estimateConversationTokensForMessages(messages, this.tokenizer)
   }
 
   private async maybeUpdateSummary(
@@ -693,6 +761,37 @@ export class DzupAgent {
   }
 
   private async awaitRateLimit(): Promise<void> {
+    // Distributed first: when configured, the fleet-wide ceiling owns
+    // the gate. A `false` return means the shared window is exhausted;
+    // we surface that as a structured event and throw so callers see
+    // the same shape as the local TokenBucket failure.
+    if (this.distributedRateLimiter) {
+      let allowed = true
+      try {
+        allowed = await this.distributedRateLimiter.tryConsume(this.tenantId, this.id)
+      } catch (err) {
+        // The limiter handles its own fallback; an exception here only
+        // happens when both Redis and the local limiter throw. Treat
+        // as fail-open per the distributed-rate-limiter contract.
+        this.config.eventBus?.emit({
+          type: 'agent:rate_limited',
+          agentId: this.id,
+          reason: err instanceof Error ? err.message : String(err),
+        })
+        return
+      }
+      if (!allowed) {
+        const reason = `Distributed rate limit exceeded for ${this.tenantId}:${this.id}`
+        this.config.eventBus?.emit({
+          type: 'agent:rate_limited',
+          agentId: this.id,
+          reason,
+        })
+        throw new Error(reason)
+      }
+      return
+    }
+
     if (!this.rateLimiter) return
     try {
       await this.rateLimiter.waitUntilAvailable(1)
@@ -705,6 +804,30 @@ export class DzupAgent {
         reason: err instanceof Error ? err.message : String(err),
       })
       throw err
+    }
+  }
+
+  /**
+   * Record the cost of a successful LLM invocation against the
+   * distributed cost ledger (MC-07). Best-effort: failures emit a
+   * structured event but never propagate so the agent run continues.
+   */
+  private async recordDistributedCost(message: BaseMessage): Promise<void> {
+    if (!this.distributedCostLedger) return
+    try {
+      const usage = extractTokenUsage(message)
+      const costCents = calculateCostCents(usage)
+      const costUsd = costCents / 100
+      const result = await this.distributedCostLedger.record(this.tenantId, this.id, costUsd)
+      if (!result.allowed) {
+        this.config.eventBus?.emit({
+          type: 'agent:rate_limited',
+          agentId: this.id,
+          reason: `Distributed cost ceiling reached for ${this.tenantId}:${this.id} (totalUsd=${result.totalCostUsd})`,
+        })
+      }
+    } catch {
+      // Cost recording is observational; never fail the run.
     }
   }
 
@@ -727,6 +850,7 @@ export class DzupAgent {
       if (this.resolvedProvider && this.config.registry) {
         this.config.registry.recordProviderSuccess(this.resolvedProvider)
       }
+      await this.recordDistributedCost(result)
       return result
     } catch (err) {
       if (this.resolvedProvider && this.config.registry) {
@@ -752,7 +876,9 @@ export class DzupAgent {
       shouldRetry: (err) => this.shouldRunFailover(err, messages),
       execute: async (attempt) => {
         await this.awaitRateLimit()
-        return this.middlewareRuntime.invokeModel(attempt.model, messages)
+        const result = await this.middlewareRuntime.invokeModel(attempt.model, messages)
+        await this.recordDistributedCost(result)
+        return result
       },
     })
   }
@@ -772,5 +898,45 @@ export class DzupAgent {
       config: this.config,
       content,
     })
+  }
+
+  /**
+   * Manually trigger a consolidation sweep on this agent's memory namespace.
+   *
+   * Clusters semantically related entries and summarises each cluster into
+   * a single record with low-strength children (pruned on the next decay
+   * sweep). Safe to call from any async context; returns a summary of what
+   * was consolidated.
+   *
+   * Requires `config.memory` to expose a `getStore()` method (all
+   * {@link MemoryService}-backed instances do). Returns `{ summarized: 0 }`
+   * silently when the store is unavailable.
+   */
+  async consolidate(): Promise<{ summarized: number; summaries: string[] }> {
+    const memory = this.config.memory
+    const namespace = this.config.memoryNamespace
+    const scope = this.config.memoryScope
+    if (!memory || !namespace || !scope) return { summarized: 0, summaries: [] }
+
+    const getStore = (memory as { getStore?: () => unknown }).getStore
+    if (typeof getStore !== 'function') return { summarized: 0, summaries: [] }
+
+    let store: unknown
+    try {
+      store = getStore.call(memory)
+    } catch {
+      return { summarized: 0, summaries: [] }
+    }
+
+    const engine = new ConsolidationEngine({
+      minClusterSize: this.config.memoryPolicy?.consolidateMinCluster ?? 3,
+    })
+
+    try {
+      const result = await engine.consolidate(this.id, namespace, store as ConsolidationStore)
+      return { summarized: result.summarized, summaries: result.summaries }
+    } catch {
+      return { summarized: 0, summaries: [] }
+    }
   }
 }

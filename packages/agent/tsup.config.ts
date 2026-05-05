@@ -7,7 +7,6 @@ export default defineConfig({
     'src/orchestration.ts',
     'src/self-correction.ts',
     'src/replay.ts',
-    'src/playground.ts',
     'src/pipeline.ts',
     'src/runtime.ts',
     'src/workflow.ts',

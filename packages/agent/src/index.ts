@@ -88,7 +88,22 @@ export type {
   GuardrailConfig,
   BudgetState,
   BudgetWarning,
+  DistributedGuardrailConfig,
 } from './guardrails/guardrail-types.js'
+
+// --- Distributed Guardrails (MC-07) ---
+export { DistributedRateLimiter } from './guardrails/distributed-rate-limiter.js'
+export type {
+  RateLimiterClient,
+  LocalRateLimiter,
+  DistributedRateLimiterConfig,
+} from './guardrails/distributed-rate-limiter.js'
+export { DistributedCostLedger } from './guardrails/distributed-budget.js'
+export type {
+  CostLedgerClient,
+  DistributedCostLedgerConfig,
+  CostLedgerRecordResult,
+} from './guardrails/distributed-budget.js'
 
 // --- Workflow ---
 export { WorkflowBuilder, CompiledWorkflow, createWorkflow } from './workflow/workflow-builder.js'
@@ -388,21 +403,8 @@ export type {
   AnalyticsRunInput,
 } from './pipeline/pipeline-analytics.js'
 
-// --- Playground ---
-export { AgentPlayground } from './playground/playground.js'
-export type { PlaygroundConfig } from './playground/playground.js'
+// --- Shared Workspace (used by TeamRuntime) ---
 export { SharedWorkspace } from './orchestration/team/team-workspace.js'
-export { TeamCoordinator } from './playground/team-coordinator.js'
-export type {
-  AgentRole,
-  AgentSpawnConfig,
-  CoordinationPattern,
-  TeamConfig,
-  AgentStatus,
-  SpawnedAgent,
-  PlaygroundEvent,
-  TeamRunResult,
-} from './playground/types.js'
 
 // --- TeamRuntime (declarative team execution engine) ---
 export {

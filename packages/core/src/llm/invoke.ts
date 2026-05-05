@@ -11,6 +11,7 @@ import {
   isTransientError,
   type RetryConfig,
 } from './retry.js'
+import { defaultTokenizerRegistry } from './tokenizer-registry.js'
 
 /** Token usage extracted from LLM response metadata */
 export interface TokenUsage {
@@ -137,11 +138,16 @@ export function extractTokenUsage(
 }
 
 /**
- * Estimate tokens from text length. Only use as fallback when real usage is unavailable.
- * Uses ~4 chars per token as a rough approximation.
+ * Estimate tokens for `text` using the registered tokenizer for `model`,
+ * falling back to a char/4 heuristic when no tokenizer backend is available.
+ *
+ * Prefer this over hand-rolled `text.length / 4` math: it routes Anthropic
+ * models through `@anthropic-ai/tokenizer` and OpenAI models through
+ * `js-tiktoken` when those optional dependencies are installed, while
+ * remaining safe to call in environments where they are not.
  */
-export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4)
+export function estimateTokens(text: string, model?: string): number {
+  return defaultTokenizerRegistry.resolve(model ?? 'heuristic').countTokens(text)
 }
 
 /**

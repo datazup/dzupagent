@@ -10,8 +10,8 @@
 import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { shouldSummarize, summarizeAndTrim } from '@dzupagent/context'
-import { findWeakMemories } from '@dzupagent/memory'
-import type { DecayMetadata } from '@dzupagent/memory'
+import { findWeakMemories, MemoryPruner, ConsolidationEngine } from '@dzupagent/memory'
+import type { DecayMetadata, PrunerMemoryStore } from '@dzupagent/memory'
 import { PiiDetector } from '@dzupagent/security'
 import type { DzupAgentConfig } from './agent-types.js'
 import { omitUndefined } from '../utils/exact-optional.js'
@@ -171,6 +171,10 @@ export async function maybeWriteBackMemory(
     })
     // Fire-and-forget decay sweep — must never delay or abort the run
     void runMemoryDecay(agentId, config)
+    // Fire-and-forget MC-02 prune (TTL + capacity cap) — also non-blocking
+    void runMemoryPruner(agentId, config)
+    // Fire-and-forget MC-02 consolidation sweep — clusters + summarises entries
+    void runConsolidateFinalizer(agentId, config)
   } catch {
     config.eventBus?.emit({
       type: 'memory:error',
@@ -253,4 +257,149 @@ async function runMemoryDecay(
   } catch {
     // Decay sweep failures are non-fatal
   }
+}
+
+/**
+ * Fire-and-forget {@link MemoryPruner} sweep (MC-02).
+ *
+ * Bounds the configured namespace by TTL (`memoryPolicy.ttlMs`, default 7
+ * days) and capacity (`memoryPolicy.maxEntries`, default 1000). Disabled
+ * when `memoryPolicy.pruneFinalizer === false` or when the configured
+ * `MemoryService` does not expose a backing `BaseStore`. Failures are
+ * fully swallowed.
+ */
+async function runMemoryPruner(
+  agentId: string,
+  config: DzupAgentConfig,
+): Promise<void> {
+  const policy = config.memoryPolicy
+  if (policy?.pruneFinalizer === false) return
+
+  const memory = config.memory
+  const namespace = config.memoryNamespace
+  const scope = config.memoryScope
+  if (!memory || !namespace || !scope) return
+
+  // The pruner needs direct store access; older MemoryService instances
+  // without `getStore()` are skipped silently.
+  const getStore = (memory as { getStore?: () => unknown }).getStore
+  if (typeof getStore !== 'function') return
+
+  let store: unknown
+  try {
+    store = getStore.call(memory)
+  } catch {
+    return
+  }
+  if (!isPrunerStore(store)) return
+  const prunerStore = store as unknown as PrunerMemoryStore
+
+  // Build the namespace tuple the same way MemoryService does — `[scope-values..., namespace]`
+  // is too coarse for hosted stores so we stick to the (scope, namespace) tuple.
+  const tuple = buildPruneNamespaceTuple(scope, namespace)
+
+  try {
+    const pruner = new MemoryPruner()
+    const result = await pruner.prune(prunerStore, {
+      namespace: tuple,
+      maxEntries: policy?.maxEntries ?? 1000,
+      ttlMs: policy?.ttlMs ?? 7 * 24 * 60 * 60 * 1000,
+    })
+    if (result.expired > 0 || result.evicted > 0) {
+      config.eventBus?.emit({
+        type: 'memory:written',
+        agentId,
+        namespace,
+        key: `pruner:sweep:${Date.now()}`,
+        scopeKeys: getSafeScopeKeys(scope),
+      })
+    }
+  } catch {
+    // Pruner failures are non-fatal — memory hygiene must never abort a run.
+  }
+}
+
+/**
+ * Fire-and-forget {@link ConsolidationEngine} sweep (MC-02).
+ *
+ * Clusters semantically related entries in the agent's namespace and
+ * summarises each cluster into a single summary record. Disabled unless
+ * `memoryPolicy.consolidateFinalizer === true`. Failures are swallowed.
+ */
+export async function runConsolidateFinalizer(
+  agentId: string,
+  config: DzupAgentConfig,
+): Promise<void> {
+  const policy = config.memoryPolicy
+  if (policy?.consolidateFinalizer !== true) return
+
+  const memory = config.memory
+  const namespace = config.memoryNamespace
+  const scope = config.memoryScope
+  if (!memory || !namespace || !scope) return
+
+  const getStore = (memory as { getStore?: () => unknown }).getStore
+  if (typeof getStore !== 'function') return
+
+  let store: unknown
+  try {
+    store = getStore.call(memory)
+  } catch {
+    return
+  }
+  if (!isPrunerStore(store)) return
+
+  const engine = new ConsolidationEngine({
+    minClusterSize: policy.consolidateMinCluster ?? 3,
+  })
+
+  try {
+    const result = await engine.consolidate(agentId, namespace, store as PrunerMemoryStore)
+    if (result.summarized > 0) {
+      config.eventBus?.emit({
+        type: 'memory:written',
+        agentId,
+        namespace,
+        key: `consolidation:sweep:${Date.now()}`,
+        scopeKeys: getSafeScopeKeys(scope),
+      })
+    }
+  } catch {
+    // Consolidation failures are non-fatal.
+  }
+}
+
+interface PrunerStoreLike {
+  search: (
+    namespace: string[],
+    options?: { query?: string; limit?: number; offset?: number },
+  ) => Promise<unknown>
+  put: (
+    namespace: string[],
+    key: string,
+    value: Record<string, unknown>,
+  ) => Promise<void>
+  delete: (namespace: string[], key: string) => Promise<void>
+}
+
+function isPrunerStore(value: unknown): value is PrunerStoreLike {
+  if (value == null || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  return (
+    typeof v['search'] === 'function' &&
+    typeof v['put'] === 'function' &&
+    typeof v['delete'] === 'function'
+  )
+}
+
+/**
+ * Construct the namespace tuple used by the pruner. Mirrors the
+ * `[...scopeKeys, namespace]` convention favoured by `MemoryService`.
+ */
+function buildPruneNamespaceTuple(
+  scope: Record<string, string>,
+  namespace: string,
+): string[] {
+  const scopeValues = Object.values(scope)
+  return scopeValues.length > 0 ? [...scopeValues, namespace] : [namespace]
 }

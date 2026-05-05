@@ -64,6 +64,13 @@ export { TokenBucket } from './rate-limit/token-bucket.js'
 export type { TokenBucketConfig } from './rate-limit/token-bucket.js'
 export { invokeWithTimeout, extractTokenUsage, estimateTokens } from './llm/invoke.js'
 export type { TokenUsage, InvokeOptions } from './llm/invoke.js'
+export {
+  HeuristicTokenizer,
+  AnthropicTokenizer,
+  TiktokenTokenizer,
+} from './llm/tokenizer.js'
+export type { Tokenizer, TokenizableMessage } from './llm/tokenizer.js'
+export { TokenizerRegistry, defaultTokenizerRegistry } from './llm/tokenizer-registry.js'
 export { isTransientError, isContextLengthError, DEFAULT_RETRY_CONFIG } from './llm/retry.js'
 export type { RetryConfig } from './llm/retry.js'
 export type { RegistryMiddleware, MiddlewareContext, MiddlewareResult, MiddlewareTokenUsage } from './llm/registry-middleware.js'
