@@ -184,8 +184,25 @@ describe('prepareRunState', () => {
       expect(state.maxIterations).toBe(7)
     })
 
-    it('defaults to 10 when nothing is set', async () => {
-      const params = basePrepareParams()
+    it('defaults to 5 when nothing is set and no guardrails (RF-04)', async () => {
+      // RF-04 (SEC-08): un-guardrailed agents now default to 5 iterations
+      // instead of 10 to limit blast radius for runaway loops.
+      const params = basePrepareParams({
+        config: { id: 'rf04-default-iters', instructions: '', model: 'gpt-4' },
+      })
+      const state = await prepareRunState(params)
+      expect(state.maxIterations).toBe(5)
+    })
+
+    it('defaults to 10 when guardrails are present but maxIterations is not set', async () => {
+      const params = basePrepareParams({
+        config: {
+          id: 'rf04-guarded-default-iters',
+          instructions: '',
+          model: 'gpt-4',
+          guardrails: {},
+        },
+      })
       const state = await prepareRunState(params)
       expect(state.maxIterations).toBe(10)
     })
@@ -239,12 +256,14 @@ describe('prepareRunState', () => {
       expect(state.budget).toBeInstanceOf(IterationBudget)
     })
 
-    it('budget is undefined when config.guardrails is absent', async () => {
+    it('installs default IterationBudget when config.guardrails is absent (RF-04)', async () => {
       const params = basePrepareParams({
-        config: { id: 'a', instructions: '', model: 'gpt-4' },
+        config: { id: 'a-default-budget', instructions: '', model: 'gpt-4' },
       })
       const state = await prepareRunState(params)
-      expect(state.budget).toBeUndefined()
+      // RF-04 (SEC-08): un-guardrailed agents now get a defence-in-depth budget
+      // instead of `undefined`, capped at `DEFAULT_UNGUARDED_BUDGET.inputTokens`.
+      expect(state.budget).toBeInstanceOf(IterationBudget)
     })
 
     it('creates budget with empty guardrails object', async () => {
@@ -1266,5 +1285,171 @@ describe('executeStreamingToolCall', () => {
     })
     const result = await executeStreamingToolCall(params)
     expect(result.message.content).toContain('string error')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// RF-04 (SEC-08) — default cost ceiling for un-guardrailed runs
+// ---------------------------------------------------------------------------
+
+import {
+  DEFAULT_UNGUARDED_BUDGET,
+  DEFAULT_GUARDED_MAX_ITERATIONS,
+} from '../agent/run-engine.js'
+import { _warnedAgentIds } from '../agent/run-engine-defaults.js'
+
+describe('RF-04 default cost ceiling (SEC-08)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    _warnedAgentIds.clear()
+    mockCreateToolLoopLearningHook.mockReturnValue(undefined)
+  })
+
+  describe('default budget application', () => {
+    it('exports DEFAULT_UNGUARDED_BUDGET with the documented shape', () => {
+      expect(DEFAULT_UNGUARDED_BUDGET.inputTokens).toBe(50_000)
+      expect(DEFAULT_UNGUARDED_BUDGET.outputTokens).toBe(50_000)
+      expect(DEFAULT_UNGUARDED_BUDGET.maxIterations).toBe(5)
+      expect(DEFAULT_GUARDED_MAX_ITERATIONS).toBe(10)
+    })
+
+    it('bare agent receives a default IterationBudget capped at 50_000 input tokens', async () => {
+      const params = basePrepareParams({
+        config: { id: 'rf04-bare-budget', instructions: '', model: 'gpt-4' },
+      })
+      const state = await prepareRunState(params)
+      expect(state.budget).toBeInstanceOf(IterationBudget)
+
+      // Consume >50_000 input tokens — budget MUST report exhausted with the
+      // `Token limit exceeded` reason so the tool loop aborts cleanly.
+      state.budget!.recordUsage({ inputTokens: 50_001, outputTokens: 0 })
+      const check = state.budget!.isExceeded()
+      expect(check.exceeded).toBe(true)
+      expect(check.reason).toMatch(/Token limit exceeded/)
+    })
+
+    it('bare agent default maxIterations is exhausted at 5 iterations (6th call exceeds)', async () => {
+      const params = basePrepareParams({
+        config: { id: 'rf04-bare-iters', instructions: '', model: 'gpt-4' },
+      })
+      const state = await prepareRunState(params)
+      expect(state.maxIterations).toBe(5)
+      expect(state.budget).toBeInstanceOf(IterationBudget)
+
+      // Five successful iterations consume the budget; the sixth recorded
+      // iteration tips it over the limit and `isExceeded()` returns true.
+      for (let i = 0; i < 6; i++) {
+        state.budget!.recordIteration()
+      }
+      const check = state.budget!.isExceeded()
+      expect(check.exceeded).toBe(true)
+      expect(check.reason).toMatch(/Iteration limit exceeded/)
+    })
+
+    it('agent WITH explicit guardrails uses those values, not the defaults', async () => {
+      const params = basePrepareParams({
+        config: {
+          id: 'rf04-guarded',
+          instructions: '',
+          model: 'gpt-4',
+          guardrails: {
+            maxTokens: 1_000_000,
+            maxIterations: 25,
+          },
+        },
+      })
+      const state = await prepareRunState(params)
+
+      expect(state.maxIterations).toBe(25)
+      expect(state.budget).toBeInstanceOf(IterationBudget)
+
+      // 50_001 input tokens MUST NOT exhaust the explicit 1M cap.
+      state.budget!.recordUsage({ inputTokens: 50_001, outputTokens: 0 })
+      expect(state.budget!.isExceeded().exceeded).toBe(false)
+    })
+
+    it('agent with empty guardrails object opts out of the un-guardrailed defaults', async () => {
+      // Empty guardrails === explicit caller-acknowledged opt-out.
+      // maxIterations falls back to the GUARDED default (10), not 5.
+      const params = basePrepareParams({
+        config: {
+          id: 'rf04-empty-guarded',
+          instructions: '',
+          model: 'gpt-4',
+          guardrails: {},
+        },
+      })
+      const state = await prepareRunState(params)
+      expect(state.maxIterations).toBe(DEFAULT_GUARDED_MAX_ITERATIONS)
+      // Budget is constructed but with no caps — `isExceeded` always false.
+      state.budget!.recordUsage({ inputTokens: 1_000_000, outputTokens: 1_000_000 })
+      expect(state.budget!.isExceeded().exceeded).toBe(false)
+    })
+  })
+
+  describe('startup warning', () => {
+    it('emits the warning exactly once per un-guardrailed agent id', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const params = basePrepareParams({
+          config: { id: 'rf04-warn-once', instructions: '', model: 'gpt-4' },
+        })
+        await prepareRunState(params)
+        await prepareRunState(params)
+        await prepareRunState(params)
+
+        const matching = warnSpy.mock.calls.filter(c =>
+          typeof c[0] === 'string' && c[0].includes('without explicit guardrails'),
+        )
+        expect(matching).toHaveLength(1)
+        expect(matching[0]![0]).toMatch(/Configure `config\.guardrails`/)
+      } finally {
+        warnSpy.mockRestore()
+      }
+    })
+
+    it('does NOT emit the warning when guardrails are configured', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        const params = basePrepareParams({
+          config: {
+            id: 'rf04-no-warn',
+            instructions: '',
+            model: 'gpt-4',
+            guardrails: { maxTokens: 1000 },
+          },
+        })
+        await prepareRunState(params)
+
+        const matching = warnSpy.mock.calls.filter(c =>
+          typeof c[0] === 'string' && c[0].includes('without explicit guardrails'),
+        )
+        expect(matching).toHaveLength(0)
+      } finally {
+        warnSpy.mockRestore()
+      }
+    })
+
+    it('emits one warning per distinct agent id, not per call', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        await prepareRunState(basePrepareParams({
+          config: { id: 'rf04-agent-A', instructions: '', model: 'gpt-4' },
+        }))
+        await prepareRunState(basePrepareParams({
+          config: { id: 'rf04-agent-B', instructions: '', model: 'gpt-4' },
+        }))
+        await prepareRunState(basePrepareParams({
+          config: { id: 'rf04-agent-A', instructions: '', model: 'gpt-4' },
+        }))
+
+        const matching = warnSpy.mock.calls.filter(c =>
+          typeof c[0] === 'string' && c[0].includes('without explicit guardrails'),
+        )
+        expect(matching).toHaveLength(2)
+      } finally {
+        warnSpy.mockRestore()
+      }
+    })
   })
 })

