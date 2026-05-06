@@ -16,7 +16,7 @@ Generated from package root facades plus `config/public-api-allowlists.json` and
 
 Root index: `packages/security/src/index.ts`
 
-- Stable root sources: `3`
+- Stable root sources: `4`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Security package root exports are the primary consumption surface; all exports are stable from initial release.
@@ -31,6 +31,7 @@ No stable subpaths configured.
 | --- | --- | ---: | --- | --- |
 | `stable` | `./prompt-injection/index.js` | 7 | `exact:./prompt-injection/index.js` | `INJECTION_PATTERNS`, `INJECTION_REDACTION`, `PromptInjectionDetector`, `PromptInjectionBlockedError` |
 | `stable` | `./pii/index.js` | 6 | `exact:./pii/index.js` | `PII_PATTERNS`, `PiiDetector`, `PiiCanonicalType`, `PiiDetailedScanResult` |
+| `stable` | `./rate-limit/index.js` | 5 | `exact:./rate-limit/index.js` | `FixedWindowRateLimiter`, `KeyedTokenBucketRateLimiter`, `FixedWindowRateLimiterConfig`, `KeyedTokenBucketConfig` |
 | `stable` | `./content-scanner.js` | 6 | `exact:./content-scanner.js` | `ContentScanner`, `ContentScannerConfig`, `ContentScanResult`, `ContentScanVerdict` |
 
 ## @dzupagent/core
