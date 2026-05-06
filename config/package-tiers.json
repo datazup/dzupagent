@@ -163,8 +163,9 @@
     ]
   },
   "@dzupagent/adapter-types": {
-    "tier": 2,
-    "status": "supported-secondary",
+    "tier": 1,
+    "status": "supported",
+    "architectureRole": "Layer-0 leaf runtime primitive: adapter type contracts with no @dzupagent runtime dependencies. Promoted from tier-2 to tier-1 to align tier ordering with actual dependency direction.",
     "roadmapDriver": false,
     "owners": [
       "apps/codev-app",
@@ -172,10 +173,16 @@
     ]
   },
   "@dzupagent/adapter-rules": {
-    "tier": 2,
-    "status": "supported-secondary",
+    "tier": 1,
+    "status": "supported",
+    "architectureRole": "Layer-1 foundation package: adapter rule contracts that depend only on adapter-types (tier 1). Promoted from tier-2 to tier-1 to align tier ordering with actual dependency direction.",
     "roadmapDriver": false,
-    "owners": []
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/codev-app",
+      "apps/nl2sql",
+      "apps/research-app"
+    ]
   },
   "@dzupagent/connectors-browser": {
     "tier": 2,
@@ -206,9 +213,9 @@
     ]
   },
   "@dzupagent/flow-ast": {
-    "tier": 2,
-    "status": "supported-secondary",
-    "architectureRole": "Layer-0 leaf runtime primitive: canonical flow AST contracts plus local parser and validator helpers with no @dzupagent runtime dependencies.",
+    "tier": 1,
+    "status": "supported",
+    "architectureRole": "Layer-0 leaf runtime primitive: canonical flow AST contracts plus local parser and validator helpers with no @dzupagent runtime dependencies. Promoted from tier-2 to tier-1 to align tier ordering with actual dependency direction.",
     "roadmapDriver": false,
     "owners": [
       "apps/codev-app"
@@ -231,9 +238,9 @@
     ]
   },
   "@dzupagent/memory-ipc": {
-    "tier": 2,
-    "status": "supported-secondary",
-    "architectureRole": "Layer-0 leaf runtime primitive: Arrow frame contracts, IPC serialization, and memory exchange operations with no @dzupagent runtime dependencies.",
+    "tier": 1,
+    "status": "supported",
+    "architectureRole": "Layer-0 leaf runtime primitive: Arrow frame contracts, IPC serialization, and memory exchange operations with no @dzupagent runtime dependencies. Promoted from tier-2 to tier-1 to align tier ordering with actual dependency direction.",
     "roadmapDriver": false,
     "owners": [
       "apps/ai-saas-starter-kit",
@@ -293,22 +300,28 @@
     ]
   },
   "@dzupagent/app-tools": {
-    "tier": 3,
-    "status": "parked",
+    "tier": 2,
+    "status": "supported-secondary",
+    "architectureRole": "Layer-4 composition package. Promoted from tier-3 to tier-2 because @dzupagent/server (tier 2) has a declared runtime dependency on this package. The package remains lower-priority but cannot be tier-3 while a tier-2 package depends on it.",
     "roadmapDriver": false,
     "owners": []
   },
   "@dzupagent/code-edit-kit": {
-    "tier": 3,
-    "status": "parked",
+    "tier": 2,
+    "status": "supported-secondary",
+    "architectureRole": "Layer-3 orchestration composition package. Promoted from tier-3 to tier-2 because @dzupagent/app-tools (tier 2) has a declared runtime dependency on this package. The package remains lower-priority but cannot be tier-3 while a tier-2 package depends on it.",
     "roadmapDriver": false,
     "owners": []
   },
   "@dzupagent/hitl-kit": {
-    "tier": 3,
-    "status": "parked",
+    "tier": 1,
+    "status": "supported",
+    "architectureRole": "Layer-0 leaf runtime primitive: HITL (human-in-the-loop) type contracts with no @dzupagent runtime dependencies. Promoted from tier-3 to tier-1 to align tier ordering with actual dependency direction; @dzupagent/server depends on this package.",
     "roadmapDriver": false,
-    "owners": []
+    "owners": [
+      "apps/ai-saas-starter-kit",
+      "apps/research-app"
+    ]
   },
   "create-dzupagent": {
     "tier": 3,

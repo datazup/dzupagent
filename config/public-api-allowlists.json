@@ -39,6 +39,7 @@
         { "match": "prefix", "pattern": "./hooks/" },
         { "match": "prefix", "pattern": "./plugin/" },
         { "match": "prefix", "pattern": "./llm/" },
+        { "match": "exact", "pattern": "./logging/secure-logger.js" },
         { "match": "prefix", "pattern": "./prompt/" },
         { "match": "prefix", "pattern": "./security/" },
         { "match": "prefix", "pattern": "./facades/" },
@@ -447,6 +448,91 @@
       "transitionalRoot": [],
       "subpaths": {},
       "migrationWindow": "Cache root exports are currently the contracted package surface; add allowlist rules before exposing new root modules."
+    },
+    {
+      "packageName": "@dzupagent/adapter-types",
+      "packageDir": "packages/adapter-types",
+      "rootIndex": "packages/adapter-types/src/index.ts",
+      "stableRoot": [
+        { "match": "prefix", "pattern": "./contracts/" },
+        { "match": "exact", "pattern": "./provider-execution-port.js" },
+        { "match": "exact", "pattern": "./pipeline-executor-port.js" },
+        { "match": "exact", "pattern": "./utils/correlation.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Adapter type root exports are stable Layer 0 contracts; add allowlist rules before exposing new root modules."
+    },
+    {
+      "packageName": "@dzupagent/adapter-rules",
+      "packageDir": "packages/adapter-rules",
+      "rootIndex": "packages/adapter-rules/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./types.js" },
+        { "match": "exact", "pattern": "./compiler.js" },
+        { "match": "exact", "pattern": "./loader.js" },
+        { "match": "prefix", "pattern": "./projectors/" },
+        { "match": "exact", "pattern": "./parse.js" },
+        { "match": "exact", "pattern": "./validate.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Adapter rule root exports are stable rule contract and projection primitives; add allowlist rules before exposing new root modules."
+    },
+    {
+      "packageName": "@dzupagent/flow-ast",
+      "packageDir": "packages/flow-ast",
+      "rootIndex": "packages/flow-ast/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./types.js" },
+        { "match": "exact", "pattern": "./parse.js" },
+        { "match": "exact", "pattern": "./validate.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Flow AST root exports are stable Layer 0 parser, validator, and contract primitives; add allowlist rules before exposing new root modules."
+    },
+    {
+      "packageName": "@dzupagent/memory-ipc",
+      "packageDir": "packages/memory-ipc",
+      "rootIndex": "packages/memory-ipc/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./schema.js" },
+        { "match": "exact", "pattern": "./frame-builder.js" },
+        { "match": "exact", "pattern": "./frame-reader.js" },
+        { "match": "exact", "pattern": "./ipc-serializer.js" },
+        { "match": "prefix", "pattern": "./adapters/" },
+        { "match": "exact", "pattern": "./columnar-ops.js" },
+        { "match": "exact", "pattern": "./token-budget.js" },
+        { "match": "exact", "pattern": "./phase-memory-selection.js" },
+        { "match": "exact", "pattern": "./cache-delta.js" },
+        { "match": "exact", "pattern": "./memory-aware-compress.js" },
+        { "match": "exact", "pattern": "./shared-memory-channel.js" },
+        { "match": "exact", "pattern": "./ipc-client.js" },
+        { "match": "exact", "pattern": "./memory-service-ext.js" },
+        { "match": "exact", "pattern": "./mcp-memory-transport.js" },
+        { "match": "exact", "pattern": "./a2a-memory-artifact.js" },
+        { "match": "exact", "pattern": "./blackboard.js" },
+        { "match": "prefix", "pattern": "./analytics/" },
+        { "match": "prefix", "pattern": "./frames/" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Memory IPC root exports are stable Layer 0 Arrow frame and IPC primitives; add allowlist rules before exposing new root modules."
+    },
+    {
+      "packageName": "@dzupagent/hitl-kit",
+      "packageDir": "packages/hitl-kit",
+      "rootIndex": "packages/hitl-kit/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./types.js" },
+        { "match": "exact", "pattern": "./approval-state-store.js" },
+        { "match": "exact", "pattern": "./postgres-approval-store.js" },
+        { "match": "exact", "pattern": "./approval-gate.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "HITL kit root exports are stable Layer 0 human-in-the-loop contracts and store primitives; add allowlist rules before exposing new root modules."
     }
   ]
 }
