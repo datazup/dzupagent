@@ -21,6 +21,7 @@
       "stableRoot": [
         { "match": "exact", "pattern": "./prompt-injection/index.js" },
         { "match": "exact", "pattern": "./pii/index.js" },
+        { "match": "exact", "pattern": "./rate-limit/index.js" },
         { "match": "exact", "pattern": "./content-scanner.js" }
       ],
       "transitionalRoot": [],
