@@ -4,6 +4,7 @@
  * These are unit tests that verify SQL generation and serialization
  * without requiring a live PostgreSQL database.
  */
+import type * as ServerOps from '../../ops.js'
 import { beforeAll, describe, it, expect } from 'vitest'
 import { pgTable, uuid } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
@@ -261,7 +262,7 @@ describe('DrizzleVectorStore', () => {
 // ---------------------------------------------------------------------------
 
 describe('server ops exports', { timeout: 300_000 }, () => {
-  let serverOpsModule: typeof import('../../ops.js')
+  let serverOpsModule: typeof ServerOps
 
   beforeAll(async () => {
     serverOpsModule = await import('../../ops.js')
