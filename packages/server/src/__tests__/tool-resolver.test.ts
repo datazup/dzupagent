@@ -154,6 +154,57 @@ describe('tool-resolver', { timeout: 30_000 }, () => {
     expect(result.warnings.some((w) => w.includes('Ignoring metadata.githubToken'))).toBe(true)
   })
 
+  it('rejects private GitHub connector base URLs unless allowlisted by profile', async () => {
+    const result = await resolveAgentTools({
+      toolNames: ['github_get_file'],
+      githubConnectorProfiles: {
+        internal: {
+          token: 'ghp-profile',
+          baseUrl: 'http://127.0.0.1:8080/api/v3',
+        },
+      },
+      defaultGithubConnectorProfile: 'internal',
+      env: {},
+    })
+
+    expect(result.tools.map((t) => t.name)).not.toContain('github_get_file')
+    expect(result.unresolved).toContain('github_get_file')
+    expect(result.warnings.some((w) => w.includes('GitHub connector profile "internal" rejected'))).toBe(true)
+  })
+
+  it('passes allowlisted GitHub Enterprise base URLs into the connector', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      content: Buffer.from('hello').toString('base64'),
+      encoding: 'base64',
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      const result = await resolveAgentTools({
+        toolNames: ['github_get_file'],
+        githubConnectorProfiles: {
+          internal: {
+            token: 'ghp-profile',
+            baseUrl: 'http://127.0.0.1:8080/api/v3',
+            allowedHosts: ['127.0.0.1:8080'],
+          },
+        },
+        defaultGithubConnectorProfile: 'internal',
+        env: {},
+      })
+
+      const githubTool = result.tools.find((t) => t.name === 'github_get_file')
+      expect(githubTool).toBeTruthy()
+      await expect(githubTool!.invoke({ owner: 'org', repo: 'repo', path: 'README.md' })).resolves.toBe('hello')
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock.mock.calls[0]![0]).toBe(
+        'http://127.0.0.1:8080/api/v3/repos/org/repo/contents/README.md',
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('ignores Slack tokens supplied through run metadata', async () => {
     const result = await resolveAgentTools({
       toolNames: ['slack_send_message'],

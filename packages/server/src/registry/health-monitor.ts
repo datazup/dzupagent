@@ -6,7 +6,13 @@
  * breaker state per agent.
  */
 
-import type { AgentRegistry, AgentHealth, DzupEventBus } from '@dzupagent/core'
+import {
+  fetchWithOutboundUrlPolicy,
+  type AgentRegistry,
+  type AgentHealth,
+  type DzupEventBus,
+  type OutboundUrlSecurityPolicy,
+} from '@dzupagent/core'
 
 // ------------------------------------------------------------------ Config
 
@@ -25,6 +31,12 @@ export interface HealthMonitorConfig {
   failureThreshold?: number
   /** Custom probe function (overrides default HTTP fetch). */
   probeFn?: (endpoint: string, timeoutMs: number) => Promise<ProbeResult>
+  /**
+   * Outbound URL policy for the default HTTP probe. When omitted, each
+   * configured endpoint host is treated as registry-owned for compatibility
+   * with internal agent registries; redirects are still revalidated.
+   */
+  probeUrlPolicy?: OutboundUrlSecurityPolicy
 }
 
 export interface ProbeResult {
@@ -107,18 +119,37 @@ class CircuitManager {
 
 // ------------------------------------------------------------------ Default probe
 
-async function defaultProbeFn(endpoint: string, timeoutMs: number): Promise<ProbeResult> {
+function defaultProbePolicy(endpoint: string, explicit?: OutboundUrlSecurityPolicy): OutboundUrlSecurityPolicy | undefined {
+  if (explicit !== undefined) return explicit
+  try {
+    const parsed = new URL(endpoint)
+    return { allowedHosts: [parsed.host] }
+  } catch {
+    return undefined
+  }
+}
+
+async function defaultProbeFn(
+  endpoint: string,
+  timeoutMs: number,
+  policy?: OutboundUrlSecurityPolicy,
+): Promise<ProbeResult> {
   const start = Date.now()
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
 
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeout)
+    let response: Response
+    try {
+      response = await fetchWithOutboundUrlPolicy(endpoint, {
+        method: 'GET',
+        signal: controller.signal,
+      }, {
+        policy: defaultProbePolicy(endpoint, policy),
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
     const latencyMs = Date.now() - start
 
     return {
@@ -145,6 +176,7 @@ export class HealthMonitor {
   private readonly _maxSamples: number
   private readonly _failureThreshold: number
   private readonly _probeFn: (endpoint: string, timeoutMs: number) => Promise<ProbeResult>
+  private readonly _probeUrlPolicy: OutboundUrlSecurityPolicy | undefined
 
   private _timer: ReturnType<typeof setInterval> | undefined
   private readonly _windows = new Map<string, SlidingLatencyWindow>()
@@ -158,7 +190,8 @@ export class HealthMonitor {
     this._eventBus = config.eventBus
     this._maxSamples = config.maxSamples ?? 100
     this._failureThreshold = config.failureThreshold ?? 3
-    this._probeFn = config.probeFn ?? defaultProbeFn
+    this._probeUrlPolicy = config.probeUrlPolicy
+    this._probeFn = config.probeFn ?? ((endpoint, timeoutMs) => defaultProbeFn(endpoint, timeoutMs, this._probeUrlPolicy))
   }
 
   /** Start periodic health probing. */

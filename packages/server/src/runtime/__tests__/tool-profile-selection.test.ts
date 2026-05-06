@@ -75,6 +75,7 @@ describe('tool profile seams', () => {
 
     expect(selected).toEqual({
       token: 'ghp-release',
+      profile: { envVar: 'GITHUB_RELEASE_TOKEN' },
       profileName: 'release',
       warnings: [],
     })

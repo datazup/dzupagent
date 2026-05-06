@@ -194,7 +194,7 @@ export async function resolveAgentTools(
     if (typeof context.metadata?.['githubToken'] === 'string') {
       warnings.push('Ignoring metadata.githubToken for GitHub connector; configure githubConnectorProfiles or GITHUB_TOKEN.')
     }
-    const { token, warnings: profileWarnings } = resolveTokenProfile(
+    const { token, profile: githubProfile, profileName: githubProfileName, warnings: profileWarnings } = resolveTokenProfile(
       'GitHub',
       context.githubConnectorProfiles,
       context.metadata?.['githubProfile'],
@@ -207,19 +207,42 @@ export async function resolveAgentTools(
     if (!token) {
       warnings.push('GitHub tools requested but no server-side token profile or GITHUB_TOKEN is configured.')
     } else if (typeof connectors['createGitHubConnector'] === 'function') {
-      const ghTools = (connectors['createGitHubConnector'] as (
-        cfg: { token: string; enabledTools?: string[] },
-      ) => StructuredToolInterface[])({ token, enabledTools: enabledGithub })
-      for (const t of ghTools) {
-        if (enabledGithub.includes(t.name)) {
-          tools.push(t)
-          activated.push({ name: t.name, source: 'connector' })
-          unresolved.delete(t.name)
+      const outboundUrlPolicy = githubProfile?.allowedHosts
+        ? { allowedHosts: githubProfile.allowedHosts }
+        : undefined
+      let githubProfileAccepted = true
+      if (githubProfile?.baseUrl) {
+        const policy = await validateMcpHttpEndpoint(githubProfile.baseUrl, 'http', outboundUrlPolicy)
+        if (!policy.ok) {
+          warnings.push(`GitHub connector profile "${githubProfileName ?? 'unknown'}" rejected: ${policy.reason}`)
+          githubProfileAccepted = false
         }
       }
-      unresolved.delete('github')
-      unresolved.delete('github:*')
-      unresolved.delete('connector:github')
+      if (githubProfileAccepted) {
+        const ghTools = (connectors['createGitHubConnector'] as (
+          cfg: {
+            token: string
+            enabledTools?: string[]
+            baseUrl?: string
+            outboundUrlPolicy?: { allowedHosts?: string[] }
+          },
+        ) => StructuredToolInterface[])({
+          token,
+          enabledTools: enabledGithub,
+          ...(githubProfile?.baseUrl ? { baseUrl: githubProfile.baseUrl } : {}),
+          ...(outboundUrlPolicy ? { outboundUrlPolicy } : {}),
+        })
+        for (const t of ghTools) {
+          if (enabledGithub.includes(t.name)) {
+            tools.push(t)
+            activated.push({ name: t.name, source: 'connector' })
+            unresolved.delete(t.name)
+          }
+        }
+        unresolved.delete('github')
+        unresolved.delete('github:*')
+        unresolved.delete('connector:github')
+      }
     }
   }
 

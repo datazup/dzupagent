@@ -48,6 +48,7 @@ describe('HealthMonitor', () => {
 
   afterEach(() => {
     monitor?.stop()
+    vi.restoreAllMocks()
   })
 
   it('probes a healthy agent successfully', async () => {
@@ -157,6 +158,55 @@ describe('HealthMonitor', () => {
 
     const health = await monitor.probeAgent(agent.id)
     expect(health.status).toBe('unknown')
+  })
+
+  it('default probe keeps configured localhost endpoints compatible', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('OK', { status: 200 }),
+    )
+    const agent = await registry.register(makeInput({ endpoint: 'http://localhost:3000/health' }))
+    monitor = new HealthMonitor({ registry })
+
+    const health = await monitor.probeAgent(agent.id)
+
+    expect(health.status).toBe('healthy')
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(fetchSpy.mock.calls[0]![0]).toBe('http://localhost:3000/health')
+  })
+
+  it('default probe rejects unsafe redirects through shared outbound policy', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('', {
+        status: 302,
+        headers: { location: 'http://127.0.0.1:5000/metadata' },
+      }),
+    )
+    const agent = await registry.register(makeInput({ endpoint: 'https://example.com/health' }))
+    monitor = new HealthMonitor({ registry, failureThreshold: 1 })
+
+    const health = await monitor.probeAgent(agent.id)
+
+    expect(health.status).toBe('unhealthy')
+    expect(health.consecutiveFailures).toBe(1)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('can enforce a strict probe URL policy before fetching', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('OK', { status: 200 }),
+    )
+    const agent = await registry.register(makeInput({ endpoint: 'http://localhost:3000/health' }))
+    monitor = new HealthMonitor({
+      registry,
+      failureThreshold: 1,
+      probeUrlPolicy: {},
+    })
+
+    const health = await monitor.probeAgent(agent.id)
+
+    expect(health.status).toBe('unhealthy')
+    expect(health.consecutiveFailures).toBe(1)
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('start/stop lifecycle works correctly', () => {

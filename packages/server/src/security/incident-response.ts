@@ -2,7 +2,12 @@
  * Incident response engine — monitors DzupEventBus for security-relevant
  * events and executes automated playbooks (kill agent, disable tool, etc.).
  */
-import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
+import {
+  fetchWithOutboundUrlPolicy,
+  type DzupEventBus,
+  type DzupEvent,
+  type OutboundUrlSecurityPolicy,
+} from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +66,8 @@ export interface IncidentRecord {
 export interface IncidentResponseConfig {
   playbooks: IncidentPlaybook[]
   onIncident?: (record: IncidentRecord) => void
+  /** Outbound URL policy for webhook_notification actions. */
+  webhookUrlPolicy?: OutboundUrlSecurityPolicy
 }
 
 // ---------------------------------------------------------------------------
@@ -98,9 +105,16 @@ export function clearIncidentFlags(): void {
 
 type FetchFn = (url: string, init: RequestInit) => Promise<{ ok: boolean; status: number }>
 
+function parseTimeoutMs(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : 5000
+}
+
 async function executeAction(
   action: PlaybookAction,
   fetchImpl?: FetchFn,
+  webhookUrlPolicy?: OutboundUrlSecurityPolicy,
 ): Promise<IncidentActionResult> {
   const config = action.config
 
@@ -150,12 +164,16 @@ async function executeAction(
         }
       }
       const method = typeof config['method'] === 'string' ? config['method'] : 'POST'
+      const timeoutMs = parseTimeoutMs(config['timeoutMs'])
       try {
-        const doFetch = fetchImpl ?? globalThis.fetch
-        const response = await doFetch(url, {
+        const response = await fetchWithOutboundUrlPolicy(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'incident_notification', timestamp: new Date().toISOString() }),
+          signal: AbortSignal.timeout(timeoutMs),
+        }, {
+          policy: webhookUrlPolicy,
+          ...(fetchImpl ? { fetchImpl: fetchImpl as typeof fetch } : {}),
         })
         return {
           action: 'webhook_notification',
@@ -199,6 +217,7 @@ export class IncidentResponseEngine {
   private readonly incidents: IncidentRecord[] = []
   private readonly lastTrigger: Map<string, number> = new Map()
   private readonly onIncident?: (record: IncidentRecord) => void
+  private readonly webhookUrlPolicy: OutboundUrlSecurityPolicy | undefined
   private unsubscribe: (() => void) | undefined
   private fetchImpl: FetchFn | undefined
 
@@ -208,6 +227,7 @@ export class IncidentResponseEngine {
       this.playbooks.set(pb.id, pb)
     }
     this.onIncident = config.onIncident
+    this.webhookUrlPolicy = config.webhookUrlPolicy
   }
 
   /**
@@ -250,7 +270,7 @@ export class IncidentResponseEngine {
 
     const actionsTaken: IncidentActionResult[] = []
     for (const action of playbook.actions) {
-      const result = await executeAction(action, this.fetchImpl)
+      const result = await executeAction(action, this.fetchImpl, this.webhookUrlPolicy)
       actionsTaken.push(result)
     }
 

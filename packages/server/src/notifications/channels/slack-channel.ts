@@ -2,14 +2,20 @@
  * Slack notification channel — sends notifications to a Slack incoming webhook.
  *
  * Uses the Slack Block Kit format for rich message rendering.
- * No Slack SDK dependency — uses `fetch()` directly.
+ * No Slack SDK dependency — uses the shared outbound URL policy.
  */
+import {
+  fetchWithOutboundUrlPolicy,
+  type OutboundUrlSecurityPolicy,
+} from '@dzupagent/core'
 import type { Notification, NotificationChannel } from '../notifier.js'
 
 export interface SlackNotificationChannelConfig {
   webhookUrl: string
   /** Timeout in ms (default: 5000) */
   timeoutMs?: number
+  /** Outbound URL policy. Defaults to public HTTPS destinations only. */
+  urlPolicy?: OutboundUrlSecurityPolicy
 }
 
 const PRIORITY_EMOJI: Record<string, string> = {
@@ -23,10 +29,12 @@ export class SlackNotificationChannel implements NotificationChannel {
   readonly name = 'slack'
   private readonly webhookUrl: string
   private readonly timeoutMs: number
+  private readonly urlPolicy: OutboundUrlSecurityPolicy | undefined
 
   constructor(config: SlackNotificationChannelConfig) {
     this.webhookUrl = config.webhookUrl
     this.timeoutMs = config.timeoutMs ?? 5000
+    this.urlPolicy = config.urlPolicy
   }
 
   async send(notification: Notification): Promise<void> {
@@ -66,11 +74,13 @@ export class SlackNotificationChannel implements NotificationChannel {
       blocks,
     })
 
-    await fetch(this.webhookUrl, {
+    await fetchWithOutboundUrlPolicy(this.webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
       signal: AbortSignal.timeout(this.timeoutMs),
+    }, {
+      policy: this.urlPolicy,
     })
   }
 }

@@ -131,4 +131,33 @@ describe('checkHealth', () => {
     expect(result.healthy).toBe(false)
     expect(result.error).toContain('Timeout')
   })
+
+  it('supports strict outbound URL policy for deployment probes', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('OK', { status: 200 }),
+    )
+
+    const result = await checkHealth('http://localhost:4000/api/health', 100, {
+      urlPolicy: {},
+    })
+
+    expect(result.healthy).toBe(false)
+    expect(result.error).toContain('Outbound URL rejected')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('revalidates deployment health probe redirects', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('', {
+        status: 302,
+        headers: { location: 'http://127.0.0.1:5000/metadata' },
+      }),
+    )
+
+    const result = await checkHealth('https://example.com/api/health')
+
+    expect(result.healthy).toBe(false)
+    expect(result.error).toContain('Outbound URL rejected')
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
 })

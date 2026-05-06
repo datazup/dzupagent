@@ -2,7 +2,7 @@
  * Email webhook notification channel — sends notifications to an email
  * delivery webhook endpoint (e.g., SendGrid, Mailgun, or custom service).
  *
- * Uses `fetch()` directly — no email SDK dependency.
+ * Uses the shared outbound URL policy — no email SDK dependency.
  */
 import {
   fetchWithOutboundUrlPolicy,
