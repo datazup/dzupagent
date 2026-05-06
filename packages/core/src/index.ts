@@ -383,12 +383,14 @@ export type {
   PolicyTranslatorConfig,
   PolicyTranslationResult,
 } from './security/policy/index.js'
-// Safety Monitor (ECO-144)
+// Safety Monitor (ECO-144) — delegates prompt_injection + pii_leak to @dzupagent/security
 export { createSafetyMonitor, getBuiltInRules } from './security/monitor/index.js'
 export type {
   SafetyMonitor, SafetyMonitorConfig,
   SafetyCategory, SafetySeverity, SafetyAction, SafetyViolation, SafetyRule,
+  InjectionScannerCallback, PiiScannerCallback,
 } from './security/monitor/index.js'
+export type { SecurityPolicyConfig } from '@dzupagent/security'
 // Memory Poisoning Defense (ECO-147)
 export { createMemoryDefense } from './security/memory/index.js'
 export type {

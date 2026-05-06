@@ -51,3 +51,5 @@ export type {
   PromptInjectionMode,
   PiiMode,
 } from './content-scanner.js'
+
+export type { SecurityPolicyConfig } from './policy-config.js'

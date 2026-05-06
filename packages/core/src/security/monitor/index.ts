@@ -1,5 +1,10 @@
 export { createSafetyMonitor } from './safety-monitor.js'
-export type { SafetyMonitor, SafetyMonitorConfig } from './safety-monitor.js'
+export type {
+  SafetyMonitor,
+  SafetyMonitorConfig,
+  InjectionScannerCallback,
+  PiiScannerCallback,
+} from './safety-monitor.js'
 export type {
   SafetyCategory,
   SafetySeverity,
