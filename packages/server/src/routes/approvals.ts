@@ -19,24 +19,45 @@
  * was missing. All other errors surface as 500 from the global error
  * handler in `app.ts`.
  */
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import type { ApprovalStateStore } from '@dzupagent/hitl-kit'
 import { UnknownApprovalError } from '@dzupagent/hitl-kit'
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus, RunStore } from '@dzupagent/core'
+
+import { requireOwnedRun } from './run-guard.js'
 
 export interface ApprovalRoutesConfig {
   approvalStore: ApprovalStateStore
   /** Optional event bus — when provided, grant/reject emit matching events. */
   eventBus?: DzupEventBus
+  /**
+   * Run store used to enforce run ownership before resolving HITL approvals.
+   * Omitted stores fail closed for mutation routes.
+   */
+  runStore?: RunStore
 }
 
 export function createApprovalsRoutes(config: ApprovalRoutesConfig): Hono {
   const app = new Hono()
-  const { approvalStore, eventBus } = config
+  const { approvalStore, eventBus, runStore } = config
 
   app.post('/:runId/:approvalId/grant', async (c) => {
     const runId = c.req.param('runId')
     const approvalId = c.req.param('approvalId')
+    if (!runStore) {
+      return c.json(
+        {
+          error: {
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'Run store is required to resolve approvals',
+          },
+        },
+        503,
+      )
+    }
+    const ownedRun = await requireOwnedRun(c as Context, runId, runStore)
+    if (ownedRun instanceof Response) return ownedRun
+
     const body = await c.req
       .json<{ response?: unknown; approvedBy?: string }>()
       .catch(() => ({} as { response?: unknown; approvedBy?: string }))
@@ -65,6 +86,20 @@ export function createApprovalsRoutes(config: ApprovalRoutesConfig): Hono {
   app.post('/:runId/:approvalId/reject', async (c) => {
     const runId = c.req.param('runId')
     const approvalId = c.req.param('approvalId')
+    if (!runStore) {
+      return c.json(
+        {
+          error: {
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'Run store is required to resolve approvals',
+          },
+        },
+        503,
+      )
+    }
+    const ownedRun = await requireOwnedRun(c as Context, runId, runStore)
+    if (ownedRun instanceof Response) return ownedRun
+
     const body = await c.req
       .json<{ reason?: string }>()
       .catch(() => ({} as { reason?: string }))

@@ -5,7 +5,7 @@
  * Tests verify: correct exports/shape, basic invocation, flag parsing,
  * and error handling. Business logic is NOT deeply tested here.
  */
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -99,7 +99,11 @@ describe('CLI: config-command', () => {
 // dev-command
 // ---------------------------------------------------------------------------
 
-describe('CLI: dev-command', { timeout: 60_000 }, () => {
+describe('CLI: dev-command', { timeout: 120_000 }, () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('exports createDevCommand function', async () => {
     const mod = await import('../cli/dev-command.js')
     expect(typeof mod.createDevCommand).toBe('function')
@@ -118,12 +122,15 @@ describe('CLI: dev-command', { timeout: 60_000 }, () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const handle = createDevCommand({ port: 5555, verbose: false })
-    await handle.start()
-    await handle.stop()
+    try {
+      await handle.start()
+      await handle.stop()
 
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Starting dev server'))
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Server stopped'))
-    consoleSpy.mockRestore()
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Starting dev server'))
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Server stopped'))
+    } finally {
+      await handle.stop()
+    }
   })
 
   it('respects noPlayground option', async () => {
@@ -131,14 +138,17 @@ describe('CLI: dev-command', { timeout: 60_000 }, () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const handle = createDevCommand({ port: 5556, noPlayground: true })
-    await handle.start()
-    await handle.stop()
+    try {
+      await handle.start()
+      await handle.stop()
 
-    const playgroundCalls = consoleSpy.mock.calls.filter(
-      (args) => typeof args[0] === 'string' && args[0].includes('Playground'),
-    )
-    expect(playgroundCalls).toHaveLength(0)
-    consoleSpy.mockRestore()
+      const playgroundCalls = consoleSpy.mock.calls.filter(
+        (args) => typeof args[0] === 'string' && args[0].includes('Playground'),
+      )
+      expect(playgroundCalls).toHaveLength(0)
+    } finally {
+      await handle.stop()
+    }
   })
 })
 

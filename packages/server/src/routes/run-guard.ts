@@ -21,13 +21,15 @@
 import type { Context } from 'hono'
 import type { Run, RunStore } from '@dzupagent/core'
 
+import type { AppEnv } from '../types.js'
+
 /**
  * Extract the current API key's id from the Hono context (set by the auth
  * middleware). Returns undefined when auth is disabled or the context
  * variable is absent.
  */
 function getRequestingKeyId(c: Context): string | undefined {
-  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const key = (c as Context<AppEnv>).get('apiKey')
   const id = key?.['id']
   return typeof id === 'string' ? id : undefined
 }
@@ -38,7 +40,7 @@ function getRequestingKeyId(c: Context): string | undefined {
  * disabled entirely.
  */
 function getRequestingTenantId(c: Context): string {
-  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const key = (c as Context<AppEnv>).get('apiKey')
   const tenantId = key?.['tenantId']
   if (typeof tenantId === 'string' && tenantId.length > 0) return tenantId
   const ownerId = key?.['ownerId']
@@ -65,7 +67,7 @@ function enforceOwnerAccess(c: Context, run: Run): Run | Response {
   // check would otherwise allow them through. Only gate when the caller is
   // authenticated; unauth'd callers fall through to preserve the library
   // default.
-  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const key = (c as Context<AppEnv>).get('apiKey')
   if (key) {
     const requestingTenantId = getRequestingTenantId(c)
     const runTenantId = (run.tenantId ?? 'default') || 'default'

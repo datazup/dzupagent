@@ -13,6 +13,7 @@ import { pipelineRuntimeMetricMap } from '../event-metric-map/pipeline-runtime.j
 import { telemetryMetricMap } from '../event-metric-map/telemetry.js'
 import { pipelineRetryMetricMap } from '../event-metric-map/pipeline-retry.js'
 import { memoryRetrievalSourcesMetricMap } from '../event-metric-map/memory-retrieval-sources.js'
+import { emptyEventMetricMap } from '../event-metric-map/empty-events.js'
 import { counter, histogram, gauge, getAllMetricNames } from '../event-metric-map/shared.js'
 import { asEvent } from '../event-metric-map/types.js'
 import { EVENT_METRIC_MAP } from '../event-metric-map.js'
@@ -376,6 +377,29 @@ describe('adapter-runtime metric map', () => {
 
     expect(mappings[1]!.extract(event)).toEqual({ value: 1200, labels: {} })
     expect(mappings[2]!.extract(event)).toEqual({ value: 250, labels: {} })
+  })
+})
+
+describe('empty-events metric map', () => {
+  it('llm:invocation_recorded records provider_id, model, and status labels', () => {
+    const result = extractFirst(emptyEventMetricMap['llm:invocation_recorded'], {
+      type: 'llm:invocation_recorded',
+      providerId: 'openai',
+      model: 'gpt-4o-mini',
+      promptCharCount: 42,
+      status: 'completed',
+      durationMs: 120,
+      startedAt: '2026-01-01T00:00:00.000Z',
+    } as DzupEvent)
+
+    expect(result).toEqual({
+      value: 1,
+      labels: {
+        provider_id: 'openai',
+        model: 'gpt-4o-mini',
+        status: 'completed',
+      },
+    })
   })
 })
 

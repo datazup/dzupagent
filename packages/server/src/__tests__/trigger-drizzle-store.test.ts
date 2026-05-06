@@ -11,6 +11,7 @@ type StoredTrigger = {
   afterAgentId: string | null
   enabled: boolean
   metadata: unknown
+  tenantId: string
   createdAt: Date
   updatedAt: Date
 }
@@ -26,6 +27,7 @@ function makeRow(data: Partial<StoredTrigger> & { id: string }): StoredTrigger {
     afterAgentId: data.afterAgentId ?? null,
     enabled: data.enabled ?? true,
     metadata: data.metadata ?? null,
+    tenantId: data.tenantId ?? 'default',
     createdAt: data.createdAt ?? now,
     updatedAt: data.updatedAt ?? now,
   }
@@ -169,6 +171,7 @@ vi.mock('../persistence/drizzle-schema.js', () => ({
     afterAgentId: { name: 'afterAgentId' },
     enabled: { name: 'enabled' },
     metadata: { name: 'metadata' },
+    tenantId: { name: 'tenantId' },
     createdAt: { name: 'createdAt' },
     updatedAt: { name: 'updatedAt' },
   },

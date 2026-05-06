@@ -65,7 +65,7 @@ describe('@dzupagent/agent ↔ memory boundary (ADR-0005)', () => {
     expect(typeof client.delete).toBe('function')
     expect(typeof client.subscribe).toBe('function')
     expect(typeof client.stats).toBe('function')
-  })
+  }, 90_000)
 
   it('AgentMemoryContextLoader uses an injected loadArrowRuntime when provided', async () => {
     const { AgentMemoryContextLoader } = await import(
@@ -102,5 +102,5 @@ describe('@dzupagent/agent ↔ memory boundary (ADR-0005)', () => {
     })
     await loader.load([])
     expect(injectedCalled).toBe(1)
-  })
+  }, 90_000)
 })

@@ -3,6 +3,7 @@
  */
 import { Hono } from 'hono'
 import type { TriggerStore, TriggerType } from '../triggers/trigger-store.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface TriggerRouteConfig {
   triggerStore: TriggerStore
@@ -13,6 +14,7 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono {
 
   // --- Create trigger ---
   app.post('/', async (c) => {
+    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{
       id?: string
       type: TriggerType
@@ -41,6 +43,7 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono {
       afterAgentId: body.afterAgentId,
       enabled: body.enabled ?? true,
       metadata: body.metadata,
+      tenantId,
     })
 
     return c.json(trigger, 201)
@@ -50,22 +53,21 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono {
   app.get('/', async (c) => {
     const agentId = c.req.query('agentId')
     const enabledStr = c.req.query('enabled')
+    const tenantId = getRequestingTenantId(c)
 
-    const filter: { agentId?: string; enabled?: boolean } = {}
+    const filter: { agentId?: string; enabled?: boolean; tenantId: string } = { tenantId }
     if (agentId) filter.agentId = agentId
     if (enabledStr !== undefined && enabledStr !== null) {
       filter.enabled = enabledStr === 'true'
     }
 
-    const triggers = await config.triggerStore.list(
-      Object.keys(filter).length > 0 ? filter : undefined,
-    )
+    const triggers = await config.triggerStore.list(filter)
     return c.json({ triggers })
   })
 
   // --- Get trigger ---
   app.get('/:id', async (c) => {
-    const trigger = await config.triggerStore.get(c.req.param('id'))
+    const trigger = await config.triggerStore.get(c.req.param('id'), getRequestingTenantId(c))
     if (!trigger) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Trigger not found' } }, 404)
     }
@@ -74,7 +76,7 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono {
 
   // --- Delete trigger ---
   app.delete('/:id', async (c) => {
-    const deleted = await config.triggerStore.delete(c.req.param('id'))
+    const deleted = await config.triggerStore.delete(c.req.param('id'), getRequestingTenantId(c))
     if (!deleted) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Trigger not found' } }, 404)
     }
@@ -91,7 +93,11 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono {
       )
     }
 
-    const trigger = await config.triggerStore.setEnabled(c.req.param('id'), body.enabled)
+    const trigger = await config.triggerStore.setEnabled(
+      c.req.param('id'),
+      body.enabled,
+      getRequestingTenantId(c),
+    )
     if (!trigger) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Trigger not found' } }, 404)
     }

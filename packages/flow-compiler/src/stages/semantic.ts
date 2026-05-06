@@ -321,7 +321,6 @@ function validateConditionExpr(
   }
 
   try {
-    // eslint-disable-next-line no-new-func
     new Function('ctx', `return (${expr})`)
   } catch (err) {
     ctx.errors.push({

@@ -27,6 +27,7 @@ function createMockDb() {
       workflowText: data.workflowText ?? data.workflow_text,
       enabled: data.enabled ?? true,
       metadata: data.metadata ?? null,
+      tenantId: data.tenantId ?? 'default',
       createdAt: data.createdAt instanceof Date ? data.createdAt : now,
       updatedAt: data.updatedAt instanceof Date ? data.updatedAt : now,
     }
@@ -171,6 +172,7 @@ vi.mock('../persistence/drizzle-schema.js', () => ({
     workflowText: { name: 'workflowText' },
     enabled: { name: 'enabled' },
     metadata: { name: 'metadata' },
+    tenantId: { name: 'tenantId' },
     createdAt: { name: 'createdAt' },
     updatedAt: { name: 'updatedAt' },
   },
@@ -188,6 +190,7 @@ function makeScheduleInput(overrides: Partial<Omit<ScheduleRecord, 'createdAt' |
     workflowText: overrides.workflowText ?? 'Generate daily report',
     enabled: overrides.enabled ?? true,
     metadata: overrides.metadata ?? undefined,
+    tenantId: overrides.tenantId,
   }
 }
 

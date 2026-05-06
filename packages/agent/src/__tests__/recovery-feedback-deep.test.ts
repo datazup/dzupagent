@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RecoveryFeedback } from '../self-correction/recovery-feedback.js'
+import { LearningCandidateService } from '../self-correction/learning-candidate-service.js'
 import type { RecoveryLesson } from '../self-correction/recovery-feedback.js'
 import type { BaseStore } from '@langchain/langgraph'
 
@@ -259,6 +260,44 @@ describe('RecoveryFeedback', () => {
 
       // Counter increments, so they differ in the suffix
       expect(id1).not.toBe(id2)
+    })
+  })
+
+  describe('LearningCandidateService tenant scope', () => {
+    it('lists, reads, promotes, and rejects candidates only inside the requested tenant', async () => {
+      const feedback = new RecoveryFeedback()
+      const service = new LearningCandidateService(feedback)
+      const tenantAId = await feedback.recordOutcome(makeLesson({
+        id: 'lesson-tenant-a',
+        tenantId: 'tenant-a',
+      }))
+      const tenantBId = await feedback.recordOutcome(makeLesson({
+        id: 'lesson-tenant-b',
+        tenantId: 'tenant-b',
+      }))
+
+      expect(service.listPending('tenant-a').map((c) => c.id)).toEqual([tenantAId])
+      expect(service.get(tenantBId, 'tenant-a')).toBeUndefined()
+
+      await expect(service.promote(tenantBId, 'reviewer-a', 'tenant-a')).resolves.toEqual({
+        success: false,
+        candidateId: tenantBId,
+        reason: 'Candidate not found',
+      })
+      expect(service.reject(tenantAId, 'reviewer-b', 'tenant-b')).toEqual({
+        success: false,
+        candidateId: tenantAId,
+        reason: 'Candidate not found',
+      })
+
+      await expect(service.promote(tenantAId, 'reviewer-a', 'tenant-a')).resolves.toEqual({
+        success: true,
+        candidateId: tenantAId,
+      })
+      expect(service.reject(tenantBId, 'reviewer-b', 'tenant-b')).toEqual({
+        success: true,
+        candidateId: tenantBId,
+      })
     })
   })
 })

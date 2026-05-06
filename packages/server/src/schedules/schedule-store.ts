@@ -16,16 +16,21 @@ export interface ScheduleRecord {
   workflowText: string
   enabled: boolean
   metadata?: Record<string, unknown> | null
+  tenantId?: string | null
   createdAt: string
   updatedAt: string
 }
 
 export interface ScheduleStore {
   save(schedule: Omit<ScheduleRecord, 'createdAt' | 'updatedAt'>): Promise<ScheduleRecord>
-  list(filter?: { enabled?: boolean }): Promise<ScheduleRecord[]>
-  get(id: string): Promise<ScheduleRecord | null>
-  update(id: string, patch: Partial<Omit<ScheduleRecord, 'id' | 'createdAt' | 'updatedAt'>>): Promise<ScheduleRecord | null>
-  delete(id: string): Promise<boolean>
+  list(filter?: { enabled?: boolean; tenantId?: string }): Promise<ScheduleRecord[]>
+  get(id: string, tenantId?: string): Promise<ScheduleRecord | null>
+  update(
+    id: string,
+    patch: Partial<Omit<ScheduleRecord, 'id' | 'createdAt' | 'updatedAt'>>,
+    tenantId?: string,
+  ): Promise<ScheduleRecord | null>
+  delete(id: string, tenantId?: string): Promise<boolean>
 }
 
 /**
@@ -48,25 +53,32 @@ export class InMemoryScheduleStore implements ScheduleStore {
     return record
   }
 
-  async list(filter?: { enabled?: boolean }): Promise<ScheduleRecord[]> {
+  async list(filter?: { enabled?: boolean; tenantId?: string }): Promise<ScheduleRecord[]> {
     let results = Array.from(this.schedules.values())
 
     if (filter?.enabled !== undefined) {
       results = results.filter((s) => s.enabled === filter.enabled)
     }
+    if (filter?.tenantId !== undefined) {
+      results = results.filter((s) => (s.tenantId ?? 'default') === filter.tenantId)
+    }
 
     return results
   }
 
-  async get(id: string): Promise<ScheduleRecord | null> {
-    return this.schedules.get(id) ?? null
+  async get(id: string, tenantId?: string): Promise<ScheduleRecord | null> {
+    const schedule = this.schedules.get(id) ?? null
+    if (!schedule) return null
+    if (tenantId && (schedule.tenantId ?? 'default') !== tenantId) return null
+    return schedule
   }
 
   async update(
     id: string,
     patch: Partial<Omit<ScheduleRecord, 'id' | 'createdAt' | 'updatedAt'>>,
+    tenantId?: string,
   ): Promise<ScheduleRecord | null> {
-    const existing = this.schedules.get(id)
+    const existing = await this.get(id, tenantId)
     if (!existing) return null
     const updated: ScheduleRecord = {
       ...existing,
@@ -79,7 +91,8 @@ export class InMemoryScheduleStore implements ScheduleStore {
     return updated
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, tenantId?: string): Promise<boolean> {
+    if (tenantId && !(await this.get(id, tenantId))) return false
     return this.schedules.delete(id)
   }
 }
@@ -91,6 +104,7 @@ interface ScheduleRow {
   workflowText: string
   enabled: boolean
   metadata: unknown
+  tenantId: string
   createdAt: Date
   updatedAt: Date
 }
@@ -107,7 +121,8 @@ export class DrizzleScheduleStore implements ScheduleStore {
     const now = new Date()
 
     // Try to get existing
-    const existing = await this.get(schedule.id)
+    const tenantId = schedule.tenantId ?? 'default'
+    const existing = await this.get(schedule.id, tenantId)
 
     if (existing) {
       const rows = await this.db
@@ -118,9 +133,10 @@ export class DrizzleScheduleStore implements ScheduleStore {
           workflowText: schedule.workflowText,
           enabled: schedule.enabled,
           metadata: schedule.metadata ?? null,
+          tenantId,
           updatedAt: now,
         })
-        .where(eq(scheduleConfigs.id, schedule.id))
+        .where(and(eq(scheduleConfigs.id, schedule.id), eq(scheduleConfigs.tenantId, tenantId)))
         .returning() as ScheduleRow[]
       const row = rows[0]
       if (!row) throw new Error(`Failed to update schedule ${schedule.id}`)
@@ -136,6 +152,7 @@ export class DrizzleScheduleStore implements ScheduleStore {
         workflowText: schedule.workflowText,
         enabled: schedule.enabled,
         metadata: schedule.metadata ?? null,
+        tenantId,
         createdAt: now,
         updatedAt: now,
       })
@@ -146,10 +163,13 @@ export class DrizzleScheduleStore implements ScheduleStore {
     return this.rowToRecord(row)
   }
 
-  async list(filter?: { enabled?: boolean }): Promise<ScheduleRecord[]> {
+  async list(filter?: { enabled?: boolean; tenantId?: string }): Promise<ScheduleRecord[]> {
     const conditions = []
     if (filter?.enabled !== undefined) {
       conditions.push(eq(scheduleConfigs.enabled, filter.enabled))
+    }
+    if (filter?.tenantId !== undefined) {
+      conditions.push(eq(scheduleConfigs.tenantId, filter.tenantId))
     }
 
     const query = this.db.select().from(scheduleConfigs)
@@ -160,11 +180,14 @@ export class DrizzleScheduleStore implements ScheduleStore {
     return rows.map((r) => this.rowToRecord(r))
   }
 
-  async get(id: string): Promise<ScheduleRecord | null> {
+  async get(id: string, tenantId?: string): Promise<ScheduleRecord | null> {
+    const conditions = [eq(scheduleConfigs.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(scheduleConfigs.tenantId, tenantId))
+
     const rows = await this.db
       .select()
       .from(scheduleConfigs)
-      .where(eq(scheduleConfigs.id, id))
+      .where(and(...conditions))
       .limit(1)
 
     const row = rows[0] as ScheduleRow | undefined
@@ -174,21 +197,28 @@ export class DrizzleScheduleStore implements ScheduleStore {
   async update(
     id: string,
     patch: Partial<Omit<ScheduleRecord, 'id' | 'createdAt' | 'updatedAt'>>,
+    tenantId?: string,
   ): Promise<ScheduleRecord | null> {
+    const conditions = [eq(scheduleConfigs.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(scheduleConfigs.tenantId, tenantId))
+
     const rows = await this.db
       .update(scheduleConfigs)
       .set({ ...patch, updatedAt: new Date() })
-      .where(eq(scheduleConfigs.id, id))
+      .where(and(...conditions))
       .returning()
 
     const row = rows[0] as ScheduleRow | undefined
     return row ? this.rowToRecord(row) : null
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, tenantId?: string): Promise<boolean> {
+    const conditions = [eq(scheduleConfigs.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(scheduleConfigs.tenantId, tenantId))
+
     const rows = await this.db
       .delete(scheduleConfigs)
-      .where(eq(scheduleConfigs.id, id))
+      .where(and(...conditions))
       .returning()
     return rows.length > 0
   }
@@ -201,6 +231,7 @@ export class DrizzleScheduleStore implements ScheduleStore {
       workflowText: row.workflowText,
       enabled: row.enabled,
       metadata: row.metadata as Record<string, unknown> | null,
+      tenantId: row.tenantId,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     }

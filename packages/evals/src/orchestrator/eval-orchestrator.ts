@@ -37,6 +37,8 @@ export interface EvalOrchestratorConfig {
   allowReadOnlyMode?: boolean
   concurrency?: number
   metrics?: MetricsCollector
+  costCapCents?: number
+  getAccumulatedCostCents?: () => number | Promise<number>
 }
 
 export class EvalExecutionUnavailableError extends Error {
@@ -54,6 +56,19 @@ export class EvalRunInvalidStateError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'EvalRunInvalidStateError'
+  }
+}
+
+export class EvalCostExceededError extends Error {
+  readonly code = 'EVAL_COST_CAP_EXCEEDED'
+
+  constructor(
+    message: string,
+    readonly capCents: number,
+    readonly observedCents: number,
+  ) {
+    super(message)
+    this.name = 'EvalCostExceededError'
   }
 }
 
@@ -438,6 +453,8 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
             throw new EvalExecutionUnavailableError('Eval execution target is not configured')
           }
 
+          await this.assertCostWithinCap()
+
           const ctx: EvalExecutionContext = {
             suiteId: run.suiteId,
             runId: run.id,
@@ -445,7 +462,9 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
             metadata: run.metadata,
             signal: abortController.signal,
           }
-          return this.config.executeTarget(input, ctx)
+          const output = await this.config.executeTarget(input, ctx)
+          await this.assertCostWithinCap()
+          return output
         },
       )
       const completedAt = new Date().toISOString()
@@ -674,6 +693,27 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
   private isExecutionLeaseExpired(owner: EvalRunExecutionOwnershipRecord, nowMs = Date.now()): boolean {
     const leaseExpiresAtMs = Date.parse(owner.leaseExpiresAt)
     return !Number.isFinite(leaseExpiresAtMs) || leaseExpiresAtMs <= nowMs
+  }
+
+  private async assertCostWithinCap(): Promise<void> {
+    const capCents = this.config.costCapCents
+    if (capCents === undefined) return
+
+    const observedCents = await this.resolveAccumulatedCostCents()
+    if (observedCents > capCents) {
+      throw new EvalCostExceededError(
+        `Eval run exceeded cost cap: observed ${observedCents} cents, cap ${capCents} cents`,
+        capCents,
+        observedCents,
+      )
+    }
+  }
+
+  private async resolveAccumulatedCostCents(): Promise<number> {
+    const raw = this.config.getAccumulatedCostCents
+      ? await this.config.getAccumulatedCostCents()
+      : 0
+    return Number.isFinite(raw) ? raw : 0
   }
 }
 

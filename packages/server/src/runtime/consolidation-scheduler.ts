@@ -8,6 +8,7 @@
  * Integrates with GracefulShutdown for clean teardown.
  */
 import type { DzupEventBus } from '@dzupagent/core'
+import { typedEmit } from '@dzupagent/core'
 
 export interface ConsolidationTask {
   /** Run one consolidation cycle. Returns a summary string for logging. */
@@ -129,28 +130,28 @@ export class ConsolidationScheduler {
     const startedAt = Date.now()
 
     try {
-      this.eventBus?.emit({
-        type: 'system:consolidation_started' as string,
-      } as never)
+      typedEmit(this.eventBus, {
+        type: 'system:consolidation_started',
+      })
 
       const signal = this.abort?.signal ?? new AbortController().signal
       const report = await this.task.run(signal)
       this.lastRunAt = new Date()
 
-      this.eventBus?.emit({
-        type: 'system:consolidation_completed' as string,
+      typedEmit(this.eventBus, {
+        type: 'system:consolidation_completed',
         durationMs: report.durationMs,
         recordsProcessed: report.recordsProcessed,
         pruned: report.pruned,
         merged: report.merged,
-      } as never)
+      })
     } catch (err) {
       if (!(err instanceof DOMException && err.name === 'AbortError')) {
-        this.eventBus?.emit({
-          type: 'system:consolidation_failed' as string,
+        typedEmit(this.eventBus, {
+          type: 'system:consolidation_failed',
           error: err instanceof Error ? err.message : String(err),
           durationMs: Date.now() - startedAt,
-        } as never)
+        })
       }
     } finally {
       this.activeConsolidations--

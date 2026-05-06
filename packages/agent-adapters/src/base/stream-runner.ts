@@ -272,9 +272,9 @@ export class AdapterStreamRunner<TRaw> {
    * `auditSink`. Best-effort: any sink-side error is logged and swallowed so
    * audit failures cannot break the LLM call path.
    *
-   * Note: this is the single audit emission site. The non-streaming
-   * `OpenAIAdapter.run()` convenience does not flow through this runner —
-   * audit emission for that path is deferred (see TODO in openai-adapter.ts).
+   * Note: this is the streaming-runner audit emission site. Adapters with
+   * non-streaming convenience methods must emit their own equivalent record
+   * when they do not flow through this runner.
    */
   private emitAudit(
     providerId: AdapterProviderId,

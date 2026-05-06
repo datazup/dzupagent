@@ -143,6 +143,199 @@ function resolveTokenizer(
   return defaultTokenizerRegistry.resolve(modelHint)
 }
 
+/**
+ * RF-21 — pre-construction validation of the {@link DzupAgentConfig}.
+ *
+ * Throws on invalid combinations *before* any heavy resources are
+ * allocated, so callers see a clear failure mode instead of obscure
+ * downstream errors. Currently checks:
+ *
+ *   - `config.id` must be a non-empty string (other modules key off it).
+ *   - When `config.model` is a string, a `config.registry` is required
+ *     (the same constraint enforced in `resolveModel`, hoisted earlier
+ *     so it fires before tokenizer / event-bus wiring runs).
+ *
+ * Designed to be cheap and side-effect-free.
+ */
+function validateConfig(config: DzupAgentConfig): void {
+  if (typeof config.id !== 'string' || config.id.length === 0) {
+    throw new Error('DzupAgent: config.id must be a non-empty string')
+  }
+  if (typeof config.model === 'string' && !config.registry) {
+    throw new Error(
+      `DzupAgent "${config.id}": model is a string ("${config.model}") but no registry was provided`,
+    )
+  }
+}
+
+/**
+ * RF-21 — wiring bundle returned by {@link installEventBus}.
+ *
+ * Each field is `readonly` so the constructor's `readonly` invariants
+ * are preserved when assigned: the constructor binds these one-for-one
+ * to its private fields. The optional fields (`mailbox`, distributed
+ * guardrails) are `undefined` when the corresponding feature was not
+ * configured, matching the pre-RF-21 surface exactly.
+ */
+interface AgentEventBusWiring {
+  mailbox: AgentMailbox | undefined
+  mailboxTools: StructuredToolInterface[]
+  distributedRateLimiter: DistributedRateLimiter | undefined
+  distributedCostLedger: DistributedCostLedger | undefined
+  instructionResolver: AgentInstructionResolver
+  memoryContextLoader: AgentMemoryContextLoader
+  middlewareRuntime: AgentMiddlewareRuntime
+}
+
+/**
+ * RF-21 — wires every event-bus-aware subsystem (mailbox, distributed
+ * guardrails MC-07, instruction resolver, memory context loader,
+ * middleware runtime) for a freshly-constructed agent.
+ *
+ * Returns a bundle that the {@link DzupAgent} constructor binds to its
+ * private fields. Splitting this out keeps the constructor body under
+ * 40 LOC while preserving the original observable wiring (event bus
+ * `agent:context_fallback` emissions, structured fallback details,
+ * mailbox tool registration order).
+ */
+function installEventBus(
+  agentId: string,
+  config: DzupAgentConfig,
+  rateLimiter: TokenBucket | undefined,
+  estimateConversationTokens: (messages: BaseMessage[]) => number,
+): AgentEventBusWiring {
+  // --- Distributed guardrails (MC-07) ---
+  // Optional Redis-backed rate limit and cost ledger so multi-instance
+  // fleets share a single budget. Both are gated on explicit
+  // `guardrails.distributed.*` config so the default surface is unchanged.
+  const distributed = config.guardrails?.distributed
+  const distributedRateLimiter = distributed?.rateLimiter
+    ? new DistributedRateLimiter(
+        omitUndefined({
+          client: distributed.rateLimiter.client,
+          windowMs: distributed.rateLimiter.windowMs,
+          maxRequests: distributed.rateLimiter.maxRequests,
+          keyPrefix: distributed.rateLimiter.keyPrefix,
+        }),
+        rateLimiter,
+      )
+    : undefined
+  const distributedCostLedger = distributed?.costLedger
+    ? new DistributedCostLedger(
+        omitUndefined({
+          client: distributed.costLedger.client,
+          maxCostUsd: distributed.costLedger.maxCostUsd,
+          ttlMs: distributed.costLedger.ttlMs,
+          keyPrefix: distributed.costLedger.keyPrefix,
+        }),
+      )
+    : undefined
+
+  // --- Mailbox (when configured) ---
+  let mailbox: AgentMailbox | undefined
+  let mailboxTools: StructuredToolInterface[] = []
+  if (config.mailbox) {
+    const store = config.mailbox.store ?? new InMemoryMailboxStore()
+    const eventBus = config.mailbox.eventBus ?? config.eventBus
+    const mailboxImpl = new AgentMailboxImpl(agentId, store, eventBus)
+    mailbox = mailboxImpl
+    mailboxTools = [
+      createSendMailTool({ mailbox: mailboxImpl }),
+      createCheckMailTool({ mailbox: mailboxImpl }),
+    ]
+  }
+
+  // --- Instruction resolver ---
+  const instructionResolver = new AgentInstructionResolver(omitUndefined<AgentInstructionResolverConfig>({
+    agentId,
+    instructions: config.instructions,
+    instructionsMode: config.instructionsMode,
+    agentsDir: config.agentsDir,
+  }))
+
+  // --- Memory context loader (the bulk of event-bus wiring) ---
+  // Bridges `onFallback`, `onFallbackDetail`, and the underlying event bus
+  // so listeners receive a consistent `agent:context_fallback` event with
+  // structured detail (provider, namespace, before/after) regardless of
+  // which callback the caller registered.
+  const memoryContextLoader = new AgentMemoryContextLoader(omitUndefined<AgentMemoryContextLoaderConfig>({
+    instructions: config.instructions,
+    memory: config.memory,
+    memoryNamespace: config.memoryNamespace,
+    memoryScope: config.memoryScope,
+    memoryReadContext: config.toolExecution?.runId
+      ? { runId: config.toolExecution.runId }
+      : undefined,
+    arrowMemory: config.arrowMemory,
+    memoryProfile: config.memoryProfile,
+    frozenSnapshot: config.frozenSnapshot,
+    // Inject the Arrow runtime loader (ADR-0005). The dynamic import in
+    // memory-context-loader.ts was removed; callers using arrowMemory must
+    // pass a loader so the dependency is visible at the call site.
+    loadArrowRuntime: config.loadArrowRuntime
+      ? config.loadArrowRuntime as () => Promise<ArrowMemoryRuntime>
+      : undefined,
+    estimateConversationTokens,
+    onFallback: config.onFallback
+      ? (reason, before, after) => {
+          config.onFallback!(reason, before, after)
+          config.eventBus?.emit(omitUndefined({
+            type: 'agent:context_fallback',
+            agentId,
+            reason,
+            before,
+            after,
+            provider: 'arrow',
+            namespace: config.memoryNamespace,
+          }))
+        }
+      : config.eventBus
+        ? (reason, before, after) => {
+            config.eventBus!.emit(omitUndefined({
+              type: 'agent:context_fallback',
+              agentId,
+              reason,
+              before,
+              after,
+              provider: 'arrow',
+              namespace: config.memoryNamespace,
+            }))
+          }
+        : undefined,
+    // Bridge structured detail into eventBus so listeners receive the
+    // richer fields (provider, namespace, detail) on the same event type.
+    onFallbackDetail: (event) => {
+      config.onFallbackDetail?.(event)
+      config.eventBus?.emit(omitUndefined({
+        type: 'agent:context_fallback',
+        agentId,
+        reason: event.reason,
+        before: event.tokensBefore ?? 0,
+        after: event.tokensAfter ?? 0,
+        provider: event.provider,
+        namespace: event.namespace,
+        detail: event.detail,
+      }))
+    },
+  }))
+
+  // --- Middleware runtime ---
+  const middlewareRuntime = new AgentMiddlewareRuntime(omitUndefined<AgentMiddlewareRuntimeConfig>({
+    agentId,
+    middleware: config.middleware,
+  }))
+
+  return {
+    mailbox,
+    mailboxTools,
+    distributedRateLimiter,
+    distributedCostLedger,
+    instructionResolver,
+    memoryContextLoader,
+    middlewareRuntime,
+  }
+}
+
 export class DzupAgent {
   readonly id: string
   readonly name: string
@@ -159,7 +352,7 @@ export class DzupAgent {
   private readonly instructionResolver: AgentInstructionResolver
   private readonly memoryContextLoader: AgentMemoryContextLoader
   private readonly middlewareRuntime: AgentMiddlewareRuntime
-  private readonly mailboxTools: StructuredToolInterface[] = []
+  private readonly mailboxTools: StructuredToolInterface[]
   private readonly rateLimiter: TokenBucket | undefined
   private readonly distributedRateLimiter: DistributedRateLimiter | undefined
   private readonly distributedCostLedger: DistributedCostLedger | undefined
@@ -168,6 +361,10 @@ export class DzupAgent {
   private conversationSummary: string | null = null
 
   constructor(config: DzupAgentConfig) {
+    // RF-21 (CODE-09) — guard early so any invalid combination throws before
+    // we allocate model / tokenizer / event-bus runtimes.
+    validateConfig(config)
+
     this.id = config.id
     this.name = config.name ?? config.id
     this.description = config.description ?? `Agent: ${this.name}`
@@ -180,112 +377,23 @@ export class DzupAgent {
     this.tenantId = config.memoryScope?.['tenantId'] ?? 'default'
     this.tokenizer = resolveTokenizer(config, resolved.model, resolved.tier)
 
-    // Distributed guardrails (MC-07) — optional Redis-backed rate limit
-    // and cost ledger so multi-instance fleets share a single budget.
-    const distributed = config.guardrails?.distributed
-    if (distributed?.rateLimiter) {
-      this.distributedRateLimiter = new DistributedRateLimiter(
-        omitUndefined({
-          client: distributed.rateLimiter.client,
-          windowMs: distributed.rateLimiter.windowMs,
-          maxRequests: distributed.rateLimiter.maxRequests,
-          keyPrefix: distributed.rateLimiter.keyPrefix,
-        }),
-        this.rateLimiter,
-      )
-    }
-    if (distributed?.costLedger) {
-      this.distributedCostLedger = new DistributedCostLedger(
-        omitUndefined({
-          client: distributed.costLedger.client,
-          maxCostUsd: distributed.costLedger.maxCostUsd,
-          ttlMs: distributed.costLedger.ttlMs,
-          keyPrefix: distributed.costLedger.keyPrefix,
-        }),
-      )
-    }
-
-    // Initialize mailbox when configured
-    if (config.mailbox) {
-      const store = config.mailbox.store ?? new InMemoryMailboxStore()
-      const eventBus = config.mailbox.eventBus ?? config.eventBus
-      const mailboxImpl = new AgentMailboxImpl(this.id, store, eventBus)
-      this.mailbox = mailboxImpl
-      this.mailboxTools = [
-        createSendMailTool({ mailbox: mailboxImpl }),
-        createCheckMailTool({ mailbox: mailboxImpl }),
-      ]
-    }
-    this.instructionResolver = new AgentInstructionResolver(omitUndefined<AgentInstructionResolverConfig>({
-      agentId: this.id,
-      instructions: config.instructions,
-      instructionsMode: config.instructionsMode,
-      agentsDir: config.agentsDir,
-    }))
-    this.memoryContextLoader = new AgentMemoryContextLoader(omitUndefined<AgentMemoryContextLoaderConfig>({
-      instructions: config.instructions,
-      memory: config.memory,
-      memoryNamespace: config.memoryNamespace,
-      memoryScope: config.memoryScope,
-      memoryReadContext: config.toolExecution?.runId
-        ? { runId: config.toolExecution.runId }
-        : undefined,
-      arrowMemory: config.arrowMemory,
-      memoryProfile: config.memoryProfile,
-      frozenSnapshot: config.frozenSnapshot,
-      // Inject the Arrow runtime loader (ADR-0005). The dynamic import in
-      // memory-context-loader.ts was removed; callers using arrowMemory must
-      // pass a loader so the dependency is visible at the call site.
-      loadArrowRuntime: config.loadArrowRuntime
-        ? config.loadArrowRuntime as () => Promise<ArrowMemoryRuntime>
-        : undefined,
-      estimateConversationTokens: (messages) => this.estimateConversationTokens(messages),
-      onFallback: config.onFallback
-        ? (reason, before, after) => {
-            config.onFallback!(reason, before, after)
-            config.eventBus?.emit(omitUndefined({
-              type: 'agent:context_fallback',
-              agentId: this.id,
-              reason,
-              before,
-              after,
-              provider: 'arrow',
-              namespace: config.memoryNamespace,
-            }))
-          }
-        : config.eventBus
-          ? (reason, before, after) => {
-              config.eventBus!.emit(omitUndefined({
-                type: 'agent:context_fallback',
-                agentId: this.id,
-                reason,
-                before,
-                after,
-                provider: 'arrow',
-                namespace: config.memoryNamespace,
-              }))
-            }
-          : undefined,
-      // Bridge structured detail into eventBus so listeners receive the
-      // richer fields (provider, namespace, detail) on the same event type.
-      onFallbackDetail: (event) => {
-        config.onFallbackDetail?.(event)
-        config.eventBus?.emit(omitUndefined({
-          type: 'agent:context_fallback',
-          agentId: this.id,
-          reason: event.reason,
-          before: event.tokensBefore ?? 0,
-          after: event.tokensAfter ?? 0,
-          provider: event.provider,
-          namespace: event.namespace,
-          detail: event.detail,
-        }))
-      },
-    }))
-    this.middlewareRuntime = new AgentMiddlewareRuntime(omitUndefined<AgentMiddlewareRuntimeConfig>({
-      agentId: this.id,
-      middleware: config.middleware,
-    }))
+    // RF-21 — wire every event-bus-aware subsystem (mailbox, distributed
+    // guardrails, instruction resolver, memory context loader, middleware
+    // runtime) in one helper, then bind the resulting bundle to private
+    // fields so the constructor body stays under 40 LOC.
+    const wiring = installEventBus(
+      this.id,
+      config,
+      this.rateLimiter,
+      (messages) => this.estimateConversationTokens(messages),
+    )
+    if (wiring.mailbox) this.mailbox = wiring.mailbox
+    this.mailboxTools = wiring.mailboxTools
+    this.distributedRateLimiter = wiring.distributedRateLimiter
+    this.distributedCostLedger = wiring.distributedCostLedger
+    this.instructionResolver = wiring.instructionResolver
+    this.memoryContextLoader = wiring.memoryContextLoader
+    this.middlewareRuntime = wiring.middlewareRuntime
   }
 
   /**

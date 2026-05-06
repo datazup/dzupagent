@@ -7,6 +7,7 @@
  */
 import { Hono } from 'hono'
 import type { PromptStore, PromptStatus } from '../prompts/prompt-store.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface PromptRouteConfig {
   promptStore: PromptStore
@@ -17,6 +18,7 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
 
   // --- Create prompt version ---
   app.post('/', async (c) => {
+    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{
       id?: string
       promptId?: string
@@ -41,7 +43,7 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
     const promptId = body.promptId ?? id
 
     // Derive next version number for this promptId
-    const existing = await config.promptStore.list()
+    const existing = await config.promptStore.list({ tenantId })
     const siblings = existing.filter((r) => r.promptId === promptId)
     const version = siblings.length > 0 ? Math.max(...siblings.map((r) => r.version)) + 1 : 1
 
@@ -57,6 +59,7 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
       ownerId: body.ownerId ?? null,
       ownerType: body.ownerType ?? null,
       metadata: body.metadata ?? null,
+      tenantId,
     })
 
     return c.json(record, 201)
@@ -65,17 +68,22 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
   // --- List prompt versions ---
   app.get('/', async (c) => {
     const { type, category, status } = c.req.query()
+    const tenantId = getRequestingTenantId(c)
     const prompts = await config.promptStore.list({
       type: type || undefined,
       category: category || undefined,
       status: (status as PromptStatus) || undefined,
+      tenantId,
     })
     return c.json({ prompts })
   })
 
   // --- Get active published version for a promptId ---
   app.get('/active/:promptId', async (c) => {
-    const record = await config.promptStore.getActive(c.req.param('promptId'))
+    const record = await config.promptStore.getActive(
+      c.req.param('promptId'),
+      getRequestingTenantId(c),
+    )
     if (!record) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'No published version found' } }, 404)
     }
@@ -84,7 +92,7 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
 
   // --- Get specific prompt version ---
   app.get('/:id', async (c) => {
-    const record = await config.promptStore.get(c.req.param('id'))
+    const record = await config.promptStore.get(c.req.param('id'), getRequestingTenantId(c))
     if (!record) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Prompt version not found' } }, 404)
     }
@@ -102,7 +110,8 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
       metadata?: Record<string, unknown>
     }>()
 
-    const existing = await config.promptStore.get(c.req.param('id'))
+    const tenantId = getRequestingTenantId(c)
+    const existing = await config.promptStore.get(c.req.param('id'), tenantId)
     if (!existing) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Prompt version not found' } }, 404)
     }
@@ -113,13 +122,14 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
       )
     }
 
-    const updated = await config.promptStore.update(c.req.param('id'), body)
+    const updated = await config.promptStore.update(c.req.param('id'), body, tenantId)
     return c.json(updated)
   })
 
   // --- Publish a version ---
   app.post('/:id/publish', async (c) => {
-    const record = await config.promptStore.get(c.req.param('id'))
+    const tenantId = getRequestingTenantId(c)
+    const record = await config.promptStore.get(c.req.param('id'), tenantId)
     if (!record) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Prompt version not found' } }, 404)
     }
@@ -130,7 +140,7 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
       )
     }
 
-    const published = await config.promptStore.publish(c.req.param('id'))
+    const published = await config.promptStore.publish(c.req.param('id'), tenantId)
     return c.json(published)
   })
 
@@ -141,18 +151,19 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
       return c.json({ error: { code: 'BAD_REQUEST', message: 'targetId is required' } }, 400)
     }
 
-    const target = await config.promptStore.get(body.targetId)
+    const tenantId = getRequestingTenantId(c)
+    const target = await config.promptStore.get(body.targetId, tenantId)
     if (!target || target.promptId !== c.req.param('promptId')) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Target version not found for this promptId' } }, 404)
     }
 
-    const result = await config.promptStore.rollback(c.req.param('promptId'), body.targetId)
+    const result = await config.promptStore.rollback(c.req.param('promptId'), body.targetId, tenantId)
     return c.json(result)
   })
 
   // --- Delete a draft version ---
   app.delete('/:id', async (c) => {
-    const deleted = await config.promptStore.delete(c.req.param('id'))
+    const deleted = await config.promptStore.delete(c.req.param('id'), getRequestingTenantId(c))
     if (!deleted) {
       return c.json(
         { error: { code: 'CONFLICT', message: 'Prompt not found or is published (cannot delete published versions)' } },

@@ -354,7 +354,7 @@ describe('GitExecutor', () => {
       const executor = new GitExecutor({ cwd: '/test/repo' })
       await executor.createBranch('feature/new')
 
-      expect(calls[0]).toEqual(['checkout', '-b', 'feature/new'])
+      expect(calls[0]).toEqual(['checkout', '-b', '--end-of-options', 'feature/new'])
     })
 
     it('accepts a start point', async () => {
@@ -367,7 +367,13 @@ describe('GitExecutor', () => {
       const executor = new GitExecutor({ cwd: '/test/repo' })
       await executor.createBranch('feature/new', 'develop')
 
-      expect(calls[0]).toEqual(['checkout', '-b', 'feature/new', 'develop'])
+      expect(calls[0]).toEqual([
+        'checkout',
+        '-b',
+        '--end-of-options',
+        'feature/new',
+        'develop',
+      ])
     })
   })
 
@@ -382,7 +388,7 @@ describe('GitExecutor', () => {
       const executor = new GitExecutor({ cwd: '/test/repo' })
       await executor.switchBranch('develop')
 
-      expect(calls[0]).toEqual(['checkout', 'develop'])
+      expect(calls[0]).toEqual(['checkout', '--end-of-options', 'develop'])
     })
   })
 

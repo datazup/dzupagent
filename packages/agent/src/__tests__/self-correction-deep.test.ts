@@ -535,13 +535,13 @@ describe('RecoveryFeedback deep coverage', () => {
     }
   }
 
-  it('no store: recordOutcome stages a candidate, retrieveSimilar / getSuccessRate are no-ops', async () => {
+  it('no store: recordOutcome stages a candidate, retrieveSimilar sees it, getSuccessRate is store-only', async () => {
     const fb = new RecoveryFeedback()
-    const candidateId = await fb.recordOutcome(sampleLesson())
+    const lesson = sampleLesson()
+    const candidateId = await fb.recordOutcome(lesson)
     expect(typeof candidateId).toBe('string')
     expect(candidateId).toMatch(/^cand_/)
-    // No store, so retrieveSimilar and getSuccessRate remain no-ops
-    await expect(fb.retrieveSimilar('build_failure', 'n')).resolves.toEqual([])
+    await expect(fb.retrieveSimilar('build_failure', 'n')).resolves.toEqual([lesson])
     await expect(fb.getSuccessRate('timeout')).resolves.toEqual({ total: 0, successes: 0, rate: 0 })
   })
 

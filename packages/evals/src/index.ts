@@ -48,7 +48,7 @@ export { CompositeScorer } from './composite-scorer.js';
 export type { CompositeScorerConfig } from './composite-scorer.js';
 
 // Enhanced scorers (ECO-112, ECO-113)
-export { createLLMJudge } from './scorers/llm-judge-enhanced.js';
+export { createLLMJudge, PINNED_JUDGE } from './scorers/llm-judge-enhanced.js';
 export type { LLMJudgeEnhancedConfig } from './scorers/llm-judge-enhanced.js';
 
 export {

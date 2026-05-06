@@ -118,7 +118,6 @@ export class TokenBucket {
     // the requested tokens, sleeps once, and re-checks. The loop
     // terminates either by consuming the tokens or by exceeding
     // maxWaitMs.
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       this.refill()
       if (this.tokens >= tokens) {

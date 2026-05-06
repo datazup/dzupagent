@@ -147,6 +147,10 @@ function makeCreateInput(
   }
 }
 
+function existingClusterSelects(id = 'cluster-1'): unknown[][] {
+  return [[makeClusterRow({ id })], []]
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -487,7 +491,7 @@ describe('DrizzleClusterStore', () => {
 
   describe('addRole()', () => {
     it('calls db.insert once', async () => {
-      db = buildMockDb()
+      db = buildMockDb({ selectSequence: existingClusterSelects('cluster-1') })
       store = new DrizzleClusterStore(db)
 
       await store.addRole('cluster-1', makeRole())
@@ -497,7 +501,7 @@ describe('DrizzleClusterStore', () => {
 
     it('inserts role fields into clusterRoles table', async () => {
       const log: CallLog[] = []
-      db = buildMockDb({ log })
+      db = buildMockDb({ selectSequence: existingClusterSelects('cluster-1'), log })
       store = new DrizzleClusterStore(db)
       const role = makeRole({ roleId: 'coder', agentId: 'agent-99', capabilities: ['write', 'read'] })
 
@@ -514,7 +518,7 @@ describe('DrizzleClusterStore', () => {
 
     it('defaults capabilities to [] when role.capabilities is undefined', async () => {
       const log: CallLog[] = []
-      db = buildMockDb({ log })
+      db = buildMockDb({ selectSequence: existingClusterSelects('cluster-1'), log })
       store = new DrizzleClusterStore(db)
       const role: ClusterRole = { roleId: 'planner', agentId: 'agent-1' }
 
@@ -526,7 +530,7 @@ describe('DrizzleClusterStore', () => {
     })
 
     it('resolves to void (returns undefined)', async () => {
-      db = buildMockDb()
+      db = buildMockDb({ selectSequence: existingClusterSelects('cluster-1') })
       store = new DrizzleClusterStore(db)
 
       const result = await store.addRole('cluster-1', makeRole())
@@ -536,7 +540,7 @@ describe('DrizzleClusterStore', () => {
 
     it('stores clusterId from the first argument', async () => {
       const log: CallLog[] = []
-      db = buildMockDb({ log })
+      db = buildMockDb({ selectSequence: existingClusterSelects('my-cluster'), log })
       store = new DrizzleClusterStore(db)
 
       await store.addRole('my-cluster', makeRole())
@@ -553,7 +557,10 @@ describe('DrizzleClusterStore', () => {
 
   describe('removeRole()', () => {
     it('returns true when rowCount > 0', async () => {
-      db = buildMockDb({ deleteSequence: [{ rowCount: 1 }] })
+      db = buildMockDb({
+        selectSequence: existingClusterSelects('cluster-1'),
+        deleteSequence: [{ rowCount: 1 }],
+      })
       store = new DrizzleClusterStore(db)
 
       const result = await store.removeRole('cluster-1', 'planner')
@@ -562,7 +569,10 @@ describe('DrizzleClusterStore', () => {
     })
 
     it('returns false when rowCount is 0', async () => {
-      db = buildMockDb({ deleteSequence: [{ rowCount: 0 }] })
+      db = buildMockDb({
+        selectSequence: existingClusterSelects('cluster-1'),
+        deleteSequence: [{ rowCount: 0 }],
+      })
       store = new DrizzleClusterStore(db)
 
       const result = await store.removeRole('cluster-1', 'missing-role')
@@ -571,7 +581,10 @@ describe('DrizzleClusterStore', () => {
     })
 
     it('returns false when rowCount is absent', async () => {
-      db = buildMockDb({ deleteSequence: [{}] })
+      db = buildMockDb({
+        selectSequence: existingClusterSelects('cluster-1'),
+        deleteSequence: [{}],
+      })
       store = new DrizzleClusterStore(db)
 
       const result = await store.removeRole('cluster-1', 'planner')
@@ -580,7 +593,10 @@ describe('DrizzleClusterStore', () => {
     })
 
     it('calls db.delete once', async () => {
-      db = buildMockDb({ deleteSequence: [{ rowCount: 1 }] })
+      db = buildMockDb({
+        selectSequence: existingClusterSelects('cluster-1'),
+        deleteSequence: [{ rowCount: 1 }],
+      })
       store = new DrizzleClusterStore(db)
 
       await store.removeRole('cluster-1', 'planner')
@@ -590,7 +606,11 @@ describe('DrizzleClusterStore', () => {
 
     it('uses and() with two eq conditions (clusterId + roleId)', async () => {
       const log: CallLog[] = []
-      db = buildMockDb({ deleteSequence: [{ rowCount: 1 }], log })
+      db = buildMockDb({
+        selectSequence: existingClusterSelects('cluster-99'),
+        deleteSequence: [{ rowCount: 1 }],
+        log,
+      })
       store = new DrizzleClusterStore(db)
 
       await store.removeRole('cluster-99', 'coder')
@@ -800,7 +820,10 @@ describe('DrizzleClusterStore', () => {
     })
 
     it('removeRole() with rowCount=null returns false', async () => {
-      db = buildMockDb({ deleteSequence: [{ rowCount: null }] })
+      db = buildMockDb({
+        selectSequence: existingClusterSelects('cluster-1'),
+        deleteSequence: [{ rowCount: null }],
+      })
       store = new DrizzleClusterStore(db)
 
       const result = await store.removeRole('cluster-1', 'planner')
@@ -820,7 +843,12 @@ describe('DrizzleClusterStore', () => {
     })
 
     it('addRole() called twice produces two insert calls', async () => {
-      db = buildMockDb()
+      db = buildMockDb({
+        selectSequence: [
+          ...existingClusterSelects('cluster-1'),
+          ...existingClusterSelects('cluster-1'),
+        ],
+      })
       store = new DrizzleClusterStore(db)
 
       await store.addRole('cluster-1', makeRole({ roleId: 'role-a', agentId: 'agent-a' }))

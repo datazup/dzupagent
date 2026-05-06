@@ -15,6 +15,7 @@ import type { AdapterProviderId } from '../types.js'
 // ---------------------------------------------------------------------------
 
 export interface ExecutionRecord {
+  tenantId?: string | null
   providerId: AdapterProviderId
   taskType: string
   tags: string[]
@@ -29,6 +30,7 @@ export interface ExecutionRecord {
 }
 
 export interface ProviderProfile {
+  tenantId?: string | null
   providerId: AdapterProviderId
   totalExecutions: number
   successRate: number
@@ -45,6 +47,7 @@ export interface ProviderProfile {
 
 export interface FailurePattern {
   patternId: string
+  tenantId?: string | null
   providerId: AdapterProviderId
   errorType: string
   frequency: number
@@ -142,6 +145,25 @@ const WEAKNESS_THRESHOLD = 0.5
 const SPECIALTY_MIN_SAMPLES = 5
 const TREND_SPLIT_RATIO = 0.8
 const TREND_THRESHOLD = 0.05
+const DEFAULT_TENANT_ID = 'default'
+
+function normalizeTenantId(tenantId: string | null | undefined): string {
+  return tenantId && tenantId.length > 0 ? tenantId : DEFAULT_TENANT_ID
+}
+
+function scopedProviderKey(providerId: AdapterProviderId, tenantId: string): string {
+  return tenantId === DEFAULT_TENANT_ID ? providerId : `${tenantId}:${providerId}`
+}
+
+function providerIdFromScopedKey(key: string): AdapterProviderId {
+  const separatorIndex = key.indexOf(':')
+  return (separatorIndex === -1 ? key : key.slice(separatorIndex + 1)) as AdapterProviderId
+}
+
+function tenantIdFromScopedKey(key: string): string {
+  const separatorIndex = key.indexOf(':')
+  return separatorIndex === -1 ? DEFAULT_TENANT_ID : key.slice(0, separatorIndex)
+}
 
 // ---------------------------------------------------------------------------
 // AdapterLearningLoop
@@ -153,8 +175,8 @@ export class AdapterLearningLoop {
   private readonly minSampleSize: number
   private readonly eventBus: DzupEventBus | undefined
 
-  /** providerId -> ring buffer of execution records */
-  private readonly records = new Map<AdapterProviderId, RingBuffer<ExecutionRecord>>()
+  /** scoped provider key -> ring buffer of execution records */
+  private readonly records = new Map<string, RingBuffer<ExecutionRecord>>()
 
   constructor(config?: LearningConfig) {
     this.maxRecordsPerProvider = config?.maxRecordsPerProvider ?? DEFAULT_MAX_RECORDS
@@ -169,13 +191,15 @@ export class AdapterLearningLoop {
 
   /** Record an execution outcome */
   record(record: ExecutionRecord): void {
-    let buffer = this.records.get(record.providerId)
+    const tenantId = normalizeTenantId(record.tenantId)
+    const key = scopedProviderKey(record.providerId, tenantId)
+    let buffer = this.records.get(key)
     if (!buffer) {
       buffer = new RingBuffer<ExecutionRecord>(this.maxRecordsPerProvider)
-      this.records.set(record.providerId, buffer)
+      this.records.set(key, buffer)
     }
 
-    buffer.push(record)
+    buffer.push({ ...record, tenantId })
 
     try {
       this.eventBus?.emit({
@@ -192,18 +216,21 @@ export class AdapterLearningLoop {
   }
 
   /** Get profile for a specific provider */
-  getProfile(providerId: AdapterProviderId): ProviderProfile {
-    const buffer = this.records.get(providerId)
+  getProfile(providerId: AdapterProviderId, tenantId = DEFAULT_TENANT_ID): ProviderProfile {
+    const normalizedTenantId = normalizeTenantId(tenantId)
+    const buffer = this.records.get(scopedProviderKey(providerId, normalizedTenantId))
     const all = buffer?.toArray() ?? []
 
-    return this.computeProfile(providerId, all)
+    return this.computeProfile(providerId, all, normalizedTenantId)
   }
 
   /** Get profiles for all providers with data */
-  getAllProfiles(): ProviderProfile[] {
+  getAllProfiles(tenantId = DEFAULT_TENANT_ID): ProviderProfile[] {
+    const normalizedTenantId = normalizeTenantId(tenantId)
     const profiles: ProviderProfile[] = []
-    for (const providerId of this.records.keys()) {
-      profiles.push(this.getProfile(providerId))
+    for (const key of this.records.keys()) {
+      if (tenantIdFromScopedKey(key) !== normalizedTenantId) continue
+      profiles.push(this.getProfile(providerIdFromScopedKey(key), normalizedTenantId))
     }
     return profiles
   }
@@ -214,7 +241,11 @@ export class AdapterLearningLoop {
    * Filters providers by minSampleSize, then picks highest success rate
    * for the task type. Ties broken by speed, then cost.
    */
-  getBestProvider(taskType: string, available: AdapterProviderId[]): AdapterProviderId | undefined {
+  getBestProvider(
+    taskType: string,
+    available: AdapterProviderId[],
+    tenantId = DEFAULT_TENANT_ID,
+  ): AdapterProviderId | undefined {
     interface Candidate {
       providerId: AdapterProviderId
       successRate: number
@@ -223,9 +254,10 @@ export class AdapterLearningLoop {
     }
 
     const candidates: Candidate[] = []
+    const normalizedTenantId = normalizeTenantId(tenantId)
 
     for (const providerId of available) {
-      const buffer = this.records.get(providerId)
+      const buffer = this.records.get(scopedProviderKey(providerId, normalizedTenantId))
       if (!buffer) continue
 
       const all = buffer.toArray()
@@ -253,8 +285,12 @@ export class AdapterLearningLoop {
   }
 
   /** Detect failure patterns for a provider within the failure window */
-  detectFailurePatterns(providerId: AdapterProviderId): FailurePattern[] {
-    const buffer = this.records.get(providerId)
+  detectFailurePatterns(
+    providerId: AdapterProviderId,
+    tenantId = DEFAULT_TENANT_ID,
+  ): FailurePattern[] {
+    const normalizedTenantId = normalizeTenantId(tenantId)
+    const buffer = this.records.get(scopedProviderKey(providerId, normalizedTenantId))
     if (!buffer) return []
 
     const now = Date.now()
@@ -281,10 +317,11 @@ export class AdapterLearningLoop {
       if (records.length < MIN_FAILURE_PATTERN_FREQUENCY) continue
 
       const sorted = records.sort((a, b) => a.timestamp - b.timestamp)
-      const suggestion = this.buildRecoverySuggestion(providerId, errorType)
+      const suggestion = this.buildRecoverySuggestion(providerId, errorType, normalizedTenantId)
 
       patterns.push({
-        patternId: `${providerId}:${errorType}:${sorted[0]!.timestamp}`,
+        patternId: `${normalizedTenantId}:${providerId}:${errorType}:${sorted[0]!.timestamp}`,
+        tenantId: normalizedTenantId,
         providerId,
         errorType,
         frequency: records.length,
@@ -298,37 +335,46 @@ export class AdapterLearningLoop {
   }
 
   /** Get recovery suggestion for a specific failure */
-  suggestRecovery(providerId: AdapterProviderId, errorType: string): RecoverySuggestion | undefined {
-    const buffer = this.records.get(providerId)
+  suggestRecovery(
+    providerId: AdapterProviderId,
+    errorType: string,
+    tenantId = DEFAULT_TENANT_ID,
+  ): RecoverySuggestion | undefined {
+    const normalizedTenantId = normalizeTenantId(tenantId)
+    const buffer = this.records.get(scopedProviderKey(providerId, normalizedTenantId))
     if (!buffer) return undefined
 
     const all = buffer.toArray()
     const hasError = all.some((r) => !r.success && r.errorType === errorType)
     if (!hasError) return undefined
 
-    return this.buildRecoverySuggestion(providerId, errorType)
+    return this.buildRecoverySuggestion(providerId, errorType, normalizedTenantId)
   }
 
   /** Export all data as JSON (for persistence) */
-  exportData(): Record<string, ExecutionRecord[]> {
+  exportData(tenantId = DEFAULT_TENANT_ID): Record<string, ExecutionRecord[]> {
+    const normalizedTenantId = normalizeTenantId(tenantId)
     const result: Record<string, ExecutionRecord[]> = {}
-    for (const [providerId, buffer] of this.records) {
-      result[providerId] = buffer.toArray()
+    for (const [key, buffer] of this.records) {
+      if (tenantIdFromScopedKey(key) !== normalizedTenantId) continue
+      result[providerIdFromScopedKey(key)] = buffer.toArray()
     }
     return result
   }
 
   /** Import data (from persistence) */
-  importData(data: Record<string, ExecutionRecord[]>): void {
+  importData(data: Record<string, ExecutionRecord[]>, tenantId = DEFAULT_TENANT_ID): void {
+    const normalizedTenantId = normalizeTenantId(tenantId)
     for (const [providerId, records] of Object.entries(data)) {
       const id = providerId as AdapterProviderId
-      let buffer = this.records.get(id)
+      const scopedKey = scopedProviderKey(id, normalizedTenantId)
+      let buffer = this.records.get(scopedKey)
       if (!buffer) {
         buffer = new RingBuffer<ExecutionRecord>(this.maxRecordsPerProvider)
-        this.records.set(id, buffer)
+        this.records.set(scopedKey, buffer)
       }
       for (const record of records) {
-        buffer.push(record)
+        buffer.push({ ...record, tenantId: normalizeTenantId(record.tenantId ?? normalizedTenantId) })
       }
     }
   }
@@ -342,10 +388,15 @@ export class AdapterLearningLoop {
   // Internal helpers
   // -----------------------------------------------------------------------
 
-  private computeProfile(providerId: AdapterProviderId, records: ExecutionRecord[]): ProviderProfile {
+  private computeProfile(
+    providerId: AdapterProviderId,
+    records: ExecutionRecord[],
+    tenantId: string,
+  ): ProviderProfile {
     const total = records.length
     if (total === 0) {
       return {
+        tenantId,
         providerId,
         totalExecutions: 0,
         successRate: 0,
@@ -393,6 +444,7 @@ export class AdapterLearningLoop {
     const trend = this.computeTrend(records)
 
     return {
+      tenantId,
       providerId,
       totalExecutions: total,
       successRate,
@@ -424,11 +476,15 @@ export class AdapterLearningLoop {
     return 'stable'
   }
 
-  private buildRecoverySuggestion(providerId: AdapterProviderId, errorType: string): RecoverySuggestion {
+  private buildRecoverySuggestion(
+    providerId: AdapterProviderId,
+    errorType: string,
+    tenantId: string,
+  ): RecoverySuggestion {
     switch (errorType) {
       case 'rate_limit':
         {
-          const targetProvider = this.pickAlternativeProvider(providerId, 'reliability')
+          const targetProvider = this.pickAlternativeProvider(providerId, 'reliability', tenantId)
           if (targetProvider) {
             return {
               action: 'switch-provider',
@@ -457,7 +513,7 @@ export class AdapterLearningLoop {
         }
       case 'quality_low':
         {
-          const targetProvider = this.pickAlternativeProvider(providerId, 'quality')
+          const targetProvider = this.pickAlternativeProvider(providerId, 'quality', tenantId)
           if (targetProvider) {
             return {
               action: 'switch-provider',
@@ -488,8 +544,9 @@ export class AdapterLearningLoop {
   private pickAlternativeProvider(
     excludeId: AdapterProviderId,
     preference: 'reliability' | 'quality' = 'reliability',
+    tenantId = DEFAULT_TENANT_ID,
   ): AdapterProviderId | undefined {
-    const candidates = this.getAllProfiles()
+    const candidates = this.getAllProfiles(tenantId)
       .filter((profile) => profile.providerId !== excludeId && profile.totalExecutions > 0)
       .sort((a, b) => {
         if (preference === 'quality' && a.avgQualityScore !== b.avgQualityScore) {

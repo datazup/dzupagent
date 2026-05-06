@@ -41,6 +41,8 @@ export interface RecoveryLesson {
   summary: string
   /** When the lesson was recorded. */
   timestamp: Date
+  /** Tenant scope for staged/retrieved recovery learning. Defaults to 'default'. */
+  tenantId?: string | null
 }
 
 /** Configuration for the RecoveryFeedback module. */
@@ -77,6 +79,7 @@ type SerializedLesson = Record<string, unknown> & {
   outcome: 'success' | 'failure'
   summary: string
   timestamp: string
+  tenantId?: string | null
 }
 
 /**
@@ -103,6 +106,7 @@ function hydrateLesson(value: Partial<SerializedLesson>): RecoveryLesson {
     outcome: value.outcome === 'failure' ? 'failure' : 'success',
     summary: value.summary ?? '',
     timestamp: typeof value.timestamp === 'string' ? new Date(value.timestamp) : new Date(0),
+    tenantId: typeof value.tenantId === 'string' ? value.tenantId : null,
   }
 }
 
@@ -116,6 +120,7 @@ function serializeLesson(lesson: RecoveryLesson): SerializedLesson {
     outcome: lesson.outcome,
     summary: lesson.summary,
     timestamp: lesson.timestamp.toISOString(),
+    tenantId: lesson.tenantId ?? 'default',
   }
 }
 
@@ -128,8 +133,9 @@ function serializeLesson(lesson: RecoveryLesson): SerializedLesson {
  * Persists recovery outcomes (lessons) to a BaseStore and retrieves
  * similar past lessons to inform future recovery strategy selection.
  *
- * When no store is configured, all operations gracefully no-op so
- * the feedback module can be wired in without requiring persistence.
+ * When no store is configured, durable writes and success-rate aggregation
+ * gracefully no-op while in-memory learning candidates remain available for
+ * review and same-process retrieval.
  */
 export class RecoveryFeedback {
   private readonly store: BaseStore | undefined
@@ -338,7 +344,7 @@ export class RecoveryFeedback {
   }
 
   /**
-   * Get the success rate for a given error type.
+   * Get the durable success rate for a given error type.
    * Returns `{ total: 0, successes: 0, rate: 0 }` if no store or no data.
    */
   async getSuccessRate(errorType: string): Promise<{

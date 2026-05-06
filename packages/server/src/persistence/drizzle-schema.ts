@@ -298,12 +298,14 @@ export const agentCatalog = pgTable(
     readme: text('readme'),
     publishedAt: timestamp('published_at'),
     isPublic: boolean('is_public').default(true).notNull(),
+    tenantId: text('tenant_id').notNull().default('default'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
   (table) => [
     uniqueIndex('agent_catalog_slug_idx').on(table.slug),
     index('agent_catalog_author_idx').on(table.author),
+    index('agent_catalog_tenant_id_idx').on(table.tenantId),
   ],
 )
 
@@ -316,6 +318,7 @@ export const agentClusters = pgTable('agent_clusters', {
   workspaceType: varchar('workspace_type', { length: 50 }).notNull().default('local'),
   workspaceOptions: jsonb('workspace_options').$type<Record<string, unknown>>().default({}),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  tenantId: text('tenant_id').notNull().default('default'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 })

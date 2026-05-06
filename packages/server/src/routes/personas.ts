@@ -6,6 +6,7 @@
  */
 import { Hono } from 'hono'
 import type { PersonaStore } from '../personas/persona-store.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface PersonaRouteConfig {
   personaStore: PersonaStore
@@ -16,6 +17,7 @@ export function createPersonaRoutes(config: PersonaRouteConfig): Hono {
 
   // --- Create persona ---
   app.post('/', async (c) => {
+    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{
       id?: string
       name: string
@@ -40,6 +42,7 @@ export function createPersonaRoutes(config: PersonaRouteConfig): Hono {
       modelId: body.modelId,
       temperature: body.temperature,
       metadata: body.metadata,
+      tenantId,
     })
 
     return c.json(persona, 201)
@@ -47,13 +50,13 @@ export function createPersonaRoutes(config: PersonaRouteConfig): Hono {
 
   // --- List personas ---
   app.get('/', async (c) => {
-    const personas = await config.personaStore.list()
+    const personas = await config.personaStore.list({ tenantId: getRequestingTenantId(c) })
     return c.json({ personas })
   })
 
   // --- Get persona ---
   app.get('/:id', async (c) => {
-    const persona = await config.personaStore.get(c.req.param('id'))
+    const persona = await config.personaStore.get(c.req.param('id'), getRequestingTenantId(c))
     if (!persona) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Persona not found' } }, 404)
     }
@@ -70,7 +73,11 @@ export function createPersonaRoutes(config: PersonaRouteConfig): Hono {
       metadata?: Record<string, unknown>
     }>()
 
-    const persona = await config.personaStore.update(c.req.param('id'), body)
+    const persona = await config.personaStore.update(
+      c.req.param('id'),
+      body,
+      getRequestingTenantId(c),
+    )
     if (!persona) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Persona not found' } }, 404)
     }
@@ -79,7 +86,7 @@ export function createPersonaRoutes(config: PersonaRouteConfig): Hono {
 
   // --- Delete persona ---
   app.delete('/:id', async (c) => {
-    const deleted = await config.personaStore.delete(c.req.param('id'))
+    const deleted = await config.personaStore.delete(c.req.param('id'), getRequestingTenantId(c))
     if (!deleted) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Persona not found' } }, 404)
     }

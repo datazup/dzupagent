@@ -7,6 +7,7 @@ export interface AgentDefinitionServiceConfig {
 export interface ListAgentDefinitionsInput {
   active?: boolean
   limit?: number
+  tenantId?: string
 }
 
 export interface CreateAgentDefinitionInput {
@@ -19,6 +20,7 @@ export interface CreateAgentDefinitionInput {
   guardrails?: Record<string, unknown>
   approval?: 'auto' | 'required' | 'conditional'
   metadata?: Record<string, unknown>
+  tenantId?: string
 }
 
 export interface UpdateAgentDefinitionInput {
@@ -43,6 +45,7 @@ export class AgentDefinitionService {
     return this.agentStore.list({
       active: input.active,
       limit: Math.min(input.limit ?? 100, 200),
+      tenantId: input.tenantId,
     })
   }
 
@@ -59,31 +62,40 @@ export class AgentDefinitionService {
       guardrails: input.guardrails,
       approval: input.approval,
       metadata: input.metadata,
+      tenantId: input.tenantId ?? 'default',
       active: true,
     })
 
     return this.agentStore.get(id)
   }
 
-  async get(id: string): Promise<AgentExecutionSpec | null> {
-    return this.agentStore.get(id)
+  async get(id: string, tenantId?: string): Promise<AgentExecutionSpec | null> {
+    const agent = await this.agentStore.get(id)
+    if (!agent) return null
+    if (tenantId && (agent.tenantId ?? 'default') !== tenantId) return null
+    return agent
   }
 
-  async update(id: string, input: UpdateAgentDefinitionInput): Promise<AgentExecutionSpec | null> {
-    const existing = await this.agentStore.get(id)
+  async update(
+    id: string,
+    input: UpdateAgentDefinitionInput,
+    tenantId?: string,
+  ): Promise<AgentExecutionSpec | null> {
+    const existing = await this.get(id, tenantId)
     if (!existing) return null
 
     await this.agentStore.save({
       ...existing,
       ...input,
       id,
+      tenantId: existing.tenantId ?? tenantId ?? 'default',
     })
 
-    return this.agentStore.get(id)
+    return this.get(id, tenantId)
   }
 
-  async delete(id: string): Promise<boolean> {
-    const existing = await this.agentStore.get(id)
+  async delete(id: string, tenantId?: string): Promise<boolean> {
+    const existing = await this.get(id, tenantId)
     if (!existing) return false
 
     await this.agentStore.delete(id)

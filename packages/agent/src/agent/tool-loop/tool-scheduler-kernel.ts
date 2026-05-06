@@ -153,9 +153,14 @@ async function scheduleParallel(
 
   ordered.sort((a, b) => a.index - b.index)
 
-  const firstThrown = ordered.find(r => r.thrown !== undefined)
-  if (firstThrown) {
-    throw firstThrown.thrown
+  const thrown = ordered
+    .filter(r => r.thrown !== undefined)
+    .map(r => r.thrown)
+  if (thrown.length === 1) {
+    throw thrown[0]
+  }
+  if (thrown.length > 1) {
+    throw new AggregateError(thrown, 'Tool batch failed')
   }
 
   return ordered.map(r => r.result)
