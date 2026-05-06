@@ -15,6 +15,51 @@ export interface BudgetUsage {
 }
 
 /**
+ * Structured payload for `llm:invocation_recorded` — exported separately so
+ * adapter-layer producers can build the record (e.g. inside an audit sink
+ * callback) before the event-type discriminator is attached at emission.
+ *
+ * All fields except `providerId`/`model`/`status`/`durationMs`/`startedAt`/
+ * `promptCharCount` are best-effort; consumers must treat optionals as
+ * "may be missing on this provider/path" rather than "always reported".
+ */
+export interface LlmInvocationRecord {
+  /** Provider identifier — e.g. 'claude', 'openai', 'gemini'. */
+  providerId: string
+  /** Resolved model name — e.g. 'claude-haiku-4-5-20251001', 'gpt-4o-mini'. */
+  model: string
+  /** Optional — only present when the call ran inside a run context. */
+  runId?: string
+  /** Optional — only present when the call ran inside a tenant-scoped context. */
+  tenantId?: string
+  /** Size proxy when a tokenizer is unavailable. */
+  promptCharCount: number
+  /** Size proxy for the system prompt, when one was supplied. */
+  systemPromptCharCount?: number
+  /**
+   * Outcome status. `'completed'` = the adapter produced a terminal completed
+   * event; `'failed'` = the adapter or network layer reported a failure.
+   */
+  status: 'completed' | 'failed'
+  /** Populated when `status === 'failed'`. */
+  errorCode?: string
+  /** Adapter-reported duration when available, wall-clock otherwise. */
+  durationMs: number
+  /** Token usage — present only when the adapter reports it. */
+  usage?: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+    cacheReadTokens?: number
+    cacheWriteTokens?: number
+  }
+  /** Cost in cents — present only when computed by the adapter. */
+  costCents?: number
+  /** ISO timestamp of when the call started. */
+  startedAt: string
+}
+
+/**
  * Per-tool execution statistics emitted with `agent:stop_reason`.
  */
 export interface ToolStatSummary {
@@ -188,6 +233,18 @@ export type DzupEvent =
       costCents: number
       timestamp: number
     }
+  /**
+   * Structured audit-trail record emitted on every LLM invocation routed
+   * through the framework adapter layer. Subscribed to by SOC2/compliance
+   * sinks (durable audit log) and the learning-candidate review pipeline.
+   *
+   * Emission contract:
+   *   - one event per terminal LLM call (success or adapter/network failure)
+   *   - never blocks the LLM call; emission failures are swallowed
+   *   - `usage` and `costCents` are present only when the adapter reports them
+   *   - `runId`/`tenantId` are present only inside a run context
+   */
+  | ({ type: 'llm:invocation_recorded' } & LlmInvocationRecord)
   // --- Memory ---
   | {
       type: 'memory:written'

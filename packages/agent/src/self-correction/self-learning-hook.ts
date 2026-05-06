@@ -8,6 +8,8 @@
  * @module self-correction/self-learning-hook
  */
 
+import { defaultLogger, type FrameworkLogger } from '@dzupagent/core'
+
 import type { PipelineRuntimeEvent } from '../pipeline/pipeline-runtime-types.js'
 
 // ---------------------------------------------------------------------------
@@ -31,6 +33,11 @@ export interface SelfLearningHookConfig {
   onRecovery?: (nodeId: string, attempt: number, success: boolean, summary?: string) => Promise<void>
   /** Whether to log events (default: false) */
   enableLogging?: boolean
+  /**
+   * Logger to use when `enableLogging` is true. Defaults to the framework's
+   * `defaultLogger`. Tests inject a vi.fn()-shaped logger to assert call shape.
+   */
+  logger?: FrameworkLogger
 }
 
 // ---------------------------------------------------------------------------
@@ -197,8 +204,8 @@ export class SelfLearningPipelineHook {
   }
 
   private log(eventType: string, event: PipelineRuntimeEvent): void {
-    const details = JSON.stringify(event)
-    console.log(`[SelfLearning] ${eventType}: ${details}`)
+    const logger = this.config.logger ?? defaultLogger
+    logger.info(`[SelfLearning] ${eventType}`, { event })
   }
 
   private freshMetrics(): HookMetrics {

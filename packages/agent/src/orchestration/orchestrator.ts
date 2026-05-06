@@ -9,7 +9,7 @@
  */
 import { HumanMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { DzupEventBus } from '@dzupagent/core'
+import { defaultLogger, type DzupEventBus } from '@dzupagent/core'
 import type { BaseSupervisorContract } from '@dzupagent/agent-types'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { OrchestrationError } from './orchestration-error.js'
@@ -393,9 +393,9 @@ export class AgentOrchestrator {
           candidateSpecialists,
           source: 'direct-supervisor',
         })
-        // Log filtered agents for observability
+        // Log filtered agents for observability when no event bus is wired.
         if (!eventBus) {
-          console.debug('[AgentOrchestrator] Circuit breaker filtered agents:', removedIds)
+          defaultLogger.debug('[AgentOrchestrator] Circuit breaker filtered agents', { removedIds })
         }
       }
 
@@ -442,7 +442,7 @@ export class AgentOrchestrator {
       } as const)
       eventBus?.emit(routingEvent)
       if (!eventBus) {
-        console.debug('[AgentOrchestrator] Routing decision:', {
+        defaultLogger.debug('[AgentOrchestrator] Routing decision', {
           selected: selectedSpecialists,
           strategy: decision.strategy,
           reason: decision.reason,

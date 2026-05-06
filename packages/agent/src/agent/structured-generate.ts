@@ -24,6 +24,7 @@ import {
   attachStructuredOutputErrorContext,
   buildStructuredOutputCorrectionPrompt,
   buildStructuredOutputExhaustedError,
+  defaultLogger,
   executeStructuredParseLoop,
   isStructuredOutputExhaustedErrorMessage,
   prepareStructuredOutputSchemaContract,
@@ -140,7 +141,7 @@ export async function generateStructured<T>(
         to: 'text_json',
       })
 
-      console.warn('[DzupAgent.generateStructured] Native structured output failed; falling back to text JSON parsing.', {
+      defaultLogger.warn('[DzupAgent.generateStructured] Native structured output failed; falling back to text JSON parsing.', {
         agentId: ctx.agentId,
         schemaName: schemaContract.requestSchemaDescriptor.schemaName,
         model: modelName,

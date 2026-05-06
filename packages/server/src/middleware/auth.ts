@@ -6,6 +6,8 @@
  */
 import type { MiddlewareHandler } from 'hono'
 
+import type { AppEnv, ApiKeyContext } from '../types.js'
+
 export interface AuthConfig {
   mode: 'api-key' | 'none'
   /** Validate an API key. Return truthy value (e.g., key metadata) on success, null on failure. */
@@ -18,7 +20,7 @@ export interface AuthConfig {
  * Extracts Bearer token from Authorization header and validates it.
  * Sets `apiKey` context variable on success.
  */
-export function authMiddleware(config: AuthConfig): MiddlewareHandler {
+export function authMiddleware(config: AuthConfig): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     if (config.mode === 'none') {
       return next()
@@ -67,7 +69,7 @@ export function authMiddleware(config: AuthConfig): MiddlewareHandler {
         401,
       )
     }
-    c.set('apiKey' as never, keyMeta as never)
+    c.set('apiKey', keyMeta as ApiKeyContext)
 
     return next()
   }

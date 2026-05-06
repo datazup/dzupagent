@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { defaultLogger } from '@dzupagent/core'
 import { SystemPromptBuilder } from '../prompts/system-prompt-builder.js'
 import type { CodexPromptPayload } from '../prompts/system-prompt-builder.js'
 import type {
@@ -530,11 +531,11 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     let didTimeout = false
     const timeoutHandle = setTimeout(() => {
       didTimeout = true
-      console.error(`[codex-adapter.ts:runStreamedThread] timeout after ${timeoutMs}ms — aborting`, { sessionId })
+      defaultLogger.error(`[codex-adapter.ts:runStreamedThread] timeout after ${timeoutMs}ms — aborting`, { sessionId })
       this.abortController?.abort()
     }, timeoutMs)
 
-    console.debug('[codex-adapter.ts:runStreamedThread] starting', {
+    defaultLogger.debug('[codex-adapter.ts:runStreamedThread] starting', {
       sessionId, promptLength: input.prompt.length, timeoutMs,
       timeoutSource: inputTimeoutMs != null ? 'input.options.timeoutMs' : configuredTimeoutMs != null ? 'adapter.config.timeoutMs' : 'default',
     })
@@ -543,14 +544,14 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
 
     try {
       streamedTurn = await thread.runStreamed(input.prompt, { signal })
-      console.debug('[codex-adapter.ts:runStreamedThread] runStreamed returned — consuming events', { sessionId })
+      defaultLogger.debug('[codex-adapter.ts:runStreamedThread] runStreamed returned — consuming events', { sessionId })
     } catch (err: unknown) {
       clearTimeout(timeoutHandle)
       const errMsg = err instanceof Error ? err.message : String(err)
       if (didTimeout || signal.aborted) {
         const reason = didTimeout ? 'timeout_before_stream_start' : 'caller_abort_before_stream_start'
         const durationMs = now() - startTime
-        console.warn('[codex-adapter.ts:runStreamedThread] runStreamed() aborted before stream events', {
+        defaultLogger.warn('[codex-adapter.ts:runStreamedThread] runStreamed() aborted before stream events', {
           sessionId,
           reason,
           durationMs,
@@ -567,7 +568,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
         return
       }
 
-      console.error('[codex-adapter.ts:runStreamedThread] runStreamed() threw', { sessionId, error: errMsg })
+      defaultLogger.error('[codex-adapter.ts:runStreamedThread] runStreamed() threw', { sessionId, error: errMsg })
       yield withCorrelationId({
         type: 'adapter:failed',
         providerId: this.providerId,
@@ -584,7 +585,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
         if (event.type === 'thread.started' && event.thread_id) {
           sessionId = event.thread_id
           this.currentSessionId = sessionId
-          console.debug('[codex-adapter.ts:runStreamedThread] session assigned', { sessionId })
+          defaultLogger.debug('[codex-adapter.ts:runStreamedThread] session assigned', { sessionId })
         }
 
         rawEventOrdinal += 1
@@ -606,7 +607,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
         lastEventAt = eventNow
         lastEventType = event.type
         if (gapMs > 15_000) {
-          console.debug('[codex-adapter.ts:runStreamedThread] slow stream gap observed', {
+          defaultLogger.debug('[codex-adapter.ts:runStreamedThread] slow stream gap observed', {
             sessionId,
             eventType: event.type,
             eventCount,
@@ -624,7 +625,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
 
         if (event.type === 'turn.completed' && event.usage) {
           lastUsage = toTokenUsage(event.usage)
-          console.debug('[codex-adapter.ts:runStreamedThread] turn.completed — usage captured', { sessionId, usage: lastUsage })
+          defaultLogger.debug('[codex-adapter.ts:runStreamedThread] turn.completed — usage captured', { sessionId, usage: lastUsage })
         }
 
         // Handle approval_request items (SDK forward-compat) and turn.failed with approval text
@@ -739,7 +740,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       // Aborted — either by our timeout or by the caller's signal
       if (signal.aborted) {
         const reason = didTimeout ? 'timeout' : 'caller_abort'
-        console.warn('[codex-adapter.ts:runStreamedThread] aborted', {
+        defaultLogger.warn('[codex-adapter.ts:runStreamedThread] aborted', {
           sessionId, reason, durationMs: now() - startTime, finalResponseLength: finalResponse.length,
           eventCount, lastEventType, lastEventAgeMs: now() - lastEventAt,
         })
@@ -758,7 +759,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       }
 
       const errMsg = err instanceof Error ? err.message : String(err)
-      console.error('[codex-adapter.ts:runStreamedThread] event loop threw', { sessionId, error: errMsg })
+      defaultLogger.error('[codex-adapter.ts:runStreamedThread] event loop threw', { sessionId, error: errMsg })
       yield withCorrelationId({
         type: 'adapter:failed',
         providerId: this.providerId,
@@ -772,7 +773,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       clearTimeout(timeoutHandle)
     }
 
-    console.debug('[codex-adapter.ts:runStreamedThread] completed normally', {
+    defaultLogger.debug('[codex-adapter.ts:runStreamedThread] completed normally', {
       sessionId, durationMs: now() - startTime, responseLength: finalResponse.length,
       usage: lastUsage, eventCount, lastEventType,
     })

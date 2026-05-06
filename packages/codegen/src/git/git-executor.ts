@@ -16,6 +16,7 @@ import type {
   GitFileEntry,
   GitFileStatus,
 } from './git-types.js'
+import { validateRefName } from './ref-validator.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -300,18 +301,31 @@ export class GitExecutor {
 
   /**
    * Create a new branch.
+   *
+   * SEC-11/12: validates `name` and `startPoint` to ensure they cannot be
+   * interpreted by git as command-line options (e.g. `--upload-pack=...`).
+   * `--end-of-options` (Git >= 2.24) is inserted to terminate option parsing
+   * before user-supplied positionals.
    */
   async createBranch(name: string, startPoint?: string): Promise<void> {
-    const args = ['checkout', '-b', name]
+    validateRefName(name, 'branch')
+    if (startPoint !== undefined) {
+      validateRefName(startPoint, 'ref')
+    }
+    const args = ['checkout', '-b', '--end-of-options', name]
     if (startPoint) args.push(startPoint)
     await this.git(args)
   }
 
   /**
    * Switch to an existing branch.
+   *
+   * SEC-11/12: validates `name` and uses `--end-of-options` to prevent
+   * caller-supplied flags from being interpreted by git.
    */
   async switchBranch(name: string): Promise<void> {
-    await this.git(['checkout', name])
+    validateRefName(name, 'branch')
+    await this.git(['checkout', '--end-of-options', name])
   }
 
   /**

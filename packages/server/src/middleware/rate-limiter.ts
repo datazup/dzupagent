@@ -11,6 +11,8 @@
  */
 import type { MiddlewareHandler } from 'hono'
 
+import type { AppEnv } from '../types.js'
+
 export interface RateLimiterTierConfig {
   /** Max requests per window for this tier */
   maxRequests: number
@@ -32,7 +34,7 @@ export interface RateLimiterConfig {
    * bearer token when present and otherwise falls back to anonymous unless
    * `trustForwardedFor` is explicitly enabled.
    */
-  keyExtractor?: (c: { req: { header: (name: string) => string | undefined }; env?: Record<string, unknown> }) => string
+  keyExtractor?: (c: { req: { header: (name: string) => string | undefined }; env?: unknown }) => string
   /**
    * Trust the left-most X-Forwarded-For entry when no bearer token is present.
    *
@@ -150,7 +152,7 @@ export class TokenBucketLimiter {
 /**
  * Create Hono rate limiting middleware.
  */
-export function rateLimiterMiddleware(config?: Partial<RateLimiterConfig>): MiddlewareHandler {
+export function rateLimiterMiddleware(config?: Partial<RateLimiterConfig>): MiddlewareHandler<AppEnv> {
   const globalMaxRequests = config?.maxRequests ?? DEFAULT_CONFIG.maxRequests
   const globalWindowMs = config?.windowMs ?? DEFAULT_CONFIG.windowMs
   const prefix = config?.headerPrefix ?? DEFAULT_CONFIG.headerPrefix
@@ -187,9 +189,7 @@ export function rateLimiterMiddleware(config?: Partial<RateLimiterConfig>): Midd
       ?? extractDefaultRateLimitKey(c, { trustForwardedFor })
 
     // Resolve tier from auth-populated API key metadata, if any.
-    const apiKeyMeta = c.get('apiKey' as never) as
-      | { rateLimitTier?: string }
-      | undefined
+    const apiKeyMeta = c.get('apiKey')
     const tier = apiKeyMeta?.rateLimitTier
     const tierLimiter = tier ? tierLimiters.get(tier) : undefined
     const effectiveLimiter = tierLimiter ?? defaultLimiter

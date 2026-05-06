@@ -23,10 +23,13 @@ export type {
   DzupEvent,
   DzupEventOf,
   BudgetUsage,
+  LlmInvocationRecord,
   MapReduceDzupEvent,
   RunLifecycleEvent,
   ToolStatSummary,
 } from './events/event-types.js'
+export { attachLlmAuditEventBridge } from './events/llm-audit-bridge.js'
+export type { LlmAuditSink } from './events/llm-audit-bridge.js'
 export { emitDegradedOperation } from './events/degraded-operation.js'
 export { requireTerminalToolExecutionRunId } from './events/tool-event-correlation.js'
 export type { TerminalToolExecutionRunIdOptions, TerminalToolEventType } from './events/tool-event-correlation.js'

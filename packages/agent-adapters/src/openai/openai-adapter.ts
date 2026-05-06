@@ -7,7 +7,7 @@
  * detection, and adapter:started/completed/failed lifecycle events.
  */
 import { randomUUID } from 'node:crypto'
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError, type LlmAuditSink } from '@dzupagent/core'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -49,6 +49,16 @@ export interface OpenAIConfig extends AdapterConfig {
   model?: string
   /** Custom base URL for OpenAI-compatible endpoints. Default: 'https://api.openai.com/v1' */
   baseURL?: string
+  /**
+   * Optional best-effort audit sink invoked once per terminal LLM call.
+   * Wire via `attachLlmAuditEventBridge` from `@dzupagent/core` to forward
+   * records onto a `DzupEventBus`.
+   *
+   * Note: only the streaming `execute()` path emits audit records. The
+   * non-streaming `run()` convenience does not flow through the runner
+   * (audit emission for that path is deferred — see TODO in run()).
+   */
+  auditSink?: LlmAuditSink
 }
 
 export interface OpenAIRunResult {
@@ -87,7 +97,15 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
     }
   }
 
-  /** Non-streaming convenience method returning the assembled content + usage. */
+  /**
+   * Non-streaming convenience method returning the assembled content + usage.
+   *
+   * TODO(H-25): emit `llm:invocation_recorded` for the non-streaming path.
+   * The streaming path goes through {@link AdapterStreamRunner} which owns
+   * audit emission; this path does not, so audit records for callers using
+   * `run()` are not yet captured. Streaming covers the bulk of LLM traffic;
+   * this is deferred to a follow-up.
+   */
   async run(
     prompt: string,
     opts: { systemPrompt?: string; model?: string; signal?: AbortSignal } = {},
@@ -147,6 +165,8 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
       onAbortController: (ctrl) => {
         this.currentController = ctrl
       },
+      ...(this.config.auditSink ? { auditSink: this.config.auditSink } : {}),
+      auditModel: this.currentModel,
     })
 
     try {
