@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 
@@ -145,6 +145,7 @@ function collectFiles(rootDir, predicate, results = []) {
         entry.name === 'dist' ||
         entry.name === 'coverage' ||
         entry.name === '.git' ||
+        entry.name === '.claude' ||
         entry.name === 'docs' ||
         entry.name === '__snapshots__'
       ) {
@@ -227,7 +228,13 @@ function collectRootImportUsage() {
   for (const file of files) {
     if (file.includes(`${path.sep}packages${path.sep}server${path.sep}`)) continue
 
-    const text = readFileSync(file, 'utf8')
+    let text
+    try {
+      text = readFileSync(file, 'utf8')
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue
+      throw error
+    }
     const imports = extractRootImports(file, text)
     if (imports.length === 0) continue
 
