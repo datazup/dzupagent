@@ -119,4 +119,50 @@ export const agentLifecycleMetricMap = {
     },
   ],
 
+  'agent:tools-filtered': [
+    {
+      metricName: 'dzip_agent_tool_filter_audits_total',
+      type: 'counter',
+      description: 'Total agent tool filter audit events',
+      labelKeys: ['agent_id', 'effective_tier'],
+      extract: (e) => {
+        const ev = asEvent<'agent:tools-filtered'>(e)
+        return { value: 1, labels: { agent_id: ev.agentId, effective_tier: ev.effectiveTier } }
+      },
+    },
+    {
+      metricName: 'dzip_agent_tools_count',
+      type: 'gauge',
+      description: 'Tool count before and after permission-tier filtering',
+      labelKeys: ['agent_id', 'effective_tier', 'state'],
+      extract: (e) => {
+        const ev = asEvent<'agent:tools-filtered'>(e)
+        return { value: ev.totalTools, labels: { agent_id: ev.agentId, effective_tier: ev.effectiveTier, state: 'total' } }
+      },
+    },
+    {
+      metricName: 'dzip_agent_tools_count',
+      type: 'gauge',
+      description: 'Tool count before and after permission-tier filtering',
+      labelKeys: ['agent_id', 'effective_tier', 'state'],
+      extract: (e) => {
+        const ev = asEvent<'agent:tools-filtered'>(e)
+        return { value: ev.allowedTools, labels: { agent_id: ev.agentId, effective_tier: ev.effectiveTier, state: 'allowed' } }
+      },
+    },
+    {
+      metricName: 'dzip_agent_tools_count',
+      type: 'gauge',
+      description: 'Tool count before and after permission-tier filtering',
+      labelKeys: ['agent_id', 'effective_tier', 'state'],
+      extract: (e) => {
+        const ev = asEvent<'agent:tools-filtered'>(e)
+        return {
+          value: ev.filteredTools.length,
+          labels: { agent_id: ev.agentId, effective_tier: ev.effectiveTier, state: 'filtered' },
+        }
+      },
+    },
+  ],
+
 } satisfies MetricMapFragment
