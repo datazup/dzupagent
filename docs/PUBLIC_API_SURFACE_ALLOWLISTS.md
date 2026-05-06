@@ -38,7 +38,7 @@ No stable subpaths configured.
 
 Root index: `packages/core/src/index.ts`
 
-- Stable root sources: `45`
+- Stable root sources: `47`
 - Deprecated transitional root sources: `82`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
@@ -78,6 +78,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./llm/circuit-breaker.js` | 4 | `prefix:./llm/` | `CircuitBreaker`, `KeyedCircuitBreaker`, `CircuitBreakerConfig`, `CircuitState` |
 | `deprecated-transitional` | `./rate-limit/token-bucket.js` | 2 | `exact:./rate-limit/token-bucket.js` | `TokenBucket`, `TokenBucketConfig` |
 | `stable` | `./llm/invoke.js` | 5 | `prefix:./llm/` | `invokeWithTimeout`, `extractTokenUsage`, `estimateTokens`, `TokenUsage` |
+| `stable` | `./llm/resilient-invoker.js` | 2 | `prefix:./llm/` | `ResilientModelInvoker`, `ResilientInvokerOptions` |
 | `stable` | `./llm/tokenizer.js` | 5 | `prefix:./llm/` | `HeuristicTokenizer`, `AnthropicTokenizer`, `TiktokenTokenizer`, `Tokenizer` |
 | `stable` | `./llm/tokenizer-registry.js` | 2 | `prefix:./llm/` | `TokenizerRegistry`, `defaultTokenizerRegistry` |
 | `stable` | `./llm/retry.js` | 4 | `prefix:./llm/` | `isTransientError`, `isContextLengthError`, `DEFAULT_RETRY_CONFIG`, `RetryConfig` |
@@ -149,6 +150,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./security/risk-classifier.js` | 5 | `prefix:./security/` | `createRiskClassifier`, `RiskTier`, `RiskClassification`, `RiskClassifierConfig` |
 | `stable` | `./security/tool-permission-tiers.js` | 3 | `prefix:./security/` | `DEFAULT_AUTO_APPROVE_TOOLS`, `DEFAULT_LOG_TOOLS`, `DEFAULT_REQUIRE_APPROVAL_TOOLS` |
 | `stable` | `./security/secrets-scanner.js` | 4 | `prefix:./security/` | `scanForSecrets`, `redactSecrets`, `SecretMatch`, `ScanResult` |
+| `stable` | `./logging/secure-logger.js` | 5 | `exact:./logging/secure-logger.js` | `createSecureLogger`, `logger`, `SecureLogger`, `SecureLogEntry` |
 | `stable` | `./security/pii-detector.js` | 5 | `prefix:./security/` | `detectPII`, `redactPII`, `PIIType`, `PIIMatch` |
 | `stable` | `./security/output-pipeline.js` | 5 | `prefix:./security/` | `OutputPipeline`, `createDefaultPipeline`, `SanitizationStage`, `OutputPipelineConfig` |
 | `stable` | `./security/audit/index.js` | 11 | `prefix:./security/` | `InMemoryAuditStore`, `ComplianceAuditLogger`, `AuditActorType`, `AuditActor` |
@@ -714,7 +716,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./learning/adapter-learning-loop.js` | 9 | `prefix:./learning/` | `AdapterLearningLoop`, `ExecutionAnalyzer`, `ExecutionRecord`, `ProviderProfile` |
 | `deprecated-transitional` | `./learning/in-memory-learning-store.js` | 1 | `prefix:./learning/` | `InMemoryLearningStore` |
 | `deprecated-transitional` | `./learning/file-learning-store.js` | 1 | `prefix:./learning/` | `FileLearningStore` |
-| `deprecated-transitional` | `./learning/learning-store.js` | 2 | `prefix:./learning/` | `LearningStore`, `LearningSnapshot` |
+| `deprecated-transitional` | `./learning/learning-store.js` | 4 | `prefix:./learning/` | `LearningStore`, `LearningSnapshot`, `LearningSnapshotV2`, `migrateLearningSnapshotV1toV2` |
 | `deprecated-transitional` | `./utils/errors.js` | 2 | `prefix:./utils/` | `DzupError`, `DzupErrorOptions` |
 | `deprecated-transitional` | `./utils/process-helpers.js` | 2 | `prefix:./utils/` | `isBinaryAvailable`, `spawnAndStreamJsonl` |
 | `deprecated-transitional` | `./base/base-cli-adapter.js` | 1 | `prefix:./base/` | `filterSensitiveEnvVars` |
@@ -854,6 +856,120 @@ No stable subpaths configured.
 | `stable` | `./backends/in-memory.js` | 1 | `exact:./backends/in-memory.js` | `InMemoryCacheBackend` |
 | `stable` | `./backends/redis.js` | 1 | `exact:./backends/redis.js` | `RedisCacheBackend` |
 | `stable` | `./middleware.js` | 1 | `exact:./middleware.js` | `CacheMiddleware` |
+
+## @dzupagent/adapter-types
+
+Root index: `packages/adapter-types/src/index.ts`
+
+- Stable root sources: `0`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: Adapter type root exports are stable Layer 0 contracts; add allowlist rules before exposing new root modules.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+
+## @dzupagent/adapter-rules
+
+Root index: `packages/adapter-rules/src/index.ts`
+
+- Stable root sources: `4`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: Adapter rule root exports are stable rule contract and projection primitives; add allowlist rules before exposing new root modules.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+| `stable` | `./compiler.js` | 1 | `exact:./compiler.js` | `RuleCompiler` |
+| `stable` | `./loader.js` | 4 | `exact:./loader.js` | `RuleLoader`, `RuleLoadDiagnostic`, `RuleLoadDiagnosticCode`, `RuleLoadResult` |
+| `stable` | `./projectors/index.js` | 8 | `prefix:./projectors/` | `projectProviderConfig`, `projectClaudeConfig`, `projectCodexConfig`, `projectCrushConfig` |
+| `stable` | `./projectors/watchers.js` | 2 | `prefix:./projectors/` | `buildDefaultWatcherRegistrations`, `buildWatcherRegistrations` |
+
+## @dzupagent/flow-ast
+
+Root index: `packages/flow-ast/src/index.ts`
+
+- Stable root sources: `0`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: Flow AST root exports are stable Layer 0 parser, validator, and contract primitives; add allowlist rules before exposing new root modules.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+
+## @dzupagent/memory-ipc
+
+Root index: `packages/memory-ipc/src/index.ts`
+
+- Stable root sources: `20`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: Memory IPC root exports are stable Layer 0 Arrow frame and IPC primitives; add allowlist rules before exposing new root modules.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+| `stable` | `./schema.js` | 5 | `exact:./schema.js` | `MEMORY_FRAME_VERSION`, `MEMORY_FRAME_SCHEMA`, `MEMORY_FRAME_COLUMNS`, `MEMORY_FRAME_FIELD_COUNT` |
+| `stable` | `./frame-builder.js` | 7 | `exact:./frame-builder.js` | `FrameBuilder`, `FrameScope`, `FrameTemporal`, `FrameDecay` |
+| `stable` | `./frame-reader.js` | 2 | `exact:./frame-reader.js` | `FrameReader`, `FrameRecord` |
+| `stable` | `./ipc-serializer.js` | 5 | `exact:./ipc-serializer.js` | `serializeToIPC`, `deserializeFromIPC`, `ipcToBase64`, `base64ToIPC` |
+| `stable` | `./adapters/adapter-interface.js` | 4 | `prefix:./adapters/` | `createAdapterRegistry`, `MemoryFrameAdapter`, `AdapterValidationResult`, `AdapterRegistry` |
+| `stable` | `./adapters/frame-columns.js` | 8 | `prefix:./adapters/` | `createEmptyColumns`, `buildTable`, `pushDefaults`, `safeParseDate` |
+| `stable` | `./columnar-ops.js` | 12 | `exact:./columnar-ops.js` | `findWeakIndices`, `batchDecayUpdate`, `temporalMask`, `applyMask` |
+| `stable` | `./token-budget.js` | 6 | `exact:./token-budget.js` | `selectMemoriesByBudget`, `TokenBudgetAllocator`, `CompositeScoreWeights`, `ScoredRecord` |
+| `stable` | `./phase-memory-selection.js` | 4 | `exact:./phase-memory-selection.js` | `phaseWeightedSelection`, `PHASE_NAMESPACE_WEIGHTS`, `PHASE_CATEGORY_WEIGHTS`, `ConversationPhase` |
+| `stable` | `./cache-delta.js` | 2 | `exact:./cache-delta.js` | `computeFrameDelta`, `FrameDelta` |
+| `stable` | `./memory-aware-compress.js` | 2 | `exact:./memory-aware-compress.js` | `batchOverlapAnalysis`, `OverlapAnalysis` |
+| `stable` | `./shared-memory-channel.js` | 3 | `exact:./shared-memory-channel.js` | `SharedMemoryChannel`, `SharedMemoryChannelOptions`, `SlotHandle` |
+| `stable` | `./ipc-client.js` | 3 | `exact:./ipc-client.js` | `IpcMemoryClient`, `IpcNotConfiguredError`, `IpcMemoryClientConfig` |
+| `stable` | `./memory-service-ext.js` | 6 | `exact:./memory-service-ext.js` | `extendMemoryServiceWithArrow`, `ExportFrameOptions`, `ImportFrameResult`, `ImportStrategy` |
+| `stable` | `./mcp-memory-transport.js` | 15 | `exact:./mcp-memory-transport.js` | `exportMemoryInputSchema`, `exportMemoryOutputSchema`, `importMemoryInputSchema`, `importMemoryOutputSchema` |
+| `stable` | `./a2a-memory-artifact.js` | 7 | `exact:./a2a-memory-artifact.js` | `createMemoryArtifact`, `parseMemoryArtifact`, `sanitizeForExport`, `MemoryArtifact` |
+| `stable` | `./blackboard.js` | 4 | `exact:./blackboard.js` | `ArrowBlackboard`, `BlackboardConfig`, `BlackboardTableDef`, `BlackboardSnapshot` |
+| `stable` | `./analytics/duckdb-engine.js` | 3 | `prefix:./analytics/` | `DuckDBEngine`, `AnalyticsResult`, `RowRecord` |
+| `stable` | `./analytics/memory-analytics.js` | 7 | `prefix:./analytics/` | `MemoryAnalytics`, `DecayTrendPoint`, `NamespaceStats`, `AgentPerformance` |
+| `stable` | `./frames/index.js` | 12 | `prefix:./frames/` | `TOOL_RESULT_SCHEMA`, `ToolResultFrameBuilder`, `CODEGEN_FRAME_SCHEMA`, `CodegenFrameBuilder` |
+
+## @dzupagent/hitl-kit
+
+Root index: `packages/hitl-kit/src/index.ts`
+
+- Stable root sources: `0`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: HITL kit root exports are stable Layer 0 human-in-the-loop contracts and store primitives; add allowlist rules before exposing new root modules.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
 
 ## @dzupagent/server
 

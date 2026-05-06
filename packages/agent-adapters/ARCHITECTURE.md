@@ -58,6 +58,7 @@ Entry surfaces inside source:
   - `./persistence`
   - `./runs`
   - `./integration`
+  - `./dzupagent`
   - `./rules`
   - `./learning`
   - `./recovery`

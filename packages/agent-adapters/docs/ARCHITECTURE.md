@@ -62,6 +62,7 @@ Packaging/build structure:
   - `./persistence`
   - `./runs`
   - `./integration`
+  - `./dzupagent`
   - `./rules`
   - `./learning`
   - `./recovery`
