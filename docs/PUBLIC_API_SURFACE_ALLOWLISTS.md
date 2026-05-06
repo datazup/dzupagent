@@ -30,7 +30,7 @@ No stable subpaths configured.
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
 | `stable` | `./prompt-injection/index.js` | 7 | `exact:./prompt-injection/index.js` | `INJECTION_PATTERNS`, `INJECTION_REDACTION`, `PromptInjectionDetector`, `PromptInjectionBlockedError` |
-| `stable` | `./pii/index.js` | 3 | `exact:./pii/index.js` | `PII_PATTERNS`, `PiiDetector`, `PiiScanResult` |
+| `stable` | `./pii/index.js` | 6 | `exact:./pii/index.js` | `PII_PATTERNS`, `PiiDetector`, `PiiCanonicalType`, `PiiDetailedScanResult` |
 | `stable` | `./content-scanner.js` | 6 | `exact:./content-scanner.js` | `ContentScanner`, `ContentScannerConfig`, `ContentScanResult`, `ContentScanVerdict` |
 
 ## @dzupagent/core
