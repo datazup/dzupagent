@@ -324,12 +324,13 @@ async function scanHumanMessages(
   agentId: string,
   runId: string | undefined,
 ): Promise<BaseMessage[]> {
-  const piMode: PromptInjectionMode = promptInjection ?? 'off'
+  const piMode: PromptInjectionMode = promptInjection ?? 'warn'
   const piiMode: PiiMode = pii ?? 'off'
   if (piMode === 'off' && piiMode === 'off') return messages
 
   const scanner = new ContentScanner({ promptInjection: piMode, pii: piiMode })
   const out: BaseMessage[] = []
+  let changed = false
   for (const m of messages) {
     const typed = m as { _getType?: () => string }
     const isHuman = typeof typed._getType === 'function' && typed._getType() === 'human'
@@ -353,9 +354,10 @@ async function scanHumanMessages(
     if (result.verdict === 'block') {
       throw new PromptInjectionBlockedError(result.findings)
     }
+    changed = true
     out.push(new HumanMessage(result.sanitized))
   }
-  return out
+  return changed ? out : messages
 }
 
 /**

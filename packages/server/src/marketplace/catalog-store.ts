@@ -57,6 +57,12 @@ export interface CatalogStore {
   search(query: CatalogSearchQuery): Promise<CatalogSearchResult>
 }
 
+const DEFAULT_TENANT_ID = 'default'
+
+function normalizeTenantId(tenantId: string | null | undefined): string {
+  return tenantId ?? DEFAULT_TENANT_ID
+}
+
 /**
  * In-memory catalog store for development and testing.
  */
@@ -66,10 +72,11 @@ export class InMemoryCatalogStore implements CatalogStore {
   async create(entry: CatalogEntryCreate): Promise<CatalogEntry> {
     const now = new Date().toISOString()
     const id = entry.id ?? crypto.randomUUID()
+    const tenantId = normalizeTenantId(entry.tenantId)
 
-    // Enforce unique slug
+    // Slugs are tenant-scoped; different tenants may publish the same slug.
     for (const existing of this.entries.values()) {
-      if (existing.slug === entry.slug) {
+      if (existing.slug === entry.slug && normalizeTenantId(existing.tenantId) === tenantId) {
         throw new CatalogSlugConflictError(entry.slug)
       }
     }
@@ -85,7 +92,7 @@ export class InMemoryCatalogStore implements CatalogStore {
       readme: entry.readme ?? null,
       publishedAt: entry.publishedAt ?? null,
       isPublic: entry.isPublic ?? true,
-      tenantId: entry.tenantId ?? 'default',
+      tenantId,
       createdAt: now,
       updatedAt: now,
     }
@@ -114,20 +121,29 @@ export class InMemoryCatalogStore implements CatalogStore {
     if (!existing) {
       throw new CatalogNotFoundError(id)
     }
+    const scopedPatch: CatalogEntryPatch = tenantId === undefined
+      ? patch
+      : (({ tenantId: _ignoredTenantId, ...rest }) => rest)(patch)
+    const targetTenantId = normalizeTenantId(scopedPatch.tenantId ?? existing.tenantId)
 
     // Check slug uniqueness if slug is being changed
-    if (patch.slug && patch.slug !== existing.slug) {
+    if (scopedPatch.slug && scopedPatch.slug !== existing.slug) {
       for (const other of this.entries.values()) {
-        if (other.slug === patch.slug && other.id !== id) {
-          throw new CatalogSlugConflictError(patch.slug)
+        if (
+          other.slug === scopedPatch.slug &&
+          other.id !== id &&
+          normalizeTenantId(other.tenantId) === targetTenantId
+        ) {
+          throw new CatalogSlugConflictError(scopedPatch.slug)
         }
       }
     }
 
     const updated: CatalogEntry = {
       ...existing,
-      ...patch,
+      ...scopedPatch,
       id: existing.id,
+      tenantId: targetTenantId,
       createdAt: existing.createdAt,
       updatedAt: new Date().toISOString(),
     }

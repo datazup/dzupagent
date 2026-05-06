@@ -106,7 +106,7 @@ export class DrizzleCatalogStore implements CatalogStore {
       values['publishedAt'] = patch.publishedAt ? new Date(patch.publishedAt) : null
     }
     if (patch.isPublic !== undefined) values['isPublic'] = patch.isPublic
-    if (patch.tenantId !== undefined) values['tenantId'] = patch.tenantId
+    if (patch.tenantId !== undefined && tenantId === undefined) values['tenantId'] = patch.tenantId
 
     const conditions = [eq(agentCatalog.id, id)]
     if (tenantId !== undefined) conditions.push(eq(agentCatalog.tenantId, tenantId))

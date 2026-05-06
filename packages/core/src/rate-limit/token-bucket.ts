@@ -15,6 +15,7 @@
  * granularity needed for LLM rate-limiting.
  */
 
+import { KeyedTokenBucketRateLimiter } from '@dzupagent/security'
 import { ForgeError } from '../errors/forge-error.js'
 
 /** Configuration for {@link TokenBucket}. */
@@ -38,11 +39,12 @@ const DEFAULT_MAX_WAIT_MS = 30_000
  * loop, so the event loop is free during throttling.
  */
 export class TokenBucket {
+  private static readonly DEFAULT_KEY = 'default'
+
   private readonly capacity: number
   private readonly refillPerSecond: number
   private readonly maxWaitMs: number
-  private tokens: number
-  private lastRefillAt: number
+  private readonly limiter: KeyedTokenBucketRateLimiter
 
   constructor(config: TokenBucketConfig) {
     if (!Number.isFinite(config.capacity) || config.capacity <= 0) {
@@ -61,14 +63,15 @@ export class TokenBucket {
     this.capacity = config.capacity
     this.refillPerSecond = config.refillPerSecond
     this.maxWaitMs = config.maxWaitMs ?? DEFAULT_MAX_WAIT_MS
-    this.tokens = config.capacity
-    this.lastRefillAt = Date.now()
+    this.limiter = new KeyedTokenBucketRateLimiter({
+      capacity: config.capacity,
+      refillPerMs: config.refillPerSecond / 1000,
+    })
   }
 
   /** Currently available tokens (after refill). */
   get available(): number {
-    this.refill()
-    return this.tokens
+    return this.limiter.available(TokenBucket.DEFAULT_KEY)
   }
 
   /**
@@ -82,12 +85,7 @@ export class TokenBucket {
         message: `TokenBucket.consume: tokens must be > 0, got ${tokens}`,
       })
     }
-    this.refill()
-    if (this.tokens >= tokens) {
-      this.tokens -= tokens
-      return true
-    }
-    return false
+    return this.limiter.consume(TokenBucket.DEFAULT_KEY, tokens).allowed
   }
 
   /**
@@ -119,13 +117,10 @@ export class TokenBucket {
     // terminates either by consuming the tokens or by exceeding
     // maxWaitMs.
     while (true) {
-      this.refill()
-      if (this.tokens >= tokens) {
-        this.tokens -= tokens
-        return
-      }
+      const available = this.available
+      if (available >= tokens && this.consume(tokens)) return
 
-      const deficit = tokens - this.tokens
+      const deficit = tokens - available
       // Time required for `deficit` tokens to accrue, in ms.
       const waitMs = Math.ceil((deficit / this.refillPerSecond) * 1000)
       const elapsed = Date.now() - startedAt
@@ -142,17 +137,6 @@ export class TokenBucket {
 
       await sleep(waitMs)
     }
-  }
-
-  /** Refill tokens based on time elapsed since the last refill. */
-  private refill(): void {
-    const now = Date.now()
-    const elapsedMs = now - this.lastRefillAt
-    if (elapsedMs <= 0) return
-    const accrued = (elapsedMs / 1000) * this.refillPerSecond
-    if (accrued <= 0) return
-    this.tokens = Math.min(this.capacity, this.tokens + accrued)
-    this.lastRefillAt = now
   }
 }
 

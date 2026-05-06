@@ -14,7 +14,12 @@
 import { Hono } from 'hono'
 import type { ForgeServerConfig } from '../composition/types.js'
 import { AgentDefinitionService } from '../services/agent-definition-service.js'
-import { AgentCreateSchema, parseIntBounded, validateBodyCompat } from './schemas.js'
+import {
+  AgentCreateSchema,
+  AgentUpdateSchema,
+  parseIntBounded,
+  validateBodyCompat,
+} from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
 
 export function createAgentDefinitionRoutes(config: ForgeServerConfig): Hono {
@@ -60,18 +65,10 @@ export function createAgentDefinitionRoutes(config: ForgeServerConfig): Hono {
   app.patch('/:id', async (c) => {
     const id = c.req.param('id')
     const tenantId = getRequestingTenantId(c)
-    const body = await c.req.json<Partial<{
-      name: string
-      description: string
-      instructions: string
-      modelTier: string
-      tools: string[]
-      guardrails: Record<string, unknown>
-      approval: 'auto' | 'required' | 'conditional'
-      metadata: Record<string, unknown>
-    }>>()
+    const parsed = await validateBodyCompat(c, AgentUpdateSchema)
+    if (parsed instanceof Response) return parsed
 
-    const updated = await service.update(id, body, tenantId)
+    const updated = await service.update(id, parsed, tenantId)
     if (!updated) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
     }

@@ -12,6 +12,7 @@
  * Refill is computed lazily on each {@link MailRateLimiter.tryConsume} call
  * using wall-clock time, so idle buckets do not accumulate scheduler work.
  */
+import { KeyedTokenBucketRateLimiter } from '@dzupagent/security'
 
 /** Default bucket capacity (10 messages). */
 export const DEFAULT_CAPACITY = 10
@@ -27,11 +28,6 @@ export interface MailRateLimiterConfig {
   refillPerMinute?: number
   /** Injected clock for deterministic tests. Defaults to `Date.now`. */
   now?: () => number
-}
-
-interface BucketState {
-  tokens: number
-  lastRefillMs: number
 }
 
 /**
@@ -57,15 +53,13 @@ export class MailRateLimitError extends Error {
  * mutations race-free within a process.
  */
 export class MailRateLimiter {
-  private readonly buckets = new Map<string, BucketState>()
+  private readonly buckets: KeyedTokenBucketRateLimiter
   private readonly capacity: number
   private readonly refillPerMinute: number
-  private readonly now: () => number
 
   constructor(config: MailRateLimiterConfig = {}) {
     this.capacity = config.capacity ?? DEFAULT_CAPACITY
     this.refillPerMinute = config.refillPerMinute ?? DEFAULT_REFILL_PER_MINUTE
-    this.now = config.now ?? (() => Date.now())
 
     if (this.capacity <= 0) {
       throw new Error('MailRateLimiter capacity must be > 0')
@@ -73,6 +67,12 @@ export class MailRateLimiter {
     if (this.refillPerMinute <= 0) {
       throw new Error('MailRateLimiter refillPerMinute must be > 0')
     }
+
+    this.buckets = new KeyedTokenBucketRateLimiter({
+      capacity: this.capacity,
+      refillPerMs: this.refillPerMinute / 60_000,
+      ...(config.now ? { now: config.now } : {}),
+    })
   }
 
   /**
@@ -81,18 +81,7 @@ export class MailRateLimiter {
    * @returns `true` if a token was consumed, `false` if the bucket is empty.
    */
   tryConsume(recipientId: string): boolean {
-    const now = this.now()
-    let bucket = this.buckets.get(recipientId)
-    if (!bucket) {
-      bucket = { tokens: this.capacity, lastRefillMs: now }
-      this.buckets.set(recipientId, bucket)
-    } else {
-      this.refill(bucket, now)
-    }
-
-    if (bucket.tokens < 1) return false
-    bucket.tokens -= 1
-    return true
+    return this.buckets.consume(recipientId).allowed
   }
 
   /**
@@ -113,23 +102,11 @@ export class MailRateLimiter {
    * Returns the full capacity if no bucket has been created yet.
    */
   inspect(recipientId: string): { tokens: number; capacity: number } {
-    const bucket = this.buckets.get(recipientId)
-    if (!bucket) return { tokens: this.capacity, capacity: this.capacity }
-    this.refill(bucket, this.now())
-    return { tokens: bucket.tokens, capacity: this.capacity }
+    return this.buckets.inspect(recipientId)
   }
 
   /** Reset all buckets. Intended for tests. */
   reset(): void {
-    this.buckets.clear()
-  }
-
-  private refill(bucket: BucketState, now: number): void {
-    const elapsedMs = now - bucket.lastRefillMs
-    if (elapsedMs <= 0) return
-    const tokensToAdd = (elapsedMs / 60_000) * this.refillPerMinute
-    if (tokensToAdd <= 0) return
-    bucket.tokens = Math.min(this.capacity, bucket.tokens + tokensToAdd)
-    bucket.lastRefillMs = now
+    this.buckets.reset()
   }
 }

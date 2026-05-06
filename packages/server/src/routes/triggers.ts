@@ -2,7 +2,8 @@
  * Trigger CRUD routes — create, list, get, delete, and toggle triggers.
  */
 import { Hono } from 'hono'
-import type { TriggerStore, TriggerType } from '../triggers/trigger-store.js'
+import type { TriggerStore } from '../triggers/trigger-store.js'
+import { TriggerCreateSchema, TriggerEnableSchema, validateBodyCompat } from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface TriggerRouteConfig {
@@ -15,23 +16,9 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono {
   // --- Create trigger ---
   app.post('/', async (c) => {
     const tenantId = getRequestingTenantId(c)
-    const body = await c.req.json<{
-      id?: string
-      type: TriggerType
-      agentId: string
-      schedule?: string
-      webhookSecret?: string
-      afterAgentId?: string
-      enabled?: boolean
-      metadata?: Record<string, unknown>
-    }>()
-
-    if (!body.type || !body.agentId) {
-      return c.json(
-        { error: { code: 'BAD_REQUEST', message: 'type and agentId are required' } },
-        400,
-      )
-    }
+    const parsed = await validateBodyCompat(c, TriggerCreateSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
     const id = body.id ?? crypto.randomUUID()
     const trigger = await config.triggerStore.save({
@@ -85,17 +72,12 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono {
 
   // --- Toggle enabled state ---
   app.patch('/:id/enable', async (c) => {
-    const body = await c.req.json<{ enabled: boolean }>()
-    if (typeof body.enabled !== 'boolean') {
-      return c.json(
-        { error: { code: 'BAD_REQUEST', message: 'enabled (boolean) is required' } },
-        400,
-      )
-    }
+    const parsed = await validateBodyCompat(c, TriggerEnableSchema)
+    if (parsed instanceof Response) return parsed
 
     const trigger = await config.triggerStore.setEnabled(
       c.req.param('id'),
-      body.enabled,
+      parsed.enabled,
       getRequestingTenantId(c),
     )
     if (!trigger) {

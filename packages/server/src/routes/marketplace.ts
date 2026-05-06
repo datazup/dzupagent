@@ -12,6 +12,11 @@ import { Hono } from 'hono'
 import type { CatalogStore } from '../marketplace/catalog-store.js'
 import { CatalogNotFoundError, CatalogSlugConflictError } from '../marketplace/catalog-store.js'
 import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
+import {
+  MarketplaceCatalogCreateSchema,
+  MarketplaceCatalogUpdateSchema,
+  validateBodyCompat,
+} from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface MarketplaceRouteConfig {
@@ -29,26 +34,11 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
   // --- Create catalog entry ---
   app.post('/catalog', async (c) => {
     const tenantId = getRequestingTenantId(c)
-    const body = await c.req.json<{
-      slug?: string
-      name?: string
-      description?: string
-      version?: string
-      tags?: string[]
-      author?: string
-      readme?: string
-      publishedAt?: string
-      isPublic?: boolean
-    }>()
+    const parsed = await validateBodyCompat(c, MarketplaceCatalogCreateSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
-    if (!body.slug || !body.name || !body.version) {
-      return c.json(
-        { error: { code: 'VALIDATION_ERROR', message: 'slug, name, and version are required' } },
-        400,
-      )
-    }
-
-    if (body.readme !== undefined && getSerializedJsonSizeBytes(body.readme) > MARKETPLACE_README_MAX_BYTES) {
+    if (body.readme !== undefined && body.readme !== null && getSerializedJsonSizeBytes(body.readme) > MARKETPLACE_README_MAX_BYTES) {
       return c.json(
         { error: { code: 'PAYLOAD_TOO_LARGE', message: 'readme too large (max 256 KB)' } },
         413,
@@ -134,17 +124,9 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
   app.patch('/catalog/:id', async (c) => {
     const id = c.req.param('id')
     const tenantId = getRequestingTenantId(c)
-    const body = await c.req.json<{
-      slug?: string
-      name?: string
-      description?: string | null
-      version?: string
-      tags?: string[]
-      author?: string | null
-      readme?: string | null
-      publishedAt?: string | null
-      isPublic?: boolean
-    }>()
+    const parsed = await validateBodyCompat(c, MarketplaceCatalogUpdateSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
     if (body.version !== undefined && !SEMVER_RE.test(body.version)) {
       return c.json(
@@ -153,7 +135,7 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
       )
     }
 
-    if (body.readme !== undefined && getSerializedJsonSizeBytes(body.readme) > MARKETPLACE_README_MAX_BYTES) {
+    if (body.readme !== undefined && body.readme !== null && getSerializedJsonSizeBytes(body.readme) > MARKETPLACE_README_MAX_BYTES) {
       return c.json(
         { error: { code: 'PAYLOAD_TOO_LARGE', message: 'readme too large (max 256 KB)' } },
         413,

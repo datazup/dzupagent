@@ -13,7 +13,7 @@ export interface DrizzleSelectQuery extends PromiseLike<unknown[]> {
 }
 
 export interface DrizzleMutationResult extends PromiseLike<unknown> {
-  returning(): Promise<unknown[]>
+  returning(selection?: unknown): Promise<unknown[]>
 }
 
 export interface DrizzleConflictMutationResult extends PromiseLike<unknown> {

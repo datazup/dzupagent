@@ -303,7 +303,7 @@ export const agentCatalog = pgTable(
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('agent_catalog_slug_idx').on(table.slug),
+    uniqueIndex('agent_catalog_tenant_slug_idx').on(table.tenantId, table.slug),
     index('agent_catalog_author_idx').on(table.author),
     index('agent_catalog_tenant_id_idx').on(table.tenantId),
   ],

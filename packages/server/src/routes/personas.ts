@@ -6,6 +6,7 @@
  */
 import { Hono } from 'hono'
 import type { PersonaStore } from '../personas/persona-store.js'
+import { PersonaCreateSchema, PersonaUpdateSchema, validateBodyCompat } from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface PersonaRouteConfig {
@@ -18,21 +19,9 @@ export function createPersonaRoutes(config: PersonaRouteConfig): Hono {
   // --- Create persona ---
   app.post('/', async (c) => {
     const tenantId = getRequestingTenantId(c)
-    const body = await c.req.json<{
-      id?: string
-      name: string
-      instructions: string
-      modelId?: string
-      temperature?: number
-      metadata?: Record<string, unknown>
-    }>()
-
-    if (!body.name || !body.instructions) {
-      return c.json(
-        { error: { code: 'BAD_REQUEST', message: 'name and instructions are required' } },
-        400,
-      )
-    }
+    const parsed = await validateBodyCompat(c, PersonaCreateSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
     const id = body.id ?? crypto.randomUUID()
     const persona = await config.personaStore.save({
@@ -65,17 +54,12 @@ export function createPersonaRoutes(config: PersonaRouteConfig): Hono {
 
   // --- Update persona ---
   app.put('/:id', async (c) => {
-    const body = await c.req.json<{
-      name?: string
-      instructions?: string
-      modelId?: string
-      temperature?: number
-      metadata?: Record<string, unknown>
-    }>()
+    const parsed = await validateBodyCompat(c, PersonaUpdateSchema)
+    if (parsed instanceof Response) return parsed
 
     const persona = await config.personaStore.update(
       c.req.param('id'),
-      body,
+      parsed,
       getRequestingTenantId(c),
     )
     if (!persona) {

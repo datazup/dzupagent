@@ -1,4 +1,4 @@
-import type { HookContext, ContactChannel } from '@dzupagent/core'
+import type { HookContext, ContactChannel, OutboundUrlSecurityPolicy } from '@dzupagent/core'
 
 /** Approval mode for agent execution */
 export type ApprovalMode = 'auto' | 'required' | 'conditional'
@@ -82,6 +82,16 @@ export interface ApprovalConfig {
   durableResume?: boolean
   /** Webhook URL to notify when approval is needed */
   webhookUrl?: string
+  /**
+   * Optional HMAC-SHA256 signing secret for approval webhook deliveries.
+   *
+   * When provided, the approval gate adds `X-DzupAgent-Timestamp` and
+   * `X-DzupAgent-Signature` headers. The signature is computed over
+   * `${timestamp}.${body}` and encoded as `sha256=<hex>`.
+   */
+  webhookSigningSecret?: string
+  /** Optional outbound URL policy for approval webhook delivery. */
+  webhookOutboundUrlPolicy?: OutboundUrlSecurityPolicy
   /**
    * Called when all webhook delivery attempts fail. Use for dead-letter
    * handling (e.g. persist to a queue for manual retry).
