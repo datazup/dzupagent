@@ -92,13 +92,10 @@ export function createSecureLogger(opts: SecureLoggerOptions = {}): SecureLogger
       return
     }
     if (level === 'error') {
-      // eslint-disable-next-line no-console
       console.error(redacted)
     } else if (level === 'warn') {
-      // eslint-disable-next-line no-console
       console.warn(redacted)
     } else {
-      // eslint-disable-next-line no-console
       console.info(redacted)
     }
   }
