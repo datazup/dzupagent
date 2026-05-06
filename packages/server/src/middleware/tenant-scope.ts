@@ -6,6 +6,8 @@
  */
 import type { MiddlewareHandler } from 'hono'
 
+import type { AppEnv } from '../types.js'
+
 export interface TenantScopeConfig {
   /** Extract tenant ID from request */
   extractTenantId: (c: {
@@ -16,7 +18,7 @@ export interface TenantScopeConfig {
   headerName?: string
 }
 
-const TENANT_CONTEXT_KEY = 'forgeTenantId'
+const TENANT_CONTEXT_KEY = 'forgeTenantId' as const
 
 /**
  * Tenant scoping middleware.
@@ -26,7 +28,7 @@ const TENANT_CONTEXT_KEY = 'forgeTenantId'
  * Health endpoints are allowed through without a tenant.
  * All other requests receive a 400 error if no tenant ID is found.
  */
-export function tenantScopeMiddleware(config: TenantScopeConfig): MiddlewareHandler {
+export function tenantScopeMiddleware(config: TenantScopeConfig): MiddlewareHandler<AppEnv> {
   const headerName = config.headerName ?? 'X-Tenant-ID'
 
   return async (c, next) => {
@@ -54,7 +56,7 @@ export function tenantScopeMiddleware(config: TenantScopeConfig): MiddlewareHand
       )
     }
 
-    c.set(TENANT_CONTEXT_KEY as never, tenantId as never)
+    c.set(TENANT_CONTEXT_KEY, tenantId)
     return next()
   }
 }

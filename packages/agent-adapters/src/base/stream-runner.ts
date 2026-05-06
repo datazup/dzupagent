@@ -13,7 +13,7 @@
  * SDK-specific event mapping.
  */
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core'
 import type { AdapterProviderId, AgentEvent, AgentInput, TokenUsage } from '../types.js'
 
 const DEFAULT_HEARTBEAT_GAP_MS = 15_000
@@ -98,6 +98,24 @@ export interface AdapterStreamRunnerConfig {
    * {@link emitStartedImmediately}.
    */
   startedExtra?: Record<string, unknown>
+  /**
+   * Optional best-effort audit sink invoked once per terminal LLM call
+   * (`adapter:completed` or `adapter:failed`). Sink errors are swallowed —
+   * audit emission MUST NOT break the LLM call path. Wire via
+   * `attachLlmAuditEventBridge` from `@dzupagent/core` to forward records onto
+   * a `DzupEventBus`, or pass a `vi.fn()` from tests.
+   */
+  auditSink?: LlmAuditSink
+  /**
+   * Resolved model name for the audit record. Adapters inject this from the
+   * config they used to build the request so the sink does not have to sniff
+   * the `adapter:started`/`detectThreadStart` extras.
+   */
+  auditModel?: string
+  /** Optional run id for the audit record. */
+  auditRunId?: string
+  /** Optional tenant id for the audit record. */
+  auditTenantId?: string
 }
 
 export class AdapterStreamRunner<TRaw> {
@@ -132,6 +150,8 @@ export class AdapterStreamRunner<TRaw> {
     }
 
     let startedEmitted = false
+    let auditEmitted = false
+    const auditStartedAt = new Date(context.startedAt).toISOString()
     let lastEventAt = Date.now()
 
     try {
@@ -178,6 +198,10 @@ export class AdapterStreamRunner<TRaw> {
             if (!startedEmitted && ev.type === 'adapter:started') {
               startedEmitted = true
             }
+            if (!auditEmitted && (ev.type === 'adapter:completed' || ev.type === 'adapter:failed')) {
+              auditEmitted = true
+              this.emitAudit(source.providerId, context, ev, auditStartedAt)
+            }
             yield ev
           }
         }
@@ -191,7 +215,12 @@ export class AdapterStreamRunner<TRaw> {
       if (abortController.signal.aborted) {
         context.aborted = true
         if (this.config.emitFailedOnAbort) {
-          yield this.buildAbortFailedEvent(source.providerId, context)
+          const abortEv = this.buildAbortFailedEvent(source.providerId, context)
+          if (!auditEmitted) {
+            auditEmitted = true
+            this.emitAudit(source.providerId, context, abortEv, auditStartedAt)
+          }
+          yield abortEv
         }
         return
       }
@@ -203,7 +232,7 @@ export class AdapterStreamRunner<TRaw> {
           promptLength: input.prompt.length,
         },
       })
-      yield {
+      const failedEv: AgentEvent = {
         type: 'adapter:failed',
         providerId: source.providerId,
         ...(context.sessionId ? { sessionId: context.sessionId } : {}),
@@ -212,6 +241,11 @@ export class AdapterStreamRunner<TRaw> {
         timestamp: Date.now(),
         ...(input.correlationId ? { correlationId: input.correlationId } : {}),
       }
+      if (!auditEmitted) {
+        auditEmitted = true
+        this.emitAudit(source.providerId, context, failedEv, auditStartedAt)
+      }
+      yield failedEv
       return
     } finally {
       if (externalAbortListener && externalSignal) {
@@ -224,8 +258,90 @@ export class AdapterStreamRunner<TRaw> {
     // returned), still emit a terminal failed event when configured.
     if (abortController.signal.aborted && this.config.emitFailedOnAbort) {
       context.aborted = true
-      yield this.buildAbortFailedEvent(source.providerId, context)
+      const abortEv = this.buildAbortFailedEvent(source.providerId, context)
+      if (!auditEmitted) {
+        auditEmitted = true
+        this.emitAudit(source.providerId, context, abortEv, auditStartedAt)
+      }
+      yield abortEv
     }
+  }
+
+  /**
+   * Build and dispatch a {@link LlmInvocationRecord} to the configured
+   * `auditSink`. Best-effort: any sink-side error is logged and swallowed so
+   * audit failures cannot break the LLM call path.
+   *
+   * Note: this is the single audit emission site. The non-streaming
+   * `OpenAIAdapter.run()` convenience does not flow through this runner —
+   * audit emission for that path is deferred (see TODO in openai-adapter.ts).
+   */
+  private emitAudit(
+    providerId: AdapterProviderId,
+    context: StreamContext,
+    terminal: AgentEvent,
+    startedAt: string,
+  ): void {
+    const sink = this.config.auditSink
+    if (!sink) return
+    if (terminal.type !== 'adapter:completed' && terminal.type !== 'adapter:failed') return
+    try {
+      const durationMs =
+        terminal.type === 'adapter:completed'
+          ? terminal.durationMs
+          : Math.max(0, Date.now() - context.startedAt)
+      const usage =
+        terminal.type === 'adapter:completed' && terminal.usage
+          ? this.toAuditUsage(terminal.usage)
+          : undefined
+      const costCents =
+        terminal.type === 'adapter:completed' && terminal.usage?.costCents !== undefined
+          ? terminal.usage.costCents
+          : undefined
+      const errorCode =
+        terminal.type === 'adapter:failed' ? terminal.code ?? 'ADAPTER_EXECUTION_FAILED' : undefined
+
+      const record: LlmInvocationRecord = {
+        providerId,
+        model: this.config.auditModel ?? this.resolveModelFromExtras() ?? 'unknown',
+        promptCharCount: context.input.prompt.length,
+        ...(context.input.systemPrompt !== undefined
+          ? { systemPromptCharCount: context.input.systemPrompt.length }
+          : {}),
+        status: terminal.type === 'adapter:completed' ? 'completed' : 'failed',
+        ...(errorCode !== undefined ? { errorCode } : {}),
+        durationMs,
+        ...(usage !== undefined ? { usage } : {}),
+        ...(costCents !== undefined ? { costCents } : {}),
+        startedAt,
+        ...(this.config.auditRunId !== undefined ? { runId: this.config.auditRunId } : {}),
+        ...(this.config.auditTenantId !== undefined ? { tenantId: this.config.auditTenantId } : {}),
+      }
+      sink(record)
+    } catch (err: unknown) {
+      // Best-effort: never break the LLM call because of audit emission.
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn('[AdapterStreamRunner] audit sink failed:', msg)
+    }
+  }
+
+  private toAuditUsage(usage: TokenUsage): LlmInvocationRecord['usage'] {
+    const promptTokens = usage.inputTokens
+    const completionTokens = usage.outputTokens
+    const out: NonNullable<LlmInvocationRecord['usage']> = {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      ...(usage.cachedInputTokens !== undefined ? { cacheReadTokens: usage.cachedInputTokens } : {}),
+      ...(usage.cacheWriteTokens !== undefined ? { cacheWriteTokens: usage.cacheWriteTokens } : {}),
+    }
+    return out
+  }
+
+  private resolveModelFromExtras(): string | undefined {
+    const extra = this.config.startedExtra
+    if (extra && typeof extra['model'] === 'string') return extra['model']
+    return undefined
   }
 
   private buildAbortFailedEvent(

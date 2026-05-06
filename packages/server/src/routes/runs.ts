@@ -26,6 +26,7 @@
 import { Hono, type Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import type { ForgeServerConfig } from '../composition/types.js'
+import type { AppEnv } from '../types.js'
 import type { Run, RunStatus, LogEntry, RunJournalEntry } from '@dzupagent/core'
 import { injectTraceContext } from '@dzupagent/core'
 import {
@@ -60,7 +61,7 @@ function getRequestingKeyId(c: Context): string | undefined {
   // `apiKey` is set by the auth middleware as `Record<string, unknown>`;
   // the runtime may or may not carry an `id` field depending on the
   // configured validateKey callback.
-  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const key = (c as Context<AppEnv>).get('apiKey')
   const id = key?.['id']
   return typeof id === 'string' ? id : undefined
 }
@@ -72,7 +73,7 @@ function getRequestingKeyId(c: Context): string | undefined {
  * quota accounting and tenant-isolation filters aligned on the same key.
  */
 function getRequestingTenantId(c: Context): string {
-  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const key = (c as Context<AppEnv>).get('apiKey')
   const tenantId = key?.['tenantId']
   if (typeof tenantId === 'string' && tenantId.length > 0) return tenantId
   const ownerId = key?.['ownerId']
@@ -99,7 +100,7 @@ function enforceOwnerAccess(c: Context, run: Run): Run | Response {
   // recorded tenant (pre-migration) are treated as 'default'. We only
   // gate when the caller is authenticated; unauth'd callers fall through
   // to preserve the library default.
-  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const key = (c as Context<AppEnv>).get('apiKey')
   if (key) {
     const requestingTenantId = getRequestingTenantId(c)
     const runTenantId = (run.tenantId ?? 'default') || 'default'
@@ -211,7 +212,7 @@ export async function handleCreateRun(
   // We also project `guardrails.maxTokens` onto the run metadata so the
   // executor enforces the same cap. When the caller already supplied a
   // tighter limit we keep theirs (the smaller of the two).
-  const apiKey = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const apiKey = (c as Context<AppEnv>).get('apiKey')
   const rawPerRunCap = apiKey?.['maxTokensPerRun']
   const perRunCap = typeof rawPerRunCap === 'number' && Number.isFinite(rawPerRunCap) && rawPerRunCap > 0
     ? Math.floor(rawPerRunCap)
@@ -380,7 +381,7 @@ export async function handleListRuns(
   // When auth is disabled the apiKey context is absent and `listFilter`
   // omits `tenantId`, preserving the library default that returns all
   // runs regardless of tenant.
-  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const key = (c as Context<AppEnv>).get('apiKey')
   const requestingTenantId = key ? getRequestingTenantId(c) : undefined
 
   const listFilter = {

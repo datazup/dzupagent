@@ -10,12 +10,47 @@ import { execFile as execFileCb } from 'node:child_process'
 import { resolve, relative, isAbsolute, dirname } from 'node:path'
 
 import {
+  WorkspaceCommandDeniedError,
   WorkspacePathSecurityError,
   type Workspace,
   type WorkspaceOptions,
   type SearchResult,
   type CommandResult,
 } from './types.js'
+
+/**
+ * Conservative default allowlist used when `WorkspaceOptions.command.allowedCommands`
+ * is `undefined`. Covers the common read-only / build-tool surface used by
+ * codegen pipelines without exposing networked or destructive binaries
+ * (no `curl`, `wget`, `ssh`, `rm`, `mv`, `chmod`, `sudo`, etc.).
+ *
+ * Callers may extend this list (e.g. `[...DEFAULT_ALLOWED_COMMANDS, 'docker']`)
+ * or pass the literal sentinel `'*'` to opt out of the check entirely
+ * (intended for tests only).
+ */
+export const DEFAULT_ALLOWED_COMMANDS: readonly string[] = Object.freeze([
+  'git',
+  'node',
+  'npm',
+  'yarn',
+  'pnpm',
+  'tsc',
+  'eslint',
+  'prettier',
+  'jest',
+  'vitest',
+  'rg',
+  'grep',
+  'find',
+  'ls',
+  'cat',
+  'head',
+  'tail',
+  'wc',
+  'sort',
+  'uniq',
+  'diff',
+])
 
 // ---------------------------------------------------------------------------
 // Glob-to-regex helper (supports *, **, ?)
@@ -111,11 +146,23 @@ export class LocalWorkspace implements Workspace {
     } catch {
       this.rootRealDir = this.rootDir
     }
+    // Default-deny: when `allowedCommands` is undefined we fall back to the
+    // conservative `DEFAULT_ALLOWED_COMMANDS` list rather than skipping the
+    // safety check (the previous behaviour allowed arbitrary execution if
+    // `command` was omitted). Pass `allowedCommands: '*'` to opt out
+    // explicitly — intended for tests only.
+    const rawAllowed = options.command?.allowedCommands
+    const resolvedAllowed: string[] | '*' =
+      rawAllowed === undefined
+        ? [...DEFAULT_ALLOWED_COMMANDS]
+        : rawAllowed === '*'
+          ? '*'
+          : [...rawAllowed]
     this.options = {
       ...options,
       command: {
         ...options.command,
-        allowedCommands: options.command?.allowedCommands ?? [],
+        allowedCommands: resolvedAllowed,
       },
     }
   }
@@ -202,18 +249,27 @@ export class LocalWorkspace implements Workspace {
     return this.searchBuiltin(query, options?.glob, maxResults)
   }
 
+  /**
+   * Run a command with arguments inside the workspace.
+   *
+   * Default-deny — when `WorkspaceOptions.command.allowedCommands` is
+   * `undefined`, the conservative {@link DEFAULT_ALLOWED_COMMANDS} list is
+   * used. Set `allowedCommands: '*'` (literal sentinel) to opt out of the
+   * safety check (intended for tests only). Production callers should always
+   * pass an explicit list.
+   *
+   * Throws {@link WorkspaceCommandDeniedError} when `cmd` is not allowed.
+   */
   async runCommand(
     cmd: string,
     args: string[],
     options?: { cwd?: string; timeoutMs?: number },
   ): Promise<CommandResult> {
     const allowedCommands = this.options.command?.allowedCommands
-    if (allowedCommands && !allowedCommands.includes(cmd)) {
-      return {
-        exitCode: 126,
-        stdout: '',
-        stderr: `Command '${cmd}' is not in the allowed commands list.`,
-        timedOut: false,
+    if (allowedCommands !== '*') {
+      const list = allowedCommands ?? DEFAULT_ALLOWED_COMMANDS
+      if (!list.includes(cmd)) {
+        throw new WorkspaceCommandDeniedError(cmd, list)
       }
     }
 

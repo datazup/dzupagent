@@ -5,7 +5,7 @@
  * its events into the unified AgentEvent stream.
  */
 import { randomUUID } from 'node:crypto'
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError, type LlmAuditSink } from '@dzupagent/core'
 import { SystemPromptBuilder } from '../prompts/system-prompt-builder.js'
 import type {
   AdapterCapabilityProfile,
@@ -187,6 +187,19 @@ function extractQuestionFromToolInput(input: unknown): string {
 // ClaudeAgentAdapter
 // ---------------------------------------------------------------------------
 
+/**
+ * Claude-specific extension of {@link AdapterConfig}.
+ *
+ * Adds the optional `auditSink` so callers can wire LLM-invocation audit
+ * records onto a `DzupEventBus` via {@link attachLlmAuditEventBridge}, mirroring
+ * the OpenAI adapter pattern. The shared {@link AdapterConfig} stays type-only
+ * (leaf package) and does not learn about audit plumbing.
+ */
+export interface ClaudeAdapterConfig extends AdapterConfig {
+  /** Optional best-effort audit sink — see `OpenAIConfig.auditSink` for contract. */
+  auditSink?: LlmAuditSink
+}
+
 export class ClaudeAgentAdapter
   extends BaseSdkAdapter<ClaudeSDKModule>
   implements AdapterStreamSource<ClaudeSDKMessage>
@@ -196,6 +209,9 @@ export class ClaudeAgentAdapter
   private sdk: ClaudeSDKModule | null = null
   private activeConversation: ClaudeConversation | null = null
 
+  /** Audit sink resolved at construction; never read off the shared config. */
+  private readonly auditSink?: LlmAuditSink
+
   // Per-execution state populated by execute() before the runner starts.
   // mapRawEvent / detectThreadStart / open consume these fields.
   private currentInput: AgentInput | null = null
@@ -203,6 +219,12 @@ export class ClaudeAgentAdapter
   private currentStartTime = 0
   private lastToolStartTime = 0
   private lastToolName = ''
+
+  constructor(config: ClaudeAdapterConfig = {}) {
+    const { auditSink, ...rest } = config
+    super(rest)
+    if (auditSink !== undefined) this.auditSink = auditSink
+  }
 
   // -----------------------------------------------------------------------
   // AgentCLIAdapter.getCapabilities
@@ -240,6 +262,8 @@ export class ClaudeAgentAdapter
       onAbortController: (ctrl) => {
         this.abortController = ctrl
       },
+      ...(this.auditSink ? { auditSink: this.auditSink } : {}),
+      ...(this.config.model !== undefined ? { auditModel: this.config.model } : {}),
     })
 
     try {

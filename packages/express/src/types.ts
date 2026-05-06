@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import type { DzupAgent, GenerateResult } from '@dzupagent/agent'
 import type {
+  FrameworkLogger,
   MCPRequest,
   MCPRequestId,
   MCPResponse,
@@ -59,9 +60,9 @@ export interface SSEHandlerConfig {
  * Request body for the /chat and /chat/sync endpoints.
  */
 export interface ChatRequestBody {
-  /** The user's message */
+  /** The user's message (1..32_768 chars) */
   message: string
-  /** Which agent to use (default: first in config) */
+  /** Which agent to use (must be a key of the config `agents` map) */
   agentName?: string
   /** Conversation ID for multi-turn context */
   conversationId?: string
@@ -69,6 +70,20 @@ export interface ChatRequestBody {
   model?: string
   /** Extra configurable params passed to the agent */
   configurable?: Record<string, unknown>
+  /** Free-form metadata forwarded to hooks */
+  metadata?: Record<string, unknown>
+}
+
+/**
+ * Rate-limit configuration applied to chat routes.
+ *
+ * Defaults: `windowMs: 60_000` (1 min), `max: 60` requests per IP.
+ */
+export interface AgentRouterRateLimitConfig {
+  /** Window in milliseconds. Default: 60_000 */
+  windowMs?: number
+  /** Maximum requests per window per IP. Default: 60 */
+  max?: number
 }
 
 /**
@@ -92,6 +107,22 @@ export interface AgentRouterConfig {
   }
   /** Base path prefix (default: '/') */
   basePath?: string
+  /**
+   * Rate-limit configuration for `/chat*` routes. Pass `false` to disable.
+   * Defaults to 60 req/min per IP.
+   */
+  rateLimit?: AgentRouterRateLimitConfig | false
+  /**
+   * Maximum body size accepted by the adapter's own JSON parser.
+   * Defaults to `'256kb'`. Hosts SHOULD also enforce a global cap upstream;
+   * this parser is mounted on `/chat*` as a defense-in-depth safety net.
+   */
+  bodyLimit?: string
+  /**
+   * Structured logger used for sanitised server-side error reporting.
+   * Defaults to `defaultLogger` from `@dzupagent/core`.
+   */
+  logger?: FrameworkLogger
 }
 
 /**

@@ -4,7 +4,9 @@
  * Provides role-permission mapping and middleware guards that check
  * whether the current request's role has permission to access a resource.
  */
-import type { MiddlewareHandler } from 'hono'
+import type { Context, MiddlewareHandler } from 'hono'
+
+import type { AppEnv } from '../types.js'
 
 export type ForgeRole = 'admin' | 'operator' | 'viewer' | 'agent'
 
@@ -257,7 +259,7 @@ function methodToAction(method: string): ForgePermissionAction {
  * whether that role has permission to access the requested resource.
  * Health endpoints are always allowed through.
  */
-export function rbacMiddleware(config: RBACConfig): MiddlewareHandler {
+export function rbacMiddleware(config: RBACConfig): MiddlewareHandler<AppEnv> {
   const adminOnlyPaths = config.adminOnlyPaths ?? DEFAULT_ADMIN_ONLY_PATHS
   const routePermissions = normalizeRoutePermissions(adminOnlyPaths, config.routePermissions)
   return async (c, next) => {
@@ -274,7 +276,7 @@ export function rbacMiddleware(config: RBACConfig): MiddlewareHandler {
       )
     }
 
-    c.set('forgeRole' as never, role as never)
+    c.set('forgeRole', role)
 
     const routePermission = resolveRoutePermission(c.req.path, routePermissions)
     if (!routePermission) {
@@ -332,11 +334,11 @@ export function rbacGuard(
   resource: ForgePermission['resource'],
   action: ForgePermission['action'],
   config?: RBACConfig,
-): MiddlewareHandler {
+): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const role = config
       ? config.extractRole(c)
-      : (c.get('forgeRole' as never) as ForgeRole | undefined)
+      : (c as Context<AppEnv>).get('forgeRole')
 
     if (!role) {
       return c.json(

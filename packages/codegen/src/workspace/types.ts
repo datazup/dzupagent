@@ -36,7 +36,16 @@ export interface WorkspaceOptions {
   }
   command?: {
     timeoutMs?: number
-    allowedCommands?: string[]
+    /**
+     * Allowlist of executable names that may be invoked via `runCommand`.
+     *
+     * - `undefined` (default): falls back to the conservative
+     *   `DEFAULT_ALLOWED_COMMANDS` list inside `LocalWorkspace`.
+     * - `string[]`: explicit allowlist; any command not in the array is rejected.
+     * - `'*'` (literal sentinel): disables the safety check entirely. Intended
+     *   for tests only; production callers should always pass an explicit list.
+     */
+    allowedCommands?: string[] | '*'
   }
 }
 
@@ -50,6 +59,24 @@ export class WorkspacePathSecurityError extends Error {
       `Workspace path rejected: paths must be relative and stay within workspace root "${workspaceRoot}".`,
     )
     this.name = 'WorkspacePathSecurityError'
+  }
+}
+
+/**
+ * Error thrown when `runCommand` is called with an executable that is not in
+ * the configured (or default) allowlist. Easier to assert against in tests
+ * than the previous string-matching approach.
+ */
+export class WorkspaceCommandDeniedError extends Error {
+  constructor(
+    public readonly command: string,
+    public readonly allowedCommands: readonly string[],
+  ) {
+    super(
+      `Workspace command rejected: '${command}' is not in the allowed commands list ` +
+        `(${allowedCommands.length === 0 ? '<empty>' : allowedCommands.join(', ')}).`,
+    )
+    this.name = 'WorkspaceCommandDeniedError'
   }
 }
 

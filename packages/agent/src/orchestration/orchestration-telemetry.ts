@@ -5,8 +5,10 @@
  * merge operations, and circuit breaker state changes.
  *
  * Uses OpenTelemetry-compatible span attributes when @opentelemetry/api
- * is available, falls back to structured console.debug otherwise.
+ * is available, falls back to the framework `defaultLogger` otherwise.
  */
+
+import { defaultLogger } from '@dzupagent/core'
 
 export interface RoutingSpanData {
   runId?: string
@@ -33,7 +35,7 @@ export interface MergeSpanData {
  * OTel-compatible attribute names used.
  */
 export function recordRoutingDecision(data: RoutingSpanData): void {
-  console.debug('[orchestration:routing]', {
+  defaultLogger.debug('[orchestration:routing]', {
     'orchestration.task_id': data.taskId,
     'orchestration.routing.strategy': data.strategy,
     'orchestration.routing.selected_agents': data.selectedAgents.join(','),
@@ -47,7 +49,7 @@ export function recordRoutingDecision(data: RoutingSpanData): void {
  * Log a merge operation result as a structured span/log entry.
  */
 export function recordMergeOperation(data: MergeSpanData): void {
-  console.debug('[orchestration:merge]', {
+  defaultLogger.debug('[orchestration:merge]', {
     'orchestration.merge.strategy': data.strategy,
     'orchestration.merge.total_agents': data.totalAgents,
     'orchestration.merge.success_count': data.successCount,
@@ -65,7 +67,7 @@ export function recordCircuitBreakerEvent(
   event: 'timeout' | 'success' | 'trip' | 'reset',
   consecutiveTimeouts?: number,
 ): void {
-  console.debug('[orchestration:circuit_breaker]', {
+  defaultLogger.debug('[orchestration:circuit_breaker]', {
     'orchestration.circuit_breaker.agent_id': agentId,
     'orchestration.circuit_breaker.event': event,
     'orchestration.circuit_breaker.consecutive_timeouts': consecutiveTimeouts ?? 0,

@@ -2,34 +2,37 @@ import { ToolMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
-  calculateCostCents,
-  estimateTokens,
-  extractTokenUsage,
-  ForgeError,
+  defaultLogger,
   type DzupEventBus,
+  type FrameworkLogger,
   type RunJournalEntry,
   type SafetyMonitor,
   type ToolGovernance,
 } from '@dzupagent/core'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type {
-  CompressionLogEntry,
   DzupAgentConfig,
   GenerateOptions,
   GenerateResult,
 } from './agent-types.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
 import { StuckDetector } from '../guardrails/stuck-detector.js'
+import {
+  DEFAULT_GUARDED_MAX_ITERATIONS,
+  DEFAULT_UNGUARDED_BUDGET,
+  _warnedAgentIds,
+} from './run-engine-defaults.js'
+export {
+  DEFAULT_UNGUARDED_BUDGET,
+  DEFAULT_GUARDED_MAX_ITERATIONS,
+} from './run-engine-defaults.js'
 import { createToolLoopLearningHook } from './tool-loop-learning.js'
 import {
   estimateConversationTokensForMessages,
-  extractFinalAiMessageContent,
 } from './message-utils.js'
 import { rehydrateMessagesFromJournal } from './resume-utils.js'
 import {
-  runToolLoop,
   type StopReason,
-  type ToolLoopConfig,
   type ToolResultScanFailureMode,
   type ToolLoopTracer,
   type ToolStat,
@@ -38,19 +41,16 @@ import {
   type ToolArgValidatorConfig,
 } from './tool-arg-validator.js'
 import {
-  emitToolCalled,
-  emitToolCancellationRequested,
   emitToolError,
-  emitToolResult,
   extractInputMetadataKeys,
-  invokeWithOptionalTimeout,
-  maybeValidateArgs,
-  resolveValidatorConfig,
   statusFromError,
 } from './tool-lifecycle-policy.js'
-import { ReflectionAnalyzer } from '../reflection/reflection-analyzer.js'
+import {
+  applyBudgetGate,
+  recordToolLatencyOutcome,
+  runToolStreamingPhase,
+} from './run-engine-streaming-helpers.js'
 import { ApprovalSuspendedError } from '../approval/approval-errors.js'
-import { buildWorkflowEventsFromToolStats } from '../reflection/learning-bridge.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 import { injectPromptCacheMarkers } from '@dzupagent/context'
 import {
@@ -60,27 +60,11 @@ import {
   type PiiMode,
 } from '@dzupagent/security'
 import { HumanMessage } from '@langchain/core/messages'
-import type {
-  LlmCallAuditEntry,
-  LlmCallAuditSink,
-} from '../observability/llm-call-audit.js'
-
-/**
- * Push an LLM-call audit entry to the configured sink. Fire-and-forget:
- * synchronous throws and rejected promises are swallowed so the run
- * never fails because of an audit-sink defect.
- */
-async function recordAuditEntry(
-  sink: LlmCallAuditSink,
-  entry: LlmCallAuditEntry,
-): Promise<void> {
-  try {
-    await sink.record(entry)
-  } catch {
-    // Audit sink failures must never disturb the run. Compliance reports
-    // surface missing entries via downstream reconciliation, not here.
-  }
-}
+import {
+  prepareGuardPrelude,
+  setupModelCall,
+  processGeneratedRun,
+} from './run-engine-generate-helpers.js'
 
 export interface PreparedRunState {
   maxIterations: number
@@ -173,6 +157,19 @@ export interface StreamingToolPolicyOptions {
   safetyMonitor?: SafetyMonitor
   scanToolResults?: boolean
   scanFailureMode?: ToolResultScanFailureMode
+  /**
+   * RF-15 — prompt-injection scanning on tool results.
+   *
+   * When set, `ContentScanner` runs against every tool result *after* the
+   * `safetyMonitor` pass. On `'block'`, the result is replaced with a
+   * sanitised placeholder before reaching the model. On `'warn'`, matched
+   * spans are rewritten and a `safety:violation` event is emitted.
+   *
+   * Independent of `safetyMonitor`: a tool result can be passed by the
+   * monitor but still contain prompt-injection markers that this scanner
+   * catches. Defaults to `undefined` (no scan), preserving legacy behaviour.
+   */
+  promptInjectionToolResults?: PromptInjectionMode
   tracer?: ToolLoopTracer
   agentId?: string
   runId?: string
@@ -183,14 +180,45 @@ export interface StreamingToolPolicyOptions {
 export async function prepareRunState(
   params: PrepareRunStateParams,
 ): Promise<PreparedRunState> {
+  // RF-04 (SEC-08) — when the caller did not supply ANY guardrails, install a
+  // default `IterationBudget` so a runaway loop cannot burn unbounded tokens.
+  // Empty `guardrails: {}` is treated as an explicit opt-out (caller has made
+  // an informed choice) and keeps the legacy unbounded behaviour.
+  const hasExplicitGuardrails = params.config.guardrails !== undefined
+  const logger: FrameworkLogger = (params.config as { logger?: FrameworkLogger }).logger
+    ?? defaultLogger
+
   const maxIterations = params.options?.maxIterations
     ?? params.config.guardrails?.maxIterations
     ?? params.config.maxIterations
-    ?? 10
+    ?? (hasExplicitGuardrails
+      ? DEFAULT_GUARDED_MAX_ITERATIONS
+      : DEFAULT_UNGUARDED_BUDGET.maxIterations)
 
-  const budget = params.config.guardrails
-    ? new IterationBudget(params.config.guardrails)
-    : undefined
+  const budget = hasExplicitGuardrails
+    ? new IterationBudget(params.config.guardrails!)
+    : new IterationBudget({
+        // Combined input + output cap honours `DEFAULT_UNGUARDED_BUDGET.inputTokens`
+        // — input spend alone exhausts the budget at parity with the spec; the
+        // semantic input/output split is preserved on the constant for callers
+        // that introspect it.
+        maxTokens: DEFAULT_UNGUARDED_BUDGET.inputTokens,
+        maxIterations: DEFAULT_UNGUARDED_BUDGET.maxIterations,
+      })
+
+  // Emit a one-shot startup warning per agent id so operators notice the
+  // fallback. Repeat `generate()` / `stream()` calls on the same agent stay
+  // quiet to avoid log spam.
+  if (!hasExplicitGuardrails && !_warnedAgentIds.has(params.config.id)) {
+    _warnedAgentIds.add(params.config.id)
+    logger.warn(
+      'Agent constructed without explicit guardrails — applying default budget. Configure `config.guardrails` for production.',
+      {
+        agentId: params.config.id,
+        defaultBudget: DEFAULT_UNGUARDED_BUDGET,
+      },
+    )
+  }
 
   const prepared = await params.prepareMessages(params.messages)
   const preparedMessages = prepared.messages
@@ -370,275 +398,26 @@ export async function executeGenerateRun(
   }
 }
 
+/**
+ * RF-25 (CODE-17) — orchestrator that delegates to three phase helpers
+ * in {@link ./run-engine-generate-helpers.js}:
+ *
+ *   1. {@link prepareGuardPrelude} — accumulator + tool-exec policy resolve.
+ *   2. {@link setupModelCall}      — runs the tool loop with full telemetry.
+ *   3. {@link processGeneratedRun} — post-run filter, summary, reflection,
+ *      and final result assembly.
+ *
+ * Observable order (event-bus emissions, OTel spans, error rethrows) is
+ * preserved across the extraction.
+ */
 async function executeGenerateRunInner(
   params: ExecuteGenerateRunParams,
 ): Promise<GenerateResult> {
-  // Accumulates compression events observed during the run. Surfaced back
-  // to the caller via `GenerateResult.compressionLog` so telemetry/UIs can
-  // inspect when (and by how much) the conversation was compacted.
-  const compressionLog: CompressionLogEntry[] = []
-
-  // MJ-AGENT-01 — extract the optional public tool-execution policy bundle
-  // and resolve it into the corresponding ToolLoopConfig fields. Each
-  // field is optional; omitting any of them preserves pre-MJ-AGENT-01
-  // behaviour. `toolExecution.agentId` falls back to the agent's own id
-  // so callers don't have to repeat it. `safetyMonitor` takes precedence
-  // over the public-surface alias `resultScanner`.
-  const toolExec = params.config.toolExecution
-  const resolvedSafetyMonitor =
-    toolExec?.safetyMonitor ?? toolExec?.resultScanner
-
-  const result = await runToolLoop(
-    params.runState.model,
-    params.runState.preparedMessages,
-    params.runState.tools,
-    omitUndefined<ToolLoopConfig>({
-      maxIterations: params.runState.maxIterations,
-      budget: params.runState.budget,
-      signal: params.options?.signal,
-      stuckDetector: params.runState.stuckDetector,
-      toolStatsTracker: params.config.toolStatsTracker,
-      intent: params.options?.intent,
-      // MJ-AGENT-01 — public tool-execution policy surface. Each field is
-      // forwarded only when present so the resulting ToolLoopConfig stays
-      // identical to the pre-MJ-AGENT-01 shape when `toolExecution` is
-      // unset (backwards compatibility guarantee).
-      ...(toolExec?.governance !== undefined
-        ? { toolGovernance: toolExec.governance }
-        : {}),
-      ...(resolvedSafetyMonitor !== undefined
-        ? { safetyMonitor: resolvedSafetyMonitor }
-        : {}),
-      ...(toolExec?.scanToolResults !== undefined
-        ? { scanToolResults: toolExec.scanToolResults }
-        : {}),
-      ...(toolExec?.scanFailureMode !== undefined
-        ? { scanFailureMode: toolExec.scanFailureMode }
-        : {}),
-      ...(toolExec?.timeouts !== undefined
-        ? { toolTimeouts: toolExec.timeouts }
-        : {}),
-      ...(toolExec?.tracer !== undefined
-        ? { tracer: toolExec.tracer }
-        : {}),
-      // agentId: fall back to the agent's own id ONLY when toolExecution
-      // is provided, so the pre-MJ-AGENT-01 surface (no toolExecution) is
-      // bit-for-bit identical to the previous behaviour. When threaded,
-      // the loop tags canonical lifecycle events (`tool:called`,
-      // `tool:result`, `tool:error`) with provenance and feeds permission
-      // policies with the caller id.
-      ...(toolExec
-        ? { agentId: toolExec.agentId ?? params.agentId }
-        : {}),
-      ...(toolExec?.runId !== undefined ? { runId: toolExec.runId } : {}),
-      ...(toolExec?.argumentValidator !== undefined
-        ? { validateToolArgs: toolExec.argumentValidator }
-        : {}),
-      ...(toolExec?.permissionPolicy !== undefined
-        ? { toolPermissionPolicy: toolExec.permissionPolicy }
-        : {}),
-      // Forward the agent's eventBus to the loop ONLY when toolExecution
-      // is configured. Without `toolExecution`, the loop continues to
-      // operate without lifecycle telemetry — matching pre-MJ-AGENT-01
-      // behaviour exactly. With `toolExecution`, downstream policy events
-      // (e.g. `approval:requested`) and canonical lifecycle events are
-      // routed to the same bus the agent already uses for `llm:invoked`,
-      // `tool:latency`, etc.
-      ...(toolExec && params.config.eventBus !== undefined
-        ? { eventBus: params.config.eventBus }
-        : {}),
-      onStuckDetected: (reason, recovery) => {
-        params.config.eventBus?.emit({
-          type: 'agent:stuck_detected',
-          agentId: params.agentId,
-          reason,
-          recovery,
-          timestamp: Date.now(),
-        })
-      },
-      onStuck: (toolName, stage) => {
-        params.config.eventBus?.emit({
-          type: 'agent:stuck_detected',
-          agentId: params.agentId,
-          reason: `Stuck on tool "${toolName}" (escalation stage ${stage})`,
-          recovery: stage >= 3 ? 'Aborting loop' : stage === 2 ? 'Nudge injected' : 'Tool blocked',
-          timestamp: Date.now(),
-        })
-      },
-      invokeModel: async (model, messages) => {
-        // RF-12 — record every LLM invocation in the configured audit
-        // sink for compliance traceability. Fire-and-forget; never blocks
-        // the run, never propagates sink errors.
-        const auditStore = params.config.auditStore
-        const startMs = Date.now()
-        const modelId =
-          (model as BaseChatModel & { model?: string }).model
-          ?? (typeof params.config.model === 'string' ? params.config.model : 'unknown')
-        try {
-          const response = await params.invokeModel(model, messages)
-          if (auditStore) {
-            const usage = extractTokenUsage(response, modelId)
-            void recordAuditEntry(auditStore, {
-              agentId: params.agentId,
-              ...(params.options?.runId !== undefined ? { runId: params.options.runId } : {}),
-              model: modelId,
-              inputTokens: usage.inputTokens ?? 0,
-              outputTokens: usage.outputTokens ?? 0,
-              durationMs: Date.now() - startMs,
-              timestamp: Date.now(),
-              success: true,
-            })
-          }
-          return response
-        } catch (err) {
-          if (auditStore) {
-            const errorMessage = err instanceof Error ? err.message : String(err)
-            void recordAuditEntry(auditStore, {
-              agentId: params.agentId,
-              ...(params.options?.runId !== undefined ? { runId: params.options.runId } : {}),
-              model: modelId,
-              inputTokens: 0,
-              outputTokens: 0,
-              durationMs: Date.now() - startMs,
-              timestamp: Date.now(),
-              success: false,
-              error: errorMessage,
-            })
-          }
-          throw err
-        }
-      },
-      transformToolResult: (name, input, result) =>
-        params.transformToolResult(name, input, result),
-      onUsage: (usage) => {
-        params.options?.onUsage?.(usage)
-        // Compliance / audit — ISO/IEC 42001 traceability: every LLM
-        // invocation must be recorded in the audit store. The event bus
-        // listener in ComplianceAuditLogger picks this up automatically.
-        params.config.eventBus?.emit({
-          type: 'llm:invoked',
-          agentId: params.agentId,
-          model: usage.model,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          ...(usage.cacheReadTokens !== undefined ? { cacheReadTokens: usage.cacheReadTokens } : {}),
-          ...(usage.cacheWriteTokens !== undefined ? { cacheWriteTokens: usage.cacheWriteTokens } : {}),
-          costCents: calculateCostCents(usage),
-          timestamp: Date.now(),
-        })
-      },
-      onToolResult: (_name, result) => {
-        // Charge tool-result bytes against the token lifecycle plugin so
-        // per-phase breakdowns reflect tool output ingestion separately
-        // from LLM input/output.
-        if (params.config.tokenLifecyclePlugin && result) {
-          params.config.tokenLifecyclePlugin.trackPhase(
-            'tool-result',
-            estimateTokens(result),
-          )
-        }
-      },
-      onToolLatency: (name, durationMs, error) => {
-        params.config.eventBus?.emit({
-          type: 'tool:latency',
-          toolName: name,
-          durationMs,
-          ...(error !== undefined ? { error } : {}),
-        })
-      },
-      shouldHalt: params.config.tokenLifecyclePlugin
-        ? () => params.config.tokenLifecyclePlugin!.shouldHalt()
-        : undefined,
-      // Auto-compression — delegates to the token lifecycle plugin.
-      // The plugin short-circuits internally when pressure is ok/warn;
-      // actual compression only runs when pressure transitions to
-      // critical or exhausted.
-      maybeCompress: params.config.tokenLifecyclePlugin
-        ? (messages) =>
-            params.config.tokenLifecyclePlugin!.maybeCompress(
-              messages,
-              params.runState.model,
-              null,
-            )
-        : undefined,
-      // Persist each compression event to the run-scoped compressionLog so
-      // callers can inspect when (and by how much) the history was compacted.
-      // Only fires when `maybeCompress` returned `compressed: true`.
-      onCompressed: (info) => {
-        compressionLog.push({
-          before: info.before,
-          after: info.after,
-          summary: info.summary,
-          ts: Date.now(),
-        })
-      },
-      // Note: run:halted:token-exhausted is emitted AFTER the loop
-      // completes (below) so the iteration count is accurate.
-    }),
-  )
-
-  // Emit token-exhaustion telemetry as soon as the loop reports the
-  // matching stop reason. This precedes agent:stop_reason so dashboards
-  // can react to the halt before the generic stop event fires.
-  if (result.stopReason === 'token_exhausted') {
-    params.config.eventBus?.emit({
-      type: 'run:halted:token-exhausted',
-      agentId: params.agentId,
-      iterations: result.llmCalls,
-      reason: 'token_exhausted',
-    })
-  }
-
-  emitStopReasonTelemetry(params.config, params.agentId, {
-    stopReason: result.stopReason,
-    llmCalls: result.llmCalls,
-    toolStats: result.toolStats,
-  })
-
-  const content = await applyOutputFilter(
-    params.config,
-    extractFinalAiMessageContent(result.messages),
-  )
-
-  await params.maybeUpdateSummary(result.messages, params.runState.memoryFrame)
-
-  // --- Post-run reflection analysis (best-effort, non-fatal) ---
-  if (params.config.onReflectionComplete) {
-    try {
-      const analyzer = new ReflectionAnalyzer(params.config.reflectionAnalyzerConfig)
-      const events = buildWorkflowEventsFromToolStats(result.toolStats, result.stopReason)
-      const summary = analyzer.analyze(
-        params.agentId + ':' + Date.now().toString(36),
-        events,
-      )
-      await params.config.onReflectionComplete(summary)
-    } catch {
-      // Reflection callback errors must NEVER affect the run result.
-    }
-  }
-
-  return omitUndefined({
-    content,
-    messages: result.messages,
-    usage: {
-      totalInputTokens: result.totalInputTokens,
-      totalOutputTokens: result.totalOutputTokens,
-      llmCalls: result.llmCalls,
-    },
-    hitIterationLimit: result.hitIterationLimit,
-    stopReason: result.stopReason,
-    toolStats: result.toolStats,
-    stuckError: result.stuckError,
-    // Surface the per-run memory frame for observability so callers (and the
-    // public `RunResult` via `runInBackground`) can inspect which memory
-    // context was attached to this run.
-    memoryFrame: params.runState.memoryFrame,
-    // Only expose the compression log when at least one compression event
-    // fired; leave undefined otherwise to avoid cluttering result payloads
-    // for runs that never compacted.
-    ...(compressionLog.length > 0 ? { compressionLog } : {}),
-  })
+  const prelude = prepareGuardPrelude(params.config)
+  const result = await setupModelCall(params, prelude)
+  return processGeneratedRun(params, result, prelude.compressionLog)
 }
+
 
 export async function applyOutputFilter(
   config: DzupAgentConfig,
@@ -723,299 +502,61 @@ export async function executeStreamingToolCall(params: {
    */
   policy?: StreamingToolPolicyOptions
 }): Promise<StreamingToolExecutionResult> {
+  // RF-19 (CODE-02) — orchestrator. The 397-LOC body has been split into
+  // three phase helpers in `./run-engine-streaming-helpers.ts` so each
+  // phase can be unit-tested in isolation while the orchestrator stays
+  // under 100 LOC. Observable behaviour (event-bus emissions, OTel span
+  // attributes, abort-signal threading, error rethrows, stuck-detection
+  // ordering) is preserved exactly.
   const { toolCall, policy } = params
   const toolName = toolCall.name
   const toolCallId = toolCall.id ?? `call_${Date.now()}`
   const inputMetadataKeys = extractInputMetadataKeys(toolCall.args)
 
-  // Permission policy check (MC-GA03 / mirrors tool-loop.ts ~937-955).
-  // Throws TOOL_PERMISSION_DENIED so the streaming bridge can surface
-  // an `error` event followed by `done` (stopReason='aborted') —
-  // matching the non-streaming path's observable surface exactly.
-  if (policy?.toolPermissionPolicy && policy.agentId) {
-    if (!policy.toolPermissionPolicy.hasPermission(policy.agentId, toolName)) {
-      emitToolError(policy, {
-        toolName,
-        toolCallId,
-        durationMs: 0,
-        inputMetadataKeys,
-        errorCode: 'TOOL_PERMISSION_DENIED',
-        errorMessage: `Tool "${toolName}" is not accessible to agent "${policy.agentId}"`,
-        status: 'denied',
-      })
-      throw new ForgeError({
-        code: 'TOOL_PERMISSION_DENIED',
-        message: `Tool "${toolName}" is not accessible to agent "${policy.agentId}"`,
-        context: { agentId: policy.agentId, toolName },
-      })
-    }
-  }
-
-  if (params.budget?.isToolBlocked(toolName)) {
-    emitToolError(policy, {
-      toolName,
-      toolCallId,
-      durationMs: 0,
-      inputMetadataKeys,
-      errorCode: 'TOOL_PERMISSION_DENIED',
-      errorMessage: `Tool "${toolName}" is blocked by guardrails`,
-      status: 'denied',
-    })
-    return {
-      message: new ToolMessage({
-        content: `[Tool "${toolName}" is blocked by guardrails]`,
-        tool_call_id: toolCallId,
-        name: toolName,
-      }),
-      eventResult: '[blocked]',
-    }
-  }
-
-  // Tool governance access check (mirrors tool-loop.ts ~980-1001).
-  // A blocked tool yields `[blocked: <reason>]` in the streaming
-  // surface so consumers can render the same denial reason as
-  // generate() mode.
-  if (policy?.toolGovernance) {
-    const access = policy.toolGovernance.checkAccess(toolName, toolCall.args)
-    if (!access.allowed) {
-      const reason = access.reason ?? 'Tool access denied'
-      emitToolError(policy, {
-        toolName,
-        toolCallId,
-        durationMs: 0,
-        inputMetadataKeys,
-        errorCode: 'TOOL_PERMISSION_DENIED',
-        errorMessage: reason,
-        status: 'denied',
-      })
-      return {
-        message: new ToolMessage({
-          content: `[blocked] ${reason}`,
-          tool_call_id: toolCallId,
-          name: toolName,
-        }),
-        eventResult: `[blocked: ${reason}]`,
-      }
-    }
-    if (access.requiresApproval) {
-      const correlationId = policy.runId ?? toolCallId
-      try {
-        policy.eventBus?.emit({
-          type: 'approval:requested',
-          runId: correlationId,
-          plan: { toolName, args: toolCall.args },
-        })
-      } catch {
-        // Non-fatal: event emission must not abort the run.
-      }
-      const reason = access.reason ?? 'Approval required'
-      return {
-        message: new ToolMessage({
-          content: `[approval_pending] Tool "${toolName}" requires human approval before execution. ${reason}`,
-          tool_call_id: toolCallId,
-          name: toolName,
-        }),
-        eventResult: `[approval_pending: ${reason}]`,
-        approvalPending: true,
-      }
-    }
-  }
-
-  const tool = params.toolMap.get(toolName)
-  if (!tool) {
-    return {
-      message: new ToolMessage({
-        content: `Error: Tool "${toolName}" not found. Available tools: ${[...params.toolMap.keys()].join(', ')}`,
-        tool_call_id: toolCallId,
-        name: toolName,
-      }),
-      eventResult: '[not found]',
-    }
-  }
-
-  // Argument validation (mirrors tool-loop.ts ~1056-1078). Failures
-  // surface a `[validation error]` marker so the streaming bridge
-  // emits the same downstream signal as the non-streaming executor.
-  const validatorCfg = resolveValidatorConfig(policy?.validateToolArgs)
-  const { args: validatedArgs, validationError } = maybeValidateArgs(
+  // Phase 1 — pre-execution gate stack.
+  const gate = applyBudgetGate(omitUndefined({
     toolCall,
-    tool,
-    validatorCfg,
-  )
-
-  if (validationError) {
-    emitToolError(policy, {
-      toolName,
-      toolCallId,
-      durationMs: 0,
-      inputMetadataKeys,
-      errorCode: 'VALIDATION_FAILED',
-      errorMessage: validationError,
-      status: 'error',
-    })
-    return {
-      message: new ToolMessage({
-        content: validationError,
-        tool_call_id: toolCallId,
-        name: toolName,
-      }),
-      eventResult: '[validation error]',
-    }
-  }
-
-  const validatedKeys = extractInputMetadataKeys(validatedArgs)
-
-  emitToolCalled(policy, {
-    toolName,
     toolCallId,
-    input: validatedArgs,
-    inputMetadataKeys: validatedKeys,
-  })
-
-  // Optional OTel span per tool invocation (mirrors tool-loop.ts ~1106).
-  const inputSize = JSON.stringify(validatedArgs).length
-  const span = policy?.tracer?.startToolSpan(toolName, { inputSize })
+    toolName,
+    inputMetadataKeys,
+    budget: params.budget,
+    toolMap: params.toolMap,
+    policy,
+  }))
+  if (gate.kind === 'short-circuit') {
+    if (gate.throwError) throw gate.throwError
+    return gate.result
+  }
+  const tool = gate.tool
 
   const startMs = Date.now()
-  let errorMsg: string | undefined
+  let validatedKeys: string[] = inputMetadataKeys
 
   try {
-    const result = await invokeWithOptionalTimeout(
-      toolName,
-      policy?.toolTimeouts?.[toolName],
-      ({ signal }) => tool.invoke(validatedArgs, { signal }),
-      omitUndefined({
-        signal: policy?.signal ?? params.signal,
-        onCancelRequested: (reason: 'timeout' | 'run_cancelled') => emitToolCancellationRequested(policy, {
-          toolName,
-          toolCallId,
-          inputMetadataKeys: validatedKeys,
-          reason,
-          ...(reason === 'timeout' && policy?.toolTimeouts?.[toolName] !== undefined
-            ? { timeoutMs: policy.toolTimeouts[toolName] }
-            : {}),
-        }),
-      }),
-    )
-    const rawResult = typeof result === 'string' ? result : JSON.stringify(result)
-    let transformedResult = await params.transformToolResult(
-      toolName,
-      validatedArgs,
-      rawResult,
-    )
-
-    // Safety scan (mirrors tool-loop.ts ~1119-1170). Critical
-    // violations REPLACE the output with `[blocked: unsafe tool
-    // output]` before reaching the model and before the streaming
-    // `tool_result` event fires.
-    if (policy?.safetyMonitor && policy.scanToolResults !== false) {
-      try {
-        const violations = policy.safetyMonitor.scanContent(transformedResult, {
-          source: 'tool:result',
-          toolName,
-        })
-        const hardBlock = violations.find(
-          (v) => v.action === 'block' || v.action === 'kill' || v.severity === 'critical',
-        )
-        if (hardBlock) {
-          const blockedContent = `[blocked] Tool result contained potentially unsafe content (${hardBlock.category}): ${hardBlock.message}`
-          transformedResult = blockedContent
-          const durationMs = Date.now() - startMs
-          params.statTracker.record(toolName, durationMs)
-          params.onToolLatency?.(toolName, durationMs, 'unsafe-result')
-          emitToolError(policy, {
-            toolName,
-            toolCallId,
-            durationMs,
-            inputMetadataKeys: validatedKeys,
-            errorCode: 'TOOL_EXECUTION_FAILED',
-            errorMessage: `Tool result blocked: ${hardBlock.category} — ${hardBlock.message}`,
-            status: 'denied',
-          })
-          if (span) {
-            try {
-              span.setAttribute('durationMs', durationMs)
-              span.setAttribute('outputSize', blockedContent.length)
-              span.setAttribute('blocked', true)
-              span.end()
-            } catch {
-              // Tracer failures must not abort the streaming loop
-            }
-          }
-          return {
-            message: new ToolMessage({
-              content: blockedContent,
-              tool_call_id: toolCallId,
-              name: toolName,
-            }),
-            eventResult: '[blocked: unsafe tool output]',
-          }
-        }
-      } catch {
-        policy.eventBus?.emit({
-          type: 'safety:violation',
-          category: 'tool_result_scanner_failure',
-          severity: policy.scanFailureMode === 'fail-closed' ? 'critical' : 'warning',
-          ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
-          message: 'Tool result safety scanner failed',
-        })
-
-        if (policy.scanFailureMode === 'fail-closed') {
-          const blockedContent = '[blocked: tool result safety scanner failed]'
-          const durationMs = Date.now() - startMs
-          params.statTracker.record(toolName, durationMs)
-          params.onToolLatency?.(toolName, durationMs, 'scanner-failure')
-          emitToolError(policy, {
-            toolName,
-            toolCallId,
-            durationMs,
-            inputMetadataKeys: validatedKeys,
-            errorCode: 'TOOL_EXECUTION_FAILED',
-            errorMessage: 'Tool result safety scanner failed; output withheld',
-            status: 'error',
-          })
-          if (span) {
-            try {
-              span.setAttribute('durationMs', durationMs)
-              span.setAttribute('scannerFailure', true)
-              span.end()
-            } catch {
-              // Tracer failures must not abort the streaming loop
-            }
-          }
-          return {
-            message: new ToolMessage({
-              content: blockedContent,
-              tool_call_id: toolCallId,
-              name: toolName,
-            }),
-            eventResult: blockedContent,
-          }
-        }
-      }
-    }
-
-    const durationMs = Date.now() - startMs
-    params.statTracker.record(toolName, durationMs)
-    params.onToolLatency?.(toolName, durationMs)
-
-    emitToolResult(policy, {
-      toolName,
+    // Phase 2 — validate, invoke, scan, emit lifecycle events.
+    const phase = await runToolStreamingPhase(omitUndefined({
+      toolCall,
       toolCallId,
-      durationMs,
-      inputMetadataKeys: validatedKeys,
-      output: transformedResult,
-    })
-    if (span) {
-      try {
-        span.setAttribute('durationMs', durationMs)
-        span.setAttribute('outputSize', transformedResult.length)
-        span.end()
-      } catch {
-        // Tracer failures must not abort the streaming loop
-      }
+      toolName,
+      inputMetadataKeys,
+      tool,
+      transformToolResult: params.transformToolResult,
+      statTracker: params.statTracker,
+      onToolLatency: params.onToolLatency,
+      signal: params.signal,
+      policy,
+      startMs,
+    }))
+
+    if (phase.kind === 'short-circuit') {
+      return phase.result
     }
 
+    validatedKeys = phase.validatedKeys
+    const transformedResult = phase.transformedResult
+    const validatedArgs = phase.validatedArgs
+
+    // Phase 3 — stuck-detection on the success path.
     const stuckCheck = params.stuckDetector?.recordToolCall(toolName, validatedArgs)
     if (stuckCheck?.stuck) {
       const reason = stuckCheck.reason ?? 'Unknown stuck condition'
@@ -1048,10 +589,23 @@ export async function executeStreamingToolCall(params: {
       eventResult: transformedResult,
     }
   } catch (error: unknown) {
-    errorMsg = error instanceof Error ? error.message : String(error)
-    const durationMs = Date.now() - startMs
-    params.statTracker.record(toolName, durationMs, errorMsg)
-    params.onToolLatency?.(toolName, durationMs, errorMsg)
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    // The streaming-phase helper attaches `validatedKeys` to thrown
+    // invocation errors so the outer catch can surface the same
+    // `inputMetadataKeys` payload as the pre-extraction code path.
+    const surfacedKeys =
+      error !== null && typeof error === 'object' && '__dzupValidatedKeys' in error
+        ? (error as { __dzupValidatedKeys?: string[] }).__dzupValidatedKeys
+        : undefined
+    if (surfacedKeys) validatedKeys = surfacedKeys
+    const durationMs = recordToolLatencyOutcome(omitUndefined({
+      statTracker: params.statTracker,
+      onToolLatency: params.onToolLatency,
+      toolName,
+      startMs,
+      errorTag: errorMsg,
+      recordOnTracker: true,
+    }))
 
     const lifecycleStatus = statusFromError(error)
     emitToolError(policy, {
@@ -1059,20 +613,10 @@ export async function executeStreamingToolCall(params: {
       toolCallId,
       durationMs,
       inputMetadataKeys: validatedKeys,
-      errorCode: lifecycleStatus === 'timeout'
-        ? 'TOOL_TIMEOUT'
-        : 'TOOL_EXECUTION_FAILED',
+      errorCode: lifecycleStatus === 'timeout' ? 'TOOL_TIMEOUT' : 'TOOL_EXECUTION_FAILED',
       errorMessage: errorMsg,
       status: lifecycleStatus,
     })
-    if (span) {
-      try {
-        span.setAttribute('durationMs', durationMs)
-        policy?.tracer?.endSpanWithError(span, error)
-      } catch {
-        // Tracer failures must not abort the streaming loop
-      }
-    }
 
     const stuckCheck = params.stuckDetector?.recordError(new Error(errorMsg))
     const reason = stuckCheck?.stuck

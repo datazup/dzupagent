@@ -9,6 +9,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { join } from 'node:path'
+import { validateRefName } from './ref-validator.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -46,10 +47,23 @@ export class GitWorktreeManager {
    * The branch is created from the current HEAD of baseBranch.
    */
   async create(branchName: string, baseBranch?: string): Promise<WorktreeInfo> {
+    // SEC-11/12: validate caller-supplied refs before passing to git.
+    validateRefName(branchName, 'branch')
+    if (baseBranch !== undefined) {
+      validateRefName(baseBranch, 'ref')
+    }
     const worktreeDir = join(this.baseDir, branchName)
     const base = baseBranch ?? 'HEAD'
 
-    await this.exec(['worktree', 'add', '-b', branchName, worktreeDir, base])
+    await this.exec([
+      'worktree',
+      'add',
+      '-b',
+      branchName,
+      '--end-of-options',
+      worktreeDir,
+      base,
+    ])
 
     return {
       dir: worktreeDir,
@@ -105,14 +119,30 @@ export class GitWorktreeManager {
     worktreeBranch: string,
     targetBranch: string,
   ): Promise<{ success: boolean; output: string }> {
+    // SEC-11/12: validate both refs before any git invocation.
+    validateRefName(worktreeBranch, 'branch')
+    validateRefName(targetBranch, 'branch')
     try {
       // Save current branch
       const { stdout: currentBranch } = await this.exec(['branch', '--show-current'])
 
-      // Switch to target, merge, switch back
-      await this.exec(['checkout', targetBranch])
-      const { stdout, stderr } = await this.exec(['merge', worktreeBranch, '--no-edit'])
-      await this.exec(['checkout', currentBranch.trim()])
+      // Switch to target, merge, switch back. `--end-of-options` shields the
+      // user-supplied refs from being interpreted as git flags.
+      await this.exec(['checkout', '--end-of-options', targetBranch])
+      const { stdout, stderr } = await this.exec([
+        'merge',
+        '--no-edit',
+        '--end-of-options',
+        worktreeBranch,
+      ])
+      const previousBranch = currentBranch.trim()
+      // The output of `branch --show-current` is git-controlled (not user
+      // input) but still validate as a defence-in-depth measure before
+      // feeding it back into checkout.
+      if (previousBranch.length > 0) {
+        validateRefName(previousBranch, 'branch')
+        await this.exec(['checkout', '--end-of-options', previousBranch])
+      }
 
       const hasConflict = stderr.includes('CONFLICT') || stdout.includes('CONFLICT')
       return { success: !hasConflict, output: stdout + stderr }

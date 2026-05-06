@@ -12,6 +12,8 @@ import type {
   ForgeCapability,
 } from '@dzupagent/core'
 
+import type { AppEnv } from '../types.js'
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -26,8 +28,8 @@ export interface IdentityMiddlewareConfig {
 // Context variable keys
 // ---------------------------------------------------------------------------
 
-const IDENTITY_KEY = 'forgeIdentity'
-const CAPABILITIES_KEY = 'forgeCapabilities'
+const IDENTITY_KEY = 'forgeIdentity' as const
+const CAPABILITIES_KEY = 'forgeCapabilities' as const
 
 // ---------------------------------------------------------------------------
 // Token extraction
@@ -65,7 +67,7 @@ function extractToken(c: Context): string | undefined {
  */
 export function identityMiddleware(
   config: IdentityMiddlewareConfig,
-): MiddlewareHandler {
+): MiddlewareHandler<AppEnv> {
   const { resolver, required = false } = config
 
   return async (c, next) => {
@@ -80,8 +82,8 @@ export function identityMiddleware(
     const identity = await resolver.resolve({ token, headers })
 
     if (identity) {
-      c.set(IDENTITY_KEY as never, identity as never)
-      c.set(CAPABILITIES_KEY as never, identity.capabilities as never)
+      c.set(IDENTITY_KEY, identity)
+      c.set(CAPABILITIES_KEY, identity.capabilities)
     } else if (required) {
       return c.json(
         {
@@ -107,7 +109,7 @@ export function identityMiddleware(
  * Returns undefined if identity middleware was not configured or no identity resolved.
  */
 export function getForgeIdentity(c: Context): ForgeIdentity | undefined {
-  return c.get(IDENTITY_KEY as never) as ForgeIdentity | undefined
+  return (c as Context<AppEnv>).get(IDENTITY_KEY)
 }
 
 /**
@@ -115,5 +117,5 @@ export function getForgeIdentity(c: Context): ForgeIdentity | undefined {
  * Returns empty array if no identity was resolved.
  */
 export function getForgeCapabilities(c: Context): ForgeCapability[] {
-  return (c.get(CAPABILITIES_KEY as never) as ForgeCapability[] | undefined) ?? []
+  return (c as Context<AppEnv>).get(CAPABILITIES_KEY) ?? []
 }
