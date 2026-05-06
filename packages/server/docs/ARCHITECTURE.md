@@ -159,6 +159,13 @@ Peer dependencies:
 Build/test toolchain:
 - `tsup`, `typescript`, `vitest`, `drizzle-kit`, `testcontainers`.
 
+Focused Postgres integration lane:
+- Tenant-scope persistence coverage is opt-in because it starts a real
+  Postgres container. Run it explicitly with
+  `DZUPAGENT_RUN_TESTCONTAINERS=1 yarn workspace @dzupagent/server test src/__tests__/tenant-scope-postgres.integration.test.ts`.
+  A default skip for that suite only means the container lane was not requested,
+  not that tenant-scope database coverage passed.
+
 ## Integration Points
 Common integration seams exposed by this package:
 - Host app composition via `createForgeApp` with injected stores, registry, queue, auth/rate/middleware, and optional feature modules.

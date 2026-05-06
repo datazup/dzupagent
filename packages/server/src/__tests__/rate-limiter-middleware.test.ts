@@ -1,5 +1,6 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { Hono } from 'hono'
+import { KeyedTokenBucketRateLimiter } from '@dzupagent/security'
 import {
   rateLimiterMiddleware,
   TokenBucketLimiter,
@@ -11,6 +12,7 @@ describe('TokenBucketLimiter', () => {
 
   afterEach(() => {
     limiter?.destroy()
+    vi.useRealTimers()
   })
 
   it('allows requests within the limit', () => {
@@ -27,6 +29,36 @@ describe('TokenBucketLimiter', () => {
     const r3 = limiter.consume('key-1')
     expect(r3.allowed).toBe(false)
     expect(r3.remaining).toBe(0)
+  })
+
+  it('preserves shared token-bucket allow and remaining semantics', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+
+    limiter = new TokenBucketLimiter({ maxRequests: 2, windowMs: 1000 })
+    const shared = new KeyedTokenBucketRateLimiter({
+      capacity: 2,
+      refillPerMs: 2 / 1000,
+    })
+
+    const wrapped = [
+      limiter.consume('key-1'),
+      limiter.consume('key-1'),
+      limiter.consume('key-1'),
+    ]
+    const expected = [
+      shared.consume('key-1'),
+      shared.consume('key-1'),
+      shared.consume('key-1'),
+    ]
+
+    expect(wrapped.map(result => result.allowed)).toEqual(
+      expected.map(result => result.allowed),
+    )
+    expect(wrapped.map(result => result.remaining)).toEqual(
+      expected.map(result => result.remaining),
+    )
+    expect(wrapped.map(result => result.resetMs)).toEqual([500, 500, 500])
   })
 
   it('tracks different keys independently', () => {
