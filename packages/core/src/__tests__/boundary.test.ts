@@ -56,9 +56,16 @@ const ALLOWED_IMPORTS = new Set([
   '@dzupagent/security',
 ])
 
+let cachedImports: Array<{ file: string; importPath: string }> | undefined
+
+function getCoreImports(): Array<{ file: string; importPath: string }> {
+  cachedImports ??= scanForgeImports(SRC_DIR)
+  return cachedImports
+}
+
 describe('Package boundary enforcement', () => {
   it('@dzupagent/core only imports from allowed @dzupagent packages', () => {
-    const imports = scanForgeImports(SRC_DIR)
+    const imports = getCoreImports()
     const violations = imports.filter(i => {
       // Extract the package name (e.g., "@dzupagent/memory" from "@dzupagent/memory/foo")
       const parts = i.importPath.split('/')
@@ -79,7 +86,7 @@ describe('Package boundary enforcement', () => {
   })
 
   it('does not import @dzupagent/memory (Layer 2)', () => {
-    const imports = scanForgeImports(SRC_DIR)
+    const imports = getCoreImports()
     const memoryImports = imports.filter(i => i.importPath.startsWith('@dzupagent/memory'))
     if (memoryImports.length > 0) {
       const detail = memoryImports.map(v => `  ${v.file} imports "${v.importPath}"`).join('\n')
@@ -89,7 +96,7 @@ describe('Package boundary enforcement', () => {
   })
 
   it('does not import @dzupagent/context (Layer 2)', () => {
-    const imports = scanForgeImports(SRC_DIR)
+    const imports = getCoreImports()
     const contextImports = imports.filter(i => i.importPath.startsWith('@dzupagent/context'))
     if (contextImports.length > 0) {
       const detail = contextImports.map(v => `  ${v.file} imports "${v.importPath}"`).join('\n')
@@ -99,7 +106,7 @@ describe('Package boundary enforcement', () => {
   })
 
   it('does not import @dzupagent/memory-ipc (Layer 2)', () => {
-    const imports = scanForgeImports(SRC_DIR)
+    const imports = getCoreImports()
     const ipcImports = imports.filter(i => i.importPath.startsWith('@dzupagent/memory-ipc'))
     if (ipcImports.length > 0) {
       const detail = ipcImports.map(v => `  ${v.file} imports "${v.importPath}"`).join('\n')

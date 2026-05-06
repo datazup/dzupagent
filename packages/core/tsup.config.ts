@@ -9,6 +9,7 @@ export default defineConfig({
     'src/facades/quick-start.ts',
     'src/facades/orchestration.ts',
     'src/facades/security.ts',
+    'src/vectordb/index.ts',
   ],
   format: ['esm'],
   dts: { compilerOptions: { composite: false, exactOptionalPropertyTypes: false } },
