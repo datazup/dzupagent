@@ -54,7 +54,7 @@ describe('OpenAIAdapter', () => {
     expect(adapter.getCapabilities()).toEqual({
       supportsResume: false,
       supportsFork: false,
-      supportsToolCalls: false,
+      supportsToolCalls: true,
       supportsStreaming: true,
       supportsCostUsage: true,
     })

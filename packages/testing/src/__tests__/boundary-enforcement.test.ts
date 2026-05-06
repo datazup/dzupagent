@@ -277,21 +277,123 @@ function collectSourceFiles(dir: string): string[] {
   return results;
 }
 
+function isIdentifierChar(char: string | undefined): boolean {
+  if (!char) return false;
+  return (
+    (char >= 'a' && char <= 'z') ||
+    (char >= 'A' && char <= 'Z') ||
+    (char >= '0' && char <= '9') ||
+    char === '_' ||
+    char === '$'
+  );
+}
+
+function isWhitespace(char: string | undefined): boolean {
+  return char === ' ' || char === '\t' || char === '\n' || char === '\r';
+}
+
+function trimEndIndex(text: string): number {
+  let index = text.length - 1;
+  while (index >= 0 && isWhitespace(text[index])) {
+    index -= 1;
+  }
+  return index;
+}
+
+function endsWithContextWord(text: string, word: string): boolean {
+  const end = trimEndIndex(text);
+  const start = end - word.length + 1;
+  if (start < 0 || text.slice(start, end + 1) !== word) {
+    return false;
+  }
+
+  return !isIdentifierChar(text[start - 1]);
+}
+
+function endsWithCallName(text: string, callName: string): boolean {
+  let index = trimEndIndex(text);
+  if (text[index] !== '(') {
+    return false;
+  }
+
+  index -= 1;
+  while (index >= 0 && isWhitespace(text[index])) {
+    index -= 1;
+  }
+
+  const start = index - callName.length + 1;
+  if (start < 0 || text.slice(start, index + 1) !== callName) {
+    return false;
+  }
+
+  return !isIdentifierChar(text[start - 1]);
+}
+
+function isImportSpecifierContext(source: string, quoteIndex: number): boolean {
+  const before = source.slice(Math.max(0, quoteIndex - 160), quoteIndex);
+
+  return (
+    endsWithContextWord(before, 'from') ||
+    endsWithContextWord(before, 'import') ||
+    endsWithCallName(before, 'import') ||
+    endsWithCallName(before, 'require')
+  );
+}
+
+function readQuotedSpecifier(source: string, startIndex: number, quote: string): string | undefined {
+  let specifier = '';
+
+  for (let index = startIndex; index < source.length; index += 1) {
+    const char = source[index];
+
+    if (char === '\\') {
+      index += 1;
+      continue;
+    }
+
+    if (char === quote) {
+      return specifier;
+    }
+
+    specifier += char;
+  }
+
+  return undefined;
+}
+
+function addDzupagentSpecifier(found: Set<string>, specifier: string): void {
+  if (!specifier.startsWith('@dzupagent/')) {
+    return;
+  }
+
+  const parts = specifier.split('/');
+  const packageName = `${parts[0]}/${parts[1]}`;
+  found.add(packageName.replace('@dzupagent/', ''));
+}
+
 function extractDzupagentImports(filePath: string): Set<string> {
   const source = fs.readFileSync(filePath, 'utf8');
   const found = new Set<string>();
 
-  const importRe =
-    /(?:import\s+(?:type\s+)?(?:[^'"]+?\s+from\s+)?|export\s+(?:type\s+)?[^'"]*?\s+from\s+|import\s*\(\s*|require\s*\(\s*)['"](@dzupagent\/[^'"]+)['"]/g;
+  for (let index = 0; index < source.length; index += 1) {
+    const quote = source[index];
+    if (quote !== "'" && quote !== '"') {
+      continue;
+    }
 
-  let match: RegExpExecArray | null;
-  while ((match = importRe.exec(source)) !== null) {
-    const specifier = match[1];
-    if (!specifier) continue;
+    const specifierStart = index + 1;
+    if (!source.startsWith('@dzupagent/', specifierStart)) {
+      continue;
+    }
 
-    const parts = specifier.split('/');
-    const packageName = `${parts[0]}/${parts[1]}`;
-    found.add(packageName.replace('@dzupagent/', ''));
+    if (!isImportSpecifierContext(source, index)) {
+      continue;
+    }
+
+    const specifier = readQuotedSpecifier(source, specifierStart, quote);
+    if (specifier) {
+      addDzupagentSpecifier(found, specifier);
+    }
   }
 
   return found;

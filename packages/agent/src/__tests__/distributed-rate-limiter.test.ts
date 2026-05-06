@@ -57,6 +57,24 @@ class CountingLocal implements LocalRateLimiter {
   }
 }
 
+class WaitingLocal implements LocalRateLimiter {
+  consumed = 0
+  waited = 0
+  failWait = false
+
+  consume(): boolean {
+    this.consumed++
+    return true
+  }
+
+  async waitUntilAvailable(): Promise<void> {
+    this.waited++
+    if (this.failWait) {
+      throw new Error('local bucket exhausted')
+    }
+  }
+}
+
 describe('DistributedRateLimiter', () => {
   let client: MockClient
 
@@ -131,6 +149,36 @@ describe('DistributedRateLimiter', () => {
 
     expect(local.consumed).toBe(1)
     expect(allowed).toBe(true)
+  })
+
+  it('uses local waitUntilAvailable when fallback supports blocking waits', async () => {
+    const local = new WaitingLocal()
+    const limiter = new DistributedRateLimiter(
+      { client, maxRequests: 5, fallbackToLocal: true },
+      local,
+    )
+
+    client.failAll = true
+    const allowed = await limiter.tryConsume('t', 'a')
+
+    expect(allowed).toBe(true)
+    expect(local.waited).toBe(1)
+    expect(local.consumed).toBe(0)
+  })
+
+  it('denies when blocking local fallback cannot obtain a token', async () => {
+    const local = new WaitingLocal()
+    local.failWait = true
+    const limiter = new DistributedRateLimiter(
+      { client, maxRequests: 5, fallbackToLocal: true },
+      local,
+    )
+
+    client.failAll = true
+
+    expect(await limiter.tryConsume('t', 'a')).toBe(false)
+    expect(local.waited).toBe(1)
+    expect(local.consumed).toBe(0)
   })
 
   it('local fallback can deny when its own bucket is empty', async () => {

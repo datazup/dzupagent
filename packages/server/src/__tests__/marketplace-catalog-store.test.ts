@@ -212,6 +212,12 @@ describe('InMemoryCatalogStore', () => {
       const found = await store.getById('nonexistent')
       expect(found).toBeNull()
     })
+
+    it('returns null when the entry belongs to another tenant', async () => {
+      const created = await createEntry({ tenantId: 'tenant-a' })
+
+      await expect(store.getById(created.id, 'tenant-b')).resolves.toBeNull()
+    })
   })
 
   describe('getBySlug()', () => {
@@ -342,6 +348,17 @@ describe('InMemoryCatalogStore', () => {
       ).rejects.toThrow(CatalogNotFoundError)
     })
 
+    it('throws CatalogNotFoundError and preserves entries owned by another tenant', async () => {
+      const created = await createEntry({ name: 'Tenant A Agent', tenantId: 'tenant-a' })
+
+      await expect(
+        store.update(created.id, { name: 'Tenant B takeover' }, 'tenant-b'),
+      ).rejects.toThrow(CatalogNotFoundError)
+      await expect(store.getById(created.id, 'tenant-a')).resolves.toEqual(
+        expect.objectContaining({ name: 'Tenant A Agent', tenantId: 'tenant-a' }),
+      )
+    })
+
     it('throws CatalogSlugConflictError when slug conflicts with another entry', async () => {
       await store.create({
         slug: 'taken-slug',
@@ -431,6 +448,13 @@ describe('InMemoryCatalogStore', () => {
 
     it('throws CatalogNotFoundError for nonexistent id', async () => {
       await expect(store.delete('nonexistent')).rejects.toThrow(CatalogNotFoundError)
+    })
+
+    it('throws CatalogNotFoundError and preserves entries owned by another tenant', async () => {
+      const created = await createEntry({ tenantId: 'tenant-a' })
+
+      await expect(store.delete(created.id, 'tenant-b')).rejects.toThrow(CatalogNotFoundError)
+      await expect(store.getById(created.id, 'tenant-a')).resolves.not.toBeNull()
     })
 
     it('allows slug reuse after deletion', async () => {

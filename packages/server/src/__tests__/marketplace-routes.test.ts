@@ -12,6 +12,9 @@ import {
 import { InMemoryCatalogStore } from '../marketplace/catalog-store.js'
 import type { Hono } from 'hono'
 
+const tenantA = 'tenant-a'
+const tenantB = 'tenant-b'
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -26,12 +29,37 @@ function createTestConfig(): ForgeServerConfig {
   }
 }
 
-async function req(app: Hono, method: string, path: string, body?: unknown) {
+function createAuthenticatedApp(catalogStore = new InMemoryCatalogStore()): Hono {
+  return createForgeApp({
+    ...createTestConfig(),
+    catalogStore,
+    auth: {
+      mode: 'api-key',
+      validateKey: async (token) => ({
+        id: `key-${token}`,
+        tenantId: token,
+        role: 'admin',
+      }),
+    },
+  })
+}
+
+function authHeaders(tenantId: string): Record<string, string> {
+  return { Authorization: `Bearer ${tenantId}` }
+}
+
+async function req(
+  app: Hono,
+  method: string,
+  path: string,
+  body?: unknown,
+  headers: Record<string, string> = {},
+) {
   const init: RequestInit = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
   }
-  if (body) init.body = JSON.stringify(body)
+  if (body !== undefined) init.body = JSON.stringify(body)
   return app.request(path, init)
 }
 
@@ -142,6 +170,32 @@ describe('Marketplace routes', () => {
       const json = await res.json() as { error: { code: string } }
       expect(json.error.code).toBe('SLUG_CONFLICT')
     })
+
+    it('allows the same slug in different authenticated tenants', async () => {
+      const authApp = createAuthenticatedApp()
+
+      const first = await req(
+        authApp,
+        'POST',
+        '/api/marketplace/catalog',
+        validEntry({ slug: 'shared-agent', name: 'Tenant A Agent' }),
+        authHeaders(tenantA),
+      )
+      const second = await req(
+        authApp,
+        'POST',
+        '/api/marketplace/catalog',
+        validEntry({ slug: 'shared-agent', name: 'Tenant B Agent' }),
+        authHeaders(tenantB),
+      )
+
+      expect(first.status).toBe(201)
+      expect(second.status).toBe(201)
+      const firstJson = await first.json() as { data: { tenantId: string } }
+      const secondJson = await second.json() as { data: { tenantId: string } }
+      expect(firstJson.data.tenantId).toBe(tenantA)
+      expect(secondJson.data.tenantId).toBe(tenantB)
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -251,6 +305,23 @@ describe('Marketplace routes', () => {
       const json = await res.json() as { total: number }
       expect(json.total).toBe(0)
     })
+
+    it('scopes search results by authenticated tenant', async () => {
+      const authApp = createAuthenticatedApp()
+      await req(
+        authApp,
+        'POST',
+        '/api/marketplace/catalog',
+        validEntry({ slug: 'tenant-a-agent', name: 'Tenant A Agent' }),
+        authHeaders(tenantA),
+      )
+
+      const listA = await authApp.request('/api/marketplace/catalog', { headers: authHeaders(tenantA) })
+      const listB = await authApp.request('/api/marketplace/catalog', { headers: authHeaders(tenantB) })
+
+      expect(((await listA.json()) as { data: unknown[] }).data).toHaveLength(1)
+      expect(((await listB.json()) as { data: unknown[] }).data).toHaveLength(0)
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -276,6 +347,24 @@ describe('Marketplace routes', () => {
       const json = await res.json() as { error: { code: string } }
       expect(json.error.code).toBe('NOT_FOUND')
     })
+
+    it('hides entries owned by another authenticated tenant', async () => {
+      const authApp = createAuthenticatedApp()
+      const createRes = await req(
+        authApp,
+        'POST',
+        '/api/marketplace/catalog',
+        validEntry({ slug: 'tenant-a-agent' }),
+        authHeaders(tenantA),
+      )
+      const created = await createRes.json() as { data: { id: string } }
+
+      const res = await authApp.request(`/api/marketplace/catalog/${created.data.id}`, {
+        headers: authHeaders(tenantB),
+      })
+
+      expect(res.status).toBe(404)
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -296,6 +385,33 @@ describe('Marketplace routes', () => {
       expect(res.status).toBe(404)
       const json = await res.json() as { error: { code: string } }
       expect(json.error.code).toBe('NOT_FOUND')
+    })
+
+    it('resolves duplicate slugs within the authenticated tenant scope', async () => {
+      const authApp = createAuthenticatedApp()
+      await req(
+        authApp,
+        'POST',
+        '/api/marketplace/catalog',
+        validEntry({ slug: 'shared-agent', name: 'Tenant A Agent' }),
+        authHeaders(tenantA),
+      )
+      await req(
+        authApp,
+        'POST',
+        '/api/marketplace/catalog',
+        validEntry({ slug: 'shared-agent', name: 'Tenant B Agent' }),
+        authHeaders(tenantB),
+      )
+
+      const res = await authApp.request('/api/marketplace/catalog/by-slug/shared-agent', {
+        headers: authHeaders(tenantB),
+      })
+
+      expect(res.status).toBe(200)
+      const json = await res.json() as { data: { name: string; tenantId: string } }
+      expect(json.data.name).toBe('Tenant B Agent')
+      expect(json.data.tenantId).toBe(tenantB)
     })
   })
 
@@ -365,6 +481,34 @@ describe('Marketplace routes', () => {
       const res = await req(app, 'PATCH', `/api/marketplace/catalog/${created.data.id}`, { slug: 'taken' })
       expect(res.status).toBe(409)
     })
+
+    it('does not update entries owned by another authenticated tenant', async () => {
+      const authApp = createAuthenticatedApp()
+      const createRes = await req(
+        authApp,
+        'POST',
+        '/api/marketplace/catalog',
+        validEntry({ slug: 'tenant-a-agent', name: 'Tenant A Agent' }),
+        authHeaders(tenantA),
+      )
+      const created = await createRes.json() as { data: { id: string } }
+
+      const res = await req(
+        authApp,
+        'PATCH',
+        `/api/marketplace/catalog/${created.data.id}`,
+        { name: 'Tenant B takeover' },
+        authHeaders(tenantB),
+      )
+
+      expect(res.status).toBe(404)
+      const ownerRead = await authApp.request(`/api/marketplace/catalog/${created.data.id}`, {
+        headers: authHeaders(tenantA),
+      })
+      const json = await ownerRead.json() as { data: { name: string; tenantId: string } }
+      expect(json.data.name).toBe('Tenant A Agent')
+      expect(json.data.tenantId).toBe(tenantA)
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -389,6 +533,32 @@ describe('Marketplace routes', () => {
     it('returns 404 for nonexistent ID', async () => {
       const res = await req(app, 'DELETE', '/api/marketplace/catalog/nonexistent')
       expect(res.status).toBe(404)
+    })
+
+    it('does not delete entries owned by another authenticated tenant', async () => {
+      const authApp = createAuthenticatedApp()
+      const createRes = await req(
+        authApp,
+        'POST',
+        '/api/marketplace/catalog',
+        validEntry({ slug: 'tenant-a-agent' }),
+        authHeaders(tenantA),
+      )
+      const created = await createRes.json() as { data: { id: string } }
+
+      const res = await req(
+        authApp,
+        'DELETE',
+        `/api/marketplace/catalog/${created.data.id}`,
+        undefined,
+        authHeaders(tenantB),
+      )
+
+      expect(res.status).toBe(404)
+      const ownerRead = await authApp.request(`/api/marketplace/catalog/${created.data.id}`, {
+        headers: authHeaders(tenantA),
+      })
+      expect(ownerRead.status).toBe(200)
     })
   })
 

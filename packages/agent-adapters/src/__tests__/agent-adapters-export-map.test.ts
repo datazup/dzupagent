@@ -15,5 +15,9 @@ describe('agent-adapters export map', () => {
       import: './dist/integration/index.js',
       types: './dist/integration/index.d.ts',
     })
+    expect(packageJson.exports['./dzupagent']).toEqual({
+      import: './dist/dzupagent/index.js',
+      types: './dist/dzupagent/index.d.ts',
+    })
   })
 })

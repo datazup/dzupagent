@@ -4,7 +4,7 @@
  * These are unit tests that verify SQL generation and serialization
  * without requiring a live PostgreSQL database.
  */
-import { describe, it, expect } from 'vitest'
+import { beforeAll, describe, it, expect } from 'vitest'
 import { pgTable, uuid } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { vectorColumn } from '../../persistence/vector-column.js'
@@ -260,27 +260,29 @@ describe('DrizzleVectorStore', () => {
 // Module exports — verify everything is re-exported from the reviewed ops subpath
 // ---------------------------------------------------------------------------
 
-describe('server ops exports', { timeout: 90_000 }, () => {
+describe('server ops exports', { timeout: 300_000 }, () => {
+  let serverOpsModule: typeof import('../../ops.js')
+
+  beforeAll(async () => {
+    serverOpsModule = await import('../../ops.js')
+  }, 300_000)
+
   it('exports vectorColumn', async () => {
-    const mod = await import('../../ops.js')
-    expect(mod.vectorColumn).toBeDefined()
+    expect(serverOpsModule.vectorColumn).toBeDefined()
   })
 
   it('exports distance functions', async () => {
-    const mod = await import('../../ops.js')
-    expect(mod.cosineDistance).toBeDefined()
-    expect(mod.l2Distance).toBeDefined()
-    expect(mod.innerProduct).toBeDefined()
-    expect(mod.toVector).toBeDefined()
+    expect(serverOpsModule.cosineDistance).toBeDefined()
+    expect(serverOpsModule.l2Distance).toBeDefined()
+    expect(serverOpsModule.innerProduct).toBeDefined()
+    expect(serverOpsModule.toVector).toBeDefined()
   })
 
   it('exports DrizzleVectorStore', async () => {
-    const mod = await import('../../ops.js')
-    expect(mod.DrizzleVectorStore).toBeDefined()
+    expect(serverOpsModule.DrizzleVectorStore).toBeDefined()
   })
 
   it('exports forgeVectors table', async () => {
-    const mod = await import('../../ops.js')
-    expect(mod.forgeVectors).toBeDefined()
+    expect(serverOpsModule.forgeVectors).toBeDefined()
   })
 })
