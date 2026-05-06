@@ -18,6 +18,10 @@ export interface ConnectorTokenProfile {
   token?: string
   /** Environment variable name resolved by the server at execution time. */
   envVar?: string
+  /** Optional connector API base URL for private/enterprise deployments. */
+  baseUrl?: string
+  /** Private/loopback/link-local hosts explicitly allowed for this profile. */
+  allowedHosts?: string[]
 }
 
 export interface GitWorkspaceProfile {
@@ -177,7 +181,7 @@ export function resolveTokenProfile(
   defaultProfile: string | undefined,
   env: NodeJS.ProcessEnv | undefined,
   fallbackEnvVar: 'GITHUB_TOKEN' | 'SLACK_BOT_TOKEN',
-): { token?: string; profileName?: string; warnings: string[] } {
+): { token?: string; profile?: ConnectorTokenProfile; profileName?: string; warnings: string[] } {
   const warnings: string[] = []
   const profileName = typeof selectedProfile === 'string' && selectedProfile.trim()
     ? selectedProfile.trim()
@@ -188,9 +192,9 @@ export function resolveTokenProfile(
     const token = configuredProfile.token ?? (
       configuredProfile.envVar ? env?.[configuredProfile.envVar] : undefined
     )
-    if (token) return { token, profileName, warnings }
+    if (token) return { token, profile: configuredProfile, profileName, warnings }
     warnings.push(`${kind} connector profile "${profileName}" has no resolvable token.`)
-    return { profileName, warnings }
+    return { profile: configuredProfile, profileName, warnings }
   }
 
   if (profiles && Object.keys(profiles).length > 0) {

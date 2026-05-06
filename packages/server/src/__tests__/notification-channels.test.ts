@@ -40,6 +40,7 @@ describe('SlackNotificationChannel', () => {
   it('sends correctly formatted Slack message with blocks', async () => {
     const channel = new SlackNotificationChannel({
       webhookUrl: 'https://hooks.slack.com/services/test',
+      urlPolicy: { resolveDns: false },
     })
 
     const notification = makeNotification({ priority: 'high' })
@@ -68,6 +69,7 @@ describe('SlackNotificationChannel', () => {
   it('includes priority emoji in the message', async () => {
     const channel = new SlackNotificationChannel({
       webhookUrl: 'https://hooks.slack.com/test',
+      urlPolicy: { resolveDns: false },
     })
 
     // High priority should have red circle emoji
@@ -81,6 +83,32 @@ describe('SlackNotificationChannel', () => {
     await channel.send(makeNotification({ priority: 'low' }))
     const lowBody = JSON.parse(mockFetch.mock.calls[0]![1].body as string)
     expect(lowBody.text).toContain('\u26AA') // White circle
+  })
+
+  it('rejects private Slack webhook destinations before fetching', async () => {
+    const channel = new SlackNotificationChannel({
+      webhookUrl: 'https://127.0.0.1/hook',
+    })
+
+    await expect(channel.send(makeNotification())).rejects.toThrow('Outbound URL rejected')
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('revalidates Slack webhook redirects before following them', async () => {
+    mockFetch.mockResolvedValueOnce(new Response('', {
+      status: 302,
+      headers: { location: 'https://127.0.0.1/hook' },
+    }))
+
+    const channel = new SlackNotificationChannel({
+      webhookUrl: 'https://hooks.example.com/start',
+      urlPolicy: {
+        lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+      },
+    })
+
+    await expect(channel.send(makeNotification())).rejects.toThrow('Outbound URL rejected')
+    expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -202,6 +230,7 @@ describe('Notifier priority filtering', () => {
   it('filters notifications below minimum priority', async () => {
     const slackChannel = new SlackNotificationChannel({
       webhookUrl: 'https://hooks.slack.com/test',
+      urlPolicy: { resolveDns: false },
     })
 
     const notifier = new Notifier({

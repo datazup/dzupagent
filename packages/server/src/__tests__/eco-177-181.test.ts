@@ -264,6 +264,47 @@ describe('IncidentResponseEngine', () => {
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('https://hooks.example.com/alert')
     expect(init.method).toBe('POST')
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+    expect(record.actionsTaken[0]!.success).toBe(true)
+  })
+
+  it('webhook_notification rejects private destinations before fetching', async () => {
+    const playbook = makePlaybook({
+      actions: [{ type: 'webhook_notification', config: { url: 'https://127.0.0.1/alert' } }],
+    })
+    engine = new IncidentResponseEngine({ playbooks: [playbook] })
+
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 200 })
+    engine.setFetchImpl(mockFetch)
+
+    const record = await engine.executePlaybook(playbook, { type: 'safety:violation' })
+
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(record.actionsTaken[0]!.success).toBe(false)
+    expect(record.actionsTaken[0]!.details).toContain('Outbound URL rejected')
+  })
+
+  it('webhook_notification allows explicitly allowlisted internal destinations', async () => {
+    const playbook = makePlaybook({
+      actions: [{
+        type: 'webhook_notification',
+        config: { url: 'http://127.0.0.1:9443/alert', timeoutMs: 1000 },
+      }],
+    })
+    engine = new IncidentResponseEngine({
+      playbooks: [playbook],
+      webhookUrlPolicy: { allowedHosts: ['127.0.0.1:9443'] },
+    })
+
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+    engine.setFetchImpl(mockFetch)
+
+    const record = await engine.executePlaybook(playbook, { type: 'safety:violation' })
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('http://127.0.0.1:9443/alert')
+    expect(init.signal).toBeInstanceOf(AbortSignal)
     expect(record.actionsTaken[0]!.success).toBe(true)
   })
 

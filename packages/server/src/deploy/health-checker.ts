@@ -1,13 +1,37 @@
 /**
  * Result of a health check against a remote endpoint.
  */
+import {
+  fetchWithOutboundUrlPolicy,
+  type OutboundUrlSecurityPolicy,
+} from '@dzupagent/core'
+
 export interface HealthCheckResult {
   healthy: boolean
   statusCode?: number
   error?: string
 }
 
+export interface HealthCheckOptions {
+  /**
+   * Outbound URL policy for the probe. When omitted, the configured endpoint
+   * host is treated as deployment-owned for compatibility with internal health
+   * checks; redirects are still revalidated against the shared policy.
+   */
+  urlPolicy?: OutboundUrlSecurityPolicy
+}
+
 const DEFAULT_TIMEOUT_MS = 5000
+
+function defaultProbePolicy(url: string, explicit?: OutboundUrlSecurityPolicy): OutboundUrlSecurityPolicy | undefined {
+  if (explicit !== undefined) return explicit
+  try {
+    const parsed = new URL(url)
+    return { allowedHosts: [parsed.host] }
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Check the health of a deployed service by hitting its health endpoint.
@@ -18,6 +42,7 @@ const DEFAULT_TIMEOUT_MS = 5000
 export async function checkHealth(
   url: string,
   timeoutMs?: number,
+  options: HealthCheckOptions = {},
 ): Promise<HealthCheckResult> {
   const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS
 
@@ -25,12 +50,17 @@ export async function checkHealth(
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeout)
 
-    const response = await fetch(url, {
-      method: 'GET',
-      signal: controller.signal,
-    })
-
-    clearTimeout(timer)
+    let response: Response
+    try {
+      response = await fetchWithOutboundUrlPolicy(url, {
+        method: 'GET',
+        signal: controller.signal,
+      }, {
+        policy: defaultProbePolicy(url, options.urlPolicy),
+      })
+    } finally {
+      clearTimeout(timer)
+    }
 
     const healthy = response.status >= 200 && response.status < 300
 

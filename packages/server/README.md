@@ -365,12 +365,22 @@ const app = createForgeApp({
   githubConnectorProfiles: {
     default: { envVar: 'GITHUB_TOKEN' },
     release: { envVar: 'GITHUB_RELEASE_TOKEN' },
+    enterprise: {
+      envVar: 'GITHUB_ENTERPRISE_TOKEN',
+      baseUrl: 'https://github.internal.example/api/v3',
+      allowedHosts: ['github.internal.example'],
+    },
   },
   slackConnectorProfiles: {
     default: { envVar: 'SLACK_BOT_TOKEN' },
   },
 })
 ```
+
+Custom GitHub API origins use the shared outbound URL policy. Private,
+loopback, and link-local GitHub Enterprise origins must be explicitly listed in
+the selected profile's `allowedHosts`; otherwise the connector is left
+unresolved before any request is made.
 
 For MCP, inline `env` and `headers` remain supported only on server-owned MCP
 registrations, where API responses redact their values. Metadata-defined MCP
