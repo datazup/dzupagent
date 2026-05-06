@@ -13,7 +13,7 @@
  * SDK-specific event mapping.
  */
 
-import { ForgeError, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core'
+import { ForgeError, defaultLogger, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core'
 import type { AdapterProviderId, AgentEvent, AgentInput, TokenUsage } from '../types.js'
 
 const DEFAULT_HEARTBEAT_GAP_MS = 15_000
@@ -170,7 +170,7 @@ export class AdapterStreamRunner<TRaw> {
         if (gapMs > this.heartbeatGapMs) {
           const isHeartbeat = source.detectHeartbeat?.(raw) ?? true
           if (!isHeartbeat) {
-            console.debug('[AdapterStreamRunner] slow stream gap observed', {
+            defaultLogger.debug('[AdapterStreamRunner] slow stream gap observed', {
               providerId: source.providerId,
               gapMs,
               heartbeatGapMs: this.heartbeatGapMs,
@@ -321,7 +321,7 @@ export class AdapterStreamRunner<TRaw> {
     } catch (err: unknown) {
       // Best-effort: never break the LLM call because of audit emission.
       const msg = err instanceof Error ? err.message : String(err)
-      console.warn('[AdapterStreamRunner] audit sink failed:', msg)
+      defaultLogger.warn('[AdapterStreamRunner] audit sink failed:', msg)
     }
   }
 

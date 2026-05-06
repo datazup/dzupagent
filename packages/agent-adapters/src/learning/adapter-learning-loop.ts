@@ -7,6 +7,7 @@
  * can be exported/imported for persistence across process restarts.
  */
 
+import { defaultLogger } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 import type { AdapterProviderId } from '../types.js'
 
@@ -200,8 +201,7 @@ export class AdapterLearningLoop {
   private warnMissingTenantIdForRouting(tenantId: string | undefined): void {
     if (tenantId !== undefined) return
     if (this.records.size === 0) return
-    // eslint-disable-next-line no-console
-    console.warn(
+    defaultLogger.warn(
       '[AdapterLearningLoop] tenantId not provided — defaulting to global scope; routing decisions may be contaminated by cross-tenant data',
     )
   }

@@ -25,6 +25,7 @@ import { resolveFallbackProviderId as resolveFallbackProviderIdFromSource } from
 // Types
 // ---------------------------------------------------------------------------
 
+/** Strategy for selecting among parallel adapter responses (provider selection). Not the same as workflow-level MergeStrategy in workflow-types.ts, which controls data-shape merging of step results. */
 export type MergeStrategy = 'first-wins' | 'all' | 'best-of-n'
 
 export interface ParallelExecutorConfig {
