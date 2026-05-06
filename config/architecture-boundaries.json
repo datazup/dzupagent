@@ -116,6 +116,10 @@
           "packages/server/src/routes/run-context.ts",
           "packages/server/src/routes/run-guard.ts",
           "packages/server/src/routes/run-trace.ts",
+          "packages/server/src/routes/runs/control-handler.ts",
+          "packages/server/src/routes/runs/create-handler.ts",
+          "packages/server/src/routes/runs/list-handler.ts",
+          "packages/server/src/routes/runs/stream-handler.ts",
           "packages/server/src/routes/runs.ts",
           "packages/server/src/routes/schemas.ts"
         ]
@@ -169,6 +173,11 @@
       "internal-support": {
         "rationale": "Shared route support modules that do not create product-control-plane endpoints by themselves.",
         "files": [
+          "packages/server/src/routes/compile/json-handler.ts",
+          "packages/server/src/routes/compile/shared.ts",
+          "packages/server/src/routes/compile/sse-handler.ts",
+          "packages/server/src/routes/compile/stage-stream-handler.ts",
+          "packages/server/src/routes/runs/shared.ts",
           "packages/server/src/routes/route-error.ts",
           "packages/server/src/routes/tenant-scope.ts"
         ]
