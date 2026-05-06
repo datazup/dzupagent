@@ -8,7 +8,6 @@
  * - Debate: Multiple proposers, judge selects best
  */
 import { HumanMessage } from '@langchain/core/messages'
-import type { StructuredToolInterface } from '@langchain/core/tools'
 import { defaultLogger, type DzupEventBus } from '@dzupagent/core'
 import type { BaseSupervisorContract } from '@dzupagent/agent-types'
 import { DzupAgent } from '../agent/dzip-agent.js'
@@ -17,10 +16,16 @@ import { ContractNetManager } from './contract-net/contract-net-manager.js'
 import type { ContractNetConfig, ContractResult } from './contract-net/contract-net-types.js'
 import type { ProviderExecutionPort } from './provider-adapter/provider-execution-port.js'
 import type { RoutingPolicy, AgentSpec, AgentTask } from './routing-policy-types.js'
-import type { OrchestrationMergeStrategy, AgentResult } from './orchestration-merge-strategy-types.js'
+import type { OrchestrationMergeStrategy } from './orchestration-merge-strategy-types.js'
 import type { AgentCircuitBreaker } from './circuit-breaker.js'
 import { omitUndefined } from '../utils/exact-optional.js'
-import { isTimeoutError, recordCircuitBreakerFailure } from './circuit-breaker-recorder.js'
+import {
+  recordParallelCircuitBreakerOutcomes,
+  renderMergedParallelOutput,
+  toParallelAgentResults,
+} from './parallel-orchestration-results.js'
+import { instrumentSpecialistTool } from './specialist-tool-instrumentation.js'
+import { runAllConcurrently, runConcurrently } from './concurrency-runner.js'
 
 export interface SupervisorConfig extends BaseSupervisorContract<DzupAgent> {
   /** The manager agent that coordinates specialists */
@@ -78,91 +83,39 @@ export type MergeFn = (results: string[]) => string | Promise<string>
 const defaultMerge: MergeFn = (results) =>
   results.map((r, i) => `--- Agent ${i + 1} ---\n${r}`).join('\n\n')
 
-function instrumentSpecialistTool(
-  tool: StructuredToolInterface,
-  specialistId: string,
-  circuitBreaker: AgentCircuitBreaker | undefined,
-): StructuredToolInterface {
-  if (!circuitBreaker) return tool
-
-  const originalInvoke = tool.invoke.bind(tool)
-  const wrappedInvoke = (async (...args: Parameters<typeof tool.invoke>) => {
-    try {
-      const result = await originalInvoke(...args)
-      circuitBreaker.recordSuccess(specialistId)
-      return result
-    } catch (err: unknown) {
-      recordCircuitBreakerFailure(circuitBreaker, specialistId, err)
-      throw err
-    }
-  }) as typeof tool.invoke
-
-  // Return a shallow clone with a patched `invoke` rather than mutating the
-  // shared tool instance. Mutation would race when the same tool object is
-  // used by multiple parallel specialist calls (each clobbering the previous
-  // binding). Preserving the prototype keeps this a true StructuredToolInterface.
-  const wrapped = Object.create(
-    Object.getPrototypeOf(tool) as object,
-    Object.getOwnPropertyDescriptors(tool),
-  ) as StructuredToolInterface
-  Object.defineProperty(wrapped, 'invoke', {
-    value: wrappedInvoke,
-    writable: true,
-    configurable: true,
-    enumerable: true,
-  })
-  return wrapped
-}
-
-/**
- * Run task factories in parallel, capped at `maxConcurrency` simultaneous
- * executions. Returns allSettled-style results preserving order.
- * When `maxConcurrency` is undefined, all tasks start at once.
- */
-async function runConcurrently<T>(
-  factories: Array<() => Promise<T>>,
-  maxConcurrency: number | undefined,
-): Promise<PromiseSettledResult<T>[]> {
-  if (!maxConcurrency || maxConcurrency >= factories.length) {
-    return Promise.allSettled(factories.map(f => f()))
-  }
-  const results: PromiseSettledResult<T>[] = new Array(factories.length)
-  let next = 0
-  const runWorker = async (): Promise<void> => {
-    while (next < factories.length) {
-      const idx = next++
-      try {
-        results[idx] = { status: 'fulfilled', value: await factories[idx]!() }
-      } catch (reason) {
-        results[idx] = { status: 'rejected', reason }
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: maxConcurrency }, runWorker))
-  return results
-}
-
-/**
- * Run task factories in parallel, capped at `maxConcurrency`.
- * Rejects on first failure (mirrors Promise.all semantics).
- */
-async function runAllConcurrently<T>(
-  factories: Array<() => Promise<T>>,
-  maxConcurrency: number | undefined,
-): Promise<T[]> {
-  if (!maxConcurrency || maxConcurrency >= factories.length) {
-    return Promise.all(factories.map(f => f()))
-  }
-  const settled = await runConcurrently(factories, maxConcurrency)
-  const results: T[] = []
-  for (const s of settled) {
-    if (s.status === 'rejected') throw s.reason as Error
-    results.push(s.value)
-  }
-  return results
-}
-
 export class AgentOrchestrator {
+  /**
+   * Cache of manager-with-tools `DzupAgent` instances keyed by manager object
+   * identity and sorted specialist ids. Constructing the supervisor
+   * `DzupAgent` is non-trivial (model bind, instruction templating,
+   * tool wiring), so when a stable specialist set is reused across
+   * many supervisor() calls, we reuse the prepared instance.
+   *
+   * Invalidation:
+   * - Outer key is a `WeakMap` on the manager instance: a different
+   *   manager object is a different cache entry even if its id matches.
+   * - Inner key is the sorted specialist id list. To guard against
+   *   collisions where two distinct specialist instances share the same
+   *   id (test fixtures and pooled rebuilds), the cached entry remembers
+   *   the exact specialist instances and is invalidated if any differs.
+   *
+   * Cleanup: callers (or tests) may invoke `clearSupervisorCache()` to
+   * drop all cached entries -- e.g. on shutdown or between test cases.
+   */
+  private static supervisorAgentCache = new WeakMap<
+    DzupAgent,
+    Map<string, { agent: DzupAgent; specialists: readonly DzupAgent[] }>
+  >()
+
+  /**
+   * Clear the supervisor agent cache. Use when the lifecycle owner of
+   * AgentOrchestrator is being torn down or when underlying agent
+   * configuration is known to have changed.
+   */
+  static clearSupervisorCache(): void {
+    AgentOrchestrator.supervisorAgentCache = new WeakMap()
+  }
+
   /**
    * Run agents sequentially -- each receives the previous agent's output.
    */
@@ -222,47 +175,17 @@ export class AgentOrchestrator {
         options?.maxConcurrency,
       )
 
-      // Record circuit breaker outcomes
-      if (options.circuitBreaker) {
-        for (const [i, outcome] of settled.entries()) {
-          const agentId = effectiveAgents[i]!.id
-          if (outcome.status === 'fulfilled') {
-            options.circuitBreaker.recordSuccess(agentId)
-          } else {
-            recordCircuitBreakerFailure(options.circuitBreaker, agentId, outcome.reason)
-          }
-        }
-      }
+      recordParallelCircuitBreakerOutcomes(
+        effectiveAgents,
+        settled,
+        options.circuitBreaker,
+      )
 
       // Use OrchestrationMergeStrategy if provided
       if (options.mergeStrategy) {
-        const agentResults: AgentResult<string>[] = settled.map((outcome, i) => {
-          const agentId = effectiveAgents[i]!.id
-          if (outcome.status === 'fulfilled') {
-            return {
-              agentId,
-              status: 'success' as const,
-              output: outcome.value.content,
-            }
-          }
-          const errMsg = outcome.reason instanceof Error
-            ? outcome.reason.message
-            : String(outcome.reason)
-          return {
-            agentId,
-            status: isTimeoutError(errMsg)
-              ? ('timeout' as const)
-              : ('error' as const),
-            error: errMsg,
-          }
-        })
+        const agentResults = toParallelAgentResults(effectiveAgents, settled)
         const merged = options.mergeStrategy.merge(agentResults)
-        if (merged.output !== undefined) {
-          return typeof merged.output === 'string'
-            ? merged.output
-            : JSON.stringify(merged.output)
-        }
-        return `Merge status: ${merged.status} (no output)`
+        return renderMergedParallelOutput(merged)
       }
 
       // Fallback: collect fulfilled results for legacy merge
@@ -468,29 +391,65 @@ export class AgentOrchestrator {
       specialists = healthySpecialists
     }
 
-    // Convert each specialist into a LangChain tool
-    const specialistTools = await Promise.all(
-      specialists.map(async (s) => instrumentSpecialistTool(
-        await s.asTool(),
-        s.id,
-        circuitBreaker,
-      )),
-    )
-
     const availableSpecialists = specialists.map(s => s.id)
 
-    // Create a new manager agent instance with specialist tools injected
-    // alongside any tools the manager already has.
+    // Memoize the manager-with-tools DzupAgent per manager instance and
+    // sorted specialist ids only when specialist tools do not capture
+    // per-call circuit breaker state.
+    // Constructing the supervisor agent (and its specialist tools via asTool())
+    // is non-trivial; when callers reuse a stable specialist set across many
+    // supervisor() invocations, this avoids paying full init cost each time.
     const managerConfig = manager.agentConfig
-    const managerWithTools = new DzupAgent({
-      ...managerConfig,
-      id: `${managerConfig.id}__supervisor`,
-      tools: [...(managerConfig.tools ?? []), ...specialistTools],
-      instructions: managerConfig.instructions +
-        '\n\nYou are a supervisor agent. You have access to specialist agent tools. ' +
-        'Delegate sub-tasks to the appropriate specialist by calling their tool. ' +
-        'Synthesize specialist responses into a coherent final answer.',
-    })
+    // Build the canonical (sorted-by-id) specialist list once; both the
+    // cache key and the identity guard read from this list.
+    const canonicalSpecialists = [...specialists].sort((a, b) => a.id.localeCompare(b.id))
+    const sortedSpecialistIds = canonicalSpecialists.map(s => s.id)
+    const cacheKey = circuitBreaker ? undefined : sortedSpecialistIds.join(',')
+    const managerCache = cacheKey
+      ? AgentOrchestrator.supervisorAgentCache.get(manager)
+      : undefined
+    const cachedEntry = cacheKey ? managerCache?.get(cacheKey) : undefined
+
+    // Cache hit only if every cached specialist instance is identical
+    // (===) to the corresponding canonical specialist; otherwise the
+    // cached supervisor wraps stale tools / models.
+    const cachedSpecialistsMatch =
+      !!cachedEntry &&
+      cachedEntry.specialists.length === canonicalSpecialists.length &&
+      cachedEntry.specialists.every((s, i) => s === canonicalSpecialists[i])
+
+    let managerWithTools = cachedSpecialistsMatch ? cachedEntry.agent : undefined
+
+    if (!managerWithTools) {
+      // Convert each specialist into a LangChain tool
+      const specialistTools = await Promise.all(
+        specialists.map(async (s) => instrumentSpecialistTool(
+          await s.asTool(),
+          s.id,
+          circuitBreaker,
+        )),
+      )
+
+      // Create a new manager agent instance with specialist tools injected
+      // alongside any tools the manager already has.
+      managerWithTools = new DzupAgent({
+        ...managerConfig,
+        id: `${managerConfig.id}__supervisor`,
+        tools: [...(managerConfig.tools ?? []), ...specialistTools],
+        instructions: managerConfig.instructions +
+          '\n\nYou are a supervisor agent. You have access to specialist agent tools. ' +
+          'Delegate sub-tasks to the appropriate specialist by calling their tool. ' +
+          'Synthesize specialist responses into a coherent final answer.',
+      })
+
+      if (cacheKey) {
+        const cache = managerCache ?? new Map<string, { agent: DzupAgent; specialists: readonly DzupAgent[] }>()
+        cache.set(cacheKey, { agent: managerWithTools, specialists: canonicalSpecialists })
+        if (!managerCache) {
+          AgentOrchestrator.supervisorAgentCache.set(manager, cache)
+        }
+      }
+    }
 
     // Run the manager with the task -- the LLM will invoke specialist tools
     // via function calling, and the tool loop handles ToolMessage flow.
