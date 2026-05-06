@@ -4,6 +4,10 @@
  * Uses fetch directly (no octokit dependency). Supports token authentication
  * and GitHub Enterprise Server via configurable base URL.
  */
+import {
+  fetchWithOutboundUrlPolicy,
+  type OutboundUrlSecurityPolicy,
+} from '@dzupagent/core'
 
 // ── Types ──────────────────────────────────────────────
 
@@ -11,6 +15,8 @@ export interface GitHubClientConfig {
   token: string
   /** GitHub API base URL (default: https://api.github.com) */
   baseUrl?: string
+  /** Optional outbound URL policy for GitHub API calls. */
+  outboundUrlPolicy?: OutboundUrlSecurityPolicy
 }
 
 export interface GitHubIssue {
@@ -182,12 +188,18 @@ export interface MergePROptions {
 // ── Error ──────────────────────────────────────────────
 
 export class GitHubApiError extends Error {
+  public readonly status: number
+  public readonly body: string
+
   constructor(
-    public readonly status: number,
-    public readonly body: string,
+    status: number,
+    body: string,
   ) {
-    super(`GitHub API error ${status}: ${body.slice(0, 200)}`)
+    const redactedBody = redactSensitiveText(body)
+    super(`GitHub API error ${status}: ${redactedBody.slice(0, 200)}`)
     this.name = 'GitHubApiError'
+    this.status = status
+    this.body = redactedBody
   }
 }
 
@@ -198,9 +210,11 @@ const DEFAULT_BASE_URL = 'https://api.github.com'
 export class GitHubClient {
   private readonly baseUrl: string
   private readonly headers: Record<string, string>
+  private readonly outboundUrlPolicy: OutboundUrlSecurityPolicy | undefined
 
   constructor(config: GitHubClientConfig) {
     this.baseUrl = config.baseUrl ?? DEFAULT_BASE_URL
+    this.outboundUrlPolicy = config.outboundUrlPolicy ?? defaultGitHubOutboundPolicy(this.baseUrl)
     this.headers = {
       'Authorization': `Bearer ${config.token}`,
       'Accept': 'application/vnd.github+json',
@@ -210,9 +224,11 @@ export class GitHubClient {
 
   /** Low-level fetch helper — returns parsed JSON or throws GitHubApiError. */
   async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await fetchWithOutboundUrlPolicy(`${this.baseUrl}${path}`, {
       ...init,
       headers: { ...this.headers, ...init?.headers },
+    }, {
+      policy: this.outboundUrlPolicy,
     })
     if (!res.ok) {
       const text = await res.text()
@@ -475,4 +491,23 @@ export class GitHubClient {
       : `/repos/${owner}/${repo}/actions/runs`
     return this.request<GitHubWorkflowRunsResponse>(path)
   }
+}
+
+function defaultGitHubOutboundPolicy(baseUrl: string): OutboundUrlSecurityPolicy | undefined {
+  try {
+    const parsed = new URL(baseUrl)
+    if (parsed.hostname === 'api.github.com') {
+      return { allowedHosts: ['api.github.com'] }
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+    .replace(/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b/g, '[REDACTED_GITHUB_TOKEN]')
+    .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, '[REDACTED_GITHUB_TOKEN]')
 }

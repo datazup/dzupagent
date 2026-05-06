@@ -47,9 +47,146 @@ export const AgentCreateSchema = z.object({
   guardrails: z.record(z.string(), z.unknown()).optional(),
   approval: z.enum(['auto', 'required', 'conditional']).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-})
+}).strict()
 
 export type AgentCreateBody = z.infer<typeof AgentCreateSchema>
+
+export const AgentUpdateSchema = AgentCreateSchema.omit({ id: true }).partial().strict()
+
+export type AgentUpdateBody = z.infer<typeof AgentUpdateSchema>
+
+// ---------------------------------------------------------------------------
+// Tenant-scoped CRUD surfaces
+// ---------------------------------------------------------------------------
+
+const MetadataSchema = z.record(z.string(), z.unknown())
+
+export const TriggerCreateSchema = z.object({
+  id: z.string().min(1).optional(),
+  type: z.enum(['cron', 'webhook', 'chain']),
+  agentId: z.string().min(1),
+  schedule: z.string().min(1).optional(),
+  webhookSecret: z.string().min(1).optional(),
+  afterAgentId: z.string().min(1).optional(),
+  enabled: z.boolean().optional(),
+  metadata: MetadataSchema.optional(),
+}).strict()
+
+export type TriggerCreateBody = z.infer<typeof TriggerCreateSchema>
+
+export const TriggerEnableSchema = z.object({
+  enabled: z.boolean(),
+}).strict()
+
+export type TriggerEnableBody = z.infer<typeof TriggerEnableSchema>
+
+export const ScheduleCreateSchema = z.object({
+  id: z.string().min(1).optional(),
+  name: z.string().min(1),
+  cronExpression: z.string().min(1),
+  workflowText: z.string().min(1),
+  enabled: z.boolean().optional(),
+  metadata: MetadataSchema.optional(),
+}).strict()
+
+export type ScheduleCreateBody = z.infer<typeof ScheduleCreateSchema>
+
+export const ScheduleUpdateSchema = ScheduleCreateSchema.omit({ id: true }).partial().strict()
+
+export type ScheduleUpdateBody = z.infer<typeof ScheduleUpdateSchema>
+
+export const PersonaCreateSchema = z.object({
+  id: z.string().min(1).optional(),
+  name: z.string().min(1),
+  instructions: z.string().min(1),
+  modelId: z.string().min(1).optional(),
+  temperature: z.number().optional(),
+  metadata: MetadataSchema.optional(),
+}).strict()
+
+export type PersonaCreateBody = z.infer<typeof PersonaCreateSchema>
+
+export const PersonaUpdateSchema = PersonaCreateSchema.omit({ id: true }).partial().strict()
+
+export type PersonaUpdateBody = z.infer<typeof PersonaUpdateSchema>
+
+export const PromptCreateSchema = z.object({
+  id: z.string().min(1).optional(),
+  promptId: z.string().min(1).optional(),
+  name: z.string().min(1),
+  type: z.string().min(1),
+  category: z.string().min(1).optional(),
+  content: z.string().min(1),
+  status: z.enum(['draft', 'published', 'archived']).optional(),
+  ownerId: z.string().min(1).optional(),
+  ownerType: z.enum(['agent', 'persona']).optional(),
+  metadata: MetadataSchema.optional(),
+}).strict()
+
+export type PromptCreateBody = z.infer<typeof PromptCreateSchema>
+
+export const PromptUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  content: z.string().min(1).optional(),
+  category: z.string().min(1).optional(),
+  ownerId: z.string().min(1).optional(),
+  ownerType: z.enum(['agent', 'persona']).optional(),
+  metadata: MetadataSchema.optional(),
+}).strict()
+
+export type PromptUpdateBody = z.infer<typeof PromptUpdateSchema>
+
+export const PromptRollbackSchema = z.object({
+  targetId: z.string().min(1),
+}).strict()
+
+export type PromptRollbackBody = z.infer<typeof PromptRollbackSchema>
+
+export const MarketplaceCatalogCreateSchema = z.object({
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().nullable().optional(),
+  version: z.string().min(1),
+  tags: z.array(z.string()).optional(),
+  author: z.string().nullable().optional(),
+  readme: z.string().nullable().optional(),
+  publishedAt: z.string().nullable().optional(),
+  isPublic: z.boolean().optional(),
+}).strict()
+
+export type MarketplaceCatalogCreateBody = z.infer<typeof MarketplaceCatalogCreateSchema>
+
+export const MarketplaceCatalogUpdateSchema = MarketplaceCatalogCreateSchema.partial().strict()
+
+export type MarketplaceCatalogUpdateBody = z.infer<typeof MarketplaceCatalogUpdateSchema>
+
+export const ClusterCreateSchema = z.object({
+  clusterId: z.string().min(1).optional(),
+  workspaceType: z.string().min(1).optional(),
+  workspaceOptions: MetadataSchema.optional(),
+}).strict()
+
+export type ClusterCreateBody = z.infer<typeof ClusterCreateSchema>
+
+export const ClusterRoleCreateSchema = z.object({
+  roleId: z.string().min(1),
+  agentId: z.string().min(1),
+  capabilities: z.array(z.string()).optional(),
+}).strict()
+
+export type ClusterRoleCreateBody = z.infer<typeof ClusterRoleCreateSchema>
+
+export const ClusterMailSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  message: z.object({
+    subject: z.string().min(1),
+    body: MetadataSchema,
+    ttl: z.number().optional(),
+  }).strict(),
+}).strict()
+
+export type ClusterMailBody = z.infer<typeof ClusterMailSchema>
 
 // ---------------------------------------------------------------------------
 // /api/mcp/servers — register MCP server

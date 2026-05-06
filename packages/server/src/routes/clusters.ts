@@ -12,6 +12,12 @@ import { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import type { MailboxStore, MailMessage } from '@dzupagent/agent'
 import type { ClusterStore } from '../persistence/drizzle-cluster-store.js'
+import {
+  ClusterCreateSchema,
+  ClusterMailSchema,
+  ClusterRoleCreateSchema,
+  validateBodyCompat,
+} from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface ClusterRouteConfig {
@@ -26,11 +32,9 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
   // POST / — Create a cluster
   app.post('/', async (c) => {
     const tenantId = getRequestingTenantId(c)
-    const body = await c.req.json<{
-      clusterId?: string
-      workspaceType?: string
-      workspaceOptions?: Record<string, unknown>
-    }>()
+    const parsed = await validateBodyCompat(c, ClusterCreateSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
     const clusterId = body.clusterId ?? randomUUID()
 
@@ -86,18 +90,9 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
   app.post('/:id/roles', async (c) => {
     const clusterId = c.req.param('id')
     const tenantId = getRequestingTenantId(c)
-    const body = await c.req.json<{
-      roleId: string
-      agentId: string
-      capabilities?: string[]
-    }>()
-
-    if (!body.roleId || !body.agentId) {
-      return c.json(
-        { error: { code: 'BAD_REQUEST', message: 'roleId and agentId are required' } },
-        400,
-      )
-    }
+    const parsed = await validateBodyCompat(c, ClusterRoleCreateSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
     try {
       await clusterStore.addRole(
@@ -153,25 +148,9 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
   app.post('/:id/mail', async (c) => {
     const clusterId = c.req.param('id')
     const tenantId = getRequestingTenantId(c)
-    const body = await c.req.json<{
-      from: string
-      to: string
-      message: { subject: string; body: Record<string, unknown>; ttl?: number }
-    }>()
-
-    if (!body.from || !body.to || !body.message) {
-      return c.json(
-        { error: { code: 'BAD_REQUEST', message: 'from, to, and message are required' } },
-        400,
-      )
-    }
-
-    if (!body.message.subject || !body.message.body) {
-      return c.json(
-        { error: { code: 'BAD_REQUEST', message: 'message must include subject and body' } },
-        400,
-      )
-    }
+    const parsed = await validateBodyCompat(c, ClusterMailSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
     // Look up the cluster and roles
     const cluster = await clusterStore.findById(clusterId, tenantId)

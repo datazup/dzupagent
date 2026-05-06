@@ -5,6 +5,7 @@
  */
 import { Hono } from 'hono'
 import type { ScheduleStore } from '../schedules/schedule-store.js'
+import { ScheduleCreateSchema, ScheduleUpdateSchema, validateBodyCompat } from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface ScheduleRouteConfig {
@@ -19,21 +20,9 @@ export function createScheduleRoutes(config: ScheduleRouteConfig): Hono {
   // --- Create schedule ---
   app.post('/', async (c) => {
     const tenantId = getRequestingTenantId(c)
-    const body = await c.req.json<{
-      id?: string
-      name: string
-      cronExpression: string
-      workflowText: string
-      enabled?: boolean
-      metadata?: Record<string, unknown>
-    }>()
-
-    if (!body.name || !body.cronExpression || !body.workflowText) {
-      return c.json(
-        { error: { code: 'BAD_REQUEST', message: 'name, cronExpression, and workflowText are required' } },
-        400,
-      )
-    }
+    const parsed = await validateBodyCompat(c, ScheduleCreateSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
     const id = body.id ?? crypto.randomUUID()
     const schedule = await config.scheduleStore.save({
@@ -74,17 +63,12 @@ export function createScheduleRoutes(config: ScheduleRouteConfig): Hono {
 
   // --- Update schedule ---
   app.put('/:id', async (c) => {
-    const body = await c.req.json<{
-      name?: string
-      cronExpression?: string
-      workflowText?: string
-      enabled?: boolean
-      metadata?: Record<string, unknown>
-    }>()
+    const parsed = await validateBodyCompat(c, ScheduleUpdateSchema)
+    if (parsed instanceof Response) return parsed
 
     const schedule = await config.scheduleStore.update(
       c.req.param('id'),
-      body,
+      parsed,
       getRequestingTenantId(c),
     )
     if (!schedule) {

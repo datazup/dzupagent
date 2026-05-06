@@ -51,6 +51,7 @@
     "@dzupagent/hitl-kit": "0.2.0",
     "@dzupagent/memory-ipc": "0.2.0",
     "@dzupagent/otel": "0.2.0",
+    "@dzupagent/security": "0.2.0",
     "@langchain/core": "^1.1.39",
     "commander": "^12.1.0",
     "drizzle-orm": "^0.45.2",

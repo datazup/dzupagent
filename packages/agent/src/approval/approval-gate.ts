@@ -20,8 +20,14 @@
  * if (result === 'rejected') throw new Error('Run rejected')
  * ```
  */
-import { randomUUID } from 'node:crypto'
-import type { DzupEventBus, HookContext, ApprovalRequest, ContactChannel } from '@dzupagent/core'
+import { createHmac, randomUUID } from 'node:crypto'
+import {
+  fetchWithOutboundUrlPolicy,
+  type DzupEventBus,
+  type HookContext,
+  type ApprovalRequest,
+  type ContactChannel,
+} from '@dzupagent/core'
 import {
   APPROVAL_PENDING_KEY,
   DEFAULT_APPROVAL_TIMEOUT_MS,
@@ -294,10 +300,13 @@ export class ApprovalGate {
         await new Promise<void>((r) => setTimeout(r, delays[attempt - 1]! + jitter).unref())
       }
       try {
-        const res = await fetch(webhookUrl, {
+        const headers = this.buildWebhookHeaders(body)
+        const res = await fetchWithOutboundUrlPolicy(webhookUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body,
+        }, {
+          policy: this.config.webhookOutboundUrlPolicy,
         })
         if (res.ok) return
         lastError = new Error(`webhook returned ${res.status}`)
@@ -319,6 +328,19 @@ export class ApprovalGate {
         // DLQ callback errors must not surface to the caller
       }
     }
+  }
+
+  private buildWebhookHeaders(body: string): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (!this.config.webhookSigningSecret) return headers
+
+    const timestamp = Math.floor(Date.now() / 1000).toString()
+    const signature = createHmac('sha256', this.config.webhookSigningSecret)
+      .update(`${timestamp}.${body}`)
+      .digest('hex')
+    headers['X-DzupAgent-Timestamp'] = timestamp
+    headers['X-DzupAgent-Signature'] = `sha256=${signature}`
+    return headers
   }
 }
 

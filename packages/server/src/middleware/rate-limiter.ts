@@ -10,6 +10,7 @@
  * the tier-specific limits are applied instead of the global defaults.
  */
 import type { MiddlewareHandler } from 'hono'
+import { KeyedTokenBucketRateLimiter } from '@dzupagent/security'
 
 import type { AppEnv } from '../types.js'
 
@@ -50,11 +51,6 @@ export interface RateLimiterConfig {
   tiers?: Record<string, RateLimiterTierConfig>
 }
 
-interface BucketEntry {
-  tokens: number
-  lastRefill: number
-}
-
 const DEFAULT_CONFIG: RateLimiterConfig = {
   maxRequests: 100,
   windowMs: 60_000,
@@ -92,52 +88,33 @@ export function extractDefaultRateLimitKey(
 }
 
 export class TokenBucketLimiter {
-  private buckets = new Map<string, BucketEntry>()
+  private readonly buckets: KeyedTokenBucketRateLimiter
   private readonly config: RateLimiterConfig
   private cleanupTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(config?: Partial<RateLimiterConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config }
+    this.buckets = new KeyedTokenBucketRateLimiter({
+      capacity: this.config.maxRequests,
+      refillPerMs: this.config.maxRequests / this.config.windowMs,
+    })
     // Periodic cleanup of expired buckets
     this.cleanupTimer = setInterval(() => this.cleanup(), this.config.windowMs * 2)
   }
 
   /** Try to consume a token. Returns remaining tokens or -1 if rate limited. */
   consume(key: string): { allowed: boolean; remaining: number; resetMs: number } {
-    const now = Date.now()
-    let entry = this.buckets.get(key)
-
-    if (!entry) {
-      entry = { tokens: this.config.maxRequests, lastRefill: now }
-      this.buckets.set(key, entry)
+    const result = this.buckets.consume(key)
+    return {
+      allowed: result.allowed,
+      remaining: result.remaining,
+      resetMs: result.retryAfterMs,
     }
-
-    // Refill tokens based on elapsed time
-    const elapsed = now - entry.lastRefill
-    const refillRate = this.config.maxRequests / this.config.windowMs
-    const refill = Math.floor(elapsed * refillRate)
-    if (refill > 0) {
-      entry.tokens = Math.min(this.config.maxRequests, entry.tokens + refill)
-      entry.lastRefill = now
-    }
-
-    const resetMs = Math.ceil((1 / refillRate)) // ms until next token
-    if (entry.tokens > 0) {
-      entry.tokens--
-      return { allowed: true, remaining: entry.tokens, resetMs }
-    }
-
-    return { allowed: false, remaining: 0, resetMs }
   }
 
   /** Clean up stale entries */
   private cleanup(): void {
-    const cutoff = Date.now() - this.config.windowMs * 2
-    for (const [key, entry] of this.buckets) {
-      if (entry.lastRefill < cutoff) {
-        this.buckets.delete(key)
-      }
-    }
+    this.buckets.evictIdle(this.config.windowMs * 2)
   }
 
   /** Stop the cleanup timer */

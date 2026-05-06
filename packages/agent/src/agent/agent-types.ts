@@ -415,7 +415,7 @@ export interface DzupAgentConfig {
    *   `PromptInjectionBlockedError`.
    * - `promptInjection: 'warn'` — matched spans are rewritten with
    *   `[REDACTED-INJECTION]` before reaching the model.
-   * - `promptInjection: 'off'` — no scanning (legacy behaviour).
+   * - `promptInjection: 'off'` — no scanning (explicit compatibility opt-out).
    * - `pii: 'redact'` — final response content is sanitized before
    *   memory write-back so SSN / CC / IBAN / JWT / API-key values never
    *   land on disk.
@@ -423,8 +423,8 @@ export interface DzupAgentConfig {
    *   non-fatal to the run; failure is emitted on `eventBus`).
    * - `pii: 'off'` — no scanning (legacy behaviour).
    *
-   * Omitting the field preserves the legacy unscanned behaviour. Hosts
-   * that want hardening should opt in explicitly per environment.
+   * Omitting `promptInjection` defaults to `'warn'` so suspicious user input
+   * is sanitized before model invocation without failing legacy flows.
    */
   security?: {
     promptInjection?: 'off' | 'warn' | 'block'

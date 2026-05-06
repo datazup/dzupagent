@@ -26,7 +26,22 @@ export type {
 } from './prompt-injection/index.js'
 
 export { PII_PATTERNS, PiiDetector } from './pii/index.js'
-export type { PiiScanResult } from './pii/index.js'
+export type {
+  PiiCanonicalType,
+  PiiDetailedScanResult,
+  PiiMatch,
+  PiiScanResult,
+} from './pii/index.js'
+
+export {
+  FixedWindowRateLimiter,
+  KeyedTokenBucketRateLimiter,
+} from './rate-limit/index.js'
+export type {
+  FixedWindowRateLimiterConfig,
+  KeyedTokenBucketConfig,
+  TokenBucketConsumeResult,
+} from './rate-limit/index.js'
 
 export { ContentScanner } from './content-scanner.js'
 export type {

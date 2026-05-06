@@ -205,8 +205,9 @@ export class DrizzleClusterStore implements ClusterStore {
     const result = await this.db
       .delete(agentClusters)
       .where(and(...conditions))
+      .returning({ id: agentClusters.id })
 
-    return ((result as { rowCount?: number }).rowCount ?? 0) > 0
+    return Array.isArray(result) && result.length > 0
   }
 
   async addRole(clusterId: string, role: ClusterRole, tenantId?: string): Promise<void> {
@@ -237,8 +238,9 @@ export class DrizzleClusterStore implements ClusterStore {
           eq(clusterRoles.roleId, roleId),
         ),
       )
+      .returning({ roleId: clusterRoles.roleId })
 
-    return ((result as { rowCount?: number }).rowCount ?? 0) > 0
+    return Array.isArray(result) && result.length > 0
   }
 
   async listRoles(clusterId: string, tenantId?: string): Promise<ClusterRole[]> {

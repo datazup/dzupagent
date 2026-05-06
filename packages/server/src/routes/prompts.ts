@@ -7,6 +7,12 @@
  */
 import { Hono } from 'hono'
 import type { PromptStore, PromptStatus } from '../prompts/prompt-store.js'
+import {
+  PromptCreateSchema,
+  PromptRollbackSchema,
+  PromptUpdateSchema,
+  validateBodyCompat,
+} from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface PromptRouteConfig {
@@ -19,25 +25,9 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
   // --- Create prompt version ---
   app.post('/', async (c) => {
     const tenantId = getRequestingTenantId(c)
-    const body = await c.req.json<{
-      id?: string
-      promptId?: string
-      name: string
-      type: string
-      category?: string
-      content: string
-      status?: PromptStatus
-      ownerId?: string
-      ownerType?: 'agent' | 'persona'
-      metadata?: Record<string, unknown>
-    }>()
-
-    if (!body.name || !body.type || !body.content) {
-      return c.json(
-        { error: { code: 'BAD_REQUEST', message: 'name, type, and content are required' } },
-        400,
-      )
-    }
+    const parsed = await validateBodyCompat(c, PromptCreateSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
     const id = body.id ?? crypto.randomUUID()
     const promptId = body.promptId ?? id
@@ -101,14 +91,8 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
 
   // --- Update prompt version metadata (draft only) ---
   app.put('/:id', async (c) => {
-    const body = await c.req.json<{
-      name?: string
-      content?: string
-      category?: string
-      ownerId?: string
-      ownerType?: 'agent' | 'persona'
-      metadata?: Record<string, unknown>
-    }>()
+    const parsed = await validateBodyCompat(c, PromptUpdateSchema)
+    if (parsed instanceof Response) return parsed
 
     const tenantId = getRequestingTenantId(c)
     const existing = await config.promptStore.get(c.req.param('id'), tenantId)
@@ -122,7 +106,7 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
       )
     }
 
-    const updated = await config.promptStore.update(c.req.param('id'), body, tenantId)
+    const updated = await config.promptStore.update(c.req.param('id'), parsed, tenantId)
     return c.json(updated)
   })
 
@@ -146,18 +130,16 @@ export function createPromptRoutes(config: PromptRouteConfig): Hono {
 
   // --- Rollback to a prior version ---
   app.post('/rollback/:promptId', async (c) => {
-    const body = await c.req.json<{ targetId: string }>()
-    if (!body.targetId) {
-      return c.json({ error: { code: 'BAD_REQUEST', message: 'targetId is required' } }, 400)
-    }
+    const parsed = await validateBodyCompat(c, PromptRollbackSchema)
+    if (parsed instanceof Response) return parsed
 
     const tenantId = getRequestingTenantId(c)
-    const target = await config.promptStore.get(body.targetId, tenantId)
+    const target = await config.promptStore.get(parsed.targetId, tenantId)
     if (!target || target.promptId !== c.req.param('promptId')) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Target version not found for this promptId' } }, 404)
     }
 
-    const result = await config.promptStore.rollback(c.req.param('promptId'), body.targetId, tenantId)
+    const result = await config.promptStore.rollback(c.req.param('promptId'), parsed.targetId, tenantId)
     return c.json(result)
   })
 
