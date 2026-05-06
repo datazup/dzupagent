@@ -105,10 +105,11 @@ export class TokenBucketLimiter {
   /** Try to consume a token. Returns remaining tokens or -1 if rate limited. */
   consume(key: string): { allowed: boolean; remaining: number; resetMs: number } {
     const result = this.buckets.consume(key)
+    const perTokenResetMs = Math.ceil(this.config.windowMs / this.config.maxRequests)
     return {
       allowed: result.allowed,
       remaining: result.remaining,
-      resetMs: result.retryAfterMs,
+      resetMs: result.retryAfterMs > 0 ? result.retryAfterMs : perTokenResetMs,
     }
   }
 
