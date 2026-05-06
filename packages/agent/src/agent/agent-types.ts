@@ -9,6 +9,7 @@ import type {
   ModelRegistry,
   AgentMiddleware,
   DzupEventBus,
+  PermissionTier,
   StructuredOutputModelCapabilities,
   ToolGovernance,
   SafetyMonitor,
@@ -58,6 +59,17 @@ export interface DzupAgentConfig {
   registry?: ModelRegistry
   /** Tools available to this agent */
   tools?: StructuredToolInterface[]
+  /**
+   * Permission tier for this agent (MC-AGT-05).
+   *
+   * Tools tagged with a higher `requiredTier` (via `setToolTier()` from
+   * `@dzupagent/agent/tools/tool-tier-registry`) are filtered out at agent
+   * construction time — the model never sees them. Untagged tools default
+   * to `'read-only'`, so an agent on any tier can invoke them.
+   *
+   * Default: `'read-only'` (most restrictive).
+   */
+  permissionTier?: PermissionTier
   /** Middleware hooks (cost tracking, observability, etc.) */
   middleware?: AgentMiddleware[]
   /**
