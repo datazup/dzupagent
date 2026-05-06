@@ -7,6 +7,7 @@
  *
  * Implemented as a server lifecycle hook (start/stop), not a cron job.
  */
+import { defaultLogger } from '@dzupagent/core'
 import type { RunStore, Run } from '@dzupagent/core'
 
 export interface HumanContactTimeoutConfig {
@@ -75,7 +76,7 @@ export class HumanContactTimeoutScheduler {
       }
     } catch (err) {
       // Non-fatal: log and continue
-      console.error('[HumanContactTimeoutScheduler] Error checking expired contacts:', err)
+      defaultLogger.error('[HumanContactTimeoutScheduler] Error checking expired contacts:', err)
     }
   }
 }
