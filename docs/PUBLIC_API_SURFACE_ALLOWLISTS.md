@@ -16,7 +16,7 @@ Generated from package root facades plus `config/public-api-allowlists.json` and
 
 Root index: `packages/security/src/index.ts`
 
-- Stable root sources: `4`
+- Stable root sources: `5`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Security package root exports are the primary consumption surface; all exports are stable from initial release.
@@ -33,13 +33,14 @@ No stable subpaths configured.
 | `stable` | `./pii/index.js` | 6 | `exact:./pii/index.js` | `PII_PATTERNS`, `PiiDetector`, `PiiCanonicalType`, `PiiDetailedScanResult` |
 | `stable` | `./rate-limit/index.js` | 5 | `exact:./rate-limit/index.js` | `FixedWindowRateLimiter`, `KeyedTokenBucketRateLimiter`, `FixedWindowRateLimiterConfig`, `KeyedTokenBucketConfig` |
 | `stable` | `./content-scanner.js` | 6 | `exact:./content-scanner.js` | `ContentScanner`, `ContentScannerConfig`, `ContentScanResult`, `ContentScanVerdict` |
+| `stable` | `./policy-config.js` | 1 | `exact:./policy-config.js` | `SecurityPolicyConfig` |
 
 ## @dzupagent/core
 
 Root index: `packages/core/src/index.ts`
 
-- Stable root sources: `47`
-- Deprecated transitional root sources: `82`
+- Stable root sources: `48`
+- Deprecated transitional root sources: `83`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
 
@@ -155,7 +156,8 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./security/output-pipeline.js` | 5 | `prefix:./security/` | `OutputPipeline`, `createDefaultPipeline`, `SanitizationStage`, `OutputPipelineConfig` |
 | `stable` | `./security/audit/index.js` | 11 | `prefix:./security/` | `InMemoryAuditStore`, `ComplianceAuditLogger`, `AuditActorType`, `AuditActor` |
 | `stable` | `./security/policy/index.js` | 15 | `prefix:./security/` | `InMemoryPolicyStore`, `PolicyEvaluator`, `PolicyTranslator`, `PolicyEffect` |
-| `stable` | `./security/monitor/index.js` | 9 | `prefix:./security/` | `createSafetyMonitor`, `getBuiltInRules`, `SafetyMonitor`, `SafetyMonitorConfig` |
+| `stable` | `./security/monitor/index.js` | 11 | `prefix:./security/` | `createSafetyMonitor`, `getBuiltInRules`, `SafetyMonitor`, `SafetyMonitorConfig` |
+| `stable` | `@dzupagent/security` | 1 | `exact:@dzupagent/security` | `SecurityPolicyConfig` |
 | `stable` | `./security/memory/index.js` | 7 | `prefix:./security/` | `createMemoryDefense`, `MemoryDefense`, `MemoryDefenseConfig`, `MemoryDefenseResult` |
 | `stable` | `./security/output/index.js` | 3 | `prefix:./security/` | `createHarmfulContentFilter`, `createClassificationAwareRedactor`, `HarmfulContentCategory` |
 | `stable` | `./security/classification/index.js` | 6 | `prefix:./security/` | `DataClassifier`, `DEFAULT_CLASSIFICATION_PATTERNS`, `ClassificationLevel`, `DataClassificationTag` |
@@ -178,6 +180,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./vectordb/index.js` | 45 | `prefix:./vectordb/` | `DistanceMetric`, `CollectionConfig`, `VectorEntry`, `VectorQuery` |
 | `deprecated-transitional` | `./tools/connector-contract.js` | 5 | `prefix:./tools/` | `BaseConnectorTool`, `BaseConnectorToolLike`, `isBaseConnectorTool`, `normalizeBaseConnectorTool` |
 | `deprecated-transitional` | `./tools/create-tool.js` | 2 | `prefix:./tools/` | `createForgeTool`, `ForgeToolConfig` |
+| `deprecated-transitional` | `./tools/permission-tier.js` | 2 | `prefix:./tools/` | `tierSatisfies`, `PermissionTier` |
 | `deprecated-transitional` | `./tools/tool-stats-tracker.js` | 5 | `prefix:./tools/` | `ToolStatsTracker`, `ToolCallRecord`, `ToolStats`, `ToolRanking` |
 | `deprecated-transitional` | `./tools/tool-governance.js` | 9 | `prefix:./tools/` | `ToolGovernance`, `ToolGovernanceConfig`, `ToolValidationResult`, `ToolAuditHandler` |
 | `deprecated-transitional` | `./tools/human-contact-types.js` | 17 | `prefix:./tools/` | `ContactType`, `ContactChannel`, `ApprovalRequest`, `ClarificationRequest` |
@@ -195,7 +198,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `13`
-- Deprecated transitional root sources: `109`
+- Deprecated transitional root sources: `110`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
@@ -265,6 +268,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./agent/tool-registry.js` | 2 | `prefix:./agent/` | `DynamicToolRegistry`, `ToolRegistryEvent` |
 | `stable` | `./tools/create-tool.js` | 2 | `exact:./tools/create-tool.js` | `createForgeTool`, `ForgeToolConfig` |
 | `deprecated-transitional` | `./tools/human-contact-tool.js` | 5 | `prefix:./tools/` | `createHumanContactTool`, `InMemoryPendingContactStore`, `HumanContactInput`, `HumanContactToolConfig` |
+| `deprecated-transitional` | `./tools/tool-tier-registry.js` | 4 | `prefix:./tools/` | `setToolTier`, `getToolTier`, `filterToolsByTier`, `DEFAULT_TOOL_TIER` |
 | `deprecated-transitional` | `./agent/agent-state.js` | 4 | `prefix:./agent/` | `serializeMessages`, `deserializeMessages`, `AgentStateSnapshot`, `SerializedMessage` |
 | `deprecated-transitional` | `./snapshot/agent-snapshot.js` | 6 | `prefix:./snapshot/` | `createSnapshot`, `verifySnapshot`, `compressSnapshot`, `decompressSnapshot` |
 | `deprecated-transitional` | `./snapshot/serialized-message.js` | 4 | `prefix:./snapshot/` | `serializeMessage`, `migrateMessages`, `SerializedMessage`, `MultimodalContent` |
