@@ -2227,6 +2227,75 @@ describe('Learning routes', () => {
   })
 
   describe('TenantId from context', () => {
+    it('authenticated apiKey tenantId wins over legacy tenantId context and defaultTenantId', async () => {
+      await memoryService.put('lessons', { tenantId: 'auth-tenant' }, 'lesson-auth', {
+        text: 'Authenticated tenant lesson', importance: 5,
+      })
+      await memoryService.put('lessons', { tenantId: 'legacy-tenant' }, 'lesson-legacy', {
+        text: 'Legacy tenant lesson', importance: 4,
+      })
+      await memoryService.put('lessons', scope, 'lesson-default', {
+        text: 'Default tenant lesson', importance: 3,
+      })
+
+      const ctxApp = new Hono()
+      ctxApp.use('*', async (c, next) => {
+        c.set('apiKey', { id: 'key-auth', tenantId: 'auth-tenant' })
+        c.set('tenantId', 'legacy-tenant')
+        await next()
+      })
+      ctxApp.route('/api/learning', createLearningRoutes({ memoryService, defaultTenantId: 'test-tenant' }))
+
+      const res = await ctxApp.request('/api/learning/lessons')
+      const body = (await res.json()) as { data: Array<{ text: string }> }
+      expect(body.data).toHaveLength(1)
+      expect(body.data[0]!.text).toBe('Authenticated tenant lesson')
+    })
+
+    it('writes learning feedback and ingested lessons under authenticated apiKey tenantId', async () => {
+      const authApp = new Hono()
+      authApp.use('*', async (c, next) => {
+        c.set('apiKey', { id: 'key-a', tenantId: 'tenant-a' })
+        await next()
+      })
+      authApp.route('/api/learning', createLearningRoutes({ memoryService, defaultTenantId: 'test-tenant' }))
+
+      const otherApp = new Hono()
+      otherApp.use('*', async (c, next) => {
+        c.set('apiKey', { id: 'key-b', tenantId: 'tenant-b' })
+        await next()
+      })
+      otherApp.route('/api/learning', createLearningRoutes({ memoryService, defaultTenantId: 'test-tenant' }))
+
+      const feedback = await authApp.request('/api/learning/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: 'run-auth', approved: true, feedback: 'good' }),
+      })
+      expect(feedback.status).toBe(200)
+
+      const ingest = await authApp.request('/api/learning/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runId: 'run-auth',
+          score: 0.8,
+          patterns: [{ pattern: 'tenant-specific pattern', context: 'auth', confidence: 0.9 }],
+        }),
+      })
+      expect(ingest.status).toBe(200)
+
+      const lessonsA = await authApp.request('/api/learning/lessons')
+      expect(((await lessonsA.json()) as { data: unknown[] }).data).toHaveLength(1)
+      const feedbackStatsA = await authApp.request('/api/learning/feedback/stats')
+      expect(((await feedbackStatsA.json()) as { data: { total: number } }).data.total).toBe(1)
+
+      const lessonsB = await otherApp.request('/api/learning/lessons')
+      expect(((await lessonsB.json()) as { data: unknown[] }).data).toHaveLength(0)
+      const feedbackStatsB = await otherApp.request('/api/learning/feedback/stats')
+      expect(((await feedbackStatsB.json()) as { data: { total: number } }).data.total).toBe(0)
+    })
+
     it('when context has tenantId, routes use it instead of defaultTenantId', async () => {
       const ctxTenantId = 'ctx-tenant-42'
       const ctxScope = { tenantId: ctxTenantId }

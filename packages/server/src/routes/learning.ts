@@ -138,10 +138,22 @@ export function createLearningRoutes(config: LearningRouteConfig): Hono<AppEnv> 
       : DEFAULT_INGEST_TTL_MS
 
   /**
-   * Resolve tenantId — check Hono context variable first, fall back to config.
-   * The auth middleware may set `tenantId` on the context.
+   * Resolve tenantId from the same authenticated API key metadata used by the
+   * rest of the route families. The legacy `tenantId` context variable remains
+   * supported for older hosts that mounted learning routes directly.
    */
   function getTenantId(c: { get(key: string): unknown }): string {
+    const key = c.get('apiKey')
+    if (key && typeof key === 'object') {
+      const apiKey = key as Record<string, unknown>
+      const tenantId = apiKey['tenantId']
+      if (typeof tenantId === 'string' && tenantId.length > 0) return tenantId
+      const ownerId = apiKey['ownerId']
+      if (typeof ownerId === 'string' && ownerId.length > 0) return ownerId
+      const id = apiKey['id']
+      if (typeof id === 'string' && id.length > 0) return id
+    }
+
     const fromCtx = c.get('tenantId')
     return typeof fromCtx === 'string' && fromCtx.length > 0 ? fromCtx : defaultTenantId
   }
