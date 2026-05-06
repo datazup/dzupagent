@@ -8,6 +8,7 @@
  * 4. Close DB/MCP/WS connections
  * 5. Mark interrupted runs as 'cancelled'
  */
+import { defaultLogger } from '@dzupagent/core'
 import type { RunStore } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 import type { EventBridge } from '../ws/event-bridge.js'
@@ -77,7 +78,7 @@ export class GracefulShutdown {
 
   private async performShutdown(): Promise<void> {
      
-    console.log('[ForgeServer] Initiating graceful shutdown...')
+    defaultLogger.info('[ForgeServer] Initiating graceful shutdown...')
     this.state = 'draining'
 
     this.config.eventBus.emit({
@@ -89,7 +90,7 @@ export class GracefulShutdown {
     // Wait for in-progress runs with timeout
     if (this.activeRunIds.size > 0) {
        
-      console.log(`[ForgeServer] Waiting for ${this.activeRunIds.size} active run(s)...`)
+      defaultLogger.info(`[ForgeServer] Waiting for ${this.activeRunIds.size} active run(s)...`)
 
       await Promise.race([
         this.waitForActiveRuns(),
@@ -100,7 +101,7 @@ export class GracefulShutdown {
     // Mark any remaining runs as cancelled
     if (this.activeRunIds.size > 0) {
        
-      console.log(`[ForgeServer] Cancelling ${this.activeRunIds.size} remaining run(s)`)
+      defaultLogger.info(`[ForgeServer] Cancelling ${this.activeRunIds.size} remaining run(s)`)
 
       const cancelPromises = [...this.activeRunIds].map(async (runId) => {
         try {
@@ -131,7 +132,7 @@ export class GracefulShutdown {
 
     this.state = 'stopped'
      
-    console.log('[ForgeServer] Shutdown complete.')
+    defaultLogger.info('[ForgeServer] Shutdown complete.')
     process.exit(0)
   }
 

@@ -19,6 +19,7 @@
 import type { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import { cors } from 'hono/cors'
+import { defaultLogger } from '@dzupagent/core'
 
 import type { ForgeServerConfig, JsonBodyLimitConfig, SecurityHeadersConfig } from './types.js'
 import { authMiddleware, type AuthConfig } from '../middleware/auth.js'
@@ -387,7 +388,7 @@ function applyErrorHandler(app: Hono<AppEnv>, config: ForgeServerConfig): void {
   app.onError((err, c) => {
     const message = err instanceof Error ? err.message : String(err)
 
-    console.error(`[ForgeServer] ${c.req.method} ${c.req.path}: ${message}`)
+    defaultLogger.error(`[ForgeServer] ${c.req.method} ${c.req.path}: ${message}`)
     config.metrics?.increment('http_errors_total', { path: c.req.path })
     return c.json(
       { error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } },
