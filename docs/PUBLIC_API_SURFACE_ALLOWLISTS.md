@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-05-05
+Date: 2026-05-06
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -37,7 +37,7 @@ No stable subpaths configured.
 
 Root index: `packages/core/src/index.ts`
 
-- Stable root sources: `44`
+- Stable root sources: `45`
 - Deprecated transitional root sources: `82`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
@@ -61,7 +61,8 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./errors/forge-error.js` | 2 | `prefix:./errors/` | `ForgeError`, `ForgeErrorOptions` |
 | `stable` | `./errors/error-codes.js` | 1 | `prefix:./errors/` | `ForgeErrorCode` |
 | `stable` | `./events/event-bus.js` | 3 | `prefix:./events/` | `createEventBus`, `typedEmit`, `DzupEventBus` |
-| `stable` | `./events/event-types.js` | 8 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DzupEvent`, `DzupEventOf` |
+| `stable` | `./events/event-types.js` | 9 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DzupEvent`, `DzupEventOf` |
+| `stable` | `./events/llm-audit-bridge.js` | 2 | `prefix:./events/` | `attachLlmAuditEventBridge`, `LlmAuditSink` |
 | `stable` | `./events/degraded-operation.js` | 1 | `prefix:./events/` | `emitDegradedOperation` |
 | `stable` | `./events/tool-event-correlation.js` | 3 | `prefix:./events/` | `requireTerminalToolExecutionRunId`, `TerminalToolExecutionRunIdOptions`, `TerminalToolEventType` |
 | `stable` | `./events/agent-bus.js` | 3 | `prefix:./events/` | `AgentBus`, `AgentMessage`, `AgentMessageHandler` |

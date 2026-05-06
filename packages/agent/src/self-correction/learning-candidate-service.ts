@@ -42,26 +42,38 @@ export interface RejectResult {
 export class LearningCandidateService {
   constructor(private readonly feedback: RecoveryFeedback) {}
 
+  private matchesTenant(candidate: LearningCandidate, tenantId: string): boolean {
+    return (candidate.lesson.tenantId ?? 'default') === tenantId
+  }
+
   /**
    * List all pending candidates awaiting operator review.
    */
-  listPending(): LearningCandidate[] {
-    return this.feedback.listPendingCandidates()
+  listPending(tenantId = 'default'): LearningCandidate[] {
+    return this.feedback
+      .listPendingCandidates()
+      .filter((candidate) => this.matchesTenant(candidate, tenantId))
   }
 
   /**
    * Get a single candidate by ID (any status).
    * Returns undefined if not found.
    */
-  get(candidateId: string): LearningCandidate | undefined {
-    return this.feedback.getCandidate(candidateId)
+  get(candidateId: string, tenantId = 'default'): LearningCandidate | undefined {
+    const candidate = this.feedback.getCandidate(candidateId)
+    if (!candidate || !this.matchesTenant(candidate, tenantId)) return undefined
+    return candidate
   }
 
   /**
    * Promote a pending candidate to durable memory.
    */
-  async promote(candidateId: string, reviewedBy = 'operator'): Promise<PromoteResult> {
-    const candidate = this.feedback.getCandidate(candidateId)
+  async promote(
+    candidateId: string,
+    reviewedBy = 'operator',
+    tenantId = 'default',
+  ): Promise<PromoteResult> {
+    const candidate = this.get(candidateId, tenantId)
     if (!candidate) {
       return { success: false, candidateId, reason: 'Candidate not found' }
     }
@@ -78,8 +90,8 @@ export class LearningCandidateService {
   /**
    * Reject a pending candidate.
    */
-  reject(candidateId: string, reviewedBy = 'operator'): RejectResult {
-    const candidate = this.feedback.getCandidate(candidateId)
+  reject(candidateId: string, reviewedBy = 'operator', tenantId = 'default'): RejectResult {
+    const candidate = this.get(candidateId, tenantId)
     if (!candidate) {
       return { success: false, candidateId, reason: 'Candidate not found' }
     }

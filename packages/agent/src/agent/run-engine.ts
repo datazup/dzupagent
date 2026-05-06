@@ -1,4 +1,4 @@
-import { ToolMessage, type BaseMessage } from '@langchain/core/messages'
+import type { ToolMessage, BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
@@ -41,13 +41,12 @@ import {
   type ToolArgValidatorConfig,
 } from './tool-arg-validator.js'
 import {
-  emitToolError,
   extractInputMetadataKeys,
-  statusFromError,
 } from './tool-lifecycle-policy.js'
 import {
   applyBudgetGate,
-  recordToolLatencyOutcome,
+  buildSuccessResult,
+  handleInvocationFailure,
   runToolStreamingPhase,
 } from './run-engine-streaming-helpers.js'
 import { ApprovalSuspendedError } from '../approval/approval-errors.js'
@@ -503,11 +502,10 @@ export async function executeStreamingToolCall(params: {
   policy?: StreamingToolPolicyOptions
 }): Promise<StreamingToolExecutionResult> {
   // RF-19 (CODE-02) — orchestrator. The 397-LOC body has been split into
-  // three phase helpers in `./run-engine-streaming-helpers.ts` so each
-  // phase can be unit-tested in isolation while the orchestrator stays
-  // under 100 LOC. Observable behaviour (event-bus emissions, OTel span
-  // attributes, abort-signal threading, error rethrows, stuck-detection
-  // ordering) is preserved exactly.
+  // five phase helpers in `./run-engine-streaming-helpers.ts` so each
+  // phase can be unit-tested in isolation. Observable behaviour
+  // (event-bus emissions, OTel span attributes, abort-signal threading,
+  // error rethrows, stuck-detection ordering) is preserved exactly.
   const { toolCall, policy } = params
   const toolName = toolCall.name
   const toolCallId = toolCall.id ?? `call_${Date.now()}`
@@ -527,10 +525,8 @@ export async function executeStreamingToolCall(params: {
     if (gate.throwError) throw gate.throwError
     return gate.result
   }
-  const tool = gate.tool
 
   const startMs = Date.now()
-  let validatedKeys: string[] = inputMetadataKeys
 
   try {
     // Phase 2 — validate, invoke, scan, emit lifecycle events.
@@ -539,7 +535,7 @@ export async function executeStreamingToolCall(params: {
       toolCallId,
       toolName,
       inputMetadataKeys,
-      tool,
+      tool: gate.tool,
       transformToolResult: params.transformToolResult,
       statTracker: params.statTracker,
       onToolLatency: params.onToolLatency,
@@ -547,94 +543,30 @@ export async function executeStreamingToolCall(params: {
       policy,
       startMs,
     }))
+    if (phase.kind === 'short-circuit') return phase.result
 
-    if (phase.kind === 'short-circuit') {
-      return phase.result
-    }
-
-    validatedKeys = phase.validatedKeys
-    const transformedResult = phase.transformedResult
-    const validatedArgs = phase.validatedArgs
-
-    // Phase 3 — stuck-detection on the success path.
-    const stuckCheck = params.stuckDetector?.recordToolCall(toolName, validatedArgs)
-    if (stuckCheck?.stuck) {
-      const reason = stuckCheck.reason ?? 'Unknown stuck condition'
-      const recovery = `Tool "${toolName}" has been blocked. Try a different approach.`
-      params.budget?.blockTool(toolName)
-      return {
-        message: new ToolMessage({
-          content: transformedResult,
-          tool_call_id: toolCallId,
-          name: toolName,
-        }),
-        eventResult: transformedResult,
-        stuckReason: reason,
-        stuckRecovery: recovery,
-        repeatedTool: toolName,
-        stuckNudge: new ToolMessage({
-          content: `[Agent appears stuck: ${reason}. ${recovery}]`,
-          tool_call_id: toolCallId,
-          name: toolName,
-        }),
-      }
-    }
-
-    return {
-      message: new ToolMessage({
-        content: transformedResult,
-        tool_call_id: toolCallId,
-        name: toolName,
-      }),
-      eventResult: transformedResult,
-    }
-  } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : String(error)
-    // The streaming-phase helper attaches `validatedKeys` to thrown
-    // invocation errors so the outer catch can surface the same
-    // `inputMetadataKeys` payload as the pre-extraction code path.
-    const surfacedKeys =
-      error !== null && typeof error === 'object' && '__dzupValidatedKeys' in error
-        ? (error as { __dzupValidatedKeys?: string[] }).__dzupValidatedKeys
-        : undefined
-    if (surfacedKeys) validatedKeys = surfacedKeys
-    const durationMs = recordToolLatencyOutcome(omitUndefined({
-      statTracker: params.statTracker,
-      onToolLatency: params.onToolLatency,
-      toolName,
-      startMs,
-      errorTag: errorMsg,
-      recordOnTracker: true,
-    }))
-
-    const lifecycleStatus = statusFromError(error)
-    emitToolError(policy, {
+    // Phase 3 — assemble success result with stuck-detection nudge.
+    return buildSuccessResult(omitUndefined({
       toolName,
       toolCallId,
-      durationMs,
-      inputMetadataKeys: validatedKeys,
-      errorCode: lifecycleStatus === 'timeout' ? 'TOOL_TIMEOUT' : 'TOOL_EXECUTION_FAILED',
-      errorMessage: errorMsg,
-      status: lifecycleStatus,
-    })
-
-    const stuckCheck = params.stuckDetector?.recordError(new Error(errorMsg))
-    const reason = stuckCheck?.stuck
-      ? (stuckCheck.reason ?? 'Unknown stuck condition')
-      : undefined
-    const recovery = reason ? 'Stopping due to repeated errors.' : undefined
-
-    return omitUndefined({
-      message: new ToolMessage({
-        content: `Error executing tool "${toolName}": ${errorMsg}`,
-        tool_call_id: toolCallId,
-        name: toolName,
-      }),
-      eventResult: `[error: ${errorMsg}]`,
-      stuckReason: reason,
-      stuckRecovery: recovery,
-      repeatedTool: reason ? toolName : undefined,
-      shouldStop: reason !== undefined,
-    })
+      transformedResult: phase.transformedResult,
+      validatedArgs: phase.validatedArgs,
+      stuckDetector: params.stuckDetector,
+      budget: params.budget,
+    }))
+  } catch (error: unknown) {
+    // Phase 4 — error path: latency recording, tool:error emission,
+    // and stuck-detection over the error message.
+    return handleInvocationFailure(omitUndefined({
+      error,
+      toolName,
+      toolCallId,
+      inputMetadataKeys,
+      startMs,
+      statTracker: params.statTracker,
+      onToolLatency: params.onToolLatency,
+      stuckDetector: params.stuckDetector,
+      policy,
+    }))
   }
 }

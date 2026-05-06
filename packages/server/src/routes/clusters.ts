@@ -12,6 +12,7 @@ import { Hono } from 'hono'
 import { randomUUID } from 'node:crypto'
 import type { MailboxStore, MailMessage } from '@dzupagent/agent'
 import type { ClusterStore } from '../persistence/drizzle-cluster-store.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface ClusterRouteConfig {
   clusterStore: ClusterStore
@@ -24,6 +25,7 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
 
   // POST / — Create a cluster
   app.post('/', async (c) => {
+    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{
       clusterId?: string
       workspaceType?: string
@@ -37,6 +39,7 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
         id: clusterId,
         workspaceType: body.workspaceType,
         workspaceOptions: body.workspaceOptions,
+        tenantId,
       })
 
       return c.json(record, 201)
@@ -52,7 +55,7 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
   // GET /:id — Get cluster info
   app.get('/:id', async (c) => {
     const id = c.req.param('id')
-    const record = await clusterStore.findById(id)
+    const record = await clusterStore.findById(id, getRequestingTenantId(c))
 
     if (!record) {
       return c.json(
@@ -67,7 +70,7 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
   // DELETE /:id — Disband cluster
   app.delete('/:id', async (c) => {
     const id = c.req.param('id')
-    const deleted = await clusterStore.delete(id)
+    const deleted = await clusterStore.delete(id, getRequestingTenantId(c))
 
     if (!deleted) {
       return c.json(
@@ -82,6 +85,7 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
   // POST /:id/roles — Add role
   app.post('/:id/roles', async (c) => {
     const clusterId = c.req.param('id')
+    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{
       roleId: string
       agentId: string
@@ -96,11 +100,15 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
     }
 
     try {
-      await clusterStore.addRole(clusterId, {
-        roleId: body.roleId,
-        agentId: body.agentId,
-        capabilities: body.capabilities,
-      })
+      await clusterStore.addRole(
+        clusterId,
+        {
+          roleId: body.roleId,
+          agentId: body.agentId,
+          capabilities: body.capabilities,
+        },
+        tenantId,
+      )
 
       return c.json({ roleId: body.roleId, agentId: body.agentId, capabilities: body.capabilities ?? [] }, 201)
     } catch (err) {
@@ -119,9 +127,10 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
   app.delete('/:id/roles/:roleId', async (c) => {
     const clusterId = c.req.param('id')
     const roleId = c.req.param('roleId')
+    const tenantId = getRequestingTenantId(c)
 
     try {
-      const removed = await clusterStore.removeRole(clusterId, roleId)
+      const removed = await clusterStore.removeRole(clusterId, roleId, tenantId)
 
       if (!removed) {
         return c.json(
@@ -143,6 +152,7 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
   // POST /:id/mail — Route mail (or broadcast with to: "*")
   app.post('/:id/mail', async (c) => {
     const clusterId = c.req.param('id')
+    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{
       from: string
       to: string
@@ -164,7 +174,7 @@ export function createClusterRoutes(config: ClusterRouteConfig): Hono {
     }
 
     // Look up the cluster and roles
-    const cluster = await clusterStore.findById(clusterId)
+    const cluster = await clusterStore.findById(clusterId, tenantId)
     if (!cluster) {
       return c.json(
         { error: { code: 'NOT_FOUND', message: `Cluster "${clusterId}" not found` } },

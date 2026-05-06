@@ -12,16 +12,21 @@ export interface PersonaRecord {
   modelId?: string | null
   temperature?: number | null
   metadata?: Record<string, unknown> | null
+  tenantId?: string | null
   createdAt: string
   updatedAt: string
 }
 
 export interface PersonaStore {
   save(persona: Omit<PersonaRecord, 'createdAt' | 'updatedAt'>): Promise<PersonaRecord>
-  list(): Promise<PersonaRecord[]>
-  get(id: string): Promise<PersonaRecord | null>
-  update(id: string, patch: Partial<Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>>): Promise<PersonaRecord | null>
-  delete(id: string): Promise<boolean>
+  list(filter?: { tenantId?: string }): Promise<PersonaRecord[]>
+  get(id: string, tenantId?: string): Promise<PersonaRecord | null>
+  update(
+    id: string,
+    patch: Partial<Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>>,
+    tenantId?: string,
+  ): Promise<PersonaRecord | null>
+  delete(id: string, tenantId?: string): Promise<boolean>
 }
 
 /**
@@ -44,19 +49,27 @@ export class InMemoryPersonaStore implements PersonaStore {
     return record
   }
 
-  async list(): Promise<PersonaRecord[]> {
-    return Array.from(this.personas.values())
+  async list(filter?: { tenantId?: string }): Promise<PersonaRecord[]> {
+    let results = Array.from(this.personas.values())
+    if (filter?.tenantId !== undefined) {
+      results = results.filter((p) => (p.tenantId ?? 'default') === filter.tenantId)
+    }
+    return results
   }
 
-  async get(id: string): Promise<PersonaRecord | null> {
-    return this.personas.get(id) ?? null
+  async get(id: string, tenantId?: string): Promise<PersonaRecord | null> {
+    const persona = this.personas.get(id) ?? null
+    if (!persona) return null
+    if (tenantId && (persona.tenantId ?? 'default') !== tenantId) return null
+    return persona
   }
 
   async update(
     id: string,
     patch: Partial<Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>>,
+    tenantId?: string,
   ): Promise<PersonaRecord | null> {
-    const existing = this.personas.get(id)
+    const existing = await this.get(id, tenantId)
     if (!existing) return null
     const updated: PersonaRecord = {
       ...existing,
@@ -69,7 +82,8 @@ export class InMemoryPersonaStore implements PersonaStore {
     return updated
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, tenantId?: string): Promise<boolean> {
+    if (tenantId && !(await this.get(id, tenantId))) return false
     return this.personas.delete(id)
   }
 }

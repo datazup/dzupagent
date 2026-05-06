@@ -16,6 +16,7 @@
  */
 import type { MiddlewareHandler } from 'hono'
 import type { OpenAIErrorResponse } from './types.js'
+import type { AppEnv, ApiKeyContext } from '../../types.js'
 
 export interface OpenAIAuthConfig {
   /**
@@ -50,7 +51,7 @@ function errorResponse(
 /**
  * Create Hono middleware that validates OpenAI-style Bearer tokens.
  */
-export function openaiAuthMiddleware(config?: OpenAIAuthConfig): MiddlewareHandler {
+export function openaiAuthMiddleware(config?: OpenAIAuthConfig): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     // Disabled — pass through
     if (config?.enabled === false) {
@@ -95,7 +96,7 @@ export function openaiAuthMiddleware(config?: OpenAIAuthConfig): MiddlewareHandl
         )
       }
       // Stash metadata for downstream handlers
-      c.set('apiKey' as never, keyMeta as never)
+      c.set('apiKey', keyMeta as ApiKeyContext)
       return next()
     }
 

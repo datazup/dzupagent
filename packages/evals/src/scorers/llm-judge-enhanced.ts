@@ -12,7 +12,18 @@ export interface LLMJudgeEnhancedConfig {
   maxRetries?: number;
   /** Custom prompt template. Use {{criteria}}, {{input}}, {{output}}, {{reference}} placeholders */
   promptTemplate?: string;
+  /** Prompt version expected by the pinned judge snapshot. */
+  promptVersion?: string;
+  /** Model identifier expected by the pinned judge snapshot. */
+  modelId?: string;
+  /** Optional warning sink for prompt/model drift diagnostics. */
+  warn?: (message: string) => void;
 }
+
+export const PINNED_JUDGE = {
+  promptVersion: 'llm-judge-enhanced.v1',
+  modelId: 'gpt-4o-mini',
+} as const;
 
 const DEFAULT_PROMPT_TEMPLATE = `You are an evaluation judge. Score the following output on each criterion.
 
@@ -96,6 +107,8 @@ function parseResponse(
  * Creates an enhanced multi-criteria LLM judge scorer.
  */
 export function createLLMJudge(config: LLMJudgeEnhancedConfig): Scorer<EvalInput> {
+  warnOnPinnedJudgeDrift(config);
+
   const criteriaList = buildCriteriaList(config.criteria);
   const maxRetries = config.maxRetries ?? 2;
   const template = config.promptTemplate ?? DEFAULT_PROMPT_TEMPLATE;
@@ -167,4 +180,23 @@ export function createLLMJudge(config: LLMJudgeEnhancedConfig): Scorer<EvalInput
       };
     },
   };
+}
+
+function warnOnPinnedJudgeDrift(config: LLMJudgeEnhancedConfig): void {
+  const warn = config.warn;
+  if (!warn) return;
+
+  const promptVersion = config.promptVersion ?? PINNED_JUDGE.promptVersion;
+  if (promptVersion !== PINNED_JUDGE.promptVersion) {
+    warn(
+      `llm-judge-enhanced promptVersion drift: expected ${PINNED_JUDGE.promptVersion}, received ${promptVersion}`,
+    );
+  }
+
+  const modelId = config.modelId ?? PINNED_JUDGE.modelId;
+  if (modelId !== PINNED_JUDGE.modelId) {
+    warn(
+      `llm-judge-enhanced modelId drift: expected ${PINNED_JUDGE.modelId}, received ${modelId}`,
+    );
+  }
 }

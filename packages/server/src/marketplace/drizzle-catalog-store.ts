@@ -29,6 +29,7 @@ function rowToEntry(row: typeof agentCatalog.$inferSelect): CatalogEntry {
     readme: row.readme,
     publishedAt: row.publishedAt?.toISOString() ?? null,
     isPublic: row.isPublic,
+    tenantId: row.tenantId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
@@ -54,6 +55,7 @@ export class DrizzleCatalogStore implements CatalogStore {
           readme: entry.readme,
           publishedAt: entry.publishedAt ? new Date(entry.publishedAt) : null,
           isPublic: entry.isPublic ?? true,
+          tenantId: entry.tenantId ?? 'default',
         })
         .returning()
 
@@ -66,25 +68,31 @@ export class DrizzleCatalogStore implements CatalogStore {
     }
   }
 
-  async getById(id: string): Promise<CatalogEntry | null> {
+  async getById(id: string, tenantId?: string): Promise<CatalogEntry | null> {
+    const conditions = [eq(agentCatalog.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(agentCatalog.tenantId, tenantId))
+
     const [row] = await this.db
       .select()
       .from(agentCatalog)
-      .where(eq(agentCatalog.id, id))
+      .where(and(...conditions))
       .limit(1)
     return row ? rowToEntry(row) : null
   }
 
-  async getBySlug(slug: string): Promise<CatalogEntry | null> {
+  async getBySlug(slug: string, tenantId?: string): Promise<CatalogEntry | null> {
+    const conditions = [eq(agentCatalog.slug, slug)]
+    if (tenantId !== undefined) conditions.push(eq(agentCatalog.tenantId, tenantId))
+
     const [row] = await this.db
       .select()
       .from(agentCatalog)
-      .where(eq(agentCatalog.slug, slug))
+      .where(and(...conditions))
       .limit(1)
     return row ? rowToEntry(row) : null
   }
 
-  async update(id: string, patch: CatalogEntryPatch): Promise<CatalogEntry> {
+  async update(id: string, patch: CatalogEntryPatch, tenantId?: string): Promise<CatalogEntry> {
     const values: Record<string, unknown> = { updatedAt: new Date() }
 
     if (patch.slug !== undefined) values['slug'] = patch.slug
@@ -98,12 +106,16 @@ export class DrizzleCatalogStore implements CatalogStore {
       values['publishedAt'] = patch.publishedAt ? new Date(patch.publishedAt) : null
     }
     if (patch.isPublic !== undefined) values['isPublic'] = patch.isPublic
+    if (patch.tenantId !== undefined) values['tenantId'] = patch.tenantId
+
+    const conditions = [eq(agentCatalog.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(agentCatalog.tenantId, tenantId))
 
     try {
       const [row] = await this.db
         .update(agentCatalog)
         .set(values)
-        .where(eq(agentCatalog.id, id))
+        .where(and(...conditions))
         .returning()
 
       if (!row) throw new CatalogNotFoundError(id)
@@ -117,10 +129,13 @@ export class DrizzleCatalogStore implements CatalogStore {
     }
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, tenantId?: string): Promise<void> {
+    const conditions = [eq(agentCatalog.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(agentCatalog.tenantId, tenantId))
+
     const result = await this.db
       .delete(agentCatalog)
-      .where(eq(agentCatalog.id, id))
+      .where(and(...conditions))
       .returning({ id: agentCatalog.id })
     if (result.length === 0) {
       throw new CatalogNotFoundError(id)
@@ -149,6 +164,9 @@ export class DrizzleCatalogStore implements CatalogStore {
     // Author filter
     if (query.author) {
       conditions.push(eq(agentCatalog.author, query.author))
+    }
+    if (query.tenantId) {
+      conditions.push(eq(agentCatalog.tenantId, query.tenantId))
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined

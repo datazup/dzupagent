@@ -19,16 +19,17 @@ export interface TriggerConfigRecord {
   afterAgentId?: string | null
   enabled: boolean
   metadata?: Record<string, unknown> | null
+  tenantId?: string | null
   createdAt: string
   updatedAt: string
 }
 
 export interface TriggerStore {
   save(trigger: Omit<TriggerConfigRecord, 'createdAt' | 'updatedAt'>): Promise<TriggerConfigRecord>
-  list(filter?: { agentId?: string; enabled?: boolean }): Promise<TriggerConfigRecord[]>
-  get(id: string): Promise<TriggerConfigRecord | null>
-  delete(id: string): Promise<boolean>
-  setEnabled(id: string, enabled: boolean): Promise<TriggerConfigRecord | null>
+  list(filter?: { agentId?: string; enabled?: boolean; tenantId?: string }): Promise<TriggerConfigRecord[]>
+  get(id: string, tenantId?: string): Promise<TriggerConfigRecord | null>
+  delete(id: string, tenantId?: string): Promise<boolean>
+  setEnabled(id: string, enabled: boolean, tenantId?: string): Promise<TriggerConfigRecord | null>
 }
 
 /**
@@ -51,7 +52,7 @@ export class InMemoryTriggerStore implements TriggerStore {
     return record
   }
 
-  async list(filter?: { agentId?: string; enabled?: boolean }): Promise<TriggerConfigRecord[]> {
+  async list(filter?: { agentId?: string; enabled?: boolean; tenantId?: string }): Promise<TriggerConfigRecord[]> {
     let results = Array.from(this.triggers.values())
 
     if (filter?.agentId !== undefined) {
@@ -60,20 +61,27 @@ export class InMemoryTriggerStore implements TriggerStore {
     if (filter?.enabled !== undefined) {
       results = results.filter((t) => t.enabled === filter.enabled)
     }
+    if (filter?.tenantId !== undefined) {
+      results = results.filter((t) => (t.tenantId ?? 'default') === filter.tenantId)
+    }
 
     return results
   }
 
-  async get(id: string): Promise<TriggerConfigRecord | null> {
-    return this.triggers.get(id) ?? null
+  async get(id: string, tenantId?: string): Promise<TriggerConfigRecord | null> {
+    const trigger = this.triggers.get(id) ?? null
+    if (!trigger) return null
+    if (tenantId && (trigger.tenantId ?? 'default') !== tenantId) return null
+    return trigger
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, tenantId?: string): Promise<boolean> {
+    if (tenantId && !(await this.get(id, tenantId))) return false
     return this.triggers.delete(id)
   }
 
-  async setEnabled(id: string, enabled: boolean): Promise<TriggerConfigRecord | null> {
-    const existing = this.triggers.get(id)
+  async setEnabled(id: string, enabled: boolean, tenantId?: string): Promise<TriggerConfigRecord | null> {
+    const existing = await this.get(id, tenantId)
     if (!existing) return null
     const updated: TriggerConfigRecord = {
       ...existing,
@@ -94,6 +102,7 @@ interface TriggerRow {
   afterAgentId: string | null
   enabled: boolean
   metadata: unknown
+  tenantId: string
   createdAt: Date
   updatedAt: Date
 }
@@ -110,7 +119,8 @@ export class DrizzleTriggerStore implements TriggerStore {
     const now = new Date()
 
     // Try to get existing
-    const existing = await this.get(trigger.id)
+    const tenantId = trigger.tenantId ?? 'default'
+    const existing = await this.get(trigger.id, tenantId)
 
     if (existing) {
       const rows = await this.db
@@ -123,9 +133,10 @@ export class DrizzleTriggerStore implements TriggerStore {
           afterAgentId: trigger.afterAgentId ?? null,
           enabled: trigger.enabled,
           metadata: trigger.metadata ?? null,
+          tenantId,
           updatedAt: now,
         })
-        .where(eq(triggerConfigs.id, trigger.id))
+        .where(and(eq(triggerConfigs.id, trigger.id), eq(triggerConfigs.tenantId, tenantId)))
         .returning() as TriggerRow[]
       const row = rows[0]
       if (!row) throw new Error(`Failed to update trigger ${trigger.id}`)
@@ -143,6 +154,7 @@ export class DrizzleTriggerStore implements TriggerStore {
         afterAgentId: trigger.afterAgentId ?? null,
         enabled: trigger.enabled,
         metadata: trigger.metadata ?? null,
+        tenantId,
         createdAt: now,
         updatedAt: now,
       })
@@ -153,13 +165,16 @@ export class DrizzleTriggerStore implements TriggerStore {
     return this.rowToRecord(row)
   }
 
-  async list(filter?: { agentId?: string; enabled?: boolean }): Promise<TriggerConfigRecord[]> {
+  async list(filter?: { agentId?: string; enabled?: boolean; tenantId?: string }): Promise<TriggerConfigRecord[]> {
     const conditions = []
     if (filter?.agentId !== undefined) {
       conditions.push(eq(triggerConfigs.agentId, filter.agentId))
     }
     if (filter?.enabled !== undefined) {
       conditions.push(eq(triggerConfigs.enabled, filter.enabled))
+    }
+    if (filter?.tenantId !== undefined) {
+      conditions.push(eq(triggerConfigs.tenantId, filter.tenantId))
     }
 
     const query = this.db.select().from(triggerConfigs)
@@ -170,30 +185,39 @@ export class DrizzleTriggerStore implements TriggerStore {
     return rows.map((r) => this.rowToRecord(r))
   }
 
-  async get(id: string): Promise<TriggerConfigRecord | null> {
+  async get(id: string, tenantId?: string): Promise<TriggerConfigRecord | null> {
+    const conditions = [eq(triggerConfigs.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(triggerConfigs.tenantId, tenantId))
+
     const rows = await this.db
       .select()
       .from(triggerConfigs)
-      .where(eq(triggerConfigs.id, id))
+      .where(and(...conditions))
       .limit(1)
 
     const row = rows[0] as TriggerRow | undefined
     return row ? this.rowToRecord(row) : null
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, tenantId?: string): Promise<boolean> {
+    const conditions = [eq(triggerConfigs.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(triggerConfigs.tenantId, tenantId))
+
     const rows = await this.db
       .delete(triggerConfigs)
-      .where(eq(triggerConfigs.id, id))
+      .where(and(...conditions))
       .returning()
     return rows.length > 0
   }
 
-  async setEnabled(id: string, enabled: boolean): Promise<TriggerConfigRecord | null> {
+  async setEnabled(id: string, enabled: boolean, tenantId?: string): Promise<TriggerConfigRecord | null> {
+    const conditions = [eq(triggerConfigs.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(triggerConfigs.tenantId, tenantId))
+
     const rows = await this.db
       .update(triggerConfigs)
       .set({ enabled, updatedAt: new Date() })
-      .where(eq(triggerConfigs.id, id))
+      .where(and(...conditions))
       .returning()
 
     const row = rows[0] as TriggerRow | undefined
@@ -210,6 +234,7 @@ export class DrizzleTriggerStore implements TriggerStore {
       afterAgentId: row.afterAgentId,
       enabled: row.enabled,
       metadata: row.metadata as Record<string, unknown> | null,
+      tenantId: row.tenantId,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     }

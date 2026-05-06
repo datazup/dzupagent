@@ -14,6 +14,7 @@ export interface ClusterRecord {
   workspaceType: string
   workspaceOptions: Record<string, unknown>
   metadata: Record<string, unknown>
+  tenantId?: string | null
   roles: ClusterRole[]
   createdAt: Date
   updatedAt: Date
@@ -24,15 +25,16 @@ export interface CreateClusterInput {
   workspaceType?: string
   workspaceOptions?: Record<string, unknown>
   metadata?: Record<string, unknown>
+  tenantId?: string
 }
 
 export interface ClusterStore {
   create(input: CreateClusterInput): Promise<ClusterRecord>
-  findById(id: string): Promise<ClusterRecord | null>
-  delete(id: string): Promise<boolean>
-  addRole(clusterId: string, role: ClusterRole): Promise<void>
-  removeRole(clusterId: string, roleId: string): Promise<boolean>
-  listRoles(clusterId: string): Promise<ClusterRole[]>
+  findById(id: string, tenantId?: string): Promise<ClusterRecord | null>
+  delete(id: string, tenantId?: string): Promise<boolean>
+  addRole(clusterId: string, role: ClusterRole, tenantId?: string): Promise<void>
+  removeRole(clusterId: string, roleId: string, tenantId?: string): Promise<boolean>
+  listRoles(clusterId: string, tenantId?: string): Promise<ClusterRole[]>
 }
 
 /** In-memory cluster store for testing and single-process deployments. */
@@ -42,6 +44,7 @@ export class InMemoryClusterStore implements ClusterStore {
     workspaceType: string
     workspaceOptions: Record<string, unknown>
     metadata: Record<string, unknown>
+    tenantId: string
     roles: Map<string, ClusterRole>
     createdAt: Date
     updatedAt: Date
@@ -58,6 +61,7 @@ export class InMemoryClusterStore implements ClusterStore {
       workspaceType: input.workspaceType ?? 'local',
       workspaceOptions: input.workspaceOptions ?? {},
       metadata: input.metadata ?? {},
+      tenantId: input.tenantId ?? 'default',
       roles: new Map<string, ClusterRole>(),
       createdAt: now,
       updatedAt: now,
@@ -69,34 +73,41 @@ export class InMemoryClusterStore implements ClusterStore {
       workspaceType: record.workspaceType,
       workspaceOptions: record.workspaceOptions,
       metadata: record.metadata,
+      tenantId: record.tenantId,
       roles: [],
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     }
   }
 
-  async findById(id: string): Promise<ClusterRecord | null> {
+  async findById(id: string, tenantId?: string): Promise<ClusterRecord | null> {
     const record = this.clusters.get(id)
     if (!record) return null
+    if (tenantId && record.tenantId !== tenantId) return null
 
     return {
       id: record.id,
       workspaceType: record.workspaceType,
       workspaceOptions: record.workspaceOptions,
       metadata: record.metadata,
+      tenantId: record.tenantId,
       roles: Array.from(record.roles.values()),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     }
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, tenantId?: string): Promise<boolean> {
+    if (tenantId && !(await this.findById(id, tenantId))) return false
     return this.clusters.delete(id)
   }
 
-  async addRole(clusterId: string, role: ClusterRole): Promise<void> {
+  async addRole(clusterId: string, role: ClusterRole, tenantId?: string): Promise<void> {
     const record = this.clusters.get(clusterId)
     if (!record) {
+      throw new Error(`NotFound: Cluster "${clusterId}" not found`)
+    }
+    if (tenantId && record.tenantId !== tenantId) {
       throw new Error(`NotFound: Cluster "${clusterId}" not found`)
     }
     if (record.roles.has(role.roleId)) {
@@ -105,17 +116,21 @@ export class InMemoryClusterStore implements ClusterStore {
     record.roles.set(role.roleId, { ...role })
   }
 
-  async removeRole(clusterId: string, roleId: string): Promise<boolean> {
+  async removeRole(clusterId: string, roleId: string, tenantId?: string): Promise<boolean> {
     const record = this.clusters.get(clusterId)
     if (!record) {
+      throw new Error(`NotFound: Cluster "${clusterId}" not found`)
+    }
+    if (tenantId && record.tenantId !== tenantId) {
       throw new Error(`NotFound: Cluster "${clusterId}" not found`)
     }
     return record.roles.delete(roleId)
   }
 
-  async listRoles(clusterId: string): Promise<ClusterRole[]> {
+  async listRoles(clusterId: string, tenantId?: string): Promise<ClusterRole[]> {
     const record = this.clusters.get(clusterId)
     if (!record) return []
+    if (tenantId && record.tenantId !== tenantId) return []
     return Array.from(record.roles.values())
   }
 }
@@ -131,6 +146,7 @@ export class DrizzleClusterStore implements ClusterStore {
       workspaceType: input.workspaceType ?? 'local',
       workspaceOptions: input.workspaceOptions ?? {},
       metadata: input.metadata ?? {},
+      tenantId: input.tenantId ?? 'default',
       createdAt: now,
       updatedAt: now,
     })
@@ -140,17 +156,21 @@ export class DrizzleClusterStore implements ClusterStore {
       workspaceType: input.workspaceType ?? 'local',
       workspaceOptions: input.workspaceOptions ?? {},
       metadata: input.metadata ?? {},
+      tenantId: input.tenantId ?? 'default',
       roles: [],
       createdAt: now,
       updatedAt: now,
     }
   }
 
-  async findById(id: string): Promise<ClusterRecord | null> {
+  async findById(id: string, tenantId?: string): Promise<ClusterRecord | null> {
+    const conditions = [eq(agentClusters.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(agentClusters.tenantId, tenantId))
+
     const rows = await this.db
       .select()
       .from(agentClusters)
-      .where(eq(agentClusters.id, id))
+      .where(and(...conditions))
       .limit(1)
 
     if (rows.length === 0) return null
@@ -160,6 +180,7 @@ export class DrizzleClusterStore implements ClusterStore {
       workspaceType: string
       workspaceOptions: Record<string, unknown> | null
       metadata: Record<string, unknown> | null
+      tenantId: string
       createdAt: Date
       updatedAt: Date
     }
@@ -170,21 +191,30 @@ export class DrizzleClusterStore implements ClusterStore {
       workspaceType: row.workspaceType,
       workspaceOptions: (row.workspaceOptions ?? {}) as Record<string, unknown>,
       metadata: (row.metadata ?? {}) as Record<string, unknown>,
+      tenantId: row.tenantId,
       roles,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     }
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, tenantId?: string): Promise<boolean> {
+    const conditions = [eq(agentClusters.id, id)]
+    if (tenantId !== undefined) conditions.push(eq(agentClusters.tenantId, tenantId))
+
     const result = await this.db
       .delete(agentClusters)
-      .where(eq(agentClusters.id, id))
+      .where(and(...conditions))
 
     return ((result as { rowCount?: number }).rowCount ?? 0) > 0
   }
 
-  async addRole(clusterId: string, role: ClusterRole): Promise<void> {
+  async addRole(clusterId: string, role: ClusterRole, tenantId?: string): Promise<void> {
+    const cluster = await this.findById(clusterId, tenantId)
+    if (!cluster) {
+      throw new Error(`NotFound: Cluster "${clusterId}" not found`)
+    }
+
     await this.db.insert(clusterRoles).values({
       clusterId,
       roleId: role.roleId,
@@ -193,7 +223,12 @@ export class DrizzleClusterStore implements ClusterStore {
     })
   }
 
-  async removeRole(clusterId: string, roleId: string): Promise<boolean> {
+  async removeRole(clusterId: string, roleId: string, tenantId?: string): Promise<boolean> {
+    const cluster = await this.findById(clusterId, tenantId)
+    if (!cluster) {
+      throw new Error(`NotFound: Cluster "${clusterId}" not found`)
+    }
+
     const result = await this.db
       .delete(clusterRoles)
       .where(
@@ -206,7 +241,16 @@ export class DrizzleClusterStore implements ClusterStore {
     return ((result as { rowCount?: number }).rowCount ?? 0) > 0
   }
 
-  async listRoles(clusterId: string): Promise<ClusterRole[]> {
+  async listRoles(clusterId: string, tenantId?: string): Promise<ClusterRole[]> {
+    if (tenantId !== undefined) {
+      const exists = await this.db
+        .select({ id: agentClusters.id })
+        .from(agentClusters)
+        .where(and(eq(agentClusters.id, clusterId), eq(agentClusters.tenantId, tenantId)))
+        .limit(1)
+      if (exists.length === 0) return []
+    }
+
     const rows = await this.db
       .select()
       .from(clusterRoles)

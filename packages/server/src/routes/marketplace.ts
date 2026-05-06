@@ -12,6 +12,7 @@ import { Hono } from 'hono'
 import type { CatalogStore } from '../marketplace/catalog-store.js'
 import { CatalogNotFoundError, CatalogSlugConflictError } from '../marketplace/catalog-store.js'
 import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface MarketplaceRouteConfig {
   catalogStore: CatalogStore
@@ -27,6 +28,7 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
 
   // --- Create catalog entry ---
   app.post('/catalog', async (c) => {
+    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{
       slug?: string
       name?: string
@@ -71,6 +73,7 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
         readme: body.readme ?? null,
         publishedAt: body.publishedAt ?? null,
         isPublic: body.isPublic ?? true,
+        tenantId,
       })
       return c.json({ data: entry }, 201)
     } catch (error) {
@@ -92,8 +95,9 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
     const author = c.req.query('author') ?? undefined
     const page = c.req.query('page') ? parseInt(c.req.query('page')!, 10) : undefined
     const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : undefined
+    const tenantId = getRequestingTenantId(c)
 
-    const result = await catalogStore.search({ q, tags, author, page, limit })
+    const result = await catalogStore.search({ q, tags, author, page, limit, tenantId })
     return c.json({
       data: result.items,
       total: result.total,
@@ -104,7 +108,7 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
 
   // --- Get by slug (before :id to avoid conflict) ---
   app.get('/catalog/by-slug/:slug', async (c) => {
-    const entry = await catalogStore.getBySlug(c.req.param('slug'))
+    const entry = await catalogStore.getBySlug(c.req.param('slug'), getRequestingTenantId(c))
     if (!entry) {
       return c.json(
         { error: { code: 'NOT_FOUND', message: 'Catalog entry not found' } },
@@ -116,7 +120,7 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
 
   // --- Get by ID ---
   app.get('/catalog/:id', async (c) => {
-    const entry = await catalogStore.getById(c.req.param('id'))
+    const entry = await catalogStore.getById(c.req.param('id'), getRequestingTenantId(c))
     if (!entry) {
       return c.json(
         { error: { code: 'NOT_FOUND', message: 'Catalog entry not found' } },
@@ -129,6 +133,7 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
   // --- Update ---
   app.patch('/catalog/:id', async (c) => {
     const id = c.req.param('id')
+    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{
       slug?: string
       name?: string
@@ -156,7 +161,7 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
     }
 
     try {
-      const entry = await catalogStore.update(id, body)
+      const entry = await catalogStore.update(id, body, tenantId)
       return c.json({ data: entry })
     } catch (error) {
       if (error instanceof CatalogNotFoundError) {
@@ -178,8 +183,9 @@ export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
   // --- Delete ---
   app.delete('/catalog/:id', async (c) => {
     const id = c.req.param('id')
+    const tenantId = getRequestingTenantId(c)
     try {
-      await catalogStore.delete(id)
+      await catalogStore.delete(id, tenantId)
       return c.json({ data: { id, deleted: true } })
     } catch (error) {
       if (error instanceof CatalogNotFoundError) {

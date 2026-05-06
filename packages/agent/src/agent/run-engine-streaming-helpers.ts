@@ -27,7 +27,9 @@ import {
   invokeWithOptionalTimeout,
   maybeValidateArgs,
   resolveValidatorConfig,
+  statusFromError,
 } from './tool-lifecycle-policy.js'
+import type { StuckDetector } from '../guardrails/stuck-detector.js'
 import type {
   StreamingToolExecutionResult,
   StreamingToolPolicyOptions,
@@ -577,7 +579,138 @@ export function recordToolLatencyOutcome(args: {
   } else {
     statTracker.record(toolName, durationMs)
   }
-  onToolLatency?.(toolName, durationMs, errorTag)
+  if (onToolLatency) {
+    if (errorTag !== undefined) {
+      onToolLatency(toolName, durationMs, errorTag)
+    } else {
+      onToolLatency(toolName, durationMs)
+    }
+  }
   return durationMs
 }
 
+/**
+ * Build the success-path {@link StreamingToolExecutionResult}, applying
+ * stuck-detection on the verified tool call. When the detector flags a
+ * repeat, the tool is added to the iteration-budget block list and a
+ * `stuckNudge` ToolMessage is appended for the model.
+ */
+export function buildSuccessResult(args: {
+  toolName: string
+  toolCallId: string
+  transformedResult: string
+  validatedArgs: Record<string, unknown>
+  stuckDetector?: StuckDetector
+  budget?: IterationBudget
+}): StreamingToolExecutionResult {
+  const { toolName, toolCallId, transformedResult, validatedArgs, stuckDetector, budget } = args
+  const stuckCheck = stuckDetector?.recordToolCall(toolName, validatedArgs)
+  if (stuckCheck?.stuck) {
+    const reason = stuckCheck.reason ?? 'Unknown stuck condition'
+    const recovery = `Tool "${toolName}" has been blocked. Try a different approach.`
+    budget?.blockTool(toolName)
+    return {
+      message: new ToolMessage({
+        content: transformedResult,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+      eventResult: transformedResult,
+      stuckReason: reason,
+      stuckRecovery: recovery,
+      repeatedTool: toolName,
+      stuckNudge: new ToolMessage({
+        content: `[Agent appears stuck: ${reason}. ${recovery}]`,
+        tool_call_id: toolCallId,
+        name: toolName,
+      }),
+    }
+  }
+  return {
+    message: new ToolMessage({
+      content: transformedResult,
+      tool_call_id: toolCallId,
+      name: toolName,
+    }),
+    eventResult: transformedResult,
+  }
+}
+
+/**
+ * Build the error-path {@link StreamingToolExecutionResult}. Records
+ * latency, emits the `tool:error` event, and runs the stuck detector
+ * over the error message before assembling the final ToolMessage that
+ * is fed back to the model.
+ *
+ * The `__dzupValidatedKeys` marker (attached by the streaming phase
+ * helper when an invocation throws) lets this helper preserve the
+ * exact `inputMetadataKeys` payload of the pre-extraction path.
+ */
+export function handleInvocationFailure(args: {
+  error: unknown
+  toolName: string
+  toolCallId: string
+  inputMetadataKeys: string[]
+  startMs: number
+  statTracker: ToolStatTracker
+  onToolLatency?: (name: string, durationMs: number, error?: string) => void
+  stuckDetector?: StuckDetector
+  policy?: StreamingToolPolicyOptions
+}): StreamingToolExecutionResult {
+  const {
+    error,
+    toolName,
+    toolCallId,
+    inputMetadataKeys,
+    startMs,
+    statTracker,
+    onToolLatency,
+    stuckDetector,
+    policy,
+  } = args
+  const errorMsg = error instanceof Error ? error.message : String(error)
+  const surfacedKeys =
+    error !== null && typeof error === 'object' && '__dzupValidatedKeys' in error
+      ? (error as { __dzupValidatedKeys?: string[] }).__dzupValidatedKeys
+      : undefined
+  const validatedKeys = surfacedKeys ?? inputMetadataKeys
+
+  const durationMs = recordToolLatencyOutcome(omitUndefined({
+    statTracker,
+    onToolLatency,
+    toolName,
+    startMs,
+    errorTag: errorMsg,
+    recordOnTracker: true,
+  }))
+
+  const lifecycleStatus = statusFromError(error)
+  emitToolError(policy, {
+    toolName,
+    toolCallId,
+    durationMs,
+    inputMetadataKeys: validatedKeys,
+    errorCode: lifecycleStatus === 'timeout' ? 'TOOL_TIMEOUT' : 'TOOL_EXECUTION_FAILED',
+    errorMessage: errorMsg,
+    status: lifecycleStatus,
+  })
+
+  const stuckCheck = stuckDetector?.recordError(new Error(errorMsg))
+  const reason = stuckCheck?.stuck
+    ? (stuckCheck.reason ?? 'Unknown stuck condition')
+    : undefined
+  const recovery = reason ? 'Stopping due to repeated errors.' : undefined
+
+  return omitUndefined({
+    message: new ToolMessage({
+      content: `Error executing tool "${toolName}": ${errorMsg}`,
+      tool_call_id: toolCallId,
+      name: toolName,
+    }),
+    eventResult: `[error: ${errorMsg}]`,
+    stuckReason: reason,
+    stuckRecovery: recovery,
+    repeatedTool: reason ? toolName : undefined,
+    shouldStop: reason !== undefined,
+  }) as StreamingToolExecutionResult
+}

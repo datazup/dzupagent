@@ -1,6 +1,6 @@
 import express, { Router } from 'express'
 import type { Request, Response, NextFunction, RequestHandler } from 'express'
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import { z } from 'zod'
 import { HumanMessage } from '@langchain/core/messages'
 import type { DzupAgent } from '@dzupagent/agent'
@@ -155,18 +155,24 @@ function buildRateLimiter(config: AgentRouterConfig): RequestHandler {
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     // Resolve the per-IP key defensively. `req.ip` reads `req.socket.remoteAddress`,
-    // which can be undefined in tests / mock harnesses; fall back to header /
-    // known-unknown sentinel so the limiter never crashes the request.
+    // which can be undefined in tests / mock harnesses; fall back to a header /
+    // known-unknown sentinel so the limiter never crashes the request. The
+    // resolved IP is then normalised through `ipKeyGenerator` for IPv6 safety.
     keyGenerator: (req): string => {
+      let ip: string | undefined
       try {
-        if (req.ip) return req.ip
+        ip = req.ip
       } catch {
         /* fall through */
       }
-      const fwd = req.headers['x-forwarded-for']
-      if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0]!.trim()
-      const remote = (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress
-      return remote ?? 'unknown'
+      if (!ip) {
+        const fwd = req.headers['x-forwarded-for']
+        if (typeof fwd === 'string' && fwd.length > 0) ip = fwd.split(',')[0]!.trim()
+      }
+      if (!ip) {
+        ip = (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress
+      }
+      return ipKeyGenerator(ip ?? 'unknown')
     },
     handler: (_req, res) => {
       res.status(429).json({

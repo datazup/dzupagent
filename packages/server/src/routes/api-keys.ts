@@ -22,6 +22,7 @@ import type { Context } from 'hono'
 import { Hono } from 'hono'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { PostgresApiKeyStore, type ApiKeyRecord } from '../persistence/api-key-store.js'
+import type { AppEnv } from '../types.js'
 
 type DB = PostgresJsDatabase<Record<string, never>>
 
@@ -109,13 +110,14 @@ function validateExpiresIn(value: unknown): { ok: true; value: number | undefine
  * anonymous). See the module-level doc comment for the full precedence table.
  */
 function resolveOwnerId(c: Context): string {
-  const forgeIdentity = c.get('forgeIdentity' as never) as IdentityLike | undefined
+  const ctx = c as Context<AppEnv>
+  const forgeIdentity = ctx.get('forgeIdentity') as IdentityLike | undefined
   if (forgeIdentity?.id) return forgeIdentity.id
 
-  const identity = c.get('identity' as never) as IdentityLike | undefined
+  const identity = ctx.get('identity') as IdentityLike | undefined
   if (identity?.id) return identity.id
 
-  const apiKey = c.get('apiKey' as never) as ApiKeyCtxLike | undefined
+  const apiKey = ctx.get('apiKey') as ApiKeyCtxLike | undefined
   if (apiKey?.ownerId) return apiKey.ownerId
   if (apiKey?.id) return apiKey.id
 
@@ -142,7 +144,7 @@ function serializeRecord(record: ApiKeyRecord): Record<string, unknown> {
  * Either pass a pre-built `PostgresApiKeyStore` (preferred for tests and
  * dependency injection) or pass a Drizzle `db` and let the router build one.
  */
-export function createApiKeyRoutes(config: ApiKeyRoutesConfig | DB): Hono {
+export function createApiKeyRoutes(config: ApiKeyRoutesConfig | DB): Hono<AppEnv> {
   let store: PostgresApiKeyStore
   let allowedTiers: string[] | undefined
   if (config instanceof PostgresApiKeyStore) {
@@ -158,7 +160,7 @@ export function createApiKeyRoutes(config: ApiKeyRoutesConfig | DB): Hono {
     store = new PostgresApiKeyStore(config as DB)
   }
 
-  const app = new Hono()
+  const app = new Hono<AppEnv>()
 
   // --- Create key -------------------------------------------------------
   app.post('/', async (c) => {

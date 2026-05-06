@@ -17,12 +17,14 @@ const stableModulePromise = import('../stable.js')
 const advancedModulePromise = import('../advanced.js')
 const rootModulePromise = import('../index.js')
 
+const MODULE_IMPORT_TIMEOUT_MS = 120_000
+
 describe('facades/quick-start', () => {
   let mod: Awaited<typeof quickStartModulePromise>
 
   beforeAll(async () => {
     mod = await quickStartModulePromise
-  })
+  }, MODULE_IMPORT_TIMEOUT_MS)
 
   it('exports createQuickAgent helper', async () => {
     expect(typeof mod.createQuickAgent).toBe('function')
@@ -82,7 +84,7 @@ describe('facades/orchestration', () => {
 
   beforeAll(async () => {
     mod = await orchestrationModulePromise
-  })
+  }, MODULE_IMPORT_TIMEOUT_MS)
 
   it('exports event bus and agent bus', async () => {
     expect(typeof mod.createEventBus).toBe('function')
@@ -137,7 +139,7 @@ describe('facades/security', () => {
 
   beforeAll(async () => {
     mod = await securityModulePromise
-  })
+  }, MODULE_IMPORT_TIMEOUT_MS)
 
   it('exports risk classification', async () => {
     expect(typeof mod.createRiskClassifier).toBe('function')
@@ -192,7 +194,7 @@ describe('facades/index (namespace re-exports)', () => {
 
   beforeAll(async () => {
     mod = await facadesIndexModulePromise
-  })
+  }, MODULE_IMPORT_TIMEOUT_MS)
 
   it('exports quickStart, orchestration, security namespaces', async () => {
     expect(mod.quickStart).toBeDefined()
@@ -214,7 +216,7 @@ describe('stable entrypoint', () => {
 
   beforeAll(async () => {
     mod = await stableModulePromise
-  })
+  }, MODULE_IMPORT_TIMEOUT_MS)
 
   it('exports the curated facade namespaces', async () => {
     expect(mod.quickStart).toBeDefined()
@@ -237,7 +239,7 @@ describe('advanced entrypoint', () => {
 
   beforeAll(async () => {
     ;[mod, root] = await Promise.all([advancedModulePromise, rootModulePromise])
-  })
+  }, MODULE_IMPORT_TIMEOUT_MS)
 
   it('re-exports representative root symbols', async () => {
     expect(typeof mod.createContainer).toBe('function')

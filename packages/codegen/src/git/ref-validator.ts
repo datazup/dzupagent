@@ -112,7 +112,6 @@ export function validateRefName(
 
   // Reject git-ref-format metacharacters and shell metacharacters.
   // Set: ~ ^ : ? * [ \ space and control chars (0x00-0x1F, 0x7F).
-  // eslint-disable-next-line no-control-regex
   if (/[\s~^:?*[\\\x00-\x1f\x7f]/.test(name)) {
     throw new InvalidGitRefError(
       name,

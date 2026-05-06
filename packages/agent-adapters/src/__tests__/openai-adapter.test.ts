@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError, type LlmInvocationRecord } from '@dzupagent/core'
 
 import { OpenAIAdapter } from '../openai/openai-adapter.js'
 import { collectEvents } from './test-helpers.js'
@@ -290,6 +290,7 @@ describe('OpenAIAdapter', () => {
   })
 
   it('run() non-streaming method returns content + usage from JSON response', async () => {
+    const auditSink = vi.fn<(record: LlmInvocationRecord) => void>()
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -306,11 +307,31 @@ describe('OpenAIAdapter', () => {
       }),
     )
 
-    const adapter = new OpenAIAdapter({ apiKey: 'k' })
+    const adapter = new OpenAIAdapter({
+      apiKey: 'k',
+      auditSink,
+      auditRunId: 'run-1',
+      auditTenantId: 'tenant-1',
+    })
     const result = await adapter.run('Hello', { systemPrompt: 'be brief' })
 
     expect(result.content).toBe('Hello back')
     expect(result.usage).toEqual({ inputTokens: 8, outputTokens: 3 })
+    expect(auditSink).toHaveBeenCalledTimes(1)
+    expect(auditSink.mock.calls[0]![0]).toMatchObject({
+      providerId: 'openai',
+      model: 'gpt-4o-mini',
+      runId: 'run-1',
+      tenantId: 'tenant-1',
+      promptCharCount: 'Hello'.length,
+      systemPromptCharCount: 'be brief'.length,
+      status: 'completed',
+      usage: {
+        promptTokens: 8,
+        completionTokens: 3,
+        totalTokens: 11,
+      },
+    })
   })
 
   it('run() omits usage when JSON response has no usage block', async () => {
@@ -331,5 +352,48 @@ describe('OpenAIAdapter', () => {
     const result = await adapter.run('Hello')
     expect(result.content).toBe('ok')
     expect(result.usage).toBeUndefined()
+  })
+
+  it('run() emits failed audit records and preserves thrown errors', async () => {
+    const auditSink = vi.fn<(record: LlmInvocationRecord) => void>()
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
+
+    const adapter = new OpenAIAdapter({ apiKey: 'k', auditSink, model: 'gpt-4o' })
+    await expect(adapter.run('Hello')).rejects.toThrow('network down')
+
+    expect(auditSink).toHaveBeenCalledTimes(1)
+    expect(auditSink.mock.calls[0]![0]).toMatchObject({
+      providerId: 'openai',
+      model: 'gpt-4o',
+      promptCharCount: 'Hello'.length,
+      status: 'failed',
+      errorCode: 'ADAPTER_EXECUTION_FAILED',
+    })
+  })
+
+  it('run() swallows audit sink errors so audit failures do not break calls', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const auditSink = vi.fn<(record: LlmInvocationRecord) => void>(() => {
+      throw new Error('sink down')
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: () => Promise.resolve({ choices: [{ message: { content: 'ok' } }] }),
+        text: () => Promise.resolve(''),
+        body: null,
+        headers: new Headers(),
+      }),
+    )
+
+    const adapter = new OpenAIAdapter({ apiKey: 'k', auditSink })
+    const result = await adapter.run('Hello')
+
+    expect(result.content).toBe('ok')
+    expect(auditSink).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith('[OpenAIAdapter] audit sink failed:', 'sink down')
   })
 })

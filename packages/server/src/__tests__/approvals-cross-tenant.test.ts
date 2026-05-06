@@ -12,8 +12,14 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Hono } from 'hono'
-import { InMemoryRunStore, createEventBus } from '@dzupagent/core'
+import {
+  InMemoryAgentStore,
+  InMemoryRunStore,
+  ModelRegistry,
+  createEventBus,
+} from '@dzupagent/core'
 import { InMemoryApprovalStateStore } from '@dzupagent/hitl-kit'
+import { createForgeApp, type ForgeServerConfig } from '../app.js'
 import { createApprovalsRoutes } from '../routes/approvals.js'
 
 function appWithApiKey(
@@ -114,5 +120,61 @@ describe('Approvals routes — cross-tenant guard (QF-01 / SEC-01)', () => {
     expect(res.status).toBe(503)
     // Approval still pending.
     expect(approvalStore.getPayload('r-1', 'ap-1')).toEqual({ reason: 'review' })
+  })
+
+  it('enforces ownership through the mounted createForgeApp approvals route', async () => {
+    const mountedRunStore = new InMemoryRunStore()
+    const mountedApprovalStore = new InMemoryApprovalStateStore()
+    const config: ForgeServerConfig = {
+      runStore: mountedRunStore,
+      agentStore: new InMemoryAgentStore(),
+      eventBus: createEventBus(),
+      modelRegistry: new ModelRegistry(),
+      approvalStore: mountedApprovalStore,
+      auth: {
+        mode: 'api-key',
+        validateKey: async (token) => {
+          switch (token) {
+            case 'tenant-a':
+              return { id: 'key-a', tenantId: 'tenant-a', role: 'operator' }
+            case 'tenant-b':
+              return { id: 'key-b', tenantId: 'tenant-b', role: 'operator' }
+            default:
+              return null
+          }
+        },
+      },
+    }
+    const app = createForgeApp(config)
+    const run = await mountedRunStore.create({
+      agentId: 'agent-b',
+      input: 'b',
+      tenantId: 'tenant-b',
+      ownerId: 'key-b',
+    })
+    await mountedApprovalStore.createPending(run.id, 'ap-mounted', { reason: 'review' })
+
+    const crossTenant = await app.request(`/api/approvals/${run.id}/ap-mounted/grant`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer tenant-a',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ response: 'sneak-grant' }),
+    })
+
+    expect(crossTenant.status).toBe(404)
+    expect(mountedApprovalStore.getPayload(run.id, 'ap-mounted')).toEqual({ reason: 'review' })
+
+    const owner = await app.request(`/api/approvals/${run.id}/ap-mounted/grant`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer tenant-b',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ response: 'ok' }),
+    })
+
+    expect(owner.status).toBe(200)
   })
 })

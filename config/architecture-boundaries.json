@@ -169,7 +169,8 @@
       "internal-support": {
         "rationale": "Shared route support modules that do not create product-control-plane endpoints by themselves.",
         "files": [
-          "packages/server/src/routes/route-error.ts"
+          "packages/server/src/routes/route-error.ts",
+          "packages/server/src/routes/tenant-scope.ts"
         ]
       }
     },

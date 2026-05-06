@@ -7,7 +7,7 @@
  * detection, and adapter:started/completed/failed lifecycle events.
  */
 import { randomUUID } from 'node:crypto'
-import { ForgeError, type LlmAuditSink } from '@dzupagent/core'
+import { ForgeError, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -54,11 +54,14 @@ export interface OpenAIConfig extends AdapterConfig {
    * Wire via `attachLlmAuditEventBridge` from `@dzupagent/core` to forward
    * records onto a `DzupEventBus`.
    *
-   * Note: only the streaming `execute()` path emits audit records. The
-   * non-streaming `run()` convenience does not flow through the runner
-   * (audit emission for that path is deferred — see TODO in run()).
+   * Both the streaming `execute()` path and non-streaming `run()` path emit
+   * a best-effort audit record. Sink failures are logged and swallowed.
    */
   auditSink?: LlmAuditSink
+  /** Optional audit run identifier copied into LLM audit records. */
+  auditRunId?: string
+  /** Optional audit tenant identifier copied into LLM audit records. */
+  auditTenantId?: string
 }
 
 export interface OpenAIRunResult {
@@ -97,32 +100,48 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
     }
   }
 
-  /**
-   * Non-streaming convenience method returning the assembled content + usage.
-   *
-   * TODO(H-25): emit `llm:invocation_recorded` for the non-streaming path.
-   * The streaming path goes through {@link AdapterStreamRunner} which owns
-   * audit emission; this path does not, so audit records for callers using
-   * `run()` are not yet captured. Streaming covers the bulk of LLM traffic;
-   * this is deferred to a follow-up.
-   */
+  /** Non-streaming convenience method returning the assembled content + usage. */
   async run(
     prompt: string,
     opts: { systemPrompt?: string; model?: string; signal?: AbortSignal } = {},
   ): Promise<OpenAIRunResult> {
     const model = opts.model ?? this.config.model ?? DEFAULT_MODEL
-    const response = await this.postChatCompletions({
-      messages: this.buildMessages(prompt, opts.systemPrompt),
-      model,
-      stream: false,
-      signal: opts.signal,
-    })
-    const data = (await response.json()) as OpenAIChatResponse
-    const content = data.choices?.[0]?.message?.content ?? ''
-    const usage = data.usage
-      ? { inputTokens: data.usage.prompt_tokens ?? 0, outputTokens: data.usage.completion_tokens ?? 0 }
-      : undefined
-    return usage ? { content, usage } : { content }
+    const startedAtMs = Date.now()
+    const startedAt = new Date(startedAtMs).toISOString()
+    try {
+      const response = await this.postChatCompletions({
+        messages: this.buildMessages(prompt, opts.systemPrompt),
+        model,
+        stream: false,
+        signal: opts.signal,
+      })
+      const data = (await response.json()) as OpenAIChatResponse
+      const content = data.choices?.[0]?.message?.content ?? ''
+      const usage = data.usage
+        ? { inputTokens: data.usage.prompt_tokens ?? 0, outputTokens: data.usage.completion_tokens ?? 0 }
+        : undefined
+      this.emitRunAudit({
+        prompt,
+        systemPrompt: opts.systemPrompt,
+        model,
+        status: 'completed',
+        durationMs: Date.now() - startedAtMs,
+        startedAt,
+        usage,
+      })
+      return usage ? { content, usage } : { content }
+    } catch (error: unknown) {
+      this.emitRunAudit({
+        prompt,
+        systemPrompt: opts.systemPrompt,
+        model,
+        status: 'failed',
+        durationMs: Date.now() - startedAtMs,
+        startedAt,
+        errorCode: this.resolveAuditErrorCode(error),
+      })
+      throw error
+    }
   }
 
   /** Streaming convenience that delegates to {@link execute}. */
@@ -167,6 +186,8 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
       },
       ...(this.config.auditSink ? { auditSink: this.config.auditSink } : {}),
       auditModel: this.currentModel,
+      ...(this.config.auditRunId !== undefined ? { auditRunId: this.config.auditRunId } : {}),
+      ...(this.config.auditTenantId !== undefined ? { auditTenantId: this.config.auditTenantId } : {}),
     })
 
     try {
@@ -328,6 +349,59 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
       })
     }
     return response
+  }
+
+  private emitRunAudit(args: {
+    prompt: string
+    systemPrompt?: string
+    model: string
+    status: LlmInvocationRecord['status']
+    durationMs: number
+    startedAt: string
+    usage?: OpenAIRunResult['usage']
+    errorCode?: string
+  }): void {
+    const sink = this.config.auditSink
+    if (!sink) return
+    try {
+      const record: LlmInvocationRecord = {
+        providerId: this.providerId,
+        model: args.model,
+        promptCharCount: args.prompt.length,
+        ...(args.systemPrompt !== undefined
+          ? { systemPromptCharCount: args.systemPrompt.length }
+          : {}),
+        status: args.status,
+        ...(args.errorCode !== undefined ? { errorCode: args.errorCode } : {}),
+        durationMs: args.durationMs,
+        ...(args.usage !== undefined ? { usage: this.toAuditUsage(args.usage) } : {}),
+        startedAt: args.startedAt,
+        ...(this.config.auditRunId !== undefined ? { runId: this.config.auditRunId } : {}),
+        ...(this.config.auditTenantId !== undefined ? { tenantId: this.config.auditTenantId } : {}),
+      }
+      sink(record)
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error)
+      console.warn('[OpenAIAdapter] audit sink failed:', msg)
+    }
+  }
+
+  private toAuditUsage(usage: NonNullable<OpenAIRunResult['usage']>): NonNullable<LlmInvocationRecord['usage']> {
+    const promptTokens = usage.inputTokens
+    const completionTokens = usage.outputTokens
+    return {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+    }
+  }
+
+  private resolveAuditErrorCode(error: unknown): string {
+    if (error !== null && typeof error === 'object' && 'code' in error) {
+      const code = (error as { code?: unknown }).code
+      if (typeof code === 'string' && code.length > 0) return code
+    }
+    return 'ADAPTER_EXECUTION_FAILED'
   }
 
   private async *parseSSE(

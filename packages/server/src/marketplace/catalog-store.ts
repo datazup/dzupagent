@@ -17,6 +17,7 @@ export interface CatalogEntry {
   readme: string | null
   publishedAt: string | null
   isPublic: boolean
+  tenantId?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -34,6 +35,8 @@ export interface CatalogSearchQuery {
   tags?: string[]
   /** Filter by author. */
   author?: string
+  /** Restrict search to a single tenant scope. */
+  tenantId?: string
   /** Page number (1-based). Default: 1. */
   page?: number
   /** Items per page. Default: 20, max: 100. */
@@ -47,10 +50,10 @@ export interface CatalogSearchResult {
 
 export interface CatalogStore {
   create(entry: CatalogEntryCreate): Promise<CatalogEntry>
-  getById(id: string): Promise<CatalogEntry | null>
-  getBySlug(slug: string): Promise<CatalogEntry | null>
-  update(id: string, patch: CatalogEntryPatch): Promise<CatalogEntry>
-  delete(id: string): Promise<void>
+  getById(id: string, tenantId?: string): Promise<CatalogEntry | null>
+  getBySlug(slug: string, tenantId?: string): Promise<CatalogEntry | null>
+  update(id: string, patch: CatalogEntryPatch, tenantId?: string): Promise<CatalogEntry>
+  delete(id: string, tenantId?: string): Promise<void>
   search(query: CatalogSearchQuery): Promise<CatalogSearchResult>
 }
 
@@ -82,6 +85,7 @@ export class InMemoryCatalogStore implements CatalogStore {
       readme: entry.readme ?? null,
       publishedAt: entry.publishedAt ?? null,
       isPublic: entry.isPublic ?? true,
+      tenantId: entry.tenantId ?? 'default',
       createdAt: now,
       updatedAt: now,
     }
@@ -89,19 +93,24 @@ export class InMemoryCatalogStore implements CatalogStore {
     return record
   }
 
-  async getById(id: string): Promise<CatalogEntry | null> {
-    return this.entries.get(id) ?? null
+  async getById(id: string, tenantId?: string): Promise<CatalogEntry | null> {
+    const entry = this.entries.get(id) ?? null
+    if (!entry) return null
+    if (tenantId && (entry.tenantId ?? 'default') !== tenantId) return null
+    return entry
   }
 
-  async getBySlug(slug: string): Promise<CatalogEntry | null> {
+  async getBySlug(slug: string, tenantId?: string): Promise<CatalogEntry | null> {
     for (const entry of this.entries.values()) {
-      if (entry.slug === slug) return entry
+      if (entry.slug === slug && (tenantId === undefined || (entry.tenantId ?? 'default') === tenantId)) {
+        return entry
+      }
     }
     return null
   }
 
-  async update(id: string, patch: CatalogEntryPatch): Promise<CatalogEntry> {
-    const existing = this.entries.get(id)
+  async update(id: string, patch: CatalogEntryPatch, tenantId?: string): Promise<CatalogEntry> {
+    const existing = await this.getById(id, tenantId)
     if (!existing) {
       throw new CatalogNotFoundError(id)
     }
@@ -126,8 +135,8 @@ export class InMemoryCatalogStore implements CatalogStore {
     return updated
   }
 
-  async delete(id: string): Promise<void> {
-    if (!this.entries.has(id)) {
+  async delete(id: string, tenantId?: string): Promise<void> {
+    if (!(await this.getById(id, tenantId))) {
       throw new CatalogNotFoundError(id)
     }
     this.entries.delete(id)
@@ -155,6 +164,9 @@ export class InMemoryCatalogStore implements CatalogStore {
     // Author filter
     if (query.author) {
       results = results.filter((e) => e.author === query.author)
+    }
+    if (query.tenantId) {
+      results = results.filter((e) => (e.tenantId ?? 'default') === query.tenantId)
     }
 
     const total = results.length

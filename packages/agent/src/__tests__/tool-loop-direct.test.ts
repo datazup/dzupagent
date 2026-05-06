@@ -35,7 +35,7 @@ import {
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { runToolLoop } from '../agent/tool-loop.js'
-import { StuckDetector } from '../guardrails/stuck-detector.js'
+import type { StuckDetector } from '../guardrails/stuck-detector.js'
 
 // ---------- Shared helpers (mirrors tool-loop-core style) ----------
 

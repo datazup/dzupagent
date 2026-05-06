@@ -5,6 +5,7 @@
  */
 import { Hono } from 'hono'
 import type { ScheduleStore } from '../schedules/schedule-store.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface ScheduleRouteConfig {
   scheduleStore: ScheduleStore
@@ -17,6 +18,7 @@ export function createScheduleRoutes(config: ScheduleRouteConfig): Hono {
 
   // --- Create schedule ---
   app.post('/', async (c) => {
+    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{
       id?: string
       name: string
@@ -41,6 +43,7 @@ export function createScheduleRoutes(config: ScheduleRouteConfig): Hono {
       workflowText: body.workflowText,
       enabled: body.enabled ?? true,
       metadata: body.metadata,
+      tenantId,
     })
 
     return c.json(schedule, 201)
@@ -49,21 +52,20 @@ export function createScheduleRoutes(config: ScheduleRouteConfig): Hono {
   // --- List schedules ---
   app.get('/', async (c) => {
     const enabledStr = c.req.query('enabled')
+    const tenantId = getRequestingTenantId(c)
 
-    const filter: { enabled?: boolean } = {}
+    const filter: { enabled?: boolean; tenantId: string } = { tenantId }
     if (enabledStr !== undefined && enabledStr !== null) {
       filter.enabled = enabledStr === 'true'
     }
 
-    const schedules = await config.scheduleStore.list(
-      Object.keys(filter).length > 0 ? filter : undefined,
-    )
+    const schedules = await config.scheduleStore.list(filter)
     return c.json({ schedules })
   })
 
   // --- Get schedule ---
   app.get('/:id', async (c) => {
-    const schedule = await config.scheduleStore.get(c.req.param('id'))
+    const schedule = await config.scheduleStore.get(c.req.param('id'), getRequestingTenantId(c))
     if (!schedule) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Schedule not found' } }, 404)
     }
@@ -80,7 +82,11 @@ export function createScheduleRoutes(config: ScheduleRouteConfig): Hono {
       metadata?: Record<string, unknown>
     }>()
 
-    const schedule = await config.scheduleStore.update(c.req.param('id'), body)
+    const schedule = await config.scheduleStore.update(
+      c.req.param('id'),
+      body,
+      getRequestingTenantId(c),
+    )
     if (!schedule) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Schedule not found' } }, 404)
     }
@@ -89,7 +95,7 @@ export function createScheduleRoutes(config: ScheduleRouteConfig): Hono {
 
   // --- Delete schedule ---
   app.delete('/:id', async (c) => {
-    const deleted = await config.scheduleStore.delete(c.req.param('id'))
+    const deleted = await config.scheduleStore.delete(c.req.param('id'), getRequestingTenantId(c))
     if (!deleted) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Schedule not found' } }, 404)
     }
@@ -98,7 +104,7 @@ export function createScheduleRoutes(config: ScheduleRouteConfig): Hono {
 
   // --- Manually trigger schedule ---
   app.post('/:id/trigger', async (c) => {
-    const schedule = await config.scheduleStore.get(c.req.param('id'))
+    const schedule = await config.scheduleStore.get(c.req.param('id'), getRequestingTenantId(c))
     if (!schedule) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Schedule not found' } }, 404)
     }

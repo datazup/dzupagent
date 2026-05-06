@@ -432,6 +432,25 @@ export const emptyEventMetricMap = {
       },
     ),
   ],
+  // --- LLM invocation recorded (audit log) ---
+  'llm:invocation_recorded': [
+    counter(
+      'dzip_llm_invocation_recorded_total',
+      'Total LLM invocations recorded to the audit log',
+      ['provider_id', 'model', 'status'],
+      (e) => {
+        const ev = asEvent<'llm:invocation_recorded'>(e)
+        return {
+          value: 1,
+          labels: {
+            provider_id: ev.providerId,
+            model: ev.model,
+            status: ev.status,
+          },
+        }
+      },
+    ),
+  ],
   // --- Memory PII redaction ---
   'memory:pii_redacted': [
     counter(

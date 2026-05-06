@@ -7,6 +7,8 @@ import type { A2ATaskStore } from '../../a2a/task-handler.js'
 import type { A2ATask } from '../../a2a/task-handler.js'
 import type { OutboundUrlSecurityPolicy } from '@dzupagent/core'
 
+import type { AppEnv } from '../../types.js'
+
 export interface A2ARoutesConfig {
   agentCard: AgentCard
   taskStore: A2ATaskStore
@@ -55,13 +57,13 @@ export interface A2ACallerScope {
  *                  unchanged.
  */
 export function getCallerScope(c: Context): A2ACallerScope {
-  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const key = (c as Context<AppEnv>).get('apiKey')
   if (!key) return { ownerId: undefined, tenantId: undefined }
 
-  const id = typeof key['id'] === 'string' ? (key['id'] as string) : undefined
+  const id = typeof key.id === 'string' ? key.id : undefined
 
-  const tenantRaw = key['tenantId']
-  const ownerFallback = key['ownerId']
+  const tenantRaw = key.tenantId
+  const ownerFallback = key.ownerId
   const tenantId =
     typeof tenantRaw === 'string' && tenantRaw.length > 0
       ? tenantRaw

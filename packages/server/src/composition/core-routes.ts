@@ -47,6 +47,7 @@ export function mountCoreRoutes(app: Hono, runtimeConfig: ForgeServerConfig): vo
       createApprovalsRoutes({
         approvalStore: runtimeConfig.approvalStore,
         eventBus: runtimeConfig.eventBus,
+        runStore: runtimeConfig.runStore,
       }),
     )
   }

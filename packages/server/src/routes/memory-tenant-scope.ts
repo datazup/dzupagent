@@ -12,6 +12,8 @@
  */
 import type { Context } from 'hono'
 
+import type { AppEnv } from '../types.js'
+
 /**
  * Configuration for memory routes tenant-scope resolution.
  *
@@ -42,14 +44,14 @@ export interface MemoryTenantScopeConfig {
  * uses the same fields for owner/tenant scoping.
  */
 export function defaultResolveAuthScope(c: Context): Record<string, string> {
-  const key = c.get('apiKey' as never) as Record<string, unknown> | undefined
+  const key = (c as Context<AppEnv>).get('apiKey')
   if (!key) return {}
   const out: Record<string, string> = {}
-  const tenantId = key['tenantId']
+  const tenantId = key.tenantId
   if (typeof tenantId === 'string' && tenantId.length > 0) {
     out['tenantId'] = tenantId
   }
-  const ownerId = key['ownerId']
+  const ownerId = key.ownerId
   if (typeof ownerId === 'string' && ownerId.length > 0) {
     out['ownerId'] = ownerId
   }

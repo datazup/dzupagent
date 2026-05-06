@@ -49,14 +49,11 @@ Then `yarn install && yarn dedupe`.
 ---
 
 ## QF-SEC-05 — SEC-010: LocalWorkspace allowedCommands hardening
-**Files:** `packages/codegen/src/workspace/local-workspace.ts:107-120, 205-253`
-**Exploit:** `allowedCommands === undefined` (which a host can pass) skips the allowlist; LLM with workspace-write executes `curl`/`wget`/`ssh`.
-**Fix:**
-1. Replace constructor coalesce with explicit default array: `allowedCommands: options.command?.allowedCommands ?? ['rg', 'git', 'ls', 'cat']`.
-2. Replace check with `if (!Array.isArray(allowedCommands) || !allowedCommands.includes(cmd))`.
-3. Reject `cmd` containing `/`, `..`, or `UNSAFE_PATH_CHARS`.
-**Validation:** New test: `new LocalWorkspace({ rootDir, command: { allowedCommands: undefined } }).runCommand('curl', [])` returns `exitCode: 126`.
-**Effort:** 1.5h
+**Files:** `packages/codegen/src/workspace/local-workspace.ts:149-165,268-272`
+**Status:** Already fixed in the live checkout. Undefined `allowedCommands` resolves to the default allowlist, and only literal `'*'` bypasses the check.
+**Fix:** No code task. Keep this as a closed finding unless a future codegen workspace change regresses it.
+**Validation:** Optional regression-only: `new LocalWorkspace({ rootDir, command: { allowedCommands: undefined } }).runCommand('curl', [])` throws `WorkspaceCommandDeniedError`.
+**Effort:** 0h
 
 ---
 
