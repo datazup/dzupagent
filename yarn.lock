@@ -5434,6 +5434,13 @@ express-rate-limit@^8.2.1:
   dependencies:
     ip-address "10.1.0"
 
+express-rate-limit@^8.3.1:
+  version "8.5.0"
+  resolved "https://registry.yarnpkg.com/express-rate-limit/-/express-rate-limit-8.5.0.tgz#ef4709a569b8e763ae2a2420f3d74537bbbe9795"
+  integrity sha512-XKhFohWaSBdVJNTi5TaHziqnPkv04I9UQV6q1Wy7Ui6GGQZVW12ojDFwqer14EvCXxjvPG0CyWXx7cAXpALB4Q==
+  dependencies:
+    ip-address "10.1.0"
+
 express@^4.22.1:
   version "4.22.1"
   resolved "https://registry.npmjs.org/express/-/express-4.22.1.tgz"
@@ -9367,6 +9374,11 @@ zod-to-json-schema@^3.25.1:
   version "3.25.2"
   resolved "https://registry.yarnpkg.com/zod-to-json-schema/-/zod-to-json-schema-3.25.2.tgz#3fa799a7badd554541472fb65843fdc460b2e5aa"
   integrity sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==
+
+zod@>=4.0.0:
+  version "4.4.3"
+  resolved "https://registry.yarnpkg.com/zod/-/zod-4.4.3.tgz#b680f172885d18bbebf21a834ea25e55a1bbf356"
+  integrity sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==
 
 "zod@^3.25 || ^4.0", "zod@^3.25.76 || ^4", zod@^4.3.6:
   version "4.3.6"
