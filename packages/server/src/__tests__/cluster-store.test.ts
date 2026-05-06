@@ -62,6 +62,12 @@ describe('InMemoryClusterStore', () => {
       const record = await store.findById('nonexistent')
       expect(record).toBeNull()
     })
+
+    it('returns null when the cluster belongs to another tenant', async () => {
+      await store.create({ id: 'tenant-a-cluster', tenantId: 'tenant-a' })
+
+      await expect(store.findById('tenant-a-cluster', 'tenant-b')).resolves.toBeNull()
+    })
   })
 
   // ── delete ────────────────────────────────────────────────────────────
@@ -79,6 +85,13 @@ describe('InMemoryClusterStore', () => {
     it('returns false when cluster does not exist', async () => {
       const result = await store.delete('ghost')
       expect(result).toBe(false)
+    })
+
+    it('does not delete clusters owned by another tenant', async () => {
+      await store.create({ id: 'tenant-a-cluster', tenantId: 'tenant-a' })
+
+      await expect(store.delete('tenant-a-cluster', 'tenant-b')).resolves.toBe(false)
+      await expect(store.findById('tenant-a-cluster', 'tenant-a')).resolves.not.toBeNull()
     })
   })
 
@@ -108,6 +121,15 @@ describe('InMemoryClusterStore', () => {
         store.addRole('c1', { roleId: 'coder', agentId: 'a2' }),
       ).rejects.toThrow('Conflict:')
     })
+
+    it('throws not found when adding a role through another tenant scope', async () => {
+      await store.create({ id: 'tenant-a-cluster', tenantId: 'tenant-a' })
+
+      await expect(
+        store.addRole('tenant-a-cluster', { roleId: 'coder', agentId: 'agent-b' }, 'tenant-b'),
+      ).rejects.toThrow('NotFound:')
+      await expect(store.listRoles('tenant-a-cluster', 'tenant-a')).resolves.toEqual([])
+    })
   })
 
   // ── removeRole ────────────────────────────────────────────────────────
@@ -135,6 +157,16 @@ describe('InMemoryClusterStore', () => {
         store.removeRole('ghost', 'x'),
       ).rejects.toThrow('NotFound:')
     })
+
+    it('throws not found when removing a role through another tenant scope', async () => {
+      await store.create({ id: 'tenant-a-cluster', tenantId: 'tenant-a' })
+      await store.addRole('tenant-a-cluster', { roleId: 'coder', agentId: 'agent-a' }, 'tenant-a')
+
+      await expect(
+        store.removeRole('tenant-a-cluster', 'coder', 'tenant-b'),
+      ).rejects.toThrow('NotFound:')
+      await expect(store.listRoles('tenant-a-cluster', 'tenant-a')).resolves.toHaveLength(1)
+    })
   })
 
   // ── listRoles ─────────────────────────────────────────────────────────
@@ -159,6 +191,13 @@ describe('InMemoryClusterStore', () => {
 
       const roles = await store.listRoles('c1')
       expect(roles).toHaveLength(3)
+    })
+
+    it('returns empty roles when the cluster belongs to another tenant', async () => {
+      await store.create({ id: 'tenant-a-cluster', tenantId: 'tenant-a' })
+      await store.addRole('tenant-a-cluster', { roleId: 'coder', agentId: 'agent-a' }, 'tenant-a')
+
+      await expect(store.listRoles('tenant-a-cluster', 'tenant-b')).resolves.toEqual([])
     })
   })
 })

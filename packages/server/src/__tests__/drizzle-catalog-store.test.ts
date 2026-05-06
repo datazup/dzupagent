@@ -287,6 +287,7 @@ function createMockDb() {
 
       const existing = storage.get(targetId)
       if (!existing) return []
+      if (state.where && !evalCondition(state.where, existing)) return []
 
       const patch = state.setData as Partial<StoredRow>
       const newSlug = patch.slug
@@ -319,6 +320,7 @@ function createMockDb() {
 
       const existing = storage.get(targetId)
       if (!existing) return []
+      if (state.where && !evalCondition(state.where, existing)) return []
 
       slugIndex.delete(slugIndexKey(existing.slug, existing.tenantId))
       storage.delete(targetId)
@@ -647,6 +649,12 @@ describe('DrizzleCatalogStore', () => {
     it('returns null when storage is empty', async () => {
       expect(await store.getById('any-id')).toBeNull()
     })
+
+    it('returns null when the entry belongs to another tenant', async () => {
+      seedRow(db, { id: 'tenant-a-id', slug: 'tenant-a-slug', tenantId: 'tenant-a' })
+
+      expect(await store.getById('tenant-a-id', 'tenant-b')).toBeNull()
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -765,6 +773,17 @@ describe('DrizzleCatalogStore', () => {
       ).rejects.toThrow(CatalogNotFoundError)
     })
 
+    it('throws CatalogNotFoundError and preserves rows owned by another tenant', async () => {
+      seedRow(db, { id: 'tenant-a-id', slug: 'tenant-a-slug', name: 'Tenant A', tenantId: 'tenant-a' })
+
+      await expect(
+        store.update('tenant-a-id', { name: 'Tenant B takeover' }, 'tenant-b'),
+      ).rejects.toThrow(CatalogNotFoundError)
+      await expect(store.getById('tenant-a-id', 'tenant-a')).resolves.toEqual(
+        expect.objectContaining({ name: 'Tenant A', tenantId: 'tenant-a' }),
+      )
+    })
+
     it('throws CatalogSlugConflictError when new slug conflicts with another entry', async () => {
       seedRow(db, { id: 'taken-id', slug: 'taken-slug' })
       seedRow(db, { id: 'other-id', slug: 'other-slug' })
@@ -826,6 +845,13 @@ describe('DrizzleCatalogStore', () => {
 
     it('throws CatalogNotFoundError on empty storage', async () => {
       await expect(store.delete('any-id')).rejects.toThrow(CatalogNotFoundError)
+    })
+
+    it('throws CatalogNotFoundError and preserves rows owned by another tenant', async () => {
+      seedRow(db, { id: 'tenant-a-id', slug: 'tenant-a-slug', tenantId: 'tenant-a' })
+
+      await expect(store.delete('tenant-a-id', 'tenant-b')).rejects.toThrow(CatalogNotFoundError)
+      await expect(store.getById('tenant-a-id', 'tenant-a')).resolves.not.toBeNull()
     })
 
     it('allows creating a new entry with a previously-deleted slug', async () => {

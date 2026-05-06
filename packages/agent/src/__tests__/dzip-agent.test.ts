@@ -15,6 +15,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { AgentStreamEvent, DzupAgentConfig } from '../agent/agent-types.js'
+import type { CostLedgerClient } from '../guardrails/distributed-budget.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,6 +70,20 @@ function minimalConfig(overrides: Partial<DzupAgentConfig> = {}): DzupAgentConfi
     instructions: 'You are a test agent.',
     model: createMockModel([new AIMessage('hello')]),
     ...overrides,
+  }
+}
+
+function createFailingCostLedgerClient(): CostLedgerClient {
+  const fail = async (): Promise<never> => {
+    throw new Error('redis down')
+  }
+
+  return {
+    incr: fail,
+    incrByFloat: fail,
+    expire: fail,
+    get: fail,
+    del: fail,
   }
 }
 
@@ -292,6 +307,42 @@ describe('DzupAgent generate()', () => {
     const result = await agent.generate([new HumanMessage('go')], { signal: controller.signal })
 
     expect(result.stopReason).toBe('aborted')
+  })
+
+  it('passes costLedger fallbackToLocal=false through distributed guardrail wiring', async () => {
+    const response = new AIMessage('done')
+    ;(response as AIMessage & { usage_metadata: Record<string, unknown> }).usage_metadata = {
+      input_tokens: 1,
+      output_tokens: 1,
+    }
+
+    const emittedEvents: unknown[] = []
+    const eventBus = {
+      emit: vi.fn((event: unknown) => emittedEvents.push(event)),
+      on: vi.fn(),
+      off: vi.fn(),
+    }
+
+    const agent = new DzupAgent(minimalConfig({
+      model: createMockModel([response]),
+      eventBus: eventBus as never,
+      guardrails: {
+        distributed: {
+          costLedger: {
+            client: createFailingCostLedgerClient(),
+            maxCostUsd: 0.0001,
+            fallbackToLocal: false,
+          },
+        },
+      },
+    }))
+
+    const result = await agent.generate([new HumanMessage('Hi')])
+
+    expect(result.stopReason).toBe('complete')
+    expect(emittedEvents.filter(
+      (event) => (event as Record<string, unknown>).type === 'agent:rate_limited',
+    )).toEqual([])
   })
 })
 

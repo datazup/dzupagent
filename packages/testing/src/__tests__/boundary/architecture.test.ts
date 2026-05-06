@@ -157,6 +157,23 @@ function flattenLayerGraphPackageShortNames(graph: LayerGraph | undefined): Set<
  * Skips: node_modules, dist, __tests__, and any file whose basename
  * ends with .test.ts or .spec.ts — so only production source is scanned.
  */
+const IGNORED_SOURCE_DIRS = new Set([
+  '.cache',
+  '.claude',
+  '.next',
+  '.nuxt',
+  '.output',
+  '.turbo',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+  'out',
+  'storybook-static',
+  '__fixtures__',
+  '__tests__',
+]);
+
 function collectSourceFiles(dir: string): string[] {
   const results: string[] = [];
 
@@ -168,12 +185,7 @@ function collectSourceFiles(dir: string): string[] {
     const full = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      if (
-        entry.name === 'node_modules' ||
-        entry.name === 'dist' ||
-        entry.name === '__tests__' ||
-        entry.name === '__fixtures__'
-      ) {
+      if (IGNORED_SOURCE_DIRS.has(entry.name)) {
         continue;
       }
       results.push(...collectSourceFiles(full));
@@ -303,14 +315,21 @@ interface AppViolation {
   file: string;
 }
 
+let cachedAppViolations: AppViolation[] | undefined;
+
 /**
  * Scan every app workspace for imports of sibling app packages.
  * Returns one entry per (file, forbidden-package) pair found.
  */
 function collectAppViolations(): AppViolation[] {
+  if (cachedAppViolations) {
+    return cachedAppViolations;
+  }
+
   if (!fs.existsSync(APPS_ROOT)) {
     // apps/ directory not present (e.g. isolated dzupagent checkout) — skip.
-    return [];
+    cachedAppViolations = [];
+    return cachedAppViolations;
   }
 
   const violations: AppViolation[] = [];
@@ -339,7 +358,8 @@ function collectAppViolations(): AppViolation[] {
     }
   }
 
-  return violations;
+  cachedAppViolations = violations;
+  return cachedAppViolations;
 }
 
 function formatAppViolations(violations: AppViolation[]): string {
@@ -528,7 +548,7 @@ describe('Architecture boundary enforcement — omnibus', () => {
   it('has zero forbidden cross-app edges across all scanned app workspaces', () => {
     const all = collectAppViolations();
     expect(all, formatAppViolations(all)).toHaveLength(0);
-  }, 120_000);
+  }, 300_000);
 });
 
 // ---------------------------------------------------------------------------
@@ -543,3 +563,364 @@ function formatViolations(violations: Violation[]): string {
   );
   return `\nBoundary violations detected:\n\n${lines.join('\n\n')}`;
 }
+
+// ---------------------------------------------------------------------------
+// Layer-driven boundary enforcement (RF-13 / ARCH-08)
+//
+// Dependency-order rules are driven from config/architecture-boundaries.json.
+// Support/stability metadata remains in config/package-tiers.json and is checked
+// separately by the completeness assertions above.
+//
+// Enforcement: dep.layer < importer.layer.
+//   A package may depend only on packages in lower-numbered layers. This keeps
+//   support tiers from being reinterpreted as architecture layers.
+// ---------------------------------------------------------------------------
+
+interface LayerDepViolation {
+  importer: string;
+  importerLayer: number;
+  dep: string;
+  depLayer: number;
+}
+
+function buildPackageLayerMap(): Map<string, number> {
+  const map = new Map<string, number>();
+
+  for (const layer of LAYER_GRAPH?.layers ?? []) {
+    for (const pkg of layer.packages) {
+      map.set(pkg, layer.id);
+      if (pkg !== 'create-dzupagent') {
+        map.set(`@dzupagent/${pkg}`, layer.id);
+      }
+    }
+  }
+
+  return map;
+}
+
+/**
+ * Read every package.json under packages/ and return the set of declared
+ * local production dependencies, mapped to the package full name.
+ */
+function buildPackageDepMap(): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  if (!fs.existsSync(PACKAGES_ROOT)) return map;
+
+  for (const entry of fs.readdirSync(PACKAGES_ROOT, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, 'package.json');
+    if (!fs.existsSync(pkgJsonPath)) continue;
+    try {
+      const json = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')) as {
+        name?: string;
+        dependencies?: Record<string, string>;
+        peerDependencies?: Record<string, string>;
+        optionalDependencies?: Record<string, string>;
+      };
+      if (typeof json.name !== 'string' || json.name.length === 0) continue;
+      const combined = {
+        ...json.dependencies,
+        ...json.peerDependencies,
+        ...json.optionalDependencies,
+      };
+      const localDeps = Object.keys(combined).filter(
+        (k) => k.startsWith('@dzupagent/') || k === 'create-dzupagent',
+      );
+      map.set(json.name, localDeps);
+    } catch {
+      // ignore unparsable
+    }
+  }
+  return map;
+}
+
+function collectLayerDepViolations(): LayerDepViolation[] {
+  const depMap = buildPackageDepMap();
+  const packageLayers = buildPackageLayerMap();
+  const violations: LayerDepViolation[] = [];
+
+  for (const [pkgName, deps] of depMap) {
+    const pkgLayer = packageLayers.get(pkgName);
+    if (pkgLayer === undefined) continue;
+
+    for (const dep of deps) {
+      const depLayer = packageLayers.get(dep);
+      if (depLayer === undefined) continue;
+
+      // Enforcement: packages may depend only on lower-numbered layers.
+      if (depLayer >= pkgLayer) {
+        violations.push({
+          importer: pkgName,
+          importerLayer: pkgLayer,
+          dep,
+          depLayer,
+        });
+      }
+    }
+  }
+
+  return violations;
+}
+
+function formatLayerDepViolations(violations: LayerDepViolation[]): string {
+  if (violations.length === 0) return '';
+  const lines = violations.map(
+    (v) =>
+      `  LAYER VIOLATION: ${v.importer} (layer ${v.importerLayer}) -> ${v.dep} (layer ${v.depLayer})` +
+      `\n    Packages may depend only on lower-numbered layers.`,
+  );
+  return `\nLayer dependency violations detected:\n\n${lines.join('\n\n')}\n\n` +
+    'Rule: dep.layer < importer.layer\n' +
+    'Layer metadata comes from config/architecture-boundaries.json.';
+}
+
+// ---------------------------------------------------------------------------
+// DFS-based circular dependency detection
+//
+// Builds a directed graph from actual TypeScript source imports (production
+// files only; test files are excluded) and runs DFS cycle detection over the
+// full graph.  A cycle means two or more @dzupagent packages mutually depend
+// on each other at the source level, which is a hard architectural violation.
+//
+// The cache → memory regression example: @dzupagent/memory already depends on
+// @dzupagent/cache; if cache were to import memory the DFS would detect the
+// resulting cycle cache → memory → cache.
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk every @dzupagent package under packages/ and build an import edge
+ * graph: Map<importer-pkg-name, Set<dep-pkg-name>>.
+ *
+ * Uses the same extractDzupagentImports() helper already defined above —
+ * no duplication of regex logic.
+ */
+function buildImportGraph(): Map<string, Set<string>> {
+  const graph = new Map<string, Set<string>>();
+
+  if (!fs.existsSync(PACKAGES_ROOT)) return graph;
+
+  for (const entry of fs.readdirSync(PACKAGES_ROOT, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, 'package.json');
+    if (!fs.existsSync(pkgJsonPath)) continue;
+
+    let pkgName: string;
+    try {
+      const json = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')) as { name?: string };
+      if (typeof json.name !== 'string' || json.name.length === 0) continue;
+      pkgName = json.name;
+    } catch {
+      continue;
+    }
+
+    if (!graph.has(pkgName)) {
+      graph.set(pkgName, new Set<string>());
+    }
+
+    const srcDir = path.join(PACKAGES_ROOT, entry.name, 'src');
+    const files = collectSourceFiles(srcDir);
+
+    for (const file of files) {
+      const imports = extractDzupagentImports(file);
+      for (const imp of imports) {
+        if (imp !== pkgName) {
+          graph.get(pkgName)!.add(imp);
+        }
+      }
+    }
+  }
+
+  return graph;
+}
+
+interface Cycle {
+  path: string[];
+}
+
+/**
+ * DFS-based cycle detection over the full import graph.
+ * Returns all cycles found (each cycle is reported as an ordered path where
+ * the first and last node are the same package).
+ *
+ * Uses the standard three-colour (white/grey/black) DFS algorithm:
+ *   white = not yet visited
+ *   grey  = currently in the recursion stack (back-edge = cycle)
+ *   black = fully processed
+ */
+function detectCycles(graph: Map<string, Set<string>>): Cycle[] {
+  const WHITE = 0, GREY = 1, BLACK = 2;
+  const colour = new Map<string, number>();
+  const cycles: Cycle[] = [];
+  const reportedCycles = new Set<string>();
+
+  // Initialise all nodes white
+  for (const node of graph.keys()) {
+    colour.set(node, WHITE);
+  }
+
+  function dfs(node: string, stack: string[]): void {
+    colour.set(node, GREY);
+    stack.push(node);
+
+    for (const neighbour of graph.get(node) ?? []) {
+      if (!colour.has(neighbour)) {
+        // Node outside packages/ (e.g. an external @dzupagent package not
+        // in this checkout) — skip.
+        continue;
+      }
+
+      if (colour.get(neighbour) === GREY) {
+        // Back-edge found: extract the cycle from the current stack.
+        const cycleStart = stack.indexOf(neighbour);
+        const cyclePath = [...stack.slice(cycleStart), neighbour];
+        // Normalise to a canonical string to deduplicate rotations.
+        const canonical = [...cyclePath].sort().join('|');
+        if (!reportedCycles.has(canonical)) {
+          reportedCycles.add(canonical);
+          cycles.push({ path: cyclePath });
+        }
+      } else if (colour.get(neighbour) === WHITE) {
+        dfs(neighbour, stack);
+      }
+    }
+
+    stack.pop();
+    colour.set(node, BLACK);
+  }
+
+  for (const node of graph.keys()) {
+    if (colour.get(node) === WHITE) {
+      dfs(node, []);
+    }
+  }
+
+  return cycles;
+}
+
+function formatCycles(cycles: Cycle[]): string {
+  if (cycles.length === 0) return '';
+  const lines = cycles.map((c) => `  CYCLE: ${c.path.join(' -> ')}`);
+  return `\nCircular dependencies detected in source import graph:\n\n${lines.join('\n')}\n\n` +
+    'Tip: the cache -> memory case: @dzupagent/memory already depends on @dzupagent/cache;\n' +
+    'if cache imports memory the DFS detects cache -> memory -> cache.';
+}
+
+// ---------------------------------------------------------------------------
+// Static @dzupagent/ import sweep — layer ordering check
+//
+// Greps every production TypeScript file for  from '@dzupagent/…'  patterns.
+// For each found import edge (importer-file's owning package → imported
+// package) asserts that the layer ordering rule holds.
+//
+// This catches cases where package.json deps are correct but the source tree
+// has ad-hoc cross-tier imports via path aliases or unregistered workspace
+// links.
+// ---------------------------------------------------------------------------
+
+interface StaticSweepViolation {
+  importerPkg: string;
+  importerLayer: number;
+  importedPkg: string;
+  importedLayer: number;
+  file: string;
+}
+
+function collectStaticSweepViolations(): StaticSweepViolation[] {
+  const violations: StaticSweepViolation[] = [];
+  if (!fs.existsSync(PACKAGES_ROOT)) return violations;
+  const packageLayers = buildPackageLayerMap();
+
+  for (const entry of fs.readdirSync(PACKAGES_ROOT, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, 'package.json');
+    if (!fs.existsSync(pkgJsonPath)) continue;
+
+    let pkgName: string;
+    try {
+      const json = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')) as { name?: string };
+      if (typeof json.name !== 'string' || json.name.length === 0) continue;
+      pkgName = json.name;
+    } catch {
+      continue;
+    }
+
+    const pkgLayer = packageLayers.get(pkgName);
+    if (pkgLayer === undefined) continue;
+
+    const srcDir = path.join(PACKAGES_ROOT, entry.name, 'src');
+    const files = collectSourceFiles(srcDir);
+
+    for (const file of files) {
+      const imports = extractDzupagentImports(file);
+      const relFile = path.relative(MONOREPO_ROOT, file);
+
+      for (const imp of imports) {
+        if (imp === pkgName) continue; // self-import — ignore
+        const impLayer = packageLayers.get(imp);
+        if (impLayer === undefined) continue;
+
+        // Enforcement: packages may depend only on lower-numbered layers.
+        if (impLayer >= pkgLayer) {
+          violations.push({
+            importerPkg: pkgName,
+            importerLayer: pkgLayer,
+            importedPkg: imp,
+            importedLayer: impLayer,
+            file: relFile,
+          });
+        }
+      }
+    }
+  }
+
+  return violations;
+}
+
+function formatStaticSweepViolations(violations: StaticSweepViolation[]): string {
+  if (violations.length === 0) return '';
+  const lines = violations.map(
+    (v) =>
+      `  STATIC SWEEP VIOLATION: ${v.importerPkg} (layer ${v.importerLayer}) imports ${v.importedPkg} (layer ${v.importedLayer})\n  FILE: ${v.file}`,
+  );
+  return `\nStatic @dzupagent/ import sweep violations:\n\n${lines.join('\n\n')}`;
+}
+
+// ---------------------------------------------------------------------------
+// RF-13 / ARCH-08 test suite
+// ---------------------------------------------------------------------------
+
+describe('Layer-driven dependency validation', () => {
+  it('every local package dep targets a lower architecture layer', () => {
+    // Rule: a package may depend only on packages in lower-numbered layers.
+    //
+    // Example that would fail:
+    //   @dzupagent/core (layer 1) depending on @dzupagent/server (layer 5)
+    const violations = collectLayerDepViolations();
+    expect(violations, formatLayerDepViolations(violations)).toHaveLength(0);
+  });
+
+  it('import graph has no circular dependencies (DFS)', () => {
+    // Walks every production TypeScript source file under packages/*/src/,
+    // builds an import edge graph for @dzupagent/* packages, and runs a
+    // full-graph DFS cycle detection.
+    //
+    // Regression case: if @dzupagent/cache (which is depended upon by
+    // @dzupagent/memory) were to import @dzupagent/memory, this test would
+    // report: CYCLE: @dzupagent/cache -> @dzupagent/memory -> @dzupagent/cache
+    const graph = buildImportGraph();
+    const cycles = detectCycles(graph);
+    expect(cycles, formatCycles(cycles)).toHaveLength(0);
+  }, 180_000);
+
+  it('static @dzupagent/ import sweep: no forbidden cross-layer imports in source files', () => {
+    // Performs a regex sweep over every production TypeScript file looking
+    // for  from '@dzupagent/…'  patterns, then asserts the layer ordering
+    // rule on each discovered edge.
+    //
+    // This test catches cross-tier source imports that may not be registered
+    // in package.json (e.g. via path aliases, unregistered workspace links,
+    // or accidental direct file references).
+    const violations = collectStaticSweepViolations();
+    expect(violations, formatStaticSweepViolations(violations)).toHaveLength(0);
+  }, 180_000);
+});

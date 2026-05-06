@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { HttpFetcher } from '../http-fetcher.js'
 
 function makeResponse(body: string, init?: { status?: number; headers?: Record<string, string> }): Response {
@@ -9,8 +9,15 @@ function makeResponse(body: string, init?: { status?: number; headers?: Record<s
 }
 
 describe('HttpFetcher', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals()
+    delete process.env['NODE_ENV']
+  })
+
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    delete process.env['NODE_ENV']
   })
 
   it('honors extraction options passed to fetch', async () => {
@@ -106,5 +113,72 @@ describe('HttpFetcher', () => {
 
     await expect(fetcher.fetch('https://example.com/start')).rejects.toThrow('Outbound URL rejected')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects DNS-rebinding (hostname resolves to private IP)', async () => {
+    const fetchMock = vi.fn(async () => makeResponse('<html></html>'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const fetcher = new HttpFetcher({
+      respectRobotsTxt: false,
+      maxRetries: 0,
+      urlPolicy: {
+        lookup: async () => [{ address: '192.168.1.1', family: 4 }],
+      },
+    })
+
+    await expect(fetcher.fetch('https://trustworthy-domain.test/')).rejects.toThrow('Outbound URL rejected')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects AWS metadata endpoint directly', async () => {
+    const fetchMock = vi.fn(async () => makeResponse('<html></html>'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const fetcher = new HttpFetcher({ respectRobotsTxt: false, maxRetries: 0 })
+
+    await expect(
+      fetcher.fetch('https://169.254.169.254/latest/meta-data/iam/security-credentials/'),
+    ).rejects.toThrow('Outbound URL rejected')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('emits DZUPAGENT_SCRAPER_NO_ALLOWLIST warning in production without allowlist', () => {
+    process.env['NODE_ENV'] = 'production'
+    const warnSpy = vi.spyOn(process, 'emitWarning')
+
+    new HttpFetcher({ respectRobotsTxt: false })
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('SSRF'),
+      expect.objectContaining({ code: 'DZUPAGENT_SCRAPER_NO_ALLOWLIST' }),
+    )
+  })
+
+  it('does not emit SSRF warning in production when allowedHosts is set', () => {
+    process.env['NODE_ENV'] = 'production'
+    const warnSpy = vi.spyOn(process, 'emitWarning')
+
+    new HttpFetcher({
+      respectRobotsTxt: false,
+      urlPolicy: { allowedHosts: ['api.example.com'], resolveDns: false },
+    })
+
+    const ssrfWarn = warnSpy.mock.calls.find((c) =>
+      String(c[1] instanceof Object ? (c[1] as { code?: string }).code : '') === 'DZUPAGENT_SCRAPER_NO_ALLOWLIST',
+    )
+    expect(ssrfWarn).toBeUndefined()
+  })
+
+  it('does not emit SSRF warning outside production', () => {
+    process.env['NODE_ENV'] = 'development'
+    const warnSpy = vi.spyOn(process, 'emitWarning')
+
+    new HttpFetcher({ respectRobotsTxt: false })
+
+    const ssrfWarn = warnSpy.mock.calls.find((c) =>
+      String(c[1] instanceof Object ? (c[1] as { code?: string }).code : '') === 'DZUPAGENT_SCRAPER_NO_ALLOWLIST',
+    )
+    expect(ssrfWarn).toBeUndefined()
   })
 })

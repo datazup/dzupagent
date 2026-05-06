@@ -9,13 +9,35 @@ import { Hono } from 'hono'
 import { createClusterRoutes } from '../routes/clusters.js'
 import { InMemoryClusterStore } from '../persistence/drizzle-cluster-store.js'
 import { InMemoryMailboxStore } from '@dzupagent/agent'
+import type { AppEnv } from '../types.js'
+
+const tenantA = 'tenant-a'
+const tenantB = 'tenant-b'
 
 function createApp() {
   const clusterStore = new InMemoryClusterStore()
   const mailboxStore = new InMemoryMailboxStore()
-  const app = new Hono()
+  const app = new Hono<AppEnv>()
+  app.use('*', async (c, next) => {
+    const tenantId = c.req.header('x-test-tenant')
+    if (tenantId) {
+      c.set('apiKey', { id: `key-${tenantId}`, tenantId })
+    }
+    await next()
+  })
   app.route('/api/clusters', createClusterRoutes({ clusterStore, mailboxStore }))
   return { app, clusterStore, mailboxStore }
+}
+
+function request(method: string, body?: unknown, tenantId?: string): RequestInit {
+  return {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(tenantId ? { 'x-test-tenant': tenantId } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  }
 }
 
 function json(res: Response) {
@@ -23,7 +45,7 @@ function json(res: Response) {
 }
 
 describe('Cluster Routes', () => {
-  let app: Hono
+  let app: Hono<AppEnv>
   let clusterStore: InMemoryClusterStore
   let mailboxStore: InMemoryMailboxStore
 
@@ -75,6 +97,26 @@ describe('Cluster Routes', () => {
       const body = await json(res)
       expect(body.error.code).toBe('CONFLICT')
     })
+
+    it('stamps clusters with the authenticated tenant', async () => {
+      const first = await app.request(
+        '/api/clusters',
+        request('POST', { clusterId: 'tenant-a-cluster' }, tenantA),
+      )
+      const second = await app.request(
+        '/api/clusters',
+        request('POST', { clusterId: 'tenant-b-cluster' }, tenantB),
+      )
+
+      expect(first.status).toBe(201)
+      expect(second.status).toBe(201)
+      expect(await clusterStore.findById('tenant-a-cluster', tenantA)).toEqual(
+        expect.objectContaining({ id: 'tenant-a-cluster', tenantId: tenantA }),
+      )
+      expect(await clusterStore.findById('tenant-b-cluster', tenantB)).toEqual(
+        expect.objectContaining({ id: 'tenant-b-cluster', tenantId: tenantB }),
+      )
+    })
   })
 
   // ── GET /api/clusters/:id ─────────────────────────────────────────────
@@ -97,6 +139,13 @@ describe('Cluster Routes', () => {
       const res = await app.request('/api/clusters/ghost')
       expect(res.status).toBe(404)
     })
+
+    it('hides clusters owned by another tenant', async () => {
+      await clusterStore.create({ id: 'tenant-a-cluster', tenantId: tenantA })
+
+      const res = await app.request('/api/clusters/tenant-a-cluster', request('GET', undefined, tenantB))
+      expect(res.status).toBe(404)
+    })
   })
 
   // ── DELETE /api/clusters/:id ──────────────────────────────────────────
@@ -115,6 +164,14 @@ describe('Cluster Routes', () => {
     it('returns 404 for unknown cluster', async () => {
       const res = await app.request('/api/clusters/ghost', { method: 'DELETE' })
       expect(res.status).toBe(404)
+    })
+
+    it('does not delete clusters owned by another tenant', async () => {
+      await clusterStore.create({ id: 'tenant-a-cluster', tenantId: tenantA })
+
+      const res = await app.request('/api/clusters/tenant-a-cluster', request('DELETE', undefined, tenantB))
+      expect(res.status).toBe(404)
+      expect(await clusterStore.findById('tenant-a-cluster', tenantA)).not.toBeNull()
     })
   })
 
@@ -170,6 +227,18 @@ describe('Cluster Routes', () => {
 
       expect(res.status).toBe(409)
     })
+
+    it('does not add roles to clusters owned by another tenant', async () => {
+      await clusterStore.create({ id: 'tenant-a-cluster', tenantId: tenantA })
+
+      const res = await app.request(
+        '/api/clusters/tenant-a-cluster/roles',
+        request('POST', { roleId: 'coder', agentId: 'agent-b' }, tenantB),
+      )
+
+      expect(res.status).toBe(404)
+      expect(await clusterStore.listRoles('tenant-a-cluster', tenantA)).toEqual([])
+    })
   })
 
   // ── DELETE /api/clusters/:id/roles/:roleId ────────────────────────────
@@ -196,6 +265,23 @@ describe('Cluster Routes', () => {
     it('returns 404 for unknown cluster', async () => {
       const res = await app.request('/api/clusters/ghost/roles/x', { method: 'DELETE' })
       expect(res.status).toBe(404)
+    })
+
+    it('does not remove roles from clusters owned by another tenant', async () => {
+      await clusterStore.create({ id: 'tenant-a-cluster', tenantId: tenantA })
+      await clusterStore.addRole(
+        'tenant-a-cluster',
+        { roleId: 'coder', agentId: 'agent-a' },
+        tenantA,
+      )
+
+      const res = await app.request(
+        '/api/clusters/tenant-a-cluster/roles/coder',
+        request('DELETE', undefined, tenantB),
+      )
+
+      expect(res.status).toBe(404)
+      expect(await clusterStore.listRoles('tenant-a-cluster', tenantA)).toHaveLength(1)
     })
   })
 
@@ -295,6 +381,20 @@ describe('Cluster Routes', () => {
       expect(res.status).toBe(404)
       const body = await json(res)
       expect(body.error.message).toContain('Recipient role')
+    })
+
+    it('does not route mail through clusters owned by another tenant', async () => {
+      const res = await app.request(
+        '/api/clusters/c1/mail',
+        request('POST', {
+          from: 'planner',
+          to: 'coder',
+          message: { subject: 'Tenant escape', body: {} },
+        }, tenantB),
+      )
+
+      expect(res.status).toBe(404)
+      expect(await mailboxStore.findByRecipient('agent-coder')).toEqual([])
     })
 
     it('returns 400 when from/to/message missing', async () => {
