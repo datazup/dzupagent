@@ -627,5 +627,66 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
 
       expect(adapter.getMonitorStatus().state).toBe('ready')
     })
+
+    it('input.workingDirectory is forwarded to spawnAndStreamJsonl as cwd', async () => {
+      let capturedCwd: string | undefined
+
+      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary: string, _args: string[], opts: Record<string, unknown>) {
+        capturedCwd = opts['cwd'] as string | undefined
+        yield { type: 'completed', result: 'ok' }
+      })
+
+      const adapter = new TestCliAdapter()
+      await collectEvents(adapter.execute({ prompt: 'cwd test', workingDirectory: '/project/root' }))
+
+      expect(capturedCwd).toBe('/project/root')
+    })
+
+    it('config.workingDirectory is used as cwd fallback when input.workingDirectory is absent', async () => {
+      let capturedCwd: string | undefined
+
+      mockSpawnAndStreamJsonl.mockImplementation(async function* (_binary: string, _args: string[], opts: Record<string, unknown>) {
+        capturedCwd = opts['cwd'] as string | undefined
+        yield { type: 'completed', result: 'ok' }
+      })
+
+      const adapter = new TestCliAdapter()
+      adapter.configure({ workingDirectory: '/config/dir' })
+      await collectEvents(adapter.execute({ prompt: 'fallback cwd' }))
+
+      expect(capturedCwd).toBe('/config/dir')
+    })
+
+    it('adapter:failed surfaces a plain Error message from a failing process', async () => {
+      // spawnAndStreamJsonl throws a plain Error on non-zero exit containing the
+      // stderr text — plain errors are absorbed into adapter:failed (not rethrown).
+      mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+        throw new Error("Process 'test-bin' exited with code 1\nstderr: fatal: repo not found")
+      })
+
+      const adapter = new TestCliAdapter()
+      const events = await collectEvents(adapter.execute({ prompt: 'stderr task' }))
+
+      const failed = events.find((e) => e.type === 'adapter:failed')
+      expect(failed).toBeDefined()
+      if (failed && failed.type === 'adapter:failed') {
+        expect(failed.error).toContain('repo not found')
+        expect(failed.providerId).toBe('gemini')
+      }
+      // No completed event when a plain error is thrown.
+      expect(events.some((e) => e.type === 'adapter:completed')).toBe(false)
+    })
+
+    it('interrupt() after execute completes is a no-op and does not throw', async () => {
+      mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+        yield { type: 'completed', result: 'done' }
+      })
+
+      const adapter = new TestCliAdapter()
+      await collectEvents(adapter.execute({ prompt: 'completed task' }))
+
+      // currentAbortController is null after execute finishes — interrupt() must not throw.
+      expect(() => adapter.interrupt()).not.toThrow()
+    })
   })
 })

@@ -486,29 +486,28 @@ describe('SelfLearningPipelineHook', () => {
 
   describe('logging', () => {
     it('logs events when enableLogging is true', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-      const hook = new SelfLearningPipelineHook({ enableLogging: true })
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      const hook = new SelfLearningPipelineHook({ enableLogging: true, logger })
       const handler = hook.createEventHandler()
 
       fireEvent(handler, { type: 'pipeline:node_started', nodeId: 'n1', nodeType: 'standard' })
       await tick()
 
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(logger.info).toHaveBeenCalledWith(
         expect.stringContaining('[SelfLearning]'),
+        expect.objectContaining({ event: expect.any(Object) }),
       )
-      consoleSpy.mockRestore()
     })
 
     it('does not log when enableLogging is false', async () => {
-      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-      const hook = new SelfLearningPipelineHook({ enableLogging: false })
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      const hook = new SelfLearningPipelineHook({ enableLogging: false, logger })
       const handler = hook.createEventHandler()
 
       fireEvent(handler, { type: 'pipeline:node_started', nodeId: 'n1', nodeType: 'standard' })
       await tick()
 
-      expect(consoleSpy).not.toHaveBeenCalled()
-      consoleSpy.mockRestore()
+      expect(logger.info).not.toHaveBeenCalled()
     })
   })
 

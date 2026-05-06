@@ -1,10 +1,20 @@
 import { EventEmitter } from 'node:events'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Request, Response } from 'express'
-import type { DzupAgent } from '@dzupagent/agent'
+import { Readable } from 'node:stream'
+import express, { type Request, type Response } from 'express'
+import { describe, it, expect, vi } from 'vitest'
+import type { GenerateResult, DzupAgent } from '@dzupagent/agent'
 import { createAgentRouter } from '../agent-router.js'
 
-function createMockAgent(overrides?: Partial<DzupAgent>): DzupAgent {
+type TestApp = ReturnType<typeof express>
+
+interface TestResponseState {
+  statusCode: number
+  headers: Record<string, string>
+  chunks: string[]
+  ended: boolean
+}
+
+function createMockAgent(overrides?: Partial<Pick<DzupAgent, 'generate' | 'stream'>>): DzupAgent {
   return {
     generate: vi.fn(),
     stream: vi.fn(),
@@ -12,101 +22,165 @@ function createMockAgent(overrides?: Partial<DzupAgent>): DzupAgent {
   } as unknown as DzupAgent
 }
 
-/**
- * Simulate calling a route handler registered on the Express router.
- * Finds the route matching the given method + path and invokes it.
- *
- * asyncHandler wraps the inner fn as `(req, res, next) => void` (synchronous),
- * so we must pass a real `next` and wait for the inner Promise to settle.
- */
-function findRouteHandler(
-  router: ReturnType<typeof createAgentRouter>,
+function createRequest(
   method: string,
-  path: string,
-): ((req: Request, res: Response) => Promise<void>) | undefined {
-  const layer = router.stack.find(
-    (l: { route?: { path?: string; methods?: Record<string, boolean> } }) =>
-      l.route?.path === path && l.route?.methods?.[method],
-  )
-  const handle = layer?.route?.stack?.[0]?.handle as
-    | ((req: Request, res: Response, next: (err?: unknown) => void) => void)
-    | undefined
-
-  if (!handle) return undefined
-
-  return async (req: Request, res: Response): Promise<void> => {
-    await new Promise<void>((resolve) => {
-      // next is called if asyncHandler's .catch(next) fires (unhandled rejection)
-      // or if the route calls next() directly. Routes that handle errors internally
-      // (try/catch + res.status) never call next, so we also flush the event loop
-      // via setImmediate to let the inner async fn complete.
-      handle(req, res, () => resolve())
-      setImmediate(resolve)
-    })
-  }
+  url: string,
+  body: string | undefined,
+  headers: Record<string, string>,
+): Request {
+  const stream = Readable.from(body ? [body] : []) as Readable & Partial<Request>
+  stream.method = method
+  stream.url = url
+  stream.originalUrl = url
+  stream.headers = Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]),
+  ) as Request['headers']
+  return stream as Request
 }
 
-interface MockResponseState {
-  statusCode: number
-  jsonBody: unknown
-  headers: Record<string, string>
-  chunks: string[]
-  headersSent: boolean
-  writableEnded: boolean
-}
-
-function createMockResponse(): { res: Response; state: MockResponseState } {
-  const state: MockResponseState = {
-    statusCode: 0,
-    jsonBody: null,
+function createResponse(app: TestApp): Response & { state: TestResponseState } {
+  const emitter = new EventEmitter()
+  const state: TestResponseState = {
+    statusCode: 200,
     headers: {},
     chunks: [],
-    headersSent: false,
-    writableEnded: false,
+    ended: false,
   }
 
-  const res = {
-    headersSent: false,
-    writableEnded: false,
-    status(code: number) {
-      state.statusCode = code
-      return res
-    },
-    json(body: unknown) {
-      state.jsonBody = body
-      return res
-    },
-    writeHead(status: number, headers: Record<string, string>) {
-      state.statusCode = status
-      state.headers = headers
-      state.headersSent = true
-      ;(res as { headersSent: boolean }).headersSent = true
-    },
-    write(chunk: string) {
-      state.chunks.push(chunk)
-      return true
-    },
-    end() {
-      state.writableEnded = true
-      ;(res as { writableEnded: boolean }).writableEnded = true
-    },
-  } as unknown as Response
+  const res = emitter as Response & {
+    state: TestResponseState
+    app: TestApp
+    req: Request
+    locals: Record<string, unknown>
+    statusCode: number
+    setHeader: (name: string, value: string | number | readonly string[]) => Response
+    getHeader: (name: string) => string | number | readonly string[] | undefined
+    getHeaders: () => Record<string, string>
+    writeHead: (statusCode: number, headers?: Record<string, string>) => Response
+    write: (chunk: unknown) => boolean
+    end: (chunk?: unknown) => Response
+  }
 
-  return { res, state }
+  Object.setPrototypeOf(res, app.response)
+
+  res.state = state
+  res.app = app
+  res.req = undefined as unknown as Request
+  res.locals = {}
+
+  Object.defineProperty(res, 'statusCode', {
+    configurable: true,
+    enumerable: true,
+    get: () => state.statusCode,
+    set: (value: number) => {
+      state.statusCode = value
+    },
+  })
+
+  res.setHeader = (name, value) => {
+    state.headers[name.toLowerCase()] = Array.isArray(value) ? value.join(',') : String(value)
+    return res
+  }
+
+  res.getHeader = (name) => state.headers[name.toLowerCase()]
+  res.getHeaders = () => ({ ...state.headers })
+
+  res.writeHead = (statusCode, headers = {}) => {
+    state.statusCode = statusCode
+    for (const [name, value] of Object.entries(headers)) {
+      state.headers[name.toLowerCase()] = value
+    }
+    return res
+  }
+
+  res.write = (chunk) => {
+    if (chunk !== undefined && chunk !== null) {
+      state.chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk as ArrayBufferView).toString())
+    }
+    return true
+  }
+
+  res.end = (chunk?: unknown) => {
+    if (chunk !== undefined && chunk !== null) {
+      state.chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk as ArrayBufferView).toString())
+    }
+    state.ended = true
+    res.emit('finish')
+    return res
+  }
+
+  Object.defineProperty(res, 'writableEnded', {
+    configurable: true,
+    enumerable: true,
+    get: () => state.ended,
+  })
+
+  Object.defineProperty(res, 'headersSent', {
+    configurable: true,
+    enumerable: true,
+    get: () => state.ended || Object.keys(state.headers).length > 0,
+  })
+
+  return res
 }
 
-function createMockRequest(body?: Record<string, unknown>): Request {
-  const req = new EventEmitter() as unknown as Request
-  ;(req as { body: unknown }).body = body ?? {}
-  return req
+function dispatch(
+  app: TestApp,
+  req: Request,
+  res: Response & { state: TestResponseState },
+): Promise<TestResponseState> {
+  return new Promise((resolve, reject) => {
+    const onFinish = (): void => {
+      setImmediate(() => resolve(res.state))
+    }
+    const onError = (error: Error): void => reject(error)
+
+    res.once('finish', onFinish)
+    res.once('error', onError)
+
+    app.handle(req, res, (error?: unknown) => {
+      if (error) {
+        reject(error instanceof Error ? error : new Error(String(error)))
+        return
+      }
+      // Route not matched — finish with current state.
+      setImmediate(() => resolve(res.state))
+    })
+  })
 }
 
-describe('createAgentRouter', () => {
+function buildApp(
+  routerConfig: Parameters<typeof createAgentRouter>[0],
+): TestApp {
+  const app = express()
+  app.use(createAgentRouter(routerConfig))
+  return app
+}
+
+function jsonRequest(method: string, url: string, payload: unknown): Request {
+  const body = JSON.stringify(payload)
+  return createRequest(method, url, body, {
+    'content-type': 'application/json',
+    'content-length': String(Buffer.byteLength(body)),
+  })
+}
+
+function rawRequest(method: string, url: string, body: string): Request {
+  return createRequest(method, url, body, {
+    'content-type': 'application/json',
+    'content-length': String(Buffer.byteLength(body)),
+  })
+}
+
+function parseJson(state: TestResponseState): unknown {
+  return JSON.parse(state.chunks.join(''))
+}
+
+describe('createAgentRouter — route registration', () => {
   it('registers chat, sync, and health routes at root path', () => {
     const router = createAgentRouter({
-      agents: {
-        default: createMockAgent(),
-      },
+      agents: { default: createMockAgent() },
+      rateLimit: false,
     })
 
     const routes = router.stack
@@ -124,9 +198,8 @@ describe('createAgentRouter', () => {
   it('applies basePath prefix to all routes', () => {
     const router = createAgentRouter({
       basePath: '/api/agent',
-      agents: {
-        default: createMockAgent(),
-      },
+      agents: { default: createMockAgent() },
+      rateLimit: false,
     })
 
     const routePaths = router.stack
@@ -137,218 +210,191 @@ describe('createAgentRouter', () => {
     expect(routePaths).toContain('/api/agent/chat/sync')
     expect(routePaths).toContain('/api/agent/health')
   })
+})
 
-  describe('POST /chat — missing or invalid request body', () => {
-    it('returns 400 when message field is missing', async () => {
-      const router = createAgentRouter({ agents: { default: createMockAgent() } })
-      const handler = findRouteHandler(router, 'post', '/chat')!
-      const req = createMockRequest({})
-      const { res, state } = createMockResponse()
-
-      await handler(req, res)
-
-      expect(state.statusCode).toBe(400)
-      expect(state.jsonBody).toEqual({
-        error: 'Bad Request',
-        message: '"message" field is required',
-      })
-    })
-
-    it('returns 400 when message is not a string', async () => {
-      const router = createAgentRouter({ agents: { default: createMockAgent() } })
-      const handler = findRouteHandler(router, 'post', '/chat')!
-      const req = createMockRequest({ message: 42 })
-      const { res, state } = createMockResponse()
-
-      await handler(req, res)
-
-      expect(state.statusCode).toBe(400)
-      expect(state.jsonBody).toEqual({
-        error: 'Bad Request',
-        message: '"message" field is required',
-      })
-    })
-
-    it('returns 400 when message is an empty string', async () => {
-      const router = createAgentRouter({ agents: { default: createMockAgent() } })
-      const handler = findRouteHandler(router, 'post', '/chat')!
-      const req = createMockRequest({ message: '' })
-      const { res, state } = createMockResponse()
-
-      await handler(req, res)
-
-      expect(state.statusCode).toBe(400)
-    })
+describe('createAgentRouter — Zod validation', () => {
+  it('returns 400 with VALIDATION_ERROR when message is missing', async () => {
+    const app = buildApp({ agents: { default: createMockAgent() }, rateLimit: false })
+    const state = await dispatch(app, jsonRequest('POST', '/chat', {}), createResponse(app))
+    expect(state.statusCode).toBe(400)
+    const body = parseJson(state) as { code: string; issues: Array<{ path: string }> }
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(body.issues.some((i) => i.path === 'message')).toBe(true)
   })
 
-  describe('POST /chat — no agents configured', () => {
-    it('returns 503 when agents map is empty', async () => {
-      const router = createAgentRouter({ agents: {} })
-      const handler = findRouteHandler(router, 'post', '/chat')!
-      const req = createMockRequest({ message: 'hello' })
-      const { res, state } = createMockResponse()
-
-      await handler(req, res)
-
-      expect(state.statusCode).toBe(503)
-      expect(state.jsonBody).toEqual({
-        error: 'Service Unavailable',
-        message: 'No agents configured',
-      })
-    })
+  it('returns 400 when message is an empty string', async () => {
+    const app = buildApp({ agents: { default: createMockAgent() }, rateLimit: false })
+    const state = await dispatch(app, jsonRequest('POST', '/chat', { message: '' }), createResponse(app))
+    expect(state.statusCode).toBe(400)
+    expect((parseJson(state) as { code: string }).code).toBe('VALIDATION_ERROR')
   })
 
-  describe('POST /chat/sync — missing or invalid request body', () => {
-    it('returns 400 when message is missing', async () => {
-      const router = createAgentRouter({ agents: { default: createMockAgent() } })
-      const handler = findRouteHandler(router, 'post', '/chat/sync')!
-      const req = createMockRequest({})
-      const { res, state } = createMockResponse()
-
-      await handler(req, res)
-
-      expect(state.statusCode).toBe(400)
-      expect(state.jsonBody).toEqual({
-        error: 'Bad Request',
-        message: '"message" field is required',
-      })
-    })
-
-    it('returns 503 when agents map is empty', async () => {
-      const router = createAgentRouter({ agents: {} })
-      const handler = findRouteHandler(router, 'post', '/chat/sync')!
-      const req = createMockRequest({ message: 'hello' })
-      const { res, state } = createMockResponse()
-
-      await handler(req, res)
-
-      expect(state.statusCode).toBe(503)
-      expect(state.jsonBody).toEqual({
-        error: 'Service Unavailable',
-        message: 'No agents configured',
-      })
-    })
+  it('returns 400 when message exceeds 32 KB', async () => {
+    const app = buildApp({ agents: { default: createMockAgent() }, rateLimit: false, bodyLimit: '1mb' })
+    // 32_769 chars (one over the limit). Body itself fits in 1mb cap so it gets to Zod.
+    const huge = 'a'.repeat(32_769)
+    const state = await dispatch(app, jsonRequest('POST', '/chat', { message: huge }), createResponse(app))
+    expect(state.statusCode).toBe(400)
+    const body = parseJson(state) as { code: string; issues: Array<{ path: string }> }
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(body.issues.some((i) => i.path === 'message')).toBe(true)
   })
 
-  describe('POST /chat/sync — agent execution errors', () => {
-    it('returns 500 and calls onError hook when agent.generate throws', async () => {
-      const onError = vi.fn()
-      const agent = createMockAgent({
-        generate: vi.fn().mockRejectedValue(new Error('LLM failed')),
-      })
-      const router = createAgentRouter({
-        agents: { default: agent },
-        hooks: { onError },
-      })
-      const handler = findRouteHandler(router, 'post', '/chat/sync')!
-      const req = createMockRequest({ message: 'hello' })
-      const { res, state } = createMockResponse()
+  it('returns 400 when /chat/sync receives no message', async () => {
+    const app = buildApp({ agents: { default: createMockAgent() }, rateLimit: false })
+    const state = await dispatch(app, jsonRequest('POST', '/chat/sync', {}), createResponse(app))
+    expect(state.statusCode).toBe(400)
+    expect((parseJson(state) as { code: string }).code).toBe('VALIDATION_ERROR')
+  })
+})
 
-      await handler(req, res)
-
-      expect(state.statusCode).toBe(500)
-      expect(state.jsonBody).toEqual({
-        error: 'Internal Server Error',
-        message: 'LLM failed',
-      })
-      expect(onError).toHaveBeenCalledWith(req, expect.objectContaining({ message: 'LLM failed' }))
-    })
-
-    it('handles non-Error throws in sync route', async () => {
-      const agent = createMockAgent({
-        generate: vi.fn().mockRejectedValue('string error'),
-      })
-      const router = createAgentRouter({ agents: { default: agent } })
-      const handler = findRouteHandler(router, 'post', '/chat/sync')!
-      const req = createMockRequest({ message: 'hello' })
-      const { res, state } = createMockResponse()
-
-      await handler(req, res)
-
-      expect(state.statusCode).toBe(500)
-      expect(state.jsonBody).toEqual({
-        error: 'Internal Server Error',
-        message: 'string error',
-      })
-    })
+describe('createAgentRouter — body cap', () => {
+  it('returns 413 BODY_TOO_LARGE when payload exceeds the 256kb default', async () => {
+    const app = buildApp({ agents: { default: createMockAgent() }, rateLimit: false })
+    // 300 KB raw body — exceeds default 256kb cap.
+    const oversized = '"' + 'a'.repeat(300_000) + '"'
+    const state = await dispatch(
+      app,
+      rawRequest('POST', '/chat', `{"message":${oversized}}`),
+      createResponse(app),
+    )
+    expect(state.statusCode).toBe(413)
+    expect((parseJson(state) as { code: string }).code).toBe('BODY_TOO_LARGE')
   })
 
-  describe('POST /chat — agent streaming errors', () => {
-    it('returns 500 JSON when error occurs before SSE headers are sent', async () => {
-      const agent = createMockAgent({
-        stream: vi.fn().mockImplementation(() => {
-          throw new Error('stream init failed')
+  it('returns 400 INVALID_JSON when body is malformed', async () => {
+    const app = buildApp({ agents: { default: createMockAgent() }, rateLimit: false })
+    const state = await dispatch(
+      app,
+      rawRequest('POST', '/chat', '{not json'),
+      createResponse(app),
+    )
+    expect(state.statusCode).toBe(400)
+    expect((parseJson(state) as { code: string }).code).toBe('INVALID_JSON')
+  })
+})
+
+describe('createAgentRouter — agent allowlist', () => {
+  it('returns 400 UNKNOWN_AGENT when agentName is not configured', async () => {
+    const app = buildApp({ agents: { primary: createMockAgent() }, rateLimit: false })
+    const state = await dispatch(
+      app,
+      jsonRequest('POST', '/chat', { message: 'hi', agentName: 'nonexistent' }),
+      createResponse(app),
+    )
+    expect(state.statusCode).toBe(400)
+    const body = parseJson(state) as { code: string; message: string }
+    expect(body.code).toBe('UNKNOWN_AGENT')
+    expect(body.message).toContain('nonexistent')
+  })
+
+  it('returns 503 NO_AGENTS when agents map is empty', async () => {
+    const app = buildApp({ agents: {}, rateLimit: false })
+    const state = await dispatch(
+      app,
+      jsonRequest('POST', '/chat', { message: 'hello' }),
+      createResponse(app),
+    )
+    expect(state.statusCode).toBe(503)
+    expect((parseJson(state) as { code: string }).code).toBe('NO_AGENTS')
+  })
+})
+
+describe('createAgentRouter — rate limiting', () => {
+  it('returns 429 RATE_LIMITED after exceeding the configured threshold', async () => {
+    // Build app once; share the rate-limit store across requests.
+    const app = buildApp({
+      agents: {
+        default: createMockAgent({
+          generate: vi.fn().mockResolvedValue({
+            content: 'ok',
+            messages: [],
+            usage: { totalInputTokens: 1, totalOutputTokens: 1, llmCalls: 1 },
+            hitIterationLimit: false,
+            stopReason: 'complete',
+            toolStats: [],
+          } satisfies GenerateResult),
         }),
-      })
-      const router = createAgentRouter({ agents: { default: agent } })
-      const handler = findRouteHandler(router, 'post', '/chat')!
-      const req = createMockRequest({ message: 'hello' })
-      const { res, state } = createMockResponse()
-
-      await handler(req, res)
-
-      expect(state.statusCode).toBe(500)
-      expect(state.jsonBody).toEqual({
-        error: 'Internal Server Error',
-        message: 'stream init failed',
-      })
+      },
+      rateLimit: { windowMs: 60_000, max: 2 },
     })
+
+    const send = (): Promise<TestResponseState> =>
+      dispatch(app, jsonRequest('POST', '/chat/sync', { message: 'hi' }), createResponse(app))
+
+    // First two: allowed.
+    const a = await send()
+    const b = await send()
+    expect(a.statusCode).toBe(200)
+    expect(b.statusCode).toBe(200)
+
+    // Third: rate limited.
+    const c = await send()
+    expect(c.statusCode).toBe(429)
+    const body = parseJson(c) as { code: string }
+    expect(body.code).toBe('RATE_LIMITED')
+  })
+})
+
+describe('createAgentRouter — error sanitisation', () => {
+  it('returns generic INTERNAL_ERROR (no err.message) when /chat/sync agent throws', async () => {
+    const onError = vi.fn()
+    const agent = createMockAgent({
+      generate: vi.fn().mockRejectedValue(new Error('SECRET internal failure detail')),
+    })
+    const app = buildApp({
+      agents: { default: agent },
+      rateLimit: false,
+      hooks: { onError },
+      logger: { warn: vi.fn(), error: vi.fn() },
+    })
+
+    const state = await dispatch(
+      app,
+      jsonRequest('POST', '/chat/sync', { message: 'hi' }),
+      createResponse(app),
+    )
+
+    expect(state.statusCode).toBe(500)
+    const body = parseJson(state) as Record<string, unknown>
+    expect(body).toEqual({ error: 'Internal error', code: 'INTERNAL_ERROR' })
+    // Must not leak the inner error message.
+    expect(JSON.stringify(body)).not.toContain('SECRET internal failure detail')
+    expect(onError).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ message: 'SECRET internal failure detail' }))
   })
 
-  describe('GET /health', () => {
-    it('returns agent names and count', async () => {
-      const router = createAgentRouter({
-        agents: {
-          alpha: createMockAgent(),
-          beta: createMockAgent(),
-        },
-      })
-      const handler = findRouteHandler(router, 'get', '/health')!
-      const req = createMockRequest()
-      const { res, state } = createMockResponse()
-
-      await handler(req, res)
-
-      expect(state.jsonBody).toEqual({
-        status: 'ok',
-        agents: ['alpha', 'beta'],
-        count: 2,
-      })
+  it('logs the real error server-side via the structured logger', async () => {
+    const logger = { warn: vi.fn(), error: vi.fn() }
+    const agent = createMockAgent({
+      generate: vi.fn().mockRejectedValue(new Error('inner detail X')),
+    })
+    const app = buildApp({
+      agents: { default: agent },
+      rateLimit: false,
+      logger,
     })
 
-    it('returns empty agents when none configured', async () => {
-      const router = createAgentRouter({ agents: {} })
-      const handler = findRouteHandler(router, 'get', '/health')!
-      const req = createMockRequest()
-      const { res, state } = createMockResponse()
+    await dispatch(app, jsonRequest('POST', '/chat/sync', { message: 'hi' }), createResponse(app))
 
-      await handler(req, res)
-
-      expect(state.jsonBody).toEqual({
-        status: 'ok',
-        agents: [],
-        count: 0,
-      })
-    })
+    expect(logger.error).toHaveBeenCalled()
+    const calls = logger.error.mock.calls.flat()
+    const serialised = JSON.stringify(calls)
+    expect(serialised).toContain('inner detail X')
   })
+})
 
-  describe('agent resolution', () => {
-    it('falls back to first agent when agentName is not found', async () => {
-      const defaultAgent = createMockAgent({
-        stream: vi.fn().mockReturnValue(
-          (async function* () {
-            /* empty stream */
-          })(),
-        ),
-      })
-      const router = createAgentRouter({ agents: { fallback: defaultAgent } })
-      const handler = findRouteHandler(router, 'post', '/chat')!
-      const req = createMockRequest({ message: 'hi', agentName: 'nonexistent' })
-      const { res } = createMockResponse()
-
-      await handler(req, res)
-
-      expect(defaultAgent.stream).toHaveBeenCalled()
+describe('createAgentRouter — health route', () => {
+  it('returns agent names and count', async () => {
+    const app = buildApp({
+      agents: { alpha: createMockAgent(), beta: createMockAgent() },
+      rateLimit: false,
     })
+    const state = await dispatch(
+      app,
+      createRequest('GET', '/health', undefined, {}),
+      createResponse(app),
+    )
+    expect(state.statusCode).toBe(200)
+    expect(parseJson(state)).toEqual({ status: 'ok', agents: ['alpha', 'beta'], count: 2 })
   })
 })

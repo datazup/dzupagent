@@ -47,15 +47,15 @@ describe('GitWorktreeManager — deep coverage', () => {
     it('defaults worktreeBaseDir to <repoDir>/.forge-worktrees', async () => {
       await manager.create('feat-a')
       const args = allCalls()[0]!
-      // Path is last positional arg list entry slot 4: ['worktree','add','-b',branch,dir,base]
-      expect(args[4]).toBe('/repo/.forge-worktrees/feat-a')
+      // Args layout: ['worktree','add','-b',branch,'--end-of-options',dir,base]
+      expect(args[5]).toBe('/repo/.forge-worktrees/feat-a')
     })
 
     it('uses custom worktreeBaseDir when provided', async () => {
       const m = new GitWorktreeManager({ repoDir: '/repo', worktreeBaseDir: '/tmp/wt' })
       await m.create('feat-b')
       const args = allCalls()[0]!
-      expect(args[4]).toBe('/tmp/wt/feat-b')
+      expect(args[5]).toBe('/tmp/wt/feat-b')
     })
 
     it('defaults timeoutMs to 30_000', async () => {
@@ -182,7 +182,8 @@ describe('GitWorktreeManager — deep coverage', () => {
 
     it('each concurrent create uses its own dir', async () => {
       await Promise.all([manager.create('a'), manager.create('b')])
-      const dirs = allCalls().map(args => args[4])
+      // Args layout: ['worktree','add','-b', branch, '--end-of-options', dir, base]
+      const dirs = allCalls().map(args => args[5])
       expect(dirs).toEqual(
         expect.arrayContaining(['/repo/.forge-worktrees/a', '/repo/.forge-worktrees/b']),
       )
@@ -397,9 +398,9 @@ describe('GitWorktreeManager — deep coverage', () => {
       // Calls: 1) branch --show-current, 2) checkout main, 3) merge feat-x --no-edit, 4) checkout develop
       expect(execFileAsyncMock).toHaveBeenCalledTimes(4)
       expect(allCalls()[0]).toEqual(['branch', '--show-current'])
-      expect(allCalls()[1]).toEqual(['checkout', 'main'])
-      expect(allCalls()[2]).toEqual(['merge', 'feat-x', '--no-edit'])
-      expect(allCalls()[3]).toEqual(['checkout', 'develop'])
+      expect(allCalls()[1]).toEqual(['checkout', '--end-of-options', 'main'])
+      expect(allCalls()[2]).toEqual(['merge', '--no-edit', '--end-of-options', 'feat-x'])
+      expect(allCalls()[3]).toEqual(['checkout', '--end-of-options', 'develop'])
     })
 
     it('trims whitespace from current branch before restoring', async () => {
@@ -410,7 +411,7 @@ describe('GitWorktreeManager — deep coverage', () => {
         return Promise.resolve({ stdout: '', stderr: '' })
       })
       await manager.merge('feat-x', 'main')
-      expect(allCalls()[3]).toEqual(['checkout', 'feature/x'])
+      expect(allCalls()[3]).toEqual(['checkout', '--end-of-options', 'feature/x'])
     })
 
     it('detects CONFLICT in stderr and returns success=false', async () => {
