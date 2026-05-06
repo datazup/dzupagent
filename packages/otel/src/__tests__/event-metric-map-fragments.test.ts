@@ -54,6 +54,38 @@ describe('agent-lifecycle metric map', () => {
     expect(result.value).toBe(1)
     expect(result.labels.error_code).toBe('TIMEOUT')
   })
+
+  it('agent:tools-filtered records audit and tool count metrics', () => {
+    const mappings = agentLifecycleMetricMap['agent:tools-filtered']
+    expect(mappings).toHaveLength(4)
+
+    const event = {
+      type: 'agent:tools-filtered',
+      agentId: 'planner',
+      effectiveTier: 'read-only',
+      totalTools: 5,
+      allowedTools: 3,
+      filteredTools: ['write_file', 'shell'],
+    } as DzupEvent
+
+    const audit = mappings[0]!.extract(event)
+    expect(audit.value).toBe(1)
+    expect(audit.labels.agent_id).toBe('planner')
+    expect(audit.labels.effective_tier).toBe('read-only')
+
+    expect(mappings[1]!.extract(event)).toEqual({
+      value: 5,
+      labels: { agent_id: 'planner', effective_tier: 'read-only', state: 'total' },
+    })
+    expect(mappings[2]!.extract(event)).toEqual({
+      value: 3,
+      labels: { agent_id: 'planner', effective_tier: 'read-only', state: 'allowed' },
+    })
+    expect(mappings[3]!.extract(event)).toEqual({
+      value: 2,
+      labels: { agent_id: 'planner', effective_tier: 'read-only', state: 'filtered' },
+    })
+  })
 })
 
 describe('tool-lifecycle metric map', () => {
