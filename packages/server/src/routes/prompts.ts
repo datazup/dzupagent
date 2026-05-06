@@ -6,6 +6,7 @@
  * per promptId; only one may be in published state at a time.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { PromptStore, PromptStatus } from '../prompts/prompt-store.js'
 import {
   PromptCreateSchema,
@@ -19,8 +20,8 @@ export interface PromptRouteConfig {
   promptStore: PromptStore
 }
 
-export function createPromptRoutes(config: PromptRouteConfig): Hono {
-  const app = new Hono()
+export function createPromptRoutes(config: PromptRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   // --- Create prompt version ---
   app.post('/', async (c) => {

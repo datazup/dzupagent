@@ -10,6 +10,7 @@
  * @dzupagent/memory-ipc into the Hono REST API.
  */
 import { Hono, type Context } from 'hono'
+import type { AppEnv } from '../types.js'
 import {
   handleExportMemory,
   handleImportMemory,
@@ -60,8 +61,8 @@ export interface MemoryRouteConfig {
   tenantScope?: MemoryTenantScopeConfig
 }
 
-export function createMemoryRoutes(config: MemoryRouteConfig): Hono {
-  const app = new Hono()
+export function createMemoryRoutes(config: MemoryRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const arrowMemory = extendMemoryServiceWithArrow(config.memoryService)
   const { tenantScope } = config
 

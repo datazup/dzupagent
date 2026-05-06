@@ -9,6 +9,7 @@ import {
   uuid,
   varchar,
   text,
+  bigint,
   integer,
   real,
   boolean,
@@ -474,5 +475,34 @@ export const apiKeys = pgTable(
     index('api_keys_owner_id_idx').on(table.ownerId),
     index('api_keys_key_hash_idx').on(table.keyHash),
     index('api_keys_tenant_id_idx').on(table.tenantId),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Compliance Audit Log
+// ---------------------------------------------------------------------------
+
+export const auditLog = pgTable(
+  'dzupagent_audit_log',
+  {
+    id: text('id').primaryKey(),
+    seq: bigint('seq', { mode: 'number' }).notNull(),
+    ts: timestamp('ts', { withTimezone: true }).defaultNow().notNull(),
+    actorId: text('actor_id').notNull(),
+    actorType: text('actor_type').notNull(),
+    actorName: text('actor_name'),
+    action: text('action').notNull(),
+    resource: text('resource'),
+    result: text('result').notNull(),
+    details: jsonb('details').$type<Record<string, unknown>>().notNull().default({}),
+    previousHash: text('previous_hash').notNull().default(''),
+    hash: text('hash').notNull().default(''),
+    traceId: text('trace_id'),
+    spanId: text('span_id'),
+  },
+  (table) => [
+    index('dzupagent_audit_log_action_idx').on(table.action),
+    index('dzupagent_audit_log_actor_id_idx').on(table.actorId),
+    index('dzupagent_audit_log_ts_idx').on(table.ts),
   ],
 )

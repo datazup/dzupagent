@@ -169,15 +169,18 @@ export async function invokeWithTimeout(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
       const response = await Promise.race([
         model.invoke(messages),
-        new Promise<never>((_, reject) =>
-          setTimeout(
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(
             () => reject(new Error(`LLM call timed out after ${timeoutMs}ms`)),
             timeoutMs,
-          ),
-        ),
-      ])
+          )
+        }),
+      ]).finally(() => {
+        clearTimeout(timeoutId)
+      })
 
       // Fire usage callback if provided
       if (options?.onUsage) {

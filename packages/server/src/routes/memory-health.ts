@@ -4,6 +4,7 @@
  * GET /api/memory/health — Returns provider health metrics from AdaptiveRetriever
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 
 /** Minimal interface matching AdaptiveRetriever.health() */
 export interface HealthProvider {
@@ -22,8 +23,8 @@ export interface MemoryHealthRouteConfig {
   retriever: HealthProvider
 }
 
-export function createMemoryHealthRoutes(config: MemoryHealthRouteConfig): Hono {
-  const app = new Hono()
+export function createMemoryHealthRoutes(config: MemoryHealthRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   // GET /health — Return provider health metrics
   app.get('/health', (c) => {

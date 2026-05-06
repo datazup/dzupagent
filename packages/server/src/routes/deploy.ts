@@ -7,6 +7,7 @@
  * PATCH /api/deploy/:id/outcome  — Update deployment outcome
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { DeploymentHistoryStoreInterface, DeploymentOutcome } from '../deploy/deployment-history-store.js'
 import type { SignalComputationConfig, RollbackChecker, AgentConfigLike } from '../deploy/signal-checkers.js'
 import { computeAllSignals } from '../deploy/signal-checkers.js'
@@ -48,8 +49,8 @@ function isValidGateDecision(value: string): value is GateDecision {
 // Route factory
 // ---------------------------------------------------------------------------
 
-export function createDeployRoutes(config: DeployRouteConfig): Hono {
-  const app = new Hono()
+export function createDeployRoutes(config: DeployRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { historyStore } = config
   const defaultEnv = config.defaultEnvironment ?? 'production'
 

@@ -14,6 +14,7 @@
  */
 
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { AgentRegistry, RegisterAgentInput, DiscoveryQuery, ForgeCapability, AgentHealthStatus } from '@dzupagent/core'
 
 export interface RegistryRouteConfig {
@@ -58,8 +59,8 @@ export interface RegistryFleetHealthDto {
   agents: RegistryAgentHealthSummary[]
 }
 
-export function createRegistryRoutes(config: RegistryRouteConfig): Hono {
-  const app = new Hono()
+export function createRegistryRoutes(config: RegistryRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { registry } = config
 
   // POST /api/registry/agents — Register

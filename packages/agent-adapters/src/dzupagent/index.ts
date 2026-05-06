@@ -32,3 +32,4 @@ export type {
 } from './syncer.js'
 export { DryRunReporter } from './dry-run-reporter.js'
 export type { DryRunReporterMode, DryRunReporterOptions, DryRunEntry, DryRunEntryType } from './dry-run-reporter.js'
+export { AdapterSkillRegistry, createDefaultSkillRegistry } from '../skills/adapter-skill-registry.js'

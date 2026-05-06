@@ -2,6 +2,7 @@
  * JSON-RPC 2.0 endpoint: POST /a2a
  */
 import type { Hono } from 'hono'
+import type { AppEnv } from '../../types.js'
 import {
   JSON_RPC_ERRORS,
   createJsonRpcError,
@@ -73,7 +74,7 @@ async function handleJsonRpcMethod(
   }
 }
 
-export function registerJsonRpcRoute(app: Hono, config: A2ARoutesConfig): void {
+export function registerJsonRpcRoute(app: Hono<AppEnv>, config: A2ARoutesConfig): void {
   app.post('/a2a', async (c) => {
     let body: unknown
     try {

@@ -6,6 +6,7 @@
  * demand from the configured AdapterSkillRegistry.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters'
 import { SkillCapabilityMatrixBuilder } from '@dzupagent/agent-adapters'
 
@@ -13,8 +14,8 @@ export interface CapabilityRouteConfig {
   skillRegistry: AdapterSkillRegistry
 }
 
-export function createCapabilityRoutes(config: CapabilityRouteConfig): Hono {
-  const app = new Hono()
+export function createCapabilityRoutes(config: CapabilityRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   app.get('/:skillId', (c) => {
     const skillId = c.req.param('skillId')

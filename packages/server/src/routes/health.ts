@@ -6,12 +6,13 @@
  * GET /api/health/metrics — Metrics endpoint (JSON format)
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
 
 const startTime = Date.now()
 
-export function createHealthRoutes(config: ForgeServerConfig): Hono {
-  const app = new Hono()
+export function createHealthRoutes(config: ForgeServerConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   // Liveness — always healthy if the process is running
   app.get('/', (c) => {

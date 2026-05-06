@@ -201,6 +201,7 @@ export {
   EvalExecutionUnavailableError,
   EvalRunInvalidStateError,
   BenchmarkOrchestrator,
+  RegressionGateError,
 } from './orchestrator/index.js';
 export type {
   EvalOrchestratorConfig,
@@ -209,6 +210,9 @@ export type {
   EvalQueueStats,
   BenchmarkOrchestratorConfig,
   BenchmarkRunArtifactInput,
+  RegressionDetail,
+  RegressionGateResult,
+  RegressionGateOptions,
 } from './orchestrator/index.js';
 
 // Domain-specific scorer (SQL, code, analysis, ops)

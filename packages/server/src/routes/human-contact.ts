@@ -8,11 +8,12 @@
  * back to running and stores the response in run metadata.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
 import { requireOwnedRun } from './run-guard.js'
 
-export function createHumanContactRoutes(config: ForgeServerConfig): Hono {
-  const app = new Hono()
+export function createHumanContactRoutes(config: ForgeServerConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { runStore, eventBus } = config
 
   // POST /api/runs/:id/human-contact/:contactId/respond

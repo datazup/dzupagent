@@ -5,6 +5,7 @@
  * GET /api/runs/:id/messages?from=&to= — paginated step range
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { RunStore } from '@dzupagent/core'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
 import { computeStepDistribution } from '../persistence/run-trace-store.js'
@@ -15,8 +16,8 @@ export interface RunTraceRouteConfig {
   traceStore: RunTraceStore
 }
 
-export function createRunTraceRoutes(config: RunTraceRouteConfig): Hono {
-  const app = new Hono()
+export function createRunTraceRoutes(config: RunTraceRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { runStore, traceStore } = config
 
   // GET /api/runs/:id/messages — full trace or paginated range

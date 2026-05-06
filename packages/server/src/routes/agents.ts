@@ -12,6 +12,7 @@
  * - `/api/agents/*`
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
 import { AgentDefinitionService } from '../services/agent-definition-service.js'
 import {
@@ -22,8 +23,8 @@ import {
 } from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
 
-export function createAgentDefinitionRoutes(config: ForgeServerConfig): Hono {
-  const app = new Hono()
+export function createAgentDefinitionRoutes(config: ForgeServerConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const service = new AgentDefinitionService({ agentStore: config.agentStore })
 
   // GET /api/agent-definitions — List agent definitions

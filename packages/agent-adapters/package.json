@@ -38,6 +38,10 @@
       "import": "./dist/integration/index.js",
       "types": "./dist/integration/index.d.ts"
     },
+    "./dzupagent": {
+      "import": "./dist/dzupagent/index.js",
+      "types": "./dist/dzupagent/index.d.ts"
+    },
     "./rules": {
       "import": "./dist/rules.js",
       "types": "./dist/rules.d.ts"

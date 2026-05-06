@@ -20,6 +20,7 @@ import type { RoutingPolicy, AgentSpec, AgentTask } from './routing-policy-types
 import type { OrchestrationMergeStrategy, AgentResult } from './orchestration-merge-strategy-types.js'
 import type { AgentCircuitBreaker } from './circuit-breaker.js'
 import { omitUndefined } from '../utils/exact-optional.js'
+import { isTimeoutError, recordCircuitBreakerFailure } from './circuit-breaker-recorder.js'
 
 export interface SupervisorConfig extends BaseSupervisorContract<DzupAgent> {
   /** The manager agent that coordinates specialists */
@@ -77,22 +78,6 @@ export type MergeFn = (results: string[]) => string | Promise<string>
 const defaultMerge: MergeFn = (results) =>
   results.map((r, i) => `--- Agent ${i + 1} ---\n${r}`).join('\n\n')
 
-function recordCircuitBreakerFailure(
-  circuitBreaker: AgentCircuitBreaker,
-  agentId: string,
-  error: unknown,
-): void {
-  const msg = error instanceof Error ? error.message : String(error)
-  if (msg.toLowerCase().includes('timeout')) {
-    circuitBreaker.recordTimeout(agentId)
-    return
-  }
-
-  // Non-timeout invocation failures still indicate specialist health issues.
-  // Feed them through the generic failure path instead of silently ignoring them.
-  circuitBreaker.recordFailure(agentId)
-}
-
 function instrumentSpecialistTool(
   tool: StructuredToolInterface,
   specialistId: string,
@@ -101,7 +86,7 @@ function instrumentSpecialistTool(
   if (!circuitBreaker) return tool
 
   const originalInvoke = tool.invoke.bind(tool)
-  tool.invoke = (async (...args: Parameters<typeof tool.invoke>) => {
+  const wrappedInvoke = (async (...args: Parameters<typeof tool.invoke>) => {
     try {
       const result = await originalInvoke(...args)
       circuitBreaker.recordSuccess(specialistId)
@@ -112,7 +97,21 @@ function instrumentSpecialistTool(
     }
   }) as typeof tool.invoke
 
-  return tool
+  // Return a shallow clone with a patched `invoke` rather than mutating the
+  // shared tool instance. Mutation would race when the same tool object is
+  // used by multiple parallel specialist calls (each clobbering the previous
+  // binding). Preserving the prototype keeps this a true StructuredToolInterface.
+  const wrapped = Object.create(
+    Object.getPrototypeOf(tool) as object,
+    Object.getOwnPropertyDescriptors(tool),
+  ) as StructuredToolInterface
+  Object.defineProperty(wrapped, 'invoke', {
+    value: wrappedInvoke,
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  })
+  return wrapped
 }
 
 /**
@@ -230,14 +229,7 @@ export class AgentOrchestrator {
           if (outcome.status === 'fulfilled') {
             options.circuitBreaker.recordSuccess(agentId)
           } else {
-            const msg = outcome.reason instanceof Error
-              ? outcome.reason.message
-              : String(outcome.reason)
-            if (msg.toLowerCase().includes('timeout')) {
-              options.circuitBreaker.recordTimeout(agentId)
-            } else {
-              options.circuitBreaker.recordFailure(agentId)
-            }
+            recordCircuitBreakerFailure(options.circuitBreaker, agentId, outcome.reason)
           }
         }
       }
@@ -258,7 +250,7 @@ export class AgentOrchestrator {
             : String(outcome.reason)
           return {
             agentId,
-            status: errMsg.toLowerCase().includes('timeout')
+            status: isTimeoutError(errMsg)
               ? ('timeout' as const)
               : ('error' as const),
             error: errMsg,

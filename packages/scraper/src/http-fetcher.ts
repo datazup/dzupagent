@@ -2,6 +2,24 @@ import type { HttpFetcherConfig, FetchResult, ExtractionConfig } from './types.j
 import { ContentExtractor } from './content-extractor.js'
 import { fetchWithOutboundUrlPolicy, validateOutboundUrl } from '@dzupagent/core'
 
+/**
+ * Warns at startup when running in production without an explicit URL allowlist.
+ * A promptly injected agent with no allowlist can reach any internet host.
+ */
+function warnIfNoProductionAllowlist(config: Partial<HttpFetcherConfig>): void {
+  if (process.env['NODE_ENV'] !== 'production') return
+  const hasHosts =
+    (config.urlPolicy?.allowedHosts && Array.from(config.urlPolicy.allowedHosts).length > 0) ||
+    (config.urlPolicy?.allowedIpAddresses && Array.from(config.urlPolicy.allowedIpAddresses).length > 0)
+  if (!hasHosts) {
+    process.emitWarning(
+      'HttpFetcher: no urlPolicy.allowedHosts configured in production. ' +
+        'Consider restricting to an explicit allowlist to prevent SSRF via prompt injection.',
+      { code: 'DZUPAGENT_SCRAPER_NO_ALLOWLIST' },
+    )
+  }
+}
+
 const DEFAULT_USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -49,6 +67,7 @@ export class HttpFetcher {
     this.config = { ...DEFAULT_CONFIG, ...config }
     this.userAgents = this.config.userAgents ?? DEFAULT_USER_AGENTS
     this.extractor = new ContentExtractor()
+    warnIfNoProductionAllowlist(config ?? {})
   }
 
   /** Fetch a URL and return extracted content */

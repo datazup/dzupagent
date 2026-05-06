@@ -71,6 +71,7 @@ import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js
 import type { PlaygroundRouteConfig } from '../routes/playground.js'
 import type { ConnectorTokenProfile, GitWorkspaceProfile, HttpConnectorProfile } from '../runtime/tool-resolver.js'
 import type { MetricsAccessControl } from '../routes/metrics.js'
+import type { ComplianceAuditStore } from '@dzupagent/core'
 
 /**
  * Optional mail delivery config. When provided, `createForgeApp` constructs a
@@ -414,6 +415,12 @@ export interface ForgeSecurityConfig {
   security?: {
     inputGuard?: InputGuardConfig | false
   }
+  /**
+   * RF-36: Compliance audit store. When provided, a ComplianceAuditLogger is
+   * attached to the event bus and all security-relevant events are recorded.
+   * Use PostgresAuditStore for durable audit trails in production.
+   */
+  auditStore?: ComplianceAuditStore
 }
 
 /**

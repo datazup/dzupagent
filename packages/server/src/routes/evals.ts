@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import type { MetricsCollector } from '@dzupagent/core'
 import type {
@@ -241,8 +242,8 @@ class ReadOnlyEvalOrchestrator implements EvalOrchestratorLike {
   }
 }
 
-export function createEvalRoutes(config: EvalRouteConfig = {}): Hono {
-  const app = new Hono()
+export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const serviceName = config.serviceName ?? DEFAULT_SERVICE_NAME
   const store = config.store ?? new InMemoryEvalRunStore()
 

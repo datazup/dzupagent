@@ -7,13 +7,14 @@
 import { Hono } from 'hono'
 import type { AgentExecutionSpecStore } from '@dzupagent/core'
 import type { ModelListResponse, ModelObject } from './types.js'
+import type { AppEnv } from '../../types.js'
 
 export interface ModelsRouteConfig {
   agentStore: AgentExecutionSpecStore
 }
 
-export function createModelsRoute(config: ModelsRouteConfig): Hono {
-  const app = new Hono()
+export function createModelsRoute(config: ModelsRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   // GET /v1/models
   app.get('/', async (c) => {

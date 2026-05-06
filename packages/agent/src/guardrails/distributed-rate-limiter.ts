@@ -44,6 +44,11 @@ export interface LocalRateLimiter {
    * indicates the local limiter is also exhausted.
    */
   consume(tokens?: number): boolean
+  /**
+   * Optional blocking token wait used by `TokenBucket`. When available,
+   * distributed fallback mirrors the standalone local agent limiter path.
+   */
+  waitUntilAvailable?(tokens?: number): Promise<void>
 }
 
 export interface DistributedRateLimiterConfig {
@@ -137,12 +142,16 @@ export class DistributedRateLimiter {
     return `${this.keyPrefix}:${tenantId}:${agentId}`
   }
 
-  private handleClientFailure(): boolean {
+  private async handleClientFailure(): Promise<boolean> {
     if (this.fallbackToLocal && this.localFallback) {
       try {
+        if (this.localFallback.waitUntilAvailable) {
+          await this.localFallback.waitUntilAvailable(1)
+          return true
+        }
         return this.localFallback.consume(1)
       } catch {
-        return true
+        return false
       }
     }
     // Fail open by default — see file header.

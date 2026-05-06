@@ -7,6 +7,7 @@
  * accesses surface as 404 (not 403) to avoid existence enumeration.
  */
 import type { Hono } from 'hono'
+import type { AppEnv } from '../../types.js'
 import type { A2ATaskState } from '../../a2a/task-handler.js'
 import type { A2ARoutesConfig } from './helpers.js'
 import { callerOwnsTask, getCallerScope } from './helpers.js'
@@ -15,7 +16,7 @@ import { redactA2ATaskPushConfig } from '../../a2a/push-notifications.js'
 
 const A2A_INPUT_MAX_BYTES = 256 * 1024
 
-export function registerTaskRoutes(app: Hono, config: A2ARoutesConfig): void {
+export function registerTaskRoutes(app: Hono<AppEnv>, config: A2ARoutesConfig): void {
   // --- Submit task ---
   app.post('/a2a/tasks', async (c) => {
     const body = await c.req.json<{

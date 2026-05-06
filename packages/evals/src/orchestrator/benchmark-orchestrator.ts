@@ -21,6 +21,79 @@ import type {
 } from '@dzupagent/eval-contracts'
 import { compareBenchmarks, runBenchmark } from '../benchmarks/benchmark-runner.js'
 
+// ---------------------------------------------------------------------------
+// Regression gate types
+// ---------------------------------------------------------------------------
+
+/**
+ * A single suite regression detail — emitted when a suite score drops below
+ * the allowed delta from baseline.
+ */
+export interface RegressionDetail {
+  /** The suite identifier that regressed */
+  suiteName: string
+  /** Baseline average score (0–1) */
+  baseline: number
+  /** Current average score (0–1) */
+  current: number
+  /** current - baseline (negative when regressed) */
+  delta: number
+}
+
+/**
+ * Result returned by {@link BenchmarkOrchestrator.regressionGate} when the
+ * gate passes (no regressions beyond the threshold).
+ */
+export interface RegressionGateResult {
+  passed: boolean
+  regressions: RegressionDetail[]
+}
+
+/**
+ * Error thrown by {@link BenchmarkOrchestrator.regressionGate} when one or
+ * more suites regress beyond the allowed threshold.
+ *
+ * The error carries the full list of failing suites so callers and CI scripts
+ * can surface actionable details.
+ */
+export class RegressionGateError extends Error {
+  public readonly regressions: RegressionDetail[]
+
+  constructor(regressions: RegressionDetail[]) {
+    const lines = regressions.map(
+      (r) =>
+        `  ${r.suiteName}: baseline=${r.baseline.toFixed(4)} current=${r.current.toFixed(4)} delta=${r.delta.toFixed(4)}`,
+    )
+    super(
+      `Regression gate failed — ${regressions.length} suite(s) regressed beyond threshold:\n${lines.join('\n')}`,
+    )
+    this.name = 'RegressionGateError'
+    this.regressions = regressions
+  }
+}
+
+/**
+ * Options accepted by {@link BenchmarkOrchestrator.regressionGate}.
+ */
+export interface RegressionGateOptions {
+  /**
+   * The current benchmark run to compare against the baseline.
+   * Obtain this from a preceding {@link BenchmarkOrchestrator.runSuite} call.
+   */
+  currentRun: BenchmarkRunRecord
+  /**
+   * The baseline benchmark run to compare against.
+   * Obtain this from {@link BenchmarkOrchestrator.getBaseline} / a prior saved run.
+   */
+  baselineRun: BenchmarkRunRecord
+  /**
+   * Maximum allowed score drop before a suite is considered regressed.
+   * E.g. 0.05 means a 5-percentage-point drop is acceptable; anything
+   * beyond that triggers the gate.  Must be a non-negative number.
+   */
+  threshold: number
+}
+
 export interface BenchmarkOrchestratorConfig {
   suites: Record<string, BenchmarkSuite>
   executeTarget: (
@@ -134,5 +207,63 @@ export class BenchmarkOrchestrator implements BenchmarkOrchestratorLike {
 
   async listBaselines(filter?: { suiteId?: string; targetId?: string }): Promise<BenchmarkBaselineRecord[]> {
     return this.config.store.listBaselines(filter)
+  }
+
+  /**
+   * Compare a current benchmark run against a baseline and enforce a regression
+   * threshold.
+   *
+   * For every scorer present in the baseline run's result the method computes:
+   *   delta = averageScore(current) - averageScore(baseline)
+   *
+   * A suite is considered **regressed** when `delta < -threshold`.
+   *
+   * When no regressions are found, returns `{ passed: true, regressions: [] }`.
+   * When regressions are found, throws {@link RegressionGateError} containing
+   * the full list of failing suites — this ensures the process exits non-zero
+   * when wired into a CLI script.
+   *
+   * @throws {RegressionGateError} when any suite regresses beyond `threshold`.
+   */
+  regressionGate(opts: RegressionGateOptions): RegressionGateResult {
+    const { currentRun, baselineRun, threshold } = opts
+
+    if (threshold < 0) {
+      throw new RangeError(`regressionGate: threshold must be >= 0, got ${threshold}`)
+    }
+
+    // Collect all scorer IDs present in the baseline scores
+    const baselineScores = baselineRun.result.scores
+    const currentScores = currentRun.result.scores
+
+    const regressions: RegressionDetail[] = []
+
+    // A small epsilon prevents floating-point representation errors from
+    // turning a score drop that is exactly equal to the threshold into a false
+    // regression (e.g. 0.70 - 0.75 = -0.050000000000000044 in IEEE 754).
+    // A drop is considered a regression only when it is STRICTLY GREATER than
+    // the threshold: (baseline - current) > threshold.
+    const EPSILON = 1e-9
+
+    for (const scorerId of Object.keys(baselineScores)) {
+      const baseline = baselineScores[scorerId] ?? 0
+      const current = currentScores[scorerId] ?? 0
+      const delta = current - baseline
+
+      if (delta < -(threshold + EPSILON)) {
+        regressions.push({
+          suiteName: scorerId,
+          baseline,
+          current,
+          delta,
+        })
+      }
+    }
+
+    if (regressions.length > 0) {
+      throw new RegressionGateError(regressions)
+    }
+
+    return { passed: true, regressions: [] }
   }
 }

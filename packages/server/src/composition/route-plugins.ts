@@ -4,6 +4,7 @@
  * so that user-supplied plugins can override built-ins where appropriate.
  */
 import type { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 
 import type { ForgeServerConfig } from './types.js'
 import type { EventGateway } from '../events/event-gateway.js'
@@ -77,7 +78,7 @@ export function buildBuiltInRoutePlugins(
 }
 
 export function mountRoutePlugins(
-  app: Hono,
+  app: Hono<AppEnv>,
   plugins: readonly ServerRoutePlugin<ForgeServerConfig>[],
   serverConfig: ForgeServerConfig,
 ): void {
@@ -102,7 +103,7 @@ export function mountRoutePlugins(
  * `config.routePlugins` in the order they were supplied.
  */
 export function mountAllRoutePlugins(
-  app: Hono,
+  app: Hono<AppEnv>,
   runtimeConfig: ForgeServerConfig,
   eventGateway: EventGateway,
 ): void {

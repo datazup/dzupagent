@@ -13,10 +13,12 @@
  *        the agent invoked tools during generation.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../../types.js'
 import { streamSSE } from 'hono/streaming'
 import { HumanMessage } from '@langchain/core/messages'
 import { DzupAgent } from '@dzupagent/agent'
 import type { AgentExecutionSpecStore, ModelRegistry, DzupEventBus } from '@dzupagent/core'
+import { secureLogger } from '@dzupagent/core'
 import { OpenAICompletionMapper } from './completion-mapper.js'
 import {
   mapRequest,
@@ -47,8 +49,8 @@ const OPENAI_MESSAGES_MAX_BYTES = 512 * 1024
 
 export function createOpenAICompatCompletionsRoute(
   config: OpenAICompatCompletionsConfig,
-): Hono {
-  const app = new Hono()
+): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   /** Used for streaming text/tool chunks — GAP-2 is handled separately */
   const baseMapper = new OpenAICompletionMapper()
 
@@ -257,7 +259,7 @@ export function createOpenAICompatCompletionsRoute(
       return c.json(response)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Internal server error'
-      console.error(`[OpenAI Compat] Error generating response: ${message}`)
+      secureLogger.error(`[OpenAI Compat] Error generating response: ${message}`)
       return c.json(serverError(message), 500)
     }
   })

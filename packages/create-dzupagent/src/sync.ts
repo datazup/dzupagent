@@ -8,8 +8,8 @@
  * By default runs as a dry-run and prints the planned changes.  With
  * `--execute` the plan is applied and state.json is updated.
  *
- * The `@dzupagent/agent-adapters` package is loaded dynamically so that
- * this CLI remains usable without a hard dependency on it.
+ * The lightweight `@dzupagent/agent-adapters/dzupagent` subpath is loaded
+ * dynamically so that this CLI remains usable without a hard dependency on it.
  */
 
 import { resolve } from 'node:path'
@@ -144,7 +144,7 @@ interface AgentAdaptersSyncModule {
 
 async function loadAgentAdapters(): Promise<AgentAdaptersSyncModule> {
   try {
-    const mod: unknown = await import('@dzupagent/agent-adapters')
+    const mod: unknown = await import('@dzupagent/agent-adapters/dzupagent')
     return mod as AgentAdaptersSyncModule
   } catch {
     throw new Error(

@@ -9,6 +9,7 @@
  * DELETE /api/marketplace/catalog/:id         — Delete entry (auth)
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { CatalogStore } from '../marketplace/catalog-store.js'
 import { CatalogNotFoundError, CatalogSlugConflictError } from '../marketplace/catalog-store.js'
 import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
@@ -27,8 +28,8 @@ export interface MarketplaceRouteConfig {
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?$/
 const MARKETPLACE_README_MAX_BYTES = 256 * 1024
 
-export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono {
-  const app = new Hono()
+export function createMarketplaceRoutes(config: MarketplaceRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { catalogStore } = config
 
   // --- Create catalog entry ---

@@ -435,7 +435,8 @@ export type {
 } from './learning/adapter-learning-loop.js'
 export { InMemoryLearningStore } from './learning/in-memory-learning-store.js'
 export { FileLearningStore } from './learning/file-learning-store.js'
-export type { LearningStore, LearningSnapshot } from './learning/learning-store.js'
+export type { LearningStore, LearningSnapshot, LearningSnapshotV2 } from './learning/learning-store.js'
+export { migrateLearningSnapshotV1toV2 } from './learning/learning-store.js'
 
 // --- Error Aliases ---
 export { DzupError } from './utils/errors.js'

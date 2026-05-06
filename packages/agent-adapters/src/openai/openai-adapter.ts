@@ -21,9 +21,31 @@ import { getDefaultMonitorStatus } from '../provider-catalog.js'
 import { AdapterStreamRunner } from '../base/stream-runner.js'
 import type { AdapterStreamSource, StreamContext } from '../base/stream-runner.js'
 
+/**
+ * Streaming tool-call delta as emitted by OpenAI Chat Completions.
+ *
+ * Each chunk may carry a partial tool call: `id` and `function.name` typically
+ * appear on the first chunk for a given `index`, while `function.arguments`
+ * arrives in fragments that must be concatenated until `finish_reason` flips
+ * to `tool_calls`.
+ */
+interface SSEToolCallDelta {
+  index: number
+  id?: string
+  type?: 'function'
+  function?: {
+    name?: string
+    arguments?: string
+  }
+}
+
 /** SSE chunk shape returned by the OpenAI streaming API. */
 interface SSEChunkChoice {
-  delta?: { content?: string }
+  delta?: {
+    content?: string
+    tool_calls?: SSEToolCallDelta[]
+  }
+  finish_reason?: string | null
 }
 
 interface SSEChunkUsage {
@@ -40,6 +62,32 @@ interface SSEChunk {
 interface OpenAIChatResponse {
   choices?: Array<{ message?: { content?: string } }>
   usage?: SSEChunkUsage
+}
+
+/**
+ * Tool definition consumed by the OpenAI adapter via `input.options.tools`.
+ *
+ * Shape mirrors the OpenAI Chat Completions `tools[].function` schema and the
+ * common `AgentTool` contract used by other adapters: `{name, description,
+ * parameters}` where `parameters` is a JSON Schema object.
+ */
+export interface OpenAIToolDefinition {
+  name: string
+  description?: string
+  parameters?: Record<string, unknown>
+}
+
+/**
+ * Wire shape for OpenAI Chat Completions `tools` parameter.
+ * Exactly: `[{ type: 'function', function: {name, description, parameters} }]`.
+ */
+export interface OpenAIToolWire {
+  type: 'function'
+  function: {
+    name: string
+    description?: string
+    parameters?: Record<string, unknown>
+  }
 }
 
 export interface OpenAIConfig extends AdapterConfig {
@@ -87,6 +135,18 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
   private currentModel = DEFAULT_MODEL
   private currentStartTime = 0
   private currentFullText = ''
+  /**
+   * Pending tool calls keyed by their stream `index`. Reset at the start of
+   * every {@link execute} run to keep state isolated across invocations.
+   * Chunks may arrive across many SSE deltas; we accumulate until completion.
+   */
+  private pendingToolCalls = new Map<number, {
+    index: number
+    id?: string
+    name?: string
+    arguments: string
+    emitted: boolean
+  }>()
 
   constructor(private config: OpenAIConfig = {}) {}
 
@@ -94,7 +154,7 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
     return {
       supportsResume: false,
       supportsFork: false,
-      supportsToolCalls: false,
+      supportsToolCalls: true,
       supportsStreaming: true,
       supportsCostUsage: true,
     }
@@ -173,6 +233,7 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
       (input.options?.['model'] as string | undefined) ?? this.config.model ?? DEFAULT_MODEL
     this.currentStartTime = Date.now()
     this.currentFullText = ''
+    this.pendingToolCalls = new Map()
 
     const runner = new AdapterStreamRunner<OpenAIRawEvent>({
       emitStartedImmediately: true,
@@ -202,11 +263,15 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
   // -----------------------------------------------------------------------
 
   async *open(input: AgentInput, signal: AbortSignal): AsyncIterable<OpenAIRawEvent> {
+    const tools = this.resolveTools(input)
+    const toolChoice = input.options?.['tool_choice']
     const response = await this.postChatCompletions({
       messages: this.buildMessages(input.prompt, input.systemPrompt),
       model: this.currentModel,
       stream: true,
       signal,
+      ...(tools && tools.length > 0 ? { tools } : {}),
+      ...(toolChoice !== undefined ? { toolChoice } : {}),
     })
 
     let usage: { inputTokens: number; outputTokens: number } | undefined
@@ -239,20 +304,44 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
 
     if (raw.kind === 'sse') {
       const choice = raw.chunk.choices?.[0]
-      if (!choice?.delta?.content) return null
-      const content = choice.delta.content
-      this.currentFullText += content
-      return {
-        type: 'adapter:stream_delta',
-        providerId: this.providerId,
-        content,
-        timestamp: Date.now(),
-        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+      if (!choice) return null
+
+      const events: AgentEvent[] = []
+
+      // Accumulate any tool-call fragments first so finish_reason='tool_calls'
+      // observed on the same chunk can flush them in-order.
+      if (choice.delta?.tool_calls) {
+        this.accumulateToolCalls(choice.delta.tool_calls)
       }
+
+      if (typeof choice.delta?.content === 'string' && choice.delta.content.length > 0) {
+        const content = choice.delta.content
+        this.currentFullText += content
+        events.push({
+          type: 'adapter:stream_delta',
+          providerId: this.providerId,
+          content,
+          timestamp: Date.now(),
+          ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+        })
+      }
+
+      // Emit tool_call events when the model signals it is done dispatching
+      // tools for this turn. We also emit on stream-end (handled below).
+      if (choice.finish_reason === 'tool_calls') {
+        events.push(...this.flushPendingToolCalls(input.correlationId))
+      }
+
+      if (events.length === 0) return null
+      if (events.length === 1) return events[0]!
+      return events
     }
 
     // raw.kind === 'completed'
-    return {
+    // Flush any tool calls that were not closed by an explicit
+    // finish_reason='tool_calls' marker (some providers/proxies omit it).
+    const flushed = this.flushPendingToolCalls(input.correlationId)
+    const completed: AgentEvent = {
       type: 'adapter:completed',
       providerId: this.providerId,
       sessionId: this.currentSessionId,
@@ -262,6 +351,125 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
       timestamp: Date.now(),
       ...(input.correlationId ? { correlationId: input.correlationId } : {}),
     }
+    if (flushed.length === 0) return completed
+    return [...flushed, completed]
+  }
+
+  /**
+   * Merge incoming tool_call fragments (`index`-keyed) into the pending map.
+   * The first fragment for a given `index` typically supplies `id` and
+   * `function.name`; subsequent fragments append `function.arguments` text.
+   */
+  private accumulateToolCalls(deltas: SSEToolCallDelta[]): void {
+    for (const delta of deltas) {
+      const existing = this.pendingToolCalls.get(delta.index)
+      if (existing) {
+        if (delta.id !== undefined) existing.id = delta.id
+        if (delta.function?.name !== undefined) existing.name = delta.function.name
+        if (delta.function?.arguments !== undefined) {
+          existing.arguments += delta.function.arguments
+        }
+      } else {
+        this.pendingToolCalls.set(delta.index, {
+          index: delta.index,
+          ...(delta.id !== undefined ? { id: delta.id } : {}),
+          ...(delta.function?.name !== undefined ? { name: delta.function.name } : {}),
+          arguments: delta.function?.arguments ?? '',
+          emitted: false,
+        })
+      }
+    }
+  }
+
+  /**
+   * Convert any unemitted accumulated tool calls into `adapter:tool_call`
+   * events (in stream order — sorted by `index`) and mark them emitted.
+   *
+   * Tool calls without a resolved `name` are skipped since `toolName` is
+   * required by the unified event contract; this should never happen for
+   * conformant OpenAI streams.
+   */
+  private flushPendingToolCalls(correlationId: string | undefined): AgentEvent[] {
+    const events: AgentEvent[] = []
+    const ordered = [...this.pendingToolCalls.values()].sort((a, b) => a.index - b.index)
+    for (const call of ordered) {
+      if (call.emitted) continue
+      call.emitted = true
+      if (call.name === undefined || call.name.length === 0) continue
+      events.push({
+        type: 'adapter:tool_call',
+        providerId: this.providerId,
+        toolName: call.name,
+        input: this.parseToolArguments(call.arguments),
+        timestamp: Date.now(),
+        ...(correlationId ? { correlationId } : {}),
+      })
+    }
+    return events
+  }
+
+  /**
+   * Parse the accumulated `function.arguments` JSON string. Returns `{}` when
+   * the buffer is empty and falls back to the raw string when JSON parsing
+   * fails so consumers still receive the model output for diagnostics.
+   */
+  private parseToolArguments(buffer: string): unknown {
+    if (buffer.length === 0) return {}
+    try {
+      return JSON.parse(buffer) as unknown
+    } catch {
+      return buffer
+    }
+  }
+
+  /**
+   * Read tool definitions from `input.options.tools` and convert them into
+   * the OpenAI Chat Completions wire format. Accepts either:
+   *   1. The flat `OpenAIToolDefinition` shape — `{name, description?, parameters?}`
+   *   2. The pre-wrapped wire shape — `{type:'function', function:{...}}`
+   *
+   * Invalid entries are silently skipped to keep parity with other adapters.
+   */
+  private resolveTools(input: AgentInput): OpenAIToolWire[] | undefined {
+    const raw = input.options?.['tools']
+    if (!Array.isArray(raw)) return undefined
+    const wire: OpenAIToolWire[] = []
+    for (const entry of raw) {
+      if (entry === null || typeof entry !== 'object') continue
+      // Pre-wrapped form
+      if ('type' in entry && (entry as { type?: unknown }).type === 'function' && 'function' in entry) {
+        const fn = (entry as { function?: unknown }).function
+        if (fn !== null && typeof fn === 'object' && 'name' in fn && typeof (fn as { name?: unknown }).name === 'string') {
+          const named = fn as { name: string; description?: unknown; parameters?: unknown }
+          wire.push({
+            type: 'function',
+            function: {
+              name: named.name,
+              ...(typeof named.description === 'string' ? { description: named.description } : {}),
+              ...(named.parameters && typeof named.parameters === 'object'
+                ? { parameters: named.parameters as Record<string, unknown> }
+                : {}),
+            },
+          })
+        }
+        continue
+      }
+      // Flat form
+      if ('name' in entry && typeof (entry as { name?: unknown }).name === 'string') {
+        const flat = entry as { name: string; description?: unknown; parameters?: unknown }
+        wire.push({
+          type: 'function',
+          function: {
+            name: flat.name,
+            ...(typeof flat.description === 'string' ? { description: flat.description } : {}),
+            ...(flat.parameters && typeof flat.parameters === 'object'
+              ? { parameters: flat.parameters as Record<string, unknown> }
+              : {}),
+          },
+        })
+      }
+    }
+    return wire
   }
 
   async *resumeSession(
@@ -321,6 +529,8 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
     model: string
     stream: boolean
     signal?: AbortSignal
+    tools?: OpenAIToolWire[]
+    toolChoice?: unknown
   }): Promise<Response> {
     const apiKey = this.resolveApiKey()
     const baseURL = this.config.baseURL ?? DEFAULT_BASE_URL
@@ -330,6 +540,8 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
       stream: args.stream,
     }
     if (args.stream) body['stream_options'] = { include_usage: true }
+    if (args.tools && args.tools.length > 0) body['tools'] = args.tools
+    if (args.toolChoice !== undefined) body['tool_choice'] = args.toolChoice
     const response = await fetch(`${baseURL}/chat/completions`, {
       method: 'POST',
       headers: {

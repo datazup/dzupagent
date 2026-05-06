@@ -15,6 +15,7 @@
  * (Hono routes are first-match per method).
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 
 import type { ForgeServerConfig } from './types.js'
 import type { EventGateway } from '../events/event-gateway.js'
@@ -73,7 +74,7 @@ export interface OptionalRoutesContext {
   eventGateway: EventGateway
 }
 
-export function mountOptionalRoutes(app: Hono, ctx: OptionalRoutesContext): void {
+export function mountOptionalRoutes(app: Hono<AppEnv>, ctx: OptionalRoutesContext): void {
   mountRoutePlugins(app, buildOptionalRoutePlugins(ctx), ctx.runtimeConfig)
 }
 
@@ -130,20 +131,20 @@ export function buildOptionalRoutePlugins(ctx: OptionalRoutesContext): ServerRou
 
 function createOptionalRouteFamilyPlugin(
   name: string,
-  mount: (app: Hono) => void,
+  mount: (app: Hono<AppEnv>) => void,
 ): ServerRoutePlugin<ForgeServerConfig> {
   return {
     family: name,
     prefix: '',
     createRoutes: () => {
-      const familyApp = new Hono()
+      const familyApp = new Hono<AppEnv>()
       mount(familyApp)
       return familyApp
     },
   }
 }
 
-function mountMemoryRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountMemoryRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (runtimeConfig.memoryService) {
     app.route('/api/memory', createMemoryRoutes({ memoryService: runtimeConfig.memoryService }))
     app.route('/api/memory-browse', createMemoryBrowseRoutes({ memoryService: runtimeConfig.memoryService }))
@@ -153,23 +154,23 @@ function mountMemoryRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext):
   }
 }
 
-function mountEventRoutes(app: Hono, { eventGateway }: OptionalRoutesContext): void {
+function mountEventRoutes(app: Hono<AppEnv>, { eventGateway }: OptionalRoutesContext): void {
   app.route('/api/events', createEventRoutes({ eventGateway }))
 }
 
-function mountDeployRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountDeployRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (runtimeConfig.deploy) {
     app.route('/api/deploy', createDeployRoutes(runtimeConfig.deploy))
   }
 }
 
-function mountLearningRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountLearningRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (runtimeConfig.learning) {
     app.route('/api/learning', createLearningRoutes(runtimeConfig.learning))
   }
 }
 
-function mountBenchmarkRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountBenchmarkRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (!runtimeConfig.benchmark) {
     return
   }
@@ -180,7 +181,7 @@ function mountBenchmarkRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContex
   app.route('/api/benchmarks', createBenchmarkRoutes(benchmarkConfig))
 }
 
-function mountEvalRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountEvalRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (!runtimeConfig.evals) {
     return
   }
@@ -194,13 +195,13 @@ function mountEvalRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): v
   app.route('/api/evals', createEvalRoutes(evalsConfig))
 }
 
-function mountPlaygroundRoute(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountPlaygroundRoute(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (runtimeConfig.playground) {
     app.route('/playground', createPlaygroundRoutes(runtimeConfig.playground))
   }
 }
 
-function mountA2ARoutes(app: Hono, ctx: OptionalRoutesContext): void {
+function mountA2ARoutes(app: Hono<AppEnv>, ctx: OptionalRoutesContext): void {
   const { runtimeConfig, effectiveAuth } = ctx
   if (!runtimeConfig.a2a) {
     return
@@ -248,7 +249,7 @@ function mountA2ARoutes(app: Hono, ctx: OptionalRoutesContext): void {
   app.route('', a2aRoutes)
 }
 
-function mountTriggerScheduleRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountTriggerScheduleRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (runtimeConfig.triggerStore) {
     app.route('/api/triggers', createTriggerRoutes({ triggerStore: runtimeConfig.triggerStore }))
   }
@@ -260,7 +261,7 @@ function mountTriggerScheduleRoutes(app: Hono, { runtimeConfig }: OptionalRoutes
   }
 }
 
-function mountConfigStoreRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountConfigStoreRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (runtimeConfig.promptStore) {
     app.route('/api/prompts', createPromptRoutes({ promptStore: runtimeConfig.promptStore }))
   }
@@ -275,7 +276,7 @@ function mountConfigStoreRoutes(app: Hono, { runtimeConfig }: OptionalRoutesCont
   }
 }
 
-function mountReflectionRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountReflectionRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (runtimeConfig.reflectionStore) {
     app.route('/api/reflections', createReflectionRoutes({ reflectionStore: runtimeConfig.reflectionStore }))
   }
@@ -290,7 +291,7 @@ function mountReflectionRoutes(app: Hono, { runtimeConfig }: OptionalRoutesConte
  * rate limiter, DLQ store, mailbox store, and starts a {@link MailDlqWorker}
  * — registering its `stop()` on the graceful-shutdown drain hook.
  */
-function mountMailboxAndClusterRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountMailboxAndClusterRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   let mailboxStore: MailboxStore
   let dlqStore: DrizzleDlqStore | undefined
 
@@ -330,7 +331,7 @@ function mountMailboxAndClusterRoutes(app: Hono, { runtimeConfig }: OptionalRout
   }
 }
 
-function mountOpenAICompatRoutes(app: Hono, { runtimeConfig }: OptionalRoutesContext): void {
+function mountOpenAICompatRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (runtimeConfig.openai?.enabled !== true) {
     return
   }
@@ -357,7 +358,7 @@ function mountOpenAICompatRoutes(app: Hono, { runtimeConfig }: OptionalRoutesCon
  * {@link PrometheusMetricsCollector} and a framework-level access policy is
  * configured. Other collectors (e.g. NoopMetricsCollector) skip this route.
  */
-export function mountPrometheusMetricsRoute(app: Hono, runtimeConfig: ForgeServerConfig): void {
+export function mountPrometheusMetricsRoute(app: Hono<AppEnv>, runtimeConfig: ForgeServerConfig): void {
   if (!(runtimeConfig.metrics instanceof PrometheusMetricsCollector)) {
     return
   }

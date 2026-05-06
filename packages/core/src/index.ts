@@ -67,6 +67,8 @@ export { TokenBucket } from './rate-limit/token-bucket.js'
 export type { TokenBucketConfig } from './rate-limit/token-bucket.js'
 export { invokeWithTimeout, extractTokenUsage, estimateTokens } from './llm/invoke.js'
 export type { TokenUsage, InvokeOptions } from './llm/invoke.js'
+export { ResilientModelInvoker } from './llm/resilient-invoker.js'
+export type { ResilientInvokerOptions } from './llm/resilient-invoker.js'
 export {
   HeuristicTokenizer,
   AnthropicTokenizer,
@@ -352,6 +354,8 @@ export {
 } from './security/tool-permission-tiers.js'
 export { scanForSecrets, redactSecrets } from './security/secrets-scanner.js'
 export type { SecretMatch, ScanResult } from './security/secrets-scanner.js'
+export { createSecureLogger, logger as secureLogger } from './logging/secure-logger.js'
+export type { SecureLogger, SecureLogEntry, SecureLoggerOptions } from './logging/secure-logger.js'
 export { detectPII, redactPII } from './security/pii-detector.js'
 export type { PIIType, PIIMatch, PIIDetectionResult } from './security/pii-detector.js'
 export { OutputPipeline, createDefaultPipeline } from './security/output-pipeline.js'
