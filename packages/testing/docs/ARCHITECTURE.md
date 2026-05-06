@@ -207,7 +207,7 @@ Test coverage in `src/__tests__` includes:
 
 - Architectural enforcement
   - Static checks for forbidden cross-package and cross-app imports.
-  - Declared dependency rules and circular dependency guardrails.
+  - Declared dependency rules, production import declaration completeness, and circular dependency guardrails.
   - Validation of boundary policy/config completeness.
 
 Observability surfaces:
