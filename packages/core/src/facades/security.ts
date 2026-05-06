@@ -113,7 +113,10 @@ export type {
   SafetyAction,
   SafetyViolation,
   SafetyRule,
+  InjectionScannerCallback,
+  PiiScannerCallback,
 } from '../security/monitor/index.js'
+export type { SecurityPolicyConfig } from '@dzupagent/security'
 
 // ---------------------------------------------------------------------------
 // Memory Poisoning Defense (ECO-147)

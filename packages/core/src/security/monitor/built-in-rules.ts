@@ -2,12 +2,23 @@
  * Built-in safety rules for the Runtime Safety Monitor.
  *
  * 5 rules:
- * 1. Prompt injection scanner
- * 2. PII leak scanner
- * 3. Secret leak scanner
+ * 1. Prompt injection scanner (delegates to `@dzupagent/security`)
+ * 2. PII leak scanner (delegates to `@dzupagent/security`)
+ * 3. Secret leak scanner (regex-based, host-specific)
  * 4. Tool abuse detector (consecutive tool:error events)
  * 5. Escalation detector (permission/config modification attempts)
+ *
+ * Rules 1 and 2 call through to the canonical scanners exported by
+ * `@dzupagent/security` so DzupAgent has a single source of truth for
+ * prompt-injection and PII detection.
  */
+
+import {
+  PromptInjectionDetector,
+  PiiDetector,
+  type InjectionFinding,
+  type PiiMatch,
+} from '@dzupagent/security'
 
 export type SafetyCategory =
   | 'prompt_injection'
@@ -39,90 +50,103 @@ export interface SafetyRule {
   check: (content: string, context?: Record<string, unknown>) => SafetyViolation | null
 }
 
-// --- Prompt Injection Patterns ---
+/**
+ * Callback shape for delegating prompt-injection detection to a host-supplied
+ * scanner. Allows downstream consumers to swap the canonical
+ * `@dzupagent/security` detector for an enterprise/custom implementation
+ * without forking the safety monitor.
+ */
+export interface InjectionScannerCallback {
+  (content: string): { detected: boolean; confidence: number; pattern?: string }
+}
 
-/* eslint-disable security/detect-unsafe-regex */
-const INJECTION_PATTERNS: RegExp[] = [
-  /ignore\s+(all\s+)?previous\s+instructions/i,
-  /disregard\s+(all\s+)?(previous|prior|above)\s+(instructions|rules|guidelines)/i,
-  /you\s+are\s+now\s+(a|an)\s+/i,
-  /new\s+instructions?\s*:/i,
-  /system\s*:\s*you\s+are/i,
-  /\bdo\s+anything\s+now\b/i,
-  /\bdan\s+mode\b/i,
-  /\bjailbreak\b/i,
-  /pretend\s+you\s+(are|have)\s+(no|un)/i,
-  /bypass\s+(your\s+)?(safety|content|ethical)\s*(filters?|restrictions?|guidelines?)/i,
-  /act\s+as\s+if\s+you\s+have\s+no\s+(restrictions?|limitations?|rules)/i,
-  /override\s+(your\s+)?(programming|instructions|safety)/i,
-]
-/* eslint-enable security/detect-unsafe-regex */
+/**
+ * Callback shape for delegating PII detection to a host-supplied scanner.
+ */
+export interface PiiScannerCallback {
+  (content: string): { detected: boolean; types: string[]; sample?: string }
+}
 
-function createInjectionRule(): SafetyRule {
+// --- Default canonical scanners (singletons) ---
+
+const defaultInjectionDetector = new PromptInjectionDetector()
+const defaultPiiDetector = new PiiDetector()
+
+const defaultInjectionScanner: InjectionScannerCallback = (content) => {
+  const result = defaultInjectionDetector.scan(content, 'warn')
+  if (result.findings.length === 0) {
+    return { detected: false, confidence: 0 }
+  }
+  const top = result.findings[0] as InjectionFinding
+  return {
+    detected: true,
+    // Confidence proxy: more findings = higher confidence (capped at 1).
+    confidence: Math.min(1, 0.5 + 0.1 * result.findings.length),
+    pattern: top.match,
+  }
+}
+
+const defaultPiiScanner: PiiScannerCallback = (content) => {
+  const result = defaultPiiDetector.scanDetailed(content)
+  if (!result.hasPii) {
+    return { detected: false, types: [] }
+  }
+  const sample = result.matches.length > 0 ? (result.matches[0] as PiiMatch).value : undefined
+  return {
+    detected: true,
+    types: result.types,
+    ...(sample !== undefined ? { sample } : {}),
+  }
+}
+
+// --- Prompt Injection Rule (delegates to canonical scanner) ---
+
+export function createInjectionRule(scanner: InjectionScannerCallback = defaultInjectionScanner): SafetyRule {
   return {
     id: 'builtin:prompt-injection',
     category: 'prompt_injection',
     severity: 'critical',
     action: 'block',
     check(content: string): SafetyViolation | null {
-      for (const pattern of INJECTION_PATTERNS) {
-        pattern.lastIndex = 0
-        const match = pattern.exec(content)
-        if (match) {
-          return {
-            category: 'prompt_injection',
-            severity: 'critical',
-            action: 'block',
-            message: 'Prompt injection attempt detected',
-            evidence: match[0],
-            timestamp: new Date(),
-          }
-        }
+      const result = scanner(content)
+      if (!result.detected) return null
+      return {
+        category: 'prompt_injection',
+        severity: 'critical',
+        action: 'block',
+        message: 'Prompt injection attempt detected',
+        evidence: result.pattern ?? '[redacted]',
+        timestamp: new Date(),
       }
-      return null
     },
   }
 }
 
-// --- PII Leak Patterns ---
+// --- PII Leak Rule (delegates to canonical scanner) ---
 
-const PII_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /\b\d{3}-\d{2}-\d{4}\b/g, label: 'SSN' },
-  { pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, label: 'email' },
-  {
-    // eslint-disable-next-line security/detect-unsafe-regex
-    pattern: /(?<![.\d])(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?!\.\d)/g,
-    label: 'phone',
-  },
-]
-
-function createPIILeakRule(): SafetyRule {
+export function createPIILeakRule(scanner: PiiScannerCallback = defaultPiiScanner): SafetyRule {
   return {
     id: 'builtin:pii-leak',
     category: 'pii_leak',
     severity: 'warning',
     action: 'log',
     check(content: string): SafetyViolation | null {
-      for (const { pattern, label } of PII_PATTERNS) {
-        pattern.lastIndex = 0
-        const match = pattern.exec(content)
-        if (match) {
-          return {
-            category: 'pii_leak',
-            severity: 'warning',
-            action: 'log',
-            message: `PII detected: ${label}`,
-            evidence: match[0],
-            timestamp: new Date(),
-          }
-        }
+      const result = scanner(content)
+      if (!result.detected) return null
+      const label = result.types[0] ?? 'PII'
+      return {
+        category: 'pii_leak',
+        severity: 'warning',
+        action: 'log',
+        message: `PII detected: ${label}`,
+        evidence: result.sample ?? label,
+        timestamp: new Date(),
       }
-      return null
     },
   }
 }
 
-// --- Secret Leak Patterns ---
+// --- Secret Leak Patterns (host-specific, not in canonical scanner) ---
 
 const SECRET_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\bAKIA[0-9A-Z]{16}\b/g, label: 'AWS access key' },
@@ -175,8 +199,10 @@ function createSecretLeakRule(): SafetyRule {
  * Detects consecutive tool errors which may indicate tool abuse or
  * an agent in a failure loop. Tracks tool:error events via context.
  */
-function createToolAbuseRule(): SafetyRule {
-  const THRESHOLD = 5
+export function createToolAbuseRule(threshold = 5): SafetyRule {
+  const maxConsecutiveErrors = Number.isFinite(threshold) && threshold > 0
+    ? Math.floor(threshold)
+    : 5
   let consecutiveErrors = 0
   let lastToolName: string | undefined
 
@@ -195,10 +221,10 @@ function createToolAbuseRule(): SafetyRule {
       }
 
       const toolName = (context?.['toolName'] as string | undefined) ?? 'unknown'
-      consecutiveErrors++
+      consecutiveErrors = toolName === lastToolName ? consecutiveErrors + 1 : 1
       lastToolName = toolName
 
-      if (consecutiveErrors >= THRESHOLD) {
+      if (consecutiveErrors >= maxConsecutiveErrors) {
         const violation: SafetyViolation = {
           category: 'tool_abuse',
           severity: 'warning',
@@ -217,7 +243,7 @@ function createToolAbuseRule(): SafetyRule {
   }
 }
 
-// --- Escalation Detector ---
+// --- Escalation Detector (host-specific, not in canonical scanner) ---
 
 const ESCALATION_PATTERNS: RegExp[] = [
   /\bmodify\s+(my|your|own)\s+(permissions?|roles?|access|config)/i,
@@ -231,7 +257,7 @@ const ESCALATION_PATTERNS: RegExp[] = [
   /\bbypass\s+(auth|rbac|acl|permission|firewall)/i,
 ]
 
-function createEscalationRule(): SafetyRule {
+export function createEscalationRule(): SafetyRule {
   return {
     id: 'builtin:escalation',
     category: 'escalation',
@@ -258,14 +284,23 @@ function createEscalationRule(): SafetyRule {
 }
 
 /**
- * Returns all 5 built-in safety rules.
+ * Returns all 5 built-in safety rules. Consumers MAY pass custom scanner
+ * callbacks for the prompt-injection and PII rules; when omitted, the
+ * canonical scanners from `@dzupagent/security` are used.
  */
-export function getBuiltInRules(): SafetyRule[] {
+export function getBuiltInRules(options?: {
+  injectionScanner?: InjectionScannerCallback
+  piiScanner?: PiiScannerCallback
+}): SafetyRule[] {
   return [
-    createInjectionRule(),
-    createPIILeakRule(),
+    createInjectionRule(options?.injectionScanner),
+    createPIILeakRule(options?.piiScanner),
     createSecretLeakRule(),
     createToolAbuseRule(),
     createEscalationRule(),
   ]
+}
+
+export {
+  createSecretLeakRule,
 }

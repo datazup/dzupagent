@@ -68,7 +68,9 @@ export { createSafetyMonitor, getBuiltInRules } from './monitor/index.js'
 export type {
   SafetyMonitor, SafetyMonitorConfig,
   SafetyCategory, SafetySeverity, SafetyAction, SafetyViolation, SafetyRule,
+  InjectionScannerCallback, PiiScannerCallback,
 } from './monitor/index.js'
+export type { SecurityPolicyConfig } from '@dzupagent/security'
 
 // --- Memory Defense ---
 export { createMemoryDefense } from './memory/index.js'
