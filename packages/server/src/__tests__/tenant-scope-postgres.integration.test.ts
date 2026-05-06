@@ -283,8 +283,7 @@ describe.skipIf(!canRun)('tenant-scope Postgres migration and stores (testcontai
     )).rejects.toThrow('NotFound')
     expect(await clusterStore.listRoles('cluster-a', 'tenant-b')).toEqual([])
 
-    const wrongTenantRemove = await clusterStore.removeRole('cluster-a', 'planner', 'tenant-b')
-    expect(wrongTenantRemove).toBe(false)
+    await expect(clusterStore.removeRole('cluster-a', 'planner', 'tenant-b')).rejects.toThrow('NotFound')
 
     const removed = await clusterStore.removeRole('cluster-a', 'planner', 'tenant-a')
     expect(removed).toBe(true)

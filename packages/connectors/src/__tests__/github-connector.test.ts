@@ -502,6 +502,7 @@ describe('GitHub connector', () => {
       const tools = createGitHubConnector({
         token: 'tok',
         baseUrl: 'https://ghe.corp.com/api/v3',
+        outboundUrlPolicy: { allowedHosts: ['ghe.corp.com'] },
       })
       await tools.find(t => t.name === 'github_list_issues')!.invoke({ owner: 'o', repo: 'r' })
 
@@ -580,7 +581,11 @@ describe('GitHubClient', () => {
 
   it('uses custom baseUrl', async () => {
     const mock = mockFetch([])
-    const client = new GitHubClient({ token: 'tok', baseUrl: 'https://ghe.corp.com/api/v3' })
+    const client = new GitHubClient({
+      token: 'tok',
+      baseUrl: 'https://ghe.corp.com/api/v3',
+      outboundUrlPolicy: { allowedHosts: ['ghe.corp.com'] },
+    })
     await client.listBranches('org', 'app')
 
     const calledUrl = mock.mock.calls[0]![0] as string
