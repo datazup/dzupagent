@@ -20,6 +20,7 @@
  * handler in `app.ts`.
  */
 import { Hono, type Context } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { ApprovalStateStore } from '@dzupagent/hitl-kit'
 import { UnknownApprovalError } from '@dzupagent/hitl-kit'
 import type { DzupEventBus, RunStore } from '@dzupagent/core'
@@ -37,8 +38,8 @@ export interface ApprovalRoutesConfig {
   runStore?: RunStore
 }
 
-export function createApprovalsRoutes(config: ApprovalRoutesConfig): Hono {
-  const app = new Hono()
+export function createApprovalsRoutes(config: ApprovalRoutesConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { approvalStore, eventBus, runStore } = config
 
   app.post('/:runId/:approvalId/grant', async (c) => {

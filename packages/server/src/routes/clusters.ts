@@ -9,6 +9,7 @@
  * POST   /api/clusters/:id/mail              — Route mail (or broadcast with to: "*")
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import { randomUUID } from 'node:crypto'
 import type { MailboxStore, MailMessage } from '@dzupagent/agent'
 import type { ClusterStore } from '../persistence/drizzle-cluster-store.js'
@@ -25,8 +26,8 @@ export interface ClusterRouteConfig {
   mailboxStore: MailboxStore
 }
 
-export function createClusterRoutes(config: ClusterRouteConfig): Hono {
-  const app = new Hono()
+export function createClusterRoutes(config: ClusterRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { clusterStore, mailboxStore } = config
 
   // POST / — Create a cluster

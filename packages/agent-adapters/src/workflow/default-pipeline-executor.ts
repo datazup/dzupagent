@@ -10,7 +10,7 @@
  * only knows about the port; this file is the single seam where the
  * runtime is bound, and it can be swapped out by callers via DI.
  */
-import { PipelineRuntime } from '@dzupagent/agent'
+import { PipelineRuntime } from '@dzupagent/agent/pipeline'
 import type { PipelineDefinition, PipelineNode } from '@dzupagent/core'
 import type {
   PipelineExecutorConfig,

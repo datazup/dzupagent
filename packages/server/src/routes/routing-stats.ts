@@ -8,6 +8,7 @@
  * visibility into how the cost-aware router distributes traffic.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { RunStore } from '@dzupagent/core'
 
 export interface RoutingStatsConfig {
@@ -38,8 +39,8 @@ interface RoutingStatsResponse {
   qualityMetrics: QualityMetrics
 }
 
-export function createRoutingStatsRoutes(config: RoutingStatsConfig): Hono {
-  const app = new Hono()
+export function createRoutingStatsRoutes(config: RoutingStatsConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   app.get('/routing', async (c) => {
     const runs = await config.runStore.list({ limit: 100 })

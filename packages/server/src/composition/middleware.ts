@@ -17,6 +17,7 @@
  * (notably the A2A route mount) can reuse it.
  */
 import type { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import { cors } from 'hono/cors'
 
 import type { ForgeServerConfig, JsonBodyLimitConfig, SecurityHeadersConfig } from './types.js'
@@ -61,7 +62,7 @@ export function assertExplicitFrameworkApiAuth(config: ForgeServerConfig): void 
   console.warn(FRAMEWORK_API_AUTH_WARNING)
 }
 
-export function applyMiddleware(app: Hono, config: ForgeServerConfig): ComposedMiddleware {
+export function applyMiddleware(app: Hono<AppEnv>, config: ForgeServerConfig): ComposedMiddleware {
   applyCors(app, config)
   applySecurityHeaders(app, config)
   const effectiveAuth = applyAuthAndRbac(app, config)
@@ -90,7 +91,7 @@ export function createDefaultRbacConfig(config: ForgeServerConfig): RBACConfig {
   }
 }
 
-function applyCors(app: Hono, config: ForgeServerConfig): void {
+function applyCors(app: Hono<AppEnv>, config: ForgeServerConfig): void {
   const origin = resolveCorsOrigin(config)
   if (!origin) {
     return
@@ -129,7 +130,7 @@ function isWildcardCorsOrigin(origin: string | string[]): boolean {
   return Array.isArray(origin) ? origin.includes('*') : origin === '*'
 }
 
-function applySecurityHeaders(app: Hono, config: ForgeServerConfig): void {
+function applySecurityHeaders(app: Hono<AppEnv>, config: ForgeServerConfig): void {
   if (config.securityHeaders === false) {
     return
   }
@@ -167,7 +168,7 @@ function resolveSecurityHeaders(config?: SecurityHeadersConfig): Array<[string, 
   return [...headers.entries()]
 }
 
-function applyAuthAndRbac(app: Hono, config: ForgeServerConfig): AuthConfig | undefined {
+function applyAuthAndRbac(app: Hono<AppEnv>, config: ForgeServerConfig): AuthConfig | undefined {
   if (!config.auth) {
     return undefined
   }
@@ -204,7 +205,7 @@ function applyAuthAndRbac(app: Hono, config: ForgeServerConfig): AuthConfig | un
   return effectiveAuth
 }
 
-function applyRateLimit(app: Hono, config: ForgeServerConfig): void {
+function applyRateLimit(app: Hono<AppEnv>, config: ForgeServerConfig): void {
   if (!config.rateLimit) {
     return
   }
@@ -225,7 +226,7 @@ function getRateLimitedRoutePatterns(config: ForgeServerConfig): string[] {
   return paths
 }
 
-function applyJsonBodySizeLimit(app: Hono, config: ForgeServerConfig): void {
+function applyJsonBodySizeLimit(app: Hono<AppEnv>, config: ForgeServerConfig): void {
   if (config.jsonBodyLimit === false) {
     return
   }
@@ -347,7 +348,7 @@ function resolveJsonBodyMaxBytes(path: string, limits: ResolvedJsonBodyLimits): 
   return matchedBytes ?? limits.defaultMaxBytes
 }
 
-function applyShutdownGuard(app: Hono, config: ForgeServerConfig): void {
+function applyShutdownGuard(app: Hono<AppEnv>, config: ForgeServerConfig): void {
   if (!config.shutdown) {
     return
   }
@@ -362,7 +363,7 @@ function applyShutdownGuard(app: Hono, config: ForgeServerConfig): void {
   })
 }
 
-function applyRequestMetrics(app: Hono, config: ForgeServerConfig): void {
+function applyRequestMetrics(app: Hono<AppEnv>, config: ForgeServerConfig): void {
   if (!config.metrics) {
     return
   }
@@ -382,7 +383,7 @@ function applyRequestMetrics(app: Hono, config: ForgeServerConfig): void {
   })
 }
 
-function applyErrorHandler(app: Hono, config: ForgeServerConfig): void {
+function applyErrorHandler(app: Hono<AppEnv>, config: ForgeServerConfig): void {
   app.onError((err, c) => {
     const message = err instanceof Error ? err.message : String(err)
 

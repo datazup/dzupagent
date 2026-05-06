@@ -2,6 +2,7 @@
  * Trigger CRUD routes — create, list, get, delete, and toggle triggers.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { TriggerStore } from '../triggers/trigger-store.js'
 import { TriggerCreateSchema, TriggerEnableSchema, validateBodyCompat } from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
@@ -10,8 +11,8 @@ export interface TriggerRouteConfig {
   triggerStore: TriggerStore
 }
 
-export function createTriggerRoutes(config: TriggerRouteConfig): Hono {
-  const app = new Hono()
+export function createTriggerRoutes(config: TriggerRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   // --- Create trigger ---
   app.post('/', async (c) => {

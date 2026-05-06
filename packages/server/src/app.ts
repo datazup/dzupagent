@@ -30,6 +30,8 @@
  */
 import { Hono } from 'hono'
 
+import { ComplianceAuditLogger } from '@dzupagent/core'
+import type { AppEnv } from './types.js'
 import type { ForgeServerConfig } from './composition/types.js'
 import {
   warnIfUnboundedInMemoryRetention,
@@ -76,17 +78,25 @@ export type {
 } from './composition/types.js'
 export type { HttpConnectorProfile } from './runtime/tool-resolver.js'
 
-export function createForgeApp(config: ForgeServerConfig): Hono {
+export function createForgeApp(config: ForgeServerConfig): Hono<AppEnv> {
   assertExplicitFrameworkApiAuth(config)
   warnIfUnboundedInMemoryRetention(config)
 
-  const app = new Hono()
+  const app = new Hono<AppEnv>()
 
   // --- Runtime SafetyMonitor ---
   // Attach the built-in safety monitor to the shared event bus so that
   // tool errors and memory writes are scanned for prompt-injection and
   // other policy violations. Hosts can opt out via `disableSafetyMonitor`.
   attachSafetyMonitor(config)
+
+  // --- Compliance Audit Logger (RF-36) ---
+  // When an auditStore is provided, attach a ComplianceAuditLogger to the
+  // event bus so security-relevant events are durably recorded.
+  if (config.auditStore) {
+    const auditLogger = new ComplianceAuditLogger({ store: config.auditStore })
+    auditLogger.attach(config.eventBus)
+  }
 
   // Resolve runtime defaults: executor, executable agent resolver, gateway.
   const { runtimeConfig, effectiveRunExecutor, eventGateway } = buildRuntimeBootstrap(config)

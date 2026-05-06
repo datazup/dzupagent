@@ -16,7 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "evals:regression-gate": "node dist/cli/regression-gate.js"
   },
   "dependencies": {
     "@dzupagent/core": "0.2.0",

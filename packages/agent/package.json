@@ -6,44 +6,44 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./agent": {
-      "import": "./dist/agent.js",
-      "types": "./dist/agent.d.ts"
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js"
     },
     "./orchestration": {
-      "import": "./dist/orchestration.js",
-      "types": "./dist/orchestration.d.ts"
+      "types": "./dist/orchestration.d.ts",
+      "import": "./dist/orchestration.js"
     },
     "./self-correction": {
-      "import": "./dist/self-correction.js",
-      "types": "./dist/self-correction.d.ts"
+      "types": "./dist/self-correction.d.ts",
+      "import": "./dist/self-correction.js"
     },
     "./replay": {
-      "import": "./dist/replay.js",
-      "types": "./dist/replay.d.ts"
+      "types": "./dist/replay.d.ts",
+      "import": "./dist/replay.js"
     },
     "./pipeline": {
-      "import": "./dist/pipeline.js",
-      "types": "./dist/pipeline.d.ts"
+      "types": "./dist/pipeline.d.ts",
+      "import": "./dist/pipeline.js"
     },
     "./runtime": {
-      "import": "./dist/runtime.js",
-      "types": "./dist/runtime.d.ts"
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
     },
     "./workflow": {
-      "import": "./dist/workflow.js",
-      "types": "./dist/workflow.d.ts"
+      "types": "./dist/workflow.d.ts",
+      "import": "./dist/workflow.js"
     },
     "./tools": {
-      "import": "./dist/tools.js",
-      "types": "./dist/tools.d.ts"
+      "types": "./dist/tools.d.ts",
+      "import": "./dist/tools.js"
     },
     "./compat": {
-      "import": "./dist/compat.js",
-      "types": "./dist/compat.d.ts"
+      "types": "./dist/compat.d.ts",
+      "import": "./dist/compat.js"
     }
   },
   "scripts": {

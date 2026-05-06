@@ -3,9 +3,9 @@
  * importer runtime.
  *
  * When the `--wire` flag is set, this module dynamically imports
- * `@dzupagent/agent-adapters` and runs `DzupAgentImporter.executeImport()`
- * against the freshly scaffolded project directory so it can immediately
- * use the adapter system.
+ * `@dzupagent/agent-adapters/dzupagent` and runs
+ * `DzupAgentImporter.executeImport()` against the freshly scaffolded project
+ * directory so it can immediately use the adapter system.
  *
  * The import is dynamic so that `create-dzupagent` does NOT hard-depend
  * on agent-adapters — the package remains an optional peer dependency.
@@ -134,7 +134,7 @@ export async function wireProject(
  */
 async function loadAgentAdapters(): Promise<AgentAdaptersModule> {
   try {
-    const mod: unknown = await import('@dzupagent/agent-adapters')
+    const mod: unknown = await import('@dzupagent/agent-adapters/dzupagent')
     return mod as AgentAdaptersModule
   } catch {
     throw new Error(

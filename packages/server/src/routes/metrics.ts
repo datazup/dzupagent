@@ -7,6 +7,7 @@
  */
 import { Hono } from 'hono'
 import type { MiddlewareHandler } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { PrometheusMetricsCollector } from '../metrics/prometheus-collector.js'
 
 export type MetricsAccessControl =
@@ -47,8 +48,8 @@ export interface MetricsRouteConfig {
  *
  * GET / — renders all tracked metrics in Prometheus text exposition format.
  */
-export function createMetricsRoute(config: MetricsRouteConfig): Hono {
-  const app = new Hono()
+export function createMetricsRoute(config: MetricsRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   if (config.access.mode === 'disabled') {
     return app

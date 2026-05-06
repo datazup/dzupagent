@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type {
   BenchmarkOrchestratorLike,
   BenchmarkRunArtifactRecord,
@@ -186,8 +187,8 @@ class ReadOnlyBenchmarkOrchestrator implements BenchmarkOrchestratorLike {
   }
 }
 
-export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono {
-  const app = new Hono()
+export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const store = config.store ?? new InMemoryBenchmarkRunStore()
   const suites = config.suites ?? {}
 

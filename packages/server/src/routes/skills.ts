@@ -11,6 +11,7 @@ import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
 import { sanitizeError } from './route-error.js'
+import { secureLogger } from '@dzupagent/core'
 import type { AdapterSkillBundle, CompiledAdapterSkill } from '@dzupagent/agent-adapters'
 import type { AdapterProviderId } from '@dzupagent/agent-adapters'
 
@@ -84,7 +85,7 @@ export function createSkillRoutes(config: Pick<ForgeServerConfig, 'skillRegistry
       return c.json({ data: results }, 201)
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[skills] ${internal}`)
+      secureLogger.error(`[skills] ${internal}`)
       return c.json(
         { error: { code: 'VALIDATION_ERROR', message: safe } },
         400,

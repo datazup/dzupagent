@@ -16,6 +16,7 @@
  * - `POST /a2a`                    — JSON-RPC 2.0 (single + batch)
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../../types.js'
 import type { A2ARoutesConfig } from './helpers.js'
 import { registerWellKnownRoutes } from './well-known.js'
 import { registerTaskRoutes } from './task-routes.js'
@@ -24,8 +25,8 @@ import { registerJsonRpcRoute } from './jsonrpc-route.js'
 
 export type { A2ARoutesConfig } from './helpers.js'
 
-export function createA2ARoutes(config: A2ARoutesConfig): Hono {
-  const app = new Hono()
+export function createA2ARoutes(config: A2ARoutesConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   registerJsonRpcRoute(app, config)
   registerWellKnownRoutes(app, config)

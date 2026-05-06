@@ -27,6 +27,7 @@ import type {
   McpProfile,
   McpServerDefinition,
 } from '@dzupagent/core'
+import { secureLogger } from '@dzupagent/core'
 import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
 
 // ---------------------------------------------------------------------------
@@ -168,7 +169,7 @@ export function createMcpRoutes(
       return c.json({ data: redactMcpDefinition(server) }, 201)
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[mcp] ${internal}`)
+      secureLogger.error(`[mcp] ${internal}`)
       if (internal.includes('already exists')) {
         return c.json(
           { error: { code: 'VALIDATION_ERROR', message: safe } },
@@ -264,7 +265,7 @@ export function createMcpRoutes(
       return c.json({ data: redactMcpDefinition(updated) })
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[mcp] ${internal}`)
+      secureLogger.error(`[mcp] ${internal}`)
       if (internal.includes('not found')) {
         return c.json(
           { error: { code: 'NOT_FOUND', message: safe } },
@@ -282,7 +283,7 @@ export function createMcpRoutes(
       return c.body(null, 204)
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[mcp] ${internal}`)
+      secureLogger.error(`[mcp] ${internal}`)
       return c.json(
         { error: { code: 'INTERNAL_ERROR', message: safe } },
         500,
@@ -298,7 +299,7 @@ export function createMcpRoutes(
       return c.json({ data: redactMcpDefinition(server) })
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[mcp] ${internal}`)
+      secureLogger.error(`[mcp] ${internal}`)
       if (internal.includes('not found')) {
         return c.json(
           { error: { code: 'NOT_FOUND', message: safe } },
@@ -317,7 +318,7 @@ export function createMcpRoutes(
       return c.json({ data: redactMcpDefinition(server) })
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[mcp] ${internal}`)
+      secureLogger.error(`[mcp] ${internal}`)
       if (internal.includes('not found')) {
         return c.json(
           { error: { code: 'NOT_FOUND', message: safe } },
@@ -347,7 +348,7 @@ export function createMcpRoutes(
       return c.json({ data: result })
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[mcp] ${internal}`)
+      secureLogger.error(`[mcp] ${internal}`)
       return c.json(
         { error: { code: 'INTERNAL_ERROR', message: safe } },
         500,
@@ -396,7 +397,7 @@ export function createMcpRoutes(
       return c.json({ data: profile }, 201)
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[mcp] ${internal}`)
+      secureLogger.error(`[mcp] ${internal}`)
       if (internal.includes('already exists')) {
         return c.json(
           { error: { code: 'VALIDATION_ERROR', message: safe } },
@@ -427,7 +428,7 @@ export function createMcpRoutes(
       return c.body(null, 204)
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[mcp] ${internal}`)
+      secureLogger.error(`[mcp] ${internal}`)
       return c.json(
         { error: { code: 'INTERNAL_ERROR', message: safe } },
         500,

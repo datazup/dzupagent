@@ -6,6 +6,7 @@
  * POST /api/mailbox/:agentId/messages/:messageId/ack — Acknowledge (mark read) a message
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import { randomUUID } from 'node:crypto'
 import type { MailboxStore, MailMessage } from '@dzupagent/agent'
 import type { DrizzleDlqStore } from '../persistence/drizzle-dlq-store.js'
@@ -17,8 +18,8 @@ export interface MailboxRouteConfig {
   dlqStore?: DrizzleDlqStore
 }
 
-export function createMailboxRoutes(config: MailboxRouteConfig): Hono {
-  const app = new Hono()
+export function createMailboxRoutes(config: MailboxRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { mailboxStore, dlqStore } = config
 
   // POST /:agentId/send — Send a message from this agent

@@ -29,6 +29,7 @@
  * so callers can poll without branching on 404s.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
 import type { LogEntry } from '@dzupagent/core'
 import type { CompressionLogEntry } from '@dzupagent/agent'
@@ -162,8 +163,8 @@ const RECOMMENDATIONS: Record<TokenLifecycleLike['status'], string | undefined> 
   exhausted: 'Context window exhausted — must compress before next call',
 }
 
-export function createRunContextRoutes(config: ForgeServerConfig): Hono {
-  const app = new Hono()
+export function createRunContextRoutes(config: ForgeServerConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { runStore } = config
 
   app.get('/:id/context', async (c) => {

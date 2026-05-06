@@ -9,6 +9,7 @@
  * deliberately does not leak through the public API.
  */
 import type { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 
 import type { ForgeServerConfig } from './types.js'
 import { startRunWorker, type RunExecutor } from '../runtime/run-worker.js'
@@ -54,7 +55,7 @@ export function maybeStartRunWorker(
  * provided (matching legacy behaviour where the status route was only added
  * alongside shutdown wiring).
  */
-export function startConsolidationScheduler(app: Hono, runtimeConfig: ForgeServerConfig): void {
+export function startConsolidationScheduler(app: Hono<AppEnv>, runtimeConfig: ForgeServerConfig): void {
   if (!runtimeConfig.consolidation) {
     return
   }

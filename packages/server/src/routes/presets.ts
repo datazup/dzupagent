@@ -6,6 +6,7 @@
  * without actually creating an agent.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { PresetRegistry } from '@dzupagent/agent'
 import { buildConfigFromPreset } from '@dzupagent/agent'
 import type { PresetRuntimeDeps } from '@dzupagent/agent'
@@ -14,8 +15,8 @@ export interface PresetRouteConfig {
   presetRegistry: PresetRegistry
 }
 
-export function createPresetRoutes(config: PresetRouteConfig): Hono {
-  const app = new Hono()
+export function createPresetRoutes(config: PresetRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   // --- List all presets ---
   app.get('/', (c) => {

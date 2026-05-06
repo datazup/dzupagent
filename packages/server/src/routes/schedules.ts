@@ -4,6 +4,7 @@
  * Schedules are cron-based triggers with a name, cron expression, workflow text, and enabled flag.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { ScheduleStore } from '../schedules/schedule-store.js'
 import { ScheduleCreateSchema, ScheduleUpdateSchema, validateBodyCompat } from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
@@ -14,8 +15,8 @@ export interface ScheduleRouteConfig {
   onManualTrigger?: (schedule: { id: string; workflowText: string }) => Promise<void>
 }
 
-export function createScheduleRoutes(config: ScheduleRouteConfig): Hono {
-  const app = new Hono()
+export function createScheduleRoutes(config: ScheduleRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   // --- Create schedule ---
   app.post('/', async (c) => {

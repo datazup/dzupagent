@@ -17,8 +17,11 @@ export type {
   EvalQueueStats,
 } from './eval-orchestrator.js'
 
-export { BenchmarkOrchestrator } from './benchmark-orchestrator.js'
+export { BenchmarkOrchestrator, RegressionGateError } from './benchmark-orchestrator.js'
 export type {
   BenchmarkOrchestratorConfig,
   BenchmarkRunArtifactInput,
+  RegressionDetail,
+  RegressionGateResult,
+  RegressionGateOptions,
 } from './benchmark-orchestrator.js'

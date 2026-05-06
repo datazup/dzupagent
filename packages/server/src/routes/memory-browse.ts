@@ -5,6 +5,7 @@
  * Query params: limit, offset, search, scope (JSON-encoded)
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
 import {
   applyAuthoritativeScope,
@@ -17,8 +18,8 @@ export interface MemoryBrowseRouteConfig {
   tenantScope?: MemoryTenantScopeConfig
 }
 
-export function createMemoryBrowseRoutes(config: MemoryBrowseRouteConfig): Hono {
-  const app = new Hono()
+export function createMemoryBrowseRoutes(config: MemoryBrowseRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { memoryService, tenantScope } = config
 
   // GET /:namespace — List or search entries in a namespace

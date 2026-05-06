@@ -58,6 +58,12 @@ export interface DistributedGuardrailConfig {
     maxRequests?: number
     /** Key prefix (default: `'dzupagent:rl'`). */
     keyPrefix?: string
+    /**
+     * On Redis errors, fall back to the local agent limiter when one is
+     * configured. Set to `false` to skip local fallback and fail open.
+     * Defaults to `true`.
+     */
+    fallbackToLocal?: boolean
   }
   /** Per-tenant + per-agent cumulative cost ceiling. */
   costLedger?: {
@@ -68,6 +74,11 @@ export interface DistributedGuardrailConfig {
     ttlMs?: number
     /** Key prefix (default: `'dzupagent:cost'`). */
     keyPrefix?: string
+    /**
+     * On Redis errors, fall back to an in-memory running total. Set to
+     * `false` to skip local fallback and fail open. Defaults to `true`.
+     */
+    fallbackToLocal?: boolean
   }
 }
 

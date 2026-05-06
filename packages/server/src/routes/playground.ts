@@ -14,6 +14,7 @@
  * ```
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import { readFile, stat } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 
@@ -70,8 +71,8 @@ function resolveWithinRoot(rootDir: string, ...segments: string[]): string | nul
   return null
 }
 
-export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono {
-  const app = new Hono()
+export function createPlaygroundRoutes(config: PlaygroundRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const htmlSecurityHeaders = resolvePlaygroundSecurityHeaders(config.securityHeaders)
 
   /**

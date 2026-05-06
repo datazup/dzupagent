@@ -5,6 +5,7 @@
  * configuration that can be applied to agent runs.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { PersonaStore } from '../personas/persona-store.js'
 import { PersonaCreateSchema, PersonaUpdateSchema, validateBodyCompat } from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
@@ -13,8 +14,8 @@ export interface PersonaRouteConfig {
   personaStore: PersonaStore
 }
 
-export function createPersonaRoutes(config: PersonaRouteConfig): Hono {
-  const app = new Hono()
+export function createPersonaRoutes(config: PersonaRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   // --- Create persona ---
   app.post('/', async (c) => {

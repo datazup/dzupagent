@@ -17,8 +17,29 @@
  * All data is read directly from the MemoryServiceLike store to avoid
  * a hard dependency on @dzupagent/agent.
  */
+import { z } from 'zod'
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
+
+const FeedbackSchema = z.object({
+  runId: z.string().min(1),
+  approved: z.boolean(),
+  type: z.unknown().optional(),
+  feedback: z.unknown().optional(),
+  featureCategory: z.unknown().optional(),
+})
+
+const SkillPackLoadSchema = z.object({
+  packIds: z.array(z.unknown()).min(1),
+})
+
+const IngestSchema = z.object({
+  runId: z.string().min(1),
+  score: z.number().finite(),
+  patterns: z.array(z.unknown()),
+  agentId: z.string().optional(),
+})
 
 export interface LearningRouteConfig {
   memoryService: MemoryServiceLike
@@ -103,8 +124,8 @@ function tenantScope(tenantId: string): Record<string, string> {
   return tenantId ? { tenantId } : {}
 }
 
-export function createLearningRoutes(config: LearningRouteConfig): Hono {
-  const app = new Hono()
+export function createLearningRoutes(config: LearningRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   const { memoryService, defaultTenantId = 'default' } = config
   const ingestThreshold = clamp01(
     typeof config.ingestConfidenceThreshold === 'number'
@@ -355,34 +376,24 @@ export function createLearningRoutes(config: LearningRouteConfig): Hono {
     const tenantId = getTenantId(c)
     const scope = tenantScope(tenantId)
 
+    let rawBody: unknown
+    try { rawBody = await c.req.json() } catch { return c.json({ success: false, error: 'invalid JSON body' }, 400) }
+    const parsed = FeedbackSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      const first = parsed.error.issues[0]
+      const field = first?.path.join('.') ?? 'body'
+      return c.json({ success: false, error: `${field}: ${first?.message ?? 'invalid'}` }, 400)
+    }
+    const body = parsed.data
+
     try {
-      const body = (await c.req.json()) as Record<string, unknown>
-
-      const runId = body['runId']
-      const type = body['type']
-      const approved = body['approved']
-
-      if (typeof runId !== 'string' || runId.length === 0) {
-        return c.json(
-          { success: false, error: 'runId is required and must be a non-empty string' },
-          400,
-        )
-      }
-      if (typeof approved !== 'boolean') {
-        return c.json(
-          { success: false, error: 'approved is required and must be a boolean' },
-          400,
-        )
-      }
-
-      const feedbackKey = `feedback-${runId}-${Date.now()}`
+      const feedbackKey = `feedback-${body.runId}-${Date.now()}`
       await memoryService.put('feedback', scope, feedbackKey, {
-        runId,
-        type: typeof type === 'string' ? type : 'general',
-        approved,
-        feedback: typeof body['feedback'] === 'string' ? body['feedback'] : undefined,
-        featureCategory:
-          typeof body['featureCategory'] === 'string' ? body['featureCategory'] : undefined,
+        runId: body.runId,
+        type: typeof body.type === 'string' ? body.type : 'general',
+        approved: body.approved,
+        feedback: typeof body.feedback === 'string' ? body.feedback : undefined,
+        featureCategory: typeof body.featureCategory === 'string' ? body.featureCategory : undefined,
         timestamp: new Date().toISOString(),
       })
 
@@ -441,25 +452,25 @@ export function createLearningRoutes(config: LearningRouteConfig): Hono {
     const tenantId = getTenantId(c)
     const scope = tenantScope(tenantId)
 
+    let rawBody: unknown
+    try { rawBody = await c.req.json() } catch { return c.json({ success: false, error: 'invalid JSON body' }, 400) }
+    const parsed = SkillPackLoadSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      const first = parsed.error.issues[0]
+      const field = first?.path.join('.') ?? 'packIds'
+      return c.json({ success: false, error: `${field}: ${first?.message ?? 'invalid'}` }, 400)
+    }
+    const body = parsed.data
+
     try {
-      const body = (await c.req.json()) as Record<string, unknown>
-      const packIds = body['packIds']
-
-      if (!Array.isArray(packIds) || packIds.length === 0) {
-        return c.json(
-          { success: false, error: 'packIds is required and must be a non-empty array' },
-          400,
-        )
-      }
-
       const loaded: string[] = []
-      for (const packId of packIds) {
-        if (typeof packId !== 'string') continue
-        await memoryService.put('packs_loaded', scope, packId, {
-          packId,
+      for (const item of body.packIds) {
+        if (typeof item !== 'string') continue
+        await memoryService.put('packs_loaded', scope, item, {
+          packId: item,
           loadedAt: new Date().toISOString(),
         })
-        loaded.push(packId)
+        loaded.push(item)
       }
 
       return c.json({ success: true, result: { loaded } })
@@ -548,41 +559,20 @@ export function createLearningRoutes(config: LearningRouteConfig): Hono {
     const tenantId = getTenantId(c)
     const scope = tenantScope(tenantId)
 
-    let body: Record<string, unknown>
-    try {
-      body = (await c.req.json()) as Record<string, unknown>
-    } catch {
-      return c.json({ success: false, error: 'invalid JSON body' }, 400)
+    let rawBody: unknown
+    try { rawBody = await c.req.json() } catch { return c.json({ success: false, error: 'invalid JSON body' }, 400) }
+    const parsed = IngestSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      const first = parsed.error.issues[0]
+      const field = first?.path.join('.') ?? 'body'
+      return c.json({ success: false, error: `${field}: ${first?.message ?? 'invalid'}` }, 400)
     }
-
-    const runId = body['runId']
-    const score = body['score']
-    const patterns = body['patterns']
-    const agentId = body['agentId']
-
-    if (typeof runId !== 'string' || runId.length === 0) {
-      return c.json(
-        { success: false, error: 'runId is required and must be a non-empty string' },
-        400,
-      )
-    }
-    if (typeof score !== 'number' || !Number.isFinite(score)) {
-      return c.json(
-        { success: false, error: 'score is required and must be a finite number' },
-        400,
-      )
-    }
-    if (!Array.isArray(patterns)) {
-      return c.json(
-        { success: false, error: 'patterns is required and must be an array' },
-        400,
-      )
-    }
+    const body = parsed.data
 
     const provenance: { runId: string; score: number; agentId?: string } = {
-      runId,
-      score,
-      ...(typeof agentId === 'string' && agentId.length > 0 ? { agentId } : {}),
+      runId: body.runId,
+      score: body.score,
+      ...(body.agentId !== undefined ? { agentId: body.agentId } : {}),
     }
 
     let stored = 0
@@ -590,7 +580,7 @@ export function createLearningRoutes(config: LearningRouteConfig): Hono {
     const storedKeys: string[] = []
     const failures: string[] = []
 
-    for (const raw of patterns) {
+    for (const raw of body.patterns) {
       if (!isLearningPattern(raw)) {
         skipped++
         continue

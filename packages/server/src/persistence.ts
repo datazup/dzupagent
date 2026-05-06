@@ -42,7 +42,11 @@ export {
   runTraces,
   traceSteps,
   apiKeys,
+  auditLog,
 } from './persistence/drizzle-schema.js'
+
+// --- Compliance audit persistence (RF-36) ---
+export { PostgresAuditStore } from './persistence/postgres-audit-store.js'
 
 // --- API key persistence ---
 export {

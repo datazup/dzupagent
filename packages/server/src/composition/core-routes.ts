@@ -5,6 +5,7 @@
  * unconditionally before any optional integrations were considered.
  */
 import type { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 
 import type { ForgeServerConfig } from './types.js'
 import { createHealthRoutes } from '../routes/health.js'
@@ -20,7 +21,7 @@ import { createRunTraceRoutes } from '../routes/run-trace.js'
 import { createRegistryRoutes } from '../routes/registry.js'
 import { createApiKeyRoutes } from '../routes/api-keys.js'
 
-export function mountCoreRoutes(app: Hono, runtimeConfig: ForgeServerConfig): void {
+export function mountCoreRoutes(app: Hono<AppEnv>, runtimeConfig: ForgeServerConfig): void {
   app.route('/api/health', createHealthRoutes(runtimeConfig))
   app.route('/api/health', createRoutingStatsRoutes({ runStore: runtimeConfig.runStore }))
   app.route('/api/runs', createRunRoutes(runtimeConfig))

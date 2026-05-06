@@ -10,6 +10,7 @@
  * (see `createMemorySyncHandler`).
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type {
   SharedMemoryNamespace,
   SyncSession,
@@ -122,8 +123,8 @@ export function createMemorySyncHandler(
 // REST info route (tells clients where to connect for WS sync)
 // ---------------------------------------------------------------------------
 
-export function createMemorySyncRoutes(config: MemorySyncRouteConfig): Hono {
-  const app = new Hono()
+export function createMemorySyncRoutes(config: MemorySyncRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   app.get('/api/memory/sync', (c) => {
     const namespaceNames = config.allowedNamespaces ?? Array.from(config.namespaces.keys())

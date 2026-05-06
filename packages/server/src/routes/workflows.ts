@@ -11,8 +11,9 @@
  * GET  /                 — List named workflows from WorkflowRegistry
  */
 import { Hono, type Context } from 'hono'
+import type { AppEnv } from '../types.js'
 import { streamSSE } from 'hono/streaming'
-import { createSkillChain, WorkflowCommandParser } from '@dzupagent/core'
+import { createSkillChain, WorkflowCommandParser, secureLogger } from '@dzupagent/core'
 import type { SkillRegistry, WorkflowRegistry, SkillChain } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 import {
@@ -66,8 +67,8 @@ function resolveCompilePersonaResolver(
     ?? (compile?.personaStore ? createPersonaStoreResolver(compile.personaStore) : undefined)
 }
 
-export function createWorkflowRoutes(config: WorkflowRouteConfig): Hono {
-  const app = new Hono()
+export function createWorkflowRoutes(config: WorkflowRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   // Guard: return 503 if required dependencies are not configured
   app.use('*', async (c, next) => {
@@ -157,7 +158,7 @@ export function createWorkflowRoutes(config: WorkflowRouteConfig): Hono {
       return c.json({ result })
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[workflows] execute: ${internal}`)
+      secureLogger.error(`[workflows] execute: ${internal}`)
       return c.json(
         { error: { code: 'EXECUTION_ERROR', message: safe } },
         500,
@@ -215,7 +216,7 @@ export function createWorkflowRoutes(config: WorkflowRouteConfig): Hono {
       return c.json(dryRunResult)
     } catch (err) {
       const { safe, internal } = sanitizeError(err)
-      console.error(`[workflows] dry-run: ${internal}`)
+      secureLogger.error(`[workflows] dry-run: ${internal}`)
       return c.json(
         { error: { code: 'VALIDATION_ERROR', message: safe } },
         400,
@@ -413,7 +414,7 @@ async function executeCompiledFlow(
     compileResult = await compiler.compile(flowInput)
   } catch (err) {
     const { safe, internal } = sanitizeError(err)
-    console.error(`[workflows] execute compile: ${internal}`)
+    secureLogger.error(`[workflows] execute compile: ${internal}`)
     return c.json(
       { error: { code: 'COMPILE_ERROR', message: safe } },
       500,
@@ -519,7 +520,7 @@ async function executeCompiledFlow(
     })
   } catch (err) {
     const { safe, internal } = sanitizeError(err)
-    console.error(`[workflows] execute compiled: ${internal}`)
+    secureLogger.error(`[workflows] execute compiled: ${internal}`)
     return c.json(
       { error: { code: 'EXECUTION_ERROR', message: safe } },
       500,

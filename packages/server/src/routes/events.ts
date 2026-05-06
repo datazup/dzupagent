@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import { streamSSE } from 'hono/streaming'
 import type { DzupEvent } from '@dzupagent/core'
 import type { EventGateway, EventSubscriptionFilter } from '../events/event-gateway.js'
@@ -16,8 +17,8 @@ function parseEventTypes(param: string | undefined): DzupEvent['type'][] | undef
   return parsed.length > 0 ? parsed : undefined
 }
 
-export function createEventRoutes(config: EventRouteConfig): Hono {
-  const app = new Hono()
+export function createEventRoutes(config: EventRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   app.get('/stream', async (c) => {
     const filter: EventSubscriptionFilter = {

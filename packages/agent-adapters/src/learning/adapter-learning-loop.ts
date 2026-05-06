@@ -189,6 +189,23 @@ export class AdapterLearningLoop {
   // Public API
   // -----------------------------------------------------------------------
 
+  /**
+   * Emit a deprecation warning when a routing/profile lookup is made
+   * without an explicit tenantId, but only when there is data in the
+   * records map (otherwise the call is harmless on an empty store).
+   *
+   * Routing on the global `default` scope can pool data across tenants
+   * and contaminate decisions; callers SHOULD pass an explicit tenantId.
+   */
+  private warnMissingTenantIdForRouting(tenantId: string | undefined): void {
+    if (tenantId !== undefined) return
+    if (this.records.size === 0) return
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[AdapterLearningLoop] tenantId not provided — defaulting to global scope; routing decisions may be contaminated by cross-tenant data',
+    )
+  }
+
   /** Record an execution outcome */
   record(record: ExecutionRecord): void {
     const tenantId = normalizeTenantId(record.tenantId)
@@ -216,20 +233,37 @@ export class AdapterLearningLoop {
   }
 
   /** Get profile for a specific provider */
-  getProfile(providerId: AdapterProviderId, tenantId = DEFAULT_TENANT_ID): ProviderProfile {
-    const normalizedTenantId = normalizeTenantId(tenantId)
+  getProfile(providerId: AdapterProviderId, tenantId?: string): ProviderProfile {
+    this.warnMissingTenantIdForRouting(tenantId)
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID)
     const buffer = this.records.get(scopedProviderKey(providerId, normalizedTenantId))
     const all = buffer?.toArray() ?? []
 
     return this.computeProfile(providerId, all, normalizedTenantId)
   }
 
+  /**
+   * Aggregate profile across all tenants — for ops dashboards only.
+   * Never use for routing decisions.
+   */
+  getGlobalProfile(providerId: AdapterProviderId): ProviderProfile {
+    const allRecords: ExecutionRecord[] = []
+    for (const [key, buffer] of this.records.entries()) {
+      if (providerIdFromScopedKey(key) === providerId) {
+        allRecords.push(...buffer.toArray())
+      }
+    }
+    return this.computeProfile(providerId, allRecords, DEFAULT_TENANT_ID)
+  }
+
   /** Get profiles for all providers with data */
-  getAllProfiles(tenantId = DEFAULT_TENANT_ID): ProviderProfile[] {
-    const normalizedTenantId = normalizeTenantId(tenantId)
+  getAllProfiles(tenantId?: string): ProviderProfile[] {
+    this.warnMissingTenantIdForRouting(tenantId)
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID)
     const profiles: ProviderProfile[] = []
     for (const key of this.records.keys()) {
       if (tenantIdFromScopedKey(key) !== normalizedTenantId) continue
+      // Pass through the resolved tenantId to avoid duplicate warnings from getProfile
       profiles.push(this.getProfile(providerIdFromScopedKey(key), normalizedTenantId))
     }
     return profiles
@@ -244,8 +278,9 @@ export class AdapterLearningLoop {
   getBestProvider(
     taskType: string,
     available: AdapterProviderId[],
-    tenantId = DEFAULT_TENANT_ID,
+    tenantId?: string,
   ): AdapterProviderId | undefined {
+    this.warnMissingTenantIdForRouting(tenantId)
     interface Candidate {
       providerId: AdapterProviderId
       successRate: number
@@ -287,9 +322,10 @@ export class AdapterLearningLoop {
   /** Detect failure patterns for a provider within the failure window */
   detectFailurePatterns(
     providerId: AdapterProviderId,
-    tenantId = DEFAULT_TENANT_ID,
+    tenantId?: string,
   ): FailurePattern[] {
-    const normalizedTenantId = normalizeTenantId(tenantId)
+    this.warnMissingTenantIdForRouting(tenantId)
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID)
     const buffer = this.records.get(scopedProviderKey(providerId, normalizedTenantId))
     if (!buffer) return []
 

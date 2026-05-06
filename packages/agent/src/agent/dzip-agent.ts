@@ -216,6 +216,7 @@ function installEventBus(
           windowMs: distributed.rateLimiter.windowMs,
           maxRequests: distributed.rateLimiter.maxRequests,
           keyPrefix: distributed.rateLimiter.keyPrefix,
+          fallbackToLocal: distributed.rateLimiter.fallbackToLocal,
         }),
         rateLimiter,
       )
@@ -227,6 +228,7 @@ function installEventBus(
           maxCostUsd: distributed.costLedger.maxCostUsd,
           ttlMs: distributed.costLedger.ttlMs,
           keyPrefix: distributed.costLedger.keyPrefix,
+          fallbackToLocal: distributed.costLedger.fallbackToLocal,
         }),
       )
     : undefined

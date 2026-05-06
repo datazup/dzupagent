@@ -6,6 +6,7 @@
  * ReflectionSummary data for dashboards and analysis.
  */
 import { Hono } from 'hono'
+import type { AppEnv } from '../types.js'
 import type { RunReflectionStore, ReflectionPattern } from '@dzupagent/agent'
 
 export interface ReflectionRouteConfig {
@@ -19,8 +20,8 @@ const VALID_PATTERN_TYPES = new Set<ReflectionPattern['type']>([
   'slow_step',
 ])
 
-export function createReflectionRoutes(config: ReflectionRouteConfig): Hono {
-  const app = new Hono()
+export function createReflectionRoutes(config: ReflectionRouteConfig): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
 
   // --- List reflections ---
   app.get('/', async (c) => {

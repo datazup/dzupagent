@@ -5,10 +5,10 @@ export default defineConfig({
     globals: false,
     environment: 'node',
     testTimeout: 120_000,
-    hookTimeout: 90_000,
+    hookTimeout: 180_000,
     // Contract tests spin up real adapters (MockSandbox, InMemoryVectorStore)
-    // that can take 20-30s each. Run sequentially so they do not starve each
-    // other under the default worker-thread pool.
+    // and their dynamic imports can exceed 90s under the full release gate.
+    // Run sequentially so they do not starve each other under the default pool.
     pool: 'forks',
     poolOptions: { forks: { singleFork: true } },
     include: ['src/**/*.test.ts', 'src/**/*.spec.ts'],

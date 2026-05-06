@@ -12,7 +12,7 @@ import type {
   NodeExecutionContext,
   NodeExecutor,
   NodeResult,
-} from '@dzupagent/agent'
+} from '@dzupagent/agent/pipeline'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
