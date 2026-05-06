@@ -20,6 +20,24 @@ const EMPTY_SNAPSHOT: LearningSnapshot = Object.freeze({
   failurePatterns: {},
 })
 
+const DEFAULT_TENANT_ID = 'default'
+
+function normalizeTenantId(tenantId: string | null | undefined): string {
+  return tenantId && tenantId.length > 0 ? tenantId : DEFAULT_TENANT_ID
+}
+
+function scopedKey(providerId: string, tenantId: string): string {
+  return tenantId === DEFAULT_TENANT_ID ? providerId : `${tenantId}:${providerId}`
+}
+
+function withTenant<T extends { tenantId?: string | null }>(
+  value: T,
+  tenantId: string,
+  wasExplicit: boolean,
+): T {
+  return wasExplicit || tenantId !== DEFAULT_TENANT_ID ? { ...value, tenantId } : value
+}
+
 export class FileLearningStore implements LearningStore {
   private data: LearningSnapshot
   private dirty = false
@@ -37,16 +55,19 @@ export class FileLearningStore implements LearningStore {
   // Records
   // -----------------------------------------------------------------------
 
-  saveRecord(providerId: string, record: ExecutionRecord): void {
-    if (!this.data.records[providerId]) {
-      this.data.records[providerId] = []
+  saveRecord(providerId: string, record: ExecutionRecord, tenantId?: string): void {
+    const explicitTenant = tenantId !== undefined || record.tenantId != null
+    const normalizedTenantId = normalizeTenantId(tenantId ?? record.tenantId)
+    const key = scopedKey(providerId, normalizedTenantId)
+    if (!this.data.records[key]) {
+      this.data.records[key] = []
     }
-    this.data.records[providerId].push(record)
+    this.data.records[key].push(withTenant(record, normalizedTenantId, explicitTenant))
     this.dirty = true
   }
 
-  loadRecords(providerId: string, limit: number): ExecutionRecord[] {
-    const arr = this.data.records[providerId] ?? []
+  loadRecords(providerId: string, limit: number, tenantId?: string): ExecutionRecord[] {
+    const arr = this.data.records[scopedKey(providerId, normalizeTenantId(tenantId))] ?? []
     return arr.slice(-limit)
   }
 
@@ -54,26 +75,36 @@ export class FileLearningStore implements LearningStore {
   // Profiles
   // -----------------------------------------------------------------------
 
-  saveProfile(providerId: string, profile: ProviderProfile): void {
-    this.data.profiles[providerId] = profile
+  saveProfile(providerId: string, profile: ProviderProfile, tenantId?: string): void {
+    const explicitTenant = tenantId !== undefined || profile.tenantId != null
+    const normalizedTenantId = normalizeTenantId(tenantId ?? profile.tenantId)
+    this.data.profiles[scopedKey(providerId, normalizedTenantId)] = withTenant(
+      profile,
+      normalizedTenantId,
+      explicitTenant,
+    )
     this.dirty = true
   }
 
-  getProfile(providerId: string): ProviderProfile | undefined {
-    return this.data.profiles[providerId]
+  getProfile(providerId: string, tenantId?: string): ProviderProfile | undefined {
+    return this.data.profiles[scopedKey(providerId, normalizeTenantId(tenantId))]
   }
 
   // -----------------------------------------------------------------------
   // Failure patterns
   // -----------------------------------------------------------------------
 
-  saveFailurePatterns(providerId: string, patterns: FailurePattern[]): void {
-    this.data.failurePatterns[providerId] = patterns
+  saveFailurePatterns(providerId: string, patterns: FailurePattern[], tenantId?: string): void {
+    const explicitTenant = tenantId !== undefined || patterns.some((pattern) => pattern.tenantId != null)
+    const normalizedTenantId = normalizeTenantId(tenantId ?? patterns[0]?.tenantId)
+    this.data.failurePatterns[scopedKey(providerId, normalizedTenantId)] = patterns.map((pattern) =>
+      withTenant(pattern, normalizedTenantId, explicitTenant),
+    )
     this.dirty = true
   }
 
-  getFailurePatterns(providerId: string): FailurePattern[] {
-    return this.data.failurePatterns[providerId] ?? []
+  getFailurePatterns(providerId: string, tenantId?: string): FailurePattern[] {
+    return this.data.failurePatterns[scopedKey(providerId, normalizeTenantId(tenantId))] ?? []
   }
 
   // -----------------------------------------------------------------------

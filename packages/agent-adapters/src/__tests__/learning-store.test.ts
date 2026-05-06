@@ -89,6 +89,20 @@ function runStoreTests(
       expect(loaded[0]).toEqual(rec)
     })
 
+    it('keeps tenant-scoped records separate', () => {
+      ;({ store, cleanup } = createStore())
+      store.saveRecord('claude', makeRecord({ tenantId: 'tenant-a', timestamp: 1 }))
+      store.saveRecord('claude', makeRecord({ tenantId: 'tenant-b', timestamp: 2 }), 'tenant-b')
+
+      expect(store.loadRecords('claude', 10, 'tenant-a')).toEqual([
+        expect.objectContaining({ tenantId: 'tenant-a', timestamp: 1 }),
+      ])
+      expect(store.loadRecords('claude', 10, 'tenant-b')).toEqual([
+        expect.objectContaining({ tenantId: 'tenant-b', timestamp: 2 }),
+      ])
+      expect(store.loadRecords('claude', 10)).toEqual([])
+    })
+
     it('loadRecords returns empty array for unknown provider', () => {
       ;({ store, cleanup } = createStore())
       expect(store.loadRecords('unknown', 10)).toEqual([])
@@ -108,6 +122,27 @@ function runStoreTests(
       expect(loaded[2]!.timestamp).toBe(9)
     })
 
+    it('isolates records, profiles, and failure patterns by tenant', () => {
+      ;({ store, cleanup } = createStore())
+
+      store.saveRecord('claude', makeRecord({ timestamp: 1 }), 'tenant-a')
+      store.saveRecord('claude', makeRecord({ timestamp: 2 }), 'tenant-b')
+      store.saveProfile('claude', makeProfile({ successRate: 0.1 }), 'tenant-a')
+      store.saveProfile('claude', makeProfile({ successRate: 0.9 }), 'tenant-b')
+      store.saveFailurePatterns('claude', [makePattern({ frequency: 1 })], 'tenant-a')
+      store.saveFailurePatterns('claude', [makePattern({ frequency: 2 })], 'tenant-b')
+
+      expect(store.loadRecords('claude', 10, 'tenant-a').map(record => record.timestamp)).toEqual([1])
+      expect(store.loadRecords('claude', 10, 'tenant-b').map(record => record.timestamp)).toEqual([2])
+      expect(store.loadRecords('claude', 10)).toEqual([])
+      expect(store.getProfile('claude', 'tenant-a')?.successRate).toBe(0.1)
+      expect(store.getProfile('claude', 'tenant-b')?.successRate).toBe(0.9)
+      expect(store.getProfile('claude')).toBeUndefined()
+      expect(store.getFailurePatterns('claude', 'tenant-a')[0]?.frequency).toBe(1)
+      expect(store.getFailurePatterns('claude', 'tenant-b')[0]?.frequency).toBe(2)
+      expect(store.getFailurePatterns('claude')).toEqual([])
+    })
+
     // -- Profiles ---------------------------------------------------------
 
     it('saves and gets profiles', () => {
@@ -116,6 +151,16 @@ function runStoreTests(
       store.saveProfile('claude', profile)
 
       expect(store.getProfile('claude')).toEqual(profile)
+    })
+
+    it('keeps tenant-scoped profiles separate', () => {
+      ;({ store, cleanup } = createStore())
+      store.saveProfile('claude', makeProfile({ tenantId: 'tenant-a', successRate: 0.4 }))
+      store.saveProfile('claude', makeProfile({ tenantId: 'tenant-b', successRate: 0.9 }))
+
+      expect(store.getProfile('claude', 'tenant-a')?.successRate).toBe(0.4)
+      expect(store.getProfile('claude', 'tenant-b')?.successRate).toBe(0.9)
+      expect(store.getProfile('claude')).toBeUndefined()
     })
 
     it('getProfile returns undefined for unknown provider', () => {

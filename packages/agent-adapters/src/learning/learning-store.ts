@@ -28,22 +28,22 @@ export interface LearningSnapshot {
 /** Persistent storage backend for learning data. */
 export interface LearningStore {
   /** Append an execution record for a provider. */
-  saveRecord(providerId: string, record: ExecutionRecord): void
+  saveRecord(providerId: string, record: ExecutionRecord, tenantId?: string): void
 
   /** Load the most recent `limit` records for a provider (oldest-first). */
-  loadRecords(providerId: string, limit: number): ExecutionRecord[]
+  loadRecords(providerId: string, limit: number, tenantId?: string): ExecutionRecord[]
 
   /** Upsert a computed provider profile. */
-  saveProfile(providerId: string, profile: ProviderProfile): void
+  saveProfile(providerId: string, profile: ProviderProfile, tenantId?: string): void
 
   /** Retrieve the stored profile for a provider, if any. */
-  getProfile(providerId: string): ProviderProfile | undefined
+  getProfile(providerId: string, tenantId?: string): ProviderProfile | undefined
 
   /** Replace stored failure patterns for a provider. */
-  saveFailurePatterns(providerId: string, patterns: FailurePattern[]): void
+  saveFailurePatterns(providerId: string, patterns: FailurePattern[], tenantId?: string): void
 
   /** Retrieve stored failure patterns for a provider. */
-  getFailurePatterns(providerId: string): FailurePattern[]
+  getFailurePatterns(providerId: string, tenantId?: string): FailurePattern[]
 
   /** Export all data as a portable snapshot. */
   exportAll(): LearningSnapshot

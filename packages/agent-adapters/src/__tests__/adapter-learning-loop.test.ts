@@ -72,6 +72,21 @@ describe('AdapterLearningLoop', () => {
       const profile = loop.getProfile('claude')
       expect(profile.totalExecutions).toBe(2)
     })
+
+    it('keeps execution records and profiles isolated by tenant', () => {
+      loop.record(makeRecord('claude', 'code-gen', true, { tenantId: 'tenant-a' }))
+      loop.record(makeRecord('claude', 'code-gen', false, { tenantId: 'tenant-b' }))
+
+      expect(loop.getProfile('claude', 'tenant-a')).toEqual(
+        expect.objectContaining({ tenantId: 'tenant-a', totalExecutions: 1, successRate: 1 }),
+      )
+      expect(loop.getProfile('claude', 'tenant-b')).toEqual(
+        expect.objectContaining({ tenantId: 'tenant-b', totalExecutions: 1, successRate: 0 }),
+      )
+      expect(loop.getProfile('claude')).toEqual(
+        expect.objectContaining({ tenantId: 'default', totalExecutions: 0 }),
+      )
+    })
   })
 
   describe('getProfile', () => {
