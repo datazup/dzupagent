@@ -11,6 +11,7 @@
 
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, basename, extname } from 'node:path'
+import { defaultLogger } from '@dzupagent/core'
 import type { AdapterProviderId, DzupAgentPaths } from '../types.js'
 import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
 import { AdapterSkillRegistry } from '../skills/adapter-skill-registry.js'
@@ -230,7 +231,7 @@ export class DzupAgentAgentLoader {
     for (const skillName of agent.skillNames) {
       const bundle = await this.skillLoader.loadSkill(skillName)
       if (!bundle) {
-        console.warn(`[DzupAgentAgentLoader] skill not found: ${skillName}`)
+        defaultLogger.warn(`[DzupAgentAgentLoader] skill not found: ${skillName}`)
         continue
       }
       const compiled = this.skillRegistry.compile(bundle, providerId)

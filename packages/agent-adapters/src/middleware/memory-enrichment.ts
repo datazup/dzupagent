@@ -26,6 +26,7 @@
  *   for await (const evt of enriched.execute({ prompt: '…' })) { … }
  */
 
+import { defaultLogger } from '@dzupagent/core'
 import type { AgentCLIAdapter, AgentInput, AgentEvent, AdapterCapabilityProfile, HealthStatus } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -96,7 +97,7 @@ export function withMemoryEnrichment(
   const limit = opts.limit ?? 5
   const header = opts.header ?? '## Recalled context\n'
   const formatRecord = opts.formatRecord ?? defaultFormatRecord
-  const onRecallError = opts.onRecallError ?? ((e) => console.warn('[withMemoryEnrichment] recall error:', e))
+  const onRecallError = opts.onRecallError ?? ((e) => defaultLogger.warn('[withMemoryEnrichment] recall error:', e))
 
   async function recallAndEnrich(input: AgentInput): Promise<AgentInput> {
     let memories: Record<string, unknown>[] = []
@@ -208,7 +209,7 @@ export function withHierarchicalMemoryEnrichment(
   adapter: AgentCLIAdapter,
   opts: HierarchicalMemoryEnrichmentOptions,
 ): AgentCLIAdapter {
-  const onRecallError = opts.onRecallError ?? ((e) => console.warn('[withHierarchicalMemoryEnrichment] recall error:', e))
+  const onRecallError = opts.onRecallError ?? ((e) => defaultLogger.warn('[withHierarchicalMemoryEnrichment] recall error:', e))
 
   async function recallAndEnrich(input: AgentInput): Promise<AgentInput> {
     const allRecords: Array<{

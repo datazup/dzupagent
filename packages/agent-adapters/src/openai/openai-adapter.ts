@@ -7,7 +7,7 @@
  * detection, and adapter:started/completed/failed lifecycle events.
  */
 import { randomUUID } from 'node:crypto'
-import { ForgeError, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core'
+import { ForgeError, defaultLogger, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -594,7 +594,7 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
       sink(record)
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error)
-      console.warn('[OpenAIAdapter] audit sink failed:', msg)
+      defaultLogger.warn('[OpenAIAdapter] audit sink failed:', msg)
     }
   }
 
