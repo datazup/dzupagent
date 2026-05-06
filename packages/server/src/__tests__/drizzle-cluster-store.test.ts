@@ -5,7 +5,7 @@
  *   - db.insert(table).values(...)
  *   - db.select().from(table).where(...).limit(1)
  *   - db.select().from(table).where(...)
- *   - db.delete(table).where(...)  → resolves to { rowCount: N }
+ *   - db.delete(table).where(...).returning(...)  → resolves to returned rows
  *
  * No real Postgres connection is required.
  */
@@ -67,7 +67,7 @@ interface MockDbConfig {
   selectSequence?: unknown[][]
   /** Each entry is the result returned by one insert() call, consumed in order. */
   insertSequence?: unknown[][]
-  /** Each entry is the result returned by one delete() call, consumed in order. */
+  /** Each entry is the rows returned by one delete().returning() call, consumed in order. */
   deleteSequence?: unknown[][]
   /** Optional call log that accumulates all chain method invocations. */
   log?: CallLog[]
@@ -91,8 +91,8 @@ function buildMockDb(cfg: MockDbConfig = {}): Record<string, unknown> {
     select: vi.fn(() => make('select', selQueue.shift() ?? [])),
     // insert() resolves to void (cluster store does not use .returning())
     insert: vi.fn(() => make('insert', insQueue.shift() ?? undefined)),
-    // delete() resolves to { rowCount: N }
-    delete: vi.fn(() => make('delete', delQueue.shift() ?? { rowCount: 0 })),
+    // delete().returning() resolves to affected rows
+    delete: vi.fn(() => make('delete', delQueue.shift() ?? [])),
     _log: log,
   }
 }
@@ -428,8 +428,8 @@ describe('DrizzleClusterStore', () => {
   // -------------------------------------------------------------------------
 
   describe('delete()', () => {
-    it('returns true when rowCount > 0', async () => {
-      db = buildMockDb({ deleteSequence: [{ rowCount: 1 }] })
+    it('returns true when delete returns an affected row', async () => {
+      db = buildMockDb({ deleteSequence: [[{ id: 'c-1' }]] })
       store = new DrizzleClusterStore(db)
 
       const result = await store.delete('c-1')
@@ -437,8 +437,8 @@ describe('DrizzleClusterStore', () => {
       expect(result).toBe(true)
     })
 
-    it('returns false when rowCount is 0', async () => {
-      db = buildMockDb({ deleteSequence: [{ rowCount: 0 }] })
+    it('returns false when delete returns no rows', async () => {
+      db = buildMockDb({ deleteSequence: [[]] })
       store = new DrizzleClusterStore(db)
 
       const result = await store.delete('nonexistent')
@@ -446,8 +446,8 @@ describe('DrizzleClusterStore', () => {
       expect(result).toBe(false)
     })
 
-    it('returns false when rowCount is absent (undefined)', async () => {
-      db = buildMockDb({ deleteSequence: [{}] })
+    it('returns false when returned rows are absent', async () => {
+      db = buildMockDb({ deleteSequence: [undefined as unknown as unknown[]] })
       store = new DrizzleClusterStore(db)
 
       const result = await store.delete('c-1')
@@ -455,8 +455,8 @@ describe('DrizzleClusterStore', () => {
       expect(result).toBe(false)
     })
 
-    it('returns true when rowCount is 2 (cascade deletes)', async () => {
-      db = buildMockDb({ deleteSequence: [{ rowCount: 2 }] })
+    it('returns true when delete returns multiple affected rows', async () => {
+      db = buildMockDb({ deleteSequence: [[{ id: 'c-1' }, { id: 'c-2' }]] })
       store = new DrizzleClusterStore(db)
 
       const result = await store.delete('c-1')
@@ -465,7 +465,7 @@ describe('DrizzleClusterStore', () => {
     })
 
     it('calls db.delete once', async () => {
-      db = buildMockDb({ deleteSequence: [{ rowCount: 1 }] })
+      db = buildMockDb({ deleteSequence: [[{ id: 'c-1' }]] })
       store = new DrizzleClusterStore(db)
 
       await store.delete('c-1')
@@ -475,7 +475,7 @@ describe('DrizzleClusterStore', () => {
 
     it('applies a where condition targeting the cluster id', async () => {
       const log: CallLog[] = []
-      db = buildMockDb({ deleteSequence: [{ rowCount: 1 }], log })
+      db = buildMockDb({ deleteSequence: [[{ id: 'c-1' }]], log })
       store = new DrizzleClusterStore(db)
 
       await store.delete('c-xyz')
@@ -556,10 +556,10 @@ describe('DrizzleClusterStore', () => {
   // -------------------------------------------------------------------------
 
   describe('removeRole()', () => {
-    it('returns true when rowCount > 0', async () => {
+    it('returns true when delete returns an affected row', async () => {
       db = buildMockDb({
         selectSequence: existingClusterSelects('cluster-1'),
-        deleteSequence: [{ rowCount: 1 }],
+        deleteSequence: [[{ roleId: 'planner' }]],
       })
       store = new DrizzleClusterStore(db)
 
@@ -568,10 +568,10 @@ describe('DrizzleClusterStore', () => {
       expect(result).toBe(true)
     })
 
-    it('returns false when rowCount is 0', async () => {
+    it('returns false when delete returns no rows', async () => {
       db = buildMockDb({
         selectSequence: existingClusterSelects('cluster-1'),
-        deleteSequence: [{ rowCount: 0 }],
+        deleteSequence: [[]],
       })
       store = new DrizzleClusterStore(db)
 
@@ -580,10 +580,10 @@ describe('DrizzleClusterStore', () => {
       expect(result).toBe(false)
     })
 
-    it('returns false when rowCount is absent', async () => {
+    it('returns false when returned rows are absent', async () => {
       db = buildMockDb({
         selectSequence: existingClusterSelects('cluster-1'),
-        deleteSequence: [{}],
+        deleteSequence: [undefined as unknown as unknown[]],
       })
       store = new DrizzleClusterStore(db)
 
@@ -595,7 +595,7 @@ describe('DrizzleClusterStore', () => {
     it('calls db.delete once', async () => {
       db = buildMockDb({
         selectSequence: existingClusterSelects('cluster-1'),
-        deleteSequence: [{ rowCount: 1 }],
+        deleteSequence: [[{ roleId: 'planner' }]],
       })
       store = new DrizzleClusterStore(db)
 
@@ -608,7 +608,7 @@ describe('DrizzleClusterStore', () => {
       const log: CallLog[] = []
       db = buildMockDb({
         selectSequence: existingClusterSelects('cluster-99'),
-        deleteSequence: [{ rowCount: 1 }],
+        deleteSequence: [[{ roleId: 'coder' }]],
         log,
       })
       store = new DrizzleClusterStore(db)
@@ -810,8 +810,8 @@ describe('DrizzleClusterStore', () => {
       expect(result[0]!.capabilities![49]).toBe('cap-49')
     })
 
-    it('delete() with rowCount=null returns false', async () => {
-      db = buildMockDb({ deleteSequence: [{ rowCount: null }] })
+    it('delete() with null returned rows returns false', async () => {
+      db = buildMockDb({ deleteSequence: [null as unknown as unknown[]] })
       store = new DrizzleClusterStore(db)
 
       const result = await store.delete('c-1')
@@ -819,10 +819,10 @@ describe('DrizzleClusterStore', () => {
       expect(result).toBe(false)
     })
 
-    it('removeRole() with rowCount=null returns false', async () => {
+    it('removeRole() with null returned rows returns false', async () => {
       db = buildMockDb({
         selectSequence: existingClusterSelects('cluster-1'),
-        deleteSequence: [{ rowCount: null }],
+        deleteSequence: [null as unknown as unknown[]],
       })
       store = new DrizzleClusterStore(db)
 

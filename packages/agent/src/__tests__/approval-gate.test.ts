@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { createHmac } from 'node:crypto'
 import { createEventBus } from '@dzupagent/core'
 import { ApprovalGate } from '../approval/approval-gate.js'
 
@@ -126,6 +127,36 @@ describe('ApprovalGate', () => {
       expect.objectContaining({ method: 'POST' }),
     )
 
+    vi.unstubAllGlobals()
+  })
+
+  it('signs approval webhook payloads when a signing secret is configured', async () => {
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_778_068_800_000)
+    const bus = createEventBus()
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const gate = new ApprovalGate({
+      mode: 'required',
+      timeoutMs: 50,
+      webhookUrl: 'https://example.com/webhook',
+      webhookSigningSecret: 'test-secret',
+    }, bus)
+
+    await gate.waitForApproval('run-1', { plan: 'notify' })
+
+    const init = fetchSpy.mock.calls[0]![1] as RequestInit
+    const headers = init.headers as Record<string, string>
+    const body = String(init.body)
+    const timestamp = '1778068800'
+    const expectedSignature = createHmac('sha256', 'test-secret')
+      .update(`${timestamp}.${body}`)
+      .digest('hex')
+
+    expect(headers['X-DzupAgent-Timestamp']).toBe(timestamp)
+    expect(headers['X-DzupAgent-Signature']).toBe(`sha256=${expectedSignature}`)
+
+    dateNowSpy.mockRestore()
     vi.unstubAllGlobals()
   })
 

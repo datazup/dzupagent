@@ -47,6 +47,17 @@ describe('GitHubClient — extended', () => {
       expect(err.body).toBe('rate limit exceeded')
     })
 
+    it('redacts bearer and GitHub tokens from error messages and body', () => {
+      const err = new GitHubApiError(
+        401,
+        'bad token Authorization: Bearer ghp_abcdefghijklmnopqrstuvwxyz1234567890',
+      )
+
+      expect(err.body).toContain('Bearer [REDACTED]')
+      expect(err.body).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz1234567890')
+      expect(err.message).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz1234567890')
+    })
+
     it('is instanceof Error', () => {
       const err = new GitHubApiError(422, 'Validation Failed')
       expect(err).toBeInstanceOf(Error)
@@ -107,6 +118,33 @@ describe('GitHubClient — extended', () => {
       const headers = calledInit.headers as Record<string, string>
       expect(headers['Authorization']).toBe('Bearer tok')
       expect(headers['X-Custom']).toBe('value')
+    })
+
+    it('applies outbound URL policy before fetching enterprise URLs', async () => {
+      const mock = vi.fn()
+      vi.stubGlobal('fetch', mock)
+      const client = new GitHubClient({ token: 'tok', baseUrl: 'http://localhost:3000' })
+
+      await expect(client.request('/user')).rejects.toThrow('Outbound URL rejected')
+      expect(mock).not.toHaveBeenCalled()
+    })
+
+    it('allows explicitly trusted enterprise hosts through outbound policy', async () => {
+      const mock = mockFetch({ login: 'octocat' })
+      const client = new GitHubClient({
+        token: 'tok',
+        baseUrl: 'http://github.internal.test',
+        outboundUrlPolicy: {
+          allowedHosts: ['github.internal.test'],
+          allowHttp: true,
+        },
+      })
+
+      await expect(client.request('/user')).resolves.toEqual({ login: 'octocat' })
+      expect(mock).toHaveBeenCalledWith(
+        'http://github.internal.test/user',
+        expect.objectContaining({ redirect: 'manual' }),
+      )
     })
   })
 
@@ -413,6 +451,7 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({
         token: 'tok',
         baseUrl: 'https://git.company.com/api/v3',
+        outboundUrlPolicy: { allowedHosts: ['git.company.com'] },
       })
       await client.getRepo('org', 'repo')
 
@@ -425,6 +464,7 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({
         token: 'tok',
         baseUrl: 'https://git.company.com/api/v3',
+        outboundUrlPolicy: { allowedHosts: ['git.company.com'] },
       })
       await client.listBranches('org', 'repo')
 

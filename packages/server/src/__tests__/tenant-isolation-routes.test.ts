@@ -148,18 +148,36 @@ describe('tenant isolation on CRUD route families', () => {
   })
 
   it('scopes marketplace catalog and clusters by authenticated tenant', async () => {
-    const marketplace = new Hono<AppEnv>()
-    installTenantHeader(marketplace)
-    marketplace.route('/api/marketplace', createMarketplaceRoutes({ catalogStore: new InMemoryCatalogStore() }))
-
-    await marketplace.request('/api/marketplace/catalog', jsonRequest('POST', tenantA, {
+    const catalogStore = new InMemoryCatalogStore()
+    await catalogStore.create({
+      id: 'catalog-a',
       slug: 'tenant-a-agent',
       name: 'Tenant A Agent',
+      description: null,
       version: '1.0.0',
+      tags: [],
+      author: null,
+      readme: null,
+      publishedAt: null,
+      isPublic: true,
+      tenantId: tenantA,
+    })
+
+    const marketplace = new Hono<AppEnv>()
+    installTenantHeader(marketplace)
+    marketplace.route('/api/marketplace', createMarketplaceRoutes({ catalogStore }))
+
+    const moveAttempt = await marketplace.request('/api/marketplace/catalog/catalog-a', jsonRequest('PATCH', tenantA, {
+      name: 'Still Tenant A Agent',
+      tenantId: tenantB,
     }))
+    expect(moveAttempt.status).toBe(400)
 
     const catalogB = await marketplace.request('/api/marketplace/catalog', jsonRequest('GET', tenantB))
     expect(((await catalogB.json()) as { data: unknown[] }).data).toHaveLength(0)
+
+    const catalogA = await marketplace.request('/api/marketplace/catalog', jsonRequest('GET', tenantA))
+    expect(((await catalogA.json()) as { data: unknown[] }).data).toHaveLength(1)
 
     const clusters = new Hono<AppEnv>()
     installTenantHeader(clusters)

@@ -43,6 +43,7 @@ function scanForgeImports(dir: string): Array<{ file: string; importPath: string
  * Only a small set of foundational type packages are permitted:
  *   - @dzupagent/agent-types      — canonical primitive types (RetryPolicy, etc.)
  *   - @dzupagent/runtime-contracts — shared runtime protocol contracts
+ *   - @dzupagent/security         — leaf runtime security scanners
  *
  * MC-A01 removed the previous core -> memory / context / memory-ipc imports
  * (see audit/full-dzupagent-2026-04-23/run-001/implementation/phase-major/
@@ -52,6 +53,7 @@ const ALLOWED_IMPORTS = new Set([
   '@dzupagent/core',
   '@dzupagent/runtime-contracts',
   '@dzupagent/agent-types',
+  '@dzupagent/security',
 ])
 
 describe('Package boundary enforcement', () => {

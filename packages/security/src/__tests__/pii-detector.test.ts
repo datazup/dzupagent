@@ -10,6 +10,13 @@ describe('PiiDetector — scan', () => {
     expect(r.types).toContain('SSN')
   })
 
+  it('detects email, phone, and IP address patterns used by core', () => {
+    const r = det.scan('Email a@test.com, phone (555) 123-4567, IP 10.0.0.1')
+    expect(r.types).toContain('EMAIL')
+    expect(r.types).toContain('PHONE')
+    expect(r.types).toContain('IP_ADDRESS')
+  })
+
   it('detects Visa credit card numbers', () => {
     const r = det.scan('Card: 4111111111111111')
     expect(r.hasPii).toBe(true)
@@ -56,6 +63,25 @@ describe('PiiDetector — sanitize', () => {
 
   it('redacts SSN with typed marker', () => {
     expect(det.sanitize('SSN: 123-45-6789')).toBe('SSN: [REDACTED-SSN]')
+  })
+
+  it('redacts core-compatible PII patterns with security markers', () => {
+    const out = det.sanitize('Email a@test.com, phone (555) 123-4567, IP 10.0.0.1')
+    expect(out).toContain('[REDACTED-EMAIL]')
+    expect(out).toContain('[REDACTED-PHONE]')
+    expect(out).toContain('[REDACTED-IP]')
+    expect(out).not.toContain('a@test.com')
+    expect(out).not.toContain('(555) 123-4567')
+    expect(out).not.toContain('10.0.0.1')
+  })
+
+  it('exposes detailed match positions for compatibility adapters', () => {
+    const input = 'Hi alice@test.com bye'
+    const r = det.scanDetailed(input)
+    const match = r.matches.find((item) => item.type === 'EMAIL')
+    expect(match).toBeDefined()
+    expect(input.slice(match!.start, match!.end)).toBe('alice@test.com')
+    expect(match!.canonicalType).toBe('email')
   })
 
   it('redacts credit card with typed marker', () => {

@@ -7,7 +7,7 @@ import {
   CatalogNotFoundError,
   CatalogSlugConflictError,
 } from '../marketplace/catalog-store.js'
-import type { CatalogStore } from '../marketplace/catalog-store.js'
+import type { CatalogEntryCreate, CatalogStore } from '../marketplace/catalog-store.js'
 
 describe('InMemoryCatalogStore', () => {
   let store: CatalogStore
@@ -15,6 +15,21 @@ describe('InMemoryCatalogStore', () => {
   beforeEach(() => {
     store = new InMemoryCatalogStore()
   })
+
+  function createEntry(overrides: Partial<CatalogEntryCreate> = {}) {
+    return store.create({
+      slug: 'test-agent',
+      name: 'Test Agent',
+      description: null,
+      version: '1.0.0',
+      tags: [],
+      author: null,
+      readme: null,
+      publishedAt: null,
+      isPublic: true,
+      ...overrides,
+    })
+  }
 
   // -------------------------------------------------------------------------
   // create()
@@ -129,6 +144,22 @@ describe('InMemoryCatalogStore', () => {
       ).rejects.toThrow(CatalogSlugConflictError)
     })
 
+    it('allows the same slug in different tenants', async () => {
+      const first = await createEntry({ slug: 'shared-slug', tenantId: 'tenant-a' })
+      const second = await createEntry({ slug: 'shared-slug', tenantId: 'tenant-b' })
+
+      expect(first.tenantId).toBe('tenant-a')
+      expect(second.tenantId).toBe('tenant-b')
+    })
+
+    it('rejects duplicate slugs within the same tenant', async () => {
+      await createEntry({ slug: 'tenant-conflict', tenantId: 'tenant-a' })
+
+      await expect(
+        createEntry({ slug: 'tenant-conflict', tenantId: 'tenant-a' }),
+      ).rejects.toThrow(CatalogSlugConflictError)
+    })
+
     it('allows different slugs', async () => {
       const a = await store.create({
         slug: 'slug-a',
@@ -203,6 +234,15 @@ describe('InMemoryCatalogStore', () => {
     it('returns null for nonexistent slug', async () => {
       const found = await store.getBySlug('no-such-slug')
       expect(found).toBeNull()
+    })
+
+    it('resolves duplicate slugs by tenant scope', async () => {
+      await createEntry({ slug: 'shared-slug', name: 'Tenant A', tenantId: 'tenant-a' })
+      const tenantB = await createEntry({ slug: 'shared-slug', name: 'Tenant B', tenantId: 'tenant-b' })
+
+      const found = await store.getBySlug('shared-slug', 'tenant-b')
+
+      expect(found).toEqual(tenantB)
     })
   })
 
@@ -327,6 +367,25 @@ describe('InMemoryCatalogStore', () => {
       })
       await expect(
         store.update(other.id, { slug: 'taken-slug' }),
+      ).rejects.toThrow(CatalogSlugConflictError)
+    })
+
+    it('allows updating to a slug used by another tenant', async () => {
+      await createEntry({ slug: 'shared-slug', tenantId: 'tenant-a' })
+      const other = await createEntry({ slug: 'other-slug', tenantId: 'tenant-b' })
+
+      const updated = await store.update(other.id, { slug: 'shared-slug' }, 'tenant-b')
+
+      expect(updated.slug).toBe('shared-slug')
+      expect(updated.tenantId).toBe('tenant-b')
+    })
+
+    it('rejects updating to a slug already used in the same tenant', async () => {
+      await createEntry({ slug: 'taken-slug', tenantId: 'tenant-a' })
+      const other = await createEntry({ slug: 'other-slug', tenantId: 'tenant-a' })
+
+      await expect(
+        store.update(other.id, { slug: 'taken-slug' }, 'tenant-a'),
       ).rejects.toThrow(CatalogSlugConflictError)
     })
 

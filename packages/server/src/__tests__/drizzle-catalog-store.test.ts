@@ -84,6 +84,7 @@ vi.mock('../persistence/drizzle-schema.js', () => ({
     readme: { name: 'readme' },
     publishedAt: { name: 'publishedAt' },
     isPublic: { name: 'isPublic' },
+    tenantId: { name: 'tenantId' },
     createdAt: { name: 'createdAt' },
     updatedAt: { name: 'updatedAt' },
   },
@@ -124,6 +125,7 @@ type StoredRow = {
   readme: string | null
   publishedAt: Date | null
   isPublic: boolean
+  tenantId: string
   createdAt: Date
   updatedAt: Date
 }
@@ -140,10 +142,15 @@ function makeRow(
     readme: null,
     publishedAt: null,
     isPublic: true,
+    tenantId: 'default',
     createdAt: BASE_DATE,
     updatedAt: BASE_DATE,
     ...data,
   }
+}
+
+function slugIndexKey(slug: string, tenantId: string | null | undefined): string {
+  return `${tenantId ?? 'default'}:${slug}`
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +211,7 @@ function isCountProjection(proj: unknown): boolean {
 
 function createMockDb() {
   let storage = new Map<string, StoredRow>()
-  // slug → id index for uniqueness enforcement
+  // tenant:slug -> id index for scoped uniqueness enforcement
   const slugIndex = new Map<string, string>()
 
   // FIFO queue of pre-registered results for search()'s two select() calls.
@@ -255,7 +262,7 @@ function createMockDb() {
       if (!v) return []
 
       // Simulate unique-constraint violation (PG error code 23505)
-      const existing = slugIndex.get(v.slug)
+      const existing = slugIndex.get(slugIndexKey(v.slug, v.tenantId))
       if (existing !== undefined) {
         const err = new Error('duplicate key value violates unique constraint')
         ;(err as Error & { code: string }).code = '23505'
@@ -270,7 +277,7 @@ function createMockDb() {
       }
 
       storage.set(row.id, row)
-      slugIndex.set(row.slug, row.id)
+      slugIndex.set(slugIndexKey(row.slug, row.tenantId), row.id)
       return [row]
     }
 
@@ -283,18 +290,22 @@ function createMockDb() {
 
       const patch = state.setData as Partial<StoredRow>
       const newSlug = patch.slug
+      const newTenantId = patch.tenantId ?? existing.tenantId
 
       // Simulate slug unique violation on update
-      if (newSlug !== undefined && newSlug !== existing.slug) {
-        const conflict = slugIndex.get(newSlug)
+      if (
+        (newSlug !== undefined && newSlug !== existing.slug) ||
+        (patch.tenantId !== undefined && patch.tenantId !== existing.tenantId)
+      ) {
+        const conflict = slugIndex.get(slugIndexKey(newSlug ?? existing.slug, newTenantId))
         if (conflict !== undefined && conflict !== existing.id) {
           const err = new Error('duplicate key value violates unique constraint')
           ;(err as Error & { code: string }).code = '23505'
           throw err
         }
         // Update slug index
-        slugIndex.delete(existing.slug)
-        slugIndex.set(newSlug, existing.id)
+        slugIndex.delete(slugIndexKey(existing.slug, existing.tenantId))
+        slugIndex.set(slugIndexKey(newSlug ?? existing.slug, newTenantId), existing.id)
       }
 
       const updated: StoredRow = { ...existing, ...patch }
@@ -309,7 +320,7 @@ function createMockDb() {
       const existing = storage.get(targetId)
       if (!existing) return []
 
-      slugIndex.delete(existing.slug)
+      slugIndex.delete(slugIndexKey(existing.slug, existing.tenantId))
       storage.delete(targetId)
       return [{ id: targetId }]
     }
@@ -432,7 +443,7 @@ function createMockDb() {
     /** Directly insert a row, bypassing the store API. */
     _seed(row: StoredRow) {
       storage.set(row.id, row)
-      slugIndex.set(row.slug, row.id)
+      slugIndex.set(slugIndexKey(row.slug, row.tenantId), row.id)
     },
 
     /**
@@ -554,6 +565,38 @@ describe('DrizzleCatalogStore', () => {
       ).rejects.toThrow(CatalogSlugConflictError)
     })
 
+    it('allows the same slug in different tenants', async () => {
+      const first = await store.create(makeCreateInput({
+        slug: 'shared-slug',
+        id: 'tenant-a-id',
+        tenantId: 'tenant-a',
+      }))
+      const second = await store.create(makeCreateInput({
+        slug: 'shared-slug',
+        id: 'tenant-b-id',
+        tenantId: 'tenant-b',
+      }))
+
+      expect(first.tenantId).toBe('tenant-a')
+      expect(second.tenantId).toBe('tenant-b')
+    })
+
+    it('rejects duplicate slugs within the same tenant', async () => {
+      await store.create(makeCreateInput({
+        slug: 'tenant-conflict',
+        id: 'tenant-entry-1',
+        tenantId: 'tenant-a',
+      }))
+
+      await expect(
+        store.create(makeCreateInput({
+          slug: 'tenant-conflict',
+          id: 'tenant-entry-2',
+          tenantId: 'tenant-a',
+        })),
+      ).rejects.toThrow(CatalogSlugConflictError)
+    })
+
     it('rethrows non-uniqueness DB errors unchanged', async () => {
       const networkErr = new Error('connection reset')
       vi.spyOn(db, 'insert').mockReturnValueOnce({
@@ -626,6 +669,17 @@ describe('DrizzleCatalogStore', () => {
 
     it('returns null when storage is empty', async () => {
       expect(await store.getBySlug('any-slug')).toBeNull()
+    })
+
+    it('resolves duplicate slugs by tenant scope', async () => {
+      seedRow(db, { id: 'tenant-a-entry', slug: 'shared-slug', tenantId: 'tenant-a' })
+      seedRow(db, { id: 'tenant-b-entry', slug: 'shared-slug', tenantId: 'tenant-b' })
+
+      const result = await store.getBySlug('shared-slug', 'tenant-b')
+
+      expect(result).not.toBeNull()
+      expect(result!.id).toBe('tenant-b-entry')
+      expect(result!.tenantId).toBe('tenant-b')
     })
   })
 
@@ -717,6 +771,25 @@ describe('DrizzleCatalogStore', () => {
 
       await expect(
         store.update('other-id', { slug: 'taken-slug' }),
+      ).rejects.toThrow(CatalogSlugConflictError)
+    })
+
+    it('allows updating to a slug used by another tenant', async () => {
+      seedRow(db, { id: 'tenant-a-id', slug: 'shared-slug', tenantId: 'tenant-a' })
+      seedRow(db, { id: 'tenant-b-id', slug: 'other-slug', tenantId: 'tenant-b' })
+
+      const result = await store.update('tenant-b-id', { slug: 'shared-slug' }, 'tenant-b')
+
+      expect(result.slug).toBe('shared-slug')
+      expect(result.tenantId).toBe('tenant-b')
+    })
+
+    it('rejects updating to a slug already used in the same tenant', async () => {
+      seedRow(db, { id: 'tenant-taken-id', slug: 'taken-slug', tenantId: 'tenant-a' })
+      seedRow(db, { id: 'tenant-other-id', slug: 'other-slug', tenantId: 'tenant-a' })
+
+      await expect(
+        store.update('tenant-other-id', { slug: 'taken-slug' }, 'tenant-a'),
       ).rejects.toThrow(CatalogSlugConflictError)
     })
   })
