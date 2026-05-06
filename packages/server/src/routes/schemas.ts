@@ -51,7 +51,11 @@ export const AgentCreateSchema = z.object({
 
 export type AgentCreateBody = z.infer<typeof AgentCreateSchema>
 
-export const AgentUpdateSchema = AgentCreateSchema.omit({ id: true }).partial().strict()
+export const AgentUpdateSchema = AgentCreateSchema.partial().strict().transform((body) => {
+  const update = { ...body }
+  delete update.id
+  return update
+})
 
 export type AgentUpdateBody = z.infer<typeof AgentUpdateSchema>
 

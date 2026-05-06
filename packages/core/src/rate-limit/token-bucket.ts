@@ -10,9 +10,8 @@
  *     tokens have accrued, throwing `ForgeError(RATE_LIMIT_EXCEEDED)`
  *     if a 30 s safety cap is exceeded.
  *
- * Pure TypeScript — no external dependencies. Time math is done with
- * `Date.now()` so the bucket is monotonic-ish but fine for the calls/sec
- * granularity needed for LLM rate-limiting.
+ * This legacy core API delegates bucket accounting to `@dzupagent/security`
+ * while preserving ForgeError shaping and wait semantics for existing callers.
  */
 
 import { KeyedTokenBucketRateLimiter } from '@dzupagent/security'

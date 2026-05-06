@@ -12,6 +12,7 @@
  */
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
+import type { OutboundUrlSecurityPolicy } from '@dzupagent/core'
 import { filterTools } from '../connector-types.js'
 import type { ConnectorToolkit } from '../connector-contract.js'
 import { GitHubClient, GitHubApiError } from './github-client.js'
@@ -23,6 +24,8 @@ export interface GitHubConnectorConfig {
   enabledTools?: string[]
   /** GitHub API base URL (default: https://api.github.com) */
   baseUrl?: string
+  /** Optional outbound URL policy for GitHub API calls. */
+  outboundUrlPolicy?: OutboundUrlSecurityPolicy
 }
 
 /** Safely invoke a client method, returning a user-friendly error string on failure. */
@@ -41,6 +44,7 @@ export function createGitHubConnector(config: GitHubConnectorConfig): DynamicStr
   const client = new GitHubClient({
     token: config.token,
     ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
+    ...(config.outboundUrlPolicy !== undefined ? { outboundUrlPolicy: config.outboundUrlPolicy } : {}),
   })
 
   const all: DynamicStructuredTool[] = [
