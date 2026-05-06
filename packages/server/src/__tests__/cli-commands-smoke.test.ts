@@ -10,6 +10,35 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
+vi.mock('@dzupagent/core', () => ({
+  InMemoryRunStore: class InMemoryRunStore {},
+  InMemoryAgentStore: class InMemoryAgentStore {},
+  ModelRegistry: class ModelRegistry {},
+  createEventBus: () => ({
+    emit: vi.fn(),
+    on: vi.fn(),
+    onAny: vi.fn(() => vi.fn()),
+  }),
+}))
+
+vi.mock('../app.js', () => ({
+  createForgeApp: vi.fn(() => ({})),
+}))
+
+vi.mock('../queue/run-queue.js', () => ({
+  InMemoryRunQueue: class InMemoryRunQueue {
+    stop = vi.fn().mockResolvedValue(undefined)
+  },
+}))
+
+vi.mock('../runtime/default-run-executor.js', () => ({
+  createDefaultRunExecutor: vi.fn(() => vi.fn()),
+}))
+
+vi.mock('../runtime/dzip-agent-run-executor.js', () => ({
+  createDzupAgentRunExecutor: vi.fn(() => vi.fn()),
+}))
+
 // ---------------------------------------------------------------------------
 // config-command
 // ---------------------------------------------------------------------------
