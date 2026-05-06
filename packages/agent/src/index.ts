@@ -265,6 +265,14 @@ export type { ForgeToolConfig } from './tools/create-tool.js'
 export { createHumanContactTool, InMemoryPendingContactStore } from './tools/human-contact-tool.js'
 export type { HumanContactInput, HumanContactToolConfig, PendingContactStore } from './tools/human-contact-tool.js'
 
+// --- Tool Permission Tier Registry (MC-AGT-05) ---
+export {
+  setToolTier,
+  getToolTier,
+  filterToolsByTier,
+  DEFAULT_TOOL_TIER,
+} from './tools/tool-tier-registry.js'
+
 // --- State (legacy) ---
 export { serializeMessages, deserializeMessages } from './agent/agent-state.js'
 export type {

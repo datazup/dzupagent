@@ -7,7 +7,12 @@
  * - full-access: Full filesystem, network, processes (for trusted code)
  */
 
-export type PermissionTier = 'read-only' | 'workspace-write' | 'full-access'
+// Canonical PermissionTier lives in @dzupagent/core. We re-export the type here
+// so existing codegen consumers (and `packages/codegen/src/index.ts`) keep
+// working while framework packages can depend on the tier without importing
+// the codegen sandbox surface.
+export type { PermissionTier } from '@dzupagent/core'
+import type { PermissionTier } from '@dzupagent/core'
 
 export interface TierConfig {
   /** Allow network access */

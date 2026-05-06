@@ -1,5 +1,6 @@
 import type { ForgeErrorCode } from '../errors/error-codes.js'
 import type { RunStatus } from '../persistence/store-interfaces.js'
+import type { PermissionTier } from '../tools/permission-tier.js'
 
 /**
  * Budget usage snapshot — emitted with budget warnings.
@@ -145,6 +146,23 @@ export type DzupEvent =
     }
   | { type: 'agent:failed'; agentId: string; runId: string; errorCode: ForgeErrorCode; message: string }
   | { type: 'agent:rate_limited'; agentId: string; reason: string }
+  /**
+   * Emitted once at agent construction after applying the configured
+   * permission tier to the resolved tool list (MC-AGT-05).
+   *
+   * `effectiveTier` is the resolved tier (caller-provided or the
+   * `'read-only'` default). `filteredTools` enumerates the names of tools
+   * that were dropped — i.e. tools whose `requiredTier` is more permissive
+   * than `effectiveTier`. The model never sees these tools.
+   */
+  | {
+      type: 'agent:tools-filtered'
+      agentId: string
+      effectiveTier: PermissionTier
+      totalTools: number
+      allowedTools: number
+      filteredTools: string[]
+    }
   | { type: 'agent:stream_delta'; agentId: string; runId: string; content: string }
   | { type: 'agent:stream_done'; agentId: string; runId: string; finalContent: string }
   | { type: 'recovery:cancelled'; agentId: string; runId: string; attempts: number; durationMs: number; reason: string }

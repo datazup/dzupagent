@@ -818,6 +818,10 @@ export { isBaseConnectorTool, normalizeBaseConnectorTool, normalizeBaseConnector
 export { createForgeTool } from './tools/create-tool.js'
 export type { ForgeToolConfig } from './tools/create-tool.js'
 
+// --- Permission Tier (canonical) ---
+export { tierSatisfies } from './tools/permission-tier.js'
+export type { PermissionTier } from './tools/permission-tier.js'
+
 // --- Tool Stats ---
 export { ToolStatsTracker } from './tools/tool-stats-tracker.js'
 export type {

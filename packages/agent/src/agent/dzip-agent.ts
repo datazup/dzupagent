@@ -36,6 +36,7 @@ import {
   isTransientError,
   TokenBucket,
   type ModelTier,
+  type PermissionTier,
   type StructuredOutputModelCapabilities,
   type Tokenizer,
 } from '@dzupagent/core'
@@ -77,6 +78,7 @@ import { streamRun } from './streaming-run.js'
 import { attemptWithFailover } from './provider-failover.js'
 import { launchDaemon } from './daemon-launcher.js'
 import { agentAsTool } from '../tools/agent-as-tool.js'
+import { filterToolsByTier } from '../tools/tool-tier-registry.js'
 import {
   generateStructured as generateStructuredRun,
   extractJsonFromText,
@@ -360,6 +362,13 @@ export class DzupAgent {
   private readonly distributedCostLedger: DistributedCostLedger | undefined
   private readonly tenantId: string
   private readonly tokenizer: Tokenizer
+  /**
+   * Effective permission tier for this agent (MC-AGT-05). Resolved from
+   * `config.permissionTier` with a `'read-only'` default. Tools tagged
+   * with a more permissive tier are filtered out before being passed to
+   * the model — see {@link filterToolsByTier}.
+   */
+  private readonly permissionTier: PermissionTier
   private conversationSummary: string | null = null
 
   constructor(config: DzupAgentConfig) {
@@ -396,6 +405,37 @@ export class DzupAgent {
     this.instructionResolver = wiring.instructionResolver
     this.memoryContextLoader = wiring.memoryContextLoader
     this.middlewareRuntime = wiring.middlewareRuntime
+
+    // MC-AGT-05 — resolve the effective permission tier and emit the
+    // one-shot `agent:tools-filtered` event so operators can audit which
+    // tools the model will (or will not) see for this agent. Filtering
+    // itself happens lazily inside `getTools()` so middleware-resolved
+    // tools are also constrained.
+    this.permissionTier = config.permissionTier ?? 'read-only'
+    this.emitToolFilterAudit(config)
+  }
+
+  /**
+   * Emit a one-shot `agent:tools-filtered` event capturing how many
+   * resolved tools survived the permission-tier filter. Called once from
+   * the constructor.
+   */
+  private emitToolFilterAudit(config: DzupAgentConfig): void {
+    if (!config.eventBus) return
+    const resolved = this.resolveAvailableTools()
+    const allowed = filterToolsByTier(resolved, this.permissionTier)
+    const allowedSet = new Set<StructuredToolInterface>(allowed)
+    const filtered = resolved
+      .filter((tool) => !allowedSet.has(tool))
+      .map((tool) => tool.name)
+    config.eventBus.emit({
+      type: 'agent:tools-filtered',
+      agentId: this.id,
+      effectiveTier: this.permissionTier,
+      totalTools: resolved.length,
+      allowedTools: allowed.length,
+      filteredTools: filtered,
+    })
   }
 
   /**
@@ -669,6 +709,13 @@ export class DzupAgent {
   }
 
   private getTools(): StructuredToolInterface[] {
+    const resolved = this.resolveAvailableTools()
+    // MC-AGT-05 — apply the permission-tier filter on every read so
+    // middleware-resolved tools (added dynamically) are also gated.
+    return filterToolsByTier(resolved, this.permissionTier)
+  }
+
+  private resolveAvailableTools(): StructuredToolInterface[] {
     const configTools = this.config.tools ?? []
     const allTools = [...configTools, ...this.mailboxTools]
     return this.middlewareRuntime.resolveTools(allTools)
