@@ -8,6 +8,24 @@
 import type { ExecutionRecord, ProviderProfile, FailurePattern } from './adapter-learning-loop.js'
 import type { LearningStore, LearningSnapshot } from './learning-store.js'
 
+const DEFAULT_TENANT_ID = 'default'
+
+function normalizeTenantId(tenantId: string | null | undefined): string {
+  return tenantId && tenantId.length > 0 ? tenantId : DEFAULT_TENANT_ID
+}
+
+function scopedKey(providerId: string, tenantId: string): string {
+  return tenantId === DEFAULT_TENANT_ID ? providerId : `${tenantId}:${providerId}`
+}
+
+function withTenant<T extends { tenantId?: string | null }>(
+  value: T,
+  tenantId: string,
+  wasExplicit: boolean,
+): T {
+  return wasExplicit || tenantId !== DEFAULT_TENANT_ID ? { ...value, tenantId } : value
+}
+
 export class InMemoryLearningStore implements LearningStore {
   private readonly records = new Map<string, ExecutionRecord[]>()
   private readonly profiles = new Map<string, ProviderProfile>()
@@ -22,15 +40,18 @@ export class InMemoryLearningStore implements LearningStore {
   // Records
   // -----------------------------------------------------------------------
 
-  saveRecord(providerId: string, record: ExecutionRecord): void {
-    const arr = this.records.get(providerId) ?? []
-    arr.push(record)
+  saveRecord(providerId: string, record: ExecutionRecord, tenantId?: string): void {
+    const explicitTenant = tenantId !== undefined || record.tenantId != null
+    const normalizedTenantId = normalizeTenantId(tenantId ?? record.tenantId)
+    const key = scopedKey(providerId, normalizedTenantId)
+    const arr = this.records.get(key) ?? []
+    arr.push(withTenant(record, normalizedTenantId, explicitTenant))
     while (arr.length > this.capacityPerProvider) arr.shift()
-    this.records.set(providerId, arr)
+    this.records.set(key, arr)
   }
 
-  loadRecords(providerId: string, limit: number): ExecutionRecord[] {
-    const arr = this.records.get(providerId) ?? []
+  loadRecords(providerId: string, limit: number, tenantId?: string): ExecutionRecord[] {
+    const arr = this.records.get(scopedKey(providerId, normalizeTenantId(tenantId))) ?? []
     return arr.slice(-limit)
   }
 
@@ -38,24 +59,34 @@ export class InMemoryLearningStore implements LearningStore {
   // Profiles
   // -----------------------------------------------------------------------
 
-  saveProfile(providerId: string, profile: ProviderProfile): void {
-    this.profiles.set(providerId, profile)
+  saveProfile(providerId: string, profile: ProviderProfile, tenantId?: string): void {
+    const explicitTenant = tenantId !== undefined || profile.tenantId != null
+    const normalizedTenantId = normalizeTenantId(tenantId ?? profile.tenantId)
+    this.profiles.set(scopedKey(providerId, normalizedTenantId), withTenant(
+      profile,
+      normalizedTenantId,
+      explicitTenant,
+    ))
   }
 
-  getProfile(providerId: string): ProviderProfile | undefined {
-    return this.profiles.get(providerId)
+  getProfile(providerId: string, tenantId?: string): ProviderProfile | undefined {
+    return this.profiles.get(scopedKey(providerId, normalizeTenantId(tenantId)))
   }
 
   // -----------------------------------------------------------------------
   // Failure patterns
   // -----------------------------------------------------------------------
 
-  saveFailurePatterns(providerId: string, patterns: FailurePattern[]): void {
-    this.patterns.set(providerId, patterns)
+  saveFailurePatterns(providerId: string, patterns: FailurePattern[], tenantId?: string): void {
+    const explicitTenant = tenantId !== undefined || patterns.some((pattern) => pattern.tenantId != null)
+    const normalizedTenantId = normalizeTenantId(tenantId ?? patterns[0]?.tenantId)
+    this.patterns.set(scopedKey(providerId, normalizedTenantId), patterns.map((pattern) =>
+      withTenant(pattern, normalizedTenantId, explicitTenant),
+    ))
   }
 
-  getFailurePatterns(providerId: string): FailurePattern[] {
-    return this.patterns.get(providerId) ?? []
+  getFailurePatterns(providerId: string, tenantId?: string): FailurePattern[] {
+    return this.patterns.get(scopedKey(providerId, normalizeTenantId(tenantId))) ?? []
   }
 
   // -----------------------------------------------------------------------
