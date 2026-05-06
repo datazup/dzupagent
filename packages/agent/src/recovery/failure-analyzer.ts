@@ -40,7 +40,7 @@ const ERROR_PATTERNS: ErrorPattern[] = [
       /assertion\s+(?:error|failed)/i,
       /expect.*(?:toBe|toEqual|toMatch)/i,
       /vitest|jest|mocha.*fail/i,
-      /\d+\s+(?:tests?\s+)?failed/i, // eslint-disable-line security/detect-unsafe-regex
+      /\d+\s+(?:tests?\s+)?failed/i, // eslint-disable-line security/detect-unsafe-regex -- fixed literal pattern matching LLM output; no untrusted input reaches regex engine
     ],
   },
   {

@@ -120,12 +120,12 @@ function estimateCostCents(inputTokens: number, outputTokens: number): number {
 /** Parse a critic response to extract a numeric score and feedback. */
 export function parseCriticResponse(response: string): ScoreResult {
   // Try to extract SCORE: <number> pattern
-  const scoreMatch = response.match(/SCORE:\s*(\d+(?:\.\d+)?)/i) // eslint-disable-line security/detect-unsafe-regex
+  const scoreMatch = response.match(/SCORE:\s*(\d+(?:\.\d+)?)/i) // eslint-disable-line security/detect-unsafe-regex -- fixed literal extracting a bounded numeric score from LLM critic output
   let rawScore = scoreMatch ? parseFloat(scoreMatch[1]!) : NaN
 
   // Fallback: look for any standalone number 0-10 near the start
   if (Number.isNaN(rawScore)) {
-    const numberMatch = response.match(/\b(\d+(?:\.\d+)?)\s*(?:\/\s*10|out of 10)?\b/) // eslint-disable-line security/detect-unsafe-regex
+    const numberMatch = response.match(/\b(\d+(?:\.\d+)?)\s*(?:\/\s*10|out of 10)?\b/) // eslint-disable-line security/detect-unsafe-regex -- fixed literal extracting a bounded numeric score from LLM critic output
     rawScore = numberMatch ? parseFloat(numberMatch[1]!) : 5
   }
 
@@ -137,7 +137,7 @@ export function parseCriticResponse(response: string): ScoreResult {
   const feedbackMatch = response.match(/FEEDBACK:\s*([\s\S]*)/i)
   const feedback = feedbackMatch
     ? feedbackMatch[1]!.trim()
-    : response.replace(/SCORE:\s*\d+(?:\.\d+)?/i, '').trim() // eslint-disable-line security/detect-unsafe-regex
+    : response.replace(/SCORE:\s*\d+(?:\.\d+)?/i, '').trim() // eslint-disable-line security/detect-unsafe-regex -- fixed literal stripping score prefix from LLM critic output
 
   return {
     score: normalizedScore,

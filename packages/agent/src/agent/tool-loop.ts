@@ -618,8 +618,13 @@ export async function runToolLoop(
             summary: compressResult.summary,
           })
         }
-      } catch {
-        // Compression must never abort a run — swallow and continue.
+      } catch (err) {
+        // Compression must never abort a run — emit event for observability then continue.
+        config.eventBus?.emit({
+          type: 'context:compress_failed',
+          error: err instanceof Error ? err.message : String(err),
+          phase: 'tool-loop',
+        })
       }
     }
 

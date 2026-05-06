@@ -19,6 +19,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { runToolLoop } from '../agent/tool-loop.js'
 import type { CompressResult } from '@dzupagent/context'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
 // ---------- Helpers ----------
 
@@ -202,6 +203,39 @@ describe('Tool loop — maybeCompress wiring', () => {
     expect(result.stopReason).toBe('complete')
     // Hook was still invoked despite throwing
     expect(maybeCompress).toHaveBeenCalled()
+  })
+
+  it('emits context:compress_failed when maybeCompress throws', async () => {
+    const { tool } = mockTool('echo', 'hi')
+    const maybeCompress = vi.fn(async (): Promise<CompressResult> => {
+      throw new Error('boom - compression pipeline crashed')
+    })
+    const events: DzupEvent[] = []
+    const eventBus = {
+      emit: vi.fn((event: DzupEvent) => events.push(event)),
+      on: vi.fn(),
+      once: vi.fn(),
+      onAny: vi.fn(),
+    } as unknown as DzupEventBus
+
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'echo', args: {} }]),
+      new AIMessage('final'),
+    ])
+
+    const result = await runToolLoop(
+      model,
+      [new HumanMessage('go')],
+      [tool],
+      { maxIterations: 5, maybeCompress, eventBus },
+    )
+
+    expect(result.stopReason).toBe('complete')
+    expect(events).toContainEqual({
+      type: 'context:compress_failed',
+      error: 'boom - compression pipeline crashed',
+      phase: 'tool-loop',
+    })
   })
 
   it('works with no maybeCompress provided (backward compat)', async () => {

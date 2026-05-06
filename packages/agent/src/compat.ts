@@ -4,6 +4,9 @@
  * This subpath collects APIs that remain available for existing consumers but
  * should not define the stable root contract. Prefer the runtime, workflow,
  * and tools subpaths for new imports.
+ *
+ * @deprecated Scheduled for removal in v2.0. Migrate to the runtime, workflow,
+ * and tools subpath exports before upgrading.
  */
 
 export { serializeMessages, deserializeMessages } from './agent/agent-state.js'
