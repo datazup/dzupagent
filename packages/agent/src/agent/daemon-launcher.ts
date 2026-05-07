@@ -13,7 +13,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { BaseMessage } from '@langchain/core/messages'
-import { InMemoryRunJournal } from '@dzupagent/core'
+import { InMemoryRunJournal } from '@dzupagent/core/persistence'
 import type {
   GenerateOptions,
   GenerateResult,

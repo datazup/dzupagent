@@ -8,5 +8,5 @@
  * (`@dzupagent/agent/guardrails/stuck-detector`, top-level
  * `@dzupagent/agent`) working unchanged.
  */
-export { StuckDetector } from '@dzupagent/core'
-export type { StuckStatus, StuckDetectorConfig } from '@dzupagent/core'
+export { StuckDetector } from '@dzupagent/core/utils'
+export type { StuckStatus, StuckDetectorConfig } from '@dzupagent/core/utils'

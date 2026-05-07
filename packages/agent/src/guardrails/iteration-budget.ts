@@ -2,7 +2,7 @@
  * Iteration budget — tracks cumulative token/cost/iteration spend
  * across parent and child agents. Emits warnings at configurable thresholds.
  */
-import { calculateCostCents, type TokenUsage } from '@dzupagent/core'
+import { calculateCostCents, type TokenUsage } from '@dzupagent/core/llm'
 import type { GuardrailConfig, BudgetState, BudgetWarning } from './guardrail-types.js'
 
 export class IterationBudget {

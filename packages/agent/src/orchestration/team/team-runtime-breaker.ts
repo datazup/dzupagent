@@ -9,7 +9,7 @@
  * Extracted from the runtime so the class itself stays a thin dispatcher.
  */
 
-import { KeyedCircuitBreaker } from '@dzupagent/core'
+import { KeyedCircuitBreaker } from '@dzupagent/core/llm'
 import type { SupervisionPolicy } from './supervision-policy.js'
 
 export interface TeamBreakerCallbacks {

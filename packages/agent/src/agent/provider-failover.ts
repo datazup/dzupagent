@@ -20,7 +20,7 @@
  * `activeProvider` reference).
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import { typedEmit, type DzupEventBus } from '@dzupagent/core'
+import { typedEmit, type DzupEventBus } from '@dzupagent/core/events'
 
 /**
  * One candidate model + provider pair from the agent's tier fallback chain.

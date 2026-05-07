@@ -1,7 +1,7 @@
 import type { BaseMessage } from '@langchain/core/messages'
 import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
 import type { FrozenSnapshot } from '@dzupagent/context'
-import { estimateTokens } from '@dzupagent/core'
+import { estimateTokens } from '@dzupagent/core/llm'
 import { calculateStrength } from '@dzupagent/memory'
 import type { DecayMetadata } from '@dzupagent/memory'
 

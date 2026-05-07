@@ -10,7 +10,7 @@ import {
   SystemMessage,
   type BaseMessage,
 } from '@langchain/core/messages'
-import type { TokenUsage } from '@dzupagent/core'
+import type { TokenUsage } from '@dzupagent/core/llm'
 import type { IterationBudget } from '../../guardrails/iteration-budget.js'
 import type { ToolCallResult } from './contracts.js'
 import type { StopReason, ToolLoopConfig } from '../tool-loop.js'
