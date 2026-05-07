@@ -4,17 +4,15 @@
  * These avoid boilerplate in test files by providing sensible defaults
  * that can be overridden via partial params.
  */
+import { createEventBus, type DzupEvent, type DzupEventBus } from '@dzupagent/core/events'
+import { ModelRegistry } from '@dzupagent/core/llm'
 import {
-  createEventBus,
-  InMemoryRunStore,
   InMemoryAgentStore,
-  ModelRegistry,
-  type DzupEventBus,
-  type DzupEvent,
-  type RunStore,
-  type AgentExecutionSpecStore as AgentStore,
+  InMemoryRunStore,
   type AgentExecutionSpec as AgentDefinition,
-} from '@dzupagent/core'
+  type AgentExecutionSpecStore as AgentStore,
+  type RunStore,
+} from '@dzupagent/core/persistence'
 
 /** Create a test event bus that captures all emitted events */
 export function createTestEventBus(): {

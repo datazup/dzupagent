@@ -32,14 +32,18 @@ export function createDevCommand(config?: DevCommandConfig): DevCommandHandle {
   return {
     async start(): Promise<void> {
       const [
-        { InMemoryRunStore, InMemoryAgentStore, ModelRegistry, createEventBus },
+        { InMemoryRunStore, InMemoryAgentStore },
+        { ModelRegistry },
+        { createEventBus },
         { TracePrinter },
         { InMemoryRunQueue },
         { createDefaultRunExecutor },
         { createDzupAgentRunExecutor },
         { createForgeApp },
       ] = await Promise.all([
-        import('@dzupagent/core'),
+        import('@dzupagent/core/persistence'),
+        import('@dzupagent/core/llm'),
+        import('@dzupagent/core/events'),
         import('./trace-printer.js'),
         import('../queue/run-queue.js'),
         import('../runtime/default-run-executor.js'),

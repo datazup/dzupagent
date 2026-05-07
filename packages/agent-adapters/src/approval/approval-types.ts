@@ -1,5 +1,6 @@
 import type { AdapterProviderId } from '../types.js'
 import type { UrlValidationOptions } from '../utils/url-validator.js'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 /** Approval mode determining when human approval is required. */
 export type ApprovalMode = 'auto' | 'required' | 'conditional'
@@ -52,7 +53,7 @@ export interface AdapterApprovalConfig {
   /** SSRF-protection options applied to webhookUrl. */
   webhookUrlValidation?: UrlValidationOptions
   /** Event bus for approval events. */
-  eventBus?: import('@dzupagent/core').DzupEventBus
+  eventBus?: DzupEventBus
   /** Audit store for recording approval decisions. Defaults to in-memory store. */
   auditStore?: ApprovalAuditStore
 }

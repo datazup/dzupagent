@@ -10,18 +10,19 @@
  * full config is unnecessary.
  */
 import type {
-  RunStore,
-  AgentExecutionSpecStore,
-  ModelRegistry,
   AgentRegistry,
-  DzupEventBus,
-  MetricsCollector,
-  CostAwareRouter,
   McpManager,
-  RunJournal,
   SkillRegistry,
   WorkflowRegistry,
-} from '@dzupagent/core'
+} from '@dzupagent/core/pipeline'
+import type {
+  AgentExecutionSpecStore,
+  RunJournal,
+  RunStore,
+} from '@dzupagent/core/persistence'
+import type { CostAwareRouter, ModelRegistry } from '@dzupagent/core/llm'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { MetricsCollector } from '@dzupagent/core/utils'
 import type { SkillStepResolver } from '@dzupagent/agent'
 import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters'
 import type { ApprovalStateStore } from '@dzupagent/hitl-kit'
@@ -71,7 +72,7 @@ import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js
 import type { PlaygroundRouteConfig } from '../routes/playground.js'
 import type { ConnectorTokenProfile, GitWorkspaceProfile, HttpConnectorProfile } from '../runtime/tool-resolver.js'
 import type { MetricsAccessControl } from '../routes/metrics.js'
-import type { ComplianceAuditStore } from '@dzupagent/core'
+import type { ComplianceAuditStore } from '@dzupagent/core/security'
 
 /**
  * Optional mail delivery config. When provided, `createForgeApp` constructs a

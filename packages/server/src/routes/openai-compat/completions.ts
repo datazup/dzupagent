@@ -17,8 +17,10 @@ import type { AppEnv } from '../../types.js'
 import { streamSSE } from 'hono/streaming'
 import { HumanMessage } from '@langchain/core/messages'
 import { DzupAgent } from '@dzupagent/agent'
-import type { AgentExecutionSpecStore, ModelRegistry, DzupEventBus } from '@dzupagent/core'
-import { secureLogger } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { ModelRegistry } from '@dzupagent/core/llm'
+import type { AgentExecutionSpecStore } from '@dzupagent/core/persistence'
+import { secureLogger } from '@dzupagent/core/utils'
 import { OpenAICompletionMapper } from './completion-mapper.js'
 import {
   mapRequest,

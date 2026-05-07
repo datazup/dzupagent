@@ -9,8 +9,10 @@
  * with existing consumers (composition/, runtime.ts, executors).
  */
 
-import type { AgentExecutionSpec, ModelRegistry, RunContextTransfer, RunStore, MetricsCollector } from '@dzupagent/core'
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { ModelRegistry, RunContextTransfer } from '@dzupagent/core/llm'
+import type { AgentExecutionSpec, RunStore } from '@dzupagent/core/persistence'
+import type { MetricsCollector } from '@dzupagent/core/utils'
 import type { CompressionLogEntry, RunReflectionStore } from '@dzupagent/agent'
 import type { RunQueue } from '../queue/run-queue.js'
 import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
