@@ -24,6 +24,10 @@ export type {
 } from './agent/agent-types.js'
 export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory-profiles.js'
 export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
+export { applyOutputFilterChain } from './agent/output-filter.js'
+export type { OutputFilter, OutputFilterContext } from './agent/output-filter.js'
+export { ArrowRuntimeNotInjectedError } from './agent/memory-context-loader.js'
+export type { AgentMemoryContextLoaderLimits } from './agent/memory-context-loader.js'
 export {
   createAllowlistPermissionPolicy,
   createProductionToolGovernancePreset,

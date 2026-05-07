@@ -123,6 +123,7 @@ export async function fetchMarketplaceTemplates(
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 5000)
 
+    // eslint-disable-next-line no-restricted-globals -- intentional: CLI scaffolder marketplace endpoint, baseUrl is operator-supplied at command invocation
     const response = await fetch(`${baseUrl}/api/marketplace/templates`, {
       signal: controller.signal,
       headers: { 'Accept': 'application/json' },

@@ -37,6 +37,7 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingP
   async function embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return []
 
+    // eslint-disable-next-line no-restricted-globals -- intentional: OpenAI embeddings vendor API; baseUrl is operator-configured infrastructure, not user input
     const response = await fetch(`${baseUrl}/embeddings`, {
       method: 'POST',
       headers: {

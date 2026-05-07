@@ -60,7 +60,7 @@ import {
 } from './message-utils.js'
 import { AgentInstructionResolver } from './instruction-resolution.js'
 import type { AgentInstructionResolverConfig } from './instruction-resolution.js'
-import { AgentMemoryContextLoader } from './memory-context-loader.js'
+import { AgentMemoryContextLoader, ArrowRuntimeNotInjectedError } from './memory-context-loader.js'
 import type {
   AgentMemoryContextLoaderConfig,
   ArrowMemoryRuntime,
@@ -754,6 +754,13 @@ export class DzupAgent {
           memoryFrame = result.frame ?? null
         }
       } catch (err) {
+        // ADR-0005 misconfiguration is fatal — the Arrow runtime injector
+        // contract was violated, so re-throw rather than masquerading as a
+        // generic memory_load_failure. Operators get the precise error type
+        // and message instead of a swallowed fallback.
+        if (err instanceof ArrowRuntimeNotInjectedError) {
+          throw err
+        }
         // Memory failures are non-fatal; emit structured event so operators can
         // distinguish "no memory configured" from "memory unavailable".
         const detail = err instanceof Error ? err.message : String(err)

@@ -41,6 +41,7 @@ import type { ReflectionAnalyzerConfig } from '../reflection/reflection-analyzer
 import type { MailboxStore } from '../mailbox/types.js'
 import type { AgentLoopPlugin } from '../token-lifecycle-wiring.js'
 import type { LlmCallAuditSink } from '../observability/llm-call-audit.js'
+import type { OutputFilter } from './output-filter.js'
 
 /** Configuration for creating a DzupAgent */
 export interface DzupAgentConfig {
@@ -479,6 +480,27 @@ export interface DzupAgentConfig {
    * unified surface.
    */
   runStateStore?: DzupRunStateStore
+
+  /**
+   * Pluggable output filter chain (M-13).
+   *
+   * An ordered list of named {@link OutputFilter} steps applied to the
+   * agent's final response content before it is returned from
+   * `generate()`. Filters run sequentially; each step receives the
+   * output produced by the previous step. A filter returning `null`
+   * preserves the current content and skips all subsequent filters.
+   *
+   * The chain runs AFTER the legacy `guardrails.outputFilter` (single-
+   * function contract) so existing callers are unaffected. When both are
+   * present, `guardrails.outputFilter` runs first and the chain refines
+   * its result.
+   *
+   * Example — strip Markdown fences then truncate:
+   * ```ts
+   * outputFilters: [stripMarkdownFilter, truncateFilter]
+   * ```
+   */
+  outputFilters?: OutputFilter[]
 }
 
 /** Explicit run-level provider retry/failover policy. */

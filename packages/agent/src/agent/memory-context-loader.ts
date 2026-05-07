@@ -14,7 +14,7 @@ import { resolveArrowMemoryConfig } from './memory-profiles.js'
  * `await import('@dzupagent/memory-ipc')` was removed in ADR-0005 to keep
  * the agent's runtime dependency surface explicit.
  */
-class ArrowRuntimeNotInjectedError extends Error {
+export class ArrowRuntimeNotInjectedError extends Error {
   constructor() {
     super(
       'Arrow memory runtime is not injected. Pass ' +
@@ -291,6 +291,13 @@ export class AgentMemoryContextLoader {
         }
         return result
       } catch (err) {
+        // Misconfiguration (no injector) is a contract violation — surface it
+        // to the caller so the agent can fail loudly rather than silently
+        // degrading to the standard path. ADR-0005 explicitly requires the
+        // injector once the enforcement flag is set.
+        if (err instanceof ArrowRuntimeNotInjectedError) {
+          throw err
+        }
         // Fall back to the standard path if Arrow selection fails.
         // Emit structured reason so operators can distinguish absence from outage.
         // Tokens before = estimated conversation+system before fallback;
