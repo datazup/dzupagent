@@ -10,5 +10,5 @@ export type {
   ChainTriggerConfig,
 } from './trigger-manager.js'
 
-export { InMemoryTriggerStore, DrizzleTriggerStore } from './trigger-store.js'
+export { InMemoryTriggerStore, DrizzleTriggerStore, hashWebhookSecret, verifyWebhookSecret } from './trigger-store.js'
 export type { TriggerStore, TriggerConfigRecord } from './trigger-store.js'
