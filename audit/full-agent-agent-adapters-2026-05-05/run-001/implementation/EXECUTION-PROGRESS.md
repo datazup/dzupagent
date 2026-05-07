@@ -43,6 +43,7 @@ These 3 failures existed before any QF changes (confirmed by git diff showing th
 | QF-15 | Move exact-optional and event-record to core | ✅ done | Both moved to `packages/core/src/utils/`; originals are thin re-export shims marked `@deprecated` |
 | QF-16 | Add unref to approval-gate timeout | ✅ done | `setTimeout(...).unref()` chained |
 | QF-17 | Add @deprecated JSDoc to AgentPlayground | ✅ done | Added to `playground.ts` and `playground/index.ts` |
+| L-05 | Extract TeamRuntime into 5 strategy pattern classes | ✅ done (pre-existing) | Strategy pattern fully extracted in prior sprints. `team-runtime.ts` is 235 LOC thin dispatcher. `patterns/` dir has 5 strategies: supervisor (83 LOC), contract-net (83 LOC), blackboard (158 LOC), peer-to-peer (95 LOC), council (82 LOC). `team-pattern.ts` defines `TeamPattern` interface + `TeamPatternContext`/`TeamPatternHooks`. `TEAM_PATTERN_REGISTRY` in `patterns/index.ts`. All 10 team test files (61 tests) pass; typecheck 0 errors. |
 
 ## Files Changed
 
