@@ -1,4 +1,4 @@
-import type { TraceSpan } from './adapter-tracer.js'
+import type { TraceSpan } from './trace-types.js'
 
 type ToolEvent = {
   toolName: string

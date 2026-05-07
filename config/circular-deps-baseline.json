@@ -27,52 +27,6 @@
         "orchestration/planning-agent.ts"
       ]
     ],
-    "agent-adapters": [
-      [
-        "approval/adapter-approval.ts",
-        "approval/approval-audit.ts"
-      ],
-      [
-        "observability/adapter-tracer.ts",
-        "observability/tool-span-tracker.ts"
-      ],
-      [
-        "recovery/adapter-recovery.ts",
-        "recovery/escalation-handler.ts"
-      ],
-      [
-        "recovery/adapter-recovery.ts",
-        "recovery/recovery-attempt-handler.ts",
-        "recovery/recovery-events.ts"
-      ],
-      [
-        "recovery/adapter-recovery.ts",
-        "recovery/recovery-attempt-handler.ts",
-        "recovery/recovery-strategy-application.ts"
-      ],
-      [
-        "recovery/adapter-recovery.ts",
-        "recovery/recovery-attempt-handler.ts",
-        "recovery/recovery-strategy.ts"
-      ],
-      [
-        "workflow/adapter-workflow-execution.ts",
-        "workflow/adapter-workflow.ts"
-      ],
-      [
-        "workflow/adapter-workflow-execution.ts",
-        "workflow/adapter-workflow.ts",
-        "workflow/pipeline-assembler.ts"
-      ],
-      [
-        "workflow/adapter-workflow.ts",
-        "workflow/pipeline-assembler.ts"
-      ],
-      [
-        "workflow/adapter-workflow.ts",
-        "workflow/workflow-validator.ts"
-      ]
-    ],
     "server": [
       [
         "composition/types.ts",

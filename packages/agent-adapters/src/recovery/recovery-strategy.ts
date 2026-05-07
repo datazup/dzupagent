@@ -23,7 +23,7 @@
  */
 
 import type { AdapterProviderId } from '../types.js'
-import type { FailureContext, RecoveryStrategy } from './adapter-recovery.js'
+import type { FailureContext, RecoveryStrategy } from './recovery-types.js'
 
 /** Inputs needed to pick the next strategy without touching the registry. */
 export interface SelectStrategyInputs {

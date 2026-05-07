@@ -12,7 +12,7 @@ import { ForgeError, typedEmit } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 
 import type { AdapterProviderId, AgentInput } from '../types.js'
-import type { RecoveryStrategy } from './adapter-recovery.js'
+import type { RecoveryStrategy } from './recovery-types.js'
 import { validateWebhookUrl } from '../utils/url-validator.js'
 
 // ---------------------------------------------------------------------------

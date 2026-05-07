@@ -23,8 +23,8 @@ import type {
   BranchCondition,
   ParallelMergeStrategy,
   LoopConfig,
-} from './adapter-workflow.js'
-import { ADAPTER_WORKFLOW_OWNERSHIP } from './adapter-workflow.js'
+} from './adapter-workflow-types.js'
+import { ADAPTER_WORKFLOW_OWNERSHIP } from './workflow-ownership.js'
 import {
   PREV_RESULT_STATE_KEY,
   executeAdapterStep,
