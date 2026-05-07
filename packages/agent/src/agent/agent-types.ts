@@ -442,6 +442,10 @@ export interface DzupAgentConfig {
   security?: {
     promptInjection?: 'off' | 'warn' | 'block'
     pii?: 'off' | 'redact' | 'block'
+    /** PII scanning applied to every tool result before it reaches the model. */
+    piiToolResults?: 'off' | 'redact' | 'block'
+    /** Prompt-injection scanning applied to every tool result. */
+    promptInjectionToolResults?: 'off' | 'warn' | 'block'
   }
 
   /**

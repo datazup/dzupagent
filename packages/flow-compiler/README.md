@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { } from '@dzupagent/flow-compiler'
+import { createFlowCompiler, routeTarget } from '@dzupagent/flow-compiler'
 ```
 
 ## License

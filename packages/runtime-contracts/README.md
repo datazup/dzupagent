@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { } from '@dzupagent/runtime-contracts'
+import type { ExecutionRun, ManagedRunEvent, WorkflowSchedule } from '@dzupagent/runtime-contracts'
 ```
 
 ## License

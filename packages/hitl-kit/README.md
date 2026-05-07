@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { } from '@dzupagent/hitl-kit'
+import { ApprovalGate, InMemoryApprovalStateStore } from '@dzupagent/hitl-kit'
 ```
 
 ## License

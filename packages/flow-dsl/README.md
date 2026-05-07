@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { } from '@dzupagent/flow-dsl'
+import { parseDslToDocument, validateDocument } from '@dzupagent/flow-dsl'
 ```
 
 ## License

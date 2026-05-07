@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { } from '@dzupagent/eval-contracts'
+import type { BenchmarkRunRecord, EvalRunRecord, EvalSuite } from '@dzupagent/eval-contracts'
 ```
 
 ## License
