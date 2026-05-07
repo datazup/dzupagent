@@ -9,6 +9,10 @@
  * the underlying MemoryService. Space metadata lives in the `__spaces` namespace,
  * and pending pull-requests live in `__pending_shares`.
  *
+ * Heavy retention/compaction and CRDT merge logic is delegated to
+ * `space-retention.ts` and `space-crdt-push.ts` to keep this file focused
+ * on the public API surface and lifecycle bookkeeping.
+ *
  * Usage:
  *   const manager = new MemorySpaceManager({ memoryService })
  *   const space = await manager.create({ name: 'team-knowledge', owner: 'forge://acme/planner' })
@@ -21,7 +25,6 @@ import type { MemoryService } from '../memory-service.js'
 import { ProvenanceWriter } from '../provenance/provenance-writer.js'
 import { HLC } from '../crdt/hlc.js'
 import { CRDTResolver } from '../crdt/crdt-resolver.js'
-import type { LWWMap } from '../crdt/types.js'
 import type {
   SharedMemorySpace,
   SharedMemoryEvent,
@@ -33,6 +36,14 @@ import type {
   WritableShareMode,
   TombstoneCompactionMetrics,
 } from './types.js'
+import { keyFromValue, spaceNamespace, spaceScope } from './space-helpers.js'
+import {
+  compactTombstonesForSpace,
+  enforceRetentionForSpace,
+} from './space-retention.js'
+import { handleSharePullRequest, handleSharePush } from './space-share.js'
+import { reviewPullRequestForSpace } from './space-pull-request.js'
+import { decodePending, decodeSpace, isDecoded } from './space-decoders.js'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -295,64 +306,31 @@ export class MemorySpaceManager {
     reviewerUri: string,
     approved: boolean,
   ): Promise<void> {
-    const raw = await this.memoryService.get(PENDING_NAMESPACE, PENDING_SCOPE, requestId)
-    if (raw.length === 0) {
-      throw new Error(`Pending request not found: ${requestId}`)
-    }
-    const record = raw[0]
-    const pending = record ? decodePending(record) : null
-    if (!pending) {
-      throw new Error(`Pending request not found: ${requestId}`)
-    }
-
-    const space = await this.loadSpace(pending.request.spaceId)
-    if (!space) {
-      throw new Error(`Space not found: ${pending.request.spaceId}`)
-    }
-
-    const reviewer = space.participants.find(p => p.agentUri === reviewerUri)
-    if (!reviewer || reviewer.permission !== 'admin') {
-      throw new Error(`Agent ${reviewerUri} does not have admin permission on space ${pending.request.spaceId}`)
-    }
-
-    const now = new Date().toISOString()
-    const updated: PendingShareRequest = {
-      ...pending,
-      status: approved ? 'approved' : 'rejected',
-      reviewedBy: reviewerUri,
-      reviewedAt: now,
-    }
-
-    await this.memoryService.put(
-      PENDING_NAMESPACE,
-      PENDING_SCOPE,
+    const result = await reviewPullRequestForSpace({
+      memoryService: this.memoryService,
+      provenanceWriter: this.provenanceWriter,
+      loadSpace: spaceId => this.loadSpace(spaceId),
+      pendingNamespace: PENDING_NAMESPACE,
+      pendingScope: PENDING_SCOPE,
       requestId,
-      updated as unknown as Record<string, unknown>,
-    )
+      reviewerUri,
+      approved,
+    })
 
-    if (approved) {
-      // Execute the write
-      const scope = spaceScope(pending.request.spaceId)
-      await this.provenanceWriter.put(
-        spaceNamespace(pending.request.spaceId),
-        scope,
-        pending.request.key,
-        pending.request.value,
-        { agentUri: pending.request.from, source: 'shared' },
-      )
+    if (result.approved) {
       this.emit({
         type: 'memory:space:write',
-        spaceId: pending.request.spaceId,
-        key: pending.request.key,
-        agentUri: pending.request.from,
+        spaceId: result.pending.request.spaceId,
+        key: result.pending.request.key,
+        agentUri: result.pending.request.from,
       })
     }
 
     this.emit({
       type: 'memory:space:pull_reviewed',
-      spaceId: pending.request.spaceId,
+      spaceId: result.pending.request.spaceId,
       requestId,
-      status: approved ? 'approved' : 'rejected',
+      status: result.approved ? 'approved' : 'rejected',
     })
   }
 
@@ -380,61 +358,10 @@ export class MemorySpaceManager {
    */
   async enforceRetention(spaceId: string): Promise<{ pruned: number }> {
     const space = await this.loadSpace(spaceId)
-    if (!space || !space.retentionPolicy) {
+    if (!space) {
       return { pruned: 0 }
     }
-
-    const scope = spaceScope(spaceId)
-    const records = await this.memoryService.get(spaceNamespace(spaceId), scope)
-
-    let pruned = 0
-    const now = Date.now()
-    const policy = space.retentionPolicy
-
-    // Sort by creation time (newest first) for maxRecords enforcement
-    const withTime = records.map((r, i) => {
-      const createdAt = extractCreatedAt(r)
-      return { record: r, index: i, createdAt }
-    })
-    withTime.sort((a, b) => b.createdAt - a.createdAt)
-
-    const toPrune = new Set<number>()
-
-    // Prune by age
-    if (policy.maxAgeMs != null) {
-      for (const item of withTime) {
-        if (item.createdAt > 0 && (now - item.createdAt) > policy.maxAgeMs) {
-          toPrune.add(item.index)
-        }
-      }
-    }
-
-    // Prune by count (keep newest)
-    if (policy.maxRecords != null) {
-      for (let i = policy.maxRecords; i < withTime.length; i++) {
-        const item = withTime[i]
-        if (item) {
-          toPrune.add(item.index)
-        }
-      }
-    }
-
-    // Execute pruning by writing empty values (tombstones)
-    for (const idx of toPrune) {
-      const record = records[idx]
-      if (!record) continue
-      const key = keyFromValue(record, idx)
-      // Overwrite with a tombstone marker
-      await this.memoryService.put(
-        spaceNamespace(spaceId),
-        scope,
-        key,
-        { _tombstone: true, _deletedAt: new Date().toISOString() },
-      )
-      pruned++
-    }
-
-    return { pruned }
+    return enforceRetentionForSpace(this.memoryService, space)
   }
 
   /**
@@ -462,70 +389,25 @@ export class MemorySpaceManager {
       }
     }
 
-    const scope = spaceScope(spaceId)
-    const records = await this.memoryService.get(spaceNamespace(spaceId), scope)
-    const tombstones = records
-      .map((record, index) => ({ record, index, deletedAt: extractDeletedAt(record) }))
-      .filter(item => isTombstoneRecord(item.record))
-      .sort((a, b) => a.deletedAt - b.deletedAt)
+    const result = await compactTombstonesForSpace(this.memoryService, space, startedAt)
 
-    const policy = space.retentionPolicy
-    const now = Date.now()
-    let candidates = tombstones
-
-    if (policy?.maxAgeMs != null) {
-      candidates = candidates.filter(item => item.deletedAt > 0 && (now - item.deletedAt) > policy.maxAgeMs!)
-    }
-
-    if (policy?.maxRecords != null && candidates.length > policy.maxRecords) {
-      candidates = candidates.slice(0, candidates.length - policy.maxRecords)
-    }
-
-    const capabilities = this.memoryService.getStoreCapabilities()
-    let compacted = 0
-    let skipped = 0
-
-    if (capabilities.supportsDelete) {
-      for (const candidate of candidates) {
-        const record = records[candidate.index]
-        if (!record) continue
-        const key = keyFromValue(record, candidate.index)
-        const deleted = await this.memoryService.delete(spaceNamespace(spaceId), scope, key)
-        if (deleted) {
-          compacted++
-        } else {
-          skipped++
-        }
-      }
-    } else {
-      skipped = candidates.length
-    }
-
-    const durationMs = Date.now() - startedAt
     this.tombstoneCompactionMetrics.runs++
-    this.tombstoneCompactionMetrics.tombstonesFound += tombstones.length
-    this.tombstoneCompactionMetrics.tombstonesCompacted += compacted
-    this.tombstoneCompactionMetrics.tombstonesSkipped += skipped
-    this.tombstoneCompactionMetrics.totalDurationMs += durationMs
-    this.tombstoneCompactionMetrics.lastDurationMs = durationMs
+    this.tombstoneCompactionMetrics.tombstonesFound += result.tombstonesFound
+    this.tombstoneCompactionMetrics.tombstonesCompacted += result.tombstonesCompacted
+    this.tombstoneCompactionMetrics.tombstonesSkipped += result.tombstonesSkipped
+    this.tombstoneCompactionMetrics.totalDurationMs += result.durationMs
+    this.tombstoneCompactionMetrics.lastDurationMs = result.durationMs
 
-    const report = {
-      type: 'memory:space:tombstones_compacted' as const,
+    this.emit({
+      type: 'memory:space:tombstones_compacted',
       spaceId,
-      tombstonesFound: tombstones.length,
-      tombstonesCompacted: compacted,
-      tombstonesSkipped: skipped,
-      durationMs,
-    }
-    this.emit(report)
+      tombstonesFound: result.tombstonesFound,
+      tombstonesCompacted: result.tombstonesCompacted,
+      tombstonesSkipped: result.tombstonesSkipped,
+      durationMs: result.durationMs,
+    })
 
-    return {
-      spaceId,
-      tombstonesFound: tombstones.length,
-      tombstonesCompacted: compacted,
-      tombstonesSkipped: skipped,
-      durationMs,
-    }
+    return result
   }
 
   /** Snapshot tombstone compaction counters/latency metrics. */
@@ -567,90 +449,13 @@ export class MemorySpaceManager {
   }
 
   private async handlePush(space: SharedMemorySpace, request: MemoryShareRequest): Promise<void> {
-    const participant = space.participants.find(p => p.agentUri === request.from)
-    if (!participant) {
-      throw new Error(`Agent ${request.from} is not a participant of space ${request.spaceId}`)
-    }
-    if (participant.permission === 'read') {
-      throw new Error(`Agent ${request.from} does not have write permission on space ${request.spaceId}`)
-    }
-
-    const scope = spaceScope(request.spaceId)
-    const ns = spaceNamespace(request.spaceId)
-
-    if (space.conflictResolution === 'crdt') {
-      await this.handleCRDTPush(space, request, ns, scope)
-      return
-    }
-
-    await this.provenanceWriter.put(
-      ns,
-      scope,
-      request.key,
-      request.value,
-      { agentUri: request.from, source: 'shared' },
-    )
-
-    this.emit({
-      type: 'memory:space:write',
-      spaceId: request.spaceId,
-      key: request.key,
-      agentUri: request.from,
+    const { hadConflict } = await handleSharePush({
+      memoryService: this.memoryService,
+      provenanceWriter: this.provenanceWriter,
+      crdtResolver: this.crdtResolver,
+      space,
+      request,
     })
-  }
-
-  /**
-   * Handle a CRDT push: wrap the value in an LWWMap, merge with any existing
-   * value for the same key, store the merged result, and emit conflict event
-   * when a merge occurs.
-   */
-  private async handleCRDTPush(
-    space: SharedMemorySpace,
-    request: MemoryShareRequest,
-    ns: string,
-    scope: Record<string, string>,
-  ): Promise<void> {
-    // Create an LWWMap from the incoming value
-    const incomingMap = this.crdtResolver.createMap(request.value)
-
-    // Check if there is an existing value for this key
-    const existing = await this.memoryService.get(ns, scope, request.key)
-    let finalValue: Record<string, unknown>
-    let hadConflict = false
-
-    if (existing.length > 0) {
-      const existingRecord = existing[0]
-      // Check if the existing record has _crdt metadata (was written via CRDT)
-      const existingCrdt = existingRecord?.['_crdt']
-      if (existingCrdt != null && typeof existingCrdt === 'object' && hasFields(existingCrdt)) {
-        const existingMap: LWWMap = { fields: (existingCrdt as { fields: LWWMap['fields'] }).fields }
-        const mergeResult = this.crdtResolver.mergeMaps(existingMap, incomingMap)
-        finalValue = {
-          ...this.crdtResolver.toObject(mergeResult.merged),
-          _crdt: mergeResult.merged,
-        }
-        hadConflict = mergeResult.conflictsResolved > 0
-      } else {
-        // Existing record was not written via CRDT — treat incoming as authoritative
-        finalValue = {
-          ...this.crdtResolver.toObject(incomingMap),
-          _crdt: incomingMap,
-        }
-      }
-    } else {
-      finalValue = {
-        ...this.crdtResolver.toObject(incomingMap),
-        _crdt: incomingMap,
-      }
-    }
-
-    await this.provenanceWriter.put(
-      ns,
-      scope,
-      request.key,
-      finalValue,
-      { agentUri: request.from, source: 'shared' },
-    )
 
     this.emit({
       type: 'memory:space:write',
@@ -670,25 +475,13 @@ export class MemorySpaceManager {
   }
 
   private async handlePullRequest(space: SharedMemorySpace, request: MemoryShareRequest): Promise<void> {
-    const participant = space.participants.find(p => p.agentUri === request.from)
-    if (!participant) {
-      throw new Error(`Agent ${request.from} is not a participant of space ${request.spaceId}`)
-    }
-
-    const requestId = randomUUID()
-    const pending: PendingShareRequest = {
-      id: requestId,
+    const { requestId } = await handleSharePullRequest({
+      memoryService: this.memoryService,
+      space,
       request,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-    }
-
-    await this.memoryService.put(
-      PENDING_NAMESPACE,
-      PENDING_SCOPE,
-      requestId,
-      pending as unknown as Record<string, unknown>,
-    )
+      pendingNamespace: PENDING_NAMESPACE,
+      pendingScope: PENDING_SCOPE,
+    })
 
     this.emit({
       type: 'memory:space:pull_request',
@@ -725,226 +518,3 @@ export class MemorySpaceManager {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Pure helpers
-// ---------------------------------------------------------------------------
-
-function spaceNamespace(spaceId: string): string {
-  return `space:${spaceId}`
-}
-
-function spaceScope(spaceId: string): Record<string, string> {
-  return { _space: spaceId }
-}
-
-function keyFromValue(value: Record<string, unknown>, fallbackIndex: number): string {
-  if (typeof value['_key'] === 'string') return value['_key']
-  if (typeof value['key'] === 'string') return value['key']
-  return `record-${fallbackIndex}`
-}
-
-function hasFields(obj: unknown): obj is { fields: Record<string, unknown> } {
-  return typeof obj === 'object' && obj !== null && 'fields' in obj && typeof (obj as Record<string, unknown>)['fields'] === 'object'
-}
-
-function decodeSpace(record: Record<string, unknown>): SharedMemorySpace | null {
-  const id = record['id']
-  const name = record['name']
-  const owner = record['owner']
-  const participantsValue = record['participants']
-  const conflictResolution = record['conflictResolution']
-  const createdAt = record['createdAt']
-
-  if (
-    typeof id !== 'string' ||
-    typeof name !== 'string' ||
-    typeof owner !== 'string' ||
-    !Array.isArray(participantsValue) ||
-    !isConflictStrategy(conflictResolution) ||
-    !isIsoTimestamp(createdAt)
-  ) {
-    return null
-  }
-
-  const participants: SharedMemorySpace['participants'] = []
-  for (const participantValue of participantsValue) {
-    const participant = decodeParticipant(participantValue)
-    if (!participant) return null
-    participants.push(participant)
-  }
-
-  const space: SharedMemorySpace = {
-    id,
-    name,
-    owner,
-    participants,
-    conflictResolution,
-    createdAt,
-  }
-
-  if ('retentionPolicy' in record) {
-    const retentionPolicy = decodeRetentionPolicy(record['retentionPolicy'])
-    if (!retentionPolicy) return null
-    space.retentionPolicy = retentionPolicy
-  }
-
-  return space
-}
-
-function decodeParticipant(value: unknown): SharedMemorySpace['participants'][number] | null {
-  if (!isRecord(value)) return null
-  const agentUri = value['agentUri']
-  const permission = value['permission']
-  const joinedAt = value['joinedAt']
-
-  if (typeof agentUri !== 'string' || !isSpacePermission(permission) || !isIsoTimestamp(joinedAt)) {
-    return null
-  }
-
-  return { agentUri, permission, joinedAt }
-}
-
-function decodeRetentionPolicy(value: unknown): RetentionPolicy | null {
-  if (!isRecord(value)) return null
-
-  const policy: RetentionPolicy = {}
-  if ('maxAgeMs' in value) {
-    const maxAgeMs = value['maxAgeMs']
-    if (!isNonNegativeFiniteNumber(maxAgeMs)) return null
-    policy.maxAgeMs = maxAgeMs
-  }
-  if ('maxRecords' in value) {
-    const maxRecords = value['maxRecords']
-    if (typeof maxRecords !== 'number' || !Number.isSafeInteger(maxRecords) || maxRecords < 0) return null
-    policy.maxRecords = maxRecords
-  }
-
-  return policy
-}
-
-function decodePending(record: Record<string, unknown>): PendingShareRequest | null {
-  const id = record['id']
-  const request = decodeShareRequest(record['request'])
-  const status = record['status']
-  const createdAt = record['createdAt']
-
-  if (
-    typeof id !== 'string' ||
-    !request ||
-    !isShareRequestStatus(status) ||
-    !isIsoTimestamp(createdAt)
-  ) {
-    return null
-  }
-
-  const pending: PendingShareRequest = {
-    id,
-    request,
-    status,
-    createdAt,
-  }
-
-  if ('reviewedBy' in record) {
-    const reviewedBy = record['reviewedBy']
-    if (typeof reviewedBy !== 'string') return null
-    pending.reviewedBy = reviewedBy
-  }
-  if ('reviewedAt' in record) {
-    const reviewedAt = record['reviewedAt']
-    if (!isIsoTimestamp(reviewedAt)) return null
-    pending.reviewedAt = reviewedAt
-  }
-
-  return pending
-}
-
-function decodeShareRequest(value: unknown): MemoryShareRequest | null {
-  if (!isRecord(value)) return null
-
-  const from = value['from']
-  const spaceId = value['spaceId']
-  const key = value['key']
-  const requestValue = value['value']
-  const mode = value['mode']
-
-  if (
-    typeof from !== 'string' ||
-    typeof spaceId !== 'string' ||
-    typeof key !== 'string' ||
-    !isRecord(requestValue) ||
-    !isShareMode(mode)
-  ) {
-    return null
-  }
-
-  return {
-    from,
-    spaceId,
-    key,
-    value: requestValue,
-    mode,
-  }
-}
-
-function isDecoded<T>(value: T | null): value is T {
-  return value !== null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isSpacePermission(value: unknown): value is SpacePermission {
-  return value === 'read' || value === 'read-write' || value === 'admin'
-}
-
-function isConflictStrategy(value: unknown): value is ConflictStrategy {
-  return value === 'lww' || value === 'manual' || value === 'crdt'
-}
-
-function isShareMode(value: unknown): value is MemoryShareRequest['mode'] {
-  return value === 'push' || value === 'pull-request' || value === 'subscribe'
-}
-
-function isShareRequestStatus(value: unknown): value is PendingShareRequest['status'] {
-  return value === 'pending' || value === 'approved' || value === 'rejected'
-}
-
-function isIsoTimestamp(value: unknown): value is string {
-  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value))
-}
-
-function isNonNegativeFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-}
-
-function extractCreatedAt(record: Record<string, unknown>): number {
-  // Try provenance timestamp first
-  const prov = record['_provenance']
-  if (prov != null && typeof prov === 'object') {
-    const createdAt = (prov as Record<string, unknown>)['createdAt']
-    if (typeof createdAt === 'string') {
-      const ts = Date.parse(createdAt)
-      if (!Number.isNaN(ts)) return ts
-    }
-  }
-  // Fallback: check top-level createdAt
-  if (typeof record['createdAt'] === 'string') {
-    const ts = Date.parse(record['createdAt'])
-    if (!Number.isNaN(ts)) return ts
-  }
-  return 0
-}
-
-function isTombstoneRecord(record: Record<string, unknown>): boolean {
-  return record['_tombstone'] === true
-}
-
-function extractDeletedAt(record: Record<string, unknown>): number {
-  const deletedAt = record['_deletedAt']
-  if (typeof deletedAt === 'string') {
-    const ts = Date.parse(deletedAt)
-    if (!Number.isNaN(ts)) return ts
-  }
-  return 0
-}
