@@ -9,7 +9,7 @@ import type {
 
 import { topSuggestions } from './semantic-condition.js'
 import { resolvePersonaRef } from './semantic-persona-resolver.js'
-import type { WalkContext } from './semantic-walk.js'
+import type { WalkContext } from './semantic-context.js'
 
 /** Sentinel returned by {@link resolveToolRef} when the resolver threw. */
 const INFRA_FAILURE = Symbol('infra-failure')

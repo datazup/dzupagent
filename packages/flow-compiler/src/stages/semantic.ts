@@ -9,7 +9,7 @@ import { flowNodeSchema } from '@dzupagent/flow-ast'
 
 import type { AsyncPersonaResolver, PersonaResolver } from '../types.js'
 
-import type { WalkContext } from './semantic-walk.js'
+import type { WalkContext } from './semantic-context.js'
 import { validateCheckpointRestore, visit } from './semantic-walk.js'
 
 // ---------------------------------------------------------------------------

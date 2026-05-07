@@ -3,7 +3,7 @@ import type { FlowNode, PersonaNode } from '@dzupagent/flow-ast'
 import type { AsyncPersonaResolver, PersonaResolver } from '../types.js'
 
 import { topSuggestions } from './semantic-condition.js'
-import type { WalkContext } from './semantic-walk.js'
+import type { WalkContext } from './semantic-context.js'
 
 const ROOT_PATH = 'root'
 const DEFAULT_SUGGESTION_DISTANCE = 3
