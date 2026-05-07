@@ -1,17 +1,7 @@
 {
   "description": "Known circular imports accepted temporarily by scripts/check-circular-deps.mjs. Remove entries as cycles are fixed.",
   "packages": {
-    "adapter-types": [
-      [
-        "contracts/events.ts",
-        "contracts/execution.ts"
-      ]
-    ],
     "agent": [
-      [
-        "agent/agent-types.ts",
-        "agent/memory-profiles.ts"
-      ],
       [
         "agent/run-engine.ts",
         "agent/run-engine-generate-helpers.ts"
@@ -35,10 +25,6 @@
       [
         "orchestration/delegating-supervisor.ts",
         "orchestration/planning-agent.ts"
-      ],
-      [
-        "self-correction/recovery-feedback.ts",
-        "self-correction/learning-candidate.ts"
       ]
     ],
     "agent-adapters": [
