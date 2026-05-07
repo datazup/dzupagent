@@ -42,3 +42,9 @@ export interface BulkPromptQuery {
   tenantId?: string
   userId?: string
 }
+
+/** Abstract prompt storage interface implemented by consumers */
+export interface PromptStore {
+  findTemplate(query: PromptResolveQuery): Promise<StoredTemplate | null>
+  findAllTemplates(query: BulkPromptQuery): Promise<StoredTemplate[]>
+}

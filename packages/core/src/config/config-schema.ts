@@ -2,7 +2,7 @@
  * Configuration validation and typed access helpers.
  */
 
-import type { ForgeConfig } from './config-loader.js';
+import type { ForgeConfig } from './config-types.js';
 import type { StructuredOutputStrategy } from '../llm/model-config.js';
 
 // ---------------------------------------------------------------------------

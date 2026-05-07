@@ -11,6 +11,6 @@ export type {
   ProviderConfig,
   RateLimitConfig,
   ConfigLayer,
-} from './config-loader.js';
+} from './config-types.js';
 
 export { validateConfig, getConfigValue } from './config-schema.js';

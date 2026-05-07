@@ -2,8 +2,7 @@
  * TTL-based prompt template cache. Preloads templates in bulk to
  * avoid per-node DB queries during pipeline execution.
  */
-import type { StoredTemplate, BulkPromptQuery } from './template-types.js'
-import type { PromptStore } from './template-resolver.js'
+import type { StoredTemplate, BulkPromptQuery, PromptStore } from './template-types.js'
 
 export class PromptCache {
   private data: Map<string, StoredTemplate> = new Map()
