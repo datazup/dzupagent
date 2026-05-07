@@ -9,6 +9,9 @@ import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vites
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import type { DzupEventBus } from '@dzupagent/core'
+import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
+import type { McpManager, McpServerInput } from '@dzupagent/core'
 
 vi.mock('@dzupagent/core', () => ({
   InMemoryRunStore: class InMemoryRunStore {},
@@ -288,7 +291,7 @@ describe('CLI: mcp-command', () => {
       servers: [{ id: 's1', name: 'test', enabled: true }],
     })
 
-    const result = await mcpList(manager as never)
+    const result = await mcpList(manager as unknown as McpManager)
     expect(result.success).toBe(true)
     expect(result.data).toHaveLength(1)
   })
@@ -298,7 +301,7 @@ describe('CLI: mcp-command', () => {
     const manager = createMockMcpManager()
     manager.listServers.mockRejectedValue(new Error('DB down'))
 
-    const result = await mcpList(manager as never)
+    const result = await mcpList(manager as unknown as McpManager)
     expect(result.success).toBe(false)
     expect(result.error).toContain('DB down')
   })
@@ -308,7 +311,7 @@ describe('CLI: mcp-command', () => {
     const manager = createMockMcpManager()
     const input = { name: 'new-server', transport: 'stdio' as const, command: 'node' }
 
-    const result = await mcpAdd(manager as never, input as never)
+    const result = await mcpAdd(manager as unknown as McpManager, input as unknown as McpServerInput)
     expect(result.success).toBe(true)
     expect(manager.addServer).toHaveBeenCalledWith(input)
   })
@@ -317,7 +320,7 @@ describe('CLI: mcp-command', () => {
     const { mcpRemove } = await import('../cli/mcp-command.js')
     const manager = createMockMcpManager()
 
-    const result = await mcpRemove(manager as never, 'srv-1')
+    const result = await mcpRemove(manager as unknown as McpManager, 'srv-1')
     expect(result.success).toBe(true)
     expect(manager.removeServer).toHaveBeenCalledWith('srv-1')
   })
@@ -326,7 +329,7 @@ describe('CLI: mcp-command', () => {
     const { mcpTest } = await import('../cli/mcp-command.js')
     const manager = createMockMcpManager()
 
-    const result = await mcpTest(manager as never, 'srv-1')
+    const result = await mcpTest(manager as unknown as McpManager, 'srv-1')
     expect(result.success).toBe(true)
     expect(result.data).toEqual({ ok: true, toolCount: 5 })
   })
@@ -380,7 +383,7 @@ describe('CLI: memory-command', () => {
     const { memoryBrowse } = await import('../cli/memory-command.js')
     const svc = createMockMemoryService()
 
-    const result = await memoryBrowse(svc as never, {
+    const result = await memoryBrowse(svc as unknown as MemoryServiceLike, {
       namespace: 'lessons',
       scope: { agent: 'a1' },
     })
@@ -393,7 +396,7 @@ describe('CLI: memory-command', () => {
     const { memoryBrowse } = await import('../cli/memory-command.js')
     const svc = createMockMemoryService()
 
-    const result = await memoryBrowse(svc as never, {
+    const result = await memoryBrowse(svc as unknown as MemoryServiceLike, {
       namespace: 'lessons',
       scope: { agent: 'a1' },
       search: 'error handling',
@@ -408,7 +411,7 @@ describe('CLI: memory-command', () => {
     const { memorySearch } = await import('../cli/memory-command.js')
     const svc = createMockMemoryService()
 
-    const results = await memorySearch(svc as never, 'query', { agent: 'a1' }, ['lessons', 'facts'])
+    const results = await memorySearch(svc as unknown as MemoryServiceLike, 'query', { agent: 'a1' }, ['lessons', 'facts'])
 
     expect(svc.search).toHaveBeenCalledTimes(2)
     expect(results.length).toBeGreaterThan(0)
@@ -538,7 +541,7 @@ describe('CLI: trace-printer', () => {
       on: vi.fn(),
     }
 
-    printer.attach(mockBus as never)
+    printer.attach(mockBus as unknown as DzupEventBus)
     expect(mockBus.onAny).toHaveBeenCalledTimes(1)
 
     printer.detach()

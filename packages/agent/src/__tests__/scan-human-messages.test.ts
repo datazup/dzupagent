@@ -23,6 +23,8 @@ import {
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { PromptInjectionBlockedError } from '@dzupagent/security'
+import type { DzupEventBus } from '@dzupagent/core'
+import type { ZodSchema } from 'zod'
 import type { DzupAgentConfig } from '../agent/agent-types.js'
 import { prepareRunState } from '../agent/run-engine.js'
 
@@ -56,7 +58,7 @@ function mockTool(name: string): StructuredToolInterface {
   return {
     name,
     description: name,
-    schema: {} as never,
+    schema: {} as unknown as ZodSchema,
     lc_namespace: [] as string[],
     invoke: vi.fn(async () => 'ok'),
   } as unknown as StructuredToolInterface
@@ -141,7 +143,7 @@ describe('scanHumanMessages — promptInjection block mode', () => {
 
     const params = basePrepareParams([new HumanMessage(INJECTION_TEXT)], {
       security: { promptInjection: 'block' },
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
     })
 
     await expect(prepareRunState(params)).rejects.toThrow(PromptInjectionBlockedError)
@@ -179,7 +181,7 @@ describe('scanHumanMessages — promptInjection warn mode', () => {
 
     const params = basePrepareParams([new HumanMessage(INJECTION_TEXT)], {
       security: { promptInjection: 'warn' },
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
     })
 
     await prepareRunState(params)
@@ -244,7 +246,7 @@ describe('scanHumanMessages — PII redact mode', () => {
     const messageWithPii = `SSN is ${PII_SSN}.`
     const params = basePrepareParams([new HumanMessage(messageWithPii)], {
       security: { pii: 'redact', promptInjection: 'off' },
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
     })
 
     await prepareRunState(params)
@@ -345,7 +347,7 @@ describe('scanHumanMessages — both off', () => {
     const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() }
     const params = basePrepareParams([new HumanMessage(INJECTION_TEXT)], {
       security: { promptInjection: 'off', pii: 'off' },
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
     })
 
     await prepareRunState(params)
@@ -374,7 +376,7 @@ describe('scanHumanMessages — runId threading', () => {
 
     const params = basePrepareParams([new HumanMessage(INJECTION_TEXT)], {
       security: { promptInjection: 'warn' },
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
     })
 
     // Provide runId via options

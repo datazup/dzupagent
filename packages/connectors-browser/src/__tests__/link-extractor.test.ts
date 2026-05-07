@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import type { Page } from 'playwright'
 import { extractLinks } from '../crawler/link-extractor.js'
 
 afterEach(() => {
@@ -36,7 +37,7 @@ describe('extractLinks', () => {
     })
     vi.stubGlobal('window', { location: { origin: 'https://example.com', hash: '' } })
 
-    const links = await extractLinks(createMockPage('https://example.com') as never)
+    const links = await extractLinks(createMockPage('https://example.com') as unknown as Page)
     expect(links).toEqual([])
   })
 
@@ -48,7 +49,7 @@ describe('extractLinks', () => {
     })
     vi.stubGlobal('window', { location: { origin: 'https://example.com', hash: '' } })
 
-    const links = await extractLinks(createMockPage('https://example.com') as never)
+    const links = await extractLinks(createMockPage('https://example.com') as unknown as Page)
     expect(links).toEqual([])
   })
 
@@ -60,7 +61,7 @@ describe('extractLinks', () => {
     })
     vi.stubGlobal('window', { location: { origin: 'https://example.com', hash: '' } })
 
-    const links = await extractLinks(createMockPage('https://example.com') as never)
+    const links = await extractLinks(createMockPage('https://example.com') as unknown as Page)
     expect(links).toEqual([])
   })
 
@@ -72,7 +73,7 @@ describe('extractLinks', () => {
     })
     vi.stubGlobal('window', { location: { origin: 'https://example.com', hash: '' } })
 
-    const links = await extractLinks(createMockPage('https://example.com') as never)
+    const links = await extractLinks(createMockPage('https://example.com') as unknown as Page)
     expect(links).toEqual([])
   })
 
@@ -87,7 +88,7 @@ describe('extractLinks', () => {
     })
     vi.stubGlobal('window', { location: { origin: 'https://example.com', hash: '' } })
 
-    const links = await extractLinks(createMockPage('https://example.com') as never)
+    const links = await extractLinks(createMockPage('https://example.com') as unknown as Page)
     expect(links).toEqual(expect.arrayContaining([
       'https://example.com/#/dashboard',
       'https://example.com/#!/settings',
@@ -104,7 +105,7 @@ describe('extractLinks', () => {
     })
     vi.stubGlobal('window', { location: { origin: 'https://example.com', hash: '' } })
 
-    const links = await extractLinks(createMockPage('https://example.com') as never)
+    const links = await extractLinks(createMockPage('https://example.com') as unknown as Page)
     expect(links).toContain('https://example.com/local')
     expect(links).not.toContain('https://evil.com/steal')
   })
@@ -119,7 +120,7 @@ describe('extractLinks', () => {
     })
     vi.stubGlobal('window', { location: { origin: 'https://example.com', hash: '' } })
 
-    const links = await extractLinks(createMockPage('https://example.com') as never)
+    const links = await extractLinks(createMockPage('https://example.com') as unknown as Page)
     // All should normalize to the same URL
     expect(links).toHaveLength(1)
     expect(links[0]).toBe('https://example.com/page')
@@ -142,7 +143,7 @@ describe('extractLinks', () => {
     })
     vi.stubGlobal('window', { location: { origin: 'https://example.com', hash: '' } })
 
-    const links = await extractLinks(createMockPage('https://example.com') as never)
+    const links = await extractLinks(createMockPage('https://example.com') as unknown as Page)
     expect(links).toContain('https://example.com/settings')
   })
 
@@ -158,7 +159,7 @@ describe('extractLinks', () => {
     })
     vi.stubGlobal('window', { location: { origin: 'https://example.com', hash: '' } })
 
-    const links = await extractLinks(createMockPage('https://example.com') as never)
+    const links = await extractLinks(createMockPage('https://example.com') as unknown as Page)
     expect(links).toEqual(expect.arrayContaining([
       'https://example.com/about',
       'https://example.com/contact',
@@ -172,7 +173,7 @@ describe('extractLinks', () => {
     })
     vi.stubGlobal('window', { location: { origin: 'https://example.com', hash: '' } })
 
-    const links = await extractLinks(createMockPage('https://example.com') as never)
+    const links = await extractLinks(createMockPage('https://example.com') as unknown as Page)
     expect(links).toEqual([])
   })
 })

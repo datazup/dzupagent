@@ -25,6 +25,7 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import type { DzupEventBus } from '@dzupagent/core'
 import { z } from 'zod'
 import { tool } from '@langchain/core/tools'
 
@@ -312,7 +313,7 @@ describe('StuckDetector integration — repeated tool calls', () => {
     const agent = new DzupAgent(
       configWith(model, [makeNoopTool('emit-test')], {
         guardrails: { stuckDetector: { maxRepeatCalls: 2 } },
-        eventBus: bus as never,
+        eventBus: bus as unknown as DzupEventBus,
         maxIterations: 5,
       }),
     )
@@ -495,7 +496,7 @@ describe('StuckDetector integration — error rate', () => {
             errorWindowMs: 60_000,
           },
         },
-        eventBus: bus as never,
+        eventBus: bus as unknown as DzupEventBus,
       }),
     )
 
@@ -525,7 +526,7 @@ describe('StuckDetector integration — error rate', () => {
             errorWindowMs: 60_000,
           },
         },
-        eventBus: bus as never,
+        eventBus: bus as unknown as DzupEventBus,
       }),
     )
 
@@ -1052,7 +1053,7 @@ describe('StuckDetector integration — combined triggers', () => {
           stuckDetector: { maxRepeatCalls: 2 },
           maxTokens: 1_000_000,
         },
-        eventBus: bus as never,
+        eventBus: bus as unknown as DzupEventBus,
         maxIterations: 5,
       }),
     )
@@ -1105,7 +1106,7 @@ describe('StuckDetector integration — defaults & no-config', () => {
 
     const agent = new DzupAgent(
       configWith(model, [makeNoopTool('rep')], {
-        eventBus: bus as never,
+        eventBus: bus as unknown as DzupEventBus,
         maxIterations: 6,
       }),
     )
@@ -1133,7 +1134,7 @@ describe('StuckDetector integration — defaults & no-config', () => {
       configWith(model, [makeNoopTool('r')], {
         // Empty guardrails object → uses defaults (maxRepeatCalls=3)
         guardrails: {},
-        eventBus: bus as never,
+        eventBus: bus as unknown as DzupEventBus,
         maxIterations: 5,
       }),
     )

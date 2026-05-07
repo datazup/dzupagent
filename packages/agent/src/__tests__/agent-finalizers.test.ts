@@ -15,6 +15,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type * as ContextModule from '@dzupagent/context'
+import type { ModelRegistry, DzupEventBus } from '@dzupagent/core'
+import type { MemoryService } from '@dzupagent/memory'
 import {
   maybeUpdateSummary,
   maybeWriteBackMemory,
@@ -156,7 +158,7 @@ describe('maybeUpdateSummary', () => {
 
     await maybeUpdateSummary({
       agentId: 'agent-1',
-      config: makeConfig({ registry: registry as never }),
+      config: makeConfig({ registry: registry as unknown as ModelRegistry }),
       resolvedModel: mockModel(),
       conversationSummary: null,
       messages: baseMessages,
@@ -239,7 +241,7 @@ describe('maybeUpdateSummary', () => {
 
     await maybeUpdateSummary({
       agentId: 'agent-1',
-      config: makeConfig({ eventBus: eventBus as never }),
+      config: makeConfig({ eventBus: eventBus as unknown as DzupEventBus }),
       resolvedModel: mockModel(),
       conversationSummary: null,
       messages: baseMessages,
@@ -274,7 +276,7 @@ describe('maybeWriteBackMemory', () => {
         get: vi.fn(async () => []),
         search: vi.fn(async () => []),
         delete: vi.fn(async () => false),
-      } as never,
+      } as unknown as MemoryService,
       ...overrides,
     })
   }
@@ -318,7 +320,7 @@ describe('maybeWriteBackMemory', () => {
   it('is a no-op when memoryNamespace is not configured', async () => {
     const config = makeConfig({
       memoryScope: { userId: 'u1' },
-      memory: { put: vi.fn(), get: vi.fn(), search: vi.fn(), delete: vi.fn() } as never,
+      memory: { put: vi.fn(), get: vi.fn(), search: vi.fn(), delete: vi.fn() } as unknown as MemoryService,
     })
 
     await maybeWriteBackMemory({ agentId: 'agent-1', config, content: 'result' })
@@ -329,7 +331,7 @@ describe('maybeWriteBackMemory', () => {
   it('is a no-op when memoryScope is not configured', async () => {
     const config = makeConfig({
       memoryNamespace: 'ns',
-      memory: { put: vi.fn(), get: vi.fn(), search: vi.fn(), delete: vi.fn() } as never,
+      memory: { put: vi.fn(), get: vi.fn(), search: vi.fn(), delete: vi.fn() } as unknown as MemoryService,
     })
 
     await maybeWriteBackMemory({ agentId: 'agent-1', config, content: 'result' })
@@ -377,7 +379,7 @@ describe('maybeWriteBackMemory', () => {
       off: vi.fn(),
     }
 
-    const config = makeMemoryConfig({ eventBus: eventBus as never })
+    const config = makeMemoryConfig({ eventBus: eventBus as unknown as DzupEventBus })
 
     await maybeWriteBackMemory({
       agentId: 'agent-1',
@@ -405,7 +407,7 @@ describe('maybeWriteBackMemory', () => {
         get: vi.fn(async () => []),
         search: vi.fn(async () => []),
         delete: vi.fn(async () => false),
-      } as never,
+      } as unknown as MemoryService,
     })
 
     await expect(
@@ -454,7 +456,7 @@ describe('maybeWriteBackMemory', () => {
 
     const config = makeMemoryConfig({
       security: { pii: 'block' },
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
     })
 
     // SSN is a PII pattern that should be detected
@@ -499,7 +501,7 @@ describe('maybeWriteBackMemory', () => {
       off: vi.fn(),
     }
 
-    const config = makeMemoryConfig({ eventBus: eventBus as never })
+    const config = makeMemoryConfig({ eventBus: eventBus as unknown as DzupEventBus })
 
     await maybeWriteBackMemory({
       agentId: 'agent-1',

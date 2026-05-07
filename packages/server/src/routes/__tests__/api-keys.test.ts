@@ -6,12 +6,17 @@
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
 import { Hono } from 'hono'
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
+import type { DzupEventBus } from '@dzupagent/core'
 import { createApiKeyRoutes } from '../api-keys.js'
+import type { AppEnv } from '../../types.js'
 import {
   PostgresApiKeyStore,
   type ApiKeyRecord,
   type CreateApiKeyResult,
 } from '../../persistence/api-key-store.js'
+
+type ApiKeyDB = PostgresJsDatabase<Record<string, never>>
 
 function buildRecord(overrides: Partial<ApiKeyRecord> = {}): ApiKeyRecord {
   return {
@@ -30,7 +35,7 @@ function buildRecord(overrides: Partial<ApiKeyRecord> = {}): ApiKeyRecord {
 
 function buildStore(): PostgresApiKeyStore {
   // Instantiate with a dummy db — we replace the instance methods below.
-  const store = new PostgresApiKeyStore({} as never)
+  const store = new PostgresApiKeyStore({} as unknown as ApiKeyDB)
   store.create = vi.fn() as unknown as typeof store.create
   store.list = vi.fn() as unknown as typeof store.list
   store.revoke = vi.fn() as unknown as typeof store.revoke
@@ -45,10 +50,10 @@ function buildApp(store: PostgresApiKeyStore): Hono {
   return app
 }
 
-function buildScopedApp(store: PostgresApiKeyStore, ownerId: string): Hono {
-  const app = new Hono()
+function buildScopedApp(store: PostgresApiKeyStore, ownerId: string): Hono<AppEnv> {
+  const app = new Hono<AppEnv>()
   app.use('*', async (c, next) => {
-    c.set('identity' as never, { id: ownerId } as never)
+    c.set('identity', { id: ownerId })
     return next()
   })
   app.route('/api/keys', createApiKeyRoutes({ store }))
@@ -185,9 +190,9 @@ describe('API key routes', () => {
     const record = buildRecord({ ownerId: 'user-42' })
     ;(store.create as ReturnType<typeof vi.fn>).mockResolvedValue({ key: rawKey, record })
 
-    const scopedApp = new Hono()
+    const scopedApp = new Hono<AppEnv>()
     scopedApp.use('*', async (c, next) => {
-      c.set('identity' as never, { id: 'user-42' } as never)
+      c.set('identity', { id: 'user-42' })
       return next()
     })
     scopedApp.route('/api/keys', createApiKeyRoutes({ store }))
@@ -429,7 +434,7 @@ describe('PostgresApiKeyStore — event bus audit trail', () => {
           ],
         }),
       }),
-    } as never, bus as never)
+    } as unknown as ApiKeyDB, bus as unknown as DzupEventBus)
 
     await store.create('user-1', 'test', 'standard')
 
@@ -452,7 +457,7 @@ describe('PostgresApiKeyStore — event bus audit trail', () => {
           }),
         }),
       }),
-    } as never, bus as never)
+    } as unknown as ApiKeyDB, bus as unknown as DzupEventBus)
 
     await store.revoke('k2')
 
@@ -473,7 +478,7 @@ describe('PostgresApiKeyStore — event bus audit trail', () => {
           }),
         }),
       }),
-    } as never, bus as never)
+    } as unknown as ApiKeyDB, bus as unknown as DzupEventBus)
 
     await store.revoke('k-already')
 
@@ -508,7 +513,7 @@ describe('PostgresApiKeyStore — event bus audit trail', () => {
           where: async () => undefined,
         }),
       }),
-    } as never, bus as never)
+    } as unknown as ApiKeyDB, bus as unknown as DzupEventBus)
 
     await store.validate('raw-key')
 
@@ -530,7 +535,7 @@ describe('PostgresApiKeyStore — event bus audit trail', () => {
           }),
         }),
       }),
-    } as never, bus as never)
+    } as unknown as ApiKeyDB, bus as unknown as DzupEventBus)
 
     const result = await store.validate('unknown-key')
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { SkillRegistry, SkillLoader, SkillResolutionContext } from '@dzupagent/core'
 import {
   resolveSkills,
   formatResolvedSkillsPrompt,
@@ -12,7 +13,7 @@ describe('resolveSkills', () => {
     const config: SkillResolverConfig = {
       registry: {
         get: vi.fn().mockReturnValue({ instructions: 'registry content' }),
-      } as never,
+      } as unknown as SkillRegistry,
     }
     const result = await resolveSkills(['my-skill'], config)
     expect(result).toHaveLength(1)
@@ -22,10 +23,10 @@ describe('resolveSkills', () => {
 
   it('falls back to loader when not in registry', async () => {
     const config: SkillResolverConfig = {
-      registry: { get: vi.fn().mockReturnValue(undefined) } as never,
+      registry: { get: vi.fn().mockReturnValue(undefined) } as unknown as SkillRegistry,
       loader: {
         loadSkillContent: vi.fn().mockResolvedValue('loader content'),
-      } as never,
+      } as unknown as SkillLoader,
     }
     const result = await resolveSkills(['my-skill'], config)
     expect(result).toHaveLength(1)
@@ -35,7 +36,7 @@ describe('resolveSkills', () => {
   it('skips unresolved skills with a console.warn', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const config: SkillResolverConfig = {
-      registry: { get: vi.fn().mockReturnValue(undefined) } as never,
+      registry: { get: vi.fn().mockReturnValue(undefined) } as unknown as SkillRegistry,
     }
     const result = await resolveSkills(['missing-skill'], config)
     expect(result).toHaveLength(0)
@@ -46,7 +47,7 @@ describe('resolveSkills', () => {
   it('handles loader that returns null', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const config: SkillResolverConfig = {
-      loader: { loadSkillContent: vi.fn().mockResolvedValue(null) } as never,
+      loader: { loadSkillContent: vi.fn().mockResolvedValue(null) } as unknown as SkillLoader,
     }
     const result = await resolveSkills(['missing'], config)
     expect(result).toHaveLength(0)
@@ -56,7 +57,7 @@ describe('resolveSkills', () => {
   it('handles loader that throws', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const config: SkillResolverConfig = {
-      loader: { loadSkillContent: vi.fn().mockRejectedValue(new Error('boom')) } as never,
+      loader: { loadSkillContent: vi.fn().mockRejectedValue(new Error('boom')) } as unknown as SkillLoader,
     }
     const result = await resolveSkills(['error-skill'], config)
     expect(result).toHaveLength(0)
@@ -70,13 +71,13 @@ describe('resolveSkills', () => {
           if (name === 'a') return { instructions: 'A content' }
           return undefined
         }),
-      } as never,
+      } as unknown as SkillRegistry,
       loader: {
         loadSkillContent: vi.fn().mockImplementation(async (name: string) => {
           if (name === 'b') return 'B content'
           return null
         }),
-      } as never,
+      } as unknown as SkillLoader,
     }
     const result = await resolveSkills(['a', 'b'], config)
     expect(result).toHaveLength(2)
@@ -122,7 +123,7 @@ describe('injectSkillsIntoState', () => {
 
   it('injects skill context when provided', () => {
     const state: Record<string, unknown> = {}
-    const context = { taskType: 'generation' } as never
+    const context = { taskType: 'generation' } as unknown as SkillResolutionContext
     injectSkillsIntoState(state, 'gen', [], context)
     expect(state['__skill_context']).toBe(context)
   })
@@ -140,7 +141,7 @@ describe('resolveAndInjectSkills', () => {
     const config: SkillResolverConfig = {
       registry: {
         get: vi.fn().mockReturnValue({ instructions: 'content' }),
-      } as never,
+      } as unknown as SkillRegistry,
     }
     const result = await resolveAndInjectSkills(['skill1'], 'gen', state, config)
     expect(result).toHaveLength(1)
