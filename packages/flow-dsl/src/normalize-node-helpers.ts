@@ -1,0 +1,117 @@
+import type { FlowNode } from '@dzupagent/flow-ast'
+
+import { DSL_ERROR } from './errors.js'
+import {
+  normalizeAction,
+  normalizeApproval,
+  normalizeClarify,
+  normalizeForEach,
+  normalizeIf,
+  normalizeParallel,
+} from './normalize-nodes-action.js'
+import {
+  normalizeCheckpoint,
+  normalizeClassify,
+  normalizeComplete,
+  normalizePersona,
+  normalizeRestore,
+  normalizeRoute,
+} from './normalize-nodes-routing.js'
+import { isPlainObject } from './normalize-value-helpers.js'
+import type { DslDiagnostic } from './types.js'
+
+export function normalizeSteps(
+  raw: unknown,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): FlowNode[] {
+  if (!Array.isArray(raw)) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'steps must be an array',
+      path,
+    })
+    return []
+  }
+  const nodes: FlowNode[] = []
+  for (let i = 0; i < raw.length; i += 1) {
+    const node = normalizeNodeWrapper(raw[i], `${path}[${i}]`, diagnostics)
+    if (node) nodes.push(node)
+  }
+  return nodes
+}
+
+export function normalizeNodeWrapper(
+  raw: unknown,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): FlowNode | null {
+  if (!isPlainObject(raw)) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'step item must be an object wrapper',
+      path,
+    })
+    return null
+  }
+
+  const keys = Object.keys(raw)
+  if (keys.length !== 1) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'each step item must contain exactly one node wrapper key',
+      path,
+    })
+    return null
+  }
+
+  const kind = keys[0]!
+  const value = raw[kind]
+  if (!isPlainObject(value)) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: `node wrapper "${kind}" must contain an object`,
+      path,
+    })
+    return null
+  }
+
+  switch (kind) {
+    case 'action':
+      return normalizeAction(value, path, diagnostics)
+    case 'if':
+      return normalizeIf(value, path, diagnostics, normalizeSteps)
+    case 'parallel':
+      return normalizeParallel(value, path, diagnostics, normalizeSteps)
+    case 'for_each':
+      return normalizeForEach(value, path, diagnostics, normalizeSteps)
+    case 'approval':
+      return normalizeApproval(value, path, diagnostics, normalizeSteps)
+    case 'clarify':
+      return normalizeClarify(value, path, diagnostics)
+    case 'persona':
+      return normalizePersona(value, path, diagnostics, normalizeSteps)
+    case 'route':
+      return normalizeRoute(value, path, diagnostics, normalizeSteps)
+    case 'complete':
+      return normalizeComplete(value, path, diagnostics)
+    case 'classify':
+      return normalizeClassify(value, path, diagnostics)
+    case 'checkpoint':
+      return normalizeCheckpoint(value, path, diagnostics)
+    case 'restore':
+      return normalizeRestore(value, path, diagnostics)
+    default:
+      diagnostics.push({
+        phase: 'normalize',
+        code: DSL_ERROR.UNKNOWN_NODE_TYPE,
+        message: `Unknown node type "${kind}"`,
+        path,
+      })
+      return null
+  }
+}
