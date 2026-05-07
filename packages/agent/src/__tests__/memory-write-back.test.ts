@@ -11,6 +11,7 @@ import { MemoryService } from '@dzupagent/memory'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
+import { makeMockMemoryService, makeMockModel } from './test-utils.js'
 
 class FakeStore {
   private readonly data = new Map<string, Map<string, Record<string, unknown>>>()
@@ -55,16 +56,11 @@ class CapturingReferenceTracker {
 }
 
 function createMemoryService() {
-  return {
-    get: vi.fn(async () => [] as Array<Record<string, unknown>>),
-    put: vi.fn(async () => undefined),
-  }
+  return makeMockMemoryService()
 }
 
-function createModel(content: string = 'agent response') {
-  return {
-    invoke: vi.fn(async () => new AIMessage({ content })),
-  }
+function createModel(content = 'agent response') {
+  return makeMockModel(content)
 }
 
 describe('DzupAgent memory write-back (P9)', () => {
@@ -79,8 +75,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'test-agent',
       instructions: 'Base instructions',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })
@@ -120,7 +116,7 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'read-ref-agent',
       instructions: 'Base instructions',
-      model: model as never,
+      model: model,
       memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
@@ -150,8 +146,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'event-agent',
       instructions: 'Base instructions',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
       eventBus,
@@ -181,8 +177,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'no-writeback',
       instructions: 'Base',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
       memoryWriteBack: false,
@@ -199,8 +195,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'no-scope',
       instructions: 'Base',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       // memoryScope intentionally omitted
     })
@@ -216,8 +212,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'empty-content',
       instructions: 'Base',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })
@@ -236,8 +232,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'put-throws',
       instructions: 'Base',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })
@@ -260,8 +256,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'put-throws-event',
       instructions: 'Base',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
       eventBus,
@@ -294,8 +290,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'bg-agent',
       instructions: 'Base',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })
@@ -320,8 +316,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'ttl-agent',
       instructions: 'Base',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
       ttlMs,
@@ -352,8 +348,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'no-ttl-agent',
       instructions: 'Base',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })
@@ -373,8 +369,8 @@ describe('DzupAgent memory write-back (P9)', () => {
     const agent = new DzupAgent({
       id: 'stream-agent',
       instructions: 'Base',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })
