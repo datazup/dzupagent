@@ -97,9 +97,10 @@ export async function applyOutputFilterChain(
   let current = output
   for (const filter of filters) {
     const result = await filter.filter(current, ctx)
-    if (result !== null) {
-      current = result
+    if (result === null) {
+      break
     }
+    current = result
   }
   return current
 }
