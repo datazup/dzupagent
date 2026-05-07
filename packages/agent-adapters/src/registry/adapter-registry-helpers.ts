@@ -254,9 +254,13 @@ export function buildFallbackOrder(
 ): AdapterProviderId[] {
   const ordered: AdapterProviderId[] = []
   const seen = new Set<AdapterProviderId>()
+  // Pre-build a healthy-id Set so membership checks in addUnique are O(1)
+  // amortized instead of O(n) per call (avoids overall O(n^2) behaviour
+  // for large provider rosters during health/fallback pathing).
+  const healthySet = new Set<AdapterProviderId>(healthyIds)
 
   const addUnique = (id: AdapterProviderId): void => {
-    if (!seen.has(id) && healthyIds.includes(id)) {
+    if (!seen.has(id) && healthySet.has(id)) {
       seen.add(id)
       ordered.push(id)
     }
