@@ -29,20 +29,14 @@ import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import {
-  attachStructuredOutputCapabilities,
-  calculateCostCents,
-  defaultTokenizerRegistry,
-  extractTokenUsage,
-  isTransientError,
   TokenBucket,
   type ModelTier,
   type PermissionTier,
   type StructuredOutputModelCapabilities,
   type Tokenizer,
 } from '@dzupagent/core'
-import { DistributedRateLimiter } from '../guardrails/distributed-rate-limiter.js'
-import { DistributedCostLedger } from '../guardrails/distributed-budget.js'
-import { shouldSummarize, summarizeAndTrim } from '@dzupagent/context'
+import type { DistributedRateLimiter } from '../guardrails/distributed-rate-limiter.js'
+import type { DistributedCostLedger } from '../guardrails/distributed-budget.js'
 import type {
   DzupAgentConfig,
   GenerateOptions,
@@ -50,23 +44,17 @@ import type {
   AgentStreamEvent,
 } from './agent-types.js'
 import type { AgentMailbox } from '../mailbox/types.js'
-import { AgentMailboxImpl } from '../mailbox/agent-mailbox.js'
-import { InMemoryMailboxStore } from '../mailbox/in-memory-mailbox-store.js'
-import { createSendMailTool, createCheckMailTool } from '../mailbox/mail-tools.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
+import { estimateConversationTokensForMessages } from './message-utils.js'
+import type { AgentInstructionResolver } from './instruction-resolution.js'
+import type { AgentMemoryContextLoader } from './memory-context-loader.js'
+import type { AgentMiddlewareRuntime } from './middleware-runtime.js'
+import { installEventBus } from './event-bus-installer.js'
 import {
-  buildPreparedMessages,
-  estimateConversationTokensForMessages,
-} from './message-utils.js'
-import { AgentInstructionResolver } from './instruction-resolution.js'
-import type { AgentInstructionResolverConfig } from './instruction-resolution.js'
-import { AgentMemoryContextLoader, ArrowRuntimeNotInjectedError } from './memory-context-loader.js'
-import type {
-  AgentMemoryContextLoaderConfig,
-  ArrowMemoryRuntime,
-} from './memory-context-loader.js'
-import { AgentMiddlewareRuntime } from './middleware-runtime.js'
-import type { AgentMiddlewareRuntimeConfig } from './middleware-runtime.js'
+  prepareMessages as prepareMessagesCoord,
+  maybeUpdateSummary as maybeUpdateSummaryCoord,
+  type ConversationSummaryAccessor,
+} from './message-preparation.js'
 import {
   executeGenerateRun,
   prepareRunState,
@@ -75,7 +63,6 @@ import {
 } from './run-engine.js'
 import type { RunHandle, LaunchOptions } from './run-handle-types.js'
 import { streamRun } from './streaming-run.js'
-import { attemptWithFailover } from './provider-failover.js'
 import { launchDaemon } from './daemon-launcher.js'
 import { agentAsTool } from '../tools/agent-as-tool.js'
 import { filterToolsByTier } from '../tools/tool-tier-registry.js'
@@ -84,21 +71,29 @@ import {
   extractJsonFromText,
 } from './structured-generate.js'
 import { maybeWriteBackMemory as maybeWriteBackMemoryFinalizer } from './agent-finalizers.js'
-import { ConsolidationEngine } from '@dzupagent/memory'
-import type { ConsolidationStore } from '@dzupagent/memory'
+import {
+  invokeModelWithMiddleware as invokeModelWithMiddlewareCoord,
+  transformToolResultWithMiddleware as transformToolResultWithMiddlewareCoord,
+  type ModelInvocationDeps,
+} from './model-invocation.js'
+import { runConsolidation } from './consolidation-coordinator.js'
 import { omitUndefined } from '../utils/exact-optional.js'
+import {
+  emitToolFilterAudit,
+  resolveTokenizer,
+  resolveRateLimiter,
+  validateConfig,
+} from './agent-construction.js'
+import {
+  resolveModel,
+  bindTools as bindToolsHelper,
+  getProviderAttempts as getProviderAttemptsHelper,
+  shouldRunFailover as shouldRunFailoverHelper,
+} from './provider-selection.js'
 
 // Re-export for backward compatibility — tests and external consumers
 // import `extractJsonFromText` from `dzip-agent.js`.
 export { extractJsonFromText }
-
-const MODEL_TIERS: Set<string> = new Set(['chat', 'reasoning', 'codegen', 'embedding'])
-
-interface ProviderAttempt {
-  provider: string
-  modelName: string
-  model: BaseChatModel
-}
 
 function resolveStructuredOutputCapabilities(
   model: BaseChatModel,
@@ -106,239 +101,6 @@ function resolveStructuredOutputCapabilities(
   return (model as BaseChatModel & {
     structuredOutputCapabilities?: StructuredOutputModelCapabilities
   }).structuredOutputCapabilities
-}
-
-function resolveRateLimiter(
-  config: DzupAgentConfig['rateLimiter'],
-): TokenBucket | undefined {
-  if (!config) return undefined
-  if (config instanceof TokenBucket) return config
-  return new TokenBucket(config)
-}
-
-/**
- * Resolve a {@link Tokenizer} for the agent (MC-08).
- *
- * Resolution order:
- * 1. Explicit `config.tokenizer` (caller-provided override)
- * 2. `defaultTokenizerRegistry.resolve(modelId)` keyed off the resolved model
- * 3. Heuristic fallback (built into the registry's `resolve()` contract)
- *
- * Never throws — the registry always returns at least a HeuristicTokenizer.
- */
-function resolveTokenizer(
-  config: DzupAgentConfig,
-  resolvedModel: BaseChatModel,
-  resolvedTier: ModelTier | undefined,
-): Tokenizer {
-  if (config.tokenizer) return config.tokenizer
-  // Prefer an explicit string model identifier; otherwise inspect the model
-  // instance, then fall back to the resolved tier label so the registry can
-  // still match generic patterns (e.g. /gpt-/, /claude/).
-  const modelHint =
-    typeof config.model === 'string'
-      ? config.model
-      : (resolvedModel as { model?: string; modelName?: string; _modelType?: () => string }).model
-        ?? (resolvedModel as { modelName?: string }).modelName
-        ?? resolvedTier
-        ?? 'unknown'
-  return defaultTokenizerRegistry.resolve(modelHint)
-}
-
-/**
- * RF-21 — pre-construction validation of the {@link DzupAgentConfig}.
- *
- * Throws on invalid combinations *before* any heavy resources are
- * allocated, so callers see a clear failure mode instead of obscure
- * downstream errors. Currently checks:
- *
- *   - `config.id` must be a non-empty string (other modules key off it).
- *   - When `config.model` is a string, a `config.registry` is required
- *     (the same constraint enforced in `resolveModel`, hoisted earlier
- *     so it fires before tokenizer / event-bus wiring runs).
- *
- * Designed to be cheap and side-effect-free.
- */
-function validateConfig(config: DzupAgentConfig): void {
-  if (typeof config.id !== 'string' || config.id.length === 0) {
-    throw new Error('DzupAgent: config.id must be a non-empty string')
-  }
-  if (typeof config.model === 'string' && !config.registry) {
-    throw new Error(
-      `DzupAgent "${config.id}": model is a string ("${config.model}") but no registry was provided`,
-    )
-  }
-}
-
-/**
- * RF-21 — wiring bundle returned by {@link installEventBus}.
- *
- * Each field is `readonly` so the constructor's `readonly` invariants
- * are preserved when assigned: the constructor binds these one-for-one
- * to its private fields. The optional fields (`mailbox`, distributed
- * guardrails) are `undefined` when the corresponding feature was not
- * configured, matching the pre-RF-21 surface exactly.
- */
-interface AgentEventBusWiring {
-  mailbox: AgentMailbox | undefined
-  mailboxTools: StructuredToolInterface[]
-  distributedRateLimiter: DistributedRateLimiter | undefined
-  distributedCostLedger: DistributedCostLedger | undefined
-  instructionResolver: AgentInstructionResolver
-  memoryContextLoader: AgentMemoryContextLoader
-  middlewareRuntime: AgentMiddlewareRuntime
-}
-
-/**
- * RF-21 — wires every event-bus-aware subsystem (mailbox, distributed
- * guardrails MC-07, instruction resolver, memory context loader,
- * middleware runtime) for a freshly-constructed agent.
- *
- * Returns a bundle that the {@link DzupAgent} constructor binds to its
- * private fields. Splitting this out keeps the constructor body under
- * 40 LOC while preserving the original observable wiring (event bus
- * `agent:context_fallback` emissions, structured fallback details,
- * mailbox tool registration order).
- */
-function installEventBus(
-  agentId: string,
-  config: DzupAgentConfig,
-  rateLimiter: TokenBucket | undefined,
-  estimateConversationTokens: (messages: BaseMessage[]) => number,
-): AgentEventBusWiring {
-  // --- Distributed guardrails (MC-07) ---
-  // Optional Redis-backed rate limit and cost ledger so multi-instance
-  // fleets share a single budget. Both are gated on explicit
-  // `guardrails.distributed.*` config so the default surface is unchanged.
-  const distributed = config.guardrails?.distributed
-  const distributedRateLimiter = distributed?.rateLimiter
-    ? new DistributedRateLimiter(
-        omitUndefined({
-          client: distributed.rateLimiter.client,
-          windowMs: distributed.rateLimiter.windowMs,
-          maxRequests: distributed.rateLimiter.maxRequests,
-          keyPrefix: distributed.rateLimiter.keyPrefix,
-          fallbackToLocal: distributed.rateLimiter.fallbackToLocal,
-        }),
-        rateLimiter,
-      )
-    : undefined
-  const distributedCostLedger = distributed?.costLedger
-    ? new DistributedCostLedger(
-        omitUndefined({
-          client: distributed.costLedger.client,
-          maxCostUsd: distributed.costLedger.maxCostUsd,
-          ttlMs: distributed.costLedger.ttlMs,
-          keyPrefix: distributed.costLedger.keyPrefix,
-          fallbackToLocal: distributed.costLedger.fallbackToLocal,
-        }),
-      )
-    : undefined
-
-  // --- Mailbox (when configured) ---
-  let mailbox: AgentMailbox | undefined
-  let mailboxTools: StructuredToolInterface[] = []
-  if (config.mailbox) {
-    const store = config.mailbox.store ?? new InMemoryMailboxStore()
-    const eventBus = config.mailbox.eventBus ?? config.eventBus
-    const mailboxImpl = new AgentMailboxImpl(agentId, store, eventBus)
-    mailbox = mailboxImpl
-    mailboxTools = [
-      createSendMailTool({ mailbox: mailboxImpl }),
-      createCheckMailTool({ mailbox: mailboxImpl }),
-    ]
-  }
-
-  // --- Instruction resolver ---
-  const instructionResolver = new AgentInstructionResolver(omitUndefined<AgentInstructionResolverConfig>({
-    agentId,
-    instructions: config.instructions,
-    instructionsMode: config.instructionsMode,
-    agentsDir: config.agentsDir,
-  }))
-
-  // --- Memory context loader (the bulk of event-bus wiring) ---
-  // Bridges `onFallback`, `onFallbackDetail`, and the underlying event bus
-  // so listeners receive a consistent `agent:context_fallback` event with
-  // structured detail (provider, namespace, before/after) regardless of
-  // which callback the caller registered.
-  const memoryContextLoader = new AgentMemoryContextLoader(omitUndefined<AgentMemoryContextLoaderConfig>({
-    instructions: config.instructions,
-    memory: config.memory,
-    memoryNamespace: config.memoryNamespace,
-    memoryScope: config.memoryScope,
-    memoryReadContext: config.toolExecution?.runId
-      ? { runId: config.toolExecution.runId }
-      : undefined,
-    arrowMemory: config.arrowMemory,
-    memoryProfile: config.memoryProfile,
-    frozenSnapshot: config.frozenSnapshot,
-    // Inject the Arrow runtime loader (ADR-0005). The dynamic import in
-    // memory-context-loader.ts was removed; callers using arrowMemory must
-    // pass a loader so the dependency is visible at the call site.
-    loadArrowRuntime: config.loadArrowRuntime
-      ? config.loadArrowRuntime as () => Promise<ArrowMemoryRuntime>
-      : undefined,
-    limits: config.memoryContextLimits,
-    estimateConversationTokens,
-    onFallback: config.onFallback
-      ? (reason, before, after) => {
-          config.onFallback!(reason, before, after)
-          config.eventBus?.emit(omitUndefined({
-            type: 'agent:context_fallback',
-            agentId,
-            reason,
-            before,
-            after,
-            provider: 'arrow',
-            namespace: config.memoryNamespace,
-          }))
-        }
-      : config.eventBus
-        ? (reason, before, after) => {
-            config.eventBus!.emit(omitUndefined({
-              type: 'agent:context_fallback',
-              agentId,
-              reason,
-              before,
-              after,
-              provider: 'arrow',
-              namespace: config.memoryNamespace,
-            }))
-          }
-        : undefined,
-    // Bridge structured detail into eventBus so listeners receive the
-    // richer fields (provider, namespace, detail) on the same event type.
-    onFallbackDetail: (event) => {
-      config.onFallbackDetail?.(event)
-      config.eventBus?.emit(omitUndefined({
-        type: 'agent:context_fallback',
-        agentId,
-        reason: event.reason,
-        before: event.tokensBefore ?? 0,
-        after: event.tokensAfter ?? 0,
-        provider: event.provider,
-        namespace: event.namespace,
-        detail: event.detail,
-      }))
-    },
-  }))
-
-  // --- Middleware runtime ---
-  const middlewareRuntime = new AgentMiddlewareRuntime(omitUndefined<AgentMiddlewareRuntimeConfig>({
-    agentId,
-    middleware: config.middleware,
-  }))
-
-  return {
-    mailbox,
-    mailboxTools,
-    distributedRateLimiter,
-    distributedCostLedger,
-    instructionResolver,
-    memoryContextLoader,
-    middlewareRuntime,
-  }
 }
 
 export class DzupAgent {
@@ -371,6 +133,15 @@ export class DzupAgent {
    */
   private readonly permissionTier: PermissionTier
   private conversationSummary: string | null = null
+  /**
+   * Mutable accessor wrapping {@link conversationSummary} so the
+   * `message-preparation` coordinators can read / update it without
+   * exposing the underlying field. Bound once in the constructor.
+   */
+  private readonly summaryAccessor: ConversationSummaryAccessor = {
+    get: () => this.conversationSummary,
+    set: (value) => { this.conversationSummary = value },
+  }
 
   constructor(config: DzupAgentConfig) {
     // RF-21 (CODE-09) — guard early so any invalid combination throws before
@@ -381,7 +152,7 @@ export class DzupAgent {
     this.name = config.name ?? config.id
     this.description = config.description ?? `Agent: ${this.name}`
     this.config = config
-    const resolved = this.resolveModel(config)
+    const resolved = resolveModel(config)
     this.resolvedModel = resolved.model
     this.resolvedProvider = resolved.provider
     this.resolvedTier = resolved.tier
@@ -397,7 +168,7 @@ export class DzupAgent {
       this.id,
       config,
       this.rateLimiter,
-      (messages) => this.estimateConversationTokens(messages),
+      (messages) => estimateConversationTokensForMessages(messages, this.tokenizer),
     )
     if (wiring.mailbox) this.mailbox = wiring.mailbox
     this.mailboxTools = wiring.mailboxTools
@@ -413,29 +184,11 @@ export class DzupAgent {
     // itself happens lazily inside `getTools()` so middleware-resolved
     // tools are also constrained.
     this.permissionTier = config.permissionTier ?? 'read-only'
-    this.emitToolFilterAudit(config)
-  }
-
-  /**
-   * Emit a one-shot `agent:tools-filtered` event capturing how many
-   * resolved tools survived the permission-tier filter. Called once from
-   * the constructor.
-   */
-  private emitToolFilterAudit(config: DzupAgentConfig): void {
-    if (!config.eventBus) return
-    const resolved = this.resolveAvailableTools()
-    const allowed = filterToolsByTier(resolved, this.permissionTier)
-    const allowedSet = new Set<StructuredToolInterface>(allowed)
-    const filtered = resolved
-      .filter((tool) => !allowedSet.has(tool))
-      .map((tool) => tool.name)
-    config.eventBus.emit({
-      type: 'agent:tools-filtered',
+    emitToolFilterAudit({
       agentId: this.id,
-      effectiveTier: this.permissionTier,
-      totalTools: resolved.length,
-      allowedTools: allowed.length,
-      filteredTools: filtered,
+      config,
+      permissionTier: this.permissionTier,
+      resolved: this.resolveAvailableTools(),
     })
   }
 
@@ -484,8 +237,8 @@ export class DzupAgent {
       prepareMessages: (inputMessages) =>
         this.prepareMessages(inputMessages, this.resolveMemoryReadContext(options)),
       getTools: () => this.getTools(),
-      bindTools: (model, tools) => this.bindTools(model, tools),
-      runBeforeAgentHooks: () => this.runBeforeAgentHooks(),
+      bindTools: bindToolsHelper,
+      runBeforeAgentHooks: () => this.middlewareRuntime.runBeforeAgentHooks(),
     }))
 
     const result = await executeGenerateRun(omitUndefined<ExecuteGenerateRunParams>({
@@ -496,13 +249,18 @@ export class DzupAgent {
       invokeModel: (model, preparedMessages) =>
         this.invokeModelWithMiddleware(model, preparedMessages, runState.tools),
       transformToolResult: (toolName, input, result) =>
-        this.transformToolResultWithMiddleware(toolName, input, result),
+        transformToolResultWithMiddlewareCoord(this.middlewareRuntime, toolName, input, result),
       maybeUpdateSummary: (allMessages, memoryFrame) =>
         this.maybeUpdateSummary(allMessages, memoryFrame),
     }))
 
     if ((result.stopReason as string) !== 'failed') {
-      await this.maybeWriteBackMemory(result.content, this.resolveMemoryRunId(options))
+      await maybeWriteBackMemoryFinalizer({
+        agentId: this.id,
+        ...(this.resolveMemoryRunId(options) !== undefined ? { runId: this.resolveMemoryRunId(options)! } : {}),
+        config: this.config,
+        content: result.content,
+      })
     }
 
     return result
@@ -566,19 +324,26 @@ export class DzupAgent {
         resolvedProvider: this.resolvedProvider,
         resolvedTier: this.resolvedTier,
         registry: this.config.registry,
-        getProviderAttempts: (tools) => this.getProviderAttempts(tools),
+        getProviderAttempts: (tools) =>
+          getProviderAttemptsHelper({ config: this.config, resolvedTier: this.resolvedTier, tools }),
         prepareMessages: (inputMessages) =>
           this.prepareMessages(inputMessages, this.resolveMemoryReadContext(options)),
         getTools: () => this.getTools(),
-        bindTools: (model, tools) => this.bindTools(model, tools),
-        runBeforeAgentHooks: () => this.runBeforeAgentHooks(),
+        bindTools: bindToolsHelper,
+        runBeforeAgentHooks: () => this.middlewareRuntime.runBeforeAgentHooks(),
         invokeModelWithMiddleware: (model, preparedMessages) =>
           this.invokeModelWithMiddleware(model, preparedMessages),
         transformToolResultWithMiddleware: (toolName, input, result) =>
-          this.transformToolResultWithMiddleware(toolName, input, result),
+          transformToolResultWithMiddlewareCoord(this.middlewareRuntime, toolName, input, result),
         maybeUpdateSummary: (allMessages, memoryFrame) =>
           this.maybeUpdateSummary(allMessages, memoryFrame),
-        maybeWriteBackMemory: (content, runId) => this.maybeWriteBackMemory(content, runId),
+        maybeWriteBackMemory: (content, runId) =>
+          maybeWriteBackMemoryFinalizer({
+            agentId: this.id,
+            ...(runId !== undefined ? { runId } : {}),
+            config: this.config,
+            content,
+          }),
       },
       messages,
       options,
@@ -629,174 +394,33 @@ export class DzupAgent {
 
   // ---------- Internal helpers --------------------------------------------------
 
-  /**
-   * Resolve the model for this agent. For tier-based lookups this uses
-   * `registry.getModelWithFallback()` so providers with open circuits are
-   * skipped; returns the chosen provider alongside the model so the
-   * invocation path can feed success/failure signals back to the breaker.
-   *
-   * Returns `{ model, provider: undefined }` when an explicit model instance
-   * or a model-by-name is used (no fallback chain applies).
-   */
-  private resolveModel(
-    config: DzupAgentConfig,
-  ): { model: BaseChatModel; provider: string | undefined; tier: ModelTier | undefined } {
-    const attachCapabilities = (model: BaseChatModel): BaseChatModel =>
-      attachStructuredOutputCapabilities(model, config.structuredOutputCapabilities)
-
-    if (typeof config.model !== 'string') {
-      return { model: attachCapabilities(config.model), provider: undefined, tier: undefined }
-    }
-
-    if (!config.registry) {
-      throw new Error(
-        `DzupAgent "${config.id}": model is a string ("${config.model}") but no registry was provided`,
-      )
-    }
-
-    if (MODEL_TIERS.has(config.model)) {
-      const { model, provider } = config.registry.getModelWithFallback(
-        config.model as ModelTier,
-      )
-      return { model: attachCapabilities(model), provider, tier: config.model as ModelTier }
-    }
-
-    return {
-      model: attachCapabilities(config.registry.getModelByName(config.model)),
-      provider: undefined,
-      tier: undefined,
-    }
-  }
-
-  private getProviderAttempts(
-    tools: StructuredToolInterface[],
-  ): ProviderAttempt[] {
-    if (
-      !this.config.providerFailover?.enabled
-      || !this.config.registry
-      || !this.resolvedTier
-    ) {
-      return []
-    }
-
-    const maxAttempts = Math.max(1, this.config.providerFailover.maxAttempts ?? 2)
-    return this.config.registry
-      .getModelFallbackCandidates(this.resolvedTier)
-      .slice(0, maxAttempts)
-      .map((candidate): ProviderAttempt => ({
-        provider: candidate.provider,
-        modelName: candidate.modelName,
-        model: this.bindTools(
-          attachStructuredOutputCapabilities(
-            candidate.model,
-            this.config.structuredOutputCapabilities,
-          ),
-          tools,
-        ),
-      }))
-  }
-
-  private hasToolResults(messages: BaseMessage[]): boolean {
-    return messages.some(message => message._getType() === 'tool')
-  }
-
-  private shouldRunFailover(error: Error, messages: BaseMessage[]): boolean {
-    const policy = this.config.providerFailover
-    if (!policy?.enabled) return false
-    if (this.hasToolResults(messages) && !policy.allowRetryAfterToolResults) {
-      return false
-    }
-    return policy.shouldRetry?.(error) ?? isTransientError(error)
-  }
-
   private getTools(): StructuredToolInterface[] {
-    const resolved = this.resolveAvailableTools()
     // MC-AGT-05 — apply the permission-tier filter on every read so
     // middleware-resolved tools (added dynamically) are also gated.
-    return filterToolsByTier(resolved, this.permissionTier)
+    return filterToolsByTier(this.resolveAvailableTools(), this.permissionTier)
   }
 
   private resolveAvailableTools(): StructuredToolInterface[] {
     const configTools = this.config.tools ?? []
-    const allTools = [...configTools, ...this.mailboxTools]
-    return this.middlewareRuntime.resolveTools(allTools)
-  }
-
-  private bindTools(
-    model: BaseChatModel,
-    tools: StructuredToolInterface[],
-  ): BaseChatModel {
-    if (tools.length === 0) return model
-
-    if ('bindTools' in model && typeof model.bindTools === 'function') {
-      return (model as BaseChatModel & {
-        bindTools: (tools: StructuredToolInterface[]) => BaseChatModel
-      }).bindTools(tools) as BaseChatModel
-    }
-
-    return model
+    return this.middlewareRuntime.resolveTools([...configTools, ...this.mailboxTools])
   }
 
   private async prepareMessages(
     messages: BaseMessage[],
     memoryReadContext?: { runId: string },
   ): Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }> {
-    const baseInstructions = await this.resolveInstructions()
-    const windowedMessages = await this.applyPhaseWindow(messages)
-
-    let memoryContext: string | null = null
-    let memoryFrame: unknown = undefined
-    if (this.config.memory && this.config.memoryScope && this.config.memoryNamespace) {
-      try {
-        const result = await this.memoryContextLoader.load(windowedMessages, memoryReadContext)
-        memoryContext = result.context
-        if (this.config.arrowMemory || this.config.memoryProfile) {
-          memoryFrame = result.frame ?? null
-        }
-      } catch (err) {
-        // ADR-0005 misconfiguration is fatal — the Arrow runtime injector
-        // contract was violated, so re-throw rather than masquerading as a
-        // generic memory_load_failure. Operators get the precise error type
-        // and message instead of a swallowed fallback.
-        if (err instanceof ArrowRuntimeNotInjectedError) {
-          throw err
-        }
-        // Memory failures are non-fatal; emit structured event so operators can
-        // distinguish "no memory configured" from "memory unavailable".
-        const detail = err instanceof Error ? err.message : String(err)
-        const tokensBefore = this.estimateConversationTokens(windowedMessages)
-        const provider = this.describeMemoryProvider()
-        const namespace = this.config.memoryNamespace ?? 'unknown'
-        this.config.onFallback?.('memory_load_failure', tokensBefore, 0)
-        this.config.onFallbackDetail?.({
-          reason: 'memory_load_failure',
-          detail,
-          namespace,
-          provider,
-          tokensBefore,
-          tokensAfter: 0,
-        })
-        this.config.eventBus?.emit({
-          type: 'agent:context_fallback',
-          agentId: this.id,
-          reason: 'memory_load_failure',
-          before: tokensBefore,
-          after: 0,
-          provider,
-          namespace,
-          detail,
-        })
-      }
-    }
-
-    const preparedMessages = buildPreparedMessages({
-      baseInstructions,
-      memoryContext,
-      conversationSummary: this.conversationSummary,
-      messages: windowedMessages,
-    })
-
-    return { messages: preparedMessages, memoryFrame }
+    return prepareMessagesCoord(
+      {
+        agentId: this.id,
+        config: this.config,
+        tokenizer: this.tokenizer,
+        instructionResolver: this.instructionResolver,
+        memoryContextLoader: this.memoryContextLoader,
+        summary: this.summaryAccessor,
+      },
+      messages,
+      memoryReadContext,
+    )
   }
 
   private resolveMemoryReadContext(options?: GenerateOptions): { runId: string } | undefined {
@@ -808,261 +432,50 @@ export class DzupAgent {
     return options?.runId ?? this.config.toolExecution?.runId
   }
 
-  private async applyPhaseWindow(messages: BaseMessage[]): Promise<BaseMessage[]> {
-    if (!this.config.messagePhase) {
-      return messages
-    }
-
-    const targetKeep = this.config.messageConfig?.keepRecentMessages ?? 10
-
-    try {
-      const { PhaseAwareWindowManager } = await import('@dzupagent/context')
-      const manager = new PhaseAwareWindowManager()
-      const splitIdx = manager.findRetentionSplit(messages, targetKeep)
-      if (splitIdx <= 0) {
-        return messages
-      }
-      return messages.slice(splitIdx)
-    } catch {
-      return messages
-    }
-  }
-
-  private async resolveInstructions(): Promise<string> {
-    return this.instructionResolver.resolve()
-  }
-
-  private estimateConversationTokens(messages: BaseMessage[]): number {
-    return estimateConversationTokensForMessages(messages, this.tokenizer)
-  }
-
   private async maybeUpdateSummary(
     messages: BaseMessage[],
     memoryFrame?: unknown,
   ): Promise<void> {
-    if (!shouldSummarize(messages, this.config.messageConfig)) return
-
-    try {
-      const summaryModel = this.config.registry
-        ? this.config.registry.getModel('chat')
-        : this.resolvedModel
-
-      const { summary } = await summarizeAndTrim(
-        messages,
-        this.conversationSummary,
-        summaryModel,
-        omitUndefined({
-          ...this.config.messageConfig,
-          ...(memoryFrame ? { memoryFrame } : {}),
-          onFallback: this.config.onFallback
-            ? (reason: string, before: number, after: number) => {
-                this.config.onFallback!(reason, before, after)
-                this.config.eventBus?.emit({
-                  type: 'agent:context_fallback',
-                  agentId: this.id,
-                  reason,
-                  before,
-                  after,
-                })
-              }
-            : this.config.eventBus
-              ? (reason: string, before: number, after: number) => {
-                  this.config.eventBus!.emit({
-                    type: 'agent:context_fallback',
-                    agentId: this.id,
-                    reason,
-                    before,
-                    after,
-                  })
-              }
-            : undefined,
-        }),
-      )
-      this.conversationSummary = summary
-    } catch (err) {
-      // Summarization failures are non-fatal; emit event so operators can
-      // distinguish absence from failure.
-      const detail = err instanceof Error ? err.message : String(err)
-      const tokensBefore = this.estimateConversationTokens(messages)
-      const namespace = this.config.memoryNamespace ?? 'unknown'
-      this.config.onFallback?.('summary_failure', tokensBefore, tokensBefore)
-      this.config.onFallbackDetail?.({
-        reason: 'summary_failure',
-        detail,
-        namespace,
-        provider: 'summary',
-        tokensBefore,
-        tokensAfter: tokensBefore,
-      })
-      this.config.eventBus?.emit({
-        type: 'agent:context_fallback',
+    return maybeUpdateSummaryCoord(
+      {
         agentId: this.id,
-        reason: 'summary_failure',
-        before: tokensBefore,
-        after: tokensBefore,
-        provider: 'summary',
-        namespace,
-        detail,
-      })
-    }
+        config: this.config,
+        resolvedModel: this.resolvedModel,
+        tokenizer: this.tokenizer,
+        summary: this.summaryAccessor,
+      },
+      messages,
+      memoryFrame,
+    )
   }
 
   /**
-   * Return a non-leaking provider label for memory telemetry.
-   *
-   * Uses the memory service's constructor name when available so operators
-   * can distinguish between e.g. `MemoryService`, `ScopedMemoryService`, and
-   * custom providers without exposing the underlying instance.
+   * Dispatch a model call through the middleware runtime, applying
+   * rate-limit gating, breaker accounting, distributed cost recording,
+   * and same-run provider failover (when enabled). The dependency
+   * bundle is recomputed per-call so failover policy closes over the
+   * current tool-message list and candidate set.
    */
-  private describeMemoryProvider(): string {
-    const memory = this.config.memory
-    if (!memory) return 'none'
-    const ctor = (memory as { constructor?: { name?: string } }).constructor
-    return ctor?.name && ctor.name !== 'Object' ? ctor.name : 'standard'
-  }
-
-  private async runBeforeAgentHooks(): Promise<void> {
-    await this.middlewareRuntime.runBeforeAgentHooks()
-  }
-
-  private async awaitRateLimit(): Promise<void> {
-    // Distributed first: when configured, the fleet-wide ceiling owns
-    // the gate. A `false` return means the shared window is exhausted;
-    // we surface that as a structured event and throw so callers see
-    // the same shape as the local TokenBucket failure.
-    if (this.distributedRateLimiter) {
-      let allowed = true
-      try {
-        allowed = await this.distributedRateLimiter.tryConsume(this.tenantId, this.id)
-      } catch (err) {
-        // The limiter handles its own fallback; an exception here only
-        // happens when both Redis and the local limiter throw. Treat
-        // as fail-open per the distributed-rate-limiter contract.
-        this.config.eventBus?.emit({
-          type: 'agent:rate_limited',
-          agentId: this.id,
-          reason: err instanceof Error ? err.message : String(err),
-        })
-        return
-      }
-      if (!allowed) {
-        const reason = `Distributed rate limit exceeded for ${this.tenantId}:${this.id}`
-        this.config.eventBus?.emit({
-          type: 'agent:rate_limited',
-          agentId: this.id,
-          reason,
-        })
-        throw new Error(reason)
-      }
-      return
-    }
-
-    if (!this.rateLimiter) return
-    try {
-      await this.rateLimiter.waitUntilAvailable(1)
-    } catch (err) {
-      // Surface a structured event before propagating so operators can
-      // distinguish client-side throttling from provider-side failures.
-      this.config.eventBus?.emit({
-        type: 'agent:rate_limited',
-        agentId: this.id,
-        reason: err instanceof Error ? err.message : String(err),
-      })
-      throw err
-    }
-  }
-
-  /**
-   * Record the cost of a successful LLM invocation against the
-   * distributed cost ledger (MC-07). Best-effort: failures emit a
-   * structured event but never propagate so the agent run continues.
-   */
-  private async recordDistributedCost(message: BaseMessage): Promise<void> {
-    if (!this.distributedCostLedger) return
-    try {
-      const usage = extractTokenUsage(message)
-      const costCents = calculateCostCents(usage)
-      const costUsd = costCents / 100
-      const result = await this.distributedCostLedger.record(this.tenantId, this.id, costUsd)
-      if (!result.allowed) {
-        this.config.eventBus?.emit({
-          type: 'agent:rate_limited',
-          agentId: this.id,
-          reason: `Distributed cost ceiling reached for ${this.tenantId}:${this.id} (totalUsd=${result.totalCostUsd})`,
-        })
-      }
-    } catch {
-      // Cost recording is observational; never fail the run.
-    }
-  }
-
   private async invokeModelWithMiddleware(
     model: BaseChatModel,
     messages: BaseMessage[],
     tools: StructuredToolInterface[] = [],
   ): Promise<BaseMessage> {
-    const attempts = this.getProviderAttempts(tools)
-    if (attempts.length > 1) {
-      return this.invokeModelWithProviderFailover(attempts, messages)
-    }
-
-    await this.awaitRateLimit()
-    try {
-      const result = await this.middlewareRuntime.invokeModel(model, messages)
-      // Feed the provider's circuit breaker a success signal. No-op when
-      // the agent was constructed with an explicit model (no fallback
-      // chain in play).
-      if (this.resolvedProvider && this.config.registry) {
-        this.config.registry.recordProviderSuccess(this.resolvedProvider)
-      }
-      await this.recordDistributedCost(result)
-      return result
-    } catch (err) {
-      if (this.resolvedProvider && this.config.registry) {
-        const asError = err instanceof Error ? err : new Error(String(err))
-        // Registry filters to transient errors internally, so unconditional
-        // is safe.
-        this.config.registry.recordProviderFailure(this.resolvedProvider, asError)
-      }
-      throw err
-    }
-  }
-
-  private async invokeModelWithProviderFailover(
-    attempts: ProviderAttempt[],
-    messages: BaseMessage[],
-  ): Promise<BaseMessage> {
-    return attemptWithFailover<BaseMessage>({
-      attempts,
-      phase: 'invoke',
+    const deps: ModelInvocationDeps = {
       agentId: this.id,
+      tenantId: this.tenantId,
+      rateLimiter: this.rateLimiter,
+      distributedRateLimiter: this.distributedRateLimiter,
+      distributedCostLedger: this.distributedCostLedger,
       eventBus: this.config.eventBus,
+      middlewareRuntime: this.middlewareRuntime,
       registry: this.config.registry,
-      shouldRetry: (err) => this.shouldRunFailover(err, messages),
-      execute: async (attempt) => {
-        await this.awaitRateLimit()
-        const result = await this.middlewareRuntime.invokeModel(attempt.model, messages)
-        await this.recordDistributedCost(result)
-        return result
-      },
-    })
-  }
-
-  private async transformToolResultWithMiddleware(
-    toolName: string,
-    input: Record<string, unknown>,
-    result: string,
-  ): Promise<string> {
-    return this.middlewareRuntime.transformToolResult(toolName, input, result)
-  }
-
-  private async maybeWriteBackMemory(content: string, runId?: string): Promise<void> {
-    await maybeWriteBackMemoryFinalizer({
-      agentId: this.id,
-      ...(runId !== undefined ? { runId } : {}),
-      config: this.config,
-      content,
-    })
+      resolvedProvider: this.resolvedProvider,
+      getProviderAttempts: () =>
+        getProviderAttemptsHelper({ config: this.config, resolvedTier: this.resolvedTier, tools }),
+      shouldRunFailover: (err) => shouldRunFailoverHelper(this.config, err, messages),
+    }
+    return invokeModelWithMiddlewareCoord(deps, model, messages)
   }
 
   /**
@@ -1078,30 +491,6 @@ export class DzupAgent {
    * silently when the store is unavailable.
    */
   async consolidate(): Promise<{ summarized: number; summaries: string[] }> {
-    const memory = this.config.memory
-    const namespace = this.config.memoryNamespace
-    const scope = this.config.memoryScope
-    if (!memory || !namespace || !scope) return { summarized: 0, summaries: [] }
-
-    const getStore = (memory as { getStore?: () => unknown }).getStore
-    if (typeof getStore !== 'function') return { summarized: 0, summaries: [] }
-
-    let store: unknown
-    try {
-      store = getStore.call(memory)
-    } catch {
-      return { summarized: 0, summaries: [] }
-    }
-
-    const engine = new ConsolidationEngine({
-      minClusterSize: this.config.memoryPolicy?.consolidateMinCluster ?? 3,
-    })
-
-    try {
-      const result = await engine.consolidate(this.id, namespace, store as ConsolidationStore)
-      return { summarized: result.summarized, summaries: result.summaries }
-    } catch {
-      return { summarized: 0, summaries: [] }
-    }
+    return runConsolidation({ agentId: this.id, config: this.config })
   }
 }
