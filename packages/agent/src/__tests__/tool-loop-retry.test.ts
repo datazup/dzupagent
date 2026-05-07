@@ -187,9 +187,12 @@ describe('executePolicyEnabledToolCall — RF-09 retry policy', () => {
       },
     })
 
-    await executePolicyEnabledToolCall(makeToolCall('locked'), params)
+    // ForgeError from inside tool.invoke (no phase='issuance') is caught and
+    // returned as a ToolMessage, NOT retried — invoke must be called exactly once.
+    const result = await executePolicyEnabledToolCall(makeToolCall('locked'), params)
 
     expect(tool.invoke).toHaveBeenCalledTimes(1)
+    expect(result.message.content).toContain('Error executing tool')
   })
 
   it('does NOT retry once an external abort signal fires between attempts', async () => {
