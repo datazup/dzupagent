@@ -7,7 +7,14 @@
  * detection, and adapter:started/completed/failed lifecycle events.
  */
 import { randomUUID } from 'node:crypto'
-import { ForgeError, defaultLogger, fetchWithOutboundUrlPolicy, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core'
+import {
+  ForgeError,
+  defaultLogger,
+  fetchWithOutboundUrlPolicy,
+  type LlmAuditSink,
+  type LlmInvocationRecord,
+  type OutboundUrlSecurityPolicy,
+} from '@dzupagent/core'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -99,6 +106,12 @@ export interface OpenAIConfig extends AdapterConfig {
   /** Custom base URL for OpenAI-compatible endpoints. Default: 'https://api.openai.com/v1' */
   baseURL?: string
   /**
+   * Outbound URL policy for OpenAI-compatible endpoints. When omitted, the
+   * configured baseURL host is treated as operator-owned for compatibility
+   * with local/self-hosted providers; redirects remain policy-validated.
+   */
+  outboundUrlPolicy?: OutboundUrlSecurityPolicy
+  /**
    * Optional best-effort audit sink invoked once per terminal LLM call.
    * Wire via `attachLlmAuditEventBridge` from `@dzupagent/core` to forward
    * records onto a `DzupEventBus`.
@@ -123,6 +136,15 @@ export interface OpenAIRunResult {
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1'
 const DEFAULT_MODEL = 'gpt-4o-mini'
+
+function defaultOpenAIOutboundPolicy(baseURL: string): OutboundUrlSecurityPolicy | undefined {
+  try {
+    const parsed = new URL(baseURL)
+    return { allowedHosts: [parsed.host] }
+  } catch {
+    return undefined
+  }
+}
 
 /** Raw event shape streamed between open() and mapRawEvent(). */
 type OpenAIRawEvent =
@@ -551,6 +573,8 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
       },
       body: JSON.stringify(body),
       signal: args.signal,
+    }, {
+      policy: this.config.outboundUrlPolicy ?? defaultOpenAIOutboundPolicy(baseURL),
     })
     if (!response.ok) {
       const errorText = await response.text().catch(() => response.statusText)

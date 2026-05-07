@@ -42,6 +42,7 @@ export function createVoyageEmbedding(config: VoyageEmbeddingConfig): EmbeddingP
   async function embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return []
 
+    // eslint-disable-next-line no-restricted-globals -- intentional: fixed Voyage vendor API endpoint, no user-controlled URL
     const response = await fetch(VOYAGE_API_URL, {
       method: 'POST',
       headers: {

@@ -14,6 +14,9 @@ import type {
 } from '../types.js'
 import type { InteractionKind } from './interaction-detector.js'
 
+const ANTHROPIC_MESSAGES_HOST = 'api.anthropic.com'
+const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -188,7 +191,7 @@ Respond with ONLY "yes" or "no" (lowercase, no punctuation). Use the question co
       ],
     })
 
-    const res = await fetchWithOutboundUrlPolicy('https://api.anthropic.com/v1/messages', {
+    const res = await fetchWithOutboundUrlPolicy(ANTHROPIC_MESSAGES_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -197,6 +200,8 @@ Respond with ONLY "yes" or "no" (lowercase, no punctuation). Use the question co
       },
       body,
       signal: AbortSignal.timeout(10_000),
+    }, {
+      policy: { allowedHosts: [ANTHROPIC_MESSAGES_HOST] },
     })
 
     if (!res.ok) {

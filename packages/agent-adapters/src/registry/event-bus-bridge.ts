@@ -152,7 +152,7 @@ export class EventBusBridge {
           toolName: event.toolName,
           input: event.input,
           executionRunId: runId,
-        } as DzupEvent
+        }
 
       case 'adapter:tool_result':
         {
@@ -167,7 +167,7 @@ export class EventBusBridge {
             toolName: event.toolName,
             durationMs: event.durationMs,
             executionRunId,
-          } as DzupEvent
+          }
         }
 
       case 'adapter:completed':

@@ -31,7 +31,7 @@
  */
 
 import { fetchWithOutboundUrlPolicy } from '@dzupagent/core'
-import type { DzupEvent } from '@dzupagent/core'
+import type { DzupEvent, OutboundUrlSecurityPolicy } from '@dzupagent/core'
 
 import type { AgentEvent, AgentStreamEvent } from '../types.js'
 import { validateWebhookUrl } from '../utils/url-validator.js'
@@ -419,6 +419,7 @@ export class AdapterApprovalGate {
 
     // Re-validate at call time in case the URL was mutated after construction
     validateWebhookUrl(this.config.webhookUrl, this.config.webhookUrlValidation)
+    const urlPolicy: OutboundUrlSecurityPolicy | undefined = this.config.webhookUrlValidation
 
     await fetchWithOutboundUrlPolicy(this.config.webhookUrl, {
       method: 'POST',
@@ -433,6 +434,8 @@ export class AdapterApprovalGate {
         tags: context.tags,
         metadata: context.metadata,
       }),
+    }, {
+      policy: urlPolicy,
     })
   }
 }

@@ -56,6 +56,8 @@ export interface OpenRouterConfig extends AdapterConfig {
 }
 
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-5-20250514'
+const OPENROUTER_API_HOST = 'openrouter.ai'
+const OPENROUTER_CHAT_COMPLETIONS_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 /** Internal raw events streamed from open() through the runner. */
 type OpenRouterRawEvent =
@@ -120,7 +122,7 @@ export class OpenRouterAdapter implements AgentCLIAdapter, AdapterStreamSource<O
     if (input.systemPrompt) messages.push({ role: 'system', content: input.systemPrompt })
     messages.push({ role: 'user', content: input.prompt })
 
-    const response = await fetchWithOutboundUrlPolicy('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await fetchWithOutboundUrlPolicy(OPENROUTER_CHAT_COMPLETIONS_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -137,6 +139,8 @@ export class OpenRouterAdapter implements AgentCLIAdapter, AdapterStreamSource<O
           : {}),
       }),
       signal,
+    }, {
+      policy: { allowedHosts: [OPENROUTER_API_HOST] },
     })
 
     if (!response.ok) {

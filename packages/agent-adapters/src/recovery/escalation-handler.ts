@@ -152,6 +152,7 @@ export class WebhookEscalationHandler implements EscalationHandler {
 
   async notify(context: EscalationContext): Promise<void> {
     validateWebhookUrl(this.webhookUrl, { allowHttp: this.options?.allowHttp })
+    const urlPolicy = this.options?.allowHttp === true ? { allowHttp: true } : undefined
     await fetchWithOutboundUrlPolicy(this.webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -160,6 +161,8 @@ export class WebhookEscalationHandler implements EscalationHandler {
         ...context,
         timestamp: Date.now(),
       }),
+    }, {
+      policy: urlPolicy,
     })
   }
 

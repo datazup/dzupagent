@@ -30,6 +30,7 @@ export function createOllamaEmbedding(config: OllamaEmbeddingConfig): EmbeddingP
   async function embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return []
 
+    // eslint-disable-next-line no-restricted-globals -- intentional: Ollama local/self-hosted endpoint; baseUrl is operator-configured infrastructure, not user input
     const response = await fetch(`${baseUrl}/api/embed`, {
       method: 'POST',
       headers: {

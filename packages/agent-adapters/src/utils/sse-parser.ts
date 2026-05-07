@@ -30,6 +30,18 @@ export type ParsedSseLine =
   | null
 
 /**
+ * Returns `true` when the line is the SSE `[DONE]` terminator.
+ *
+ * Handles both the raw `data: [DONE]` form and the bare `[DONE]` string so
+ * callers that have already stripped the `data: ` prefix can use it directly.
+ * Whitespace is trimmed before comparison.
+ */
+export function isSseDone(line: string): boolean {
+  const trimmed = line.trim()
+  return trimmed === 'data: [DONE]' || trimmed === '[DONE]'
+}
+
+/**
  * Parse a single SSE line.
  *
  * Returns:

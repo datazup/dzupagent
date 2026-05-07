@@ -49,6 +49,7 @@ import type {
   LlmCallAuditEntry,
   LlmCallAuditSink,
 } from '../observability/llm-call-audit.js'
+import { applyOutputFilterChain } from './output-filter.js'
 
 /**
  * Push an LLM-call audit entry to the configured sink. Fire-and-forget:
@@ -503,10 +504,24 @@ export async function processGeneratedRun(
     toolStats: result.toolStats,
   })
 
-  const content = await applyOutputFilter(
+  const rawContent = await applyOutputFilter(
     params.config,
     extractFinalAiMessageContent(result.messages),
   )
+
+  // M-13 — pluggable output filter chain. Runs after the legacy
+  // guardrails.outputFilter so existing callers are unaffected.
+  const content = params.config.outputFilters?.length
+    ? await applyOutputFilterChain(
+        rawContent,
+        params.config.outputFilters,
+        {
+          agentId: params.agentId,
+          tenantId: params.config.memoryScope?.['tenantId'] ?? 'default',
+          runId: params.options?.runId ?? params.config.toolExecution?.runId ?? '',
+        },
+      )
+    : rawContent
 
   await params.maybeUpdateSummary(result.messages, params.runState.memoryFrame)
 

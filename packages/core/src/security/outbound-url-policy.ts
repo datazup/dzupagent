@@ -229,6 +229,7 @@ export async function fetchWithOutboundUrlPolicy(
   options: SecureFetchOptions = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS
+  // eslint-disable-next-line no-restricted-globals -- intentional: this is the central secure-fetch wrapper that validates URLs before delegating to the platform fetch implementation
   const fetchImpl = options.fetchImpl ?? fetch
   let currentUrl = typeof url === 'string' ? url : url.href
   let currentInit = init
