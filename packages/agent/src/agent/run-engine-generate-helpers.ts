@@ -334,6 +334,10 @@ export async function setupModelCall(
             // Serialisation failure must never abort the run.
           }
         }
+        // REC-M-05 — bounded prompt preview for compliance dashboards.
+        // Always truncated to 500 chars so audit entries stay small even
+        // when the full `prompt` field is dropped downstream for privacy.
+        const promptSnippet = promptStr?.slice(0, 500)
         try {
           const response = await params.invokeModel(model, messages)
           if (auditStore) {
@@ -347,6 +351,8 @@ export async function setupModelCall(
             } catch {
               // Serialisation failure must never abort the run.
             }
+            // REC-M-05 — bounded response preview, mirrors promptSnippet.
+            const responseSnippet = responseStr?.slice(0, 500)
             void recordAuditEntry(auditStore, {
               agentId: params.agentId,
               ...(params.options?.runId !== undefined ? { runId: params.options.runId } : {}),
@@ -359,6 +365,8 @@ export async function setupModelCall(
               success: true,
               ...(promptStr !== undefined ? { prompt: promptStr } : {}),
               ...(responseStr !== undefined ? { response: responseStr } : {}),
+              ...(promptSnippet !== undefined ? { promptSnippet } : {}),
+              ...(responseSnippet !== undefined ? { responseSnippet } : {}),
             })
           }
           return response
@@ -377,6 +385,7 @@ export async function setupModelCall(
               success: false,
               error: errorMessage,
               ...(promptStr !== undefined ? { prompt: promptStr } : {}),
+              ...(promptSnippet !== undefined ? { promptSnippet } : {}),
             })
           }
           throw err

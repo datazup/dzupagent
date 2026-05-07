@@ -445,6 +445,13 @@ export type { DzupErrorOptions } from './utils/errors.js'
 // --- Utilities ---
 export { isBinaryAvailable, spawnAndStreamJsonl } from './utils/process-helpers.js'
 export { filterSensitiveEnvVars } from './base/base-cli-adapter.js'
+export { AdapterStreamRunner } from './base/stream-runner.js'
+export type {
+  AdapterStreamSource,
+  AdapterStreamRunnerConfig,
+  StreamContext,
+  ThreadStartResult,
+} from './base/stream-runner.js'
 export { validateWebhookUrl } from './utils/url-validator.js'
 export { resolveFallbackProviderId, requireFallbackProviderId } from './utils/provider-helpers.js'
 export type { UrlValidationOptions } from './utils/url-validator.js'

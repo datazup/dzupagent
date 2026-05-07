@@ -2,6 +2,20 @@
  * Pipeline runtime types — execution state, node results, events,
  * and configuration for the pipeline execution engine.
  *
+ * The pure structural shapes (`PipelineState`, `NodeResult`,
+ * `NodeExecutionContext`, `NodeExecutor`, `PipelineRunResult`,
+ * `PipelineRuntimeEvent`, `LoopMetrics`) live in
+ * `@dzupagent/runtime-contracts`. They are re-exported here so existing
+ * imports of `@dzupagent/agent/pipeline` continue to resolve unchanged
+ * (BC re-export shim for REC-H-10).
+ *
+ * Agent-specific extensions (the canonical `RetryPolicy` shape, OTel
+ * structural typing, and the full `PipelineRuntimeConfig`) remain in
+ * this module because they pull in agent-only collaborators
+ * (`RecoveryCopilot`, `PipelineStuckDetector`, `TrajectoryCalibrator`,
+ * checkpoint-store client adapters) that should not bleed into the
+ * neutral runtime-contracts package.
+ *
  * @module pipeline/pipeline-runtime-types
  */
 
@@ -10,6 +24,11 @@ import type {
   PipelineNode,
   PipelineCheckpointStore,
 } from '@dzupagent/core'
+import type {
+  NodeExecutor as RuntimeNodeExecutor,
+  NodeResult,
+  PipelineRuntimeEvent,
+} from '@dzupagent/runtime-contracts'
 import type { RecoveryCopilot } from '../recovery/recovery-copilot.js'
 import type { PipelineStuckDetector } from '../self-correction/pipeline-stuck-detector.js'
 import type { TrajectoryCalibrator } from '../self-correction/trajectory-calibrator.js'
@@ -17,95 +36,28 @@ import type { RedisClientLike } from './redis-checkpoint-store.js'
 import type { PostgresClientLike } from './postgres-checkpoint-store.js'
 
 // ---------------------------------------------------------------------------
-// Pipeline state
+// Re-exported pure runtime contracts (REC-H-10 BC shim)
 // ---------------------------------------------------------------------------
 
-export type PipelineState = 'idle' | 'running' | 'suspended' | 'completed' | 'failed' | 'cancelled'
+export type {
+  PipelineState,
+  NodeResult,
+  NodeExecutionContext,
+  PipelineRunResult,
+  PipelineRuntimeEvent,
+  LoopMetrics,
+} from '@dzupagent/runtime-contracts'
 
-// ---------------------------------------------------------------------------
-// Node result
-// ---------------------------------------------------------------------------
-
-export interface NodeResult {
-  nodeId: string
-  output: unknown
-  durationMs: number
-  error?: string
-}
-
-// ---------------------------------------------------------------------------
-// Pipeline run result
-// ---------------------------------------------------------------------------
-
-export interface PipelineRunResult {
-  pipelineId: string
-  runId: string
-  state: PipelineState
-  nodeResults: Map<string, NodeResult>
-  totalDurationMs: number
-  budgetUsed?: { tokens: number; costCents: number }
-}
-
-// ---------------------------------------------------------------------------
-// Node execution context
-// ---------------------------------------------------------------------------
-
-export interface NodeExecutionContext {
-  /** Shared mutable pipeline state */
-  state: Record<string, unknown>
-  /** Results of previously completed nodes */
-  previousResults: Map<string, NodeResult>
-  /** Cancellation signal */
-  signal?: AbortSignal
-  /** Remaining budget */
-  budget?: { tokensRemaining: number; costRemainingCents: number }
-  /** Hint from stuck detector suggesting the node should try a different strategy */
-  stuckHint?: string
-}
-
-// ---------------------------------------------------------------------------
-// Node executor function
-// ---------------------------------------------------------------------------
-
-export type NodeExecutor = (
-  nodeId: string,
-  node: PipelineNode,
-  context: NodeExecutionContext,
-) => Promise<NodeResult>
-
-// ---------------------------------------------------------------------------
-// Runtime events
-// ---------------------------------------------------------------------------
-
-export type PipelineRuntimeEvent =
-  | { type: 'pipeline:started'; pipelineId: string; runId: string }
-  | { type: 'pipeline:node_started'; nodeId: string; nodeType: string }
-  | { type: 'pipeline:node_completed'; nodeId: string; durationMs: number }
-  | { type: 'pipeline:node_failed'; nodeId: string; error: string }
-  | { type: 'pipeline:suspended'; nodeId: string }
-  | { type: 'pipeline:completed'; runId: string; totalDurationMs: number }
-  | { type: 'pipeline:failed'; runId: string; error: string }
-  | { type: 'pipeline:checkpoint_saved'; runId: string; version: number }
-  | { type: 'pipeline:loop_iteration'; nodeId: string; iteration: number; maxIterations: number }
-  | { type: 'pipeline:node_retry'; nodeId: string; attempt: number; maxAttempts: number; error: string; backoffMs: number }
-  | { type: 'pipeline:recovery_attempted'; nodeId: string; attempt: number; maxAttempts: number; error: string }
-  | { type: 'pipeline:recovery_succeeded'; nodeId: string; attempt: number; summary: string }
-  | { type: 'pipeline:recovery_failed'; nodeId: string; attempt: number; error: string }
-  | { type: 'pipeline:stuck_detected'; nodeId: string; reason: string; suggestedAction: string }
-  | { type: 'pipeline:node_output_recorded'; nodeId: string; outputHash: string }
-  | { type: 'pipeline:calibration_suboptimal'; nodeId: string; baseline: number; currentScore: number; deviation: number; suggestion: string }
-  | { type: 'pipeline:iteration_budget_warning'; level: 'warn_70' | 'warn_90'; totalCost: number; budgetCents: number; iteration: number }
-
-// ---------------------------------------------------------------------------
-// Loop metrics
-// ---------------------------------------------------------------------------
-
-export interface LoopMetrics {
-  iterationCount: number
-  iterationDurations: number[]
-  converged: boolean
-  terminationReason: 'condition_met' | 'max_iterations' | 'budget_exceeded' | 'cancelled'
-}
+/**
+ * Concrete `NodeExecutor` alias bound to the canonical `PipelineNode`
+ * discriminated union from `@dzupagent/core`.
+ *
+ * `@dzupagent/runtime-contracts` exports a generic `NodeExecutor<TNode>`
+ * that is parameterised so the contracts package stays free of a
+ * `@dzupagent/core` dependency. Inside the agent runtime we always
+ * specialise it to the canonical `PipelineNode`.
+ */
+export type NodeExecutor = RuntimeNodeExecutor<PipelineNode>
 
 // ---------------------------------------------------------------------------
 // Retry policy

@@ -10,9 +10,17 @@
 import type { PipelineDefinition, PipelineNode } from '@dzupagent/core'
 import type {
   NodeExecutionContext,
-  NodeExecutor,
+  NodeExecutor as RuntimeNodeExecutor,
   NodeResult,
-} from '@dzupagent/agent/pipeline'
+} from '@dzupagent/runtime-contracts'
+
+/**
+ * `NodeExecutor` specialised to the canonical `PipelineNode` discriminated
+ * union from `@dzupagent/core`. The generic version exported by
+ * `@dzupagent/runtime-contracts` parameterises the `node` argument so the
+ * contracts package stays free of a `@dzupagent/core` dependency.
+ */
+type NodeExecutor = RuntimeNodeExecutor<PipelineNode>
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
