@@ -1,5 +1,6 @@
-import type { AgentExecutionSpec, DzupEventBus, RunContextTransfer, RunStore } from '@dzupagent/core'
-import type { PersistedIntentContext } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { PersistedIntentContext, RunContextTransfer } from '@dzupagent/core/llm'
+import type { AgentExecutionSpec, RunStore } from '@dzupagent/core/persistence'
 import { withForgeContext, type ForgeTraceContext } from '@dzupagent/otel'
 import type { RunReflectionStore, ReflectionSummary } from '@dzupagent/agent'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'

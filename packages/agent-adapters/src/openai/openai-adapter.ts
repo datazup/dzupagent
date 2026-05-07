@@ -7,14 +7,9 @@
  * detection, and adapter:started/completed/failed lifecycle events.
  */
 import { randomUUID } from 'node:crypto'
-import {
-  ForgeError,
-  defaultLogger,
-  fetchWithOutboundUrlPolicy,
-  type LlmAuditSink,
-  type LlmInvocationRecord,
-  type OutboundUrlSecurityPolicy,
-} from '@dzupagent/core'
+import { ForgeError, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core/events'
+import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
+import { defaultLogger } from '@dzupagent/core/utils'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,

@@ -6,13 +6,9 @@
  * breaker state per agent.
  */
 
-import {
-  fetchWithOutboundUrlPolicy,
-  type AgentRegistry,
-  type AgentHealth,
-  type DzupEventBus,
-  type OutboundUrlSecurityPolicy,
-} from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { AgentHealth, AgentRegistry } from '@dzupagent/core/pipeline'
+import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 
 // ------------------------------------------------------------------ Config
 

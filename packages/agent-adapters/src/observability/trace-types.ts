@@ -1,3 +1,5 @@
+import type { DzupEventBus } from '@dzupagent/core/events'
+
 export interface SpanEvent {
   name: string
   timestamp: number
@@ -20,7 +22,7 @@ export interface AdapterTracerConfig {
   /** Service name. Default: 'dzupagent-adapters' */
   serviceName?: string | undefined
   /** Event bus for emitting trace events */
-  eventBus?: import('@dzupagent/core').DzupEventBus | undefined
+  eventBus?: DzupEventBus | undefined
   /** Whether to propagate trace context to adapter processes via env vars. Default true */
   propagateContext?: boolean | undefined
   /** Custom span exporter callback */
