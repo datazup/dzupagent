@@ -5,5 +5,5 @@
  *
  * New code should use DzupError. Existing code using ForgeError continues to work.
  */
-export { ForgeError, ForgeError as DzupError } from '@dzupagent/core'
-export type { ForgeErrorOptions, ForgeErrorOptions as DzupErrorOptions } from '@dzupagent/core'
+export { ForgeError, ForgeError as DzupError } from '@dzupagent/core/events'
+export type { ForgeErrorOptions, ForgeErrorOptions as DzupErrorOptions } from '@dzupagent/core/events'

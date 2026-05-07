@@ -1,1 +1,1 @@
-export { getString, getNumber, getObject, toJsonString } from '@dzupagent/core'
+export { getString, getNumber, getObject, toJsonString } from '@dzupagent/core/utils'
