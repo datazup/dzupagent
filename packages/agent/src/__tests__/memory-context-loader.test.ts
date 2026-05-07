@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { FrozenSnapshot } from '@dzupagent/context'
 import { estimateTokens } from '@dzupagent/core'
 
-import { AgentMemoryContextLoader, type ArrowMemoryRuntime } from '../agent/memory-context-loader.js'
+import {
+  AgentMemoryContextLoader,
+  ArrowRuntimeNotInjectedError,
+  type ArrowMemoryRuntime,
+} from '../agent/memory-context-loader.js'
 
 function createMemoryService() {
   return {
@@ -215,6 +219,34 @@ describe('AgentMemoryContextLoader', () => {
     })
     expect(memory.get).toHaveBeenCalledTimes(1)
     expect(memory.formatForPrompt).toHaveBeenCalledTimes(1)
+  })
+
+  it('throws when Arrow memory is configured without a runtime injector', async () => {
+    const previousRequireInjection = process.env['DZUPAGENT_REQUIRE_ARROW_INJECTION']
+    process.env['DZUPAGENT_REQUIRE_ARROW_INJECTION'] = '1'
+    const memory = createMemoryService()
+    try {
+      const loader = new AgentMemoryContextLoader({
+        instructions: 'Base instructions',
+        memory,
+        memoryNamespace: 'facts',
+        memoryScope: { project: 'demo' },
+        arrowMemory: { currentPhase: 'general' },
+        estimateConversationTokens: () => 0,
+      })
+
+      await expect(loader.load([new HumanMessage('hello')])).rejects.toBeInstanceOf(
+        ArrowRuntimeNotInjectedError,
+      )
+      expect(memory.get).not.toHaveBeenCalled()
+      expect(memory.formatForPrompt).not.toHaveBeenCalled()
+    } finally {
+      if (previousRequireInjection === undefined) {
+        delete process.env['DZUPAGENT_REQUIRE_ARROW_INJECTION']
+      } else {
+        process.env['DZUPAGENT_REQUIRE_ARROW_INJECTION'] = previousRequireInjection
+      }
+    }
   })
 
   it('bounds standard memory context when Arrow loading fails', async () => {
@@ -514,5 +546,148 @@ describe('AgentMemoryContextLoader FrozenSnapshot integration (P4 Task 3)', () =
 
     await loader.load([new HumanMessage('hello')])
     expect(frozenSnapshot.freeze).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ─── M-08: per-agent tuneable memory limits ────────────────────────────────
+
+describe('AgentMemoryContextLoader per-agent limits (M-08)', () => {
+  function buildMemory(records: Record<string, unknown>[]) {
+    return {
+      get: vi.fn(async () => records),
+      formatForPrompt: vi.fn((
+        input: Array<Record<string, unknown>>,
+        options?: { maxItems?: number; maxCharsPerItem?: number },
+      ) => {
+        const maxItems = options?.maxItems ?? input.length
+        const maxCharsPerItem = options?.maxCharsPerItem ?? Number.MAX_SAFE_INTEGER
+        return [
+          '## Memory Context',
+          ...input.slice(0, maxItems).map((r) => `- ${String(r['text'] ?? '').slice(0, maxCharsPerItem)}`),
+        ].join('\n')
+      }),
+    }
+  }
+
+  it('respects standardMaxItems override — caps records at the supplied limit', async () => {
+    const records = Array.from({ length: 30 }, (_, i) => ({ text: `record-${i}` }))
+    const memory = buildMemory(records)
+
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'instr',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 0,
+      limits: { standardMaxItems: 5 },
+    })
+
+    await loader.load([new HumanMessage('hello')])
+
+    expect(memory.formatForPrompt).toHaveBeenCalledWith(
+      records,
+      expect.objectContaining({ maxItems: 5 }),
+    )
+  })
+
+  it('respects standardMaxCharsPerItem override — truncates per-record content', async () => {
+    const records = [{ text: 'a'.repeat(5_000) }]
+    const memory = buildMemory(records)
+
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'instr',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 0,
+      limits: { standardMaxCharsPerItem: 100 },
+    })
+
+    await loader.load([new HumanMessage('hello')])
+
+    const callArgs = memory.formatForPrompt.mock.calls[0] as [
+      Array<Record<string, unknown>>,
+      { maxItems: number; maxCharsPerItem: number },
+    ]
+    expect(callArgs[1].maxCharsPerItem).toBeLessThanOrEqual(100)
+  })
+
+  it('respects standardTotalBudget override — a tiny budget squeezes the memory window', async () => {
+    const records = Array.from({ length: 20 }, (_, i) => ({ text: `record-${i}` }))
+    const memory = buildMemory(records)
+
+    // Very small total budget so the memory fraction is tiny.
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'instr',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 0,
+      limits: {
+        standardTotalBudget: 500,
+        standardMaxMemoryFraction: 0.1,
+        standardMinResponseReserve: 0,
+      },
+    })
+
+    await loader.load([new HumanMessage('hello')])
+
+    const callArgs = memory.formatForPrompt.mock.calls[0] as [
+      Array<Record<string, unknown>>,
+      { maxItems: number; maxCharsPerItem: number },
+    ]
+    // Budget = 500 * 0.1 = 50 tokens → maxItems is very small
+    expect(callArgs[1].maxItems).toBeLessThan(10)
+  })
+
+  it('falls back to defaults when limits is omitted', async () => {
+    const records = Array.from({ length: 25 }, (_, i) => ({ text: `record-${i}` }))
+    const memory = buildMemory(records)
+
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'instr',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 0,
+      // no limits field
+    })
+
+    await loader.load([new HumanMessage('hello')])
+
+    expect(memory.formatForPrompt).toHaveBeenCalledWith(
+      records,
+      expect.objectContaining({ maxItems: 10, maxCharsPerItem: 2000 }),
+    )
+  })
+
+  it('caps Arrow fallback budget via arrowFallbackMaxTokens override', async () => {
+    const records = Array.from({ length: 30 }, (_, i) => ({
+      text: `record-${i} ${'long text '.repeat(50)}`,
+    }))
+    const memory = buildMemory(records)
+
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'instr',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      arrowMemory: {
+        currentPhase: 'general',
+        totalBudget: 128_000,
+        maxMemoryFraction: 0.3,
+        minResponseReserve: 0,
+      },
+      estimateConversationTokens: () => 0,
+      loadArrowRuntime: async () => {
+        throw new Error('Arrow unavailable')
+      },
+      limits: { arrowFallbackMaxTokens: 50 },
+    })
+
+    const result = await loader.load([new HumanMessage('hello')])
+    // With a 50-token ceiling the result must fit within ~200 chars.
+    expect(result.context).not.toBeNull()
+    expect(result.context!.length).toBeLessThan(500)
   })
 })
