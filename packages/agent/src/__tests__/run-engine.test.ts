@@ -1407,7 +1407,6 @@ describe('executeStreamingToolCall', () => {
 
   it('non-Error thrown is stringified', async () => {
     const failTool = makeMockTool('fail')
-    // eslint-disable-next-line @typescript-eslint/only-throw-error
     vi.mocked(failTool.invoke).mockRejectedValue('string error')
 
     const params = baseStreamParams({

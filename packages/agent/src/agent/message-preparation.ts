@@ -25,10 +25,8 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { Tokenizer } from '@dzupagent/core'
 import { shouldSummarize, summarizeAndTrim } from '@dzupagent/context'
 import type { DzupAgentConfig } from './agent-types.js'
-import {
-  AgentMemoryContextLoader,
-  ArrowRuntimeNotInjectedError,
-} from './memory-context-loader.js'
+import { ArrowRuntimeNotInjectedError } from './memory-context-loader.js'
+import type { AgentMemoryContextLoader } from './memory-context-loader.js'
 import type { AgentInstructionResolver } from './instruction-resolution.js'
 import {
   buildPreparedMessages,
