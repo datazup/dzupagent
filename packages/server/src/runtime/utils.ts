@@ -1,4 +1,4 @@
-import type { RunExecutorResult } from './run-worker.js'
+import type { RunExecutorResult } from './run-worker-types.js'
 
 export function isStructuredResult(value: unknown): value is RunExecutorResult {
   return Boolean(

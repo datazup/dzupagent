@@ -12,7 +12,7 @@ import type {
   RunExecutorResult,
   RunExecutionContext,
   StartRunWorkerOptions,
-} from './run-worker.js'
+} from './run-worker-types.js'
 
 export type AdmissionStageResult =
   | { agent: AgentExecutionSpec; input: unknown; rejected: false }
