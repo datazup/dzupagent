@@ -273,7 +273,25 @@ export async function prepareRunState(
     finalMessages = injectPromptCacheMarkers(finalMessages, params.config.model)
   }
 
-  const tools = params.getTools()
+  const tierFilteredTools = params.getTools()
+  // REC-M-06 — Apply `toolPermissionPolicy` at tool-issuance time so the
+  // model is never told that a forbidden tool is available. Without this gate
+  // the policy was only enforced at execution time (inside the tool executor),
+  // which meant the model could be prompted with a tool, choose it, and then
+  // receive a denial — causing a confusing mid-run failure instead of a clean
+  // upfront exclusion.
+  //
+  // The gate is opt-in: when `toolExecution.permissionPolicy` is absent (the
+  // common case), the behaviour is identical to the pre-fix path. When the
+  // policy is present and an `agentId` is resolvable, any tool that the policy
+  // denies is stripped from the list before the model sees it. The executor's
+  // existing pre-flight and issuance-time checks are preserved as a TOCTOU
+  // safety net (policy may mutate between issuance and invocation).
+  const issuancePolicy = params.config.toolExecution?.permissionPolicy
+  const issuanceAgentId = params.config.id
+  const tools = issuancePolicy && issuanceAgentId
+    ? tierFilteredTools.filter((tool) => issuancePolicy.hasPermission(issuanceAgentId, tool.name))
+    : tierFilteredTools
   const model = params.bindTools(params.resolvedModel, tools)
 
   // Charge the prompt-build phase to the token lifecycle plugin (if any)
