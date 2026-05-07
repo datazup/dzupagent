@@ -17,13 +17,7 @@ import type {
   ResolvedTool,
   SequenceNode,
 } from '@dzupagent/flow-ast'
-import type {
-  GateNode,
-  ForkNode,
-  JoinNode,
-  PipelineDefinition,
-  ToolNode,
-} from '@dzupagent/core'
+import type { GateNode, ForkNode, JoinNode, PipelineDefinition, ToolNode } from '@dzupagent/core/pipeline'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
 

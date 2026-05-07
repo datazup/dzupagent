@@ -14,7 +14,7 @@ import type {
   SequenceNode,
   ToolResolver,
 } from '@dzupagent/flow-ast'
-import type { SkillChain } from '@dzupagent/core'
+import type { SkillChain } from '@dzupagent/core/pipeline'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
 

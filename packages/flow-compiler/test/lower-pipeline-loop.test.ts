@@ -18,7 +18,7 @@ import type {
   SequenceNode,
   ToolResolver,
 } from '@dzupagent/flow-ast'
-import type { LoopNode, PipelineDefinition, ToolNode } from '@dzupagent/core'
+import type { LoopNode, PipelineDefinition, ToolNode } from '@dzupagent/core/pipeline'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
 

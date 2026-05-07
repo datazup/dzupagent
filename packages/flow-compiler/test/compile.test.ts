@@ -32,7 +32,7 @@
  */
 
 import type { ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
-import type { SkillChain, PipelineDefinition } from '@dzupagent/core'
+import type { SkillChain, PipelineDefinition } from '@dzupagent/core/pipeline'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
 
