@@ -101,6 +101,22 @@ export interface ToolLoopConfig {
   onBudgetWarning?: (message: string) => void
   /** Called after each tool invocation with its latency. */
   onToolLatency?: (name: string, durationMs: number, error?: string) => void
+  /**
+   * Called once per iteration with the loop snapshot. Fires after the LLM
+   * turn has completed and tool results (if any) have been appended to the
+   * working message history. Used by the run-state snapshot writer
+   * (MC-AGT-04 Phase 1) to persist a stable boundary between turns.
+   *
+   * Errors thrown from this hook are caught and ignored — snapshot
+   * writes must never abort an in-progress run.
+   */
+  onIteration?: (info: {
+    iteration: number
+    messages: BaseMessage[]
+    totalInputTokens: number
+    totalOutputTokens: number
+    llmCalls: number
+  }) => void
   invokeModel?: (model: BaseChatModel, messages: BaseMessage[]) => Promise<BaseMessage>
   transformToolResult?: (
     toolName: string,

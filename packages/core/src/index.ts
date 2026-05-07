@@ -177,6 +177,15 @@ export type {
   RunJournalConfig,
 } from './persistence/run-journal-types.js'
 
+// --- Run State Snapshot (MC-AGT-04 Phase 1) ---
+export { InMemoryRunStateStore } from './persistence/in-memory-run-state-store.js'
+export type {
+  DzupRunState,
+  DzupRunStateStore,
+  BudgetSnapshot,
+  StuckDetectorSnapshot,
+} from './persistence/run-state-store.js'
+
 // --- Run Record Persistence (legacy low-level LLM execution records) ---
 export { InMemoryRunRecordStore } from './persistence/in-memory-run-store.js'
 export type {

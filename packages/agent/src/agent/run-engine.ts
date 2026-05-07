@@ -60,7 +60,9 @@ import {
 } from '@dzupagent/security'
 import { HumanMessage } from '@langchain/core/messages'
 import {
+  persistRunStateSnapshot,
   prepareGuardPrelude,
+  resolveRunStateRunId,
   setupModelCall,
   processGeneratedRun,
 } from './run-engine-generate-helpers.js'
@@ -385,6 +387,26 @@ export async function executeGenerateRun(
     // of bubbling the error so the outer agent driver can return a clean
     // pause result. Other errors propagate unchanged.
     if (err instanceof ApprovalSuspendedError) {
+      // MC-AGT-04 Phase 1 — record a snapshot at the suspension point so
+      // resume can pick up from the last known message history.
+      if (params.config.runStateStore) {
+        const runStateRunId = resolveRunStateRunId(
+          params.agentId,
+          params.options,
+          params.config.toolExecution?.runId,
+        )
+        const tenantId = params.config.memoryScope?.['tenantId']
+        void persistRunStateSnapshot({
+          store: params.config.runStateStore,
+          runId: runStateRunId,
+          agentId: params.agentId,
+          ...(tenantId !== undefined ? { tenantId } : {}),
+          iteration: 0,
+          messages: params.runState.preparedMessages,
+          cumulativeUsage: [],
+          terminalReason: 'approval_pending',
+        })
+      }
       return {
         content: '',
         messages: params.runState.preparedMessages,
@@ -394,6 +416,27 @@ export async function executeGenerateRun(
         toolStats: [],
         suspended: { runId: err.runId, resumeToken: err.resumeToken },
       }
+    }
+    // MC-AGT-04 Phase 1 — failed runs still get a final snapshot so
+    // operators can inspect the last-known state when triaging errors.
+    if (params.config.runStateStore) {
+      const runStateRunId = resolveRunStateRunId(
+        params.agentId,
+        params.options,
+        params.config.toolExecution?.runId,
+      )
+      const tenantId = params.config.memoryScope?.['tenantId']
+      const reason = err instanceof Error ? err.message : String(err)
+      void persistRunStateSnapshot({
+        store: params.config.runStateStore,
+        runId: runStateRunId,
+        agentId: params.agentId,
+        ...(tenantId !== undefined ? { tenantId } : {}),
+        iteration: 0,
+        messages: params.runState.preparedMessages,
+        cumulativeUsage: [],
+        terminalReason: `error: ${reason}`,
+      })
     }
     throw err
   }

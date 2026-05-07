@@ -9,6 +9,7 @@ import type {
   ModelRegistry,
   AgentMiddleware,
   DzupEventBus,
+  DzupRunStateStore,
   PermissionTier,
   StructuredOutputModelCapabilities,
   ToolGovernance,
@@ -442,6 +443,35 @@ export interface DzupAgentConfig {
     promptInjection?: 'off' | 'warn' | 'block'
     pii?: 'off' | 'redact' | 'block'
   }
+
+  /**
+   * Optional per-agent overrides for memory-context-loader budget limits
+   * (audit M-08). All fields are optional; omitted fields fall back to the
+   * package defaults (128 K total budget, 30 % memory fraction, 4 K
+   * response reserve, 10 items max, 2 000 chars/item, 4 K Arrow-fallback
+   * ceiling). Forwarded to {@link AgentMemoryContextLoaderConfig.limits}.
+   */
+  memoryContextLimits?: {
+    standardTotalBudget?: number
+    standardMaxMemoryFraction?: number
+    standardMinResponseReserve?: number
+    standardMaxItems?: number
+    standardMaxCharsPerItem?: number
+    arrowFallbackMaxTokens?: number
+  }
+
+  /**
+   * Optional store for durable run-state snapshots (MC-AGT-04 Phase 1).
+   *
+   * When provided, the agent writes a {@link DzupRunState} snapshot at
+   * each iteration boundary and on suspension/termination. Snapshots
+   * are written fire-and-forget — a failing store never aborts a run.
+   *
+   * Phase 1 introduces the wiring; subsequent phases will replace the
+   * per-subsystem stores (approvals, run journal, budget) with this
+   * unified surface.
+   */
+  runStateStore?: DzupRunStateStore
 }
 
 /** Explicit run-level provider retry/failover policy. */

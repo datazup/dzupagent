@@ -108,11 +108,13 @@ export function recordTurnUsage(
 /**
  * Best-effort token-lifecycle compression. Swaps in the shrunken history when
  * the hook reports `compressed: true` and never throws — compression must
- * never abort an otherwise-healthy run.
+ * never abort an otherwise-healthy run. When the hook itself throws, a
+ * sanitized `context:compress_failed` event is emitted to the configured
+ * event bus (M-01) for observability.
  */
 export async function maybeCompressTurn(
   state: ToolLoopState,
-  config: Pick<ToolLoopConfig, 'maybeCompress' | 'onCompressed'>,
+  config: Pick<ToolLoopConfig, 'maybeCompress' | 'onCompressed' | 'eventBus'>,
 ): Promise<void> {
   if (!config.maybeCompress) return
   try {
@@ -127,8 +129,13 @@ export async function maybeCompressTurn(
         summary: compressResult.summary,
       })
     }
-  } catch {
-    // Compression must never abort a run — swallow and continue.
+  } catch (err) {
+    // Compression must never abort a run — emit event for observability then continue.
+    config.eventBus?.emit({
+      type: 'context:compress_failed',
+      error: err instanceof Error ? err.message : String(err),
+      phase: 'tool-loop',
+    })
   }
 }
 
@@ -148,18 +155,15 @@ export async function handleToolResults(
   >,
 ): Promise<LoopTransition> {
   let approvalPending = false
-  let stoppedHandlingResults = false
   let halt: StopReason | undefined
 
   for (const r of results) {
-    void stoppedHandlingResults
     state.messages.push(r.message)
 
     if (r.approvalPending) {
       // Hard gate (RF-AGENT-04): drain remaining messages but suppress
       // further escalation handling. Loop terminates after this drain.
       approvalPending = true
-      stoppedHandlingResults = true
       continue
     }
 

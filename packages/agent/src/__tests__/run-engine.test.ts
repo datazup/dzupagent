@@ -7,6 +7,7 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import { InMemoryRunStateStore, type DzupRunState } from '@dzupagent/core'
 import type { DzupAgentConfig, GenerateOptions, GenerateResult } from '../agent/agent-types.js'
 import type { ToolLoopResult, StopReason, ToolStat } from '../agent/tool-loop.js'
 import type * as ToolLoopModule from '../agent/tool-loop.js'
@@ -839,6 +840,148 @@ describe('executeGenerateRun', () => {
     const usage = { model: 'gpt-4', inputTokens: 10, outputTokens: 5 }
     wrapper(usage)
     expect(onUsage).toHaveBeenCalledWith(usage)
+  })
+
+  it('persists run-state snapshots with usage and terminal reason when configured', async () => {
+    const store = new InMemoryRunStateStore()
+    const runState = makeRunState()
+    const loopMessages = [new HumanMessage('hello'), new AIMessage('done')]
+    mockRunToolLoop.mockImplementation(async (_model, _messages, _tools, config) => {
+      config.onUsage?.({ model: 'gpt-4', inputTokens: 10, outputTokens: 5 })
+      config.onIteration?.({
+        iteration: 1,
+        messages: loopMessages,
+        totalInputTokens: 10,
+        totalOutputTokens: 5,
+        llmCalls: 1,
+      })
+      return makeToolLoopResult({ messages: loopMessages, llmCalls: 1 })
+    })
+    mockExtractFinalAiMessageContent.mockReturnValue('done')
+
+    await executeGenerateRun(
+      baseExecuteParams(runState, {
+        agentId: 'agent-1',
+        options: { runId: 'run-1' },
+        config: {
+          id: 'agent-1',
+          instructions: '',
+          model: 'gpt-4',
+          memoryScope: { tenantId: 'tenant-1' },
+          runStateStore: store,
+        } as DzupAgentConfig,
+      }),
+    )
+
+    const snapshot = await store.load('run-1')
+    expect(snapshot).toMatchObject({
+      version: 1,
+      runId: 'run-1',
+      agentId: 'agent-1',
+      tenantId: 'tenant-1',
+      iteration: 1,
+      terminalReason: 'complete',
+    })
+    expect(snapshot?.messages).toEqual(loopMessages)
+    expect(snapshot?.cumulativeUsage).toEqual([
+      { model: 'gpt-4', inputTokens: 10, outputTokens: 5 },
+    ])
+    expect(snapshot?.snapshotAt).toEqual(expect.any(Number))
+  })
+
+  it('preserves run-state snapshot write order so terminal snapshots stay latest', async () => {
+    const runState = makeRunState()
+    const savedReasons: string[] = []
+    let releaseIterationSave!: () => void
+    let markIterationStarted!: () => void
+    const iterationSaveStarted = new Promise<void>((resolve) => {
+      markIterationStarted = resolve
+    })
+    const releaseIterationSavePromise = new Promise<void>((resolve) => {
+      releaseIterationSave = resolve
+    })
+    const store = {
+      save: vi.fn(async (snapshot: DzupRunState) => {
+        if (snapshot.terminalReason === undefined) {
+          markIterationStarted()
+          await releaseIterationSavePromise
+        }
+        savedReasons.push(snapshot.terminalReason ?? 'iteration')
+      }),
+      load: vi.fn(),
+      delete: vi.fn(),
+      listRunIds: vi.fn(),
+    }
+    mockRunToolLoop.mockImplementation(async (_model, _messages, _tools, config) => {
+      config.onIteration?.({
+        iteration: 1,
+        messages: [new HumanMessage('hello'), new AIMessage('done')],
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        llmCalls: 1,
+      })
+      return makeToolLoopResult()
+    })
+    mockExtractFinalAiMessageContent.mockReturnValue('done')
+
+    await executeGenerateRun(
+      baseExecuteParams(runState, {
+        options: { runId: 'run-ordered' },
+        config: {
+          id: 'agent-1',
+          instructions: '',
+          model: 'gpt-4',
+          runStateStore: store,
+        } as unknown as DzupAgentConfig,
+      }),
+    )
+    await iterationSaveStarted
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(savedReasons).toEqual([])
+
+    releaseIterationSave()
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(savedReasons).toEqual(['iteration', 'complete'])
+  })
+
+  it('does not fail the run when run-state snapshot persistence rejects', async () => {
+    const runState = makeRunState()
+    const store = {
+      save: vi.fn(async () => {
+        throw new Error('snapshot backend unavailable')
+      }),
+      load: vi.fn(),
+      delete: vi.fn(),
+      listRunIds: vi.fn(),
+    }
+    mockRunToolLoop.mockImplementation(async (_model, _messages, _tools, config) => {
+      config.onIteration?.({
+        iteration: 1,
+        messages: [new HumanMessage('hello'), new AIMessage('done')],
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        llmCalls: 1,
+      })
+      return makeToolLoopResult()
+    })
+    mockExtractFinalAiMessageContent.mockReturnValue('done')
+
+    await expect(
+      executeGenerateRun(
+        baseExecuteParams(runState, {
+          options: { runId: 'run-1' },
+          config: {
+            id: 'agent-1',
+            instructions: '',
+            model: 'gpt-4',
+            runStateStore: store,
+          } as unknown as DzupAgentConfig,
+        }),
+      ),
+    ).resolves.toMatchObject({ content: 'done', stopReason: 'complete' })
+    expect(store.save).toHaveBeenCalled()
   })
 
   // -- eventBus emissions --

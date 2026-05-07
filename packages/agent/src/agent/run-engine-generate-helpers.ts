@@ -18,10 +18,15 @@
  * this refactor.
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import type { BaseMessage } from '@langchain/core/messages'
 import {
   calculateCostCents,
   estimateTokens,
   extractTokenUsage,
+  secureLogger,
+  type DzupRunState,
+  type DzupRunStateStore,
+  type TokenUsage,
 } from '@dzupagent/core'
 import type {
   CompressionLogEntry,
@@ -60,6 +65,88 @@ async function recordAuditEntry(
     // Audit sink failures must never disturb the run. Compliance reports
     // surface missing entries via downstream reconciliation, not here.
   }
+}
+
+/**
+ * MC-AGT-04 Phase 1 — fire-and-forget snapshot writer.
+ *
+ * Builds a {@link DzupRunState} from the supplied loop state and writes
+ * it to the configured store. Snapshot failures are logged via
+ * {@link secureLogger.warn} but never rethrow, so a faulty store cannot
+ * abort an in-progress run.
+ */
+export interface RunStateSnapshotParams {
+  store: DzupRunStateStore
+  runId: string
+  agentId: string
+  tenantId?: string
+  iteration: number
+  messages: BaseMessage[]
+  cumulativeUsage: TokenUsage[]
+  terminalReason?: string
+}
+
+export type RunStateSnapshotWriter = (params: Omit<RunStateSnapshotParams, 'store'>) => void
+
+export function persistRunStateSnapshot(params: RunStateSnapshotParams): Promise<void> {
+  const snapshot: DzupRunState = {
+    version: 1,
+    runId: params.runId,
+    agentId: params.agentId,
+    ...(params.tenantId !== undefined ? { tenantId: params.tenantId } : {}),
+    messages: params.messages,
+    iteration: params.iteration,
+    cumulativeUsage: params.cumulativeUsage,
+    snapshotAt: Date.now(),
+    ...(params.terminalReason !== undefined
+      ? { terminalReason: params.terminalReason }
+      : {}),
+  }
+  // Fire-and-forget — snapshot failure must never abort the run.
+  return params.store.save(snapshot).catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err)
+    secureLogger.warn(`[dzip-agent] run-state snapshot failed: ${msg}`)
+  })
+}
+
+/**
+ * Create an ordered, fire-and-forget snapshot writer for one run.
+ *
+ * Iteration snapshots and terminal snapshots are written asynchronously, but
+ * they must still reach the store in call order. Without this queue, a slow
+ * durable iteration write could complete after the terminal write and overwrite
+ * the latest state with a non-terminal snapshot.
+ */
+export function createRunStateSnapshotWriter(store: DzupRunStateStore): RunStateSnapshotWriter {
+  let writeChain: Promise<void> = Promise.resolve()
+
+  return (params) => {
+    writeChain = writeChain
+      .then(() => persistRunStateSnapshot({ store, ...params }))
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        secureLogger.warn(`[dzip-agent] run-state snapshot queue failed: ${msg}`)
+      })
+    void writeChain
+  }
+}
+
+/**
+ * Resolve the durable run id used for snapshot keys. Prefers the
+ * caller-provided `options.runId`, then `toolExecution.runId`, and
+ * finally synthesises a stable id keyed by agent for runs that did not
+ * supply one (so single-process replays still locate their snapshot).
+ */
+export function resolveRunStateRunId(
+  agentId: string,
+  options: ExecuteGenerateRunParams['options'],
+  toolExecutionRunId: string | undefined,
+): string {
+  return (
+    options?.runId
+    ?? toolExecutionRunId
+    ?? `agent:${agentId}`
+  )
 }
 
 /**
@@ -120,6 +207,27 @@ export async function setupModelCall(
   prelude: GuardPrelude,
 ): Promise<RunLoopResult> {
   const { compressionLog, toolExec, resolvedSafetyMonitor } = prelude
+
+  // MC-AGT-04 Phase 1 — accumulate token usage across the run so
+  // snapshots can carry the full per-call breakdown. The accumulator
+  // is shared between the `onUsage` callback (already wired below) and
+  // the `onIteration` snapshot hook, both of which are activated only
+  // when `runStateStore` is configured.
+  const cumulativeUsage: TokenUsage[] = []
+  const runStateStore = params.config.runStateStore
+  const runStateSnapshotWriter = runStateStore
+    ? createRunStateSnapshotWriter(runStateStore)
+    : undefined
+  const runStateRunId = runStateStore
+    ? resolveRunStateRunId(
+        params.agentId,
+        params.options,
+        toolExec?.runId,
+      )
+    : undefined
+  const runStateTenantId = runStateStore
+    ? params.config.memoryScope?.['tenantId']
+    : undefined
 
   const result = await runToolLoop(
     params.runState.model,
@@ -245,6 +353,13 @@ export async function setupModelCall(
         params.transformToolResult(name, input, result),
       onUsage: (usage) => {
         params.options?.onUsage?.(usage)
+        // MC-AGT-04 Phase 1 — accumulate per-call usage so iteration
+        // snapshots can carry the full breakdown. Only collected when a
+        // run-state store is configured to avoid retaining usage objects
+        // for runs that don't persist them.
+        if (runStateStore) {
+          cumulativeUsage.push(usage)
+        }
         // Compliance / audit — ISO/IEC 42001 traceability: every LLM
         // invocation must be recorded in the audit store. The event bus
         // listener in ComplianceAuditLogger picks this up automatically.
@@ -260,6 +375,31 @@ export async function setupModelCall(
           timestamp: Date.now(),
         })
       },
+      // MC-AGT-04 Phase 1 — fire-and-forget run-state snapshot at every
+      // iteration boundary when a store is configured. The hook is a
+      // no-op otherwise, preserving the legacy fast path exactly.
+      ...(runStateStore && runStateRunId !== undefined
+        ? {
+            onIteration: (info: {
+              iteration: number
+              messages: BaseMessage[]
+              totalInputTokens: number
+              totalOutputTokens: number
+              llmCalls: number
+            }) => {
+              runStateSnapshotWriter?.({
+                runId: runStateRunId,
+                agentId: params.agentId,
+                ...(runStateTenantId !== undefined
+                  ? { tenantId: runStateTenantId }
+                  : {}),
+                iteration: info.iteration,
+                messages: info.messages,
+                cumulativeUsage: [...cumulativeUsage],
+              })
+            },
+          }
+        : {}),
       onToolResult: (_name, result) => {
         // Charge tool-result bytes against the token lifecycle plugin so
         // per-phase breakdowns reflect tool output ingestion separately
@@ -310,6 +450,24 @@ export async function setupModelCall(
       // accurate.
     }),
   )
+
+  // MC-AGT-04 Phase 1 — final snapshot at run termination so external
+  // observers can locate the last-known good state regardless of stop
+  // reason (complete / iteration_limit / budget_exceeded / stuck / etc).
+  // Errors are logged but never rethrown.
+  if (runStateSnapshotWriter && runStateRunId !== undefined) {
+    runStateSnapshotWriter({
+      runId: runStateRunId,
+      agentId: params.agentId,
+      ...(runStateTenantId !== undefined
+        ? { tenantId: runStateTenantId }
+        : {}),
+      iteration: result.llmCalls,
+      messages: result.messages,
+      cumulativeUsage: [...cumulativeUsage],
+      terminalReason: result.stopReason,
+    })
+  }
 
   return result
 }
