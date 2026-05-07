@@ -3,7 +3,7 @@ import {
   validateOutboundUrl,
   type OutboundUrlSecurityPolicy,
 } from '@dzupagent/core'
-import type { A2ATask, A2ATaskPushConfig } from './task-handler.js'
+import type { A2ATask, A2ATaskPushConfig } from './a2a-types.js'
 
 export interface A2APushNotificationOptions {
   urlPolicy?: OutboundUrlSecurityPolicy | undefined
