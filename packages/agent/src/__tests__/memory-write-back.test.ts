@@ -7,7 +7,7 @@
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseStore } from '@langchain/langgraph'
 import { createEventBus, type DzupEvent } from '@dzupagent/core'
-import { MemoryService, InMemoryReferenceTracker } from '@dzupagent/memory'
+import { MemoryService, type InMemoryReferenceTracker } from '@dzupagent/memory'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
