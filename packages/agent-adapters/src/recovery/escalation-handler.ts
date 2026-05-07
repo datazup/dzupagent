@@ -8,7 +8,7 @@
  * @module recovery/escalation-handler
  */
 
-import { ForgeError, typedEmit } from '@dzupagent/core'
+import { ForgeError, fetchWithOutboundUrlPolicy, typedEmit } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 
 import type { AdapterProviderId, AgentInput } from '../types.js'
@@ -152,7 +152,7 @@ export class WebhookEscalationHandler implements EscalationHandler {
 
   async notify(context: EscalationContext): Promise<void> {
     validateWebhookUrl(this.webhookUrl, { allowHttp: this.options?.allowHttp })
-    await fetch(this.webhookUrl, {
+    await fetchWithOutboundUrlPolicy(this.webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

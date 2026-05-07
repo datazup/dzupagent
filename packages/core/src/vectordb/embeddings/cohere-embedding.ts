@@ -38,6 +38,7 @@ export function createCohereEmbedding(config: CohereEmbeddingConfig): EmbeddingP
   async function embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return []
 
+    // eslint-disable-next-line no-restricted-globals -- intentional: fixed Cohere vendor API endpoint, no user-controlled URL
     const response = await fetch(COHERE_API_URL, {
       method: 'POST',
       headers: {
@@ -68,6 +69,7 @@ export function createCohereEmbedding(config: CohereEmbeddingConfig): EmbeddingP
       throw new Error('Cannot embed empty query text')
     }
 
+    // eslint-disable-next-line no-restricted-globals -- intentional: fixed Cohere vendor API endpoint, no user-controlled URL
     const response = await fetch(COHERE_API_URL, {
       method: 'POST',
       headers: {

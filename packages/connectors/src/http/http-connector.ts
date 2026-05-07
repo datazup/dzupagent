@@ -79,6 +79,7 @@ function createHttpConnectorPolicy(
         `URL origin "${nextUrl.origin}" does not match base origin "${base.origin}" and is not in the connector host allowlist.`,
       )
     }
+    // eslint-disable-next-line no-restricted-globals -- intentional: HTTP connector primitive that has already enforced origin/host allowlist above
     return fetch(input, init)
   }
 

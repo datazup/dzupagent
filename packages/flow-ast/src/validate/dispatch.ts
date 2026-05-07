@@ -1,0 +1,126 @@
+/**
+ * Top-level FlowNode dispatcher and the recursive `validateNodeArray`
+ * helper. Per-kind validators live in sibling files and are wired in here.
+ *
+ * Note: per-kind files import `validateNodeArray` from this module, and this
+ * module imports each per-kind validator. The recursion is intentional and
+ * mirrors the original monolithic `validate.ts` structure.
+ */
+
+import type { FlowNode } from '../types.js'
+import { describeJsType, isPlainObject, joinPath } from '../validation-helpers.js'
+import { KNOWN_NODE_TYPES } from '../validation-descriptors.js'
+import type { SchemaIssue } from './shared.js'
+import { validateSequence } from './sequence.js'
+import { validateAction } from './action.js'
+import { validateForEach } from './for-each.js'
+import { validateBranch } from './branch.js'
+import { validateApproval } from './approval.js'
+import { validateClarification } from './clarification.js'
+import { validatePersona } from './persona.js'
+import { validateRoute } from './route.js'
+import { validateParallel } from './parallel.js'
+import { validateComplete } from './complete.js'
+import { validateSpawn } from './spawn.js'
+import { validateClassify } from './classify.js'
+import { validateEmit } from './emit.js'
+import { validateMemory } from './memory.js'
+import { validateCheckpoint } from './checkpoint.js'
+import { validateRestore } from './restore.js'
+
+export function validateFlowNode(
+  value: unknown,
+  path: string,
+  issues: SchemaIssue[],
+): FlowNode | null {
+  if (!isPlainObject(value)) {
+    issues.push({
+      path,
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `Expected node object, received ${describeJsType(value)}`,
+    })
+    return null
+  }
+
+  const typeVal = value['type']
+  if (typeof typeVal !== 'string') {
+    issues.push({
+      path: joinPath(path, 'type'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `Node.type is required (string), received ${describeJsType(typeVal)}`,
+    })
+    return null
+  }
+
+  if (!KNOWN_NODE_TYPES.has(typeVal)) {
+    issues.push({
+      path,
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `Unknown node type "${typeVal}"`,
+    })
+    return null
+  }
+
+  switch (typeVal) {
+    case 'sequence':
+      return validateSequence(value, path, issues)
+    case 'action':
+      return validateAction(value, path, issues)
+    case 'for_each':
+      return validateForEach(value, path, issues)
+    case 'branch':
+      return validateBranch(value, path, issues)
+    case 'approval':
+      return validateApproval(value, path, issues)
+    case 'clarification':
+      return validateClarification(value, path, issues)
+    case 'persona':
+      return validatePersona(value, path, issues)
+    case 'route':
+      return validateRoute(value, path, issues)
+    case 'parallel':
+      return validateParallel(value, path, issues)
+    case 'complete':
+      return validateComplete(value, path, issues)
+    case 'spawn':
+      return validateSpawn(value, path, issues)
+    case 'classify':
+      return validateClassify(value, path, issues)
+    case 'emit':
+      return validateEmit(value, path, issues)
+    case 'memory':
+      return validateMemory(value, path, issues)
+    case 'checkpoint':
+      return validateCheckpoint(value, path, issues)
+    case 'restore':
+      return validateRestore(value, path, issues)
+    default:
+      issues.push({
+        path,
+        code: 'MISSING_REQUIRED_FIELD',
+        message: `Unknown node type "${typeVal}"`,
+      })
+      return null
+  }
+}
+
+export function validateNodeArray(
+  value: unknown,
+  path: string,
+  issues: SchemaIssue[],
+): FlowNode[] | null {
+  if (!Array.isArray(value)) {
+    issues.push({
+      path,
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `Expected array of nodes at ${path}, received ${describeJsType(value)}`,
+    })
+    return null
+  }
+  const out: FlowNode[] = []
+  for (let i = 0; i < value.length; i++) {
+    const child = validateFlowNode(value[i], `${path}[${i}]`, issues)
+    if (child !== null) out.push(child)
+  }
+  return out
+}

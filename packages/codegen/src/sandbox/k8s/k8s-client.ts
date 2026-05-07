@@ -234,6 +234,7 @@ export class K8sClient {
         signal: controller.signal,
       }
       if (opts.body !== undefined) fetchInit.body = opts.body
+      // eslint-disable-next-line no-restricted-globals -- intentional: Kubernetes API server URL is admin-configured infrastructure, not user input
       return await fetch(url, fetchInit)
     } finally {
       clearTimeout(timer)

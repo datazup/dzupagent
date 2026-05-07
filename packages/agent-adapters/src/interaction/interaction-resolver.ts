@@ -6,6 +6,8 @@
  * adapters use to feed an answer back to the sub-agent and emit audit events.
  */
 
+import { fetchWithOutboundUrlPolicy } from '@dzupagent/core'
+
 import type {
   AgentInteractionResolvedEvent,
   InteractionPolicy,
@@ -186,7 +188,7 @@ Respond with ONLY "yes" or "no" (lowercase, no punctuation). Use the question co
       ],
     })
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetchWithOutboundUrlPolicy('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

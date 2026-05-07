@@ -207,6 +207,7 @@ export class FlySandbox implements SandboxProtocol {
         signal: controller.signal,
       }
       if (opts.body !== undefined) fetchInit.body = opts.body
+      // eslint-disable-next-line no-restricted-globals -- intentional: fly.io control-plane endpoint configured by operator, not user input
       return await fetch(`${this.baseUrl}${path}`, fetchInit)
     } finally {
       clearTimeout(timer)
