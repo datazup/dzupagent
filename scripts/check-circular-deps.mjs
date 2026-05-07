@@ -9,20 +9,31 @@
  *   node scripts/check-circular-deps.mjs --pkg core
  */
 
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import madge from 'madge'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const ROOT = resolve(__dirname, '..')
 const PACKAGES_DIR = join(ROOT, 'packages')
 const BASELINE_PATH = join(ROOT, 'config', 'circular-deps-baseline.json')
-const MADGE_CLI = join(ROOT, 'node_modules', 'madge', 'bin', 'cli.js')
+const MADGE_PACKAGE = join(ROOT, 'node_modules', 'madge', 'package.json')
 
 const args = process.argv.slice(2)
-const pkgFilter = args.includes('--pkg') ? args[args.indexOf('--pkg') + 1] : null
+const pkgArgIndex = args.findIndex((arg) => arg === '--pkg' || arg.startsWith('--pkg='))
+const pkgFilter =
+  pkgArgIndex === -1
+    ? null
+    : args[pkgArgIndex].startsWith('--pkg=')
+      ? args[pkgArgIndex].slice('--pkg='.length)
+      : args[pkgArgIndex + 1] ?? null
+
+if (pkgArgIndex !== -1 && (!pkgFilter || pkgFilter.startsWith('--'))) {
+  console.error('[check-circular-deps] --pkg requires a package directory name, for example --pkg agent-adapters')
+  process.exit(2)
+}
 
 function readBaseline() {
   if (!existsSync(BASELINE_PATH)) return {}
@@ -37,11 +48,20 @@ function readBaseline() {
   return packages
 }
 
+function rotations(cycle) {
+  return cycle.map((_, index) => [...cycle.slice(index), ...cycle.slice(0, index)])
+}
+
+function canonicalCycle(cycle) {
+  const candidates = [...rotations(cycle), ...rotations([...cycle].reverse())]
+  return candidates.map((candidate) => candidate.join(' > ')).sort()[0]
+}
+
 function normalizeCycle(cycle) {
   if (!Array.isArray(cycle) || cycle.some((entry) => typeof entry !== 'string')) {
     throw new Error(`Invalid cycle entry: ${JSON.stringify(cycle)}`)
   }
-  return cycle.join(' > ')
+  return canonicalCycle(cycle)
 }
 
 function getBaselineForPackage(baseline, pkg) {
@@ -69,44 +89,19 @@ async function getPackageSrcDirs() {
   return results
 }
 
-function runMadge(srcDir) {
-  if (!existsSync(MADGE_CLI)) {
-    throw new Error(`madge is not installed at ${relative(ROOT, MADGE_CLI)}; run yarn install`)
+async function runMadge(srcDir) {
+  if (!existsSync(MADGE_PACKAGE)) {
+    throw new Error(`madge is not installed at ${relative(ROOT, MADGE_PACKAGE)}; run yarn install`)
   }
 
-  try {
-    const stdout = execFileSync(
-      process.execPath,
-      [MADGE_CLI, '--circular', '--json', '--no-spinner', '--no-color', '--extensions', 'ts', srcDir],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-    )
-    return parseMadgeJson(stdout)
-  } catch (err) {
-    const stdout = toText(err.stdout)
-    if (stdout.trim().length > 0) return parseMadgeJson(stdout)
-    const stderr = toText(err.stderr).trim()
-    throw new Error(stderr || err.message)
-  }
-}
-
-function toText(value) {
-  if (typeof value === 'string') return value
-  if (Buffer.isBuffer(value)) return value.toString('utf8')
-  return ''
-}
-
-function parseMadgeJson(raw) {
-  const trimmed = raw.trim()
-  if (!trimmed) return []
-  const parsed = JSON.parse(trimmed)
-  if (!Array.isArray(parsed)) {
-    throw new Error(`Unexpected madge JSON output: ${trimmed}`)
-  }
-  return parsed
+  const result = await madge(relative(ROOT, srcDir), {
+    fileExtensions: ['ts'],
+  })
+  return result.circular()
 }
 
 async function checkPackage(pkg, srcDir, baseline) {
-  const cycles = runMadge(srcDir)
+  const cycles = await runMadge(srcDir)
   const normalizedCycles = new Set(cycles.map(normalizeCycle))
   const allowedCycles = getBaselineForPackage(baseline, pkg)
   const unexpected = [...normalizedCycles].filter((cycle) => !allowedCycles.has(cycle)).sort()
@@ -115,7 +110,6 @@ async function checkPackage(pkg, srcDir, baseline) {
   return {
     pkg,
     cycleCount: normalizedCycles.size,
-    baselineCount: allowedCycles.size,
     unexpected,
     resolved,
   }
