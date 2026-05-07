@@ -16,7 +16,7 @@ import type {
   AdapterWorkflowEvent,
   LoopConfig,
   ParallelMergeStrategy,
-} from './adapter-workflow.js'
+} from './adapter-workflow-types.js'
 
 export const sharedTemplateResolver = new WorkflowStepResolver()
 

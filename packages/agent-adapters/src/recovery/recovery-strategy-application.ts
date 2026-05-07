@@ -29,7 +29,7 @@
  */
 
 import type { AdapterProviderId, AgentInput } from '../types.js'
-import type { RecoveryStrategy } from './adapter-recovery.js'
+import type { RecoveryStrategy } from './recovery-types.js'
 
 /** Inputs needed to apply a strategy without touching the registry. */
 export interface ApplyStrategyInputs {

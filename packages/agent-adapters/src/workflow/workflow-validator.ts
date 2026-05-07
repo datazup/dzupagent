@@ -11,7 +11,7 @@ import type { WorkflowStepResolver } from './template-resolver.js'
 // Types (re-declare the node union locally to avoid circular imports)
 // ---------------------------------------------------------------------------
 
-import type { AdapterStepConfig, LoopConfig } from './adapter-workflow.js'
+import type { AdapterStepConfig, LoopConfig } from './adapter-workflow-types.js'
 
 /** A workflow node as exposed by the builder. */
 export type AdapterWorkflowNode =

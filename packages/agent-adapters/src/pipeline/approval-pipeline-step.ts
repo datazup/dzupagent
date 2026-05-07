@@ -6,10 +6,8 @@
  * boilerplate that builds an `ApprovalContext` from the public API options.
  */
 
-import type {
-  AdapterApprovalGate,
-  ApprovalContext,
-} from '../approval/adapter-approval.js'
+import type { AdapterApprovalGate } from '../approval/adapter-approval.js'
+import type { ApprovalContext } from '../approval/approval-types.js'
 import type {
   AdapterProviderId,
   AgentEvent,

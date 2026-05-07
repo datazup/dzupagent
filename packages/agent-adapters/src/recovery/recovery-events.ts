@@ -1,5 +1,5 @@
 import type { AdapterProviderId, AgentEvent } from '../types.js'
-import type { RecoveryCancelledResult } from './adapter-recovery.js'
+import type { RecoveryCancelledResult } from './recovery-types.js'
 
 export function createCancelledRecoveryResult(
   strategy: 'abort',

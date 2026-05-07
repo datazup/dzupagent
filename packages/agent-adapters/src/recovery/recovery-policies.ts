@@ -1,4 +1,4 @@
-import type { RecoveryStrategy } from './adapter-recovery.js'
+import type { RecoveryStrategy } from './recovery-types.js'
 
 /** A named recovery policy with ordered strategies */
 export interface RecoveryPolicy {

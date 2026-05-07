@@ -31,7 +31,7 @@ import type { PolicySet, PolicyContext } from '@dzupagent/core'
 import { createRiskClassifier } from '@dzupagent/core'
 import type { RiskClassifier, RiskClassifierConfig } from '@dzupagent/core'
 
-import type { ApprovalContext } from './adapter-approval.js'
+import type { ApprovalContext } from './approval-types.js'
 
 // ---------------------------------------------------------------------------
 // Public types
