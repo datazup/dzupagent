@@ -6,7 +6,7 @@
  * instead of manually specifying totalBudget, maxMemoryFraction, and
  * minResponseReserve.  Explicit overrides in ArrowMemoryConfig always win.
  */
-import type { ArrowMemoryConfig } from './agent-types.js'
+import type { ArrowMemoryConfig } from './arrow-memory-types.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 
 /** Named memory budget profile. */
