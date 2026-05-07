@@ -7,8 +7,9 @@
 import type { Context, MiddlewareHandler } from 'hono'
 
 import type { AppEnv } from '../types.js'
+import type { ForgeRole } from './rbac-types.js'
 
-export type ForgeRole = 'admin' | 'operator' | 'viewer' | 'agent'
+export type { ForgeRole }
 
 export type ForgePermissionResource =
   | 'agents'

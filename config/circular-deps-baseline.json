@@ -75,10 +75,6 @@
     ],
     "server": [
       [
-        "a2a/task-handler.ts",
-        "a2a/push-notifications.ts"
-      ],
-      [
         "composition/types.ts",
         "routes/deploy.ts",
         "deploy/signal-checkers.ts",
@@ -88,23 +84,6 @@
       [
         "composition/types.ts",
         "routes/run-context.ts"
-      ],
-      [
-        "types.ts",
-        "middleware/rbac.ts"
-      ],
-      [
-        "runtime/tool-resolver.ts",
-        "runtime/custom-tool-instantiation.ts"
-      ],
-      [
-        "runtime/run-worker.ts",
-        "runtime/run-worker-stages.ts"
-      ],
-      [
-        "runtime/run-worker.ts",
-        "runtime/run-worker-stages.ts",
-        "runtime/utils.ts"
       ],
       [
         "scorecard/integration-scorecard.ts",

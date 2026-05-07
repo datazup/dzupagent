@@ -5,7 +5,7 @@
  * typed `c.set()` / `c.get()` without `as never` casts.
  */
 import type { ForgeIdentity, ForgeCapability } from '@dzupagent/core'
-import type { ForgeRole } from './middleware/rbac.js'
+import type { ForgeRole } from './middleware/rbac-types.js'
 
 /**
  * Shape of the API-key context variable populated by `authMiddleware`.
