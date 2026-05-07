@@ -36,21 +36,23 @@ export function makeMockLlmModel(responseContent: string): MockLlmModel {
 // ModelRegistry mock
 // ---------------------------------------------------------------------------
 
-export interface MockCodegenRegistry
-  extends Pick<ModelRegistry, 'getModel'> {
+/**
+ * Structural mock of the ModelRegistry subset used in codegen tests.
+ * Typed as `ModelRegistry & {...}` so it can be passed to
+ * `LessonExtractor` and `ReflectionNode` without `as never` casts.
+ */
+export type MockCodegenRegistry = ModelRegistry & {
   getModel: ReturnType<typeof vi.fn>
 }
 
 /**
  * Returns a minimal ModelRegistry mock that always returns `model` from
- * `getModel()`. Typed as a Pick<ModelRegistry, 'getModel'> so it satisfies
- * the registry field on LessonExtractor and ReflectionNode without an
- * `as never` cast.
+ * `getModel()`.  The single cast is isolated here so call sites are clean.
  */
 export function makeMockCodegenRegistry(
   model: MockLlmModel,
 ): MockCodegenRegistry {
   return {
     getModel: vi.fn().mockReturnValue(model as unknown as BaseChatModel),
-  }
+  } as unknown as MockCodegenRegistry
 }

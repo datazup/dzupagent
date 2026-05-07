@@ -3,15 +3,14 @@ import { FrozenSnapshot } from '@dzupagent/context'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { createAgentWithMemory } from '../agent/agent-factory.js'
+import { makeMockModel, makeMockMemoryService } from './test-utils.js'
 
 function createMockModel() {
-  return { invoke: vi.fn(async () => ({ content: 'ok' })) }
+  return makeMockModel('ok')
 }
 
 function createMemoryService(records: Array<Record<string, unknown>>) {
-  return {
-    get: vi.fn(async () => records),
-  }
+  return makeMockMemoryService(records)
 }
 
 describe('createAgentWithMemory', () => {
@@ -26,9 +25,9 @@ describe('createAgentWithMemory', () => {
       {
         id: 'factory-agent',
         instructions: 'Base instructions',
-        model: model as never,
+        model: model,
       },
-      memory as never,
+      memory,
       'facts',
       { project: 'demo' },
     )
@@ -54,9 +53,9 @@ describe('createAgentWithMemory', () => {
       {
         id: 'factory-agent-no-scope',
         instructions: 'Base instructions',
-        model: model as never,
+        model: model,
       },
-      memory as never,
+      memory,
       'notes',
     )
 
@@ -76,10 +75,10 @@ describe('createAgentWithMemory', () => {
       {
         id: 'factory-agent-override',
         instructions: 'Base instructions',
-        model: model as never,
+        model: model,
         frozenSnapshot: preexisting,
       },
-      memory as never,
+      memory,
       'facts',
     )
 
@@ -96,8 +95,8 @@ describe('createAgentWithMemory', () => {
     const agent = await createAgentWithMemory({
       id: 'factory-agent-config-memory',
       instructions: 'Base instructions',
-      model: model as never,
-      memory: memory as never,
+      model: model,
+      memory: memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
     })
@@ -116,10 +115,10 @@ describe('createAgentWithMemory', () => {
       {
         id: 'factory-agent-config-namespace',
         instructions: 'Base instructions',
-        model: model as never,
+        model: model,
         memoryNamespace: 'config-ns',
       },
-      memory as never,
+      memory,
     )
 
     expect(memory.get).toHaveBeenCalledWith('config-ns', {})
@@ -134,10 +133,10 @@ describe('createAgentWithMemory', () => {
       {
         id: 'factory-agent-config-scope',
         instructions: 'Base instructions',
-        model: model as never,
+        model: model,
         memoryScope: { tenant: 'acme' },
       },
-      memory as never,
+      memory,
       'facts',
     )
 
@@ -152,9 +151,9 @@ describe('createAgentWithMemory', () => {
       {
         id: 'factory-agent-defaults',
         instructions: 'Base instructions',
-        model: model as never,
+        model: model,
       },
-      memory as never,
+      memory,
     )
 
     expect(memory.get).toHaveBeenCalledWith('default', {})
@@ -167,7 +166,7 @@ describe('createAgentWithMemory', () => {
       createAgentWithMemory({
         id: 'factory-agent-no-memory',
         instructions: 'Base instructions',
-        model: model as never,
+        model: model,
       }),
     ).rejects.toThrow(
       'createAgentWithMemory: no MemoryService provided — pass memory param or set config.memory',

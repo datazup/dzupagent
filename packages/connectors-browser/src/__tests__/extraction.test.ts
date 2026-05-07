@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import type { Page } from 'playwright'
 import { extractForms } from '../extraction/form-extractor.js'
 import { extractInteractiveElements } from '../extraction/element-extractor.js'
 import { extractAccessibilityTree } from '../extraction/accessibility-tree.js'
 import { captureScreenshot } from '../extraction/screenshot-capture.js'
+import { makeEvaluatePage, makeMockPage } from './test-utils.js'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -13,12 +15,6 @@ afterEach(() => {
 // Form extractor
 // --------------------------------------------------------------------------
 describe('extractForms', () => {
-  function createFormPage(formHtml: ReturnType<typeof vi.fn>) {
-    return {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
-  }
-
   it('extracts a simple form with text input', async () => {
     const mockForm = {
       action: 'https://example.com/submit',
@@ -41,11 +37,9 @@ describe('extractForms', () => {
 
     vi.stubGlobal('document', mockDocument)
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const forms = await extractForms(page as never)
+    const forms = await extractForms(page)
     expect(forms).toHaveLength(1)
     expect(forms[0]!.action).toBe('https://example.com/submit')
     expect(forms[0]!.method).toBe('POST')
@@ -60,11 +54,9 @@ describe('extractForms', () => {
       querySelector: () => null,
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const forms = await extractForms(page as never)
+    const forms = await extractForms(page)
     expect(forms).toEqual([])
   })
 
@@ -94,11 +86,9 @@ describe('extractForms', () => {
       querySelector: () => null,
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const forms = await extractForms(page as never)
+    const forms = await extractForms(page)
     expect(forms[0]!.fields[0]!.type).toBe('select')
     expect(forms[0]!.fields[0]!.options).toEqual(['Red', 'Blue', 'Green'])
   })
@@ -124,11 +114,9 @@ describe('extractForms', () => {
       querySelector: () => null,
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const forms = await extractForms(page as never)
+    const forms = await extractForms(page)
     expect(forms[0]!.fields[0]!.type).toBe('textarea')
     expect(forms[0]!.fields[0]!.name).toBe('message')
   })
@@ -153,11 +141,9 @@ describe('extractInteractiveElements', () => {
       querySelectorAll: () => [mockButton],
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const elements = await extractInteractiveElements(page as never)
+    const elements = await extractInteractiveElements(page)
     expect(elements).toHaveLength(1)
     expect(elements[0]!.role).toBe('button')
     expect(elements[0]!.label).toBe('Submit')
@@ -185,11 +171,9 @@ describe('extractInteractiveElements', () => {
       querySelectorAll: () => [mockLink],
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const elements = await extractInteractiveElements(page as never)
+    const elements = await extractInteractiveElements(page)
     expect(elements[0]!.location).toBe('nav')
   })
 
@@ -208,11 +192,9 @@ describe('extractInteractiveElements', () => {
       querySelectorAll: () => [mockButton],
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const elements = await extractInteractiveElements(page as never)
+    const elements = await extractInteractiveElements(page)
     expect(elements[0]!.enabled).toBe(false)
   })
 
@@ -231,11 +213,9 @@ describe('extractInteractiveElements', () => {
       querySelectorAll: () => [mockButton],
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const elements = await extractInteractiveElements(page as never)
+    const elements = await extractInteractiveElements(page)
     expect(elements[0]!.visible).toBe(false)
   })
 
@@ -258,11 +238,9 @@ describe('extractInteractiveElements', () => {
       querySelectorAll: () => [mockButton],
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const elements = await extractInteractiveElements(page as never)
+    const elements = await extractInteractiveElements(page)
     expect(elements[0]!.ariaAttributes).toEqual({
       'aria-expanded': 'true',
       'aria-controls': 'panel1',
@@ -274,11 +252,9 @@ describe('extractInteractiveElements', () => {
       querySelectorAll: () => [],
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const elements = await extractInteractiveElements(page as never)
+    const elements = await extractInteractiveElements(page)
     expect(elements).toEqual([])
   })
 })
@@ -288,14 +264,15 @@ describe('extractInteractiveElements', () => {
 // --------------------------------------------------------------------------
 describe('captureScreenshot', () => {
   it('captures viewport-only screenshot when fullPage is false', async () => {
-    const mockPage = {
-      viewportSize: () => ({ width: 1280, height: 720 }),
-      screenshot: vi.fn(async () => Buffer.from('jpeg')),
-    }
+    const screenshotFn = vi.fn(async () => Buffer.from('jpeg'))
+    const { page } = makeMockPage({
+      viewportSize: vi.fn().mockReturnValue({ width: 1280, height: 720 }),
+      screenshot: screenshotFn as unknown as Page['screenshot'],
+    })
 
-    const result = await captureScreenshot(mockPage as never, false)
+    const result = await captureScreenshot(page, false)
 
-    expect(mockPage.screenshot).toHaveBeenCalledWith({
+    expect(screenshotFn).toHaveBeenCalledWith({
       fullPage: false,
       type: 'jpeg',
       quality: 80,
@@ -306,15 +283,16 @@ describe('captureScreenshot', () => {
   })
 
   it('clips when page height exceeds 3x viewport', async () => {
-    const mockPage = {
-      viewportSize: () => ({ width: 1200, height: 800 }),
+    const screenshotFn = vi.fn(async () => Buffer.from('jpeg'))
+    const { page } = makeMockPage({
+      viewportSize: vi.fn().mockReturnValue({ width: 1200, height: 800 }),
       evaluate: vi.fn(async () => 5000), // page is much taller
-      screenshot: vi.fn(async () => Buffer.from('jpeg')),
-    }
+      screenshot: screenshotFn as unknown as Page['screenshot'],
+    })
 
-    const result = await captureScreenshot(mockPage as never, true)
+    const result = await captureScreenshot(page, true)
 
-    expect(mockPage.screenshot).toHaveBeenCalledWith({
+    expect(screenshotFn).toHaveBeenCalledWith({
       fullPage: false,
       type: 'jpeg',
       quality: 80,
@@ -324,12 +302,13 @@ describe('captureScreenshot', () => {
   })
 
   it('uses default viewport size when viewportSize returns null', async () => {
-    const mockPage = {
-      viewportSize: () => null,
-      screenshot: vi.fn(async () => Buffer.from('jpeg')),
-    }
+    const screenshotFn = vi.fn(async () => Buffer.from('jpeg'))
+    const { page } = makeMockPage({
+      viewportSize: vi.fn().mockReturnValue(null),
+      screenshot: screenshotFn as unknown as Page['screenshot'],
+    })
 
-    const result = await captureScreenshot(mockPage as never, false)
+    const result = await captureScreenshot(page, false)
 
     expect(result.width).toBe(1280)
     expect(result.height).toBe(720)
@@ -337,13 +316,13 @@ describe('captureScreenshot', () => {
 
   it('returns a Buffer in the result', async () => {
     const buf = Buffer.from('test-screenshot')
-    const mockPage = {
-      viewportSize: () => ({ width: 800, height: 600 }),
+    const { page } = makeMockPage({
+      viewportSize: vi.fn().mockReturnValue({ width: 800, height: 600 }),
       evaluate: vi.fn(async () => 600),
-      screenshot: vi.fn(async () => buf),
-    }
+      screenshot: vi.fn(async () => buf) as unknown as Page['screenshot'],
+    })
 
-    const result = await captureScreenshot(mockPage as never, true)
+    const result = await captureScreenshot(page, true)
     expect(Buffer.isBuffer(result.buffer)).toBe(true)
   })
 })
@@ -388,11 +367,9 @@ describe('extractAccessibilityTree', () => {
       querySelector: () => null,
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const tree = await extractAccessibilityTree(page as never)
+    const tree = await extractAccessibilityTree(page)
     expect(tree.length).toBeGreaterThanOrEqual(1)
     const btn = tree.find(n => n.role === 'button')
     expect(btn).toBeDefined()
@@ -420,11 +397,9 @@ describe('extractAccessibilityTree', () => {
       querySelector: () => null,
     })
 
-    const page = {
-      evaluate: async <T>(fn: () => T | Promise<T>) => fn(),
-    }
+    const page = makeEvaluatePage()
 
-    const tree = await extractAccessibilityTree(page as never)
+    const tree = await extractAccessibilityTree(page)
     expect(tree).toEqual([])
   })
 })
