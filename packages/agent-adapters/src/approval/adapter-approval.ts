@@ -30,6 +30,7 @@
  * ```
  */
 
+import { fetchWithOutboundUrlPolicy } from '@dzupagent/core'
 import type { DzupEvent } from '@dzupagent/core'
 
 import type { AgentEvent, AgentStreamEvent } from '../types.js'
@@ -419,7 +420,7 @@ export class AdapterApprovalGate {
     // Re-validate at call time in case the URL was mutated after construction
     validateWebhookUrl(this.config.webhookUrl, this.config.webhookUrlValidation)
 
-    await fetch(this.config.webhookUrl, {
+    await fetchWithOutboundUrlPolicy(this.config.webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

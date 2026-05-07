@@ -2,6 +2,7 @@
  * Slack connector — tools for sending messages and interacting with Slack.
  */
 import { z } from 'zod'
+import { fetchWithOutboundUrlPolicy } from '@dzupagent/core'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { filterTools } from '../connector-types.js'
 import type { ConnectorToolkit } from '../connector-contract.js'
@@ -15,7 +16,7 @@ const SLACK_API = 'https://slack.com/api'
 
 export function createSlackConnector(config: SlackConnectorConfig): DynamicStructuredTool[] {
   async function slack(method: string, body: Record<string, unknown>): Promise<unknown> {
-    const res = await fetch(`${SLACK_API}/${method}`, {
+    const res = await fetchWithOutboundUrlPolicy(`${SLACK_API}/${method}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${config.token}`,

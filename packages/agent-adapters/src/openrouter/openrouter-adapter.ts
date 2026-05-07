@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError, fetchWithOutboundUrlPolicy } from '@dzupagent/core'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -120,7 +120,7 @@ export class OpenRouterAdapter implements AgentCLIAdapter, AdapterStreamSource<O
     if (input.systemPrompt) messages.push({ role: 'system', content: input.systemPrompt })
     messages.push({ role: 'user', content: input.prompt })
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const response = await fetchWithOutboundUrlPolicy('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,

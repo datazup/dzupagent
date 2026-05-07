@@ -7,7 +7,7 @@
  * detection, and adapter:started/completed/failed lifecycle events.
  */
 import { randomUUID } from 'node:crypto'
-import { ForgeError, defaultLogger, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core'
+import { ForgeError, defaultLogger, fetchWithOutboundUrlPolicy, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -543,7 +543,7 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
     if (args.stream) body['stream_options'] = { include_usage: true }
     if (args.tools && args.tools.length > 0) body['tools'] = args.tools
     if (args.toolChoice !== undefined) body['tool_choice'] = args.toolChoice
-    const response = await fetch(`${baseURL}/chat/completions`, {
+    const response = await fetchWithOutboundUrlPolicy(`${baseURL}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
