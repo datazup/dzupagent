@@ -1,5 +1,5 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { CustomToolResolver, ToolResolverContext, ToolSource } from './tool-resolver.js'
+import type { CustomToolResolver, ToolResolverContext, ToolSource } from './tool-resolver-types.js'
 
 export async function applyCustomToolResolver(params: {
   context: ToolResolverContext
