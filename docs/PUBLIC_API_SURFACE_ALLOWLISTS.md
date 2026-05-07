@@ -200,7 +200,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `13`
-- Deprecated transitional root sources: `110`
+- Deprecated transitional root sources: `112`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
@@ -221,6 +221,8 @@ Root index: `packages/agent/src/index.ts`
 | `stable` | `./agent/agent-factory.js` | 1 | `exact:./agent/agent-factory.js` | `createAgentWithMemory` |
 | `stable` | `./agent/agent-types.js` | 11 | `exact:./agent/agent-types.js` | `DzupAgentConfig`, `AgentMailboxConfig`, `ArrowMemoryConfig`, `GenerateOptions` |
 | `deprecated-transitional` | `./agent/memory-profiles.js` | 4 | `prefix:./agent/` | `getMemoryProfilePreset`, `resolveArrowMemoryConfig`, `MemoryProfile`, `MemoryProfilePreset` |
+| `deprecated-transitional` | `./agent/output-filter.js` | 3 | `prefix:./agent/` | `applyOutputFilterChain`, `OutputFilter`, `OutputFilterContext` |
+| `deprecated-transitional` | `./agent/memory-context-loader.js` | 2 | `prefix:./agent/` | `ArrowRuntimeNotInjectedError`, `AgentMemoryContextLoaderLimits` |
 | `deprecated-transitional` | `./agent/production-tool-governance-preset.js` | 6 | `prefix:./agent/` | `createAllowlistPermissionPolicy`, `createProductionToolGovernancePreset`, `withProductionToolGovernancePreset`, `ProductionToolGovernancePreset` |
 | `deprecated-transitional` | `./agent/tool-loop.js` | 5 | `prefix:./agent/` | `runToolLoop`, `ToolLoopConfig`, `ToolLoopResult`, `ToolStat` |
 | `deprecated-transitional` | `./agent/tool-loop/output-validator.js` | 3 | `prefix:./agent/` | `ToolOutputValidator`, `ToolOutputSchema`, `ToolOutputValidationResult` |
