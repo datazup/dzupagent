@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
 import { DzupAgentMemoryLoader } from '../dzupagent/memory-loader.js'
-import type { DzupAgentMemoryLoaderOptions, MemoryEntry } from '../dzupagent/memory-loader.js'
+import type { DzupAgentMemoryLoaderOptions, MemoryFileEntry } from '../dzupagent/memory-loader.js'
 import type { DzupAgentPaths } from '../types.js'
 import type { AgentMemoryRecalledEvent } from '../types.js'
 

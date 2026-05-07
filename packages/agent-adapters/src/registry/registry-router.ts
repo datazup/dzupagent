@@ -150,6 +150,9 @@ export class AdapterRegistryRouter {
   /**
    * Execute a single attempt and return the resulting `lastError` (or
    * `undefined` on success — caller treats that as a successful return).
+   *
+   * Thin orchestrator: emits the start progress event, runs the adapter via
+   * {@link runOneAttempt}, then dispatches the outcome to a focused handler.
    */
   private async *runAttempt(
     adapter: AgentCLIAdapter,
@@ -162,15 +165,7 @@ export class AdapterRegistryRouter {
     const startMs = Date.now()
     const attemptRunId = `${providerId}-${startMs}`
 
-    yield buildAttemptProgressEvent({
-      providerId,
-      attemptIdx,
-      totalAttempts: ordered.length,
-      input,
-      message: attemptIdx === 0
-        ? `Executing primary provider ${providerId}`
-        : `Falling back to ${providerId} (attempt ${attemptIdx + 1}/${ordered.length})`,
-    })
+    yield this.buildStartProgress(providerId, attemptIdx, ordered.length, input)
 
     const { controller: attemptAbort, timeoutHandle, getDidTimeout } = setupAttemptTimeout(
       effectiveTimeoutMs,
@@ -180,48 +175,106 @@ export class AdapterRegistryRouter {
 
     try {
       this.emit({ type: 'agent:started', agentId: providerId, runId: attemptRunId })
-
       const outcome = yield* runOneAttempt(adapter, attemptInput, providerId, effectiveTimeoutMs, getDidTimeout)
 
       if (outcome.kind === 'success') {
-        this.recordSuccessAndEmit(providerId)
-        this.emit({
-          type: 'agent:completed',
-          agentId: providerId,
-          runId: attemptRunId,
-          durationMs: Date.now() - startMs,
-          ...(outcome.usage ? { usage: outcome.usage } : {}),
-        })
+        this.handleAttemptSuccess(providerId, attemptRunId, startMs, outcome.usage)
         return undefined
       }
-
-      const terminalError = new Error(outcome.message)
-      this.recordFailureAndEmit(providerId, terminalError)
-      this.emit({
-        type: 'agent:failed',
-        agentId: providerId,
-        runId: attemptRunId,
-        errorCode: outcome.code as ForgeErrorCode,
-        message: outcome.message,
-      })
-      return terminalError
+      return this.handleAttemptFailure(providerId, attemptRunId, outcome.message, outcome.code)
     } catch (err) {
-      const classification = classifyAttemptError(err, providerId, effectiveTimeoutMs, getDidTimeout())
-      if (classification.kind === 'propagate') throw classification.error
-
-      this.recordFailureAndEmit(providerId, classification.error)
-      this.emit({
-        type: 'agent:failed',
-        agentId: providerId,
-        runId: attemptRunId,
-        errorCode: classification.code as ForgeErrorCode,
-        message: classification.message,
-      })
-      yield classification.failedEvent
-      return classification.error
+      return yield* this.handleAttemptException(err, providerId, attemptRunId, effectiveTimeoutMs, getDidTimeout())
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle)
     }
+  }
+
+  /** Build the per-attempt `adapter:progress` event with the appropriate fallback message. */
+  private buildStartProgress(
+    providerId: AdapterProviderId,
+    attemptIdx: number,
+    totalAttempts: number,
+    input: AgentInput,
+  ): Extract<AgentStreamEvent, { type: 'adapter:progress' }> {
+    return buildAttemptProgressEvent({
+      providerId,
+      attemptIdx,
+      totalAttempts,
+      input,
+      message: attemptIdx === 0
+        ? `Executing primary provider ${providerId}`
+        : `Falling back to ${providerId} (attempt ${attemptIdx + 1}/${totalAttempts})`,
+    })
+  }
+
+  /**
+   * Apply success bookkeeping: record on the circuit breaker and emit the
+   * `agent:completed` lifecycle event with optional usage attribution.
+   */
+  private handleAttemptSuccess(
+    providerId: AdapterProviderId,
+    runId: string,
+    startMs: number,
+    usage: TokenUsage | undefined,
+  ): void {
+    this.recordSuccessAndEmit(providerId)
+    this.emit({
+      type: 'agent:completed',
+      agentId: providerId,
+      runId,
+      durationMs: Date.now() - startMs,
+      ...(usage ? { usage } : {}),
+    })
+  }
+
+  /**
+   * Apply terminal-failure bookkeeping for an outcome where the adapter
+   * stream ended without `adapter:completed`. Returns the constructed Error
+   * so the caller can use it as the loop's `lastError`.
+   */
+  private handleAttemptFailure(
+    providerId: AdapterProviderId,
+    runId: string,
+    message: string,
+    code: string,
+  ): Error {
+    const terminalError = new Error(message)
+    this.recordFailureAndEmit(providerId, terminalError)
+    this.emit({
+      type: 'agent:failed',
+      agentId: providerId,
+      runId,
+      errorCode: code as ForgeErrorCode,
+      message,
+    })
+    return terminalError
+  }
+
+  /**
+   * Classify an exception thrown during an attempt; either propagate
+   * (caller-initiated abort) or emit a synthesised failure event so the
+   * fallback chain can continue with the next provider.
+   */
+  private async *handleAttemptException(
+    err: unknown,
+    providerId: AdapterProviderId,
+    runId: string,
+    effectiveTimeoutMs: number | undefined,
+    didTimeout: boolean,
+  ): AsyncGenerator<AgentStreamEvent, Error, undefined> {
+    const classification = classifyAttemptError(err, providerId, effectiveTimeoutMs, didTimeout)
+    if (classification.kind === 'propagate') throw classification.error
+
+    this.recordFailureAndEmit(providerId, classification.error)
+    this.emit({
+      type: 'agent:failed',
+      agentId: providerId,
+      runId,
+      errorCode: classification.code as ForgeErrorCode,
+      message: classification.message,
+    })
+    yield classification.failedEvent
+    return classification.error
   }
 
   private recordSuccessAndEmit(providerId: AdapterProviderId): void {

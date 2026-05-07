@@ -511,7 +511,7 @@ export type {
   FrontmatterValue,
   FileLoaderOptions,
   ParsedSkillFile,
-  MemoryEntry,
+  MemoryFileEntry,
   DzupAgentMemoryLoaderOptions,
   ImportPlan,
   ImportResult,
