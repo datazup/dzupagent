@@ -6,36 +6,68 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./stable": {
-      "import": "./dist/stable.js",
-      "types": "./dist/stable.d.ts"
+      "types": "./dist/stable.d.ts",
+      "import": "./dist/stable.js"
     },
     "./advanced": {
-      "import": "./dist/advanced.js",
-      "types": "./dist/advanced.d.ts"
+      "types": "./dist/advanced.d.ts",
+      "import": "./dist/advanced.js"
     },
     "./quick-start": {
-      "import": "./dist/facades/quick-start.js",
-      "types": "./dist/facades/quick-start.d.ts"
+      "types": "./dist/facades/quick-start.d.ts",
+      "import": "./dist/facades/quick-start.js"
     },
     "./orchestration": {
-      "import": "./dist/facades/orchestration.js",
-      "types": "./dist/facades/orchestration.d.ts"
+      "types": "./dist/facades/orchestration.d.ts",
+      "import": "./dist/facades/orchestration.js"
     },
     "./security": {
-      "import": "./dist/facades/security.js",
-      "types": "./dist/facades/security.d.ts"
+      "types": "./dist/facades/security.d.ts",
+      "import": "./dist/facades/security.js"
     },
     "./facades": {
-      "import": "./dist/facades/index.js",
-      "types": "./dist/facades/index.d.ts"
+      "types": "./dist/facades/index.d.ts",
+      "import": "./dist/facades/index.js"
     },
     "./vectordb": {
-      "import": "./dist/vectordb/index.js",
-      "types": "./dist/vectordb/index.d.ts"
+      "types": "./dist/vectordb/index.d.ts",
+      "import": "./dist/vectordb/index.js"
+    },
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js"
+    },
+    "./llm": {
+      "types": "./dist/llm.d.ts",
+      "import": "./dist/llm.js"
+    },
+    "./tools": {
+      "types": "./dist/tools.d.ts",
+      "import": "./dist/tools.js"
+    },
+    "./identity": {
+      "types": "./dist/identity.d.ts",
+      "import": "./dist/identity.js"
+    },
+    "./persistence": {
+      "types": "./dist/persistence.d.ts",
+      "import": "./dist/persistence.js"
+    },
+    "./plugins": {
+      "types": "./dist/plugins.d.ts",
+      "import": "./dist/plugins.js"
+    },
+    "./pipeline": {
+      "types": "./dist/pipeline.d.ts",
+      "import": "./dist/pipeline.js"
+    },
+    "./utils": {
+      "types": "./dist/utils.d.ts",
+      "import": "./dist/utils.js"
     }
   },
   "scripts": {
