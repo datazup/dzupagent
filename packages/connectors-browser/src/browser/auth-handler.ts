@@ -125,11 +125,11 @@ export class AuthHandler {
       await page.waitForFunction(() => {
         // Vue 3: check if app is mounted
         const appEl = document.querySelector('#app') ?? document.querySelector('[data-v-app]')
-        if (appEl && '__vue_app__' in (appEl as never)) return true
+        if (appEl && '__vue_app__' in (appEl as object)) return true
 
         // React: check for React root
         const rootEl = document.querySelector('#root')
-        if (rootEl && '_reactRootContainer' in (rootEl as never)) return true
+        if (rootEl && '_reactRootContainer' in (rootEl as object)) return true
         if (document.querySelector('#__next')) return true
 
         // Angular: check for ng-version

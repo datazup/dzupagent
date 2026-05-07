@@ -298,7 +298,7 @@ export function createBuiltinToolRegistry(
               kind: 'skill',
               id: def.name,
               displayName: def.name,
-              execute: async (input: unknown) => executable.execute(input as never),
+              execute: async (input: unknown) => executable.execute(input as Record<string, unknown>),
               inputSchema: def.inputSchema,
               ...(def.outputSchema ? { outputSchema: def.outputSchema } : {}),
             },

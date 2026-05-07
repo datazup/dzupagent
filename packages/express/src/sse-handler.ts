@@ -171,7 +171,7 @@ export class SSEHandler {
       for await (const event of agentStream) {
         if (clientDisconnected || !writer.isConnected()) {
           // Try to signal the agent to stop via the generator's return
-          await agentStream.return(undefined as never)
+          await agentStream.return(undefined)
           break
         }
 

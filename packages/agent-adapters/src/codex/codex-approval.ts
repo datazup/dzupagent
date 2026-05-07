@@ -183,8 +183,3 @@ export async function* handleTurnFailedApproval(
     )
   }
 }
-
-// Reference exists to satisfy the "abort signal can be passed through"
-// pattern even though we currently rely solely on `codex.resumeThread()`'s
-// internal handling. Keeping the parameter avoids breaking the contract.
-export type _UnusedSignal = AbortSignal
