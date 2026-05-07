@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { } from '@dzupagent/app-tools'
+import { InMemoryDomainToolRegistry, createBuiltinToolRegistry } from '@dzupagent/app-tools'
 ```
 
 ## License

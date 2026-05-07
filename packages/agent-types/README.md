@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { } from '@dzupagent/agent-types'
+import type { MemoryClient, RetryPolicy, ToolPermissionPolicy } from '@dzupagent/agent-types'
 ```
 
 ## License

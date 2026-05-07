@@ -94,10 +94,16 @@ async function runMadge(srcDir) {
     throw new Error(`madge is not installed at ${relative(ROOT, MADGE_PACKAGE)}; run yarn install`)
   }
 
+  const srcPrefix = `${relative(ROOT, srcDir).replaceAll('\\', '/')}/`
   const result = await madge(relative(ROOT, srcDir), {
     fileExtensions: ['ts'],
   })
-  return result.circular()
+  return result.circular().map((cycle) =>
+    cycle.map((entry) => {
+      const normalized = entry.replaceAll('\\', '/')
+      return normalized.startsWith(srcPrefix) ? normalized.slice(srcPrefix.length) : normalized
+    }),
+  )
 }
 
 async function checkPackage(pkg, srcDir, baseline) {
@@ -158,6 +164,11 @@ async function main() {
       for (const cycle of result.unexpected) console.error(`    ${cycle}`)
     }
     console.error('\nBreak the new cycles or add an intentional baseline entry with review context.\n')
+    process.exit(1)
+  }
+
+  if (resolved.length > 0) {
+    console.error('\nRefresh config/circular-deps-baseline.json before merging.\n')
     process.exit(1)
   }
 

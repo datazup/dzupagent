@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { } from '@dzupagent/adapter-rules'
+import { RuleCompiler, projectClaudeConfig } from '@dzupagent/adapter-rules'
 ```
 
 ## License

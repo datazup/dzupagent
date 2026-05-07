@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { } from '@dzupagent/code-edit-kit'
+import { DefaultPolicyEnforcer, createApplyPatchTool } from '@dzupagent/code-edit-kit'
 ```
 
 ## License

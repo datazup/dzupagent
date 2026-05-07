@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { } from '@dzupagent/adapter-types'
+import type { ProviderExecutionPort, TaskRoutingStrategy } from '@dzupagent/adapter-types'
 ```
 
 ## License
