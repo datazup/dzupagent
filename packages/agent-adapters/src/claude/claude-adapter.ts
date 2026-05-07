@@ -666,7 +666,12 @@ export class ClaudeAgentAdapter
     return this.loadSDK()
   }
 
-  /** @internal Backward-compatible accessor for tests that spy on this method. */
+  /**
+   * @internal
+   * @deprecated use {@link loadSdk} (lowercase 'd'). This alias is retained
+   * solely because existing test fixtures spy on the original `loadSDK`
+   * method name; production code should call {@link loadSdk}.
+   */
   private async loadSDK(): Promise<ClaudeSDKModule> {
     if (this.sdk) return this.sdk
     this.sdk = await this.loadOptionalSdkModule<ClaudeSDKModule>(
