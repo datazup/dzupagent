@@ -1,36 +1,14 @@
 import type {
-  AsyncToolResolver,
   FlowNode,
-  ResolvedTool,
-  ToolResolver,
   ValidationError,
 } from '@dzupagent/flow-ast'
 
-import type { AsyncPersonaResolver, PersonaResolver } from '../types.js'
-
 import { validateConditionExpr } from './semantic-condition.js'
+import type { WalkContext } from './semantic-context.js'
 import { resolvePersonaNode } from './semantic-persona-resolver.js'
 import { resolveAction } from './semantic-tool-resolver.js'
 
 const ROOT_PATH = 'root'
-
-/**
- * Mutable context threaded through the AST walk. Sub-passes mutate
- * `errors` / `warnings` / `resolved` / `resolvedPersonas` directly so the
- * orchestrator can return them without a final merge step.
- */
-export interface WalkContext {
-  errors: ValidationError[]
-  warnings: ValidationError[]
-  resolved: Map<string, ResolvedTool>
-  resolvedPersonas: Map<string, string>
-  toolResolver: ToolResolver | AsyncToolResolver
-  personaResolver: PersonaResolver | AsyncPersonaResolver | undefined
-  suggestionDistance: number
-  getAvailable: () => string[]
-  missingPersonaResolverEmitted: boolean
-  target: 'codev-runtime' | undefined
-}
 
 /**
  * Recursive AST traversal for Stage 3. Dispatches to the appropriate

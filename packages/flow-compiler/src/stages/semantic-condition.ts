@@ -1,6 +1,6 @@
 import type { FlowNode } from '@dzupagent/flow-ast'
 
-import type { WalkContext } from './semantic-walk.js'
+import type { WalkContext } from './semantic-context.js'
 
 // ---------------------------------------------------------------------------
 // Condition expression validation (Stage 3 / R3)
