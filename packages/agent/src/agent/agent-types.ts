@@ -32,6 +32,9 @@ import type { ToolArgValidatorConfig } from './tool-arg-validator.js'
 import type { StuckError } from './stuck-error.js'
 import type { GuardrailConfig } from '../guardrails/guardrail-types.js'
 import type { MemoryProfile } from './memory-profiles.js'
+import type { ArrowMemoryConfig } from './arrow-memory-types.js'
+
+export type { ArrowMemoryConfig } from './arrow-memory-types.js'
 import type { ToolLoopLearningConfig, RunLearnings } from './tool-loop-learning.js'
 import type { ReflectionSummary } from '../reflection/reflection-types.js'
 import type { ReflectionAnalyzerConfig } from '../reflection/reflection-analyzer.js'
@@ -634,18 +637,6 @@ export interface AgentMailboxConfig {
   store?: MailboxStore
   /** Event bus for real-time mail notifications. Falls back to the agent's own eventBus. */
   eventBus?: DzupEventBus
-}
-
-/** Configuration for Arrow-based token-budgeted memory selection. */
-export interface ArrowMemoryConfig {
-  /** Total context window budget in tokens (default: 128000) */
-  totalBudget?: number
-  /** Max fraction of budget for memory context (default: 0.3) */
-  maxMemoryFraction?: number
-  /** Min tokens reserved for response (default: 4000) */
-  minResponseReserve?: number
-  /** Current conversation phase for phase-weighted selection */
-  currentPhase?: 'planning' | 'coding' | 'debugging' | 'reviewing' | 'general'
 }
 
 /** Options for a single generate/stream call */
