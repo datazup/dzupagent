@@ -223,6 +223,16 @@ function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308
 }
 
+function throwIfAborted(signal: AbortSignal | null | undefined): void {
+  if (!signal?.aborted) return
+
+  if (typeof signal.throwIfAborted === 'function') {
+    signal.throwIfAborted()
+  }
+
+  throw new DOMException('The operation was aborted.', 'AbortError')
+}
+
 export async function fetchWithOutboundUrlPolicy(
   url: string | URL,
   init: RequestInit = {},
@@ -235,10 +245,14 @@ export async function fetchWithOutboundUrlPolicy(
   let currentInit = init
 
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount++) {
+    throwIfAborted(currentInit.signal)
+
     const validation = await validateOutboundUrl(currentUrl, options.policy)
     if (!validation.ok) {
       throw new Error(`Outbound URL rejected: ${validation.reason}`)
     }
+
+    throwIfAborted(currentInit.signal)
 
     const response = await fetchImpl(validation.url.href, {
       ...currentInit,
