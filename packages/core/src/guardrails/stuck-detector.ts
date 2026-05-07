@@ -187,6 +187,26 @@ export class StuckDetector {
     this.semanticWindow = []
   }
 
+  /**
+   * Signal that a paused/suspended agent has been resumed (REC-M-03).
+   *
+   * Under parallel-mode pause/resume, the idle-iteration counter must be
+   * reset at resume time — not at the next iteration's entry — so a run
+   * that was paused for human approval (or any other suspend gate) is
+   * not falsely flagged as stuck on the very first iteration after
+   * resume. Idle counter accumulates across iterations with no tool
+   * calls; pause/resume is not idleness and must clear that signal.
+   *
+   * Other progress signals (recent-call hashes, error window, semantic
+   * plateau, progress-hash blocks) are intentionally preserved — they
+   * track inter-iteration patterns that remain valid across a pause.
+   * To clear all state, use {@link reset}.
+   */
+  notifyResumed(): void {
+    this.idleCount = 0
+    this._lastToolCallCount = 0
+  }
+
   private hashInput(input: unknown): string {
     return hashToolInput(input)
   }

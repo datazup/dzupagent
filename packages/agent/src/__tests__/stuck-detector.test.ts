@@ -63,6 +63,48 @@ describe('StuckDetector', () => {
     // After reset, need 3 more to trigger
     expect(detector.recordToolCall('read_file', { x: 1 }).stuck).toBe(false)
   })
+
+  // ------------------------------------------------------------------------
+  // REC-M-03 — notifyResumed() resets idle counter on pause/resume so a
+  // paused-then-resumed agent is not falsely flagged as stuck.
+  // ------------------------------------------------------------------------
+
+  it('idle counter increments normally across consecutive empty iterations', () => {
+    // First idle tick — below threshold (maxIdleIterations=2 in beforeEach)
+    expect(detector.recordIteration(0).stuck).toBe(false)
+    // Second idle tick — at threshold, triggers stuck
+    const stuck = detector.recordIteration(0)
+    expect(stuck.stuck).toBe(true)
+    expect(stuck.reason).toContain('no tool calls')
+  })
+
+  it('notifyResumed() resets idle counter so resume is not flagged as stuck', () => {
+    // Accumulate one idle iteration before pause (below the maxIdleIterations=2
+    // threshold so the pre-pause state is not yet stuck).
+    expect(detector.recordIteration(0).stuck).toBe(false)
+
+    // Simulate parallel-mode pause + resume. Without notifyResumed(), the
+    // very next idle iteration after resume would tick the counter to 2
+    // and falsely trip the stuck detector.
+    detector.notifyResumed()
+
+    // Post-resume: a single empty iteration must NOT trigger stuck.
+    expect(detector.recordIteration(0).stuck).toBe(false)
+    // And the next one after that should still need a full window to trip.
+    expect(detector.recordIteration(0).stuck).toBe(true)
+  })
+
+  it('notifyResumed() preserves repeat-call history (only idle counter is reset)', () => {
+    const input = { path: 'same.ts' }
+    detector.recordToolCall('read_file', input)
+    detector.recordToolCall('read_file', input)
+    // Pause/resume between repeated calls must NOT clear the repeat
+    // detection — only idleness is tied to wall-clock progress.
+    detector.notifyResumed()
+    const result = detector.recordToolCall('read_file', input)
+    expect(result.stuck).toBe(true)
+    expect(result.reason).toContain('3 times')
+  })
 })
 
 // ===========================================================================
