@@ -22,13 +22,13 @@
 
 import type {
   CollectionConfig,
-  VectorDBSearchResult,
+  VectorSearchResult as VectorDBSearchResult,
   VectorDeleteFilter,
   VectorEntry,
   VectorQuery,
   VectorStore,
   VectorStoreHealth,
-} from '@dzupagent/core'
+} from '@dzupagent/core/vectordb'
 
 import type {
   KeywordSearchFn,

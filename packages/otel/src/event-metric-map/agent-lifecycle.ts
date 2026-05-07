@@ -1,7 +1,7 @@
 import { asEvent } from './shared.js'
 import type { MetricMapFragment } from './types.js'
 
-export const agentLifecycleMetricMap = {
+export const agentLifecycleMetricMap: MetricMapFragment = {
   // --- Agent lifecycle ---
   'agent:started': [
     {
