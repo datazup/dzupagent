@@ -17,68 +17,28 @@ import {
   type GitWorkspaceProfile,
   type HttpConnectorProfile,
 } from './tool-profile-selection.js'
+import type {
+  CustomToolResolver,
+  ToolResolverContext,
+  ToolResolverOptions,
+  ToolResolverResult,
+  ToolSource,
+} from './tool-resolver-types.js'
 import { hasCategory, pickEnabled } from './tool-selection.js'
 
 export { getToolProfileConfig }
 export type {
   ConnectorTokenProfile,
+  CustomToolResolver,
   GitWorkspaceProfile,
   HttpConnectorProfile,
   ToolProfile,
   ToolProfileConfig,
+  ToolResolverContext,
+  ToolResolverOptions,
+  ToolResolverResult,
+  ToolSource,
 }
-
-// ---------------------------------------------------------------------------
-// Context & Result types
-// ---------------------------------------------------------------------------
-
-export interface ToolResolverContext {
-  toolNames?: string[]
-  toolProfile?: ToolProfile
-  metadata?: Record<string, unknown>
-  env?: NodeJS.ProcessEnv
-  /** Server-owned HTTP connector profiles keyed by profile name. */
-  httpConnectorProfiles?: Record<string, HttpConnectorProfile>
-  /** Default server-owned HTTP connector profile. Defaults to "default". */
-  defaultHttpConnectorProfile?: string
-  /** Server-owned GitHub connector token profiles keyed by profile name. */
-  githubConnectorProfiles?: Record<string, ConnectorTokenProfile>
-  /** Default GitHub connector profile. Defaults to "default". */
-  defaultGithubConnectorProfile?: string
-  /** Server-owned Slack connector token profiles keyed by profile name. */
-  slackConnectorProfiles?: Record<string, ConnectorTokenProfile>
-  /** Default Slack connector profile. Defaults to "default". */
-  defaultSlackConnectorProfile?: string
-  /** Server-owned Git workspace profiles keyed by profile name. */
-  gitWorkspaceProfiles?: Record<string, GitWorkspaceProfile>
-  /** Default server-owned Git workspace profile. Defaults to "default". */
-  defaultGitWorkspaceProfile?: string
-  /**
-   * Unsafe compatibility escape hatch for legacy callers that passed
-   * metadata.httpBaseUrl/httpHeaders. Keep false for untrusted runs.
-   */
-  allowUnsafeMetadataHttpConnector?: boolean
-  /**
-   * Unsafe compatibility escape hatch for legacy callers that passed metadata.cwd.
-   * The selected cwd is still required to stay inside the selected workspace root.
-   */
-  allowUnsafeMetadataGitCwd?: boolean
-}
-
-export type ToolSource = 'git' | 'connector' | 'mcp' | 'custom'
-
-export interface ToolResolverResult {
-  tools: StructuredToolInterface[]
-  activated: Array<{ name: string; source: ToolSource }>
-  unresolved: string[]
-  warnings: string[]
-  /** Call to disconnect MCP servers after the run completes. */
-  cleanup?: () => Promise<void>
-}
-
-export type CustomToolResolver = (
-  context: ToolResolverContext,
-) => Promise<StructuredToolInterface[]>
 
 const GIT_TOOL_NAMES = new Set([
   'git_status',
@@ -103,11 +63,6 @@ const SLACK_TOOL_NAMES = new Set([
 ])
 
 const HTTP_TOOL_NAMES = new Set(['http_request'])
-
-export interface ToolResolverOptions {
-  /** 'strict' throws if any tools remain unresolved; 'lenient' warns (default). */
-  resolvePolicy?: 'strict' | 'lenient'
-}
 
 export class ToolResolutionError extends Error {
   constructor(
