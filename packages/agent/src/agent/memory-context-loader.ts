@@ -39,15 +39,62 @@ function defaultMemoryRanker(records: Record<string, unknown>[]): Record<string,
 
 type AgentMemoryService = NonNullable<DzupAgentConfig['memory']>
 type ResolvedArrowMemoryConfig = NonNullable<ReturnType<typeof resolveArrowMemoryConfig>>
+type StandardMemoryBudgetConfig = Required<
+  Pick<
+    ResolvedArrowMemoryConfig,
+    'totalBudget' | 'maxMemoryFraction' | 'minResponseReserve'
+  >
+>
 
-const ARROW_FAILURE_FALLBACK_MAX_TOKENS = 4_000
+const DEFAULT_ARROW_FAILURE_FALLBACK_MAX_TOKENS = 4_000
 const FALLBACK_CHARS_PER_TOKEN = 4
-const STANDARD_MEMORY_MAX_ITEMS = 10
-const STANDARD_MEMORY_MAX_CHARS_PER_ITEM = 2_000
-const STANDARD_MEMORY_BUDGET_CONFIG: ResolvedArrowMemoryConfig = {
+const DEFAULT_STANDARD_MEMORY_MAX_ITEMS = 10
+const DEFAULT_STANDARD_MEMORY_MAX_CHARS_PER_ITEM = 2_000
+const DEFAULT_STANDARD_MEMORY_BUDGET_CONFIG: StandardMemoryBudgetConfig = {
   totalBudget: 128_000,
   maxMemoryFraction: 0.3,
   minResponseReserve: 4_000,
+}
+
+/**
+ * Per-agent overrides for the in-loader memory-budget limits (audit M-08).
+ *
+ * Each field is optional; omitted fields fall back to the package-level
+ * defaults preserved from before the audit fix so existing callers see no
+ * behaviour change.
+ */
+export interface AgentMemoryContextLoaderLimits {
+  /**
+   * Token budget reserved for the standard (non-Arrow) memory path.
+   *
+   * Maps to {@link ResolvedArrowMemoryConfig.totalBudget}. Default 128_000.
+   */
+  standardTotalBudget?: number
+  /**
+   * Maximum fraction of `standardTotalBudget` the loader may spend on
+   * memory context. Default 0.3.
+   */
+  standardMaxMemoryFraction?: number
+  /**
+   * Minimum response token reserve subtracted from the standard budget.
+   * Default 4_000.
+   */
+  standardMinResponseReserve?: number
+  /**
+   * Hard cap on records emitted into the prompt by the standard path.
+   * Default 10.
+   */
+  standardMaxItems?: number
+  /**
+   * Hard cap on per-record character length emitted into the prompt by
+   * the standard path. Default 2_000.
+   */
+  standardMaxCharsPerItem?: number
+  /**
+   * Token cap applied when the Arrow path fails and the loader falls back
+   * to the standard path. Default 4_000.
+   */
+  arrowFallbackMaxTokens?: number
 }
 
 interface ArrowMemoryRecord {
@@ -130,6 +177,15 @@ export interface AgentMemoryContextLoaderConfig {
    * Pass `(records) => records` to disable ranking.
    */
   memoryRanker?: (records: Record<string, unknown>[]) => Record<string, unknown>[]
+  /**
+   * Per-agent overrides for the in-loader memory-budget limits (audit M-08).
+   *
+   * When omitted, the loader uses the package-level defaults
+   * (128 K token total budget, 30 % memory fraction, 4 K response reserve,
+   * 10 items max, 2 000 chars/item, 4 K Arrow-fallback ceiling).
+   * Pass any subset of fields to tune limits per agent instance.
+   */
+  limits?: AgentMemoryContextLoaderLimits
 }
 
 export interface AgentMemoryReadContext {
@@ -168,9 +224,31 @@ async function defaultLoadArrowRuntime(): Promise<ArrowMemoryRuntime> {
 
 export class AgentMemoryContextLoader {
   private readonly loadArrowRuntime: () => Promise<ArrowMemoryRuntime>
+  private readonly arrowFailureFallbackMaxTokens: number
+  private readonly standardMemoryMaxItems: number
+  private readonly standardMemoryMaxCharsPerItem: number
+  private readonly standardMemoryBudgetConfig: StandardMemoryBudgetConfig
 
   constructor(private readonly config: AgentMemoryContextLoaderConfig) {
     this.loadArrowRuntime = config.loadArrowRuntime ?? defaultLoadArrowRuntime
+
+    const limits = config.limits ?? {}
+    this.arrowFailureFallbackMaxTokens =
+      limits.arrowFallbackMaxTokens ?? DEFAULT_ARROW_FAILURE_FALLBACK_MAX_TOKENS
+    this.standardMemoryMaxItems =
+      limits.standardMaxItems ?? DEFAULT_STANDARD_MEMORY_MAX_ITEMS
+    this.standardMemoryMaxCharsPerItem =
+      limits.standardMaxCharsPerItem ?? DEFAULT_STANDARD_MEMORY_MAX_CHARS_PER_ITEM
+    this.standardMemoryBudgetConfig = {
+      totalBudget:
+        limits.standardTotalBudget ?? DEFAULT_STANDARD_MEMORY_BUDGET_CONFIG.totalBudget,
+      maxMemoryFraction:
+        limits.standardMaxMemoryFraction ??
+        DEFAULT_STANDARD_MEMORY_BUDGET_CONFIG.maxMemoryFraction,
+      minResponseReserve:
+        limits.standardMinResponseReserve ??
+        DEFAULT_STANDARD_MEMORY_BUDGET_CONFIG.minResponseReserve,
+    }
   }
 
   async load(
@@ -263,7 +341,7 @@ export class AgentMemoryContextLoader {
       memory,
       records,
       messages,
-      STANDARD_MEMORY_BUDGET_CONFIG,
+      this.standardMemoryBudgetConfig,
     )
   }
 
@@ -284,7 +362,7 @@ export class AgentMemoryContextLoader {
       records,
       messages,
       arrowCfg,
-      ARROW_FAILURE_FALLBACK_MAX_TOKENS,
+      this.arrowFailureFallbackMaxTokens,
     )
   }
 
@@ -405,7 +483,7 @@ export class AgentMemoryContextLoader {
     }
 
     const defaultTokensPerItem = Math.ceil(
-      STANDARD_MEMORY_MAX_CHARS_PER_ITEM / FALLBACK_CHARS_PER_TOKEN,
+      this.standardMemoryMaxCharsPerItem / FALLBACK_CHARS_PER_TOKEN,
     )
     const maxItemsByBudget = Math.max(
       1,
@@ -413,12 +491,12 @@ export class AgentMemoryContextLoader {
     )
     const maxItems = Math.max(
       1,
-      Math.min(recordCount, STANDARD_MEMORY_MAX_ITEMS, maxItemsByBudget),
+      Math.min(recordCount, this.standardMemoryMaxItems, maxItemsByBudget),
     )
     const maxCharsPerItem = Math.max(
       1,
       Math.min(
-        STANDARD_MEMORY_MAX_CHARS_PER_ITEM,
+        this.standardMemoryMaxCharsPerItem,
         Math.floor((memoryBudget * FALLBACK_CHARS_PER_TOKEN) / maxItems),
       ),
     )

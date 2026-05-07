@@ -216,6 +216,67 @@ describe('Tool Loop Telemetry', () => {
     expect(latencies[1]!.error).toBe('something broke')
   })
 
+  it('fires onIteration after tool results are appended to message history', async () => {
+    const tool = mockTool('read_file', 'file contents')
+    const snapshots: Array<{
+      iteration: number
+      messages: BaseMessage[]
+      totalInputTokens: number
+      totalOutputTokens: number
+      llmCalls: number
+    }> = []
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'read_file', args: { path: 'a.ts' } }]),
+      new AIMessage('done'),
+    ])
+
+    await runToolLoop(
+      model,
+      [new HumanMessage('read a file')],
+      [tool],
+      {
+        maxIterations: 5,
+        onIteration: (info) => {
+          snapshots.push(info)
+        },
+      },
+    )
+
+    expect(snapshots).toHaveLength(1)
+    expect(snapshots[0]!.iteration).toBe(1)
+    expect(snapshots[0]!.llmCalls).toBe(1)
+    expect(snapshots[0]!.messages.map(message => message._getType())).toEqual([
+      'human',
+      'ai',
+      'tool',
+    ])
+    expect(snapshots[0]!.totalInputTokens).toEqual(expect.any(Number))
+    expect(snapshots[0]!.totalOutputTokens).toEqual(expect.any(Number))
+  })
+
+  it('ignores onIteration errors so snapshot hooks cannot abort the loop', async () => {
+    const tool = mockTool('read_file', 'file contents')
+    const model = createMockModel([
+      aiWithToolCalls([{ name: 'read_file', args: { path: 'a.ts' } }]),
+      new AIMessage('done'),
+    ])
+
+    const result = await runToolLoop(
+      model,
+      [new HumanMessage('read a file')],
+      [tool],
+      {
+        maxIterations: 5,
+        onIteration: () => {
+          throw new Error('snapshot hook failed')
+        },
+      },
+    )
+
+    expect(result.stopReason).toBe('complete')
+    expect(result.messages.at(-1)?.content).toBe('done')
+  })
+
   it('propagates LLM invocation errors to the caller', async () => {
     const model = {
       invoke: vi.fn(async () => {

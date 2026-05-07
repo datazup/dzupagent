@@ -279,6 +279,7 @@ function installEventBus(
     loadArrowRuntime: config.loadArrowRuntime
       ? config.loadArrowRuntime as () => Promise<ArrowMemoryRuntime>
       : undefined,
+    limits: config.memoryContextLimits,
     estimateConversationTokens,
     onFallback: config.onFallback
       ? (reason, before, after) => {
