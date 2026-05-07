@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": ["YARN_CACHE_FOLDER", "YARN_GLOBAL_FOLDER", "npm_config_prefix"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
