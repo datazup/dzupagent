@@ -3,10 +3,44 @@
  *
  * Triggers define how agent runs are automatically started: via cron schedule,
  * incoming webhook, or chain reaction from another agent's completion.
+ *
+ * Webhook secrets are SHA-256 hashed before storage so the plaintext value is
+ * never persisted. Use `hashWebhookSecret` before writing and
+ * `verifyWebhookSecret` when validating an incoming webhook request.
  */
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { eq, and } from 'drizzle-orm'
 import { triggerConfigs } from '../persistence/drizzle-schema.js'
 import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
+
+// ---------------------------------------------------------------------------
+// Webhook secret helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Hash a plaintext webhook secret for storage.
+ * Returns null when secret is null/undefined so callers can store it directly.
+ */
+export function hashWebhookSecret(secret: string | null | undefined): string | null {
+  if (secret == null || secret.length === 0) return null
+  return createHash('sha256').update(secret).digest('hex')
+}
+
+/**
+ * Constant-time comparison of a plaintext secret against a stored SHA-256 hex hash.
+ * Returns false if either value is absent.
+ */
+export function verifyWebhookSecret(
+  plainSecret: string,
+  storedHash: string | null | undefined,
+): boolean {
+  if (!storedHash) return false
+  const incoming = createHash('sha256').update(plainSecret).digest('hex')
+  const stored = Buffer.from(storedHash, 'hex')
+  const incomingBuf = Buffer.from(incoming, 'hex')
+  if (stored.length !== incomingBuf.length) return false
+  return timingSafeEqual(stored, incomingBuf)
+}
 
 export type TriggerType = 'cron' | 'webhook' | 'chain'
 

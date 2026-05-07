@@ -441,11 +441,12 @@ export async function runToolStreamingPhase(args: {
     }
   }
 
-  // RF-15 — prompt-injection scan on tool results.
+  // RF-15 — prompt-injection + PII scan on tool results.
   const piMode = policy?.promptInjectionToolResults
-  if (piMode !== undefined && piMode !== 'off') {
+  const piiMode = policy?.piiToolResults
+  if ((piMode !== undefined && piMode !== 'off') || (piiMode !== undefined && piiMode !== 'off')) {
     try {
-      const scanner = new ContentScanner({ promptInjection: piMode, pii: 'off' })
+      const scanner = new ContentScanner({ promptInjection: piMode ?? 'off', pii: piiMode ?? 'off' })
       const scan = await scanner.scan(transformedResult)
       if (scan.verdict === 'block') {
         const blockedContent = '[blocked: tool result contained prompt-injection markers]'

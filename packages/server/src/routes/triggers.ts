@@ -3,12 +3,17 @@
  */
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
-import type { TriggerStore } from '../triggers/trigger-store.js'
+import { hashWebhookSecret, type TriggerStore } from '../triggers/trigger-store.js'
 import { TriggerCreateSchema, TriggerEnableSchema, validateBodyCompat } from './schemas.js'
 import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface TriggerRouteConfig {
   triggerStore: TriggerStore
+}
+
+function redactSecret<T extends { webhookSecret?: string | null }>(trigger: T): T {
+  if (trigger.webhookSecret == null) return trigger
+  return { ...trigger, webhookSecret: trigger.webhookSecret ? '***' : null }
 }
 
 export function createTriggerRoutes(config: TriggerRouteConfig): Hono<AppEnv> {
@@ -27,14 +32,14 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono<AppEnv> {
       type: body.type,
       agentId: body.agentId,
       schedule: body.schedule,
-      webhookSecret: body.webhookSecret,
+      webhookSecret: hashWebhookSecret(body.webhookSecret),
       afterAgentId: body.afterAgentId,
       enabled: body.enabled ?? true,
       metadata: body.metadata,
       tenantId,
     })
 
-    return c.json(trigger, 201)
+    return c.json(redactSecret(trigger), 201)
   })
 
   // --- List triggers ---
@@ -50,7 +55,7 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono<AppEnv> {
     }
 
     const triggers = await config.triggerStore.list(filter)
-    return c.json({ triggers })
+    return c.json({ triggers: triggers.map(redactSecret) })
   })
 
   // --- Get trigger ---
@@ -59,7 +64,7 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono<AppEnv> {
     if (!trigger) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Trigger not found' } }, 404)
     }
-    return c.json(trigger)
+    return c.json(redactSecret(trigger))
   })
 
   // --- Delete trigger ---
@@ -84,7 +89,7 @@ export function createTriggerRoutes(config: TriggerRouteConfig): Hono<AppEnv> {
     if (!trigger) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Trigger not found' } }, 404)
     }
-    return c.json(trigger)
+    return c.json(redactSecret(trigger))
   })
 
   return app

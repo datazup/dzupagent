@@ -171,6 +171,14 @@ export interface StreamingToolPolicyOptions {
    * catches. Defaults to `undefined` (no scan), preserving legacy behaviour.
    */
   promptInjectionToolResults?: PromptInjectionMode
+  /**
+   * PII scanning on tool results — mirrors `promptInjectionToolResults` for PII.
+   * When set, `ContentScanner` applies PII detection to every tool result.
+   * On `'block'` a finding replaces the result with a redacted placeholder.
+   * On `'redact'` PII spans are rewritten before the result reaches the model.
+   * Defaults to `undefined` (no scan).
+   */
+  piiToolResults?: PiiMode
   tracer?: ToolLoopTracer
   agentId?: string
   runId?: string

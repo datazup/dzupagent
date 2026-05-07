@@ -147,7 +147,7 @@ export type {
   WebhookTriggerConfig,
   ChainTriggerConfig,
 } from './triggers/index.js'
-export { InMemoryTriggerStore, DrizzleTriggerStore } from './triggers/trigger-store.js'
+export { InMemoryTriggerStore, DrizzleTriggerStore, hashWebhookSecret, verifyWebhookSecret } from './triggers/trigger-store.js'
 export type { TriggerStore, TriggerConfigRecord } from './triggers/trigger-store.js'
 export { createTriggerRoutes } from './routes/triggers.js'
 export type { TriggerRouteConfig } from './routes/triggers.js'
