@@ -23,7 +23,7 @@ import { EventBusBridge } from '../registry/event-bus-bridge.js'
 import { SessionRegistry } from '../session/session-registry.js'
 
 import { OrchestrationPatterns } from './orchestration-patterns.js'
-import { OrchestratorFacade } from './orchestrator-facade.js'
+import { OrchestratorFacade } from './orchestrator-facade-class.js'
 import type { OrchestratorConfig } from './orchestrator-facade-types.js'
 
 /**
