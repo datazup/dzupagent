@@ -2,6 +2,8 @@
  * @dzupagent/codegen/compat — transitional and preview codegen facade.
  *
  * Prefer @dzupagent/codegen/vfs, /tools, and /runtime for new imports.
+ *
+ * @deprecated Scheduled for removal in v2.0. Migrate to the vfs, tools, and runtime subpath exports before upgrading.
  */
 
 export * from './adaptation/framework-adapter.js'

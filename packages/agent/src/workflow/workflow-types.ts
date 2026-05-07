@@ -25,6 +25,7 @@ export type WorkflowNode =
   | { type: 'branch'; condition: (state: Record<string, unknown>) => string; branches: Record<string, WorkflowStep[]> }
   | { type: 'suspend'; reason: string }
 
+// Workflow state merge strategy — see workflow execution
 /** Strategy for merging parallel step results in a workflow graph (data shape merge). Not the same as adapter-level MergeStrategy in parallel-executor.ts, which controls response selection across providers. */
 export type MergeStrategy = 'merge-objects' | 'concat-arrays' | 'last-wins'
 

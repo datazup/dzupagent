@@ -4,6 +4,7 @@
 
 import type { FileDiff } from './virtual-fs.js'
 
+// VFS file conflict merge strategy
 /** Merge strategy when conflicts exist between parent and child */
 export type MergeStrategy = 'ours' | 'theirs' | 'manual'
 
