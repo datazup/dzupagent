@@ -4,7 +4,7 @@
  * Centralizes all context variable types so middleware can use
  * typed `c.set()` / `c.get()` without `as never` casts.
  */
-import type { ForgeIdentity, ForgeCapability } from '@dzupagent/core'
+import type { ForgeIdentity, ForgeCapability } from '@dzupagent/core/identity'
 import type { ForgeRole } from './middleware/rbac-types.js'
 
 /**

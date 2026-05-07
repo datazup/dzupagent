@@ -12,7 +12,7 @@
  * console.log(collector.render())
  * ```
  */
-import { MetricsCollector } from '@dzupagent/core'
+import { MetricsCollector } from '@dzupagent/core/utils'
 
 /** Default histogram bucket boundaries (in ms). */
 const DEFAULT_BUCKETS = [50, 100, 250, 500, 1000, 2500, 5000, 10000] as const

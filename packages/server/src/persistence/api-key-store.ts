@@ -11,7 +11,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { and, desc, eq, isNull } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import { apiKeys } from './drizzle-schema.js'
 
 type DB = PostgresJsDatabase<Record<string, never>>

@@ -9,7 +9,8 @@
  * It does NOT import from `@dzupagent/server` or any other sibling package.
  */
 
-import type { RunStore, DzupEventBus } from '@dzupagent/core'
+import type { RunStore } from '@dzupagent/core/persistence'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import { OrchestrationError } from './orchestration-error.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 

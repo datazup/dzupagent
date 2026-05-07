@@ -7,17 +7,7 @@ import { eq, desc, and, or, isNull, sql, asc, type SQL } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { dzipAgents, forgeRuns, forgeRunLogs, forgeVectors } from './drizzle-schema.js'
 import { cosineDistance, l2Distance, innerProduct } from './vector-ops.js'
-import type {
-  RunStore,
-  Run,
-  CreateRunInput,
-  RunFilter,
-  RunStatus,
-  LogEntry,
-  AgentExecutionSpecStore,
-  AgentExecutionSpec,
-  AgentExecutionSpecFilter,
-} from '@dzupagent/core'
+import type { RunStore, Run, CreateRunInput, RunFilter, RunStatus, LogEntry, AgentExecutionSpecStore, AgentExecutionSpec, AgentExecutionSpecFilter } from '@dzupagent/core/persistence'
 
 type DB = PostgresJsDatabase<Record<string, never>>
 

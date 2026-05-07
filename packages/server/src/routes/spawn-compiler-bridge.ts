@@ -22,7 +22,7 @@ import type {
   CompilationTargetReason,
   CompilationWarning,
 } from '@dzupagent/flow-compiler'
-import type { DzupEvent } from '@dzupagent/core'
+import type { DzupEvent } from '@dzupagent/core/events'
 import type { EventGateway } from '../events/event-gateway.js'
 import { buildCompileResultEvent } from './compile-result-event.js'
 import { sanitizeError } from './route-error.js'

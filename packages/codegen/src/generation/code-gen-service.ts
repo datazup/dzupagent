@@ -3,8 +3,8 @@
  * Uses ModelRegistry from @dzupagent/core for model resolution.
  */
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
-import type { ModelRegistry, ModelTier, TokenUsage } from '@dzupagent/core'
-import { extractTokenUsage } from '@dzupagent/core'
+import type { ModelRegistry, ModelTier, TokenUsage } from '@dzupagent/core/llm'
+import { extractTokenUsage } from '@dzupagent/core/llm'
 import { extractLargestCodeBlock, detectLanguage } from './code-block-parser.js'
 
 export interface GenerateFileParams {

@@ -21,13 +21,9 @@
  * ```
  */
 import { createHmac, randomUUID } from 'node:crypto'
-import {
-  fetchWithOutboundUrlPolicy,
-  type DzupEventBus,
-  type HookContext,
-  type ApprovalRequest,
-  type ContactChannel,
-} from '@dzupagent/core'
+import type { DzupEventBus, HookContext } from '@dzupagent/core/events'
+import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
+import type { ApprovalRequest, ContactChannel } from '@dzupagent/core/tools'
 import {
   APPROVAL_PENDING_KEY,
   DEFAULT_APPROVAL_TIMEOUT_MS,

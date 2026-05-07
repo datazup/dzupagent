@@ -2,9 +2,9 @@
  * Phase and state types for code generation pipelines.
  */
 import type { BaseMessage } from '@langchain/core/messages'
-import type { ModelTier } from '@dzupagent/core'
+import type { ModelTier } from '@dzupagent/core/llm'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { SubAgentConfig } from '@dzupagent/core'
+import type { SubAgentConfig } from '@dzupagent/core/pipeline'
 import type { QualityDimension } from '../quality/quality-types.js'
 import type { EscalationConfig } from './fix-escalation.js'
 

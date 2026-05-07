@@ -6,7 +6,7 @@
  * @module recovery/recovery-executor
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { ApprovalGate } from '../approval/approval-gate.js'
 import type {
   RecoveryPlan,

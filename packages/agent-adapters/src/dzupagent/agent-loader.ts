@@ -11,7 +11,7 @@
 
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, basename, extname } from 'node:path'
-import { defaultLogger } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core/utils'
 import type { AdapterProviderId, DzupAgentPaths } from '../types.js'
 import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
 import { AdapterSkillRegistry } from '../skills/adapter-skill-registry.js'

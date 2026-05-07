@@ -16,8 +16,8 @@
  * @module agent/tool-loop-learning
  */
 
-import { SkillLearner } from '@dzupagent/core'
-import type { SkillMetrics } from '@dzupagent/core'
+import { SkillLearner } from '@dzupagent/core/pipeline'
+import type { SkillMetrics } from '@dzupagent/core/pipeline'
 import type { SpecialistRegistry, SpecialistConfig, NodeConfig } from '../self-correction/specialist-registry.js'
 import type { ToolStat, StopReason } from './tool-loop.js'
 

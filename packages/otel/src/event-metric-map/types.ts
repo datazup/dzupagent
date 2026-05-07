@@ -1,4 +1,4 @@
-import type { DzupEvent, DzupEventOf } from '@dzupagent/core'
+import type { DzupEvent, DzupEventOf } from '@dzupagent/core/events'
 
 /**
  * A single metric mapping rule: defines how a DzupEvent translates

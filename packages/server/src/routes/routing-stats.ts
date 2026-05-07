@@ -9,7 +9,7 @@
  */
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
-import type { RunStore } from '@dzupagent/core'
+import type { RunStore } from '@dzupagent/core/persistence'
 
 export interface RoutingStatsConfig {
   runStore: RunStore

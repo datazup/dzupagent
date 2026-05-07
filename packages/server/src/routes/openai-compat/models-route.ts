@@ -5,7 +5,7 @@
  * clients can discover available "models" (which are really agents).
  */
 import { Hono } from 'hono'
-import type { AgentExecutionSpecStore } from '@dzupagent/core'
+import type { AgentExecutionSpecStore } from '@dzupagent/core/persistence'
 import type { ModelListResponse, ModelObject } from './types.js'
 import type { AppEnv } from '../../types.js'
 

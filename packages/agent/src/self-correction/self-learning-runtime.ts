@@ -10,7 +10,7 @@
  */
 
 import type { BaseStore } from '@langchain/langgraph'
-import type { PipelineCheckpoint } from '@dzupagent/core'
+import type { PipelineCheckpoint } from '@dzupagent/core/pipeline'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import type {
   PipelineRuntimeConfig,

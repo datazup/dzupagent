@@ -6,7 +6,7 @@
  * demand because the patterns are stateless and short-lived.
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import {

@@ -15,11 +15,7 @@
  *    refreshes happen lazily on the next `resolve()` once the TTL elapses.
  */
 import type { AsyncToolResolver, ResolvedTool } from '@dzupagent/flow-ast'
-import type {
-  AgentHandle,
-  AgentInvocation,
-  AgentInvocationResult,
-} from '@dzupagent/core'
+import type { AgentHandle, AgentInvocation, AgentInvocationResult } from '@dzupagent/core/pipeline'
 import type { JSONSchema7 } from 'json-schema'
 
 // ---------------------------------------------------------------------------

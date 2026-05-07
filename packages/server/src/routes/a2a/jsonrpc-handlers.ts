@@ -7,16 +7,8 @@
  * instead of a permission error so existence cannot be enumerated.
  */
 import type { A2ATaskState, A2ATaskMessage } from '../../a2a/task-handler.js'
-import {
-  JSON_RPC_ERRORS,
-  A2A_ERRORS,
-  createJsonRpcError,
-  createJsonRpcSuccess,
-} from '@dzupagent/core'
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-} from '@dzupagent/core'
+import { JSON_RPC_ERRORS, A2A_ERRORS, createJsonRpcError, createJsonRpcSuccess } from '@dzupagent/core/identity'
+import type { JsonRpcRequest, JsonRpcResponse } from '@dzupagent/core/identity'
 import type { A2ACallerScope, A2ARoutesConfig } from './helpers.js'
 import { callerOwnsTask } from './helpers.js'
 import {

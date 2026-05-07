@@ -6,11 +6,7 @@
  * IdentityResolver from @dzupagent/core.
  */
 import type { Context, MiddlewareHandler } from 'hono'
-import type {
-  IdentityResolver,
-  ForgeIdentity,
-  ForgeCapability,
-} from '@dzupagent/core'
+import type { IdentityResolver, ForgeIdentity, ForgeCapability } from '@dzupagent/core/identity'
 
 import type { AppEnv } from '../types.js'
 

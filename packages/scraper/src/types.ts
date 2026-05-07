@@ -1,4 +1,4 @@
-import type { OutboundUrlSecurityPolicy } from '@dzupagent/core'
+import type { OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 
 /** Configuration for the WebScraper */
 export interface ScraperConfig {

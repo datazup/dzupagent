@@ -19,7 +19,7 @@
  *   breaking the event loop.
  */
 
-import type { DzupEventBus, DzupEventOf } from '@dzupagent/core'
+import type { DzupEventBus, DzupEventOf } from '@dzupagent/core/events'
 import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
 
 import {

@@ -13,8 +13,8 @@
  *   state.__skills_prompt_<phaseName> — pre-formatted prompt section (string)
  */
 
-import type { SkillRegistry, SkillLoader } from '@dzupagent/core'
-import type { SkillResolutionContext } from '@dzupagent/core'
+import type { SkillRegistry, SkillLoader } from '@dzupagent/core/pipeline'
+import type { SkillResolutionContext } from '@dzupagent/core/pipeline'
 
 export interface ResolvedSkill {
   name: string

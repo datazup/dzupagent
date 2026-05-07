@@ -5,10 +5,7 @@
  * from LLM responses, with automatic fallback chains and retry logic.
  */
 import type { z } from 'zod'
-import type {
-  StructuredOutputModelCapabilities,
-  StructuredOutputStrategy,
-} from '@dzupagent/core'
+import type { StructuredOutputModelCapabilities, StructuredOutputStrategy } from '@dzupagent/core/llm'
 
 /**
  * Strategy for extracting structured output from an LLM.

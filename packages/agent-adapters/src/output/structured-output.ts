@@ -9,21 +9,10 @@
  * `ProviderAdapterRegistry`, `AgentEvent`, and `AdapterProviderId`.
  */
 
-import {
-  executeStructuredParseLoop,
-  executeStructuredParseStreamLoop,
-  buildStructuredOutputCorrectionPrompt,
-  buildStructuredOutputExhaustedError,
-  JsonOutputSchema,
-  RegexOutputSchema,
-  typedEmit,
-} from '@dzupagent/core'
-import type {
-  DzupEventBus,
-  OutputSchema,
-  StructuredOutputErrorSchemaRef,
-  StructuredOutputFailureCategory,
-} from '@dzupagent/core'
+import { executeStructuredParseLoop, executeStructuredParseStreamLoop, buildStructuredOutputCorrectionPrompt, buildStructuredOutputExhaustedError, JsonOutputSchema, RegexOutputSchema } from '@dzupagent/core/pipeline'
+import { typedEmit } from '@dzupagent/core/events'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { OutputSchema, StructuredOutputErrorSchemaRef, StructuredOutputFailureCategory } from '@dzupagent/core/pipeline'
 
 import type {
   AdapterProviderId,

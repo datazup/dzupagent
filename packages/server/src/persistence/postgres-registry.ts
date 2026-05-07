@@ -8,25 +8,10 @@
  * Supports GIN-style capability filtering (simulated via array containment).
  */
 
-import { ForgeError } from '@dzupagent/core'
-import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
-import type { ForgeCapability } from '@dzupagent/core'
-import type {
-  AgentHealth,
-  AgentHealthStatus,
-  AgentRegistry,
-  AgentRegistryConfig,
-  DeregistrationReason,
-  DiscoveryQuery,
-  DiscoveryResult,
-  DiscoveryResultPage,
-  RegisterAgentInput,
-  RegisteredAgent,
-  RegistryEvent,
-  RegistryStats,
-  RegistrySubscriptionFilter,
-  ScoreBreakdown,
-} from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core/events'
+import type { ForgeCapability } from '@dzupagent/core/identity'
+import type { AgentHealth, AgentHealthStatus, AgentRegistry, AgentRegistryConfig, DeregistrationReason, DiscoveryQuery, DiscoveryResult, DiscoveryResultPage, RegisterAgentInput, RegisteredAgent, RegistryEvent, RegistryStats, RegistrySubscriptionFilter, ScoreBreakdown } from '@dzupagent/core/pipeline'
 
 // ------------------------------------------------------------------ Store abstraction
 

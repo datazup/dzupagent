@@ -17,7 +17,7 @@ import type {
   PersonaResolver,
 } from '@dzupagent/flow-compiler'
 import type { AsyncToolResolver, ToolResolver } from '@dzupagent/flow-ast'
-import { secureLogger } from '@dzupagent/core'
+import { secureLogger } from '@dzupagent/core/utils'
 
 import { sanitizeError } from '../route-error.js'
 import { buildCompileResultEvent } from '../compile-result-event.js'

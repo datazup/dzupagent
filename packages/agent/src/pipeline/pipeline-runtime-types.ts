@@ -19,11 +19,7 @@
  * @module pipeline/pipeline-runtime-types
  */
 
-import type {
-  PipelineDefinition,
-  PipelineNode,
-  PipelineCheckpointStore,
-} from '@dzupagent/core'
+import type { PipelineDefinition, PipelineNode, PipelineCheckpointStore } from '@dzupagent/core/pipeline'
 import type {
   NodeExecutor as RuntimeNodeExecutor,
   NodeResult,

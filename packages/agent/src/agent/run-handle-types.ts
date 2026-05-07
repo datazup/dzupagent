@@ -11,8 +11,8 @@
  * - fork() creates a new run from a checkpoint (does not mutate the original)
  */
 
-import type { RunStatus } from '@dzupagent/core'
-import type { RunJournalEntry } from '@dzupagent/core'
+import type { RunStatus } from '@dzupagent/core/persistence'
+import type { RunJournalEntry } from '@dzupagent/core/persistence'
 
 export type { RunStatus }
 

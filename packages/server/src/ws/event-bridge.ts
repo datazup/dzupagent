@@ -15,7 +15,7 @@
  * // Events for run-123 + wildcard events are pushed to ws
  * ```
  */
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import {
   InMemoryEventGateway,
   type EventEnvelope,

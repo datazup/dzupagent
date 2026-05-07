@@ -16,6 +16,7 @@ import { DynamicStructuredTool } from '@langchain/core/tools'
 import type { VirtualFS } from '../vfs/virtual-fs.js'
 import type { CodegenToolContext } from './tool-context.js'
 import { WorkspacePathSecurityError } from '../workspace/types.js'
+import { assertTierAllowsWrite } from '../sandbox/permission-tiers.js'
 
 const editEntrySchema = z.object({
   oldText: z.string().describe('Exact text to find (must match precisely including whitespace)'),
@@ -40,6 +41,14 @@ export function createEditFileTool(vfsOrContext: VirtualFS | CodegenToolContext)
   const isVfs = typeof (vfsOrContext as VirtualFS).read === 'function'
   const vfs = isVfs ? (vfsOrContext as VirtualFS) : (vfsOrContext as CodegenToolContext).vfs
   const workspace = isVfs ? undefined : (vfsOrContext as CodegenToolContext).workspace
+
+  // REC-M-06 — fail fast at issuance when tier forbids writes.
+  if (!isVfs) {
+    const ctxTier = (vfsOrContext as CodegenToolContext).permissionTier
+    if (ctxTier !== undefined) {
+      assertTierAllowsWrite(ctxTier, 'edit_file')
+    }
+  }
 
   return new DynamicStructuredTool({
     name: 'edit_file',

@@ -7,7 +7,7 @@
  * fluent DSL surface and the assembler can be exercised directly by tests.
  */
 
-import type { PipelineDefinition, PipelineNode } from '@dzupagent/core'
+import type { PipelineDefinition, PipelineNode } from '@dzupagent/core/pipeline'
 import type {
   NodeExecutionContext,
   NodeExecutor as RuntimeNodeExecutor,
@@ -99,6 +99,9 @@ export function assemblePipeline(
     stepResults: AdapterStepResult[],
   ) => Promise<unknown>>()
   const internalStateKeys = new Set<string>([PREV_RESULT_STATE_KEY])
+
+  const asAbortSignal = (signal: NodeExecutionContext['signal']): AbortSignal | undefined =>
+    signal === undefined ? undefined : signal as AbortSignal
 
   let nodeSeq = 0
   let transformSeq = 0
@@ -413,7 +416,7 @@ export function assemblePipeline(
           const output = await handler(
             registry,
             context.state,
-            context.signal,
+            asAbortSignal(context.signal),
             emit,
             stepResults,
           )

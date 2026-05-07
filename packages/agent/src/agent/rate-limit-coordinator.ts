@@ -16,12 +16,8 @@
  * thin coordinator and these hooks can be unit-tested in isolation.
  */
 import type { BaseMessage } from '@langchain/core/messages'
-import {
-  calculateCostCents,
-  extractTokenUsage,
-  type DzupEventBus,
-  type TokenBucket,
-} from '@dzupagent/core'
+import { calculateCostCents, extractTokenUsage, type TokenBucket } from '@dzupagent/core/llm'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { DistributedRateLimiter } from '../guardrails/distributed-rate-limiter.js'
 import type { DistributedCostLedger } from '../guardrails/distributed-budget.js'
 

@@ -14,7 +14,7 @@
  */
 import { ToolMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 import { ContentScanner } from '@dzupagent/security'
 import type { IterationBudget } from '../guardrails/iteration-budget.js'
 import { omitUndefined } from '../utils/exact-optional.js'

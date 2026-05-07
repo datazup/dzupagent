@@ -1,4 +1,4 @@
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {

@@ -21,8 +21,8 @@ import {
   CheckpointExpiredError,
   ForkLimitExceededError,
 } from './run-handle-types.js'
-import type { RunJournal, RunJournalEntry } from '@dzupagent/core'
-import type { RunStatus } from '@dzupagent/core'
+import type { RunJournal, RunJournalEntry } from '@dzupagent/core/persistence'
+import type { RunStatus } from '@dzupagent/core/persistence'
 import { omitUndefined } from '../utils/exact-optional.js'
 
 type EventHandler = (entry: RunJournalEntry) => void

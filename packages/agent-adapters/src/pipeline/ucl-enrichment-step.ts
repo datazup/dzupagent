@@ -6,7 +6,7 @@
  * best-effort — a broken skill file should never block a run.
  */
 
-import { typedEmit, type DzupEventBus } from '@dzupagent/core'
+import { typedEmit, type DzupEventBus } from '@dzupagent/core/events'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { WorkspaceResolver } from '../dzupagent/workspace-resolver.js'

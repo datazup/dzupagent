@@ -8,7 +8,7 @@
  * @module recovery/recovery-event-emitter
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { AdapterProviderId, AgentInput } from '../types.js'
 import type { FailureContext, RecoveryStrategy } from './recovery-types.js'

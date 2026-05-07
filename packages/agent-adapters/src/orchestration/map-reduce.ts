@@ -9,8 +9,8 @@
  * Concurrency is bounded by a simple counting semaphore.
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
-import { ForgeError } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import { ForgeError } from '@dzupagent/core/events'
 import { Semaphore } from '@dzupagent/core/orchestration'
 import type { BaseMapReduceContract } from '@dzupagent/agent-types'
 import type { AgentCLIAdapter } from '@dzupagent/adapter-types'

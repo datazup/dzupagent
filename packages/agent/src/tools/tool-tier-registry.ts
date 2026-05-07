@@ -22,8 +22,8 @@
  *     {@link filterToolsByTier}.
  */
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { PermissionTier } from '@dzupagent/core'
-import { tierSatisfies } from '@dzupagent/core'
+import type { PermissionTier } from '@dzupagent/core/tools'
+import { tierSatisfies } from '@dzupagent/core/tools'
 
 /**
  * Module-private metadata store. Keyed by the tool instance so the entry

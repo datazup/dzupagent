@@ -14,7 +14,7 @@
  */
 
 import type { BaseTeamCoordinationContract } from '@dzupagent/agent-types'
-import type { KeyedCircuitBreaker } from '@dzupagent/core'
+import type { KeyedCircuitBreaker } from '@dzupagent/core/llm'
 import type { CoordinatorPattern, ParticipantDefinition, TeamDefinition } from '../team-definition.js'
 import type { TeamCheckpoint } from '../team-checkpoint.js'
 import type { TeamPolicies } from '../team-policy.js'

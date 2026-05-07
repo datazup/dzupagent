@@ -11,11 +11,7 @@
  * @module pipeline/pipeline-runtime
  */
 
-import type {
-  PipelineNode,
-  PipelineEdge,
-  PipelineCheckpoint,
-} from '@dzupagent/core'
+import type { PipelineNode, PipelineEdge, PipelineCheckpoint } from '@dzupagent/core/pipeline'
 import { validatePipeline } from './pipeline-validator.js'
 import { InMemoryPipelineCheckpointStore } from './in-memory-checkpoint-store.js'
 import { PostgresPipelineCheckpointStore } from './postgres-checkpoint-store.js'

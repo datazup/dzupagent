@@ -6,7 +6,8 @@
  * destinations.
  */
 
-import { ForgeError, validateOutboundUrlSyntax } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
+import { validateOutboundUrlSyntax } from '@dzupagent/core/security'
 
 /** Options for webhook URL validation. */
 export interface UrlValidationOptions {

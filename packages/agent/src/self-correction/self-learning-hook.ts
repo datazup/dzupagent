@@ -8,7 +8,7 @@
  * @module self-correction/self-learning-hook
  */
 
-import { defaultLogger, type FrameworkLogger } from '@dzupagent/core'
+import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
 
 import type { PipelineRuntimeEvent } from '../pipeline/pipeline-runtime-types.js'
 

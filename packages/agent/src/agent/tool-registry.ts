@@ -10,7 +10,7 @@
  * re-delegated to a different owner (anti-laundering invariant).
  */
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 import type {
   ToolScope,
   ToolPermissionEntry,

@@ -1,6 +1,6 @@
 import type { WorkflowStep, WorkflowContext } from '../workflow/workflow-types.js'
 import { DzupAgent } from '../agent/dzip-agent.js'
-import type { SkillRegistry } from '@dzupagent/core'
+import type { SkillRegistry } from '@dzupagent/core/pipeline'
 import { HumanMessage } from '@langchain/core/messages'
 import { SkillNotFoundError } from './errors.js'
 

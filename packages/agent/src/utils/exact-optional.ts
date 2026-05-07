@@ -1,2 +1,2 @@
-export { omitUndefined } from '@dzupagent/core'
-export type { OmitUndefined } from '@dzupagent/core'
+export { omitUndefined } from '@dzupagent/core/utils'
+export type { OmitUndefined } from '@dzupagent/core/utils'

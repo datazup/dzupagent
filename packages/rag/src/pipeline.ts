@@ -8,12 +8,7 @@
  * - `assembleContext()` — retrieve + assemble into LLM-ready context
  */
 
-import type {
-  EmbeddingProvider,
-  VectorStore,
-  VectorEntry,
-  MetadataFilter,
-} from '@dzupagent/core'
+import type { EmbeddingProvider, VectorStore, VectorEntry, MetadataFilter } from '@dzupagent/core/vectordb'
 
 import { SmartChunker } from './chunker.js'
 import { HybridRetriever } from './retriever.js'

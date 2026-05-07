@@ -5,14 +5,7 @@
  * Each function takes an injected McpManager instance and returns typed results.
  * No framework-specific CLI parser code; pure business logic callable by any runner.
  */
-import type {
-  McpManager,
-  McpServerDefinition,
-  McpServerInput,
-  McpServerPatch,
-  McpProfile,
-  McpTestResult,
-} from '@dzupagent/core'
+import type { McpManager, McpServerDefinition, McpServerInput, McpServerPatch, McpProfile, McpTestResult } from '@dzupagent/core/pipeline'
 
 // ---------------------------------------------------------------------------
 // Result types

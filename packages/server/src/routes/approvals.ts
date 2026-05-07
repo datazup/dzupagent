@@ -23,7 +23,8 @@ import { Hono, type Context } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { ApprovalStateStore } from '@dzupagent/hitl-kit'
 import { UnknownApprovalError } from '@dzupagent/hitl-kit'
-import type { DzupEventBus, RunStore } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { RunStore } from '@dzupagent/core/persistence'
 
 import { requireOwnedRun } from './run-guard.js'
 

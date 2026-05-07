@@ -10,7 +10,7 @@
  */
 import { HumanMessage } from '@langchain/core/messages'
 import type { DzupAgent } from '../../agent/dzip-agent.js'
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import { OrchestrationError } from '../orchestration-error.js'
 import { createWeightedStrategy } from './bid-strategies.js'
 import type {

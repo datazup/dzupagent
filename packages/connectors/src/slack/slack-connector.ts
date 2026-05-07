@@ -2,7 +2,7 @@
  * Slack connector — tools for sending messages and interacting with Slack.
  */
 import { z } from 'zod'
-import { fetchWithOutboundUrlPolicy } from '@dzupagent/core'
+import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { filterTools } from '../connector-types.js'
 import type { ConnectorToolkit } from '../connector-contract.js'

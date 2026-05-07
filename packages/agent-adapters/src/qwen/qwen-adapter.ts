@@ -10,7 +10,7 @@
  * share the same lifecycle, heartbeat, and audit emission as SDK adapters.
  */
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 
 import type {
   AdapterConfig,

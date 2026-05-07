@@ -4,7 +4,8 @@
  * circular dependencies with `orchestrator-facade.ts`.
  */
 
-import type { CircuitBreakerConfig, DzupEventBus } from '@dzupagent/core'
+import type { CircuitBreakerConfig } from '@dzupagent/core/llm'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { AdapterApprovalGate } from '../approval/adapter-approval.js'
 import type { AdapterGuardrails } from '../guardrails/adapter-guardrails.js'

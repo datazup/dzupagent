@@ -14,7 +14,8 @@
  * ```
  */
 
-import type { DzupPlugin, PluginContext, DzupEventBus } from '@dzupagent/core'
+import type { DzupPlugin, PluginContext } from '@dzupagent/core/plugins'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import { DzupTracer } from './tracer.js'
 import type { DzupTracerConfig } from './tracer.js'
 import { OTelBridge } from './otel-bridge.js'

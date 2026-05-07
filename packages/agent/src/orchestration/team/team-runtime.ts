@@ -7,7 +7,7 @@
  * strategy under `./patterns/`.
  */
 
-import { KeyedCircuitBreaker } from '@dzupagent/core'
+import { KeyedCircuitBreaker } from '@dzupagent/core/llm'
 import { TeamBreakerTracker } from './team-runtime-breaker.js'
 import {
   SharedWorkspace,

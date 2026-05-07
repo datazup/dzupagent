@@ -8,7 +8,8 @@
  * - Debate: Multiple proposers, judge selects best
  */
 import { HumanMessage } from '@langchain/core/messages'
-import { defaultLogger, type DzupEventBus } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core/utils'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { BaseSupervisorContract } from '@dzupagent/agent-types'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { OrchestrationError } from './orchestration-error.js'

@@ -14,12 +14,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
-import type {
-  RegistryMiddleware,
-  MiddlewareContext,
-  MiddlewareResult,
-  MiddlewareTokenUsage,
-} from '@dzupagent/core'
+import type { RegistryMiddleware, MiddlewareContext, MiddlewareResult, MiddlewareTokenUsage } from '@dzupagent/core/llm'
 
 export type RecorderMode = 'record' | 'replay'
 

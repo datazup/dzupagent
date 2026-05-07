@@ -61,6 +61,7 @@
     "@dzupagent/core": "0.2.0",
     "@dzupagent/memory": "0.2.0",
     "@dzupagent/memory-ipc": "0.2.0",
+    "@dzupagent/runtime-contracts": "0.2.0",
     "@dzupagent/security": "0.2.0"
   },
   "peerDependencies": {

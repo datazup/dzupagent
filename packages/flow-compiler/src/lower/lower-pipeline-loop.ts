@@ -13,7 +13,7 @@
  */
 
 import type { FlowNode, ResolvedTool } from '@dzupagent/flow-ast'
-import type { PipelineDefinition } from '@dzupagent/core'
+import type { PipelineDefinition } from '@dzupagent/core/pipeline'
 
 import { lowerNodeToPipeline } from './_shared.js'
 import type { LoweringMode, LowerPipelineContext } from './_shared.js'

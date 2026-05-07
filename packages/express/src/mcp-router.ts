@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import type { NextFunction, Request, Response } from 'express'
-import { isMCPRequest } from '@dzupagent/core'
-import type { MCPRequest, MCPRequestId } from '@dzupagent/core'
+import { isMCPRequest } from '@dzupagent/core/pipeline'
+import type { MCPRequest, MCPRequestId } from '@dzupagent/core/pipeline'
 import type { MCPRequestHandler, MCPRouterConfig } from './types.js'
 
 const JSON_RPC_INVALID_REQUEST = -32600

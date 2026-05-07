@@ -3,8 +3,8 @@
  * retry strategies, per-phase timeouts, and checkpoint support.
  */
 
-import { calculateBackoff } from '@dzupagent/core'
-import type { SkillResolutionContext } from '@dzupagent/core'
+import { calculateBackoff } from '@dzupagent/core/utils'
+import type { SkillResolutionContext } from '@dzupagent/core/pipeline'
 import type { GuardrailGateConfig } from './guardrail-gate.js'
 import { runGuardrailGate, summarizeGateResult } from './guardrail-gate.js'
 import type { GuardrailContext } from '../guardrails/guardrail-types.js'

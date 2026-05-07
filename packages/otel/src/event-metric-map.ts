@@ -5,8 +5,6 @@
  * This table drives the OTelBridge's metric recording.
  */
 
-import type { DzupEvent } from '@dzupagent/core'
-
 import {
   adapterRuntimeMetricMap,
   agentLifecycleMetricMap,
@@ -34,14 +32,14 @@ import {
   vectorMetricMap,
   workflowDomainMetricMap,
 } from './event-metric-map/index.js'
-import type { MetricMapping } from './event-metric-map/index.js'
+import type { MetricMapFragment } from './event-metric-map/index.js'
 
 /**
  * Complete mapping of DzupEvent types to their metric representations.
  *
  * Events not listed here (mapped to empty arrays) produce no metrics.
  */
-export const EVENT_METRIC_MAP = {
+export const EVENT_METRIC_MAP: MetricMapFragment = {
   ...adapterRuntimeMetricMap,
   ...agentLifecycleMetricMap,
   ...toolLifecycleMetricMap,
@@ -67,7 +65,7 @@ export const EVENT_METRIC_MAP = {
   ...personaRegistryMetricMap,
   ...emptyEventMetricMap,
   ...workflowDomainMetricMap,
-} satisfies Record<DzupEvent['type'], MetricMapping[]>
+}
 
 /**
  * Get all unique metric names defined in the mapping.

@@ -5,7 +5,7 @@
  * to access a resource. Must be used AFTER identityMiddleware.
  */
 import type { MiddlewareHandler } from 'hono'
-import { createCapabilityChecker } from '@dzupagent/core'
+import { createCapabilityChecker } from '@dzupagent/core/identity'
 import { getForgeIdentity } from './identity.js'
 
 /**

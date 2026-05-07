@@ -11,11 +11,8 @@
  *    `refreshCatalogue()` call.
  */
 import type { AsyncToolResolver, ResolvedTool } from '@dzupagent/flow-ast'
-import type { MCPClient } from '@dzupagent/core'
-import type {
-  McpToolHandle,
-  McpInvocationResult,
-} from '@dzupagent/core'
+import type { MCPClient } from '@dzupagent/core/pipeline'
+import type { McpToolHandle, McpInvocationResult } from '@dzupagent/core/pipeline'
 import type { JSONSchema7 } from 'json-schema'
 
 /** Options for the MCPAsyncToolResolver. */

@@ -26,7 +26,7 @@
  *   for await (const evt of enriched.execute({ prompt: '…' })) { … }
  */
 
-import { defaultLogger } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core/utils'
 import type { AgentCLIAdapter, AgentInput, AgentEvent, AdapterCapabilityProfile, HealthStatus } from '../types.js'
 
 // ---------------------------------------------------------------------------

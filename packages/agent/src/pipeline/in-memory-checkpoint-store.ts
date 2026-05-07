@@ -6,11 +6,7 @@
  * @module pipeline/in-memory-checkpoint-store
  */
 
-import type {
-  PipelineCheckpointStore,
-  PipelineCheckpoint,
-  PipelineCheckpointSummary,
-} from '@dzupagent/core'
+import type { PipelineCheckpointStore, PipelineCheckpoint, PipelineCheckpointSummary } from '@dzupagent/core/pipeline'
 
 /**
  * In-memory pipeline checkpoint store with versioned history.

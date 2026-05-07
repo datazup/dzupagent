@@ -19,7 +19,7 @@
 import type { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import { cors } from 'hono/cors'
-import { defaultLogger } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core/utils'
 
 import type { ForgeServerConfig, JsonBodyLimitConfig, SecurityHeadersConfig } from './types.js'
 import { authMiddleware, type AuthConfig } from '../middleware/auth.js'

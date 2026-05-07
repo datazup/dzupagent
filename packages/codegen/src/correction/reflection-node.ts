@@ -12,8 +12,8 @@
 
 import { z } from 'zod'
 import { HumanMessage, SystemMessage } from '@langchain/core/messages'
-import type { ModelRegistry, ModelTier, TokenUsage } from '@dzupagent/core'
-import { extractTokenUsage } from '@dzupagent/core'
+import type { ModelRegistry, ModelTier, TokenUsage } from '@dzupagent/core/llm'
+import { extractTokenUsage } from '@dzupagent/core/llm'
 import type { EvaluationResult, Reflection, ErrorCategory } from './correction-types.js'
 
 // ---------------------------------------------------------------------------

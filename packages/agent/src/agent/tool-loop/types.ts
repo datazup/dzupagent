@@ -11,12 +11,10 @@
  */
 import type { SystemMessage, BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import {
-  type TokenUsage,
-  type ToolGovernance,
-  type SafetyMonitor,
-  type DzupEventBus,
-} from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { TokenUsage } from '@dzupagent/core/llm'
+import type { SafetyMonitor } from '@dzupagent/core/security'
+import type { ToolGovernance } from '@dzupagent/core/tools'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type { CompressResult } from '@dzupagent/context'
 import type { IterationBudget } from '../../guardrails/iteration-budget.js'
@@ -62,7 +60,7 @@ export type ToolResultScanFailureMode = 'fail-open' | 'fail-closed'
  * Wired via {@link ToolLoopConfig.toolRetry}. All fields are optional; the
  * executor fills missing values with the documented defaults.
  *
- * The retry loop uses `calculateBackoff` from `@dzupagent/core` so the
+ * The retry loop uses `calculateBackoff` from `@dzupagent/core/utils` so the
  * delay schedule matches the rest of the framework (LLM invoke retry, MCP
  * connection pool, pipeline executor).
  */
@@ -83,7 +81,7 @@ export interface ToolRetryConfig {
   /**
    * Custom predicate deciding whether a thrown error is retryable. When
    * omitted, the executor falls back to {@link isTransientError} from
-   * `@dzupagent/core` (rate-limit, overload, network heuristics).
+   * `@dzupagent/core/llm` (rate-limit, overload, network heuristics).
    *
    * Note: cancellation, timeout, permission and validation errors are
    * filtered out BEFORE this predicate runs — `retryOn` is only consulted

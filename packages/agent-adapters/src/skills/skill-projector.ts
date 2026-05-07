@@ -1,4 +1,4 @@
-import type { SkillRegistryEntry } from '@dzupagent/core'
+import type { SkillRegistryEntry } from '@dzupagent/core/pipeline'
 import type { AdapterProviderId, AgentInput } from '../types.js'
 import type { AdapterSkillBundle } from './adapter-skill-types.js'
 

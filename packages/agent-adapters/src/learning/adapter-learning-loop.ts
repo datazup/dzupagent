@@ -7,8 +7,8 @@
  * can be exported/imported for persistence across process restarts.
  */
 
-import { defaultLogger } from '@dzupagent/core'
-import type { DzupEventBus } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core/utils'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { AdapterProviderId } from '../types.js'
 
 // ---------------------------------------------------------------------------

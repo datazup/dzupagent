@@ -7,7 +7,7 @@
  * - expanded: full VFS listing + original plan context
  * - escalated: strongest model, consider full layer rewrite
  */
-import type { ModelTier } from '@dzupagent/core'
+import type { ModelTier } from '@dzupagent/core/llm'
 
 export interface EscalationStrategy {
   name: 'targeted' | 'expanded' | 'escalated'

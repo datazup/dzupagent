@@ -4,10 +4,7 @@
  * Uses the Slack Block Kit format for rich message rendering.
  * No Slack SDK dependency — uses the shared outbound URL policy.
  */
-import {
-  fetchWithOutboundUrlPolicy,
-  type OutboundUrlSecurityPolicy,
-} from '@dzupagent/core'
+import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 import type { Notification, NotificationChannel } from '../notifier.js'
 
 export interface SlackNotificationChannelConfig {

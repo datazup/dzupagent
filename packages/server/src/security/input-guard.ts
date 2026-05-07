@@ -21,8 +21,8 @@
  * running the full scanner pipeline, keeping CPU bounded under abuse.
  */
 
-import { createSafetyMonitor, detectPII } from '@dzupagent/core'
-import type { SafetyMonitor, SafetyViolation } from '@dzupagent/core'
+import { createSafetyMonitor, detectPII } from '@dzupagent/core/security'
+import type { SafetyMonitor, SafetyViolation } from '@dzupagent/core/security'
 
 /** Default maximum serialized input length (characters). */
 export const DEFAULT_MAX_INPUT_LENGTH = 50_000

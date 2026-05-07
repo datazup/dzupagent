@@ -14,7 +14,7 @@
  * @module recovery/recovery-copilot
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { StuckStatus } from '../guardrails/stuck-detector.js'
 import type { ApprovalGate } from '../approval/approval-gate.js'
 import { FailureAnalyzer, type FailureAnalysis } from './failure-analyzer.js'

@@ -5,7 +5,7 @@
  * @module replay/trace-capture
  */
 
-import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core/events'
 import type {
   ReplayEvent,
   TraceCaptureConfig,

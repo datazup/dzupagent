@@ -5,7 +5,7 @@
  * its events into the unified AgentEvent stream.
  */
 import { randomUUID } from 'node:crypto'
-import { ForgeError, type LlmAuditSink } from '@dzupagent/core'
+import { ForgeError, type LlmAuditSink } from '@dzupagent/core/events'
 import { SystemPromptBuilder } from '../prompts/system-prompt-builder.js'
 import type {
   AdapterCapabilityProfile,

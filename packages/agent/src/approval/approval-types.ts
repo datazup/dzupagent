@@ -1,4 +1,6 @@
-import type { HookContext, ContactChannel, OutboundUrlSecurityPolicy } from '@dzupagent/core'
+import type { HookContext } from '@dzupagent/core/events'
+import type { OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
+import type { ContactChannel } from '@dzupagent/core/tools'
 
 /** Approval mode for agent execution */
 export type ApprovalMode = 'auto' | 'required' | 'conditional'

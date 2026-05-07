@@ -9,7 +9,8 @@
 
 import crypto from 'node:crypto'
 
-import { typedEmit, type DzupEventBus, type RunLifecycleEvent, type RunStatus } from '@dzupagent/core'
+import { typedEmit, type DzupEventBus, type RunLifecycleEvent } from '@dzupagent/core/events'
+import type { RunStatus } from '@dzupagent/core/persistence'
 
 import type {
   AdapterProviderId,

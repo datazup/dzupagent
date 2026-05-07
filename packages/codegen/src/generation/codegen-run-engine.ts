@@ -7,13 +7,8 @@
  * This resolves Gap 4 (P0): CodeGenService directly invokes
  * ModelRegistry.getModel/model.invoke, bypassing adapter-level concerns.
  */
-import {
-  requireTerminalToolExecutionRunId,
-  type ModelRegistry,
-  type ModelTier,
-  type DzupEventBus,
-  type TokenUsage,
-} from '@dzupagent/core'
+import { requireTerminalToolExecutionRunId, type DzupEventBus } from '@dzupagent/core/events'
+import type { ModelRegistry, ModelTier, TokenUsage } from '@dzupagent/core/llm'
 import type {
   AgentCLIAdapter,
   AgentInput,

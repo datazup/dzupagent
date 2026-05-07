@@ -8,7 +8,7 @@
  * @module pipeline/pipeline-runtime/standard-node-dispatch
  */
 
-import type { PipelineNode, PipelineEdge } from '@dzupagent/core'
+import type { PipelineNode, PipelineEdge } from '@dzupagent/core/pipeline'
 import type {
   NodeResult,
   PipelineRunResult,

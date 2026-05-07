@@ -16,7 +16,7 @@
  *   GET  /cost         — cost report
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { z } from 'zod'
 
 import type { OrchestratorFacade } from '../facade/orchestrator-facade.js'

@@ -9,7 +9,7 @@
  * @module pipeline/pipeline-runtime/node-retry
  */
 
-import type { PipelineNode } from '@dzupagent/core'
+import type { PipelineNode } from '@dzupagent/core/pipeline'
 import type {
   NodeResult,
   NodeExecutionContext,

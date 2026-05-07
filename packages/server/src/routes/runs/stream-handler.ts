@@ -12,7 +12,7 @@ import type { Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { StreamingRunHandle } from '@dzupagent/agent'
 
-import { secureLogger } from '@dzupagent/core'
+import { secureLogger } from '@dzupagent/core/utils'
 
 import type { ForgeServerConfig } from '../../composition/types.js'
 import { streamRunHandleToSSE } from '../../streaming/sse-streaming-adapter.js'

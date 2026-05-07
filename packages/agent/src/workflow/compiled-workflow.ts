@@ -9,12 +9,8 @@
  * Split out of `workflow-builder.ts` to keep the builder file focused on the
  * fluent surface area and stay under the per-file LOC ceiling.
  */
-import type {
-  PipelineCheckpoint,
-  PipelineCheckpointStore,
-  RunJournal,
-  RunStore,
-} from '@dzupagent/core'
+import type { PipelineCheckpoint, PipelineCheckpointStore } from '@dzupagent/core/pipeline'
+import type { RunJournal, RunStore } from '@dzupagent/core/persistence'
 import type {
   WorkflowNode,
   WorkflowEvent,

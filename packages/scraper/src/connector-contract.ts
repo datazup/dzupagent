@@ -1,5 +1,5 @@
-import type { BaseConnectorTool } from '@dzupagent/core'
-import { normalizeBaseConnectorTool } from '@dzupagent/core'
+import type { BaseConnectorTool } from '@dzupagent/core/tools'
+import { normalizeBaseConnectorTool } from '@dzupagent/core/tools'
 import type { ScraperToolSchema } from './types.js'
 
 /** Scraper connector tool — domain alias of BaseConnectorTool with typed schema */

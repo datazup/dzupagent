@@ -1,6 +1,6 @@
 import type { DynamicStructuredTool, StructuredToolInterface } from '@langchain/core/tools'
-import type { BaseConnectorTool, BaseConnectorToolLike } from '@dzupagent/core'
-import { isBaseConnectorTool, normalizeBaseConnectorTool } from '@dzupagent/core'
+import type { BaseConnectorTool, BaseConnectorToolLike } from '@dzupagent/core/tools'
+import { isBaseConnectorTool, normalizeBaseConnectorTool } from '@dzupagent/core/tools'
 
 /**
  * Unified connector toolkit — a named set of tools produced by a connector.

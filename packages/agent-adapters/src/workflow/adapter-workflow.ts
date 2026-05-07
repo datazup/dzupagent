@@ -37,8 +37,8 @@
  * ```
  */
 
-import { ForgeError } from '@dzupagent/core'
-import type { PipelineDefinition, PipelineNode } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
+import type { PipelineDefinition, PipelineNode } from '@dzupagent/core/pipeline'
 import type { PipelineRuntimeEvent } from '@dzupagent/runtime-contracts'
 import type {
   PipelineExecutorFactory,

@@ -1,6 +1,6 @@
 import type { HttpFetcherConfig, FetchResult, ExtractionConfig } from './types.js'
 import { ContentExtractor } from './content-extractor.js'
-import { fetchWithOutboundUrlPolicy, validateOutboundUrl } from '@dzupagent/core'
+import { fetchWithOutboundUrlPolicy, validateOutboundUrl } from '@dzupagent/core/security'
 
 /**
  * Warns at startup when running in production without an explicit URL allowlist.

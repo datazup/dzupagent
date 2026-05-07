@@ -12,7 +12,7 @@
  */
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
-import type { OutboundUrlSecurityPolicy } from '@dzupagent/core'
+import type { OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 import { filterTools } from '../connector-types.js'
 import type { ConnectorToolkit } from '../connector-contract.js'
 import { GitHubClient, GitHubApiError } from './github-client.js'

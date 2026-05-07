@@ -10,7 +10,7 @@
 
 import { randomUUID } from 'node:crypto'
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { AgentEvent } from '../types.js'
 import { getToolCallId, ToolSpanTracker } from './tool-span-tracker.js'

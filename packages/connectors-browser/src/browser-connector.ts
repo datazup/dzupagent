@@ -3,7 +3,7 @@
  * browser automation capabilities for use in DzupAgent pipelines.
  */
 
-import { createForgeTool } from '@dzupagent/core'
+import { createForgeTool } from '@dzupagent/core/tools'
 import { z } from 'zod'
 import { BrowserManager } from './browser/browser-manager.js'
 import { PageCrawler } from './crawler/page-crawler.js'

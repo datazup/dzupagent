@@ -1,4 +1,4 @@
-import type { PipelineEdge, PipelineNode, JoinNode } from '@dzupagent/core'
+import type { PipelineEdge, PipelineNode, JoinNode } from '@dzupagent/core/pipeline'
 
 export function getNextNodeIds(
   nodeId: string,

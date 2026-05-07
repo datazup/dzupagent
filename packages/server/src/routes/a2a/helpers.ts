@@ -5,7 +5,7 @@ import type { Context } from 'hono'
 import type { AgentCard } from '../../a2a/agent-card.js'
 import type { A2ATaskStore } from '../../a2a/task-handler.js'
 import type { A2ATask } from '../../a2a/task-handler.js'
-import type { OutboundUrlSecurityPolicy } from '@dzupagent/core'
+import type { OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 
 import type { AppEnv } from '../../types.js'
 

@@ -6,10 +6,7 @@
  */
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
-import {
-  fetchWithOutboundUrlPolicy,
-  type OutboundUrlSecurityPolicy,
-} from '@dzupagent/core'
+import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 import type { ConnectorToolkit } from '../connector-contract.js'
 
 export interface HTTPConnectorConfig {

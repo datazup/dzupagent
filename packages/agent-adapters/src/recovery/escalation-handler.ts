@@ -8,8 +8,9 @@
  * @module recovery/escalation-handler
  */
 
-import { ForgeError, fetchWithOutboundUrlPolicy, typedEmit } from '@dzupagent/core'
-import type { DzupEventBus } from '@dzupagent/core'
+import { ForgeError, typedEmit } from '@dzupagent/core/events'
+import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { AdapterProviderId, AgentInput } from '../types.js'
 import type { RecoveryStrategy } from './recovery-types.js'

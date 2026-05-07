@@ -18,7 +18,7 @@
  * @module recovery/recovery-attempt-handler
  */
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 
 import type {
   AdapterProviderId,

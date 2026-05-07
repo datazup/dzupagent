@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { MCPResource, MCPResourceTemplate, MCPToolDescriptor } from '@dzupagent/core'
+import type { MCPResource, MCPResourceTemplate, MCPToolDescriptor } from '@dzupagent/core/pipeline'
 
 export interface McpCompatibilityResponse {
   statusCode: number

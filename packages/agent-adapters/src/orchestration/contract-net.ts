@@ -18,8 +18,8 @@
  *   protocol:message_received — bids received from providers
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
-import { ForgeError } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import { ForgeError } from '@dzupagent/core/events'
 import type { BaseContractNetContract } from '@dzupagent/agent-types'
 import type { AgentCLIAdapter } from '@dzupagent/adapter-types'
 

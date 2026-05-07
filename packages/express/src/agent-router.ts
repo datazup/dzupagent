@@ -4,7 +4,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import { z } from 'zod'
 import { HumanMessage } from '@langchain/core/messages'
 import type { DzupAgent } from '@dzupagent/agent'
-import { defaultLogger, type FrameworkLogger } from '@dzupagent/core'
+import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
 import { SSEHandler } from './sse-handler.js'
 import type { AgentRouterConfig, ChatRequestBody, AgentResult } from './types.js'
 

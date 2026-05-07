@@ -1,14 +1,11 @@
 import type { ToolMessage, BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import {
-  defaultLogger,
-  type DzupEventBus,
-  type FrameworkLogger,
-  type RunJournalEntry,
-  type SafetyMonitor,
-  type ToolGovernance,
-} from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { RunJournalEntry } from '@dzupagent/core/persistence'
+import type { SafetyMonitor } from '@dzupagent/core/security'
+import type { ToolGovernance } from '@dzupagent/core/tools'
+import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type {
   DzupAgentConfig,

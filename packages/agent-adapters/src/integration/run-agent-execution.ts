@@ -1,4 +1,4 @@
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 
 import { createClaudeAdapter } from '../claude/claude-adapter.js'
 import { createCodexAdapter } from '../codex/codex-adapter.js'

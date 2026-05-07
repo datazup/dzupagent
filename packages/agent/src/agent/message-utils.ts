@@ -1,5 +1,5 @@
 import { SystemMessage, type BaseMessage } from '@langchain/core/messages'
-import { estimateTokens, type Tokenizer } from '@dzupagent/core'
+import { estimateTokens, type Tokenizer } from '@dzupagent/core/llm'
 import { formatSummaryContext } from '@dzupagent/context'
 
 interface BuildPreparedMessagesParams {

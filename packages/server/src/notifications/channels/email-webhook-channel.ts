@@ -4,10 +4,7 @@
  *
  * Uses the shared outbound URL policy — no email SDK dependency.
  */
-import {
-  fetchWithOutboundUrlPolicy,
-  type OutboundUrlSecurityPolicy,
-} from '@dzupagent/core'
+import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 import type { Notification, NotificationChannel } from '../notifier.js'
 
 export interface EmailWebhookNotificationChannelConfig {

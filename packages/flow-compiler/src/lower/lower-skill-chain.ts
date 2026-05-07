@@ -28,7 +28,7 @@ import type {
   ResolvedTool,
   RouteNode,
 } from '@dzupagent/flow-ast'
-import type { SkillChain, SkillChainStep, SkillHandle } from '@dzupagent/core'
+import type { SkillChain, SkillChainStep, SkillHandle } from '@dzupagent/core/pipeline'
 import type { LoweringMode } from './_shared.js'
 import { collectFlowArtifactMetadata } from '../flow-artifact-metadata.js'
 import type { FlowArtifactMetadata } from '../flow-artifact-metadata.js'

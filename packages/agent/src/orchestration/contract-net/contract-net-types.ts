@@ -10,7 +10,7 @@
  * 6. Result is returned
  */
 import type { DzupAgent } from '../../agent/dzip-agent.js'
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { BaseContractNetContract } from '@dzupagent/agent-types'
 
 export type ContractNetPhase =

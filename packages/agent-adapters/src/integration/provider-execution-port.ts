@@ -7,7 +7,7 @@
  * runtime, keeping `@dzupagent/agent` free of adapter implementation details.
  */
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 import type {
   ProviderExecutionPort,
   ProviderExecutionResult,

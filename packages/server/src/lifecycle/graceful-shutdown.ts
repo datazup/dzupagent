@@ -8,9 +8,9 @@
  * 4. Close DB/MCP/WS connections
  * 5. Mark interrupted runs as 'cancelled'
  */
-import { defaultLogger } from '@dzupagent/core'
-import type { RunStore } from '@dzupagent/core'
-import type { DzupEventBus } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core/utils'
+import type { RunStore } from '@dzupagent/core/persistence'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { EventBridge } from '../ws/event-bridge.js'
 
 export interface ShutdownConfig {

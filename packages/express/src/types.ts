@@ -1,14 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import type { DzupAgent, GenerateResult } from '@dzupagent/agent'
-import type {
-  FrameworkLogger,
-  MCPRequest,
-  MCPRequestId,
-  MCPResponse,
-  MCPToolDescriptor,
-  MCPResource,
-  MCPResourceTemplate,
-} from '@dzupagent/core'
+import type { FrameworkLogger } from '@dzupagent/core/utils'
+import type { MCPRequest, MCPRequestId, MCPResponse, MCPToolDescriptor, MCPResource, MCPResourceTemplate } from '@dzupagent/core/pipeline'
 
 /**
  * A single SSE event to be written to the response stream.

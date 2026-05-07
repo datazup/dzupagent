@@ -20,9 +20,9 @@
  * @module recovery/adapter-recovery
  */
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { AgentEvent, AgentInput, TaskDescriptor } from '../types.js'
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'

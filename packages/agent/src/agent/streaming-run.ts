@@ -18,13 +18,7 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import {
-  extractTokenUsage,
-  estimateTokens,
-  isTransientError,
-  type TokenUsage,
-  type ModelRegistry,
-} from '@dzupagent/core'
+import { extractTokenUsage, estimateTokens, isTransientError, type TokenUsage, type ModelRegistry } from '@dzupagent/core/llm'
 import type {
   DzupAgentConfig,
   GenerateOptions,

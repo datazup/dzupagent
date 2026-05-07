@@ -12,7 +12,7 @@
  * logic.
  */
 import type { Context } from 'hono'
-import type { LogEntry, RunStatus } from '@dzupagent/core'
+import type { LogEntry, RunStatus } from '@dzupagent/core/persistence'
 import { ConcreteRunHandle } from '@dzupagent/agent'
 
 import type { ForgeServerConfig } from '../../composition/types.js'
