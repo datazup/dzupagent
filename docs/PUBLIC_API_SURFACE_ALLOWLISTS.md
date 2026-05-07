@@ -200,7 +200,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `13`
-- Deprecated transitional root sources: `112`
+- Deprecated transitional root sources: `90`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
@@ -221,8 +221,6 @@ Root index: `packages/agent/src/index.ts`
 | `stable` | `./agent/agent-factory.js` | 1 | `exact:./agent/agent-factory.js` | `createAgentWithMemory` |
 | `stable` | `./agent/agent-types.js` | 11 | `exact:./agent/agent-types.js` | `DzupAgentConfig`, `AgentMailboxConfig`, `ArrowMemoryConfig`, `GenerateOptions` |
 | `deprecated-transitional` | `./agent/memory-profiles.js` | 4 | `prefix:./agent/` | `getMemoryProfilePreset`, `resolveArrowMemoryConfig`, `MemoryProfile`, `MemoryProfilePreset` |
-| `deprecated-transitional` | `./agent/output-filter.js` | 3 | `prefix:./agent/` | `applyOutputFilterChain`, `OutputFilter`, `OutputFilterContext` |
-| `deprecated-transitional` | `./agent/memory-context-loader.js` | 2 | `prefix:./agent/` | `ArrowRuntimeNotInjectedError`, `AgentMemoryContextLoaderLimits` |
 | `deprecated-transitional` | `./agent/production-tool-governance-preset.js` | 6 | `prefix:./agent/` | `createAllowlistPermissionPolicy`, `createProductionToolGovernancePreset`, `withProductionToolGovernancePreset`, `ProductionToolGovernancePreset` |
 | `deprecated-transitional` | `./agent/tool-loop.js` | 5 | `prefix:./agent/` | `runToolLoop`, `ToolLoopConfig`, `ToolLoopResult`, `ToolStat` |
 | `deprecated-transitional` | `./agent/tool-loop/output-validator.js` | 3 | `prefix:./agent/` | `ToolOutputValidator`, `ToolOutputSchema`, `ToolOutputValidationResult` |
@@ -312,29 +310,9 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./recovery/strategy-ranker.js` | 2 | `prefix:./recovery/` | `StrategyRanker`, `RankingWeights` |
 | `deprecated-transitional` | `./recovery/recovery-executor.js` | 3 | `prefix:./recovery/` | `RecoveryExecutor`, `ActionHandler`, `RecoveryExecutorConfig` |
 | `deprecated-transitional` | `./recovery/recovery-types.js` | 10 | `prefix:./recovery/` | `FailureType`, `FailureContext`, `RecoveryActionType`, `RecoveryAction` |
-| `deprecated-transitional` | `./replay/index.js` | 21 | `prefix:./replay/` | `TraceCapture`, `ReplayEngine`, `ReplayController`, `ReplayInspector` |
 | `deprecated-transitional` | `./instructions/agents-md-parser.js` | 4 | `prefix:./instructions/` | `parseAgentsMd`, `mergeAgentsMd`, `discoverAgentsMdHierarchy`, `AgentsMdSection` |
 | `deprecated-transitional` | `./instructions/instruction-merger.js` | 2 | `prefix:./instructions/` | `mergeInstructions`, `MergedInstructions` |
 | `deprecated-transitional` | `./instructions/instruction-loader.js` | 3 | `prefix:./instructions/` | `loadAgentsFiles`, `LoadedAgentsFile`, `LoadAgentsOptions` |
-| `deprecated-transitional` | `./self-correction/reflection-loop.js` | 6 | `prefix:./self-correction/` | `ReflectionLoop`, `parseCriticResponse`, `ReflectionConfig`, `ReflectionIteration` |
-| `deprecated-transitional` | `./self-correction/iteration-controller.js` | 3 | `prefix:./self-correction/` | `AdaptiveIterationController`, `IterationDecision`, `IterationControllerConfig` |
-| `deprecated-transitional` | `./self-correction/self-correcting-node.js` | 3 | `prefix:./self-correction/` | `createSelfCorrectingExecutor`, `SelfCorrectingConfig`, `SelfCorrectingResult` |
-| `deprecated-transitional` | `./self-correction/error-detector.js` | 5 | `prefix:./self-correction/` | `ErrorDetectionOrchestrator`, `ErrorSource`, `ErrorSeverity`, `DetectedError` |
-| `deprecated-transitional` | `./self-correction/root-cause-analyzer.js` | 5 | `prefix:./self-correction/` | `RootCauseAnalyzer`, `RootCauseReport`, `RootCauseAnalyzerConfig`, `AnalyzeParams` |
-| `deprecated-transitional` | `./self-correction/verification-protocol.js` | 5 | `prefix:./self-correction/` | `VerificationProtocol`, `jaccardSimilarity`, `VerificationStrategy`, `VerificationResult` |
-| `deprecated-transitional` | `./self-correction/self-learning-runtime.js` | 3 | `prefix:./self-correction/` | `SelfLearningRuntime`, `SelfLearningConfig`, `SelfLearningRunResult` |
-| `deprecated-transitional` | `./self-correction/self-learning-hook.js` | 3 | `prefix:./self-correction/` | `SelfLearningPipelineHook`, `SelfLearningHookConfig`, `HookMetrics` |
-| `deprecated-transitional` | `./self-correction/post-run-analyzer.js` | 5 | `prefix:./self-correction/` | `PostRunAnalyzer`, `RunAnalysis`, `AnalysisResult`, `PostRunAnalyzerConfig` |
-| `deprecated-transitional` | `./self-correction/adaptive-prompt-enricher.js` | 5 | `prefix:./self-correction/` | `AdaptivePromptEnricher`, `PromptEnrichment`, `EnricherConfig`, `EnrichParams` |
-| `deprecated-transitional` | `./self-correction/pipeline-stuck-detector.js` | 5 | `prefix:./self-correction/` | `PipelineStuckDetector`, `PipelineStuckConfig`, `PipelineStuckStatus`, `PipelineStuckSummary` |
-| `deprecated-transitional` | `./self-correction/trajectory-calibrator.js` | 5 | `prefix:./self-correction/` | `TrajectoryCalibrator`, `StepReward`, `TrajectoryRecord`, `SuboptimalResult` |
-| `deprecated-transitional` | `./self-correction/observability-bridge.js` | 6 | `prefix:./self-correction/` | `ObservabilityCorrectionBridge`, `CorrectionSignal`, `CorrectionSignalType`, `SignalSeverity` |
-| `deprecated-transitional` | `./self-correction/strategy-selector.js` | 5 | `prefix:./self-correction/` | `StrategySelector`, `FixStrategy`, `StrategyRate`, `StrategyRecommendation` |
-| `deprecated-transitional` | `./self-correction/recovery-feedback.js` | 3 | `prefix:./self-correction/` | `RecoveryFeedback`, `RecoveryLesson`, `RecoveryFeedbackConfig` |
-| `deprecated-transitional` | `./self-correction/performance-optimizer.js` | 4 | `prefix:./self-correction/` | `AgentPerformanceOptimizer`, `OptimizationDecision`, `PerformanceHistory`, `PerformanceOptimizerConfig` |
-| `deprecated-transitional` | `./self-correction/langgraph-middleware.js` | 4 | `prefix:./self-correction/` | `LangGraphLearningMiddleware`, `LangGraphLearningConfig`, `LearningRunMetrics`, `WrapNodeOptions` |
-| `deprecated-transitional` | `./self-correction/feedback-collector.js` | 6 | `prefix:./self-correction/` | `FeedbackCollector`, `FeedbackType`, `FeedbackOutcome`, `FeedbackRecord` |
-| `deprecated-transitional` | `./self-correction/learning-dashboard.js` | 7 | `prefix:./self-correction/` | `LearningDashboardService`, `LearningOverview`, `QualityTrend`, `CostTrend` |
 | `deprecated-transitional` | `./presets/index.js` | 11 | `prefix:./presets/` | `AgentPreset`, `PresetRuntimeDeps`, `PresetConfig`, `buildConfigFromPreset` |
 | `deprecated-transitional` | `./skill-chain-executor/index.js` | 21 | `prefix:./skill-chain-executor/` | `executeTextualWorkflow`, `streamTextualWorkflow`, `createSkillChainWorkflow`, `TextualWorkflowOptions` |
 | `deprecated-transitional` | `./cluster/index.js` | 4 | `prefix:./cluster/` | `ClusterRole`, `AgentCluster`, `InMemoryAgentCluster`, `InMemoryAgentClusterConfig` |
