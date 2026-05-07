@@ -9,7 +9,7 @@
  * @module self-correction/learning-candidate
  */
 
-import type { RecoveryLesson } from './recovery-feedback.js'
+import type { RecoveryLesson } from './recovery-lesson-types.js'
 
 // ---------------------------------------------------------------------------
 // Types
