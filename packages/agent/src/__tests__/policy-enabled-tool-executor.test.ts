@@ -978,4 +978,118 @@ describe('executePolicyEnabledToolCall', () => {
       expect((calledEvent!['toolCallId'] as string)).toMatch(/^call_\d+/)
     })
   })
+
+  // -------------------------------------------------------------------------
+  // 17. REC-M-06 — Second permission check at tool issuance (TOCTOU window)
+  // -------------------------------------------------------------------------
+  describe('REC-M-06 — issuance-time permission check', () => {
+    it('blocks the tool when the policy mutates between pre-flight and issuance', async () => {
+      // Build a policy whose `hasPermission` returns true on the first call
+      // (pre-flight) and false on the second call (tool issuance). This
+      // models the TOCTOU window: a concurrent mutation, or a re-entrant
+      // loop running with a tighter policy in scope, can cause the second
+      // check to fail even after pre-flight signed off.
+      const tool = makeTool('writeFile', async () => 'wrote bytes')
+      const hasPermission = vi.fn()
+      hasPermission.mockReturnValueOnce(true)  // pre-flight
+      hasPermission.mockReturnValueOnce(false) // issuance — DENY
+
+      const { bus, events } = makeEventBus()
+      const params = makeParams([tool], {
+        eventBus: bus,
+        agentId: 'agent-toctou',
+        runId: 'run-toctou',
+        toolPermissionPolicy: { hasPermission },
+      })
+
+      // Issuance-time denial throws a ForgeError shaped exactly like the
+      // pre-flight denial — `phase: 'issuance'` distinguishes the source.
+      await expect(
+        executePolicyEnabledToolCall(makeToolCall('writeFile'), params),
+      ).rejects.toMatchObject({
+        code: 'TOOL_PERMISSION_DENIED',
+        context: { agentId: 'agent-toctou', toolName: 'writeFile', phase: 'issuance' },
+      })
+
+      // The underlying tool MUST NOT have run.
+      expect(tool.invoke).not.toHaveBeenCalled()
+
+      // Both pre-flight and issuance checks ran (2 calls to hasPermission).
+      expect(hasPermission).toHaveBeenCalledTimes(2)
+      expect(hasPermission).toHaveBeenNthCalledWith(1, 'agent-toctou', 'writeFile')
+      expect(hasPermission).toHaveBeenNthCalledWith(2, 'agent-toctou', 'writeFile')
+
+      // Issuance-time denial emits a `safety:violation` event so audit
+      // pipelines can flag the TOCTOU race separately from a normal
+      // pre-flight rejection.
+      const violationEvent = events.find((e) => e['type'] === 'safety:violation')
+      expect(violationEvent).toBeDefined()
+      expect(violationEvent).toMatchObject({
+        type: 'safety:violation',
+        category: 'tool_permission_denied',
+        severity: 'high',
+        agentId: 'agent-toctou',
+      })
+
+      // Issuance-time denial also surfaces the canonical `tool:error` with
+      // status=denied — same shape downstream consumers see for pre-flight
+      // denials. This preserves backward compatibility for audit trails.
+      const errorEvent = events.find((e) => e['type'] === 'tool:error')
+      expect(errorEvent).toBeDefined()
+      expect(errorEvent).toMatchObject({
+        type: 'tool:error',
+        toolName: 'writeFile',
+        errorCode: 'TOOL_PERMISSION_DENIED',
+        status: 'denied',
+      })
+    })
+
+    it('does not emit safety:violation when the pre-flight check denies (legacy path)', async () => {
+      // Pre-flight denial preserves the legacy emission contract: only
+      // `tool:error` (status=denied), NOT `safety:violation`. The
+      // `safety:violation` is reserved for the second-check failure mode
+      // because it represents a stronger anomaly.
+      const tool = makeTool('writeFile')
+      const { bus, events } = makeEventBus()
+      const params = makeParams([tool], {
+        eventBus: bus,
+        agentId: 'agent-deny',
+        runId: 'run-deny',
+        toolPermissionPolicy: {
+          hasPermission: () => false, // deny on every call
+        },
+      })
+
+      await expect(
+        executePolicyEnabledToolCall(makeToolCall('writeFile'), params),
+      ).rejects.toMatchObject({ code: 'TOOL_PERMISSION_DENIED' })
+
+      // Pre-flight emits `tool:error` only. No `safety:violation` event.
+      expect(events.find((e) => e['type'] === 'tool:error')).toBeDefined()
+      expect(events.find((e) => e['type'] === 'safety:violation')).toBeUndefined()
+    })
+
+    it('runs both checks (pre-flight and issuance) on the happy path', async () => {
+      // Sanity: when the policy permits the tool consistently, both checks
+      // run, both return true, and the tool fires exactly once. This
+      // verifies the second check is wired but does not introduce
+      // double-execution side effects.
+      const tool = makeTool('readFile', async () => 'contents')
+      const hasPermission = vi.fn(() => true)
+      const params = makeParams([tool], {
+        agentId: 'agent-ok',
+        toolPermissionPolicy: { hasPermission },
+      })
+
+      const result = await executePolicyEnabledToolCall(
+        makeToolCall('readFile'),
+        params,
+      )
+
+      expect(result.message.content).toBe('contents')
+      expect(tool.invoke).toHaveBeenCalledTimes(1)
+      // Two checks: one at pre-flight, one at issuance.
+      expect(hasPermission).toHaveBeenCalledTimes(2)
+    })
+  })
 })
