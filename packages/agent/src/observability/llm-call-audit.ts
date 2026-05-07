@@ -56,6 +56,22 @@ export interface LlmCallAuditEntry {
    * with the `error` field.
    */
   response?: string
+  /**
+   * REC-M-05 — first 500 characters of the serialised prompt. Provides a
+   * lightweight, bounded preview suitable for compliance dashboards and
+   * audit retention pipelines that should never store full prompts.
+   * Truncation is applied unconditionally with `?.slice(0, 500)` so audit
+   * entries remain bounded even when the full `prompt` field is dropped
+   * downstream for privacy.
+   */
+  promptSnippet?: string
+  /**
+   * REC-M-05 — first 500 characters of the serialised response text.
+   * Mirrors {@link promptSnippet}: a bounded preview only populated on
+   * the success path (responses are not captured on error). Truncation
+   * is applied unconditionally so audit entries remain bounded.
+   */
+  responseSnippet?: string
 }
 
 /**

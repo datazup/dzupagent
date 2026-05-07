@@ -44,6 +44,10 @@ export interface SelfCorrectingConfig {
 
 /** Extended NodeResult with self-correction metadata. */
 export interface SelfCorrectingResult extends NodeResult {
+  nodeId: string
+  output: unknown
+  durationMs: number
+  error?: string
   /** Number of refinement iterations used */
   refinementIterations: number
   /** Score history across iterations */
