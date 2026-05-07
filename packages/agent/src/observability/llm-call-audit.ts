@@ -22,6 +22,12 @@ export interface LlmCallAuditEntry {
   agentId: string
   /** Run correlation id, when the invocation occurred inside a run. */
   runId?: string
+  /**
+   * Tenant identifier for multi-tenant deployments. Optional — only
+   * populated when the agent was configured with a `memoryScope.tenantId`.
+   * Kept optional so single-tenant callers are unaffected.
+   */
+  tenantId?: string
   /** Resolved model identifier (e.g. provider/model string). */
   model: string
   /** Prompt tokens charged to this invocation (0 when unknown). */
@@ -36,6 +42,20 @@ export interface LlmCallAuditEntry {
   success: boolean
   /** Error message captured when `success` is false. */
   error?: string
+  /**
+   * Serialised prompt sent to the LLM. For chat models this is a JSON
+   * representation of the `BaseMessage[]` array. Optional — populated
+   * when the call site has the messages available. Omit for privacy or
+   * performance reasons by leaving the field absent.
+   */
+  prompt?: string
+  /**
+   * Serialised response received from the LLM. For chat models this is
+   * the string content of the returned `BaseMessage`. Optional — only
+   * populated on the success path; omitted on error to avoid confusion
+   * with the `error` field.
+   */
+  response?: string
 }
 
 /**
