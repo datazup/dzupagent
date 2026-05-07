@@ -11,6 +11,7 @@
 
 import type { BaseStore } from '@langchain/langgraph'
 import type { FailureType } from '../recovery/recovery-types.js'
+import type { RecoveryLesson } from './recovery-lesson-types.js'
 import {
   type LearningCandidate,
   type LearningCandidateStore,
@@ -23,27 +24,9 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-/** A persisted record of a recovery attempt and its outcome. */
-export interface RecoveryLesson {
-  /** Unique lesson identifier. */
-  id: string
-  /** The classified failure type (from FailureType). */
-  errorType: FailureType
-  /** Fingerprint from the FailureAnalyzer for dedup / matching. */
-  errorFingerprint: string
-  /** Pipeline node where the failure occurred (if applicable). */
-  nodeId: string
-  /** Name of the recovery strategy that was attempted. */
-  strategy: string
-  /** Whether the recovery succeeded or failed. */
-  outcome: 'success' | 'failure'
-  /** Human-readable summary of what happened. */
-  summary: string
-  /** When the lesson was recorded. */
-  timestamp: Date
-  /** Tenant scope for staged/retrieved recovery learning. Defaults to 'default'. */
-  tenantId?: string | null
-}
+// Re-export RecoveryLesson so existing consumers importing it from this module
+// continue to work after the type was extracted to break a circular import.
+export type { RecoveryLesson } from './recovery-lesson-types.js'
 
 /** Configuration for the RecoveryFeedback module. */
 export interface RecoveryFeedbackConfig {
