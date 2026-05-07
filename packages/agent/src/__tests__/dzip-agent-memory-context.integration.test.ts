@@ -1,4 +1,5 @@
 import { AIMessage, HumanMessage, SystemMessage } from '@langchain/core/messages'
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { FrozenSnapshot } from '@dzupagent/context'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
@@ -64,7 +65,7 @@ describe('DzupAgent generate memory context integration', () => {
     const agent = new DzupAgent({
       id: 'memory-arrow',
       instructions: 'Base instructions',
-      model: model as never,
+      model: model as unknown as BaseChatModel,
       memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
@@ -104,7 +105,7 @@ describe('DzupAgent generate memory context integration', () => {
     const agent = new DzupAgent({
       id: 'memory-fallback',
       instructions: 'Base instructions',
-      model: model as never,
+      model: model as unknown as BaseChatModel,
       memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
@@ -135,7 +136,7 @@ describe('DzupAgent generate memory context integration', () => {
     const agent = new DzupAgent({
       id: 'memory-provenance',
       instructions: 'Base instructions',
-      model: model as never,
+      model: model as unknown as BaseChatModel,
       memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
@@ -172,7 +173,7 @@ describe('DzupAgent memoryFrame pass-through (P4 Task 2)', () => {
     const agent = new DzupAgent({
       id: 'frame-passthrough',
       instructions: 'Base instructions',
-      model: model as never,
+      model: model as unknown as BaseChatModel,
       memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
@@ -217,7 +218,7 @@ describe('DzupAgent frozenSnapshot config wiring', () => {
     const agent = new DzupAgent({
       id: 'frozen-snapshot-agent',
       instructions: 'Base instructions',
-      model: model as never,
+      model: model as unknown as BaseChatModel,
       memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },
@@ -255,7 +256,7 @@ describe('DzupAgent frozenSnapshot config wiring', () => {
     const agent = new DzupAgent({
       id: 'inactive-snapshot-agent',
       instructions: 'Base instructions',
-      model: model as never,
+      model: model as unknown as BaseChatModel,
       memory,
       memoryNamespace: 'facts',
       memoryScope: { project: 'demo' },

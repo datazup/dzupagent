@@ -13,6 +13,7 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import type { ModelRegistry, DzupEventBus } from '@dzupagent/core'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { AgentStreamEvent, DzupAgentConfig } from '../agent/agent-types.js'
 import type { CostLedgerClient } from '../guardrails/distributed-budget.js'
@@ -196,7 +197,7 @@ describe('DzupAgent model resolution', () => {
     }
     const agent = new DzupAgent(minimalConfig({
       model: 'chat',
-      registry: registry as never,
+      registry: registry as unknown as ModelRegistry,
     }))
     expect(registry.getModelWithFallback).toHaveBeenCalledWith('chat')
     expect(agent.id).toBe('test-agent')
@@ -213,7 +214,7 @@ describe('DzupAgent model resolution', () => {
     }
     new DzupAgent(minimalConfig({
       model: 'gpt-4o',
-      registry: registry as never,
+      registry: registry as unknown as ModelRegistry,
     }))
     expect(registry.getModelByName).toHaveBeenCalledWith('gpt-4o')
   })
@@ -229,7 +230,7 @@ describe('DzupAgent model resolution', () => {
     }
 
     for (const tier of ['chat', 'reasoning', 'codegen', 'embedding']) {
-      new DzupAgent(minimalConfig({ model: tier, registry: registry as never }))
+      new DzupAgent(minimalConfig({ model: tier, registry: registry as unknown as ModelRegistry }))
     }
     expect(registry.getModelWithFallback).toHaveBeenCalledTimes(4)
   })
@@ -325,7 +326,7 @@ describe('DzupAgent generate()', () => {
 
     const agent = new DzupAgent(minimalConfig({
       model: createMockModel([response]),
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
       guardrails: {
         distributed: {
           costLedger: {
@@ -498,7 +499,7 @@ describe('DzupAgent generateStructured()', () => {
 
     const agent = new DzupAgent(minimalConfig({
       model,
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
     }))
     const schema = z.object({ answer: z.number() })
     const result = await agent.generateStructured(
@@ -541,7 +542,7 @@ describe('DzupAgent generateStructured()', () => {
 
     const agent = new DzupAgent(minimalConfig({
       model,
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
     }))
     const schema = z.object({ answer: z.number() })
 
@@ -634,7 +635,7 @@ describe('DzupAgent generateStructured()', () => {
 
     const agent = new DzupAgent(minimalConfig({
       model,
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
     }))
     const schema = z.array(z.object({ id: z.string() }))
 
@@ -983,7 +984,7 @@ describe('DzupAgent event bus integration', () => {
     const agent = new DzupAgent(minimalConfig({
       model,
       tools: [echoTool],
-      eventBus: eventBus as never,
+      eventBus: eventBus as unknown as DzupEventBus,
     }))
 
     await collectStreamEvents(agent)

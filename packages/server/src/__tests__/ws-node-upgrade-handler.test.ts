@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
+import type { IncomingMessage } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { createEventBus } from '@dzupagent/core'
 import { EventBridge, type WSClient } from '../ws/event-bridge.js'
+import type { NodeWSLike } from '../ws/node-adapter.js'
 import { WSClientScopeRegistry } from '../ws/scope-registry.js'
 import { WSSessionManager } from '../ws/session-manager.js'
 import { createNodeWsUpgradeHandler, createPathUpgradeGuard } from '../ws/node-upgrade-handler.js'
@@ -41,7 +44,7 @@ describe('createNodeWsUpgradeHandler', () => {
     })
 
     const socket = new MockSocket()
-    upgradeHandler({ url: '/ws' } as never, socket as never, Buffer.alloc(0))
+    upgradeHandler({ url: '/ws' } as unknown as IncomingMessage, socket as unknown as Duplex, Buffer.alloc(0))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(handleUpgrade).not.toHaveBeenCalled()
@@ -66,7 +69,7 @@ describe('createNodeWsUpgradeHandler', () => {
     })
 
     const socket = new MockSocket()
-    upgradeHandler({ url: '/not-ws' } as never, socket as never, Buffer.alloc(0))
+    upgradeHandler({ url: '/not-ws' } as unknown as IncomingMessage, socket as unknown as Duplex, Buffer.alloc(0))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(handleUpgrade).not.toHaveBeenCalled()
@@ -82,7 +85,7 @@ describe('createNodeWsUpgradeHandler', () => {
     })
 
     const handleUpgrade = vi.fn((req, _socket, _head, cb) => {
-      cb(new MockWs() as never, req)
+      cb(new MockWs() as unknown as NodeWSLike, req)
     })
 
     const upgradeHandler = createNodeWsUpgradeHandler({
@@ -91,7 +94,7 @@ describe('createNodeWsUpgradeHandler', () => {
       resolveScopeFromRequest: () => ({ runIds: ['r1'] }),
     })
 
-    upgradeHandler({ url: '/ws' } as never, new MockSocket() as never, Buffer.alloc(0))
+    upgradeHandler({ url: '/ws' } as unknown as IncomingMessage, new MockSocket() as unknown as Duplex, Buffer.alloc(0))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(handleUpgrade).toHaveBeenCalledOnce()
@@ -103,7 +106,7 @@ describe('createNodeWsUpgradeHandler', () => {
     const bridge = new EventBridge(bus)
     const manager = new WSSessionManager(bridge, new WSClientScopeRegistry())
     const handleUpgrade = vi.fn((req, _socket, _head, cb) => {
-      cb(new MockWs() as never, req)
+      cb(new MockWs() as unknown as NodeWSLike, req)
     })
 
     const upgradeHandler = createNodeWsUpgradeHandler({
@@ -112,7 +115,7 @@ describe('createNodeWsUpgradeHandler', () => {
       allowUnsafeUnauthenticated: true,
     })
 
-    upgradeHandler({ url: '/ws' } as never, new MockSocket() as never, Buffer.alloc(0))
+    upgradeHandler({ url: '/ws' } as unknown as IncomingMessage, new MockSocket() as unknown as Duplex, Buffer.alloc(0))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(handleUpgrade).toHaveBeenCalledOnce()
@@ -123,7 +126,7 @@ describe('createNodeWsUpgradeHandler', () => {
 describe('createPathUpgradeGuard', () => {
   it('matches exact path', () => {
     const guard = createPathUpgradeGuard('/ws')
-    expect(guard({ url: '/ws?x=1' } as never)).toBe(true)
-    expect(guard({ url: '/events' } as never)).toBe(false)
+    expect(guard({ url: '/ws?x=1' } as unknown as IncomingMessage)).toBe(true)
+    expect(guard({ url: '/events' } as unknown as IncomingMessage)).toBe(false)
   })
 })

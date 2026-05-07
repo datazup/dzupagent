@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import type { SemanticStore } from '@dzupagent/core'
 import { CodeSearchService } from '../search/code-search-service.js'
 import type { IndexResult, IndexStats, CodeSearchResult } from '../search/code-search-types.js'
 
@@ -150,7 +151,7 @@ describe('CodeSearchService', () => {
   beforeEach(async () => {
     mockStore = createMockSemanticStore()
     // Cast to satisfy the SemanticStore type — our mock covers the methods used
-    service = new CodeSearchService(mockStore as never, {
+    service = new CodeSearchService(mockStore as unknown as SemanticStore, {
       collectionName: 'test_code',
     })
     await service.init()
@@ -163,7 +164,7 @@ describe('CodeSearchService', () => {
 
     it('uses default collection name when not configured', async () => {
       const defaultStore = createMockSemanticStore()
-      const defaultService = new CodeSearchService(defaultStore as never)
+      const defaultService = new CodeSearchService(defaultStore as unknown as SemanticStore)
       await defaultService.init()
       expect(defaultStore.ensureCollection).toHaveBeenCalledWith('code_chunks')
     })
@@ -497,21 +498,21 @@ describe('CodeSearchService', () => {
   describe('constructor edge cases', () => {
     it('uses default collection when config is undefined', async () => {
       const store2 = createMockSemanticStore()
-      const svc = new CodeSearchService(store2 as never)
+      const svc = new CodeSearchService(store2 as unknown as SemanticStore)
       await svc.init()
       expect(store2.ensureCollection).toHaveBeenCalledWith('code_chunks')
     })
 
     it('uses default collection when config is provided without collectionName', async () => {
       const store2 = createMockSemanticStore()
-      const svc = new CodeSearchService(store2 as never, {})
+      const svc = new CodeSearchService(store2 as unknown as SemanticStore, {})
       await svc.init()
       expect(store2.ensureCollection).toHaveBeenCalledWith('code_chunks')
     })
 
     it('accepts custom collectionName in config', async () => {
       const store2 = createMockSemanticStore()
-      const svc = new CodeSearchService(store2 as never, { collectionName: 'custom' })
+      const svc = new CodeSearchService(store2 as unknown as SemanticStore, { collectionName: 'custom' })
       await svc.init()
       expect(store2.ensureCollection).toHaveBeenCalledWith('custom')
     })

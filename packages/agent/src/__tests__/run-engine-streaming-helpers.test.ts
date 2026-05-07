@@ -13,6 +13,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ToolMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import type { ToolGovernance, DzupEventBus } from '@dzupagent/core'
+import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
+import type { ZodSchema } from 'zod'
 import {
   buildSuccessResult,
   handleInvocationFailure,
@@ -31,7 +34,7 @@ function mockTool(name: string): StructuredToolInterface {
   return {
     name,
     description: `Mock ${name}`,
-    schema: {} as never,
+    schema: {} as unknown as ZodSchema,
     lc_namespace: [] as string[],
     invoke: vi.fn(async () => 'ok'),
   } as unknown as StructuredToolInterface
@@ -445,7 +448,7 @@ describe('applyBudgetGate', () => {
       inputMetadataKeys: [],
       toolMap,
       policy: {
-        toolGovernance: toolGovernance as never,
+        toolGovernance: toolGovernance as unknown as ToolGovernance,
       },
     })
 
@@ -475,8 +478,8 @@ describe('applyBudgetGate', () => {
       inputMetadataKeys: [],
       toolMap,
       policy: {
-        toolGovernance: toolGovernance as never,
-        eventBus: eventBus as never,
+        toolGovernance: toolGovernance as unknown as ToolGovernance,
+        eventBus: eventBus as unknown as DzupEventBus,
         runId: 'run-1',
       },
     })
@@ -503,8 +506,8 @@ describe('applyBudgetGate', () => {
       inputMetadataKeys: [],
       toolMap,
       policy: {
-        toolGovernance: toolGovernance as never,
-        eventBus: eventBus as never,
+        toolGovernance: toolGovernance as unknown as ToolGovernance,
+        eventBus: eventBus as unknown as DzupEventBus,
         runId: 'run-approval',
       },
     })
@@ -531,7 +534,7 @@ describe('applyBudgetGate', () => {
       inputMetadataKeys: [],
       toolMap,
       policy: {
-        toolPermissionPolicy: toolPermissionPolicy as never,
+        toolPermissionPolicy: toolPermissionPolicy as unknown as ToolPermissionPolicy,
         agentId: 'agent-1',
       },
     })
@@ -556,7 +559,7 @@ describe('applyBudgetGate', () => {
       inputMetadataKeys: [],
       toolMap,
       policy: {
-        toolPermissionPolicy: toolPermissionPolicy as never,
+        toolPermissionPolicy: toolPermissionPolicy as unknown as ToolPermissionPolicy,
         agentId: 'agent-1',
       },
     })
@@ -577,7 +580,7 @@ describe('applyBudgetGate', () => {
       toolName: 'search',
       inputMetadataKeys: [],
       toolMap,
-      policy: { toolGovernance: toolGovernance as never },
+      policy: { toolGovernance: toolGovernance as unknown as ToolGovernance },
     })
 
     expect(decision.kind).toBe('continue')
