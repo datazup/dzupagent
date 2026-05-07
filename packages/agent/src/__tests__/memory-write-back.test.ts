@@ -7,7 +7,7 @@
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseStore } from '@langchain/langgraph'
 import { createEventBus, type DzupEvent } from '@dzupagent/core'
-import { MemoryService } from '@dzupagent/memory'
+import { MemoryService, InMemoryReferenceTracker } from '@dzupagent/memory'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
@@ -103,7 +103,11 @@ describe('DzupAgent memory write-back (P9)', () => {
     const memory = new MemoryService(
       store as unknown as BaseStore,
       [{ name: 'facts', scopeKeys: ['project'] }],
-      { rejectUnsafe: false, referenceTracker: tracker as never },
+      // CapturingReferenceTracker is structurally compatible with the internal
+      // ReferenceTracker class (has trackReference).  The internal class is not
+      // exported; cast through the exported InMemoryReferenceTracker which has
+      // the same structural shape.  Strictly better than `as never`.
+      { rejectUnsafe: false, referenceTracker: tracker as unknown as InMemoryReferenceTracker },
     )
     await memory.put(
       'facts',

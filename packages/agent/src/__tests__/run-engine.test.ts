@@ -11,6 +11,8 @@ import { InMemoryRunStateStore, type DzupRunState } from '@dzupagent/core'
 import type { DzupAgentConfig, GenerateOptions, GenerateResult } from '../agent/agent-types.js'
 import type { ToolLoopResult, StopReason, ToolStat } from '../agent/tool-loop.js'
 import type * as ToolLoopModule from '../agent/tool-loop.js'
+import { makeMockTool, makeMockEventBus } from './test-utils.js'
+import { StuckError } from '../agent/stuck-error.js'
 
 // ---------------------------------------------------------------------------
 // Mocks — vi.hoisted ensures these are available during vi.mock hoisting
@@ -62,13 +64,7 @@ import { StuckDetector } from '../guardrails/stuck-detector.js'
 // ---------------------------------------------------------------------------
 
 function mockTool(name: string, result = 'ok'): StructuredToolInterface {
-  return {
-    name,
-    description: `Mock ${name}`,
-    schema: {} as never,
-    lc_namespace: [] as string[],
-    invoke: vi.fn(async () => result),
-  } as unknown as StructuredToolInterface
+  return makeMockTool(name, result)
 }
 
 function mockModel(): BaseChatModel {
@@ -694,9 +690,9 @@ describe('executeGenerateRun', () => {
 
   it('passes stuckError through', async () => {
     const runState = makeRunState()
-    const stuckError = { name: 'StuckError', reason: 'looping', repeatedTool: 'search', escalationLevel: 3, recoveryAction: 'loop_aborted', message: 'stuck' }
+    const stuckError = new StuckError({ reason: 'looping', repeatedTool: 'search', escalationLevel: 3 })
     mockRunToolLoop.mockResolvedValue(
-      makeToolLoopResult({ stopReason: 'stuck', stuckError: stuckError as never }),
+      makeToolLoopResult({ stopReason: 'stuck', stuckError }),
     )
     mockExtractFinalAiMessageContent.mockReturnValue('')
 
@@ -988,11 +984,8 @@ describe('executeGenerateRun', () => {
 
   it('emits agent:stuck_detected via onStuckDetected callback', async () => {
     const events: unknown[] = []
-    const eventBus = {
-      emit: vi.fn((e: unknown) => { events.push(e) }),
-      on: vi.fn(),
-      off: vi.fn(),
-    }
+    const eventBus = makeMockEventBus()
+    eventBus.emit.mockImplementation((e: unknown) => { events.push(e) })
     const runState = makeRunState()
     mockRunToolLoop.mockResolvedValue(makeToolLoopResult())
     mockExtractFinalAiMessageContent.mockReturnValue('done')
@@ -1004,7 +997,7 @@ describe('executeGenerateRun', () => {
           id: 'agent-1',
           instructions: '',
           model: 'gpt-4',
-          eventBus: eventBus as never,
+          eventBus,
         },
       }),
     )
@@ -1025,7 +1018,7 @@ describe('executeGenerateRun', () => {
   })
 
   it('emits tool:latency via onToolLatency callback', async () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() }
+    const eventBus = makeMockEventBus()
     const runState = makeRunState()
     mockRunToolLoop.mockResolvedValue(makeToolLoopResult())
     mockExtractFinalAiMessageContent.mockReturnValue('done')
@@ -1036,7 +1029,7 @@ describe('executeGenerateRun', () => {
           id: 'a',
           instructions: '',
           model: 'gpt-4',
-          eventBus: eventBus as never,
+          eventBus,
         },
       }),
     )
@@ -1055,7 +1048,7 @@ describe('executeGenerateRun', () => {
   })
 
   it('emits tool:latency with error field when error provided', async () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() }
+    const eventBus = makeMockEventBus()
     const runState = makeRunState()
     mockRunToolLoop.mockResolvedValue(makeToolLoopResult())
     mockExtractFinalAiMessageContent.mockReturnValue('done')
@@ -1066,7 +1059,7 @@ describe('executeGenerateRun', () => {
           id: 'a',
           instructions: '',
           model: 'gpt-4',
-          eventBus: eventBus as never,
+          eventBus,
         },
       }),
     )
@@ -1086,7 +1079,7 @@ describe('executeGenerateRun', () => {
   })
 
   it('emits onStuck event with correct escalation info', async () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() }
+    const eventBus = makeMockEventBus()
     const runState = makeRunState()
     mockRunToolLoop.mockResolvedValue(makeToolLoopResult())
     mockExtractFinalAiMessageContent.mockReturnValue('done')
@@ -1098,7 +1091,7 @@ describe('executeGenerateRun', () => {
           id: 'agent-x',
           instructions: '',
           model: 'gpt-4',
-          eventBus: eventBus as never,
+          eventBus,
         },
       }),
     )
@@ -1139,11 +1132,11 @@ describe('executeGenerateRun', () => {
 
 describe('emitStopReasonTelemetry', () => {
   it('emits agent:stop_reason event via eventBus', () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() }
+    const eventBus = makeMockEventBus()
     const stats: ToolStat[] = [{ name: 't', calls: 1, errors: 0, totalMs: 10, avgMs: 10 }]
 
     emitStopReasonTelemetry(
-      { eventBus: eventBus as never },
+      { eventBus },
       'agent-1',
       { stopReason: 'complete', llmCalls: 3, toolStats: stats },
     )
@@ -1167,12 +1160,12 @@ describe('emitStopReasonTelemetry', () => {
   })
 
   it('emits with different stop reasons', () => {
-    const eventBus = { emit: vi.fn(), on: vi.fn(), off: vi.fn() }
+    const eventBus = makeMockEventBus()
     const reasons: StopReason[] = ['complete', 'iteration_limit', 'budget_exceeded', 'aborted', 'error', 'stuck']
 
     for (const reason of reasons) {
       emitStopReasonTelemetry(
-        { eventBus: eventBus as never },
+        { eventBus },
         'a',
         { stopReason: reason, llmCalls: 1, toolStats: [] },
       )
@@ -1332,13 +1325,8 @@ describe('executeStreamingToolCall', () => {
   })
 
   it('handles tool invocation error gracefully', async () => {
-    const failTool = {
-      name: 'fail',
-      description: 'fails',
-      schema: {} as never,
-      lc_namespace: [] as string[],
-      invoke: vi.fn(async () => { throw new Error('boom') }),
-    } as unknown as StructuredToolInterface
+    const failTool = makeMockTool('fail')
+    vi.mocked(failTool.invoke).mockRejectedValue(new Error('boom'))
 
     const params = baseStreamParams({
       toolCall: { id: 'call_1', name: 'fail', args: {} },
@@ -1351,13 +1339,8 @@ describe('executeStreamingToolCall', () => {
   })
 
   it('records error stat on failure', async () => {
-    const failTool = {
-      name: 'fail',
-      description: 'fails',
-      schema: {} as never,
-      lc_namespace: [] as string[],
-      invoke: vi.fn(async () => { throw new Error('boom') }),
-    } as unknown as StructuredToolInterface
+    const failTool = makeMockTool('fail')
+    vi.mocked(failTool.invoke).mockRejectedValue(new Error('boom'))
 
     const params = baseStreamParams({
       toolCall: { id: 'call_1', name: 'fail', args: {} },
@@ -1369,13 +1352,8 @@ describe('executeStreamingToolCall', () => {
   })
 
   it('calls onToolLatency with error on failure', async () => {
-    const failTool = {
-      name: 'fail',
-      description: 'fails',
-      schema: {} as never,
-      lc_namespace: [] as string[],
-      invoke: vi.fn(async () => { throw new Error('boom') }),
-    } as unknown as StructuredToolInterface
+    const failTool = makeMockTool('fail')
+    vi.mocked(failTool.invoke).mockRejectedValue(new Error('boom'))
 
     const params = baseStreamParams({
       toolCall: { id: 'call_1', name: 'fail', args: {} },
@@ -1398,13 +1376,8 @@ describe('executeStreamingToolCall', () => {
 
   it('detects stuck on repeated errors', async () => {
     const detector = new StuckDetector({ maxErrorsInWindow: 1 })
-    const failTool = {
-      name: 'fail',
-      description: 'fails',
-      schema: {} as never,
-      lc_namespace: [] as string[],
-      invoke: vi.fn(async () => { throw new Error('boom') }),
-    } as unknown as StructuredToolInterface
+    const failTool = makeMockTool('fail')
+    vi.mocked(failTool.invoke).mockRejectedValue(new Error('boom'))
 
     const params = baseStreamParams({
       toolCall: { id: 'call_1', name: 'fail', args: {} },
@@ -1418,13 +1391,7 @@ describe('executeStreamingToolCall', () => {
   })
 
   it('converts non-string tool result to JSON', async () => {
-    const objTool = {
-      name: 'obj',
-      description: 'returns object',
-      schema: {} as never,
-      lc_namespace: [] as string[],
-      invoke: vi.fn(async () => ({ key: 'value' })),
-    } as unknown as StructuredToolInterface
+    const objTool = makeMockTool('obj', { key: 'value' })
 
     const params = baseStreamParams({
       toolCall: { id: 'call_1', name: 'obj', args: {} },
@@ -1439,13 +1406,9 @@ describe('executeStreamingToolCall', () => {
   })
 
   it('non-Error thrown is stringified', async () => {
-    const failTool = {
-      name: 'fail',
-      description: 'fails',
-      schema: {} as never,
-      lc_namespace: [] as string[],
-      invoke: vi.fn(async () => { throw 'string error' }),
-    } as unknown as StructuredToolInterface
+    const failTool = makeMockTool('fail')
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
+    vi.mocked(failTool.invoke).mockRejectedValue('string error')
 
     const params = baseStreamParams({
       toolCall: { id: 'call_1', name: 'fail', args: {} },

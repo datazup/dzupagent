@@ -15,8 +15,10 @@ import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
+import type { ModelRegistry } from '@dzupagent/core'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { AgentStreamEvent, DzupAgentConfig } from '../agent/agent-types.js'
+import { makeMockTool, makeMockEventBus } from './test-utils.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -90,7 +92,12 @@ function createMidStreamFailingModel(): BaseChatModel {
   return model as unknown as BaseChatModel
 }
 
-interface MockRegistry {
+/**
+ * Typed mock of ModelRegistry that records circuit-breaker calls.
+ * Returned as `ModelRegistry & {...}` so it can be passed to
+ * `DzupAgentConfig.registry` without an `as never` cast.
+ */
+type MockRegistry = ModelRegistry & {
   getModel: ReturnType<typeof vi.fn>
   getModelByName: ReturnType<typeof vi.fn>
   getModelWithFallback: ReturnType<typeof vi.fn>
@@ -107,7 +114,7 @@ function createMockRegistry(model: BaseChatModel, provider = 'mock-provider'): M
     getModelFallbackCandidates: vi.fn(() => ([{ model, provider, modelName: provider + '-model' }])),
     recordProviderSuccess: vi.fn(),
     recordProviderFailure: vi.fn(),
-  }
+  } as unknown as MockRegistry
 }
 
 function createFailoverRegistry(
@@ -124,17 +131,11 @@ function createFailoverRegistry(
     ]),
     recordProviderSuccess: vi.fn(),
     recordProviderFailure: vi.fn(),
-  }
+  } as unknown as MockRegistry
 }
 
 function mockTool(name: string): StructuredToolInterface {
-  return {
-    name,
-    description: `Mock tool ${name}`,
-    schema: {} as never,
-    lc_namespace: [] as string[],
-    invoke: vi.fn(async () => 'tool ok'),
-  } as unknown as StructuredToolInterface
+  return makeMockTool(name, 'tool ok')
 }
 
 function minimalConfig(overrides: Partial<DzupAgentConfig> = {}): DzupAgentConfig {
@@ -162,18 +163,18 @@ describe('DzupAgent provider fallback — selection-time only', () => {
     // skipping the first because its breaker is open and returning the second.
     const goodModel = createSucceedingStreamModel('hello')
 
-    const registry: MockRegistry = {
+    const registry = {
       getModel: vi.fn(),
       getModelByName: vi.fn(),
       getModelWithFallback: vi.fn(() => ({ model: goodModel, provider: 'secondary' })),
       getModelFallbackCandidates: vi.fn(),
       recordProviderSuccess: vi.fn(),
       recordProviderFailure: vi.fn(),
-    }
+    } as unknown as MockRegistry
 
     const agent = new DzupAgent(minimalConfig({
       model: 'chat',
-      registry: registry as never,
+      registry,
     }))
 
     expect(registry.getModelWithFallback).toHaveBeenCalledWith('chat')
@@ -186,18 +187,18 @@ describe('DzupAgent provider fallback — selection-time only', () => {
 
   it('skips an open-circuit provider at construction (stream path)', async () => {
     const goodModel = createSucceedingStreamModel('streamed')
-    const registry: MockRegistry = {
+    const registry = {
       getModel: vi.fn(),
       getModelByName: vi.fn(),
       getModelWithFallback: vi.fn(() => ({ model: goodModel, provider: 'secondary' })),
       getModelFallbackCandidates: vi.fn(),
       recordProviderSuccess: vi.fn(),
       recordProviderFailure: vi.fn(),
-    }
+    } as unknown as MockRegistry
 
     const agent = new DzupAgent(minimalConfig({
       model: 'chat',
-      registry: registry as never,
+      registry,
     }))
 
     expect(registry.getModelWithFallback).toHaveBeenCalledWith('chat')
@@ -219,7 +220,7 @@ describe('DzupAgent stream() — circuit-breaker outcome recording', () => {
     const registry = createMockRegistry(model, 'primary')
 
     const agent = new DzupAgent(minimalConfig({
-      registry: registry as never,
+      registry,
     }))
 
     await consume(agent.stream([new HumanMessage('hi')]))
@@ -234,7 +235,7 @@ describe('DzupAgent stream() — circuit-breaker outcome recording', () => {
     const registry = createMockRegistry(model, 'primary')
 
     const agent = new DzupAgent(minimalConfig({
-      registry: registry as never,
+      registry,
     }))
 
     await expect(consume(agent.stream([new HumanMessage('hi')]))).rejects.toThrow(
@@ -255,7 +256,7 @@ describe('DzupAgent stream() — circuit-breaker outcome recording', () => {
     const registry = createMockRegistry(model, 'primary')
 
     const agent = new DzupAgent(minimalConfig({
-      registry: registry as never,
+      registry,
     }))
 
     await expect(consume(agent.stream([new HumanMessage('hi')]))).rejects.toThrow(
@@ -301,7 +302,7 @@ describe('DzupAgent — breaker state consistency between generate() and stream(
     const registry = createMockRegistry(model, 'primary')
 
     const agent = new DzupAgent(minimalConfig({
-      registry: registry as never,
+      registry,
     }))
 
     await agent.generate([new HumanMessage('round 1')])
@@ -324,11 +325,11 @@ describe('DzupAgent provider failover — opt-in run-level wrapper', () => {
     const primary = createFailingInvokeModel()
     const secondary = createSucceedingStreamModel('secondary ok')
     const registry = createFailoverRegistry(primary, secondary)
-    const eventBus = { emit: vi.fn() }
+    const eventBus = makeMockEventBus()
 
     const agent = new DzupAgent(minimalConfig({
-      registry: registry as never,
-      eventBus: eventBus as never,
+      registry,
+      eventBus,
       providerFailover: { enabled: true, maxAttempts: 2 },
     }))
 
@@ -362,7 +363,7 @@ describe('DzupAgent provider failover — opt-in run-level wrapper', () => {
     const tool = mockTool('side_effect')
 
     const agent = new DzupAgent(minimalConfig({
-      registry: registry as never,
+      registry,
       tools: [tool],
       providerFailover: { enabled: true, maxAttempts: 2 },
       maxIterations: 2,
@@ -383,7 +384,7 @@ describe('DzupAgent provider failover — opt-in run-level wrapper', () => {
     const registry = createFailoverRegistry(primary, secondary)
 
     const agent = new DzupAgent(minimalConfig({
-      registry: registry as never,
+      registry,
       providerFailover: { enabled: true, maxAttempts: 2 },
     }))
 
@@ -402,7 +403,7 @@ describe('DzupAgent provider failover — opt-in run-level wrapper', () => {
     const registry = createFailoverRegistry(primary, secondary)
 
     const agent = new DzupAgent(minimalConfig({
-      registry: registry as never,
+      registry,
       providerFailover: { enabled: true, maxAttempts: 2 },
     }))
 

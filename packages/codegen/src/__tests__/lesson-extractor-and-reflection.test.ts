@@ -9,6 +9,8 @@ import type {
   CorrectionContext,
 } from '../correction/correction-types.js'
 import type { TokenUsage } from '@dzupagent/core'
+import { makeMockLlmModel, makeMockCodegenRegistry } from './test-utils.js'
+import type { MockCodegenRegistry } from './test-utils.js'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -48,19 +50,11 @@ function makeIteration(overrides: Partial<CorrectionIteration> = {}): Correction
 }
 
 function makeMockModel(responseContent: string) {
-  return {
-    invoke: vi.fn().mockResolvedValue({
-      content: responseContent,
-      usage_metadata: { input_tokens: 100, output_tokens: 50 },
-    }),
-    model: 'test-model',
-  }
+  return makeMockLlmModel(responseContent)
 }
 
-function makeMockRegistry(model: ReturnType<typeof makeMockModel>) {
-  return {
-    getModel: vi.fn().mockReturnValue(model),
-  }
+function makeMockRegistry(model: ReturnType<typeof makeMockModel>): MockCodegenRegistry {
+  return makeMockCodegenRegistry(model)
 }
 
 // ============================================================================
@@ -196,7 +190,7 @@ describe('LessonExtractor', () => {
         { rule: 'Always type parameters', category: 'type_error', context: 'TS projects' },
       ]))
       const registry = makeMockRegistry(model)
-      const extractor = new LessonExtractor({ registry: registry as never })
+      const extractor = new LessonExtractor({ registry })
       const result = await extractor.extract([makeIteration()])
       expect(registry.getModel).toHaveBeenCalled()
       expect(model.invoke).toHaveBeenCalled()
@@ -207,7 +201,7 @@ describe('LessonExtractor', () => {
     it('falls back to heuristics on invalid LLM JSON', async () => {
       const model = makeMockModel('This is not JSON at all')
       const registry = makeMockRegistry(model)
-      const extractor = new LessonExtractor({ registry: registry as never })
+      const extractor = new LessonExtractor({ registry })
       const result = await extractor.extract([makeIteration()])
       // Should fall back to heuristic extraction
       expect(result.lessons.length).toBeGreaterThan(0)
@@ -218,7 +212,7 @@ describe('LessonExtractor', () => {
         { category: 'type_error', context: 'no rule field' },
       ]))
       const registry = makeMockRegistry(model)
-      const extractor = new LessonExtractor({ registry: registry as never })
+      const extractor = new LessonExtractor({ registry })
       const result = await extractor.extract([makeIteration()])
       // Items without 'rule' are filtered, resulting in empty lessons
       expect(result.lessons).toHaveLength(0)
@@ -229,7 +223,7 @@ describe('LessonExtractor', () => {
         { rule: 'Some rule', category: 'UNKNOWN_THING', context: 'test' },
       ]))
       const registry = makeMockRegistry(model)
-      const extractor = new LessonExtractor({ registry: registry as never })
+      const extractor = new LessonExtractor({ registry })
       const result = await extractor.extract([makeIteration()])
       expect(result.lessons[0]!.category).toBe('logic_error')
     })
@@ -239,7 +233,7 @@ describe('LessonExtractor', () => {
         { rule: 'Test rule', category: 'type_error', context: 'test' },
       ]))
       const registry = makeMockRegistry(model)
-      const extractor = new LessonExtractor({ registry: registry as never, modelTier: 'codegen' })
+      const extractor = new LessonExtractor({ registry, modelTier: 'codegen' })
       await extractor.extract([makeIteration()])
       expect(registry.getModel).toHaveBeenCalledWith('codegen')
     })
@@ -249,7 +243,7 @@ describe('LessonExtractor', () => {
         { rule: 'Test rule', category: 'type_error', context: 'test' },
       ]))
       const registry = makeMockRegistry(model)
-      const extractor = new LessonExtractor({ registry: registry as never })
+      const extractor = new LessonExtractor({ registry })
       await extractor.extract([makeIteration()])
       expect(registry.getModel).toHaveBeenCalledWith('chat')
     })
@@ -266,7 +260,7 @@ describe('LessonExtractor', () => {
         model: 'test-model',
       }
       const registry = makeMockRegistry(model)
-      const extractor = new LessonExtractor({ registry: registry as never })
+      const extractor = new LessonExtractor({ registry })
       const result = await extractor.extract([makeIteration()])
       // The parsed array has no items with 'rule', yielding empty lessons
       expect(result.lessons).toHaveLength(0)
@@ -278,7 +272,7 @@ describe('LessonExtractor', () => {
         { rule: 'Valid rule', category: 'type_error', context: 'test' },
       ]))
       const registry = makeMockRegistry(model)
-      const extractor = new LessonExtractor({ registry: registry as never })
+      const extractor = new LessonExtractor({ registry })
       const result = await extractor.extract([makeIteration()])
       expect(result.lessons.every(l => l.rule.length > 0)).toBe(true)
     })
@@ -351,7 +345,7 @@ describe('ReflectionNode', () => {
       })
       const model = makeMockModel(responseJson)
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       const result = await node.reflect(
         { 'src/service.ts': 'const x = 1' },
         {
@@ -370,7 +364,7 @@ describe('ReflectionNode', () => {
         'The root cause: missing import statement\nFix: add the import\nFile `src/service.ts` needs updating',
       )
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       const result = await node.reflect(
         { 'src/service.ts': 'const x = 1' },
         { passed: false, lintErrors: ['import error'], qualityScore: 20 },
@@ -385,7 +379,7 @@ describe('ReflectionNode', () => {
         'The issue is in `src/utils/helper.ts` where the type is wrong',
       )
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       const result = await node.reflect(
         { 'src/utils/helper.ts': '' },
         { passed: false, lintErrors: ['type error'], qualityScore: 25 },
@@ -396,7 +390,7 @@ describe('ReflectionNode', () => {
     it('classifies type errors in fallback', async () => {
       const model = makeMockModel('Type error: string is not assignable to number')
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       const result = await node.reflect(
         { 'a.ts': '' },
         { passed: false, lintErrors: [], qualityScore: 20 },
@@ -407,7 +401,7 @@ describe('ReflectionNode', () => {
     it('classifies syntax errors in fallback', async () => {
       const model = makeMockModel('Syntax error: unexpected token at line 5')
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       const result = await node.reflect(
         { 'a.ts': '' },
         { passed: false, lintErrors: [], qualityScore: 20 },
@@ -418,7 +412,7 @@ describe('ReflectionNode', () => {
     it('classifies test failures in fallback', async () => {
       const model = makeMockModel('Test failed: expect(result).toBe(5) but got 3')
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       const result = await node.reflect(
         { 'a.ts': '' },
         { passed: false, lintErrors: [], qualityScore: 20 },
@@ -429,7 +423,7 @@ describe('ReflectionNode', () => {
     it('classifies lint violations in fallback', async () => {
       const model = makeMockModel('ESLint rule violation: no-unused-vars')
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       const result = await node.reflect(
         { 'a.ts': '' },
         { passed: false, lintErrors: [], qualityScore: 20 },
@@ -440,7 +434,7 @@ describe('ReflectionNode', () => {
     it('defaults to logic_error when category cannot be determined', async () => {
       const model = makeMockModel('Something is wrong with the output')
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       const result = await node.reflect(
         { 'a.ts': '' },
         { passed: false, lintErrors: [], qualityScore: 20 },
@@ -458,7 +452,7 @@ describe('ReflectionNode', () => {
       }))
       const registry = makeMockRegistry(model)
       const node = new ReflectionNode({
-        registry: registry as never,
+        registry,
         systemPrompt: 'Custom system prompt',
       })
       await node.reflect({ 'a.ts': '' }, { passed: false, lintErrors: [], qualityScore: 20 })
@@ -475,7 +469,7 @@ describe('ReflectionNode', () => {
         category: 'logic_error',
       }))
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       await node.reflect({ 'a.ts': '' }, { passed: false, lintErrors: [], qualityScore: 20 })
       expect(registry.getModel).toHaveBeenCalledWith('codegen')
     })
@@ -489,7 +483,7 @@ describe('ReflectionNode', () => {
         category: 'logic_error',
       }))
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       await node.reflect(
         { 'a.ts': 'code' },
         {
@@ -520,7 +514,7 @@ describe('ReflectionNode', () => {
         category: 'logic_error',
       }))
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       await node.reflect(
         { 'a.ts': 'code' },
         {
@@ -545,7 +539,7 @@ describe('ReflectionNode', () => {
         additionalContext: 'The package is not in node_modules',
       }))
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       const result = await node.reflect(
         { 'src/a.ts': '' },
         { passed: false, lintErrors: [], qualityScore: 20 },
@@ -562,7 +556,7 @@ describe('ReflectionNode', () => {
         category: 'logic_error',
       }))
       const registry = makeMockRegistry(model)
-      const node = new ReflectionNode({ registry: registry as never })
+      const node = new ReflectionNode({ registry })
       const bigContent = 'x'.repeat(5000)
       await node.reflect(
         { 'a.ts': bigContent },
