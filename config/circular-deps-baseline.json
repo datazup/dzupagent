@@ -87,16 +87,6 @@
         "workflow/workflow-validator.ts"
       ]
     ],
-    "core": [
-      [
-        "config/config-loader.ts",
-        "config/config-schema.ts"
-      ],
-      [
-        "prompt/template-cache.ts",
-        "prompt/template-resolver.ts"
-      ]
-    ],
     "server": [
       [
         "a2a/task-handler.ts",
