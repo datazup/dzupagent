@@ -26,6 +26,69 @@ import type {
 import { omitUndefined } from '../../utils/exact-optional.js'
 
 /**
+ * REC-M-06 — Shared permission-tier evaluation helper.
+ *
+ * Returns `true` when the given tool is permitted under the configured
+ * `toolPermissionPolicy` for the configured `agentId`. Returns `true` (i.e.
+ * "no-op pass") when either the policy or `agentId` is absent, preserving
+ * the pre-policy surface where permission checks are opt-in.
+ *
+ * This helper is invoked at TWO sites inside the executor:
+ *
+ *   1. Pre-flight, immediately on entry (the historical check).
+ *   2. Tool-issuance, immediately before `tool.invoke()` runs.
+ *
+ * The second site closes the time-of-check / time-of-use (TOCTOU) window
+ * that exists between pre-flight and the actual tool invocation: a
+ * concurrent mutation of the policy (or a re-entrant loop with a different
+ * policy in scope) could otherwise allow a write tool to land after
+ * pre-flight signed off. Both sites therefore call THIS function to
+ * guarantee the decision is consistent.
+ *
+ * The helper is deliberately lightweight: it never performs I/O, never
+ * mutates state, and never throws — callers handle denial. Policy
+ * implementations are themselves expected to be O(1) (allowlist lookup or
+ * tier comparison); the audit caveat that the second check be "lightweight,
+ * no extra DB calls" is the policy's contract, not this helper's.
+ */
+function evaluateToolPermission(
+  config: ToolLoopConfig,
+  toolName: string,
+): boolean {
+  if (!config.toolPermissionPolicy || !config.agentId) return true
+  return config.toolPermissionPolicy.hasPermission(config.agentId, toolName)
+}
+
+/**
+ * REC-M-06 — Emit `safety:violation` for a denied tool issuance.
+ *
+ * Consumed by the second (issuance-time) permission check. The first
+ * (pre-flight) check predates this helper and emits its denial via
+ * `tool:error` only — that path is preserved for backward compatibility.
+ * The issuance-time denial is treated as a stronger signal (a tool that
+ * passed pre-flight but is now blocked indicates either a policy mutation
+ * or a TOCTOU race) and therefore additionally surfaces as a high-severity
+ * `safety:violation` so audit pipelines can flag it.
+ */
+function emitPermissionDeniedSafetyViolation(
+  config: ToolLoopConfig,
+  toolName: string,
+): void {
+  if (!config.eventBus) return
+  try {
+    config.eventBus.emit({
+      type: 'safety:violation',
+      category: 'tool_permission_denied',
+      severity: 'high',
+      ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
+      message: `Tool "${toolName}" denied at issuance time after passing pre-flight`,
+    })
+  } catch {
+    // Telemetry must never abort the tool loop.
+  }
+}
+
+/**
  * Resolve a {@link ToolRetryConfig} into the concrete shape expected by the
  * retry loop. Returns `null` when retry is disabled (no entry, or maxAttempts
  * <= 1). Defaults match the values documented on `ToolLoopConfig.toolRetry`.
@@ -77,23 +140,25 @@ export async function executePolicyEnabledToolCall(
   const toolCallId = tc.id ?? `call_${Date.now()}`
   const inputMetadataKeys = extractInputMetadataKeys(tc.args)
 
-  if (config.toolPermissionPolicy && config.agentId) {
-    if (!config.toolPermissionPolicy.hasPermission(config.agentId, toolName)) {
-      emitToolError(config, {
-        toolName,
-        toolCallId,
-        durationMs: 0,
-        inputMetadataKeys,
-        errorCode: 'TOOL_PERMISSION_DENIED',
-        errorMessage: `Tool "${toolName}" is not accessible to agent "${config.agentId}"`,
-        status: 'denied',
-      })
-      throw new ForgeError({
-        code: 'TOOL_PERMISSION_DENIED',
-        message: `Tool "${toolName}" is not accessible to agent "${config.agentId}"`,
-        context: { agentId: config.agentId, toolName },
-      })
-    }
+  // REC-M-06 — Pre-flight permission check (first of two sites). The
+  // second site fires immediately before `tool.invoke()` to close the
+  // time-of-check / time-of-use window. Both sites delegate to the shared
+  // `evaluateToolPermission` helper.
+  if (!evaluateToolPermission(config, toolName)) {
+    emitToolError(config, {
+      toolName,
+      toolCallId,
+      durationMs: 0,
+      inputMetadataKeys,
+      errorCode: 'TOOL_PERMISSION_DENIED',
+      errorMessage: `Tool "${toolName}" is not accessible to agent "${config.agentId}"`,
+      status: 'denied',
+    })
+    throw new ForgeError({
+      code: 'TOOL_PERMISSION_DENIED',
+      message: `Tool "${toolName}" is not accessible to agent "${config.agentId}"`,
+      context: { agentId: config.agentId, toolName },
+    })
   }
 
   if (config.budget?.isToolBlocked(toolName)) {
@@ -229,7 +294,34 @@ export async function executePolicyEnabledToolCall(
       invokeWithOptionalTimeout(
         toolName,
         config.toolTimeouts?.[toolName],
-        ({ signal }) => tool.invoke(validatedArgs, { signal }),
+        async ({ signal }) => {
+          // REC-M-06 — Second permission-tier check at tool issuance.
+          // This fires immediately before the underlying tool runs,
+          // closing the time-of-check / time-of-use window between the
+          // executor's pre-flight check and the actual side-effecting
+          // call. If the policy was mutated (e.g. tier downgraded mid-run,
+          // re-entrant loop with a tighter policy in scope), the call is
+          // blocked here even though pre-flight signed off. Failure path:
+          //   1. Emit `safety:violation` (category=tool_permission_denied,
+          //      severity=high) so audit pipelines flag the TOCTOU event.
+          //   2. Throw a ForgeError matching the pre-flight shape so the
+          //      retry loop's `instanceof ForgeError` filter prevents
+          //      retry, and the outer error handler emits `tool:error`
+          //      with status=denied.
+          // The callback is `async` so a synchronous throw is captured
+          // as a rejected promise; this matters because
+          // `invokeWithOptionalTimeout` chains `.catch()` on the returned
+          // promise to remap aborts.
+          if (!evaluateToolPermission(config, toolName)) {
+            emitPermissionDeniedSafetyViolation(config, toolName)
+            throw new ForgeError({
+              code: 'TOOL_PERMISSION_DENIED',
+              message: `Tool "${toolName}" is not accessible to agent "${config.agentId}"`,
+              context: { agentId: config.agentId, toolName, phase: 'issuance' },
+            })
+          }
+          return tool.invoke(validatedArgs, { signal })
+        },
         omitUndefined({
           signal: config.signal,
           onCancelRequested: (reason: 'timeout' | 'run_cancelled') => emitToolCancellationRequested(config, {
@@ -429,6 +521,37 @@ export async function executePolicyEnabledToolCall(
       outputSize: resultStr.length,
     })
   } catch (err: unknown) {
+    // REC-M-06 — When the issuance-time permission check denies a tool,
+    // the helper throws a ForgeError(TOOL_PERMISSION_DENIED) shaped to
+    // match the pre-flight site. Surface it the same way pre-flight does:
+    // emit `tool:error` (status=denied) and re-throw past the retry loop
+    // and out of this function. This preserves the contract that
+    // permission denials terminate the call, never produce a tool-error
+    // ToolMessage, and never count as an "error" in tool stats.
+    if (
+      err instanceof ForgeError &&
+      err.code === 'TOOL_PERMISSION_DENIED' &&
+      err.context?.['phase'] === 'issuance'
+    ) {
+      emitToolError(config, {
+        toolName,
+        toolCallId,
+        durationMs: Date.now() - startMs,
+        inputMetadataKeys: validatedKeys,
+        errorCode: 'TOOL_PERMISSION_DENIED',
+        errorMessage: err.message,
+        status: 'denied',
+      })
+      if (span) {
+        try {
+          span.setAttribute('durationMs', Date.now() - startMs)
+          config.tracer?.endSpanWithError(span, err)
+        } catch {
+          // Tracer failures must not abort the tool loop.
+        }
+      }
+      throw err
+    }
     errorMsg = err instanceof Error ? err.message : String(err)
     message = new ToolMessage({
       content: `Error executing tool "${toolName}": ${errorMsg}`,
