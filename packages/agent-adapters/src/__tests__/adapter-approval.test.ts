@@ -412,6 +412,30 @@ describe('AdapterApprovalGate', () => {
       expect(body['estimatedCostCents']).toBe(42)
     })
 
+    it('passes webhook URL validation policy through to secure fetch', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('ok', { status: 200 }),
+      )
+
+      const gate = new AdapterApprovalGate({
+        mode: 'required',
+        timeoutMs: 50,
+        webhookUrl: 'http://127.0.0.1:3000/approve',
+        webhookUrlValidation: {
+          allowHttp: true,
+          allowedHosts: ['127.0.0.1:3000'],
+        },
+      })
+
+      await gate.requestApproval(createContext())
+
+      await new Promise((r) => setTimeout(r, 20))
+
+      expect(fetchSpy).toHaveBeenCalledOnce()
+      const [url] = fetchSpy.mock.calls[0]!
+      expect(url).toBe('http://127.0.0.1:3000/approve')
+    })
+
     it('does not throw if webhook fails', async () => {
       vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network error'))
 

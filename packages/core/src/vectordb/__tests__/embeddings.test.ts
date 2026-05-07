@@ -16,6 +16,11 @@ function mockFetch(responseBody: unknown, status = 200): void {
   }))
 }
 
+function fetchMock(): ReturnType<typeof vi.mocked<typeof fetch>> {
+  // eslint-disable-next-line no-restricted-globals -- intentional: tests inspect the stubbed platform fetch calls made by embedding providers
+  return vi.mocked(fetch)
+}
+
 function makeMockEmbeddings(count: number, dims: number): number[][] {
   return Array.from({ length: count }, (_, i) =>
     Array.from({ length: dims }, (__, j) => (i + 1) * 0.01 + j * 0.001),
@@ -44,9 +49,9 @@ describe('Embedding Providers', () => {
       expect(result).toHaveLength(2)
       expect(result[0]).toHaveLength(1536)
 
-      const fetchMock = vi.mocked(fetch)
-      expect(fetchMock).toHaveBeenCalledOnce()
-      const [url, options] = fetchMock.mock.calls[0]!
+      const fetchMockRef = fetchMock()
+      expect(fetchMockRef).toHaveBeenCalledOnce()
+      const [url, options] = fetchMockRef.mock.calls[0]!
       expect(url).toBe('https://api.openai.com/v1/embeddings')
       expect(options?.method).toBe('POST')
 
@@ -80,8 +85,8 @@ describe('Embedding Providers', () => {
       })
       await provider.embedQuery('test')
 
-      const fetchMock = vi.mocked(fetch)
-      const [url] = fetchMock.mock.calls[0]!
+      const fetchMockRef = fetchMock()
+      const [url] = fetchMockRef.mock.calls[0]!
       expect(url).toBe('https://custom.api.com/v1/embeddings')
     })
 
@@ -141,8 +146,8 @@ describe('Embedding Providers', () => {
       const provider = createVoyageEmbedding({ apiKey: 'voy-test' })
       await provider.embed(['hello'])
 
-      const fetchMock = vi.mocked(fetch)
-      const [url, options] = fetchMock.mock.calls[0]!
+      const fetchMockRef = fetchMock()
+      const [url, options] = fetchMockRef.mock.calls[0]!
       expect(url).toBe('https://api.voyageai.com/v1/embeddings')
 
       const body = JSON.parse(options?.body as string) as Record<string, unknown>
@@ -176,8 +181,8 @@ describe('Embedding Providers', () => {
       const provider = createCohereEmbedding({ apiKey: 'co-test' })
       await provider.embed(['hello'])
 
-      const fetchMock = vi.mocked(fetch)
-      const [url, options] = fetchMock.mock.calls[0]!
+      const fetchMockRef = fetchMock()
+      const [url, options] = fetchMockRef.mock.calls[0]!
       expect(url).toBe('https://api.cohere.com/v2/embed')
 
       const body = JSON.parse(options?.body as string) as Record<string, unknown>
@@ -195,8 +200,8 @@ describe('Embedding Providers', () => {
       const provider = createCohereEmbedding({ apiKey: 'co-test' })
       await provider.embedQuery('my query')
 
-      const fetchMock = vi.mocked(fetch)
-      const [, options] = fetchMock.mock.calls[0]!
+      const fetchMockRef = fetchMock()
+      const [, options] = fetchMockRef.mock.calls[0]!
       const body = JSON.parse(options?.body as string) as Record<string, unknown>
       expect(body['input_type']).toBe('search_query')
     })
@@ -217,8 +222,8 @@ describe('Embedding Providers', () => {
       const provider = createOllamaEmbedding({ model: 'nomic-embed-text' })
       await provider.embed(['hello'])
 
-      const fetchMock = vi.mocked(fetch)
-      const [url, options] = fetchMock.mock.calls[0]!
+      const fetchMockRef = fetchMock()
+      const [url, options] = fetchMockRef.mock.calls[0]!
       expect(url).toBe('http://localhost:11434/api/embed')
 
       const body = JSON.parse(options?.body as string) as Record<string, unknown>
@@ -239,8 +244,8 @@ describe('Embedding Providers', () => {
       })
       await provider.embed(['test'])
 
-      const fetchMock = vi.mocked(fetch)
-      const [url] = fetchMock.mock.calls[0]!
+      const fetchMockRef = fetchMock()
+      const [url] = fetchMockRef.mock.calls[0]!
       expect(url).toBe('http://gpu-server:11434/api/embed')
     })
 

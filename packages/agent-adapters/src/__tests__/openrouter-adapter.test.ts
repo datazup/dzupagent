@@ -167,6 +167,10 @@ describe('OpenRouterAdapter', () => {
       vi.fn().mockImplementation((_url: string, opts: RequestInit) => {
         capturedSignal = opts.signal ?? undefined
         return new Promise((_resolve, reject) => {
+          if (opts.signal?.aborted) {
+            reject(new DOMException('The operation was aborted', 'AbortError'))
+            return
+          }
           opts.signal?.addEventListener('abort', () => {
             reject(new DOMException('The operation was aborted', 'AbortError'))
           })

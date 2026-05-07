@@ -178,6 +178,18 @@ describe('OpenAIAdapter', () => {
     expect(url).toBe('https://my-proxy.example.com/v1/chat/completions')
   })
 
+  it('allows operator-configured local OpenAI-compatible endpoints', async () => {
+    const sseLines = ['data: {"choices":[{"delta":{"content":"k"}}]}', 'data: [DONE]']
+    const fetchMock = vi.fn().mockResolvedValue(mockFetchResponse(createSSEStream(sseLines)))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const adapter = new OpenAIAdapter({ apiKey: 'k', baseURL: 'http://127.0.0.1:11434/v1' })
+    await collectEvents(adapter.execute({ prompt: 'p' }))
+
+    const [url] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('http://127.0.0.1:11434/v1/chat/completions')
+  })
+
   it('yields adapter:failed for non-200 responses with status + body in error', async () => {
     const errorBody = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -219,11 +231,20 @@ describe('OpenAIAdapter', () => {
 
   it('interrupt aborts the in-flight request', async () => {
     let capturedSignal: AbortSignal | undefined
+    let markFetchStarted!: () => void
+    const fetchStarted = new Promise<void>((resolve) => {
+      markFetchStarted = resolve
+    })
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((_url: string, opts: RequestInit) => {
         capturedSignal = opts.signal ?? undefined
+        markFetchStarted()
         return new Promise((_resolve, reject) => {
+          if (opts.signal?.aborted) {
+            reject(new DOMException('The operation was aborted', 'AbortError'))
+            return
+          }
           opts.signal?.addEventListener('abort', () => {
             reject(new DOMException('The operation was aborted', 'AbortError'))
           })
@@ -232,17 +253,17 @@ describe('OpenAIAdapter', () => {
     )
 
     const adapter = new OpenAIAdapter({ apiKey: 'k' })
-    const events = await collectEvents(
-      (async function* () {
-        const gen = adapter.execute({ prompt: 'test' })
-        const started = await gen.next()
-        if (started.value) yield started.value
-        queueMicrotask(() => adapter.interrupt())
-        for await (const event of { [Symbol.asyncIterator]: () => gen }) {
-          yield event
-        }
-      })(),
-    )
+    const gen = adapter.execute({ prompt: 'test' })
+    const started = await gen.next()
+    const restEventsPromise = collectEvents({ [Symbol.asyncIterator]: () => gen })
+
+    await fetchStarted
+    adapter.interrupt()
+
+    const events = [
+      ...(started.value ? [started.value] : []),
+      ...await restEventsPromise,
+    ]
 
     expect(capturedSignal?.aborted).toBe(true)
     expect(events.map((e) => e.type)).toEqual(['adapter:started', 'adapter:failed'])

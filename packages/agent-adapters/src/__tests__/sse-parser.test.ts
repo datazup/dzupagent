@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSSEStream, parseSseChunk, parseSseLine } from '../utils/sse-parser.js'
+import { isSseDone, parseSSEStream, parseSseChunk, parseSseLine } from '../utils/sse-parser.js'
 
 function streamFromChunks(chunks: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
@@ -119,6 +119,42 @@ describe('parseSseLine (M-09)', () => {
   it('returns null for non-data: lines', () => {
     expect(parseSseLine(': heartbeat')).toBeNull()
     expect(parseSseLine('event: ping')).toBeNull()
+  })
+})
+
+describe('isSseDone', () => {
+  it('returns true for the canonical data: [DONE] form', () => {
+    expect(isSseDone('data: [DONE]')).toBe(true)
+  })
+
+  it('returns true for the bare [DONE] sentinel (already-stripped data)', () => {
+    expect(isSseDone('[DONE]')).toBe(true)
+  })
+
+  it('returns true when the line has surrounding whitespace', () => {
+    expect(isSseDone('  data: [DONE]  ')).toBe(true)
+    expect(isSseDone('  [DONE]  ')).toBe(true)
+  })
+
+  it('returns false for a normal JSON data line', () => {
+    expect(isSseDone('data: {"i":1}')).toBe(false)
+  })
+
+  it('returns false for an empty line', () => {
+    expect(isSseDone('')).toBe(false)
+  })
+
+  it('returns false for a comment / heartbeat line', () => {
+    expect(isSseDone(': ping')).toBe(false)
+  })
+
+  it('returns false for a partial DONE token', () => {
+    expect(isSseDone('data: [DON]')).toBe(false)
+    expect(isSseDone('[done]')).toBe(false)
+  })
+
+  it('returns false for an event: line that coincidentally mentions DONE', () => {
+    expect(isSseDone('event: [DONE]')).toBe(false)
   })
 })
 

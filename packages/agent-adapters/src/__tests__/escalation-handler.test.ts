@@ -125,6 +125,25 @@ describe('WebhookEscalationHandler', () => {
     ).not.toThrow()
   })
 
+  it('uses the allowHttp policy when sending HTTP webhooks', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('ok', { status: 200 }),
+    )
+    const handler = new WebhookEscalationHandler('http://example.com/hook', { allowHttp: true })
+
+    await handler.notify({
+      requestId: 'req-1',
+      failedProviderId: 'claude',
+      error: 'timeout',
+      attempts: [],
+      suggestions: ['retry'],
+    })
+
+    expect(fetchSpy).toHaveBeenCalledOnce()
+    const [url] = fetchSpy.mock.calls[0]!
+    expect(url).toBe('http://example.com/hook')
+  })
+
   it('rejects invalid URLs', () => {
     expect(() => new WebhookEscalationHandler('not-a-url')).toThrow()
   })
