@@ -40,7 +40,7 @@ No stable subpaths configured.
 Root index: `packages/core/src/index.ts`
 
 - Stable root sources: `48`
-- Deprecated transitional root sources: `83`
+- Deprecated transitional root sources: `85`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
 
@@ -108,6 +108,8 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./persistence/run-journal-bridge.js` | 1 | `prefix:./persistence/` | `RunJournalBridgeRunStore` |
 | `deprecated-transitional` | `./persistence/run-journal.js` | 3 | `prefix:./persistence/` | `createEntryBase`, `isTerminalEntry`, `deserializeEntry` |
 | `deprecated-transitional` | `./persistence/run-journal-types.js` | 20 | `prefix:./persistence/` | `RunJournalEntryType`, `RunJournalEntryBase`, `RunJournalEntry`, `RunStartedEntry` |
+| `deprecated-transitional` | `./persistence/in-memory-run-state-store.js` | 1 | `prefix:./persistence/` | `InMemoryRunStateStore` |
+| `deprecated-transitional` | `./persistence/run-state-store.js` | 4 | `prefix:./persistence/` | `DzupRunState`, `DzupRunStateStore`, `BudgetSnapshot`, `StuckDetectorSnapshot` |
 | `deprecated-transitional` | `./persistence/in-memory-run-store.js` | 1 | `prefix:./persistence/` | `InMemoryRunRecordStore` |
 | `deprecated-transitional` | `./persistence/run-store.js` | 5 | `prefix:./persistence/` | `RunRecordStore`, `RunRecord`, `StoredRunEvent`, `RunFilters` |
 | `deprecated-transitional` | `./router/intent-router.js` | 3 | `prefix:./router/` | `IntentRouter`, `IntentRouterConfig`, `ClassificationResult` |

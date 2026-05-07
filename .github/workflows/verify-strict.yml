@@ -59,6 +59,9 @@ jobs:
       - name: Check domain boundary contracts
         run: yarn -s check:domain-boundaries
 
+      - name: Check circular imports
+        run: yarn -s check:circular-deps
+
       - name: Check terminal tool-event guards
         run: yarn -s check:terminal-tool-event-guards
 

@@ -10,16 +10,12 @@ import type {
   TemplateVariable,
   ResolvedPrompt,
   PromptResolveQuery,
-  BulkPromptQuery,
+  PromptStore,
 } from './template-types.js'
 import { resolveTemplate } from './template-engine.js'
 import type { PromptCache } from './template-cache.js'
 
-/** Abstract prompt storage interface — implemented by consumers */
-export interface PromptStore {
-  findTemplate(query: PromptResolveQuery): Promise<StoredTemplate | null>
-  findAllTemplates(query: BulkPromptQuery): Promise<StoredTemplate[]>
-}
+export type { PromptStore } from './template-types.js'
 
 /** Resolution hierarchy level */
 export type ResolutionLevel =
