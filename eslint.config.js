@@ -70,6 +70,17 @@ export default [
       'security/detect-possible-timing-attacks': 'warn',
       'security/detect-pseudoRandomBytes': 'warn',
       'security/detect-unsafe-regex': 'error',
+      // SSRF guard: route outbound HTTP through fetchWithOutboundUrlPolicy
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'fetch',
+          message:
+            'Use fetchWithOutboundUrlPolicy from @dzupagent/core instead of raw fetch(). ' +
+            'If this site is intentionally allowlisted (vectordb adapters, sandbox clients), ' +
+            'add an eslint-disable-next-line comment with a justification.',
+        },
+      ],
     },
   },
   // Type-aware rules for TypeScript source files only (requires tsconfig project).
