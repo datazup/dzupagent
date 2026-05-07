@@ -22,7 +22,7 @@
  *    over-spend.
  */
 
-import type { TokenBucket } from '@dzupagent/core'
+import type { TokenBucket } from '@dzupagent/core/llm'
 
 /**
  * Minimal Redis-shaped client used by {@link DistributedRateLimiter}.

@@ -14,7 +14,7 @@
  *     original error is rethrown.
  */
 import { randomUUID } from 'node:crypto'
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { AgentMailbox, MailboxQuery, MailboxStore, MailMessage } from './types.js'
 import type { DeadLetterStore } from './dead-letter-store.js'
 import type { RateLimiter } from './rate-limiter.js'

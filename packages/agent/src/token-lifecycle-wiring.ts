@@ -16,7 +16,7 @@
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
-import type { TokenUsage } from '@dzupagent/core'
+import type { TokenUsage } from '@dzupagent/core/llm'
 import {
   type TokenLifecycleManager,
   type TokenLifecycleStatus,

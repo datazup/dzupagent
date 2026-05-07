@@ -10,7 +10,7 @@
  */
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import type { BaseMessage } from '@langchain/core/messages'
-import type { RunJournalEntry } from '@dzupagent/core'
+import type { RunJournalEntry } from '@dzupagent/core/persistence'
 
 /**
  * Rebuild a conversation transcript from journal entries and the original

@@ -8,7 +8,7 @@
  * @module pipeline/retry-policy
  */
 
-import { calculateBackoff as coreCalculateBackoff } from '@dzupagent/core'
+import { calculateBackoff as coreCalculateBackoff } from '@dzupagent/core/utils'
 import type { RetryPolicy } from './pipeline-runtime-types.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 

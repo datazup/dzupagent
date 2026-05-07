@@ -1,7 +1,7 @@
 import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { AgentMiddleware } from '@dzupagent/core'
+import type { AgentMiddleware } from '@dzupagent/core/llm'
 
 export interface AgentMiddlewareRuntimeConfig {
   agentId: string

@@ -14,7 +14,7 @@
  * (`agent:tool_call`) so callers can wire either. In practice only the
  * core names appear on the bus today.
  */
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { RunMetricsAggregator, RunTokenUsage } from './run-metrics.js'
 
 /** Cost per token bucket accumulator keyed by runId. */

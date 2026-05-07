@@ -8,7 +8,7 @@
  * is available, falls back to the framework `defaultLogger` otherwise.
  */
 
-import { defaultLogger } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core/utils'
 
 export interface RoutingSpanData {
   runId?: string

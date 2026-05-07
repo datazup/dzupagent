@@ -22,7 +22,7 @@
  */
 import type { BaseMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { TokenBucket } from '@dzupagent/core'
+import type { TokenBucket } from '@dzupagent/core/llm'
 import { DistributedRateLimiter } from '../guardrails/distributed-rate-limiter.js'
 import { DistributedCostLedger } from '../guardrails/distributed-budget.js'
 import type { DzupAgentConfig } from './agent-types.js'
