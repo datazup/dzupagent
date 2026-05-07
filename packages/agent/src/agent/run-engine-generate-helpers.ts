@@ -316,19 +316,49 @@ export async function setupModelCall(
         const modelId =
           (model as BaseChatModel & { model?: string }).model
           ?? (typeof params.config.model === 'string' ? params.config.model : 'unknown')
+        // REC-M-05 — tenantId for multi-tenant compliance traceability.
+        const auditTenantId = params.config.memoryScope?.['tenantId']
+        // REC-M-05 — serialise the outgoing prompt so compliance pipelines
+        // can reconstruct the exact conversation turn that triggered each
+        // model call. Serialisation is best-effort and never throws.
+        let promptStr: string | undefined
+        if (auditStore) {
+          try {
+            promptStr = JSON.stringify(
+              messages.map((m) => ({
+                type: (m as BaseMessage & { _getType?: () => string })._getType?.() ?? m.constructor.name,
+                content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+              })),
+            )
+          } catch {
+            // Serialisation failure must never abort the run.
+          }
+        }
         try {
           const response = await params.invokeModel(model, messages)
           if (auditStore) {
             const usage = extractTokenUsage(response, modelId)
+            // REC-M-05 — capture the model response string on the success path.
+            let responseStr: string | undefined
+            try {
+              responseStr = typeof response.content === 'string'
+                ? response.content
+                : JSON.stringify(response.content)
+            } catch {
+              // Serialisation failure must never abort the run.
+            }
             void recordAuditEntry(auditStore, {
               agentId: params.agentId,
               ...(params.options?.runId !== undefined ? { runId: params.options.runId } : {}),
+              ...(auditTenantId !== undefined ? { tenantId: auditTenantId } : {}),
               model: modelId,
               inputTokens: usage.inputTokens ?? 0,
               outputTokens: usage.outputTokens ?? 0,
               durationMs: Date.now() - startMs,
               timestamp: Date.now(),
               success: true,
+              ...(promptStr !== undefined ? { prompt: promptStr } : {}),
+              ...(responseStr !== undefined ? { response: responseStr } : {}),
             })
           }
           return response
@@ -338,6 +368,7 @@ export async function setupModelCall(
             void recordAuditEntry(auditStore, {
               agentId: params.agentId,
               ...(params.options?.runId !== undefined ? { runId: params.options.runId } : {}),
+              ...(auditTenantId !== undefined ? { tenantId: auditTenantId } : {}),
               model: modelId,
               inputTokens: 0,
               outputTokens: 0,
@@ -345,6 +376,7 @@ export async function setupModelCall(
               timestamp: Date.now(),
               success: false,
               error: errorMessage,
+              ...(promptStr !== undefined ? { prompt: promptStr } : {}),
             })
           }
           throw err
