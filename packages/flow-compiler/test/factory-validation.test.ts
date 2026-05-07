@@ -5,7 +5,7 @@
  */
 
 import type { ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
-import { createEventBus } from '@dzupagent/core'
+import { createEventBus } from '@dzupagent/core/events'
 import { describe, expect, it } from 'vitest'
 
 import { createFlowCompiler } from '../src/index.js'
