@@ -83,6 +83,23 @@ describe('outbound URL security policy', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('short-circuits before DNS lookup or fetch when the request is already aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const lookup = vi.fn(async () => [{ address: '93.184.216.34', family: 4 }])
+    const fetchMock = vi.fn(async () => new Response('should-not-fetch', { status: 200 }))
+
+    await expect(fetchWithOutboundUrlPolicy('https://example.com/start', {
+      signal: controller.signal,
+    }, {
+      fetchImpl: fetchMock as typeof fetch,
+      policy: { lookup },
+    })).rejects.toMatchObject({ name: 'AbortError' })
+
+    expect(lookup).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('classifies public and non-public IPs', () => {
     expect(isPublicIpAddress('93.184.216.34')).toBe(true)
     expect(isPublicIpAddress('127.0.0.1')).toBe(false)
