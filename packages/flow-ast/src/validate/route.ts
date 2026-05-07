@@ -1,13 +1,13 @@
 import type { FlowNode } from '../types.js'
 import { describeJsType, joinPath } from '../validation-helpers.js'
 import { validateCommonNodeFields } from './shared.js'
-import type { SchemaIssue } from './shared.js'
-import { validateNodeArray } from './dispatch.js'
+import type { SchemaIssue, ValidateNodeArray } from './shared.js'
 
 export function validateRoute(
   obj: Record<string, unknown>,
   path: string,
   issues: SchemaIssue[],
+  validateNodeArray: ValidateNodeArray,
 ): FlowNode | null {
   const common = validateCommonNodeFields(obj, path, issues)
   const strategy = obj['strategy']

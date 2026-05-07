@@ -6,7 +6,7 @@
  * primitives that all per-kind files consume.
  */
 
-import type { ValidationError, ValidationErrorCode } from '../types.js'
+import type { FlowNode, ValidationError, ValidationErrorCode } from '../types.js'
 import { describeJsType, isPlainObject, joinPath } from '../validation-helpers.js'
 
 // ---------------------------------------------------------------------------
@@ -26,6 +26,12 @@ export interface SchemaIssue {
   /** Human-readable diagnostic. */
   message: string
 }
+
+export type ValidateNodeArray = (
+  value: unknown,
+  path: string,
+  issues: SchemaIssue[],
+) => FlowNode[] | null
 
 /**
  * Result of `safeParse` — always discriminated by `success`.

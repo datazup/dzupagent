@@ -2,9 +2,8 @@
  * Top-level FlowNode dispatcher and the recursive `validateNodeArray`
  * helper. Per-kind validators live in sibling files and are wired in here.
  *
- * Note: per-kind files import `validateNodeArray` from this module, and this
- * module imports each per-kind validator. The recursion is intentional and
- * mirrors the original monolithic `validate.ts` structure.
+ * Recursive child validation is injected into per-kind validators so they do
+ * not import this dispatcher back and create module cycles.
  */
 
 import type { FlowNode } from '../types.js'
@@ -63,23 +62,23 @@ export function validateFlowNode(
 
   switch (typeVal) {
     case 'sequence':
-      return validateSequence(value, path, issues)
+      return validateSequence(value, path, issues, validateNodeArray)
     case 'action':
       return validateAction(value, path, issues)
     case 'for_each':
-      return validateForEach(value, path, issues)
+      return validateForEach(value, path, issues, validateNodeArray)
     case 'branch':
-      return validateBranch(value, path, issues)
+      return validateBranch(value, path, issues, validateNodeArray)
     case 'approval':
-      return validateApproval(value, path, issues)
+      return validateApproval(value, path, issues, validateNodeArray)
     case 'clarification':
       return validateClarification(value, path, issues)
     case 'persona':
-      return validatePersona(value, path, issues)
+      return validatePersona(value, path, issues, validateNodeArray)
     case 'route':
-      return validateRoute(value, path, issues)
+      return validateRoute(value, path, issues, validateNodeArray)
     case 'parallel':
-      return validateParallel(value, path, issues)
+      return validateParallel(value, path, issues, validateNodeArray)
     case 'complete':
       return validateComplete(value, path, issues)
     case 'spawn':

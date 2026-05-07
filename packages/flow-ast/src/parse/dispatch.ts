@@ -1,0 +1,123 @@
+/**
+ * Top-level FlowNode dispatcher and the recursive `parseNodeArray` helper.
+ * Per-kind parsers live in sibling files and are wired in here.
+ *
+ * Recursive child parsing is passed through `ParseContext` so per-kind files
+ * never import this dispatcher back and create module cycles.
+ */
+
+import type { FlowNode } from '../types.js'
+import {
+  type ParseContext,
+  KNOWN_NODE_TYPES,
+  describeJsType,
+  isPlainObject,
+  joinPointer,
+} from './shared.js'
+import { parseSequence } from './sequence.js'
+import { parseAction } from './action.js'
+import { parseForEach } from './for-each.js'
+import { parseBranch } from './branch.js'
+import { parseApproval } from './approval.js'
+import { parseClarification } from './clarification.js'
+import { parsePersona } from './persona.js'
+import { parseRoute } from './route.js'
+import { parseParallel } from './parallel.js'
+import { parseComplete } from './complete.js'
+import { parseSpawn } from './spawn.js'
+import { parseClassify } from './classify.js'
+import { parseEmit } from './emit.js'
+import { parseMemory } from './memory.js'
+import { parseCheckpoint } from './checkpoint.js'
+import { parseRestore } from './restore.js'
+
+export function parseNode(value: unknown, pointer: string, ctx: ParseContext): FlowNode | null {
+  if (!isPlainObject(value)) {
+    ctx.errors.push({
+      code: 'EXPECTED_OBJECT',
+      message: `Expected node object, received ${describeJsType(value)}`,
+      pointer,
+    })
+    return null
+  }
+
+  if (!('type' in value)) {
+    ctx.errors.push({
+      code: 'MISSING_TYPE',
+      message: 'Node is missing required "type" discriminator',
+      pointer,
+    })
+    return null
+  }
+
+  const typeValue = value.type
+  if (typeof typeValue !== 'string') {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `Field "type" must be a string, received ${describeJsType(typeValue)}`,
+      pointer: joinPointer(pointer, 'type'),
+    })
+    return null
+  }
+
+  if (!KNOWN_NODE_TYPES.has(typeValue)) {
+    ctx.errors.push({
+      code: 'UNKNOWN_NODE_TYPE',
+      message: `Unknown node type "${typeValue}"`,
+      pointer,
+    })
+    return null
+  }
+
+  switch (typeValue) {
+    case 'sequence':
+      return parseSequence(value, pointer, ctx)
+    case 'action':
+      return parseAction(value, pointer, ctx)
+    case 'for_each':
+      return parseForEach(value, pointer, ctx)
+    case 'branch':
+      return parseBranch(value, pointer, ctx)
+    case 'approval':
+      return parseApproval(value, pointer, ctx)
+    case 'clarification':
+      return parseClarification(value, pointer, ctx)
+    case 'persona':
+      return parsePersona(value, pointer, ctx)
+    case 'route':
+      return parseRoute(value, pointer, ctx)
+    case 'parallel':
+      return parseParallel(value, pointer, ctx)
+    case 'complete':
+      return parseComplete(value, pointer, ctx)
+    case 'spawn':
+      return parseSpawn(value, pointer, ctx)
+    case 'classify':
+      return parseClassify(value, pointer, ctx)
+    case 'emit':
+      return parseEmit(value, pointer, ctx)
+    case 'memory':
+      return parseMemory(value, pointer, ctx)
+    case 'checkpoint':
+      return parseCheckpoint(value, pointer, ctx)
+    case 'restore':
+      return parseRestore(value, pointer, ctx)
+    default:
+      // Defensive — KNOWN_NODE_TYPES is the source of truth above.
+      ctx.errors.push({
+        code: 'UNKNOWN_NODE_TYPE',
+        message: `Unknown node type "${typeValue}"`,
+        pointer,
+      })
+      return null
+  }
+}
+
+export function parseNodeArray(items: unknown[], basePointer: string, ctx: ParseContext): FlowNode[] {
+  const out: FlowNode[] = []
+  for (let i = 0; i < items.length; i++) {
+    const child = parseNode(items[i], joinPointer(basePointer, String(i)), ctx)
+    if (child) out.push(child)
+  }
+  return out
+}
