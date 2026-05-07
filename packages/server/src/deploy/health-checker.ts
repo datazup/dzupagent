@@ -1,10 +1,7 @@
 /**
  * Result of a health check against a remote endpoint.
  */
-import {
-  fetchWithOutboundUrlPolicy,
-  type OutboundUrlSecurityPolicy,
-} from '@dzupagent/core'
+import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 
 export interface HealthCheckResult {
   healthy: boolean

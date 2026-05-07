@@ -1,4 +1,4 @@
-import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core/events'
 
 export interface BatchConfig {
   /** Event type prefixes that should always be emitted immediately */

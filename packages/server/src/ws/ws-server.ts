@@ -12,7 +12,7 @@
  * ```ts
  * import http from 'node:http'
  * import { WebSocketServer } from 'ws'
- * import { createEventBus } from '@dzupagent/core'
+ * import { createEventBus } from '@dzupagent/core/events'
  * import { createWsServer } from '@dzupagent/server'
  *
  * const eventBus = createEventBus()
@@ -29,7 +29,7 @@
  */
 import type { IncomingMessage, Server as HttpServer } from 'node:http'
 import type { Duplex } from 'node:stream'
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import { EventBridge, type EventBridgeConfig } from './event-bridge.js'
 import type { EventGateway } from '../events/event-gateway.js'
 import { WSClientScopeRegistry } from './scope-registry.js'

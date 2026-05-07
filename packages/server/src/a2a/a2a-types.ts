@@ -5,7 +5,7 @@
  * surface shared by the task handler, push notifications, drizzle store, and
  * route helpers so that no two siblings need to import from each other.
  */
-import type { OutboundUrlSecurityPolicy } from '@dzupagent/core'
+import type { OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 
 export type A2ATaskState =
   | 'submitted'

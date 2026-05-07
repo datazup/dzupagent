@@ -27,7 +27,7 @@
 import { createHash } from 'node:crypto'
 import { parseFlow } from '@dzupagent/flow-ast'
 import type { FlowNode, ParseInput } from '@dzupagent/flow-ast'
-import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core/events'
 
 import { validateShape } from './stages/shape-validate.js'
 import { semanticResolve } from './stages/semantic.js'

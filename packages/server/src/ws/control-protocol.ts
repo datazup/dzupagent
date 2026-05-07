@@ -1,4 +1,4 @@
-import type { DzupEvent } from '@dzupagent/core'
+import type { DzupEvent } from '@dzupagent/core/events'
 import type { EventSubscriptionFilter } from '../events/event-gateway.js'
 import type { ClientFilter, EventBridge, WSClient } from './event-bridge.js'
 

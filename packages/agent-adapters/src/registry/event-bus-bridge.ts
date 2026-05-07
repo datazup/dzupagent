@@ -6,11 +6,7 @@
  * are yielded unchanged (pass-through).
  */
 
-import {
-  requireTerminalToolExecutionRunId,
-  type DzupEvent,
-  type DzupEventBus,
-} from '@dzupagent/core'
+import { requireTerminalToolExecutionRunId, type DzupEvent, type DzupEventBus } from '@dzupagent/core/events'
 import { randomUUID } from 'node:crypto'
 
 import type { AgentEvent, AgentStreamEvent } from '../types.js'

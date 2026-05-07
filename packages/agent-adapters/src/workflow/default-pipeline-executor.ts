@@ -11,7 +11,7 @@
  * runtime is bound, and it can be swapped out by callers via DI.
  */
 import { PipelineRuntime } from '@dzupagent/agent/pipeline'
-import type { PipelineDefinition, PipelineNode } from '@dzupagent/core'
+import type { PipelineDefinition, PipelineNode } from '@dzupagent/core/pipeline'
 import type {
   PipelineExecutorConfig,
   PipelineExecutorFactory,
@@ -29,13 +29,12 @@ export const defaultPipelineExecutorFactory: PipelineExecutorFactory<
 > = (
   config: PipelineExecutorConfig<PipelineDefinition, PipelineNode>,
 ): PipelineExecutorPort => {
+  type RuntimeConfig = ConstructorParameters<typeof PipelineRuntime>[0]
   return new PipelineRuntime({
     definition: config.definition,
-    nodeExecutor: config.nodeExecutor,
+    nodeExecutor: config.nodeExecutor as RuntimeConfig['nodeExecutor'],
     ...(config.predicates !== undefined ? { predicates: config.predicates } : {}),
-    ...(config.signal !== undefined ? { signal: config.signal } : {}),
-    ...(config.onEvent !== undefined
-      ? { onEvent: config.onEvent as ConstructorParameters<typeof PipelineRuntime>[0]['onEvent'] }
-      : {}),
+    ...(config.signal !== undefined ? { signal: config.signal as AbortSignal } : {}),
+    ...(config.onEvent !== undefined ? { onEvent: config.onEvent as RuntimeConfig['onEvent'] } : {}),
   })
 }

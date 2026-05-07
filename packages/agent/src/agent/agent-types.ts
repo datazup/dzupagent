@@ -8,16 +8,15 @@ import type {
   ModelTier,
   ModelRegistry,
   AgentMiddleware,
-  DzupEventBus,
-  DzupRunStateStore,
-  PermissionTier,
   StructuredOutputModelCapabilities,
-  ToolGovernance,
-  SafetyMonitor,
   TokenBucket,
   TokenBucketConfig,
   Tokenizer,
-} from '@dzupagent/core'
+} from '@dzupagent/core/llm'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { DzupRunStateStore } from '@dzupagent/core/persistence'
+import type { SafetyMonitor } from '@dzupagent/core/security'
+import type { PermissionTier, ToolGovernance } from '@dzupagent/core/tools'
 import type { ToolPermissionPolicy, MemoryClient } from '@dzupagent/agent-types'
 import type { MemoryService } from '@dzupagent/memory'
 import type { MessageManagerConfig } from '@dzupagent/context'

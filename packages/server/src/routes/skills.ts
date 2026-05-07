@@ -11,7 +11,7 @@ import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
 import { sanitizeError } from './route-error.js'
-import { secureLogger } from '@dzupagent/core'
+import { secureLogger } from '@dzupagent/core/utils'
 import type { AdapterSkillBundle, CompiledAdapterSkill } from '@dzupagent/agent-adapters'
 import type { AdapterProviderId } from '@dzupagent/agent-adapters'
 

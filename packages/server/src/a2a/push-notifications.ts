@@ -1,8 +1,4 @@
-import {
-  fetchWithOutboundUrlPolicy,
-  validateOutboundUrl,
-  type OutboundUrlSecurityPolicy,
-} from '@dzupagent/core'
+import { fetchWithOutboundUrlPolicy, validateOutboundUrl, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 import type { A2ATask, A2ATaskPushConfig } from './a2a-types.js'
 
 export interface A2APushNotificationOptions {

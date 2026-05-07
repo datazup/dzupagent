@@ -5,7 +5,7 @@
  *
  * In verbose mode, includes full event data as JSON.
  */
-import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core/events'
 
 export class TracePrinter {
   private unsubscribe: (() => void) | null = null

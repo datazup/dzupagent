@@ -1,6 +1,6 @@
 import type { BrowserPoolConfig, FetchResult, ExtractionConfig } from './types.js'
 import { ContentExtractor } from './content-extractor.js'
-import { validateOutboundUrl } from '@dzupagent/core'
+import { validateOutboundUrl } from '@dzupagent/core/security'
 
 const DEFAULT_CONFIG: BrowserPoolConfig = {
   maxConcurrency: 3,

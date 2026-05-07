@@ -13,7 +13,8 @@
  * SDK-specific event mapping.
  */
 
-import { ForgeError, defaultLogger, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core'
+import { ForgeError, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core/events'
+import { defaultLogger } from '@dzupagent/core/utils'
 import type { AdapterProviderId, AgentEvent, AgentInput, TokenUsage } from '../types.js'
 
 const DEFAULT_HEARTBEAT_GAP_MS = 15_000

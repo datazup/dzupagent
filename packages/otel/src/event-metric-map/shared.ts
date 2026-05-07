@@ -1,4 +1,4 @@
-import type { DzupEvent } from '@dzupagent/core'
+import type { DzupEvent } from '@dzupagent/core/events'
 
 import type { MetricMapping } from './types.js'
 export { asEvent } from './types.js'

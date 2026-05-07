@@ -5,7 +5,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 import { SystemPromptBuilder } from '../prompts/system-prompt-builder.js'
 import type {
   AdapterCapabilityProfile,

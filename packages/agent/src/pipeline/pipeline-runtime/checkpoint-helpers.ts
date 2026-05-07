@@ -1,4 +1,4 @@
-import type { PipelineCheckpoint } from '@dzupagent/core'
+import type { PipelineCheckpoint } from '@dzupagent/core/pipeline'
 import { omitUndefined } from '../../utils/exact-optional.js'
 
 export function createPipelineCheckpoint(options: {

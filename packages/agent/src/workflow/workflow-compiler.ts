@@ -4,10 +4,7 @@
  *
  * Exported for use by `CompiledWorkflow`; not part of the public package surface.
  */
-import type {
-  PipelineDefinition,
-  PipelineNode,
-} from '@dzupagent/core'
+import type { PipelineDefinition, PipelineNode } from '@dzupagent/core/pipeline'
 import type {
   WorkflowStep,
   WorkflowNode,
@@ -31,6 +28,10 @@ export interface WorkflowCompilation {
     emit: (event: WorkflowEvent) => void,
     onStateObserved: (state: Record<string, unknown>) => void,
   ) => NodeExecutor
+}
+
+function asAbortSignal(signal: NodeExecutionContext['signal']): AbortSignal | undefined {
+  return signal === undefined ? undefined : signal as AbortSignal
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +414,7 @@ export function compileWorkflow(
           const workflowCtx: WorkflowContext = omitUndefined({
             workflowId: config.id,
             state: context.state,
-            signal: context.signal,
+            signal: asAbortSignal(context.signal),
           })
           const output = await handler(context.state, workflowCtx, emit)
           onStateObserved(context.state)

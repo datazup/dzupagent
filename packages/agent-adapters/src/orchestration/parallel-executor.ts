@@ -8,7 +8,7 @@
  * - `best-of-n`: waits for all, uses a scorer function to pick the best result
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {

@@ -10,7 +10,7 @@
  *
  * @example
  * ```ts
- * import { createEventBus } from '@dzupagent/core'
+ * import { createEventBus } from '@dzupagent/core/events'
  * import { DzupTracer, OTelBridge } from '@dzupagent/otel'
  *
  * const bus = createEventBus()
@@ -23,7 +23,7 @@
  * ```
  */
 
-import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core/events'
 import type { DzupTracer } from './tracer.js'
 import { EVENT_METRIC_MAP } from './event-metric-map.js'
 import { SpanStatusCode } from './otel-types.js'

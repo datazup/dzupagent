@@ -21,12 +21,9 @@
  */
 
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type {
-  DzupEventBus,
-  SafetyMonitor,
-  ToolGovernance,
-  ToolGovernanceConfig,
-} from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { SafetyMonitor } from '@dzupagent/core/security'
+import type { ToolGovernance, ToolGovernanceConfig } from '@dzupagent/core/tools'
 import type {
   ArgumentValidator,
   DzupAgentConfig,

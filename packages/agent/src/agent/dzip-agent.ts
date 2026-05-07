@@ -28,13 +28,8 @@ import type { ZodType } from 'zod'
 import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type {
-  TokenBucket,
-  ModelTier,
-  PermissionTier,
-  StructuredOutputModelCapabilities,
-  Tokenizer,
-} from '@dzupagent/core'
+import type { TokenBucket, ModelTier, StructuredOutputModelCapabilities, Tokenizer } from '@dzupagent/core/llm'
+import type { PermissionTier } from '@dzupagent/core/tools'
 import type { DistributedRateLimiter } from '../guardrails/distributed-rate-limiter.js'
 import type { DistributedCostLedger } from '../guardrails/distributed-budget.js'
 import type {

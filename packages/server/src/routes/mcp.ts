@@ -21,13 +21,8 @@ import type { ForgeServerConfig } from '../composition/types.js'
 import { sanitizeError } from './route-error.js'
 import { McpServerSchema, validateBodyCompat } from './schemas.js'
 import { validateMcpHttpEndpoint } from '../security/mcp-url-policy.js'
-import type {
-  McpServerInput,
-  McpServerPatch,
-  McpProfile,
-  McpServerDefinition,
-} from '@dzupagent/core'
-import { secureLogger } from '@dzupagent/core'
+import type { McpServerInput, McpServerPatch, McpProfile, McpServerDefinition } from '@dzupagent/core/pipeline'
+import { secureLogger } from '@dzupagent/core/utils'
 import { getSerializedJsonSizeBytes } from '../validation/route-validator.js'
 
 // ---------------------------------------------------------------------------

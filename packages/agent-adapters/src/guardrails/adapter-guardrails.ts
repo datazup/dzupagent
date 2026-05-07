@@ -6,10 +6,10 @@
  * unified AgentEvent stream produced by CLI/SDK adapters.
  */
 
-import { StuckDetector } from '@dzupagent/core'
-import type { StuckDetectorConfig, StuckStatus as CoreStuckStatus } from '@dzupagent/core'
-import type { DzupEventBus } from '@dzupagent/core'
-import type { BudgetUsage } from '@dzupagent/core'
+import { StuckDetector } from '@dzupagent/core/utils'
+import type { StuckDetectorConfig, StuckStatus as CoreStuckStatus } from '@dzupagent/core/utils'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import type { BudgetUsage } from '@dzupagent/core/events'
 import type { AgentEvent, AgentStreamEvent, TokenUsage } from '../types.js'
 
 export type { StuckDetectorConfig }

@@ -22,7 +22,7 @@
  */
 import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { Tokenizer } from '@dzupagent/core'
+import type { Tokenizer } from '@dzupagent/core/llm'
 import { shouldSummarize, summarizeAndTrim } from '@dzupagent/context'
 import type { DzupAgentConfig } from './agent-types.js'
 import { ArrowRuntimeNotInjectedError } from './memory-context-loader.js'

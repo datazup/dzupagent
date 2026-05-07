@@ -7,7 +7,7 @@
  * @module pipeline/pipeline-runtime/loop-node-handler
  */
 
-import type { PipelineNode, LoopNode } from '@dzupagent/core'
+import type { PipelineNode, LoopNode } from '@dzupagent/core/pipeline'
 import { executeLoop } from '../loop-executor.js'
 import type {
   NodeResult,

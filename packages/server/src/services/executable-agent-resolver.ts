@@ -1,4 +1,4 @@
-import type { AgentExecutionSpec, AgentExecutionSpecStore } from '@dzupagent/core'
+import type { AgentExecutionSpec, AgentExecutionSpecStore } from '@dzupagent/core/persistence'
 import type { AgentControlPlaneService } from './agent-control-plane-service.js'
 
 export interface ExecutableAgentResolver {

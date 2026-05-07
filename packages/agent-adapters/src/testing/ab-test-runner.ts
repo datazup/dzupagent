@@ -7,7 +7,7 @@
  * comparison report including Welch's t-test approximations.
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import { Semaphore } from '@dzupagent/core/orchestration'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'

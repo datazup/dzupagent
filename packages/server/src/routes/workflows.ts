@@ -13,9 +13,10 @@
 import { Hono, type Context } from 'hono'
 import type { AppEnv } from '../types.js'
 import { streamSSE } from 'hono/streaming'
-import { createSkillChain, WorkflowCommandParser, secureLogger } from '@dzupagent/core'
-import type { SkillRegistry, WorkflowRegistry, SkillChain } from '@dzupagent/core'
-import type { DzupEventBus } from '@dzupagent/core'
+import { createSkillChain, WorkflowCommandParser } from '@dzupagent/core/pipeline'
+import { secureLogger } from '@dzupagent/core/utils'
+import type { SkillRegistry, WorkflowRegistry, SkillChain } from '@dzupagent/core/pipeline'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import {
   executeTextualWorkflow,
   streamTextualWorkflow,

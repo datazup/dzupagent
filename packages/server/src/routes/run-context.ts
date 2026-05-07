@@ -31,7 +31,7 @@
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
-import type { LogEntry } from '@dzupagent/core'
+import type { LogEntry } from '@dzupagent/core/persistence'
 import type { CompressionLogEntry } from '@dzupagent/agent'
 import { requireOwnedRun } from './run-guard.js'
 

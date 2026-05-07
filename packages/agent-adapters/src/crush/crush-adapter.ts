@@ -7,7 +7,7 @@
  * with SDK-based adapters.
  */
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 
 import type {
   AdapterConfig,

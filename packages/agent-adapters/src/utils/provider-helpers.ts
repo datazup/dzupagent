@@ -2,7 +2,7 @@
  * Centralized provider-resolution helpers used by orchestration,
  * HTTP handler, and recovery modules.
  */
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 import type { AdapterProviderId, AgentCLIAdapter } from '../types.js'
 
 /** Accepted sources for provider resolution. */

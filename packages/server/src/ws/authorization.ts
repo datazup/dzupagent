@@ -1,4 +1,4 @@
-import type { DzupEvent } from '@dzupagent/core'
+import type { DzupEvent } from '@dzupagent/core/events'
 import type { ClientFilter, WSClient } from './event-bridge.js'
 import type { WSControlAuthorizeFilter } from './control-protocol.js'
 

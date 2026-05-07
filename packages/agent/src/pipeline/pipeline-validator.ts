@@ -5,14 +5,7 @@
  * @module pipeline/pipeline-validator
  */
 
-import type {
-  PipelineDefinition,
-  PipelineValidationResult,
-  PipelineValidationError,
-  PipelineValidationWarning,
-  PipelineNode,
-  PipelineEdge,
-} from '@dzupagent/core'
+import type { PipelineDefinition, PipelineValidationResult, PipelineValidationError, PipelineValidationWarning, PipelineNode, PipelineEdge } from '@dzupagent/core/pipeline'
 
 /**
  * Validate a pipeline definition for structural correctness.

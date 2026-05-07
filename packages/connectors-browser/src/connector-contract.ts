@@ -1,6 +1,6 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { BaseConnectorTool } from '@dzupagent/core'
-import { normalizeBaseConnectorTool } from '@dzupagent/core'
+import type { BaseConnectorTool } from '@dzupagent/core/tools'
+import { normalizeBaseConnectorTool } from '@dzupagent/core/tools'
 
 /** Browser connector tool — domain alias of BaseConnectorTool */
 export type BrowserConnectorTool<Input = unknown, Output = unknown> = BaseConnectorTool<Input, Output>

@@ -8,7 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { MetricsCollector } from '@dzupagent/core'
+import type { MetricsCollector } from '@dzupagent/core/utils'
 import type {
   EvalExecutionContext,
   EvalExecutionTarget,

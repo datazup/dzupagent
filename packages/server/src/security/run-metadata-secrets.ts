@@ -1,4 +1,4 @@
-import type { Run } from '@dzupagent/core'
+import type { Run } from '@dzupagent/core/persistence'
 
 const TOP_LEVEL_SECRET_METADATA_KEYS = new Set([
   'githubToken',

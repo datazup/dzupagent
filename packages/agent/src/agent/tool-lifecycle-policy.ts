@@ -1,10 +1,6 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import {
-  requireTerminalToolExecutionRunId,
-  type DzupEventBus,
-  type ForgeErrorCode,
-  type ToolGovernance,
-} from '@dzupagent/core'
+import { requireTerminalToolExecutionRunId, type DzupEventBus, type ForgeErrorCode } from '@dzupagent/core/events'
+import type { ToolGovernance } from '@dzupagent/core/tools'
 import {
   formatSchemaHint,
   validateAndRepairToolArgs,

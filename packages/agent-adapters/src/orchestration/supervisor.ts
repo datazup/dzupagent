@@ -13,8 +13,8 @@
  *   supervisor:delegation_complete
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
-import { ForgeError } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import { ForgeError } from '@dzupagent/core/events'
 import { Semaphore } from '@dzupagent/core/orchestration'
 import type { BaseSupervisorContract } from '@dzupagent/agent-types'
 import type { AgentCLIAdapter } from '@dzupagent/adapter-types'

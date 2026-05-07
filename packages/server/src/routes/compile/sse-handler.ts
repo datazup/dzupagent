@@ -10,7 +10,8 @@
  */
 import type { Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { createEventBus, secureLogger } from '@dzupagent/core'
+import { createEventBus } from '@dzupagent/core/events'
+import { secureLogger } from '@dzupagent/core/utils'
 import { createFlowCompiler } from '@dzupagent/flow-compiler'
 import type {
   AsyncPersonaResolver,

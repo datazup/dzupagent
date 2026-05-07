@@ -2,12 +2,8 @@
  * Incident response engine — monitors DzupEventBus for security-relevant
  * events and executes automated playbooks (kill agent, disable tool, etc.).
  */
-import {
-  fetchWithOutboundUrlPolicy,
-  type DzupEventBus,
-  type DzupEvent,
-  type OutboundUrlSecurityPolicy,
-} from '@dzupagent/core'
+import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core/events'
 
 // ---------------------------------------------------------------------------
 // Types

@@ -7,7 +7,7 @@
  * pulling those handlers into a single monolithic module.
  */
 import type { Context } from 'hono'
-import type { Run } from '@dzupagent/core'
+import type { Run } from '@dzupagent/core/persistence'
 
 import type { ForgeServerConfig } from '../../composition/types.js'
 import type { AppEnv } from '../../types.js'

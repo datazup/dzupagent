@@ -4,7 +4,7 @@ import type {
   CompilationWarning,
   CompileSuccess,
 } from '@dzupagent/flow-compiler'
-import type { DzupEventOf } from '@dzupagent/core'
+import type { DzupEventOf } from '@dzupagent/core/events'
 
 export type CompileResultEvent = DzupEventOf<'flow:compile_result'>
 

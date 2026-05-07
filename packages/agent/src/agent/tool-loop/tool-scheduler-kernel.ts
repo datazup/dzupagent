@@ -1,5 +1,5 @@
 import { ToolMessage } from '@langchain/core/messages'
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type {
   ToolCall,

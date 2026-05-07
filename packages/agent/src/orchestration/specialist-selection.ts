@@ -15,7 +15,8 @@
  * Depends only on `@dzupagent/core` types and sibling files.
  */
 
-import type { AgentExecutionSpec, DzupEventBus } from '@dzupagent/core'
+import type { AgentExecutionSpec } from '@dzupagent/core/persistence'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type { AgentCircuitBreaker } from './circuit-breaker.js'
 import type {
   AgentSpec,

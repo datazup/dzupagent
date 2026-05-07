@@ -18,8 +18,8 @@
  * stdout line to drive a progress UI.
  */
 import { readFile } from 'node:fs/promises'
-import { createEventBus } from '@dzupagent/core'
-import type { DzupEvent } from '@dzupagent/core'
+import { createEventBus } from '@dzupagent/core/events'
+import type { DzupEvent } from '@dzupagent/core/events'
 import type { ToolResolver } from '@dzupagent/flow-ast'
 import { compileTextInput, createFlowCompiler } from '../src/index.js'
 

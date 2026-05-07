@@ -9,8 +9,8 @@
  * For persistent corpus registries, wrap this with a persistence adapter.
  */
 
-import type { VectorStore, EmbeddingProvider } from '@dzupagent/core'
-import { SemanticStore } from '@dzupagent/core'
+import type { VectorStore, EmbeddingProvider } from '@dzupagent/core/vectordb'
+import { SemanticStore } from '@dzupagent/core/vectordb'
 import { SmartChunker } from './chunker.js'
 import type {
   Corpus,

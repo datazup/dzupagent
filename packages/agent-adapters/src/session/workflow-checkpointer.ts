@@ -13,7 +13,7 @@
 
 import crypto from 'node:crypto'
 
-import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core/events'
 
 import type { AdapterProviderId } from '../types.js'
 

@@ -8,8 +8,13 @@
 import { z } from 'zod'
 import { tool } from '@langchain/core/tools'
 import type { CodegenToolContext } from './tool-context.js'
+import { assertTierAllowsWrite } from '../sandbox/permission-tiers.js'
 
 export function createWriteFileTool(context?: CodegenToolContext) {
+  // REC-M-06 — fail fast at tool issuance when tier forbids writes.
+  if (context?.permissionTier !== undefined) {
+    assertTierAllowsWrite(context.permissionTier, 'write_file')
+  }
   return tool(
     async ({ filePath, content }) => {
       // If a workspace is available, write through it

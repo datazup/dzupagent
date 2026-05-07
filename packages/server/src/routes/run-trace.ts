@@ -6,7 +6,7 @@
  */
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
-import type { RunStore } from '@dzupagent/core'
+import type { RunStore } from '@dzupagent/core/persistence'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
 import { computeStepDistribution } from '../persistence/run-trace-store.js'
 import { requireOwnedRun } from './run-guard.js'

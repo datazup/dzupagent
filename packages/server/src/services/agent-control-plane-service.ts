@@ -1,9 +1,5 @@
-import type {
-  AgentExecutionSpec,
-  AgentExecutionSpecStore,
-  AgentRegistry,
-  RegisteredAgent,
-} from '@dzupagent/core'
+import type { AgentExecutionSpec, AgentExecutionSpecStore } from '@dzupagent/core/persistence'
+import type { AgentRegistry, RegisteredAgent } from '@dzupagent/core/pipeline'
 
 export interface AgentControlPlaneServiceConfig {
   agentStore: AgentExecutionSpecStore

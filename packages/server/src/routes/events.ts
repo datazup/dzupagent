@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import { streamSSE } from 'hono/streaming'
-import type { DzupEvent } from '@dzupagent/core'
+import type { DzupEvent } from '@dzupagent/core/events'
 import type { EventGateway, EventSubscriptionFilter } from '../events/event-gateway.js'
 
 export interface EventRouteConfig {

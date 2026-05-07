@@ -10,7 +10,7 @@
  * sibling files inside this package.
  */
 
-import { typedEmit, type DzupEventBus } from '@dzupagent/core'
+import { typedEmit, type DzupEventBus } from '@dzupagent/core/events'
 import { OrchestrationError } from './orchestration-error.js'
 
 /** Minimal shape required by the duplicate-specialist guard. */

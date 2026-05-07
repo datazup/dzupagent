@@ -21,12 +21,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { tool } from '@langchain/core/tools'
-import type {
-  ContactType,
-  ContactChannel,
-  HumanContactRequest,
-  PendingHumanContact,
-} from '@dzupagent/core'
+import type { ContactType, ContactChannel, HumanContactRequest, PendingHumanContact } from '@dzupagent/core/tools'
 import { omitUndefined } from '../utils/exact-optional.js'
 
 // ---------------------------------------------------------------------------

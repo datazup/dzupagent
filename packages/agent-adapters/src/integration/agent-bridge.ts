@@ -9,7 +9,7 @@
  * so any framework can consume these wrappers.
  */
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 
 import type {
   AdapterProviderId,

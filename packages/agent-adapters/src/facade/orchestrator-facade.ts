@@ -11,7 +11,7 @@
  * + composition root lives in `facade-factory.ts`.
  */
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 
 import type { CostReport, CostTrackingMiddleware } from '../middleware/cost-tracking.js'
 import type { ContractNetResult } from '../orchestration/contract-net.js'

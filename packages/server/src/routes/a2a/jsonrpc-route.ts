@@ -3,16 +3,8 @@
  */
 import type { Hono } from 'hono'
 import type { AppEnv } from '../../types.js'
-import {
-  JSON_RPC_ERRORS,
-  createJsonRpcError,
-  validateJsonRpcRequest,
-  validateJsonRpcBatch,
-} from '@dzupagent/core'
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-} from '@dzupagent/core'
+import { JSON_RPC_ERRORS, createJsonRpcError, validateJsonRpcRequest, validateJsonRpcBatch } from '@dzupagent/core/identity'
+import type { JsonRpcRequest, JsonRpcResponse } from '@dzupagent/core/identity'
 import type { A2ARoutesConfig, A2ACallerScope } from './helpers.js'
 import { A2A_METHODS, getCallerScope } from './helpers.js'
 import {

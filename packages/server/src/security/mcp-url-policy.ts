@@ -1,8 +1,4 @@
-import {
-  validateOutboundUrl,
-  validateOutboundUrlSyntax,
-  type OutboundUrlSecurityPolicy,
-} from '@dzupagent/core'
+import { validateOutboundUrl, validateOutboundUrlSyntax, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 
 export interface McpHttpUrlPolicy extends OutboundUrlSecurityPolicy {}
 

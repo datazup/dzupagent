@@ -8,7 +8,7 @@
 import { spawn, type SpawnOptions } from 'node:child_process'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 import { detectCliInteraction } from '../interaction/interaction-detector.js'
 import type { InteractionKind } from '../interaction/interaction-detector.js'
 

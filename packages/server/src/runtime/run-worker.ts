@@ -1,4 +1,4 @@
-import { extractTraceContext } from '@dzupagent/core'
+import { extractTraceContext } from '@dzupagent/core/utils'
 import type { ForgeTraceContext } from '@dzupagent/otel'
 import { createInputGuard, type InputGuard } from '../security/input-guard.js'
 import {

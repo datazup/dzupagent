@@ -21,7 +21,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import type { DzupEventBus, DzupEvent } from '@dzupagent/core'
+import type { DzupEventBus, DzupEvent } from '@dzupagent/core/events'
 
 // ------------------------------------------------------------------ Types
 

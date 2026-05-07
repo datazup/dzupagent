@@ -8,8 +8,8 @@
  * structurally-compatible object via `createAdapterPlugin()`.
  */
 
-import type { DzupEventBus, DzupEventOf } from '@dzupagent/core'
-import { defaultLogger } from '@dzupagent/core'
+import type { DzupEventBus, DzupEventOf } from '@dzupagent/core/events'
+import { defaultLogger } from '@dzupagent/core/utils'
 
 import type { AdapterProviderId, AgentCLIAdapter, TaskRoutingStrategy } from '../types.js'
 import { ProviderAdapterRegistry } from '../registry/adapter-registry.js'

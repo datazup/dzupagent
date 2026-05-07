@@ -17,11 +17,7 @@
  * @module pipeline/redis-checkpoint-store
  */
 
-import type {
-  PipelineCheckpoint,
-  PipelineCheckpointStore,
-  PipelineCheckpointSummary,
-} from '@dzupagent/core'
+import type { PipelineCheckpoint, PipelineCheckpointStore, PipelineCheckpointSummary } from '@dzupagent/core/pipeline'
 
 // ---------------------------------------------------------------------------
 // Adapter interface

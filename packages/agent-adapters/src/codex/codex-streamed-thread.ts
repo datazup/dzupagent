@@ -19,7 +19,7 @@
  * class instance.
  */
 
-import { defaultLogger } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core/utils'
 import type {
   AdapterConfig,
   AdapterProviderId,

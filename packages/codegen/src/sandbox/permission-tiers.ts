@@ -11,8 +11,8 @@
 // so existing codegen consumers (and `packages/codegen/src/index.ts`) keep
 // working while framework packages can depend on the tier without importing
 // the codegen sandbox surface.
-export type { PermissionTier } from '@dzupagent/core'
-import type { PermissionTier } from '@dzupagent/core'
+export type { PermissionTier } from '@dzupagent/core/tools'
+import type { PermissionTier } from '@dzupagent/core/tools'
 
 export interface TierConfig {
   /** Allow network access */
@@ -187,4 +187,50 @@ export function mostRestrictiveTier(
   b: PermissionTier,
 ): PermissionTier {
   return compareTiers(a, b) <= 0 ? a : b
+}
+
+// ---------------------------------------------------------------------------
+// REC-M-06 — fail-fast tier checks for tool issuance
+// ---------------------------------------------------------------------------
+
+/**
+ * Predicate: tier permits filesystem writes (filesystem mode is not 'read-only').
+ * Pure — never throws.
+ */
+export function tierAllowsWrite(tier: PermissionTier): boolean {
+  return TIER_DEFAULTS[tier].filesystem !== 'read-only'
+}
+
+/** Thrown by {@link assertTierAllowsWrite} when the tier forbids writes. */
+export class PermissionTierViolationError extends Error {
+  readonly tier: PermissionTier
+  readonly action: string
+
+  constructor(tier: PermissionTier, action: string) {
+    super(
+      `PermissionTier '${tier}' does not allow ${action}. ` +
+        `Issue this tool only when the active tier permits writes ` +
+        `(workspace-write or full-access).`,
+    )
+    this.name = 'PermissionTierViolationError'
+    this.tier = tier
+    this.action = action
+  }
+}
+
+/**
+ * REC-M-06 — fail fast at tool-issuance time when the tier forbids writes.
+ *
+ * Call this from write-tool factories so a `read-only` tier rejects the
+ * tool synchronously, before any sandbox write attempt. Historically the
+ * tier check ran inside the sandbox write, so the LLM could invoke a
+ * write tool and only learn it was forbidden after the round-trip.
+ */
+export function assertTierAllowsWrite(
+  tier: PermissionTier,
+  action: string = 'file write',
+): void {
+  if (!tierAllowsWrite(tier)) {
+    throw new PermissionTierViolationError(tier, action)
+  }
 }

@@ -5,7 +5,7 @@
  * Hosts can opt out via `config.disableSafetyMonitor = true` (e.g. tests, or
  * deployments that supply their own monitor).
  */
-import { createSafetyMonitor } from '@dzupagent/core'
+import { createSafetyMonitor } from '@dzupagent/core/security'
 import type { ForgeServerConfig } from './types.js'
 
 export function attachSafetyMonitor(config: ForgeServerConfig): void {

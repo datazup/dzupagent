@@ -19,7 +19,7 @@
  * helper has no inbound dependency on the run-lifecycle handlers.
  */
 import type { Context } from 'hono'
-import type { Run, RunStore } from '@dzupagent/core'
+import type { Run, RunStore } from '@dzupagent/core/persistence'
 
 import type { AppEnv } from '../types.js'
 

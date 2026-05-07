@@ -1,6 +1,8 @@
 import { ToolMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { ForgeError, calculateBackoff, isTransientError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
+import { isTransientError } from '@dzupagent/core/llm'
+import { calculateBackoff } from '@dzupagent/core/utils'
 import type { StuckStatus } from '../../guardrails/stuck-detector.js'
 import {
   emitToolCalled,

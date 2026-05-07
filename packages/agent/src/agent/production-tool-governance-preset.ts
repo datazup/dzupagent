@@ -1,12 +1,7 @@
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import {
-  createEventBus,
-  createSafetyMonitor,
-  ToolGovernance,
-  type DzupEventBus,
-  type SafetyMonitor,
-  type ToolGovernanceConfig,
-} from '@dzupagent/core'
+import { createEventBus, type DzupEventBus } from '@dzupagent/core/events'
+import { createSafetyMonitor, type SafetyMonitor } from '@dzupagent/core/security'
+import { ToolGovernance, type ToolGovernanceConfig } from '@dzupagent/core/tools'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type {
   ArgumentValidator,

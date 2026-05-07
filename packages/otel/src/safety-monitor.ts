@@ -16,7 +16,7 @@
  * ```
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 // ------------------------------------------------------------------ Types
 

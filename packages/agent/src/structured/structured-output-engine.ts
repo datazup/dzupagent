@@ -4,20 +4,9 @@
  * Implements a fallback chain: detected strategy -> generic-parse -> fallback-prompt,
  * with retry logic on validation failure.
  */
-import {
-  attachStructuredOutputErrorContext,
-  executeStructuredParseLoop,
-  buildStructuredOutputCorrectionPrompt,
-  buildStructuredOutputExhaustedError,
-  detectStructuredOutputStrategy,
-  isStructuredOutputExhaustedErrorMessage,
-  prepareStructuredOutputSchemaContract,
-  resolveStructuredOutputCapabilities,
-  resolveStructuredOutputSchemaProvider,
-  unwrapStructuredEnvelope,
-} from '@dzupagent/core'
+import { attachStructuredOutputErrorContext, executeStructuredParseLoop, buildStructuredOutputCorrectionPrompt, buildStructuredOutputExhaustedError, detectStructuredOutputStrategy, isStructuredOutputExhaustedErrorMessage, prepareStructuredOutputSchemaContract, resolveStructuredOutputCapabilities, resolveStructuredOutputSchemaProvider, unwrapStructuredEnvelope } from '@dzupagent/core/pipeline'
 import { omitUndefined } from '../utils/exact-optional.js'
-import type { StructuredOutputFailureCategory } from '@dzupagent/core'
+import type { StructuredOutputFailureCategory } from '@dzupagent/core/pipeline'
 import type {
   StructuredOutputCapabilities,
   StructuredOutputConfig,

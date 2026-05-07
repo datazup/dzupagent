@@ -7,8 +7,8 @@
  *
  * Integrates with GracefulShutdown for clean teardown.
  */
-import type { DzupEventBus } from '@dzupagent/core'
-import { typedEmit } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
+import { typedEmit } from '@dzupagent/core/events'
 
 export interface ConsolidationTask {
   /** Run one consolidation cycle. Returns a summary string for logging. */

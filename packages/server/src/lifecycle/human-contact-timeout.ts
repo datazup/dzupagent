@@ -7,8 +7,8 @@
  *
  * Implemented as a server lifecycle hook (start/stop), not a cron job.
  */
-import { defaultLogger } from '@dzupagent/core'
-import type { RunStore, Run } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core/utils'
+import type { RunStore, Run } from '@dzupagent/core/persistence'
 
 export interface HumanContactTimeoutConfig {
   /** How often to check for expired contacts in ms (default: 60_000) */

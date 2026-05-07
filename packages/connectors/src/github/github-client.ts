@@ -4,10 +4,7 @@
  * Uses fetch directly (no octokit dependency). Supports token authentication
  * and GitHub Enterprise Server via configurable base URL.
  */
-import {
-  fetchWithOutboundUrlPolicy,
-  type OutboundUrlSecurityPolicy,
-} from '@dzupagent/core'
+import { fetchWithOutboundUrlPolicy, type OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
 
 // ── Types ──────────────────────────────────────────────
 

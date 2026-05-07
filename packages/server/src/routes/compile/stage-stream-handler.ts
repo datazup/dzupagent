@@ -13,7 +13,7 @@
  */
 import type { Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { createEventBus } from '@dzupagent/core'
+import { createEventBus } from '@dzupagent/core/events'
 import { createFlowCompiler } from '@dzupagent/flow-compiler'
 import type {
   AsyncPersonaResolver,

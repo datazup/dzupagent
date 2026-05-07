@@ -32,8 +32,8 @@
 
 import { LlmRecorder } from './llm-recorder.js'
 import type { LlmRecorderOptions } from './llm-recorder.js'
-import { ModelRegistry } from '@dzupagent/core'
-import type { LLMProviderConfig } from '@dzupagent/core'
+import { ModelRegistry } from '@dzupagent/core/llm'
+import type { LLMProviderConfig } from '@dzupagent/core/llm'
 
 export interface RecordedRegistry {
   registry: ModelRegistry

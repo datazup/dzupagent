@@ -8,7 +8,7 @@
 
 import { randomUUID } from 'node:crypto'
 
-import { typedEmit, type DzupEventBus } from '@dzupagent/core'
+import { typedEmit, type DzupEventBus } from '@dzupagent/core/events'
 
 import type {
   AdapterProviderId,

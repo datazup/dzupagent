@@ -11,7 +11,7 @@
  */
 
 import { createQdrantRagPipeline, ensureTenantCollection } from '../src/qdrant-factory.js'
-import { QdrantAdapter, createOpenAIEmbedding } from '@dzupagent/core'
+import { QdrantAdapter, createOpenAIEmbedding } from '@dzupagent/core/vectordb'
 
 const QDRANT_URL = process.env['QDRANT_URL'] ?? 'http://localhost:6333'
 const OPENAI_API_KEY = process.env['OPENAI_API_KEY'] ?? ''

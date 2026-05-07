@@ -1,5 +1,5 @@
-import { ForgeError } from '@dzupagent/core'
-import type { ChainValidationResult, CandidateInterpretation } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
+import type { ChainValidationResult, CandidateInterpretation } from '@dzupagent/core/pipeline'
 import { omitUndefined } from '../utils/exact-optional.js'
 
 export type { CandidateInterpretation }

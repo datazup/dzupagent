@@ -16,7 +16,7 @@
  * coupling to DzupEventBus directly, keeping the module self-contained.
  */
 
-import type { TokenUsage } from '@dzupagent/core'
+import type { TokenUsage } from '@dzupagent/core/llm'
 import type {
   SelfCorrectionConfig,
   CorrectionContext,

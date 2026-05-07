@@ -30,7 +30,7 @@
  */
 import { Hono } from 'hono'
 
-import { ComplianceAuditLogger } from '@dzupagent/core'
+import { ComplianceAuditLogger } from '@dzupagent/core/security'
 import type { AppEnv } from './types.js'
 import type { ForgeServerConfig } from './composition/types.js'
 import {

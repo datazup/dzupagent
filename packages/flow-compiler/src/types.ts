@@ -1,6 +1,6 @@
 import type { AsyncToolResolver, FlowDiagnosticCategory, ToolResolver } from '@dzupagent/flow-ast'
 import type { ParseInput } from '@dzupagent/flow-ast'
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver

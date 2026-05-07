@@ -5,7 +5,7 @@
  * (`json-handler.ts`, `sse-handler.ts`, `stage-stream-handler.ts`) can import
  * exactly what it needs without depending on the others.
  */
-import { createEventBus, type DzupEvent } from '@dzupagent/core'
+import { createEventBus, type DzupEvent } from '@dzupagent/core/events'
 import type {
   CompilationDiagnostic,
   CompilationStage,

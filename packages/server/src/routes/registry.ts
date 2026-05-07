@@ -15,7 +15,8 @@
 
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
-import type { AgentRegistry, RegisterAgentInput, DiscoveryQuery, ForgeCapability, AgentHealthStatus } from '@dzupagent/core'
+import type { AgentRegistry, RegisterAgentInput, DiscoveryQuery, AgentHealthStatus } from '@dzupagent/core/pipeline'
+import type { ForgeCapability } from '@dzupagent/core/identity'
 
 export interface RegistryRouteConfig {
   registry: AgentRegistry

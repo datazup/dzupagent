@@ -24,15 +24,15 @@ import {
   attachStructuredOutputErrorContext,
   buildStructuredOutputCorrectionPrompt,
   buildStructuredOutputExhaustedError,
-  defaultLogger,
   executeStructuredParseLoop,
   isStructuredOutputExhaustedErrorMessage,
   prepareStructuredOutputSchemaContract,
   resolveStructuredOutputSchemaProvider,
   shouldAttemptNativeStructuredOutput,
-  type StructuredOutputModelCapabilities,
   unwrapStructuredEnvelope,
-} from '@dzupagent/core'
+} from '@dzupagent/core/pipeline'
+import type { StructuredOutputModelCapabilities } from '@dzupagent/core/llm'
+import { defaultLogger } from '@dzupagent/core/utils'
 import type {
   DzupAgentConfig,
   GenerateOptions,

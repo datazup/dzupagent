@@ -14,13 +14,8 @@
  */
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import {
-  defaultTokenizerRegistry,
-  TokenBucket,
-  type ModelTier,
-  type PermissionTier,
-  type Tokenizer,
-} from '@dzupagent/core'
+import { defaultTokenizerRegistry, TokenBucket, type ModelTier, type Tokenizer } from '@dzupagent/core/llm'
+import type { PermissionTier } from '@dzupagent/core/tools'
 import { filterToolsByTier } from '../tools/tool-tier-registry.js'
 import type { DzupAgentConfig } from './agent-types.js'
 

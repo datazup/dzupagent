@@ -7,7 +7,7 @@
  * StreamOutputEvent objects or serialized strings in SSE/JSONL/NDJSON format.
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type {
   AgentCompletedEvent,

@@ -1,4 +1,4 @@
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 
 export interface NormalizedAdapterError {
   message: string

@@ -8,13 +8,8 @@
 
 import { eq, gte, lte, and, desc, asc, count, type SQL } from 'drizzle-orm'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
-import type { ComplianceAuditStore } from '@dzupagent/core'
-import type {
-  ComplianceAuditEntry,
-  AuditFilter,
-  AuditRetentionPolicy,
-  IntegrityCheckResult,
-} from '@dzupagent/core'
+import type { ComplianceAuditStore } from '@dzupagent/core/security'
+import type { ComplianceAuditEntry, AuditFilter, AuditRetentionPolicy, IntegrityCheckResult } from '@dzupagent/core/security'
 import { auditLog } from './drizzle-schema.js'
 
 type DB = PostgresJsDatabase<Record<string, never>>

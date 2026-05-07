@@ -5,7 +5,7 @@
  * All heavy imports are deferred to start() so that importing this module
  * is instantaneous (important for CLI startup time and test isolation).
  */
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 
 export interface DevCommandConfig {
   /** Port to listen on (default: 4000) */

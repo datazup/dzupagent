@@ -9,7 +9,7 @@
  * execution.
  */
 import type { Context } from 'hono'
-import { injectTraceContext } from '@dzupagent/core'
+import { injectTraceContext } from '@dzupagent/core/utils'
 
 import type { ForgeServerConfig } from '../../composition/types.js'
 import type { AppEnv } from '../../types.js'

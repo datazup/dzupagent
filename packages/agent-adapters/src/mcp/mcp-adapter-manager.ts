@@ -9,7 +9,7 @@
  * All operations return Promises to support future persistent backing stores.
  */
 
-import { ForgeError } from '@dzupagent/core'
+import { ForgeError } from '@dzupagent/core/events'
 import type { AdapterProviderId } from '../types.js'
 import type {
   AdapterMcpServer,

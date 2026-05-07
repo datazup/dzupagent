@@ -9,7 +9,7 @@
  * ProviderAdapterRegistry as a drop-in router.
  */
 
-import type { DzupEventBus } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type {
   AdapterProviderId,
   RoutingDecision,

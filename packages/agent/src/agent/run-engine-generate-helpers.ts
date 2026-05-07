@@ -23,11 +23,10 @@ import {
   calculateCostCents,
   estimateTokens,
   extractTokenUsage,
-  secureLogger,
-  type DzupRunState,
-  type DzupRunStateStore,
   type TokenUsage,
-} from '@dzupagent/core'
+} from '@dzupagent/core/llm'
+import type { DzupRunState, DzupRunStateStore } from '@dzupagent/core/persistence'
+import { secureLogger } from '@dzupagent/core/utils'
 import type {
   CompressionLogEntry,
   DzupAgentConfig,

@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import type { MetricsCollector } from '@dzupagent/core'
+import type { MetricsCollector } from '@dzupagent/core/utils'
 import type {
   EvalExecutionTarget,
   EvalOrchestratorLike,

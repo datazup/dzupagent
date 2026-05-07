@@ -1,4 +1,4 @@
-import type { AgentExecutionSpec, AgentExecutionSpecStore } from '@dzupagent/core'
+import type { AgentExecutionSpec, AgentExecutionSpecStore } from '@dzupagent/core/persistence'
 
 export interface AgentDefinitionServiceConfig {
   agentStore: AgentExecutionSpecStore

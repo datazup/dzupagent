@@ -8,12 +8,7 @@
  * @module pipeline/pipeline-runtime/fork-branch-executor
  */
 
-import type {
-  PipelineNode,
-  PipelineEdge,
-  ForkNode,
-  JoinNode,
-} from '@dzupagent/core'
+import type { PipelineNode, PipelineEdge, ForkNode, JoinNode } from '@dzupagent/core/pipeline'
 import type {
   NodeResult,
   NodeExecutionContext,
