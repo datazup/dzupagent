@@ -22,6 +22,7 @@ import type {
   AdapterStreamSource,
   StreamContext,
 } from '../base/stream-runner.js'
+import { parseSSEStream } from '../utils/sse-parser.js'
 
 /** SSE chunk shape returned by the OpenRouter streaming API. */
 interface SSEChunkChoice {
@@ -253,37 +254,20 @@ export class OpenRouterAdapter implements AgentCLIAdapter, AdapterStreamSource<O
     return apiKey
   }
 
-  private async *parseSSE(
+  private parseSSE(
     body: ReadableStream<Uint8Array>,
     signal: AbortSignal,
   ): AsyncGenerator<SSEChunk> {
-    const reader = body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    try {
-      while (!signal.aborted) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (!trimmed || !trimmed.startsWith('data: ')) continue
-          const data = trimmed.slice(6)
-          if (data === '[DONE]') return
-          try {
-            yield JSON.parse(data) as SSEChunk
-          } catch {
-            // Skip malformed JSON
-          }
+    return parseSSEStream<SSEChunk>(
+      body,
+      (data) => {
+        try {
+          return JSON.parse(data) as SSEChunk
+        } catch {
+          return null
         }
-      }
-    } finally {
-      reader.releaseLock()
-    }
+      },
+      signal,
+    )
   }
 }

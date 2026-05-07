@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSSEStream } from '../utils/sse-parser.js'
+import { parseSSEStream, parseSseChunk, parseSseLine } from '../utils/sse-parser.js'
 
 function streamFromChunks(chunks: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
@@ -85,5 +85,73 @@ describe('parseSSEStream (AGENT-119)', () => {
       ),
     )
     expect(out).toEqual([])
+  })
+})
+
+describe('parseSseLine (M-09)', () => {
+  it('parses a normal data: <json> line', () => {
+    expect(parseSseLine('data: {"hello":"world"}')).toEqual({
+      done: false,
+      json: { hello: 'world' },
+    })
+  })
+
+  it('parses a line with trailing whitespace', () => {
+    expect(parseSseLine('data: {"i":1}\r')).toEqual({
+      done: false,
+      json: { i: 1 },
+    })
+  })
+
+  it('returns { done: true } for the [DONE] terminator', () => {
+    expect(parseSseLine('data: [DONE]')).toEqual({ done: true })
+  })
+
+  it('returns null for malformed JSON', () => {
+    expect(parseSseLine('data: {not json')).toBeNull()
+  })
+
+  it('returns null for empty lines', () => {
+    expect(parseSseLine('')).toBeNull()
+    expect(parseSseLine('   ')).toBeNull()
+  })
+
+  it('returns null for non-data: lines', () => {
+    expect(parseSseLine(': heartbeat')).toBeNull()
+    expect(parseSseLine('event: ping')).toBeNull()
+  })
+})
+
+describe('parseSseChunk (M-09)', () => {
+  it('parses a multi-line chunk into ordered results', () => {
+    const chunk = 'data: {"i":1}\ndata: {"i":2}\ndata: {"i":3}\n'
+    expect(parseSseChunk(chunk)).toEqual([
+      { done: false, json: { i: 1 } },
+      { done: false, json: { i: 2 } },
+      { done: false, json: { i: 3 } },
+    ])
+  })
+
+  it('skips malformed and empty lines', () => {
+    const chunk = '\ndata: {bad\ndata: {"ok":true}\n: comment\n'
+    expect(parseSseChunk(chunk)).toEqual([
+      { done: false, json: { ok: true } },
+    ])
+  })
+
+  it('terminates at [DONE] and ignores subsequent lines', () => {
+    const chunk = 'data: {"i":1}\ndata: [DONE]\ndata: {"i":2}\n'
+    expect(parseSseChunk(chunk)).toEqual([
+      { done: false, json: { i: 1 } },
+      { done: true },
+    ])
+  })
+
+  it('returns an empty array for an empty chunk', () => {
+    expect(parseSseChunk('')).toEqual([])
+  })
+
+  it('handles a chunk with only a [DONE] marker', () => {
+    expect(parseSseChunk('data: [DONE]\n')).toEqual([{ done: true }])
   })
 })

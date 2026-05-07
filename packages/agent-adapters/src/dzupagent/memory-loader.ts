@@ -27,7 +27,7 @@ import { parseMarkdownFile } from './md-frontmatter-parser.js'
 
 export type MemoryLevel = 'global' | 'workspace' | 'project' | 'agent'
 
-export interface MemoryEntry {
+export interface MemoryFileEntry {
   name: string
   description: string
   type: MemoryLevel
@@ -61,7 +61,7 @@ export interface DzupAgentMemoryLoaderOptions {
 
 interface CacheEntry {
   mtime: number
-  entry: MemoryEntry
+  entry: MemoryFileEntry
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ export class DzupAgentMemoryLoader implements MemoryServiceLike {
    * Entries are dropped from the end (agent first) when budget is exceeded.
    * A single entry exceeding the entire budget is included with truncated content.
    */
-  async loadEntries(): Promise<MemoryEntry[]> {
+  async loadEntries(): Promise<MemoryFileEntry[]> {
     const globalEntries = await this.loadFromDir(this.paths.globalDir, 'global')
 
     const wsDir = this.paths.workspaceDir
@@ -213,9 +213,9 @@ export class DzupAgentMemoryLoader implements MemoryServiceLike {
   // Private helpers
   // -------------------------------------------------------------------------
 
-  private applyTokenBudget(entries: MemoryEntry[]): MemoryEntry[] {
+  private applyTokenBudget(entries: MemoryFileEntry[]): MemoryFileEntry[] {
     const budget = this.maxTotalTokens
-    const result: MemoryEntry[] = []
+    const result: MemoryFileEntry[] = []
     let used = 0
 
     for (let i = 0; i < entries.length; i++) {
@@ -229,7 +229,7 @@ export class DzupAgentMemoryLoader implements MemoryServiceLike {
         if (remaining > 0 && result.length === 0) {
           // Edge case: single entry exceeds entire budget — truncate content to fit
           const maxChars = budget * 4
-          const truncated: MemoryEntry = {
+          const truncated: MemoryFileEntry = {
             ...entry,
             content: entry.content.slice(0, maxChars),
             tokenEstimate: budget,
@@ -250,18 +250,18 @@ export class DzupAgentMemoryLoader implements MemoryServiceLike {
    * Derives project root by going up one level from paths.projectDir
    * (projectDir is typically <root>/.dzupagent/).
    */
-  private async loadAgentDir(): Promise<MemoryEntry[]> {
+  private async loadAgentDir(): Promise<MemoryFileEntry[]> {
     const projectRoot = dirname(this.paths.projectDir)
     const agentMemoryDir = join(projectRoot, '.claude', 'memory')
     return this.loadMdFiles(agentMemoryDir, 'agent')
   }
 
-  private async loadFromDir(baseDir: string, level: MemoryLevel): Promise<MemoryEntry[]> {
+  private async loadFromDir(baseDir: string, level: MemoryLevel): Promise<MemoryFileEntry[]> {
     const memoryDir = join(baseDir, 'memory')
     return this.loadMdFiles(memoryDir, level)
   }
 
-  private async loadMdFiles(dir: string, level: MemoryLevel): Promise<MemoryEntry[]> {
+  private async loadMdFiles(dir: string, level: MemoryLevel): Promise<MemoryFileEntry[]> {
     let fileNames: string[]
 
     try {
@@ -271,7 +271,7 @@ export class DzupAgentMemoryLoader implements MemoryServiceLike {
     }
 
     const mdFiles = fileNames.filter((f) => f.endsWith('.md')).sort()
-    const results: MemoryEntry[] = []
+    const results: MemoryFileEntry[] = []
 
     await Promise.all(
       mdFiles.map(async (filename) => {
@@ -290,7 +290,7 @@ export class DzupAgentMemoryLoader implements MemoryServiceLike {
   private async loadFileCached(
     filePath: string,
     level: MemoryLevel,
-  ): Promise<MemoryEntry | undefined> {
+  ): Promise<MemoryFileEntry | undefined> {
     try {
       const stats = await stat(filePath)
       const mtime = stats.mtimeMs
@@ -316,7 +316,7 @@ export class DzupAgentMemoryLoader implements MemoryServiceLike {
     filePath: string,
     rawContent: string,
     level: MemoryLevel,
-  ): MemoryEntry | undefined {
+  ): MemoryFileEntry | undefined {
     const parsed = parseMarkdownFile(rawContent)
     const fm = parsed.frontmatter
 

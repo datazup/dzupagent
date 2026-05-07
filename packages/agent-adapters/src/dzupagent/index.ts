@@ -13,7 +13,7 @@ export type { ParsedFrontmatter, ParsedSection, ParsedMarkdownFile, FrontmatterV
 export { DzupAgentFileLoader } from './file-loader.js'
 export type { FileLoaderOptions, ParsedSkillFile } from './file-loader.js'
 export { DzupAgentMemoryLoader } from './memory-loader.js'
-export type { MemoryEntry, DzupAgentMemoryLoaderOptions, MemoryLevel } from './memory-loader.js'
+export type { MemoryFileEntry, DzupAgentMemoryLoaderOptions, MemoryLevel } from './memory-loader.js'
 export { DzupAgentImporter } from './importer.js'
 export type { ImportPlan, ImportResult, ImportSource, DzupAgentImporterOptions } from './importer.js'
 export { DzupAgentAgentLoader, agentDefinitionsToSupervisorConfig } from './agent-loader.js'
