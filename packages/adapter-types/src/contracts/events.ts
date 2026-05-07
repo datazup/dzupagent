@@ -1,4 +1,4 @@
-import type { TokenUsage } from './execution.js'
+import type { TokenUsage } from './token-usage.js'
 import type { AdapterProviderId } from './provider.js'
 import type { RawAgentEvent } from './run-store.js'
 
