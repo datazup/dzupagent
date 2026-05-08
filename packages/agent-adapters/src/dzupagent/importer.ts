@@ -6,68 +6,31 @@
  * Never overwrites existing .dzupagent/ files.
  */
 
-import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises'
-import { join, basename } from 'node:path'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { DzupAgentPaths } from '@dzupagent/adapter-types'
-import { parseMarkdownFile } from './md-frontmatter-parser.js'
 import { sha256 } from './hash-utils.js'
+import {
+  discoverImportCandidates,
+  fileExists,
+  inferSourceType,
+} from './importer-discovery.js'
+import { transformImportContent } from './importer-transformer.js'
+import type {
+  DzupAgentImporterOptions,
+  ImportPlan,
+  ImportResult,
+  ImportSource,
+  ImportedFileEntry,
+  StateJson,
+} from './importer-types.js'
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
-export interface ImportSource {
-  type:
-    | 'claude-md'
-    | 'claude-commands'
-    | 'claude-agents'
-    | 'claude-memory'
-    | 'codex-agents-md'
-    | 'gemini-md'
-    | 'gemini-settings'
-    | 'qwen-md'
-    | 'qwen-skills'
-    | 'qwen-agents'
-    | 'goose-hints'
-    | 'crush-skills'
-  sourcePath: string
-}
-
-export interface ImportResult {
-  source: ImportSource
-  targetPath: string
-  /** true = file was written */
-  written: boolean
-  /** true = target already existed, file was skipped */
-  skipped: boolean
-  summary: string
-}
-
-export interface ImportPlan {
-  /** Files that will be imported (target does not exist) */
-  toImport: Array<{ source: ImportSource; targetPath: string }>
-  /** Files that will be skipped (target already exists) */
-  toSkip: Array<{ source: ImportSource; targetPath: string; reason: string }>
-}
-
-export interface DzupAgentImporterOptions {
-  paths: DzupAgentPaths
-  /** Project root directory (where CLAUDE.md, .claude/, AGENTS.md live) */
-  projectRoot: string
-}
-
-/** Hash entry stored in state.json under the `files` key */
-interface ImportedFileEntry {
-  hash: string
-  importedAt: string
-}
-
-/** Shape of state.json (shared with FileAdapterSkillVersionStore) */
-interface StateJson {
-  version: 1
-  projections: Record<string, unknown>
-  files: Record<string, ImportedFileEntry>
-}
+export type {
+  DzupAgentImporterOptions,
+  ImportPlan,
+  ImportResult,
+  ImportSource,
+} from './importer-types.js'
 
 // ---------------------------------------------------------------------------
 // DzupAgentImporter
@@ -91,7 +54,7 @@ export class DzupAgentImporter {
     const toImport: ImportPlan['toImport'] = []
     const toSkip: ImportPlan['toSkip'] = []
 
-    const candidates = await this.discoverCandidates()
+    const candidates = await discoverImportCandidates(this.projectRoot, this.paths)
 
     for (const { source, targetPath } of candidates) {
       const exists = await fileExists(targetPath)
@@ -120,7 +83,7 @@ export class DzupAgentImporter {
       const { source, targetPath } = entry
 
       const rawContent = await readFile(source.sourcePath, 'utf-8')
-      const transformed = this.transformContent(source, rawContent)
+      const transformed = transformImportContent(source, rawContent)
 
       // Ensure target directory exists
       const targetDir = join(targetPath, '..')
@@ -174,7 +137,7 @@ export class DzupAgentImporter {
     const results: Array<{ source: ImportSource; diverged: boolean }> = []
 
     for (const [sourcePath, entry] of Object.entries(state.files)) {
-      const source = this.inferSourceType(sourcePath)
+      const source = inferSourceType(sourcePath)
       if (!source) continue
 
       try {
@@ -194,347 +157,6 @@ export class DzupAgentImporter {
     }
 
     return results
-  }
-
-  // -------------------------------------------------------------------------
-  // Private: discovery
-  // -------------------------------------------------------------------------
-
-  private async discoverCandidates(): Promise<Array<{ source: ImportSource; targetPath: string }>> {
-    const candidates: Array<{ source: ImportSource; targetPath: string }> = []
-    const projectDir = this.paths.projectDir
-
-    // CLAUDE.md
-    const claudeMd = join(this.projectRoot, 'CLAUDE.md')
-    if (await fileExists(claudeMd)) {
-      candidates.push({
-        source: { type: 'claude-md', sourcePath: claudeMd },
-        targetPath: join(projectDir, 'memory', 'claude-project-context.md'),
-      })
-    }
-
-    // AGENTS.md
-    const agentsMd = join(this.projectRoot, 'AGENTS.md')
-    if (await fileExists(agentsMd)) {
-      candidates.push({
-        source: { type: 'codex-agents-md', sourcePath: agentsMd },
-        targetPath: join(projectDir, 'memory', 'codex-project-context.md'),
-      })
-    }
-
-    // .claude/commands/*.md
-    const commandsDir = join(this.projectRoot, '.claude', 'commands')
-    const commandFiles = await globMdFiles(commandsDir)
-    for (const file of commandFiles) {
-      const name = basename(file, '.md')
-      candidates.push({
-        source: { type: 'claude-commands', sourcePath: join(commandsDir, file) },
-        targetPath: join(projectDir, 'skills', `${name}.md`),
-      })
-    }
-
-    // .claude/agents/*.md
-    const agentsDir = join(this.projectRoot, '.claude', 'agents')
-    const agentFiles = await globMdFiles(agentsDir)
-    for (const file of agentFiles) {
-      const name = basename(file, '.md')
-      candidates.push({
-        source: { type: 'claude-agents', sourcePath: join(agentsDir, file) },
-        targetPath: join(projectDir, 'agents', `${name}.md`),
-      })
-    }
-
-    // .claude/memory/*.md
-    const memoryDir = join(this.projectRoot, '.claude', 'memory')
-    const memoryFiles = await globMdFiles(memoryDir)
-    for (const file of memoryFiles) {
-      const name = basename(file, '.md')
-      candidates.push({
-        source: { type: 'claude-memory', sourcePath: join(memoryDir, file) },
-        targetPath: join(projectDir, 'memory', `${name}.md`),
-      })
-    }
-
-    // GEMINI.md
-    const geminiMd = join(this.projectRoot, 'GEMINI.md')
-    if (await fileExists(geminiMd)) {
-      candidates.push({
-        source: { type: 'gemini-md', sourcePath: geminiMd },
-        targetPath: join(projectDir, 'memory', 'gemini-project-context.md'),
-      })
-    }
-
-    // .gemini/settings.json
-    const geminiSettings = join(this.projectRoot, '.gemini', 'settings.json')
-    if (await fileExists(geminiSettings)) {
-      candidates.push({
-        source: { type: 'gemini-settings', sourcePath: geminiSettings },
-        targetPath: join(projectDir, 'memory', 'gemini-settings.json'),
-      })
-    }
-
-    // QWEN.md
-    const qwenMd = join(this.projectRoot, 'QWEN.md')
-    if (await fileExists(qwenMd)) {
-      candidates.push({
-        source: { type: 'qwen-md', sourcePath: qwenMd },
-        targetPath: join(projectDir, 'memory', 'qwen-project-context.md'),
-      })
-    }
-
-    // .qwen/skills/*.md
-    const qwenSkillsDir = join(this.projectRoot, '.qwen', 'skills')
-    const qwenSkillFiles = await globMdFiles(qwenSkillsDir)
-    for (const file of qwenSkillFiles) {
-      const name = basename(file, '.md')
-      candidates.push({
-        source: { type: 'qwen-skills', sourcePath: join(qwenSkillsDir, file) },
-        targetPath: join(projectDir, 'skills', `${name}.md`),
-      })
-    }
-
-    // .qwen/agents/*.md
-    const qwenAgentsDir = join(this.projectRoot, '.qwen', 'agents')
-    const qwenAgentFiles = await globMdFiles(qwenAgentsDir)
-    for (const file of qwenAgentFiles) {
-      const name = basename(file, '.md')
-      candidates.push({
-        source: { type: 'qwen-agents', sourcePath: join(qwenAgentsDir, file) },
-        targetPath: join(projectDir, 'agents', `${name}.md`),
-      })
-    }
-
-    // .goosehints
-    const gooseHints = join(this.projectRoot, '.goosehints')
-    if (await fileExists(gooseHints)) {
-      candidates.push({
-        source: { type: 'goose-hints', sourcePath: gooseHints },
-        targetPath: join(projectDir, 'memory', 'goose-hints.md'),
-      })
-    }
-
-    // .crush/skills/*.md
-    const crushSkillsDir = join(this.projectRoot, '.crush', 'skills')
-    const crushSkillFiles = await globMdFiles(crushSkillsDir)
-    for (const file of crushSkillFiles) {
-      const name = basename(file, '.md')
-      candidates.push({
-        source: { type: 'crush-skills', sourcePath: join(crushSkillsDir, file) },
-        targetPath: join(projectDir, 'skills', `${name}.md`),
-      })
-    }
-
-    return candidates
-  }
-
-  // -------------------------------------------------------------------------
-  // Private: transformations
-  // -------------------------------------------------------------------------
-
-  private transformContent(source: ImportSource, rawContent: string): string {
-    switch (source.type) {
-      case 'claude-md':
-        return this.wrapWithFrontmatter(rawContent, {
-          name: 'claude-project-context',
-          description: 'Claude project context imported from CLAUDE.md',
-          type: 'project',
-          importedFrom: 'CLAUDE.md',
-        })
-
-      case 'codex-agents-md':
-        return this.wrapWithFrontmatter(rawContent, {
-          name: 'codex-project-context',
-          description: 'Codex project context imported from AGENTS.md',
-          type: 'project',
-          importedFrom: 'AGENTS.md',
-        })
-
-      case 'claude-commands': {
-        const name = basename(source.sourcePath, '.md')
-        const relativePath = `.claude/commands/${basename(source.sourcePath)}`
-        return this.addOrCreateFrontmatter(rawContent, {
-          name,
-          description: `Imported from ${relativePath}`,
-          importedFrom: relativePath,
-        })
-      }
-
-      case 'claude-agents': {
-        const name = basename(source.sourcePath, '.md')
-        const relativePath = `.claude/agents/${basename(source.sourcePath)}`
-        return this.addOrCreateFrontmatter(rawContent, {
-          name,
-          description: `Imported from ${relativePath}`,
-          importedFrom: relativePath,
-        })
-      }
-
-      case 'claude-memory': {
-        const name = basename(source.sourcePath, '.md')
-        const relativePath = `.claude/memory/${basename(source.sourcePath)}`
-        return this.addOrCreateFrontmatter(rawContent, {
-          name,
-          description: 'Claude agent-specific memory',
-          type: 'agent',
-          importedFrom: relativePath,
-        })
-      }
-
-      case 'gemini-md':
-        return this.wrapWithFrontmatter(rawContent, {
-          name: 'gemini-project-context',
-          description: 'Gemini project context imported from GEMINI.md',
-          type: 'project',
-          importedFrom: 'GEMINI.md',
-        })
-
-      case 'gemini-settings': {
-        const wrapped = `\`\`\`json\n${rawContent}\n\`\`\``
-        return this.wrapWithFrontmatter(wrapped, {
-          name: 'gemini-settings',
-          description: 'Gemini settings imported from .gemini/settings.json',
-          type: 'config',
-          importedFrom: '.gemini/settings.json',
-        })
-      }
-
-      case 'qwen-md':
-        return this.wrapWithFrontmatter(rawContent, {
-          name: 'qwen-project-context',
-          description: 'Qwen project context imported from QWEN.md',
-          type: 'project',
-          importedFrom: 'QWEN.md',
-        })
-
-      case 'qwen-skills': {
-        const name = basename(source.sourcePath, '.md')
-        const relativePath = `.qwen/skills/${basename(source.sourcePath)}`
-        return this.addOrCreateFrontmatter(rawContent, {
-          name,
-          description: `Imported from ${relativePath}`,
-          importedFrom: relativePath,
-        })
-      }
-
-      case 'qwen-agents': {
-        const name = basename(source.sourcePath, '.md')
-        const relativePath = `.qwen/agents/${basename(source.sourcePath)}`
-        return this.addOrCreateFrontmatter(rawContent, {
-          name,
-          description: `Imported from ${relativePath}`,
-          importedFrom: relativePath,
-        })
-      }
-
-      case 'goose-hints':
-        return this.wrapWithFrontmatter(rawContent, {
-          name: 'goose-hints',
-          description: 'Goose hints imported from .goosehints',
-          type: 'project',
-          importedFrom: '.goosehints',
-        })
-
-      case 'crush-skills': {
-        const name = basename(source.sourcePath, '.md')
-        const relativePath = `.crush/skills/${basename(source.sourcePath)}`
-        return this.addOrCreateFrontmatter(rawContent, {
-          name,
-          description: `Imported from ${relativePath}`,
-          importedFrom: relativePath,
-        })
-      }
-    }
-  }
-
-  /**
-   * Wrap raw content with a full frontmatter block (no existing frontmatter expected).
-   */
-  private wrapWithFrontmatter(
-    content: string,
-    fields: Record<string, string>,
-  ): string {
-    const lines = Object.entries(fields).map(([k, v]) => `${k}: ${v}`)
-    return `---\n${lines.join('\n')}\n---\n\n${content}`
-  }
-
-  /**
-   * If file already has frontmatter, add `importedFrom` (and other missing fields).
-   * If no frontmatter, create a new frontmatter block.
-   */
-  private addOrCreateFrontmatter(
-    content: string,
-    fields: Record<string, string>,
-  ): string {
-    const parsed = parseMarkdownFile(content)
-    const hasFrontmatter = Object.keys(parsed.frontmatter).length > 0
-
-    if (hasFrontmatter) {
-      // Insert importedFrom into existing frontmatter
-      return this.insertIntoExistingFrontmatter(content, fields)
-    }
-
-    // No frontmatter — wrap with new block
-    const lines = Object.entries(fields).map(([k, v]) => `${k}: ${v}`)
-    return `---\n${lines.join('\n')}\n---\n\n${content}`
-  }
-
-  /**
-   * Insert new fields into existing YAML frontmatter.
-   * Only adds fields that are not already present.
-   */
-  private insertIntoExistingFrontmatter(
-    content: string,
-    fields: Record<string, string>,
-  ): string {
-    const lines = content.split('\n')
-
-    // Find the opening and closing ---
-    let openIdx = -1
-    let closeIdx = -1
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i]!.trim() === '---') {
-        if (openIdx === -1) {
-          openIdx = i
-        } else {
-          closeIdx = i
-          break
-        }
-      }
-    }
-
-    if (openIdx === -1 || closeIdx === -1) {
-      // Shouldn't happen if hasFrontmatter is true, but be safe
-      return content
-    }
-
-    // Extract existing frontmatter lines
-    const fmLines = lines.slice(openIdx + 1, closeIdx)
-
-    // Check which fields already exist
-    const existingKeys = new Set<string>()
-    for (const line of fmLines) {
-      const match = /^([a-zA-Z_][\w-]*):\s*/.exec(line)
-      if (match) existingKeys.add(match[1]!)
-    }
-
-    // Add missing fields
-    const newLines: string[] = []
-    for (const [key, value] of Object.entries(fields)) {
-      if (!existingKeys.has(key)) {
-        newLines.push(`${key}: ${value}`)
-      }
-    }
-
-    if (newLines.length === 0) return content
-
-    // Insert new lines before the closing ---
-    const result = [
-      ...lines.slice(0, closeIdx),
-      ...newLines,
-      ...lines.slice(closeIdx),
-    ]
-
-    return result.join('\n')
   }
 
   // -------------------------------------------------------------------------
@@ -584,72 +206,5 @@ export class DzupAgentImporter {
     const dir = join(this.paths.stateFile, '..')
     await mkdir(dir, { recursive: true })
     await writeFile(this.paths.stateFile, JSON.stringify(state, null, 2), 'utf-8')
-  }
-
-  // -------------------------------------------------------------------------
-  // Private: helpers
-  // -------------------------------------------------------------------------
-
-  private inferSourceType(sourcePath: string): ImportSource | undefined {
-    if (sourcePath.endsWith('CLAUDE.md') && !sourcePath.includes('.claude')) {
-      return { type: 'claude-md', sourcePath }
-    }
-    if (sourcePath.endsWith('AGENTS.md')) {
-      return { type: 'codex-agents-md', sourcePath }
-    }
-    if (sourcePath.includes('.claude/commands/')) {
-      return { type: 'claude-commands', sourcePath }
-    }
-    if (sourcePath.includes('.claude/agents/')) {
-      return { type: 'claude-agents', sourcePath }
-    }
-    if (sourcePath.includes('.claude/memory/')) {
-      return { type: 'claude-memory', sourcePath }
-    }
-    if (sourcePath.endsWith('GEMINI.md')) {
-      return { type: 'gemini-md', sourcePath }
-    }
-    if (sourcePath.includes('.gemini/settings.json')) {
-      return { type: 'gemini-settings', sourcePath }
-    }
-    if (sourcePath.endsWith('QWEN.md')) {
-      return { type: 'qwen-md', sourcePath }
-    }
-    if (sourcePath.includes('.qwen/skills/')) {
-      return { type: 'qwen-skills', sourcePath }
-    }
-    if (sourcePath.includes('.qwen/agents/')) {
-      return { type: 'qwen-agents', sourcePath }
-    }
-    if (sourcePath.endsWith('.goosehints')) {
-      return { type: 'goose-hints', sourcePath }
-    }
-    if (sourcePath.includes('.crush/skills/')) {
-      return { type: 'crush-skills', sourcePath }
-    }
-    return undefined
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Utility helpers
-// ---------------------------------------------------------------------------
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await stat(path)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** List *.md files in a directory. Returns empty array if dir doesn't exist. */
-async function globMdFiles(dirPath: string): Promise<string[]> {
-  try {
-    const entries = await readdir(dirPath)
-    return entries.filter((f) => f.endsWith('.md')).sort()
-  } catch {
-    return []
   }
 }

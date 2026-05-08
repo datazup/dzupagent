@@ -6,7 +6,7 @@
  * the semaphore wrapper) and easy to unit-test in isolation.
  */
 
-import { Semaphore } from '@dzupagent/core/orchestration';
+import type { Semaphore } from '@dzupagent/core/orchestration';
 
 import type { PairedComparison } from './prompt-experiment-types.js';
 

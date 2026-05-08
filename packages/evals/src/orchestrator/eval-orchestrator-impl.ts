@@ -7,38 +7,36 @@
  * inversion. Server consumes it via dependency injection through the
  * EvalOrchestratorLike contract in @dzupagent/eval-contracts.
  *
- * Extracted from eval-orchestrator.ts in MC-016 to keep the public-facing
- * module a thin barrel.
+ * Decomposed in MC-026a: this file owns the in-memory queue, drain loop,
+ * and lifecycle wiring while lease management, queue metrics, run
+ * execution, store transitions, cost-cap enforcement, and recovery live in
+ * dedicated modules.
  */
 
-import { randomUUID } from 'node:crypto'
 import type { MetricsCollector } from '@dzupagent/core/utils'
 import type {
-  EvalExecutionContext,
   EvalExecutionTarget,
   EvalOrchestratorLike,
   EvalQueueStats,
-  EvalRunExecutionOwnershipRecord,
   EvalRunListFilter,
   EvalRunRecord,
-  EvalRunRecoveryRecord,
   EvalRunStore,
   EvalSuite,
 } from '@dzupagent/eval-contracts'
-import { runEvalSuite } from '../eval-runner.js'
 import {
-  EvalCostExceededError,
   EvalExecutionUnavailableError,
   EvalRunInvalidStateError,
 } from './eval-orchestrator-errors.js'
+import { LeaseManager } from './eval-orchestrator-lease.js'
+import { QueueMetricsTracker } from './eval-orchestrator-metrics.js'
+import { RunExecutor } from './eval-orchestrator-runner.js'
+import { buildRecoveryPatch, sortStaleRuns } from './eval-orchestrator-recovery.js'
 import {
-  appendAttemptHistory,
-  createAbortError,
-  createAttemptRecord,
-  getCurrentAttemptNumber,
-  toEvalRunError,
-  updateAttemptHistory,
-} from './eval-orchestrator-attempts.js'
+  isTerminalStatus,
+  persistCancellation,
+  persistQueuedRun,
+  persistRetry,
+} from './eval-orchestrator-transitions.js'
 
 export interface EvalOrchestratorConfig {
   store: EvalRunStore
@@ -54,22 +52,10 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
   private readonly pendingRunIds: string[] = []
   private readonly pendingRunSet = new Set<string>()
   private readonly activeRunControllers = new Map<string, AbortController>()
-  private readonly activeLeaseRefreshTimers = new Map<string, ReturnType<typeof setInterval>>()
   private readonly concurrency: number
-  private readonly metrics: MetricsCollector | undefined
-  private readonly instanceId = randomUUID()
-  private readonly leaseDurationMs = 30_000
-  private readonly leaseRefreshIntervalMs = 10_000
-  private readonly queueCounters = {
-    enqueued: 0,
-    started: 0,
-    completed: 0,
-    failed: 0,
-    cancelled: 0,
-    retried: 0,
-    recovered: 0,
-    requeued: 0,
-  }
+  private readonly lease: LeaseManager
+  private readonly queueMetrics: QueueMetricsTracker
+  private readonly runner: RunExecutor
   private readonly startupPromise: Promise<void>
   private drainTimer: ReturnType<typeof setTimeout> | null = null
   private draining = false
@@ -82,7 +68,21 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
     }
 
     this.concurrency = Math.max(1, Math.floor(config.concurrency ?? 1))
-    this.metrics = config.metrics
+    this.lease = new LeaseManager({ store: config.store })
+    this.queueMetrics = new QueueMetricsTracker({
+      ...(config.metrics ? { metrics: config.metrics } : {}),
+      store: config.store,
+      pendingRunIds: this.pendingRunIds,
+      pendingRunSet: this.pendingRunSet,
+      activeRunControllers: this.activeRunControllers,
+    })
+    this.runner = new RunExecutor({
+      store: config.store,
+      ownerId: this.lease.instanceId,
+      queueMetrics: this.queueMetrics,
+      costCap: config,
+      getExecuteTarget: () => this.config.executeTarget,
+    })
     this.startupPromise = this.reconcilePersistedRuns()
   }
 
@@ -99,85 +99,25 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
       throw new EvalExecutionUnavailableError('Eval execution target is not configured')
     }
 
-    const runId = randomUUID()
-    const timestamp = new Date().toISOString()
-    const run: EvalRunRecord = {
-      id: runId,
-      suiteId: input.suite.name,
-      suite: input.suite,
-      status: 'queued',
-      createdAt: timestamp,
-      queuedAt: timestamp,
-      attempts: 1,
-      attemptHistory: [
-        createAttemptRecord({
-          attempt: 1,
-          status: 'queued',
-          queuedAt: timestamp,
-        }),
-      ],
-      ...(input.metadata ? { metadata: input.metadata } : {}),
-    }
-
-    await this.config.store.saveRun(run)
-    this.enqueueRun(runId)
-    this.queueCounters.enqueued += 1
-    this.recordQueueEvent('forge_eval_queue_enqueued_total')
-    await this.refreshQueueMetrics()
-
-    const createdRun = await this.config.store.getRun(runId)
-    if (!createdRun) {
-      throw new Error(`Eval run "${runId}" missing after enqueue`)
-    }
-
-    return createdRun
+    const created = await persistQueuedRun(this.config.store, input)
+    this.enqueueRun(created.id)
+    await this.queueMetrics.track('enqueued', 'forge_eval_queue_enqueued_total')
+    return created
   }
 
   async cancelRun(runId: string): Promise<EvalRunRecord> {
     await this.ensureReady()
     const run = await this.requireRun(runId)
-    if (this.isTerminal(run.status)) {
+    if (isTerminalStatus(run.status)) {
       throw new EvalRunInvalidStateError(`Cannot cancel eval run in ${run.status} state`)
     }
 
-    const attempt = getCurrentAttemptNumber(run)
     this.removePendingRun(runId)
     this.activeRunControllers.get(runId)?.abort()
 
-    const completedAt = new Date().toISOString()
-    const updated = await this.config.store.updateRunIf(
-      runId,
-      (current) => !this.isTerminal(current.status),
-      {
-        status: 'cancelled',
-        completedAt,
-        executionOwner: undefined,
-        attempts: Math.max(run.attempts, attempt),
-        attemptHistory: updateAttemptHistory(run, attempt, {
-          status: 'cancelled',
-          completedAt,
-        }),
-      },
-    )
-
-    if (!updated) {
-      const cancelledRun = await this.config.store.getRun(runId)
-      if (!cancelledRun) {
-        throw new Error(`Eval run "${runId}" missing after cancellation`)
-      }
-      throw new EvalRunInvalidStateError(`Cannot cancel eval run in ${cancelledRun.status} state`)
-    }
-
-    const cancelledRun = await this.config.store.getRun(runId)
-    if (!cancelledRun) {
-      throw new Error(`Eval run "${runId}" missing after cancellation`)
-    }
-
-    this.queueCounters.cancelled += 1
-    this.recordQueueEvent('forge_eval_queue_cancelled_total')
-    await this.refreshQueueMetrics()
-
-    return cancelledRun
+    const cancelled = await persistCancellation(this.config.store, run)
+    await this.queueMetrics.track('cancelled', 'forge_eval_queue_cancelled_total')
+    return cancelled
   }
 
   async retryRun(runId: string): Promise<EvalRunRecord> {
@@ -191,41 +131,11 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
       throw new EvalRunInvalidStateError(`Cannot retry eval run in ${run.status} state`)
     }
 
-    const queuedAt = new Date().toISOString()
-    const nextAttempt = getCurrentAttemptNumber(run) + 1
-    const updated = await this.config.store.updateRunIf(runId, (current) => current.status === 'failed', {
-      status: 'queued',
-      queuedAt,
-      startedAt: undefined,
-      completedAt: undefined,
-      result: undefined,
-      error: undefined,
-      executionOwner: undefined,
-      attempts: nextAttempt,
-      attemptHistory: appendAttemptHistory(run, createAttemptRecord({
-        attempt: nextAttempt,
-        status: 'queued',
-        queuedAt,
-      })),
-    })
-
-    if (!updated) {
-      throw new EvalRunInvalidStateError(`Cannot retry eval run in ${run.status} state`)
-    }
-
+    const retried = await persistRetry(this.config.store, run)
     this.enqueueRun(runId)
-    this.queueCounters.retried += 1
-    this.queueCounters.requeued += 1
-    this.recordQueueEvent('forge_eval_queue_retried_total')
-    this.recordQueueEvent('forge_eval_queue_requeued_total')
-    await this.refreshQueueMetrics()
-
-    const retriedRun = await this.config.store.getRun(runId)
-    if (!retriedRun) {
-      throw new Error(`Eval run "${runId}" missing after retry`)
-    }
-
-    return retriedRun
+    await this.queueMetrics.track('retried', 'forge_eval_queue_retried_total')
+    await this.queueMetrics.track('requeued', 'forge_eval_queue_requeued_total')
+    return retried
   }
 
   async getRun(runId: string): Promise<EvalRunRecord | null> {
@@ -240,7 +150,7 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
 
   async getQueueStats(): Promise<EvalQueueStats> {
     await this.ensureReady()
-    return this.buildQueueStats()
+    return this.queueMetrics.buildQueueStats()
   }
 
   private async ensureReady(): Promise<void> {
@@ -248,94 +158,38 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
   }
 
   private async reconcilePersistedRuns(): Promise<void> {
-    const runs = await this.config.store.listAllRuns()
-    const staleRuns = runs
-      .filter((run) => run.status === 'queued' || run.status === 'running')
-      .sort((a, b) => {
-        const queuedOrder = a.queuedAt.localeCompare(b.queuedAt)
-        if (queuedOrder !== 0) return queuedOrder
-
-        const createdOrder = a.createdAt.localeCompare(b.createdAt)
-        if (createdOrder !== 0) return createdOrder
-
-        return a.id.localeCompare(b.id)
-      })
+    const staleRuns = sortStaleRuns(await this.config.store.listAllRuns())
 
     for (const run of staleRuns) {
       if (run.status === 'running') {
         const currentLease = run.executionOwner
-        if (currentLease && !this.isExecutionLeaseExpired(currentLease)) {
-          continue
-        }
+        if (currentLease && !this.lease.isExecutionLeaseExpired(currentLease)) continue
 
-        const recovery: EvalRunRecoveryRecord = {
-          previousStatus: 'running',
-          previousStartedAt: run.startedAt,
-          recoveredAt: new Date().toISOString(),
-          reason: 'process-restart',
-        }
-        const recoveredAt = recovery.recoveredAt
-        const currentAttempt = getCurrentAttemptNumber(run)
-        const nextAttempt = currentAttempt + 1
-        const interruptedAttemptHistory = updateAttemptHistory(run, currentAttempt, {
-          status: 'cancelled',
-          completedAt: recoveredAt,
-          recovery,
-        })
-
+        const { patch } = buildRecoveryPatch(run)
         const updated = await this.config.store.updateRunIf(
           run.id,
-          (current) => {
-            return current.status === 'running'
-              && (!current.executionOwner || this.isExecutionLeaseExpired(current.executionOwner))
-          },
-          {
-            status: 'queued',
-            attempts: nextAttempt,
-            queuedAt: recoveredAt,
-            startedAt: undefined,
-            recovery,
-            executionOwner: undefined,
-            attemptHistory: appendAttemptHistory({
-              ...run,
-              attemptHistory: interruptedAttemptHistory,
-            }, createAttemptRecord({
-              attempt: nextAttempt,
-              status: 'queued',
-              queuedAt: recoveredAt,
-              recovery,
-            })),
-            metadata: {
-              ...(run.metadata ?? {}),
-              recovery,
-            },
-          },
+          (current) => current.status === 'running'
+            && (!current.executionOwner || this.lease.isExecutionLeaseExpired(current.executionOwner)),
+          patch,
         )
 
         if (!updated) {
           const current = await this.config.store.getRun(run.id)
-          if (current?.status === 'queued') {
-            this.enqueueRun(run.id)
-          }
+          if (current?.status === 'queued') this.enqueueRun(run.id)
           continue
         }
 
-        this.queueCounters.recovered += 1
-        this.queueCounters.requeued += 1
-        this.recordQueueEvent('forge_eval_queue_recovered_total')
-        this.recordQueueEvent('forge_eval_queue_requeued_total')
-        await this.refreshQueueMetrics()
+        await this.queueMetrics.track('recovered', 'forge_eval_queue_recovered_total')
+        await this.queueMetrics.track('requeued', 'forge_eval_queue_requeued_total')
       }
 
       this.enqueueRun(run.id)
-      await this.refreshQueueMetrics()
+      await this.queueMetrics.refreshQueueMetrics()
     }
   }
 
   private enqueueRun(runId: string): void {
-    if (this.pendingRunSet.has(runId) || this.activeRunControllers.has(runId)) {
-      return
-    }
+    if (this.pendingRunSet.has(runId) || this.activeRunControllers.has(runId)) return
 
     this.pendingRunSet.add(runId)
     this.pendingRunIds.push(runId)
@@ -358,15 +212,11 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
     try {
       while (this.activeRunControllers.size < this.concurrency) {
         const runId = this.pendingRunIds.shift()
-        if (!runId) {
-          break
-        }
+        if (!runId) break
 
         this.pendingRunSet.delete(runId)
         const run = await this.config.store.getRun(runId)
-        if (!run || run.status !== 'queued') {
-          continue
-        }
+        if (!run || run.status !== 'queued') continue
 
         this.startRun(runId)
       }
@@ -381,316 +231,36 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
   private startRun(runId: string): void {
     const abortController = new AbortController()
     this.activeRunControllers.set(runId, abortController)
-
     void this.beginRun(runId, abortController)
   }
 
   private async beginRun(runId: string, abortController: AbortController): Promise<void> {
     try {
-      const claimedRun = await this.claimRunForExecution(runId)
-      if (!claimedRun) {
-        return
-      }
+      const claimedRun = await this.lease.claimRunForExecution(runId)
+      if (!claimedRun) return
 
-      this.startLeaseRefresh(runId, abortController)
-      await this.executeRun(claimedRun, abortController)
+      this.lease.startLeaseRefresh(runId, abortController)
+      await this.runner.execute(claimedRun, abortController)
     } finally {
-      this.stopLeaseRefresh(runId)
+      this.lease.stopLeaseRefresh(runId)
       this.activeRunControllers.delete(runId)
       this.scheduleDrain()
-      void this.refreshQueueMetrics()
+      void this.queueMetrics.refreshQueueMetrics()
     }
-  }
-
-  private async executeRun(run: EvalRunRecord, abortController: AbortController): Promise<void> {
-    if (abortController.signal.aborted) {
-      return
-    }
-
-    if (run.status !== 'running') {
-      return
-    }
-
-    const startedAt = run.startedAt ?? new Date().toISOString()
-    const attempt = getCurrentAttemptNumber(run)
-
-    this.queueCounters.started += 1
-    this.recordQueueEvent('forge_eval_queue_started_total')
-    this.recordQueueHistogram('forge_eval_queue_wait_ms', Date.parse(startedAt) - Date.parse(run.queuedAt))
-    await this.refreshQueueMetrics()
-
-    try {
-      const result = await runEvalSuite(
-        run.suite,
-        async (input: string) => {
-          if (abortController.signal.aborted) {
-            throw createAbortError()
-          }
-
-          if (!this.config.executeTarget) {
-            throw new EvalExecutionUnavailableError('Eval execution target is not configured')
-          }
-
-          await this.assertCostWithinCap()
-
-          const ctx: EvalExecutionContext = {
-            suiteId: run.suiteId,
-            runId: run.id,
-            attempt,
-            metadata: run.metadata,
-            signal: abortController.signal,
-          }
-          const output = await this.config.executeTarget(input, ctx)
-          await this.assertCostWithinCap()
-          return output
-        },
-      )
-      const completedAt = new Date().toISOString()
-      const currentRun = await this.config.store.getRun(run.id)
-
-      const completed = await this.config.store.updateRunIf(run.id, (current) => {
-        return current.status === 'running'
-          && current.executionOwner?.ownerId === this.instanceId
-          && !abortController.signal.aborted
-      }, {
-        status: 'completed',
-        result,
-        completedAt,
-        executionOwner: undefined,
-        attempts: Math.max(run.attempts, attempt),
-        attemptHistory: updateAttemptHistory(currentRun ?? run, attempt, {
-          status: 'completed',
-          completedAt,
-          result,
-        }),
-      })
-      if (!completed) {
-        return
-      }
-
-      this.queueCounters.completed += 1
-      this.recordQueueEvent('forge_eval_queue_completed_total')
-      await this.refreshQueueMetrics()
-    } catch (error) {
-      const completedAt = new Date().toISOString()
-      const failure = toEvalRunError(error)
-      const currentRun = await this.config.store.getRun(run.id)
-      const failed = await this.config.store.updateRunIf(run.id, (current) => {
-        return current.status === 'running'
-          && current.executionOwner?.ownerId === this.instanceId
-          && !abortController.signal.aborted
-      }, {
-        status: 'failed',
-        error: failure,
-        completedAt,
-        executionOwner: undefined,
-        attempts: Math.max(run.attempts, attempt),
-        attemptHistory: updateAttemptHistory(currentRun ?? run, attempt, {
-          status: 'failed',
-          completedAt,
-          error: failure,
-        }),
-      })
-
-      if (!failed) {
-        return
-      }
-
-      this.queueCounters.failed += 1
-      this.recordQueueEvent('forge_eval_queue_failed_total')
-      await this.refreshQueueMetrics()
-    }
-  }
-
-  private async claimRunForExecution(runId: string): Promise<EvalRunRecord | null> {
-    const queuedRun = await this.config.store.getRun(runId)
-    if (!queuedRun || queuedRun.status !== 'queued') {
-      return null
-    }
-
-    if (queuedRun.executionOwner && !this.isExecutionLeaseExpired(queuedRun.executionOwner)) {
-      return null
-    }
-
-    const startedAt = new Date().toISOString()
-    const leaseExpiresAt = this.createLeaseExpiry(startedAt)
-    const attempt = getCurrentAttemptNumber(queuedRun)
-
-    const claimed = await this.config.store.updateRunIf(runId, (current) => {
-      return current.status === 'queued'
-        && (!current.executionOwner || this.isExecutionLeaseExpired(current.executionOwner))
-    }, {
-      status: 'running',
-      startedAt,
-      attempts: Math.max(queuedRun.attempts, attempt),
-      executionOwner: this.createExecutionOwner(startedAt, leaseExpiresAt),
-      attemptHistory: updateAttemptHistory(queuedRun, attempt, {
-        status: 'running',
-        startedAt,
-      }),
-    })
-
-    if (!claimed) {
-      return null
-    }
-
-    return this.config.store.getRun(runId)
   }
 
   private async requireRun(runId: string): Promise<EvalRunRecord> {
     const run = await this.config.store.getRun(runId)
-    if (!run) {
-      throw new Error(`Eval run "${runId}" not found`)
-    }
-
+    if (!run) throw new Error(`Eval run "${runId}" not found`)
     return run
   }
 
   private removePendingRun(runId: string): boolean {
-    if (!this.pendingRunSet.has(runId)) {
-      return false
-    }
+    if (!this.pendingRunSet.has(runId)) return false
 
     this.pendingRunSet.delete(runId)
     const index = this.pendingRunIds.findIndex((pendingRunId) => pendingRunId === runId)
-    if (index >= 0) {
-      this.pendingRunIds.splice(index, 1)
-    }
+    if (index >= 0) this.pendingRunIds.splice(index, 1)
     return true
-  }
-
-  private async buildQueueStats(): Promise<EvalQueueStats> {
-    let oldestPendingAgeMs: number | null = null
-    const now = Date.now()
-
-    for (const runId of this.pendingRunIds) {
-      const run = await this.config.store.getRun(runId)
-      if (!run || run.status !== 'queued') {
-        continue
-      }
-
-      const queuedAtMs = Date.parse(run.queuedAt)
-      if (!Number.isFinite(queuedAtMs)) {
-        continue
-      }
-
-      oldestPendingAgeMs = Math.max(0, now - queuedAtMs)
-      break
-    }
-
-    return {
-      pending: this.pendingRunSet.size,
-      active: this.activeRunControllers.size,
-      oldestPendingAgeMs,
-      ...this.queueCounters,
-    }
-  }
-
-  private async refreshQueueMetrics(): Promise<void> {
-    if (!this.metrics) return
-
-    const stats = await this.buildQueueStats()
-    this.metrics.gauge('forge_eval_queue_pending', stats.pending)
-    this.metrics.gauge('forge_eval_queue_active', stats.active)
-    this.metrics.gauge('forge_eval_queue_oldest_pending_age_ms', stats.oldestPendingAgeMs ?? 0)
-  }
-
-  private recordQueueEvent(metricName: string): void {
-    this.metrics?.increment(metricName)
-  }
-
-  private recordQueueHistogram(metricName: string, value: number): void {
-    if (!this.metrics) return
-    if (!Number.isFinite(value) || value < 0) return
-    this.metrics.observe(metricName, value)
-  }
-
-  private isTerminal(status: EvalRunRecord['status']): boolean {
-    return status === 'completed' || status === 'failed' || status === 'cancelled'
-  }
-
-  private startLeaseRefresh(runId: string, abortController: AbortController): void {
-    if (this.activeLeaseRefreshTimers.has(runId)) {
-      return
-    }
-
-    const timer = setInterval(() => {
-      void this.refreshExecutionLease(runId, abortController)
-    }, this.leaseRefreshIntervalMs)
-
-    this.activeLeaseRefreshTimers.set(runId, timer)
-  }
-
-  private stopLeaseRefresh(runId: string): void {
-    const timer = this.activeLeaseRefreshTimers.get(runId)
-    if (timer) {
-      clearInterval(timer)
-      this.activeLeaseRefreshTimers.delete(runId)
-    }
-  }
-
-  private async refreshExecutionLease(runId: string, abortController: AbortController): Promise<void> {
-    if (abortController.signal.aborted) {
-      return
-    }
-
-    const run = await this.config.store.getRun(runId)
-    if (!run || run.status !== 'running' || run.executionOwner?.ownerId !== this.instanceId) {
-      abortController.abort()
-      this.stopLeaseRefresh(runId)
-      return
-    }
-
-    const claimedAt = run.executionOwner.claimedAt
-    const leaseExpiresAt = this.createLeaseExpiry()
-    const refreshed = await this.config.store.updateRunIf(runId, (current) => {
-      return current.status === 'running'
-        && current.executionOwner?.ownerId === this.instanceId
-    }, {
-      executionOwner: this.createExecutionOwner(claimedAt, leaseExpiresAt),
-    })
-
-    if (!refreshed) {
-      abortController.abort()
-      this.stopLeaseRefresh(runId)
-    }
-  }
-
-  private createExecutionOwner(claimedAt: string, leaseExpiresAt: string): EvalRunExecutionOwnershipRecord {
-    return {
-      ownerId: this.instanceId,
-      claimedAt,
-      leaseExpiresAt,
-    }
-  }
-
-  private createLeaseExpiry(startedAt = new Date().toISOString()): string {
-    return new Date(Date.parse(startedAt) + this.leaseDurationMs).toISOString()
-  }
-
-  private isExecutionLeaseExpired(owner: EvalRunExecutionOwnershipRecord, nowMs = Date.now()): boolean {
-    const leaseExpiresAtMs = Date.parse(owner.leaseExpiresAt)
-    return !Number.isFinite(leaseExpiresAtMs) || leaseExpiresAtMs <= nowMs
-  }
-
-  private async assertCostWithinCap(): Promise<void> {
-    const capCents = this.config.costCapCents
-    if (capCents === undefined) return
-
-    const observedCents = await this.resolveAccumulatedCostCents()
-    if (observedCents > capCents) {
-      throw new EvalCostExceededError(
-        `Eval run exceeded cost cap: observed ${observedCents} cents, cap ${capCents} cents`,
-        capCents,
-        observedCents,
-      )
-    }
-  }
-
-  private async resolveAccumulatedCostCents(): Promise<number> {
-    const raw = this.config.getAccumulatedCostCents
-      ? await this.config.getAccumulatedCostCents()
-      : 0
-    return Number.isFinite(raw) ? raw : 0
   }
 }

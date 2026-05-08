@@ -39,7 +39,7 @@ import {
   type ToolLoopResult,
   type ToolStat,
 } from './tool-loop.js'
-import type { ExecuteGenerateRunParams } from './run-engine.js'
+import type { ExecuteGenerateRunParams } from './run-engine/types.js'
 import { extractFinalAiMessageContent } from './message-utils.js'
 import { ReflectionAnalyzer } from '../reflection/reflection-analyzer.js'
 import { buildWorkflowEventsFromToolStats } from '../reflection/learning-bridge.js'

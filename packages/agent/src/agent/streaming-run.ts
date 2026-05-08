@@ -1,26 +1,22 @@
 /**
- * Streaming run execution — extracted from DzupAgent.stream() body.
+ * Streaming run coordinator (MC-026b-1).
  *
- * Holds the full ReAct streaming loop (native-stream fast path plus
+ * Drives the ReAct streaming loop (native-stream fast path plus
  * non-stream fallback) so that `DzupAgent.stream()` can remain a thin
- * wrapper that forwards to {@link streamRun}. This module contains no
- * state of its own; it receives everything it needs via a single
- * `StreamRunContext` argument.
+ * wrapper. State-free: receives everything it needs via a single
+ * {@link StreamRunContext}.
  *
- * Keeping the implementation out of `dzip-agent.ts` keeps that class
- * at a manageable size (~400 LOC ceiling) and lets us unit-test the
- * streaming loop in isolation without instantiating a full agent.
+ * Sibling modules:
+ *  - `streaming-run-types.ts`        — {@link StreamRunContext}
+ *  - `streaming-run-provider.ts`     — multi-provider failover open
+ *  - `streaming-run-policy.ts`       — public tool-execution surface
+ *  - `streaming-run-iteration.ts`    — per-iteration stream helpers
+ *  - `streaming-run-tool-handler.ts` — per-tool-call batch dispatch
  */
 
-import {
-  type AIMessage,
-  type BaseMessage,
-} from '@langchain/core/messages'
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { StructuredToolInterface } from '@langchain/core/tools'
-import { extractTokenUsage, estimateTokens, isTransientError, type TokenUsage, type ModelRegistry } from '@dzupagent/core/llm'
+import type { BaseMessage } from '@langchain/core/messages'
+import type { TokenUsage } from '@dzupagent/core/llm'
 import type {
-  DzupAgentConfig,
   GenerateOptions,
   AgentStreamEvent,
 } from './agent-types.js'
@@ -29,150 +25,22 @@ import {
   emitStopReasonTelemetry,
   applyOutputFilter,
   executeGenerateRun,
-  executeStreamingToolCall,
   prepareRunState,
   type ExecuteGenerateRunParams,
   type PrepareRunStateParams,
-  type StreamingToolPolicyOptions,
 } from './run-engine.js'
 import { omitUndefined } from '../utils/exact-optional.js'
-import { attemptWithFailover } from './provider-failover.js'
+import { buildStreamingToolPolicy } from './streaming-run-policy.js'
+import { handleStreamToolCalls } from './streaming-run-tool-handler.js'
+import {
+  consumeStream,
+  maybeAdoptCompression,
+  openIterationStream,
+  recordIterationUsage,
+} from './streaming-run-iteration.js'
+import type { StreamRunContext } from './streaming-run-types.js'
 
-/**
- * Callbacks and configuration a streaming run needs from its owning agent.
- *
- * The agent supplies closures over its private state (model, tools, memory,
- * middleware, summary cache) without exposing those internals publicly.
- */
-export interface StreamRunContext {
-  agentId: string
-  config: DzupAgentConfig
-  resolvedModel: BaseChatModel
-  /**
-   * Provider name returned by the registry when tier-based fallback was
-   * used at agent construction time. Carries the selected provider into the
-   * native streaming path so that stream success/failure can be recorded
-   * against the same circuit breaker the non-streaming path uses.
-   *
-   * Selection-time only: this provider is fixed for the lifetime of the
-   * run; we do not switch providers mid-stream on transient failure.
-   * `undefined` when the agent was constructed with an explicit model
-   * instance or a model resolved by name (no fallback chain in play).
-   */
-  resolvedProvider?: string | undefined
-  resolvedTier?: string | undefined
-  /**
-   * Registry used to resolve {@link resolvedProvider}. Required to thread
-   * native-stream outcomes back to the circuit breaker via
-   * `recordProviderSuccess` / `recordProviderFailure`. `undefined` when
-   * `resolvedProvider` is also `undefined`.
-   */
-  registry?: ModelRegistry | undefined
-  getProviderAttempts?: (tools: StructuredToolInterface[]) => ProviderAttempt[]
-  prepareMessages: (messages: BaseMessage[]) => Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }>
-  getTools: () => StructuredToolInterface[]
-  bindTools: (model: BaseChatModel, tools: StructuredToolInterface[]) => BaseChatModel
-  runBeforeAgentHooks: () => Promise<void>
-  invokeModelWithMiddleware: (
-    model: BaseChatModel,
-    messages: BaseMessage[],
-    tools?: StructuredToolInterface[],
-  ) => Promise<BaseMessage>
-  transformToolResultWithMiddleware: (
-    toolName: string,
-    input: Record<string, unknown>,
-    result: string,
-  ) => Promise<string>
-  maybeUpdateSummary: (messages: BaseMessage[], memoryFrame?: unknown) => Promise<void>
-  maybeWriteBackMemory: (content: string, runId?: string) => Promise<void>
-}
-
-type StreamableModel = BaseChatModel & {
-  stream: (msgs: BaseMessage[]) => Promise<AsyncIterable<AIMessage>>
-}
-
-interface ProviderAttempt {
-  provider: string
-  modelName: string
-  model: BaseChatModel
-}
-
-function hasToolResults(messages: BaseMessage[]): boolean {
-  return messages.some(message => message._getType() === 'tool')
-}
-
-function shouldRunStreamFailover(
-  ctx: StreamRunContext,
-  error: Error,
-  messages: BaseMessage[],
-): boolean {
-  const policy = ctx.config.providerFailover
-  if (!policy?.enabled) return false
-  if (hasToolResults(messages) && !policy.allowRetryAfterToolResults) {
-    return false
-  }
-  return policy.shouldRetry?.(error) ?? isTransientError(error)
-}
-
-function emitProviderRunEvent(
-  ctx: StreamRunContext,
-  event: {
-    type: 'provider:run_attempt' | 'provider:run_failure' | 'provider:run_selected'
-    attempt: number
-    maxAttempts?: number
-    provider: string
-    model: string
-    phase: 'stream'
-    reason?: string
-    retrying?: boolean
-  },
-): void {
-  const bus = ctx.config.eventBus
-  if (!bus) return
-  const base = { agentId: ctx.agentId, attempt: event.attempt, provider: event.provider, model: event.model, phase: event.phase } as const
-  if (event.type === 'provider:run_failure') {
-    bus.emit({ type: 'provider:run_failure', ...base, reason: event.reason ?? '', retrying: event.retrying ?? false })
-  } else if (event.type === 'provider:run_attempt') {
-    bus.emit({ type: 'provider:run_attempt', ...base, maxAttempts: event.maxAttempts ?? 1 })
-  } else {
-    bus.emit({ type: 'provider:run_selected', ...base })
-  }
-}
-
-async function openStreamWithProviderFailover(
-  ctx: StreamRunContext,
-  attempts: ProviderAttempt[],
-  messages: BaseMessage[],
-): Promise<{
-  stream: AsyncIterable<AIMessage>
-  provider: string
-  modelName: string
-  attempt: number
-}> {
-  return attemptWithFailover<{
-    stream: AsyncIterable<AIMessage>
-    provider: string
-    modelName: string
-    attempt: number
-  }>({
-    attempts,
-    phase: 'stream',
-    agentId: ctx.agentId,
-    eventBus: ctx.config.eventBus,
-    registry: ctx.registry,
-    shouldRetry: (err) => shouldRunStreamFailover(ctx, err, messages),
-    execute: async (candidate, attemptNumber) => {
-      const streamable = candidate.model as StreamableModel
-      const stream = await streamable.stream(messages)
-      return {
-        stream,
-        provider: candidate.provider,
-        modelName: candidate.modelName,
-        attempt: attemptNumber,
-      }
-    },
-  })
-}
+export type { StreamRunContext } from './streaming-run-types.js'
 
 /**
  * Run the agent's streaming loop, yielding {@link AgentStreamEvent}s.
@@ -215,7 +83,11 @@ export async function* streamRun(
     ? omitUndefined({ ...(options ?? {}), onUsage: wrappedOnUsage })
     : options
 
-  if (!('stream' in runState.model) || typeof runState.model.stream !== 'function' || usesModelWrapper) {
+  if (
+    !('stream' in runState.model)
+    || typeof runState.model.stream !== 'function'
+    || usesModelWrapper
+  ) {
     const result = await executeGenerateRun(omitUndefined<ExecuteGenerateRunParams>({
       agentId: ctx.agentId,
       config: ctx.config,
@@ -246,13 +118,19 @@ export async function* streamRun(
     return
   }
 
-  const streamModel = runState.model as StreamableModel
   const allMessages = [...runState.preparedMessages]
   const toolStats = createToolStatTracker()
   let llmCalls = 0
 
   const finalizeRun = async (
-    stopReason: 'complete' | 'iteration_limit' | 'budget_exceeded' | 'aborted' | 'stuck' | 'approval_pending' | 'token_exhausted',
+    stopReason:
+      | 'complete'
+      | 'iteration_limit'
+      | 'budget_exceeded'
+      | 'aborted'
+      | 'stuck'
+      | 'approval_pending'
+      | 'token_exhausted',
     content?: string,
   ) => {
     if (stopReason === 'token_exhausted') {
@@ -273,6 +151,8 @@ export async function* streamRun(
       await ctx.maybeWriteBackMemory(content ?? '', resolveMemoryRunId(ctx, options))
     }
   }
+
+  const streamingPolicy = buildStreamingToolPolicy(ctx, options)
 
   for (let iteration = 0; iteration < runState.maxIterations; iteration++) {
     if (options?.signal?.aborted) {
@@ -297,85 +177,17 @@ export async function* streamRun(
     }
 
     const chunks: string[] = []
-    // Record native streaming outcomes against the same circuit breaker the
-    // non-streaming path feeds via `invokeModelWithMiddleware`. We follow the
-    // selection-time-only fallback model: success/failure is recorded for the
-    // single provider chosen at construction; we never switch providers
-    // mid-run on a transient failure. The breaker state opens the circuit at
-    // the next agent construction (or wherever else `getModelWithFallback`
-    // is consulted).
-    let stream: AsyncIterable<AIMessage>
-    let activeProvider = ctx.resolvedProvider
-    let activeModelName = (runState.model as BaseChatModel & { model?: string }).model
-      ?? ctx.resolvedProvider
-      ?? 'unknown'
-    let activeAttempt = 1
-    const attempts = ctx.getProviderAttempts?.(runState.tools) ?? []
-    if (attempts.length > 1) {
-      const opened = await openStreamWithProviderFailover(ctx, attempts, allMessages)
-      stream = opened.stream
-      activeProvider = opened.provider
-      activeModelName = opened.modelName
-      activeAttempt = opened.attempt
-    } else {
-      try {
-        stream = await streamModel.stream(allMessages)
-        // Single-provider path: record success-on-open against the
-        // selection-time provider so the circuit breaker sees the same
-        // signal `attemptWithFailover` produces for the multi-provider
-        // path. A subsequent failure during stream consumption is
-        // recorded as a failure below — both signals are valid breaker
-        // input for an opened-then-broken stream (e.g. a transient
-        // mid-stream disconnect).
-        if (ctx.resolvedProvider && ctx.registry) {
-          ctx.registry.recordProviderSuccess(ctx.resolvedProvider)
-        }
-      } catch (err) {
-        if (ctx.resolvedProvider && ctx.registry) {
-          const asError = err instanceof Error ? err : new Error(String(err))
-          ctx.registry.recordProviderFailure(ctx.resolvedProvider, asError)
-        }
-        throw err
-      }
-    }
+    const opened = await openIterationStream(ctx, runState, allMessages)
     llmCalls += 1
 
-    let fullResponse: AIMessage | null = null
-    try {
-      for await (const chunk of stream) {
-        fullResponse = chunk
-        const content = typeof chunk.content === 'string' ? chunk.content : ''
-        if (content) {
-          chunks.push(content)
-          yield { type: 'text', data: { content } }
-        }
-      }
-    } catch (err) {
-      // Bug fix (RF-04): the previous code only recorded
-      // `recordProviderFailure` here when stream consumption threw, but
-      // never recorded `recordProviderSuccess` for the *open* outcome.
-      // Success is now recorded at open time (above for single-provider,
-      // inside `attemptWithFailover` for multi-provider). This catch
-      // block still records the consumption-time failure so the breaker
-      // sees an opened-then-broken stream as both — which matches its
-      // semantics for transient mid-stream disconnects.
-      if (activeProvider && ctx.registry) {
-        const asError = err instanceof Error ? err : new Error(String(err))
-        ctx.registry.recordProviderFailure(activeProvider, asError)
-        if (ctx.config.providerFailover?.enabled) {
-          emitProviderRunEvent(ctx, {
-            type: 'provider:run_failure',
-            attempt: activeAttempt,
-            provider: activeProvider,
-            model: activeModelName,
-            phase: 'stream',
-            reason: asError.message,
-            retrying: false,
-          })
-        }
-      }
-      throw err
-    }
+    const fullResponse = yield* consumeStream({
+      stream: opened.stream,
+      chunks,
+      activeProvider: opened.activeProvider,
+      activeModelName: opened.activeModelName,
+      activeAttempt: opened.activeAttempt,
+      ctx,
+    })
 
     if (!fullResponse) {
       continue
@@ -383,52 +195,20 @@ export async function* streamRun(
 
     allMessages.push(fullResponse)
 
-    {
-      const realUsage = extractTokenUsage(fullResponse, activeModelName)
-      const hasRealUsage = realUsage.inputTokens > 0 || realUsage.outputTokens > 0
-      const usage: TokenUsage = hasRealUsage
-        ? realUsage
-        : {
-            model: realUsage.model,
-            inputTokens: estimateTokens(
-              allMessages.map(message =>
-                typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
-              ).join(''),
-            ),
-            outputTokens: estimateTokens(chunks.join('')),
-          }
-
-      // Forward usage to the token lifecycle plugin and user callback so the
-      // native streaming path mirrors the non-streaming fallback.
-      wrappedOnUsage?.(usage)
-
-      if (runState.budget) {
-        const warnings = runState.budget.recordUsage(usage)
-        for (const warning of warnings) {
-          yield { type: 'budget_warning', data: { message: warning.message } }
-        }
-      }
-    }
+    yield* recordIterationUsage(omitUndefined({
+      fullResponse,
+      allMessages,
+      chunks,
+      activeModelName: opened.activeModelName,
+      runState,
+      wrappedOnUsage,
+    }))
 
     // Token lifecycle auto-compression — invoked AFTER usage has been
     // recorded for the full streamed response and BEFORE halt/tool checks.
     // This mirrors the non-streaming tool loop so compressed histories are
     // adopted before any subsequent tool/model turn.
-    if (tokenPlugin) {
-      try {
-        const compressResult = await tokenPlugin.maybeCompress(
-          allMessages,
-          runState.model,
-          null,
-        )
-        if (compressResult.compressed) {
-          allMessages.length = 0
-          allMessages.push(...compressResult.messages)
-        }
-      } catch {
-        // Compression is best-effort and must not abort an active stream.
-      }
-    }
+    await maybeAdoptCompression(ctx, allMessages, runState)
 
     // Token lifecycle halt check — evaluated after compression adoption but
     // before tool execution, matching generate() parity for exhausted tokens.
@@ -457,138 +237,18 @@ export async function* streamRun(
       return
     }
 
-    // MJ-AGENT-02 — resolve the public toolExecution policy bundle so the
-    // native streaming path enforces the same governance, permission,
-    // validation, timeout, safety, and tracing controls as
-    // {@link executeGenerateRun} (which threads them via MJ-AGENT-01).
-    // Without this, native stream() ran a "lite" executor that only
-    // checked budget block + tool existence, leaving the policy stack
-    // unenforced for any agent that opted in via DzupAgentConfig.
-    const toolExec = ctx.config.toolExecution
-    const resolvedSafetyMonitor =
-      toolExec?.safetyMonitor ?? toolExec?.resultScanner
-    const streamingPolicy: StreamingToolPolicyOptions | undefined = toolExec
-      ? {
-          ...(toolExec.governance !== undefined
-            ? { toolGovernance: toolExec.governance }
-            : {}),
-          ...(toolExec.permissionPolicy !== undefined
-            ? { toolPermissionPolicy: toolExec.permissionPolicy }
-            : {}),
-          ...(toolExec.argumentValidator !== undefined
-            ? { validateToolArgs: toolExec.argumentValidator }
-            : {}),
-          ...(toolExec.timeouts !== undefined
-            ? { toolTimeouts: toolExec.timeouts }
-            : {}),
-          ...(resolvedSafetyMonitor !== undefined
-            ? { safetyMonitor: resolvedSafetyMonitor }
-            : {}),
-          ...(toolExec.scanToolResults !== undefined
-            ? { scanToolResults: toolExec.scanToolResults }
-            : {}),
-          ...(toolExec.scanFailureMode !== undefined
-            ? { scanFailureMode: toolExec.scanFailureMode }
-            : {}),
-          ...(toolExec.tracer !== undefined ? { tracer: toolExec.tracer } : {}),
-          // agentId / runId mirror the executeGenerateRun fallback: when
-          // `toolExecution` is provided, fall back to the surrounding agent
-          // id so canonical lifecycle events carry provenance.
-          agentId: toolExec.agentId ?? ctx.agentId,
-          ...(toolExec.runId !== undefined ? { runId: toolExec.runId } : {}),
-          // Route policy/lifecycle events to the same bus the agent uses
-          // for `tool:latency` / `llm:invoked`, only when `toolExecution`
-          // is configured (preserves the pre-MJ-AGENT-02 surface for
-          // unconfigured callers).
-          ...(ctx.config.eventBus !== undefined
-            ? { eventBus: ctx.config.eventBus }
-            : {}),
-          ...(options?.signal !== undefined ? { signal: options.signal } : {}),
-        }
-      : undefined
+    const outcome = yield* handleStreamToolCalls(ctx, toolCalls, {
+      runState,
+      allMessages,
+      toolStats,
+      streamingPolicy,
+      options,
+    })
 
-    for (const toolCall of toolCalls) {
-      yield { type: 'tool_call', data: { name: toolCall.name, args: toolCall.args } }
-
-      let execution: Awaited<ReturnType<typeof executeStreamingToolCall>>
-      try {
-        execution = await executeStreamingToolCall(omitUndefined<Parameters<typeof executeStreamingToolCall>[0]>({
-          toolCall,
-          toolMap: runState.toolMap,
-          budget: runState.budget,
-          stuckDetector: runState.stuckDetector,
-          transformToolResult: (toolName, input, result) =>
-            ctx.transformToolResultWithMiddleware(toolName, input, result),
-          onToolLatency: (name, durationMs, error) => {
-            ctx.config.eventBus?.emit({
-              type: 'tool:latency',
-              toolName: name,
-              durationMs,
-              ...(error !== undefined ? { error } : {}),
-            })
-          },
-          statTracker: toolStats,
-          ...(options?.signal !== undefined ? { signal: options.signal } : {}),
-          ...(streamingPolicy ? { policy: streamingPolicy } : {}),
-        }))
-      } catch (err) {
-        // The policy-enabled tool execution stage throws on permission
-        // denial (TOOL_PERMISSION_DENIED). Match the non-streaming path's
-        // behaviour: surface the error to the caller and end the run.
-        const message = err instanceof Error ? err.message : String(err)
-        yield { type: 'error', data: { message } }
-        await finalizeRun('aborted')
-        yield { type: 'done', data: { stopReason: 'aborted' } }
-        return
-      }
-
-      allMessages.push(execution.message)
-      // Charge tool-result bytes against the token lifecycle plugin so
-      // the streaming path mirrors the non-streaming executor in its
-      // per-phase breakdown contributions.
-      if (tokenPlugin && execution.eventResult) {
-        tokenPlugin.trackPhase('tool-result', estimateTokens(execution.eventResult))
-      }
-      yield {
-        type: 'tool_result',
-        data: { name: toolCall.name, result: execution.eventResult },
-      }
-
-      if (execution.approvalPending) {
-        await finalizeRun('approval_pending')
-        yield { type: 'done', data: { stopReason: 'approval_pending' } }
-        return
-      }
-
-      if (execution.stuckReason && execution.stuckRecovery) {
-        yield {
-          type: 'stuck',
-          data: {
-            reason: execution.stuckReason,
-            recovery: execution.stuckRecovery,
-            ...(execution.repeatedTool ? { repeatedTool: execution.repeatedTool } : {}),
-          },
-        }
-        ctx.config.eventBus?.emit({
-          type: 'agent:stuck_detected',
-          agentId: ctx.agentId,
-          reason: execution.stuckReason,
-          recovery: execution.stuckRecovery,
-          timestamp: Date.now(),
-          ...(execution.repeatedTool ? { repeatedTool: execution.repeatedTool } : {}),
-          escalationLevel: execution.shouldStop ? 3 : 1,
-        })
-
-        if (execution.stuckNudge) {
-          allMessages.push(execution.stuckNudge)
-        }
-
-        if (execution.shouldStop) {
-          await finalizeRun('stuck')
-          yield { type: 'done', data: { stopReason: 'stuck' } }
-          return
-        }
-      }
+    if (outcome.status === 'stop') {
+      await finalizeRun(outcome.stopReason)
+      yield { type: 'done', data: { stopReason: outcome.stopReason } }
+      return
     }
 
     if (runState.stuckDetector) {
