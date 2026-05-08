@@ -453,6 +453,7 @@ export type {
   StreamContext,
   ThreadStartResult,
 } from './base/stream-runner.js'
+export { CliAdapterStreamSource } from './base/cli-stream-source.js'
 export { validateWebhookUrl } from './utils/url-validator.js'
 export { resolveFallbackProviderId, requireFallbackProviderId } from './utils/provider-helpers.js'
 export type { UrlValidationOptions } from './utils/url-validator.js'

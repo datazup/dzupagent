@@ -1,4 +1,21 @@
 {
+  // -------------------------------------------------------------------------
+  // runtime-contracts is a *pure* contract package. It must not pull in
+  // DOM types or @types/node so downstream packages (browser, Node, edge)
+  // can consume it without environmental bias.
+  //
+  // - `lib: ["ES2022"]` gives us Promise, Map, Set, Iterable, AsyncIterable
+  //   and Error.cause without DOM globals.
+  // - `types: []` opts out of automatic @types/* inclusion (notably
+  //   @types/node), so we never accidentally rely on Node-only globals.
+  //
+  // Because of these two settings, `AbortSignal` is NOT visible as a global
+  // type here. The package therefore exports a structural `CancellationSignal`
+  // shape (see src/pipeline.ts) — real `AbortSignal` instances at the call
+  // site are structurally compatible. If you ever need to widen this lib
+  // set, prefer adding only the smallest ES* lib needed; do not add `dom`
+  // or `@types/node` without explicit ADR approval.
+  // -------------------------------------------------------------------------
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",

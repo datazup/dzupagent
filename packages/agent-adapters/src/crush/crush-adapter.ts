@@ -1,10 +1,12 @@
 /**
  * Crush CLI adapter for local code-oriented model runners.
  *
- * TODO L-06: migrate to AdapterStreamRunner. Currently inherits from
- * BaseCliAdapter; CLI subprocess streams could be wrapped in an
- * AdapterStreamSource so heartbeat, audit, and abort semantics are shared
- * with SDK-based adapters.
+ * Streaming lifecycle: inherits from {@link BaseCliAdapter}, which already
+ * composes {@link AdapterStreamRunner} — heartbeat, abort, and audit
+ * semantics are shared with the SDK-backed adapters. For bespoke CLI
+ * shapes that need to bypass `BaseCliAdapter`, see
+ * {@link CliAdapterStreamSource} in `../base/cli-stream-source.ts`.
+ * (REC-L-06 closed — see audit closure 2026-05-08.)
  */
 
 import { ForgeError } from '@dzupagent/core/events'

@@ -4,10 +4,13 @@
  * Qwen models are commonly exposed through OpenAI-compatible endpoints, but
  * this adapter targets the CLI surface used by local or wrapped deployments.
  *
- * TODO L-06: migrate to AdapterStreamRunner. Currently inherits from
- * BaseCliAdapter which manages its own subprocess streaming. A future refactor
- * could expose an AdapterStreamSource<RawCliEvent> wrapper so CLI adapters
- * share the same lifecycle, heartbeat, and audit emission as SDK adapters.
+ * Streaming lifecycle: this adapter inherits from {@link BaseCliAdapter},
+ * which already composes {@link AdapterStreamRunner} internally — so it
+ * shares the same heartbeat, abort, and audit emission as the SDK-backed
+ * adapters (Claude/Codex). For bespoke CLI shapes that cannot live inside
+ * `BaseCliAdapter.execute()`, see {@link CliAdapterStreamSource} in
+ * `../base/cli-stream-source.ts`. (REC-L-06 closed — see audit closure
+ * 2026-05-08.)
  */
 
 import { ForgeError } from '@dzupagent/core/events'

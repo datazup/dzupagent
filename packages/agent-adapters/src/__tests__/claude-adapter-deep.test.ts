@@ -118,6 +118,89 @@ describe('ClaudeAgentAdapter — deep coverage', () => {
       })
     })
 
+    it('propagates cache_read_input_tokens (raw Anthropic API field) → cachedInputTokens', async () => {
+      mockQuery.mockReturnValue(
+        asyncIterableOf([
+          sysMsg(),
+          resultSuccess({
+            usage: { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 600 },
+          }),
+        ]),
+      )
+      const events = await collectEvents(adapter.execute({ prompt: 'p' }))
+      const completed = events.find(e => e.type === 'adapter:completed') as Extract<
+        AgentEvent,
+        { type: 'adapter:completed' }
+      >
+      expect(completed.usage).toMatchObject({
+        inputTokens: 1000,
+        outputTokens: 200,
+        cachedInputTokens: 600,
+      })
+    })
+
+    it('propagates cache_creation_input_tokens → cacheWriteTokens', async () => {
+      mockQuery.mockReturnValue(
+        asyncIterableOf([
+          sysMsg(),
+          resultSuccess({
+            usage: {
+              input_tokens: 1000,
+              output_tokens: 200,
+              cache_creation_input_tokens: 400,
+            },
+          }),
+        ]),
+      )
+      const events = await collectEvents(adapter.execute({ prompt: 'p' }))
+      const completed = events.find(e => e.type === 'adapter:completed') as Extract<
+        AgentEvent,
+        { type: 'adapter:completed' }
+      >
+      expect(completed.usage?.cacheWriteTokens).toBe(400)
+    })
+
+    it('emits adapter:cache_stats when cache tokens are present', async () => {
+      mockQuery.mockReturnValue(
+        asyncIterableOf([
+          sysMsg('sess-cache'),
+          resultSuccess({
+            sessionId: 'sess-cache',
+            usage: {
+              input_tokens: 2000,
+              output_tokens: 100,
+              cache_read_input_tokens: 800,
+              cache_creation_input_tokens: 200,
+            },
+          }),
+        ]),
+      )
+      const events = await collectEvents(adapter.execute({ prompt: 'p' }))
+      const cacheStats = events.find(e => e.type === 'adapter:cache_stats') as Extract<
+        AgentEvent,
+        { type: 'adapter:cache_stats' }
+      >
+      expect(cacheStats).toBeDefined()
+      expect(cacheStats.cacheReadTokens).toBe(800)
+      expect(cacheStats.cacheWriteTokens).toBe(200)
+      expect(cacheStats.totalInputTokens).toBe(2000)
+      expect(cacheStats.cacheHitRatio).toBeCloseTo(0.4, 5)
+      expect(cacheStats.sessionId).toBe('sess-cache')
+    })
+
+    it('does NOT emit adapter:cache_stats when no cache tokens present', async () => {
+      mockQuery.mockReturnValue(
+        asyncIterableOf([
+          sysMsg(),
+          resultSuccess({
+            usage: { input_tokens: 100, output_tokens: 50 },
+          }),
+        ]),
+      )
+      const events = await collectEvents(adapter.execute({ prompt: 'p' }))
+      expect(events.find(e => e.type === 'adapter:cache_stats')).toBeUndefined()
+    })
+
     it('omits cachedInputTokens when not provided', async () => {
       mockQuery.mockReturnValue(
         asyncIterableOf([

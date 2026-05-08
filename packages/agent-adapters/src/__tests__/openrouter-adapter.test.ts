@@ -196,7 +196,9 @@ describe('OpenRouterAdapter', () => {
       })(),
     )
 
-    expect(capturedSignal?.aborted).toBe(true)
+    // capturedSignal may be undefined if abort fires before fetch is reached (SSRF throwIfAborted)
+    // or true if abort fires after fetch starts. Either way abort must have propagated.
+    expect(capturedSignal === undefined || capturedSignal.aborted).toBe(true)
     const types = events.map((e) => e.type)
     expect(types).toEqual(['adapter:started', 'adapter:failed'])
     const failed = events[1]
