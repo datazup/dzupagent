@@ -139,6 +139,9 @@
           "packages/server/src/routes/clusters.ts",
           "packages/server/src/routes/deploy.ts",
           "packages/server/src/routes/evals.ts",
+          "packages/server/src/routes/learning-handlers-content.ts",
+          "packages/server/src/routes/learning-handlers-dashboard.ts",
+          "packages/server/src/routes/learning-handlers-feedback.ts",
           "packages/server/src/routes/learning.ts",
           "packages/server/src/routes/mailbox.ts",
           "packages/server/src/routes/marketplace.ts",
@@ -182,6 +185,7 @@
           "packages/server/src/routes/compile/stage-stream-handler.ts",
           "packages/server/src/routes/deploy-types.ts",
           "packages/server/src/routes/evals-types.ts",
+          "packages/server/src/routes/learning-schemas.ts",
           "packages/server/src/routes/learning-types.ts",
           "packages/server/src/routes/memory-health-types.ts",
           "packages/server/src/routes/run-context-types.ts",
@@ -482,37 +486,57 @@
             "POST /api/runs/:id/human-contact/:contactId/respond"
           ]
         },
-        "packages/server/src/routes/learning.ts": {
+        "packages/server/src/routes/learning-handlers-content.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/learning"
+          ],
+          "endpoints": [
+            "GET /lessons",
+            "GET /rules",
+            "POST /ingest"
+          ],
+          "mountedEndpoints": [
+            "GET /api/learning/lessons",
+            "GET /api/learning/rules",
+            "POST /api/learning/ingest"
+          ]
+        },
+        "packages/server/src/routes/learning-handlers-dashboard.ts": {
           "category": "compatibility-maintenance",
           "mounts": [
             "/api/learning"
           ],
           "endpoints": [
             "GET /dashboard",
-            "GET /feedback/stats",
-            "GET /lessons",
             "GET /nodes",
             "GET /overview",
-            "GET /rules",
-            "GET /skill-packs",
             "GET /trends/cost",
-            "GET /trends/quality",
-            "POST /feedback",
-            "POST /ingest",
-            "POST /skill-packs/load"
+            "GET /trends/quality"
           ],
           "mountedEndpoints": [
             "GET /api/learning/dashboard",
-            "GET /api/learning/feedback/stats",
-            "GET /api/learning/lessons",
             "GET /api/learning/nodes",
             "GET /api/learning/overview",
-            "GET /api/learning/rules",
-            "GET /api/learning/skill-packs",
             "GET /api/learning/trends/cost",
-            "GET /api/learning/trends/quality",
+            "GET /api/learning/trends/quality"
+          ]
+        },
+        "packages/server/src/routes/learning-handlers-feedback.ts": {
+          "category": "compatibility-maintenance",
+          "mounts": [
+            "/api/learning"
+          ],
+          "endpoints": [
+            "GET /feedback/stats",
+            "GET /skill-packs",
+            "POST /feedback",
+            "POST /skill-packs/load"
+          ],
+          "mountedEndpoints": [
+            "GET /api/learning/feedback/stats",
+            "GET /api/learning/skill-packs",
             "POST /api/learning/feedback",
-            "POST /api/learning/ingest",
             "POST /api/learning/skill-packs/load"
           ]
         },
