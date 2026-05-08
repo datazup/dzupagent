@@ -11,6 +11,7 @@
  * (compression triggers, budget warnings, fragment composers) can treat
  * tokenizers as cheap, predictable utilities.
  */
+import { createRequire } from 'node:module'
 import type { BaseMessage } from '@langchain/core/messages'
 
 /** Generic chat-message shape compatible with LangChain BaseMessage and plain objects. */
@@ -72,44 +73,29 @@ export class HeuristicTokenizer implements Tokenizer {
 }
 
 /**
+ * Synchronous ESM-to-CJS bridge. `createRequire(import.meta.url)` is the
+ * canonical Node pattern for loading optional CommonJS dependencies from an
+ * ESM module without breaking the build when those deps are absent. We keep
+ * it synchronous because `countTokens()` is part of the public tokenizer
+ * surface and is called from hot paths (compression triggers, fragment
+ * composers) where awaiting an async import is not acceptable.
+ *
+ * `@dzupagent/core` targets `node20` (see tsup config) and is not bundled
+ * for browsers, so the static `node:module` import is safe.
+ */
+const requireOptional: (id: string) => unknown = createRequire(import.meta.url)
+
+/**
  * Attempt to load an optional tokenizer backend without breaking the build
- * when the dependency is not installed. Uses a dynamic, runtime resolution
- * via `Function('return import(...)')` to defer to ESM dynamic import while
- * keeping bundlers from statically following the path.
+ * when the dependency is not installed. Synchronous; returns null on any
+ * failure so callers can fall back to the heuristic estimator.
  */
 function tryLoadOptionalSync<T = unknown>(moduleId: string): T | null {
-  // We avoid top-level `import` so missing optional deps don't break the build.
-  // We try CommonJS `require` first (works under tsx/node ESM with createRequire),
-  // then fall back to nothing — async dynamic import is not safe here because
-  // countTokens must remain synchronous.
-  // Narrow shape of the globals we probe. Properties are optional because
-  // they're only defined in CommonJS / Node / webpack environments.
-  const g = globalThis as unknown as {
-    require?: (id: string) => unknown
-    process?: { cwd?: () => string }
-    __non_webpack_require__?: (id: string) => unknown
-  }
   try {
-    const req = g.require
-    if (typeof req === 'function') {
-      return req(moduleId) as T
-    }
+    return requireOptional(moduleId) as T
   } catch {
-    // fall through
+    return null
   }
-  try {
-    // Node ESM: use createRequire on import.meta.url-style fallback via process.cwd().
-    // We avoid importing 'module' statically; lazy access keeps browser builds clean.
-    const proc = g.process
-    if (!proc?.cwd) return null
-    const nodeModule = g.__non_webpack_require__ ?? null
-    if (typeof nodeModule === 'function') {
-      return nodeModule(moduleId) as T
-    }
-  } catch {
-    // fall through
-  }
-  return null
 }
 
 /**
