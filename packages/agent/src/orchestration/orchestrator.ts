@@ -5,116 +5,44 @@
  * - Sequential: A -> B -> C (pipeline)
  * - Parallel: A, B, C concurrently, results merged
  * - Supervisor: Manager delegates to specialists via tool calling
+ *   (implementation lives in {@link ./supervisor-runner.ts})
  * - Debate: Multiple proposers, judge selects best
+ * - Contract-net: Manager announces task, specialists bid, best bidder
+ *   executes (delegated to {@link ./contract-net/contract-net-manager.ts})
+ *
+ * Type definitions for the supervisor surface live in
+ * {@link ./supervisor-types.ts} and are re-exported here for backwards
+ * compatibility.
  */
 import { HumanMessage } from '@langchain/core/messages'
-import { defaultLogger } from '@dzupagent/core/utils'
-import type { DzupEventBus } from '@dzupagent/core/events'
-import type { BaseSupervisorContract } from '@dzupagent/agent-types'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import { OrchestrationError } from './orchestration-error.js'
 import { ContractNetManager } from './contract-net/contract-net-manager.js'
 import type { ContractNetConfig, ContractResult } from './contract-net/contract-net-types.js'
-import type { ProviderExecutionPort } from './provider-adapter/provider-execution-port.js'
-import type { RoutingPolicy, AgentSpec, AgentTask } from './routing-policy-types.js'
-import type { OrchestrationMergeStrategy } from './orchestration-merge-strategy-types.js'
 import type { AgentCircuitBreaker } from './circuit-breaker.js'
-import { omitUndefined } from '../utils/exact-optional.js'
+import type { OrchestrationMergeStrategy } from './orchestration-merge-strategy-types.js'
 import {
   recordParallelCircuitBreakerOutcomes,
   renderMergedParallelOutput,
   toParallelAgentResults,
 } from './parallel-orchestration-results.js'
-import { instrumentSpecialistTool } from './specialist-tool-instrumentation.js'
 import { runAllConcurrently, runConcurrently } from './concurrency-runner.js'
+import { clearSupervisorCache, runSupervisor } from './supervisor-runner.js'
+import type { MergeFn, SupervisorConfig, SupervisorResult } from './supervisor-types.js'
 
-export interface SupervisorConfig extends BaseSupervisorContract<DzupAgent> {
-  /** The manager agent that coordinates specialists */
-  manager: DzupAgent
-  /** Specialist agents to be exposed as tools to the manager */
-  specialists: DzupAgent[]
-  /** The task to delegate */
-  task: string
-  /** If true, run a lightweight health check on each specialist before exposing it */
-  healthCheck?: boolean
-  /** Abort signal for cancellation */
-  signal?: AbortSignal
-  /** Event bus for structured supervisor routing diagnostics */
-  eventBus?: DzupEventBus
-  /**
-   * Execution mode for the supervisor.
-   * - `'agent'` (default): use DzupAgent for execution
-   * - `'provider-adapter'`: route via the injected `providerPort`
-   */
-  executionMode?: 'agent' | 'provider-adapter'
-  /**
-   * Provider execution port for adapter-based execution.
-   * Required when `executionMode` is `'provider-adapter'`.
-   * Ignored when `executionMode` is `'agent'` or unset.
-   */
-  providerPort?: ProviderExecutionPort
-  /**
-   * Pluggable routing policy for specialist selection.
-   * When set, filters/selects specialists before exposing them to the manager.
-   */
-  routingPolicy?: RoutingPolicy
-  /**
-   * Pluggable merge strategy for combining parallel agent results.
-   * Used by the `parallel` method when provided.
-   */
-  mergeStrategy?: OrchestrationMergeStrategy
-  /**
-   * Circuit breaker for excluding unhealthy specialists.
-   * When set, specialists with tripped circuits are filtered out.
-   */
-  circuitBreaker?: AgentCircuitBreaker
-}
-
-export interface SupervisorResult {
-  /** The final text output from the manager */
-  content: string
-  /** Which specialist tools were available to the manager */
-  availableSpecialists: string[]
-  /** Which specialists were filtered out by health check */
-  filteredSpecialists: string[]
-}
-
-export type MergeFn = (results: string[]) => string | Promise<string>
+export type { MergeFn, SupervisorConfig, SupervisorResult } from './supervisor-types.js'
 
 const defaultMerge: MergeFn = (results) =>
   results.map((r, i) => `--- Agent ${i + 1} ---\n${r}`).join('\n\n')
 
 export class AgentOrchestrator {
   /**
-   * Cache of manager-with-tools `DzupAgent` instances keyed by manager object
-   * identity and sorted specialist ids. Constructing the supervisor
-   * `DzupAgent` is non-trivial (model bind, instruction templating,
-   * tool wiring), so when a stable specialist set is reused across
-   * many supervisor() calls, we reuse the prepared instance.
-   *
-   * Invalidation:
-   * - Outer key is a `WeakMap` on the manager instance: a different
-   *   manager object is a different cache entry even if its id matches.
-   * - Inner key is the sorted specialist id list. To guard against
-   *   collisions where two distinct specialist instances share the same
-   *   id (test fixtures and pooled rebuilds), the cached entry remembers
-   *   the exact specialist instances and is invalidated if any differs.
-   *
-   * Cleanup: callers (or tests) may invoke `clearSupervisorCache()` to
-   * drop all cached entries -- e.g. on shutdown or between test cases.
-   */
-  private static supervisorAgentCache = new WeakMap<
-    DzupAgent,
-    Map<string, { agent: DzupAgent; specialists: readonly DzupAgent[] }>
-  >()
-
-  /**
    * Clear the supervisor agent cache. Use when the lifecycle owner of
    * AgentOrchestrator is being torn down or when underlying agent
    * configuration is known to have changed.
    */
   static clearSupervisorCache(): void {
-    AgentOrchestrator.supervisorAgentCache = new WeakMap()
+    clearSupervisorCache()
   }
 
   /**
@@ -240,234 +168,8 @@ export class AgentOrchestrator {
       config = configOrManager
     }
 
-    const { manager, task, signal, executionMode, providerPort, routingPolicy, circuitBreaker } = config
-    const eventBus = config.eventBus ?? manager.agentConfig.eventBus
-    let { specialists } = config
-
-    // Provider-adapter execution mode: route through the injected port.
-    // This mode is explicitly configured, so fail closed when the port is absent
-    // instead of silently falling back to local specialist execution.
-    if (executionMode === 'provider-adapter') {
-      if (!providerPort) {
-        throw new OrchestrationError(
-          'supervisor() provider-adapter executionMode requires providerPort',
-          'supervisor',
-          { managerId: manager.id },
-        )
-      }
-
-      const portResult = await providerPort.run(
-        omitUndefined({ prompt: task, signal }),
-        { prompt: task, tags: specialists.map((s) => s.id) },
-        omitUndefined({ signal }),
-      )
-
-      const result: SupervisorResult = {
-        content: portResult.content,
-        availableSpecialists: specialists.map((s) => s.id),
-        filteredSpecialists: [],
-      }
-
-      return returnLegacy ? portResult.content : result
-    }
-
-    // Validate inputs
-    if (specialists.length === 0) {
-      throw new OrchestrationError(
-        'supervisor() requires at least one specialist agent',
-        'supervisor',
-        { managerId: manager.id },
-      )
-    }
-
-    // Check abort before starting
-    if (signal?.aborted) {
-      throw new OrchestrationError(
-        'supervisor() aborted before execution',
-        'supervisor',
-        { managerId: manager.id },
-      )
-    }
-
-    // Filter specialists through circuit breaker if configured
-    if (circuitBreaker) {
-      const candidateSpecialists = specialists.map((s) => s.id)
-      const before = specialists.length
-      specialists = circuitBreaker.filterAvailable(specialists)
-      if (specialists.length < before) {
-        const removedIds = config.specialists
-          .filter((s) => !specialists.includes(s))
-          .map((s) => s.id)
-        eventBus?.emit({
-          type: 'supervisor:routing_decision',
-          managerId: manager.id,
-          task,
-          strategy: 'circuit-breaker',
-          reason: 'Excluded specialists with open circuits',
-          selectedSpecialists: specialists.map((s) => s.id),
-          filteredSpecialists: removedIds,
-          candidateSpecialists,
-          source: 'direct-supervisor',
-        })
-        // Log filtered agents for observability when no event bus is wired.
-        if (!eventBus) {
-          defaultLogger.debug('[AgentOrchestrator] Circuit breaker filtered agents', { removedIds })
-        }
-      }
-
-      if (specialists.length === 0) {
-        throw new OrchestrationError(
-          'All specialists filtered by circuit breaker',
-          'supervisor',
-          { managerId: manager.id },
-        )
-      }
-    }
-
-    // Apply routing policy if configured to narrow specialist selection
-    if (routingPolicy) {
-      const candidates: AgentSpec[] = specialists.map((s) => ({
-        id: s.id,
-        name: s.id,
-        tags: [],
-      }))
-      const candidateSpecialists = candidates.map((s) => s.id)
-      const agentTask: AgentTask = {
-        taskId: `supervisor-${Date.now()}`,
-        content: task,
-      }
-      const decision = routingPolicy.select(agentTask, candidates)
-      const selectedIds = new Set(decision.selected.map((a) => a.id))
-      specialists = specialists.filter((s) => selectedIds.has(s.id))
-      const selectedSpecialists = specialists.map((s) => s.id)
-      const filteredSpecialists = candidateSpecialists.filter((id) => !selectedIds.has(id))
-
-      const routingEvent = omitUndefined({
-        type: 'supervisor:routing_decision',
-        managerId: manager.id,
-        task,
-        taskId: agentTask.taskId,
-        strategy: decision.strategy,
-        reason: decision.reason,
-        fallbackReason: decision.fallbackReason,
-        selectedSpecialists,
-        selectedCandidates: decision.diagnostics?.selectedIds ?? selectedSpecialists,
-        filteredSpecialists,
-        candidateSpecialists,
-        source: 'direct-supervisor',
-      } as const)
-      eventBus?.emit(routingEvent)
-      if (!eventBus) {
-        defaultLogger.debug('[AgentOrchestrator] Routing decision', {
-          selected: selectedSpecialists,
-          strategy: decision.strategy,
-          reason: decision.reason,
-          fallbackReason: decision.fallbackReason,
-        })
-      }
-    }
-
-    // Optional health check: filter out unresponsive specialists
-    const filteredSpecialists: string[] = []
-    if (config.healthCheck) {
-      const healthySpecialists: DzupAgent[] = []
-      for (const specialist of specialists) {
-        try {
-          // Lightweight check: just verify asTool() resolves without error
-          await specialist.asTool()
-          healthySpecialists.push(specialist)
-        } catch {
-          filteredSpecialists.push(specialist.id)
-        }
-      }
-
-      if (healthySpecialists.length === 0) {
-        throw new OrchestrationError(
-          'All specialists failed health check',
-          'supervisor',
-          { managerId: manager.id, filteredSpecialists },
-        )
-      }
-
-      specialists = healthySpecialists
-    }
-
-    const availableSpecialists = specialists.map(s => s.id)
-
-    // Memoize the manager-with-tools DzupAgent per manager instance and
-    // sorted specialist ids only when specialist tools do not capture
-    // per-call circuit breaker state.
-    // Constructing the supervisor agent (and its specialist tools via asTool())
-    // is non-trivial; when callers reuse a stable specialist set across many
-    // supervisor() invocations, this avoids paying full init cost each time.
-    const managerConfig = manager.agentConfig
-    // Build the canonical (sorted-by-id) specialist list once; both the
-    // cache key and the identity guard read from this list.
-    const canonicalSpecialists = [...specialists].sort((a, b) => a.id.localeCompare(b.id))
-    const sortedSpecialistIds = canonicalSpecialists.map(s => s.id)
-    const cacheKey = circuitBreaker ? undefined : sortedSpecialistIds.join(',')
-    const managerCache = cacheKey
-      ? AgentOrchestrator.supervisorAgentCache.get(manager)
-      : undefined
-    const cachedEntry = cacheKey ? managerCache?.get(cacheKey) : undefined
-
-    // Cache hit only if every cached specialist instance is identical
-    // (===) to the corresponding canonical specialist; otherwise the
-    // cached supervisor wraps stale tools / models.
-    const cachedSpecialistsMatch =
-      !!cachedEntry &&
-      cachedEntry.specialists.length === canonicalSpecialists.length &&
-      cachedEntry.specialists.every((s, i) => s === canonicalSpecialists[i])
-
-    let managerWithTools = cachedSpecialistsMatch ? cachedEntry.agent : undefined
-
-    if (!managerWithTools) {
-      // Convert each specialist into a LangChain tool
-      const specialistTools = await Promise.all(
-        specialists.map(async (s) => instrumentSpecialistTool(
-          await s.asTool(),
-          s.id,
-          circuitBreaker,
-        )),
-      )
-
-      // Create a new manager agent instance with specialist tools injected
-      // alongside any tools the manager already has.
-      managerWithTools = new DzupAgent({
-        ...managerConfig,
-        id: `${managerConfig.id}__supervisor`,
-        tools: [...(managerConfig.tools ?? []), ...specialistTools],
-        instructions: managerConfig.instructions +
-          '\n\nYou are a supervisor agent. You have access to specialist agent tools. ' +
-          'Delegate sub-tasks to the appropriate specialist by calling their tool. ' +
-          'Synthesize specialist responses into a coherent final answer.',
-      })
-
-      if (cacheKey) {
-        const cache = managerCache ?? new Map<string, { agent: DzupAgent; specialists: readonly DzupAgent[] }>()
-        cache.set(cacheKey, { agent: managerWithTools, specialists: canonicalSpecialists })
-        if (!managerCache) {
-          AgentOrchestrator.supervisorAgentCache.set(manager, cache)
-        }
-      }
-    }
-
-    // Run the manager with the task -- the LLM will invoke specialist tools
-    // via function calling, and the tool loop handles ToolMessage flow.
-    const result = await managerWithTools.generate(
-      [new HumanMessage(task)],
-      omitUndefined({ signal }),
-    )
-
-    if (returnLegacy) {
-      return result.content
-    }
-
-    return {
-      content: result.content,
-      availableSpecialists,
-      filteredSpecialists,
-    }
+    const result = await runSupervisor(config)
+    return returnLegacy ? result.content : result
   }
 
   /**
