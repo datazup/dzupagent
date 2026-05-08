@@ -8,8 +8,11 @@
  * 4. Optionally requests human approval for high-risk strategies
  * 5. Executes the selected strategy (RecoveryExecutor)
  *
- * Integrates with StuckDetector for automatic triggering and
- * with the approval gate for human-in-the-loop workflows.
+ * Helpers split into sibling modules:
+ * - {@link defaultStrategyGenerator} — built-in strategy catalogue
+ * - {@link applyLessonBoosts} — confidence adjustments from past lessons
+ * - {@link buildEscalationPlan} — terminal escalation plan factory
+ * - {@link recordRecoveryFeedback} — best-effort lesson persistence
  *
  * @module recovery/recovery-copilot
  */
@@ -17,22 +20,26 @@
 import type { DzupEventBus } from '@dzupagent/core/events'
 import type { StuckStatus } from '../guardrails/stuck-detector.js'
 import type { ApprovalGate } from '../approval/approval-gate.js'
-import { FailureAnalyzer, type FailureAnalysis } from './failure-analyzer.js'
+import { FailureAnalyzer } from './failure-analyzer.js'
 import { StrategyRanker } from './strategy-ranker.js'
 import { RecoveryExecutor, type ActionHandler } from './recovery-executor.js'
 import type {
   FailureContext,
   RecoveryPlan,
-  RecoveryStrategy,
   RecoveryCopilotConfig,
   RecoveryResult,
 } from './recovery-types.js'
 import type { RecoveryFeedback, RecoveryLesson } from '../self-correction/recovery-feedback.js'
 import { omitUndefined } from '../utils/exact-optional.js'
+import { applyLessonBoosts } from './lesson-boosts.js'
+import {
+  defaultStrategyGenerator,
+  type StrategyGenerator,
+} from './default-strategy-generator.js'
+import { buildEscalationPlan } from './escalation-plan.js'
+import { recordRecoveryFeedback } from './feedback-recorder.js'
 
-// ---------------------------------------------------------------------------
-// Default configuration
-// ---------------------------------------------------------------------------
+export type { StrategyGenerator } from './default-strategy-generator.js'
 
 const DEFAULT_CONFIG: RecoveryCopilotConfig = {
   maxAttempts: 3,
@@ -41,23 +48,6 @@ const DEFAULT_CONFIG: RecoveryCopilotConfig = {
   maxStrategies: 5,
   minAutoExecuteConfidence: 0.6,
 }
-
-// ---------------------------------------------------------------------------
-// Strategy generator (user-extensible)
-// ---------------------------------------------------------------------------
-
-/**
- * A function that generates recovery strategies for a given failure.
- * Users can supply a custom generator for domain-specific strategies.
- */
-export type StrategyGenerator = (
-  analysis: FailureAnalysis,
-  context: FailureContext,
-) => RecoveryStrategy[]
-
-// ---------------------------------------------------------------------------
-// RecoveryCopilot
-// ---------------------------------------------------------------------------
 
 export class RecoveryCopilot {
   private readonly config: RecoveryCopilotConfig
@@ -93,45 +83,33 @@ export class RecoveryCopilot {
     }))
   }
 
-  // ---------------------------------------------------------------------------
-  // Public API
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Create a recovery plan for a failure. Analyzes the failure,
-   * generates strategies, ranks them, and selects the best one.
-   *
-   * When `pastLessons` are provided (from RecoveryFeedback), strategies
-   * are boosted or penalized based on historical outcomes.
-   */
+  /** Create a recovery plan for a failure. */
   createPlan(
     failureContext: FailureContext,
     pastLessons: RecoveryLesson[] = [],
   ): RecoveryPlan {
-    // Don't create more plans if we've exceeded max attempts
     if (failureContext.previousAttempts >= this.config.maxAttempts) {
-      return this.createEscalationPlan(failureContext)
+      const plan = buildEscalationPlan({
+        id: this.generatePlanId(),
+        failureContext,
+        maxAttempts: this.config.maxAttempts,
+      })
+      this.plans.set(plan.id, plan)
+      return plan
     }
 
     const analysis = this.analyzer.analyze(failureContext)
-
-    // Generate candidate strategies
     let strategies = this.strategyGenerator(analysis, failureContext)
 
-    // Apply confidence adjustments from past lessons
     if (pastLessons.length > 0) {
       strategies = applyLessonBoosts(strategies, pastLessons)
     }
 
-    // Limit to maxStrategies
     if (strategies.length > this.config.maxStrategies) {
       strategies = strategies.slice(0, this.config.maxStrategies)
     }
 
-    // Rank strategies
     strategies = this.ranker.rank(strategies)
-
-    // Select best strategy
     const selected = this.ranker.selectBest(
       strategies,
       this.config.minAutoExecuteConfidence,
@@ -159,15 +137,11 @@ export class RecoveryCopilot {
     return plan
   }
 
-  /**
-   * Execute a recovery plan. Approves it first (if required),
-   * then runs the selected strategy's actions.
-   */
+  /** Execute a recovery plan (approve, run actions, record outcome). */
   async executePlan(plan: RecoveryPlan): Promise<RecoveryResult> {
     plan.status = 'approved'
     const result = await this.executor.execute(plan)
 
-    // Record the outcome in the analyzer for future pattern matching
     this.analyzer.recordFailure(
       plan.failureContext,
       result.success
@@ -175,7 +149,6 @@ export class RecoveryCopilot {
         : undefined,
     )
 
-    // Mark the strategy as attempted
     if (plan.selectedStrategy) {
       this.ranker.markAttempted(plan.selectedStrategy.name)
     }
@@ -183,16 +156,8 @@ export class RecoveryCopilot {
     return result
   }
 
-  /**
-   * One-shot: create a plan and immediately execute it.
-   *
-   * When a `RecoveryFeedback` instance is configured, this method will:
-   * 1. Retrieve past lessons for similar errors to inform strategy selection
-   * 2. Boost/penalize strategy confidence based on past outcomes
-   * 3. Record the recovery outcome as a new lesson after execution
-   */
+  /** One-shot: create a plan, execute it, and record the outcome as a lesson. */
   async recover(failureContext: FailureContext): Promise<RecoveryResult> {
-    // Retrieve past lessons if feedback is configured
     const analysis = this.analyzer.analyze(failureContext)
     let pastLessons: RecoveryLesson[] = []
 
@@ -206,9 +171,7 @@ export class RecoveryCopilot {
     const plan = this.createPlan(failureContext, pastLessons)
 
     if (plan.status === 'failed') {
-      // Record escalation as a failed lesson
-      await this.recordFeedback(analysis, failureContext, plan, false)
-
+      await this.persistFeedback(analysis, failureContext, plan, false)
       return {
         plan,
         success: false,
@@ -218,17 +181,11 @@ export class RecoveryCopilot {
     }
 
     const result = await this.executePlan(plan)
-
-    // Record the outcome as a lesson
-    await this.recordFeedback(analysis, failureContext, plan, result.success, result.summary)
-
+    await this.persistFeedback(analysis, failureContext, plan, result.success, result.summary)
     return result
   }
 
-  /**
-   * Handle a StuckDetector signal. Call this when the stuck detector
-   * fires to automatically trigger recovery.
-   */
+  /** Handle a StuckDetector signal by triggering recovery. */
   handleStuckSignal(
     stuckStatus: StuckStatus,
     runId: string,
@@ -248,39 +205,22 @@ export class RecoveryCopilot {
     return this.createPlan(failureContext)
   }
 
-  /**
-   * Get a previously created plan by ID.
-   */
   getPlan(planId: string): RecoveryPlan | undefined {
     return this.plans.get(planId)
   }
 
-  /**
-   * Get all plans for a given run.
-   */
   getPlansForRun(runId: string): RecoveryPlan[] {
-    return [...this.plans.values()].filter(
-      p => p.failureContext.runId === runId,
-    )
+    return [...this.plans.values()].filter(p => p.failureContext.runId === runId)
   }
 
-  /**
-   * Access the underlying failure analyzer (for external history queries).
-   */
   getAnalyzer(): FailureAnalyzer {
     return this.analyzer
   }
 
-  /**
-   * Access the underlying strategy ranker (for external ranking queries).
-   */
   getRanker(): StrategyRanker {
     return this.ranker
   }
 
-  /**
-   * Reset all internal state.
-   */
   reset(): void {
     this.plans.clear()
     this.analyzer.reset()
@@ -288,42 +228,8 @@ export class RecoveryCopilot {
     this.planCounter = 0
   }
 
-  // ---------------------------------------------------------------------------
-  // Private
-  // ---------------------------------------------------------------------------
-
-  private createEscalationPlan(failureContext: FailureContext): RecoveryPlan {
-    const plan: RecoveryPlan = {
-      id: this.generatePlanId(),
-      failureContext,
-      strategies: [{
-        name: 'human_escalation',
-        description: `Max recovery attempts (${this.config.maxAttempts}) exceeded — escalating to human operator`,
-        confidence: 1.0,
-        risk: 'low',
-        estimatedSteps: 1,
-        actions: [{
-          type: 'human_escalation',
-          params: {
-            reason: `${failureContext.previousAttempts} previous recovery attempts failed`,
-            error: failureContext.error,
-          },
-          description: 'Escalate to human operator for manual intervention',
-        }],
-      }],
-      selectedStrategy: null,
-      status: 'failed',
-      createdAt: new Date(),
-      executionError: 'Max recovery attempts exceeded',
-    }
-    this.plans.set(plan.id, plan)
-    return plan
-  }
-
   private countAttemptsForRun(runId: string): number {
-    return [...this.plans.values()].filter(
-      p => p.failureContext.runId === runId,
-    ).length
+    return [...this.plans.values()].filter(p => p.failureContext.runId === runId).length
   }
 
   private generatePlanId(): string {
@@ -331,11 +237,7 @@ export class RecoveryCopilot {
     return `recovery_${Date.now()}_${this.planCounter}`
   }
 
-  /**
-   * Record a recovery outcome as a lesson in the feedback store.
-   * No-op if feedback is not configured.
-   */
-  private async recordFeedback(
+  private async persistFeedback(
     analysis: { type: string; fingerprint: string },
     failureContext: FailureContext,
     plan: RecoveryPlan,
@@ -343,337 +245,13 @@ export class RecoveryCopilot {
     summary?: string,
   ): Promise<void> {
     if (!this.feedback) return
-
-    const lesson: RecoveryLesson = {
-      id: this.feedback.generateLessonId(),
-      errorType: analysis.type as RecoveryLesson['errorType'],
-      errorFingerprint: analysis.fingerprint,
-      nodeId: failureContext.nodeId ?? '',
-      strategy: plan.selectedStrategy?.name ?? 'none',
-      outcome: success ? 'success' : 'failure',
-      summary: summary ?? (success ? 'Recovery succeeded' : 'Recovery failed'),
-      timestamp: new Date(),
-    }
-
-    try {
-      const candidateId = await this.feedback.recordOutcome(lesson)
-      // Append a policy_applied audit entry so the decision chain is traceable:
-      // plan.id → strategy → candidateId → run → node
-      this.feedback.appendCandidateAuditEntry(candidateId, {
-        runId: failureContext.runId,
-        nodeId: failureContext.nodeId ?? '',
-        event: 'policy_applied',
-        actor: 'system',
-        detail: `Plan ${plan.id} selected strategy "${plan.selectedStrategy?.name ?? 'none'}" (confidence ${plan.selectedStrategy?.confidence?.toFixed(2) ?? 'n/a'})`,
-        timestamp: new Date(),
-      })
-    } catch {
-      // Feedback recording is best-effort — don't fail recovery over it
-    }
+    await recordRecoveryFeedback({
+      feedback: this.feedback,
+      analysis,
+      failureContext,
+      plan,
+      success,
+      ...(summary !== undefined ? { summary } : {}),
+    })
   }
-}
-
-// ---------------------------------------------------------------------------
-// Lesson-based confidence adjustments
-// ---------------------------------------------------------------------------
-
-/**
- * Boost or penalize strategy confidence based on past recovery lessons.
- *
- * - Strategies that previously succeeded for the same error type get a boost.
- * - Strategies that previously failed get a penalty.
- * - The magnitude of the adjustment scales with how many past data points exist.
- */
-function applyLessonBoosts(
-  strategies: RecoveryStrategy[],
-  lessons: RecoveryLesson[],
-): RecoveryStrategy[] {
-  // Build a success/failure tally per strategy name
-  const tally = new Map<string, { successes: number; failures: number }>()
-
-  for (const lesson of lessons) {
-    const existing = tally.get(lesson.strategy)
-    if (existing) {
-      if (lesson.outcome === 'success') existing.successes++
-      else existing.failures++
-    } else {
-      tally.set(lesson.strategy, {
-        successes: lesson.outcome === 'success' ? 1 : 0,
-        failures: lesson.outcome === 'failure' ? 1 : 0,
-      })
-    }
-  }
-
-  for (const strategy of strategies) {
-    const stats = tally.get(strategy.name)
-    if (!stats) continue
-
-    const total = stats.successes + stats.failures
-    if (total === 0) continue
-
-    const successRate = stats.successes / total
-
-    if (successRate > 0.5) {
-      // Boost: previously successful strategy
-      const boost = 0.15 * successRate
-      strategy.confidence = Math.min(strategy.confidence + boost, 1.0)
-    } else if (successRate < 0.5 && stats.failures > 0) {
-      // Penalize: previously failed strategy
-      const penalty = 0.15 * (1 - successRate)
-      strategy.confidence = Math.max(strategy.confidence - penalty, 0.05)
-    }
-  }
-
-  return strategies
-}
-
-// ---------------------------------------------------------------------------
-// Default strategy generator
-// ---------------------------------------------------------------------------
-
-function defaultStrategyGenerator(
-  analysis: FailureAnalysis,
-  context: FailureContext,
-): RecoveryStrategy[] {
-  const strategies: RecoveryStrategy[] = []
-
-  switch (analysis.type) {
-    case 'build_failure':
-      strategies.push(
-        {
-          name: 'retry_with_fix_prompt',
-          description: 'Retry the build with an error-aware prompt that includes the build error details',
-          confidence: 0.7,
-          risk: 'low',
-          estimatedSteps: 2,
-          actions: [
-            {
-              type: 'modify_params',
-              params: { injectError: context.error, promptSuffix: 'Fix the build error shown above.' },
-              description: 'Modify generation params to include build error context',
-            },
-            {
-              type: 'retry',
-              params: {},
-              description: 'Retry the generation with error-aware prompt',
-            },
-          ],
-        },
-        {
-          name: 'reduce_scope',
-          description: 'Reduce the scope of generation to avoid the failing component',
-          confidence: 0.5,
-          risk: 'medium',
-          estimatedSteps: 2,
-          actions: [
-            {
-              type: 'reduce_scope',
-              params: { extractedInfo: analysis.extractedInfo },
-              description: 'Reduce generation scope to isolate failing component',
-            },
-            {
-              type: 'retry',
-              params: {},
-              description: 'Retry with reduced scope',
-            },
-          ],
-        },
-      )
-      break
-
-    case 'test_failure':
-      strategies.push(
-        {
-          name: 'retry_with_test_context',
-          description: 'Retry generation with the failing test output as additional context',
-          confidence: 0.65,
-          risk: 'low',
-          estimatedSteps: 2,
-          actions: [
-            {
-              type: 'modify_params',
-              params: { testError: context.error },
-              description: 'Inject test failure details into generation context',
-            },
-            {
-              type: 'retry',
-              params: {},
-              description: 'Retry with test failure context',
-            },
-          ],
-        },
-        {
-          name: 'skip_failing_tests',
-          description: 'Skip the failing tests and continue with generation',
-          confidence: 0.4,
-          risk: 'medium',
-          estimatedSteps: 1,
-          actions: [
-            {
-              type: 'skip',
-              params: { skipTests: true },
-              description: 'Skip the failing test step and continue',
-            },
-          ],
-        },
-      )
-      break
-
-    case 'timeout':
-      strategies.push(
-        {
-          name: 'retry_with_smaller_scope',
-          description: 'Reduce scope and retry with a smaller workload to avoid timeout',
-          confidence: 0.6,
-          risk: 'low',
-          estimatedSteps: 2,
-          actions: [
-            {
-              type: 'reduce_scope',
-              params: { factor: 0.5 },
-              description: 'Halve the workload scope',
-            },
-            {
-              type: 'retry',
-              params: {},
-              description: 'Retry with reduced scope',
-            },
-          ],
-        },
-        {
-          name: 'simple_retry',
-          description: 'Simple retry — the timeout may have been transient',
-          confidence: 0.3,
-          risk: 'low',
-          estimatedSteps: 1,
-          actions: [
-            {
-              type: 'retry',
-              params: {},
-              description: 'Retry the operation',
-            },
-          ],
-        },
-      )
-      break
-
-    case 'resource_exhaustion':
-      strategies.push(
-        {
-          name: 'fallback_to_cheaper_model',
-          description: 'Switch to a cheaper/smaller model to reduce resource usage',
-          confidence: 0.7,
-          risk: 'medium',
-          estimatedSteps: 2,
-          actions: [
-            {
-              type: 'fallback_model',
-              params: { reason: 'resource_exhaustion' },
-              description: 'Switch to a fallback (cheaper/smaller) model',
-            },
-            {
-              type: 'retry',
-              params: {},
-              description: 'Retry with fallback model',
-            },
-          ],
-        },
-        {
-          name: 'reduce_scope_and_retry',
-          description: 'Reduce the scope to fit within resource limits',
-          confidence: 0.6,
-          risk: 'low',
-          estimatedSteps: 2,
-          actions: [
-            {
-              type: 'reduce_scope',
-              params: { factor: 0.3 },
-              description: 'Significantly reduce workload scope',
-            },
-            {
-              type: 'retry',
-              params: {},
-              description: 'Retry with reduced scope',
-            },
-          ],
-        },
-      )
-      break
-
-    case 'generation_failure':
-      strategies.push(
-        {
-          name: 'simple_retry',
-          description: 'Retry the generation — the failure may be transient',
-          confidence: 0.5,
-          risk: 'low',
-          estimatedSteps: 1,
-          actions: [
-            {
-              type: 'retry',
-              params: {},
-              description: 'Retry the generation',
-            },
-          ],
-        },
-        {
-          name: 'fallback_model',
-          description: 'Switch to a different model and retry',
-          confidence: 0.6,
-          risk: 'medium',
-          estimatedSteps: 2,
-          actions: [
-            {
-              type: 'fallback_model',
-              params: { reason: 'generation_failure' },
-              description: 'Switch to fallback model',
-            },
-            {
-              type: 'retry',
-              params: {},
-              description: 'Retry with fallback model',
-            },
-          ],
-        },
-      )
-      break
-  }
-
-  // Always add human escalation as a fallback strategy
-  strategies.push({
-    name: 'escalate_to_human',
-    description: 'Escalate to a human operator for manual resolution',
-    confidence: 1.0,
-    risk: 'low',
-    estimatedSteps: 1,
-    actions: [
-      {
-        type: 'human_escalation',
-        params: { error: context.error, type: analysis.type },
-        description: 'Request human intervention',
-      },
-    ],
-  })
-
-  // Boost confidence for strategies that previously resolved this fingerprint
-  if (analysis.previousResolutions.length > 0) {
-    for (const strategy of strategies) {
-      for (const resolution of analysis.previousResolutions) {
-        if (resolution.toLowerCase().includes(strategy.name.replace(/_/g, ' '))) {
-          strategy.confidence = Math.min(strategy.confidence + 0.2, 1.0)
-        }
-      }
-    }
-  }
-
-  // Decrease confidence on recurring failures
-  if (analysis.isRecurring && analysis.occurrenceCount > 2) {
-    for (const strategy of strategies) {
-      if (strategy.actions.some(a => a.type === 'retry')) {
-        strategy.confidence *= 0.7
-      }
-    }
-  }
-
-  return strategies
 }
