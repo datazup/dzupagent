@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import type { ScorecardProbeInput } from './integration-scorecard.js'
+import type { ScorecardProbeInput } from './contracts.js'
 
 export type ScorecardProbeField = keyof ScorecardProbeInput
 

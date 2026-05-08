@@ -5,23 +5,9 @@
  */
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
+import type { MemoryHealthRouteConfig } from './memory-health-types.js'
 
-/** Minimal interface matching AdaptiveRetriever.health() */
-export interface HealthProvider {
-  health(): Array<{
-    source: string
-    successCount: number
-    failureCount: number
-    totalLatencyMs: number
-    avgLatencyMs: number
-    successRate: number
-    lastFailure?: { error: string; timestamp: Date }
-  }>
-}
-
-export interface MemoryHealthRouteConfig {
-  retriever: HealthProvider
-}
+export type { HealthProvider, MemoryHealthRouteConfig } from './memory-health-types.js'
 
 export function createMemoryHealthRoutes(config: MemoryHealthRouteConfig): Hono<AppEnv> {
   const app = new Hono<AppEnv>()

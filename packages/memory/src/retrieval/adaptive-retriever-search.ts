@@ -13,7 +13,7 @@ import type {
   ScoredItem,
   SourceName,
 } from './adaptive-retriever-types.js';
-import { ProviderHealthTracker } from './adaptive-retriever-health.js';
+import type { ProviderHealthTracker } from './adaptive-retriever-health.js';
 
 /** Result of executing one search across all available providers */
 export interface ProviderSearchOutcome {

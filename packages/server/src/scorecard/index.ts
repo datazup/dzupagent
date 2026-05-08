@@ -7,12 +7,12 @@ export type {
   ScorecardCategory,
   ScorecardCheck,
   ScorecardProbeInput,
-  IntegrationScorecardOptions,
   Recommendation,
   CheckStatus,
   Grade,
   RecommendationPriority,
-} from './integration-scorecard.js'
+} from './contracts.js'
+export type { IntegrationScorecardOptions } from './integration-scorecard.js'
 
 export { ScorecardReporter, formatConsole, formatMarkdown, formatJSON } from './scorecard-reporter.js'
 export type { ScorecardFormat } from './scorecard-reporter.js'

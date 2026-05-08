@@ -14,7 +14,7 @@
  */
 
 import type { DoctorReport } from '../cli/doctor.js'
-import type { ScorecardReport } from '../scorecard/integration-scorecard.js'
+import type { ScorecardReport } from '../scorecard/contracts.js'
 import type {
   ConfidenceSignal,
   DeployConfidence,

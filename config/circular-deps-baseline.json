@@ -14,23 +14,6 @@
         "agent/tool-loop.ts",
         "agent/tool-loop/model-turn-kernel.ts"
       ]
-    ],
-    "server": [
-      [
-        "composition/types.ts",
-        "routes/deploy.ts",
-        "deploy/signal-checkers.ts",
-        "deploy/confidence-calculator.ts",
-        "scorecard/integration-scorecard.ts"
-      ],
-      [
-        "composition/types.ts",
-        "routes/run-context.ts"
-      ],
-      [
-        "scorecard/integration-scorecard.ts",
-        "scorecard/probe-collector.ts"
-      ]
     ]
   }
 }

@@ -21,6 +21,9 @@ import { z } from 'zod'
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
+import type { LearningRouteConfig } from './learning-types.js'
+
+export type { LearningRouteConfig } from './learning-types.js'
 
 const FeedbackSchema = z.object({
   runId: z.string().min(1),
@@ -40,23 +43,6 @@ const IngestSchema = z.object({
   patterns: z.array(z.unknown()),
   agentId: z.string().optional(),
 })
-
-export interface LearningRouteConfig {
-  memoryService: MemoryServiceLike
-  /** Default tenant ID when no auth middleware sets one. */
-  defaultTenantId?: string
-  /**
-   * Minimum pattern confidence accepted by `POST /ingest`. Patterns below this
-   * threshold are skipped. Defaults to `0.5`.
-   */
-  ingestConfidenceThreshold?: number
-  /**
-   * Default TTL (ms) applied to stored patterns. Persisted as `decay.ttlMs`
-   * metadata on each memory item so downstream decay jobs can prune stale
-   * entries. Defaults to 30 days.
-   */
-  ingestDefaultTtlMs?: number
-}
 
 /**
  * A generalizable pattern extracted from a scored run.
