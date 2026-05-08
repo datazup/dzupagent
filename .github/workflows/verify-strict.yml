@@ -92,4 +92,4 @@ jobs:
         run: yarn build --filter=@dzupagent/core
 
       - name: Run strict verification without circular imports
-        run: yarn -s verify:strict:no-circular
+        run: yarn -s verify:strict:ci:no-circular
