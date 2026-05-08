@@ -20,11 +20,8 @@ import type { DzupEventBus } from '@dzupagent/core/events'
 import type { z } from 'zod'
 
 import type { OrchestratorFacade } from '../facade/orchestrator-facade.js'
-import type { RateLimitConfig } from './rate-limiter.js'
 import { SlidingWindowRateLimiter } from './rate-limiter.js'
-import { StreamingHandler } from '../streaming/streaming-handler.js'
-import type { AdapterProviderId, AgentCompletedEvent, AgentEvent, AgentInput } from '../types.js'
-import { resolveFallbackProviderId } from '../utils/provider-helpers.js'
+import type { AgentInput } from '../types.js'
 import {
   RunRequestSchema,
   SupervisorRequestSchema,
@@ -32,241 +29,49 @@ import {
   BidRequestSchema,
   ApproveRequestSchema,
 } from './request-schemas.js'
+import {
+  errorResponse,
+  extractCorrelationId,
+  jsonResponse,
+  matchPathParam,
+} from './http-helpers.js'
+import { streamParallel, streamRun, streamSupervisor } from './http-streaming.js'
+import type {
+  AdapterApprovalGate,
+  AdapterHttpConfig,
+  ApprovalRequestBody,
+  BidRequestBody,
+  HealthResponse,
+  HttpRequest,
+  HttpResponse,
+  HttpResult,
+  HttpStreamResponse,
+  ParallelRequestBody,
+  RunRequestBody,
+  SupervisorRequestBody,
+} from './http-types.js'
 
 // ---------------------------------------------------------------------------
-// Request / Response types
+// Re-exports for backward-compatible public API
 // ---------------------------------------------------------------------------
 
-/** Framework-agnostic request */
-export interface HttpRequest {
-  method: string
-  path: string
-  body: unknown
-  headers: Record<string, string | undefined>
-  query?: Record<string, string | undefined>
-}
-
-/** Framework-agnostic JSON response */
-export interface HttpResponse {
-  status: number
-  headers: Record<string, string>
-  body: unknown
-}
-
-/** SSE streaming response */
-export interface HttpStreamResponse {
-  status: number
-  headers: Record<string, string>
-  stream: AsyncGenerator<string, void, undefined>
-}
-
-export type HttpResult = HttpResponse | HttpStreamResponse
-
-// ---------------------------------------------------------------------------
-// Request body types
-// ---------------------------------------------------------------------------
-
-export interface RunRequestBody {
-  prompt: string
-  tags?: string[] | undefined
-  preferredProvider?: AdapterProviderId | undefined
-  workingDirectory?: string | undefined
-  systemPrompt?: string | undefined
-  maxTurns?: number | undefined
-  stream?: boolean | undefined
-}
-
-export interface SupervisorRequestBody {
-  goal: string
-  maxConcurrentDelegations?: number | undefined
-  stream?: boolean | undefined
-}
-
-export interface ParallelRequestBody {
-  prompt: string
-  providers?: AdapterProviderId[] | undefined
-  strategy?: 'first-wins' | 'all' | 'best-of-n' | undefined
-  stream?: boolean | undefined
-}
-
-export interface BidRequestBody {
-  prompt: string
-  tags?: string[] | undefined
-}
-
-export interface ApprovalRequestBody {
-  approved: boolean
-  approvedBy?: string | undefined
-  reason?: string | undefined
-}
-
-// ---------------------------------------------------------------------------
-// Response types
-// ---------------------------------------------------------------------------
-
-export interface HealthResponse {
-  status: 'ok' | 'degraded' | 'down'
-  adapters: Record<string, { healthy: boolean; circuitState?: string }>
-  costReport?: unknown | undefined
-}
-
-// ---------------------------------------------------------------------------
-// Approval gate interface
-// ---------------------------------------------------------------------------
-
-/** Pluggable approval gate for guarded endpoints */
-export interface AdapterApprovalGate {
-  /** Grant approval for a pending request */
-  grant(requestId: string, approvedBy?: string, reason?: string): Promise<boolean>
-  /** Reject a pending request */
-  reject(requestId: string, reason?: string): Promise<boolean>
-}
-
-// ---------------------------------------------------------------------------
-// Token validation
-// ---------------------------------------------------------------------------
-
-export interface TokenValidationResult {
-  valid: boolean
-  identity?: string | undefined
-  scopes?: string[] | undefined
-}
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-export interface AdapterHttpConfig {
-  /** The orchestrator facade to expose */
-  orchestrator: OrchestratorFacade
-  /** Optional approval gate for guarded endpoints */
-  approvalGate?: AdapterApprovalGate | undefined
-  /** Event bus */
-  eventBus?: DzupEventBus | undefined
-  /** API key validation function. If provided, all requests must pass. */
-  validateApiKey?: (key: string) => boolean | Promise<boolean>
-  /** Custom async token validator. Takes precedence over validateApiKey. */
-  tokenValidator?: (token: string) => Promise<TokenValidationResult>
-  /** Endpoints that don't require auth (e.g., '/health') */
-  publicEndpoints?: string[] | undefined
-  /** Rate limit configuration. If set, enables rate limiting. */
-  rateLimit?: Partial<RateLimitConfig> | undefined
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function jsonResponse(status: number, body: unknown): HttpResponse {
-  return {
-    status,
-    headers: { 'content-type': 'application/json' },
-    body,
-  }
-}
-
-function errorResponse(status: number, message: string, code?: string): HttpResponse {
-  return jsonResponse(status, { error: message, code })
-}
-
-function collectProviderIds(
-  entries:
-    | Array<{ providerId?: AdapterProviderId | null }>
-    | undefined,
-): AdapterProviderId[] {
-  if (!entries) return []
-
-  const providerIds: AdapterProviderId[] = []
-  for (const entry of entries) {
-    const providerId = entry.providerId
-    if (providerId) {
-      providerIds.push(providerId)
-    }
-  }
-
-  return providerIds
-}
-
-/** Type guard: is this result a streaming response? */
-export function isStreamResponse(result: HttpResult): result is HttpStreamResponse {
-  return 'stream' in result
-}
-
-/**
- * Extract a correlation ID from standard HTTP headers.
- *
- * Checks (in priority order):
- *  1. `x-correlation-id`
- *  2. `x-request-id`
- *  3. W3C `traceparent` trace-id segment
- */
-function extractCorrelationId(
-  headers: Record<string, string | undefined>,
-): string | undefined {
-  const explicit = headers['x-correlation-id'] ?? headers['x-request-id']
-  if (explicit) return explicit
-
-  const traceparent = headers['traceparent']
-  if (traceparent) {
-    // W3C traceparent format: version-traceId-parentId-flags
-    const segments = traceparent.split('-')
-    if (segments.length >= 2 && segments[1]!.length > 0) {
-      return segments[1]
-    }
-  }
-
-  return undefined
-}
-
-/**
- * Extract a path parameter from a pattern like "/approve/:id".
- * Returns the captured segment or undefined.
- */
-function matchPathParam(
-  actualPath: string,
-  prefix: string,
-): string | undefined {
-  const normalised = actualPath.startsWith('/') ? actualPath : `/${actualPath}`
-  if (!normalised.startsWith(prefix)) return undefined
-  const rest = normalised.slice(prefix.length)
-  // Must have exactly one segment remaining (e.g. "/abc123")
-  if (!rest.startsWith('/') || rest.indexOf('/', 1) !== -1) return undefined
-  const param = rest.slice(1)
-  return param.length > 0 ? param : undefined
-}
-
-export function resolveRuntimeFallbackProviderId(
-  registry: { listAdapters(): AdapterProviderId[] },
-  preferredProvider?: AdapterProviderId,
-  providers?: AdapterProviderId[],
-): AdapterProviderId {
-  return preferredProvider
-    ?? providers?.[0]
-    ?? resolveFallbackProviderId(registry.listAdapters())
-    ?? ('unknown' as AdapterProviderId)
-}
-
-function resolveStreamCompletionProviderId(
-  registry: { listAdapters(): AdapterProviderId[] },
-  completion: {
-    providerId?: AdapterProviderId | null
-    selectedResult?: { providerId?: AdapterProviderId | null }
-    subtaskResults?: Array<{ providerId?: AdapterProviderId | null }>
-  },
-  fallbackProviders?: AdapterProviderId[],
-): AdapterProviderId {
-  const actualProviderId =
-    completion.selectedResult?.providerId
-    ?? completion.providerId
-
-  const providers = fallbackProviders ?? collectProviderIds(completion.subtaskResults)
-
-  return resolveRuntimeFallbackProviderId(
-    registry,
-    actualProviderId ?? undefined,
-    providers,
-  )
-}
+export type {
+  AdapterApprovalGate,
+  AdapterHttpConfig,
+  ApprovalRequestBody,
+  BidRequestBody,
+  HealthResponse,
+  HttpRequest,
+  HttpResponse,
+  HttpResult,
+  HttpStreamResponse,
+  ParallelRequestBody,
+  RunRequestBody,
+  SupervisorRequestBody,
+  TokenValidationResult,
+} from './http-types.js'
+export { isStreamResponse } from './http-types.js'
+export { resolveRuntimeFallbackProviderId } from './http-helpers.js'
 
 // ---------------------------------------------------------------------------
 // AdapterHttpHandler
@@ -552,147 +357,32 @@ export class AdapterHttpHandler {
   }
 
   // -------------------------------------------------------------------------
-  // Streaming helpers
+  // Streaming dispatchers
   // -------------------------------------------------------------------------
 
   private streamRun(
     input: AgentInput,
     body: RunRequestBody,
   ): HttpStreamResponse {
-    const orchestrator = this.orchestrator
-    const eventBus = this.eventBus
-
-    async function* generateEvents(): AsyncGenerator<AgentEvent, void, undefined> {
-      try {
-        // Use chat() which returns an AsyncGenerator of events
-        const stream = orchestrator.chat(input.prompt, {
-          provider: body.preferredProvider,
-          workingDirectory: body.workingDirectory,
-          systemPrompt: body.systemPrompt,
-        })
-
-        yield* stream
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err)
-        if (eventBus) {
-          try {
-            eventBus.emit({
-              type: 'agent:stream_delta',
-              agentId: 'http-handler',
-              runId: 'stream-run',
-              content: `[error] ${errorMessage}`,
-            })
-          } catch {
-            // Event bus failure is non-fatal
-          }
-        }
-        const failEvent: AgentEvent = {
-          type: 'adapter:failed',
-          providerId: resolveRuntimeFallbackProviderId(orchestrator.registry, body.preferredProvider),
-          error: errorMessage,
-          timestamp: Date.now(),
-        }
-        yield failEvent
-      }
-    }
-
-    return this.toStreamResponse(generateEvents())
+    return streamRun(
+      { orchestrator: this.orchestrator, eventBus: this.eventBus },
+      input,
+      body,
+    )
   }
 
   private streamSupervisor(body: SupervisorRequestBody): HttpStreamResponse {
-    const orchestrator = this.orchestrator
-
-    async function* generateEvents(): AsyncGenerator<AgentEvent, void, undefined> {
-      try {
-        const result = await orchestrator.supervisor(body.goal, {
-          maxConcurrentDelegations: body.maxConcurrentDelegations,
-        })
-
-        const completedEvent: AgentCompletedEvent = {
-          type: 'adapter:completed',
-          providerId: resolveStreamCompletionProviderId(
-            orchestrator.registry,
-            result,
-            collectProviderIds(result.subtaskResults),
-          ),
-          sessionId: 'supervisor',
-          result: JSON.stringify(result),
-          durationMs: result.totalDurationMs,
-          timestamp: Date.now(),
-        }
-        yield completedEvent
-      } catch (err) {
-        const failEvent: AgentEvent = {
-          type: 'adapter:failed',
-          providerId: resolveRuntimeFallbackProviderId(orchestrator.registry),
-          error: err instanceof Error ? err.message : String(err),
-          timestamp: Date.now(),
-        }
-        yield failEvent
-      }
-    }
-
-    return this.toStreamResponse(generateEvents())
+    return streamSupervisor(
+      { orchestrator: this.orchestrator, eventBus: this.eventBus },
+      body,
+    )
   }
 
   private streamParallel(body: ParallelRequestBody): HttpStreamResponse {
-    const orchestrator = this.orchestrator
-
-    async function* generateEvents(): AsyncGenerator<AgentEvent, void, undefined> {
-      try {
-        const mergeStrategy = body.strategy ?? 'all'
-
-        const result = await orchestrator.parallel(body.prompt, {
-          providers: body.providers,
-          mergeStrategy,
-        })
-
-        const completedEvent: AgentCompletedEvent = {
-          type: 'adapter:completed',
-          providerId: resolveStreamCompletionProviderId(
-            orchestrator.registry,
-            result,
-            collectProviderIds(result.allResults),
-          ),
-          sessionId: 'parallel',
-          result: JSON.stringify(result),
-          durationMs: result.totalDurationMs,
-          timestamp: Date.now(),
-        }
-        yield completedEvent
-      } catch (err) {
-        const failEvent: AgentEvent = {
-          type: 'adapter:failed',
-          providerId: resolveRuntimeFallbackProviderId(orchestrator.registry, undefined, body.providers),
-          error: err instanceof Error ? err.message : String(err),
-          timestamp: Date.now(),
-        }
-        yield failEvent
-      }
-    }
-
-    return this.toStreamResponse(generateEvents())
-  }
-
-  private toStreamResponse(
-    events: AsyncGenerator<AgentEvent, void, undefined>,
-  ): HttpStreamResponse {
-    const handler = new StreamingHandler({
-      format: 'sse',
-      includeToolCalls: true,
-      trackProgress: true,
-      eventBus: this.eventBus,
-    })
-
-    return {
-      status: 200,
-      headers: {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-cache',
-        'connection': 'keep-alive',
-      },
-      stream: handler.serialize(events),
-    }
+    return streamParallel(
+      { orchestrator: this.orchestrator, eventBus: this.eventBus },
+      body,
+    )
   }
 
   // -------------------------------------------------------------------------
