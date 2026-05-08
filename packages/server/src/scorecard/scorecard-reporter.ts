@@ -4,7 +4,7 @@
  * - Markdown (for docs/CI artifacts)
  * - JSON (for programmatic consumption)
  */
-import type { ScorecardReport, ScorecardCategory, ScorecardCheck, Recommendation, Grade, CheckStatus } from './integration-scorecard.js'
+import type { ScorecardReport, ScorecardCategory, ScorecardCheck, Recommendation, Grade, CheckStatus } from './contracts.js'
 
 // ---------------------------------------------------------------------------
 // ANSI helpers

@@ -2,7 +2,10 @@
  * Slack connector — tools for sending messages and interacting with Slack.
  */
 import { z } from 'zod'
-import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
+import {
+  fetchWithOutboundUrlPolicy,
+  type OutboundUrlSecurityPolicy,
+} from '@dzupagent/core/security'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { filterTools } from '../connector-types.js'
 import type { ConnectorToolkit } from '../connector-contract.js'
@@ -10,11 +13,15 @@ import type { ConnectorToolkit } from '../connector-contract.js'
 export interface SlackConnectorConfig {
   token: string
   enabledTools?: string[]
+  /** Optional outbound URL policy override for Slack API calls. */
+  outboundUrlPolicy?: OutboundUrlSecurityPolicy
 }
 
 const SLACK_API = 'https://slack.com/api'
 
 export function createSlackConnector(config: SlackConnectorConfig): DynamicStructuredTool[] {
+  const outboundUrlPolicy = config.outboundUrlPolicy ?? defaultSlackOutboundPolicy()
+
   async function slack(method: string, body: Record<string, unknown>): Promise<unknown> {
     const res = await fetchWithOutboundUrlPolicy(`${SLACK_API}/${method}`, {
       method: 'POST',
@@ -23,6 +30,8 @@ export function createSlackConnector(config: SlackConnectorConfig): DynamicStruc
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+    }, {
+      policy: outboundUrlPolicy,
     })
     return res.json()
   }
@@ -73,6 +82,10 @@ export function createSlackConnector(config: SlackConnectorConfig): DynamicStruc
   ]
 
   return filterTools(all, config.enabledTools)
+}
+
+function defaultSlackOutboundPolicy(): OutboundUrlSecurityPolicy {
+  return { allowedHosts: ['slack.com'] }
 }
 
 /**

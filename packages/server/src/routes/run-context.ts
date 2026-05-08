@@ -34,28 +34,9 @@ import type { ForgeServerConfig } from '../composition/types.js'
 import type { LogEntry } from '@dzupagent/core/persistence'
 import type { CompressionLogEntry } from '@dzupagent/agent'
 import { requireOwnedRun } from './run-guard.js'
+import type { TokenLifecycleLike } from './run-context-types.js'
 
-/** Structural type for TokenLifecycleManager (from `@dzupagent/context`).
- *  We use structural typing to avoid a hard dependency on the context package,
- *  matching the existing `RunReflectorLike` pattern in this server. */
-export interface TokenLifecycleLike {
-  readonly usedTokens: number
-  readonly remainingTokens: number
-  readonly status: 'ok' | 'warn' | 'critical' | 'exhausted'
-  readonly report: {
-    used: number
-    available: number
-    pct: number
-    status: 'ok' | 'warn' | 'critical' | 'exhausted'
-    phases: Array<{ phase: string; tokens: number; timestamp: number }>
-    recommendation?: string
-  }
-}
-
-/** Minimal registry surface — anything that can look up a lifecycle manager by runId. */
-export interface TokenLifecycleRegistry {
-  get(runId: string): TokenLifecycleLike | undefined
-}
+export type { TokenLifecycleLike, TokenLifecycleRegistry } from './run-context-types.js'
 
 interface CompressionStats {
   count: number

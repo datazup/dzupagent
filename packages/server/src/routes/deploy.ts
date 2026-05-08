@@ -8,27 +8,13 @@
  */
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
-import type { DeploymentHistoryStoreInterface, DeploymentOutcome } from '../deploy/deployment-history-store.js'
-import type { SignalComputationConfig, RollbackChecker, AgentConfigLike } from '../deploy/signal-checkers.js'
+import type { DeploymentOutcome } from '../deploy/deployment-history-store.js'
+import type { SignalComputationConfig } from '../deploy/signal-checkers.js'
 import { computeAllSignals } from '../deploy/signal-checkers.js'
-import type { DeployConfidenceConfig, GateDecision } from '../deploy/confidence-types.js'
+import type { GateDecision } from '../deploy/confidence-types.js'
+import type { DeployRouteConfig } from './deploy-types.js'
 
-// ---------------------------------------------------------------------------
-// Route config
-// ---------------------------------------------------------------------------
-
-export interface DeployRouteConfig {
-  /** Deployment history store (Postgres or in-memory). */
-  historyStore: DeploymentHistoryStoreInterface
-  /** Default environment for confidence computation (default: 'production'). */
-  defaultEnvironment?: string
-  /** Optional rollback checker for project revision availability. */
-  rollbackChecker?: RollbackChecker
-  /** Optional default agent config for recovery copilot detection. */
-  agentConfig?: AgentConfigLike
-  /** Optional confidence threshold overrides. */
-  confidenceThresholds?: Partial<DeployConfidenceConfig['thresholds']>
-}
+export type { DeployRouteConfig } from './deploy-types.js'
 
 // ---------------------------------------------------------------------------
 // Validation helpers

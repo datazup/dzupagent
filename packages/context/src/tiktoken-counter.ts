@@ -23,7 +23,19 @@ type JsTiktokenModule = {
   get_encoding: (encoding: string) => { encode(text: string): number[] }
 }
 
+type AnthropicTokenizerModule = {
+  countTokens?: (text: string) => number
+  count_tokens?: (text: string) => number
+  encode?: (text: string) => number[]
+  default?: {
+    countTokens?: (text: string) => number
+    count_tokens?: (text: string) => number
+    encode?: (text: string) => number[]
+  }
+}
+
 let cachedModule: JsTiktokenModule | null | undefined
+let cachedAnthropicModule: AnthropicTokenizerModule | null | undefined
 
 function tryLoadModule(): JsTiktokenModule | null {
   if (cachedModule !== undefined) return cachedModule
@@ -42,12 +54,67 @@ function tryLoadModule(): JsTiktokenModule | null {
   }
 }
 
+function tryLoadAnthropicModule(): AnthropicTokenizerModule | null {
+  if (cachedAnthropicModule !== undefined) return cachedAnthropicModule
+  try {
+    const req = createRequire(import.meta.url)
+    const mod = req('@anthropic-ai/tokenizer') as AnthropicTokenizerModule
+    cachedAnthropicModule = mod
+    return mod
+  } catch {
+    cachedAnthropicModule = null
+    return null
+  }
+}
+
+function isClaudeModel(model?: string): boolean {
+  if (!model) return false
+  const normalized = model.toLowerCase()
+  return normalized.startsWith('claude-')
+    || normalized.includes('/claude')
+    || normalized.includes('.claude')
+}
+
+function countWithAnthropicTokenizer(text: string): number | undefined {
+  const mod = tryLoadAnthropicModule()
+  if (!mod) return undefined
+
+  const candidate = mod.default ?? mod
+  if (typeof candidate.countTokens === 'function') {
+    return candidate.countTokens(text)
+  }
+  if (typeof candidate.count_tokens === 'function') {
+    return candidate.count_tokens(text)
+  }
+  if (typeof candidate.encode === 'function') {
+    return candidate.encode(text).length
+  }
+  return undefined
+}
+
+function heuristicCount(text: string): number {
+  return Math.ceil(text.length / 4)
+}
+
 export class TiktokenCounter implements TokenCounter {
   count(text: string, model?: string): number {
+    if (text.length === 0) return 0
+
+    if (isClaudeModel(model)) {
+      try {
+        const claudeCount = countWithAnthropicTokenizer(text)
+        if (typeof claudeCount === 'number' && Number.isFinite(claudeCount)) {
+          return Math.max(0, Math.ceil(claudeCount))
+        }
+      } catch {
+        // Optional Claude tokenizer failures degrade to the shared fallback.
+      }
+    }
+
     const mod = tryLoadModule()
     if (!mod) {
       // Fallback: chars/4 heuristic when js-tiktoken is not installed.
-      return Math.ceil(text.length / 4)
+      return heuristicCount(text)
     }
     try {
       const encoder = model && model.startsWith('gpt')
@@ -56,7 +123,15 @@ export class TiktokenCounter implements TokenCounter {
       return encoder.encode(text).length
     } catch {
       // Unknown model or encoder failure — degrade to heuristic.
-      return Math.ceil(text.length / 4)
+      return heuristicCount(text)
     }
   }
+}
+
+export const __internals = {
+  isClaudeModel,
+  resetCache(): void {
+    cachedModule = undefined
+    cachedAnthropicModule = undefined
+  },
 }

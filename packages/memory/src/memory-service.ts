@@ -18,6 +18,12 @@ import type { NamespaceConfig, FormatOptions, SemanticStoreAdapter } from './mem
 import { sanitizeMemoryContent } from './memory-sanitizer.js'
 import { createDecayMetadata, scoreWithDecay } from './decay-engine.js'
 import type { DecayMetadata } from './decay-engine.js'
+import {
+  ConsolidationEngine,
+  type ConsolidationEngineConfig,
+  type ConsolidationResult,
+  type ConsolidationStore,
+} from './consolidation-engine.js'
 
 /**
  * Structurally-typed PII detection result. Mirrors
@@ -55,6 +61,8 @@ export interface MemoryServiceOptions {
   eventBus?: MemoryEventBus
   /** Agent id used as a tag when emitting memory events. */
   agentId?: string
+  /** Optional post-run consolidation engine configuration. */
+  consolidation?: ConsolidationEngineConfig
 }
 import {
   getMemoryStoreCapabilities,
@@ -397,6 +405,61 @@ export class MemoryService {
    */
   getStore(): BaseStore {
     return this.store
+  }
+
+  /**
+   * Run a best-effort consolidation pass after an agent run completes.
+   *
+   * This is intentionally non-fatal: callers can invoke it from run-finally
+   * hooks without risking the primary agent result. The underlying
+   * ConsolidationEngine handles empty/unsupported stores gracefully; this
+   * wrapper adds namespace validation and telemetry.
+   */
+  async consolidateAfterRun(
+    runId: string,
+    scope: string,
+    namespace: string,
+  ): Promise<ConsolidationResult> {
+    const startedAt = Date.now()
+
+    try {
+      this.getNamespace(namespace)
+      const engine = new ConsolidationEngine(this.options?.consolidation)
+      const result = await engine.consolidate(
+        scope,
+        namespace,
+        this.store as unknown as ConsolidationStore,
+      )
+
+      this.eventBus?.emit({
+        type: 'memory:consolidated',
+        agentId: this.agentId ?? 'unknown',
+        runId,
+        namespace,
+        scope,
+        summarized: result.summarized,
+        summaries: result.summaries,
+        durationMs: result.durationMs,
+      })
+
+      return result
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.eventBus?.emit({
+        type: 'memory:error',
+        agentId: this.agentId ?? 'unknown',
+        runId,
+        namespace,
+        scope,
+        error: message,
+      })
+      return {
+        summarized: 0,
+        summaries: [],
+        provenance: {},
+        durationMs: Date.now() - startedAt,
+      }
+    }
   }
 
   /**
