@@ -95,6 +95,7 @@ Current-turn checks:
 - `node --test scripts/__tests__/check-package-export-artifacts.test.mjs`: passed.
 - `yarn -s check:package-export-artifacts`: passed, 32 packages.
 - `yarn build`: passed, 32 of 32 Turbo tasks successful after rebuilding `@dzupagent/core` declarations.
+- `yarn -s verify:strict:no-circular`: passed after the export-artifact guard was wired into the command; 128 of 128 Turbo tasks successful, `@dzupagent/server#test` passed 195 files and 3,221 tests, and `package-export-artifacts` passed 32 packages.
 
 Broad gate:
 
@@ -103,7 +104,7 @@ Broad gate:
 - A package export artifact guard is now wired after `verify`, `verify:strict`, and `verify:strict:no-circular` so broad gates fail explicitly if a package export points at a missing runtime or declaration file such as `packages/core/dist/identity.d.ts`.
 - A follow-up broad run exposed timing-sensitive server tests under full Turbo load; focused reruns passed and the smoke tests were hardened in `5569fa4`.
 - Latest `yarn -s verify:strict:no-circular`: passed, 128 of 128 Turbo tasks successful.
-- In the green broad run, `@dzupagent/server#test` passed 195 files and 3,221 tests.
+- In the green broad run, `@dzupagent/server#test` passed 195 files and 3,221 tests, and the newly wired package-export artifact check passed 32 packages.
 
 ## Follow-On Work
 
@@ -130,23 +131,23 @@ Additional committed follow-on files:
 - `packages/server/src/__tests__/mcp-integration.test.ts`
 - `packages/server/src/__tests__/tool-resolver.test.ts`
 
-Current uncommitted stabilization guard:
+Committed export-artifact stabilization guard:
 
 - `scripts/check-package-export-artifacts.mjs`
 - `scripts/__tests__/check-package-export-artifacts.test.mjs`
 - `package.json` wires `check:package-export-artifacts` after broad verification gates.
 
-The committed follow-on slices have package-focused validation, a green broad strict gate, and are committed locally. The export-artifact guard is the only current uncommitted DzupAgent stabilization slice.
+These follow-on slices have package-focused validation, a green broad strict gate, and are committed locally.
 
 ## Plan Re-Evaluation
 
 Implementation drift is low for the MC split stack at `origin/main`: it is mostly behavior-preserving module splitting with focused tests and strict-workflow sharding already in place.
 
-The current drift risk is low. The stale-DTS and full-Turbo server timing failures were both rechecked, the focused reruns passed, and the latest strict gate is green. The remaining DzupAgent stabilization work should stay in guard/doc/test lanes unless a validation gate finds a concrete regression.
+The current drift risk is low. The stale-DTS and full-Turbo server timing failures were both rechecked, the focused reruns passed, and the latest strict gate is green with the package-export artifact guard included. The separate `apps/codev-app` worktree has unrelated local changes and should be reviewed separately before any cross-repo work. Remaining DzupAgent stabilization work should stay in guard/doc/test lanes unless a validation gate finds a concrete regression.
 
 ## Recommended Next Tasks
 
-1. Commit the export-artifact guard as a stabilization-only follow-on slice after one focused rerun of `yarn check:package-export-artifacts`.
-2. Treat the DzupAgent follow-on slices as ready for PR packaging; focused validation and the full strict gate are green.
-3. Push/open the follow-on PR with the committed slices grouped by package.
-4. Review the separate dirty `apps/codev-app` worktree before starting any new DzupAgent LOC split wave, so unrelated app changes do not get mixed into the PR.
+1. Treat the DzupAgent follow-on slices as ready for PR packaging; focused validation and the full strict gate are green.
+2. Push/open the follow-on PR with the committed slices grouped by package.
+3. Review the separate dirty `apps/codev-app` worktree before any cross-repo action.
+4. Start another DzupAgent LOC split wave only after the PR package is sealed.
