@@ -7,13 +7,17 @@ Comparison: `origin/main..HEAD`
 
 ## Current State
 
-- Branch is ahead of `origin/main` by 12 commits.
-- The committed stack has no duplicate commit subjects in `origin/main..HEAD`.
+- `origin/main` points at `5490a3b`, the MC-047 through MC-057 split stack.
+- `main` is ahead of `origin/main` by 4 follow-on commits:
+  - `d39d4e9 chore(github): build core before strict verify workflow`
+  - `ab5b2fc docs(docs): add MC split PR readiness review report`
+  - `019ad33 refactor(agent-adapters): split streaming handler into focused modules`
+  - `86fa6fe test(packages): validate core consumer subpath exports`
 - CI strict circular dependency sharding is already present in `.github/workflows/verify-strict.yml`.
 - The full strict job runs `yarn -s verify:strict:no-circular`, so the expensive circular dependency scan is handled only by the separate 4-shard matrix job.
-- Local worktree is not clean: there is a focused, uncommitted `packages/agent-adapters/src/streaming/` split after the 12-commit stack.
+- Local worktree is not clean. Remaining uncommitted source/test work is currently in `packages/core/src/registry/`, `packages/otel/src/event-metric-map/`, and `packages/testing/src/__tests__/exports.test.ts`.
 
-## Committed Stack
+## MC Split Stack
 
 1. `8ebf304 test(agent): prewarm timeout-sensitive imports`
 2. `2db579c refactor(memory): MC-053 split skill-packs into focused modules`
@@ -62,17 +66,31 @@ Comparison: `origin/main..HEAD`
 Current-turn checks:
 
 - `git diff --check`: passed.
-- Duplicate subject check for `origin/main..HEAD`: passed, no output.
+- Duplicate subject check for the original MC split stack passed before follow-on commits were added.
 - `yarn workspace @dzupagent/agent-adapters typecheck`: passed.
 - `yarn workspace @dzupagent/agent-adapters test src/__tests__/streaming-handler.test.ts`: passed, 22 tests.
+- `yarn workspace @dzupagent/server build`: passed after the failed broad run, once `@dzupagent/core/identity` declarations were present in `packages/core/dist`.
+- `yarn workspace @dzupagent/core typecheck`: passed.
+- `yarn workspace @dzupagent/core test src/registry/__tests__/registry.test.ts src/__tests__/registry-idcounter.test.ts`: passed, 56 tests.
+- `yarn workspace @dzupagent/core build`: passed.
+- `yarn workspace @dzupagent/core lint`: passed.
+- `yarn workspace @dzupagent/otel typecheck`: passed.
+- `yarn workspace @dzupagent/otel test src/__tests__/event-metric-map-fragments.test.ts src/__tests__/event-metric-map-coverage.test.ts`: passed, 106 tests.
+- `yarn workspace @dzupagent/otel build`: passed.
+- `yarn workspace @dzupagent/otel lint`: passed.
+- `yarn workspace @dzupagent/testing test src/__tests__/exports.test.ts`: passed, 16 tests.
+- `yarn workspace @dzupagent/testing typecheck`: passed.
+- `yarn workspace @dzupagent/testing build`: passed.
+- `yarn workspace @dzupagent/testing lint`: passed.
 
-Previously reported but not rerun in this turn:
+Broad gate:
 
-- `yarn -s verify:strict`: reported green before the commit-message-only rebase.
+- `yarn -s verify:strict:no-circular`: failed late in `@dzupagent/server#build` with TS7016 for `@dzupagent/core/identity`.
+- The focused rerun of `@dzupagent/server build` passed without source changes, so this failure is consistent with stale/build-order DTS resolution rather than a server source defect.
 
-## Uncommitted Follow-On Work
+## Follow-On Work
 
-The current worktree contains a focused split of `packages/agent-adapters/src/streaming/streaming-handler.ts`:
+The focused split of `packages/agent-adapters/src/streaming/streaming-handler.ts` is now committed as `019ad33`:
 
 - `streaming-handler-types.ts`
 - `streaming-event-mapper.ts`
@@ -80,21 +98,29 @@ The current worktree contains a focused split of `packages/agent-adapters/src/st
 - `streaming-serialization.ts`
 - reduced `streaming-handler.ts`
 
-Focused validation for this uncommitted split is green, but it is not part of the 12-commit PR stack yet. Treat it as a separate decision:
+Focused validation for this split is green, but it is a follow-on commit after the MC split stack at `origin/main`.
 
-- include it as the next narrow MC cleanup commit after review, or
-- move it out of the PR-readiness path and open the existing 12-commit stack first.
+Remaining dirty follow-on files currently present:
+
+- `packages/core/src/registry/in-memory-registry.ts`
+- `packages/core/src/registry/in-memory-registry-core.ts`
+- `packages/otel/src/event-metric-map/empty-events.ts`
+- `packages/otel/src/event-metric-map/empty-events-agent.ts`
+- `packages/otel/src/event-metric-map/empty-events-runtime.ts`
+- `packages/testing/src/__tests__/exports.test.ts`
+
+These dirty follow-on slices have package-focused validation, but they are not committed yet.
 
 ## Plan Re-Evaluation
 
-Implementation drift is low for the committed stack: it is mostly behavior-preserving module splitting with focused tests and strict-workflow sharding already in place.
+Implementation drift is low for the MC split stack at `origin/main`: it is mostly behavior-preserving module splitting with focused tests and strict-workflow sharding already in place.
 
-The only current drift risk is scope ambiguity from the uncommitted streaming split. Do not present the branch as clean until that local delta is either committed, intentionally parked, or removed by the owner.
+The current drift risk is local commit/package grouping, not failed validation. The core registry split, OTel metric-map split, and testing export assertion change should be committed as separate follow-on slices or intentionally parked before presenting the checkout as PR-clean.
 
 ## Recommended Next Tasks
 
-1. Decide whether the uncommitted streaming split belongs in this PR.
-2. If included, commit it separately with a subject such as `refactor(agent-adapters): MC-058 split streaming handler into focused modules`.
-3. Rerun `yarn workspace @dzupagent/agent-adapters typecheck` and `yarn workspace @dzupagent/agent-adapters test src/__tests__/streaming-handler.test.ts` after that commit.
-4. Run `yarn -s verify:strict:no-circular` once before pushing if time permits; let CI confirm the circular dependency matrix.
-5. Push/open PR only after the worktree status is intentionally clean or the PR description explicitly excludes local follow-on work.
+1. Commit the core registry split separately.
+2. Commit the OTel metric-map split separately.
+3. Commit or fold the testing export assertion and readiness-note refresh into the most relevant follow-on commit.
+4. Rerun `yarn -s verify:strict:no-circular` after the worktree scope is settled; the focused server build already passed after the stale DTS failure.
+5. Push/open the follow-on PR only after the worktree is intentionally clean.
