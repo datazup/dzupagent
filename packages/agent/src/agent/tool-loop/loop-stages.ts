@@ -14,7 +14,7 @@ import type { TokenUsage } from '@dzupagent/core/llm'
 import type { IterationBudget } from '../../guardrails/iteration-budget.js'
 import { StuckError } from '../stuck-error.js'
 import type { ToolCallResult } from './contracts.js'
-import type { StopReason, ToolLoopConfig, ToolStat } from '../tool-loop.js'
+import type { StopReason, ToolLoopConfig, ToolStat } from './types.js'
 
 /**
  * Marker prefix used to identify tool-stats hint SystemMessages so we can

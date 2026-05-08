@@ -1,12 +1,8 @@
 import type { BaseMessage } from '@langchain/core/messages'
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { DzupEventBus } from '@dzupagent/core/events'
-import type { RunJournalEntry } from '@dzupagent/core/persistence'
 import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
 import type {
   DzupAgentConfig,
-  GenerateOptions,
   GenerateResult,
 } from './agent-types.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
@@ -57,73 +53,21 @@ import {
 } from './run-engine-generate-helpers.js'
 import type {
   StreamingToolExecutionResult,
-  StreamingToolPolicyOptions,
   ToolStatTracker,
 } from './streaming-tool-types.js'
+import type {
+  ExecuteStreamingToolCallParams,
+  ExecuteGenerateRunParams,
+  PreparedRunState,
+  PrepareRunStateParams,
+} from './run-engine/types.js'
 
 export type {
   StreamingToolExecutionResult,
   StreamingToolPolicyOptions,
   ToolStatTracker,
 } from './streaming-tool-types.js'
-
-export interface PreparedRunState {
-  maxIterations: number
-  budget?: IterationBudget
-  preparedMessages: BaseMessage[]
-  tools: StructuredToolInterface[]
-  toolMap: Map<string, StructuredToolInterface>
-  model: BaseChatModel
-  stuckDetector?: StuckDetector
-  /**
-   * Per-run memory frame snapshot captured during `prepareMessages`.
-   * Threaded through the run state (instead of stored on the agent instance)
-   * so concurrent `generate()`/`stream()` calls on the same agent cannot
-   * clobber each other's frame reference.
-   */
-  memoryFrame?: unknown
-}
-
-export interface PrepareRunStateParams {
-  config: DzupAgentConfig
-  resolvedModel: BaseChatModel
-  messages: BaseMessage[]
-  options?: GenerateOptions
-  prepareMessages: (
-    messages: BaseMessage[],
-  ) => Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }>
-  getTools: () => StructuredToolInterface[]
-  bindTools: (model: BaseChatModel, tools: StructuredToolInterface[]) => BaseChatModel
-  runBeforeAgentHooks: () => Promise<void>
-  /**
-   * Optional journal used for resume rehydration. When `options._resume.lastStateSeq`
-   * is set, the run engine will pull entries up to that seq and reconstruct the
-   * message history instead of using `prepareMessages`' result.
-   */
-  journal?: { getAll: (runId: string) => Promise<RunJournalEntry[]> }
-  /** Run id used to query the journal when resuming. */
-  runId?: string
-}
-
-export interface ExecuteGenerateRunParams {
-  agentId: string
-  config: DzupAgentConfig
-  options?: GenerateOptions
-  runState: PreparedRunState
-  invokeModel: (model: BaseChatModel, messages: BaseMessage[]) => Promise<BaseMessage>
-  transformToolResult: (
-    toolName: string,
-    input: Record<string, unknown>,
-    result: string,
-  ) => Promise<string>
-  maybeUpdateSummary: (messages: BaseMessage[], memoryFrame?: unknown) => Promise<void>
-}
-
-interface StreamingToolCall {
-  id?: string
-  name: string
-  args: Record<string, unknown>
-}
+export type * from './run-engine/types.js'
 
 export async function prepareRunState(
   params: PrepareRunStateParams,
@@ -485,32 +429,9 @@ export function createToolStatTracker(): ToolStatTracker {
 
 // ---------- Streaming policy stack helpers (MJ-AGENT-02) ----------
 
-export async function executeStreamingToolCall(params: {
-  toolCall: StreamingToolCall
-  toolMap: Map<string, StructuredToolInterface>
-  budget?: IterationBudget
-  stuckDetector?: StuckDetector
-  transformToolResult: (
-    toolName: string,
-    input: Record<string, unknown>,
-    result: string,
-  ) => Promise<string>
-  onToolLatency?: (name: string, durationMs: number, error?: string) => void
-  statTracker: ToolStatTracker
-  /** Parent run cancellation signal; threaded to the per-tool invocation signal. */
-  signal?: AbortSignal
-  /**
-   * MJ-AGENT-02 — optional public policy bundle. When present, the
-   * streaming executor enforces the SAME governance, permission,
-   * validation, timeout, safety, and tracing controls as the
-   * non-streaming policy-enabled tool execution stage. When `undefined`,
-   * the executor preserves the
-   * pre-MJ-AGENT-02 "lite" surface (budget block + tool existence)
-   * for backwards-compatible callers that didn't thread
-   * `toolExecution` through DzupAgentConfig.
-   */
-  policy?: StreamingToolPolicyOptions
-}): Promise<StreamingToolExecutionResult> {
+export async function executeStreamingToolCall(
+  params: ExecuteStreamingToolCallParams,
+): Promise<StreamingToolExecutionResult> {
   // RF-19 (CODE-02) — orchestrator. The 397-LOC body has been split into
   // five phase helpers in `./run-engine-streaming-helpers.ts` so each
   // phase can be unit-tested in isolation. Observable behaviour

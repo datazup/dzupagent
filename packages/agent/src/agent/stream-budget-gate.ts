@@ -16,12 +16,7 @@ import type {
   StreamingToolExecutionResult,
   StreamingToolPolicyOptions,
 } from './streaming-tool-types.js'
-
-interface StreamingToolCall {
-  id?: string
-  name: string
-  args: Record<string, unknown>
-}
+import type { StreamingToolCall } from './run-engine/types.js'
 
 /**
  * Outcome of {@link applyBudgetGate}: either a short-circuit

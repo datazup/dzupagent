@@ -82,9 +82,15 @@ function tryLoadOptionalSync<T = unknown>(moduleId: string): T | null {
   // We try CommonJS `require` first (works under tsx/node ESM with createRequire),
   // then fall back to nothing — async dynamic import is not safe here because
   // countTokens must remain synchronous.
+  // Narrow shape of the globals we probe. Properties are optional because
+  // they're only defined in CommonJS / Node / webpack environments.
+  const g = globalThis as unknown as {
+    require?: (id: string) => unknown
+    process?: { cwd?: () => string }
+    __non_webpack_require__?: (id: string) => unknown
+  }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const req = (globalThis as any).require as undefined | ((id: string) => unknown)
+    const req = g.require
     if (typeof req === 'function') {
       return req(moduleId) as T
     }
@@ -94,11 +100,9 @@ function tryLoadOptionalSync<T = unknown>(moduleId: string): T | null {
   try {
     // Node ESM: use createRequire on import.meta.url-style fallback via process.cwd().
     // We avoid importing 'module' statically; lazy access keeps browser builds clean.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const proc = (globalThis as any).process as { cwd?: () => string } | undefined
+    const proc = g.process
     if (!proc?.cwd) return null
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const nodeModule = (globalThis as any).__non_webpack_require__ ?? null
+    const nodeModule = g.__non_webpack_require__ ?? null
     if (typeof nodeModule === 'function') {
       return nodeModule(moduleId) as T
     }

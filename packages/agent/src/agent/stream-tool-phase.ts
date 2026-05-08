@@ -22,16 +22,12 @@ import {
 } from './tool-lifecycle-policy.js'
 import { recordToolLatencyOutcome } from './stream-result-helpers.js'
 import type {
-  StreamingToolExecutionResult,
   StreamingToolPolicyOptions,
   ToolStatTracker,
 } from './streaming-tool-types.js'
+import type { StreamPhaseResult, StreamingToolCall } from './run-engine/types.js'
 
-interface StreamingToolCall {
-  id?: string
-  name: string
-  args: Record<string, unknown>
-}
+export type { StreamPhaseResult } from './run-engine/types.js'
 
 /**
  * Outcome of {@link runToolStreamingPhase}: either a short-circuit (validation
@@ -40,15 +36,6 @@ interface StreamingToolCall {
  * invocation with the transformed result and metadata required for
  * stuck-detection and final ToolMessage construction.
  */
-export type StreamPhaseResult =
-  | { kind: 'short-circuit'; result: StreamingToolExecutionResult }
-  | {
-      kind: 'success'
-      transformedResult: string
-      validatedArgs: Record<string, unknown>
-      validatedKeys: string[]
-    }
-
 /**
  * Validate args, invoke the tool (with timeout + abort signal), run safety
  * and prompt-injection scans on the result, and emit lifecycle events.

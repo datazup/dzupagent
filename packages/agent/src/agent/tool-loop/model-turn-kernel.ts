@@ -1,7 +1,7 @@
 import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { extractTokenUsage, type TokenUsage } from '@dzupagent/core/llm'
-import type { ToolLoopConfig } from '../tool-loop.js'
+import type { ToolLoopConfig } from './types.js'
 
 export interface ModelTurnResult {
   response: BaseMessage
