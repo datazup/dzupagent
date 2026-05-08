@@ -128,28 +128,15 @@ export class PipelineRuntime {
 
     const startTime = Date.now()
 
-    try {
-      return await this.executor.executeFromNode({
-        startNodeId: this.config.definition.entryNodeId,
-        runId,
-        runState,
-        nodeResults,
-        completedNodeIds,
-        versionTracker,
-        startTime,
-      })
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      this.state = 'failed'
-      this.emit(pipelineFailedEvent(runId, errorMessage))
-      return {
-        pipelineId: this.config.definition.id,
-        runId,
-        state: 'failed',
-        nodeResults,
-        totalDurationMs: Date.now() - startTime,
-      }
-    }
+    return this.runFromNode({
+      startNodeId: this.config.definition.entryNodeId,
+      runId,
+      runState,
+      nodeResults,
+      completedNodeIds,
+      versionTracker,
+      startTime,
+    })
   }
 
   /** Resume execution from a checkpoint. */
@@ -200,45 +187,34 @@ export class PipelineRuntime {
     // Get next node(s) after the suspended node
     const nextNodeIds = this.getNextNodeIdsForResume(checkpoint.suspendedAtNodeId, runState)
 
-    try {
-      if (nextNodeIds.length === 0) {
-        // Suspend was terminal
-        this.state = 'completed'
-        const totalMs = Date.now() - startTime
-        this.emit(pipelineCompletedEvent(runId, totalMs))
-        return {
-          pipelineId: this.config.definition.id,
-          runId,
-          state: 'completed',
-          nodeResults,
-          totalDurationMs: totalMs,
-        }
-      }
-
-      const versionTracker = { version: checkpoint.version }
-
-      // Continue from the first next node
-      return await this.executor.executeFromNode({
-        startNodeId: nextNodeIds[0]!,
-        runId,
-        runState,
-        nodeResults,
-        completedNodeIds,
-        versionTracker,
-        startTime,
-      })
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      this.state = 'failed'
-      this.emit(pipelineFailedEvent(runId, errorMessage))
+    if (nextNodeIds.length === 0) {
+      // Suspend was terminal
+      this.state = 'completed'
+      const totalMs = Date.now() - startTime
+      this.emit(pipelineCompletedEvent(runId, totalMs))
       return {
         pipelineId: this.config.definition.id,
         runId,
-        state: 'failed',
+        state: 'completed',
         nodeResults,
-        totalDurationMs: Date.now() - startTime,
+        totalDurationMs: totalMs,
       }
     }
+
+    const versionTracker = { version: checkpoint.version }
+
+    // Continue from the first next node — `runFromNode` translates any
+    // executor-thrown error into a failed run result, matching the
+    // original outer try/catch semantics.
+    return this.runFromNode({
+      startNodeId: nextNodeIds[0]!,
+      runId,
+      runState,
+      nodeResults,
+      completedNodeIds,
+      versionTracker,
+      startTime,
+    })
   }
 
   /** Cancel execution. */
@@ -254,6 +230,38 @@ export class PipelineRuntime {
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
+
+  /**
+   * Shared tail for `execute()` and `resume()`: delegate the graph walk to
+   * the executor and translate any thrown error into a failed run result.
+   * Centralising this preserves identical lifecycle semantics across both
+   * entry points (state transition to `failed`, `pipeline:failed` event,
+   * structured `PipelineRunResult`) without duplicating the catch block.
+   */
+  private async runFromNode(args: {
+    startNodeId: string
+    runId: string
+    runState: Record<string, unknown>
+    nodeResults: Map<string, NodeResult>
+    completedNodeIds: string[]
+    versionTracker: { version: number }
+    startTime: number
+  }): Promise<PipelineRunResult> {
+    try {
+      return await this.executor.executeFromNode(args)
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      this.state = 'failed'
+      this.emit(pipelineFailedEvent(args.runId, errorMessage))
+      return {
+        pipelineId: this.config.definition.id,
+        runId: args.runId,
+        state: 'failed',
+        nodeResults: args.nodeResults,
+        totalDurationMs: Date.now() - args.startTime,
+      }
+    }
+  }
 
   /**
    * Resolve the node(s) immediately after a suspension point. Used by
