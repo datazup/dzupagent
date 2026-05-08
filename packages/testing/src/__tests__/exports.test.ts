@@ -7,6 +7,17 @@ interface PackageJson {
   exports?: Record<string, unknown>;
 }
 
+const expectedCoreConsumerSubpaths = [
+  './events',
+  './llm',
+  './tools',
+  './identity',
+  './persistence',
+  './plugins',
+  './pipeline',
+  './mcp',
+] as const;
+
 // ---------------------------------------------------------------------------
 // Top-level package exports
 // ---------------------------------------------------------------------------
@@ -74,6 +85,37 @@ describe('Package exports — @dzupagent/testing', () => {
       import: './dist/vitest-llm-setup.js',
       types: './dist/vitest-llm-setup.d.ts',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Consumer dependency exports
+// ---------------------------------------------------------------------------
+
+describe('Package exports — @dzupagent/core consumer subpaths', () => {
+  it('should declare the expected core subpaths consumed by testing package users', () => {
+    const rawPackageJson = readFileSync(new URL('../../../core/package.json', import.meta.url), 'utf-8');
+    const packageJson = JSON.parse(rawPackageJson) as PackageJson;
+
+    for (const subpath of expectedCoreConsumerSubpaths) {
+      expect(packageJson.exports?.[subpath]).toEqual({
+        import: expect.stringMatching(/^\.\/dist\/.+\.js$/),
+        types: expect.stringMatching(/^\.\/dist\/.+\.d\.ts$/),
+      });
+    }
+  });
+
+  it('should import the expected core subpaths from built package exports', async () => {
+    const modules = await Promise.all(
+      expectedCoreConsumerSubpaths.map(async (subpath) => {
+        const moduleExports = await import(`@dzupagent/core/${subpath.slice(2)}`);
+        return [subpath, moduleExports] as const;
+      }),
+    );
+
+    for (const [subpath, moduleExports] of modules) {
+      expect(Object.keys(moduleExports), subpath).not.toHaveLength(0);
+    }
   });
 });
 
