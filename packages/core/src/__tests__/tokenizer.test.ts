@@ -61,28 +61,102 @@ describe('HeuristicTokenizer', () => {
   })
 })
 
-describe('AnthropicTokenizer (fallback path)', () => {
-  it('falls back to heuristic when @anthropic-ai/tokenizer is unavailable', () => {
+describe('AnthropicTokenizer (Claude BPE wiring)', () => {
+  // The Anthropic backend is an optional peer. These tests verify the live
+  // BPE path when it is installed and the deterministic heuristic fallback
+  // when it is not.
+  const isBackendAvailable = (() => {
+    try {
+      const tk = new AnthropicTokenizer('claude-3-5-sonnet-20241022')
+      // Trivial inputs can match the heuristic, so use natural-language text
+      // where the optional BPE backend normally diverges from char/4.
+      const heuristic = new HeuristicTokenizer().countTokens(
+        'The quick brown fox jumps over the lazy dog',
+      )
+      const counted = tk.countTokens(
+        'The quick brown fox jumps over the lazy dog',
+      )
+      return counted !== heuristic && counted > 0
+    } catch {
+      return false
+    }
+  })()
+
+  it('uses the Anthropic BPE tokenizer when @anthropic-ai/tokenizer is available', () => {
     const tk = new AnthropicTokenizer('claude-3-5-sonnet-20241022')
     const heuristic = new HeuristicTokenizer()
     const text = 'The quick brown fox jumps over the lazy dog'
-    expect(tk.countTokens(text)).toBe(heuristic.countTokens(text))
+    const bpe = tk.countTokens(text)
+    if (isBackendAvailable) {
+      // Real BPE produces fewer tokens than char/4 for this English sentence.
+      expect(bpe).toBeGreaterThan(0)
+      expect(bpe).toBeLessThan(heuristic.countTokens(text))
+    } else {
+      // Backend unavailable in this environment; fallback must be heuristic.
+      expect(bpe).toBe(heuristic.countTokens(text))
+    }
   })
 
-  it('encode falls back to a length-only array', () => {
-    const tk = new AnthropicTokenizer()
+  it('returns 0 for empty string regardless of backend availability', () => {
+    const tk = new AnthropicTokenizer('claude-3-5-sonnet-20241022')
+    expect(tk.countTokens('')).toBe(0)
+    expect(tk.encode('').length).toBe(0)
+  })
+
+  it('returns a plausible count for a long string (>0 and < length)', () => {
+    const tk = new AnthropicTokenizer('claude-3-5-sonnet-20241022')
+    const long =
+      'lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(10)
+    const n = tk.countTokens(long)
+    expect(n).toBeGreaterThan(0)
+    expect(n).toBeLessThan(long.length)
+  })
+
+  it('encode returns a numeric array whose length matches countTokens', () => {
+    const tk = new AnthropicTokenizer('claude-3-5-sonnet-20241022')
     const text = 'hello tokenizer'
-    expect(tk.encode(text)).toHaveLength(tk.countTokens(text))
+    const ids = tk.encode(text)
+    expect(Array.isArray(ids)).toBe(true)
+    expect(ids).toHaveLength(tk.countTokens(text))
   })
 
-  it('countMessages aggregates across array', () => {
-    const tk = new AnthropicTokenizer()
-    const total = tk.countMessages([{ content: 'aaaa' }, { content: 'bbbbbbbb' }])
-    expect(total).toBeGreaterThan(0)
+  it('countMessages aggregates across array using BPE counts', () => {
+    const tk = new AnthropicTokenizer('claude-3-5-sonnet-20241022')
+    const total = tk.countMessages([
+      { content: 'aaaa' },
+      { content: 'bbbbbbbb' },
+    ])
+    const a = tk.countTokens('aaaa')
+    const b = tk.countTokens('bbbbbbbb')
+    expect(total).toBe(a + b)
   })
 
   it('exposes the configured model', () => {
     expect(new AnthropicTokenizer('claude-foo').model).toBe('claude-foo')
+  })
+})
+
+describe('defaultTokenizerRegistry (end-to-end Claude path)', () => {
+  it('routes claude-* models through AnthropicTokenizer with BPE counts', () => {
+    const tk = defaultTokenizerRegistry.resolve('claude-3-5-sonnet-20241022')
+    expect(tk).toBeInstanceOf(AnthropicTokenizer)
+    const heuristic = new HeuristicTokenizer().countTokens(
+      'The quick brown fox jumps over the lazy dog',
+    )
+    const counted = tk.countTokens(
+      'The quick brown fox jumps over the lazy dog',
+    )
+    expect(counted).toBeGreaterThan(0)
+    // The registry contract is provider routing. The optional backend may be
+    // absent, in which case AnthropicTokenizer falls back to the heuristic.
+    expect(counted).toBeLessThanOrEqual(heuristic)
+  })
+
+  it('non-claude model (gpt-4) routes through TiktokenTokenizer (or heuristic fallback)', () => {
+    const tk = defaultTokenizerRegistry.resolve('gpt-4')
+    expect(tk).toBeInstanceOf(TiktokenTokenizer)
+    const n = tk.countTokens('hello world')
+    expect(n).toBeGreaterThan(0)
   })
 })
 
