@@ -25,7 +25,7 @@ import type {
   StreamingToolExecutionResult,
   StreamingToolPolicyOptions,
   ToolStatTracker,
-} from './run-engine.js'
+} from './streaming-tool-types.js'
 
 interface StreamingToolCall {
   id?: string

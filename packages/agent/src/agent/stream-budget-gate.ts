@@ -15,7 +15,7 @@ import { emitToolError } from './tool-lifecycle-policy.js'
 import type {
   StreamingToolExecutionResult,
   StreamingToolPolicyOptions,
-} from './run-engine.js'
+} from './streaming-tool-types.js'
 
 interface StreamingToolCall {
   id?: string

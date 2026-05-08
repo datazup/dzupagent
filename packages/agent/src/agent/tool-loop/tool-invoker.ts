@@ -10,7 +10,7 @@ import {
   isToolCancellationError,
   isToolTimeoutError,
 } from '../tool-timeout-error.js'
-import type { ToolLoopConfig, ToolRetryConfig } from '../tool-loop.js'
+import type { ToolLoopConfig, ToolRetryConfig } from './types.js'
 import { omitUndefined } from '../../utils/exact-optional.js'
 import {
   emitPermissionDeniedSafetyViolation,

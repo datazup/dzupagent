@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-05-07
+Date: 2026-05-08
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -615,7 +615,7 @@ No stable subpaths configured.
 Root index: `packages/agent-adapters/src/index.ts`
 
 - Stable root sources: `15`
-- Deprecated transitional root sources: `80`
+- Deprecated transitional root sources: `81`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
 
@@ -708,6 +708,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./utils/process-helpers.js` | 2 | `prefix:./utils/` | `isBinaryAvailable`, `spawnAndStreamJsonl` |
 | `deprecated-transitional` | `./base/base-cli-adapter.js` | 1 | `prefix:./base/` | `filterSensitiveEnvVars` |
 | `deprecated-transitional` | `./base/stream-runner.js` | 5 | `prefix:./base/` | `AdapterStreamRunner`, `AdapterStreamSource`, `AdapterStreamRunnerConfig`, `StreamContext` |
+| `deprecated-transitional` | `./base/cli-stream-source.js` | 1 | `prefix:./base/` | `CliAdapterStreamSource` |
 | `deprecated-transitional` | `./utils/url-validator.js` | 2 | `prefix:./utils/` | `validateWebhookUrl`, `UrlValidationOptions` |
 | `deprecated-transitional` | `./utils/provider-helpers.js` | 2 | `prefix:./utils/` | `resolveFallbackProviderId`, `requireFallbackProviderId` |
 | `deprecated-transitional` | `./skills/skill-projector.js` | 3 | `prefix:./skills/` | `SkillProjector`, `SkillProjection`, `ProjectionOptions` |

@@ -82,3 +82,21 @@ export interface ProviderComparison {
   winner: AdapterProviderId | 'tie'
   reason: string
 }
+
+/**
+ * Read-only surface consumed by {@link ExecutionAnalyzer}.
+ *
+ * Keeping the analyzer on this structural interface avoids a concrete import
+ * from `execution-analyzer.ts` back to `adapter-learning-loop.ts`.
+ */
+export interface AdapterLearningLoopReader {
+  getAllProfiles(tenantId?: string): ProviderProfile[]
+  getProfile(providerId: AdapterProviderId, tenantId?: string): ProviderProfile
+  detectFailurePatterns(providerId: AdapterProviderId, tenantId?: string): FailurePattern[]
+  getBestProvider(
+    taskType: string,
+    available: AdapterProviderId[],
+    tenantId?: string,
+  ): AdapterProviderId | undefined
+  exportData(tenantId?: string): Record<string, ExecutionRecord[]>
+}

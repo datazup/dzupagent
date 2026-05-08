@@ -7,7 +7,7 @@ import {
   maybeValidateArgs,
   resolveValidatorConfig,
 } from '../tool-lifecycle-policy.js'
-import type { ToolLoopConfig } from '../tool-loop.js'
+import type { ToolLoopConfig } from './types.js'
 import type { ToolCall, ToolCallResult } from './contracts.js'
 
 /**
