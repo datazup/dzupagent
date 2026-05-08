@@ -238,7 +238,8 @@ export type { AdapterPluginDefinition, AdapterPlugin } from './plugin/adapter-pl
 export { AdapterPluginLoader } from './plugin/adapter-plugin-loader.js'
 
 // --- Facade ---
-export { OrchestratorFacade, createOrchestrator } from './facade/orchestrator-facade.js'
+export { OrchestratorFacade } from './facade/orchestrator-facade.js'
+export { createOrchestrator } from './facade/facade-factory.js'
 export type { OrchestratorConfig } from './facade/orchestrator-facade.js'
 
 // --- Pipeline (composable steps used by OrchestratorFacade) ---
