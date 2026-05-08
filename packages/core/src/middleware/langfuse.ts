@@ -33,8 +33,8 @@ export async function createLangfuseHandler(
   }
 
   try {
-    // Dynamic import to avoid hard dependency
-    const { CallbackHandler } = await import('langfuse-langchain') as {
+    const moduleName = 'langfuse-langchain'
+    const { CallbackHandler } = await import(moduleName) as {
       CallbackHandler: new (params: Record<string, unknown>) => unknown
     }
     return new CallbackHandler({
