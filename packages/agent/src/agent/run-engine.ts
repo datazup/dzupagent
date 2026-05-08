@@ -36,7 +36,10 @@ import {
 } from './run-engine-streaming-helpers.js'
 import { ApprovalSuspendedError } from '../approval/approval-errors.js'
 import { omitUndefined } from '../utils/exact-optional.js'
-import { injectPromptCacheMarkers } from '@dzupagent/context'
+import {
+  injectPromptCacheMarkers,
+  injectPromptCacheMarkersForModel,
+} from '@dzupagent/context'
 import {
   ContentScanner,
   PromptInjectionBlockedError,
@@ -150,10 +153,14 @@ export async function prepareRunState(
     params.runId,
   )
 
-  // Inject Anthropic prompt-cache markers for Claude models (RF-13 / AG-12).
+  // Inject Anthropic prompt-cache markers for Claude models (RF-13 / AG-12 / REC-H-10).
   // No-op for non-Claude model IDs and short prompts — safe for all providers.
+  // When `config.model` is a `BaseChatModel` instance (rather than a string id)
+  // we still want caching to apply, so derive the id from the resolved model.
   if (typeof params.config.model === 'string') {
     finalMessages = injectPromptCacheMarkers(finalMessages, params.config.model)
+  } else {
+    finalMessages = injectPromptCacheMarkersForModel(finalMessages, params.resolvedModel)
   }
 
   const tierFilteredTools = params.getTools()

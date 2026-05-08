@@ -10,6 +10,12 @@ import {
   applyAnthropicCacheControl,
   applyCacheBreakpoints,
 } from '../prompt-cache.js'
+import {
+  injectPromptCacheMarkers,
+  injectPromptCacheMarkersForModel,
+  isClaudeId,
+  resolveModelId,
+} from '../prompt-cache-injector.js'
 
 // ---------------------------------------------------------------------------
 // applyAnthropicCacheControl (raw Anthropic format)
@@ -366,5 +372,72 @@ describe('applyCacheBreakpoints', () => {
     for (const idx of lastThreeIndices) {
       expect(result[idx]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
     }
+  })
+})
+
+describe('prompt cache injector model routing', () => {
+  const longPrompt = 'stable prompt section '.repeat(260)
+
+  it('recognises Claude and Anthropic model identifiers', () => {
+    expect(isClaudeId('claude-3-5-sonnet-20241022')).toBe(true)
+    expect(isClaudeId('anthropic')).toBe(true)
+    expect(isClaudeId('anthropic/claude-3-5-sonnet')).toBe(true)
+    expect(isClaudeId('gpt-4o')).toBe(false)
+    expect(isClaudeId('')).toBe(false)
+  })
+
+  it('resolves model id from common BaseChatModel fields', () => {
+    expect(resolveModelId({ model: 'claude-from-model' })).toBe('claude-from-model')
+    expect(resolveModelId({ modelName: 'claude-from-model-name' })).toBe(
+      'claude-from-model-name',
+    )
+    expect(resolveModelId({ name: 'claude-from-name' })).toBe('claude-from-name')
+    expect(resolveModelId({ _llmType: () => 'anthropic' })).toBe('anthropic')
+    expect(resolveModelId({ _llmType: () => { throw new Error('boom') } })).toBe('')
+    expect(resolveModelId(undefined)).toBe('')
+  })
+
+  it('injects cache markers for Claude ids above the token threshold', () => {
+    const messages: BaseMessage[] = [
+      new SystemMessage('system prompt'),
+      new HumanMessage(longPrompt),
+    ]
+
+    const result = injectPromptCacheMarkers(messages, 'claude-3-5-sonnet', {
+      minTokensForCache: 1,
+    })
+
+    expect(result).not.toBe(messages)
+    expect(result[0]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
+    expect(result[1]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
+    expect(messages[0]!.additional_kwargs.cache_control).toBeUndefined()
+  })
+
+  it('skips non-Claude model ids and short prompts', () => {
+    const shortMessages: BaseMessage[] = [
+      new SystemMessage('system prompt'),
+      new HumanMessage('short prompt'),
+    ]
+
+    expect(injectPromptCacheMarkers(shortMessages, 'gpt-4o')).toBe(shortMessages)
+    expect(injectPromptCacheMarkers(shortMessages, 'claude-3-5-sonnet')).toBe(
+      shortMessages,
+    )
+  })
+
+  it('injects cache markers when only a resolved model instance is available', () => {
+    const messages: BaseMessage[] = [
+      new SystemMessage('system prompt'),
+      new HumanMessage(longPrompt),
+    ]
+    const model = { _llmType: () => 'anthropic' }
+
+    const result = injectPromptCacheMarkersForModel(messages, model as never, {
+      minTokensForCache: 1,
+    })
+
+    expect(result).not.toBe(messages)
+    expect(result[0]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
+    expect(result[1]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
   })
 })

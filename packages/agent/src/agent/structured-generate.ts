@@ -31,6 +31,7 @@ import {
   shouldAttemptNativeStructuredOutput,
   unwrapStructuredEnvelope,
 } from '@dzupagent/core/pipeline'
+import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
 import type { StructuredOutputModelCapabilities } from '@dzupagent/core/llm'
 import { defaultLogger } from '@dzupagent/core/utils'
 import type {
@@ -109,7 +110,18 @@ export async function generateStructured<T>(
       }).withStructuredOutput(schemaContract.requestSchema as ZodType<T>)
 
       const prepared = await ctx.prepareMessages(requestMessages)
-      const response = await structuredModel.invoke(prepared.messages)
+      // REC-H-10 — apply Anthropic prompt-cache markers before invoking the
+      // native structured-output model. The non-streaming/streaming paths
+      // already inject in `prepareRunState`, but this branch bypasses
+      // `prepareRunState` entirely (it calls `withStructuredOutput().invoke`
+      // directly), so without this call we silently miss caching for every
+      // structured generate call. Injector is a no-op for non-Claude models
+      // and short transcripts.
+      const cachedMessages = injectPromptCacheMarkersForModel(
+        prepared.messages,
+        ctx.resolvedModel,
+      )
+      const response = await structuredModel.invoke(cachedMessages)
 
       const parsed = schemaContract.responseSchema.parse(response)
 
