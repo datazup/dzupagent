@@ -548,7 +548,7 @@ No stable subpaths configured.
 | `stable` | `./phase-window.js` | 7 | `exact:./phase-window.js` | `PhaseAwareWindowManager`, `DEFAULT_PHASES`, `ConversationPhase`, `PhaseConfig` |
 | `stable` | `./progressive-compress.js` | 6 | `exact:./progressive-compress.js` | `compressToLevel`, `compressToBudget`, `selectCompressionLevel`, `CompressionLevel` |
 | `stable` | `./prompt-cache.js` | 4 | `exact:./prompt-cache.js` | `applyAnthropicCacheControl`, `applyCacheBreakpoints`, `CacheStrategy`, `CacheBreakpointOptions` |
-| `stable` | `./prompt-cache-injector.js` | 1 | `exact:./prompt-cache-injector.js` | `injectPromptCacheMarkers` |
+| `stable` | `./prompt-cache-injector.js` | 4 | `exact:./prompt-cache-injector.js` | `injectPromptCacheMarkers`, `injectPromptCacheMarkersForModel`, `isClaudeId`, `resolveModelId` |
 | `stable` | `./context-transfer.js` | 6 | `exact:./context-transfer.js` | `ContextTransferService`, `IntentContext`, `IntentType`, `ContextTransferConfig` |
 | `stable` | `./token-lifecycle.js` | 8 | `exact:./token-lifecycle.js` | `TokenLifecycleManager`, `createTokenBudget`, `TokenBudget`, `TokenPhaseUsage` |
 | `stable` | `./char-estimate-counter.js` | 1 | `exact:./char-estimate-counter.js` | `CharEstimateCounter` |
