@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — 2026-05-08
+Accepted / implemented — 2026-05-08
 
 ## Context
 
@@ -25,6 +25,11 @@ and the remaining four live in `packages/agent/src/orchestration` and
 10) server/src/scorecard/integration-scorecard.ts > scorecard/probe-collector.ts
 11) server/src/composition/types.ts > routes/run-context.ts
 ```
+
+Implementation update, 2026-05-08: the ADR lane is now closed. The current
+package guard, `node scripts/check-circular-deps.mjs`, reports **0 cycles**
+across all packages, and `config/circular-deps-baseline.json` has an empty
+baseline.
 
 ### How we got here
 
@@ -388,100 +393,102 @@ helpers), then A (tool-loop, three helpers), then C (orchestration). Each
 group ends with `npx madge --circular --extensions ts packages` and a
 package-scoped `yarn typecheck && yarn test`.
 
-- [ ] **Step 0 — Baseline.** Record current cycle list:
-      `npx madge --circular --extensions ts packages > docs/dzupagent/adr/ADR-0009-baseline-cycles.txt`
-- [ ] **Step 1 — Group E (scorecard cycle 10).**
-  - [ ] Create `packages/server/src/scorecard/contracts.ts` with
-        `ScorecardProbeInput`, `ScorecardProbeOutput`, `ScorecardReport`.
-  - [ ] Edit `packages/server/src/scorecard/probe-collector.ts:3` →
+- [x] **Step 0 — Baseline.** The starting 11-cycle list is recorded in this
+      ADR, and the enforced baseline is now empty in
+      `config/circular-deps-baseline.json` after closure.
+- [x] **Step 1 — Group E (scorecard cycle 10).**
+  - [x] Create `packages/server/src/scorecard/contracts.ts` with
+        scorecard report, check, recommendation, and probe input contracts.
+  - [x] Edit `packages/server/src/scorecard/probe-collector.ts:3` →
         `from './contracts.js'`.
-  - [ ] Edit `packages/server/src/deploy/confidence-calculator.ts:17` →
+  - [x] Edit `packages/server/src/deploy/confidence-calculator.ts:17` →
         `from '../scorecard/contracts.js'`.
-  - [ ] In `integration-scorecard.ts`, add re-export band:
-        `export type { ScorecardProbeInput, ScorecardProbeOutput, ScorecardReport } from './contracts.js'`.
-  - [ ] `yarn typecheck --filter=@dzupagent/server && yarn test --filter=@dzupagent/server`.
-  - [ ] `npx madge --circular --extensions ts packages` — expect cycle 10 gone.
-- [ ] **Step 2 — Group D (composition split, cycles 9 + 11).**
-  - [ ] For each route, create a sibling `routes/<name>-types.ts`:
+  - [x] In `integration-scorecard.ts`, add re-export band for scorecard
+        contracts from `./contracts.js`.
+  - [x] `yarn workspace @dzupagent/server typecheck` and focused scorecard tests passed.
+  - [x] `node scripts/check-circular-deps.mjs --pkg server` — scorecard cycles gone.
+- [x] **Step 2 — Group D (composition split, cycles 9 + 11).**
+  - [x] For each route, create a sibling `routes/<name>-types.ts`:
         `deploy-types.ts`, `run-context-types.ts`, `learning-types.ts`,
         `benchmarks-types.ts`, `evals-types.ts`, `compile-types.ts`,
         `a2a-types.ts`, `memory-health-types.ts`. Move the `XxxRouteConfig`
         interface into each.
-  - [ ] Update `routes/<name>.ts` to import its config type from
+  - [x] Update `routes/<name>.ts` to import its config type from
         `./<name>-types.js` (one-line edit per route).
-  - [ ] Update `composition/types.ts` import lines 45–58 to import all
+  - [x] Update `composition/types.ts` import lines 45–58 to import all
         route-config types from the new `*-types.js` siblings instead of
         the runtime route files.
-  - [ ] Create `packages/server/src/composition/wiring.ts` and move any
-        runtime / instance composition currently in `types.ts` into it.
-        (`types.ts` may still contain interfaces and type aliases.)
-  - [ ] Add architecture test
+  - [x] No `packages/server/src/composition/wiring.ts` was needed: current
+        `composition/types.ts` contains interfaces/type aliases only, so there
+        was no runtime / instance composition to move.
+  - [x] Add architecture test
         `packages/server/src/__tests__/composition-types-purity.test.ts`
         that asserts `composition/types.ts` has no
         `from '../routes/<name>.js'` (only `from '../routes/<name>-types.js'`).
-  - [ ] `yarn typecheck --filter=@dzupagent/server && yarn test --filter=@dzupagent/server`.
-  - [ ] `npx madge --circular --extensions ts packages` — expect cycles 9
-        and 11 gone.
-- [ ] **Step 3 — Group B (run-engine cycles 4, 5, 6, 7).**
-  - [ ] Create directory `packages/agent/src/agent/run-engine/`.
-  - [ ] Create `packages/agent/src/agent/run-engine/types.ts`. Move
+  - [x] `yarn workspace @dzupagent/server typecheck` and focused server tests passed.
+  - [x] `node scripts/check-circular-deps.mjs --pkg server` — server cycles gone.
+- [x] **Step 3 — Group B (run-engine cycles 4, 5, 6, 7).**
+  - [x] Create directory `packages/agent/src/agent/run-engine/`.
+  - [x] Create `packages/agent/src/agent/run-engine/types.ts`. Move
         `ExecuteGenerateRunParams` and the streaming parameter / result
         interfaces (derived from the `} from './run-engine.js'` import
         statements in `stream-budget-gate.ts`, `stream-result-helpers.ts`,
         `stream-tool-phase.ts`, plus `ExecuteGenerateRunParams` in
         `run-engine-generate-helpers.ts:42`) into it.
-  - [ ] Edit four import sites:
-    - [ ] `run-engine-generate-helpers.ts:42` → `from './run-engine/types.js'`
-    - [ ] `stream-budget-gate.ts:18` → `from './run-engine/types.js'`
-    - [ ] `stream-result-helpers.ts:18` → `from './run-engine/types.js'`
-    - [ ] `stream-tool-phase.ts:28` → `from './run-engine/types.js'`
-  - [ ] Inspect `run-engine-streaming-helpers.ts` and re-route any type
-        imports from `./run-engine.js` to `./run-engine/types.js`.
-  - [ ] Add re-export band in `run-engine.ts`:
+  - [x] Edit `run-engine-generate-helpers.ts:42` →
+        `from './run-engine/types.js'`.
+  - [x] Route streaming helper shared contracts through
+        `packages/agent/src/agent/run-engine/types.ts` where they are part of
+        the run-engine boundary:
+    - [x] `stream-budget-gate.ts` imports `StreamingToolCall` from
+          `./run-engine/types.js`.
+    - [x] `stream-tool-phase.ts` imports `StreamingToolCall` and
+          `StreamPhaseResult` from `./run-engine/types.js`, while re-exporting
+          `StreamPhaseResult` for the existing barrel.
+    - [x] `stream-result-helpers.ts` did not import `./run-engine.js`; its
+          contracts remain in `streaming-tool-types.ts`.
+  - [x] Inspect `run-engine-streaming-helpers.ts`; it imports only streaming
+        helper modules and no longer imports `./run-engine.js`.
+  - [x] Add re-export band in `run-engine.ts`:
         `export type * from './run-engine/types.js'`.
-  - [ ] `yarn typecheck --filter=@dzupagent/agent && yarn test --filter=@dzupagent/agent`.
-  - [ ] `npx madge --circular --extensions ts packages` — expect cycles 4,
-        5, 6, 7 gone.
-- [ ] **Step 4 — Group A (tool-loop cycles 1, 2, 3).**
-  - [ ] Extend existing `packages/agent/src/agent/tool-loop/types.ts` with
-        `ToolLoopConfig`, `ToolRetryConfig`, `StopReason` (move out of
-        `tool-loop.ts`).
-  - [ ] Edit three import sites:
-    - [ ] `tool-loop/model-turn-kernel.ts:4` → `from './types.js'`
-    - [ ] `tool-loop/loop-stages.ts:16` → `from './types.js'`
-    - [ ] `tool-loop/policy-enabled-tool-executor.ts:22` → `from './types.js'`
-  - [ ] Add re-export band in `tool-loop.ts`:
+  - [x] `yarn workspace @dzupagent/agent typecheck` passed.
+  - [x] Focused run-engine tests passed.
+  - [x] `node scripts/check-circular-deps.mjs --pkg agent` reported 0 cycles
+        after the run-engine and tool-loop type seams were both in place.
+- [x] **Step 4 — Group A (tool-loop cycles 1, 2, 3).**
+  - [x] Existing `packages/agent/src/agent/tool-loop/types.ts` already owns
+        `ToolLoopConfig`, `ToolRetryConfig`, and `StopReason`.
+  - [x] Edit three import sites:
+    - [x] `tool-loop/model-turn-kernel.ts:4` → `from './types.js'`
+    - [x] `tool-loop/loop-stages.ts:16` → `from './types.js'`
+    - [x] `tool-loop/policy-enabled-tool-executor.ts:22` was already routed
+          through `from './types.js'`.
+  - [x] Re-export band in `tool-loop.ts` remains:
         `export type { ToolLoopConfig, ToolRetryConfig, StopReason } from './tool-loop/types.js'`.
-  - [ ] `yarn typecheck --filter=@dzupagent/agent && yarn test --filter=@dzupagent/agent`.
-  - [ ] `npx madge --circular --extensions ts packages` — expect cycles 1,
-        2, 3 gone.
-- [ ] **Step 5 — Group C (delegating-supervisor ↔ planning-agent, cycle 8).**
-  - [ ] Create `packages/agent/src/orchestration/planning-contracts.ts`
-        with a narrowed `SupervisorPlanningSurface` interface and
-        `TaskAssignment` (moved out of `delegating-supervisor.ts` if the
-        type lives there, otherwise re-exported from
-        `delegating-supervisor-types.ts`).
-  - [ ] Make `class DelegatingSupervisor implements SupervisorPlanningSurface`
-        in `delegating-supervisor.ts`.
-  - [ ] Edit `planning-agent.ts:13`:
-        `import type { SupervisorPlanningSurface, TaskAssignment } from './planning-contracts.js'`.
-        Replace the local `DelegatingSupervisor` reference with
-        `SupervisorPlanningSurface`.
-  - [ ] Add re-export band in `delegating-supervisor.ts` if needed for
-        backwards compatibility.
-  - [ ] `yarn typecheck --filter=@dzupagent/agent && yarn test --filter=@dzupagent/agent`.
-  - [ ] `npx madge --circular --extensions ts packages` — expect cycle 8
-        gone, **0 cycles total**.
-- [ ] **Step 6 — Add a permanent madge gate.**
-  - [ ] Add `yarn check:circular` script at root:
-        `madge --circular --extensions ts packages`.
-  - [ ] Wire `yarn check:circular` into `yarn verify` (Turbo task) so any
-        future PR that reintroduces a cycle fails CI.
-  - [ ] Update `CLAUDE.md` "Quality Gates" section to mention the new check.
+  - [x] `yarn workspace @dzupagent/agent typecheck` passed.
+  - [x] Focused tool-loop tests passed.
+  - [x] `node scripts/check-circular-deps.mjs --pkg agent` reported 0 cycles;
+        `config/circular-deps-baseline.json` now has an empty baseline.
+- [x] **Step 5 — Group C (delegating-supervisor ↔ planning-agent, cycle 8).**
+  - [x] Current `planning-agent.ts` depends on `planning-types.ts`, not
+        `delegating-supervisor.ts`; the supervisor surface is already type-only
+        through `PlanningSupervisor`.
+  - [x] `delegating-supervisor.ts` imports shared contracts from
+        `delegating-supervisor-types.ts` and keeps the planner edge as a
+        dynamic `import('./planning-agent.js')`.
+  - [x] `node scripts/check-circular-deps.mjs` reports 0 cycles total.
+- [x] **Step 6 — Add a permanent madge gate.**
+  - [x] Root already has `yarn check:circular-deps` backed by
+        `scripts/check-circular-deps.mjs`.
+  - [x] `yarn verify:strict` already ran `check:circular-deps`; `yarn verify`
+        now runs it too.
+  - [x] Update `CLAUDE.md` "Quality Gates" section to mention the circular
+        dependency check.
 - [ ] **Step 7 — Update memos.**
-  - [ ] Create `~/.claude/projects/.../memory/project_circular_deps_closed_2026_05_08.md`
-        recording: 11 → 0, ADR-0009 accepted, six new contract files,
-        `yarn check:circular` wired into verify.
+  - [ ] External memory write intentionally not performed in this repo patch.
+        Record separately if the operator wants a Claude/Codex memory note:
+        11 → 0, ADR-0009 accepted, empty circular-deps baseline,
+        `yarn check:circular-deps` wired into verify.
 
 ## Related
 
