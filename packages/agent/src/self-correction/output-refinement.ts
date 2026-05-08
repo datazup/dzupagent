@@ -1,299 +1,48 @@
 /**
  * OutputRefinementLoop --- Domain-aware post-generation polishing module.
  *
- * After an agent generates initial output, this module:
- * 1. Runs a domain-aware critique pass (identifies issues specific to the output domain)
- * 2. Applies targeted refinements based on the critique
- * 3. Verifies the refinement didn't introduce regressions
- * 4. Returns the best version (original or refined)
- *
- * Unlike ReflectionLoop (which is open-ended drafter/critic), OutputRefinementLoop is:
- * - **Domain-aware**: critique prompts adapt to SQL, code, analysis, ops domains
- * - **Regression-safe**: compares refined output against original on quality dimensions
- * - **Budget-conscious**: stops early if refinement isn't worth the cost
- * - **Non-destructive**: always returns the better of original vs refined
- *
- * General-purpose --- works for any text generation task. Not specific to code generation.
+ * Runs a domain-aware critique, applies targeted refinements, verifies no
+ * regressions, then returns the best of original vs refined. Domain-aware,
+ * regression-safe, budget-conscious, non-destructive. General-purpose.
  *
  * @module self-correction/output-refinement
  */
 
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import { HumanMessage, SystemMessage } from '@langchain/core/messages'
 import { omitUndefined } from '../utils/exact-optional.js'
+import {
+  applyRefinement,
+  buildRefinementResult,
+  critiqueAndScore,
+} from './output-refinement-engine.js'
+import {
+  DOMAIN_CRITIQUE_PROMPTS,
+  REFINEMENT_SYSTEM_PROMPT,
+  detectRefinementDomain,
+  estimateCostCents,
+  estimateTokens,
+} from './output-refinement-prompts.js'
+import type {
+  RefinementConfig,
+  RefinementDomain,
+  RefinementIteration,
+  RefinementResult,
+  ScoreFn,
+} from './output-refinement-types.js'
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** Supported refinement domains. */
-export type RefinementDomain = 'sql' | 'code' | 'analysis' | 'ops' | 'general'
-
-/** Configuration for the output refinement loop. */
-export interface RefinementConfig {
-  /** Max refinement iterations (default: 2). */
-  maxIterations: number
-  /** Quality threshold --- stop refining if above this (default: 0.9). */
-  qualityThreshold: number
-  /** Minimum improvement required to accept refinement (default: 0.05). */
-  minImprovement: number
-  /** Cost budget for refinements in cents (default: 20). */
-  costBudgetCents: number
-  /** Domain (auto-detected if not specified). */
-  domain?: RefinementDomain
-  /**
-   * Consecutive iterations with sub-threshold improvement before declaring
-   * convergence. Detects diminishing-returns plateau across multiple
-   * iterations that each individually clear `minImprovement` but together
-   * show stagnation. Default: disabled (0 = no plateau detection).
-   */
-  convergenceWindow?: number
-}
-
-/** A single refinement iteration record. */
-export interface RefinementIteration {
-  /** 1-based iteration number. */
-  iteration: number
-  /** Domain used for critique. */
-  domain: RefinementDomain
-  /** Critique text from the model. */
-  critique: string
-  /** Refined output produced in this iteration. */
-  refinedOutput: string
-  /** Quality score of the original/current best output. */
-  originalScore: number
-  /** Quality score of the refined output. */
-  refinedScore: number
-  /** Score improvement (refinedScore - originalScore). */
-  improvement: number
-  /** Whether this refinement was accepted. */
-  accepted: boolean
-  /** Wall-clock duration in milliseconds. */
-  durationMs: number
-}
-
-/** Result of the full refinement loop execution. */
-export interface RefinementResult {
-  /** Best output (original or refined). */
-  bestOutput: string
-  /** Whether any refinement was accepted. */
-  wasRefined: boolean
-  /** Quality score of the best output. */
-  bestScore: number
-  /** Quality score of the original. */
-  originalScore: number
-  /** Total improvement (bestScore - originalScore). */
-  totalImprovement: number
-  /** Domain used for critique. */
-  domain: RefinementDomain
-  /** Refinement history. */
-  iterations: RefinementIteration[]
-  /** Why refinement stopped. */
-  exitReason:
-    | 'quality_met'
-    | 'max_iterations'
-    | 'no_improvement'
-    | 'convergence'
-    | 'budget_exhausted'
-    | 'regression_detected'
-    | 'error'
-  /** Total duration in milliseconds. */
-  totalDurationMs: number
-  /** Estimated cost in cents. */
-  estimatedCostCents: number
-}
-
-/** Scoring function signature. */
-export interface ScoreFn {
-  (output: string, task: string): Promise<{ score: number; feedback: string }>
-}
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Rough chars-per-token ratio for cost estimation. */
-const CHARS_PER_TOKEN = 4
-
-/** Cost per 1K tokens in cents ($0.003/1K tokens = 0.3 cents). */
-const COST_PER_1K_TOKENS_CENTS = 0.3
-
-// ---------------------------------------------------------------------------
-// Domain Critique Prompts
-// ---------------------------------------------------------------------------
-
-const DOMAIN_CRITIQUE_PROMPTS: Readonly<Record<RefinementDomain, string>> = {
-  sql: `Review this SQL query for:
-1. Correctness — does it match the requirements?
-2. Efficiency — are there unnecessary subqueries, missing indexes hints, or N+1 patterns?
-3. Safety — is it parameterized? Any injection risks?
-4. Readability — proper formatting, aliases, comments?
-Score 0-1 and provide specific, actionable feedback.
-
-Respond in this exact format:
-Score: <number 0.00-1.00>
-Feedback: <specific, actionable feedback>`,
-
-  code: `Review this code for:
-1. Type safety — any \`any\` types, missing type annotations, unsafe casts?
-2. Error handling — are errors properly caught and typed?
-3. Security — hardcoded secrets, eval(), unsafe DOM operations?
-4. Testing — are there tests? Do they cover edge cases?
-Score 0-1 and provide specific, actionable feedback.
-
-Respond in this exact format:
-Score: <number 0.00-1.00>
-Feedback: <specific, actionable feedback>`,
-
-  analysis: `Review this analysis for:
-1. Accuracy — are the conclusions supported by the data?
-2. Completeness — are all aspects of the question addressed?
-3. Methodology — is the analytical approach sound?
-4. Clarity — is the communication clear and well-structured?
-Score 0-1 and provide specific, actionable feedback.
-
-Respond in this exact format:
-Score: <number 0.00-1.00>
-Feedback: <specific, actionable feedback>`,
-
-  ops: `Review this operations task for:
-1. Idempotency — can this be safely re-run?
-2. Rollback — is there a recovery path if something goes wrong?
-3. Permissions — least-privilege principle followed?
-4. Monitoring — are there health checks, logging, alerting?
-Score 0-1 and provide specific, actionable feedback.
-
-Respond in this exact format:
-Score: <number 0.00-1.00>
-Feedback: <specific, actionable feedback>`,
-
-  general: `Review this output for:
-1. Correctness — does it answer the question?
-2. Completeness — are all parts addressed?
-3. Quality — is it well-structured and clear?
-Score 0-1 and provide specific, actionable feedback.
-
-Respond in this exact format:
-Score: <number 0.00-1.00>
-Feedback: <specific, actionable feedback>`,
-}
-
-const REFINEMENT_SYSTEM_PROMPT = `You are an expert assistant. Refine the output below based on the critique feedback. Address ALL feedback points while maintaining the original task requirements.
-
-Do NOT explain what you changed. Just output the improved version directly.`
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Estimate token count from character length. */
-function estimateTokens(chars: number): number {
-  return Math.ceil(chars / CHARS_PER_TOKEN)
-}
-
-/** Estimate cost in cents for a given number of tokens (input + output combined). */
-function estimateCostCents(totalTokens: number): number {
-  return (totalTokens / 1000) * COST_PER_1K_TOKENS_CENTS
-}
-
-/** Extract response text from model output. */
-function extractText(content: string | Array<{ type: string; text?: string }>): string {
-  if (typeof content === 'string') return content
-  return JSON.stringify(content)
-}
-
-/**
- * Parse a critique response to extract a score (0-1) and feedback text.
- * Looks for "Score: X.XX" pattern. Falls back to a default score of 0.5.
- */
-function parseCritiqueResponse(response: string): { score: number; feedback: string } {
-  // Try "Score: 0.XX" pattern (0-1 range)
-  const scoreMatch01 = response.match(/Score:\s*(0(?:\.\d+)?|1(?:\.0+)?)\b/i) // eslint-disable-line security/detect-unsafe-regex -- fixed literal extracting bounded decimal from LLM text; no external input drives the pattern
-  if (scoreMatch01) {
-    const score = Math.max(0, Math.min(1, parseFloat(scoreMatch01[1]!)))
-    const feedbackMatch = response.match(/Feedback:\s*([\s\S]*)/i)
-    const feedback = feedbackMatch
-      ? feedbackMatch[1]!.trim()
-      : response.replace(/Score:\s*[\d.]+/i, '').trim()
-    return { score, feedback: feedback || 'No specific feedback provided.' }
-  }
-
-  // Try "Score: X" pattern where X could be 0-10 range
-  const scoreMatch10 = response.match(/Score:\s*(\d+(?:\.\d+)?)/i) // eslint-disable-line security/detect-unsafe-regex -- fixed literal extracting bounded decimal from LLM text; no external input drives the pattern
-  if (scoreMatch10) {
-    let rawScore = parseFloat(scoreMatch10[1]!)
-    // If value > 1, assume 0-10 scale and normalize
-    if (rawScore > 1) {
-      rawScore = Math.max(0, Math.min(10, rawScore)) / 10
-    }
-    const feedbackMatch = response.match(/Feedback:\s*([\s\S]*)/i)
-    const feedback = feedbackMatch
-      ? feedbackMatch[1]!.trim()
-      : response.replace(/Score:\s*[\d.]+/i, '').trim()
-    return { score: rawScore, feedback: feedback || 'No specific feedback provided.' }
-  }
-
-  // Fallback: no score found
-  return { score: 0.5, feedback: response.trim() || 'No specific feedback provided.' }
-}
-
-// ---------------------------------------------------------------------------
-// Domain Detection
-// ---------------------------------------------------------------------------
-
-/** SQL keywords for domain detection. */
-const SQL_KEYWORDS = [
-  'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE TABLE', 'ALTER TABLE',
-  'DROP TABLE', 'JOIN', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING',
-  'FROM', 'INTO', 'VALUES', 'SET', 'INDEX', 'UNION',
-]
-
-/** Code keywords for domain detection. */
-const CODE_KEYWORDS = [
-  'function', 'class', 'const ', 'let ', 'var ', 'import ', 'export ',
-  'return ', 'if (', 'for (', 'while (', 'async ', 'await ', 'def ',
-  'interface ', 'type ', 'enum ', 'struct ', 'impl ', 'fn ',
-]
-
-/** Ops keywords for domain detection. */
-const OPS_KEYWORDS = [
-  'deploy', 'rollback', 'restart', 'scale', 'docker', 'kubernetes',
-  'k8s', 'helm', 'terraform', 'ansible', 'pipeline', 'ci/cd',
-  'systemctl', 'nginx', 'loadbalancer', 'health check', 'monitoring',
-  'alerting', 'chmod', 'chown', 'cron', 'systemd',
-]
-
-/** Analysis keywords for domain detection. */
-const ANALYSIS_KEYWORDS = [
-  'analysis', 'conclusion', 'findings', 'hypothesis', 'methodology',
-  'data shows', 'trend', 'correlation', 'significant', 'average',
-  'median', 'standard deviation', 'regression', 'metric', 'benchmark',
-  'insight', 'recommendation', 'observation', 'evidence',
-]
+export type {
+  RefinementConfig,
+  RefinementDomain,
+  RefinementIteration,
+  RefinementResult,
+  ScoreFn,
+} from './output-refinement-types.js'
 
 // ---------------------------------------------------------------------------
 // OutputRefinementLoop
 // ---------------------------------------------------------------------------
 
-/**
- * Domain-aware post-generation polishing loop.
- *
- * ```ts
- * const loop = new OutputRefinementLoop(model, {
- *   maxIterations: 2,
- *   qualityThreshold: 0.9,
- * })
- *
- * const result = await loop.refine({
- *   task: 'Write a query to find top customers...',
- *   output: 'SELECT * FROM customers...',
- * })
- *
- * console.log(result.bestOutput)    // refined output
- * console.log(result.wasRefined)    // true if improved
- * console.log(result.exitReason)    // 'quality_met' | 'max_iterations' | ...
- * ```
- */
+/** Domain-aware post-generation polishing loop. */
 export class OutputRefinementLoop {
   private readonly model: BaseChatModel
   private readonly config: RefinementConfig
@@ -312,10 +61,6 @@ export class OutputRefinementLoop {
       convergenceWindow: config?.convergenceWindow,
     })
   }
-
-  // -------------------------------------------------------------------------
-  // Public API
-  // -------------------------------------------------------------------------
 
   /**
    * Refine an output with domain-aware critique.
@@ -339,27 +84,44 @@ export class OutputRefinementLoop {
     let bestScore = 0
     let exitReason: RefinementResult['exitReason'] = 'max_iterations'
 
+    const scoreOutput = (output: string) =>
+      params.scoreFn
+        ? params.scoreFn(output, params.task)
+        : critiqueAndScore(this.model, params.task, output, domain, params.context)
+
+    const accumulateCritiqueCost = (output: string, feedback: string): void => {
+      if (params.scoreFn) return
+      const totalChars = params.task.length + output.length + DOMAIN_CRITIQUE_PROMPTS[domain].length + feedback.length
+      accumulatedCostCents += estimateCostCents(estimateTokens(totalChars))
+    }
+
+    const finish = (reason: RefinementResult['exitReason'], wasRefined: boolean) =>
+      buildRefinementResult({
+        bestOutput,
+        wasRefined,
+        bestScore,
+        originalScore,
+        domain,
+        iterations,
+        exitReason: reason,
+        totalStart,
+        estimatedCostCents: accumulatedCostCents,
+      })
+
     // --- Score the original output ---
     let originalScore: number
     try {
-      const scoreResult = params.scoreFn
-        ? await params.scoreFn(params.output, params.task)
-        : await this.critiqueAndScore(params.task, params.output, domain, params.context)
-
+      const scoreResult = await scoreOutput(params.output)
       originalScore = scoreResult.score
       bestScore = originalScore
-
-      if (!params.scoreFn) {
-        const totalChars = params.task.length + params.output.length + DOMAIN_CRITIQUE_PROMPTS[domain].length + scoreResult.feedback.length
-        accumulatedCostCents += estimateCostCents(estimateTokens(totalChars))
-      }
+      accumulateCritiqueCost(params.output, scoreResult.feedback)
     } catch {
-      return this.buildResult(bestOutput, false, 0, 0, domain, iterations, 'error', totalStart, accumulatedCostCents)
+      originalScore = 0
+      return finish('error', false)
     }
 
-    // If already above quality threshold, return immediately
     if (originalScore >= this.config.qualityThreshold) {
-      return this.buildResult(bestOutput, false, bestScore, originalScore, domain, iterations, 'quality_met', totalStart, accumulatedCostCents)
+      return finish('quality_met', false)
     }
 
     // --- Refinement iterations ---
@@ -367,35 +129,26 @@ export class OutputRefinementLoop {
     for (let i = 0; i < this.config.maxIterations; i++) {
       const iterStart = Date.now()
 
-      // Budget check before starting iteration
       if (accumulatedCostCents >= this.config.costBudgetCents) {
         exitReason = 'budget_exhausted'
         break
       }
 
-      // Step 1: Critique the current best output
+      // Step 1: Critique current best
       let critique: string
       try {
-        const critiqueResult = params.scoreFn
-          ? await params.scoreFn(bestOutput, params.task)
-          : await this.critiqueAndScore(params.task, bestOutput, domain, params.context)
-
+        const critiqueResult = await scoreOutput(bestOutput)
         critique = critiqueResult.feedback
-
-        if (!params.scoreFn) {
-          const totalChars = params.task.length + bestOutput.length + DOMAIN_CRITIQUE_PROMPTS[domain].length + critique.length
-          accumulatedCostCents += estimateCostCents(estimateTokens(totalChars))
-        }
+        accumulateCritiqueCost(bestOutput, critique)
       } catch {
         exitReason = 'error'
         break
       }
 
-      // Step 2: Refine based on critique
+      // Step 2: Refine
       let refinedOutput: string
       try {
-        refinedOutput = await this.applyRefinement(params.task, bestOutput, critique, params.context)
-
+        refinedOutput = await applyRefinement(this.model, params.task, bestOutput, critique, params.context)
         const refinementChars = params.task.length + bestOutput.length + critique.length + REFINEMENT_SYSTEM_PROMPT.length + refinedOutput.length
         accumulatedCostCents += estimateCostCents(estimateTokens(refinementChars))
       } catch {
@@ -403,19 +156,12 @@ export class OutputRefinementLoop {
         break
       }
 
-      // Step 3: Score the refined output
+      // Step 3: Score refined
       let refinedScore: number
       try {
-        const refinedResult = params.scoreFn
-          ? await params.scoreFn(refinedOutput, params.task)
-          : await this.critiqueAndScore(params.task, refinedOutput, domain, params.context)
-
+        const refinedResult = await scoreOutput(refinedOutput)
         refinedScore = refinedResult.score
-
-        if (!params.scoreFn) {
-          const totalChars = params.task.length + refinedOutput.length + DOMAIN_CRITIQUE_PROMPTS[domain].length + refinedResult.feedback.length
-          accumulatedCostCents += estimateCostCents(estimateTokens(totalChars))
-        }
+        accumulateCritiqueCost(refinedOutput, refinedResult.feedback)
       } catch {
         exitReason = 'error'
         break
@@ -436,23 +182,19 @@ export class OutputRefinementLoop {
         durationMs: Date.now() - iterStart,
       })
 
-      // Step 4: Evaluate results
+      // Step 4: Evaluate
 
-      // Regression detected --- refined output is worse
       if (refinedScore < bestScore) {
         exitReason = 'regression_detected'
         break
       }
 
-      // No meaningful improvement in this iteration
       if (improvement < this.config.minImprovement) {
         exitReason = 'no_improvement'
         break
       }
 
-      // Convergence plateau: improvement is diminishing across consecutive
-      // iterations — stop when convergenceWindow consecutive low-gain rounds
-      // are observed even though each clears the minImprovement bar.
+      // Convergence plateau detection
       const convergenceWindow = this.config.convergenceWindow ?? 0
       if (convergenceWindow > 0) {
         const PLATEAU_THRESHOLD = this.config.minImprovement * 2
@@ -471,160 +213,26 @@ export class OutputRefinementLoop {
       bestOutput = refinedOutput
       bestScore = refinedScore
 
-      // Quality threshold met
       if (bestScore >= this.config.qualityThreshold) {
         exitReason = 'quality_met'
         break
       }
 
-      // Budget check after iteration
       if (accumulatedCostCents >= this.config.costBudgetCents) {
         exitReason = 'budget_exhausted'
         break
       }
-
-      // If this was the last iteration, exit reason stays 'max_iterations'
     }
 
     const wasRefined = iterations.some(iter => iter.accepted)
-    return this.buildResult(bestOutput, wasRefined, bestScore, originalScore, domain, iterations, exitReason, totalStart, accumulatedCostCents)
+    return finish(exitReason, wasRefined)
   }
 
   /**
    * Auto-detect domain from task and output content.
-   * Checks for domain-specific keywords and returns the best match.
+   * Delegates to {@link detectRefinementDomain}.
    */
   static detectDomain(task: string, output: string): RefinementDomain {
-    const combined = `${task}\n${output}`.toUpperCase()
-
-    const scores: Record<RefinementDomain, number> = {
-      sql: 0,
-      code: 0,
-      analysis: 0,
-      ops: 0,
-      general: 0,
-    }
-
-    for (const kw of SQL_KEYWORDS) {
-      if (combined.includes(kw.toUpperCase())) scores.sql++
-    }
-
-    for (const kw of CODE_KEYWORDS) {
-      if (combined.includes(kw.toUpperCase())) scores.code++
-    }
-
-    for (const kw of OPS_KEYWORDS) {
-      if (combined.includes(kw.toUpperCase())) scores.ops++
-    }
-
-    for (const kw of ANALYSIS_KEYWORDS) {
-      if (combined.includes(kw.toUpperCase())) scores.analysis++
-    }
-
-    // Find the domain with the highest score
-    let bestDomain: RefinementDomain = 'general'
-    let bestCount = 0
-
-    for (const [domain, count] of Object.entries(scores)) {
-      if (domain === 'general') continue
-      if (count > bestCount) {
-        bestCount = count
-        bestDomain = domain as RefinementDomain
-      }
-    }
-
-    // Require at least 2 keyword matches to assign a specific domain
-    if (bestCount < 2) {
-      return 'general'
-    }
-
-    return bestDomain
-  }
-
-  // -------------------------------------------------------------------------
-  // Private helpers
-  // -------------------------------------------------------------------------
-
-  /**
-   * Run a domain-aware critique on the output, returning score and feedback.
-   */
-  private async critiqueAndScore(
-    task: string,
-    output: string,
-    domain: RefinementDomain,
-    context?: Record<string, string>,
-  ): Promise<{ score: number; feedback: string }> {
-    const systemPrompt = DOMAIN_CRITIQUE_PROMPTS[domain]
-
-    let userContent = `## Task\n${task}\n\n## Output to Review\n${output}`
-
-    if (context && Object.keys(context).length > 0) {
-      const contextLines = Object.entries(context)
-        .map(([key, value]) => `- ${key}: ${value}`)
-        .join('\n')
-      userContent += `\n\n## Additional Context\n${contextLines}`
-    }
-
-    const response = await this.model.invoke([
-      new SystemMessage(systemPrompt),
-      new HumanMessage(userContent),
-    ])
-
-    const responseText = extractText(response.content as string | Array<{ type: string; text?: string }>)
-    return parseCritiqueResponse(responseText)
-  }
-
-  /**
-   * Apply refinement based on critique feedback.
-   */
-  private async applyRefinement(
-    task: string,
-    currentOutput: string,
-    critique: string,
-    context?: Record<string, string>,
-  ): Promise<string> {
-    let userContent = `## Original Task\n${task}\n\n## Current Output\n${currentOutput}\n\n## Critique Feedback\n${critique}`
-
-    if (context && Object.keys(context).length > 0) {
-      const contextLines = Object.entries(context)
-        .map(([key, value]) => `- ${key}: ${value}`)
-        .join('\n')
-      userContent += `\n\n## Additional Context\n${contextLines}`
-    }
-
-    const response = await this.model.invoke([
-      new SystemMessage(REFINEMENT_SYSTEM_PROMPT),
-      new HumanMessage(userContent),
-    ])
-
-    return extractText(response.content as string | Array<{ type: string; text?: string }>)
-  }
-
-  /**
-   * Build a RefinementResult from accumulated state.
-   */
-  private buildResult(
-    bestOutput: string,
-    wasRefined: boolean,
-    bestScore: number,
-    originalScore: number,
-    domain: RefinementDomain,
-    iterations: RefinementIteration[],
-    exitReason: RefinementResult['exitReason'],
-    totalStart: number,
-    estimatedCostCents: number,
-  ): RefinementResult {
-    return {
-      bestOutput,
-      wasRefined,
-      bestScore,
-      originalScore,
-      totalImprovement: bestScore - originalScore,
-      domain,
-      iterations,
-      exitReason,
-      totalDurationMs: Date.now() - totalStart,
-      estimatedCostCents: Math.round(estimatedCostCents * 100) / 100,
-    }
+    return detectRefinementDomain(task, output)
   }
 }

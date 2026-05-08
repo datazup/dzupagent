@@ -4,7 +4,7 @@
 This module contains quality control, failure analysis, and learning helpers used by `@dzupagent/agent` runtimes. The scope is limited to code under `src/self-correction` plus the direct hooks it exposes into pipeline and recovery surfaces.
 
 Implemented surfaces in this folder:
-- Iterative refinement and node wrapping: `reflection-loop.ts`, `iteration-controller.ts`, `self-correcting-node.ts`, `output-refinement.ts`
+- Iterative refinement and node wrapping: `reflection-loop.ts`, `iteration-controller.ts`, `self-correcting-node.ts`, `output-refinement.ts` plus its focused `output-refinement-*` helper modules
 - Failure detection and diagnosis: `pipeline-stuck-detector.ts`, `error-detector.ts`, `root-cause-analyzer.ts`, `verification-protocol.ts`, `strategy-selector.ts`
 - Learning persistence and retrieval: `adaptive-prompt-enricher.ts`, `trajectory-calibrator.ts`, `post-run-analyzer.ts`, `feedback-collector.ts`, `recovery-feedback.ts`, `learning-dashboard.ts`, `performance-optimizer.ts`, `specialist-registry.ts`
 - Runtime bridges: `self-learning-hook.ts`, `self-learning-runtime.ts`, `langgraph-middleware.ts`, `observability-bridge.ts`
@@ -25,6 +25,9 @@ This document does not describe generic guardrails in `src/guardrails` or orches
 - `iteration-controller.ts`: non-LLM decision logic for plateau/diminishing/cost-prohibitive stopping.
 - `self-correcting-node.ts`: wraps a `NodeExecutor`; skips refinement on error/empty output; returns `SelfCorrectingResult` metadata.
 - `output-refinement.ts`: domain-aware (`sql|code|analysis|ops|general`) refinement loop with regression guard and domain auto-detection.
+- `output-refinement-types.ts`: public refinement config/result/type contracts re-exported by `output-refinement.ts`.
+- `output-refinement-prompts.ts`: domain critique prompts, response parsing, token/cost estimation, and domain auto-detection helpers.
+- `output-refinement-engine.ts`: model-call helpers for critique/refinement plus result construction.
 - `pipeline-stuck-detector.ts`: cross-node stuck detection using failure windows, repeated output hashes, and global retry caps.
 - `error-detector.ts`: typed error aggregation/correlation with source-based severities and recovery hints.
 - `root-cause-analyzer.ts`: heuristic + LLM JSON diagnosis with robust fallback.
@@ -165,4 +168,3 @@ Observability surfaces in code:
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
