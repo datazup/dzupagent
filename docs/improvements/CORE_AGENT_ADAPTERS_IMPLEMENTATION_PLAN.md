@@ -1,0 +1,1 @@
+/media/ninel/Second/code/datazup/ai-internal-dev/docs/dzupagent/improvements/CORE_AGENT_ADAPTERS_IMPLEMENTATION_PLAN.md

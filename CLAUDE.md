@@ -40,6 +40,8 @@ Or use the single Turbo-powered gate:
 ```bash
 yarn verify
 ```
+`yarn verify` also runs the package circular-dependency guard
+(`yarn check:circular-deps`) before the Turbo build/typecheck/lint/test phase.
 
 ## Build and Dev Orchestration
 - Root scripts are Turbo-powered for dependency-aware task execution and caching.
@@ -73,6 +75,7 @@ Not allowed by default:
   - `yarn lint --filter=@dzupagent/<package>`
   - `yarn test --filter=@dzupagent/<package>`
 - If changes cross package boundaries or shared interfaces, run `yarn verify` before finalizing.
+- Run `yarn check:circular-deps` after import-boundary refactors when you need a faster circular-dependency check.
 - Use `yarn build:connectors:verified` when touching `packages/connectors/**`.
 - Use `yarn docs:generate` when API comments, exported surface, or docs config changes.
 
