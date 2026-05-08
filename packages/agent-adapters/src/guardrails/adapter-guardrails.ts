@@ -4,114 +4,39 @@
  *
  * Adapts patterns from `@dzupagent/agent` guardrails for use with the
  * unified AgentEvent stream produced by CLI/SDK adapters.
- */
-
-import { StuckDetector } from '@dzupagent/core/utils'
-import type { StuckDetectorConfig, StuckStatus as CoreStuckStatus } from '@dzupagent/core/utils'
-import type { DzupEventBus } from '@dzupagent/core/events'
-import type { BudgetUsage } from '@dzupagent/core/events'
-import type { AgentEvent, AgentStreamEvent, TokenUsage } from '../types.js'
-
-export type { StuckDetectorConfig }
-
-function isProviderRawStreamEvent(
-  event: AgentStreamEvent,
-): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
-  return event.type === 'adapter:provider_raw'
-}
-
-// ---------------------------------------------------------------------------
-// Stuck detector types
-// ---------------------------------------------------------------------------
-
-/**
- * Re-exported here to preserve the long-standing
- * `@dzupagent/agent-adapters` public surface. The canonical type lives in
- * `@dzupagent/core` (RF-11).
- */
-export type StuckStatus = CoreStuckStatus
-
-// ---------------------------------------------------------------------------
-// Guardrail types
-// ---------------------------------------------------------------------------
-
-export interface AdapterGuardrailsConfig {
-  /** Max total iterations (tool call rounds) across the execution. Default 50 */
-  maxIterations?: number
-  /** Max total tokens (input + output). Default: unlimited */
-  maxTokens?: number
-  /** Max total cost in cents. Default: unlimited */
-  maxCostCents?: number
-  /** Max duration in ms. Default: 300_000 (5 min) */
-  maxDurationMs?: number
-  /** Stuck detector config. Set to false to disable. */
-  stuckDetector?: Partial<StuckDetectorConfig> | false
-  /** Tool names that are forbidden */
-  blockedTools?: string[]
-  /** Warning thresholds (0-1). Default [0.7, 0.9] */
-  warningThresholds?: number[]
-  /** Event bus for emitting guardrail events */
-  eventBus?: DzupEventBus
-  /** Content filter for output */
-  outputFilter?: (output: string) => Promise<string | null>
-  /** Callback invoked when a guardrail rule violation is detected (for governance side-channel). */
-  onRuleViolation?: (ruleId: string, severity: 'warn' | 'block', detail: string) => void
-}
-
-export interface GuardrailViolation {
-  type: 'stuck' | 'budget_exceeded' | 'blocked_tool' | 'timeout' | 'output_filtered'
-  message: string
-  severity: 'warning' | 'critical'
-}
-
-export interface BudgetState {
-  iterations: number
-  totalInputTokens: number
-  totalOutputTokens: number
-  totalCostCents: number
-  durationMs: number
-  warnings: string[]
-}
-
-export interface GuardrailStatus {
-  safe: boolean
-  violations: GuardrailViolation[]
-  budgetState: BudgetState
-  stuckStatus: StuckStatus
-}
-
-// ---------------------------------------------------------------------------
-// AdapterStuckDetector
-// ---------------------------------------------------------------------------
-
-/**
- * Detects when an adapter execution is stuck by tracking:
- * - Repeated identical tool calls (same name + same input hash)
- * - High error rate within a sliding time window
- * - Idle iterations with no tool calls
- * - Repeated non-overlapping tool-name block patterns
- * - Semantic plateau (single-tool fixation)
  *
- * Thin extension of the canonical {@link StuckDetector} from
- * `@dzupagent/core` (RF-11). Kept as a named subclass so that the long-standing
- * `AdapterStuckDetector` export from `@dzupagent/agent-adapters` continues to
- * work. The legacy 3-mode contract (`recordToolCall`, `recordError`,
- * `recordIteration`, `reset`) is fully preserved; the additional 5-mode
- * detection (semantic plateau + progress-hash) is now available transparently.
+ * After the MC-027a-2 split, types live in `./adapter-guardrails-types`,
+ * the stuck-detector subclass in `./adapter-stuck-detector`, the budget /
+ * threshold logic in `./guardrails-budget-tracker`, and the per-event
+ * handlers in `./guardrails-event-handlers`. This file owns the public
+ * `AdapterGuardrails` orchestrator and wires those collaborators together.
  */
-export class AdapterStuckDetector extends StuckDetector {
-  constructor(config?: StuckDetectorConfig) {
-    super(config)
-  }
-}
+import type { AgentEvent, AgentStreamEvent } from '../types.js'
+import { AdapterStuckDetector } from './adapter-stuck-detector.js'
+import {
+  DEFAULT_MAX_DURATION_MS,
+  DEFAULT_MAX_ITERATIONS,
+  DEFAULT_WARNING_THRESHOLDS,
+  isProviderRawStreamEvent,
+  type AdapterGuardrailsConfig,
+  type GuardrailStatus,
+  type GuardrailViolation,
+} from './adapter-guardrails-types.js'
+import { GuardrailsBudgetTracker } from './guardrails-budget-tracker.js'
+import {
+  processGuardrailEvent,
+  type GuardrailsHandlerState,
+} from './guardrails-event-handlers.js'
 
-// ---------------------------------------------------------------------------
-// AdapterGuardrails
-// ---------------------------------------------------------------------------
-
-const DEFAULT_MAX_ITERATIONS = 50
-const DEFAULT_MAX_DURATION_MS = 300_000
-const DEFAULT_WARNING_THRESHOLDS = [0.7, 0.9]
+export { AdapterStuckDetector } from './adapter-stuck-detector.js'
+export type {
+  AdapterGuardrailsConfig,
+  BudgetState,
+  GuardrailStatus,
+  GuardrailViolation,
+  StuckDetectorConfig,
+  StuckStatus,
+} from './adapter-guardrails-types.js'
 
 /**
  * Wraps an adapter event stream with guardrail enforcement.
@@ -127,17 +52,11 @@ export class AdapterGuardrails {
 
   private readonly stuckDetector: AdapterStuckDetector | null
   private readonly blockedTools: Set<string>
+  private readonly budget: GuardrailsBudgetTracker
 
-  private startTime = 0
-  private iterations = 0
-  private totalInputTokens = 0
-  private totalOutputTokens = 0
-  private totalCostCents = 0
-  private toolCallsInCurrentIteration = 0
   private violations: GuardrailViolation[] = []
   private warningMessages: string[] = []
-  private emittedThresholds = new Set<string>()
-  private lastStuckStatus: StuckStatus = { stuck: false }
+  private readonly handlerState: GuardrailsHandlerState
 
   constructor(config?: AdapterGuardrailsConfig) {
     this.config = {
@@ -157,6 +76,32 @@ export class AdapterGuardrails {
     }
 
     this.blockedTools = new Set(config?.blockedTools ?? [])
+
+    this.budget = new GuardrailsBudgetTracker(
+      {
+        maxIterations: this.config.maxIterations,
+        maxDurationMs: this.config.maxDurationMs,
+        ...(this.config.maxTokens !== undefined ? { maxTokens: this.config.maxTokens } : {}),
+        ...(this.config.maxCostCents !== undefined ? { maxCostCents: this.config.maxCostCents } : {}),
+        warningThresholds: this.config.warningThresholds,
+        ...(this.config.eventBus ? { eventBus: this.config.eventBus } : {}),
+        // Use a getter so updates via setOnRuleViolation() take effect.
+        getOnRuleViolation: () => this.config.onRuleViolation,
+      },
+      { violations: this.violations, warnings: this.warningMessages },
+    )
+
+    this.handlerState = {
+      stuckDetector: this.stuckDetector,
+      blockedTools: this.blockedTools,
+      budget: this.budget,
+      violations: this.violations,
+      lastStuckStatus: { stuck: false },
+      toolCallsInCurrentIteration: 0,
+      eventBus: this.config.eventBus,
+      outputFilter: this.config.outputFilter,
+      getOnRuleViolation: () => this.config.onRuleViolation,
+    }
   }
 
   /**
@@ -183,7 +128,7 @@ export class AdapterGuardrails {
     source: AsyncGenerator<AgentStreamEvent>,
     abortFn?: () => void,
   ): AsyncGenerator<AgentStreamEvent> {
-    this.startTime = Date.now()
+    this.budget.start()
 
     for await (const event of source) {
       if (isProviderRawStreamEvent(event)) {
@@ -191,11 +136,9 @@ export class AdapterGuardrails {
         continue
       }
 
-      // Process the event through guardrails
-      const result = await this.processEvent(event)
+      const result = await processGuardrailEvent(event, this.handlerState)
 
       if (result.abort) {
-        // Emit the failure event and call abort
         abortFn?.()
         yield {
           type: 'adapter:failed',
@@ -207,12 +150,7 @@ export class AdapterGuardrails {
         return
       }
 
-      // If we have a filtered event (output filter replaced the original), yield that instead
-      if (result.filteredEvent) {
-        yield result.filteredEvent
-      } else {
-        yield event
-      }
+      yield result.filteredEvent ?? event
     }
   }
 
@@ -240,401 +178,18 @@ export class AdapterGuardrails {
     return {
       safe: this.violations.filter(v => v.severity === 'critical').length === 0,
       violations: [...this.violations],
-      budgetState: this.getBudgetState(),
-      stuckStatus: { ...this.lastStuckStatus },
+      budgetState: this.budget.getBudgetState(),
+      stuckStatus: { ...this.handlerState.lastStuckStatus },
     }
   }
 
   /** Reset all tracking state */
   reset(): void {
-    this.startTime = 0
-    this.iterations = 0
-    this.totalInputTokens = 0
-    this.totalOutputTokens = 0
-    this.totalCostCents = 0
-    this.toolCallsInCurrentIteration = 0
-    this.violations = []
-    this.warningMessages = []
-    this.emittedThresholds.clear()
-    this.lastStuckStatus = { stuck: false }
+    this.budget.reset()
+    this.violations.length = 0
+    this.warningMessages.length = 0
+    this.handlerState.lastStuckStatus = { stuck: false }
+    this.handlerState.toolCallsInCurrentIteration = 0
     this.stuckDetector?.reset()
-  }
-
-  // -------------------------------------------------------------------------
-  // Private
-  // -------------------------------------------------------------------------
-
-  private getBudgetState(): BudgetState {
-    return {
-      iterations: this.iterations,
-      totalInputTokens: this.totalInputTokens,
-      totalOutputTokens: this.totalOutputTokens,
-      totalCostCents: this.totalCostCents,
-      durationMs: this.startTime > 0 ? Date.now() - this.startTime : 0,
-      warnings: [...this.warningMessages],
-    }
-  }
-
-  private async processEvent(
-    event: AgentEvent,
-  ): Promise<{
-    abort: boolean
-    abortReason?: string
-    filteredEvent?: AgentEvent
-  }> {
-    switch (event.type) {
-      case 'adapter:tool_call':
-        return this.handleToolCall(event)
-
-      case 'adapter:tool_result':
-        return this.handleToolResult(event)
-
-      case 'adapter:completed':
-        return this.handleCompleted(event)
-
-      case 'adapter:failed':
-        return this.handleFailed(event)
-
-      default:
-        // For all other events, just check duration budget
-        return this.checkBudgets()
-    }
-  }
-
-  private handleToolCall(event: Extract<AgentEvent, { type: 'adapter:tool_call' }>): {
-    abort: boolean
-    abortReason?: string
-  } {
-    // Check blocked tools
-    if (this.blockedTools.has(event.toolName)) {
-      const violation: GuardrailViolation = {
-        type: 'blocked_tool',
-        message: `Tool "${event.toolName}" is blocked by guardrails`,
-        severity: 'critical',
-      }
-      this.violations.push(violation)
-      this.config.onRuleViolation?.('blocked_tool', 'block', violation.message)
-      return { abort: true, abortReason: violation.message }
-    }
-
-    // Record in stuck detector
-    if (this.stuckDetector) {
-      const stuckStatus = this.stuckDetector.recordToolCall(event.toolName, event.input)
-      this.lastStuckStatus = stuckStatus
-
-      if (stuckStatus.stuck) {
-        const violation: GuardrailViolation = {
-          type: 'stuck',
-          message: stuckStatus.reason ?? 'Agent appears stuck',
-          severity: 'critical',
-        }
-        this.violations.push(violation)
-
-        this.config.eventBus?.emit({
-          type: 'agent:stuck_detected',
-          agentId: event.providerId,
-          reason: stuckStatus.reason ?? 'Unknown',
-          recovery: 'abort',
-          timestamp: Date.now(),
-          repeatedTool: event.toolName,
-        })
-
-        return { abort: true, abortReason: violation.message }
-      }
-    }
-
-    // Increment iteration count (each tool call = one iteration)
-    this.iterations++
-    this.toolCallsInCurrentIteration++
-
-    return this.checkBudgets()
-  }
-
-  private handleToolResult(event: Extract<AgentEvent, { type: 'adapter:tool_result' }>): {
-    abort: boolean
-    abortReason?: string
-  } {
-    // Check for error indicators in tool output
-    if (this.stuckDetector && this.looksLikeError(event.output)) {
-      const stuckStatus = this.stuckDetector.recordError(event.output)
-      this.lastStuckStatus = stuckStatus
-
-      if (stuckStatus.stuck) {
-        const violation: GuardrailViolation = {
-          type: 'stuck',
-          message: stuckStatus.reason ?? 'Too many errors',
-          severity: 'critical',
-        }
-        this.violations.push(violation)
-
-        this.config.eventBus?.emit({
-          type: 'agent:stuck_detected',
-          agentId: event.providerId,
-          reason: stuckStatus.reason ?? 'Error loop detected',
-          recovery: 'abort',
-          timestamp: Date.now(),
-        })
-
-        return { abort: true, abortReason: violation.message }
-      }
-    }
-
-    return this.checkBudgets()
-  }
-
-  private async handleCompleted(
-    event: Extract<AgentEvent, { type: 'adapter:completed' }>,
-  ): Promise<{
-    abort: boolean
-    abortReason?: string
-    filteredEvent?: AgentEvent
-  }> {
-    // Accumulate token usage
-    if (event.usage) {
-      this.accumulateUsage(event.usage)
-    }
-
-    // Record idle iteration if no tool calls happened
-    if (this.stuckDetector) {
-      const stuckStatus = this.stuckDetector.recordIteration(this.toolCallsInCurrentIteration)
-      this.toolCallsInCurrentIteration = 0
-      this.lastStuckStatus = stuckStatus
-
-      if (stuckStatus.stuck) {
-        const violation: GuardrailViolation = {
-          type: 'stuck',
-          message: stuckStatus.reason ?? 'Agent idle',
-          severity: 'warning',
-        }
-        this.violations.push(violation)
-      }
-    }
-
-    // Apply output filter
-    if (this.config.outputFilter && event.result) {
-      const filtered = await this.config.outputFilter(event.result)
-      if (filtered === null) {
-        const violation: GuardrailViolation = {
-          type: 'output_filtered',
-          message: 'Output was rejected by content filter',
-          severity: 'critical',
-        }
-        this.violations.push(violation)
-        return { abort: true, abortReason: violation.message }
-      }
-      if (filtered !== event.result) {
-        // Return modified event with filtered content
-        return {
-          abort: false,
-          filteredEvent: { ...event, result: filtered },
-        }
-      }
-    }
-
-    return this.checkBudgets()
-  }
-
-  private handleFailed(event: Extract<AgentEvent, { type: 'adapter:failed' }>): {
-    abort: boolean
-    abortReason?: string
-  } {
-    if (this.stuckDetector) {
-      const stuckStatus = this.stuckDetector.recordError(event.error)
-      this.lastStuckStatus = stuckStatus
-
-      if (stuckStatus.stuck) {
-        const violation: GuardrailViolation = {
-          type: 'stuck',
-          message: stuckStatus.reason ?? 'Error loop detected',
-          severity: 'critical',
-        }
-        this.violations.push(violation)
-      }
-    }
-
-    // Don't abort on failure events -- they already indicate failure
-    return { abort: false }
-  }
-
-  private accumulateUsage(usage: TokenUsage): void {
-    this.totalInputTokens += usage.inputTokens
-    this.totalOutputTokens += usage.outputTokens
-    if (usage.costCents !== undefined) {
-      this.totalCostCents += usage.costCents
-    }
-  }
-
-  private checkBudgets(): { abort: boolean; abortReason?: string } {
-    // Check iteration limit
-    if (this.iterations >= this.config.maxIterations) {
-      const message = `Iteration limit exceeded: ${this.iterations}/${this.config.maxIterations}`
-      this.addViolation('budget_exceeded', message, 'critical')
-      return { abort: true, abortReason: message }
-    }
-
-    // Check duration limit
-    if (this.startTime > 0) {
-      const durationMs = Date.now() - this.startTime
-      if (durationMs >= this.config.maxDurationMs) {
-        const message = `Timeout exceeded: ${Math.round(durationMs / 1000)}s / ${Math.round(this.config.maxDurationMs / 1000)}s`
-        this.addViolation('timeout', message, 'critical')
-        return { abort: true, abortReason: message }
-      }
-    }
-
-    // Check token limit
-    if (this.config.maxTokens !== undefined) {
-      const totalTokens = this.totalInputTokens + this.totalOutputTokens
-      if (totalTokens >= this.config.maxTokens) {
-        const message = `Token limit exceeded: ${totalTokens}/${this.config.maxTokens}`
-        this.addViolation('budget_exceeded', message, 'critical')
-        return { abort: true, abortReason: message }
-      }
-    }
-
-    // Check cost limit
-    if (this.config.maxCostCents !== undefined && this.totalCostCents >= this.config.maxCostCents) {
-      const message = `Cost limit exceeded: ${this.totalCostCents.toFixed(2)}c/${this.config.maxCostCents}c`
-      this.addViolation('budget_exceeded', message, 'critical')
-      return { abort: true, abortReason: message }
-    }
-
-    // Emit threshold warnings
-    this.checkWarningThresholds()
-
-    return { abort: false }
-  }
-
-  private checkWarningThresholds(): void {
-    const thresholds = this.config.warningThresholds
-
-    for (const threshold of thresholds) {
-      const level: 'warn' | 'critical' = threshold >= 0.9 ? 'critical' : 'warn'
-
-      // Check iteration threshold
-      this.checkSingleThreshold(
-        'iterations',
-        this.iterations,
-        this.config.maxIterations,
-        threshold,
-        level,
-      )
-
-      // Check token threshold
-      if (this.config.maxTokens !== undefined) {
-        const totalTokens = this.totalInputTokens + this.totalOutputTokens
-        this.checkSingleThreshold(
-          'tokens',
-          totalTokens,
-          this.config.maxTokens,
-          threshold,
-          level,
-        )
-      }
-
-      // Check cost threshold
-      if (this.config.maxCostCents !== undefined) {
-        this.checkSingleThreshold(
-          'cost',
-          this.totalCostCents,
-          this.config.maxCostCents,
-          threshold,
-          level,
-        )
-      }
-
-      // Check duration threshold
-      if (this.startTime > 0) {
-        const durationMs = Date.now() - this.startTime
-        this.checkSingleThreshold(
-          'duration',
-          durationMs,
-          this.config.maxDurationMs,
-          threshold,
-          level,
-        )
-      }
-    }
-  }
-
-  private checkSingleThreshold(
-    metric: string,
-    current: number,
-    limit: number,
-    threshold: number,
-    level: 'warn' | 'critical',
-  ): void {
-    const ratio = current / limit
-    const key = `${metric}:${threshold}`
-
-    if (ratio >= threshold && !this.emittedThresholds.has(key)) {
-      this.emittedThresholds.add(key)
-
-      const message = `${metric} budget at ${Math.round(ratio * 100)}% (${typeof current === 'number' && metric === 'cost' ? current.toFixed(2) : Math.round(current)}/${metric === 'cost' ? limit.toFixed(2) : Math.round(limit)})`
-      this.warningMessages.push(message)
-
-      this.config.eventBus?.emit({
-        type: 'budget:warning',
-        level,
-        usage: this.buildBudgetUsage(),
-      })
-    }
-  }
-
-  private buildBudgetUsage(): BudgetUsage {
-    const totalTokens = this.totalInputTokens + this.totalOutputTokens
-    const durationMs = this.startTime > 0 ? Date.now() - this.startTime : 0
-
-    // Calculate the highest ratio across all tracked metrics
-    let maxPercent = 0
-    if (this.config.maxIterations > 0) {
-      maxPercent = Math.max(maxPercent, (this.iterations / this.config.maxIterations) * 100)
-    }
-    if (this.config.maxTokens !== undefined && this.config.maxTokens > 0) {
-      maxPercent = Math.max(maxPercent, (totalTokens / this.config.maxTokens) * 100)
-    }
-    if (this.config.maxCostCents !== undefined && this.config.maxCostCents > 0) {
-      maxPercent = Math.max(maxPercent, (this.totalCostCents / this.config.maxCostCents) * 100)
-    }
-    if (this.config.maxDurationMs > 0) {
-      maxPercent = Math.max(maxPercent, (durationMs / this.config.maxDurationMs) * 100)
-    }
-
-    return {
-      tokensUsed: totalTokens,
-      tokensLimit: this.config.maxTokens ?? 0,
-      costCents: this.totalCostCents,
-      costLimitCents: this.config.maxCostCents ?? 0,
-      iterations: this.iterations,
-      iterationsLimit: this.config.maxIterations,
-      percent: Math.round(maxPercent * 100) / 100,
-    }
-  }
-
-  private addViolation(
-    type: GuardrailViolation['type'],
-    message: string,
-    severity: GuardrailViolation['severity'],
-  ): void {
-    this.violations.push({ type, message, severity })
-    this.config.onRuleViolation?.(type, severity === 'critical' ? 'block' : 'warn', message)
-  }
-
-  /**
-   * Simple heuristic to detect error-like output from tool results.
-   * Looks for common error patterns without being too aggressive.
-   */
-  private looksLikeError(output: string): boolean {
-    const lower = output.toLowerCase()
-    return (
-      lower.startsWith('error:') ||
-      lower.startsWith('error -') ||
-      lower.includes('traceback (most recent call last)') ||
-      lower.includes('exception:') ||
-      lower.includes('fatal:') ||
-      lower.includes('enoent') ||
-      lower.includes('permission denied') ||
-      lower.includes('command not found')
-    )
   }
 }
