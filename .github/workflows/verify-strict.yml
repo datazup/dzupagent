@@ -38,6 +38,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  circular-deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard-index: [0, 1, 2, 3]
+        shard-count: [4]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Check circular imports shard
+        run: node scripts/check-circular-deps.mjs --shard-index ${{ matrix.shard-index }} --shard-count ${{ matrix.shard-count }} --concurrency 2
+
   verify-strict:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -56,14 +82,5 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Check domain boundary contracts
-        run: yarn -s check:domain-boundaries
-
-      - name: Check circular imports
-        run: yarn -s check:circular-deps
-
-      - name: Check terminal tool-event guards
-        run: yarn -s check:terminal-tool-event-guards
-
-      - name: Run strict verification
-        run: yarn -s verify:strict
+      - name: Run strict verification without circular imports
+        run: yarn -s verify:strict:no-circular
