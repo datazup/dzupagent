@@ -61,6 +61,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - name: Check circular imports shard
         run: node scripts/check-circular-deps.mjs --shard-index ${{ matrix.shard-index }} --shard-count ${{ matrix.shard-count }} --concurrency 2
 
@@ -81,6 +84,9 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Build core package for subpath export consumers
         run: yarn build --filter=@dzupagent/core
