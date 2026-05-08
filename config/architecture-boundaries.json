@@ -170,6 +170,7 @@
           "packages/server/src/routes/mcp.ts",
           "packages/server/src/routes/skills.ts",
           "packages/server/src/routes/spawn-compiler-bridge.ts",
+          "packages/server/src/routes/workflows-handlers.ts",
           "packages/server/src/routes/workflows.ts"
         ]
       },
@@ -188,6 +189,9 @@
           "packages/server/src/routes/learning-schemas.ts",
           "packages/server/src/routes/learning-types.ts",
           "packages/server/src/routes/memory-health-types.ts",
+          "packages/server/src/routes/workflows-streaming.ts",
+          "packages/server/src/routes/workflows-types.ts",
+          "packages/server/src/routes/workflows-validation.ts",
           "packages/server/src/routes/run-context-types.ts",
           "packages/server/src/routes/runs/shared.ts",
           "packages/server/src/routes/route-error.ts",
@@ -964,7 +968,7 @@
             "POST /api/triggers"
           ]
         },
-        "packages/server/src/routes/workflows.ts": {
+        "packages/server/src/routes/workflows-handlers.ts": {
           "category": "route-plugin-host-seam",
           "mounts": [
             "/api/workflows"
