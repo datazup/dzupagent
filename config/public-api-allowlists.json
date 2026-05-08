@@ -401,7 +401,8 @@
         { "match": "exact", "pattern": "./execution.js" },
         { "match": "exact", "pattern": "./ledger.js" },
         { "match": "exact", "pattern": "./schedule.js" },
-        { "match": "exact", "pattern": "./script-runs.js" }
+        { "match": "exact", "pattern": "./script-runs.js" },
+        { "match": "exact", "pattern": "./pipeline.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},
