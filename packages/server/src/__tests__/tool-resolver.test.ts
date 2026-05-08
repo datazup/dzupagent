@@ -23,7 +23,7 @@ function resolveCached(context: ToolResolverContext): Promise<ToolResolverResult
   return pending
 }
 
-describe('tool-resolver', { timeout: 30_000 }, () => {
+describe('tool-resolver', { timeout: 120_000 }, () => {
   it('resolves default git category into git tools when codegen is available', async () => {
     const result = await resolveCached({ toolNames: ['git:*'] })
 

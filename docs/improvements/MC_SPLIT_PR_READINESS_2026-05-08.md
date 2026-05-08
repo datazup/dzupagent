@@ -88,6 +88,10 @@ Current-turn checks:
 - `yarn workspace @dzupagent/testing typecheck`: passed.
 - `yarn workspace @dzupagent/testing build`: passed.
 - `yarn workspace @dzupagent/testing lint`: passed.
+- `yarn workspace @dzupagent/server test src/__tests__/cli-commands-smoke.test.ts src/__tests__/mcp-integration.test.ts src/__tests__/tool-resolver.test.ts`: passed, 125 tests.
+- `yarn workspace @dzupagent/server test src/__tests__/cli-commands-smoke.test.ts src/__tests__/tool-resolver.test.ts`: passed, 93 tests.
+- `yarn workspace @dzupagent/server typecheck`: passed.
+- `yarn workspace @dzupagent/server lint`: passed.
 
 Broad gate:
 
@@ -118,6 +122,9 @@ Additional committed follow-on files:
 - `packages/otel/src/event-metric-map/empty-events-agent.ts`
 - `packages/otel/src/event-metric-map/empty-events-runtime.ts`
 - `packages/testing/src/__tests__/exports.test.ts`
+- `packages/server/src/__tests__/cli-commands-smoke.test.ts`
+- `packages/server/src/__tests__/mcp-integration.test.ts`
+- `packages/server/src/__tests__/tool-resolver.test.ts`
 
 These follow-on slices have package-focused validation and are committed locally.
 
