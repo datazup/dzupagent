@@ -133,6 +133,53 @@ describe('CostTrackingMiddleware', () => {
       expect(usage.perProvider['claude']!.cacheWriteTokens).toBe(1_000_000)
     })
 
+    it('combines uncached input + cache-read + cache-write + output costs', async () => {
+      const middleware = new CostTrackingMiddleware({ maxBudgetCents: 100000 })
+
+      // Claude rates: input 300/1M, output 1500/1M, cacheRead 30/1M, cacheWrite 375/1M
+      // 100k uncached input  → 30 cents
+      // 100k cache-read      → 3 cents
+      // 100k cache-write     → 37.5 cents
+      // 100k output          → 150 cents
+      // Note: estimator subtracts cache totals from inputTokens, so we set
+      // inputTokens = uncached + cacheRead + cacheWrite = 300_000.
+      const events: AgentEvent[] = [
+        makeCompletedEvent('claude', {
+          inputTokens: 300_000,
+          outputTokens: 100_000,
+          cachedInputTokens: 100_000,
+          cacheWriteTokens: 100_000,
+        }),
+      ]
+
+      await collectAll(middleware.wrap(yieldEvents(events)))
+
+      const usage = middleware.getUsage()
+      expect(usage.totalCostCents).toBeCloseTo(30 + 3 + 37.5 + 150, 5)
+      expect(usage.perProvider['claude']!.cacheReadTokens).toBe(100_000)
+      expect(usage.perProvider['claude']!.cacheWriteTokens).toBe(100_000)
+    })
+
+    it('does not add cache cost when zero cache tokens present', async () => {
+      const middleware = new CostTrackingMiddleware({ maxBudgetCents: 100000 })
+
+      // Pure 100k input + 100k output, no cache tokens.
+      const events: AgentEvent[] = [
+        makeCompletedEvent('claude', {
+          inputTokens: 100_000,
+          outputTokens: 100_000,
+        }),
+      ]
+
+      await collectAll(middleware.wrap(yieldEvents(events)))
+
+      const usage = middleware.getUsage()
+      // 30 input + 150 output = 180; nothing extra from cache.
+      expect(usage.totalCostCents).toBeCloseTo(180, 5)
+      expect(usage.totalTokens.cacheRead).toBe(0)
+      expect(usage.totalTokens.cacheWrite).toBe(0)
+    })
+
     it('estimates cost correctly for different providers', async () => {
       const middleware = new CostTrackingMiddleware({ maxBudgetCents: 100000 })
 

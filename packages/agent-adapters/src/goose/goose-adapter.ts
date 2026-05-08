@@ -4,9 +4,11 @@
  * Goose is a CLI-based agent runtime that supports tool calls, streaming,
  * and session resume via the `goose run --headless` surface.
  *
- * TODO L-06: migrate to AdapterStreamRunner. Currently inherits from
- * BaseCliAdapter; the JSONL stream from `goose run --headless` could be
- * wrapped in an AdapterStreamSource to unify lifecycle/audit semantics.
+ * Streaming lifecycle: inherits from {@link BaseCliAdapter}, which composes
+ * {@link AdapterStreamRunner} for heartbeat/abort/audit. For bespoke CLI
+ * shapes that need to bypass `BaseCliAdapter`, see
+ * {@link CliAdapterStreamSource} in `../base/cli-stream-source.ts`.
+ * (REC-L-06 closed — see audit closure 2026-05-08.)
  */
 
 import type {

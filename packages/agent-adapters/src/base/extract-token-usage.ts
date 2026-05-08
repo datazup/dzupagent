@@ -4,8 +4,9 @@
  *
  * Provider SDKs report usage with snake_case keys
  * (`input_tokens`, `output_tokens`, `cached_input_tokens`,
- * `cache_creation_input_tokens`, `cost_cents`); this helper normalizes them to
- * the {@link TokenUsage} contract used across the framework.
+ * `cache_read_input_tokens`, `cache_creation_input_tokens`, `cost_cents`);
+ * this helper normalizes them to the {@link TokenUsage} contract used across
+ * the framework.
  */
 
 import type { TokenUsage } from '../types.js'
@@ -19,7 +20,10 @@ import type { TokenUsage } from '../types.js'
  * Supported source keys:
  * - `input_tokens` (number) → `inputTokens` (defaults to 0)
  * - `output_tokens` (number) → `outputTokens` (defaults to 0)
- * - `cached_input_tokens` (number) → `cachedInputTokens` (cache read tokens)
+ * - `cached_input_tokens` OR `cache_read_input_tokens` (number) → `cachedInputTokens`
+ *   (cache read tokens). The Anthropic Messages API returns the latter name;
+ *   the Claude Agent SDK normalizes to the former. We accept both so adapters
+ *   work whether they receive raw API responses or SDK-normalized payloads.
  * - `cache_creation_input_tokens` (number) → `cacheWriteTokens` (cache write tokens)
  * - `cost_cents` (number) → `costCents` (omitted if absent)
  *
@@ -36,8 +40,15 @@ export function extractTokenUsage(usage: unknown): TokenUsage | undefined {
 
   const result: TokenUsage = { inputTokens, outputTokens }
 
+  // Accept both the SDK-normalized field (`cached_input_tokens`) and the raw
+  // Anthropic Messages API field (`cache_read_input_tokens`). If both are
+  // present, prefer the explicit Anthropic name as it is more authoritative.
   const cachedRead =
-    typeof record['cached_input_tokens'] === 'number' ? record['cached_input_tokens'] : undefined
+    typeof record['cache_read_input_tokens'] === 'number'
+      ? record['cache_read_input_tokens']
+      : typeof record['cached_input_tokens'] === 'number'
+        ? record['cached_input_tokens']
+        : undefined
   const cachedWrite =
     typeof record['cache_creation_input_tokens'] === 'number'
       ? record['cache_creation_input_tokens']
