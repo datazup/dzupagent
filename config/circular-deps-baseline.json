@@ -7,20 +7,12 @@
         "agent/run-engine-generate-helpers.ts"
       ],
       [
-        "agent/run-engine.ts",
-        "agent/run-engine-streaming-helpers.ts"
-      ],
-      [
         "agent/tool-loop.ts",
         "agent/tool-loop/loop-stages.ts"
       ],
       [
         "agent/tool-loop.ts",
         "agent/tool-loop/model-turn-kernel.ts"
-      ],
-      [
-        "agent/tool-loop.ts",
-        "agent/tool-loop/policy-enabled-tool-executor.ts"
       ],
       [
         "orchestration/delegating-supervisor.ts",

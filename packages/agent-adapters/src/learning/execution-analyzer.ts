@@ -5,8 +5,8 @@
  */
 
 import type { AdapterProviderId } from '../types.js'
-import type { AdapterLearningLoop } from './adapter-learning-loop.js'
 import type {
+  AdapterLearningLoopReader,
   ExecutionRecord,
   FailurePattern,
   PerformanceReport,
@@ -15,7 +15,7 @@ import type {
 } from './learning-types.js'
 
 export class ExecutionAnalyzer {
-  constructor(private readonly learningLoop: AdapterLearningLoop) {}
+  constructor(private readonly learningLoop: AdapterLearningLoopReader) {}
 
   /** Generate performance report across all providers */
   generateReport(): PerformanceReport {
