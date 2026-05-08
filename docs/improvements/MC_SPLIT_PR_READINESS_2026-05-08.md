@@ -97,9 +97,9 @@ Broad gate:
 
 - Earlier `yarn -s verify:strict:no-circular` failed late in `@dzupagent/server#build` with TS7016 for `@dzupagent/core/identity`.
 - The focused rerun of `@dzupagent/server build` passed without source changes, so that failure is consistent with stale/build-order DTS resolution rather than a server source defect.
-- Latest `yarn -s verify:strict:no-circular` completed 127 of 128 Turbo tasks and failed only in `@dzupagent/server#test` after 25m32s.
-- The failed server tests were timeout/contention shaped: `cli-commands-smoke.test.ts`, `mcp-integration.test.ts`, and `tool-resolver.test.ts`.
-- Focused rerun passed without source changes: `yarn workspace @dzupagent/server test src/__tests__/cli-commands-smoke.test.ts src/__tests__/mcp-integration.test.ts src/__tests__/tool-resolver.test.ts`, 125 tests.
+- A follow-up broad run exposed timing-sensitive server tests under full Turbo load; focused reruns passed and the smoke tests were hardened in `5569fa4`.
+- Latest `yarn -s verify:strict:no-circular`: passed, 128 of 128 Turbo tasks successful.
+- In the green broad run, `@dzupagent/server#test` passed 195 files and 3,221 tests.
 
 ## Follow-On Work
 
@@ -126,16 +126,16 @@ Additional committed follow-on files:
 - `packages/server/src/__tests__/mcp-integration.test.ts`
 - `packages/server/src/__tests__/tool-resolver.test.ts`
 
-These follow-on slices have package-focused validation and are committed locally.
+These follow-on slices have package-focused validation, a green broad strict gate, and are committed locally.
 
 ## Plan Re-Evaluation
 
 Implementation drift is low for the MC split stack at `origin/main`: it is mostly behavior-preserving module splitting with focused tests and strict-workflow sharding already in place.
 
-The current drift risk is broad local gate stability under heavy concurrency, not focused package validation. The core registry split, OTel metric-map split, and testing export assertion change are locally committed as separate follow-on slices.
+The current drift risk is low. The stale-DTS and full-Turbo server timing failures were both rechecked, the focused reruns passed, and the latest strict gate is green. The remaining open scope is PR packaging plus the separate Codev worktree review.
 
 ## Recommended Next Tasks
 
-1. Treat the current source slices as ready for PR packaging; focused validation is green and the broad failure reproduced as full-suite server-test contention only.
-2. Push/open the follow-on PR with the committed slices grouped by package and let CI confirm the sharded strict workflow.
-3. If local broad confirmation is still required before push, rerun `yarn -s verify:strict:no-circular` in a quieter shell and, on failure, rerun the exact failing server files before changing source.
+1. Treat the DzupAgent follow-on slices as ready for PR packaging; focused validation and the full strict gate are green.
+2. Push/open the follow-on PR with the committed slices grouped by package.
+3. Review the separate dirty `apps/codev-app` worktree before starting any new DzupAgent LOC split wave, so unrelated app changes do not get mixed into the PR.
