@@ -82,5 +82,8 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Build core package for subpath export consumers
+        run: yarn build --filter=@dzupagent/core
+
       - name: Run strict verification without circular imports
         run: yarn -s verify:strict:no-circular
