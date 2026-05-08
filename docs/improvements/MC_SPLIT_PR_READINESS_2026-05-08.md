@@ -18,6 +18,7 @@ Comparison: `origin/main..HEAD`
   - `411b7c4 test(testing): use explicit core subpath importers`
   - `c169bdd docs: refresh MC split readiness validation`
   - `c8c74e4 refactor(core): extract registry error helpers`
+  - `e829bf7 docs: record committed MC follow-on slices`
 - CI strict circular dependency sharding is already present in `.github/workflows/verify-strict.yml`.
 - The full strict job runs `yarn -s verify:strict:no-circular`, so the expensive circular dependency scan is handled only by the separate 4-shard matrix job.
 - Local worktree was clean after the follow-on commits above.
@@ -90,8 +91,11 @@ Current-turn checks:
 
 Broad gate:
 
-- `yarn -s verify:strict:no-circular`: failed late in `@dzupagent/server#build` with TS7016 for `@dzupagent/core/identity`.
-- The focused rerun of `@dzupagent/server build` passed without source changes, so this failure is consistent with stale/build-order DTS resolution rather than a server source defect.
+- Earlier `yarn -s verify:strict:no-circular` failed late in `@dzupagent/server#build` with TS7016 for `@dzupagent/core/identity`.
+- The focused rerun of `@dzupagent/server build` passed without source changes, so that failure is consistent with stale/build-order DTS resolution rather than a server source defect.
+- Latest `yarn -s verify:strict:no-circular` completed 127 of 128 Turbo tasks and failed only in `@dzupagent/server#test` after 25m32s.
+- The failed server tests were timeout/contention shaped: `cli-commands-smoke.test.ts`, `mcp-integration.test.ts`, and `tool-resolver.test.ts`.
+- Focused rerun passed without source changes: `yarn workspace @dzupagent/server test src/__tests__/cli-commands-smoke.test.ts src/__tests__/mcp-integration.test.ts src/__tests__/tool-resolver.test.ts`, 125 tests.
 
 ## Follow-On Work
 
@@ -121,10 +125,10 @@ These follow-on slices have package-focused validation and are committed locally
 
 Implementation drift is low for the MC split stack at `origin/main`: it is mostly behavior-preserving module splitting with focused tests and strict-workflow sharding already in place.
 
-The current drift risk is broad-gate confirmation, not focused package validation. The core registry split, OTel metric-map split, and testing export assertion change are locally committed as separate follow-on slices.
+The current drift risk is broad local gate stability under heavy concurrency, not focused package validation. The core registry split, OTel metric-map split, and testing export assertion change are locally committed as separate follow-on slices.
 
 ## Recommended Next Tasks
 
-1. Rerun `yarn -s verify:strict:no-circular` after the worktree scope is settled; the focused server build already passed after the stale DTS failure.
-2. If the broad gate is green, push/open the follow-on PR with the committed slices grouped by package.
-3. If the broad gate repeats the stale core subpath DTS issue, rebuild `@dzupagent/core` first and rerun the failing package build before changing source.
+1. Treat the current source slices as ready for PR packaging; focused validation is green and the broad failure reproduced as full-suite server-test contention only.
+2. Push/open the follow-on PR with the committed slices grouped by package and let CI confirm the sharded strict workflow.
+3. If local broad confirmation is still required before push, rerun `yarn -s verify:strict:no-circular` in a quieter shell and, on failure, rerun the exact failing server files before changing source.
