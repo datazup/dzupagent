@@ -3,36 +3,65 @@
  *
  * Suitable for development, testing, and single-process deployments.
  * Uses immutable update patterns (S6 fix) and numeric semver comparison (S7 fix).
+ *
+ * MC-040: this file is a thin coordinator. The implementation is split across:
+ *  - `in-memory-registry-types.ts`     — internal subscription record shape
+ *  - `in-memory-registry-scoring.ts`   — discovery scoring + match weighting
+ *  - `in-memory-registry-events.ts`    — subscription fan-out + event-bus forwarding
+ *  - `in-memory-registry-mutations.ts` — pure register/update helpers
+ *  - `in-memory-registry-queries.ts`   — pure read-only helpers (discover/stats/eviction)
+ *
+ * Re-exports keep the public surface unchanged for callers that import from
+ * this module path.
  */
 import { ForgeError } from '../errors/forge-error.js'
 import type { DzupEventBus } from '../events/event-bus.js'
-import type { DzupEvent } from '../events/event-types.js'
-import { CapabilityMatcher, compareSemver } from './capability-matcher.js'
+import { CapabilityMatcher } from './capability-matcher.js'
+import { dispatchRegistryEvent } from './in-memory-registry-events.js'
+import {
+  applyUpdateChanges,
+  buildRegisteredAgent,
+} from './in-memory-registry-mutations.js'
+import {
+  computeRegistryStats,
+  discoverAgents,
+  findExpiredAgents,
+} from './in-memory-registry-queries.js'
+import type { Subscription } from './in-memory-registry-types.js'
 import type {
   AgentHealth,
-  AgentHealthStatus,
   AgentRegistry,
   AgentRegistryConfig,
   DeregistrationReason,
   DiscoveryQuery,
   DiscoveryResultPage,
-  DiscoveryResult,
   RegisterAgentInput,
   RegisteredAgent,
   RegistryEvent,
   RegistryStats,
   RegistrySubscriptionFilter,
-  ScoreBreakdown,
 } from './types.js'
 
-// ---------------------------------------------------------------------------
-// Subscription entry
-// ---------------------------------------------------------------------------
-
-interface Subscription {
-  filter: RegistrySubscriptionFilter
-  handler: (event: RegistryEvent) => void
-}
+// Re-export internal helpers so siblings remain reachable for advanced
+// consumers (testing, custom registry implementations) without expanding the
+// barrel `registry/index.ts`.
+export {
+  computeMatchScore,
+  isUnfilteredQuery,
+  scoreAgent,
+} from './in-memory-registry-scoring.js'
+export { dispatchRegistryEvent, matchesFilter } from './in-memory-registry-events.js'
+export {
+  applyUpdateChanges,
+  buildRegisteredAgent,
+} from './in-memory-registry-mutations.js'
+export {
+  computeRegistryStats,
+  discoverAgents,
+  findExpiredAgents,
+} from './in-memory-registry-queries.js'
+export type { UpdateApplicationResult } from './in-memory-registry-mutations.js'
+export type { Subscription } from './in-memory-registry-types.js'
 
 // ---------------------------------------------------------------------------
 // InMemoryRegistry
@@ -72,35 +101,15 @@ export class InMemoryRegistry implements AgentRegistry {
 
     this.idCounter++
     const id = `agent-${Date.now().toString(36)}-${this.idCounter.toString(36)}`
-    const now = new Date()
-
-    const agent: RegisteredAgent = {
-      id,
-      name: input.name,
-      description: input.description,
-      protocols: input.protocols ?? [],
-      capabilities: [...input.capabilities],
-      health: { status: 'unknown' },
-      registeredAt: now,
-      lastUpdatedAt: now,
-      ...(input.endpoint !== undefined && { endpoint: input.endpoint }),
-      ...(input.authentication !== undefined && { authentication: input.authentication }),
-      ...(input.version !== undefined && { version: input.version }),
-      ...(input.sla !== undefined && { sla: { ...input.sla } }),
-      ...(input.metadata !== undefined && { metadata: { ...input.metadata } }),
-      ...(input.ttlMs !== undefined && { ttlMs: input.ttlMs }),
-      ...(input.identity !== undefined && { identity: { ...input.identity } }),
-      ...(input.uri !== undefined && { uri: input.uri }),
-    }
+    const agent = buildRegisteredAgent(id, input, new Date())
 
     this.agents.set(id, agent)
 
-    const event: RegistryEvent = {
+    this.emitRegistryEvent({
       type: 'registry:agent_registered',
       agentId: id,
       name: input.name,
-    }
-    this.emitRegistryEvent(event)
+    })
 
     return { ...agent }
   }
@@ -120,12 +129,11 @@ export class InMemoryRegistry implements AgentRegistry {
 
     this.agents.delete(agentId)
 
-    const event: RegistryEvent = {
+    this.emitRegistryEvent({
       type: 'registry:agent_deregistered',
       agentId,
       reason,
-    }
-    this.emitRegistryEvent(event)
+    })
   }
 
   // -----------------------------------------------------------------------
@@ -142,72 +150,20 @@ export class InMemoryRegistry implements AgentRegistry {
       })
     }
 
-    const changedFields: string[] = []
+    const { updated, changedFields, addedCapabilities } = applyUpdateChanges(
+      existing,
+      changes,
+      new Date(),
+    )
 
-    // Build updated agent via spread (S6 fix — no direct mutation)
-    const updated: RegisteredAgent = {
-      ...existing,
-      lastUpdatedAt: new Date(),
-    }
-
-    if (changes.name !== undefined) {
-      updated.name = changes.name
-      changedFields.push('name')
-    }
-    if (changes.description !== undefined) {
-      updated.description = changes.description
-      changedFields.push('description')
-    }
-    if (changes.endpoint !== undefined) {
-      updated.endpoint = changes.endpoint
-      changedFields.push('endpoint')
-    }
-    if (changes.protocols !== undefined) {
-      updated.protocols = [...changes.protocols]
-      changedFields.push('protocols')
-    }
-    if (changes.capabilities !== undefined) {
-      // Detect newly added capabilities
-      const existingNames = new Set(existing.capabilities.map((c) => c.name))
-      for (const cap of changes.capabilities) {
-        if (!existingNames.has(cap.name)) {
-          this.emitRegistryEvent({
-            type: 'registry:capability_added',
-            agentId,
-            capability: cap.name,
-          })
-        }
-      }
-      updated.capabilities = [...changes.capabilities]
-      changedFields.push('capabilities')
-    }
-    if (changes.authentication !== undefined) {
-      updated.authentication = changes.authentication
-      changedFields.push('authentication')
-    }
-    if (changes.version !== undefined) {
-      updated.version = changes.version
-      changedFields.push('version')
-    }
-    if (changes.sla !== undefined) {
-      updated.sla = { ...changes.sla }
-      changedFields.push('sla')
-    }
-    if (changes.metadata !== undefined) {
-      updated.metadata = { ...changes.metadata }
-      changedFields.push('metadata')
-    }
-    if (changes.ttlMs !== undefined) {
-      updated.ttlMs = changes.ttlMs
-      changedFields.push('ttlMs')
-    }
-    if (changes.identity !== undefined) {
-      updated.identity = { ...changes.identity }
-      changedFields.push('identity')
-    }
-    if (changes.uri !== undefined) {
-      updated.uri = changes.uri
-      changedFields.push('uri')
+    // Emit capability_added events before persisting the snapshot so handlers
+    // observing the addition see the prior agent state when they query back.
+    for (const capability of addedCapabilities) {
+      this.emitRegistryEvent({
+        type: 'registry:capability_added',
+        agentId,
+        capability,
+      })
     }
 
     this.agents.set(agentId, updated)
@@ -228,52 +184,7 @@ export class InMemoryRegistry implements AgentRegistry {
   // -----------------------------------------------------------------------
 
   async discover(query: DiscoveryQuery): Promise<DiscoveryResultPage> {
-    const limit = query.limit ?? 10
-    const offset = query.offset ?? 0
-
-    const scored: DiscoveryResult[] = []
-
-    for (const agent of this.agents.values()) {
-      // Health filter
-      if (query.healthFilter && query.healthFilter.length > 0) {
-        if (!query.healthFilter.includes(agent.health.status)) continue
-      }
-
-      // Protocol filter
-      if (query.protocols && query.protocols.length > 0) {
-        const hasProtocol = query.protocols.some((p) => agent.protocols.includes(p))
-        if (!hasProtocol) continue
-      }
-
-      const breakdown = this.scoreAgent(agent, query)
-      const matchScore =
-        breakdown.capabilityScore * 0.4 +
-        breakdown.tagScore * 0.2 +
-        breakdown.healthAdjustment * 0.3 +
-        breakdown.slaScore * 0.1
-
-      // Only include agents with some match
-      if (matchScore > 0 || this.isUnfilteredQuery(query)) {
-        scored.push({
-          agent: { ...agent },
-          matchScore,
-          scoreBreakdown: breakdown,
-        })
-      }
-    }
-
-    // Sort by match score descending
-    scored.sort((a, b) => b.matchScore - a.matchScore)
-
-    const total = scored.length
-    const paged = scored.slice(offset, offset + limit)
-
-    return {
-      results: paged,
-      total,
-      offset,
-      limit,
-    }
+    return discoverAgents(this.agents, this.matcher, query)
   }
 
   // -----------------------------------------------------------------------
@@ -376,17 +287,7 @@ export class InMemoryRegistry implements AgentRegistry {
   // -----------------------------------------------------------------------
 
   async evictExpired(): Promise<string[]> {
-    const now = Date.now()
-    const evicted: string[] = []
-
-    for (const [id, agent] of this.agents.entries()) {
-      if (agent.ttlMs !== undefined) {
-        const expiresAt = agent.registeredAt.getTime() + agent.ttlMs
-        if (expiresAt < now) {
-          evicted.push(id)
-        }
-      }
-    }
+    const evicted = findExpiredAgents(this.agents, Date.now())
 
     for (const id of evicted) {
       this.agents.delete(id)
@@ -405,200 +306,15 @@ export class InMemoryRegistry implements AgentRegistry {
   // -----------------------------------------------------------------------
 
   async stats(): Promise<RegistryStats> {
-    let healthy = 0
-    let degraded = 0
-    let unhealthy = 0
-    const capabilityNames = new Set<string>()
-    const protocolCounts: Record<string, number> = {}
-
-    for (const agent of this.agents.values()) {
-      switch (agent.health.status) {
-        case 'healthy':
-          healthy++
-          break
-        case 'degraded':
-          degraded++
-          break
-        case 'unhealthy':
-          unhealthy++
-          break
-        // 'unknown' is not counted in any health bucket
-      }
-
-      for (const cap of agent.capabilities) {
-        capabilityNames.add(cap.name)
-      }
-
-      for (const protocol of agent.protocols) {
-        protocolCounts[protocol] = (protocolCounts[protocol] ?? 0) + 1
-      }
-    }
-
-    return {
-      totalAgents: this.agents.size,
-      healthyAgents: healthy,
-      degradedAgents: degraded,
-      unhealthyAgents: unhealthy,
-      capabilityCount: capabilityNames.size,
-      protocolCounts,
-    }
+    return computeRegistryStats(this.agents)
   }
 
   // -----------------------------------------------------------------------
   // Private helpers
   // -----------------------------------------------------------------------
 
-  /** Check if a query has no filtering criteria (returns all agents). */
-  private isUnfilteredQuery(query: DiscoveryQuery): boolean {
-    return (
-      !query.capabilityPrefix &&
-      !query.capabilityExact &&
-      !query.semanticQuery &&
-      (!query.tags || query.tags.length === 0) &&
-      (!query.healthFilter || query.healthFilter.length === 0) &&
-      (!query.protocols || query.protocols.length === 0) &&
-      !query.slaFilter
-    )
-  }
-
-  /** Score an agent against a discovery query. */
-  private scoreAgent(agent: RegisteredAgent, query: DiscoveryQuery): ScoreBreakdown {
-    let capabilityScore = 0
-    let tagScore = 0
-    let slaScore = 1.0
-
-    // Capability prefix matching
-    if (query.capabilityPrefix) {
-      let bestScore = 0
-      for (const cap of agent.capabilities) {
-        const score = this.matcher.match(query.capabilityPrefix, cap.name)
-        if (score > bestScore) bestScore = score
-      }
-      capabilityScore = bestScore
-    }
-
-    // Exact capability + version matching (S7 fix: numeric semver)
-    if (query.capabilityExact) {
-      for (const cap of agent.capabilities) {
-        if (cap.name === query.capabilityExact.name) {
-          if (query.capabilityExact.minVersion) {
-            if (compareSemver(cap.version, query.capabilityExact.minVersion) >= 0) {
-              capabilityScore = Math.max(capabilityScore, 1.0)
-            } else {
-              capabilityScore = Math.max(capabilityScore, 0.3)
-            }
-          } else {
-            capabilityScore = Math.max(capabilityScore, 1.0)
-          }
-        }
-      }
-    }
-
-    // If no capability query, default to 1.0 (don't penalize)
-    if (!query.capabilityPrefix && !query.capabilityExact) {
-      capabilityScore = 1.0
-    }
-
-    // Tag matching
-    if (query.tags && query.tags.length > 0) {
-      const agentTags = new Set<string>()
-      for (const cap of agent.capabilities) {
-        if (cap.tags) {
-          for (const t of cap.tags) agentTags.add(t)
-        }
-      }
-      if (agentTags.size > 0) {
-        let matched = 0
-        for (const tag of query.tags) {
-          if (agentTags.has(tag)) matched++
-        }
-        tagScore = matched / query.tags.length
-      }
-    } else {
-      tagScore = 1.0
-    }
-
-    // Health adjustment
-    const healthAdjustment = this.healthScore(agent.health.status)
-
-    // SLA check
-    if (query.slaFilter && agent.sla) {
-      let slaMet = 0
-      let slaChecks = 0
-      if (query.slaFilter.maxLatencyMs !== undefined && agent.sla.maxLatencyMs !== undefined) {
-        slaChecks++
-        if (agent.sla.maxLatencyMs <= query.slaFilter.maxLatencyMs) slaMet++
-      }
-      if (query.slaFilter.minUptimeRatio !== undefined && agent.sla.minUptimeRatio !== undefined) {
-        slaChecks++
-        if (agent.sla.minUptimeRatio >= query.slaFilter.minUptimeRatio) slaMet++
-      }
-      if (query.slaFilter.maxErrorRate !== undefined && agent.sla.maxErrorRate !== undefined) {
-        slaChecks++
-        if (agent.sla.maxErrorRate <= query.slaFilter.maxErrorRate) slaMet++
-      }
-      if (slaChecks > 0) {
-        slaScore = slaMet / slaChecks
-      }
-    }
-
-    return {
-      capabilityScore,
-      tagScore,
-      healthAdjustment,
-      slaScore,
-    }
-  }
-
-  private healthScore(status: AgentHealthStatus): number {
-    switch (status) {
-      case 'healthy':
-        return 1.0
-      case 'degraded':
-        return 0.5
-      case 'unhealthy':
-        return 0.1
-      case 'unknown':
-        return 0.3
-    }
-  }
-
   /** Emit a registry event to subscriptions and optionally to the DzupEventBus. */
   private emitRegistryEvent(event: RegistryEvent): void {
-    // Notify subscriptions
-    for (const sub of this.subscriptions) {
-      if (this.matchesFilter(sub.filter, event)) {
-        try {
-          sub.handler(event)
-        } catch {
-          // Subscription handler errors are non-fatal
-        }
-      }
-    }
-
-    // Forward to DzupEventBus if available
-    if (this.eventBus) {
-      this.eventBus.emit(event as DzupEvent)
-    }
-  }
-
-  /** Check if an event matches a subscription filter. */
-  private matchesFilter(filter: RegistrySubscriptionFilter, event: RegistryEvent): boolean {
-    if (filter.eventTypes && filter.eventTypes.length > 0) {
-      if (!filter.eventTypes.includes(event.type)) return false
-    }
-
-    if (filter.agentIds && filter.agentIds.length > 0) {
-      if (!filter.agentIds.includes(event.agentId)) return false
-    }
-
-    if (filter.capabilities && filter.capabilities.length > 0) {
-      if (event.type === 'registry:capability_added') {
-        if (!filter.capabilities.includes(event.capability)) return false
-      }
-      // For non-capability events, the capability filter doesn't exclude
-    }
-
-    return true
+    dispatchRegistryEvent(this.subscriptions, this.eventBus, event)
   }
 }
