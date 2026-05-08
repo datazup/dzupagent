@@ -24,6 +24,21 @@ function readText(root, pathname) {
   return readFileSync(join(root, pathname), 'utf8')
 }
 
+function readOptionalText(root, pathname) {
+  const candidates = [pathname]
+  if (pathname.startsWith('.docs/')) {
+    const withoutDot = pathname.slice(1)
+    candidates.push(withoutDot, withoutDot.replace(/^docs\//, ''))
+  }
+
+  for (const candidate of candidates) {
+    const filePath = join(root, candidate)
+    if (existsSync(filePath)) return readFileSync(filePath, 'utf8')
+  }
+
+  return null
+}
+
 function readAllowlist(root) {
   const allowlistPath = getAllowlistPath(root)
   if (!existsSync(allowlistPath)) {
@@ -195,89 +210,97 @@ export function evaluateImprovementDrift({
     ]
     const markerPattern = /\bstub\b|\bTODO\b/i
 
-    const qwenDoc = readText(root, docs[0])
-    const qwenRow = findLastTableRow(qwenDoc, 'Qwen adapter maturity')
-    if (qwenRow) {
-      pushMarkerFinding(findings, {
-        id: 'adapter-maturity-qwen',
-        label: 'Qwen adapter maturity',
-        path: docs[0],
-        row: qwenRow,
-        sourceFile: sourceFiles[0],
-        sourceHasMarkers: hasMarkersInFile(root, sourceFiles[0], markerPattern),
-      })
+    const qwenDoc = readOptionalText(root, docs[0])
+    if (qwenDoc) {
+      const qwenRow = findLastTableRow(qwenDoc, 'Qwen adapter maturity')
+      if (qwenRow) {
+        pushMarkerFinding(findings, {
+          id: 'adapter-maturity-qwen',
+          label: 'Qwen adapter maturity',
+          path: docs[0],
+          row: qwenRow,
+          sourceFile: sourceFiles[0],
+          sourceHasMarkers: hasMarkersInFile(root, sourceFiles[0], markerPattern),
+        })
+      }
+
+      const crushRow = findLastTableRow(qwenDoc, 'Crush adapter maturity')
+      if (crushRow) {
+        pushMarkerFinding(findings, {
+          id: 'adapter-maturity-crush',
+          label: 'Crush adapter maturity',
+          path: docs[0],
+          row: crushRow,
+          sourceFile: sourceFiles[1],
+          sourceHasMarkers: hasMarkersInFile(root, sourceFiles[1], markerPattern),
+        })
+      }
     }
 
-    const crushRow = findLastTableRow(qwenDoc, 'Crush adapter maturity')
-    if (crushRow) {
-      pushMarkerFinding(findings, {
-        id: 'adapter-maturity-crush',
-        label: 'Crush adapter maturity',
-        path: docs[0],
-        row: crushRow,
-        sourceFile: sourceFiles[1],
-        sourceHasMarkers: hasMarkersInFile(root, sourceFiles[1], markerPattern),
-      })
-    }
-
-    const planDoc = readText(root, docs[1])
-    const planRow = findLastTableRow(planDoc, 'Phase 2.2 migrate Gemini/Qwen/Crush')
-    if (planRow) {
-      pushMarkerFinding(findings, {
-        id: 'adapter-maturity-plan-phase-2-2-qwen',
-        label: 'Phase 2.2 migrate Gemini/Qwen/Crush',
-        path: docs[1],
-        row: planRow,
-        sourceFile: sourceFiles[0],
-        sourceHasMarkers: hasMarkersInFile(root, sourceFiles[0], markerPattern),
-      })
-      pushMarkerFinding(findings, {
-        id: 'adapter-maturity-plan-phase-2-2-crush',
-        label: 'Phase 2.2 migrate Gemini/Qwen/Crush',
-        path: docs[1],
-        row: planRow,
-        sourceFile: sourceFiles[1],
-        sourceHasMarkers: hasMarkersInFile(root, sourceFiles[1], markerPattern),
-      })
+    const planDoc = readOptionalText(root, docs[1])
+    if (planDoc) {
+      const planRow = findLastTableRow(planDoc, 'Phase 2.2 migrate Gemini/Qwen/Crush')
+      if (planRow) {
+        pushMarkerFinding(findings, {
+          id: 'adapter-maturity-plan-phase-2-2-qwen',
+          label: 'Phase 2.2 migrate Gemini/Qwen/Crush',
+          path: docs[1],
+          row: planRow,
+          sourceFile: sourceFiles[0],
+          sourceHasMarkers: hasMarkersInFile(root, sourceFiles[0], markerPattern),
+        })
+        pushMarkerFinding(findings, {
+          id: 'adapter-maturity-plan-phase-2-2-crush',
+          label: 'Phase 2.2 migrate Gemini/Qwen/Crush',
+          path: docs[1],
+          row: planRow,
+          sourceFile: sourceFiles[1],
+          sourceHasMarkers: hasMarkersInFile(root, sourceFiles[1], markerPattern),
+        })
+      }
     }
   }
 
   // Check 2: strict gate claims vs current inventory status.
   {
-    const inventory = runStrictInventoryGateImpl()
-    const strictPass = inventory.passed
+    const testDoc = readOptionalText(root, '.docs/improvements/TEST.md')
+    if (testDoc) {
+      const inventory = runStrictInventoryGateImpl()
+      const strictPass = inventory.passed
 
-    const testDoc = readText(root, '.docs/improvements/TEST.md')
-    const testRow = findLastTableRow(testDoc, 'Strict verification gate (`verify:strict`)')
-    if (testRow) {
-      const expectedPass = statusImpliesMarkers(testRow.status)
-      const docSaysPass = !expectedPass.expectedMarkers
-      if (expectedPass.unknown || docSaysPass !== strictPass) {
-        findings.push({
-          id: 'strict-gate-verify-claim',
-          label: 'Strict verification gate (`verify:strict`)',
-          path: '.docs/improvements/TEST.md',
-          message: `TEST.md says "${testRow.status}" but runtime inventory strict gate is ${strictPass ? 'passing' : 'failing'}.`,
-          evidence: testRow.raw,
-          sourceState: strictPass ? 'strict-pass' : 'strict-fail',
-        })
+      const testRow = findLastTableRow(testDoc, 'Strict verification gate (`verify:strict`)')
+      if (testRow) {
+        const expectedPass = statusImpliesMarkers(testRow.status)
+        const docSaysPass = !expectedPass.expectedMarkers
+        if (expectedPass.unknown || docSaysPass !== strictPass) {
+          findings.push({
+            id: 'strict-gate-verify-claim',
+            label: 'Strict verification gate (`verify:strict`)',
+            path: '.docs/improvements/TEST.md',
+            message: `TEST.md says "${testRow.status}" but runtime inventory strict gate is ${strictPass ? 'passing' : 'failing'}.`,
+            evidence: testRow.raw,
+            sourceState: strictPass ? 'strict-pass' : 'strict-fail',
+          })
+        }
       }
     }
 
-    const trackerDoc = readText(root, '.docs/improvements/CONSOLIDATED_IMPLEMENTATION_TRACKER.md')
-    const trackerRow = findHeadingStatus(trackerDoc, '### P2-04: Improvement-doc drift CI check')
-    if (trackerRow) {
-      const docSaysDone = normalizeClaim(trackerRow.status) === 'done'
-      const scriptExists = existsSync(join(root, 'scripts', 'check-improvements-drift.mjs'))
-      if (docSaysDone !== scriptExists) {
-        findings.push({
-          id: 'p2-04-tracker-claim',
-          label: 'P2-04: Improvement-doc drift CI check',
-          path: '.docs/improvements/CONSOLIDATED_IMPLEMENTATION_TRACKER.md',
-          message: `Tracker says "${trackerRow.status}" but the drift script file is ${scriptExists ? 'present' : 'absent'}.`,
-          evidence: `### P2-04: Improvement-doc drift CI check / Status: \`${trackerRow.status ?? 'unknown'}\``,
-          sourceState: scriptExists ? 'script-present' : 'script-absent',
-        })
+    const trackerDoc = readOptionalText(root, '.docs/improvements/CONSOLIDATED_IMPLEMENTATION_TRACKER.md')
+    if (trackerDoc) {
+      const trackerRow = findHeadingStatus(trackerDoc, '### P2-04: Improvement-doc drift CI check')
+      if (trackerRow) {
+        const docSaysDone = normalizeClaim(trackerRow.status) === 'done'
+        const scriptExists = existsSync(join(root, 'scripts', 'check-improvements-drift.mjs'))
+        if (docSaysDone !== scriptExists) {
+          findings.push({
+            id: 'p2-04-tracker-claim',
+            label: 'P2-04: Improvement-doc drift CI check',
+            path: '.docs/improvements/CONSOLIDATED_IMPLEMENTATION_TRACKER.md',
+            message: `Tracker says "${trackerRow.status}" but the drift script file is ${scriptExists ? 'present' : 'absent'}.`,
+            evidence: `### P2-04: Improvement-doc drift CI check / Status: \`${trackerRow.status ?? 'unknown'}\``,
+            sourceState: scriptExists ? 'script-present' : 'script-absent',
+          })
+        }
       }
     }
   }

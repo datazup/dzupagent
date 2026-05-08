@@ -108,3 +108,23 @@ test('treats unknown maturity statuses as actionable findings', () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('skips improvement-doc checks when archived docs are absent', () => {
+  const root = mkdtempSync(join(tmpdir(), 'dzupagent-drift-test-'))
+  try {
+    writeText(root, 'packages/agent-adapters/src/qwen/qwen-adapter.ts', '// TODO: old marker\n')
+    writeText(root, 'packages/agent-adapters/src/crush/crush-adapter.ts', '// TODO: old marker\n')
+    writeText(root, 'scripts/check-improvements-drift.mjs', '// present\n')
+
+    const report = evaluateImprovementDrift({
+      root,
+      runStrictInventoryGateImpl: () => {
+        throw new Error('strict inventory should not run without TEST.md')
+      },
+    })
+
+    assert.equal(report.activeFindings.length, 0)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})

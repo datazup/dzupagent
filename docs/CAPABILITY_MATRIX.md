@@ -145,7 +145,7 @@ _No public exports detected in src/index.ts._
 
 **Classes:** FrozenSnapshot, SystemReminderInjector, PhaseAwareWindowManager, ContextTransferService, TokenLifecycleManager, CharEstimateCounter, TiktokenCounter
 
-**Functions:** shouldSummarize, summarizeAndTrim, formatSummaryContext, pruneToolResults, repairOrphanedToolPairs, autoCompress, buildFrozenSnapshot, createExtractionHook, scoreCompleteness, evictIfNeeded, compressToLevel, compressToBudget, selectCompressionLevel, applyAnthropicCacheControl, applyCacheBreakpoints, injectPromptCacheMarkers, createTokenBudget
+**Functions:** shouldSummarize, summarizeAndTrim, formatSummaryContext, pruneToolResults, repairOrphanedToolPairs, autoCompress, buildFrozenSnapshot, createExtractionHook, scoreCompleteness, evictIfNeeded, compressToLevel, compressToBudget, selectCompressionLevel, applyAnthropicCacheControl, applyCacheBreakpoints, injectPromptCacheMarkers, injectPromptCacheMarkersForModel, isClaudeId, resolveModelId, createTokenBudget
 
 **Constants:** DEFAULT_PHASES
 
