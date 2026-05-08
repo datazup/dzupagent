@@ -6,7 +6,8 @@
  */
 
 // --- Facade ---
-export { OrchestratorFacade, createOrchestrator } from './facade/orchestrator-facade.js'
+export { OrchestratorFacade } from './facade/orchestrator-facade.js'
+export { createOrchestrator } from './facade/facade-factory.js'
 export type { OrchestratorConfig } from './facade/orchestrator-facade.js'
 
 // --- Orchestration patterns ---
