@@ -1,19 +1,4 @@
 {
   "description": "Known circular imports accepted temporarily by scripts/check-circular-deps.mjs. Remove entries as cycles are fixed.",
-  "packages": {
-    "agent": [
-      [
-        "agent/run-engine.ts",
-        "agent/run-engine-generate-helpers.ts"
-      ],
-      [
-        "agent/tool-loop.ts",
-        "agent/tool-loop/loop-stages.ts"
-      ],
-      [
-        "agent/tool-loop.ts",
-        "agent/tool-loop/model-turn-kernel.ts"
-      ]
-    ]
-  }
+  "packages": {}
 }
