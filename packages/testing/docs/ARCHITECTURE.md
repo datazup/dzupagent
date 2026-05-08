@@ -215,8 +215,8 @@ Observability surfaces:
 - Recorder fixtures persist request/response/usage artifacts for offline debugging and deterministic replay.
 
 ## Risks and TODOs
-- Export-map mismatch risk:
-  - `README` and inline comments reference `@dzupagent/testing/vitest-llm-setup`, but `package.json` only exports `.`. Consumers relying on subpath imports may fail unless tooling bypasses export maps.
+- Export-map contract:
+  - `@dzupagent/testing/vitest-llm-setup` is a declared package subpath and is built as a standalone `dist/vitest-llm-setup.*` artifact for Vitest `setupFiles` consumers.
 
 - Optional Anthropic dependency ergonomics:
   - `LlmJudgeScorer` lazy-imports `@anthropic-ai/sdk`; environments without the package will fail at runtime when no client is injected.
