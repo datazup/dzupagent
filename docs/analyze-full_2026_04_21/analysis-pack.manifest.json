@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-21T18:19:52.035Z",
+  "dateStamp": "2026_04_21",
+  "dryRun": false,
+  "packName": "full",
+  "workspace": "/media/ninel/Second/code/datazup/ai-internal-dev",
+  "promptsFile": "/media/ninel/Second/code/datazup/ai-internal-dev/scripts/prompts/repo-analysis-pack.prompts.json",
+  "settings": {
+    "search": false,
+    "qualityGate": true,
+    "minOutputChars": 1800,
+    "maxQualityRetries": 2,
+    "enforceRequiredSections": true,
+    "minRequiredSectionChars": 120,
+    "masterSummary": {
+      "enabled": true,
+      "promptKey": "00_master_summary"
+    }
+  },
+  "repo": {
+    "name": "dzupagent",
+    "source": "manifest",
+    "repo": "git@github.com:datazup/dzupagent.git",
+    "localPath": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent",
+    "relativePath": "dzupagent"
+  },
+  "outputDir": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21",
+  "outputRelativeToRepo": "docs/analyze-full_2026_04_21",
+  "documents": [
+    {
+      "order": 1,
+      "key": "00_master_summary",
+      "name": "00 Master Summary",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/00_master_summary.md",
+      "relativePath": "00_master_summary.md"
+    },
+    {
+      "order": 2,
+      "key": "01_current_state_inventory",
+      "name": "01 Current State Inventory",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/01_current_state_inventory.md",
+      "relativePath": "01_current_state_inventory.md"
+    },
+    {
+      "order": 3,
+      "key": "02_correctness_and_verification",
+      "name": "02 Correctness And Verification",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/02_correctness_and_verification.md",
+      "relativePath": "02_correctness_and_verification.md"
+    },
+    {
+      "order": 4,
+      "key": "03_architecture_review",
+      "name": "03 Architecture Review",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/03_architecture_review.md",
+      "relativePath": "03_architecture_review.md"
+    },
+    {
+      "order": 5,
+      "key": "04_security_review",
+      "name": "04 Security Review",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/04_security_review.md",
+      "relativePath": "04_security_review.md"
+    },
+    {
+      "order": 6,
+      "key": "05_code_quality_and_maintainability",
+      "name": "05 Code Quality And Maintainability",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/05_code_quality_and_maintainability.md",
+      "relativePath": "05_code_quality_and_maintainability.md"
+    },
+    {
+      "order": 7,
+      "key": "06_performance_and_scalability",
+      "name": "06 Performance And Scalability",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/06_performance_and_scalability.md",
+      "relativePath": "06_performance_and_scalability.md"
+    },
+    {
+      "order": 8,
+      "key": "07_operability_and_release_readiness",
+      "name": "07 Operability And Release Readiness",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/07_operability_and_release_readiness.md",
+      "relativePath": "07_operability_and_release_readiness.md"
+    },
+    {
+      "order": 9,
+      "key": "08_product_and_docs_consistency",
+      "name": "08 Product And Docs Consistency",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/08_product_and_docs_consistency.md",
+      "relativePath": "08_product_and_docs_consistency.md"
+    },
+    {
+      "order": 10,
+      "key": "09_feature_gap_matrix",
+      "name": "09 Feature Gap Matrix",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/09_feature_gap_matrix.md",
+      "relativePath": "09_feature_gap_matrix.md"
+    },
+    {
+      "order": 11,
+      "key": "10_external_comparison",
+      "name": "10 External Comparison",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/10_external_comparison.md",
+      "relativePath": "10_external_comparison.md"
+    },
+    {
+      "order": 12,
+      "key": "11_recommendations_and_roadmap",
+      "name": "11 Recommendations And Roadmap",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/11_recommendations_and_roadmap.md",
+      "relativePath": "11_recommendations_and_roadmap.md"
+    },
+    {
+      "order": 13,
+      "key": "12_dependency_and_config_risk",
+      "name": "12 Dependency And Config Risk",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/12_dependency_and_config_risk.md",
+      "relativePath": "12_dependency_and_config_risk.md"
+    },
+    {
+      "order": 14,
+      "key": "13_data_model_and_migrations",
+      "name": "13 Data Model And Migrations",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/13_data_model_and_migrations.md",
+      "relativePath": "13_data_model_and_migrations.md"
+    },
+    {
+      "order": 15,
+      "key": "14_api_surface_and_contracts",
+      "name": "14 API Surface And Contracts",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/14_api_surface_and_contracts.md",
+      "relativePath": "14_api_surface_and_contracts.md"
+    },
+    {
+      "order": 16,
+      "key": "15_developer_experience_and_onboarding",
+      "name": "15 Developer Experience And Onboarding",
+      "path": "/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/docs/analyze-full_2026_04_21/15_developer_experience_and_onboarding.md",
+      "relativePath": "15_developer_experience_and_onboarding.md"
+    }
+  ]
+}
