@@ -8,14 +8,19 @@ Comparison: `origin/main..HEAD`
 ## Current State
 
 - `origin/main` points at `5490a3b`, the MC-047 through MC-057 split stack.
-- `main` is ahead of `origin/main` by 4 follow-on commits:
+- `main` is ahead of `origin/main` with follow-on commits, including:
   - `d39d4e9 chore(github): build core before strict verify workflow`
   - `ab5b2fc docs(docs): add MC split PR readiness review report`
   - `019ad33 refactor(agent-adapters): split streaming handler into focused modules`
   - `86fa6fe test(packages): validate core consumer subpath exports`
+  - `ae78416 refactor(core): split in-memory registry lifecycle`
+  - `da38adb refactor(otel): split empty event metric map`
+  - `411b7c4 test(testing): use explicit core subpath importers`
+  - `c169bdd docs: refresh MC split readiness validation`
+  - `c8c74e4 refactor(core): extract registry error helpers`
 - CI strict circular dependency sharding is already present in `.github/workflows/verify-strict.yml`.
 - The full strict job runs `yarn -s verify:strict:no-circular`, so the expensive circular dependency scan is handled only by the separate 4-shard matrix job.
-- Local worktree is not clean. Remaining uncommitted source/test work is currently in `packages/core/src/registry/`, `packages/otel/src/event-metric-map/`, and `packages/testing/src/__tests__/exports.test.ts`.
+- Local worktree was clean after the follow-on commits above.
 
 ## MC Split Stack
 
@@ -100,27 +105,26 @@ The focused split of `packages/agent-adapters/src/streaming/streaming-handler.ts
 
 Focused validation for this split is green, but it is a follow-on commit after the MC split stack at `origin/main`.
 
-Remaining dirty follow-on files currently present:
+Additional committed follow-on files:
 
 - `packages/core/src/registry/in-memory-registry.ts`
 - `packages/core/src/registry/in-memory-registry-core.ts`
+- `packages/core/src/registry/in-memory-registry-errors.ts`
 - `packages/otel/src/event-metric-map/empty-events.ts`
 - `packages/otel/src/event-metric-map/empty-events-agent.ts`
 - `packages/otel/src/event-metric-map/empty-events-runtime.ts`
 - `packages/testing/src/__tests__/exports.test.ts`
 
-These dirty follow-on slices have package-focused validation, but they are not committed yet.
+These follow-on slices have package-focused validation and are committed locally.
 
 ## Plan Re-Evaluation
 
 Implementation drift is low for the MC split stack at `origin/main`: it is mostly behavior-preserving module splitting with focused tests and strict-workflow sharding already in place.
 
-The current drift risk is local commit/package grouping, not failed validation. The core registry split, OTel metric-map split, and testing export assertion change should be committed as separate follow-on slices or intentionally parked before presenting the checkout as PR-clean.
+The current drift risk is broad-gate confirmation, not focused package validation. The core registry split, OTel metric-map split, and testing export assertion change are locally committed as separate follow-on slices.
 
 ## Recommended Next Tasks
 
-1. Commit the core registry split separately.
-2. Commit the OTel metric-map split separately.
-3. Commit or fold the testing export assertion and readiness-note refresh into the most relevant follow-on commit.
-4. Rerun `yarn -s verify:strict:no-circular` after the worktree scope is settled; the focused server build already passed after the stale DTS failure.
-5. Push/open the follow-on PR only after the worktree is intentionally clean.
+1. Rerun `yarn -s verify:strict:no-circular` after the worktree scope is settled; the focused server build already passed after the stale DTS failure.
+2. If the broad gate is green, push/open the follow-on PR with the committed slices grouped by package.
+3. If the broad gate repeats the stale core subpath DTS issue, rebuild `@dzupagent/core` first and rerun the failing package build before changing source.
