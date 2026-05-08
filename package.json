@@ -29,6 +29,7 @@
     "check:workspace:coverage": "node scripts/check-workspace-coverage.mjs",
     "verify:strict": "yarn test:inventory:runtime:strict && yarn check:improvements:drift && yarn check:security-audit-status && yarn check:workspace:coverage && yarn check:waiver-expiry && yarn check:capability-matrix && yarn check:package-tiers && yarn check:domain-boundaries && yarn check:circular-deps && yarn check:server-api-surface && yarn check:terminal-tool-event-guards && turbo run build typecheck lint test && yarn check:package-export-artifacts",
     "verify:strict:no-circular": "yarn test:inventory:runtime:strict && yarn check:improvements:drift && yarn check:security-audit-status && yarn check:workspace:coverage && yarn check:waiver-expiry && yarn check:capability-matrix && yarn check:package-tiers && yarn check:domain-boundaries && yarn check:server-api-surface && yarn check:terminal-tool-event-guards && turbo run build typecheck lint test && yarn check:package-export-artifacts",
+    "verify:strict:ci:no-circular": "yarn test:inventory:runtime:strict && yarn check:improvements:drift && yarn check:security-audit-status && yarn check:waiver-expiry && yarn check:capability-matrix && yarn check:package-tiers && yarn check:domain-boundaries && yarn check:server-api-surface && yarn check:terminal-tool-event-guards && turbo run build typecheck lint test && yarn check:package-export-artifacts",
     "verify": "yarn test:inventory:runtime && yarn check:improvements:drift && yarn check:security-audit-status && yarn check:package-tiers && yarn check:domain-boundaries && yarn check:circular-deps && yarn check:server-api-surface && yarn check:terminal-tool-event-guards && turbo run build typecheck lint test && yarn check:package-export-artifacts",
     "docs:generate": "typedoc --options typedoc.json",
     "docs:package-support-index": "node scripts/generate-package-support-index.mjs",
@@ -68,6 +69,18 @@
     "typedoc-plugin-markdown": "^4.11.0"
   },
   "resolutions": {
-    "@xmldom/xmldom": ">=0.8.13"
+    "@anthropic-ai/sdk": "^0.91.1",
+    "@hono/node-server": "^1.19.13",
+    "@xmldom/xmldom": ">=0.8.13",
+    "axios": "^1.15.2",
+    "fast-uri": "^3.1.2",
+    "fast-xml-builder": "^1.1.7",
+    "fast-xml-parser": "^5.7.0",
+    "follow-redirects": "^1.16.0",
+    "hono": "^4.12.16",
+    "ip-address": "^10.1.1",
+    "langsmith": "^0.5.19",
+    "tar": "^7.5.13",
+    "uuid": "^11.1.1"
   }
 }
