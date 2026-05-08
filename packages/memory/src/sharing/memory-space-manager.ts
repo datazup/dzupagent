@@ -9,9 +9,17 @@
  * the underlying MemoryService. Space metadata lives in the `__spaces` namespace,
  * and pending pull-requests live in `__pending_shares`.
  *
- * Heavy retention/compaction and CRDT merge logic is delegated to
- * `space-retention.ts` and `space-crdt-push.ts` to keep this file focused
- * on the public API surface and lifecycle bookkeeping.
+ * This file is the coordinator. It owns class state (subscriptions,
+ * tombstone metrics, the HLC-backed CRDT resolver, the disposed flag)
+ * and delegates the actual work to focused sibling modules:
+ *
+ *   - `memory-space-manager-types`      constants + config
+ *   - `memory-space-manager-lifecycle`  create / join / leave / load / list
+ *   - `memory-space-manager-sharing`    push / pull-request / query / review
+ *   - `memory-space-manager-retention`  retention enforce + tombstone compact
+ *
+ * Heavy retention/compaction and CRDT merge logic continues to live in
+ * `space-retention.ts` and `space-crdt-push.ts`.
  *
  * Usage:
  *   const manager = new MemorySpaceManager({ memoryService })
@@ -31,44 +39,36 @@ import type {
   MemoryShareRequest,
   PendingShareRequest,
   SpacePermission,
-  ConflictStrategy,
-  RetentionPolicy,
   WritableShareMode,
   TombstoneCompactionMetrics,
 } from './types.js'
-import { keyFromValue, spaceNamespace, spaceScope } from './space-helpers.js'
 import {
-  compactTombstonesForSpace,
-  enforceRetentionForSpace,
-} from './space-retention.js'
-import { handleSharePullRequest, handleSharePush } from './space-share.js'
-import { reviewPullRequestForSpace } from './space-pull-request.js'
-import { decodePending, decodeSpace, isDecoded } from './space-decoders.js'
+  type MemorySpaceManagerConfig,
+} from './memory-space-manager-types.js'
+import {
+  createSpace,
+  joinSpace,
+  leaveSpace,
+  listSpaces,
+  loadSpace,
+} from './memory-space-manager-lifecycle.js'
+import {
+  listPendingRequests,
+  performPullRequest,
+  performPush,
+  querySpace,
+  reviewPullRequest,
+} from './memory-space-manager-sharing.js'
+import {
+  compactTombstones,
+  emptyTombstoneCompactionMetrics,
+  enforceRetention,
+  type CompactionResult,
+} from './memory-space-manager-retention.js'
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const SPACES_NAMESPACE = '__spaces'
-const PENDING_NAMESPACE = '__pending_shares'
-const SPACE_SCOPE: Record<string, string> = { _ns: SPACES_NAMESPACE }
-const PENDING_SCOPE: Record<string, string> = { _ns: PENDING_NAMESPACE }
-
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
-
-export interface MemorySpaceManagerConfig {
-  memoryService: MemoryService
-  /** Optional event handler for shared memory events */
-  onEvent?: ((event: SharedMemoryEvent) => void) | undefined
-  /** Node identifier for the HLC (defaults to a random UUID) */
-  nodeId?: string | undefined
-}
-
-// ---------------------------------------------------------------------------
-// Manager
-// ---------------------------------------------------------------------------
+// Re-export the public config type so existing callers can keep importing
+// from `./memory-space-manager.js` unchanged.
+export type { MemorySpaceManagerConfig } from './memory-space-manager-types.js'
 
 export class MemorySpaceManager {
   private readonly memoryService: MemoryService
@@ -76,14 +76,8 @@ export class MemorySpaceManager {
   private readonly onEvent: ((event: SharedMemoryEvent) => void) | undefined
   private readonly subscriptions: Map<string, Set<(event: SharedMemoryEvent) => void>> = new Map()
   private readonly crdtResolver: CRDTResolver
-  private readonly tombstoneCompactionMetrics: TombstoneCompactionMetrics = {
-    runs: 0,
-    tombstonesFound: 0,
-    tombstonesCompacted: 0,
-    tombstonesSkipped: 0,
-    totalDurationMs: 0,
-    lastDurationMs: null,
-  }
+  private readonly tombstoneCompactionMetrics: TombstoneCompactionMetrics =
+    emptyTombstoneCompactionMetrics()
   private disposed = false
 
   constructor(config: MemorySpaceManagerConfig) {
@@ -101,37 +95,9 @@ export class MemorySpaceManager {
   /**
    * Create a new shared memory space.
    */
-  async create(params: {
-    name: string
-    owner: string
-    conflictResolution?: ConflictStrategy
-    retentionPolicy?: RetentionPolicy
-  }): Promise<SharedMemorySpace> {
-    const id = randomUUID()
-    const now = new Date().toISOString()
-
-    const space: SharedMemorySpace = {
-      id,
-      name: params.name,
-      owner: params.owner,
-      participants: [
-        {
-          agentUri: params.owner,
-          permission: 'admin',
-          joinedAt: now,
-        },
-      ],
-      conflictResolution: params.conflictResolution ?? 'lww',
-      createdAt: now,
-    }
-
-    if (params.retentionPolicy) {
-      space.retentionPolicy = params.retentionPolicy
-    }
-
-    await this.memoryService.put(SPACES_NAMESPACE, SPACE_SCOPE, id, space as unknown as Record<string, unknown>)
-
-    this.emit({ type: 'memory:space:created', spaceId: id, owner: params.owner })
+  async create(params: Parameters<typeof createSpace>[1]): Promise<SharedMemorySpace> {
+    const space = await createSpace(this.memoryService, params)
+    this.emit({ type: 'memory:space:created', spaceId: space.id, owner: params.owner })
     return space
   }
 
@@ -143,38 +109,28 @@ export class MemorySpaceManager {
     agentUri: string,
     permission: SpacePermission = 'read',
   ): Promise<void> {
-    const space = await this.loadSpace(spaceId)
+    const space = await loadSpace(this.memoryService, spaceId)
     if (!space) {
       throw new Error(`Space not found: ${spaceId}`)
     }
 
-    // Check if already a participant
-    const existing = space.participants.find(p => p.agentUri === agentUri)
-    if (existing) return
-
-    space.participants.push({
-      agentUri,
-      permission,
-      joinedAt: new Date().toISOString(),
-    })
-
-    await this.saveSpace(space)
-    this.emit({ type: 'memory:space:joined', spaceId, agentUri, permission })
+    const added = await joinSpace(this.memoryService, space, agentUri, permission)
+    if (added) {
+      this.emit({ type: 'memory:space:joined', spaceId, agentUri, permission })
+    }
   }
 
   /**
    * Leave a shared memory space.
    */
   async leave(spaceId: string, agentUri: string): Promise<void> {
-    const space = await this.loadSpace(spaceId)
+    const space = await loadSpace(this.memoryService, spaceId)
     if (!space) return
 
-    const idx = space.participants.findIndex(p => p.agentUri === agentUri)
-    if (idx === -1) return
-
-    space.participants.splice(idx, 1)
-    await this.saveSpace(space)
-    this.emit({ type: 'memory:space:left', spaceId, agentUri })
+    const removed = await leaveSpace(this.memoryService, space, agentUri)
+    if (removed) {
+      this.emit({ type: 'memory:space:left', spaceId, agentUri })
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -188,8 +144,10 @@ export class MemorySpaceManager {
    * - `pull-request`: creates a pending request for admin review
    * - `subscribe`: deprecated; use `MemorySpaceManager.subscribe()` instead
    */
-  async share(request: Omit<MemoryShareRequest, 'mode'> & { mode: WritableShareMode }): Promise<void> {
-    const space = await this.loadSpace(request.spaceId)
+  async share(
+    request: Omit<MemoryShareRequest, 'mode'> & { mode: WritableShareMode },
+  ): Promise<void> {
+    const space = await loadSpace(this.memoryService, request.spaceId)
     if (!space) {
       throw new Error(`Space not found: ${request.spaceId}`)
     }
@@ -200,7 +158,9 @@ export class MemorySpaceManager {
       case 'pull-request':
         return this.handlePullRequest(space, request)
       default:
-        throw new Error('Subscribe mode is not supported in share(); use MemorySpaceManager.subscribe() instead.')
+        throw new Error(
+          'Subscribe mode is not supported in share(); use MemorySpaceManager.subscribe() instead.',
+        )
     }
   }
 
@@ -214,30 +174,11 @@ export class MemorySpaceManager {
     queryText?: string,
     limit = 10,
   ): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
-    const space = await this.loadSpace(spaceId)
+    const space = await loadSpace(this.memoryService, spaceId)
     if (!space) {
       throw new Error(`Space not found: ${spaceId}`)
     }
-
-    const participant = space.participants.find(p => p.agentUri === agentUri)
-    if (!participant) {
-      throw new Error(`Agent ${agentUri} is not a participant of space ${spaceId}`)
-    }
-
-    const scope = spaceScope(spaceId)
-
-    if (queryText) {
-      const results = await this.memoryService.search(
-        spaceNamespace(spaceId),
-        scope,
-        queryText,
-        limit,
-      )
-      return results.map((v, i) => ({ key: keyFromValue(v, i), value: v }))
-    }
-
-    const results = await this.memoryService.get(spaceNamespace(spaceId), scope)
-    return results.slice(0, limit).map((v, i) => ({ key: keyFromValue(v, i), value: v }))
+    return querySpace(this.memoryService, space, agentUri, queryText, limit)
   }
 
   // -------------------------------------------------------------------------
@@ -248,7 +189,7 @@ export class MemorySpaceManager {
    * Get space metadata by ID.
    */
   async getSpace(spaceId: string): Promise<SharedMemorySpace | undefined> {
-    const space = await this.loadSpace(spaceId)
+    const space = await loadSpace(this.memoryService, spaceId)
     return space ?? undefined
   }
 
@@ -256,13 +197,7 @@ export class MemorySpaceManager {
    * List all spaces, optionally filtered to those a specific agent participates in.
    */
   async listSpaces(agentUri?: string): Promise<SharedMemorySpace[]> {
-    const raw = await this.memoryService.get(SPACES_NAMESPACE, SPACE_SCOPE)
-    const spaces = raw
-      .map(decodeSpace)
-      .filter(isDecoded)
-
-    if (!agentUri) return spaces
-    return spaces.filter(s => s.participants.some(p => p.agentUri === agentUri))
+    return listSpaces(this.memoryService, agentUri)
   }
 
   // -------------------------------------------------------------------------
@@ -306,16 +241,13 @@ export class MemorySpaceManager {
     reviewerUri: string,
     approved: boolean,
   ): Promise<void> {
-    const result = await reviewPullRequestForSpace({
-      memoryService: this.memoryService,
-      provenanceWriter: this.provenanceWriter,
-      loadSpace: spaceId => this.loadSpace(spaceId),
-      pendingNamespace: PENDING_NAMESPACE,
-      pendingScope: PENDING_SCOPE,
+    const result = await reviewPullRequest(
+      { memoryService: this.memoryService, provenanceWriter: this.provenanceWriter },
+      spaceId => loadSpace(this.memoryService, spaceId),
       requestId,
       reviewerUri,
       approved,
-    })
+    )
 
     if (result.approved) {
       this.emit({
@@ -338,11 +270,7 @@ export class MemorySpaceManager {
    * List pending pull requests for a space.
    */
   async listPendingRequests(spaceId: string): Promise<PendingShareRequest[]> {
-    const raw = await this.memoryService.get(PENDING_NAMESPACE, PENDING_SCOPE)
-    return raw
-      .map(decodePending)
-      .filter(isDecoded)
-      .filter(p => p.request.spaceId === spaceId && p.status === 'pending')
+    return listPendingRequests(this.memoryService, spaceId)
   }
 
   // -------------------------------------------------------------------------
@@ -357,11 +285,8 @@ export class MemorySpaceManager {
    * hard deletion happens and observe compaction metrics independently.
    */
   async enforceRetention(spaceId: string): Promise<{ pruned: number }> {
-    const space = await this.loadSpace(spaceId)
-    if (!space) {
-      return { pruned: 0 }
-    }
-    return enforceRetentionForSpace(this.memoryService, space)
+    const space = await loadSpace(this.memoryService, spaceId)
+    return enforceRetention(this.memoryService, space)
   }
 
   /**
@@ -370,42 +295,27 @@ export class MemorySpaceManager {
    * This reclaims tombstone records after retention pruning and records
    * counters/latency in the manager metrics snapshot.
    */
-  async compactTombstones(spaceId: string): Promise<{
-    spaceId: string
-    tombstonesFound: number
-    tombstonesCompacted: number
-    tombstonesSkipped: number
-    durationMs: number
-  }> {
+  async compactTombstones(spaceId: string): Promise<CompactionResult> {
     const startedAt = Date.now()
-    const space = await this.loadSpace(spaceId)
-    if (!space) {
-      return {
-        spaceId,
-        tombstonesFound: 0,
-        tombstonesCompacted: 0,
-        tombstonesSkipped: 0,
-        durationMs: Date.now() - startedAt,
-      }
-    }
-
-    const result = await compactTombstonesForSpace(this.memoryService, space, startedAt)
-
-    this.tombstoneCompactionMetrics.runs++
-    this.tombstoneCompactionMetrics.tombstonesFound += result.tombstonesFound
-    this.tombstoneCompactionMetrics.tombstonesCompacted += result.tombstonesCompacted
-    this.tombstoneCompactionMetrics.tombstonesSkipped += result.tombstonesSkipped
-    this.tombstoneCompactionMetrics.totalDurationMs += result.durationMs
-    this.tombstoneCompactionMetrics.lastDurationMs = result.durationMs
-
-    this.emit({
-      type: 'memory:space:tombstones_compacted',
+    const space = await loadSpace(this.memoryService, spaceId)
+    const result = await compactTombstones(
+      this.memoryService,
+      this.tombstoneCompactionMetrics,
+      space,
       spaceId,
-      tombstonesFound: result.tombstonesFound,
-      tombstonesCompacted: result.tombstonesCompacted,
-      tombstonesSkipped: result.tombstonesSkipped,
-      durationMs: result.durationMs,
-    })
+      startedAt,
+    )
+
+    if (space) {
+      this.emit({
+        type: 'memory:space:tombstones_compacted',
+        spaceId,
+        tombstonesFound: result.tombstonesFound,
+        tombstonesCompacted: result.tombstonesCompacted,
+        tombstonesSkipped: result.tombstonesSkipped,
+        durationMs: result.durationMs,
+      })
+    }
 
     return result
   }
@@ -431,31 +341,19 @@ export class MemorySpaceManager {
   // Private helpers
   // -------------------------------------------------------------------------
 
-  private async loadSpace(spaceId: string): Promise<SharedMemorySpace | null> {
-    const raw = await this.memoryService.get(SPACES_NAMESPACE, SPACE_SCOPE, spaceId)
-    if (raw.length === 0) return null
-    const record = raw[0]
-    if (!record) return null
-    return decodeSpace(record)
-  }
-
-  private async saveSpace(space: SharedMemorySpace): Promise<void> {
-    await this.memoryService.put(
-      SPACES_NAMESPACE,
-      SPACE_SCOPE,
-      space.id,
-      space as unknown as Record<string, unknown>,
-    )
-  }
-
-  private async handlePush(space: SharedMemorySpace, request: MemoryShareRequest): Promise<void> {
-    const { hadConflict } = await handleSharePush({
-      memoryService: this.memoryService,
-      provenanceWriter: this.provenanceWriter,
-      crdtResolver: this.crdtResolver,
+  private async handlePush(
+    space: SharedMemorySpace,
+    request: MemoryShareRequest,
+  ): Promise<void> {
+    const { hadConflict } = await performPush(
+      {
+        memoryService: this.memoryService,
+        provenanceWriter: this.provenanceWriter,
+        crdtResolver: this.crdtResolver,
+      },
       space,
       request,
-    })
+    )
 
     this.emit({
       type: 'memory:space:write',
@@ -474,15 +372,11 @@ export class MemorySpaceManager {
     }
   }
 
-  private async handlePullRequest(space: SharedMemorySpace, request: MemoryShareRequest): Promise<void> {
-    const { requestId } = await handleSharePullRequest({
-      memoryService: this.memoryService,
-      space,
-      request,
-      pendingNamespace: PENDING_NAMESPACE,
-      pendingScope: PENDING_SCOPE,
-    })
-
+  private async handlePullRequest(
+    space: SharedMemorySpace,
+    request: MemoryShareRequest,
+  ): Promise<void> {
+    const { requestId } = await performPullRequest(this.memoryService, space, request)
     this.emit({
       type: 'memory:space:pull_request',
       spaceId: request.spaceId,
@@ -517,4 +411,3 @@ export class MemorySpaceManager {
     }
   }
 }
-
