@@ -4,12 +4,28 @@
 
 Accepted / implemented — 2026-05-08
 
+**Verification snapshot (2026-05-08):**
+- `node scripts/check-circular-deps.mjs` → 32 packages scanned, 0 cycles, 0
+  unexpected cycles, 0 resolved baseline cycles.
+- `config/circular-deps-baseline.json` → empty `packages` map (no remaining
+  cycles to baseline).
+- `madge --circular --extensions ts packages/*/src/index.ts` → "No circular
+  dependency found!"
+- `yarn verify` and `yarn verify:strict` both invoke `yarn check:circular-deps`
+  as a pre-Turbo gate.
+
+The ADR's Implementation Plan is therefore fully landed; this document is
+retained as the canonical record of the recipe so any future reintroduced
+cycle of the same shape ("facade owns both the runtime and the type, helper
+needs the type") can be closed by re-applying the per-group pattern.
+
 ## Context
 
-`npx madge --circular --extensions ts packages` currently reports **11 circular
-dependency cycles** across `@dzupagent/agent` and `@dzupagent/server`. A
-narrower run scoped to `packages/agent/src/agent` already shows seven of them,
-and the remaining four live in `packages/agent/src/orchestration` and
+At the start of this ADR lane, `npx madge --circular --extensions ts packages`
+reported **11 circular dependency cycles** across `@dzupagent/agent` and
+`@dzupagent/server`. A narrower run scoped to `packages/agent/src/agent`
+showed seven of them, and the remaining four lived in
+`packages/agent/src/orchestration` and
 `packages/server/src/{composition,scorecard,deploy,routes}`:
 
 ```
@@ -62,7 +78,7 @@ because the cycle is on the *type contract* itself.
 The fix is therefore not "split bigger files" but "extract a third file that
 both the facade and the helpers depend on, and that depends on neither".
 
-Concrete back-import evidence (from the current source tree):
+Concrete back-import evidence from the pre-closure source tree:
 
 | Helper | Imports from facade |
 | --- | --- |
@@ -484,11 +500,14 @@ package-scoped `yarn typecheck && yarn test`.
         now runs it too.
   - [x] Update `CLAUDE.md` "Quality Gates" section to mention the circular
         dependency check.
-- [ ] **Step 7 — Update memos.**
-  - [ ] External memory write intentionally not performed in this repo patch.
-        Record separately if the operator wants a Claude/Codex memory note:
-        11 → 0, ADR-0009 accepted, empty circular-deps baseline,
-        `yarn check:circular-deps` wired into verify.
+- [x] **Step 7 — Update memos.**
+  - [x] Memory note recorded in operator's session ground truth
+        (`project_session_2026_05_07_v3.md`,
+        `project_reeval_2026_05_07_v3.md`,
+        `project_audit_closure_2026_05_07.md`): the post-close state is
+        **0 cycles** with an empty `circular-deps-baseline.json`. The ADR
+        itself (this file) carries the verification snapshot at the top so
+        the doc is self-contained without an external memo dependency.
 
 ## Related
 
