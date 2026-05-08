@@ -64,7 +64,12 @@ export type { CompressionLevel, ProgressiveCompressConfig, ProgressiveCompressRe
 // --- Prompt Cache ---
 export { applyAnthropicCacheControl, applyCacheBreakpoints } from './prompt-cache.js'
 export type { CacheStrategy, CacheBreakpointOptions } from './prompt-cache.js'
-export { injectPromptCacheMarkers } from './prompt-cache-injector.js'
+export {
+  injectPromptCacheMarkers,
+  injectPromptCacheMarkersForModel,
+  isClaudeId,
+  resolveModelId,
+} from './prompt-cache-injector.js'
 
 // --- Context Transfer ---
 export { ContextTransferService } from './context-transfer.js'

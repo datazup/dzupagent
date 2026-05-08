@@ -14,6 +14,7 @@ import {
   extractTokenUsage,
   type TokenUsage,
 } from '@dzupagent/core/llm'
+import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
 import type {
   AgentStreamEvent,
   GenerateOptions,
@@ -310,8 +311,16 @@ export async function maybeAdoptCompression(
       null,
     )
     if (compressResult.compressed) {
+      // REC-H-10 — re-apply Anthropic prompt-cache markers after the
+      // transcript has been replaced; otherwise subsequent stream iterations
+      // miss the cache and pay full input price for every turn. Injector is
+      // a no-op for non-Claude models and short transcripts.
+      const recached = injectPromptCacheMarkersForModel(
+        compressResult.messages,
+        runState.model,
+      )
       allMessages.length = 0
-      allMessages.push(...compressResult.messages)
+      allMessages.push(...recached)
     }
   } catch {
     // Compression is best-effort and must not abort an active stream.

@@ -14,6 +14,7 @@ import {
   estimateTokens,
   type TokenUsage,
 } from '@dzupagent/core/llm'
+import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
 import {
   runToolLoop,
   type ToolLoopConfig,
@@ -266,13 +267,30 @@ export async function setupModelCall(
       // plugin short-circuits internally when pressure is ok/warn; actual
       // compression only runs when pressure transitions to critical or
       // exhausted.
+      //
+      // REC-H-10 — when compression returns a fresh transcript we MUST
+      // re-inject Anthropic prompt-cache markers, otherwise every LLM turn
+      // for the rest of the run pays full input price. The injector is a
+      // no-op for non-Claude models and short transcripts so this is safe
+      // to apply unconditionally.
       maybeCompress: params.config.tokenLifecyclePlugin
-        ? (messages) =>
-            params.config.tokenLifecyclePlugin!.maybeCompress(
+        ? async (messages) => {
+            const result = await params.config.tokenLifecyclePlugin!.maybeCompress(
               messages,
               params.runState.model,
               null,
             )
+            if (result.compressed) {
+              return {
+                ...result,
+                messages: injectPromptCacheMarkersForModel(
+                  result.messages,
+                  params.runState.model,
+                ),
+              }
+            }
+            return result
+          }
         : undefined,
       // Persist each compression event to the run-scoped compressionLog so
       // callers can inspect when (and by how much) the history was
