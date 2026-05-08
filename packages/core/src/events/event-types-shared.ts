@@ -1,0 +1,122 @@
+/**
+ * Shared payload shapes referenced by multiple event variants.
+ *
+ * These types are exported separately so that adapter-layer producers can
+ * build the structured records before the discriminator is attached at
+ * emission time.
+ */
+
+/**
+ * Budget usage snapshot — emitted with budget warnings.
+ */
+export interface BudgetUsage {
+  tokensUsed: number
+  tokensLimit: number
+  costCents: number
+  costLimitCents: number
+  iterations: number
+  iterationsLimit: number
+  percent: number
+}
+
+/**
+ * Structured payload for `llm:invocation_recorded` — exported separately so
+ * adapter-layer producers can build the record (e.g. inside an audit sink
+ * callback) before the event-type discriminator is attached at emission.
+ *
+ * All fields except `providerId`/`model`/`status`/`durationMs`/`startedAt`/
+ * `promptCharCount` are best-effort; consumers must treat optionals as
+ * "may be missing on this provider/path" rather than "always reported".
+ */
+export interface LlmInvocationRecord {
+  /** Provider identifier — e.g. 'claude', 'openai', 'gemini'. */
+  providerId: string
+  /** Resolved model name — e.g. 'claude-haiku-4-5-20251001', 'gpt-4o-mini'. */
+  model: string
+  /** Optional — only present when the call ran inside a run context. */
+  runId?: string
+  /** Optional — only present when the call ran inside a tenant-scoped context. */
+  tenantId?: string
+  /** Size proxy when a tokenizer is unavailable. */
+  promptCharCount: number
+  /** Size proxy for the system prompt, when one was supplied. */
+  systemPromptCharCount?: number
+  /**
+   * Outcome status. `'completed'` = the adapter produced a terminal completed
+   * event; `'failed'` = the adapter or network layer reported a failure.
+   */
+  status: 'completed' | 'failed'
+  /** Populated when `status === 'failed'`. */
+  errorCode?: string
+  /** Adapter-reported duration when available, wall-clock otherwise. */
+  durationMs: number
+  /** Token usage — present only when the adapter reports it. */
+  usage?: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+    cacheReadTokens?: number
+    cacheWriteTokens?: number
+  }
+  /** Cost in cents — present only when computed by the adapter. */
+  costCents?: number
+  /** ISO timestamp of when the call started. */
+  startedAt: string
+}
+
+/**
+ * Per-tool execution statistics emitted with `agent:stop_reason`.
+ */
+export interface ToolStatSummary {
+  name: string
+  calls: number
+  errors: number
+  totalMs: number
+  avgMs: number
+}
+
+/**
+ * Adapter runtime progress emitted by provider-neutral orchestration layers.
+ *
+ * This is the event-bus counterpart to adapter package progress events. The
+ * provider is optional because supervisor-level progress can describe a group
+ * of subtasks before a single provider is selected.
+ */
+export interface AdapterProgressDzupEvent {
+  type: 'adapter:progress'
+  providerId?: string
+  timestamp: number
+  phase: string
+  percentage?: number
+  message?: string
+  current?: number
+  total?: number
+  correlationId?: string
+}
+
+export type MapReduceDzupEvent =
+  | { type: 'mapreduce:started'; totalChunks: number; maxConcurrency: number }
+  | {
+      type: 'mapreduce:map_completed'
+      totalChunks: number
+      successfulChunks: number
+      failedChunks: number
+    }
+  | {
+      type: 'mapreduce:completed'
+      totalChunks: number
+      successfulChunks: number
+      failedChunks: number
+      totalDurationMs: number
+      reduceDurationMs: number
+    }
+  | {
+      type: 'mapreduce:chunk_completed'
+      chunkIndex: number
+      providerId: string
+      durationMs: number
+      success: boolean
+    }
+  | { type: 'mapreduce:chunk_failed'; chunkIndex: number; error: string; durationMs: number }
+
+export type AdapterRuntimeDzupEvent = AdapterProgressDzupEvent | MapReduceDzupEvent
