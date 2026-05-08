@@ -167,7 +167,7 @@ function makeContext(
   return {
     toolNames,
     metadata: { mcpServers },
-    env: env ?? { DZIP_MCP_ALLOWED_HTTP_HOSTS: 'mock:8000' },
+    env: env ?? { DZIP_MCP_ALLOWED_HTTP_HOSTS: 'mock:8000,mock:8001,mock:8002' },
   }
 }
 
