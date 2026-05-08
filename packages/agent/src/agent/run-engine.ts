@@ -1,12 +1,9 @@
-import type { ToolMessage, BaseMessage } from '@langchain/core/messages'
+import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { DzupEventBus } from '@dzupagent/core/events'
 import type { RunJournalEntry } from '@dzupagent/core/persistence'
-import type { SafetyMonitor } from '@dzupagent/core/security'
-import type { ToolGovernance } from '@dzupagent/core/tools'
 import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
-import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type {
   DzupAgentConfig,
   GenerateOptions,
@@ -30,13 +27,8 @@ import {
 import { rehydrateMessagesFromJournal } from './resume-utils.js'
 import {
   type StopReason,
-  type ToolResultScanFailureMode,
-  type ToolLoopTracer,
   type ToolStat,
 } from './tool-loop.js'
-import {
-  type ToolArgValidatorConfig,
-} from './tool-arg-validator.js'
 import {
   extractInputMetadataKeys,
 } from './tool-lifecycle-policy.js'
@@ -63,6 +55,17 @@ import {
   setupModelCall,
   processGeneratedRun,
 } from './run-engine-generate-helpers.js'
+import type {
+  StreamingToolExecutionResult,
+  StreamingToolPolicyOptions,
+  ToolStatTracker,
+} from './streaming-tool-types.js'
+
+export type {
+  StreamingToolExecutionResult,
+  StreamingToolPolicyOptions,
+  ToolStatTracker,
+} from './streaming-tool-types.js'
 
 export interface PreparedRunState {
   maxIterations: number
@@ -120,67 +123,6 @@ interface StreamingToolCall {
   id?: string
   name: string
   args: Record<string, unknown>
-}
-
-export interface StreamingToolExecutionResult {
-  message: ToolMessage
-  eventResult: string
-  approvalPending?: boolean
-  stuckReason?: string
-  stuckRecovery?: string
-  repeatedTool?: string
-  shouldStop?: boolean
-  stuckNudge?: ToolMessage
-}
-
-export interface ToolStatTracker {
-  record: (name: string, durationMs: number, error?: string) => void
-  toArray: () => ToolStat[]
-}
-
-/**
- * MJ-AGENT-02 — public policy bundle threaded by `streamRun()` into
- * {@link executeStreamingToolCall} so the native streaming branch
- * enforces the same governance / permission / validation / timeout /
- * safety stack as the sequential `tool-loop.ts` path. Each field is
- * optional; omitting all of them preserves the pre-MJ-AGENT-02
- * "lite" behaviour (budget block + tool existence only) for callers
- * that did not opt in via `DzupAgentConfig.toolExecution`.
- */
-export interface StreamingToolPolicyOptions {
-  toolGovernance?: ToolGovernance
-  toolPermissionPolicy?: ToolPermissionPolicy
-  validateToolArgs?: boolean | ToolArgValidatorConfig
-  toolTimeouts?: Record<string, number>
-  safetyMonitor?: SafetyMonitor
-  scanToolResults?: boolean
-  scanFailureMode?: ToolResultScanFailureMode
-  /**
-   * RF-15 — prompt-injection scanning on tool results.
-   *
-   * When set, `ContentScanner` runs against every tool result *after* the
-   * `safetyMonitor` pass. On `'block'`, the result is replaced with a
-   * sanitised placeholder before reaching the model. On `'warn'`, matched
-   * spans are rewritten and a `safety:violation` event is emitted.
-   *
-   * Independent of `safetyMonitor`: a tool result can be passed by the
-   * monitor but still contain prompt-injection markers that this scanner
-   * catches. Defaults to `undefined` (no scan), preserving legacy behaviour.
-   */
-  promptInjectionToolResults?: PromptInjectionMode
-  /**
-   * PII scanning on tool results — mirrors `promptInjectionToolResults` for PII.
-   * When set, `ContentScanner` applies PII detection to every tool result.
-   * On `'block'` a finding replaces the result with a redacted placeholder.
-   * On `'redact'` PII spans are rewritten before the result reaches the model.
-   * Defaults to `undefined` (no scan).
-   */
-  piiToolResults?: PiiMode
-  tracer?: ToolLoopTracer
-  agentId?: string
-  runId?: string
-  eventBus?: DzupEventBus
-  signal?: AbortSignal
 }
 
 export async function prepareRunState(

@@ -7,7 +7,7 @@ import {
   emitToolResult,
   extractInputMetadataKeys,
 } from '../tool-lifecycle-policy.js'
-import type { ToolLoopConfig } from '../tool-loop.js'
+import type { ToolLoopConfig } from './types.js'
 import type { StatGetter, ToolCall, ToolCallResult } from './contracts.js'
 import { omitUndefined } from '../../utils/exact-optional.js'
 import { runPolicyChecks } from './policy-checks.js'

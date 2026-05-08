@@ -15,7 +15,7 @@ import type {
   StreamingToolExecutionResult,
   StreamingToolPolicyOptions,
   ToolStatTracker,
-} from './run-engine.js'
+} from './streaming-tool-types.js'
 
 /**
  * Record per-tool latency telemetry: writes to the in-memory

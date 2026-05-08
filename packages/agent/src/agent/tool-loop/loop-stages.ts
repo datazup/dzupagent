@@ -12,8 +12,9 @@ import {
 } from '@langchain/core/messages'
 import type { TokenUsage } from '@dzupagent/core/llm'
 import type { IterationBudget } from '../../guardrails/iteration-budget.js'
+import { StuckError } from '../stuck-error.js'
 import type { ToolCallResult } from './contracts.js'
-import type { StopReason, ToolLoopConfig } from '../tool-loop.js'
+import type { StopReason, ToolLoopConfig, ToolStat } from '../tool-loop.js'
 
 /**
  * Marker prefix used to identify tool-stats hint SystemMessages so we can
@@ -243,4 +244,122 @@ export function appendBudgetExceededMessage(
   reason: string | undefined,
 ): void {
   state.messages.push(new AIMessage(`[Agent stopped: ${reason}]`))
+}
+
+/**
+ * Check pre-turn guards that can stop the loop before the model is invoked.
+ * Mirrors the historical inline abort/budget handling in `runToolLoop`.
+ */
+export function runPreIterationGuards(
+  state: ToolLoopState,
+  config: Pick<ToolLoopConfig, 'signal' | 'budget' | 'onBudgetWarning'>,
+): LoopTransition {
+  if (config.signal?.aborted) {
+    return { kind: 'halt', stopReason: 'aborted' }
+  }
+
+  if (config.budget) {
+    const check = config.budget.isExceeded()
+    if (check.exceeded) {
+      appendBudgetExceededMessage(state, check.reason)
+      return { kind: 'halt', stopReason: 'budget_exceeded' }
+    }
+
+    const warnings = config.budget.recordIteration()
+    for (const w of warnings) {
+      config.onBudgetWarning?.(w.message)
+    }
+  }
+
+  return { kind: 'continue' }
+}
+
+/**
+ * Run the token lifecycle halt hook after model usage has been recorded.
+ */
+export function runPostTurnHaltCheck(
+  config: Pick<ToolLoopConfig, 'shouldHalt' | 'onHalted'>,
+): LoopTransition | null {
+  if (!config.shouldHalt?.()) return null
+  config.onHalted?.('token_exhausted')
+  return { kind: 'halt', stopReason: 'token_exhausted' }
+}
+
+/**
+ * Evaluate idle stuck detection after all tool calls in an iteration finish.
+ */
+export function runStuckDetectorCheck(
+  state: ToolLoopState,
+  toolCallCount: number,
+  config: Pick<ToolLoopConfig, 'stuckDetector' | 'onStuckDetected'>,
+): LoopTransition | null {
+  if (!config.stuckDetector) return null
+
+  const idleCheck = config.stuckDetector.recordIteration(toolCallCount)
+  if (!idleCheck.stuck) return null
+
+  const reason = idleCheck.reason ?? 'No progress detected'
+  const recovery = 'Stopping due to idle iterations.'
+  config.onStuckDetected?.(reason, recovery)
+  state.lastStuckReason = reason
+  return { kind: 'halt', stopReason: 'stuck' }
+}
+
+/**
+ * Emit a best-effort run-state snapshot at the end of an iteration.
+ */
+export function emitIterationSnapshot(
+  state: ToolLoopState,
+  iteration: number,
+  llmCalls: number,
+  config: Pick<ToolLoopConfig, 'onIteration'>,
+): void {
+  if (!config.onIteration) return
+  try {
+    config.onIteration({
+      iteration: iteration + 1,
+      messages: [...state.messages],
+      totalInputTokens: state.totalInputTokens,
+      totalOutputTokens: state.totalOutputTokens,
+      llmCalls,
+    })
+  } catch {
+    // Snapshot hooks must never disturb the run loop.
+  }
+}
+
+/**
+ * Convert mutable per-tool accumulators into the public ToolStat array.
+ */
+export function buildToolStats(
+  statMap: Map<string, { calls: number; errors: number; totalMs: number }>,
+): ToolStat[] {
+  const toolStats: ToolStat[] = []
+  for (const [name, stat] of statMap) {
+    toolStats.push({
+      name,
+      calls: stat.calls,
+      errors: stat.errors,
+      totalMs: stat.totalMs,
+      avgMs: stat.calls > 0 ? Math.round(stat.totalMs / stat.calls) : 0,
+    })
+  }
+  return toolStats
+}
+
+/**
+ * Build a structured StuckError when the loop stops due to stuck detection.
+ */
+export function buildStuckError(
+  stopReason: StopReason,
+  state: ToolLoopState,
+): StuckError | undefined {
+  if (stopReason !== 'stuck') return undefined
+  return new StuckError({
+    reason: state.lastStuckReason ?? 'Agent stuck with no progress',
+    ...(state.lastStuckToolName !== undefined
+      ? { repeatedTool: state.lastStuckToolName }
+      : {}),
+    escalationLevel: (Math.max(1, Math.min(state.stuckStage, 3)) as 1 | 2 | 3),
+  })
 }

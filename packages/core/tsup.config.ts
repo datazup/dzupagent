@@ -18,6 +18,8 @@ export default defineConfig({
     'src/persistence.ts',
     'src/plugins.ts',
     'src/pipeline.ts',
+    'src/mcp/index.ts',
+    'src/model.ts',
     'src/utils.ts',
   ],
   format: ['esm'],

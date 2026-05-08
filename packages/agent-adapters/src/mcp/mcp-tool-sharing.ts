@@ -10,9 +10,9 @@
  * and delegates JSON-RPC handling to DzupAgentMCPServer from @dzupagent/core.
  */
 
-import { DzupAgentMCPServer } from '@dzupagent/core/pipeline'
+import { DzupAgentMCPServer } from '@dzupagent/core/mcp'
 import type { DzupEventBus } from '@dzupagent/core/events'
-import type { MCPToolDescriptor, MCPRequest, MCPResponse } from '@dzupagent/core/pipeline'
+import type { MCPToolDescriptor, MCPRequest, MCPResponse } from '@dzupagent/core/mcp'
 
 import type { AdapterProviderId } from '../types.js'
 

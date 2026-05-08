@@ -13,10 +13,6 @@
       [
         "agent/tool-loop.ts",
         "agent/tool-loop/model-turn-kernel.ts"
-      ],
-      [
-        "orchestration/delegating-supervisor.ts",
-        "orchestration/planning-agent.ts"
       ]
     ],
     "server": [

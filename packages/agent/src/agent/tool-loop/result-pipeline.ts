@@ -1,6 +1,6 @@
 import { ToolMessage } from '@langchain/core/messages'
 import { emitToolError, statusFromError } from '../tool-lifecycle-policy.js'
-import type { ToolLoopConfig } from '../tool-loop.js'
+import type { ToolLoopConfig } from './types.js'
 import type { StuckStatus } from '../../guardrails/stuck-detector.js'
 
 export type ToolSpan = {
