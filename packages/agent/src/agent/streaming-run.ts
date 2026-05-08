@@ -10,34 +10,36 @@
  *  - `streaming-run-types.ts`        — {@link StreamRunContext}
  *  - `streaming-run-provider.ts`     — multi-provider failover open
  *  - `streaming-run-policy.ts`       — public tool-execution surface
- *  - `streaming-run-iteration.ts`    — per-iteration stream helpers
+ *  - `streaming-run-iteration.ts`    — per-iteration helpers + finalizer
  *  - `streaming-run-tool-handler.ts` — per-tool-call batch dispatch
+ *  - `streaming-run-fallback.ts`     — non-streaming model fallback path
  */
 
-import type { BaseMessage } from '@langchain/core/messages'
 import type { TokenUsage } from '@dzupagent/core/llm'
+import type { BaseMessage } from '@langchain/core/messages'
 import type {
   GenerateOptions,
   AgentStreamEvent,
 } from './agent-types.js'
 import {
-  createToolStatTracker,
-  emitStopReasonTelemetry,
   applyOutputFilter,
-  executeGenerateRun,
+  createToolStatTracker,
   prepareRunState,
-  type ExecuteGenerateRunParams,
   type PrepareRunStateParams,
 } from './run-engine.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 import { buildStreamingToolPolicy } from './streaming-run-policy.js'
 import { handleStreamToolCalls } from './streaming-run-tool-handler.js'
 import {
+  checkBudgetForIteration,
+  checkIdleStuck,
   consumeStream,
+  createStreamRunFinalizer,
   maybeAdoptCompression,
   openIterationStream,
   recordIterationUsage,
 } from './streaming-run-iteration.js'
+import { runStreamFallback } from './streaming-run-fallback.js'
 import type { StreamRunContext } from './streaming-run-types.js'
 
 export type { StreamRunContext } from './streaming-run-types.js'
@@ -88,70 +90,21 @@ export async function* streamRun(
     || typeof runState.model.stream !== 'function'
     || usesModelWrapper
   ) {
-    const result = await executeGenerateRun(omitUndefined<ExecuteGenerateRunParams>({
-      agentId: ctx.agentId,
-      config: ctx.config,
-      options: optionsWithUsage,
-      runState,
-      invokeModel: (model, preparedMessages) =>
-        ctx.invokeModelWithMiddleware(model, preparedMessages, runState.tools),
-      transformToolResult: (toolName, input, result) =>
-        ctx.transformToolResultWithMiddleware(toolName, input, result),
-      maybeUpdateSummary: (allMessages, memoryFrame) =>
-        ctx.maybeUpdateSummary(allMessages, memoryFrame),
-    }))
-
-    if (result.content) {
-      yield { type: 'text', data: { content: result.content } }
-    }
-    if (result.stopReason === 'complete') {
-      await ctx.maybeWriteBackMemory(result.content, resolveMemoryRunId(ctx, options))
-    }
-    yield {
-      type: 'done',
-      data: {
-        content: result.content,
-        stopReason: result.stopReason,
-        ...(result.hitIterationLimit ? { hitIterationLimit: true } : {}),
-      },
-    }
+    yield* runStreamFallback(ctx, runState, optionsWithUsage)
     return
   }
 
   const allMessages = [...runState.preparedMessages]
   const toolStats = createToolStatTracker()
   let llmCalls = 0
-
-  const finalizeRun = async (
-    stopReason:
-      | 'complete'
-      | 'iteration_limit'
-      | 'budget_exceeded'
-      | 'aborted'
-      | 'stuck'
-      | 'approval_pending'
-      | 'token_exhausted',
-    content?: string,
-  ) => {
-    if (stopReason === 'token_exhausted') {
-      ctx.config.eventBus?.emit({
-        type: 'run:halted:token-exhausted',
-        agentId: ctx.agentId,
-        iterations: llmCalls,
-        reason: 'token_exhausted',
-      })
-    }
-    emitStopReasonTelemetry(ctx.config, ctx.agentId, {
-      stopReason,
-      llmCalls,
-      toolStats: toolStats.toArray(),
-    })
-    await ctx.maybeUpdateSummary(allMessages, runState.memoryFrame)
-    if (stopReason === 'complete') {
-      await ctx.maybeWriteBackMemory(content ?? '', resolveMemoryRunId(ctx, options))
-    }
-  }
-
+  const finalizeRun = createStreamRunFinalizer({
+    ctx,
+    options,
+    runState,
+    allMessages,
+    toolStats,
+    getLlmCalls: () => llmCalls,
+  })
   const streamingPolicy = buildStreamingToolPolicy(ctx, options)
 
   for (let iteration = 0; iteration < runState.maxIterations; iteration++) {
@@ -161,19 +114,11 @@ export async function* streamRun(
       return
     }
 
-    if (runState.budget) {
-      const check = runState.budget.isExceeded()
-      if (check.exceeded) {
-        yield { type: 'error', data: { message: check.reason } }
-        await finalizeRun('budget_exceeded')
-        yield { type: 'done', data: { stopReason: 'budget_exceeded', hitIterationLimit: true } }
-        return
-      }
-
-      const warnings = runState.budget.recordIteration()
-      for (const warning of warnings) {
-        yield { type: 'budget_warning', data: { message: warning.message } }
-      }
+    const budgetStatus = yield* checkBudgetForIteration(runState)
+    if (budgetStatus === 'exceeded') {
+      await finalizeRun('budget_exceeded')
+      yield { type: 'done', data: { stopReason: 'budget_exceeded', hitIterationLimit: true } }
+      return
     }
 
     const chunks: string[] = []
@@ -188,10 +133,7 @@ export async function* streamRun(
       activeAttempt: opened.activeAttempt,
       ctx,
     })
-
-    if (!fullResponse) {
-      continue
-    }
+    if (!fullResponse) continue
 
     allMessages.push(fullResponse)
 
@@ -227,13 +169,7 @@ export async function* streamRun(
     if (!toolCalls || toolCalls.length === 0) {
       const content = await applyOutputFilter(ctx.config, chunks.join(''))
       await finalizeRun('complete', content)
-      yield {
-        type: 'done',
-        data: {
-          content,
-          stopReason: 'complete',
-        },
-      }
+      yield { type: 'done', data: { content, stopReason: 'complete' } }
       return
     }
 
@@ -244,40 +180,20 @@ export async function* streamRun(
       streamingPolicy,
       options,
     })
-
     if (outcome.status === 'stop') {
       await finalizeRun(outcome.stopReason)
       yield { type: 'done', data: { stopReason: outcome.stopReason } }
       return
     }
 
-    if (runState.stuckDetector) {
-      const idleCheck = runState.stuckDetector.recordIteration(toolCalls.length)
-      if (idleCheck.stuck) {
-        const reason = idleCheck.reason ?? 'No progress detected'
-        const recovery = 'Stopping due to idle iterations.'
-        yield { type: 'stuck', data: { reason, recovery } }
-        ctx.config.eventBus?.emit({
-          type: 'agent:stuck_detected',
-          agentId: ctx.agentId,
-          reason,
-          recovery,
-          timestamp: Date.now(),
-        })
-        await finalizeRun('stuck')
-        yield { type: 'done', data: { stopReason: 'stuck' } }
-        return
-      }
+    const idleStatus = yield* checkIdleStuck(ctx, runState, toolCalls.length)
+    if (idleStatus === 'stuck') {
+      await finalizeRun('stuck')
+      yield { type: 'done', data: { stopReason: 'stuck' } }
+      return
     }
   }
 
   await finalizeRun('iteration_limit')
   yield { type: 'done', data: { hitIterationLimit: true, stopReason: 'iteration_limit' } }
-}
-
-function resolveMemoryRunId(
-  ctx: StreamRunContext,
-  options?: GenerateOptions,
-): string | undefined {
-  return options?.runId ?? ctx.config.toolExecution?.runId
 }
