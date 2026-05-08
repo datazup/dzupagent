@@ -24,6 +24,23 @@ vi.mock('@dzupagent/core', () => ({
   }),
 }))
 
+vi.mock('@dzupagent/core/persistence', () => ({
+  InMemoryRunStore: class InMemoryRunStore {},
+  InMemoryAgentStore: class InMemoryAgentStore {},
+}))
+
+vi.mock('@dzupagent/core/llm', () => ({
+  ModelRegistry: class ModelRegistry {},
+}))
+
+vi.mock('@dzupagent/core/events', () => ({
+  createEventBus: () => ({
+    emit: vi.fn(),
+    on: vi.fn(),
+    onAny: vi.fn(() => vi.fn()),
+  }),
+}))
+
 vi.mock('../app.js', () => ({
   createForgeApp: vi.fn(() => ({})),
 }))
