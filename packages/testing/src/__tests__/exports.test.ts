@@ -18,6 +18,17 @@ const expectedCoreConsumerSubpaths = [
   './mcp',
 ] as const;
 
+const coreSubpathImporters: Record<(typeof expectedCoreConsumerSubpaths)[number], () => Promise<Record<string, unknown>>> = {
+  './events': () => import('@dzupagent/core/events'),
+  './llm': () => import('@dzupagent/core/llm'),
+  './tools': () => import('@dzupagent/core/tools'),
+  './identity': () => import('@dzupagent/core/identity'),
+  './persistence': () => import('@dzupagent/core/persistence'),
+  './plugins': () => import('@dzupagent/core/plugins'),
+  './pipeline': () => import('@dzupagent/core/pipeline'),
+  './mcp': () => import('@dzupagent/core/mcp'),
+};
+
 // ---------------------------------------------------------------------------
 // Top-level package exports
 // ---------------------------------------------------------------------------
@@ -108,7 +119,7 @@ describe('Package exports — @dzupagent/core consumer subpaths', () => {
   it('should import the expected core subpaths from built package exports', async () => {
     const modules = await Promise.all(
       expectedCoreConsumerSubpaths.map(async (subpath) => {
-        const moduleExports = await import(`@dzupagent/core/${subpath.slice(2)}`);
+        const moduleExports = await coreSubpathImporters[subpath]();
         return [subpath, moduleExports] as const;
       }),
     );
