@@ -16,6 +16,7 @@ import { join, relative } from 'node:path'
 const DEFAULT_SEARCH_ROOT = 'packages'
 const DEFAULT_IGNORED_FILES = new Set([
   'packages/core/src/events/event-types.ts',
+  'packages/core/src/events/event-types-agent.ts',
 ])
 
 const EVENT_MATCH_REGEX = /type:\s*['"]tool:(result|error)['"]/
