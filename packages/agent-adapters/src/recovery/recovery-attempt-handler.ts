@@ -31,72 +31,46 @@ import type {
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import { resolveFallbackProviderId } from '../utils/provider-helpers.js'
 import { CrossProviderHandoff } from './cross-provider-handoff.js'
-import type { EscalationHandler } from './escalation-handler.js'
-import type {
-  ExecutionTrace,
-  TraceDecision,
-} from './execution-trace-types.js'
 import { applyRecoveryStrategy } from './recovery-strategy-application.js'
-import {
-  createCancelledRecoveryResult,
-  createRecoveryCancelledEvent,
-} from './recovery-events.js'
 import type { RecoveryEventEmitter } from './recovery-event-emitter.js'
 import { selectRecoveryStrategy } from './recovery-strategy.js'
 import type {
+  AttemptFailureContext,
+  AttemptOutcome,
+  RecoveryAttemptHandlerConfig,
+  RecoveryLoopState,
+  TraceCaptureLike,
+} from './recovery-attempt-types.js'
+import {
+  completeAbort,
+  completeCancelled,
+  completeEscalateHuman,
+  completeExhausted,
+  type TerminalsDeps,
+} from './recovery-attempt-terminals.js'
+import {
+  emitStreamCancellation,
+  throwStreamExhausted,
+  throwStreamStopped,
+} from './recovery-attempt-stream.js'
+import type {
   FailureContext,
-  RecoveryCancelledResult,
-  RecoveryFailureResult,
   RecoveryResult,
   RecoveryStrategy,
-  RecoverySuccessResult,
 } from './recovery-types.js'
 
-/**
- * Minimal contract the handler needs from a trace capture. Defined
- * structurally so the concrete `ExecutionTraceCapture` can be passed
- * without creating a cycle through `adapter-recovery.js`.
- */
-export interface TraceCaptureLike {
-  recordDecision(traceId: string, decision: Omit<TraceDecision, 'timestamp'>): void
-  recordEvent(traceId: string, event: AgentEvent): void
-  completeTrace(traceId: string): ExecutionTrace | undefined
-}
-
-/** Mutable state threaded through the recovery attempt loop. */
-export interface RecoveryLoopState {
-  exhaustedProviders: AdapterProviderId[]
-  lastStrategy: RecoveryStrategy
-  lastProviderId: AdapterProviderId | undefined
-  currentInput: AgentInput
-}
-
-/** Outcome of a single recovery attempt. */
-export type AttemptOutcome =
-  | { kind: 'success'; result: RecoverySuccessResult }
-  | { kind: 'failure'; error: Error; rawError: unknown }
-
-export interface AttemptFailureContext {
-  traceId: string
-  error: Error
-  rawError: unknown
-  attempt: number
-  attemptStart: number
-  overallStart: number
-  state: RecoveryLoopState
-  task: TaskDescriptor | undefined
-  effectiveTask: TaskDescriptor
-  partialEvents: AgentEvent[]
-}
-
-export interface RecoveryAttemptHandlerConfig {
-  maxAttempts: number
-  strategyOrder: RecoveryStrategy[]
-  budgetMultiplier: number
-  strategySelector?: ((failure: FailureContext) => RecoveryStrategy) | undefined
-  escalationHandler?: EscalationHandler | undefined
-  escalationTimeoutMs?: number | undefined
-}
+// Re-export the type surface so existing import sites (including
+// `adapter-recovery.ts` and the unit tests under `__tests__/`) continue to
+// resolve `TraceCaptureLike`, `RecoveryLoopState`, `AttemptOutcome`,
+// `AttemptFailureContext`, and `RecoveryAttemptHandlerConfig` from this
+// module. The canonical declarations now live in `recovery-attempt-types.ts`.
+export type {
+  AttemptFailureContext,
+  AttemptOutcome,
+  RecoveryAttemptHandlerConfig,
+  RecoveryLoopState,
+  TraceCaptureLike,
+} from './recovery-attempt-types.js'
 
 export class RecoveryAttemptHandler {
   constructor(
@@ -293,9 +267,10 @@ export class RecoveryAttemptHandler {
       partialEvents,
     } = ctx
     const durationMs = Date.now() - attemptStart
+    const deps = this.terminalsDeps()
 
     if (ForgeError.is(rawError) && rawError.code === 'AGENT_ABORTED') {
-      return this.completeCancelled(traceId, state, attempt, overallStart, error.message)
+      return completeCancelled(deps, traceId, state, attempt, overallStart, error.message)
     }
 
     const failureCtx = this.buildFailureContext(state, error, rawError, attempt, durationMs, task)
@@ -308,17 +283,18 @@ export class RecoveryAttemptHandler {
     })
 
     if (attempt >= this.config.maxAttempts) {
-      return this.completeExhausted(traceId, state, failedProviderId, attempt, overallStart, error.message)
+      return completeExhausted(deps, traceId, state, failedProviderId, attempt, overallStart, error.message)
     }
 
     this.advanceStrategy(state, failureCtx, effectiveTask, partialEvents)
 
     if (state.lastStrategy === 'abort') {
-      return this.completeAbort(traceId, state, failedProviderId, attempt, overallStart, error.message)
+      return completeAbort(deps, traceId, state, failedProviderId, attempt, overallStart, error.message)
     }
 
     if (state.lastStrategy === 'escalate-human') {
-      return this.completeEscalateHuman(
+      return completeEscalateHuman(
+        deps,
         traceId,
         state,
         failureCtx,
@@ -332,25 +308,26 @@ export class RecoveryAttemptHandler {
     return undefined
   }
 
-  /** Stream-mode counterpart of `completeCancelled`. */
-  async *emitStreamCancellation(
+  /** Build the dependency bundle passed to terminal-path helpers. */
+  private terminalsDeps(): TerminalsDeps {
+    return {
+      traceCapture: this.traceCapture,
+      emitter: this.emitter,
+      config: this.config,
+      resolveAvailableProvider: (excluded) => this.resolveAvailableProvider(excluded),
+    }
+  }
+
+  /** Stream-mode counterpart of `completeCancelled`. Delegates to the
+   * extracted helper while preserving the public surface. */
+  emitStreamCancellation(
     traceId: string,
     state: RecoveryLoopState,
     attempt: number,
     durationMs: number,
     errorMessage: string,
   ): AsyncGenerator<AgentEvent> {
-    const resolvedProviderId =
-      state.lastProviderId ?? this.resolveAvailableProvider(state.exhaustedProviders)
-    const effectiveProviderId = resolvedProviderId ?? ('unknown' as AdapterProviderId)
-    this.traceCapture.recordDecision(traceId, {
-      type: 'abort',
-      providerId: effectiveProviderId,
-      reason: `Execution aborted: ${errorMessage}`,
-    })
-    this.traceCapture.completeTrace(traceId)
-    this.emitter.cancelled(traceId, resolvedProviderId, attempt, durationMs, errorMessage)
-    yield createRecoveryCancelledEvent(resolvedProviderId, attempt, durationMs, errorMessage)
+    return emitStreamCancellation(this.terminalsDeps(), traceId, state, attempt, durationMs, errorMessage)
   }
 
   emitApprovalRequested(traceId: string, input: AgentInput, failure: FailureContext): void {
@@ -358,9 +335,10 @@ export class RecoveryAttemptHandler {
   }
 
   /**
-   * Stream-mode terminal: max attempts exhausted. Records the abort,
-   * completes the trace, and throws an `ALL_ADAPTERS_EXHAUSTED` ForgeError
-   * with the surrounding error attached as `cause`.
+   * Stream-mode terminal: max attempts exhausted. Delegates to the extracted
+   * helper which records the abort, completes the trace, and throws an
+   * `ALL_ADAPTERS_EXHAUSTED` ForgeError with the surrounding error attached
+   * as `cause`.
    */
   throwStreamExhausted(
     traceId: string,
@@ -369,30 +347,14 @@ export class RecoveryAttemptHandler {
     error: Error,
     rawError: unknown,
   ): never {
-    this.traceCapture.recordDecision(traceId, {
-      type: 'abort',
-      providerId: failedProviderId,
-      reason: `Max attempts (${this.config.maxAttempts}) exhausted`,
-    })
-    this.traceCapture.completeTrace(traceId)
-
-    throw new ForgeError({
-      code: 'ALL_ADAPTERS_EXHAUSTED',
-      message: `Recovery exhausted after ${attempt} attempts: ${error.message}`,
-      recoverable: false,
-      cause: rawError instanceof Error ? rawError : undefined,
-      context: {
-        providerId: failedProviderId,
-        attempts: attempt,
-        maxAttempts: this.config.maxAttempts,
-      },
-    })
+    throwStreamExhausted(this.terminalsDeps(), traceId, failedProviderId, attempt, error, rawError)
   }
 
   /**
    * Stream-mode terminal: strategy chose `abort` or `escalate-human`.
-   * Records the decision, optionally emits the approval request, and
-   * throws an `ALL_ADAPTERS_EXHAUSTED` ForgeError.
+   * Delegates to the extracted helper which records the decision, optionally
+   * emits the approval request, and throws an `ALL_ADAPTERS_EXHAUSTED`
+   * ForgeError.
    */
   throwStreamStopped(
     traceId: string,
@@ -403,248 +365,22 @@ export class RecoveryAttemptHandler {
     error: Error,
     nextStrategy: RecoveryStrategy,
   ): never {
-    this.traceCapture.recordDecision(traceId, {
-      type: 'abort',
-      providerId: failedProviderId,
-      reason: nextStrategy === 'abort' ? 'Strategy selected abort' : 'Escalated to human',
-    })
-    this.traceCapture.completeTrace(traceId)
-
-    if (nextStrategy === 'escalate-human') {
-      this.emitter.approvalRequested(traceId, state.currentInput, failureCtx)
-    }
-
-    throw new ForgeError({
-      code: 'ALL_ADAPTERS_EXHAUSTED',
-      message: `Recovery stopped (${nextStrategy}): ${error.message}`,
-      recoverable: nextStrategy === 'escalate-human',
-      context: {
-        providerId: failedProviderId,
-        strategy: nextStrategy,
-        attempts: attempt,
-      },
-    })
+    throwStreamStopped(
+      this.terminalsDeps(),
+      traceId,
+      state,
+      failureCtx,
+      failedProviderId,
+      attempt,
+      error,
+      nextStrategy,
+    )
   }
 
   resolveAvailableProvider(
     excludedProviders: AdapterProviderId[] = [],
   ): AdapterProviderId | undefined {
     return resolveFallbackProviderId(this.registry.listAdapters(), excludedProviders)
-  }
-
-  // -------------------------------------------------------------------------
-  // Terminal-path helpers
-  // -------------------------------------------------------------------------
-
-  private completeCancelled(
-    traceId: string,
-    state: RecoveryLoopState,
-    attempt: number,
-    overallStart: number,
-    errorMessage: string,
-  ): RecoveryCancelledResult {
-    const resolvedProviderId =
-      state.lastProviderId ?? this.resolveAvailableProvider(state.exhaustedProviders)
-    const effectiveProviderId = resolvedProviderId ?? ('unknown' as AdapterProviderId)
-    this.traceCapture.recordDecision(traceId, {
-      type: 'abort',
-      providerId: effectiveProviderId,
-      reason: `Execution aborted: ${errorMessage}`,
-    })
-    this.traceCapture.completeTrace(traceId)
-    this.emitter.cancelled(
-      traceId,
-      resolvedProviderId,
-      attempt,
-      Date.now() - overallStart,
-      errorMessage,
-    )
-    return createCancelledRecoveryResult(
-      'abort',
-      resolvedProviderId,
-      attempt,
-      Date.now() - overallStart,
-      errorMessage,
-    )
-  }
-
-  private completeExhausted(
-    traceId: string,
-    state: RecoveryLoopState,
-    failedProviderId: AdapterProviderId,
-    attempt: number,
-    overallStart: number,
-    errorMessage: string,
-  ): RecoveryFailureResult {
-    this.traceCapture.recordDecision(traceId, {
-      type: 'abort',
-      providerId: failedProviderId,
-      reason: `Max attempts (${this.config.maxAttempts}) exhausted`,
-    })
-    this.traceCapture.completeTrace(traceId)
-
-    this.emitter.exhausted(
-      traceId,
-      attempt,
-      this.config.strategyOrder,
-      Date.now() - overallStart,
-      errorMessage,
-    )
-
-    return {
-      success: false,
-      strategy: state.lastStrategy,
-      totalAttempts: attempt,
-      totalDurationMs: Date.now() - overallStart,
-      error: errorMessage,
-      providerId: state.lastProviderId ?? failedProviderId,
-    }
-  }
-
-  private completeAbort(
-    traceId: string,
-    state: RecoveryLoopState,
-    failedProviderId: AdapterProviderId,
-    attempt: number,
-    overallStart: number,
-    errorMessage: string,
-  ): RecoveryFailureResult {
-    this.traceCapture.recordDecision(traceId, {
-      type: 'abort',
-      providerId: failedProviderId,
-      reason: 'Strategy selected abort',
-    })
-    this.traceCapture.completeTrace(traceId)
-
-    return {
-      success: false,
-      strategy: 'abort',
-      totalAttempts: attempt,
-      totalDurationMs: Date.now() - overallStart,
-      error: errorMessage,
-      providerId: state.lastProviderId ?? failedProviderId,
-    }
-  }
-
-  private async completeEscalateHuman(
-    traceId: string,
-    state: RecoveryLoopState,
-    failureCtx: FailureContext,
-    failedProviderId: AdapterProviderId,
-    attempt: number,
-    overallStart: number,
-    errorMessage: string,
-  ): Promise<RecoveryResult | undefined> {
-    if (this.config.escalationHandler) {
-      const escalationResult = await this.handleEscalation(
-        traceId,
-        failureCtx,
-        overallStart,
-        attempt,
-        state.lastProviderId,
-        failedProviderId,
-      )
-      if (escalationResult) return escalationResult
-      return undefined
-    }
-
-    this.emitter.approvalRequested(traceId, state.currentInput, failureCtx)
-
-    this.traceCapture.recordDecision(traceId, {
-      type: 'abort',
-      providerId: failedProviderId,
-      reason: 'Escalated to human — awaiting approval',
-    })
-    this.traceCapture.completeTrace(traceId)
-
-    return {
-      success: false,
-      strategy: 'escalate-human',
-      totalAttempts: attempt,
-      totalDurationMs: Date.now() - overallStart,
-      error: `Escalated to human after ${attempt} failed attempts: ${errorMessage}`,
-      providerId: state.lastProviderId ?? failedProviderId,
-    }
-  }
-
-  private async handleEscalation(
-    traceId: string,
-    failure: FailureContext,
-    overallStart: number,
-    attempt: number,
-    lastProviderId: AdapterProviderId | undefined,
-    failedProviderId: AdapterProviderId,
-  ): Promise<RecoveryResult | undefined> {
-    const handler = this.config.escalationHandler!
-    const requestId = crypto.randomUUID()
-    const timeoutMs = this.config.escalationTimeoutMs ?? 300_000
-
-    await handler.notify({
-      requestId,
-      failedProviderId: failure.failedProvider,
-      error: failure.error,
-      traceId,
-      attempts: [],
-      suggestions: ['retry', 'retry-different', 'abort'],
-    })
-
-    try {
-      const resolution = await handler.waitForResolution(requestId, timeoutMs)
-
-      switch (resolution.action) {
-        case 'retry':
-        case 'retry-different':
-          this.traceCapture.recordDecision(traceId, {
-            type: 'recovery',
-            providerId: failedProviderId,
-            reason: `Human resolved escalation: ${resolution.action}${resolution.reason ? ` — ${resolution.reason}` : ''}`,
-          })
-          return undefined
-
-        case 'override':
-          this.traceCapture.recordDecision(traceId, {
-            type: 'recovery',
-            providerId: resolution.providerId ?? failedProviderId,
-            reason: `Human override${resolution.reason ? `: ${resolution.reason}` : ''}`,
-          })
-          return undefined
-
-        case 'abort':
-        default: {
-          this.traceCapture.recordDecision(traceId, {
-            type: 'abort',
-            providerId: failedProviderId,
-            reason: `Human aborted escalation${resolution.reason ? `: ${resolution.reason}` : ''}`,
-          })
-          this.traceCapture.completeTrace(traceId)
-
-          return {
-            success: false,
-            strategy: 'escalate-human',
-            totalAttempts: attempt,
-            totalDurationMs: Date.now() - overallStart,
-            error: `Human aborted after escalation: ${failure.error}`,
-            providerId: lastProviderId ?? failedProviderId,
-          }
-        }
-      }
-    } catch {
-      this.traceCapture.recordDecision(traceId, {
-        type: 'abort',
-        providerId: failedProviderId,
-        reason: 'Escalation timed out — aborting',
-      })
-      this.traceCapture.completeTrace(traceId)
-
-      return {
-        success: false,
-        strategy: 'escalate-human',
-        totalAttempts: attempt,
-        totalDurationMs: Date.now() - overallStart,
-        error: `Escalation timed out after ${timeoutMs}ms: ${failure.error}`,
-        providerId: lastProviderId ?? failedProviderId,
-      }
-    }
   }
 
   private selectStrategy(failure: FailureContext): RecoveryStrategy {
