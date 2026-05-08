@@ -614,7 +614,7 @@ No stable subpaths configured.
 
 Root index: `packages/agent-adapters/src/index.ts`
 
-- Stable root sources: `14`
+- Stable root sources: `15`
 - Deprecated transitional root sources: `80`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
@@ -674,7 +674,8 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./plugin/adapter-plugin.js` | 3 | `prefix:./plugin/` | `createAdapterPlugin`, `AdapterPluginConfig`, `AdapterPluginInstance` |
 | `deprecated-transitional` | `./plugin/adapter-plugin-sdk.js` | 4 | `prefix:./plugin/` | `defineAdapterPlugin`, `isAdapterPlugin`, `AdapterPluginDefinition`, `AdapterPlugin` |
 | `deprecated-transitional` | `./plugin/adapter-plugin-loader.js` | 1 | `prefix:./plugin/` | `AdapterPluginLoader` |
-| `stable` | `./facade/orchestrator-facade.js` | 3 | `prefix:./facade/` | `OrchestratorFacade`, `createOrchestrator`, `OrchestratorConfig` |
+| `stable` | `./facade/orchestrator-facade.js` | 2 | `prefix:./facade/` | `OrchestratorFacade`, `OrchestratorConfig` |
+| `stable` | `./facade/facade-factory.js` | 1 | `prefix:./facade/` | `createOrchestrator` |
 | `deprecated-transitional` | `./pipeline/index.js` | 8 | `prefix:./pipeline/` | `AdapterPipeline`, `ApprovalPipelineStep`, `GuardrailsPipelineStep`, `PolicyEnforcementPipeline` |
 | `stable` | `./integration/agent-bridge.js` | 6 | `prefix:./integration/` | `AgentIntegrationBridge`, `AdapterAsToolWrapper`, `AdapterToolConfig`, `ToolInvocationResult` |
 | `stable` | `./integration/index.js` | 1 | `prefix:./integration/` | `RegistryExecutionPort` |
