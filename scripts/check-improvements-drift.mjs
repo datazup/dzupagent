@@ -10,6 +10,17 @@ function getAllowlistPath(root) {
 }
 
 function readText(root, pathname) {
+  const candidates = [pathname]
+  if (pathname.startsWith('.docs/')) {
+    const withoutDot = pathname.slice(1)
+    candidates.push(withoutDot, withoutDot.replace(/^docs\//, ''))
+  }
+
+  for (const candidate of candidates) {
+    const filePath = join(root, candidate)
+    if (existsSync(filePath)) return readFileSync(filePath, 'utf8')
+  }
+
   return readFileSync(join(root, pathname), 'utf8')
 }
 
