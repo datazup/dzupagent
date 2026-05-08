@@ -7,6 +7,8 @@ import {
   DecompositionSchema,
   PlanNodeSchema,
 } from '../orchestration/planning-agent.js'
+import { DelegatingSupervisor as RealSupervisor } from '../orchestration/delegating-supervisor.js'
+import { SimpleDelegationTracker } from '../orchestration/delegation.js'
 import type { ExecutionPlan } from '../orchestration/planning-agent.js'
 import type {
   DelegatingSupervisor,
@@ -15,6 +17,7 @@ import type {
 } from '../orchestration/delegating-supervisor.js'
 import type { DelegationResult } from '../orchestration/delegation.js'
 import type { StructuredLLM } from '../structured/structured-output-engine.js'
+import { InMemoryRunStore, createEventBus } from '@dzupagent/core'
 import type { AgentExecutionSpec, DzupEventBus } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
@@ -409,12 +412,6 @@ describe('PlanningAgent.decompose', () => {
 
 describe('DelegatingSupervisor.planAndDelegate with LLM', () => {
   it('should use keyword fallback when no LLM is provided', async () => {
-    const { DelegatingSupervisor: RealSupervisor } = await import(
-      '../orchestration/delegating-supervisor.js'
-    )
-    const { InMemoryRunStore, createEventBus } = await import('@dzupagent/core')
-    const { SimpleDelegationTracker } = await import('../orchestration/delegation.js')
-
     const store = new InMemoryRunStore()
     const eventBus = createEventBus()
 
@@ -453,12 +450,6 @@ describe('DelegatingSupervisor.planAndDelegate with LLM', () => {
   })
 
   it('should fall back to keywords when LLM fails', async () => {
-    const { DelegatingSupervisor: RealSupervisor } = await import(
-      '../orchestration/delegating-supervisor.js'
-    )
-    const { InMemoryRunStore } = await import('@dzupagent/core')
-    const { SimpleDelegationTracker } = await import('../orchestration/delegation.js')
-
     const store = new InMemoryRunStore()
 
     const executor = async (runId: string, _agentId: string, _input: unknown, signal: AbortSignal) => {
