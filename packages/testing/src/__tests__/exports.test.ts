@@ -1,6 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import * as testingPkg from '../index.js';
 import * as securityPkg from '../security/index.js';
+
+interface PackageJson {
+  exports?: Record<string, unknown>;
+}
 
 // ---------------------------------------------------------------------------
 // Top-level package exports
@@ -59,6 +64,16 @@ describe('Package exports — @dzupagent/testing', () => {
       'runSecuritySuite',
       'withRecordedRegistry',
     ]);
+  });
+
+  it('should expose the documented vitest setup subpath', () => {
+    const rawPackageJson = readFileSync(new URL('../../package.json', import.meta.url), 'utf-8');
+    const packageJson = JSON.parse(rawPackageJson) as PackageJson;
+
+    expect(packageJson.exports?.['./vitest-llm-setup']).toEqual({
+      import: './dist/vitest-llm-setup.js',
+      types: './dist/vitest-llm-setup.d.ts',
+    });
   });
 });
 

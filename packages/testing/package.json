@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./vitest-llm-setup": {
+      "import": "./dist/vitest-llm-setup.js",
+      "types": "./dist/vitest-llm-setup.d.ts"
     }
   },
   "scripts": {
