@@ -27,7 +27,7 @@
     "test": {
       "dependsOn": ["^build"],
       "inputs": ["src/**", "test/**", "package.json", "tsconfig.json", "vitest.config.*"],
-      "outputs": ["coverage/**"]
+      "outputs": []
     },
     "@dzupagent/evals#test": {
       "dependsOn": ["^build"],
