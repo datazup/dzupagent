@@ -5,7 +5,6 @@ import { calculateStrength } from '@dzupagent/memory'
 import type { DecayMetadata } from '@dzupagent/memory'
 
 import type { DzupAgentConfig } from './agent-types.js'
-import { resolveArrowMemoryConfig } from './memory-profiles.js'
 
 /**
  * Thrown when an Arrow memory configuration is supplied but no
@@ -40,7 +39,7 @@ export function defaultMemoryRanker(
 
 export type AgentMemoryService = NonNullable<DzupAgentConfig['memory']>
 export type ResolvedArrowMemoryConfig = NonNullable<
-  ReturnType<typeof resolveArrowMemoryConfig>
+  ReturnType<typeof import('./memory-profiles.js').resolveArrowMemoryConfig>
 >
 export type StandardMemoryBudgetConfig = Required<
   Pick<
