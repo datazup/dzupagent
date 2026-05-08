@@ -88,6 +88,41 @@ bus.emit({
   }
 })
 
+test('ignores core event type-only terminal event declarations', () => {
+  const dir = createTempRepo()
+  try {
+    mkdirSync(join(dir, 'packages', 'core', 'src', 'events'), { recursive: true })
+    writeFileSync(
+      join(dir, 'packages', 'core', 'src', 'events', 'event-types-agent.ts'),
+      `
+export type AgentDomainEvent =
+  | {
+      type: 'tool:result'
+      toolName: string
+      durationMs: number
+      executionRunId?: string
+    }
+  | {
+      type: 'tool:error'
+      toolName: string
+      message: string
+      executionRunId?: string
+    }
+      `.trim(),
+      'utf8',
+    )
+
+    const violations = collectTerminalToolEventGuardViolations({
+      repoRoot: dir,
+      searchRoot: 'packages',
+    })
+
+    assert.equal(violations.length, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('report formatter includes violation details', () => {
   const report = formatTerminalToolEventGuardReport([
     {
