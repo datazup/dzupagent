@@ -5,6 +5,15 @@
  * a prompt-formatting helper. All operations are non-fatal — errors are
  * swallowed so that memory failures never break the agent pipeline.
  *
+ * This file is the coordinator: it owns the `MemoryService` class state
+ * (namespace map, capabilities, options) and delegates the actual work
+ * to focused sibling modules:
+ *
+ *   - `memory-service-types`   — public type aliases and option shapes
+ *   - `memory-service-store`   — put / get / delete primitives
+ *   - `memory-service-search`  — semantic search + decay re-rank + RRF
+ *   - `memory-service-prompt`  — prompt-ready formatting
+ *
  * Usage:
  *   const svc = new MemoryService(store, [
  *     { name: 'decisions', scopeKeys: ['projectId', 'decisions'], searchable: false },
@@ -14,70 +23,44 @@
  *   const records = await svc.get('decisions', { projectId: 'p1' })
  */
 import type { BaseStore } from '@langchain/langgraph'
-import type { NamespaceConfig, FormatOptions, SemanticStoreAdapter } from './memory-types.js'
-import { sanitizeMemoryContent } from './memory-sanitizer.js'
-import { createDecayMetadata, scoreWithDecay } from './decay-engine.js'
-import type { DecayMetadata } from './decay-engine.js'
+import type {
+  NamespaceConfig,
+  FormatOptions,
+  SemanticStoreAdapter,
+} from './memory-types.js'
 import {
   ConsolidationEngine,
-  type ConsolidationEngineConfig,
   type ConsolidationResult,
   type ConsolidationStore,
 } from './consolidation-engine.js'
-
-/**
- * Structurally-typed PII detection result. Mirrors
- * `PIIDetectionResult` from `@dzupagent/core/security/pii-detector`
- * without creating a hard dependency on core (memory sits below core
- * in the dependency graph).
- */
-export interface MemoryPIIResult {
-  hasPII: boolean
-  redacted: string
-}
-
-/**
- * Structurally-typed event bus for non-fatal memory telemetry.
- * Mirrors the shape of `DzupEventBus.emit` — only the method we use.
- */
-export interface MemoryEventBus {
-  emit(event: { type: string } & Record<string, unknown>): void
-}
-
-export interface MemoryServiceOptions {
-  rejectUnsafe?: boolean
-  semanticStore?: SemanticStoreAdapter
-  referenceTracker?: ReferenceTracker
-  /** Toggle PII detection/redaction on the write path. Defaults to true. */
-  piiRedactionEnabled?: boolean
-  /**
-   * Optional PII detector. When provided and `piiRedactionEnabled !== false`,
-   * text content is scanned and redacted before persistence. Structurally
-   * typed to accept `detectPII` from `@dzupagent/core/security` without a
-   * compile-time dependency on core.
-   */
-  detectPII?: (text: string) => MemoryPIIResult
-  /** Optional event bus for non-fatal telemetry emission. */
-  eventBus?: MemoryEventBus
-  /** Agent id used as a tag when emitting memory events. */
-  agentId?: string
-  /** Optional post-run consolidation engine configuration. */
-  consolidation?: ConsolidationEngineConfig
-}
 import {
   getMemoryStoreCapabilities,
   type MemoryStoreCapabilities,
 } from './store-capabilities.js'
 import type { ReferenceTracker } from './provenance/reference-tracker.js'
-import { deriveMemoryEntryId } from './provenance/reference-tracker.js'
+import {
+  type MemoryEventBus,
+  type MemoryPIIResult,
+  type MemoryServiceOptions,
+  type ReadContext,
+} from './memory-service-types.js'
+import {
+  buildNamespaceTuple,
+  deleteMemoryRecord,
+  getMemoryRecords,
+  getNamespace,
+  putMemoryRecord,
+} from './memory-service-store.js'
+import { searchMemory } from './memory-service-search.js'
+import { formatMemoryForPrompt } from './memory-service-prompt.js'
 
-/**
- * Caller-supplied context identifying the agent run that issued a read.
- * When present, MemoryService records a fire-and-forget citation via
- * the configured ReferenceTracker (if any).
- */
-export interface ReadContext {
-  runId: string
+// Re-export public types so existing callers continue to import from
+// `./memory-service.js` without code changes.
+export type {
+  MemoryEventBus,
+  MemoryPIIResult,
+  MemoryServiceOptions,
+  ReadContext,
 }
 
 export class MemoryService {
@@ -105,47 +88,6 @@ export class MemoryService {
     this.agentId = options?.agentId
   }
 
-  // ---------- Internals -------------------------------------------------------
-
-  /**
-   * Extract DecayMetadata from a record value if all required fields are present.
-   * Returns null if the record does not carry decay metadata.
-   */
-  private extractDecayMeta(value: Record<string, unknown>): DecayMetadata | null {
-    const decay = value['_decay']
-    if (
-      decay != null &&
-      typeof decay === 'object' &&
-      typeof (decay as Record<string, unknown>)['strength'] === 'number' &&
-      typeof (decay as Record<string, unknown>)['lastAccessedAt'] === 'number' &&
-      typeof (decay as Record<string, unknown>)['halfLifeMs'] === 'number' &&
-      typeof (decay as Record<string, unknown>)['accessCount'] === 'number' &&
-      typeof (decay as Record<string, unknown>)['createdAt'] === 'number'
-    ) {
-      return decay as DecayMetadata
-    }
-    return null
-  }
-
-  private getNamespace(name: string): NamespaceConfig {
-    const ns = this.nsMap.get(name)
-    if (!ns) throw new Error(`Unknown namespace: ${name}`)
-    return ns
-  }
-
-  private buildNamespaceTuple(
-    ns: NamespaceConfig,
-    scope: Record<string, string>,
-  ): string[] {
-    return ns.scopeKeys.map(k => {
-      const val = scope[k]
-      if (!val) {
-        throw new Error(`Missing scope key "${k}" for namespace "${ns.name}"`)
-      }
-      return val
-    })
-  }
-
   // ---------- Write -----------------------------------------------------------
 
   /**
@@ -161,81 +103,15 @@ export class MemoryService {
     key: string,
     value: Record<string, unknown>,
   ): Promise<void> {
-    let workingValue = value
-    let textContent = typeof workingValue['text'] === 'string'
-      ? (workingValue['text'] as string)
-      : JSON.stringify(workingValue)
-
-    if (this.rejectUnsafe) {
-      const result = sanitizeMemoryContent(textContent)
-      if (!result.safe) {
-        // Silently reject — security violations should not surface to the LLM
-        return
-      }
-    }
-
-    // PII detection / redaction (non-fatal). When a detector is supplied
-    // and redaction is enabled (default), rewrite `text` to the redacted
-    // form so persisted memories never contain raw PII.
-    if (this.options?.piiRedactionEnabled !== false && this.options?.detectPII) {
-      try {
-        const piiResult = this.options.detectPII(textContent)
-        if (piiResult.hasPII) {
-          textContent = piiResult.redacted
-          workingValue = { ...workingValue, text: textContent }
-          this.eventBus?.emit({
-            type: 'memory:pii_redacted',
-            agentId: this.agentId ?? 'unknown',
-          })
-        }
-      } catch {
-        // PII detection must never abort a write
-      }
-    }
-
-    const ns = this.getNamespace(namespace)
-    const tuple = this.buildNamespaceTuple(ns, scope)
-    try {
-      // For searchable namespaces, ensure a "text" field exists in the value.
-      // PostgresStore uses this field for embedding/indexing. Without it,
-      // semantic search silently returns no results.
-      let enriched = workingValue
-      if (ns.searchable && typeof enriched['text'] !== 'string') {
-        enriched = { ...enriched, text: JSON.stringify(enriched) }
-      }
-
-      // Auto-populate decay metadata so every persisted memory participates
-      // in decay-aware retrieval (strength, accessCount, half-life). Caller-
-      // supplied `_decay` is preserved when present.
-      if (!enriched['_decay']) {
-        const importance = typeof enriched['importance'] === 'number'
-          ? (enriched['importance'] as number)
-          : 0.5
-        enriched = { ...enriched, _decay: createDecayMetadata({ importance }) }
-      }
-      await this.store.put(
-        tuple,
-        key,
-        enriched,
-      )
-
-      // Auto-index into SemanticStore for vector search (non-fatal)
-      if (this.semanticStore && ns.searchable) {
-        const text = typeof enriched['text'] === 'string'
-          ? enriched['text']
-          : JSON.stringify(enriched)
-        const collectionName = `memory_${namespace}`
-        await this.semanticStore.upsert(collectionName, [{
-          id: key,
-          text,
-          metadata: { namespace, ...scope },
-        }]).catch(() => {
-          // Non-fatal — vector indexing failures should not break pipelines
-        })
-      }
-    } catch {
-      // Non-fatal — memory write failures should not break pipelines
-    }
+    const ns = getNamespace(this.nsMap, namespace)
+    await putMemoryRecord(ns, scope, key, value, {
+      store: this.store,
+      semanticStore: this.semanticStore,
+      rejectUnsafe: this.rejectUnsafe,
+      options: this.options,
+      eventBus: this.eventBus,
+      agentId: this.agentId,
+    })
   }
 
   // ---------- Read ------------------------------------------------------------
@@ -254,37 +130,11 @@ export class MemoryService {
     key?: string,
     readContext?: ReadContext,
   ): Promise<Record<string, unknown>[]> {
-    const ns = this.getNamespace(namespace)
-    const tuple = this.buildNamespaceTuple(ns, scope)
-    let results: Record<string, unknown>[]
-    try {
-      if (key) {
-        const item = await this.store.get(tuple, key)
-        results = item ? [item.value as Record<string, unknown>] : []
-      } else {
-        const items = await this.store.search(tuple)
-        results = items.map(i => i.value as Record<string, unknown>)
-      }
-    } catch {
-      return []
-    }
-
-    // Fire-and-forget reference tracking (never blocks the read path)
-    if (readContext && this.referenceTracker && results.length > 0) {
-      const tracker = this.referenceTracker
-      const { runId } = readContext
-      void Promise.all(
-        results.map((record, rank) => {
-          const entryId = deriveMemoryEntryId(record, rank)
-          return tracker.trackReference(runId, entryId, {
-            namespace,
-            rank,
-          })
-        }),
-      ).catch(() => { /* swallow tracker errors — non-fatal */ })
-    }
-
-    return results
+    const ns = getNamespace(this.nsMap, namespace)
+    return getMemoryRecords(ns, scope, key, readContext, {
+      store: this.store,
+      referenceTracker: this.referenceTracker,
+    })
   }
 
   /**
@@ -301,19 +151,8 @@ export class MemoryService {
     scope: Record<string, string>,
     key: string,
   ): Promise<boolean> {
-    if (!this.storeCapabilities.supportsDelete) {
-      return false
-    }
-
-    const ns = this.getNamespace(namespace)
-    const tuple = this.buildNamespaceTuple(ns, scope)
-    try {
-      await this.store.delete(tuple, key)
-      return true
-    } catch {
-      // Non-fatal — callers can fall back to tombstones when needed.
-      return false
-    }
+    const ns = getNamespace(this.nsMap, namespace)
+    return deleteMemoryRecord(ns, scope, key, this.store, this.storeCapabilities)
   }
 
   /**
@@ -331,64 +170,19 @@ export class MemoryService {
     limit = 5,
     readContext?: ReadContext,
   ): Promise<Record<string, unknown>[]> {
-    const ns = this.getNamespace(namespace)
+    const ns = getNamespace(this.nsMap, namespace)
     if (!ns.searchable) {
       return this.get(namespace, scope)
     }
-    const tuple = this.buildNamespaceTuple(ns, scope)
-    let finalResults: Record<string, unknown>[]
-    try {
-      // Fetch extra results so decay re-ranking can still fill the limit
-      const fetchLimit = Math.min(limit * 2, limit + 20)
-      const results = await this.store.search(
-        tuple,
-        this.storeCapabilities.supportsPagination
-          ? { query, limit: fetchLimit }
-          : { query },
-      )
-
-      // Apply decay scoring when records carry _decay metadata
-      const now = Date.now()
-      const scored = results.map((r, idx) => {
-        const value = r.value as Record<string, unknown>
-        const decayMeta = this.extractDecayMeta(value)
-        // Use inverse rank as a proxy relevance score (1.0 for first result, decreasing)
-        const relevance = 1 / (idx + 1)
-        const finalScore = decayMeta
-          ? scoreWithDecay(relevance, decayMeta, now)
-          : relevance
-        return { value, finalScore, key: r.key }
-      })
-
-      // If SemanticStore available, fuse keyword + vector results via RRF
-      if (this.semanticStore) {
-        finalResults = await this.fuseWithVector(namespace, query, scored, limit)
-      } else {
-        // Re-sort by decay-weighted score (descending) and trim to requested limit
-        scored.sort((a, b) => b.finalScore - a.finalScore)
-        finalResults = scored.slice(0, limit).map(s => s.value)
-      }
-    } catch {
-      return []
-    }
-
-    // Fire-and-forget reference tracking (never blocks the search path)
-    if (readContext && this.referenceTracker && finalResults.length > 0) {
-      const tracker = this.referenceTracker
-      const { runId } = readContext
-      void Promise.all(
-        finalResults.map((record, rank) => {
-          const entryId = deriveMemoryEntryId(record, rank)
-          return tracker.trackReference(runId, entryId, {
-            namespace,
-            query,
-            rank,
-          })
-        }),
-      ).catch(() => { /* swallow tracker errors — non-fatal */ })
-    }
-
-    return finalResults
+    // Validate scope eagerly so callers get the same "missing key" error
+    // surface they had with the inlined implementation.
+    buildNamespaceTuple(ns, scope)
+    return searchMemory(ns, scope, query, limit, readContext, {
+      store: this.store,
+      semanticStore: this.semanticStore,
+      capabilities: this.storeCapabilities,
+      referenceTracker: this.referenceTracker,
+    })
   }
 
   /** Snapshot the capabilities exposed by the backing store. */
@@ -423,7 +217,7 @@ export class MemoryService {
     const startedAt = Date.now()
 
     try {
-      this.getNamespace(namespace)
+      getNamespace(this.nsMap, namespace)
       const engine = new ConsolidationEngine(this.options?.consolidation)
       const result = await engine.consolidate(
         scope,
@@ -462,63 +256,6 @@ export class MemoryService {
     }
   }
 
-  /**
-   * Fuse keyword search results with vector search results using
-   * Reciprocal Rank Fusion (RRF): score = sum(1 / (k + rank)) per result.
-   */
-  private async fuseWithVector(
-    namespace: string,
-    query: string,
-    keywordScored: Array<{ value: Record<string, unknown>; finalScore: number; key: string }>,
-    limit: number,
-  ): Promise<Record<string, unknown>[]> {
-    const RRF_K = 60
-
-    // Sort keyword results by finalScore descending for rank assignment
-    const sortedKeyword = [...keywordScored].sort((a, b) => b.finalScore - a.finalScore)
-
-    // Build RRF accumulator keyed by record key
-    const fused = new Map<string, { value: Record<string, unknown>; rrfScore: number }>()
-
-    // Add keyword results with RRF score
-    for (let rank = 0; rank < sortedKeyword.length; rank++) {
-      const item = sortedKeyword[rank]!
-      const rrfScore = 1 / (RRF_K + rank)
-      fused.set(item.key, { value: item.value, rrfScore })
-    }
-
-    // Run vector search (non-fatal — fall back to keyword-only on error)
-    try {
-      const collectionName = `memory_${namespace}`
-      const vectorResults = await this.semanticStore!.search(collectionName, query, limit)
-
-      for (let rank = 0; rank < vectorResults.length; rank++) {
-        const vr = vectorResults[rank]!
-        const rrfScore = 1 / (RRF_K + rank)
-        const existing = fused.get(vr.id)
-        if (existing) {
-          existing.rrfScore += rrfScore
-        } else {
-          // Vector-only result: reconstruct value from metadata
-          fused.set(vr.id, {
-            value: { text: vr.text, ...vr.metadata },
-            rrfScore,
-          })
-        }
-      }
-    } catch {
-      // Vector search failed — fall back to keyword-only results
-    }
-
-    // Sort by combined RRF score descending
-    const fusedArray = [...fused.values()]
-      .sort((a, b) => b.rrfScore - a.rrfScore)
-      .slice(0, limit)
-      .map(f => f.value)
-
-    return fusedArray
-  }
-
   // ---------- Formatting ------------------------------------------------------
 
   /**
@@ -529,18 +266,6 @@ export class MemoryService {
     records: Record<string, unknown>[],
     options?: FormatOptions,
   ): string {
-    if (records.length === 0) return ''
-
-    const max = options?.maxItems ?? 10
-    const maxChars = options?.maxCharsPerItem ?? 2000
-    const header = options?.header ?? '## Context from Memory'
-
-    const items = records.slice(0, max).map(r => {
-      const text =
-        typeof r['text'] === 'string' ? r['text'] : JSON.stringify(r)
-      return text.length > maxChars ? text.slice(0, maxChars) + '...' : text
-    })
-
-    return `${header}\n\n${items.join('\n\n')}`
+    return formatMemoryForPrompt(records, options)
   }
 }
