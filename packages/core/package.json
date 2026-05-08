@@ -92,17 +92,25 @@
     "@dzupagent/security": "0.2.0"
   },
   "peerDependencies": {
+    "@anthropic-ai/tokenizer": ">=0.0.4",
     "@lancedb/lancedb": ">=0.10.0",
     "@langchain/core": ">=1.0.0",
     "@langchain/langgraph": ">=1.0.0",
     "apache-arrow": ">=15.0.0",
+    "js-tiktoken": ">=1.0.0",
     "zod": ">=4.0.0"
   },
   "peerDependenciesMeta": {
+    "@anthropic-ai/tokenizer": {
+      "optional": true
+    },
     "@lancedb/lancedb": {
       "optional": true
     },
     "apache-arrow": {
+      "optional": true
+    },
+    "js-tiktoken": {
       "optional": true
     }
   },
