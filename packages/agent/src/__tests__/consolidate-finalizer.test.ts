@@ -11,6 +11,7 @@
  * 7. memoryPolicy.consolidateFinalizer fires from maybeWriteBackMemory path.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { DzupAgent } from '../agent/dzip-agent.js'
 import { runConsolidateFinalizer } from '../agent/agent-finalizers.js'
 import type { DzupAgentConfig } from '../agent/agent-types.js'
 
@@ -188,7 +189,6 @@ describe('DzupAgentConfig.memoryPolicy.consolidateFinalizer field', () => {
 
 describe('DzupAgent.consolidate()', () => {
   it('returns {summarized:0, summaries:[]} when memory is not configured', async () => {
-    const { DzupAgent } = await import('../agent/dzip-agent.js')
     const agent = new DzupAgent({
       id: 'no-mem-agent',
       name: 'No Memory',
@@ -200,7 +200,6 @@ describe('DzupAgent.consolidate()', () => {
   })
 
   it('returns {summarized:0} when memory lacks getStore()', async () => {
-    const { DzupAgent } = await import('../agent/dzip-agent.js')
     const agent = new DzupAgent({
       id: 'no-store-agent',
       name: 'No Store',
@@ -215,8 +214,6 @@ describe('DzupAgent.consolidate()', () => {
   })
 
   it('delegates to ConsolidationEngine and returns summarized count', async () => {
-    const { DzupAgent } = await import('../agent/dzip-agent.js')
-
     const store = new FakeStore()
     const agentId = 'consolidate-test-agent'
     const ns = [agentId, 'facts']
