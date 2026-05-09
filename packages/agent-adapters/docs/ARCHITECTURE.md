@@ -147,7 +147,7 @@ Optional dependencies:
 - `@openai/codex-sdk`
 
 Runtime/tooling notes from implementation:
-- `GeminiSDKAdapter` dynamically imports `@google/generative-ai` (runtime optional, not declared in `package.json`).
+- `GeminiSDKAdapter` dynamically imports `@google/generative-ai`; it is declared as an optional dependency so package builds have types while runtime use remains opt-in.
 - CLI-backed adapters depend on external binaries (`gemini`, `qwen`, `crush`, `goose`) being available in `PATH`.
 - Build uses `tsup` (ESM + d.ts) with root and plane entries, including `src/rules.ts`; workspace `@dzupagent/*` and optional SDKs are externalized.
 - Testing uses Vitest in Node environment with configured coverage thresholds (statements/lines 70, branches/functions 60).
@@ -198,7 +198,7 @@ Observability surfaces:
 - `RunRequestSchema` intentionally excludes `gemini-sdk` from HTTP routing, while `openai` is now cataloged and HTTP-routable.
 - API-only providers (`openai`, `openrouter`) are product/HTTP-capable but do not advertise native policy projection until provider-config projectors exist.
 - `normalizeEvent` handles `openrouter` but not `openai`; OpenAI raw payload normalization is currently absent in this utility.
-- `GeminiSDKAdapter` requires `@google/generative-ai` at runtime but this dependency is not declared in package metadata.
+- `GeminiSDKAdapter` requires `@google/generative-ai` when the SDK adapter is used; package metadata declares it as an optional dependency.
 - `src/__tests__/architecture-doc.test.ts` guards both the root and `docs/ARCHITECTURE.md` architecture docs against package export-map drift.
 
 ## Changelog

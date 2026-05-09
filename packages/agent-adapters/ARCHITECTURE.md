@@ -192,7 +192,7 @@ Observability surfaces:
 - The root barrel is still broad for 0.x compatibility. Avoid adding new public surfaces to `src/index.ts` by default; prefer explicit plane subpaths and keep `docs/PUBLIC_API_SURFACE_ALLOWLISTS.md` updated when the public API changes.
 - `request-schemas.ts` intentionally excludes `gemini-sdk` from HTTP routing, while `openai` is now cataloged and HTTP-routable.
 - API-only providers (`openai`, `openrouter`) are product/HTTP-capable but do not advertise native policy projection until provider-config projectors exist.
-- `GeminiSDKAdapter` depends on runtime availability of `@google/generative-ai`, but that package is loaded dynamically and is not declared in package dependencies/optionalDependencies.
+- `GeminiSDKAdapter` depends on runtime availability of `@google/generative-ai`; the SDK is declared as an optional dependency and loaded dynamically so hosts can install/build cleanly while using it only when configured.
 - `src/__tests__/architecture-doc.test.ts` guards both root and `docs/ARCHITECTURE.md` architecture docs against package export-map drift.
 
 ## Changelog
