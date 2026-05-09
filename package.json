@@ -4,6 +4,10 @@
   "packageManager": "yarn@1.22.22",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/datazup/dzupagent.git"
+  },
   "workspaces": [
     "packages/*"
   ],
@@ -41,6 +45,7 @@
     "check:circular-deps": "node scripts/check-circular-deps.mjs",
     "check:domain-boundaries": "node scripts/check-domain-boundaries.mjs",
     "check:package-export-artifacts": "node scripts/check-package-export-artifacts.mjs",
+    "check:publish-metadata": "node scripts/check-publish-metadata.mjs",
     "check:package-tiers": "node scripts/check-package-tiers.mjs",
     "check:server-api-surface": "node scripts/server-api-surface-report.mjs --check",
     "check:terminal-tool-event-guards": "node scripts/check-terminal-tool-event-guards.mjs",
