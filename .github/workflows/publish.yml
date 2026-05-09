@@ -42,6 +42,9 @@ jobs:
       - name: Build all packages
         run: yarn build --concurrency=4 --output-logs=full
 
+      - name: Check publish metadata
+        run: yarn check:publish-metadata
+
       - name: Create Release PR or Publish
         uses: changesets/action@v1
         with:
