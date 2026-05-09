@@ -12,7 +12,7 @@
     }
   },
   "bin": {
-    "dzupagent-compile": "./dist/bin/compile.js"
+    "dzupagent-compile": "dist/bin/compile.js"
   },
   "files": [
     "dist"
