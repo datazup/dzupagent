@@ -25,5 +25,10 @@
     "typescript": "^5.8.3",
     "vitest": "^2.1.9"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/datazup/dzupagent.git",
+    "directory": "packages/flow-ast"
+  }
 }

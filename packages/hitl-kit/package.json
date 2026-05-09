@@ -24,5 +24,10 @@
     "tsup": "^8.5.1",
     "typescript": "^5.8.3"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/datazup/dzupagent.git",
+    "directory": "packages/hitl-kit"
+  }
 }
