@@ -10,7 +10,8 @@ The workflow currently runs these repo-side gates before invoking Changesets:
 2. `yarn build --filter=@dzupagent/scraper... --concurrency=4 --output-logs=full`
 3. `yarn build --concurrency=4 --output-logs=full`
 4. `yarn check:publish-metadata`
-5. `yarn release:publish`
+5. Report whether the workflow will use `NPM_TOKEN` or npm trusted publishing.
+6. `yarn release:publish`
 
 `yarn check:publish-metadata` verifies that every publishable package points at this GitHub repository through `repository.url`, records its monorepo `repository.directory`, and keeps CLI `bin` targets in the npm-normalized form used by current npm publish.
 
@@ -23,7 +24,7 @@ The preferred path is npm trusted publishing. Configure each publishable package
 - Workflow filename: `publish.yml`
 - Environment name: unset unless the workflow is changed to use a GitHub Environment
 
-The workflow already grants `id-token: write`, uses Node 24, and configures `registry-url: https://registry.npmjs.org`.
+The workflow already grants `id-token: write`, uses Node 24, configures `registry-url: https://registry.npmjs.org`, and uses Node 24-compatible official GitHub actions.
 
 Fallback path: add a GitHub Actions secret named `NPM_TOKEN` with publish rights for the package set. The workflow maps that secret to `NODE_AUTH_TOKEN` for `changesets/action`.
 
