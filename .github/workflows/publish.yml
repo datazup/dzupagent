@@ -36,8 +36,11 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Build scraper package
+        run: yarn workspace @dzupagent/scraper build
+
       - name: Build all packages
-        run: yarn build
+        run: yarn build --concurrency=4 --output-logs=full
 
       - name: Create Release PR or Publish
         uses: changesets/action@v1
