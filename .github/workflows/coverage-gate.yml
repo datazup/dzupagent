@@ -93,7 +93,7 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Build package dependencies
-        run: yarn build --filter="${{ matrix.workspace }}"
+        run: yarn build --filter="${{ matrix.workspace }}..."
 
       - name: Run package coverage
         run: yarn workspace "${{ matrix.workspace }}" test:coverage
