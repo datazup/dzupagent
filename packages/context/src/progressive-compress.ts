@@ -67,6 +67,8 @@ const DEFAULTS = {
   charsPerToken: 4,
 } as const
 
+const HARD_TRUNCATION_MARKER = '\n\n...[truncated to fit context budget]...'
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -101,6 +103,46 @@ function buildResult(
     estimatedTokens: estimatedTokensAfter,
     ratio: Math.max(0, Math.min(1, ratio)),
   }
+}
+
+function truncateTextToChars(text: string, maxChars: number): string {
+  if (maxChars <= 0) return ''
+  if (text.length <= maxChars) return text
+  if (maxChars <= HARD_TRUNCATION_MARKER.length) {
+    return HARD_TRUNCATION_MARKER.slice(0, maxChars)
+  }
+  return text.slice(0, maxChars - HARD_TRUNCATION_MARKER.length) + HARD_TRUNCATION_MARKER
+}
+
+function cloneWithContent(message: BaseMessage, content: string): BaseMessage {
+  const cloned = Object.create(Object.getPrototypeOf(message) as object) as BaseMessage
+  Object.assign(cloned, message)
+  cloned.content = content
+  cloned.additional_kwargs = { ...message.additional_kwargs }
+  cloned.response_metadata = { ...message.response_metadata }
+  return cloned
+}
+
+function hardTrimToBudget(
+  messages: BaseMessage[],
+  tokenBudget: number,
+  charsPerToken: number,
+): BaseMessage[] {
+  if (tokenBudget <= 0) return []
+
+  let result = [...messages]
+  while (result.length > 0 && estimateTokens(result, charsPerToken) > tokenBudget) {
+    if (result.length === 1) {
+      const only = result[0]
+      if (!only) return []
+      const content = truncateTextToChars(getContent(only), tokenBudget * charsPerToken)
+      return content.length > 0 ? [cloneWithContent(only, content)] : []
+    }
+
+    result = repairOrphanedToolPairs(result.slice(1))
+  }
+
+  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +323,32 @@ export async function compressToBudget(
   config?: ProgressiveCompressConfig,
 ): Promise<ProgressiveCompressResult> {
   const charsPerToken = config?.charsPerToken ?? DEFAULTS.charsPerToken
+  const originalTokens = estimateTokens(messages, charsPerToken)
+  if (tokenBudget <= 0) {
+    return buildResult([], existingSummary, 4, originalTokens, charsPerToken)
+  }
+
   const level = selectCompressionLevel(messages, tokenBudget, charsPerToken)
-  return compressToLevel(messages, level, existingSummary, model, config)
+  let result = await compressToLevel(messages, level, existingSummary, model, config)
+  if (result.estimatedTokens <= tokenBudget) return result
+
+  for (let nextLevel = level + 1; nextLevel <= 4; nextLevel++) {
+    result = await compressToLevel(
+      messages,
+      nextLevel as CompressionLevel,
+      existingSummary,
+      model,
+      config,
+    )
+    if (result.estimatedTokens <= tokenBudget) return result
+  }
+
+  const messagesWithinBudget = hardTrimToBudget(result.messages, tokenBudget, charsPerToken)
+  return buildResult(
+    messagesWithinBudget,
+    result.summary,
+    4,
+    originalTokens,
+    charsPerToken,
+  )
 }

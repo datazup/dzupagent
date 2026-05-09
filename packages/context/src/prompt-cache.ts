@@ -179,6 +179,7 @@ export function applyCacheBreakpoints(
 
   const strategy: CacheStrategy = options?.cacheStrategy ?? 'content-addressed'
   const result: BaseMessage[] = []
+  const systemIndices: number[] = []
 
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]
@@ -187,14 +188,21 @@ export function applyCacheBreakpoints(
     const type = m._getType()
     const copy = _cloneMessage(m)
 
-    // Mark system messages (breakpoint 1)
     if (type === 'system') {
-      _setCacheControl(copy)
-      result.push(copy)
-      continue
+      systemIndices.push(result.length)
     }
 
     result.push(copy)
+  }
+
+  // Anthropic allows at most four breakpoints. Reserve exactly one for the
+  // system prelude, using the last system message so multiple system blocks
+  // are still cached as a single prefix boundary.
+  const systemBreakpointCount = systemIndices.length > 0 ? 1 : 0
+  const lastSystemIndex = systemIndices[systemIndices.length - 1]
+  if (lastSystemIndex !== undefined) {
+    const systemMessage = result[lastSystemIndex]
+    if (systemMessage) _setCacheControl(systemMessage)
   }
 
   // Collect non-system indices for downstream strategies.
@@ -206,7 +214,7 @@ export function applyCacheBreakpoints(
     }
   }
 
-  const maxMark = MAX_BREAKPOINTS - 1
+  const maxMark = Math.min(MAX_BREAKPOINTS - systemBreakpointCount, MAX_BREAKPOINTS - 1)
 
   if (strategy === 'content-addressed') {
     // Strategy: pick up to `maxMark` stable anchors, preferring anchors
