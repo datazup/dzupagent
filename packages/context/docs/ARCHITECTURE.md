@@ -70,7 +70,7 @@ Progressive path (`compressToLevel` / `compressToBudget`):
 - Level `2`: level 1 + AI content trimming.
 - Level `3`: level 2 + `summarizeAndTrim`.
 - Level `4`: keep last N messages, repair pairs, optionally truncate long existing summary.
-- `compressToBudget` picks a level heuristically via `selectCompressionLevel` and applies it once.
+- `compressToBudget` picks an initial level heuristically via `selectCompressionLevel`, verifies the estimated result, escalates through stronger levels when needed, and finally hard-trims the retained message set if level 4 still exceeds budget.
 
 Context transfer path (`ContextTransferService.transfer`):
 1. Check relevance rules for `sourceIntent -> targetIntent`.
@@ -165,11 +165,10 @@ Built-in observability hooks:
 ## Risks and TODOs
 Code-observed risks and follow-ups:
 - `AutoCompressConfig.frozenSnapshot` exists as config but is not used inside `autoCompress` logic; currently `FrozenSnapshot` is a separate class consumers must orchestrate themselves.
-- `compressToBudget` is heuristic level selection and does not iterate until guaranteed fit; callers requiring hard guarantees should use `autoCompress` with `budget` or add external enforcement.
-- `applyCacheBreakpoints` marks every system message plus up to three non-system anchors/messages; multi-system inputs can exceed a strict “max 4 total breakpoints” interpretation.
+- `compressToBudget` now enforces estimated token-budget fit for the returned message set.
+- `applyCacheBreakpoints` enforces a four-breakpoint global cap for LangChain messages by marking only the final system message plus up to three non-system anchors/messages.
 - Token accounting remains estimation-first by default unless callers explicitly inject `TokenCounter`/`TiktokenCounter`.
 - Fallback paths are resilient but mostly callback/event based; central metrics aggregation is caller-owned.
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
