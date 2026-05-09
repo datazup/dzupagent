@@ -295,7 +295,7 @@ describe('applyCacheBreakpoints', () => {
     expect(result[4]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
   })
 
-  it('handles multiple system messages', () => {
+  it('uses one system breakpoint when multiple system messages are present', () => {
     const msgs: BaseMessage[] = [
       new SystemMessage('system 1'),
       new SystemMessage('system 2'),
@@ -305,12 +305,34 @@ describe('applyCacheBreakpoints', () => {
 
     const result = applyCacheBreakpoints(msgs)
 
-    // Both system messages should be marked
-    expect(result[0]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
+    // Only the final system message is marked, keeping total breakpoints under
+    // Anthropic's request limit while caching the complete system prelude.
+    expect(result[0]!.additional_kwargs.cache_control).toBeUndefined()
     expect(result[1]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
     // Last 2 non-system messages marked (only 2 non-system, so both)
     expect(result[2]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
     expect(result[3]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
+  })
+
+  it('keeps total LangChain cache breakpoints within the provider limit', () => {
+    const msgs: BaseMessage[] = [
+      new SystemMessage('system 1'),
+      new SystemMessage('system 2'),
+      new SystemMessage('system 3'),
+      new HumanMessage('stable anchor 1 '.repeat(200)),
+      new AIMessage('stable anchor 2 '.repeat(200)),
+      new HumanMessage('stable anchor 3 '.repeat(200)),
+      new AIMessage('stable anchor 4 '.repeat(200)),
+      new HumanMessage('stable anchor 5 '.repeat(200)),
+    ]
+
+    const result = applyCacheBreakpoints(msgs)
+    const marked = result.filter((m) => m.additional_kwargs.cache_control)
+
+    expect(marked).toHaveLength(4)
+    expect(result[0]!.additional_kwargs.cache_control).toBeUndefined()
+    expect(result[1]!.additional_kwargs.cache_control).toBeUndefined()
+    expect(result[2]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
   })
 
   it('handles single system message only', () => {
