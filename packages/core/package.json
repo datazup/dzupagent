@@ -4,6 +4,61 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "advanced": [
+        "dist/advanced.d.ts"
+      ],
+      "events": [
+        "dist/events.d.ts"
+      ],
+      "facades": [
+        "dist/facades/index.d.ts"
+      ],
+      "identity": [
+        "dist/identity.d.ts"
+      ],
+      "llm": [
+        "dist/llm.d.ts"
+      ],
+      "mcp": [
+        "dist/mcp/index.d.ts"
+      ],
+      "model": [
+        "dist/model.d.ts"
+      ],
+      "orchestration": [
+        "dist/facades/orchestration.d.ts"
+      ],
+      "persistence": [
+        "dist/persistence.d.ts"
+      ],
+      "pipeline": [
+        "dist/pipeline.d.ts"
+      ],
+      "plugins": [
+        "dist/plugins.d.ts"
+      ],
+      "quick-start": [
+        "dist/facades/quick-start.d.ts"
+      ],
+      "security": [
+        "dist/facades/security.d.ts"
+      ],
+      "stable": [
+        "dist/stable.d.ts"
+      ],
+      "tools": [
+        "dist/tools.d.ts"
+      ],
+      "utils": [
+        "dist/utils.d.ts"
+      ],
+      "vectordb": [
+        "dist/vectordb/index.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
