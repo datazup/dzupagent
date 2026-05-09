@@ -29,6 +29,16 @@ const DEFAULT_LAUNCH_ARGS = [
   '--safebrowsing-disable-auto-update',
 ]
 
+const OPTIONAL_BROWSER_PEERS = {
+  puppeteer: 'puppeteer',
+  puppeteerExtra: 'puppeteer-extra',
+  stealthPlugin: 'puppeteer-extra-plugin-stealth',
+} as const
+
+async function importOptionalBrowserPeer(specifier: string): Promise<Record<string, unknown>> {
+  return await import(specifier) as Record<string, unknown>
+}
+
 /**
  * State of a pooled browser instance.
  *
@@ -207,8 +217,8 @@ export class BrowserPool {
 
     if (this.config.stealth) {
       try {
-        const pExtra = await import('puppeteer-extra')
-        const stealthPlugin = await import('puppeteer-extra-plugin-stealth')
+        const pExtra = await importOptionalBrowserPeer(OPTIONAL_BROWSER_PEERS.puppeteerExtra)
+        const stealthPlugin = await importOptionalBrowserPeer(OPTIONAL_BROWSER_PEERS.stealthPlugin)
         const puppeteerExtra = pExtra.default ?? pExtra
         const StealthPlugin = stealthPlugin.default ?? stealthPlugin
         ;(puppeteerExtra as unknown as { use: (plugin: unknown) => void }).use(
@@ -224,7 +234,7 @@ export class BrowserPool {
     }
 
     try {
-      const puppeteer = await import('puppeteer')
+      const puppeteer = await importOptionalBrowserPeer(OPTIONAL_BROWSER_PEERS.puppeteer)
       this.puppeteerModule = puppeteer.default ?? puppeteer
       return this.puppeteerModule
     } catch {
