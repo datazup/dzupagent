@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "type": "module",
   "bin": {
-    "dzup": "./dist/cli/dzup.js"
+    "dzup": "dist/cli/dzup.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -84,5 +84,10 @@
   "files": [
     "dist"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/datazup/dzupagent.git",
+    "directory": "packages/server"
+  }
 }
