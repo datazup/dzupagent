@@ -13,6 +13,11 @@ import type { QdrantClientCtor } from './qdrant-types.js'
 
 let _qdrantCtor: QdrantClientCtor | null = null
 let _loadAttempted = false
+const QDRANT_CLIENT_PEER = '@qdrant/js-client-rest'
+
+async function importOptionalQdrantPeer(specifier: string): Promise<Record<string, unknown>> {
+  return await import(specifier) as Record<string, unknown>
+}
 
 /**
  * Resolve the `QdrantClient` constructor from `@qdrant/js-client-rest`
@@ -27,16 +32,13 @@ export async function loadQdrantClient(): Promise<QdrantClientCtor | null> {
   _loadAttempted = true
 
   try {
-    // The string is intentionally a literal so bundlers can detect the
-    // optional dependency, but resolution still happens at runtime.
-    const mod = (await import('@qdrant/js-client-rest')) as {
-      QdrantClient?: QdrantClientCtor
-    }
-    if (typeof mod.QdrantClient !== 'function') {
+    const mod = await importOptionalQdrantPeer(QDRANT_CLIENT_PEER)
+    const QdrantClient = mod['QdrantClient']
+    if (typeof QdrantClient !== 'function') {
       _qdrantCtor = null
       return null
     }
-    _qdrantCtor = mod.QdrantClient
+    _qdrantCtor = QdrantClient as QdrantClientCtor
     return _qdrantCtor
   } catch {
     _qdrantCtor = null
