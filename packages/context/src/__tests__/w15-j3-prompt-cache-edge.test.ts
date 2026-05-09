@@ -67,9 +67,9 @@ describe('applyCacheBreakpoints cache invalidation and edge scenarios', () => {
       new SystemMessage('c'),
     ]
     const result = applyCacheBreakpoints(msgs)
-    for (const m of result) {
-      expect(m.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
-    }
+    expect(result[0]!.additional_kwargs.cache_control).toBeUndefined()
+    expect(result[1]!.additional_kwargs.cache_control).toBeUndefined()
+    expect(result[2]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
   })
 
   it('produces a new array, not the same reference, for non-empty input', () => {

@@ -543,12 +543,14 @@ describe('compressToBudget', () => {
   })
 
   it('auto-selects level and compresses', async () => {
-    // 400 chars / 4 = 100 tokens, budget = 55 => should pick level 2
-    const msgs = [makeHumanMessage(400)]
+    // 800 chars / 4 = 200 tokens, budget = 130 => should pick level 2.
+    // Level 2 trims the verbose AI response enough to stay within budget.
+    const msgs = [new AIMessage('A'.repeat(800))]
 
-    const result = await compressToBudget(msgs, 55, null, mockModel)
+    const result = await compressToBudget(msgs, 130, null, mockModel)
 
     expect(result.level).toBe(2)
+    expect(result.estimatedTokens).toBeLessThanOrEqual(130)
   })
 
   it('returns level 0 when messages are within budget', async () => {
@@ -567,6 +569,30 @@ describe('compressToBudget', () => {
     expect(result.level).toBe(4)
   })
 
+  it('escalates when the selected heuristic level still exceeds budget', async () => {
+    // Human content is not affected by level-2 AI trimming, so the initial
+    // level-2 heuristic would remain over budget without escalation.
+    const msgs = [makeHumanMessage(400)]
+
+    const result = await compressToBudget(msgs, 55, null, mockModel)
+
+    expect(result.level).toBe(4)
+    expect(result.estimatedTokens).toBeLessThanOrEqual(55)
+    expect(typeof result.messages[0]?.content).toBe('string')
+    expect((result.messages[0]?.content as string).length).toBeLessThanOrEqual(55 * 4)
+  })
+
+  it('returns an empty message set for non-positive budgets', async () => {
+    const msgs = [makeHumanMessage(100)]
+
+    const result = await compressToBudget(msgs, 0, 'existing summary', mockModel)
+
+    expect(result.level).toBe(4)
+    expect(result.messages).toEqual([])
+    expect(result.summary).toBe('existing summary')
+    expect(result.estimatedTokens).toBe(0)
+  })
+
   it('passes config through to compressToLevel', async () => {
     const hook = vi.fn()
     const msgs = makeConversation(8) // enough messages for summarization
@@ -582,13 +608,15 @@ describe('compressToBudget', () => {
 
   it('respects custom charsPerToken', async () => {
     // 100 chars / 2 charsPerToken = 50 tokens, budget = 40
-    // 50 > 40, 50*0.70=35 <= 40 => level 1
+    // The custom ratio drives the budget estimate and hard-trim size.
     const msgs = [makeHumanMessage(100)]
 
     const result = await compressToBudget(msgs, 40, null, mockModel, {
       charsPerToken: 2,
     })
 
-    expect(result.level).toBe(1)
+    expect(result.level).toBe(4)
+    expect(result.estimatedTokens).toBeLessThanOrEqual(40)
+    expect((result.messages[0]?.content as string).length).toBeLessThanOrEqual(80)
   })
 })
