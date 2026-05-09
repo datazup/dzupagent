@@ -7,52 +7,52 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./providers": {
-      "import": "./dist/providers.js",
-      "types": "./dist/providers.d.ts"
+      "types": "./dist/providers.d.ts",
+      "import": "./dist/providers.js"
     },
     "./orchestration": {
-      "import": "./dist/orchestration.js",
-      "types": "./dist/orchestration.d.ts"
+      "types": "./dist/orchestration.d.ts",
+      "import": "./dist/orchestration.js"
     },
     "./workflow": {
-      "import": "./dist/workflow.js",
-      "types": "./dist/workflow.d.ts"
+      "types": "./dist/workflow.d.ts",
+      "import": "./dist/workflow.js"
     },
     "./http": {
-      "import": "./dist/http.js",
-      "types": "./dist/http.d.ts"
+      "types": "./dist/http.d.ts",
+      "import": "./dist/http.js"
     },
     "./persistence": {
-      "import": "./dist/persistence.js",
-      "types": "./dist/persistence.d.ts"
+      "types": "./dist/persistence.d.ts",
+      "import": "./dist/persistence.js"
     },
     "./runs": {
-      "import": "./dist/runs/index.js",
-      "types": "./dist/runs/index.d.ts"
+      "types": "./dist/runs/index.d.ts",
+      "import": "./dist/runs/index.js"
     },
     "./integration": {
-      "import": "./dist/integration/index.js",
-      "types": "./dist/integration/index.d.ts"
+      "types": "./dist/integration/index.d.ts",
+      "import": "./dist/integration/index.js"
     },
     "./dzupagent": {
-      "import": "./dist/dzupagent/index.js",
-      "types": "./dist/dzupagent/index.d.ts"
+      "types": "./dist/dzupagent/index.d.ts",
+      "import": "./dist/dzupagent/index.js"
     },
     "./rules": {
-      "import": "./dist/rules.js",
-      "types": "./dist/rules.d.ts"
+      "types": "./dist/rules.d.ts",
+      "import": "./dist/rules.js"
     },
     "./learning": {
-      "import": "./dist/learning.js",
-      "types": "./dist/learning.d.ts"
+      "types": "./dist/learning.d.ts",
+      "import": "./dist/learning.js"
     },
     "./recovery": {
-      "import": "./dist/recovery.js",
-      "types": "./dist/recovery.d.ts"
+      "types": "./dist/recovery.d.ts",
+      "import": "./dist/recovery.js"
     }
   },
   "scripts": {
