@@ -37,7 +37,7 @@ jobs:
         run: yarn install --frozen-lockfile
 
       - name: Build scraper package
-        run: yarn workspace @dzupagent/scraper build
+        run: yarn build --filter=@dzupagent/scraper... --concurrency=4 --output-logs=full
 
       - name: Build all packages
         run: yarn build --concurrency=4 --output-logs=full
