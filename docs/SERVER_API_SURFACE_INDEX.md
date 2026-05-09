@@ -1,6 +1,6 @@
 # Server API Surface Index
 
-Date: 2026-05-08
+Date: 2026-05-09
 
 Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`.
 
@@ -12,21 +12,7 @@ Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`
 
 ## Current Direct Root Imports
 
-- Imported symbols by tier: stable=`2`, secondary=`0`, experimental=`0`, internal=`0`, unknown=`9`
-
-| Import | Tier | Source Module | Root Exposure | Files | Sample Consumers |
-| --- | --- | --- | --- | ---: | --- |
-| `ServerRoutePlugin` | `stable` | `./route-plugin.js` | `keep-root` | 7 | `apps/ai-saas-starter-kit/packages/server-domain/src/index.ts`, `apps/ai-saas-starter-kit/packages/server-domain/src/persistence/create-drizzle-domain-config.ts`, `apps/ai-saas-starter-kit/packages/server-domain/src/plugins/ledger-plugin.ts` |
-| `DoctorContext` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
-| `DoctorReport` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
-| `ForgeServerConfig` | `stable` | `./app.js` | `keep-root` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
-| `formatDoctorReportJSON` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
-| `Grade` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
-| `IntegrationScorecard` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
-| `runDoctor` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
-| `ScorecardProbeInput` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
-| `ScorecardReport` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
-| `ScorecardReporter` | `unknown` | `(unresolved)` | `review` | 1 | `apps/ai-saas-starter-kit/scripts/ci-health-check.ts` |
+No direct `@dzupagent/server` root imports found in scanned workspace code.
 
 ## Root Export Inventory
 

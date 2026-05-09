@@ -3,13 +3,15 @@
 Date: 2026-04-03  
 Scope: `packages/context` (source, tests, package config, cross-package adoption signals)
 
+Update 2026-05-08: the first two high-priority findings in this historical report have been remediated. `applyCacheBreakpoints()` now enforces a global four-breakpoint cap for LangChain messages by marking only the final system message plus up to three non-system anchors/messages, and `compressToBudget()` now verifies the selected level, escalates through stronger levels, and hard-trims the returned message set when needed.
+
 ## Executive Summary
 
 `@dzupagent/context` has a strong core: modular architecture, clear APIs, strict TypeScript, and high automated verification on the main compression/transfer paths. The package is production-leaning in core behavior but still has several design and integration gaps that can affect correctness under load and long-running sessions.
 
 Most important risks:
-- Cache-control breakpoint accounting can exceed Anthropic’s documented 4-breakpoint strategy when multiple system messages exist.
-- `compressToBudget()` selects a level heuristically but does not guarantee post-compression token-budget compliance.
+- Resolved 2026-05-08: cache-control breakpoint accounting can exceed Anthropic’s documented 4-breakpoint strategy when multiple system messages exist.
+- Resolved 2026-05-08: `compressToBudget()` selects a level heuristically but does not guarantee post-compression token-budget compliance.
 - `AutoCompressConfig.frozenSnapshot` is declared but currently not implemented/used in the runtime path.
 
 Overall rating:
@@ -132,15 +134,14 @@ Coverage highlights:
 ### P0 (Immediate)
 
 1. Deterministic budget enforcement mode
-- Add `strictBudget?: boolean` and `maxBudgetAttempts?: number` to `compressToBudget`.
-- Loop compression levels upward until estimated tokens are <= budget or level 4 reached.
-- Return `budgetMet: boolean` and `overshootTokens` in `ProgressiveCompressResult`.
+- Shipped 2026-05-08: `compressToBudget()` now loops compression levels upward until estimated tokens are <= budget or level 4 is reached, then hard-trims the retained message set if needed.
+- Still open: optional telemetry fields such as `budgetMet` / `overshootTokens` in `ProgressiveCompressResult`.
 
 2. Global breakpoint allocator for prompt caching
-- Implement a single allocator that enforces max 4 total breakpoints across system + conversation.
+- Shipped 2026-05-08: LangChain message breakpoint placement enforces max 4 total breakpoints across system + conversation.
 - Optional strategy options:
 - `system:first-only`
-- `system:last-only`
+- `system:last-only` is now the implemented multi-system behavior.
 - `system:all-with-cap` (cap-aware, LRU/favor latest)
 
 ### P1 (Near-term)
