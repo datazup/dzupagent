@@ -215,12 +215,15 @@ function extractRootImports(filePath, sourceText) {
 }
 
 function collectRootImportUsage() {
-  const roots = [
-    path.join(workspaceRoot, 'apps'),
-    path.join(workspaceRoot, 'help'),
-    path.join(workspaceRoot, 'shared-kit'),
-    path.join(repoRoot, 'packages'),
-  ]
+  const roots = [path.join(repoRoot, 'packages')]
+
+  if (process.env.DZUPAGENT_SERVER_API_SCAN_EXTERNAL_WORKSPACE === '1') {
+    roots.unshift(
+      path.join(workspaceRoot, 'apps'),
+      path.join(workspaceRoot, 'help'),
+      path.join(workspaceRoot, 'shared-kit'),
+    )
+  }
 
   const files = roots.flatMap((root) => collectFiles(root, isCodeFile))
   const usage = new Map()
