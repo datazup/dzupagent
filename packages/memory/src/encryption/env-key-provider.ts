@@ -5,7 +5,7 @@
  * Active key: DZIP_MEMORY_KEY_ACTIVE={ID}
  *
  * Example:
- *   DZIP_MEMORY_KEY_k1=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+ *   DZIP_MEMORY_KEY_k1=<64-hex-character-key>
  *   DZIP_MEMORY_KEY_ACTIVE=k1
  */
 import type { EncryptionKeyProvider, EncryptionKeyDescriptor } from './types.js'

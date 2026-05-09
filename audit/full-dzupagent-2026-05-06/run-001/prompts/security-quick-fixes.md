@@ -79,7 +79,7 @@ Then `yarn install && yarn dedupe`.
 **Files:** `packages/server/src/routes/{mcp,skills,clusters,marketplace}.ts` (every `console.error('[…] ${internal}')`)
 **Exploit:** API keys / bearer tokens in error messages get logged in plaintext.
 **Fix:** Centralise via a `logRouteError(prefix, err)` helper that calls `redactSecrets(err.message)` before `console.error`.
-**Validation:** Inject `Error("OPENAI_API_KEY=sk-1234567890abcdef")` into a route; capture stderr; assert `[REDACTED]` substring.
+**Validation:** Inject an `Error` containing a fake `OPENAI_API_KEY` value into a route; capture stderr; assert `[REDACTED]` substring.
 **Effort:** 2h
 
 ---
