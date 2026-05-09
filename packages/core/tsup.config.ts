@@ -21,6 +21,7 @@ export default defineConfig({
     'src/mcp/index.ts',
     'src/model.ts',
     'src/utils.ts',
+    'src/events/event-types.ts',
   ],
   format: ['esm'],
   dts: { compilerOptions: { composite: false, exactOptionalPropertyTypes: false } },
