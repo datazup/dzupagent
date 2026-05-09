@@ -48,6 +48,10 @@ for (const entry of readdirSync(packagesDir, { withFileTypes: true }).sort((a, b
   const repository = pkg.repository;
   const expectedDirectory = `packages/${entry.name}`;
 
+  if (typeof pkg.bin === 'string') {
+    failures.push(`${label}: bin must be an object so npm 11 does not normalize package metadata during publish`);
+  }
+
   if (!repository || typeof repository !== 'object' || Array.isArray(repository)) {
     failures.push(`${label}: repository must be an object with type, url, and directory`);
   } else {
