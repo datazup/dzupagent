@@ -120,6 +120,105 @@ test('fails when an export omits a types condition', async () => {
   }
 });
 
+test('fails when exported declarations reference a missing internal declaration artifact', async () => {
+  const root = makeRepo();
+  try {
+    writePackage(
+      root,
+      'packages/core',
+      {
+        name: '@dzupagent/core',
+        types: 'dist/index.d.ts',
+        exports: {
+          '.': {
+            import: './dist/index.js',
+            types: './dist/index.d.ts',
+          },
+        },
+      },
+      {
+        'dist/index.js': 'export {}\n',
+        'dist/index.d.ts': "export { MissingType } from './missing.js'\n",
+      },
+    );
+
+    const result = await checkPackageExportArtifacts({ root });
+    assert.equal(result.ok, false);
+    assert.match(
+      result.messages.join('\n'),
+      /@dzupagent\/core packages\/core\/dist\/index\.d\.ts references missing declaration artifact via \.\/missing\.js; tried packages\/core\/dist\/missing\.d\.ts/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('passes when exported declarations reference internal declaration artifacts transitively', async () => {
+  const root = makeRepo();
+  try {
+    writePackage(
+      root,
+      'packages/core',
+      {
+        name: '@dzupagent/core',
+        types: 'dist/index.d.ts',
+        exports: {
+          '.': {
+            import: './dist/index.js',
+            types: './dist/index.d.ts',
+          },
+        },
+      },
+      {
+        'dist/index.js': 'export {}\n',
+        'dist/index.d.ts': "export { PublicType } from './public.js'\n",
+        'dist/public.d.ts': "import('./internal.js');\nexport interface PublicType { value: InternalType }\n",
+        'dist/internal.d.ts': 'export interface InternalType { id: string }\n',
+      },
+    );
+
+    const result = await checkPackageExportArtifacts({ root });
+    assert.equal(result.ok, true, result.messages.join('\n'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('ignores relative declaration specifiers inside comments', async () => {
+  const root = makeRepo();
+  try {
+    writePackage(
+      root,
+      'packages/core',
+      {
+        name: '@dzupagent/core',
+        types: 'dist/index.d.ts',
+        exports: {
+          '.': {
+            import: './dist/index.js',
+            types: './dist/index.d.ts',
+          },
+        },
+      },
+      {
+        'dist/index.js': 'export {}\n',
+        'dist/index.d.ts': [
+          '/**',
+          " *   import type { Example } from './missing-example.js'",
+          ' */',
+          'export interface PublicType { value: string }',
+          '',
+        ].join('\n'),
+      },
+    );
+
+    const result = await checkPackageExportArtifacts({ root });
+    assert.equal(result.ok, true, result.messages.join('\n'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('can check a focused package directory list', async () => {
   const root = makeRepo();
   try {
