@@ -22,8 +22,8 @@
     "@dzupagent/memory-ipc": "0.2.0"
   },
   "peerDependencies": {
-    "@langchain/core": ">=1.0.0",
     "@anthropic-ai/tokenizer": ">=0.0.4",
+    "@langchain/core": ">=1.0.0",
     "js-tiktoken": ">=1.0.0"
   },
   "peerDependenciesMeta": {
