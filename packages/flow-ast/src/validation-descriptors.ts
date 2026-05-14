@@ -25,4 +25,9 @@ export const FLOW_NODE_VALIDATOR_DESCRIPTORS: ReadonlyArray<{
   { type: 'memory', hasChildren: false },
   { type: 'checkpoint', hasChildren: false },
   { type: 'restore', hasChildren: false },
+  { type: 'try_catch', hasChildren: true },
+  { type: 'loop', hasChildren: true },
+  { type: 'http', hasChildren: false },
+  { type: 'wait', hasChildren: false },
+  { type: 'subflow', hasChildren: false },
 ]
