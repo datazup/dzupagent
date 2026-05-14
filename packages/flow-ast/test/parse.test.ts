@@ -35,6 +35,11 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode['type'], FlowNode> = {
   memory: { type: 'memory', operation: 'write', tier: 'session', key: 'intent', valueExpr: '${intent}' },
   checkpoint: { type: 'checkpoint', label: 'after-plan', captureOutputOf: 'plan' },
   restore: { type: 'restore', checkpointLabel: 'after-plan', onNotFound: 'skip' },
+  try_catch: { type: 'try_catch', body: [{ type: 'complete' }], catch: [{ type: 'complete' }] },
+  loop: { type: 'loop', condition: '${running}', body: [{ type: 'complete' }] },
+  http: { type: 'http', url: 'https://example.com/api', method: 'GET' },
+  wait: { type: 'wait', durationMs: 1000 },
+  subflow: { type: 'subflow', flowRef: 'my-subflow-id' },
 }
 
 describe('parseFlow — public node contract', () => {
@@ -239,7 +244,7 @@ describe('parseFlow — shape validation', () => {
     const result = parseFlow({
       type: 'sequence',
       nodes: [
-        { type: 'loop', body: [] },
+        { type: 'future_unknown_xyz', data: 'x' },
         { input: {} },
       ],
     })

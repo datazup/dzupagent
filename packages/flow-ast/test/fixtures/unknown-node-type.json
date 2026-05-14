@@ -2,7 +2,7 @@
   "type": "sequence",
   "nodes": [
     { "type": "action", "toolRef": "good.first", "input": {} },
-    { "type": "loop", "while": "x", "body": [] },
+    { "type": "future_node_type_xyz", "data": "something" },
     { "type": "action", "toolRef": "good.last", "input": {} }
   ]
 }
