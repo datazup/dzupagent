@@ -203,6 +203,42 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
       }
       return
     }
+    case 'try_catch': {
+      if (node.body.length === 0) {
+        errors.push(emptyBody(node.type, path, 'try_catch.body must contain at least one node'))
+      }
+      node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`, errors))
+      node.catch.forEach((child, idx) => visit(child, `${path}.catch[${idx}]`, errors))
+      return
+    }
+    case 'loop': {
+      if (!isNonEmptyString(node.condition)) {
+        errors.push(missing(node.type, path, 'loop.condition is required (non-empty string)'))
+      }
+      if (node.body.length === 0) {
+        errors.push(emptyBody(node.type, path, 'loop.body must contain at least one node'))
+      }
+      node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`, errors))
+      return
+    }
+    case 'http': {
+      if (!isNonEmptyString(node.url)) {
+        errors.push(missing(node.type, path, 'http.url is required (non-empty string)'))
+      }
+      return
+    }
+    case 'wait': {
+      if (typeof node.durationMs !== 'number' || node.durationMs < 0) {
+        errors.push(missing(node.type, path, 'wait.durationMs is required (non-negative number)'))
+      }
+      return
+    }
+    case 'subflow': {
+      if (!isNonEmptyString(node.flowRef)) {
+        errors.push(missing(node.type, path, 'subflow.flowRef is required (non-empty string)'))
+      }
+      return
+    }
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails compilation here.
       const _exhaustive: never = node
@@ -269,7 +305,19 @@ function walkOnError(node: FlowNode, path: string, errors: ValidationError[]): v
     case 'emit':
     case 'memory':
     case 'checkpoint':
-    case 'restore': {
+    case 'restore':
+    case 'http':
+    case 'wait':
+    case 'subflow': {
+      return
+    }
+    case 'try_catch': {
+      node.body.forEach((child, idx) => walkOnError(child, `${path}.body[${idx}]`, errors))
+      node.catch.forEach((child, idx) => walkOnError(child, `${path}.catch[${idx}]`, errors))
+      return
+    }
+    case 'loop': {
+      node.body.forEach((child, idx) => walkOnError(child, `${path}.body[${idx}]`, errors))
       return
     }
     default: {

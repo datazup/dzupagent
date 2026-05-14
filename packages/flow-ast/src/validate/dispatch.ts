@@ -26,6 +26,11 @@ import { validateEmit } from './emit.js'
 import { validateMemory } from './memory.js'
 import { validateCheckpoint } from './checkpoint.js'
 import { validateRestore } from './restore.js'
+import { validateTryCatch } from './try-catch.js'
+import { validateLoop } from './loop.js'
+import { validateHttp } from './http.js'
+import { validateWait } from './wait.js'
+import { validateSubflow } from './subflow.js'
 
 export function validateFlowNode(
   value: unknown,
@@ -93,6 +98,16 @@ export function validateFlowNode(
       return validateCheckpoint(value, path, issues)
     case 'restore':
       return validateRestore(value, path, issues)
+    case 'try_catch':
+      return validateTryCatch(value, path, issues, validateNodeArray)
+    case 'loop':
+      return validateLoop(value, path, issues, validateNodeArray)
+    case 'http':
+      return validateHttp(value, path, issues)
+    case 'wait':
+      return validateWait(value, path, issues)
+    case 'subflow':
+      return validateSubflow(value, path, issues)
     default:
       issues.push({
         path,

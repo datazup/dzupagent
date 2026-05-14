@@ -94,8 +94,19 @@ export function lowerNodeToPipeline(
     case 'classify':
     case 'checkpoint':
     case 'restore':
+    case 'http':
+    case 'wait':
+    case 'subflow':
       // Runtime-executed nodes: present in AST but not emitted as graph edges.
       return { nodes: [], edges: [], warnings: [] }
+
+    case 'try_catch':
+      // try_catch body is lowered normally; the catch branch is runtime-only (error path).
+      return lowerSequence(node.body, ctx, `${path}.body`, lowerNodeToPipeline)
+
+    case 'loop':
+      // loop body is lowered as a sequence; condition evaluation is runtime-only.
+      return lowerSequence(node.body, ctx, `${path}.body`, lowerNodeToPipeline)
 
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails here.

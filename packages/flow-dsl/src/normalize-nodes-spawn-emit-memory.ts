@@ -1,4 +1,4 @@
-import type { EmitNode, MemoryNode, SpawnNode } from '@dzupagent/flow-ast'
+import type { EmitNode, HttpNode, MemoryNode, SpawnNode, SubflowNode, WaitNode } from '@dzupagent/flow-ast'
 
 import { DSL_ERROR } from './errors.js'
 import {
@@ -236,6 +236,144 @@ export function normalizeMemory(
       path: `${path}.outputVar`,
     })
   }
+
+  return node
+}
+
+// ── http ──────────────────────────────────────────────────────────────────────
+
+const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+
+const HTTP_KEYS = new Set<string>([
+  ...COMMON_NODE_KEYS,
+  'url',
+  'method',
+  'headers',
+  'body',
+  'outputVar',
+  'output_var',
+])
+
+export function normalizeHttp(
+  raw: Record<string, unknown>,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): HttpNode {
+  reportUnsupportedFields(raw, HTTP_KEYS, path, diagnostics)
+  const base = normalizeCommonNodeFields(raw, path, diagnostics)
+
+  const url = typeof raw.url === 'string' ? raw.url : ''
+  if (url.length === 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'http.url is required',
+      path: `${path}.url`,
+    })
+  }
+
+  const node: HttpNode = { type: 'http', ...base, url }
+
+  if (raw.method !== undefined) {
+    if (typeof raw.method === 'string' && HTTP_METHODS.has(raw.method)) {
+      node.method = raw.method as HttpNode['method']
+    } else {
+      diagnostics.push({
+        phase: 'normalize',
+        code: DSL_ERROR.INVALID_NODE_SHAPE,
+        message: 'http.method must be GET|POST|PUT|PATCH|DELETE',
+        path: `${path}.method`,
+      })
+    }
+  }
+
+  if (raw.headers !== undefined) {
+    const h = normalizeObject(raw.headers, `${path}.headers`, diagnostics)
+    if (h !== undefined) node.headers = h as Record<string, string>
+  }
+
+  if (raw.body !== undefined) {
+    const b = normalizeObject(raw.body, `${path}.body`, diagnostics)
+    if (b !== undefined) node.body = b
+  }
+
+  const outputVarRaw = raw.outputVar ?? raw.output_var
+  if (typeof outputVarRaw === 'string') node.outputVar = outputVarRaw
+
+  return node
+}
+
+// ── wait ──────────────────────────────────────────────────────────────────────
+
+const WAIT_KEYS = new Set<string>([
+  ...COMMON_NODE_KEYS,
+  'durationMs',
+  'duration_ms',
+])
+
+export function normalizeWait(
+  raw: Record<string, unknown>,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): WaitNode {
+  reportUnsupportedFields(raw, WAIT_KEYS, path, diagnostics)
+  const base = normalizeCommonNodeFields(raw, path, diagnostics)
+
+  const durationRaw = raw.durationMs ?? raw.duration_ms
+  const durationMs = typeof durationRaw === 'number' ? durationRaw : -1
+
+  if (durationMs < 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'wait.durationMs is required (non-negative number)',
+      path: `${path}.durationMs`,
+    })
+  }
+
+  return { type: 'wait', ...base, durationMs: Math.max(0, durationMs) }
+}
+
+// ── subflow ───────────────────────────────────────────────────────────────────
+
+const SUBFLOW_KEYS = new Set<string>([
+  ...COMMON_NODE_KEYS,
+  'flowRef',
+  'flow_ref',
+  'input',
+  'outputVar',
+  'output_var',
+])
+
+export function normalizeSubflow(
+  raw: Record<string, unknown>,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): SubflowNode {
+  reportUnsupportedFields(raw, SUBFLOW_KEYS, path, diagnostics)
+  const base = normalizeCommonNodeFields(raw, path, diagnostics)
+
+  const flowRef =
+    typeof raw.flowRef === 'string' ? raw.flowRef
+    : typeof raw.flow_ref === 'string' ? raw.flow_ref
+    : ''
+
+  if (flowRef.length === 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'subflow.flowRef is required',
+      path: `${path}.flowRef`,
+    })
+  }
+
+  const node: SubflowNode = { type: 'subflow', ...base, flowRef }
+
+  const input = normalizeObject(raw.input, `${path}.input`, diagnostics)
+  if (input !== undefined) node.input = input
+
+  const outputVarRaw = raw.outputVar ?? raw.output_var
+  if (typeof outputVarRaw === 'string') node.outputVar = outputVarRaw
 
   return node
 }

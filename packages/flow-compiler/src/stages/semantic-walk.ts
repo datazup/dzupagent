@@ -119,8 +119,30 @@ export async function visit(node: FlowNode, path: string, ctx: WalkContext): Pro
     case 'emit':
     case 'memory':
     case 'checkpoint':
-    case 'restore': {
+    case 'restore':
+    case 'http':
+    case 'wait':
+    case 'subflow': {
       // Leaf nodes — no refs to resolve in semantic stage.
+      return
+    }
+    case 'try_catch': {
+      for (let idx = 0; idx < node.body.length; idx++) {
+        const child = node.body[idx]
+        if (child !== undefined) await visit(child, `${path}.body[${idx}]`, ctx)
+      }
+      for (let idx = 0; idx < node.catch.length; idx++) {
+        const child = node.catch[idx]
+        if (child !== undefined) await visit(child, `${path}.catch[${idx}]`, ctx)
+      }
+      return
+    }
+    case 'loop': {
+      validateConditionExpr(node.type, node.condition, `${path}.condition`, 'loop.condition', ctx)
+      for (let idx = 0; idx < node.body.length; idx++) {
+        const child = node.body[idx]
+        if (child !== undefined) await visit(child, `${path}.body[${idx}]`, ctx)
+      }
       return
     }
     default: {

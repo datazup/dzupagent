@@ -50,7 +50,23 @@ function projectNode(node: FlowNode, state: ProjectionState): ProjectionResult {
     case 'memory':
     case 'checkpoint':
     case 'restore':
+    case 'http':
+    case 'wait':
+    case 'subflow':
       return { entryIds: [id], exitIds: [id] }
+    case 'try_catch': {
+      const body = projectSequence(node.body, state)
+      for (const entry of body.entryIds) pushEdge(state, `${id}__body__${entry}`, id, entry, 'body')
+      const catchBody = projectSequence(node.catch, state)
+      for (const entry of catchBody.entryIds) pushEdge(state, `${id}__catch__${entry}`, id, entry, 'catch')
+      const exits = [...body.exitIds, ...catchBody.exitIds]
+      return { entryIds: [id], exitIds: exits.length > 0 ? exits : [id] }
+    }
+    case 'loop': {
+      const body = projectSequence(node.body, state)
+      for (const entry of body.entryIds) pushEdge(state, `${id}__body__${entry}`, id, entry, 'body')
+      return { entryIds: [id], exitIds: [id] }
+    }
     case 'sequence': {
       const inner = projectSequence(node.nodes, state)
       if (inner.entryIds.length > 0) {
@@ -164,6 +180,16 @@ function labelForNode(node: FlowNode): string {
       return node.label ?? `checkpoint:${node.captureOutputOf}`
     case 'restore':
       return `restore:${node.checkpointLabel}`
+    case 'try_catch':
+      return 'try/catch'
+    case 'loop':
+      return `loop:${node.condition}`
+    case 'http':
+      return `${node.method ?? 'GET'} ${node.url}`
+    case 'wait':
+      return `wait:${node.durationMs}ms`
+    case 'subflow':
+      return `subflow:${node.flowRef}`
     default: {
       const _exhaustive: never = node
       void _exhaustive
