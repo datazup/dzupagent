@@ -79,12 +79,22 @@ export function lowerNodeToPipeline(
       return lowerComplete(node, ctx, path)
 
     case 'spawn':
-    case 'classify':
     case 'emit':
     case 'memory':
+      // Runtime-executed nodes: present in AST but not emitted as graph edges.
+      // Consumers of the lowered graph should not expect these to appear as nodes/edges.
+      return {
+        nodes: [],
+        edges: [],
+        warnings: [
+          `Node type "${node.type}" (id: ${JSON.stringify(node.id ?? path)}) is runtime-executed and does not appear in the lowered pipeline graph.`,
+        ],
+      }
+
+    case 'classify':
     case 'checkpoint':
     case 'restore':
-      // These nodes are runtime-executed and not lowered to graph edges.
+      // Runtime-executed nodes: present in AST but not emitted as graph edges.
       return { nodes: [], edges: [], warnings: [] }
 
     default: {

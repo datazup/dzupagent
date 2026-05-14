@@ -64,7 +64,7 @@ export function normalizeDslDocument(raw: unknown): NormalizeDslResult {
   const meta = normalizeObject(raw.meta, 'root.meta', diagnostics)
 
   const doc: FlowDocumentV1 = {
-    dsl: raw.dsl === 'dzupflow/v1' ? 'dzupflow/v1' : 'dzupflow/v1',
+    dsl: 'dzupflow/v1',
     id: typeof raw.id === 'string' ? raw.id : '',
     version: typeof raw.version === 'number' ? raw.version : 0,
     root: {
@@ -80,6 +80,14 @@ export function normalizeDslDocument(raw: unknown): NormalizeDslResult {
   if (defaults !== undefined) doc.defaults = defaults
   if (tags !== undefined) doc.tags = tags
   if (meta !== undefined) doc.meta = meta
+  if (raw.dsl !== undefined && raw.dsl !== 'dzupflow/v1') {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_DSL_VERSION,
+      message: `Unsupported DSL version "${String(raw.dsl)}"; only "dzupflow/v1" is accepted`,
+      path: 'root.dsl',
+    })
+  }
   if (raw.version !== undefined && raw.version !== 1) {
     diagnostics.push({
       phase: 'normalize',

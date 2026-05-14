@@ -17,6 +17,11 @@ import {
   normalizeRestore,
   normalizeRoute,
 } from './normalize-nodes-routing.js'
+import {
+  normalizeEmit,
+  normalizeMemory,
+  normalizeSpawn,
+} from './normalize-nodes-spawn-emit-memory.js'
 import { isPlainObject } from './normalize-value-helpers.js'
 import type { DslDiagnostic } from './types.js'
 
@@ -105,6 +110,12 @@ export function normalizeNodeWrapper(
       return normalizeCheckpoint(value, path, diagnostics)
     case 'restore':
       return normalizeRestore(value, path, diagnostics)
+    case 'spawn':
+      return normalizeSpawn(value, path, diagnostics)
+    case 'emit':
+      return normalizeEmit(value, path, diagnostics)
+    case 'memory':
+      return normalizeMemory(value, path, diagnostics)
     default:
       diagnostics.push({
         phase: 'normalize',
