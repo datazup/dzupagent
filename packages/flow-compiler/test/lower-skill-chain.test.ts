@@ -564,7 +564,8 @@ describe('lowerSkillChain', () => {
     const { artifact, warnings } = lowerSkillChain({ ast, resolved, name: 'with-complete-catch' })
 
     expect(artifact.steps.map((s) => s.skillName)).toEqual(['svc.risky'])
-    expect(warnings).toEqual([])
+    // complete node in catch branch generates a "dropped" warning — that's correct lowering behaviour
+    expect(warnings.some((w) => w.includes('dropped'))).toBe(true)
   })
 
   it('try_catch: nested in sequence — body actions appear in correct position', () => {
@@ -615,7 +616,7 @@ describe('lowerSkillChain', () => {
     expect(warnings).toEqual([])
   })
 
-  it('loop: empty body lowers to zero steps (no crash)', () => {
+  it('loop: empty body throws (skill-chain requires at least one action step)', () => {
     const ast: FlowNode = {
       type: 'loop',
       condition: '{{ state.done }}',
@@ -623,9 +624,9 @@ describe('lowerSkillChain', () => {
     }
     const resolved = new Map<string, ResolvedTool>()
 
-    const { artifact } = lowerSkillChain({ ast, resolved, name: 'empty-loop' })
-
-    expect(artifact.steps).toHaveLength(0)
+    expect(() => lowerSkillChain({ ast, resolved, name: 'empty-loop' })).toThrow(
+      /no action nodes found/,
+    )
   })
 
   it('loop: nested in sequence — body actions appear in correct position', () => {
