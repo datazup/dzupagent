@@ -129,16 +129,13 @@ describe('parseDslToDocument', () => {
     expect(result.diagnostics.some((d) => d.code === 'UNSUPPORTED_FIELD')).toBe(true)
   })
 
-  it('normalizer always sets dsl to dzupflow/v1 regardless of input', () => {
-    // The normalizer always coerces dsl to 'dzupflow/v1' (normalize.ts line ~158).
-    // So even with 'dzupflow/v2' as input, no INVALID_DSL_VERSION is emitted
-    // by the normalizer — validation against the zod schema may emit issues
-    // about other fields instead.
+  it('emits INVALID_DSL_VERSION diagnostic for unknown dsl discriminator', () => {
     const dsl = MINIMAL_VALID_DSL.replace('dzupflow/v1', 'dzupflow/v2')
     const result = parseDslToDocument(dsl)
-    // The document is still produced (normalizer always emits a doc)
-    // but version checking happens separately via INVALID_ENUM_VALUE for version≠1
-    expect(result.document).not.toBeNull()
+    expect(result.ok).toBe(false)
+    expect(result.document).toBeNull()
+    expect(result.partialDocument).not.toBeNull()
+    expect(result.diagnostics.some((d) => d.code === 'INVALID_DSL_VERSION')).toBe(true)
   })
 })
 
