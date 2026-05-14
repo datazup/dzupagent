@@ -528,4 +528,179 @@ describe('lowerSkillChain', () => {
     // Inner sequence has 2 children — no redundancy warning
     expect(warnings).toEqual([])
   })
+
+  // ── try_catch lowering ────────────────────────────────────────────────────
+
+  it('try_catch: body actions are extracted into skill-chain steps', () => {
+    const resolver = makeResolver(['svc.risky', 'svc.recover'])
+    const ast: FlowNode = {
+      type: 'try_catch',
+      body: [action('svc.risky')],
+      catch: [action('svc.recover')],
+    }
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.body[0]', toolRef: 'svc.risky' },
+      { nodePath: 'root.catch[0]', toolRef: 'svc.recover' },
+    ])
+
+    const { artifact, warnings } = lowerSkillChain({ ast, resolved, name: 'guarded' })
+
+    // Both body and catch action refs are extracted in order
+    expect(artifact.steps.map((s) => s.skillName)).toEqual(['svc.risky', 'svc.recover'])
+    expect(warnings).toEqual([])
+  })
+
+  it('try_catch: body-only (no actions in catch) lowers to body steps only', () => {
+    const resolver = makeResolver(['svc.risky'])
+    const ast: FlowNode = {
+      type: 'try_catch',
+      body: [action('svc.risky')],
+      catch: [{ type: 'complete', result: 'caught' }],
+    }
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.body[0]', toolRef: 'svc.risky' },
+    ])
+
+    const { artifact, warnings } = lowerSkillChain({ ast, resolved, name: 'with-complete-catch' })
+
+    expect(artifact.steps.map((s) => s.skillName)).toEqual(['svc.risky'])
+    expect(warnings).toEqual([])
+  })
+
+  it('try_catch: nested in sequence — body actions appear in correct position', () => {
+    const resolver = makeResolver(['svc.a', 'svc.risky', 'svc.recover', 'svc.b'])
+    const ast = sequence(
+      action('svc.a'),
+      {
+        type: 'try_catch' as const,
+        body: [action('svc.risky')],
+        catch: [action('svc.recover')],
+      },
+      action('svc.b'),
+    )
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.nodes[0]', toolRef: 'svc.a' },
+      { nodePath: 'root.nodes[1].body[0]', toolRef: 'svc.risky' },
+      { nodePath: 'root.nodes[1].catch[0]', toolRef: 'svc.recover' },
+      { nodePath: 'root.nodes[2]', toolRef: 'svc.b' },
+    ])
+
+    const { artifact } = lowerSkillChain({ ast, resolved, name: 'seq-with-try' })
+
+    expect(artifact.steps.map((s) => s.skillName)).toEqual([
+      'svc.a',
+      'svc.risky',
+      'svc.recover',
+      'svc.b',
+    ])
+  })
+
+  // ── loop lowering ─────────────────────────────────────────────────────────
+
+  it('loop: body actions are extracted into skill-chain steps', () => {
+    const resolver = makeResolver(['svc.poll', 'svc.process'])
+    const ast: FlowNode = {
+      type: 'loop',
+      condition: '{{ state.running }}',
+      body: [action('svc.poll'), action('svc.process')],
+    }
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.body[0]', toolRef: 'svc.poll' },
+      { nodePath: 'root.body[1]', toolRef: 'svc.process' },
+    ])
+
+    const { artifact, warnings } = lowerSkillChain({ ast, resolved, name: 'polling-loop' })
+
+    expect(artifact.steps.map((s) => s.skillName)).toEqual(['svc.poll', 'svc.process'])
+    expect(warnings).toEqual([])
+  })
+
+  it('loop: empty body lowers to zero steps (no crash)', () => {
+    const ast: FlowNode = {
+      type: 'loop',
+      condition: '{{ state.done }}',
+      body: [],
+    }
+    const resolved = new Map<string, ResolvedTool>()
+
+    const { artifact } = lowerSkillChain({ ast, resolved, name: 'empty-loop' })
+
+    expect(artifact.steps).toHaveLength(0)
+  })
+
+  it('loop: nested in sequence — body actions appear in correct position', () => {
+    const resolver = makeResolver(['svc.init', 'svc.tick', 'svc.cleanup'])
+    const ast = sequence(
+      action('svc.init'),
+      {
+        type: 'loop' as const,
+        condition: '{{ state.active }}',
+        body: [action('svc.tick')],
+      },
+      action('svc.cleanup'),
+    )
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.nodes[0]', toolRef: 'svc.init' },
+      { nodePath: 'root.nodes[1].body[0]', toolRef: 'svc.tick' },
+      { nodePath: 'root.nodes[2]', toolRef: 'svc.cleanup' },
+    ])
+
+    const { artifact } = lowerSkillChain({ ast, resolved, name: 'seq-with-loop' })
+
+    expect(artifact.steps.map((s) => s.skillName)).toEqual([
+      'svc.init',
+      'svc.tick',
+      'svc.cleanup',
+    ])
+  })
+
+  // ── http / wait / subflow pass-throughs ───────────────────────────────────
+
+  it('http node in sequence produces no steps (runtime-only pass-through)', () => {
+    const resolver = makeResolver(['svc.before', 'svc.after'])
+    const ast = sequence(
+      action('svc.before'),
+      { type: 'http' as const, url: 'https://api.example.com/data' },
+      action('svc.after'),
+    )
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.nodes[0]', toolRef: 'svc.before' },
+      { nodePath: 'root.nodes[2]', toolRef: 'svc.after' },
+    ])
+
+    const { artifact, warnings } = lowerSkillChain({ ast, resolved, name: 'with-http' })
+
+    expect(artifact.steps.map((s) => s.skillName)).toEqual(['svc.before', 'svc.after'])
+    expect(warnings).toEqual([])
+  })
+
+  it('wait node in sequence produces no steps (runtime-only pass-through)', () => {
+    const resolver = makeResolver(['svc.step'])
+    const ast = sequence(
+      action('svc.step'),
+      { type: 'wait' as const, durationMs: 1000 },
+    )
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.nodes[0]', toolRef: 'svc.step' },
+    ])
+
+    const { artifact } = lowerSkillChain({ ast, resolved, name: 'with-wait' })
+
+    expect(artifact.steps.map((s) => s.skillName)).toEqual(['svc.step'])
+  })
+
+  it('subflow node in sequence produces no steps (runtime-only pass-through)', () => {
+    const resolver = makeResolver(['svc.step'])
+    const ast = sequence(
+      action('svc.step'),
+      { type: 'subflow' as const, flowRef: 'other-flow-id' },
+    )
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.nodes[0]', toolRef: 'svc.step' },
+    ])
+
+    const { artifact } = lowerSkillChain({ ast, resolved, name: 'with-subflow' })
+
+    expect(artifact.steps.map((s) => s.skillName)).toEqual(['svc.step'])
+  })
 })
