@@ -6,6 +6,8 @@ import type { AdapterRuntimeDzupEvent } from './event-types-shared.js'
  * orchestration layers.
  */
 export type OrchestrationDomainEvent =
+  // --- Flow DSL emit nodes ---
+  | { type: 'flow:emit'; runId: string; tenantId: string; event: string; payload: Record<string, unknown> }
   // --- Pipeline (legacy phase changes) ---
   | { type: 'pipeline:phase_changed'; phase: string; previousPhase: string }
   | { type: 'pipeline:validation_failed'; phase: string; errors: string[] }
