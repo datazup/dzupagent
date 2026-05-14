@@ -101,6 +101,11 @@ export type FlowNode =
   | MemoryNode
   | CheckpointNode
   | RestoreNode
+  | TryCatchNode
+  | LoopNode
+  | HttpNode
+  | WaitNode
+  | SubflowNode
 
 export type SequenceNode = FlowNodeBase & { type: 'sequence'; nodes: FlowNode[] }
 export type ActionNode = FlowNodeBase & {
@@ -190,6 +195,48 @@ export type RestoreNode = FlowNodeBase & {
   /** Behavior when the named checkpoint does not exist at runtime. Defaults to 'fail'. */
   onNotFound?: 'fail' | 'skip'
 }
+/** Structured error recovery: executes `body`; on error runs `catch` branch. */
+export type TryCatchNode = FlowNodeBase & {
+  type: 'try_catch'
+  body: FlowNode[]
+  catch: FlowNode[]
+  /** State key written with the error message when catch branch runs. Defaults to "error". */
+  errorVar?: string
+}
+/** Condition-based loop: repeats `body` while `condition` evaluates truthy. */
+export type LoopNode = FlowNodeBase & {
+  type: 'loop'
+  /** Template expression evaluated against state before each iteration. */
+  condition: string
+  body: FlowNode[]
+  /** Maximum iterations (default 100, prevents infinite loops). */
+  maxIterations?: number
+}
+/** Lightweight HTTP action node — calls an external URL without a registered skill. */
+export type HttpNode = FlowNodeBase & {
+  type: 'http'
+  url: string
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  headers?: Record<string, string>
+  body?: Record<string, unknown>
+  /** State key for the response body (default: node id or "httpResponse"). */
+  outputVar?: string
+}
+/** Time-based delay / sleep before continuing. */
+export type WaitNode = FlowNodeBase & {
+  type: 'wait'
+  durationMs: number
+}
+/** Inline another flow's steps into the current run with shared state. */
+export type SubflowNode = FlowNodeBase & {
+  type: 'subflow'
+  /** References a FlowDocumentV1.id. */
+  flowRef: string
+  /** Input bindings merged into the child scope's state at entry. */
+  input?: Record<string, unknown>
+  /** State key for the subflow's final state merge (default: subflow id or "subflowResult"). */
+  outputVar?: string
+}
 
 export type FlowNodeKind = FlowNode['type']
 
@@ -217,6 +264,11 @@ export const FLOW_NODE_KIND_REGISTRY = {
   memory: true,
   checkpoint: true,
   restore: true,
+  try_catch: true,
+  loop: true,
+  http: true,
+  wait: true,
+  subflow: true,
 } as const satisfies Record<FlowNodeKind, true>
 
 export const FLOW_NODE_KINDS = Object.keys(FLOW_NODE_KIND_REGISTRY) as FlowNodeKind[]
