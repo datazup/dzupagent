@@ -195,6 +195,41 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       lines.push(`${childIndent}checkpointLabel: ${quote(node.checkpointLabel)}`)
       if (node.onNotFound !== undefined) lines.push(`${childIndent}onNotFound: ${node.onNotFound}`)
       return
+    case 'try_catch':
+      lines.push(`${indent}- try_catch:`)
+      pushCommon(lines, node, indentLevel + 2)
+      if (node.errorVar) lines.push(`${childIndent}error_var: ${node.errorVar}`)
+      lines.push(`${childIndent}body:`)
+      for (const child of node.body) formatNode(lines, child, indentLevel + 3)
+      lines.push(`${childIndent}catch:`)
+      for (const child of node.catch) formatNode(lines, child, indentLevel + 3)
+      return
+    case 'loop':
+      lines.push(`${indent}- loop:`)
+      pushCommon(lines, node, indentLevel + 2)
+      lines.push(`${childIndent}condition: ${quote(node.condition)}`)
+      if (node.maxIterations !== undefined) lines.push(`${childIndent}max_iterations: ${node.maxIterations}`)
+      lines.push(`${childIndent}body:`)
+      for (const child of node.body) formatNode(lines, child, indentLevel + 3)
+      return
+    case 'http':
+      lines.push(`${indent}- http:`)
+      pushCommon(lines, node, indentLevel + 2)
+      lines.push(`${childIndent}url: ${quote(node.url)}`)
+      if (node.method) lines.push(`${childIndent}method: ${node.method}`)
+      if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`)
+      return
+    case 'wait':
+      lines.push(`${indent}- wait:`)
+      pushCommon(lines, node, indentLevel + 2)
+      lines.push(`${childIndent}durationMs: ${node.durationMs}`)
+      return
+    case 'subflow':
+      lines.push(`${indent}- subflow:`)
+      pushCommon(lines, node, indentLevel + 2)
+      lines.push(`${childIndent}flowRef: ${quote(node.flowRef)}`)
+      if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`)
+      return
     default: {
       const _exhaustive: never = node
       void _exhaustive

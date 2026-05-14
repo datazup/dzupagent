@@ -107,8 +107,22 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case 'emit':
       case 'memory':
       case 'checkpoint':
-      case 'restore': {
+      case 'restore':
+      case 'http':
+      case 'wait':
+      case 'subflow': {
         // Runtime-executed leaf nodes — contribute no feature bits.
+        return
+      }
+      case 'try_catch': {
+        bits |= FEATURE_BITS.BRANCH
+        for (const child of node.body) visit(child)
+        for (const child of node.catch) visit(child)
+        return
+      }
+      case 'loop': {
+        bits |= FEATURE_BITS.FOR_EACH
+        for (const child of node.body) visit(child)
         return
       }
       default: {
@@ -187,7 +201,19 @@ export function hasOnError(ast: FlowNode): boolean {
       case 'emit':
       case 'memory':
       case 'checkpoint':
-      case 'restore': {
+      case 'restore':
+      case 'http':
+      case 'wait':
+      case 'subflow': {
+        return
+      }
+      case 'try_catch': {
+        for (const child of node.body) visit(child)
+        for (const child of node.catch) visit(child)
+        return
+      }
+      case 'loop': {
+        for (const child of node.body) visit(child)
         return
       }
       default: {

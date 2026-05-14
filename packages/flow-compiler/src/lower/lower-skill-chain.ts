@@ -171,13 +171,36 @@ function walkNode(
     case 'classify':
     case 'emit':
     case 'checkpoint':
-    case 'restore': {
+    case 'restore':
+    case 'http':
+    case 'wait':
+    case 'subflow': {
       // Runtime-executed nodes — no skill-chain step emitted; silently pass through.
       return
     }
 
     case 'memory': {
       walkMemory(node, path, steps)
+      return
+    }
+
+    case 'try_catch': {
+      for (let i = 0; i < node.body.length; i++) {
+        const child = node.body[i]
+        if (child !== undefined) walkNode(child, `${path}.body[${i}]`, resolved, mode, steps, warnings)
+      }
+      for (let i = 0; i < node.catch.length; i++) {
+        const child = node.catch[i]
+        if (child !== undefined) walkNode(child, `${path}.catch[${i}]`, resolved, mode, steps, warnings)
+      }
+      return
+    }
+
+    case 'loop': {
+      for (let i = 0; i < node.body.length; i++) {
+        const child = node.body[i]
+        if (child !== undefined) walkNode(child, `${path}.body[${i}]`, resolved, mode, steps, warnings)
+      }
       return
     }
 

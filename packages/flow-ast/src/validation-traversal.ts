@@ -77,6 +77,19 @@ export function validateCanonicalNodeIds(
         })
       })
       return
+    case 'try_catch':
+      node.body.forEach((child, index) => {
+        validateCanonicalNodeIds(child, `${joinPath(path, 'body')}[${index}]`, issues, seen)
+      })
+      node.catch.forEach((child, index) => {
+        validateCanonicalNodeIds(child, `${joinPath(path, 'catch')}[${index}]`, issues, seen)
+      })
+      return
+    case 'loop':
+      node.body.forEach((child, index) => {
+        validateCanonicalNodeIds(child, `${joinPath(path, 'body')}[${index}]`, issues, seen)
+      })
+      return
     case 'action':
     case 'clarification':
     case 'complete':
@@ -86,6 +99,9 @@ export function validateCanonicalNodeIds(
     case 'memory':
     case 'checkpoint':
     case 'restore':
+    case 'http':
+    case 'wait':
+    case 'subflow':
       return
     default: {
       const _exhaustive: never = node

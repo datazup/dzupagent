@@ -30,6 +30,11 @@ import { parseEmit } from './emit.js'
 import { parseMemory } from './memory.js'
 import { parseCheckpoint } from './checkpoint.js'
 import { parseRestore } from './restore.js'
+import { parseTryCatch } from './try-catch.js'
+import { parseLoop } from './loop.js'
+import { parseHttp } from './http.js'
+import { parseWait } from './wait.js'
+import { parseSubflow } from './subflow.js'
 
 export function parseNode(value: unknown, pointer: string, ctx: ParseContext): FlowNode | null {
   if (!isPlainObject(value)) {
@@ -102,6 +107,16 @@ export function parseNode(value: unknown, pointer: string, ctx: ParseContext): F
       return parseCheckpoint(value, pointer, ctx)
     case 'restore':
       return parseRestore(value, pointer, ctx)
+    case 'try_catch':
+      return parseTryCatch(value, pointer, ctx)
+    case 'loop':
+      return parseLoop(value, pointer, ctx)
+    case 'http':
+      return parseHttp(value, pointer, ctx)
+    case 'wait':
+      return parseWait(value, pointer, ctx)
+    case 'subflow':
+      return parseSubflow(value, pointer, ctx)
     default:
       // Defensive — KNOWN_NODE_TYPES is the source of truth above.
       ctx.errors.push({
