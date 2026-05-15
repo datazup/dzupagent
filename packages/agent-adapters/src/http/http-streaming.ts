@@ -64,6 +64,7 @@ export function streamRun(
         provider: body.preferredProvider,
         workingDirectory: body.workingDirectory,
         systemPrompt: body.systemPrompt,
+        policyConformanceMode: body.policyConformanceMode,
       })
 
       yield* stream

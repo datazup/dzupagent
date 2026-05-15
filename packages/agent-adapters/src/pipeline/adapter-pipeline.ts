@@ -16,6 +16,7 @@ import type {
 import type { AdapterPolicy } from '../policy/policy-compiler.js'
 
 import { PolicyEnforcementPipeline } from './policy-enforcement-pipeline.js'
+import type { PolicyConformanceMode } from './policy-enforcement-pipeline.js'
 import {
   ApprovalPipelineStep,
   type BuildApprovalContextArgs,
@@ -27,6 +28,7 @@ export interface PreparePipelineArgs {
   input: AgentInput
   preferredProvider?: AdapterProviderId | undefined
   policy?: AdapterPolicy | undefined
+  policyConformanceMode?: PolicyConformanceMode | undefined
 }
 
 export class AdapterPipeline {
@@ -48,7 +50,12 @@ export class AdapterPipeline {
     if (this.ucl.enabled) {
       await this.ucl.apply(args.input)
     }
-    this.policy.applyPolicyOverrides(args.input, args.preferredProvider, args.policy)
+    this.policy.applyPolicyOverrides(
+      args.input,
+      args.preferredProvider,
+      args.policy,
+      args.policyConformanceMode,
+    )
     return args.input
   }
 

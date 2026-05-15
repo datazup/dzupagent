@@ -16,6 +16,7 @@ const HttpRoutableProviderIds = HTTP_ROUTABLE_PROVIDER_IDS as [
 ]
 
 export const AdapterProviderIdSchema = z.enum(HttpRoutableProviderIds)
+export const PolicyConformanceModeSchema = z.enum(['strict', 'warn-only'])
 
 export const RunRequestSchema = z.object({
   prompt: z.string().min(1).max(100_000),
@@ -26,6 +27,7 @@ export const RunRequestSchema = z.object({
   workingDirectory: z.string().max(4096).optional(),
   maxTurns: z.number().int().positive().max(1000).optional(),
   maxBudgetUsd: z.number().positive().max(100).optional(),
+  policyConformanceMode: PolicyConformanceModeSchema.optional(),
   options: z.record(z.string(), z.unknown()).optional(),
 })
 

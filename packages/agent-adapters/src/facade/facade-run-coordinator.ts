@@ -80,6 +80,7 @@ export async function executeRun(
     input,
     preferredProvider: policyProvider,
     policy: activePolicy,
+    policyConformanceMode: options?.policyConformanceMode,
   })
   const executionTask: TaskDescriptor = {
     ...task,
@@ -193,6 +194,7 @@ export async function* executeChatWithRaw(
     input,
     preferredProvider: policyProvider,
     policy: activePolicy,
+    policyConformanceMode: options?.policyConformanceMode,
   })
 
   const multiTurnOptions: MultiTurnOptions = {
