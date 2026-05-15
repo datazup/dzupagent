@@ -267,6 +267,33 @@ describe('ComplianceAuditLogger', () => {
     expect(denied!.result).toBe('denied')
   })
 
+  it('attach records policy conformance violations from event bus', async () => {
+    const store = new InMemoryAuditStore()
+    const logger = new ComplianceAuditLogger({ store })
+    const bus = createEventBus()
+
+    logger.attach(bus)
+
+    bus.emit({
+      type: 'policy:conformance_violation',
+      providerId: 'openai',
+      field: 'blockedTools',
+      reason: 'Provider does not support native tool blocklists',
+      severity: 'warning',
+      conformanceMode: 'warn-only',
+      fallbackBehavior: 'continue_primary_attempt',
+    } as DzupEvent)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const entries = await store.search({})
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.action).toBe('policy.conformance_violation')
+    expect(entries[0]!.details['providerId']).toBe('openai')
+    expect(entries[0]!.details['field']).toBe('blockedTools')
+    expect(entries[0]!.details['conformanceMode']).toBe('warn-only')
+  })
+
   it('redacts legacy tool input values before storing audit details', async () => {
     const store = new InMemoryAuditStore()
     const logger = new ComplianceAuditLogger({ store })
@@ -490,6 +517,19 @@ describe('Security event types', () => {
       durationUs: 42,
     }
     expect(event.type).toBe('policy:evaluated')
+  })
+
+  it('policy:conformance_violation has governance metadata', () => {
+    const event: DzupEvent = {
+      type: 'policy:conformance_violation',
+      providerId: 'openai',
+      field: 'blockedTools',
+      reason: 'Provider does not support native tool blocklists',
+      severity: 'warning',
+      conformanceMode: 'warn-only',
+      fallbackBehavior: 'continue_fallback_attempt',
+    }
+    expect(event.type).toBe('policy:conformance_violation')
   })
 
   it('safety:violation has optional agentId', () => {
