@@ -699,14 +699,39 @@ describe('OrchestratorFacade', () => {
       }
 
       expect(events.map((event) => event.type)).toContain('adapter:provider_raw')
-      expect(configureSpy).toHaveBeenCalledWith(expect.objectContaining({
-        sandboxMode: 'workspace-write',
-      }))
+      expect(configureSpy).not.toHaveBeenCalled()
       expect(getCapturedInput()).toMatchObject({
         maxTurns: 7,
         options: expect.objectContaining({
+          sandboxMode: 'workspace-write',
           approvalPolicy: 'on-failure',
           maxTurns: 7,
+        }),
+      })
+    })
+
+    it('routes provider first for policy turns when provider is omitted', async () => {
+      const { adapter, getCapturedInput } = createPolicyCapturingRawAdapter('codex')
+      const facade = createOrchestrator({
+        adapters: [adapter],
+        eventBus: bus,
+      })
+      const policy: AdapterPolicy = {
+        sandboxMode: 'workspace-write',
+        maxTurns: 4,
+      }
+
+      const events: AgentStreamEvent[] = []
+      for await (const event of facade.chatWithRaw('Use policy without provider', { policy })) {
+        events.push(event)
+      }
+
+      expect(events.map((event) => event.type)).toContain('adapter:completed')
+      expect(getCapturedInput()).toMatchObject({
+        maxTurns: 4,
+        options: expect.objectContaining({
+          sandboxMode: 'workspace-write',
+          maxTurns: 4,
         }),
       })
     })
