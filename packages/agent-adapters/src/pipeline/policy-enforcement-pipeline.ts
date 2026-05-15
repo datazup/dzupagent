@@ -15,12 +15,14 @@ import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import {
   compilePolicyForProvider,
   type AdapterPolicy,
+  type CompiledGuardrailHints,
   type CompiledPolicyOverrides,
 } from '../policy/policy-compiler.js'
 import { PolicyConformanceChecker } from '../policy/policy-conformance.js'
 import type { AdapterProviderId, AgentInput } from '../types.js'
 
 export type PolicyConformanceMode = 'strict' | 'warn-only'
+export const POLICY_GUARDRAILS_OPTION_KEY = '__policyGuardrails'
 
 export class PolicyEnforcementPipeline {
   private readonly _conformanceChecker: PolicyConformanceChecker
@@ -119,8 +121,22 @@ export class PolicyEnforcementPipeline {
     if (Object.keys(compiled.inputOptions).length > 0) {
       input.options = { ...input.options, ...compiled.inputOptions }
     }
+    if (hasGuardrailHints(compiled.guardrails)) {
+      input.options = {
+        ...input.options,
+        [POLICY_GUARDRAILS_OPTION_KEY]: { ...compiled.guardrails },
+      }
+    }
     if (compiled.guardrails.maxIterations !== undefined && input.maxTurns === undefined) {
       input.maxTurns = compiled.guardrails.maxIterations
     }
   }
+}
+
+function hasGuardrailHints(hints: CompiledGuardrailHints): boolean {
+  return (
+    hints.maxIterations !== undefined ||
+    hints.maxCostCents !== undefined ||
+    (hints.blockedTools !== undefined && hints.blockedTools.length > 0)
+  )
 }
