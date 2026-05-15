@@ -18,9 +18,11 @@ import type {
 } from '../session/session-registry.js'
 import type { AdapterPolicy } from '../policy/policy-compiler.js'
 import type {
+  AdapterProviderId,
   AgentCompletedEvent,
   AgentEvent,
   AgentStreamEvent,
+  TaskDescriptor,
 } from '../types.js'
 import { mergeAbortSignals } from '../utils/abort-signal-helpers.js'
 
@@ -66,19 +68,30 @@ export async function executeRun(
   const merged = mergeAbortSignals(options?.signal, timeoutController.signal)
 
   const input = buildRunInput(prompt, options, merged.signal)
+  const activePolicy = options?.policy ?? deps.defaultPolicy
+  const task = buildRunTask(prompt, options)
+  const policyProvider = resolvePolicyProvider({
+    preferredProvider: options?.preferredProvider,
+    activePolicy,
+    task,
+    registry: deps.registry,
+  })
   await deps.pipeline.prepare({
     input,
-    preferredProvider: options?.preferredProvider,
-    policy: options?.policy ?? deps.defaultPolicy,
+    preferredProvider: policyProvider,
+    policy: activePolicy,
   })
-  const task = buildRunTask(prompt, options)
+  const executionTask: TaskDescriptor = {
+    ...task,
+    preferredProvider: policyProvider ?? task.preferredProvider,
+  }
 
   let eventStream: AsyncGenerator<AgentEvent, void, undefined> =
-    deps.registry.executeWithFallback(input, task)
+    deps.registry.executeWithFallback(input, executionTask)
   eventStream = deps.bridge.bridge(eventStream)
   eventStream = deps.pipeline.wrapStream(eventStream, input, {
     prompt,
-    providerId: options?.preferredProvider,
+    providerId: policyProvider ?? options?.preferredProvider,
     approvalRunId: options?.approvalRunId,
     tags: options?.tags,
     requireApproval: options?.requireApproval,
@@ -118,7 +131,7 @@ export async function executeRun(
       startMs,
       timeoutMs,
       timeoutAborted: timeoutController.signal.aborted,
-      task,
+      task: executionTask,
       lastFailure,
       completion,
     })
@@ -162,16 +175,29 @@ export async function* executeChatWithRaw(
 ): AsyncGenerator<AgentStreamEvent, void, undefined> {
   const workflowId = resolveOrCreateWorkflow(deps.sessions, options?.workflowId)
   const input = buildChatInput(prompt, options)
+  const activePolicy = options?.policy ?? deps.defaultPolicy
+  const chatTask: TaskDescriptor = {
+    prompt,
+    tags: [],
+    preferredProvider: options?.provider,
+    workingDirectory: options?.workingDirectory,
+  }
+  const policyProvider = resolvePolicyProvider({
+    preferredProvider: options?.provider,
+    activePolicy,
+    task: chatTask,
+    registry: deps.registry,
+  })
 
   await deps.pipeline.prepare({
     input,
-    preferredProvider: options?.provider,
-    policy: options?.policy ?? deps.defaultPolicy,
+    preferredProvider: policyProvider,
+    policy: activePolicy,
   })
 
   const multiTurnOptions: MultiTurnOptions = {
     workflowId,
-    provider: options?.provider,
+    provider: policyProvider ?? options?.provider,
     includeHistory: options?.includeHistory ?? true,
   }
 
@@ -179,10 +205,21 @@ export async function* executeChatWithRaw(
   eventStream = deps.bridge.bridgeWithRaw(eventStream, workflowId)
   eventStream = deps.pipeline.wrapStream(eventStream, input, {
     prompt,
-    providerId: options?.provider,
+    providerId: policyProvider ?? options?.provider,
     approvalRunId: options?.approvalRunId,
     requireApproval: options?.requireApproval,
   })
 
   yield* eventStream
+}
+
+function resolvePolicyProvider(args: {
+  preferredProvider: AdapterProviderId | undefined
+  activePolicy: AdapterPolicy | undefined
+  task: TaskDescriptor
+  registry: ProviderAdapterRegistry
+}): AdapterProviderId | undefined {
+  if (args.preferredProvider) return args.preferredProvider
+  if (!args.activePolicy) return undefined
+  return args.registry.getForTask(args.task).adapter.providerId
 }

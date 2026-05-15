@@ -14,6 +14,15 @@ export type {
   MCPRouterConfig,
 } from './types.js'
 export { SSEHandler, SSEWriter } from './sse-handler.js'
+export { SSEProjectionRouter, withProjection } from './sse-projections.js'
+export type {
+  SSENamespace,
+  ProjectionContext,
+  SubagentLifecycleEvent,
+  AgentMessageEvent,
+  ToolInvocationEvent,
+  ToolResultEvent,
+} from './sse-projections.js'
 export { createAgentRouter } from './agent-router.js'
 export {
   createMcpRequestContextAuth,

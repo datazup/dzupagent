@@ -23,6 +23,8 @@ import type { AdapterProviderId, AgentInput } from '../types.js'
 
 export type PolicyConformanceMode = 'strict' | 'warn-only'
 export const POLICY_GUARDRAILS_OPTION_KEY = '__policyGuardrails'
+export const POLICY_ACTIVE_OPTION_KEY = '__activePolicy'
+export const POLICY_CONFORMANCE_MODE_OPTION_KEY = '__policyConformanceMode'
 
 export class PolicyEnforcementPipeline {
   private readonly _conformanceChecker: PolicyConformanceChecker
@@ -83,6 +85,11 @@ export class PolicyEnforcementPipeline {
     activePolicy: AdapterPolicy | undefined,
   ): void {
     if (!activePolicy) return
+    input.options = {
+      ...input.options,
+      [POLICY_ACTIVE_OPTION_KEY]: { ...activePolicy },
+      [POLICY_CONFORMANCE_MODE_OPTION_KEY]: this._conformanceMode,
+    }
 
     if (!preferredProvider) {
       throw new ForgeError({

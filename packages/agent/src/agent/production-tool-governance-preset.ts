@@ -51,6 +51,23 @@ export interface ProductionToolGovernancePresetOptions extends ProductionToolPer
   tracer?: ToolTracer
   /** Set false only when upstream scanning already occurred. Defaults to true. */
   scanToolResults?: boolean
+  /**
+   * Governed PTC (Process-Tool-Call) tools to inject into the tool loop.
+   *
+   * Pass `[createPtcTool({ governance, eventBus, runId })]` from
+   * `@dzupagent/codegen` to wire the QuickJS WASM sandbox into the agent.
+   * The tools are appended to the allowlist automatically so they inherit
+   * the full governance pipeline.
+   *
+   * PTC tools are subject to the same `blockedToolNames` / `approvalRequiredToolNames`
+   * / `rateLimits` entries as any other tool — configure via the tool name
+   * (default `'ptc'`):
+   *   ```ts
+   *   approvalRequiredToolNames: ['ptc'],
+   *   rateLimits: { ptc: 5 },
+   *   ```
+   */
+  ptcTools?: readonly StructuredToolInterface[]
 }
 
 export interface ProductionToolGovernancePreset {
@@ -59,6 +76,15 @@ export interface ProductionToolGovernancePreset {
   governance: ToolGovernance
   permissionPolicy: ToolPermissionPolicy
   toolExecution: ToolExecutionConfig
+  /**
+   * Governed PTC tools resolved from `ptcTools` option.
+   * Append these to the `tools` array passed to `runToolLoop` or the agent
+   * config to make PTC available in the tool loop:
+   *   ```ts
+   *   tools: [...yourTools, ...preset.ptcTools]
+   *   ```
+   */
+  ptcTools: readonly StructuredToolInterface[]
 }
 
 /**
@@ -102,6 +128,7 @@ export function createProductionToolGovernancePreset(
     governance,
     permissionPolicy,
     toolExecution,
+    ptcTools: options.ptcTools ?? [],
   }
 }
 
@@ -158,8 +185,12 @@ function resolveGovernance(options: ProductionToolGovernancePresetOptions): Tool
 }
 
 function resolveAllowedTools(options: ProductionToolGovernancePresetOptions): readonly string[] {
-  if (options.allowedToolNames !== undefined) return options.allowedToolNames
-  return options.tools?.map(tool => tool.name) ?? []
+  const base: string[] =
+    options.allowedToolNames !== undefined
+      ? [...options.allowedToolNames]
+      : options.tools?.map(t => t.name) ?? []
+  const ptcNames = options.ptcTools?.map(t => t.name) ?? []
+  return [...new Set([...base, ...ptcNames])]
 }
 
 export function createAllowlistPermissionPolicy(

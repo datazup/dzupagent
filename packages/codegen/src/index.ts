@@ -441,3 +441,15 @@ export {
 
 // Placeholder export to make the package valid
 export const dzupagent_CODEGEN_VERSION = '0.2.0'
+
+// --- Governed PTC (Process-Tool-Call) ---
+export { createPtcTool } from './sandbox/ptc/ptc-tool.js'
+export type { CreatePtcToolOptions } from './sandbox/ptc/ptc-tool.js'
+export { checkPtcAccess, buildBlockedPtcResult } from './sandbox/ptc/ptc-governance-adapter.js'
+export type { PtcGovernanceAdapterOptions, PtcAccessDecision } from './sandbox/ptc/ptc-governance-adapter.js'
+export type {
+  PtcLanguage,
+  PtcRequest,
+  PtcResult,
+  PtcGovernanceConfig,
+} from './sandbox/ptc/ptc-types.js'

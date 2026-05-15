@@ -25,6 +25,18 @@ import type {
   TaskRoutingStrategy,
   TokenUsage,
 } from '../types.js'
+import type { AdapterPolicy } from '../policy/policy-compiler.js'
+import { compilePolicyForProvider } from '../policy/policy-compiler.js'
+import {
+  PolicyConformanceChecker,
+  type PolicyViolation,
+} from '../policy/policy-conformance.js'
+import {
+  POLICY_ACTIVE_OPTION_KEY,
+  POLICY_CONFORMANCE_MODE_OPTION_KEY,
+  POLICY_GUARDRAILS_OPTION_KEY,
+  type PolicyConformanceMode,
+} from '../pipeline/policy-enforcement-pipeline.js'
 import {
   buildAttemptProgressEvent,
   buildFallbackOrder,
@@ -56,6 +68,7 @@ type RouterBusEvent =
 
 export class AdapterRegistryRouter {
   private strategy: TaskRoutingStrategy = new TagBasedRouter()
+  private readonly policyConformanceChecker = new PolicyConformanceChecker()
 
   constructor(
     private readonly core: AdapterRegistryCore,
@@ -171,9 +184,9 @@ export class AdapterRegistryRouter {
       effectiveTimeoutMs,
       input.signal,
     )
-    const attemptInput: AgentInput = { ...input, signal: attemptAbort.signal }
 
     try {
+      const attemptInput = this.buildAttemptInput(input, providerId, attemptAbort.signal)
       this.emit({ type: 'agent:started', agentId: providerId, runId: attemptRunId })
       const outcome = yield* runOneAttempt(adapter, attemptInput, providerId, effectiveTimeoutMs, getDidTimeout)
 
@@ -187,6 +200,80 @@ export class AdapterRegistryRouter {
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle)
     }
+  }
+
+  private buildAttemptInput(
+    baseInput: AgentInput,
+    providerId: AdapterProviderId,
+    signal: AbortSignal,
+  ): AgentInput {
+    const policy = this.readActivePolicy(baseInput)
+    const conformanceMode = this.readConformanceMode(baseInput)
+    if (!policy) return { ...baseInput, signal }
+
+    const compiled = compilePolicyForProvider(providerId, policy)
+    const result = this.policyConformanceChecker.check(providerId, policy, compiled)
+    const blockingViolations = conformanceMode === 'strict'
+      ? result.violations
+      : result.violations.filter((v) => v.severity === 'error')
+    if (blockingViolations.length > 0) {
+      throw this.createPolicyConformanceError(providerId, blockingViolations, conformanceMode)
+    }
+
+    const options = { ...(baseInput.options ?? {}) }
+    delete options['sandboxMode']
+    delete options['approvalPolicy']
+    delete options['permissionMode']
+    delete options['networkAccessEnabled']
+    delete options['maxBudgetUsd']
+    delete options['maxTurns']
+    delete options[POLICY_GUARDRAILS_OPTION_KEY]
+
+    return {
+      ...baseInput,
+      signal,
+      options: {
+        ...options,
+        ...compiled.config,
+        ...compiled.inputOptions,
+        ...(compiled.guardrails.maxIterations !== undefined ||
+        compiled.guardrails.maxCostCents !== undefined ||
+        (compiled.guardrails.blockedTools?.length ?? 0) > 0
+          ? { [POLICY_GUARDRAILS_OPTION_KEY]: { ...compiled.guardrails } }
+          : {}),
+      },
+      maxTurns: baseInput.maxTurns ?? compiled.guardrails.maxIterations,
+    }
+  }
+
+  private readActivePolicy(input: AgentInput): AdapterPolicy | undefined {
+    const raw = input.options?.[POLICY_ACTIVE_OPTION_KEY]
+    if (!raw || typeof raw !== 'object') return undefined
+    return raw as AdapterPolicy
+  }
+
+  private readConformanceMode(input: AgentInput): PolicyConformanceMode {
+    const raw = input.options?.[POLICY_CONFORMANCE_MODE_OPTION_KEY]
+    return raw === 'warn-only' ? 'warn-only' : 'strict'
+  }
+
+  private createPolicyConformanceError(
+    providerId: AdapterProviderId,
+    violations: PolicyViolation[],
+    conformanceMode: PolicyConformanceMode,
+  ): ForgeError {
+    const details = violations.map((v) => `  - ${v.field}: ${v.reason}`).join('\n')
+    return new ForgeError({
+      code: 'ADAPTER_EXECUTION_FAILED',
+      message: `Policy conformance check failed for provider '${providerId}':\n${details}`,
+      recoverable: false,
+      context: {
+        source: 'AdapterRegistryRouter.buildAttemptInput',
+        providerId,
+        conformanceMode,
+        violationCount: violations.length,
+      },
+    })
   }
 
   /** Build the per-attempt `adapter:progress` event with the appropriate fallback message. */
