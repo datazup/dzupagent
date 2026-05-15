@@ -222,6 +222,54 @@ describe('AdapterRegistryRouter', () => {
     expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'goose')).toBe(true)
     expect(captured.goose?.options?.['permissionMode']).toBe('workspace')
     expect(captured.goose?.options?.['sandboxMode']).toBe('workspace-write')
+    const legacyWarnings = events.filter((event) => (
+      event.type === 'adapter:progress' &&
+      event.phase === 'policy:legacy_option_deprecated'
+    ))
+    expect(legacyWarnings).toHaveLength(2)
+    expect(legacyWarnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        details: expect.objectContaining({
+          kind: 'policy_legacy_option_deprecated',
+          optionKey: POLICY_ACTIVE_OPTION_KEY,
+          replacement: 'policyContext',
+        }),
+      }),
+      expect.objectContaining({
+        details: expect.objectContaining({
+          kind: 'policy_legacy_option_deprecated',
+          optionKey: POLICY_CONFORMANCE_MODE_OPTION_KEY,
+          replacement: 'policyContext',
+        }),
+      }),
+    ]))
+  })
+
+  it('prefers typed policy context over legacy option keys when both are present', async () => {
+    const captured: Partial<Record<AdapterProviderId, AgentInput>> = {}
+    const router = buildRouter(
+      makeCapturingAdapter('goose', (i) => { captured.goose = i }, successEvents('goose')),
+    )
+    const mixedPolicyInput: AgentInput = {
+      prompt: 'p',
+      policyContext: {
+        activePolicy: { sandboxMode: 'read-only' },
+        conformanceMode: 'strict',
+      },
+      options: {
+        [POLICY_ACTIVE_OPTION_KEY]: { sandboxMode: 'workspace-write' },
+        [POLICY_CONFORMANCE_MODE_OPTION_KEY]: 'warn-only',
+      },
+    }
+
+    const events = await collectEvents(router.executeWithFallback(mixedPolicyInput, task))
+    expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'goose')).toBe(true)
+    expect(captured.goose?.options?.['sandboxMode']).toBe('read-only')
+    expect(captured.goose?.options?.['permissionMode']).toBe('read-only')
+    expect(events.some((event) => (
+      event.type === 'adapter:progress' &&
+      event.phase === 'policy:legacy_option_deprecated'
+    ))).toBe(false)
   })
 
   it('continues fallback when strict policy conformance blocks a provider', async () => {

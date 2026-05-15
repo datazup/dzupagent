@@ -194,4 +194,31 @@ describe('PolicyEnforcementPipeline', () => {
       }),
     )
   })
+
+  it('applyPolicyOverrides honors explicit conformance mode override over orchestrator default', () => {
+    const adapter = createMockAdapter('gemini' as AdapterProviderId)
+    registry.register(adapter)
+    const pipeline = new PolicyEnforcementPipeline(registry, undefined, 'strict')
+    const input: AgentInput = { prompt: 'hi' }
+    const policy: AdapterPolicy = { blockedTools: ['bash'] }
+
+    expect(() => pipeline.applyPolicyOverrides(
+      input,
+      'gemini' as AdapterProviderId,
+      policy,
+      'warn-only',
+    )).not.toThrow()
+    expect(input.policyContext?.conformanceMode).toBe('warn-only')
+    expect(input.options?.[POLICY_CONFORMANCE_MODE_OPTION_KEY]).toBe('warn-only')
+  })
+
+  it('compileWithConformance honors explicit conformance mode override over orchestrator default', () => {
+    const adapter = createMockAdapter('gemini' as AdapterProviderId)
+    registry.register(adapter)
+    const pipeline = new PolicyEnforcementPipeline(registry, undefined, 'warn-only')
+    const policy: AdapterPolicy = { blockedTools: ['bash'] }
+
+    expect(() => pipeline.compileWithConformance('gemini' as AdapterProviderId, policy, 'strict'))
+      .toThrow(ForgeError)
+  })
 })
