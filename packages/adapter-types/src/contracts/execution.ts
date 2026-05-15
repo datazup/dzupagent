@@ -5,6 +5,34 @@ import type { TokenUsage } from './token-usage.js'
 
 export type { TokenUsage }
 
+/** Per-run policy conformance handling mode. */
+export type AgentPolicyConformanceMode = 'strict' | 'warn-only'
+
+/** Provider-agnostic policy declaration carried on AgentInput. */
+export interface AgentInputPolicy {
+  sandboxMode?: 'read-only' | 'workspace-write' | 'full-access' | undefined
+  networkAccess?: boolean | undefined
+  approvalRequired?: boolean | undefined
+  allowedTools?: string[] | undefined
+  blockedTools?: string[] | undefined
+  maxBudgetUsd?: number | undefined
+  maxTurns?: number | undefined
+}
+
+/** Guardrail overlay derived from policy compilation/projection. */
+export interface AgentPolicyGuardrailHints {
+  maxIterations?: number | undefined
+  maxCostCents?: number | undefined
+  blockedTools?: string[] | undefined
+}
+
+/** Typed per-run policy metadata transport for execution routing. */
+export interface AgentPolicyExecutionContext {
+  activePolicy?: AgentInputPolicy | undefined
+  conformanceMode?: AgentPolicyConformanceMode | undefined
+  projectedGuardrails?: AgentPolicyGuardrailHints | undefined
+}
+
 /** Runtime capability declaration for adapter behavior. */
 export interface AdapterCapabilityProfile {
   supportsResume: boolean
@@ -42,6 +70,11 @@ export interface AgentInput {
    * Adapters that do not support structured output ignore this field.
    */
   outputSchema?: Record<string, unknown> | undefined
+  /**
+   * Typed policy metadata used by routing/pipeline layers to perform
+   * per-attempt projection and conformance handling.
+   */
+  policyContext?: AgentPolicyExecutionContext | undefined
 }
 
 /** Runtime status of optional adapter monitor integration. */

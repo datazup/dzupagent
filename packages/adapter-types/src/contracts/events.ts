@@ -127,6 +127,8 @@ export interface AgentProgressEvent {
   current?: number | undefined
   /** Total steps/iterations (if known) */
   total?: number | undefined
+  /** Optional structured progress metadata for machine consumers. */
+  details?: Record<string, unknown> | undefined
   /** Correlation ID from the originating request */
   correlationId?: string | undefined
 }

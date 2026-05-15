@@ -213,6 +213,7 @@ export class EventBusBridge {
           percentage: typeof event.percentage === 'number' ? event.percentage : 0,
           message: event.message ?? '',
           timestamp: event.timestamp,
+          ...(event.details ? { details: event.details } : {}),
         }
 
       // adapter:skills_compiled is emitted directly on the bus from orchestrator-facade.ts,

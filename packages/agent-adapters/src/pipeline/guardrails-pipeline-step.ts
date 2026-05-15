@@ -54,10 +54,19 @@ export class GuardrailsPipelineStep {
   }
 
   private readPolicyGuardrailOverlay(input: AgentInput | undefined): AdapterGuardrailsConfig | undefined {
+    const typed = input?.policyContext?.projectedGuardrails
+    if (typed && typeof typed === 'object') {
+      const fromTyped = this.normalizeGuardrailOverlay(typed as Record<string, unknown>)
+      if (fromTyped) return fromTyped
+    }
+
+    // Backward compatibility for callers that still pass policy metadata via options.
     const raw = input?.options?.[POLICY_GUARDRAILS_OPTION_KEY]
     if (!raw || typeof raw !== 'object') return undefined
+    return this.normalizeGuardrailOverlay(raw as Record<string, unknown>)
+  }
 
-    const obj = raw as Record<string, unknown>
+  private normalizeGuardrailOverlay(obj: Record<string, unknown>): AdapterGuardrailsConfig | undefined {
     const blockedTools = Array.isArray(obj['blockedTools'])
       ? obj['blockedTools'].filter((v): v is string => typeof v === 'string' && v.length > 0)
       : undefined

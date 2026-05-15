@@ -27,6 +27,16 @@ export type PlatformDomainEvent =
   | { type: 'policy:evaluated'; policySetId: string; action: string; effect: string; durationUs: number }
   | { type: 'policy:denied'; policySetId: string; action: string; principalId: string; reason: string }
   | { type: 'policy:set_updated'; policySetId: string; version: number }
+  | {
+      type: 'policy:conformance_violation'
+      providerId: string
+      field: string
+      reason: string
+      severity: 'error' | 'warning'
+      conformanceMode: 'strict' | 'warn-only'
+      fallbackBehavior: 'continue_primary_attempt' | 'continue_fallback_attempt' | 'blocked_attempt'
+      correlationId?: string
+    }
   | { type: 'safety:violation'; category: string; severity: string; agentId?: string; message: string }
   | { type: 'safety:blocked'; category: string; agentId?: string; action: string }
   | { type: 'safety:kill_requested'; agentId: string; reason: string }

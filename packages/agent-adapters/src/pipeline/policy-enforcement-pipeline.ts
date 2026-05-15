@@ -75,9 +75,12 @@ export class PolicyEnforcementPipeline {
   }
 
   /**
-   * Apply policy overrides to an AgentInput and the target adapter.
+   * Attach per-run policy context to AgentInput.
    *
-   * No-op when no policy is supplied or no adapters are registered.
+   * Router-level attempt projection is canonical; this prepare-stage step
+   * only stores typed policy metadata and guardrail hints for downstream
+   * projection/wrapping. Legacy option keys are mirrored temporarily for
+   * backward compatibility.
    */
   applyPolicyOverrides(
     input: AgentInput,
@@ -85,57 +88,41 @@ export class PolicyEnforcementPipeline {
     activePolicy: AdapterPolicy | undefined,
   ): void {
     if (!activePolicy) return
+    if (preferredProvider && !this._registry.get(preferredProvider)) {
+      throw new ForgeError({
+        code: 'ADAPTER_EXECUTION_FAILED',
+        message: `Cannot apply policy: provider '${preferredProvider}' is not registered`,
+        recoverable: false,
+        context: {
+          source: 'PolicyEnforcementPipeline.applyPolicyOverrides',
+          providerId: preferredProvider,
+        },
+      })
+    }
+
+    const guardrails = extractGuardrailHints(activePolicy)
+
+    input.policyContext = {
+      ...(input.policyContext ?? {}),
+      activePolicy: { ...activePolicy },
+      conformanceMode: this._conformanceMode,
+      ...(hasGuardrailHints(guardrails) ? { projectedGuardrails: { ...guardrails } } : {}),
+    }
+
+    // Compatibility transport for external callers still wiring option keys.
     input.options = {
-      ...input.options,
+      ...(input.options ?? {}),
       [POLICY_ACTIVE_OPTION_KEY]: { ...activePolicy },
       [POLICY_CONFORMANCE_MODE_OPTION_KEY]: this._conformanceMode,
     }
-
-    if (!preferredProvider) {
-      throw new ForgeError({
-        code: 'ADAPTER_EXECUTION_FAILED',
-        message:
-          'Per-run policy requires an explicit provider. ' +
-          'Set preferredProvider/provider so policy is compiled for the routed provider.',
-        recoverable: false,
-        context: {
-          source: 'PolicyEnforcementPipeline.applyPolicyOverrides',
-          providerSelection: 'auto',
-        },
-      })
-    }
-
-    const targetProvider = preferredProvider
-    if (!targetProvider) return
-
-    if (!this._registry.get(targetProvider)) {
-      throw new ForgeError({
-        code: 'ADAPTER_EXECUTION_FAILED',
-        message: `Cannot apply policy: provider '${targetProvider}' is not registered`,
-        recoverable: false,
-        context: {
-          source: 'PolicyEnforcementPipeline.applyPolicyOverrides',
-          providerId: targetProvider,
-        },
-      })
-    }
-
-    const compiled = this.compileWithConformance(targetProvider, activePolicy)
-    // Execution-scoped policy application: avoid mutating shared adapter instances.
-    if (Object.keys(compiled.config).length > 0) {
-      input.options = { ...input.options, ...compiled.config }
-    }
-    if (Object.keys(compiled.inputOptions).length > 0) {
-      input.options = { ...input.options, ...compiled.inputOptions }
-    }
-    if (hasGuardrailHints(compiled.guardrails)) {
+    if (hasGuardrailHints(guardrails)) {
       input.options = {
         ...input.options,
-        [POLICY_GUARDRAILS_OPTION_KEY]: { ...compiled.guardrails },
+        [POLICY_GUARDRAILS_OPTION_KEY]: { ...guardrails },
       }
     }
-    if (compiled.guardrails.maxIterations !== undefined && input.maxTurns === undefined) {
-      input.maxTurns = compiled.guardrails.maxIterations
+    if (guardrails.maxIterations !== undefined && input.maxTurns === undefined) {
+      input.maxTurns = guardrails.maxIterations
     }
   }
 }
@@ -146,4 +133,12 @@ function hasGuardrailHints(hints: CompiledGuardrailHints): boolean {
     hints.maxCostCents !== undefined ||
     (hints.blockedTools !== undefined && hints.blockedTools.length > 0)
   )
+}
+
+function extractGuardrailHints(policy: AdapterPolicy): CompiledGuardrailHints {
+  return {
+    ...(policy.maxTurns !== undefined ? { maxIterations: policy.maxTurns } : {}),
+    ...(policy.maxBudgetUsd !== undefined ? { maxCostCents: Math.round(policy.maxBudgetUsd * 100) } : {}),
+    ...(policy.blockedTools && policy.blockedTools.length > 0 ? { blockedTools: [...policy.blockedTools] } : {}),
+  }
 }
