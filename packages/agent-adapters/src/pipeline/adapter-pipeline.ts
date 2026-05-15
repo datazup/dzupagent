@@ -58,10 +58,12 @@ export class AdapterPipeline {
    */
   wrapStream<T extends AgentEvent | AgentStreamEvent>(
     stream: AsyncGenerator<T, void, undefined>,
+    input: AgentInput,
     approvalArgs: BuildApprovalContextArgs & { requireApproval: boolean | undefined },
   ): AsyncGenerator<T, void, undefined> {
     const wrappedByGuardrails = this.guardrails.wrap(
       stream as AsyncGenerator<AgentStreamEvent, void, undefined>,
+      input,
     ) as AsyncGenerator<T, void, undefined>
     return this.approval.wrap(wrappedByGuardrails, approvalArgs)
   }

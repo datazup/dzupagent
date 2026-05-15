@@ -76,7 +76,7 @@ export async function executeRun(
   let eventStream: AsyncGenerator<AgentEvent, void, undefined> =
     deps.registry.executeWithFallback(input, task)
   eventStream = deps.bridge.bridge(eventStream)
-  eventStream = deps.pipeline.wrapStream(eventStream, {
+  eventStream = deps.pipeline.wrapStream(eventStream, input, {
     prompt,
     providerId: options?.preferredProvider,
     approvalRunId: options?.approvalRunId,
@@ -177,7 +177,7 @@ export async function* executeChatWithRaw(
 
   let eventStream = deps.sessions.executeMultiTurnWithRaw(input, multiTurnOptions, deps.registry)
   eventStream = deps.bridge.bridgeWithRaw(eventStream, workflowId)
-  eventStream = deps.pipeline.wrapStream(eventStream, {
+  eventStream = deps.pipeline.wrapStream(eventStream, input, {
     prompt,
     providerId: options?.provider,
     approvalRunId: options?.approvalRunId,

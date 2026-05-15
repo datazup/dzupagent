@@ -7,8 +7,10 @@
  */
 
 import type { CostTrackingMiddleware } from '../middleware/cost-tracking.js'
-import type { AdapterGuardrails } from '../guardrails/adapter-guardrails.js'
-import type { AgentStreamEvent } from '../types.js'
+import { AdapterGuardrails } from '../guardrails/adapter-guardrails.js'
+import type { AdapterGuardrailsConfig } from '../guardrails/adapter-guardrails-types.js'
+import type { AgentInput, AgentStreamEvent } from '../types.js'
+import { POLICY_GUARDRAILS_OPTION_KEY } from './policy-enforcement-pipeline.js'
 
 export class GuardrailsPipelineStep {
   constructor(
@@ -30,6 +32,7 @@ export class GuardrailsPipelineStep {
    */
   wrap<T extends AgentStreamEvent>(
     stream: AsyncGenerator<T, void, undefined>,
+    input?: AgentInput,
   ): AsyncGenerator<T, void, undefined> {
     let wrapped = stream
 
@@ -41,6 +44,38 @@ export class GuardrailsPipelineStep {
       wrapped = this._guardrails.wrap(wrapped) as AsyncGenerator<T, void, undefined>
     }
 
+    const overlayConfig = this.readPolicyGuardrailOverlay(input)
+    if (overlayConfig) {
+      const overlay = new AdapterGuardrails(overlayConfig)
+      wrapped = overlay.wrap(wrapped) as AsyncGenerator<T, void, undefined>
+    }
+
     return wrapped
+  }
+
+  private readPolicyGuardrailOverlay(input: AgentInput | undefined): AdapterGuardrailsConfig | undefined {
+    const raw = input?.options?.[POLICY_GUARDRAILS_OPTION_KEY]
+    if (!raw || typeof raw !== 'object') return undefined
+
+    const obj = raw as Record<string, unknown>
+    const blockedTools = Array.isArray(obj['blockedTools'])
+      ? obj['blockedTools'].filter((v): v is string => typeof v === 'string' && v.length > 0)
+      : undefined
+    const maxIterations = typeof obj['maxIterations'] === 'number' ? obj['maxIterations'] : undefined
+    const maxCostCents = typeof obj['maxCostCents'] === 'number' ? obj['maxCostCents'] : undefined
+
+    if (
+      maxIterations === undefined &&
+      maxCostCents === undefined &&
+      (blockedTools === undefined || blockedTools.length === 0)
+    ) {
+      return undefined
+    }
+
+    return {
+      ...(maxIterations !== undefined ? { maxIterations } : {}),
+      ...(maxCostCents !== undefined ? { maxCostCents } : {}),
+      ...(blockedTools && blockedTools.length > 0 ? { blockedTools } : {}),
+    }
   }
 }
