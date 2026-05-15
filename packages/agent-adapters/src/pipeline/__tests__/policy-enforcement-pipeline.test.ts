@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { ForgeError } from '@dzupagent/core'
 
 import { ProviderAdapterRegistry } from '../../registry/adapter-registry.js'
-import { PolicyEnforcementPipeline } from '../policy-enforcement-pipeline.js'
+import {
+  PolicyEnforcementPipeline,
+  POLICY_GUARDRAILS_OPTION_KEY,
+} from '../policy-enforcement-pipeline.js'
 import type { AdapterPolicy } from '../../policy/policy-compiler.js'
 import type {
   AdapterProviderId,
@@ -112,6 +115,9 @@ describe('PolicyEnforcementPipeline', () => {
     pipeline.applyPolicyOverrides(input, 'codex' as AdapterProviderId, policy)
 
     expect(input.maxTurns).toBe(7)
+    expect(input.options?.[POLICY_GUARDRAILS_OPTION_KEY]).toEqual(
+      expect.objectContaining({ maxIterations: 7 }),
+    )
   })
 
   it('preserves caller-supplied maxTurns over policy guardrails', () => {
@@ -161,5 +167,11 @@ describe('PolicyEnforcementPipeline', () => {
     expect(() => pipeline.applyPolicyOverrides(input, 'gemini' as AdapterProviderId, policy))
       .not.toThrow()
     expect(input.maxTurns).toBe(3)
+    expect(input.options?.[POLICY_GUARDRAILS_OPTION_KEY]).toEqual(
+      expect.objectContaining({
+        maxIterations: 3,
+        blockedTools: ['bash'],
+      }),
+    )
   })
 })

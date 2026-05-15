@@ -87,7 +87,7 @@ describe('AdapterPipeline', () => {
     const { pipeline, guardrails, approval } = buildPipeline()
     const grSpy = vi.spyOn(guardrails, 'wrap')
     const apSpy = vi.spyOn(approval, 'wrap')
-    const wrapped = pipeline.wrapStream(sampleStream(), {
+    const wrapped = pipeline.wrapStream(sampleStream(), { prompt: 'p' }, {
       prompt: 'p',
       requireApproval: undefined,
     })
@@ -104,7 +104,7 @@ describe('AdapterPipeline', () => {
   it('wrapStream() returns the source unchanged when no wrappers are active', async () => {
     const { pipeline } = buildPipeline()
     const out: AgentStreamEvent[] = []
-    for await (const e of pipeline.wrapStream(sampleStream(), {
+    for await (const e of pipeline.wrapStream(sampleStream(), { prompt: 'p' }, {
       prompt: 'p',
       requireApproval: undefined,
     })) {
