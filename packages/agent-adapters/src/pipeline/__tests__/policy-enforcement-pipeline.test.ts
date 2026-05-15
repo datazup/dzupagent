@@ -61,17 +61,15 @@ describe('PolicyEnforcementPipeline', () => {
     expect(input.maxTurns).toBeUndefined()
   })
 
-  it('is a no-op when no adapters are registered', () => {
+  it('fails closed when policy is supplied without an explicit provider', () => {
     const pipeline = new PolicyEnforcementPipeline(registry)
     const input: AgentInput = { prompt: 'hi' }
     const policy: AdapterPolicy = { sandboxMode: 'workspace-write', maxTurns: 5 }
 
-    pipeline.applyPolicyOverrides(input, undefined, policy)
-
-    expect(input.maxTurns).toBeUndefined()
+    expect(() => pipeline.applyPolicyOverrides(input, undefined, policy)).toThrow(ForgeError)
   })
 
-  it('applies compiled adapter config to the target adapter', () => {
+  it('applies compiled adapter config as per-run input options (no adapter mutation)', () => {
     const adapter = createMockAdapter('codex' as AdapterProviderId)
     registry.register(adapter)
     const pipeline = new PolicyEnforcementPipeline(registry)
@@ -80,9 +78,11 @@ describe('PolicyEnforcementPipeline', () => {
 
     pipeline.applyPolicyOverrides(input, 'codex' as AdapterProviderId, policy)
 
-    expect(adapter.__configured.length).toBeGreaterThan(0)
-    expect(adapter.__configured[0]).toEqual(
-      expect.objectContaining({ sandboxMode: 'workspace-write' }),
+    expect(adapter.__configured).toHaveLength(0)
+    expect(input.options).toEqual(
+      expect.objectContaining({
+        sandboxMode: 'workspace-write',
+      }),
     )
   })
 
@@ -139,5 +139,27 @@ describe('PolicyEnforcementPipeline', () => {
 
     expect(() => pipeline.compileWithConformance('codex' as AdapterProviderId, policy))
       .toThrow(ForgeError)
+  })
+
+  it('strict mode treats warning violations as blocking', () => {
+    const adapter = createMockAdapter('gemini' as AdapterProviderId)
+    registry.register(adapter)
+    const pipeline = new PolicyEnforcementPipeline(registry)
+    const policy: AdapterPolicy = { blockedTools: ['bash'] }
+
+    expect(() => pipeline.compileWithConformance('gemini' as AdapterProviderId, policy))
+      .toThrow(ForgeError)
+  })
+
+  it('warn-only mode allows warning-only violations', () => {
+    const adapter = createMockAdapter('gemini' as AdapterProviderId)
+    registry.register(adapter)
+    const pipeline = new PolicyEnforcementPipeline(registry, undefined, 'warn-only')
+    const input: AgentInput = { prompt: 'hi' }
+    const policy: AdapterPolicy = { blockedTools: ['bash'], maxTurns: 3 }
+
+    expect(() => pipeline.applyPolicyOverrides(input, 'gemini' as AdapterProviderId, policy))
+      .not.toThrow()
+    expect(input.maxTurns).toBe(3)
   })
 })
