@@ -194,8 +194,8 @@ export class SSEProjectionRouter {
         type: 'tool_invocation',
         toolName: (data['name'] as string) ?? '',
         args: data['args'],
-        agentId: ctx.agentId,
-        agentRole: ctx.agentRole,
+        ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
+        ...(ctx.agentRole ? { agentRole: ctx.agentRole } : {}),
         ts,
       }
       this.writer.write({ type: 'tool_invocation', data: invocation })
@@ -204,8 +204,8 @@ export class SSEProjectionRouter {
         type: 'tool_result_projection',
         toolName: (data['name'] as string) ?? '',
         result: data['result'],
-        agentId: ctx.agentId,
-        agentRole: ctx.agentRole,
+        ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
+        ...(ctx.agentRole ? { agentRole: ctx.agentRole } : {}),
         ts,
       }
       this.writer.write({ type: 'tool_result_projection', data: result })
@@ -224,7 +224,7 @@ export class SSEProjectionRouter {
       agentEvent = {
         type: 'agent_text',
         agentId: ctx.agentId ?? 'unknown',
-        agentRole: ctx.agentRole,
+        ...(ctx.agentRole ? { agentRole: ctx.agentRole } : {}),
         content: (data['content'] as string) ?? '',
         ts,
       }
@@ -232,7 +232,7 @@ export class SSEProjectionRouter {
       agentEvent = {
         type: 'agent_tool_call',
         agentId: ctx.agentId ?? 'unknown',
-        agentRole: ctx.agentRole,
+        ...(ctx.agentRole ? { agentRole: ctx.agentRole } : {}),
         toolName: (data['name'] as string) ?? '',
         args: data['args'],
         ts,
@@ -241,7 +241,7 @@ export class SSEProjectionRouter {
       agentEvent = {
         type: 'agent_tool_result',
         agentId: ctx.agentId ?? 'unknown',
-        agentRole: ctx.agentRole,
+        ...(ctx.agentRole ? { agentRole: ctx.agentRole } : {}),
         toolName: (data['name'] as string) ?? '',
         result: data['result'],
         ts,
