@@ -208,19 +208,38 @@ export class MemoryService {
    * hooks without risking the primary agent result. The underlying
    * ConsolidationEngine handles empty/unsupported stores gracefully; this
    * wrapper adds namespace validation and telemetry.
+   *
+   * `scope` MUST include a non-empty `tenantId` (AG-02 enforcement).
+   * Pass `{ tenantId, ...otherKeys }` — the legacy free-form string
+   * overload is no longer accepted.
    */
   async consolidateAfterRun(
     runId: string,
-    scope: string,
+    scope: { readonly tenantId: string } & Record<string, string>,
     namespace: string,
   ): Promise<ConsolidationResult> {
     const startedAt = Date.now()
 
+    // AG-02: tenantId must be present and non-empty so consolidation is
+    // always scoped to the correct tenant.
+    if (!scope?.tenantId || scope.tenantId.trim() === '') {
+      throw new Error(
+        'MemoryService.consolidateAfterRun: scope.tenantId is required. ' +
+        'Omitting it would consolidate across tenant boundaries (AG-02).',
+      )
+    }
+
     try {
       getNamespace(this.nsMap, namespace)
       const engine = new ConsolidationEngine(this.options?.consolidation)
+      // Build a canonical scope string: tenantId is always the first segment,
+      // followed by any additional scope keys in sorted order.
+      const extraKeys = Object.keys(scope)
+        .filter(k => k !== 'tenantId')
+        .sort()
+      const scopeStr = [scope.tenantId, ...extraKeys.map(k => scope[k])].join(':')
       const result = await engine.consolidate(
-        scope,
+        scopeStr,
         namespace,
         this.store as unknown as ConsolidationStore,
       )

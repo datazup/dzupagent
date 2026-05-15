@@ -221,6 +221,8 @@ export type HttpNode = FlowNodeBase & {
   body?: Record<string, unknown>
   /** State key for the response body (default: node id or "httpResponse"). */
   outputVar?: string
+  /** Request timeout in milliseconds. Defaults to 30 000 ms when unset. */
+  timeoutMs?: number
 }
 /** Time-based delay / sleep before continuing. */
 export type WaitNode = FlowNodeBase & {

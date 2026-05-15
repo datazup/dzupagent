@@ -67,5 +67,6 @@ export function parseHttp(
   }
 
   if (typeof obj.outputVar === 'string') node.outputVar = obj.outputVar
+  if (typeof obj.timeoutMs === 'number' && obj.timeoutMs > 0) node.timeoutMs = obj.timeoutMs
   return node
 }
