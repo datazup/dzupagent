@@ -80,7 +80,19 @@ describe('AdapterPipeline', () => {
     const applySpy = vi.spyOn(policy, 'applyPolicyOverrides')
     const input: AgentInput = { prompt: 'p' }
     await pipeline.prepare({ input, preferredProvider: 'codex' as AdapterProviderId })
-    expect(applySpy).toHaveBeenCalledWith(input, 'codex', undefined)
+    expect(applySpy).toHaveBeenCalledWith(input, 'codex', undefined, undefined)
+  })
+
+  it('prepare() forwards policy conformance mode overrides', async () => {
+    const { pipeline, policy } = buildPipeline()
+    const applySpy = vi.spyOn(policy, 'applyPolicyOverrides')
+    const input: AgentInput = { prompt: 'p' }
+    await pipeline.prepare({
+      input,
+      preferredProvider: 'codex' as AdapterProviderId,
+      policyConformanceMode: 'warn-only',
+    })
+    expect(applySpy).toHaveBeenCalledWith(input, 'codex', undefined, 'warn-only')
   })
 
   it('wrapStream() routes through guardrails and approval in order', async () => {

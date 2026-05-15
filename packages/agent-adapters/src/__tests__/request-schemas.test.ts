@@ -35,6 +35,7 @@ describe('RunRequestSchema', () => {
       tags: ['test'],
       preferredProvider: 'claude',
       stream: true,
+      policyConformanceMode: 'warn-only',
     })
     expect(result.success).toBe(true)
   })
@@ -76,6 +77,14 @@ describe('RunRequestSchema', () => {
     const result = RunRequestSchema.safeParse({
       prompt: 'Hello',
       maxTurns: 1001,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects invalid policyConformanceMode', () => {
+    const result = RunRequestSchema.safeParse({
+      prompt: 'Hello',
+      policyConformanceMode: 'relaxed',
     })
     expect(result.success).toBe(false)
   })

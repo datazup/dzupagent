@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import { ForgeError } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+import { ComplianceAuditLogger, InMemoryAuditStore } from '@dzupagent/core/security'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -910,6 +911,93 @@ describe('OrchestratorFacade', () => {
           fallbackBehavior: 'blocked_attempt',
         }),
       ]))
+    })
+
+    it('supports default warn-only conformance mode via orchestrator config', async () => {
+      const facade = createOrchestrator({
+        adapters: [createMockAdapter('openai', 'OpenAI result'), createMockAdapter('codex', 'Codex result')],
+        eventBus: bus,
+        policyConformanceMode: 'warn-only',
+      })
+
+      const seenTypes: string[] = []
+      for await (const event of facade.chatWithRaw('Warn-only policy run', {
+        policy: { networkAccess: false },
+      })) {
+        seenTypes.push(event.type)
+      }
+
+      expect(seenTypes).toContain('adapter:completed')
+      expect(seenTypes).not.toContain('adapter:failed')
+      expect(emitted).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: 'policy:conformance_violation',
+          providerId: 'openai',
+          conformanceMode: 'warn-only',
+          fallbackBehavior: 'continue_primary_attempt',
+        }),
+      ]))
+    })
+
+    it('allows per-run strict override when orchestrator default is warn-only', async () => {
+      const facade = createOrchestrator({
+        adapters: [createMockAdapter('openai', 'OpenAI result'), createMockAdapter('codex', 'Codex result')],
+        eventBus: bus,
+        policyConformanceMode: 'warn-only',
+      })
+
+      const seenTypes: string[] = []
+      for await (const event of facade.chatWithRaw('Strict override policy run', {
+        policy: { networkAccess: false },
+        policyConformanceMode: 'strict',
+      })) {
+        seenTypes.push(event.type)
+      }
+
+      expect(seenTypes).toContain('adapter:failed')
+      expect(seenTypes).toContain('adapter:completed')
+      expect(emitted).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: 'policy:conformance_violation',
+          providerId: 'openai',
+          conformanceMode: 'strict',
+          fallbackBehavior: 'blocked_attempt',
+        }),
+      ]))
+    })
+
+    it('persists conformance governance records across fallback attempts when audit logger is attached', async () => {
+      const store = new InMemoryAuditStore()
+      const auditLogger = new ComplianceAuditLogger({ store })
+      auditLogger.attach(bus)
+
+      const facade = createOrchestrator({
+        adapters: [createMockAdapter('openai', 'OpenAI result'), createMockAdapter('codex', 'Codex result')],
+        eventBus: bus,
+      })
+
+      for await (const _event of facade.chatWithRaw('Strict policy fallback with audit persistence', {
+        policy: { networkAccess: false },
+        policyConformanceMode: 'strict',
+      })) {
+        // consume stream to completion
+      }
+
+      // audit writes are fire-and-forget; allow event handler flush.
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      const entries = await store.search({})
+      const conformanceEntries = entries.filter((entry) => entry.action === 'policy.conformance_violation')
+
+      expect(conformanceEntries).toHaveLength(1)
+      expect(conformanceEntries[0]!.details).toEqual(expect.objectContaining({
+        providerId: 'openai',
+        conformanceMode: 'strict',
+        fallbackBehavior: 'blocked_attempt',
+      }))
+      expect(entries.some((entry) => (
+        entry.action === 'agent.completed' &&
+        entry.details['agentId'] === 'codex'
+      ))).toBe(true)
     })
   })
 })
