@@ -50,6 +50,15 @@ export { createManifest, serializeManifest } from './plugin/plugin-manifest.js'
 // --- LLM ---
 export { ModelRegistry } from './llm/model-registry.js'
 export type { ModelFallbackCandidate } from './llm/model-registry.js'
+export { HarnessProfileRegistry } from './llm/harness-profile.js'
+export type {
+  HarnessProfile,
+  ResolvedHarnessOverrides,
+  SystemPromptOverride,
+  ToolVisibilityOverride,
+  MiddlewareOverride,
+  SubagentConfigOverride,
+} from './llm/harness-profile.js'
 export type {
   KnownLLMProvider,
   LLMProviderConfig,
@@ -177,7 +186,7 @@ export type {
   RunJournalConfig,
 } from './persistence/run-journal-types.js'
 
-// --- Run State Snapshot (MC-AGT-04 Phase 1) ---
+// --- Run State Snapshot ---
 export { InMemoryRunStateStore } from './persistence/in-memory-run-state-store.js'
 export type {
   DzupRunState,
@@ -185,6 +194,19 @@ export type {
   BudgetSnapshot,
   StuckDetectorSnapshot,
 } from './persistence/run-state-store.js'
+export { DeltaRunStateStore } from './persistence/delta-run-state-store.js'
+export type { DeltaRunStateStoreOptions } from './persistence/delta-run-state-store.js'
+
+// --- Versioned Context Backend ---
+export { InMemoryVersionedContextBackend } from './persistence/versioned-context-backend.js'
+export type {
+  VersionedContextBackend,
+  ContextArtifact,
+  ContextArtifactQuery,
+  ContextKind,
+  ContextStage,
+  PromoteOptions,
+} from './persistence/versioned-context-backend.js'
 
 // --- Run Record Persistence (legacy low-level LLM execution records) ---
 export { InMemoryRunRecordStore } from './persistence/in-memory-run-store.js'

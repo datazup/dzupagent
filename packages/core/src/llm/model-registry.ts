@@ -16,6 +16,7 @@ import { isTransientError } from './retry.js'
 import type { RegistryMiddleware } from './registry-middleware.js'
 import type { EmbeddingRegistry } from './embedding-registry.js'
 import { createDefaultEmbeddingRegistry } from './embedding-registry.js'
+import type { HarnessProfileRegistry, ResolvedHarnessOverrides } from './harness-profile.js'
 import {
   attachStructuredOutputCapabilities,
   getProviderStructuredOutputDefaults,
@@ -175,6 +176,7 @@ export class ModelRegistry {
   private breakers = new Map<string, CircuitBreaker>()
   private breakerConfig?: Partial<CircuitBreakerConfig>
   private middlewares: RegistryMiddleware[] = []
+  private harnessProfileRegistry: HarnessProfileRegistry | undefined
 
   /** Pre-loaded embedding model registry */
   readonly embeddings: EmbeddingRegistry = createDefaultEmbeddingRegistry()
@@ -205,6 +207,25 @@ export class ModelRegistry {
   setCircuitBreakerConfig(config: Partial<CircuitBreakerConfig>): this {
     this.breakerConfig = config
     return this
+  }
+
+  /** Attach a HarnessProfileRegistry for per-model policy resolution. */
+  setHarnessProfileRegistry(registry: HarnessProfileRegistry): this {
+    this.harnessProfileRegistry = registry
+    return this
+  }
+
+  /**
+   * Resolve harness overrides for the given provider/model/tier combination.
+   * Returns undefined if no HarnessProfileRegistry is configured or no
+   * matching profile exists.
+   */
+  resolveHarnessOverrides(params: {
+    provider: string
+    modelName: string
+    tier?: ModelTier
+  }): ResolvedHarnessOverrides | undefined {
+    return this.harnessProfileRegistry?.resolve(params)
   }
 
   /** Get or create circuit breaker for a provider */
