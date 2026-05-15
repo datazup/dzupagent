@@ -62,7 +62,7 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
 
     const result = await svc.consolidateAfterRun(
       'run-123',
-      'tenant-1',
+      { tenantId: 'tenant-1' },
       'observations',
     )
 
@@ -90,7 +90,7 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
 
     const result = await svc.consolidateAfterRun(
       'run-empty',
-      'tenant-1',
+      { tenantId: 'tenant-1' },
       'observations',
     )
 
@@ -116,7 +116,7 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
 
     const result = await svc.consolidateAfterRun(
       'run-x',
-      'tenant-1',
+      { tenantId: 'tenant-1' },
       'observations',
     )
 
@@ -135,7 +135,7 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
 
     const result = await svc.consolidateAfterRun(
       'run-2',
-      'tenant-1',
+      { tenantId: 'tenant-1' },
       'observations',
     )
 
@@ -160,7 +160,7 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
       agentId: 'agent-x',
     })
 
-    await svc.consolidateAfterRun('run-evt', 'tenant-1', 'observations')
+    await svc.consolidateAfterRun('run-evt', { tenantId: 'tenant-1' }, 'observations')
 
     const consolidated = events.find((e) => e.type === 'memory:consolidated')
     expect(consolidated).toBeDefined()
@@ -169,7 +169,7 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
       agentId: 'agent-x',
       runId: 'run-evt',
       namespace: 'observations',
-      scope: 'tenant-1',
+      scope: { tenantId: 'tenant-1' },
       summarized: 3,
     })
   })
@@ -192,7 +192,7 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
 
     const result = await svc.consolidateAfterRun(
       'run-fail',
-      'tenant-1',
+      { tenantId: 'tenant-1' },
       'observations',
     )
 
@@ -201,5 +201,52 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
     // wiring must never throw to the caller.
     expect(result.summarized).toBe(0)
     expect(result.summaries).toEqual([])
+  })
+
+  // ---- AG-02 regression: tenantId required in scope ----------------------
+
+  it('throws synchronously when scope.tenantId is missing (AG-02)', async () => {
+    const backing = makeStore()
+    const svc = new MemoryService(backing.store, namespaces)
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(svc.consolidateAfterRun('run-x', {} as any, 'observations'))
+      .rejects.toThrow('scope.tenantId is required')
+
+    // Store must never be touched when tenantId is absent
+    expect(backing.search).not.toHaveBeenCalled()
+    expect(backing.put).not.toHaveBeenCalled()
+  })
+
+  it('throws when scope.tenantId is an empty string (AG-02)', async () => {
+    const backing = makeStore()
+    const svc = new MemoryService(backing.store, namespaces)
+
+    await expect(
+      svc.consolidateAfterRun('run-x', { tenantId: '  ' }, 'observations'),
+    ).rejects.toThrow('scope.tenantId is required')
+
+    expect(backing.search).not.toHaveBeenCalled()
+  })
+
+  it('accepts extra scope keys and includes them in the consolidated scope string', async () => {
+    const backing = makeStore([
+      { key: 'task:a', value: { text: 'task A done' } },
+      { key: 'task:b', value: { text: 'task B done' } },
+      { key: 'task:c', value: { text: 'task C done' } },
+    ])
+    const svc = new MemoryService(backing.store, namespaces, {
+      consolidation: { minClusterSize: 2 },
+    })
+
+    // tenantId + projectId — extra key should not break the call
+    const result = await svc.consolidateAfterRun(
+      'run-proj',
+      { tenantId: 'tenant-1', projectId: 'proj-abc' },
+      'observations',
+    )
+
+    expect(result.summarized).toBe(3)
+    expect(backing.search).toHaveBeenCalled()
   })
 })
