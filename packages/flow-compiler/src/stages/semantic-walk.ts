@@ -114,7 +114,23 @@ export async function visit(node: FlowNode, path: string, ctx: WalkContext): Pro
     case 'complete': {
       return
     }
-    case 'spawn':
+    case 'spawn': {
+      // waitForCompletion=true is not yet implemented in the Codev FlowRuntime.
+      // Warn at compile time so authors know before runtime.
+      if (node.waitForCompletion === true) {
+        ctx.warnings.push({
+          nodeType: node.type,
+          nodePath: `${path}.waitForCompletion`,
+          code: 'MISSING_REQUIRED_FIELD',
+          message:
+            `spawn node "${node.id ?? node.templateRef}": waitForCompletion=true is not yet implemented — ` +
+            `the spawn will fire-and-forget at runtime regardless. ` +
+            `Remove waitForCompletion or set it to false to silence this warning.`,
+          category: 'policy',
+        })
+      }
+      return
+    }
     case 'classify':
     case 'emit':
     case 'memory':
