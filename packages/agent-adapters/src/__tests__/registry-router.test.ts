@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ForgeError } from '@dzupagent/core'
 import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent } from '@dzupagent/core'
@@ -207,7 +207,7 @@ describe('AdapterRegistryRouter', () => {
 
   it('supports legacy option-key policy metadata for compatibility', async () => {
     const captured: Partial<Record<AdapterProviderId, AgentInput>> = {}
-    const router = buildRouter(
+    const { router, emitted } = buildRouterWithBus(
       makeCapturingAdapter('goose', (i) => { captured.goose = i }, successEvents('goose')),
     )
     const legacyPolicyInput: AgentInput = {
@@ -243,6 +243,20 @@ describe('AdapterRegistryRouter', () => {
         }),
       }),
     ]))
+    expect(emitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'policy:legacy_option_deprecated',
+        providerId: 'goose',
+        optionKey: POLICY_ACTIVE_OPTION_KEY,
+        replacement: 'policyContext',
+      }),
+      expect.objectContaining({
+        type: 'policy:legacy_option_deprecated',
+        providerId: 'goose',
+        optionKey: POLICY_CONFORMANCE_MODE_OPTION_KEY,
+        replacement: 'policyContext',
+      }),
+    ]))
   })
 
   it('prefers typed policy context over legacy option keys when both are present', async () => {
@@ -270,6 +284,28 @@ describe('AdapterRegistryRouter', () => {
       event.type === 'adapter:progress' &&
       event.phase === 'policy:legacy_option_deprecated'
     ))).toBe(false)
+  })
+
+  it('strict migration mode rejects legacy option-key policy metadata', async () => {
+    vi.stubEnv('DZUP_STRICT_POLICY_CONTEXT', '1')
+    try {
+      const router = buildRouter(
+        makeAdapter('goose', successEvents('goose')),
+      )
+      const legacyPolicyInput: AgentInput = {
+        prompt: 'p',
+        options: {
+          [POLICY_ACTIVE_OPTION_KEY]: { sandboxMode: 'workspace-write' },
+          [POLICY_CONFORMANCE_MODE_OPTION_KEY]: 'strict',
+        },
+      }
+
+      await expect(collectEvents(router.executeWithFallback(legacyPolicyInput, task))).rejects.toThrow(
+        'Legacy policy option keys are disallowed in strict migration mode',
+      )
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('continues fallback when strict policy conformance blocks a provider', async () => {

@@ -294,6 +294,30 @@ describe('ComplianceAuditLogger', () => {
     expect(entries[0]!.details['conformanceMode']).toBe('warn-only')
   })
 
+  it('attach records policy legacy-option deprecation events from event bus', async () => {
+    const store = new InMemoryAuditStore()
+    const logger = new ComplianceAuditLogger({ store })
+    const bus = createEventBus()
+
+    logger.attach(bus)
+
+    bus.emit({
+      type: 'policy:legacy_option_deprecated',
+      providerId: 'openai',
+      optionKey: '__activePolicy',
+      replacement: 'policyContext',
+    } as DzupEvent)
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const entries = await store.search({})
+    expect(entries).toHaveLength(1)
+    expect(entries[0]!.action).toBe('policy.legacy_option_deprecated')
+    expect(entries[0]!.result).toBe('success')
+    expect(entries[0]!.details['optionKey']).toBe('__activePolicy')
+    expect(entries[0]!.details['replacement']).toBe('policyContext')
+  })
+
   it('redacts legacy tool input values before storing audit details', async () => {
     const store = new InMemoryAuditStore()
     const logger = new ComplianceAuditLogger({ store })
@@ -530,6 +554,16 @@ describe('Security event types', () => {
       fallbackBehavior: 'continue_fallback_attempt',
     }
     expect(event.type).toBe('policy:conformance_violation')
+  })
+
+  it('policy:legacy_option_deprecated has migration metadata', () => {
+    const event: DzupEvent = {
+      type: 'policy:legacy_option_deprecated',
+      providerId: 'openai',
+      optionKey: '__activePolicy',
+      replacement: 'policyContext',
+    }
+    expect(event.type).toBe('policy:legacy_option_deprecated')
   })
 
   it('safety:violation has optional agentId', () => {
