@@ -59,6 +59,16 @@ export class MCPMemoryHandler {
   >
 
   constructor(services: MCPMemoryServices) {
+    // AG-02: Enforce tenantId at construction time so every tool call is
+    // automatically scoped to the correct tenant.  Fail fast rather than
+    // silently allowing cross-tenant reads during a session.
+    const tid = services.defaultScope?.tenantId
+    if (!tid || typeof tid !== 'string' || tid.trim() === '') {
+      throw new Error(
+        'MCPMemoryHandler: services.defaultScope.tenantId is required and must be a non-empty string. ' +
+        'Omitting it would allow cross-tenant memory access (AG-02).',
+      )
+    }
     this.handlers = buildDispatchTable(services)
   }
 

@@ -31,13 +31,24 @@ export interface MCPToolResult {
   isError?: boolean | undefined
 }
 
-/** Services needed by the MCP memory handler. */
+/**
+ * Services needed by the MCP memory handler.
+ *
+ * `defaultScope` MUST include a non-empty `tenantId`.  The
+ * `MCPMemoryHandler` constructor enforces this at runtime so that every
+ * tool invocation is automatically isolated to the correct tenant and
+ * cross-tenant reads are structurally impossible (AG-02).
+ */
 export interface MCPMemoryServices {
   memory: MemoryService
   temporal?: TemporalMemoryService | undefined
   relationships?: RelationshipStore | undefined
-  /** Default scope for all operations */
-  defaultScope: Record<string, string>
+  /**
+   * Default scope applied to every memory operation.
+   * Must carry a non-empty `tenantId` — omitting it or passing an empty
+   * string will cause `MCPMemoryHandler` to throw at construction time.
+   */
+  defaultScope: { readonly tenantId: string } & Record<string, string>
   /** Default namespace */
   defaultNamespace: string
 }

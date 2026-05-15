@@ -56,5 +56,19 @@ export function validateHttp(
   }
 
   if (typeof obj['outputVar'] === 'string') node.outputVar = obj['outputVar']
+
+  if ('timeoutMs' in obj && obj['timeoutMs'] !== undefined) {
+    const t = obj['timeoutMs']
+    if (typeof t === 'number' && Number.isInteger(t) && t > 0) {
+      node.timeoutMs = t
+    } else {
+      issues.push({
+        path: joinPath(path, 'timeoutMs'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: `http.timeoutMs must be a positive integer when present, received ${describeJsType(t)}`,
+      })
+    }
+  }
+
   return node
 }
