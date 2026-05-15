@@ -44,6 +44,7 @@ function makeProfile(overrides?: Partial<ProviderProfile>): ProviderProfile {
     specialties: ['code'],
     weaknesses: [],
     trend: 'stable',
+    skillMetrics: [],
     ...overrides,
   }
 }
