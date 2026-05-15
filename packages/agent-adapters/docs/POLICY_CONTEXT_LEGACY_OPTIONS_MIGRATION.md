@@ -10,6 +10,7 @@ This note tracks deprecation of legacy policy transport keys on `AgentInput.opti
 - Typed policy transport is first-class via `AgentInput.policyContext`.
 - Legacy option keys are still read for backward compatibility.
 - When a legacy key is consumed, runtime emits `adapter:progress` with phase `policy:legacy_option_deprecated` and details identifying the key.
+- Runtime also emits a first-class governance event `policy:legacy_option_deprecated` for audit/telemetry pipelines.
 
 ## Typed-First Precedence
 
@@ -35,3 +36,7 @@ input.policyContext = {
 }
 ```
 
+## Strict Migration Rehearsal Flag
+
+Set `DZUP_STRICT_POLICY_CONTEXT=1` to fail runs that still consume legacy option keys.
+This is intended for migration rehearsal before hard removal.
