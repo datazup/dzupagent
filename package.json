@@ -28,6 +28,7 @@
     "test:orchestration:race": "yarn build --filter=@dzupagent/core && yarn workspace @dzupagent/agent-adapters test:orchestration:race",
     "test:orchestration:cancel": "yarn build --filter=@dzupagent/core && yarn workspace @dzupagent/agent-adapters test:orchestration:cancel",
     "test:orchestration:contracts": "yarn build --filter=@dzupagent/core && yarn workspace @dzupagent/agent-adapters test:orchestration:contracts",
+    "test:policy:fallback:audit": "yarn build --filter=@dzupagent/core && yarn workspace @dzupagent/core test src/__tests__/compliance-audit.test.ts && yarn workspace @dzupagent/agent-adapters test src/__tests__/registry-router.test.ts src/__tests__/orchestrator-facade.test.ts src/pipeline/__tests__/policy-enforcement-pipeline.test.ts src/pipeline/__tests__/guardrails-pipeline-step.test.ts src/__tests__/event-bus-bridge.test.ts",
     "orchestration:protect-dispatch": "bash scripts/configure-orchestration-protection-and-dispatch.sh",
     "orchestration:protect-dispatch:dry-run": "bash scripts/configure-orchestration-protection-and-dispatch.sh --dry-run",
     "check:workspace:coverage": "node scripts/check-workspace-coverage.mjs",
