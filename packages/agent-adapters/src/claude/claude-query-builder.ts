@@ -7,7 +7,12 @@
  * full adapter.
  */
 import { SystemPromptBuilder } from '../prompts/system-prompt-builder.js'
-import type { AdapterConfig, AgentInput, InteractionPolicy, SessionInfo } from '../types.js'
+import type {
+  AdapterConfig,
+  AgentInput,
+  InteractionPolicy,
+  SessionInfo,
+} from '../types.js'
 import { mapSandboxMode } from './claude-event-mapper.js'
 
 export interface BuildQueryOptionsArgs {
@@ -43,8 +48,13 @@ export function buildQueryOptions({
   // Determine permissionMode:
   // - sandboxMode takes priority for explicit permission control
   // - interaction policy 'auto-approve' bypasses permissions only when no sandboxMode is set
-  if (config.sandboxMode) {
-    options['permissionMode'] = mapSandboxMode(config.sandboxMode)
+  const sandboxMode = typeof input.options?.['sandboxMode'] === 'string'
+    ? input.options['sandboxMode'] as AdapterConfig['sandboxMode']
+    : config.sandboxMode
+  if (typeof input.options?.['permissionMode'] === 'string') {
+    options['permissionMode'] = input.options['permissionMode']
+  } else if (sandboxMode) {
+    options['permissionMode'] = mapSandboxMode(sandboxMode)
   } else if (interactionPolicy.mode === 'auto-approve') {
     options['permissionMode'] = 'bypassPermissions'
   }
@@ -68,7 +78,12 @@ export function buildQueryOptions({
   // Merge adapter-specific options from input
   if (input.options) {
     for (const [key, value] of Object.entries(input.options)) {
-      if (key === 'continue' || key === 'forkSession' || key === 'resume') {
+      if (
+        key === 'continue' ||
+        key === 'forkSession' ||
+        key === 'resume' ||
+        key === 'permissionMode'
+      ) {
         options[key] = value
       }
     }

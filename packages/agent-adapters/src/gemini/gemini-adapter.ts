@@ -181,13 +181,17 @@ export class GeminiCLIAdapter extends BaseCliAdapter {
       args.push('--model', this.config.model)
     }
 
-    if (this.config.sandboxMode) {
+    const sandboxMode =
+      (typeof input.options?.['sandboxMode'] === 'string'
+        ? input.options['sandboxMode']
+        : this.config.sandboxMode)
+    if (sandboxMode) {
       const modeMap: Record<string, string> = {
         'read-only': 'sandbox',
         'workspace-write': 'workspace',
         'full-access': 'none',
       }
-      const mapped = modeMap[this.config.sandboxMode]
+      const mapped = modeMap[sandboxMode]
       if (mapped) {
         args.push('--sandbox', mapped)
       }

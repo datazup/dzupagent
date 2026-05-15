@@ -50,14 +50,17 @@ export function filterSensitiveEnvVars(
  * overrides from `config.env`.
  */
 export function buildEnv(config: AdapterConfig): Record<string, string> {
-  const raw = filterSensitiveEnvVars(
+  const inherited = filterSensitiveEnvVars(
     { ...process.env } as Record<string, string>,
     config.envFilter,
   )
-  if (config.env) {
-    Object.assign(raw, config.env)
-  }
-  return raw
+  const merged = config.env
+    ? { ...inherited, ...config.env }
+    : inherited
+
+  // Re-apply the same filter after config overrides so sensitive keys cannot
+  // bypass filtering via `config.env` unless explicitly allowlisted.
+  return filterSensitiveEnvVars(merged, config.envFilter)
 }
 
 /**
