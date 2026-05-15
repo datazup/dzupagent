@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-05-09
+Date: 2026-05-15
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -39,8 +39,8 @@ No stable subpaths configured.
 
 Root index: `packages/core/src/index.ts`
 
-- Stable root sources: `48`
-- Deprecated transitional root sources: `85`
+- Stable root sources: `49`
+- Deprecated transitional root sources: `87`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
 
@@ -75,6 +75,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./plugin/plugin-discovery.js` | 6 | `prefix:./plugin/` | `discoverPlugins`, `validateManifest`, `resolvePluginOrder`, `PluginManifest` |
 | `stable` | `./plugin/plugin-manifest.js` | 2 | `prefix:./plugin/` | `createManifest`, `serializeManifest` |
 | `stable` | `./llm/model-registry.js` | 2 | `prefix:./llm/` | `ModelRegistry`, `ModelFallbackCandidate` |
+| `stable` | `./llm/harness-profile.js` | 7 | `prefix:./llm/` | `HarnessProfileRegistry`, `HarnessProfile`, `ResolvedHarnessOverrides`, `SystemPromptOverride` |
 | `stable` | `./llm/model-config.js` | 9 | `prefix:./llm/` | `KnownLLMProvider`, `LLMProviderConfig`, `LLMProviderName`, `ModelTier` |
 | `stable` | `./llm/circuit-breaker.js` | 4 | `prefix:./llm/` | `CircuitBreaker`, `KeyedCircuitBreaker`, `CircuitBreakerConfig`, `CircuitState` |
 | `deprecated-transitional` | `./rate-limit/token-bucket.js` | 2 | `exact:./rate-limit/token-bucket.js` | `TokenBucket`, `TokenBucketConfig` |
@@ -110,6 +111,8 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./persistence/run-journal-types.js` | 20 | `prefix:./persistence/` | `RunJournalEntryType`, `RunJournalEntryBase`, `RunJournalEntry`, `RunStartedEntry` |
 | `deprecated-transitional` | `./persistence/in-memory-run-state-store.js` | 1 | `prefix:./persistence/` | `InMemoryRunStateStore` |
 | `deprecated-transitional` | `./persistence/run-state-store.js` | 4 | `prefix:./persistence/` | `DzupRunState`, `DzupRunStateStore`, `BudgetSnapshot`, `StuckDetectorSnapshot` |
+| `deprecated-transitional` | `./persistence/delta-run-state-store.js` | 2 | `prefix:./persistence/` | `DeltaRunStateStore`, `DeltaRunStateStoreOptions` |
+| `deprecated-transitional` | `./persistence/versioned-context-backend.js` | 7 | `prefix:./persistence/` | `InMemoryVersionedContextBackend`, `VersionedContextBackend`, `ContextArtifact`, `ContextArtifactQuery` |
 | `deprecated-transitional` | `./persistence/in-memory-run-store.js` | 1 | `prefix:./persistence/` | `InMemoryRunRecordStore` |
 | `deprecated-transitional` | `./persistence/run-store.js` | 5 | `prefix:./persistence/` | `RunRecordStore`, `RunRecord`, `StoredRunEvent`, `RunFilters` |
 | `deprecated-transitional` | `./router/intent-router.js` | 3 | `prefix:./router/` | `IntentRouter`, `IntentRouterConfig`, `ClassificationResult` |
@@ -326,7 +329,7 @@ Root index: `packages/agent/src/index.ts`
 Root index: `packages/codegen/src/index.ts`
 
 - Stable root sources: `21`
-- Deprecated transitional root sources: `71`
+- Deprecated transitional root sources: `74`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to vfs/tools/runtime/compat before a future 1.0 root contraction.
 
@@ -434,6 +437,9 @@ Root index: `packages/codegen/src/index.ts`
 | `deprecated-transitional` | `./guardrails/guardrail-types.js` | 15 | `prefix:./guardrails/` | `GuardrailCategory`, `GuardrailSeverity`, `GeneratedFile`, `ProjectStructure` |
 | `deprecated-transitional` | `./streaming/index.js` | 2 | `prefix:./streaming/` | `CodegenStreamEvent`, `mergeCodegenStreams` |
 | `deprecated-transitional` | `./workspace/index.js` | 9 | `prefix:./workspace/` | `SearchResult`, `CommandResult`, `WorkspaceOptions`, `Workspace` |
+| `deprecated-transitional` | `./sandbox/ptc/ptc-tool.js` | 2 | `prefix:./sandbox/` | `createPtcTool`, `CreatePtcToolOptions` |
+| `deprecated-transitional` | `./sandbox/ptc/ptc-governance-adapter.js` | 4 | `prefix:./sandbox/` | `checkPtcAccess`, `buildBlockedPtcResult`, `PtcGovernanceAdapterOptions`, `PtcAccessDecision` |
+| `deprecated-transitional` | `./sandbox/ptc/ptc-types.js` | 4 | `prefix:./sandbox/` | `PtcLanguage`, `PtcRequest`, `PtcResult`, `PtcGovernanceConfig` |
 | `stable` | `<local>:dzupagent_CODEGEN_VERSION` | 1 | `exact:<local>:dzupagent_CODEGEN_VERSION` | `dzupagent_CODEGEN_VERSION` |
 
 ## @dzupagent/memory
@@ -615,7 +621,7 @@ No stable subpaths configured.
 Root index: `packages/agent-adapters/src/index.ts`
 
 - Stable root sources: `15`
-- Deprecated transitional root sources: `81`
+- Deprecated transitional root sources: `82`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
 
@@ -680,6 +686,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `stable` | `./integration/agent-bridge.js` | 6 | `prefix:./integration/` | `AgentIntegrationBridge`, `AdapterAsToolWrapper`, `AdapterToolConfig`, `ToolInvocationResult` |
 | `stable` | `./integration/index.js` | 1 | `prefix:./integration/` | `RegistryExecutionPort` |
 | `deprecated-transitional` | `./guardrails/adapter-guardrails.js` | 8 | `prefix:./guardrails/` | `AdapterGuardrails`, `AdapterStuckDetector`, `AdapterGuardrailsConfig`, `StuckDetectorConfig` |
+| `deprecated-transitional` | `./guardrails/preflight-validator.js` | 5 | `prefix:./guardrails/` | `buildPreflightValidator`, `budgetSanityValidator`, `skillToolCoverageValidator`, `skillDegradationValidator` |
 | `deprecated-transitional` | `./workflow/adapter-workflow.js` | 12 | `prefix:./workflow/` | `ADAPTER_WORKFLOW_OWNERSHIP`, `AdapterWorkflowBuilder`, `AdapterWorkflow`, `defineWorkflow` |
 | `deprecated-transitional` | `./workflow/template-resolver.js` | 3 | `prefix:./workflow/` | `WorkflowStepResolver`, `TemplateContext`, `TemplateReference` |
 | `deprecated-transitional` | `./workflow/workflow-validator.js` | 3 | `prefix:./workflow/` | `WorkflowValidator`, `ValidationError`, `ValidationResult` |
