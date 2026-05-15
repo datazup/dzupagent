@@ -14,6 +14,10 @@ import type {
   TaskRoutingStrategy,
 } from '../types.js'
 import { collectEvents } from './test-helpers.js'
+import {
+  POLICY_ACTIVE_OPTION_KEY,
+  POLICY_CONFORMANCE_MODE_OPTION_KEY,
+} from '../pipeline/policy-enforcement-pipeline.js'
 
 function makeAdapter(
   providerId: AdapterProviderId,
@@ -22,6 +26,28 @@ function makeAdapter(
   return {
     providerId,
     async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      for (const e of events) yield e
+    },
+    async *resumeSession(_s: string, _i: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      return
+    },
+    interrupt() {},
+    async healthCheck() {
+      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
+    },
+    configure() {},
+  }
+}
+
+function makeCapturingAdapter(
+  providerId: AdapterProviderId,
+  onInput: (input: AgentInput) => void,
+  events: AgentEvent[] = [],
+): AgentCLIAdapter {
+  return {
+    providerId,
+    async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      onInput(input)
       for (const e of events) yield e
     },
     async *resumeSession(_s: string, _i: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
@@ -135,5 +161,45 @@ describe('AdapterRegistryRouter', () => {
     await expect(collectEvents(router.executeWithFallback(input, task))).rejects.toThrow(
       'All adapters failed',
     )
+  })
+
+  it('re-projects policy per fallback attempt provider', async () => {
+    const captured: Partial<Record<AdapterProviderId, AgentInput>> = {}
+    const router = buildRouter(
+      makeCapturingAdapter('goose', (i) => { captured.goose = i }, failEvents('goose')),
+      makeCapturingAdapter('codex', (i) => { captured.codex = i }, successEvents('codex')),
+    )
+    const policyInput: AgentInput = {
+      prompt: 'p',
+      options: {
+        [POLICY_ACTIVE_OPTION_KEY]: { sandboxMode: 'workspace-write', maxTurns: 3 },
+        [POLICY_CONFORMANCE_MODE_OPTION_KEY]: 'strict',
+      },
+    }
+
+    const events = await collectEvents(router.executeWithFallback(policyInput, task))
+    expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'codex')).toBe(true)
+    expect(captured.goose?.options?.['permissionMode']).toBe('workspace')
+    expect(captured.goose?.options?.['sandboxMode']).toBe('workspace-write')
+    expect(captured.codex?.options?.['approvalPolicy']).toBeUndefined()
+    expect(captured.codex?.options?.['sandboxMode']).toBe('workspace-write')
+  })
+
+  it('continues fallback when strict policy conformance blocks a provider', async () => {
+    const router = buildRouter(
+      makeAdapter('openai', successEvents('openai')),
+      makeAdapter('codex', successEvents('codex')),
+    )
+    const policyInput: AgentInput = {
+      prompt: 'p',
+      options: {
+        [POLICY_ACTIVE_OPTION_KEY]: { sandboxMode: 'workspace-write' },
+        [POLICY_CONFORMANCE_MODE_OPTION_KEY]: 'strict',
+      },
+    }
+
+    const events = await collectEvents(router.executeWithFallback(policyInput, task))
+    expect(events.some((e) => e.type === 'adapter:failed' && e.providerId === 'openai')).toBe(true)
+    expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'codex')).toBe(true)
   })
 })
