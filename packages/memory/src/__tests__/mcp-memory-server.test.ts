@@ -506,4 +506,51 @@ describe('MCPMemoryHandler', () => {
       expect(result.content[0]!.text).toContain('string error')
     })
   })
+
+  // ---- AG-02: tenantId enforcement in constructor --------------------------
+
+  describe('AG-02 — tenantId enforcement at construction', () => {
+    it('throws when defaultScope.tenantId is missing', () => {
+      expect(() => {
+        new MCPMemoryHandler({
+          memory: createMockMemoryService(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          defaultScope: {} as any,
+          defaultNamespace: 'general',
+        })
+      }).toThrow('tenantId is required')
+    })
+
+    it('throws when defaultScope.tenantId is an empty string', () => {
+      expect(() => {
+        new MCPMemoryHandler({
+          memory: createMockMemoryService(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          defaultScope: { tenantId: '' } as any,
+          defaultNamespace: 'general',
+        })
+      }).toThrow('tenantId is required')
+    })
+
+    it('throws when defaultScope.tenantId is a whitespace-only string', () => {
+      expect(() => {
+        new MCPMemoryHandler({
+          memory: createMockMemoryService(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          defaultScope: { tenantId: '   ' } as any,
+          defaultNamespace: 'general',
+        })
+      }).toThrow('tenantId is required')
+    })
+
+    it('does not throw when defaultScope.tenantId is a valid non-empty string', () => {
+      expect(() => {
+        new MCPMemoryHandler({
+          memory: createMockMemoryService(),
+          defaultScope: { tenantId: 'tenant-xyz' },
+          defaultNamespace: 'general',
+        })
+      }).not.toThrow()
+    })
+  })
 })
