@@ -13,18 +13,23 @@ import { ForgeError } from '@dzupagent/core/events'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import {
-  compilePolicyForProvider,
-  type AdapterPolicy,
-  type CompiledGuardrailHints,
-  type CompiledPolicyOverrides,
+  compilePolicyForProvider, type AdapterPolicy, type CompiledGuardrailHints, type CompiledPolicyOverrides,
 } from '../policy/policy-compiler.js'
 import { PolicyConformanceChecker } from '../policy/policy-conformance.js'
 import type { AdapterProviderId, AgentInput } from '../types.js'
+import {
+  POLICY_ACTIVE_OPTION_KEY,
+  PolicyConformanceMode,
+  POLICY_CONFORMANCE_MODE_OPTION_KEY,
+  POLICY_GUARDRAILS_OPTION_KEY,
+} from './policy-context-transport.js'
 
-export type PolicyConformanceMode = 'strict' | 'warn-only'
-export const POLICY_GUARDRAILS_OPTION_KEY = '__policyGuardrails'
-export const POLICY_ACTIVE_OPTION_KEY = '__activePolicy'
-export const POLICY_CONFORMANCE_MODE_OPTION_KEY = '__policyConformanceMode'
+export {
+  POLICY_ACTIVE_OPTION_KEY,
+  type PolicyConformanceMode,
+  POLICY_CONFORMANCE_MODE_OPTION_KEY,
+  POLICY_GUARDRAILS_OPTION_KEY,
+} from './policy-context-transport.js'
 
 export class PolicyEnforcementPipeline {
   private readonly _conformanceChecker: PolicyConformanceChecker

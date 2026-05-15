@@ -9,7 +9,10 @@
 import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { OrchestratorFacade } from '../facade/orchestrator-facade.js'
-import type { AdapterProviderId } from '../types.js'
+import type {
+  AdapterProviderId,
+  AgentPolicyConformanceMode,
+} from '../types.js'
 import type { RateLimitConfig } from './rate-limiter.js'
 
 // ---------------------------------------------------------------------------
@@ -52,6 +55,7 @@ export interface RunRequestBody {
   workingDirectory?: string | undefined
   systemPrompt?: string | undefined
   maxTurns?: number | undefined
+  policyConformanceMode?: AgentPolicyConformanceMode | undefined
   stream?: boolean | undefined
 }
 
