@@ -16,7 +16,10 @@ import type {
   LearningConfig,
   ProviderProfile,
   RecoverySuggestion,
+  SkillHealthMetric,
+  SkillHealthThresholds,
 } from './learning-types.js'
+import { DEFAULT_SKILL_HEALTH_THRESHOLDS } from './learning-types.js'
 import {
   DEFAULT_FAILURE_WINDOW_MS,
   DEFAULT_MAX_RECORDS,
@@ -46,7 +49,10 @@ export type {
   LearningConfig,
   PerformanceReport,
   ProviderComparison,
+  SkillHealthMetric,
+  SkillHealthThresholds,
 } from './learning-types.js'
+export { DEFAULT_SKILL_HEALTH_THRESHOLDS } from './learning-types.js'
 export { ExecutionAnalyzer } from './execution-analyzer.js'
 
 export class AdapterLearningLoop {
@@ -54,6 +60,7 @@ export class AdapterLearningLoop {
   private readonly failureWindowMs: number
   private readonly minSampleSize: number
   private readonly eventBus: DzupEventBus | undefined
+  private readonly skillHealthThresholds: SkillHealthThresholds
 
   /** scoped provider key -> ring buffer of execution records */
   private readonly records = new Map<string, RingBuffer<ExecutionRecord>>()
@@ -63,6 +70,7 @@ export class AdapterLearningLoop {
     this.failureWindowMs = config?.failureWindowMs ?? DEFAULT_FAILURE_WINDOW_MS
     this.minSampleSize = config?.minSampleSize ?? DEFAULT_MIN_SAMPLE_SIZE
     this.eventBus = config?.eventBus
+    this.skillHealthThresholds = config?.skillHealthThresholds ?? DEFAULT_SKILL_HEALTH_THRESHOLDS
   }
 
   /** Warn if routing/profile lookup omits tenantId and records exist (cross-tenant contamination risk). */
@@ -301,6 +309,7 @@ export class AdapterLearningLoop {
         specialties: [],
         weaknesses: [],
         trend: 'stable',
+        skillMetrics: [],
       }
     }
 
@@ -345,7 +354,78 @@ export class AdapterLearningLoop {
       specialties,
       weaknesses,
       trend: this.computeTrend(records),
+      skillMetrics: this.computeSkillMetrics(records),
     }
+  }
+
+  /**
+   * Aggregate per-skill execution stats from the supplied records.
+   *
+   * A single execution can advertise multiple skills via `skillIds`; each skill
+   * inherits the execution's success/quality/timestamp so the aggregate
+   * approximates "how well does this skill perform when active on this
+   * provider." Skills with zero invocations are omitted.
+   */
+  private computeSkillMetrics(records: ExecutionRecord[]): SkillHealthMetric[] {
+    const grouped = new Map<
+      string,
+      { invocations: number; successes: number; qualitySum: number; qualityCount: number; lastUsedAt: number }
+    >()
+
+    for (const rec of records) {
+      const ids = rec.skillIds
+      if (!ids || ids.length === 0) continue
+      for (const skillId of ids) {
+        let agg = grouped.get(skillId)
+        if (!agg) {
+          agg = { invocations: 0, successes: 0, qualitySum: 0, qualityCount: 0, lastUsedAt: 0 }
+          grouped.set(skillId, agg)
+        }
+        agg.invocations++
+        if (rec.success) agg.successes++
+        if (rec.qualityScore !== undefined) {
+          agg.qualitySum += rec.qualityScore
+          agg.qualityCount++
+        }
+        if (rec.timestamp > agg.lastUsedAt) agg.lastUsedAt = rec.timestamp
+      }
+    }
+
+    const { minSamples, degradedBelow } = this.skillHealthThresholds
+    const metrics: SkillHealthMetric[] = []
+    for (const [skillId, agg] of grouped) {
+      const successRate = agg.successes / agg.invocations
+      metrics.push({
+        skillId,
+        invocationCount: agg.invocations,
+        successRate,
+        avgQualityScore: agg.qualityCount > 0 ? agg.qualitySum / agg.qualityCount : 0,
+        lastUsedAt: agg.lastUsedAt,
+        degraded: agg.invocations >= minSamples && successRate < degradedBelow,
+      })
+    }
+
+    metrics.sort((a, b) => b.invocationCount - a.invocationCount || a.skillId.localeCompare(b.skillId))
+    return metrics
+  }
+
+  /**
+   * Get skill-level health metrics for a provider.
+   *
+   * If `skillId` is supplied, returns at most one entry for that skill. Returns
+   * an empty array when no executions referenced any skill IDs.
+   */
+  getSkillHealth(
+    providerId: AdapterProviderId,
+    skillId?: string,
+    tenantId?: string,
+  ): SkillHealthMetric[] {
+    this.warnMissingTenantIdForRouting(tenantId)
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID)
+    const buffer = this.records.get(scopedProviderKey(providerId, normalizedTenantId))
+    if (!buffer) return []
+    const metrics = this.computeSkillMetrics(buffer.toArray())
+    return skillId ? metrics.filter((m) => m.skillId === skillId) : metrics
   }
 
   private computeTrend(records: ExecutionRecord[]): 'improving' | 'stable' | 'degrading' {

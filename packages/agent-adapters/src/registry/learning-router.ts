@@ -10,6 +10,13 @@ export interface LearningRouterConfig {
   speedWeight?: number
   /** Weight for cost. Default: 0.3 */
   costWeight?: number
+  /**
+   * Weight for per-skill health bias when {@link TaskDescriptor.skillIds} is set.
+   * Applied as: avg(skill.successRate for matching skills) * skillHealthWeight.
+   * Skills marked degraded apply a -0.15 penalty regardless of weight.
+   * Default: 0.15
+   */
+  skillHealthWeight?: number
 }
 
 /**
@@ -34,6 +41,7 @@ export class LearningRouter implements TaskRoutingStrategy {
     const successWeight = this.config.successWeight ?? 0.5
     const speedWeight = this.config.speedWeight ?? 0.2
     const costWeight = this.config.costWeight ?? 0.3
+    const skillHealthWeight = this.config.skillHealthWeight ?? 0.15
 
     // Score each provider
     const scored: Array<{ providerId: AdapterProviderId; score: number; reason: string }> = []
@@ -74,6 +82,26 @@ export class LearningRouter implements TaskRoutingStrategy {
       if (profile.trend === 'improving') score += 0.05
       if (profile.trend === 'degrading') score -= 0.1
 
+      // Skill-health bias: bias toward providers that have historically performed
+      // well on the skills this task expects to use. A degraded skill is a strong
+      // negative signal (provider has demonstrated incompetence at this skill).
+      let skillNote = ''
+      if (task.skillIds && task.skillIds.length > 0 && profile.skillMetrics.length > 0) {
+        const matching = profile.skillMetrics.filter((m) => task.skillIds!.includes(m.skillId))
+        if (matching.length > 0) {
+          const avgSkillSuccess =
+            matching.reduce((s, m) => s + m.successRate, 0) / matching.length
+          score += avgSkillSuccess * skillHealthWeight
+          const degradedHits = matching.filter((m) => m.degraded).length
+          if (degradedHits > 0) {
+            score -= 0.15 * degradedHits
+            skillNote = `, degraded-skills: ${degradedHits}`
+          } else {
+            skillNote = `, skill-success: ${avgSkillSuccess.toFixed(2)}`
+          }
+        }
+      }
+
       // Budget constraint
       if (task.budgetConstraint === 'low' && profile.avgCostCents) {
         score -= profile.avgCostCents / 100
@@ -82,7 +110,7 @@ export class LearningRouter implements TaskRoutingStrategy {
       scored.push({
         providerId,
         score: Math.max(0, Math.min(1, score)),
-        reason: `Learning score: ${score.toFixed(3)} (success: ${profile.successRate.toFixed(2)}, trend: ${profile.trend})`,
+        reason: `Learning score: ${score.toFixed(3)} (success: ${profile.successRate.toFixed(2)}, trend: ${profile.trend}${skillNote})`,
       })
     }
 
