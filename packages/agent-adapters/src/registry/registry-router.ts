@@ -72,9 +72,24 @@ type RouterBusEvent =
       fallbackBehavior: 'continue_primary_attempt' | 'continue_fallback_attempt' | 'blocked_attempt'
       correlationId?: string
     }
+  | {
+      type: 'agent:progress'
+      agentId: string
+      phase: string
+      percentage: number
+      message: string
+      timestamp: number
+      details?: Record<string, unknown>
+    }
   | { type: 'provider:failed'; tier: string; provider: string; message: string }
   | { type: 'provider:circuit_opened'; provider: string }
   | { type: 'provider:circuit_closed'; provider: string }
+
+type LegacyPolicyTransportResolution<T> = {
+  value: T
+  usedLegacyOptionKey: boolean
+  legacyOptionKey?: typeof POLICY_ACTIVE_OPTION_KEY | typeof POLICY_CONFORMANCE_MODE_OPTION_KEY
+}
 
 export class AdapterRegistryRouter {
   private strategy: TaskRoutingStrategy = new TagBasedRouter()
@@ -155,6 +170,9 @@ export class AdapterRegistryRouter {
     })
 
     let lastError: Error | undefined
+    const emittedLegacyOptionWarnings = new Set<
+      typeof POLICY_ACTIVE_OPTION_KEY | typeof POLICY_CONFORMANCE_MODE_OPTION_KEY
+    >()
 
     for (let attemptIdx = 0; attemptIdx < ordered.length; attemptIdx++) {
       const providerId = ordered[attemptIdx]
@@ -162,7 +180,15 @@ export class AdapterRegistryRouter {
       const adapter = this.core.get(providerId)
       if (!adapter || !this.health.canExecute(providerId)) continue
 
-      const attemptError = yield* this.runAttempt(adapter, providerId, attemptIdx, ordered, input, effectiveTimeoutMs)
+      const attemptError = yield* this.runAttempt(
+        adapter,
+        providerId,
+        attemptIdx,
+        ordered,
+        input,
+        effectiveTimeoutMs,
+        emittedLegacyOptionWarnings,
+      )
       if (attemptError === undefined) return // success returns early
       lastError = attemptError
     }
@@ -184,6 +210,7 @@ export class AdapterRegistryRouter {
     ordered: AdapterProviderId[],
     input: AgentInput,
     effectiveTimeoutMs: number | undefined,
+    emittedLegacyOptionWarnings: Set<typeof POLICY_ACTIVE_OPTION_KEY | typeof POLICY_CONFORMANCE_MODE_OPTION_KEY>,
   ): AsyncGenerator<AgentStreamEvent, Error | undefined, undefined> {
     const startMs = Date.now()
     const attemptRunId = `${providerId}-${startMs}`
@@ -202,6 +229,7 @@ export class AdapterRegistryRouter {
         attemptAbort.signal,
         attemptIdx,
         ordered.length,
+        emittedLegacyOptionWarnings,
       )
       this.emitWarnOnlyConformanceViolations(
         providerId,
@@ -211,6 +239,9 @@ export class AdapterRegistryRouter {
         input.correlationId,
       )
       for (const warningEvent of projected.warningEvents) {
+        yield warningEvent
+      }
+      for (const warningEvent of projected.legacyOptionWarningEvents) {
         yield warningEvent
       }
       this.emit({ type: 'agent:started', agentId: providerId, runId: attemptRunId })
@@ -240,18 +271,31 @@ export class AdapterRegistryRouter {
     signal: AbortSignal,
     attemptIdx: number,
     totalAttempts: number,
+    emittedLegacyOptionWarnings: Set<typeof POLICY_ACTIVE_OPTION_KEY | typeof POLICY_CONFORMANCE_MODE_OPTION_KEY>,
   ): {
     attemptInput: AgentInput
     warningEvents: Array<Extract<AgentStreamEvent, { type: 'adapter:progress' }>>
+    legacyOptionWarningEvents: Array<Extract<AgentStreamEvent, { type: 'adapter:progress' }>>
     conformanceMode: PolicyConformanceMode
     conformanceViolations: PolicyViolation[]
   } {
-    const policy = this.readActivePolicy(baseInput)
-    const conformanceMode = this.readConformanceMode(baseInput)
+    const policyResolution = this.readActivePolicy(baseInput)
+    const conformanceModeResolution = this.readConformanceMode(baseInput)
+    const policy = policyResolution.value
+    const conformanceMode = conformanceModeResolution.value
+    const legacyOptionWarningEvents = this.buildLegacyOptionWarningEvents(
+      providerId,
+      attemptIdx,
+      totalAttempts,
+      baseInput.correlationId,
+      emittedLegacyOptionWarnings,
+      [policyResolution, conformanceModeResolution],
+    )
     if (!policy) {
       return {
         attemptInput: { ...baseInput, signal },
         warningEvents: [],
+        legacyOptionWarningEvents,
         conformanceMode,
         conformanceViolations: [],
       }
@@ -314,28 +358,78 @@ export class AdapterRegistryRouter {
         totalAttempts,
         baseInput.correlationId,
       ),
+      legacyOptionWarningEvents,
       conformanceMode,
       conformanceViolations: nonBlockingViolations,
     }
   }
 
-  private readActivePolicy(input: AgentInput): AdapterPolicy | undefined {
+  private readActivePolicy(input: AgentInput): LegacyPolicyTransportResolution<AdapterPolicy | undefined> {
     const typed = input.policyContext?.activePolicy
-    if (typed && typeof typed === 'object') return typed as AdapterPolicy
+    if (typed && typeof typed === 'object') {
+      return { value: typed as AdapterPolicy, usedLegacyOptionKey: false }
+    }
 
     // Legacy compatibility path for callers that still write policy metadata into options.
     const raw = input.options?.[POLICY_ACTIVE_OPTION_KEY]
-    if (!raw || typeof raw !== 'object') return undefined
-    return raw as AdapterPolicy
+    if (!raw || typeof raw !== 'object') {
+      return { value: undefined, usedLegacyOptionKey: false }
+    }
+    return {
+      value: raw as AdapterPolicy,
+      usedLegacyOptionKey: true,
+      legacyOptionKey: POLICY_ACTIVE_OPTION_KEY,
+    }
   }
 
-  private readConformanceMode(input: AgentInput): PolicyConformanceMode {
+  private readConformanceMode(input: AgentInput): LegacyPolicyTransportResolution<PolicyConformanceMode> {
     const typed = input.policyContext?.conformanceMode
-    if (typed === 'warn-only') return 'warn-only'
+    if (typed === 'warn-only' || typed === 'strict') {
+      return { value: typed, usedLegacyOptionKey: false }
+    }
 
     // Legacy compatibility path for callers that still write policy metadata into options.
     const raw = input.options?.[POLICY_CONFORMANCE_MODE_OPTION_KEY]
-    return raw === 'warn-only' ? 'warn-only' : 'strict'
+    if (raw === 'warn-only' || raw === 'strict') {
+      return {
+        value: raw,
+        usedLegacyOptionKey: true,
+        legacyOptionKey: POLICY_CONFORMANCE_MODE_OPTION_KEY,
+      }
+    }
+    return { value: 'strict', usedLegacyOptionKey: false }
+  }
+
+  private buildLegacyOptionWarningEvents(
+    providerId: AdapterProviderId,
+    attemptIdx: number,
+    totalAttempts: number,
+    correlationId: string | undefined,
+    emittedLegacyOptionWarnings: Set<typeof POLICY_ACTIVE_OPTION_KEY | typeof POLICY_CONFORMANCE_MODE_OPTION_KEY>,
+    resolutions: Array<LegacyPolicyTransportResolution<unknown>>,
+  ): Array<Extract<AgentStreamEvent, { type: 'adapter:progress' }>> {
+    const events: Array<Extract<AgentStreamEvent, { type: 'adapter:progress' }>> = []
+    for (const resolution of resolutions) {
+      if (!resolution.usedLegacyOptionKey || !resolution.legacyOptionKey) continue
+      if (emittedLegacyOptionWarnings.has(resolution.legacyOptionKey)) continue
+      emittedLegacyOptionWarnings.add(resolution.legacyOptionKey)
+      events.push({
+        type: 'adapter:progress',
+        providerId,
+        timestamp: Date.now(),
+        phase: 'policy:legacy_option_deprecated',
+        message: `Deprecated policy option key '${resolution.legacyOptionKey}' was consumed; use policyContext transport instead`,
+        current: attemptIdx + 1,
+        total: totalAttempts,
+        details: {
+          kind: 'policy_legacy_option_deprecated',
+          optionKey: resolution.legacyOptionKey,
+          replacement: 'policyContext',
+        },
+        ...(correlationId ? { correlationId } : {}),
+      })
+    }
+    return events
   }
 
   private buildWarnOnlyConformanceEvents(

@@ -46,11 +46,13 @@ export class PolicyEnforcementPipeline {
   compileWithConformance(
     provider: AdapterProviderId,
     policy: AdapterPolicy,
+    conformanceModeOverride?: PolicyConformanceMode,
   ): CompiledPolicyOverrides {
     const compiled = compilePolicyForProvider(provider, policy)
     const result = this._conformanceChecker.check(provider, policy, compiled)
+    const conformanceMode = this.resolveConformanceMode(conformanceModeOverride)
 
-    const blockingViolations = this._conformanceMode === 'strict'
+    const blockingViolations = conformanceMode === 'strict'
       ? result.violations
       : result.violations.filter((v) => v.severity === 'error')
 
@@ -66,7 +68,7 @@ export class PolicyEnforcementPipeline {
           source: 'PolicyEnforcementPipeline.compileWithConformance',
           providerId: provider,
           violationCount: blockingViolations.length,
-          conformanceMode: this._conformanceMode,
+          conformanceMode,
         },
       })
     }
@@ -86,6 +88,7 @@ export class PolicyEnforcementPipeline {
     input: AgentInput,
     preferredProvider: AdapterProviderId | undefined,
     activePolicy: AdapterPolicy | undefined,
+    conformanceModeOverride?: PolicyConformanceMode,
   ): void {
     if (!activePolicy) return
     if (preferredProvider && !this._registry.get(preferredProvider)) {
@@ -101,11 +104,12 @@ export class PolicyEnforcementPipeline {
     }
 
     const guardrails = extractGuardrailHints(activePolicy)
+    const conformanceMode = this.resolveConformanceMode(conformanceModeOverride)
 
     input.policyContext = {
       ...(input.policyContext ?? {}),
       activePolicy: { ...activePolicy },
-      conformanceMode: this._conformanceMode,
+      conformanceMode,
       ...(hasGuardrailHints(guardrails) ? { projectedGuardrails: { ...guardrails } } : {}),
     }
 
@@ -113,7 +117,7 @@ export class PolicyEnforcementPipeline {
     input.options = {
       ...(input.options ?? {}),
       [POLICY_ACTIVE_OPTION_KEY]: { ...activePolicy },
-      [POLICY_CONFORMANCE_MODE_OPTION_KEY]: this._conformanceMode,
+      [POLICY_CONFORMANCE_MODE_OPTION_KEY]: conformanceMode,
     }
     if (hasGuardrailHints(guardrails)) {
       input.options = {
@@ -124,6 +128,12 @@ export class PolicyEnforcementPipeline {
     if (guardrails.maxIterations !== undefined && input.maxTurns === undefined) {
       input.maxTurns = guardrails.maxIterations
     }
+  }
+
+  private resolveConformanceMode(
+    conformanceModeOverride: PolicyConformanceMode | undefined,
+  ): PolicyConformanceMode {
+    return conformanceModeOverride ?? this._conformanceMode
   }
 }
 

@@ -13,6 +13,7 @@ import type { CostTrackingConfig } from '../middleware/cost-tracking.js'
 import type { MemoryEnrichmentOptions } from '../middleware/memory-enrichment.js'
 import type { AdapterPolicy } from '../policy/policy-compiler.js'
 import type {
+  AgentPolicyConformanceMode,
   AdapterProviderId,
   AgentCLIAdapter,
   TaskRoutingStrategy,
@@ -38,6 +39,11 @@ export interface OrchestratorConfig {
   guardrails?: AdapterGuardrails | undefined
   /** Default policy applied to all runs unless overridden per-run. */
   defaultPolicy?: AdapterPolicy | undefined
+  /**
+   * Default policy conformance handling mode for this orchestrator instance.
+   * Can be overridden per run/chat call.
+   */
+  policyConformanceMode?: AgentPolicyConformanceMode | undefined
   /** When provided, all adapters are auto-wrapped with withMemoryEnrichment */
   memoryEnrichment?: MemoryEnrichmentOptions | undefined
   /**
@@ -68,6 +74,8 @@ export interface RunOptions {
   approvalRunId?: string | undefined
   /** Per-run policy (overrides default policy if set). */
   policy?: AdapterPolicy | undefined
+  /** Per-run conformance mode (overrides orchestrator default when set). */
+  policyConformanceMode?: AgentPolicyConformanceMode | undefined
   /**
    * Persona ID to apply to this run. Resolved by the caller (app layer)
    * into a system prompt before invocation. Stored for observability.
@@ -114,6 +122,8 @@ export interface ChatOptions {
   approvalRunId?: string | undefined
   /** Per-turn policy (overrides default policy if set). */
   policy?: AdapterPolicy | undefined
+  /** Per-turn conformance mode (overrides orchestrator default when set). */
+  policyConformanceMode?: AgentPolicyConformanceMode | undefined
 }
 
 export interface InteractionResponseOptions {

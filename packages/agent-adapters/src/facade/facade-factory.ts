@@ -75,7 +75,11 @@ export function createOrchestrator(config: OrchestratorConfig): OrchestratorFaca
   const sessions = new SessionRegistry({ eventBus })
 
   const pipeline = new AdapterPipeline(
-    new PolicyEnforcementPipeline(registry),
+    new PolicyEnforcementPipeline(
+      registry,
+      undefined,
+      config.policyConformanceMode ?? 'strict',
+    ),
     new ApprovalPipelineStep(config.approvalGate),
     new GuardrailsPipelineStep(costTracking, config.guardrails),
     new UCLEnrichmentStep(registry, eventBus, config.dzupagent),

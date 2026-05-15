@@ -202,6 +202,7 @@ export class AdapterHttpHandler {
         workingDirectory: body.workingDirectory,
         systemPrompt: body.systemPrompt,
         maxTurns: body.maxTurns,
+        policyConformanceMode: body.policyConformanceMode,
       })
 
       return jsonResponse(200, result)
