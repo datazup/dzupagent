@@ -4,6 +4,8 @@ import { ForgeError } from '@dzupagent/core'
 import { ProviderAdapterRegistry } from '../../registry/adapter-registry.js'
 import {
   PolicyEnforcementPipeline,
+  POLICY_ACTIVE_OPTION_KEY,
+  POLICY_CONFORMANCE_MODE_OPTION_KEY,
   POLICY_GUARDRAILS_OPTION_KEY,
 } from '../policy-enforcement-pipeline.js'
 import type { AdapterPolicy } from '../../policy/policy-compiler.js'
@@ -64,15 +66,21 @@ describe('PolicyEnforcementPipeline', () => {
     expect(input.maxTurns).toBeUndefined()
   })
 
-  it('fails closed when policy is supplied without an explicit provider', () => {
+  it('supports route-first policy execution when explicit provider is omitted', () => {
     const pipeline = new PolicyEnforcementPipeline(registry)
     const input: AgentInput = { prompt: 'hi' }
     const policy: AdapterPolicy = { sandboxMode: 'workspace-write', maxTurns: 5 }
 
-    expect(() => pipeline.applyPolicyOverrides(input, undefined, policy)).toThrow(ForgeError)
+    expect(() => pipeline.applyPolicyOverrides(input, undefined, policy)).not.toThrow()
+    expect(input.policyContext?.activePolicy).toEqual(
+      expect.objectContaining({
+        sandboxMode: 'workspace-write',
+        maxTurns: 5,
+      }),
+    )
   })
 
-  it('applies compiled adapter config as per-run input options (no adapter mutation)', () => {
+  it('stores typed policy context without mutating adapters', () => {
     const adapter = createMockAdapter('codex' as AdapterProviderId)
     registry.register(adapter)
     const pipeline = new PolicyEnforcementPipeline(registry)
@@ -82,14 +90,17 @@ describe('PolicyEnforcementPipeline', () => {
     pipeline.applyPolicyOverrides(input, 'codex' as AdapterProviderId, policy)
 
     expect(adapter.__configured).toHaveLength(0)
-    expect(input.options).toEqual(
+    expect(input.policyContext).toEqual(
       expect.objectContaining({
-        sandboxMode: 'workspace-write',
+        activePolicy: expect.objectContaining({
+          sandboxMode: 'workspace-write',
+        }),
+        conformanceMode: 'strict',
       }),
     )
   })
 
-  it('merges compiled inputOptions into AgentInput.options', () => {
+  it('mirrors typed policy metadata into legacy option keys for compatibility', () => {
     const adapter = createMockAdapter('codex' as AdapterProviderId)
     registry.register(adapter)
     const pipeline = new PolicyEnforcementPipeline(registry)
@@ -101,6 +112,11 @@ describe('PolicyEnforcementPipeline', () => {
     expect(input.options).toEqual(
       expect.objectContaining({
         existing: true,
+        [POLICY_ACTIVE_OPTION_KEY]: expect.objectContaining({
+          sandboxMode: 'workspace-write',
+          approvalRequired: true,
+        }),
+        [POLICY_CONFORMANCE_MODE_OPTION_KEY]: 'strict',
       }),
     )
   })
@@ -115,6 +131,9 @@ describe('PolicyEnforcementPipeline', () => {
     pipeline.applyPolicyOverrides(input, 'codex' as AdapterProviderId, policy)
 
     expect(input.maxTurns).toBe(7)
+    expect(input.policyContext?.projectedGuardrails).toEqual(
+      expect.objectContaining({ maxIterations: 7 }),
+    )
     expect(input.options?.[POLICY_GUARDRAILS_OPTION_KEY]).toEqual(
       expect.objectContaining({ maxIterations: 7 }),
     )
@@ -167,6 +186,7 @@ describe('PolicyEnforcementPipeline', () => {
     expect(() => pipeline.applyPolicyOverrides(input, 'gemini' as AdapterProviderId, policy))
       .not.toThrow()
     expect(input.maxTurns).toBe(3)
+    expect(input.policyContext?.conformanceMode).toBe('warn-only')
     expect(input.options?.[POLICY_GUARDRAILS_OPTION_KEY]).toEqual(
       expect.objectContaining({
         maxIterations: 3,

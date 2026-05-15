@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ForgeError } from '@dzupagent/core'
+import { createEventBus } from '@dzupagent/core'
+import type { DzupEvent } from '@dzupagent/core'
 
 import { AdapterHealthMonitor } from '../registry/health-monitor.js'
 import { AdapterRegistryCore } from '../registry/registry-core.js'
@@ -108,6 +110,22 @@ function buildRouter(...adapters: AgentCLIAdapter[]): AdapterRegistryRouter {
   return router
 }
 
+function buildRouterWithBus(...adapters: AgentCLIAdapter[]): {
+  router: AdapterRegistryRouter
+  emitted: DzupEvent[]
+} {
+  const health = new AdapterHealthMonitor()
+  const core = new AdapterRegistryCore(health)
+  const bus = createEventBus()
+  const emitted: DzupEvent[] = []
+  bus.onAny((event) => emitted.push(event))
+  core.setEventBus(bus)
+  for (const adapter of adapters) core.register(adapter)
+  const router = new AdapterRegistryRouter(core, health, undefined)
+  router.setStrategy(fixedRouter)
+  return { router, emitted }
+}
+
 describe('AdapterRegistryRouter', () => {
   it('getForTask throws ALL_ADAPTERS_EXHAUSTED when no healthy adapters exist', () => {
     const health = new AdapterHealthMonitor()
@@ -171,9 +189,9 @@ describe('AdapterRegistryRouter', () => {
     )
     const policyInput: AgentInput = {
       prompt: 'p',
-      options: {
-        [POLICY_ACTIVE_OPTION_KEY]: { sandboxMode: 'workspace-write', maxTurns: 3 },
-        [POLICY_CONFORMANCE_MODE_OPTION_KEY]: 'strict',
+      policyContext: {
+        activePolicy: { sandboxMode: 'workspace-write', maxTurns: 3 },
+        conformanceMode: 'strict',
       },
     }
 
@@ -181,8 +199,29 @@ describe('AdapterRegistryRouter', () => {
     expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'codex')).toBe(true)
     expect(captured.goose?.options?.['permissionMode']).toBe('workspace')
     expect(captured.goose?.options?.['sandboxMode']).toBe('workspace-write')
+    expect(captured.goose?.policyContext).toBeUndefined()
     expect(captured.codex?.options?.['approvalPolicy']).toBeUndefined()
     expect(captured.codex?.options?.['sandboxMode']).toBe('workspace-write')
+    expect(captured.codex?.policyContext).toBeUndefined()
+  })
+
+  it('supports legacy option-key policy metadata for compatibility', async () => {
+    const captured: Partial<Record<AdapterProviderId, AgentInput>> = {}
+    const router = buildRouter(
+      makeCapturingAdapter('goose', (i) => { captured.goose = i }, successEvents('goose')),
+    )
+    const legacyPolicyInput: AgentInput = {
+      prompt: 'p',
+      options: {
+        [POLICY_ACTIVE_OPTION_KEY]: { sandboxMode: 'workspace-write', maxTurns: 3 },
+        [POLICY_CONFORMANCE_MODE_OPTION_KEY]: 'strict',
+      },
+    }
+
+    const events = await collectEvents(router.executeWithFallback(legacyPolicyInput, task))
+    expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'goose')).toBe(true)
+    expect(captured.goose?.options?.['permissionMode']).toBe('workspace')
+    expect(captured.goose?.options?.['sandboxMode']).toBe('workspace-write')
   })
 
   it('continues fallback when strict policy conformance blocks a provider', async () => {
@@ -201,5 +240,66 @@ describe('AdapterRegistryRouter', () => {
     const events = await collectEvents(router.executeWithFallback(policyInput, task))
     expect(events.some((e) => e.type === 'adapter:failed' && e.providerId === 'openai')).toBe(true)
     expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'codex')).toBe(true)
+  })
+
+  it('warn-only policy violations continue and emit structured telemetry', async () => {
+    const { router, emitted } = buildRouterWithBus(makeAdapter('openai', successEvents('openai')))
+    const policyInput: AgentInput = {
+      prompt: 'p',
+      policyContext: {
+        activePolicy: { blockedTools: ['bash'] },
+        conformanceMode: 'warn-only',
+      },
+    }
+
+    const events = await collectEvents(router.executeWithFallback(policyInput, task))
+    expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'openai')).toBe(true)
+    const warning = events.find((e) => (
+      e.type === 'adapter:progress' &&
+      e.phase === 'policy:conformance_warning'
+    ))
+    expect(warning).toMatchObject({
+      type: 'adapter:progress',
+      providerId: 'openai',
+      details: expect.objectContaining({
+        kind: 'policy_conformance_violation',
+        providerId: 'openai',
+        field: 'blockedTools',
+        fallbackBehavior: 'continue_primary_attempt',
+      }),
+    })
+    expect(emitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'policy:conformance_violation',
+        providerId: 'openai',
+        field: 'blockedTools',
+        conformanceMode: 'warn-only',
+        fallbackBehavior: 'continue_primary_attempt',
+      }),
+    ]))
+  })
+
+  it('does not leak policy projection across runs', async () => {
+    const capturedInputs: AgentInput[] = []
+    const router = buildRouter(
+      makeCapturingAdapter('codex', (i) => { capturedInputs.push(i) }, successEvents('codex')),
+    )
+
+    const withPolicy: AgentInput = {
+      prompt: 'p',
+      policyContext: {
+        activePolicy: { sandboxMode: 'workspace-write', maxTurns: 2 },
+        conformanceMode: 'strict',
+      },
+    }
+    const plain: AgentInput = { prompt: 'p' }
+
+    await collectEvents(router.executeWithFallback(withPolicy, task))
+    await collectEvents(router.executeWithFallback(plain, task))
+
+    expect(capturedInputs).toHaveLength(2)
+    expect(capturedInputs[0]?.options?.['sandboxMode']).toBe('workspace-write')
+    expect(capturedInputs[1]?.options?.['sandboxMode']).toBeUndefined()
+    expect(capturedInputs[1]?.policyContext).toBeUndefined()
   })
 })

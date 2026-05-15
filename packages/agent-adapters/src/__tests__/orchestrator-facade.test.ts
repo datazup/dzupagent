@@ -884,6 +884,33 @@ describe('OrchestratorFacade', () => {
       // Should not throw
       expect(facade.registry).toBeDefined()
     })
+
+    it('emits policy conformance violations on strict blocked-attempt fallback runs', async () => {
+      const facade = createOrchestrator({
+        adapters: [createMockAdapter('openai', 'OpenAI result'), createMockAdapter('codex', 'Codex result')],
+        eventBus: bus,
+      })
+
+      const seenTypes: string[] = []
+      for await (const event of facade.chatWithRaw('Strict policy fallback', {
+        policy: {
+          networkAccess: false,
+        },
+      })) {
+        seenTypes.push(event.type)
+      }
+
+      expect(seenTypes).toContain('adapter:completed')
+      expect(emitted).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: 'policy:conformance_violation',
+          providerId: 'openai',
+          field: 'networkAccess',
+          conformanceMode: 'strict',
+          fallbackBehavior: 'blocked_attempt',
+        }),
+      ]))
+    })
   })
 })
 

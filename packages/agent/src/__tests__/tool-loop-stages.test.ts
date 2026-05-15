@@ -105,7 +105,8 @@ describe('runPostTurnHaltCheck', () => {
     const onHalted = vi.fn()
     const result = runPostTurnHaltCheck({ shouldHalt: () => true, onHalted })
     expect(result).toEqual({ kind: 'halt', stopReason: 'token_exhausted' })
-    expect(onHalted).toHaveBeenCalledExactlyOnceWith('token_exhausted')
+    expect(onHalted).toHaveBeenCalledOnce()
+    expect(onHalted).toHaveBeenCalledWith('token_exhausted')
   })
 })
 

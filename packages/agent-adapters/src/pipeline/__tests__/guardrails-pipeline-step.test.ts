@@ -86,13 +86,13 @@ describe('GuardrailsPipelineStep', () => {
     )
   })
 
-  it('adds per-run guardrail overlay from policy hints', async () => {
+  it('adds per-run guardrail overlay from typed policy context', async () => {
     const step = new GuardrailsPipelineStep(undefined, undefined)
 
     const input = {
       prompt: 'p',
-      options: {
-        [POLICY_GUARDRAILS_OPTION_KEY]: {
+      policyContext: {
+        projectedGuardrails: {
           blockedTools: ['dangerous_tool'],
           maxIterations: 2,
         },
@@ -123,5 +123,39 @@ describe('GuardrailsPipelineStep', () => {
       type: 'adapter:failed',
       code: 'GUARDRAIL_VIOLATION',
     })
+  })
+
+  it('supports legacy policy guardrail option key for compatibility', async () => {
+    const step = new GuardrailsPipelineStep(undefined, undefined)
+    const input = {
+      prompt: 'p',
+      options: {
+        [POLICY_GUARDRAILS_OPTION_KEY]: {
+          blockedTools: ['dangerous_tool'],
+          maxIterations: 2,
+        },
+      },
+    }
+
+    async function* toolCallStream(): AsyncGenerator<AgentStreamEvent, void, undefined> {
+      yield {
+        type: 'adapter:started',
+        providerId: 'codex' as AdapterProviderId,
+        sessionId: 's',
+        timestamp: Date.now(),
+      }
+      yield {
+        type: 'adapter:tool_call',
+        providerId: 'codex' as AdapterProviderId,
+        toolName: 'dangerous_tool',
+        input: {},
+        timestamp: Date.now(),
+      }
+    }
+
+    const out: AgentStreamEvent[] = []
+    for await (const e of step.wrap(toolCallStream(), input)) out.push(e)
+
+    expect(out.map((e) => e.type)).toEqual(['adapter:started', 'adapter:failed'])
   })
 })
