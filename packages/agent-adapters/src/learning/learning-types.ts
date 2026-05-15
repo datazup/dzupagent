@@ -20,6 +20,38 @@ export interface ExecutionRecord {
   errorType?: string
   qualityScore?: number
   timestamp: number
+  /** Skill IDs that were active for this execution (for skill-level health tracking). */
+  skillIds?: string[]
+}
+
+/**
+ * Per-skill execution health metrics, scoped to a (tenant, provider, skill) triple.
+ *
+ * Computed by aggregating {@link ExecutionRecord} entries that referenced the
+ * skill via `skillIds`. Drives skill-aware routing decisions and degraded-skill
+ * detection (success rate below {@link SkillHealthThresholds.degradedBelow}).
+ */
+export interface SkillHealthMetric {
+  skillId: string
+  invocationCount: number
+  successRate: number
+  avgQualityScore: number
+  lastUsedAt: number
+  /** Marked degraded when invocationCount >= minSamples and successRate is below the degraded threshold. */
+  degraded: boolean
+}
+
+/** Configuration for computing skill health classifications. */
+export interface SkillHealthThresholds {
+  /** Minimum invocations before degradation can be flagged. Default 5. */
+  minSamples: number
+  /** Success rate below which a skill is marked degraded. Default 0.5. */
+  degradedBelow: number
+}
+
+export const DEFAULT_SKILL_HEALTH_THRESHOLDS: SkillHealthThresholds = {
+  minSamples: 5,
+  degradedBelow: 0.5,
 }
 
 export interface ProviderProfile {
@@ -36,6 +68,11 @@ export interface ProviderProfile {
   weaknesses: string[]
   /** Recent trend: improving, stable, degrading */
   trend: 'improving' | 'stable' | 'degrading'
+  /**
+   * Per-skill health metrics for skills observed in this provider's executions.
+   * Empty array if no skill IDs were attached to recorded executions.
+   */
+  skillMetrics: SkillHealthMetric[]
 }
 
 export interface FailurePattern {
@@ -64,6 +101,8 @@ export interface LearningConfig {
   minSampleSize?: number
   /** Event bus */
   eventBus?: DzupEventBus
+  /** Thresholds controlling skill-health classification. Default {@link DEFAULT_SKILL_HEALTH_THRESHOLDS}. */
+  skillHealthThresholds?: SkillHealthThresholds
 }
 
 export interface PerformanceReport {
@@ -99,4 +138,10 @@ export interface AdapterLearningLoopReader {
     tenantId?: string,
   ): AdapterProviderId | undefined
   exportData(tenantId?: string): Record<string, ExecutionRecord[]>
+  /** Get skill-level health metrics for a provider, optionally filtered to a specific skill. */
+  getSkillHealth(
+    providerId: AdapterProviderId,
+    skillId?: string,
+    tenantId?: string,
+  ): SkillHealthMetric[]
 }

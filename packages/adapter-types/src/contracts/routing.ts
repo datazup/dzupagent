@@ -9,6 +9,12 @@ export interface TaskDescriptor {
   requiresExecution?: boolean | undefined
   requiresReasoning?: boolean | undefined
   workingDirectory?: string | undefined
+  /**
+   * Skill IDs this task expects to invoke. Routers that consult per-skill
+   * health metrics will use this to bias provider selection toward providers
+   * with strong historical performance for these skills.
+   */
+  skillIds?: string[] | undefined
 }
 
 /** Decision made by the task router */
