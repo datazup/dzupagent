@@ -31,6 +31,7 @@ function eventToAuditAction(eventType: string): string | undefined {
     'policy:evaluated': 'policy.evaluated',
     'policy:denied': 'policy.denied',
     'policy:set_updated': 'policy.set_updated',
+    'policy:conformance_violation': 'policy.conformance_violation',
     'safety:violation': 'safety.violation',
     'safety:blocked': 'safety.blocked',
     'safety:kill_requested': 'safety.kill_requested',

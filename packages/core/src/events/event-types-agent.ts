@@ -175,4 +175,13 @@ export type AgentDomainEvent =
       message: string
     }
   // --- Agent progress ---
-  | { type: 'agent:progress'; agentId: string; phase: string; percentage: number; message: string; timestamp: number }
+  | {
+      type: 'agent:progress'
+      agentId: string
+      phase: string
+      percentage: number
+      message: string
+      timestamp: number
+      /** Optional structured progress metadata for machine consumers. */
+      details?: Record<string, unknown>
+    }
