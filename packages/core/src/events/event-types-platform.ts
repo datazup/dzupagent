@@ -37,6 +37,13 @@ export type PlatformDomainEvent =
       fallbackBehavior: 'continue_primary_attempt' | 'continue_fallback_attempt' | 'blocked_attempt'
       correlationId?: string
     }
+  | {
+      type: 'policy:legacy_option_deprecated'
+      providerId: string
+      optionKey: '__activePolicy' | '__policyConformanceMode'
+      replacement: 'policyContext'
+      correlationId?: string
+    }
   | { type: 'safety:violation'; category: string; severity: string; agentId?: string; message: string }
   | { type: 'safety:blocked'; category: string; agentId?: string; action: string }
   | { type: 'safety:kill_requested'; agentId: string; reason: string }

@@ -36,7 +36,7 @@ import {
   POLICY_CONFORMANCE_MODE_OPTION_KEY,
   POLICY_GUARDRAILS_OPTION_KEY,
   type PolicyConformanceMode,
-} from '../pipeline/policy-enforcement-pipeline.js'
+} from '../pipeline/policy-context-transport.js'
 import {
   buildAttemptProgressEvent,
   buildFallbackOrder,
@@ -73,13 +73,11 @@ type RouterBusEvent =
       correlationId?: string
     }
   | {
-      type: 'agent:progress'
-      agentId: string
-      phase: string
-      percentage: number
-      message: string
-      timestamp: number
-      details?: Record<string, unknown>
+      type: 'policy:legacy_option_deprecated'
+      providerId: string
+      optionKey: '__activePolicy' | '__policyConformanceMode'
+      replacement: 'policyContext'
+      correlationId?: string
     }
   | { type: 'provider:failed'; tier: string; provider: string; message: string }
   | { type: 'provider:circuit_opened'; provider: string }
@@ -90,6 +88,8 @@ type LegacyPolicyTransportResolution<T> = {
   usedLegacyOptionKey: boolean
   legacyOptionKey?: typeof POLICY_ACTIVE_OPTION_KEY | typeof POLICY_CONFORMANCE_MODE_OPTION_KEY
 }
+
+const LEGACY_POLICY_CONTEXT_STRICT_ENV = 'DZUP_STRICT_POLICY_CONTEXT'
 
 export class AdapterRegistryRouter {
   private strategy: TaskRoutingStrategy = new TagBasedRouter()
@@ -409,8 +409,10 @@ export class AdapterRegistryRouter {
     resolutions: Array<LegacyPolicyTransportResolution<unknown>>,
   ): Array<Extract<AgentStreamEvent, { type: 'adapter:progress' }>> {
     const events: Array<Extract<AgentStreamEvent, { type: 'adapter:progress' }>> = []
+    const legacyOptionKeysUsed: Array<typeof POLICY_ACTIVE_OPTION_KEY | typeof POLICY_CONFORMANCE_MODE_OPTION_KEY> = []
     for (const resolution of resolutions) {
       if (!resolution.usedLegacyOptionKey || !resolution.legacyOptionKey) continue
+      legacyOptionKeysUsed.push(resolution.legacyOptionKey)
       if (emittedLegacyOptionWarnings.has(resolution.legacyOptionKey)) continue
       emittedLegacyOptionWarnings.add(resolution.legacyOptionKey)
       events.push({
@@ -427,6 +429,28 @@ export class AdapterRegistryRouter {
           replacement: 'policyContext',
         },
         ...(correlationId ? { correlationId } : {}),
+      })
+      this.emit({
+        type: 'policy:legacy_option_deprecated',
+        providerId,
+        optionKey: resolution.legacyOptionKey,
+        replacement: 'policyContext',
+        ...(correlationId ? { correlationId } : {}),
+      })
+    }
+
+    if (legacyOptionKeysUsed.length > 0 && process.env[LEGACY_POLICY_CONTEXT_STRICT_ENV] === '1') {
+      const consumedKeys = Array.from(new Set(legacyOptionKeysUsed)).sort()
+      throw new ForgeError({
+        code: 'ADAPTER_EXECUTION_FAILED',
+        message: `Legacy policy option keys are disallowed in strict migration mode: ${consumedKeys.join(', ')}`,
+        recoverable: false,
+        context: {
+          source: 'AdapterRegistryRouter.buildLegacyOptionWarningEvents',
+          providerId,
+          strictEnv: LEGACY_POLICY_CONTEXT_STRICT_ENV,
+          consumedKeys,
+        },
       })
     }
     return events
