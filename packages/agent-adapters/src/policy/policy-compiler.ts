@@ -74,6 +74,7 @@ function compileForCodex(policy: AdapterPolicy): CompiledPolicyOverrides {
 
   if (policy.sandboxMode !== undefined) {
     config.sandboxMode = policy.sandboxMode
+    inputOptions['sandboxMode'] = policy.sandboxMode
   }
 
   if (policy.networkAccess !== undefined) {
@@ -101,6 +102,7 @@ function compileForClaude(policy: AdapterPolicy): CompiledPolicyOverrides {
 
   if (policy.sandboxMode !== undefined) {
     config.sandboxMode = policy.sandboxMode
+    inputOptions['sandboxMode'] = policy.sandboxMode
   }
 
   if (policy.maxBudgetUsd !== undefined) {
@@ -118,6 +120,7 @@ function compileForClaude(policy: AdapterPolicy): CompiledPolicyOverrides {
       permissionMode: policy.approvalRequired ? 'default' : 'bypassPermissions',
     }
     config.providerOptions = providerOptions
+    inputOptions['permissionMode'] = providerOptions.permissionMode
   }
 
   return {
@@ -133,6 +136,7 @@ function compileForGemini(policy: AdapterPolicy): CompiledPolicyOverrides {
 
   if (policy.sandboxMode !== undefined) {
     config.sandboxMode = policy.sandboxMode
+    inputOptions['sandboxMode'] = policy.sandboxMode
   }
 
   if (policy.maxTurns !== undefined) {
@@ -152,6 +156,7 @@ function compileForQwen(policy: AdapterPolicy): CompiledPolicyOverrides {
 
   if (policy.sandboxMode !== undefined) {
     config.sandboxMode = policy.sandboxMode
+    inputOptions['sandboxMode'] = policy.sandboxMode
   }
 
   if (policy.maxTurns !== undefined) {
@@ -171,6 +176,7 @@ function compileForCrush(policy: AdapterPolicy): CompiledPolicyOverrides {
 
   if (policy.sandboxMode !== undefined) {
     config.sandboxMode = policy.sandboxMode
+    inputOptions['sandboxMode'] = policy.sandboxMode
   }
 
   if (policy.maxTurns !== undefined) {
@@ -190,6 +196,7 @@ function compileForGoose(policy: AdapterPolicy): CompiledPolicyOverrides {
 
   if (policy.sandboxMode !== undefined) {
     config.sandboxMode = policy.sandboxMode
+    inputOptions['sandboxMode'] = policy.sandboxMode
     // Goose uses --permission-mode via input options
     const gooseModeMap: Record<string, string> = {
       'read-only': 'read-only',

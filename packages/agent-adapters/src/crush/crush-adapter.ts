@@ -114,14 +114,18 @@ export class CrushAdapter extends BaseCliAdapter {
       args.push('--model', this.config.model)
     }
 
-    if (this.config.sandboxMode) {
+    const sandboxMode =
+      (typeof input.options?.['sandboxMode'] === 'string'
+        ? input.options['sandboxMode']
+        : this.config.sandboxMode)
+    if (sandboxMode) {
       // Crush uses --permission to control filesystem access level
       const modeMap: Record<string, string> = {
         'read-only': 'read-only',
         'workspace-write': 'workspace',
         'full-access': 'full',
       }
-      const mapped = modeMap[this.config.sandboxMode]
+      const mapped = modeMap[sandboxMode]
       if (mapped) {
         args.push('--permission', mapped)
       }

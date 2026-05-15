@@ -20,14 +20,19 @@ import {
 import { PolicyConformanceChecker } from '../policy/policy-conformance.js'
 import type { AdapterProviderId, AgentInput } from '../types.js'
 
+export type PolicyConformanceMode = 'strict' | 'warn-only'
+
 export class PolicyEnforcementPipeline {
   private readonly _conformanceChecker: PolicyConformanceChecker
+  private readonly _conformanceMode: PolicyConformanceMode
 
   constructor(
     private readonly _registry: ProviderAdapterRegistry,
     conformanceChecker?: PolicyConformanceChecker,
+    conformanceMode: PolicyConformanceMode = 'strict',
   ) {
     this._conformanceChecker = conformanceChecker ?? new PolicyConformanceChecker()
+    this._conformanceMode = conformanceMode
   }
 
   /**
@@ -41,9 +46,12 @@ export class PolicyEnforcementPipeline {
     const compiled = compilePolicyForProvider(provider, policy)
     const result = this._conformanceChecker.check(provider, policy, compiled)
 
-    if (!result.conformant) {
-      const errorViolations = result.violations.filter((v) => v.severity === 'error')
-      const details = errorViolations
+    const blockingViolations = this._conformanceMode === 'strict'
+      ? result.violations
+      : result.violations.filter((v) => v.severity === 'error')
+
+    if (blockingViolations.length > 0) {
+      const details = blockingViolations
         .map((v) => `  - ${v.field}: ${v.reason}`)
         .join('\n')
       throw new ForgeError({
@@ -53,7 +61,8 @@ export class PolicyEnforcementPipeline {
         context: {
           source: 'PolicyEnforcementPipeline.compileWithConformance',
           providerId: provider,
-          violationCount: errorViolations.length,
+          violationCount: blockingViolations.length,
+          conformanceMode: this._conformanceMode,
         },
       })
     }
@@ -73,13 +82,39 @@ export class PolicyEnforcementPipeline {
   ): void {
     if (!activePolicy) return
 
-    const targetProvider = preferredProvider ?? this._registry.listAdapters()[0]
+    if (!preferredProvider) {
+      throw new ForgeError({
+        code: 'ADAPTER_EXECUTION_FAILED',
+        message:
+          'Per-run policy requires an explicit provider. ' +
+          'Set preferredProvider/provider so policy is compiled for the routed provider.',
+        recoverable: false,
+        context: {
+          source: 'PolicyEnforcementPipeline.applyPolicyOverrides',
+          providerSelection: 'auto',
+        },
+      })
+    }
+
+    const targetProvider = preferredProvider
     if (!targetProvider) return
 
+    if (!this._registry.get(targetProvider)) {
+      throw new ForgeError({
+        code: 'ADAPTER_EXECUTION_FAILED',
+        message: `Cannot apply policy: provider '${targetProvider}' is not registered`,
+        recoverable: false,
+        context: {
+          source: 'PolicyEnforcementPipeline.applyPolicyOverrides',
+          providerId: targetProvider,
+        },
+      })
+    }
+
     const compiled = this.compileWithConformance(targetProvider, activePolicy)
-    const adapter = this._registry.get(targetProvider)
-    if (adapter) {
-      adapter.configure(compiled.config)
+    // Execution-scoped policy application: avoid mutating shared adapter instances.
+    if (Object.keys(compiled.config).length > 0) {
+      input.options = { ...input.options, ...compiled.config }
     }
     if (Object.keys(compiled.inputOptions).length > 0) {
       input.options = { ...input.options, ...compiled.inputOptions }

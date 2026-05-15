@@ -137,8 +137,20 @@ export class GooseAdapter extends BaseCliAdapter {
       args.push('--recipe', String(input.options['recipe']))
     }
 
-    if (input.options?.['permissionMode']) {
-      args.push('--permission-mode', String(input.options['permissionMode']))
+    const permissionMode = input.options?.['permissionMode']
+    if (permissionMode) {
+      args.push('--permission-mode', String(permissionMode))
+    } else {
+      const sandboxMode = typeof input.options?.['sandboxMode'] === 'string'
+        ? input.options['sandboxMode']
+        : this.config.sandboxMode
+      if (sandboxMode === 'read-only') {
+        args.push('--permission-mode', 'read-only')
+      } else if (sandboxMode === 'workspace-write') {
+        args.push('--permission-mode', 'workspace')
+      } else if (sandboxMode === 'full-access') {
+        args.push('--permission-mode', 'full')
+      }
     }
 
     if (input.maxTurns) {
