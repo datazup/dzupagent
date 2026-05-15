@@ -20,6 +20,7 @@ function makeProfile(overrides: Partial<ProviderProfile> & { providerId: Adapter
     specialties: [],
     weaknesses: [],
     trend: 'stable' as const,
+    skillMetrics: [],
     ...overrides,
   }
 }
