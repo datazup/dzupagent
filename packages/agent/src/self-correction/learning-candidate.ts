@@ -27,13 +27,37 @@ export interface AuditEntry {
   /** Pipeline node where the failure occurred. */
   nodeId: string
   /** The event that occurred. */
-  event: 'staged' | 'promoted' | 'rejected' | 'policy_applied'
+  event: 'staged' | 'promoted' | 'rejected' | 'policy_applied' | 'validation_recorded' | 'auto_promoted' | 'auto_rejected'
   /** Whether this was triggered by the system or an operator. */
   actor: 'system' | 'operator'
   /** Human-readable description of what happened. */
   detail: string
   /** When this entry was recorded. */
   timestamp: Date
+}
+
+/**
+ * Configuration controlling when a LearningCandidate is auto-promoted from
+ * `pending` to `promoted` (or auto-rejected) based on accumulated validation
+ * outcomes. Apps wire this into {@link RecoveryFeedback.recordValidationOutcome}.
+ */
+export interface CandidatePromotionPolicy {
+  /** Minimum average validation score (0-100) required to auto-promote. Default 75. */
+  minScore: number
+  /** Minimum consecutive successful validations required to auto-promote. Default 3. */
+  minSuccessRuns: number
+  /**
+   * Failure-run count at which the candidate is auto-rejected. Default 3.
+   * Reaching this count moves the candidate to `rejected` even if some runs
+   * succeeded earlier — repeated regressions invalidate the lesson.
+   */
+  maxFailureRuns: number
+}
+
+export const DEFAULT_PROMOTION_POLICY: CandidatePromotionPolicy = {
+  minScore: 75,
+  minSuccessRuns: 3,
+  maxFailureRuns: 3,
 }
 
 /** A recovery lesson staged for operator review before durable persistence. */
@@ -52,6 +76,19 @@ export interface LearningCandidate {
   reviewedBy?: string
   /** Ordered audit trail of all lifecycle events. */
   auditTrail: AuditEntry[]
+  /**
+   * Most recent validation score recorded against this candidate (0-100).
+   * Set by `RecoveryFeedback.recordValidationOutcome()`.
+   */
+  latestValidationScore?: number
+  /** Rolling average validation score across all recorded outcomes. */
+  avgValidationScore?: number
+  /** Number of validation runs that succeeded (score >= policy.minScore). */
+  successRunCount?: number
+  /** Number of validation runs that failed (score < policy.minScore). */
+  failureRunCount?: number
+  /** Promotion policy applied to this candidate. Defaults to {@link DEFAULT_PROMOTION_POLICY}. */
+  promotionPolicy?: CandidatePromotionPolicy
 }
 
 // ---------------------------------------------------------------------------
