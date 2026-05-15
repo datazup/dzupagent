@@ -16,6 +16,8 @@ import {
   type LearningCandidate,
   type LearningCandidateStore,
   type AuditEntry,
+  type CandidatePromotionPolicy,
+  DEFAULT_PROMOTION_POLICY,
   InMemoryLearningCandidateStore,
   appendAuditEntry,
 } from './learning-candidate.js'
@@ -40,6 +42,40 @@ export interface RecoveryFeedbackConfig {
    * to the durable store. Defaults to an InMemoryLearningCandidateStore.
    */
   candidateStore?: LearningCandidateStore
+  /**
+   * Default promotion policy applied to all candidates that don't carry a
+   * per-candidate `promotionPolicy`. Used by
+   * {@link RecoveryFeedback.recordValidationOutcome} to decide when to
+   * auto-promote a candidate. Defaults to {@link DEFAULT_PROMOTION_POLICY}.
+   */
+  promotionPolicy?: CandidatePromotionPolicy
+}
+
+/**
+ * Outcome of a single validation run against a staged candidate.
+ *
+ * `score` is on a 0-100 scale where >= policy.minScore counts as a successful
+ * run. `runId` is included in the audit trail so operators can trace which
+ * downstream run validated (or invalidated) the candidate.
+ */
+export interface CandidateValidationOutcome {
+  candidateId: string
+  runId: string
+  score: number
+  /** Optional human-readable note appended to the audit entry. */
+  note?: string
+}
+
+/** Result of `recordValidationOutcome`. */
+export interface ValidationOutcomeResult {
+  candidateId: string
+  /** New status after the outcome was applied (may be `pending` if no threshold reached). */
+  status: 'pending' | 'promoted' | 'rejected'
+  /** True when this outcome triggered an auto-promote / auto-reject transition. */
+  autoActioned: boolean
+  successRunCount: number
+  failureRunCount: number
+  avgValidationScore: number
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +160,7 @@ export class RecoveryFeedback {
   private readonly store: BaseStore | undefined
   private readonly namespace: string[]
   private readonly candidateStore: LearningCandidateStore
+  private readonly defaultPromotionPolicy: CandidatePromotionPolicy
   private lessonCounter = 0
   private candidateCounter = 0
 
@@ -131,6 +168,7 @@ export class RecoveryFeedback {
     this.store = config.store
     this.namespace = config.namespace ?? ['recovery', 'lessons']
     this.candidateStore = config.candidateStore ?? new InMemoryLearningCandidateStore()
+    this.defaultPromotionPolicy = config.promotionPolicy ?? DEFAULT_PROMOTION_POLICY
   }
 
   // -------------------------------------------------------------------------
@@ -236,6 +274,121 @@ export class RecoveryFeedback {
     })
     this.candidateStore.update(candidate)
     return true
+  }
+
+  /**
+   * Record a validation outcome against a staged candidate.
+   *
+   * Updates the candidate's running success/failure counters and average
+   * score, then auto-promotes (if `successRunCount >= policy.minSuccessRuns`
+   * AND `avgValidationScore >= policy.minScore`) or auto-rejects (if
+   * `failureRunCount >= policy.maxFailureRuns`).
+   *
+   * Returns the new state. Returns `autoActioned: false` and current state
+   * when the candidate is no longer pending or doesn't exist.
+   */
+  async recordValidationOutcome(
+    outcome: CandidateValidationOutcome,
+  ): Promise<ValidationOutcomeResult> {
+    const candidate = this.candidateStore.get(outcome.candidateId)
+    if (!candidate) {
+      return {
+        candidateId: outcome.candidateId,
+        status: 'pending',
+        autoActioned: false,
+        successRunCount: 0,
+        failureRunCount: 0,
+        avgValidationScore: 0,
+      }
+    }
+
+    const policy = candidate.promotionPolicy ?? this.defaultPromotionPolicy
+    const priorAvg = candidate.avgValidationScore ?? 0
+    const priorRuns = (candidate.successRunCount ?? 0) + (candidate.failureRunCount ?? 0)
+    const newAvg = priorRuns === 0 ? outcome.score : (priorAvg * priorRuns + outcome.score) / (priorRuns + 1)
+
+    const isSuccess = outcome.score >= policy.minScore
+    candidate.latestValidationScore = outcome.score
+    candidate.avgValidationScore = newAvg
+    candidate.successRunCount = (candidate.successRunCount ?? 0) + (isSuccess ? 1 : 0)
+    candidate.failureRunCount = (candidate.failureRunCount ?? 0) + (isSuccess ? 0 : 1)
+
+    appendAuditEntry(candidate, {
+      runId: outcome.runId,
+      nodeId: candidate.lesson.nodeId,
+      event: 'validation_recorded',
+      actor: 'system',
+      detail:
+        outcome.note ??
+        `Validation ${isSuccess ? 'passed' : 'failed'} (score ${outcome.score.toFixed(1)}, avg ${newAvg.toFixed(1)})`,
+      timestamp: new Date(),
+    })
+
+    if (candidate.status !== 'pending') {
+      this.candidateStore.update(candidate)
+      return {
+        candidateId: candidate.id,
+        status: candidate.status,
+        autoActioned: false,
+        successRunCount: candidate.successRunCount,
+        failureRunCount: candidate.failureRunCount,
+        avgValidationScore: newAvg,
+      }
+    }
+
+    let autoActioned = false
+    if (
+      candidate.successRunCount >= policy.minSuccessRuns &&
+      newAvg >= policy.minScore
+    ) {
+      this.candidateStore.update(candidate)
+      const ok = await this.promoteCandidate(candidate.id, 'auto-validator')
+      if (ok) {
+        const promoted = this.candidateStore.get(candidate.id)
+        if (promoted) {
+          appendAuditEntry(promoted, {
+            runId: outcome.runId,
+            nodeId: promoted.lesson.nodeId,
+            event: 'auto_promoted',
+            actor: 'system',
+            detail: `Auto-promoted: ${candidate.successRunCount} successful runs at avg ${newAvg.toFixed(1)} (>= ${policy.minScore})`,
+            timestamp: new Date(),
+          })
+          this.candidateStore.update(promoted)
+          autoActioned = true
+        }
+      }
+    } else if (candidate.failureRunCount >= policy.maxFailureRuns) {
+      this.candidateStore.update(candidate)
+      const ok = this.rejectCandidate(candidate.id, 'auto-validator')
+      if (ok) {
+        const rejected = this.candidateStore.get(candidate.id)
+        if (rejected) {
+          appendAuditEntry(rejected, {
+            runId: outcome.runId,
+            nodeId: rejected.lesson.nodeId,
+            event: 'auto_rejected',
+            actor: 'system',
+            detail: `Auto-rejected: ${candidate.failureRunCount} failed runs (>= ${policy.maxFailureRuns})`,
+            timestamp: new Date(),
+          })
+          this.candidateStore.update(rejected)
+          autoActioned = true
+        }
+      }
+    } else {
+      this.candidateStore.update(candidate)
+    }
+
+    const finalCandidate = this.candidateStore.get(candidate.id)
+    return {
+      candidateId: candidate.id,
+      status: finalCandidate?.status ?? 'pending',
+      autoActioned,
+      successRunCount: candidate.successRunCount,
+      failureRunCount: candidate.failureRunCount,
+      avgValidationScore: newAvg,
+    }
   }
 
   /**

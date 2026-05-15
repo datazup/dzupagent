@@ -22,6 +22,19 @@ export interface ProjectionOptions {
   format?: 'detailed' | 'compact' | 'minimal'
   /** Whether to include tool requirements. Default: true */
   includeTools?: boolean
+  /**
+   * Skill content load mode.
+   *
+   * - `'full'` (default): inline the full instructions for every skill in the
+   *   system prompt. High recall, large token cost.
+   * - `'metadata'`: emit only name + description + trigger tags per skill (~100
+   *   tokens each) plus a directive instructing the agent to call
+   *   `expand_skill(skillId)` to load full content on demand. Use when the skill
+   *   set is large or the model supports the expand-on-demand tool.
+   *
+   * Default: `'full'` (preserves existing behavior).
+   */
+  loadMode?: 'full' | 'metadata'
 }
 
 /**
@@ -50,20 +63,42 @@ export class SkillProjector {
     const maxLen = options?.maxInstructionLength ?? 10_000
     const format = options?.format ?? 'detailed'
     const includeTools = options?.includeTools ?? true
+    const loadMode = options?.loadMode ?? 'full'
 
     // Collect required tools (deduplicated, stable order)
     const requiredTools = includeTools
       ? [...new Set(skills.flatMap((s) => s.requiredTools ?? []))]
       : []
 
-    // Format based on provider
-    const systemPromptSection = this.formatForProvider(skills, providerId, format, maxLen)
+    // Format based on provider — metadata mode short-circuits the per-provider
+    // formatter because the metadata format is identical across providers.
+    const systemPromptSection =
+      loadMode === 'metadata'
+        ? this.formatMetadata(skills, maxLen)
+        : this.formatForProvider(skills, providerId, format, maxLen)
 
     return {
       systemPromptSection,
       requiredTools,
       skillCount: skills.length,
     }
+  }
+
+  /**
+   * Expand a skill's metadata into its full instruction text.
+   *
+   * Intended to back an `expand_skill` tool that agents call when running in
+   * metadata-load-mode. Returns the same per-provider formatted block that
+   * `loadMode: 'full'` would have produced for a single skill.
+   */
+  expand(
+    skill: SkillRegistryEntry,
+    providerId: AdapterProviderId,
+    options?: Pick<ProjectionOptions, 'maxInstructionLength' | 'format'>,
+  ): string {
+    const maxLen = options?.maxInstructionLength ?? 10_000
+    const format = options?.format ?? 'detailed'
+    return this.formatForProvider([skill], providerId, format, maxLen)
   }
 
   /**
@@ -206,6 +241,37 @@ export class SkillProjector {
       const body =
         format === 'compact' ? this.truncate(s.instructions, 200) : s.instructions
       return `## ${s.name}\n${s.description}\n${body}`
+    })
+    return this.truncate(header + sections.join('\n\n'), maxLen)
+  }
+
+  /**
+   * Provider-agnostic metadata-only listing.
+   *
+   * Each entry advertises the skill's name, description, and trigger tags so
+   * the model can decide which skills are relevant. The model is expected to
+   * call `expand_skill(skillId)` to load the full instruction text for any
+   * skill it intends to use.
+   */
+  private formatMetadata(skills: readonly SkillRegistryEntry[], maxLen: number): string {
+    const header =
+      '# Available Skills (metadata)\n\n' +
+      'The following skills are available but NOT yet loaded. To load a skill\'s full ' +
+      'instructions before using it, call the tool `expand_skill` with the skill `id`.\n\n'
+    const sections = skills.map((s) => {
+      const tagLine = s.tags && s.tags.length > 0 ? `Triggers: ${s.tags.join(', ')}` : ''
+      const toolLine =
+        s.requiredTools && s.requiredTools.length > 0
+          ? `Required tools: ${s.requiredTools.join(', ')}`
+          : ''
+      return [
+        `## ${s.name} (id: \`${s.id}\`)`,
+        s.description,
+        tagLine,
+        toolLine,
+      ]
+        .filter(Boolean)
+        .join('\n')
     })
     return this.truncate(header + sections.join('\n\n'), maxLen)
   }

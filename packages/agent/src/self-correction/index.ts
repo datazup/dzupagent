@@ -25,7 +25,12 @@ export type {
 } from './pipeline-stuck-detector.js'
 
 export { RecoveryFeedback } from './recovery-feedback.js'
-export type { RecoveryLesson, RecoveryFeedbackConfig } from './recovery-feedback.js'
+export type {
+  RecoveryLesson,
+  RecoveryFeedbackConfig,
+  CandidateValidationOutcome,
+  ValidationOutcomeResult,
+} from './recovery-feedback.js'
 
 export { createSelfCorrectingExecutor } from './self-correcting-node.js'
 export type { SelfCorrectingConfig, SelfCorrectingResult } from './self-correcting-node.js'
@@ -161,12 +166,14 @@ export type {
 export {
   InMemoryLearningCandidateStore,
   appendAuditEntry,
+  DEFAULT_PROMOTION_POLICY,
 } from './learning-candidate.js'
 export type {
   CandidateStatus,
   AuditEntry,
   LearningCandidate,
   LearningCandidateStore,
+  CandidatePromotionPolicy,
 } from './learning-candidate.js'
 
 export { LearningCandidateService } from './learning-candidate-service.js'

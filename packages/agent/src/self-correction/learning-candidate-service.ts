@@ -9,7 +9,11 @@
  * @module self-correction/learning-candidate-service
  */
 
-import type { RecoveryFeedback } from './recovery-feedback.js'
+import type {
+  RecoveryFeedback,
+  CandidateValidationOutcome,
+  ValidationOutcomeResult,
+} from './recovery-feedback.js'
 import type { LearningCandidate } from './learning-candidate.js'
 
 // ---------------------------------------------------------------------------
@@ -85,6 +89,29 @@ export class LearningCandidateService {
     return ok
       ? { success: true, candidateId }
       : { success: false, candidateId, reason: 'Promotion failed' }
+  }
+
+  /**
+   * Record a validation outcome that may trigger auto-promotion or
+   * auto-rejection per the candidate's promotion policy. See
+   * {@link RecoveryFeedback.recordValidationOutcome}.
+   */
+  recordValidation(
+    outcome: CandidateValidationOutcome,
+    tenantId = 'default',
+  ): Promise<ValidationOutcomeResult> {
+    const candidate = this.feedback.getCandidate(outcome.candidateId)
+    if (!candidate || !this.matchesTenant(candidate, tenantId)) {
+      return Promise.resolve({
+        candidateId: outcome.candidateId,
+        status: 'pending',
+        autoActioned: false,
+        successRunCount: 0,
+        failureRunCount: 0,
+        avgValidationScore: 0,
+      })
+    }
+    return this.feedback.recordValidationOutcome(outcome)
   }
 
   /**

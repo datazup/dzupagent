@@ -15,7 +15,10 @@ export type {
   LearningConfig,
   PerformanceReport,
   ProviderComparison,
+  SkillHealthMetric,
+  SkillHealthThresholds,
 } from './learning/adapter-learning-loop.js'
+export { DEFAULT_SKILL_HEALTH_THRESHOLDS } from './learning/adapter-learning-loop.js'
 export { InMemoryLearningStore } from './learning/in-memory-learning-store.js'
 export { FileLearningStore } from './learning/file-learning-store.js'
 export type { LearningStore, LearningSnapshot } from './learning/learning-store.js'

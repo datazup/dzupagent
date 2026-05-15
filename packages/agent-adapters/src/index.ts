@@ -276,6 +276,13 @@ export type {
   BudgetState as GuardrailBudgetState,
   StuckStatus,
 } from './guardrails/adapter-guardrails.js'
+export {
+  buildPreflightValidator,
+  budgetSanityValidator,
+  skillToolCoverageValidator,
+  skillDegradationValidator,
+} from './guardrails/preflight-validator.js'
+export type { PreflightValidatorOptions } from './guardrails/preflight-validator.js'
 
 // --- Workflow DSL ---
 export { ADAPTER_WORKFLOW_OWNERSHIP, AdapterWorkflowBuilder, AdapterWorkflow, defineWorkflow, typedStep } from './workflow/adapter-workflow.js'
