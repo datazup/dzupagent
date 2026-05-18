@@ -842,10 +842,10 @@
             "/api/health"
           ],
           "endpoints": [
-            "GET /routing"
+            "GET /routing-stats"
           ],
           "mountedEndpoints": [
-            "GET /api/health/routing"
+            "GET /api/health/routing-stats"
           ]
         },
         "packages/server/src/routes/run-context.ts": {
