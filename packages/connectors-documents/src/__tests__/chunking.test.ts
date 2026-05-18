@@ -3,6 +3,10 @@ import { splitOnHeadings } from '../chunking/heading-chunker.js'
 import { splitOnParagraphs } from '../chunking/paragraph-chunker.js'
 import { splitOnSentences } from '../chunking/sentence-chunker.js'
 import { addOverlap } from '../chunking/overlap.js'
+import {
+  MAX_CHUNK_SIZE_LIMIT,
+  validateChunkConfig,
+} from '../validation.js'
 
 // ---------------------------------------------------------------------------
 // splitOnHeadings
@@ -217,5 +221,43 @@ describe('addOverlap', () => {
     expect(result).toHaveLength(2)
     expect(result[0]).toBe('A')
     expect(result[1]).toContain('B')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// validateChunkConfig
+// ---------------------------------------------------------------------------
+
+describe('validateChunkConfig', () => {
+  it.each([
+    { label: 'negative maxChunkSize', maxChunkSize: -1, overlap: 0 },
+    { label: 'zero maxChunkSize', maxChunkSize: 0, overlap: 0 },
+    { label: 'NaN maxChunkSize', maxChunkSize: Number.NaN, overlap: 0 },
+    {
+      label: 'maxChunkSize above limit',
+      maxChunkSize: MAX_CHUNK_SIZE_LIMIT + 1,
+      overlap: 0,
+    },
+  ])('rejects invalid chunk config: $label', ({ maxChunkSize, overlap }) => {
+    expect(() => validateChunkConfig(maxChunkSize, overlap)).toThrow()
+  })
+
+  it('rejects overlap equal to maxChunkSize', () => {
+    expect(() => validateChunkConfig(100, 100)).toThrow(
+      'overlap must be less than maxChunkSize',
+    )
+  })
+
+  it('rejects overlap greater than maxChunkSize', () => {
+    expect(() => validateChunkConfig(100, 101)).toThrow(
+      'overlap must be less than maxChunkSize',
+    )
+  })
+
+  it('can fail then succeed when overlap changes (adversarial)', () => {
+    expect(() => validateChunkConfig(120, 120)).toThrow(
+      'overlap must be less than maxChunkSize',
+    )
+    expect(() => validateChunkConfig(120, 50)).not.toThrow()
   })
 })

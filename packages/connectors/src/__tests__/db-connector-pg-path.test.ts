@@ -276,6 +276,44 @@ describe('Database connector — pg executor path (branch coverage)', () => {
       const out = await tools.find(t => t.name === 'db-query')!.invoke({ sql: 'SELECT 1 AS n' })
       expect(out).toContain('ms')
     })
+
+    it('uses transaction-level read-only execution when pool.connect is available', async () => {
+      const originalConnect = (MockPool.prototype as unknown as { connect?: unknown }).connect
+      const clientRelease = vi.fn()
+      const clientQuery = vi.fn(async (sql: string) => {
+        if (sql === 'BEGIN' || sql === 'SET LOCAL TRANSACTION READ ONLY' || sql === 'COMMIT') {
+          return pgResult([], [], 0)
+        }
+        if (sql === 'ROLLBACK') {
+          return pgResult([], [], 0)
+        }
+        return pgResult([{ n: 1 }], [{ name: 'n', dataTypeID: 23 }], 1)
+      })
+      const connectSpy = vi.fn(async () => ({
+        query: clientQuery,
+        release: clientRelease,
+      }))
+      ;(MockPool.prototype as unknown as { connect?: unknown }).connect = connectSpy
+
+      try {
+        const tools = createDatabaseConnector({})
+        const result = await tools.find(t => t.name === 'db-query')!.invoke({ sql: 'SELECT 1 AS n LIMIT 1' })
+        expect(result).toContain('1 rows')
+        expect(connectSpy).toHaveBeenCalledTimes(1)
+        expect(clientQuery).toHaveBeenNthCalledWith(1, 'BEGIN')
+        expect(clientQuery).toHaveBeenNthCalledWith(2, 'SET LOCAL TRANSACTION READ ONLY')
+        expect(clientQuery).toHaveBeenNthCalledWith(3, 'SELECT 1 AS n LIMIT 1', [])
+        expect(clientQuery).toHaveBeenNthCalledWith(4, 'COMMIT')
+        expect(clientRelease).toHaveBeenCalledTimes(1)
+        expect(mockPoolQuery).not.toHaveBeenCalled()
+      } finally {
+        if (typeof originalConnect === 'function') {
+          ;(MockPool.prototype as unknown as { connect?: unknown }).connect = originalConnect
+        } else {
+          delete (MockPool.prototype as unknown as { connect?: unknown }).connect
+        }
+      }
+    })
   })
 
   // -------------------------------------------------------------------------

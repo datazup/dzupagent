@@ -171,12 +171,10 @@ describe('parallel tool governance parity (MJ-AGENT-03)', () => {
         plan: { toolName: 'deploy', args: { env: 'prod' } },
       })
 
-      // The safe call runs concurrently in the parallel mode (the executor
-      // doesn't know in advance which sibling will hit the gate). In
-      // sequential mode it runs first and the dangerous call gates after.
-      // Either way safeInvoke is called exactly once — that's the parity
-      // contract we care about: the gate fires, the gated tool never ran.
-      expect(safeInvoke).toHaveBeenCalledTimes(1)
+      // T-AP-002: in parallel mode the batch preflight gate fires before
+      // sibling execution, so the safe sibling does not run. Sequential mode
+      // still executes the first safe call before the gated one.
+      expect(safeInvoke).toHaveBeenCalledTimes(parallelTools ? 0 : 1)
     },
   )
 })

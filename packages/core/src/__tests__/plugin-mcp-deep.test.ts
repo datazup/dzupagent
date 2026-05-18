@@ -799,16 +799,13 @@ describe('MCPClient', () => {
     expect(callCount).toBe(2)
   })
 
-  it('SSE transport falls back through the HTTP discovery path', async () => {
-    mockFetch((url) => {
-      expect(url).toContain('/tools/list')
-      return jsonResponse({ result: { tools: [] } })
-    })
-
+  it('SSE transport is not supported and connection is marked error with typed diagnostic', async () => {
     client.addServer(makeServerConfig({ id: 'sse', transport: 'sse' }))
     const ok = await client.connect('sse')
-    expect(ok).toBe(true)
-    expect(client.getStatus()[0]!.state).toBe('connected')
+    expect(ok).toBe(false)
+    const status = client.getStatus().find(s => s.id === 'sse')!
+    expect(status.state).toBe('error')
+    expect(status.lastError).toMatch(/unsupported/i)
   })
 
   it('unsupported transport throws internally and connection is marked error', async () => {

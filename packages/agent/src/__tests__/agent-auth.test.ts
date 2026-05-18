@@ -148,4 +148,40 @@ describe('AgentAuth', () => {
     const result = auth.verifyWithRegisteredKey(msg)
     expect(result.valid).toBe(false)
   })
+
+  // -----------------------------------------------------------------------
+  // Combined verification ordering
+  // -----------------------------------------------------------------------
+
+  it('verifyAndAuthorizeMessage short-circuits on signature failure before replay state mutation', () => {
+    const strictAuth = new AgentAuth({ requiredCapabilities: ['deploy'] })
+    const signedByAlpha = strictAuth.generateCredential('agent-alpha')
+    const wrongVerifier = strictAuth.generateCredential('agent-beta')
+    const msg = strictAuth.signMessage({ capabilities: ['deploy'] }, signedByAlpha)
+
+    const failed = strictAuth.verifyAndAuthorizeMessage(msg, wrongVerifier.publicKey)
+    expect(failed.valid).toBe(false)
+    expect(failed.stage).toBe('signature')
+    expect(failed.failure?.code).toBe('invalid_signature')
+
+    // If signature failure incorrectly mutates replay state, this would fail.
+    const recovered = strictAuth.verifyAndAuthorizeMessage(msg, signedByAlpha.publicKey)
+    expect(recovered.valid).toBe(true)
+    expect(recovered.stage).toBe('success')
+  })
+
+  it('verifyAndAuthorizeMessage enforces replay only after a successful signature/capability pass', () => {
+    const strictAuth = new AgentAuth({ requiredCapabilities: ['deploy'] })
+    const signedByAlpha = strictAuth.generateCredential('agent-alpha')
+    const msg = strictAuth.signMessage({ capabilities: ['deploy'] }, signedByAlpha)
+
+    const first = strictAuth.verifyAndAuthorizeMessage(msg, signedByAlpha.publicKey)
+    expect(first.valid).toBe(true)
+    expect(first.stage).toBe('success')
+
+    const replayed = strictAuth.verifyAndAuthorizeMessage(msg, signedByAlpha.publicKey)
+    expect(replayed.valid).toBe(false)
+    expect(replayed.stage).toBe('replay')
+    expect(replayed.failure?.code).toBe('replay_duplicate_nonce')
+  })
 })

@@ -434,6 +434,14 @@ describe('Database connector — extended', () => {
       expect(result.rows).toHaveLength(1)
     })
 
+    it('query blocks EXPLAIN of write statements in read-only mode', async () => {
+      const query = mockQuery([{ 'QUERY PLAN': 'Update on users' }])
+      const executor = makeExecutor(query)
+      const ops = createDatabaseOperations(executor, { readOnly: true })
+      await expect(ops.query('EXPLAIN UPDATE users SET name = $1')).rejects.toThrow(/not allowed/i)
+      expect(query).not.toHaveBeenCalled()
+    })
+
     it('close calls executor close', async () => {
       const closeFn = vi.fn()
       const executor = {

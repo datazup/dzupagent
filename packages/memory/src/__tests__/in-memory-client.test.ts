@@ -5,6 +5,12 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 
 import { InMemoryMemoryClient } from '../in-memory-client.js'
+import {
+  HttpMemoryClient,
+  HttpMemoryResponseError,
+  HttpMemoryTimeoutError,
+  HttpMemoryAbortError,
+} from '../http-client.js'
 import type {
   MemoryRecord,
   MemoryScope,
@@ -153,5 +159,141 @@ describe('InMemoryMemoryClient', () => {
       client.put('facts', TENANT, makeRecord({ id: 'safe' })),
     ).resolves.toBeUndefined()
     expect((await client.get('facts', TENANT))[0]?.id).toBe('safe')
+  })
+})
+
+describe('HttpMemoryClient', () => {
+  function makeHttpResponse(payload: unknown, init?: { status?: number; statusText?: string; headers?: Record<string, string> }): Response {
+    return {
+      ok: (init?.status ?? 200) >= 200 && (init?.status ?? 200) < 300,
+      status: init?.status ?? 200,
+      statusText: init?.statusText ?? 'OK',
+      headers: new Headers(init?.headers ?? { 'content-type': 'application/json; charset=utf-8' }),
+      text: async () => payload === undefined ? '' : JSON.stringify(payload),
+      json: async () => payload,
+    } as unknown as Response
+  }
+
+  it('GET sends auth header and serialized scope/query and returns records', async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = []
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.internal',
+      apiKey: 'token-123',
+      fetch: async (url, init) => {
+        calls.push({ url: String(url), init })
+        return makeHttpResponse([
+          makeRecord({ id: 'http-1', namespace: 'facts', scope: TENANT }),
+        ])
+      },
+    })
+
+    const result = await client.get('facts', TENANT, { limit: 5, search: 'boils' })
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.id).toBe('http-1')
+    expect(calls).toHaveLength(1)
+    const request = calls[0]
+    expect(request).toBeDefined()
+    expect(request?.url).toContain('/memory/facts?')
+    const parsed = new URL(request!.url)
+    expect(parsed.searchParams.get('scope')).toBe(JSON.stringify(TENANT))
+    expect(parsed.searchParams.get('query')).toBe(JSON.stringify({ limit: 5, search: 'boils' }))
+
+    const headers = new Headers(request?.init?.headers)
+    expect(headers.get('authorization')).toBe('Bearer token-123')
+    expect(headers.get('accept')).toContain('application/json')
+  })
+
+  it('PUT and DELETE run CRUD over HTTP and do not throw NotImplementedError', async () => {
+    const methods: string[] = []
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.internal',
+      fetch: async (_url, init) => {
+        methods.push(String(init?.method))
+        if (init?.method === 'DELETE') {
+          return makeHttpResponse({ deleted: true })
+        }
+        return makeHttpResponse({ ok: true })
+      },
+    })
+
+    await expect(client.put('facts', TENANT, makeRecord({ id: 'rec-put' }))).resolves.toBeUndefined()
+    await expect(client.delete('facts', TENANT, 'rec-put')).resolves.toBe(true)
+    expect(methods).toEqual(['PUT', 'DELETE'])
+  })
+
+  it('maps 5xx JSON errors to typed HttpMemoryResponseError', async () => {
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.internal',
+      fetch: async () => makeHttpResponse(
+        { message: 'backend exploded', code: 'MEMORY_BACKEND_DOWN', details: { retryable: false } },
+        { status: 500, statusText: 'Internal Server Error' },
+      ),
+    })
+
+    await expect(client.get('facts', TENANT)).rejects.toMatchObject({
+      name: 'HttpMemoryResponseError',
+      operation: 'get',
+      status: 500,
+      errorCode: 'MEMORY_BACKEND_DOWN',
+    })
+
+    await client.get('facts', TENANT).catch((err: unknown) => {
+      expect(err).toBeInstanceOf(HttpMemoryResponseError)
+      const typed = err as HttpMemoryResponseError
+      expect(typed.details).toEqual({ retryable: false })
+      expect(typed.message).toContain('backend exploded')
+    })
+  })
+
+  it('maps timeout aborts to HttpMemoryTimeoutError', async () => {
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.internal',
+      timeoutMs: 5,
+      fetch: async (_url, init) => {
+        return new Promise((_resolve, reject) => {
+          const onAbort = (): void => reject(new DOMException('Timed out', 'AbortError'))
+          init?.signal?.addEventListener('abort', onAbort)
+        })
+      },
+    })
+
+    await expect(client.get('facts', TENANT)).rejects.toBeInstanceOf(HttpMemoryTimeoutError)
+  })
+
+  it('maps caller cancellation to HttpMemoryAbortError', async () => {
+    const controller = new AbortController()
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.internal',
+      timeoutMs: 1000,
+      fetch: async (_url, init) => {
+        return new Promise((_resolve, reject) => {
+          const onAbort = (): void => reject(new DOMException('Aborted', 'AbortError'))
+          init?.signal?.addEventListener('abort', onAbort)
+          controller.abort()
+        })
+      },
+    })
+
+    await expect(client.get('facts', TENANT, undefined, { signal: controller.signal })).rejects.toBeInstanceOf(HttpMemoryAbortError)
+  })
+
+  it('recovers with success after a prior HTTP failure', async () => {
+    let attempts = 0
+    const client = new HttpMemoryClient({
+      baseUrl: 'https://memory.internal',
+      fetch: async () => {
+        attempts++
+        if (attempts === 1) {
+          return makeHttpResponse({ message: 'temporary failure', code: 'TEMP_FAIL' }, { status: 503, statusText: 'Service Unavailable' })
+        }
+        return makeHttpResponse([{ ...makeRecord({ id: 'after-failure' }) }])
+      },
+    })
+
+    await expect(client.get('facts', TENANT)).rejects.toBeInstanceOf(HttpMemoryResponseError)
+    await expect(client.get('facts', TENANT)).resolves.toEqual([
+      makeRecord({ id: 'after-failure' }),
+    ])
   })
 })

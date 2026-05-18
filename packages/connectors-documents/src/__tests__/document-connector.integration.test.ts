@@ -41,12 +41,10 @@ describe('document connector integration', () => {
     expect(isSupportedDocumentType('application/octet-stream')).toBe(false)
 
     const [parseTool] = createDocumentConnector()
-    const result = await parseTool.invoke({
+    await expect(parseTool.invoke({
       content: Buffer.from('hello', 'utf-8').toString('base64'),
       contentType: 'application/octet-stream',
-    })
-
-    expect(result).toContain('Unsupported document type')
+    })).rejects.toThrow('Unsupported document type')
   })
 
   it('matches the direct parser and chunker public helpers', async () => {

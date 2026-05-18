@@ -143,15 +143,12 @@ describe('DocumentConnector ingestion', () => {
     expect(parsed).not.toContain('---')
   })
 
-  it('returns a typed error message for unsupported MIME types', async () => {
+  it('throws a typed error for unsupported MIME types', async () => {
     const [parseTool] = createDocumentConnector()
-    const result = (await parseTool.invoke({
+    await expect(parseTool.invoke({
       content: toB64('irrelevant'),
       contentType: 'application/x-custom-binary',
-    })) as string
-
-    expect(result.startsWith('Error: Unsupported document type')).toBe(true)
-    expect(result).toContain('application/x-custom-binary')
+    })).rejects.toThrow('Unsupported document type')
   })
 
   it('ingests an empty plaintext file and chunks to an empty array', async () => {
@@ -317,31 +314,25 @@ describe('Parser behaviour', () => {
     expect(parsed).toBe(html)
   })
 
-  it('surfaces a descriptive error message for a corrupt PDF buffer', async () => {
+  it('throws a descriptive error for a corrupt PDF buffer', async () => {
     mockGetText.mockRejectedValue(new Error('Bad PDF header: not %PDF-'))
 
     const [parseTool] = createDocumentConnector()
-    const result = (await parseTool.invoke({
+    await expect(parseTool.invoke({
       content: toB64('not-a-real-pdf'),
       contentType: 'application/pdf',
-    })) as string
-
-    expect(result.startsWith('Error:')).toBe(true)
-    expect(result).toContain('Bad PDF header')
+    })).rejects.toThrow('Bad PDF header')
   })
 
-  it('surfaces an error when DOCX parsing fails on binary noise', async () => {
+  it('throws an error when DOCX parsing fails on binary noise', async () => {
     mockExtractRawText.mockRejectedValue(new Error('zip: not a zip file'))
 
     const [parseTool] = createDocumentConnector()
-    const result = (await parseTool.invoke({
+    await expect(parseTool.invoke({
       content: toB64('random-bytes'),
       contentType:
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    })) as string
-
-    expect(result.startsWith('Error:')).toBe(true)
-    expect(result).toContain('zip')
+    })).rejects.toThrow('zip')
   })
 })
 
