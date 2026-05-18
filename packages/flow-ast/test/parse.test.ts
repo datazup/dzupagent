@@ -33,6 +33,7 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode['type'], FlowNode> = {
   },
   emit: { type: 'emit', event: 'flow.completed', payload: { ok: true } },
   memory: { type: 'memory', operation: 'write', tier: 'session', key: 'intent', valueExpr: '${intent}' },
+  set: { type: 'set', assign: { count: '{{ state.n }}', done: true } },
   checkpoint: { type: 'checkpoint', label: 'after-plan', captureOutputOf: 'plan' },
   restore: { type: 'restore', checkpointLabel: 'after-plan', onNotFound: 'skip' },
   try_catch: { type: 'try_catch', body: [{ type: 'complete' }], catch: [{ type: 'complete' }] },
@@ -462,5 +463,46 @@ describe('parseFlow — RFC 6901 pointer encoding', () => {
       nodes: [{ type: 'action', toolRef: 1, input: {} }],
     })
     expect(result.errors[0]?.pointer).toBe('/nodes/0/toolRef')
+  })
+})
+
+describe('parseFlow — SetNode', () => {
+  it('parses a set node with literal and template values', () => {
+    const result = parseFlow({
+      type: 'sequence',
+      nodes: [
+        { type: 'set', id: 's1', assign: { count: '{{ state.n }}', done: true } },
+      ],
+    })
+    expect(result.errors).toEqual([])
+    const root = result.ast as { type: 'sequence'; nodes: FlowNode[] }
+    expect(root.nodes[0]).toEqual({
+      type: 'set',
+      id: 's1',
+      assign: { count: '{{ state.n }}', done: true },
+    })
+  })
+
+  it('drops set node missing `assign` and reports a structured error', () => {
+    const result = parseFlow({
+      type: 'sequence',
+      nodes: [{ type: 'set' }],
+    })
+    expect(result.errors).toHaveLength(1)
+    expect(result.errors[0]).toMatchObject({
+      pointer: '/nodes/0/assign',
+    })
+  })
+
+  it('drops set node when `assign` is not an object', () => {
+    const result = parseFlow({
+      type: 'sequence',
+      nodes: [{ type: 'set', assign: 'oops' }],
+    })
+    expect(result.errors).toHaveLength(1)
+    expect(result.errors[0]).toMatchObject({
+      code: 'EXPECTED_OBJECT',
+      pointer: '/nodes/0/assign',
+    })
   })
 })

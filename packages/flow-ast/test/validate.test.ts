@@ -441,3 +441,35 @@ describe('validation extraction seams', () => {
     ])
   })
 })
+
+describe('flowNodeSchema.safeParse — SetNode', () => {
+  it('accepts a set node with an `assign` object', () => {
+    const result = flowNodeSchema.safeParse({
+      type: 'set',
+      id: 's1',
+      assign: { count: '{{ state.n }}', done: true },
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.type).toBe('set')
+    }
+  })
+
+  it('rejects a set node without `assign`', () => {
+    const result = flowNodeSchema.safeParse({ type: 'set', id: 's1' })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path)
+      expect(paths).toContain('root.assign')
+    }
+  })
+
+  it('rejects a set node when `assign` is not an object', () => {
+    const result = flowNodeSchema.safeParse({ type: 'set', id: 's1', assign: 'oops' })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path)
+      expect(paths).toContain('root.assign')
+    }
+  })
+})
