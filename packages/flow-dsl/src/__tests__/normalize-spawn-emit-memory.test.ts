@@ -276,3 +276,138 @@ describe('normalizeSteps — memory', () => {
     expect(diagnostics.some((d) => d.code === 'UNSUPPORTED_FIELD')).toBe(true)
   })
 })
+
+describe('normalizeSteps — memory.search', () => {
+  it('accepts operation: search with query and limit', () => {
+    const diagnostics = diag()
+    const nodes = normalizeSteps(
+      [{
+        memory: {
+          id: 'ms1',
+          operation: 'search',
+          tier: 'workspace',
+          query: '{{ state.q }}',
+          limit: 5,
+        },
+      }],
+      'root.steps',
+      diagnostics,
+    )
+    expect(diagnostics).toEqual([])
+    const node = nodes[0]!
+    if (node.type === 'memory') {
+      expect(node.operation).toBe('search')
+      expect(node.query).toBe('{{ state.q }}')
+      expect(node.limit).toBe(5)
+    }
+  })
+
+  it('rejects search without query', () => {
+    const diagnostics = diag()
+    normalizeSteps(
+      [{ memory: { id: 'ms2', operation: 'search', tier: 'workspace' } }],
+      'root.steps',
+      diagnostics,
+    )
+    expect(diagnostics.some((d) => d.code === 'MISSING_REQUIRED_FIELD' && d.path?.includes('query'))).toBe(true)
+  })
+
+  it('rejects non-positive limit', () => {
+    const diagnostics = diag()
+    normalizeSteps(
+      [{
+        memory: {
+          id: 'ms3',
+          operation: 'search',
+          tier: 'workspace',
+          query: '{{ state.q }}',
+          limit: 0,
+        },
+      }],
+      'root.steps',
+      diagnostics,
+    )
+    expect(diagnostics.some((d) => d.code === 'INVALID_NODE_SHAPE' && d.path?.includes('limit'))).toBe(true)
+  })
+})
+
+// ── set ───────────────────────────────────────────────────────────────────────
+
+describe('normalizeSteps — set', () => {
+  it('parses a set node with literal + template values', () => {
+    const diagnostics = diag()
+    const nodes = normalizeSteps(
+      [{ set: { id: 's1', assign: { count: '{{ state.n }}', done: true } } }],
+      'root.steps',
+      diagnostics,
+    )
+    expect(diagnostics).toHaveLength(0)
+    expect(nodes).toHaveLength(1)
+    const node = nodes[0]!
+    expect(node.type).toBe('set')
+    if (node.type === 'set') {
+      expect(node.id).toBe('s1')
+      expect(node.assign).toEqual({ count: '{{ state.n }}', done: true })
+    }
+  })
+
+  it('parses a set node with nested object values', () => {
+    const diagnostics = diag()
+    const nodes = normalizeSteps(
+      [{ set: { id: 's2', assign: { profile: { name: 'a', age: 1 }, tags: ['x', 'y'] } } }],
+      'root.steps',
+      diagnostics,
+    )
+    expect(diagnostics).toHaveLength(0)
+    const node = nodes[0]!
+    if (node.type === 'set') {
+      expect(node.assign).toEqual({ profile: { name: 'a', age: 1 }, tags: ['x', 'y'] })
+    }
+  })
+
+  it('emits MISSING_REQUIRED_FIELD when assign is absent', () => {
+    const diagnostics = diag()
+    const nodes = normalizeSteps(
+      [{ set: { id: 'bad' } }],
+      'root.steps',
+      diagnostics,
+    )
+    expect(diagnostics.some((d) => d.code === 'MISSING_REQUIRED_FIELD' && d.path?.includes('assign'))).toBe(true)
+    // Still returns a degraded node so the dispatcher can keep working.
+    expect(nodes).toHaveLength(1)
+    const node = nodes[0]!
+    if (node.type === 'set') {
+      expect(node.assign).toEqual({})
+    }
+  })
+
+  it('emits INVALID_NODE_SHAPE when assign is not an object', () => {
+    const diagnostics = diag()
+    normalizeSteps(
+      [{ set: { id: 'bad2', assign: 'oops' } }],
+      'root.steps',
+      diagnostics,
+    )
+    expect(diagnostics.some((d) => d.code === 'INVALID_NODE_SHAPE' && d.path?.includes('assign'))).toBe(true)
+  })
+
+  it('emits INVALID_NODE_SHAPE when assign is an array', () => {
+    const diagnostics = diag()
+    normalizeSteps(
+      [{ set: { id: 'bad3', assign: ['nope'] } }],
+      'root.steps',
+      diagnostics,
+    )
+    expect(diagnostics.some((d) => d.code === 'INVALID_NODE_SHAPE' && d.path?.includes('assign'))).toBe(true)
+  })
+
+  it('emits UNSUPPORTED_FIELD for unknown keys', () => {
+    const diagnostics = diag()
+    normalizeSteps(
+      [{ set: { id: 's3', assign: { a: 1 }, unknownKey: 'v' } }],
+      'root.steps',
+      diagnostics,
+    )
+    expect(diagnostics.some((d) => d.code === 'UNSUPPORTED_FIELD')).toBe(true)
+  })
+})
