@@ -70,6 +70,9 @@ jobs:
         with:
           fetch-depth: 0              # gitleaks needs history for diff scanning
 
+      - name: Validate gitleaks allowlist
+        run: node scripts/check-gitleaks-allowlist.mjs
+
       - name: Run gitleaks
         uses: docker://zricethezav/gitleaks:v8.28.0
         with:
